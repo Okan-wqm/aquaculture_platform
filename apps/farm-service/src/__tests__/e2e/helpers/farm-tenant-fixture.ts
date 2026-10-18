@@ -291,7 +291,6 @@ export function createFixtureBatchRecorders(dataSource: DataSource): FixtureBatc
     createFixtureFcrCalculationService(dataSource),
     backdatePolicy,
     outboxPublisher,
-    growthApplier,
     new GrowthSampleApplierService(growthApplier, dayPlanRecalc, farmStockProjection),
   );
 

@@ -21,6 +21,8 @@ const TENANT = '11111111-1111-4111-8111-111111111111';
 const UNIT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const BATCH_A = '22222222-2222-4222-8222-222222222222';
 const BATCH_B = '33333333-3333-4333-8333-333333333333';
+/** The feeding day the growth in these cases belongs to. */
+const FED_ON = '2026-10-15';
 
 interface HarnessOpts {
   tankBatch?: Partial<TankBatch>;
@@ -144,7 +146,7 @@ describe('BiomassGrowthApplierService', () => {
       shareSums: [[{ biomass: 103, quantity: 1000 }], [{ biomass: 51.5, quantity: 500 }]],
     });
     const locked = await harness.service.lockUnitForGrowth(harness.manager, TENANT, UNIT);
-    await harness.service.applyGrowth(harness.manager, TENANT, locked!, 3, 1.2);
+    await harness.service.applyGrowth(harness.manager, TENANT, locked!, 3, 1.2, FED_ON);
 
     const details = harness.lockedTankBatch.batchDetails!;
     // 100/150 ve 50/150 pay → +2kg / +1kg
@@ -168,7 +170,7 @@ describe('BiomassGrowthApplierService', () => {
       ],
     });
     const locked = await harness.service.lockUnitForGrowth(harness.manager, TENANT, UNIT);
-    await harness.service.applyGrowth(harness.manager, TENANT, locked!, 3, 1.15);
+    await harness.service.applyGrowth(harness.manager, TENANT, locked!, 3, 1.15, FED_ON);
 
     const batchA = harness.batchesById.get(BATCH_A)!;
     expect(batchA.weight.theoretical.totalBiomass).toBeCloseTo(162.5);
@@ -205,7 +207,7 @@ describe('BiomassGrowthApplierService', () => {
       shareSums: [[{ biomass: 102, quantity: 1000 }], [{ biomass: 51, quantity: 500 }]],
     });
     const locked = await harness.service.lockUnitForGrowth(harness.manager, TENANT, UNIT);
-    await harness.service.applyGrowth(harness.manager, TENANT, locked!, 3, 1.2);
+    await harness.service.applyGrowth(harness.manager, TENANT, locked!, 3, 1.2, FED_ON);
     expect(harness.metrics.recordTankProjectionMiss).toHaveBeenCalledWith({
       operation: 'growth_apply',
     });
@@ -216,7 +218,7 @@ describe('BiomassGrowthApplierService', () => {
       shareSums: [[{ biomass: 98, quantity: 1000 }], [{ biomass: 49, quantity: 500 }]],
     });
     const locked = await harness.service.lockUnitForGrowth(harness.manager, TENANT, UNIT);
-    await harness.service.applyGrowth(harness.manager, TENANT, locked!, -3, 1.2);
+    await harness.service.applyGrowth(harness.manager, TENANT, locked!, -3, 1.2, FED_ON);
 
     const details = harness.lockedTankBatch.batchDetails!;
     // 100/150 ve 50/150 pay → -2kg / -1kg
@@ -233,8 +235,195 @@ describe('BiomassGrowthApplierService', () => {
     const locked = await harness.service.lockUnitForGrowth(harness.manager, TENANT, UNIT);
     expect(locked!.details).toHaveLength(1);
     expect(locked!.details[0]!.batchId).toBe(BATCH_A);
-    await harness.service.applyGrowth(harness.manager, TENANT, locked!, 3, 1.2);
+    await harness.service.applyGrowth(harness.manager, TENANT, locked!, 3, 1.2, FED_ON);
     expect(harness.lockedTankBatch.totalBiomassKg).toBeCloseTo(103);
+  });
+
+  it('stamps every share that takes growth with its feeding day, keeping a later stamp', async () => {
+    const harness = makeHarness({
+      lockedTankBatch: {
+        batchDetails: [
+          {
+            batchId: BATCH_A,
+            batchNumber: 'B-A',
+            quantity: 1000,
+            avgWeightG: 100,
+            biomassKg: 100,
+            percentageOfTank: 66.7,
+            grownThrough: '2026-10-14',
+          },
+          {
+            batchId: BATCH_B,
+            batchNumber: 'B-B',
+            quantity: 500,
+            avgWeightG: 100,
+            biomassKg: 50,
+            percentageOfTank: 33.3,
+            grownThrough: '2026-10-16',
+          },
+        ],
+      },
+      shareSums: [[{ biomass: 102, quantity: 1000 }], [{ biomass: 51, quantity: 500 }]],
+    });
+    const locked = await harness.service.lockUnitForGrowth(harness.manager, TENANT, UNIT);
+    // A Date carries its UTC day: 2026-10-15.
+    await harness.service.applyGrowth(
+      harness.manager,
+      TENANT,
+      locked!,
+      3,
+      1.2,
+      new Date('2026-10-15T18:00:00.000Z'),
+    );
+
+    const [a, b] = harness.lockedTankBatch.batchDetails!;
+    expect(a!.grownThrough).toBe('2026-10-15');
+    // A pour correction for an earlier day does not move a later stamp back.
+    expect(b!.grownThrough).toBe('2026-10-16');
+    expect(a!.biomassKg).toBeCloseTo(102);
+    expect(b!.biomassKg).toBeCloseTo(51);
+  });
+
+  it("keeps a feeding day's growth off a share weighed on a later day; the other share takes only its part", async () => {
+    const harness = makeHarness({
+      lockedTankBatch: {
+        batchDetails: [
+          {
+            batchId: BATCH_A,
+            batchNumber: 'B-A',
+            quantity: 1000,
+            avgWeightG: 100,
+            biomassKg: 100,
+            percentageOfTank: 66.7,
+            // Weighed the day after the feeding whose growth arrives now (a
+            // daily rollup or pour correction landing after the weighing).
+            weighedOn: '2026-10-16',
+          },
+          {
+            batchId: BATCH_B,
+            batchNumber: 'B-B',
+            quantity: 500,
+            avgWeightG: 100,
+            biomassKg: 50,
+            percentageOfTank: 33.3,
+          },
+        ],
+      },
+      shareSums: [[{ biomass: 100, quantity: 1000 }], [{ biomass: 51, quantity: 500 }]],
+    });
+    const locked = await harness.service.lockUnitForGrowth(harness.manager, TENANT, UNIT);
+    await harness.service.applyGrowth(harness.manager, TENANT, locked!, 3, 1.2, FED_ON);
+
+    const [weighed, other] = harness.lockedTankBatch.batchDetails!;
+    // The weighing measured the fish after that feeding: their share is the measurement.
+    expect(weighed).toMatchObject({ biomassKg: 100, avgWeightG: 100 });
+    expect(weighed!.grownThrough).toBeUndefined();
+    // 50/150 of 3 kg: the other fish ate only their part of the feed.
+    expect(other!.biomassKg).toBeCloseTo(51);
+    expect(other!.grownThrough).toBe(FED_ON);
+    expect(harness.lockedTankBatch.totalBiomassKg).toBeCloseTo(151);
+  });
+
+  it('lets growth of the weighing day itself land on the weighed share', async () => {
+    const harness = makeHarness({
+      lockedTankBatch: {
+        batchDetails: [
+          {
+            batchId: BATCH_A,
+            batchNumber: 'B-A',
+            quantity: 1000,
+            avgWeightG: 100,
+            biomassKg: 100,
+            percentageOfTank: 100,
+            weighedOn: FED_ON,
+          },
+        ],
+      },
+      tankBatch: {
+        batchDetails: [
+          {
+            batchId: BATCH_A,
+            batchNumber: 'B-A',
+            quantity: 1000,
+            avgWeightG: 100,
+            biomassKg: 100,
+            percentageOfTank: 100,
+          },
+        ],
+      },
+      shareSums: [[{ biomass: 103, quantity: 1000 }]],
+    });
+    const locked = await harness.service.lockUnitForGrowth(harness.manager, TENANT, UNIT);
+    await harness.service.applyGrowth(harness.manager, TENANT, locked!, 3, 1.2, FED_ON);
+
+    expect(harness.lockedTankBatch.batchDetails![0]!.biomassKg).toBeCloseTo(103);
+  });
+
+  it('holds nothing in an emptied row that still names the batch that left (no share, no batch lock)', async () => {
+    const emptied: Partial<TankBatch> = {
+      batchDetails: [],
+      totalQuantity: 0,
+      totalBiomassKg: 0,
+      avgWeightG: 0,
+      // Left behind by the writer before it cleared the primary of an emptied tank.
+      primaryBatchId: BATCH_A,
+    };
+    const harness = makeHarness({ tankBatch: emptied });
+    const locked = await harness.service.lockUnitForGrowth(harness.manager, TENANT, UNIT);
+
+    expect(locked!.details).toEqual([]);
+    expect(locked!.batches.size).toBe(0);
+    expect(harness.service.stockedShareOf(locked!, BATCH_A)).toBeNull();
+  });
+});
+
+describe('BiomassGrowthApplierService membership', () => {
+  it('stockedShareOf returns a share only when it has fish in it', async () => {
+    const harness = makeHarness({
+      tankBatch: {
+        batchDetails: [
+          {
+            batchId: BATCH_A,
+            batchNumber: 'B-A',
+            quantity: 0,
+            avgWeightG: 100,
+            biomassKg: 0,
+            percentageOfTank: 0,
+          },
+          {
+            batchId: BATCH_B,
+            batchNumber: 'B-B',
+            quantity: 500,
+            avgWeightG: 100,
+            biomassKg: 50,
+            percentageOfTank: 100,
+          },
+        ],
+      },
+    });
+    const locked = await harness.service.lockUnitForGrowth(harness.manager, TENANT, UNIT);
+
+    expect(harness.service.stockedShareOf(locked!, BATCH_A)).toBeNull();
+    expect(harness.service.stockedShareOf(locked!, BATCH_B)).toMatchObject({ quantity: 500 });
+    expect(harness.service.stockedShareOf(locked!, 'not-in-unit')).toBeNull();
+  });
+
+  it('unitsHoldingBatch counts a share with fish, or a pre-SSoT primary with fish, never an emptied primary', async () => {
+    const harness = makeHarness({ shareSums: [[{ biomass: 0, quantity: 0 }]] });
+    const query = jest.fn();
+    query.mockResolvedValue([{ tankId: 'unit-1' }, { tankId: 'unit-2' }]);
+    const manager = stub<EntityManager>({ query });
+
+    await expect(harness.service.unitsHoldingBatch(manager, TENANT, BATCH_A)).resolves.toEqual([
+      'unit-1',
+      'unit-2',
+    ]);
+    const [sql, params] = query.mock.calls[0]! as [string, unknown[]];
+    expect(params).toEqual([TENANT, BATCH_A]);
+    expect(sql).toContain(`(detail.value->>'quantity')::numeric > 0`);
+    expect(sql).toMatch(
+      /"primaryBatchId"::text = \$2[\s\S]*jsonb_array_length[\s\S]*"totalQuantity" > 0/,
+    );
   });
 });
 
@@ -252,19 +441,19 @@ describe('BiomassGrowthApplierService.applyMeasuredWeight', () => {
     });
     const locked = await harness.service.lockUnitForGrowth(harness.manager, TENANT, UNIT);
 
-    const moved = await harness.service.applyMeasuredWeight(harness.manager, TENANT, locked!, {
+    const outcome = await harness.service.applyMeasuredWeight(harness.manager, TENANT, locked!, {
       batchId: BATCH_A,
       avgWeightG: 130,
       measuredAt: WEIGHED_AT,
     });
 
-    expect(moved).toBe(true);
+    expect(outcome).toBe('rebased');
     const [weighed, other] = harness.lockedTankBatch.batchDetails!;
     expect(weighed).toMatchObject({ biomassKg: 130, avgWeightG: 130, quantity: 1000 });
-    expect(weighed!.lastSampledAt).toBe(WEIGHED_AT.toISOString());
+    expect(weighed!.weighedOn).toBe('2026-10-15');
     // The other batch was not sampled: its share keeps its weight.
     expect(other).toMatchObject({ biomassKg: 50, avgWeightG: 100, quantity: 500 });
-    expect(other!.lastSampledAt).toBeUndefined();
+    expect(other!.weighedOn).toBeUndefined();
     // 130 + 50 = 180 kg over the unchanged 1500 fish.
     expect(harness.lockedTankBatch.totalBiomassKg).toBe(180);
     expect(harness.lockedTankBatch.currentBiomassKg).toBe(180);
@@ -324,6 +513,33 @@ describe('BiomassGrowthApplierService.applyMeasuredWeight', () => {
     expect(harness.saved).toEqual([]);
   });
 
+  it('refuses a share with no fish in it (an emptied share is not membership), writing nothing', async () => {
+    const harness = makeHarness({
+      tankBatch: {
+        batchDetails: [
+          {
+            batchId: BATCH_A,
+            batchNumber: 'B-A',
+            quantity: 0,
+            avgWeightG: 100,
+            biomassKg: 0,
+            percentageOfTank: 0,
+          },
+        ],
+      },
+    });
+    const locked = await harness.service.lockUnitForGrowth(harness.manager, TENANT, UNIT);
+
+    await expect(
+      harness.service.applyMeasuredWeight(harness.manager, TENANT, locked!, {
+        batchId: BATCH_A,
+        avgWeightG: 130,
+        measuredAt: WEIGHED_AT,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(harness.saved).toEqual([]);
+  });
+
   it('refuses an average that is not a positive weight, writing nothing', async () => {
     const harness = makeHarness();
     const locked = await harness.service.lockUnitForGrowth(harness.manager, TENANT, UNIT);
@@ -349,7 +565,7 @@ describe('BiomassGrowthApplierService.applyMeasuredWeight', () => {
             avgWeightG: 130,
             biomassKg: 130,
             percentageOfTank: 72.2,
-            lastSampledAt: WEIGHED_AT.toISOString(),
+            weighedOn: '2026-10-15',
           },
           {
             batchId: BATCH_B,
@@ -364,14 +580,14 @@ describe('BiomassGrowthApplierService.applyMeasuredWeight', () => {
     });
     const locked = await harness.service.lockUnitForGrowth(harness.manager, TENANT, UNIT);
 
-    const moved = await harness.service.applyMeasuredWeight(harness.manager, TENANT, locked!, {
+    const outcome = await harness.service.applyMeasuredWeight(harness.manager, TENANT, locked!, {
       batchId: BATCH_A,
       avgWeightG: 90,
       // A `date` column's text, one day before the share's last weighing.
       measuredAt: '2026-10-14',
     });
 
-    expect(moved).toBe(false);
+    expect(outcome).toBe('older_than_share');
     expect(harness.lockedTankBatch.batchDetails![0]).toMatchObject({
       avgWeightG: 130,
       biomassKg: 130,
@@ -391,7 +607,7 @@ describe('BiomassGrowthApplierService.applyMeasuredWeight', () => {
             avgWeightG: 130,
             biomassKg: 130,
             percentageOfTank: 100,
-            lastSampledAt: WEIGHED_AT.toISOString(),
+            weighedOn: '2026-10-15',
           },
         ],
       },
@@ -399,15 +615,82 @@ describe('BiomassGrowthApplierService.applyMeasuredWeight', () => {
     });
     const locked = await harness.service.lockUnitForGrowth(harness.manager, TENANT, UNIT);
 
-    const moved = await harness.service.applyMeasuredWeight(harness.manager, TENANT, locked!, {
+    const outcome = await harness.service.applyMeasuredWeight(harness.manager, TENANT, locked!, {
       batchId: BATCH_A,
       avgWeightG: 125,
       measuredAt: '2026-10-15',
     });
 
-    expect(moved).toBe(true);
+    expect(outcome).toBe('rebased');
     expect(harness.lockedTankBatch.batchDetails![0]).toMatchObject({ avgWeightG: 125 });
     // The row keeps the tank's latest stamp: the same-day text reads as midnight.
     expect(harness.lockedTankBatch.lastSamplingAt).toEqual(WEIGHED_AT);
+  });
+
+  it('moves nothing for a sample dated before the last feeding day whose growth the share holds', async () => {
+    const shares: Partial<TankBatch> = {
+      batchDetails: [
+        {
+          batchId: BATCH_A,
+          batchNumber: 'B-A',
+          quantity: 1000,
+          avgWeightG: 180,
+          biomassKg: 180,
+          percentageOfTank: 100,
+          // Twenty days of fed meals: the projection holds growth through 10-15.
+          grownThrough: '2026-10-15',
+        },
+      ],
+    };
+    const harness = makeHarness({ tankBatch: shares });
+    const locked = await harness.service.lockUnitForGrowth(harness.manager, TENANT, UNIT);
+
+    // A day-5 weighing entered on day 20: it agrees with the projection on day 5,
+    // and re-basing onto it would throw away fifteen days of growth.
+    const outcome = await harness.service.applyMeasuredWeight(harness.manager, TENANT, locked!, {
+      batchId: BATCH_A,
+      avgWeightG: 116,
+      measuredAt: '2026-09-30',
+    });
+
+    expect(outcome).toBe('older_than_share');
+    expect(harness.lockedTankBatch.batchDetails![0]).toMatchObject({
+      biomassKg: 180,
+      avgWeightG: 180,
+    });
+    expect(harness.saved).toEqual([]);
+  });
+
+  it('applies a sample of the last fed day itself', async () => {
+    const harness = makeHarness({
+      tankBatch: {
+        batchDetails: [
+          {
+            batchId: BATCH_A,
+            batchNumber: 'B-A',
+            quantity: 1000,
+            avgWeightG: 180,
+            biomassKg: 180,
+            percentageOfTank: 100,
+            grownThrough: '2026-10-15',
+          },
+        ],
+      },
+      shareSums: [[{ biomass: 190, quantity: 1000 }]],
+    });
+    const locked = await harness.service.lockUnitForGrowth(harness.manager, TENANT, UNIT);
+
+    const outcome = await harness.service.applyMeasuredWeight(harness.manager, TENANT, locked!, {
+      batchId: BATCH_A,
+      avgWeightG: 190,
+      measuredAt: '2026-10-15',
+    });
+
+    expect(outcome).toBe('rebased');
+    expect(harness.lockedTankBatch.batchDetails![0]).toMatchObject({
+      biomassKg: 190,
+      weighedOn: '2026-10-15',
+      grownThrough: '2026-10-15',
+    });
   });
 });

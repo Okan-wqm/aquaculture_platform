@@ -485,6 +485,12 @@ export interface GrowthSampleRecordedEvent extends BaseEvent {
   eventType: 'GrowthSampleRecorded';
   batchId: string;
   measurementId: string;
+  /**
+   * The tank the fish were taken from: the one the sample named, else the one
+   * tank that held the batch when it was recorded. Absent when the sample names
+   * a pond or no tank is known (additive, v1-compatible).
+   */
+  tankId?: string;
   sampleSize: number;
   averageWeightG: number;
   weightCV: number;

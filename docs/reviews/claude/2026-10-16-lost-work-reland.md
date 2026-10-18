@@ -261,8 +261,12 @@ older, not wrong; the defect is in the writers. A fix makes both writers refuse 
 
 Landed with FARM-CRITICAL-454: both writers apply a sample through `GrowthSampleApplierService`,
 which leaves `weight.actual` alone when it holds a weighing from a later day (the stocking
-placeholder, `sampleSize` 0, never holds one back), and the tank's share follows the same rule.
-`weighing-reaches-ration.postgres.spec.ts` records two samples out of order; it was red on main.
+placeholder, `sampleSize` 0, never holds one back). The tank's share has its own stamps in
+`batchDetails[]`: the day it was last weighed (`weighedOn`) and the last feeding day whose growth it
+holds (`grownThrough`). `TankBatchService` carries both into the destination share of a transfer,
+so moved fish keep them. A sample dated before either stamp does not move the share.
+`weighing-reaches-ration.postgres.spec.ts` records two samples out of order, and a sample older than
+a weighing made before a transfer; both were red on main.
 
 ## FARM-CRITICAL-454
 
@@ -294,13 +298,32 @@ share of its tank onto the measured average through the unit growth writer, unde
 and reprices the tank's live day plan in the same transaction. The old branch's weight-provenance
 column, branded band weight and legacy-writer deletion are not part of this root cause.
 
-Landed: `GrowthSampleApplierService` is the one path for both writers. Under the unit lock
-(`lockUnitForGrowth` in `withUnitLockRetry`) it writes `weight.actual`, then
+Landed: `GrowthSampleApplierService.applySample` is the one path for both writers. It finds the
+unit the sample weighed (its tank, else its pond unit, else the one unit holding fish of the
+batch), takes the unit lock itself (`lockUnitForGrowth`; every caller wraps its transaction in
+`withUnitLockRetry`, which the `unit-growth-lock-composition` gate checks for lock delegates), and
+proves under the lock that the unit holds fish of the batch. It writes `weight.actual`, then
 `BiomassGrowthApplierService.applyMeasuredWeight` re-bases the weighed batch's share (count x
 measured average) and stamps `lastSamplingAt`. It refreshes the farm-stock read model and reprices
-the live day plan (`growth_sample`). A sample is refused if it names a tank that does not hold the
-batch, or names none for a batch in several. `weighing-reaches-ration.postgres.spec.ts` was red on
-main (7 of 8 cases). The v1 feeding writer that bypasses this path is FARM-HIGH-455.
+the live day plan (`growth_sample`) for the locked unit. A sample is refused if it names a unit that
+holds no fish of the batch, or names none for a batch held in several. A sample that names none is
+stamped with the unit it was resolved to, on the row and on `GrowthSampleRecorded`.
+
+Membership is one rule: a share with fish in it (`stockedShareOf`, and its SQL twin
+`unitsHoldingBatch`). `TankBatchService` writes `null` to an emptied tank's primary batch. It wrote
+`undefined`, which TypeORM's UPDATE skips, so a tank emptied by mortality, cull or harvest kept naming
+the departed batch. A weighing naming that tank wrote a zero-fish share back into it, and a weighing
+naming no tank was refused as "stocked in 2 tanks". A transfer hid this, because its handler saves
+the row a second time. `BackfillTankBatchPrimaryAndShareStamps1822100000000` clears the leftover
+primaries. It also gives every existing share a `grownThrough` (the day its row was last written).
+
+A sample dated before the last feeding day whose growth a share holds does not re-base the share:
+re-basing would throw that growth away and underfeed the tank. Such a sample is kept as
+`weight.actual` and history. Carrying it forward by the growth since its day is FARM-MEDIUM-456.
+Growth of a feeding day before a share's weighing does not land on that share, because the
+weighing measured it. `weighing-reaches-ration.postgres.spec.ts` was red on main (7 of 8 cases
+before the verification round, 8 of 25 after it). The v1 feeding writer that bypasses this path is
+FARM-HIGH-455.
 
 ## FARM-HIGH-455
 
@@ -324,3 +347,43 @@ next mortality, transfer or v2 growth re-derives about 30 kg and drops the v1 gr
 the v1 growth through `BiomassGrowthApplierService.applyGrowth` under the unit lock, from the
 locked unit rather than the snapshot, or retires the v1 path. Owner okan/claude, deadline
 2026-12-17.
+
+## FARM-MEDIUM-456
+
+A growth sample dated before growth its tank already holds never reaches the ration. Raised by the
+independent verification of FARM-CRITICAL-454 (round 1, two MAJORs on the sample's age).
+
+- `apps/farm-service/src/feeding-protocol/services/biomass-growth-applier.service.ts:307`:
+  `applyMeasuredWeight` holds back a sample dated before the share's `grownThrough` or `weighedOn`.
+- `biomass-growth-applier.service.ts:232`: `applyGrowth` stamps the feeding day, but nothing
+  records how much growth each day added.
+- `apps/farm-service/src/common/services/backdate-policy.service.ts:77`: growth samples may be
+  dated up to 30 days back.
+
+Failure scenario: fish are weighed on the morning of day D, and the sample is entered on day D+1
+after D+1's first meal. The share's `grownThrough` is D+1, so the weighing becomes `weight.actual`
+and history only, and the tank and its meals stay on the projection until a newer weighing. The
+FARM-CRITICAL-454 fix is the safe half: such a sample can no longer throw growth away. A fix keeps
+the growth each feeding day added to each share, re-bases the share at the sample's day and adds
+the growth of the later days. TankBatchService carries that ledger through transfers. A
+real-PostgreSQL case proves it. Owner okan/claude, deadline 2027-01-16.
+
+## FARM-MEDIUM-457
+
+Mortality and cull value a removal at the batch-wide `weight.actual`, not at the weight of the tank
+share the fish leave. Raised by the same verification (MINOR). The fault exists on main, and
+FARM-CRITICAL-454 makes the per-share weight the ration authority, so a split batch whose tanks
+weigh differently is now the expected state.
+
+- `apps/farm-service/src/batch/handlers/record-mortality.handler.ts:225` and
+  `record-cull.handler.ts:190`: `payload.avgWeightG || batch.getCurrentAvgWeight()`.
+- `apps/farm-service/src/batch/handlers/transfer-batch.handler.ts:220`: a transfer reads the
+  source share's weight first.
+- `apps/farm-service/src/batch/services/tank-batch.service.ts:173`: a removal larger than the
+  share's biomass is refused.
+
+Failure scenario: tank T1 holds 60 fish of a split batch at 10 g (0.6 kg). T2 is weighed at 30 g,
+which sets `weight.actual` to 30 g. A 25-fish mortality in T1 with no weight is valued at 0.75 kg,
+more than T1's share, so it is refused and cannot be recorded. A smaller mortality removes three
+times the biomass the dead fish had. A fix values the removal from the share's `avgWeightG`, as
+transfer does, and proves it with a real-PostgreSQL case. Owner okan/claude, deadline 2027-01-16.

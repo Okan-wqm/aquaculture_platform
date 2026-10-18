@@ -15,7 +15,9 @@
  *   5. A sample of a stocked tank takes the unit lock for the tank it names
  *      and moves that tank, exactly as RecordGrowthSampleHandler does
  *      (FARM-CRITICAL-454); a sample older than the batch's last weighing
- *      leaves weight.actual alone (FARM-MEDIUM-453).
+ *      leaves weight.actual alone (FARM-MEDIUM-453); a sample stamped with the
+ *      tank it was taken from is refused once the batch has left that tank,
+ *      instead of moving the tank the batch went to.
  *
  * The sample applier and the unit writer are the REAL services (the unit
  * lock and the re-base are spied for the stocked-tank case); the recalc and
@@ -110,9 +112,9 @@ function makeHarness(opts: HarnessOpts = {}) {
     }
     return Promise.resolve(null);
   });
-  // The unit lookup (GrowthSampleApplierService.unitOf) runs on the tx
-  // manager, whose shared factory double has no `query` member. No tank holds
-  // the batch unless a case names one on the measurement.
+  // The unit lookup (BiomassGrowthApplierService.unitsHoldingBatch) runs on
+  // the tx manager, whose shared factory double has no `query` member. No tank
+  // holds the batch unless a case names one on the measurement.
   Object.assign(mockManager, { query: jest.fn().mockResolvedValue([]) });
   const queryRunner: Partial<QueryRunner> = {
     connect: jest.fn().mockResolvedValue(undefined),
@@ -155,7 +157,7 @@ function makeHarness(opts: HarnessOpts = {}) {
     );
   const applyMeasuredWeight = jest
     .spyOn(growthApplier, 'applyMeasuredWeight')
-    .mockResolvedValue(true);
+    .mockResolvedValue('rebased');
   const recalcForUnit = jest.fn().mockResolvedValue(null);
   const refreshContainers = jest.fn().mockResolvedValue(undefined);
   const sampleApplier = new GrowthSampleApplierService(
@@ -167,7 +169,6 @@ function makeHarness(opts: HarnessOpts = {}) {
   const handler = new UpdateBatchWeightFromSampleHandler(
     dataSource as DataSource,
     measurementRepository,
-    growthApplier,
     sampleApplier,
   );
 
@@ -185,11 +186,29 @@ function makeHarness(opts: HarnessOpts = {}) {
   };
 }
 
-/** A unit lock that holds `batch` alone. */
+/** A unit lock that holds 4800 fish of `batch` alone. */
 function unitHolding(batch: Batch): LockedUnit {
   return {
     tankBatch: stub<TankBatch>({ tankId: UNIT, tenantId: TENANT_UUID }),
     batches: new Map([[batch.id, batch]]),
+    details: [
+      {
+        batchId: batch.id,
+        batchNumber: 'B-1',
+        quantity: 4800,
+        avgWeightG: 80,
+        biomassKg: 384,
+        percentageOfTank: 100,
+      },
+    ],
+  };
+}
+
+/** The tank the sample was stamped with, after the batch moved out of it. */
+function unitEmptied(): LockedUnit {
+  return {
+    tankBatch: stub<TankBatch>({ tankId: UNIT, tenantId: TENANT_UUID }),
+    batches: new Map(),
     details: [],
   };
 }
@@ -310,5 +329,16 @@ describe('UpdateBatchWeightFromSampleHandler — the same path as recording (FAR
     expect(result.weight.actual.sampleSize).toBe(50);
     // Processed: it was applied, and a later weighing is current.
     expect(harness.measurementSave).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a stored sample stamped with a tank the batch has since left, moving nothing', async () => {
+    // Recorded (updateBatchWeight false) while the batch was in UNIT, which
+    // stamped UNIT on it; the batch was moved out before it is applied.
+    const harness = makeHarness({ measurement: { tankId: UNIT }, lockedUnit: unitEmptied });
+
+    await expect(harness.handler.execute(makeCommand())).rejects.toThrow(BadRequestException);
+    expect(harness.applyMeasuredWeight).not.toHaveBeenCalled();
+    expect(harness.batchSave).not.toHaveBeenCalled();
+    expect(harness.rollback).toHaveBeenCalledTimes(1);
   });
 });

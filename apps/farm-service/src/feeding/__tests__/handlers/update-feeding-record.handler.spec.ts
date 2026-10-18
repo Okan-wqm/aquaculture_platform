@@ -219,7 +219,11 @@ describe('UpdateFeedingRecordHandler — transactional outbox', () => {
   it('plan-bağlı kayıtta unplannedActualKg + büyüme deltası AYNI tx te yazılır', async () => {
     const lockedUnit = { tankBatch: {}, batches: new Map(), details: [] };
     const { handler, managerQuery, applyGrowth, recalcForUnit } = makeHarness({
-      feedingRecord: { tankId: 'tank-1', dayPlanId: 'dp-1' },
+      feedingRecord: {
+        tankId: 'tank-1',
+        dayPlanId: 'dp-1',
+        feedingDate: new Date('2026-06-09T00:00:00.000Z'),
+      },
       dayPlan: {
         id: 'dp-1',
         siteId: 'site-1',
@@ -240,6 +244,8 @@ describe('UpdateFeedingRecordHandler — transactional outbox', () => {
     // +5 kg / FCR 1.25 = +4 kg biyokütle; aşağı düzeltmede işaret terse döner.
     expect(applyGrowth).toHaveBeenCalledTimes(1);
     expect(applyGrowth.mock.calls[0]![3]).toBeCloseTo(4);
+    // The correction's growth belongs to the corrected record's feeding day.
+    expect(applyGrowth.mock.calls[0]![5]).toEqual(new Date('2026-06-09T00:00:00.000Z'));
     expect(recalcForUnit).toHaveBeenCalledWith(
       expect.anything(),
       TENANT_ID,

@@ -9,8 +9,9 @@
  *   1. Happy path: all 3 saves + 1 outbox enqueue + commit (once).
  *   2. Event payload carries batchId / measurementId / sampleSize /
  *      averageWeightG / weightCV / measurementDate / performance.
- *   3. `updateBatchWeight = false` skips the batch save AND the
- *      isProcessed second save — but still emits the event.
+ *   3. `updateBatchWeight = false` skips the batch save and the
+ *      isProcessed flip — but still emits the event, and stamps the sample
+ *      with the one unit holding the batch.
  *   4. Enqueue failure → rollback, no partial writes.
  *   5. Measurement save failure → rollback, no event enqueued.
  *   6. Existing validation paths (NotFound / inactive batch /
@@ -23,7 +24,8 @@
  *      externally-loaded validation snapshot.
  *   9. A sample of a stocked tank takes the unit lock for that tank and
  *      moves it, then reprices its day plan, in the same transaction
- *      (FARM-CRITICAL-454); a membership change during the lock is retried.
+ *      (FARM-CRITICAL-454); a membership change during the lock is retried;
+ *      the unit it was resolved to is stamped on the sample and its event.
  *
  * The sample applier and the unit writer are the REAL services (the unit
  * lock and the re-base are spied for the stocked-tank cases); the recalc and
@@ -136,8 +138,8 @@ function makeHarness(opts: HarnessOpts = {}) {
     }
     return Promise.resolve(null);
   });
-  // The unit lookup (GrowthSampleApplierService.unitOf) runs on the tx
-  // manager. The shared factory's manager has no `query` member, so it is
+  // The unit lookup (BiomassGrowthApplierService.unitsHoldingBatch) runs on
+  // the tx manager. The shared factory's manager has no `query` member, so it is
   // installed here.
   const unitLookup = jest.fn().mockResolvedValue(opts.unitRows ?? []);
   Object.assign(mockManager, { query: unitLookup });
@@ -213,7 +215,7 @@ function makeHarness(opts: HarnessOpts = {}) {
     });
   const applyMeasuredWeight = jest
     .spyOn(growthApplier, 'applyMeasuredWeight')
-    .mockResolvedValue(true);
+    .mockResolvedValue('rebased');
   const recalcForUnit = jest.fn().mockResolvedValue(null);
   const refreshContainers = jest.fn().mockResolvedValue(undefined);
   const sampleApplier = new GrowthSampleApplierService(
@@ -229,7 +231,6 @@ function makeHarness(opts: HarnessOpts = {}) {
     fcrService,
     backdatePolicy,
     outboxPublisher,
-    growthApplier,
     sampleApplier,
   );
 
@@ -250,12 +251,21 @@ function makeHarness(opts: HarnessOpts = {}) {
   };
 }
 
-/** A unit lock that holds `batch` alone. */
+/** A unit lock that holds 1000 fish of `batch` alone. */
 function unitHolding(batch: Batch): LockedUnit {
   return {
     tankBatch: stub<TankBatch>({ tankId: UNIT, tenantId: TENANT_UUID }),
     batches: new Map([[batch.id, batch]]),
-    details: [],
+    details: [
+      {
+        batchId: batch.id,
+        batchNumber: 'B-1',
+        quantity: 1000,
+        avgWeightG: 200,
+        biomassKg: 200,
+        percentageOfTank: 100,
+      },
+    ],
   };
 }
 
@@ -314,12 +324,14 @@ describe('RecordGrowthSampleHandler — transactional outbox', () => {
     expect(rollback).not.toHaveBeenCalled();
   });
 
-  it('updateBatchWeight=false skips both batch save and isProcessed flip but still emits the event', async () => {
+  it('updateBatchWeight=false skips the batch save and the isProcessed flip but still emits the event', async () => {
     const { handler, enqueue, commit, measurementSave, batchSave } = makeHarness();
 
     await handler.execute(makeCommand({ updateBatchWeight: false }));
 
-    expect(measurementSave).toHaveBeenCalledTimes(1);
+    // The insert, then the save that records the unit the sample was resolved to.
+    expect(measurementSave).toHaveBeenCalledTimes(2);
+    expect((measurementSave.mock.calls[1]![0] as GrowthMeasurement).isProcessed).toBe(false);
     expect(batchSave).not.toHaveBeenCalled();
     expect(enqueue).toHaveBeenCalledTimes(1);
     expect(commit).toHaveBeenCalledTimes(1);
@@ -465,5 +477,47 @@ describe('RecordGrowthSampleHandler — the sample reaches the tank (FARM-CRITIC
 
     expect(harness.lockUnitForGrowth).not.toHaveBeenCalled();
     expect(harness.recalcForUnit).not.toHaveBeenCalled();
+  });
+
+  it('stamps a sample kept as history with the one tank holding the batch, and carries it on the event', async () => {
+    const harness = makeHarness({ unitRows: [{ tankId: UNIT }], lockedUnit: unitHolding });
+
+    await harness.handler.execute(makeCommand({ updateBatchWeight: false }));
+
+    const stored = harness.measurementSave.mock.calls[1]![0] as GrowthMeasurement;
+    expect(stored.tankId).toBe(UNIT);
+    const event = harness.enqueue.mock.calls[0]![0] as Record<string, unknown>;
+    expect(event['tankId']).toBe(UNIT);
+  });
+
+  it('stamps an applied sample that named no tank with the tank it moved', async () => {
+    const harness = makeHarness({ unitRows: [{ tankId: UNIT }], lockedUnit: unitHolding });
+
+    await harness.handler.execute(makeCommand());
+
+    const stored = harness.measurementSave.mock.calls[1]![0] as GrowthMeasurement;
+    expect(stored.tankId).toBe(UNIT);
+    expect(stored.isProcessed).toBe(true);
+  });
+
+  it('answers a retryable conflict, then weighs the batch where it went, when it left its one tank before the lock', async () => {
+    const harness = makeHarness({
+      unitRows: [{ tankId: UNIT }],
+      // First lock: the tank no longer holds the batch (a concurrent move); the
+      // retry finds it again.
+      lockedUnit: (batch) => unitHolding(batch),
+    });
+    harness.lockUnitForGrowth.mockImplementationOnce(async () => ({
+      tankBatch: stub<TankBatch>({ tankId: UNIT, tenantId: TENANT_UUID }),
+      batches: new Map(),
+      details: [],
+    }));
+
+    await harness.handler.execute(makeCommand());
+
+    expect(harness.lockUnitForGrowth).toHaveBeenCalledTimes(2);
+    expect(harness.rollback).toHaveBeenCalledTimes(1);
+    expect(harness.commit).toHaveBeenCalledTimes(1);
+    expect(harness.applyMeasuredWeight).toHaveBeenCalledTimes(1);
   });
 });

@@ -21,6 +21,16 @@
  *   `weight.actual` nor the tank (FARM-MEDIUM-453); it stays as history.
  * - A batch split across two tanks: a sample that does not name its tank is
  *   refused, and a sample that names one moves that tank's share only.
+ * - A batch moved out of a tank entirely: the emptied tank names no batch, a
+ *   sample naming it is refused and leaves it empty, and a sample naming none
+ *   weighs the tank the fish went to.
+ * - A tank emptied by mortality (one write through TankBatchService, with no
+ *   second save to mask it): the same, for the share the batch keeps elsewhere.
+ * - A late-entered sample dated before growth the tank already holds moves
+ *   neither the tank nor its meals; it is the batch's history.
+ * - Weighed in one tank, then moved: an older sample naming the destination
+ *   does not move the fish back (the weighing day travels with them).
+ * - The backfill migration on rows in the shapes the old writer left behind.
  *
  * ## Why this needs a real database
  *
@@ -45,8 +55,13 @@ import {
   shutdownHarness,
 } from '@platform/migration-harness';
 import { BadRequestException } from '@nestjs/common';
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { DataSource } from 'typeorm';
 
+import {
+  MortalityReason,
+  RecordMortalityCommand,
+} from '../../batch/commands/record-mortality.command';
 import { TransferBatchCommand } from '../../batch/commands/transfer-batch.command';
 import { Batch } from '../../batch/entities/batch.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
@@ -69,6 +84,8 @@ import {
 import { MealPlanGeneratorService } from '../../feeding-protocol/services/meal-plan-generator.service';
 import { ProtocolRateService } from '../../feeding-protocol/services/protocol-rate.service';
 import { ProtocolResolutionService } from '../../feeding-protocol/services/protocol-resolution.service';
+import { BiomassGrowthApplierService } from '../../feeding-protocol/services/biomass-growth-applier.service';
+import { BackfillTankBatchPrimaryAndShareStamps1822100000000 } from '../../database/migrations/1822100000000-BackfillTankBatchPrimaryAndShareStamps';
 import { RecordGrowthSampleCommand } from '../../growth/commands/record-growth-sample.command';
 import { GrowthMeasurement } from '../../growth/entities/growth-measurement.entity';
 import {
@@ -93,6 +110,11 @@ const USER_ID = '6c2f4e8a-1b3d-4f5a-9c7e-0d2b4a6c8e1f';
 const RATION_TENANT = '0b6e3a9d-4c1f-4e27-8a5b-9d3c7f1e2a64';
 const OUT_OF_ORDER_TENANT = '7d1a5c3e-9b2f-4a68-b0e4-3f6a8c2d1e95';
 const SPLIT_TENANT = 'c4e8a2f6-3d7b-4915-8e0a-6b2d9f4c1a73';
+const EMPTIED_TENANT = '5a9c1e3b-7d2f-4b86-a4c0-2e8f6b1d3a57';
+const LATE_TENANT = 'e2b7d4f1-6a3c-4e59-9b18-7c4a2e6f0d39';
+const MOVED_TENANT = '8f3a6c2e-1b5d-4c97-8e2a-4d6b9f1c3e05';
+const BACKFILL_TENANT = '3c7e1a5f-9d2b-4f68-b3a1-6e8c2d4f7a19';
+const DIED_OUT_TENANT = 'a6d2f8b4-3e1c-4d79-b5a2-9c7e1f3b5d68';
 
 const STARTER_FEED = '1f0c9e8d-7b6a-4543-8211-0fedcba98765';
 const GROWER_FEED = '2e1dafe9-8c7b-4654-9322-10fedcba9876';
@@ -160,7 +182,16 @@ describe('A weighing reaches the feeding ration — real Postgres (FARM-CRITICAL
     writers = createFixtureBatchWriters(dataSource);
     recorders = createFixtureBatchRecorders(dataSource);
 
-    for (const tenantId of [RATION_TENANT, OUT_OF_ORDER_TENANT, SPLIT_TENANT]) {
+    for (const tenantId of [
+      RATION_TENANT,
+      OUT_OF_ORDER_TENANT,
+      SPLIT_TENANT,
+      EMPTIED_TENANT,
+      LATE_TENANT,
+      MOVED_TENANT,
+      BACKFILL_TENANT,
+      DIED_OUT_TENANT,
+    ]) {
       await createTenantSchemaDerived(dataSource, getTenantSchemaName(tenantId));
     }
   }, 240_000);
@@ -203,6 +234,48 @@ describe('A weighing reaches the feeding ration — real Postgres (FARM-CRITICAL
   async function tankRow(tenantId: string, tankId: string): Promise<TankBatch> {
     return withTenantContext(tenantId, () =>
       dataSource.manager.findOneOrFail(TankBatch, { where: { tenantId, tankId } }),
+    );
+  }
+
+  /** Moves `quantity` fish through the production transfer handler. */
+  async function transfer(
+    tenantId: string,
+    batchId: string,
+    sourceTankId: string,
+    destinationTankId: string,
+    quantity: number,
+  ): Promise<void> {
+    await withTenantContext(tenantId, () =>
+      writers.transferBatch.execute(
+        new TransferBatchCommand(
+          tenantId,
+          batchId,
+          {
+            sourceTankId,
+            destinationTankId,
+            quantity,
+            transferredAt: new Date(Date.now() - HOUR_MS),
+            transferReason: 'weighing fixture: fish moved between tanks',
+          },
+          USER_ID,
+          [Role.MODULE_MANAGER],
+          [],
+          {
+            clientCommandId: randomUUID(),
+            payloadHash: 'f'.repeat(64),
+            operationType: 'transferBatch',
+          },
+        ),
+      ),
+    );
+  }
+
+  async function samplesOf(tenantId: string, batchId: string): Promise<GrowthMeasurement[]> {
+    return withTenantContext(tenantId, () =>
+      dataSource.manager.find(GrowthMeasurement, {
+        where: { tenantId, batchId },
+        order: { measurementDate: 'ASC' },
+      }),
     );
   }
 
@@ -548,6 +621,427 @@ describe('A weighing reaches the feeding ration — real Postgres (FARM-CRITICAL
       const untouched = await tankRow(SPLIT_TENANT, fixture.tank.id);
       expect(Number(untouched.avgWeightG)).toBe(10);
       expect(Number(untouched.totalBiomassKg)).toBe(0.6);
+    });
+  });
+
+  describe('a batch moved out of a tank entirely', () => {
+    let fixture: FarmTenantFixture;
+    let destinationId: string;
+
+    beforeAll(async () => {
+      // 100 fish at 10 g in tank A, all of them moved to tank B.
+      fixture = await createFarmTenantFixture(dataSource, writers, {
+        tenantId: EMPTIED_TENANT,
+        codePrefix: 'EMPTIED',
+        userId: USER_ID,
+        initialQuantity: 100,
+        initialAvgWeightG: 10,
+      });
+      const destination = await createFixtureTank(dataSource, fixture.department, {
+        tenantId: EMPTIED_TENANT,
+        code: 'EMPTIED-TANK2',
+        userId: USER_ID,
+        count: 0,
+        biomassKg: 0,
+      });
+      destinationId = destination.id;
+      await transfer(EMPTIED_TENANT, fixture.batch.id, fixture.tank.id, destinationId, 100);
+    });
+
+    it('leaves the emptied tank naming no batch', async () => {
+      const emptied = await tankRow(EMPTIED_TENANT, fixture.tank.id);
+
+      expect(emptied.totalQuantity).toBe(0);
+      expect(emptied.batchDetails).toEqual([]);
+      expect(emptied.primaryBatchId).toBeNull();
+      expect(emptied.primaryBatchNumber).toBeNull();
+    });
+
+    it('refuses a sample naming the emptied tank, which stays empty', async () => {
+      await expect(
+        weigh(
+          EMPTIED_TENANT,
+          fixture.batch.id,
+          30,
+          new Date(Date.now() - HOUR_MS),
+          100,
+          fixture.tank.id,
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      const emptied = await tankRow(EMPTIED_TENANT, fixture.tank.id);
+      expect(emptied.batchDetails).toEqual([]);
+      expect(emptied.primaryBatchId).toBeNull();
+      expect(emptied.lastSamplingAt).toBeNull();
+      expect(await samplesOf(EMPTIED_TENANT, fixture.batch.id)).toEqual([]);
+    });
+
+    it('weighs the tank the fish went to when the sample names none, and records it', async () => {
+      await weigh(EMPTIED_TENANT, fixture.batch.id, 30, new Date(Date.now() - HOUR_MS), 100);
+
+      const weighed = await tankRow(EMPTIED_TENANT, destinationId);
+      expect(Number(weighed.avgWeightG)).toBe(30);
+      expect(Number(weighed.totalBiomassKg)).toBe(3);
+      const [sample] = await samplesOf(EMPTIED_TENANT, fixture.batch.id);
+      expect(sample!.tankId).toBe(destinationId);
+      expect(sample!.isProcessed).toBe(true);
+    });
+  });
+
+  describe('a tank emptied by mortality while the batch lives on in another', () => {
+    let fixture: FarmTenantFixture;
+    let diedOutId: string;
+
+    beforeAll(async () => {
+      // 100 fish at 10 g in tank A; 40 moved to tank B, where all 40 then die.
+      fixture = await createFarmTenantFixture(dataSource, writers, {
+        tenantId: DIED_OUT_TENANT,
+        codePrefix: 'DIEDOUT',
+        userId: USER_ID,
+        initialQuantity: 100,
+        initialAvgWeightG: 10,
+      });
+      const diedOut = await createFixtureTank(dataSource, fixture.department, {
+        tenantId: DIED_OUT_TENANT,
+        code: 'DIEDOUT-TANK2',
+        userId: USER_ID,
+        count: 0,
+        biomassKg: 0,
+      });
+      diedOutId = diedOut.id;
+      await transfer(DIED_OUT_TENANT, fixture.batch.id, fixture.tank.id, diedOutId, 40);
+      await withTenantContext(DIED_OUT_TENANT, () =>
+        recorders.recordMortality.execute(
+          new RecordMortalityCommand(
+            DIED_OUT_TENANT,
+            fixture.batch.id,
+            {
+              tankId: diedOutId,
+              quantity: 40,
+              reason: MortalityReason.DISEASE,
+              observedAt: new Date(Date.now() - HOUR_MS / 2),
+              notes: 'weighing fixture: every fish in the tank died',
+            },
+            USER_ID,
+            [Role.MODULE_MANAGER],
+            [],
+            {
+              clientCommandId: randomUUID(),
+              payloadHash: 'd'.repeat(64),
+              operationType: 'recordMortality',
+            },
+          ),
+        ),
+      );
+    });
+
+    it('leaves the emptied tank naming no batch', async () => {
+      const emptied = await tankRow(DIED_OUT_TENANT, diedOutId);
+
+      expect(emptied.totalQuantity).toBe(0);
+      expect(emptied.batchDetails).toEqual([]);
+      expect(emptied.primaryBatchId).toBeNull();
+    });
+
+    it('refuses a sample naming the emptied tank, which stays empty', async () => {
+      await expect(
+        weigh(DIED_OUT_TENANT, fixture.batch.id, 30, new Date(Date.now() - HOUR_MS), 40, diedOutId),
+      ).rejects.toThrow(BadRequestException);
+
+      const emptied = await tankRow(DIED_OUT_TENANT, diedOutId);
+      expect(emptied.batchDetails).toEqual([]);
+      expect(emptied.lastSamplingAt).toBeNull();
+    });
+
+    it('weighs the tank the batch lives on in when the sample names none', async () => {
+      await weigh(DIED_OUT_TENANT, fixture.batch.id, 30, new Date(Date.now() - HOUR_MS), 60);
+
+      const living = await tankRow(DIED_OUT_TENANT, fixture.tank.id);
+      expect(Number(living.avgWeightG)).toBe(30);
+      expect(Number(living.totalBiomassKg)).toBe(1.8);
+      const emptied = await tankRow(DIED_OUT_TENANT, diedOutId);
+      expect(emptied.batchDetails).toEqual([]);
+    });
+  });
+
+  describe('a late-entered sample dated before growth the tank already holds', () => {
+    let fixture: FarmTenantFixture;
+    let dayPlanId: string;
+    const growthApplier = new BiomassGrowthApplierService();
+    const today = new Date().toISOString().slice(0, 10);
+
+    beforeAll(async () => {
+      // 1000 fish stocked at 10 g; fed meals have grown them to 18 g (18 kg)
+      // through today, through the unit growth writer every meal path uses.
+      fixture = await createFarmTenantFixture(dataSource, writers, {
+        tenantId: LATE_TENANT,
+        codePrefix: 'LATE',
+        userId: USER_ID,
+        initialQuantity: 1000,
+        initialAvgWeightG: 10,
+      });
+      await runInTenantTransaction(dataSource, 'farm', LATE_TENANT, async (queryRunner) => {
+        const locked = await growthApplier.lockUnitForGrowth(
+          queryRunner.manager,
+          LATE_TENANT,
+          fixture.tank.id,
+        );
+        if (locked === null) throw new Error('the stocked tank was not lockable');
+        await growthApplier.applyGrowth(queryRunner.manager, LATE_TENANT, locked, 8, 1.0, today);
+      });
+      dayPlanId = await planFeeding(fixture, LATE_TENANT, 18, 1000);
+
+      // A weighing taken five days ago, entered today. It agrees with the
+      // projection on its own day, and re-basing onto it would throw away the
+      // growth fed since.
+      await weigh(LATE_TENANT, fixture.batch.id, 11.6, new Date(Date.now() - 5 * DAY_MS), 1000);
+    });
+
+    it('leaves the tank on the growth it already holds', async () => {
+      const unit = await tankRow(LATE_TENANT, fixture.tank.id);
+
+      expect(Number(unit.avgWeightG)).toBe(18);
+      expect(Number(unit.totalBiomassKg)).toBe(18);
+      expect(unit.batchDetails).toEqual([
+        expect.objectContaining({ biomassKg: 18, grownThrough: today }),
+      ]);
+      expect(unit.batchDetails![0]!.weighedOn).toBeUndefined();
+    });
+
+    it("leaves today's remaining meals as planned", async () => {
+      const meals = await withTenantContext(LATE_TENANT, () =>
+        dataSource.manager.find(FeedingMeal, {
+          where: { tenantId: LATE_TENANT, dayPlanId },
+          order: { mealIndex: 'ASC' },
+        }),
+      );
+      // 18 kg x 3% = 0.54 kg a day, split 40/60.
+      expect(meals.map((meal) => Number(meal.plannedKg))).toEqual([0.216, 0.324]);
+
+      const plan = await withTenantContext(LATE_TENANT, () =>
+        dataSource.manager.findOneOrFail(FeedingDayPlan, {
+          where: { tenantId: LATE_TENANT, id: dayPlanId },
+        }),
+      );
+      expect(plan.recalcLog).toEqual([]);
+    });
+
+    it("keeps the sample as the batch's weighing and history", async () => {
+      const batch = await batchRow(LATE_TENANT, fixture.batch.id);
+      // The stocking placeholder holds nothing back: the batch's last weighing is this one.
+      expect(batch.weight.actual.avgWeight).toBe(11.6);
+
+      const samples = await samplesOf(LATE_TENANT, fixture.batch.id);
+      expect(samples.map((sample) => Number(sample.averageWeight))).toEqual([11.6]);
+    });
+
+    it('still re-bases the tank on a sample of the last fed day', async () => {
+      await weigh(LATE_TENANT, fixture.batch.id, 19, new Date(), 1000);
+
+      const unit = await tankRow(LATE_TENANT, fixture.tank.id);
+      expect(Number(unit.avgWeightG)).toBe(19);
+      expect(Number(unit.totalBiomassKg)).toBe(19);
+    });
+  });
+
+  describe('fish weighed in one tank and then moved', () => {
+    let fixture: FarmTenantFixture;
+    let destinationId: string;
+    const weighedOn = new Date(Date.now() - DAY_MS);
+
+    beforeAll(async () => {
+      // 100 fish at 10 g in tank A, weighed there yesterday at 30 g; 40 of
+      // them are then moved to tank B.
+      fixture = await createFarmTenantFixture(dataSource, writers, {
+        tenantId: MOVED_TENANT,
+        codePrefix: 'MOVED',
+        userId: USER_ID,
+        initialQuantity: 100,
+        initialAvgWeightG: 10,
+      });
+      const destination = await createFixtureTank(dataSource, fixture.department, {
+        tenantId: MOVED_TENANT,
+        code: 'MOVED-TANK2',
+        userId: USER_ID,
+        count: 0,
+        biomassKg: 0,
+      });
+      destinationId = destination.id;
+      await weigh(MOVED_TENANT, fixture.batch.id, 30, weighedOn, 100, fixture.tank.id);
+      await transfer(MOVED_TENANT, fixture.batch.id, fixture.tank.id, destinationId, 40);
+
+      // An older paper record, dated five days ago, entered naming B.
+      await weigh(
+        MOVED_TENANT,
+        fixture.batch.id,
+        20,
+        new Date(Date.now() - 5 * DAY_MS),
+        40,
+        destinationId,
+      );
+    });
+
+    it('carries the weighing day into the destination share', async () => {
+      const moved = await tankRow(MOVED_TENANT, destinationId);
+
+      expect(moved.batchDetails).toEqual([
+        expect.objectContaining({ quantity: 40, weighedOn: weighedOn.toISOString().slice(0, 10) }),
+      ]);
+    });
+
+    it('does not move the destination back to the older sample', async () => {
+      const moved = await tankRow(MOVED_TENANT, destinationId);
+      expect(Number(moved.avgWeightG)).toBe(30);
+      expect(Number(moved.totalBiomassKg)).toBe(1.2);
+
+      const source = await tankRow(MOVED_TENANT, fixture.tank.id);
+      expect(Number(source.avgWeightG)).toBe(30);
+      expect(Number(source.totalBiomassKg)).toBe(1.8);
+    });
+
+    it("keeps the batch's weight.actual on the later weighing and the older one as history", async () => {
+      const batch = await batchRow(MOVED_TENANT, fixture.batch.id);
+      expect(batch.weight.actual.avgWeight).toBe(30);
+
+      const samples = await samplesOf(MOVED_TENANT, fixture.batch.id);
+      expect(samples.map((sample) => Number(sample.averageWeight))).toEqual([20, 30]);
+    });
+  });
+
+  describe('the backfill migration on rows the old writers left behind', () => {
+    let fixture: FarmTenantFixture;
+    let stampedId: string;
+    let emptiedId: string;
+
+    async function runBackfill(): Promise<void> {
+      const runner = dataSource.createQueryRunner();
+      await runner.connect();
+      try {
+        await runner.query(`SET search_path TO "${getTenantSchemaName(BACKFILL_TENANT)}"`);
+        await new BackfillTankBatchPrimaryAndShareStamps1822100000000().up(runner);
+      } finally {
+        await runner.query('SET search_path TO farm, public');
+        await runner.release();
+      }
+    }
+
+    async function rawRow(tankId: string): Promise<{
+      primaryBatchId: string | null;
+      primaryBatchNumber: string | null;
+      totalQuantity: number;
+      batchDetails: unknown;
+    }> {
+      const rows: Array<{
+        primaryBatchId: string | null;
+        primaryBatchNumber: string | null;
+        totalQuantity: number;
+        batchDetails: unknown;
+      }> = await dataSource.query(
+        `SELECT "primaryBatchId", "primaryBatchNumber", "totalQuantity", "batchDetails"
+           FROM "${getTenantSchemaName(BACKFILL_TENANT)}"."tank_batches"
+          WHERE "tenantId" = $1 AND "tankId" = $2`,
+        [BACKFILL_TENANT, tankId],
+      );
+      return rows[0]!;
+    }
+
+    beforeAll(async () => {
+      // 100 fish in tank A; 40 moved to tank C and 20 to tank E, all through
+      // the production handlers.
+      fixture = await createFarmTenantFixture(dataSource, writers, {
+        tenantId: BACKFILL_TENANT,
+        codePrefix: 'BACKFILL',
+        userId: USER_ID,
+        initialQuantity: 100,
+        initialAvgWeightG: 10,
+      });
+      const stamped = await createFixtureTank(dataSource, fixture.department, {
+        tenantId: BACKFILL_TENANT,
+        code: 'BACKFILL-C',
+        userId: USER_ID,
+        count: 0,
+        biomassKg: 0,
+      });
+      const emptied = await createFixtureTank(dataSource, fixture.department, {
+        tenantId: BACKFILL_TENANT,
+        code: 'BACKFILL-E',
+        userId: USER_ID,
+        count: 0,
+        biomassKg: 0,
+      });
+      stampedId = stamped.id;
+      emptiedId = emptied.id;
+      await transfer(BACKFILL_TENANT, fixture.batch.id, fixture.tank.id, stampedId, 40);
+      await transfer(BACKFILL_TENANT, fixture.batch.id, fixture.tank.id, emptiedId, 20);
+
+      // The shapes rows had before this change, which no current writer produces.
+      const schema = getTenantSchemaName(BACKFILL_TENANT);
+      // E: emptied by a transfer under the old writer, which kept the primary.
+      await dataSource.query(
+        `UPDATE "${schema}"."tank_batches"
+            SET "batchDetails" = '[]'::jsonb, "totalQuantity" = 0, "totalBiomassKg" = 0
+          WHERE "tenantId" = $1 AND "tankId" = $2`,
+        [BACKFILL_TENANT, emptiedId],
+      );
+      // A: written before batchDetails[] became the SSoT (totals and primary only).
+      await dataSource.query(
+        `UPDATE "${schema}"."tank_batches" SET "batchDetails" = '[]'::jsonb
+          WHERE "tenantId" = $1 AND "tankId" = $2`,
+        [BACKFILL_TENANT, fixture.tank.id],
+      );
+      // C: a share grown before shares carried a growth stamp, last written on 10-10.
+      await dataSource.query(
+        `UPDATE "${schema}"."tank_batches" SET "updatedAt" = '2026-10-10T12:00:00Z'
+          WHERE "tenantId" = $1 AND "tankId" = $2`,
+        [BACKFILL_TENANT, stampedId],
+      );
+      await dataSource.query(
+        `UPDATE "${schema}"."tank_batches" SET "updatedAt" = '2026-10-11T12:00:00Z'
+          WHERE "tenantId" = $1 AND "tankId" = $2`,
+        [BACKFILL_TENANT, fixture.tank.id],
+      );
+
+      await runBackfill();
+    });
+
+    it("clears the emptied row's leftover primary", async () => {
+      const emptied = await rawRow(emptiedId);
+      expect(emptied.primaryBatchId).toBeNull();
+      expect(emptied.primaryBatchNumber).toBeNull();
+      expect(emptied.batchDetails).toEqual([]);
+    });
+
+    it('materializes the pre-SSoT row into its single share, stamped with its last write day', async () => {
+      const legacy = await rawRow(fixture.tank.id);
+      expect(legacy.primaryBatchId).toBe(fixture.batch.id);
+      expect(legacy.batchDetails).toEqual([
+        expect.objectContaining({
+          batchId: fixture.batch.id,
+          quantity: 40,
+          biomassKg: 0.4,
+          avgWeightG: 10,
+          percentageOfTank: 100,
+          grownThrough: '2026-10-11',
+        }),
+      ]);
+    });
+
+    it('stamps an unstamped share with the day its row was last written', async () => {
+      const grown = await rawRow(stampedId);
+      expect(grown.batchDetails).toEqual([
+        expect.objectContaining({
+          batchId: fixture.batch.id,
+          quantity: 40,
+          grownThrough: '2026-10-10',
+        }),
+      ]);
+    });
+
+    it('changes nothing on a second run', async () => {
+      const before = await Promise.all([fixture.tank.id, stampedId, emptiedId].map(rawRow));
+      await runBackfill();
+      const after = await Promise.all([fixture.tank.id, stampedId, emptiedId].map(rawRow));
+      expect(after).toEqual(before);
     });
   });
 });

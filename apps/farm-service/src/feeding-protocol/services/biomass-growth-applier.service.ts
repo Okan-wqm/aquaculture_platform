@@ -21,6 +21,17 @@
  * (FARM-CRITICAL-454). Both paths derive the TankBatch aggregates from
  * `batchDetails[]` the same way and keep the D-1 invariant below.
  *
+ * The two inputs are ordered by day, per share: a share records the day it
+ * was last weighed (`weighedOn`) and the last feeding day whose growth it
+ * holds (`grownThrough`). A weighing dated before either does not re-base the
+ * share (it would discard what is known since), and the growth of a feeding
+ * day before the share's weighing does not land on it (the weighing measured
+ * it). This service owns that rule; TankBatchService carries the stamps with
+ * moved fish.
+ *
+ * Membership is one rule, here: a unit holds a batch when it has a share of it
+ * with fish in it (`stockedShareOf`, and its SQL twin `unitsHoldingBatch`).
+ *
  * Kilit disiplini (K-1 kanonik sıra): `lockUnitForGrowth` batch'leri
  * batchId ARTAN sırada pessimistic_write kilitler, SONRA TankBatch'i kilitler;
  * kilit sonrası batch üyeliği değiştiyse ConflictException fırlatılır (çağıran
@@ -61,13 +72,39 @@ export interface MeasuredWeight {
   readonly measuredAt: Date | string;
 }
 
+/** What a weighing did to the unit's share of the weighed batch. */
+export type MeasuredWeightOutcome =
+  /** The share was re-based onto the sample. */
+  | 'rebased'
+  /**
+   * The share already knows its weight on a later day (a later weighing, or
+   * growth from a later feeding day): the sample is history for this unit.
+   */
+  | 'older_than_share';
+
 /**
- * The UTC calendar day of a weighing. Samples are stored in a `date` column,
- * so two samples of one day carry no order between them: the later-recorded one
- * is applied, and only a sample from an EARLIER day is held back.
+ * The UTC calendar day of a date. Samples, day plans and feeding records are
+ * stored in `date` columns, so two events of one day carry no order between
+ * them: a weighing and a feeding of the same day are both applied, and only an
+ * EARLIER day is held back.
  */
-export function weighingDay(value: Date | string): string {
+export function calendarDay(value: Date | string): string {
   return new Date(value).toISOString().slice(0, 10);
+}
+
+/**
+ * The last day a share's weight is known for: its last weighing or the last
+ * feeding day whose growth it holds, whichever is later. `null` when the share
+ * has neither (fish just stocked, never weighed or fed).
+ */
+export function shareKnownThrough(
+  share: Pick<BatchDetail, 'weighedOn' | 'grownThrough'>,
+): string | null {
+  const days = [share.weighedOn, share.grownThrough].filter(
+    (day): day is string => day !== undefined,
+  );
+  if (days.length === 0) return null;
+  return days.reduce((latest, day) => (day > latest ? day : latest));
 }
 
 @Injectable()
@@ -166,6 +203,14 @@ export class BiomassGrowthApplierService {
    * `growthKg` NEGATİF olabilir (correctMealPour aşağı düzeltmesi büyümeyi
    * geri alır — C-11); pay hiçbir zaman sıfırın altına inmez.
    *
+   * `fedOn` is the feeding day the growth belongs to (the day plan's date, or
+   * the feeding record's). Each share that takes growth records it as
+   * `grownThrough`, so a weighing dated before it cannot discard the growth.
+   * A share weighed on a LATER day than `fedOn` takes no part of it: the
+   * weighing already measured the fish after that feeding (a daily rollup or a
+   * pour correction that lands after the weighing). Its part of the growth is
+   * dropped, not handed to the other shares, whose fish ate only their part.
+   *
    * ÖN KOŞUL: `locked` bu servisin `lockUnitForGrowth`'undan gelir (kanonik sıra).
    */
   async applyGrowth(
@@ -174,18 +219,24 @@ export class BiomassGrowthApplierService {
     locked: LockedUnit,
     growthKg: number,
     basedOnFcr: number,
+    fedOn: Date | string,
   ): Promise<void> {
     if (growthKg === 0) return;
     const { tankBatch, details } = locked;
     const totalBiomass = details.reduce((acc, detail) => acc + Number(detail.biomassKg || 0), 0);
     if (totalBiomass <= 0) return;
+    const fedDay = calendarDay(fedOn);
 
     // D-2: pay oranında dağıtım — batchDetails SSoT, aggregate'ler türetilir.
     for (const detail of details) {
+      if (detail.weighedOn !== undefined && detail.weighedOn > fedDay) continue;
       const share = (Number(detail.biomassKg) / totalBiomass) * growthKg;
       detail.biomassKg = round3(Math.max(Number(detail.biomassKg) + share, 0));
       if (detail.quantity > 0) {
         detail.avgWeightG = round3((detail.biomassKg * 1000) / detail.quantity);
+      }
+      if (detail.grownThrough === undefined || fedDay > detail.grownThrough) {
+        detail.grownThrough = fedDay;
       }
     }
     await this.saveUnitFromDetails(manager, locked);
@@ -215,28 +266,32 @@ export class BiomassGrowthApplierService {
    * (P-13) follow exactly as after FCR growth, and the unit is stamped with the
    * weighing's day.
    *
-   * A sample from an earlier day than the one this share was last re-based on
-   * moves nothing (FARM-MEDIUM-453): it is older than what the tank already
-   * knows. Returns whether the share moved, so the caller reprices the day plan
-   * only when the ration's input changed.
+   * A sample dated before the last day this share's weight is known for (its
+   * last weighing, FARM-MEDIUM-453, or the last feeding day whose growth it
+   * holds) moves nothing: re-basing onto it would throw away what is known
+   * since, and the ration would be sized for fish as they were on the sample
+   * day. It stays the batch's history. Carrying such a measurement forward by
+   * the growth applied since it is a separate, registered change; until it
+   * lands, that sample does not reach the ration. The outcome tells the caller
+   * whether to reprice the day plan.
    *
    * PRECONDITION: `locked` comes from `lockUnitForGrowth` (canonical order).
    *
-   * @throws BadRequestException when the unit does not hold the batch, or the
-   *   sample's average is not a positive weight.
+   * @throws BadRequestException when the unit holds no fish of the batch, or
+   *   the sample's average is not a positive weight.
    */
   async applyMeasuredWeight(
     manager: EntityManager,
     tenantId: string,
     locked: LockedUnit,
     weighing: MeasuredWeight,
-  ): Promise<boolean> {
-    const { tankBatch, details } = locked;
-    const share = details.find((detail) => detail.batchId === weighing.batchId);
+  ): Promise<MeasuredWeightOutcome> {
+    const { tankBatch } = locked;
+    const share = this.stockedShareOf(locked, weighing.batchId);
     const batch = locked.batches.get(weighing.batchId);
-    if (!share || !batch) {
+    if (share === null || !batch) {
       throw new BadRequestException(
-        `Batch ${weighing.batchId} is not stocked in unit ${tankBatch.tankId}; ` +
+        `Batch ${weighing.batchId} has no fish in unit ${tankBatch.tankId}; ` +
           'a growth sample must name the tank its fish were taken from.',
       );
     }
@@ -247,16 +302,15 @@ export class BiomassGrowthApplierService {
     }
 
     const measuredAt = new Date(weighing.measuredAt);
-    if (
-      share.lastSampledAt !== undefined &&
-      weighingDay(measuredAt) < weighingDay(share.lastSampledAt)
-    ) {
-      return false;
+    const sampleDay = calendarDay(measuredAt);
+    const knownThrough = shareKnownThrough(share);
+    if (knownThrough !== null && sampleDay < knownThrough) {
+      return 'older_than_share';
     }
 
     share.biomassKg = round3((Number(share.quantity) * weighing.avgWeightG) / 1000);
     share.avgWeightG = round3(weighing.avgWeightG);
-    share.lastSampledAt = measuredAt.toISOString();
+    share.weighedOn = sampleDay;
     // The row's stamp is the tank's latest weighing of any batch, so a share
     // weighed later than another keeps it from moving back.
     if (!tankBatch.lastSamplingAt || measuredAt > new Date(tankBatch.lastSamplingAt)) {
@@ -267,7 +321,58 @@ export class BiomassGrowthApplierService {
     // the theoretical track keeps the FCR it was last projected with.
     await this.restampTheoreticalFromShares(manager, tenantId, weighing.batchId, batch, null);
     await this.projectTankBiomass(manager, tenantId, tankBatch, 'growth_measure');
-    return true;
+    return 'rebased';
+  }
+
+  /**
+   * The locked unit's share of a batch, when the unit really holds fish of it;
+   * `null` otherwise. The membership rule every unit writer shares: an entry in
+   * `batchDetails[]` with fish in it, or the primary batch of a row written
+   * before `batchDetails[]` became the SSoT (`detailsOf`). An emptied tank holds
+   * nothing, whatever batch it last held.
+   */
+  stockedShareOf(locked: LockedUnit, batchId: string): BatchDetail | null {
+    const share = locked.details.find((detail) => detail.batchId === batchId);
+    if (share === undefined || !(Number(share.quantity) > 0)) return null;
+    return share;
+  }
+
+  /**
+   * The units that hold fish of a batch, by unit id: the SQL twin of
+   * `stockedShareOf`, read inside the caller's tenant transaction. A row whose
+   * `batchDetails[]` is empty counts its primary batch only while it still has
+   * fish (a row written before `batchDetails[]` became the SSoT), never an
+   * emptied tank's leftover primary.
+   *
+   * `$2` is compared as text on both sides (`primaryBatchId` is cast), since
+   * Postgres types a parameter once (see sumBatchSharesAcrossUnits).
+   */
+  async unitsHoldingBatch(
+    manager: EntityManager,
+    tenantId: string,
+    batchId: string,
+  ): Promise<string[]> {
+    const rows: Array<{ tankId: string }> = await manager.query(
+      `SELECT tb."tankId" AS "tankId"
+         FROM "tank_batches" tb
+        WHERE tb."tenantId" = $1
+          AND (
+            EXISTS (
+              SELECT 1
+                FROM jsonb_array_elements(COALESCE(tb."batchDetails", '[]'::jsonb)) AS detail(value)
+               WHERE detail.value->>'batchId' = $2
+                 AND (detail.value->>'quantity')::numeric > 0
+            )
+            OR (
+              tb."primaryBatchId"::text = $2
+              AND COALESCE(jsonb_array_length(tb."batchDetails"), 0) = 0
+              AND tb."totalQuantity" > 0
+            )
+          )
+        ORDER BY tb."tankId" ASC`,
+      [tenantId, batchId],
+    );
+    return rows.map((row) => row.tankId);
   }
 
   /**
@@ -381,17 +486,22 @@ export class BiomassGrowthApplierService {
   }
 
   private batchIdsOf(tankBatch: TankBatch): string[] {
-    const detailIds = (tankBatch.batchDetails ?? [])
+    const ids = this.detailsOf(tankBatch)
       .map((detail) => detail.batchId)
       .filter(Boolean);
-    if (detailIds.length > 0) return [...new Set(detailIds)];
-    return tankBatch.primaryBatchId ? [tankBatch.primaryBatchId] : [];
+    return [...new Set(ids)];
   }
 
-  /** batchDetails SSoT görünümü; yoksa primary aggregate'ten tek sanal girdi. */
+  /**
+   * batchDetails SSoT görünümü; yoksa primary aggregate'ten tek sanal girdi —
+   * only while the row still has fish. An emptied row with a leftover primary
+   * (written before TankBatchService cleared it) holds nothing: a zero-fish
+   * share synthesized for it let a weighing write the departed batch back into
+   * the empty tank.
+   */
   private detailsOf(tankBatch: TankBatch): BatchDetail[] {
     if (tankBatch.batchDetails?.length) return tankBatch.batchDetails;
-    if (!tankBatch.primaryBatchId) return [];
+    if (!tankBatch.primaryBatchId || !(Number(tankBatch.totalQuantity) > 0)) return [];
     return [
       {
         batchId: tankBatch.primaryBatchId,

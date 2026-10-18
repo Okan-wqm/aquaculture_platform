@@ -110,7 +110,14 @@ export class MealFinalizationService {
       const expectedFcr = dayPlan.resolution.expectedFcr;
       const growthKg = expectedFcr > 0 ? actualKg / expectedFcr : 0;
       if (locked) {
-        await this.growthApplier.applyGrowth(manager, tenantId, locked, growthKg, expectedFcr);
+        await this.growthApplier.applyGrowth(
+          manager,
+          tenantId,
+          locked,
+          growthKg,
+          expectedFcr,
+          dayPlan.planDate,
+        );
         await manager.save(meal);
         mealPersisted = true;
         // Kalan öğünler yeni biomass'tan — band geçişi histerezisle burada.

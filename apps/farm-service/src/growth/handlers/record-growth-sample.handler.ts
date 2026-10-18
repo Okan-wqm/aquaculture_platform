@@ -26,14 +26,18 @@
  *
  * # Why the unit is locked first
  *
- * The tank's batches (batchId ASC) and then its TankBatch row are locked
- * with `lockUnitForGrowth`, the order every other unit writer uses, and the
- * batch row is taken from that lock; locking the batch first would invert
+ * `applySample` locks the unit's batches (batchId ASC) and then its TankBatch
+ * row with `lockUnitForGrowth`, the order every other unit writer uses, and
+ * takes the batch row from that lock; locking the batch first would invert
  * the order (AB-BA deadlock). Only the weight fields are written onto the
  * freshly locked rows, never an externally loaded snapshot, so a concurrent
  * mortality/cull cannot be reverted by this sample (lost-update). A
- * membership change between the lock's preview and its locked read is
- * retried by `withUnitLockRetry` around the whole command.
+ * membership change between the unlocked lookup and the lock is retried by
+ * `withUnitLockRetry` around the whole command.
+ *
+ * A sample kept as history (`updateBatchWeight` false) that names no unit is
+ * stamped with the one unit holding the batch, so applying it later moves the
+ * unit its fish were taken from.
  *
  * @module Growth/Handlers
  */
@@ -53,7 +57,6 @@ import { Batch } from '../../batch/entities/batch.entity';
 import { FCRCalculationService } from '../services/fcr-calculation.service';
 import { GrowthSampleApplierService } from '../services/growth-sample-applier.service';
 import { BackdatePolicyService } from '../../common/services/backdate-policy.service';
-import { BiomassGrowthApplierService } from '../../feeding-protocol/services/biomass-growth-applier.service';
 import { withUnitLockRetry } from '../../feeding-protocol/services/unit-lock-retry.util';
 
 @Injectable()
@@ -68,7 +71,6 @@ export class RecordGrowthSampleHandler implements ICommandHandler<RecordGrowthSa
     private readonly fcrService: FCRCalculationService,
     private readonly backdatePolicy: BackdatePolicyService,
     private readonly outboxPublisher: OutboxPublisher,
-    private readonly growthApplier: BiomassGrowthApplierService,
     private readonly sampleApplier: GrowthSampleApplierService,
   ) {}
 
@@ -221,16 +223,13 @@ export class RecordGrowthSampleHandler implements ICommandHandler<RecordGrowthSa
       const saved = await manager.save(GrowthMeasurement, measurement);
 
       if (saved.updateBatchWeight) {
-        const unitId = await this.sampleApplier.unitOf(manager, tenantId, saved);
-        const locked =
-          unitId === null
-            ? null
-            : await this.growthApplier.lockUnitForGrowth(manager, tenantId, unitId);
-        await this.sampleApplier.apply(manager, tenantId, saved, unitId, locked);
-
+        await this.sampleApplier.applySample(manager, tenantId, saved);
         saved.isProcessed = true;
-        await manager.save(GrowthMeasurement, saved);
+      } else {
+        await this.sampleApplier.recordLocatedUnit(manager, tenantId, saved);
       }
+      // Persists isProcessed and the unit the sample was resolved to.
+      await manager.save(GrowthMeasurement, saved);
 
       const event: GrowthSampleRecordedEvent = {
         ...createBaseEvent<GrowthSampleRecordedEvent>('GrowthSampleRecorded', tenantId, {
@@ -239,6 +238,7 @@ export class RecordGrowthSampleHandler implements ICommandHandler<RecordGrowthSa
         }),
         batchId: saved.batchId,
         measurementId: saved.id,
+        ...(saved.tankId ? { tankId: saved.tankId } : {}),
         sampleSize: saved.sampleSize,
         averageWeightG: saved.averageWeight,
         weightCV: saved.weightCV,

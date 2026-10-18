@@ -50,13 +50,26 @@ export interface BatchDetail {
   biomassKg: number;
   percentageOfTank: number;          // Tank içindeki yüzde
   /**
-   * Day of the weighing this share's average weight was last re-based onto
-   * (ISO timestamp), written only by BiomassGrowthApplierService.applyMeasuredWeight.
-   * Absent until the batch is first weighed in this tank. It keeps a sample
-   * dated earlier from moving the share backwards (FARM-MEDIUM-453): the
-   * question is per batch and per tank, so it lives on the share, not on the row.
+   * Day (YYYY-MM-DD) of the weighing this share's average weight was last
+   * re-based onto, written by BiomassGrowthApplierService.applyMeasuredWeight.
+   * Absent until the fish are first weighed. It keeps a sample dated earlier
+   * from moving the share backwards (FARM-MEDIUM-453), and keeps the growth of
+   * a feeding day before it out of the share (the weighing measured it). The
+   * question is per batch and per unit, so it lives on the share, not on the row.
    */
-  lastSampledAt?: string;
+  weighedOn?: string;
+  /**
+   * Latest feeding day (YYYY-MM-DD) whose projected growth this share holds,
+   * written by BiomassGrowthApplierService.applyGrowth. A sample dated before
+   * it would discard that growth, so it does not re-base the share
+   * (FARM-CRITICAL-454).
+   *
+   * Both stamps travel with the fish. The composition writer
+   * (TankBatchService.applyBatchDelta) carries them into the destination share
+   * of a transfer, keeping the later day when the destination already holds
+   * the batch.
+   */
+  grownThrough?: string;
 }
 
 /**
@@ -135,18 +148,22 @@ export class TankBatch {
   // PRIMARY BATCH (Ana batch - tek batch durumunda)
   // -------------------------------------------------------------------------
 
-  @Field({ nullable: true })
+  // `null` once the tank empties. The composition writer (TankBatchService)
+  // writes the first share's batch, or null when there is none; an `undefined`
+  // is skipped by TypeORM's UPDATE, which left an emptied tank naming the batch
+  // that left it.
+  @Field(() => String, { nullable: true })
   @Column('uuid', { nullable: true })
-  primaryBatchId?: string;
+  primaryBatchId?: string | null;
 
   @ManyToOne('Batch', { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'primaryBatchId' })
   primaryBatch?: Batch;
 
   // Denormalized batch number for quick access
-  @Field({ nullable: true })
-  @Column({ length: 50, nullable: true })
-  primaryBatchNumber?: string;
+  @Field(() => String, { nullable: true })
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  primaryBatchNumber?: string | null;
 
   // -------------------------------------------------------------------------
   // STOK BİLGİLERİ

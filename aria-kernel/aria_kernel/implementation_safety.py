@@ -2123,6 +2123,14 @@ class _PreMergeEvidence:
 
     These are observations, not check verdicts. The merge owner captures
     them from verified native prefixes and the repository snapshot.
+
+    ARIA-HIGH-005 (Task 8) — constructed only by the merge owner's capture
+    (``merge_authority._pre_merge_evidence``), which holds
+    ``_PRE_MERGE_EVIDENCE_TOKEN``. Every pre-merge predicate reads these
+    fields as the native identities of the implementation being merged, so a
+    snapshot assembled by hand is the perimeter's input forged without a
+    single ledger being read: it is refused as a ``ForgedVerdict``, the same
+    rule ``HardFailReport`` follows for the registry's output.
     """
 
     unavailable_reasons: tuple[str, ...]
@@ -2222,6 +2230,13 @@ class _PreMergeEvidence:
     turn_budget_refusal_reason: str | None = None
     turn_budget_ledger_tip: str | None = None
     turn_budget_unavailable_reason: str | None = None
+    _token: object = field(default=None, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        _require_registry_token(
+            self._token, "_PreMergeEvidence", "merge_authority._pre_merge_evidence",
+            expected=_PRE_MERGE_EVIDENCE_TOKEN,
+        )
 
     @property
     def available(self) -> bool:
@@ -2334,9 +2349,16 @@ class ForgedVerdict(RuntimeError):
 # turns the docstring's "impossible" into the truth it always claimed to be.
 _REPORT_TOKEN: object = object()
 
+# ARIA-HIGH-005 — the pre-merge snapshot's own construction token, held by
+# its one producer (merge_authority's capture). A separate object from
+# _REPORT_TOKEN: the capture may build evidence, never a passing report.
+_PRE_MERGE_EVIDENCE_TOKEN: object = object()
 
-def _require_registry_token(token: object, type_name: str, producer: str) -> None:
-    if token is not _REPORT_TOKEN:
+
+def _require_registry_token(
+    token: object, type_name: str, producer: str, *, expected: object = _REPORT_TOKEN,
+) -> None:
+    if token is not expected:
         raise ForgedVerdict(
             f"forged_perimeter_verdict:{type_name} may only be constructed by "
             f"{producer}; a hand-assembled verdict is the perimeter bypassed "

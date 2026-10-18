@@ -6374,7 +6374,6 @@ PENDING_CLOSURE_REGRESSION_REFS: dict[str, tuple[str, ...]] = {
         "aria-kernel/tests/test_signed_readiness_snapshot.py",
     ),
     "ARIA-HIGH-004": ("aria-kernel/tests/test_promotion_funnel_e2e.py",),
-    "ARIA-HIGH-005": ("aria-kernel/tests/test_pre_merge_evidence.py",),
     "ARIA-HIGH-006": (
         "aria-kernel/tests/test_file_claim_atomic_acquire.py",
         "aria-kernel/tests/test_pre_merge_file_claims.py",

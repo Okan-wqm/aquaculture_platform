@@ -79,10 +79,15 @@ describe('DiseaseReportAssembler', () => {
     expect(text).toContain(`"affectedPopulation" ->> 'affectedPercent'`);
     expect(text).toContain('EXISTS');
     expect(text).toContain('tank_batches');
-    // site scope uses the REAL tank_batches columns (mirrors biomass queryStockings)
-    expect(text).toContain('tb."primaryBatchId" = he."batchId"');
+    // site scope uses the REAL tank_batches columns, through the composition's
+    // membership rule (a share with fish in it) and, for a batch with no fish
+    // left anywhere, the tank_allocations ledger (batch-site-scope)
+    expect(text).toContain(`tb."primaryBatchId"::text = he."batchId"::text`);
     expect(text).toContain('tb."batchDetails"');
-    expect(text).toContain(`bd->>'batchId' = he."batchId"::text`);
+    expect(text).toContain(`held.value->>'batchId' = he."batchId"::text`);
+    expect(text).toContain(`(held.value->>'quantity')::numeric > 0`);
+    expect(text).toContain('FROM tank_allocations ta');
+    expect(text).toContain('ta."batchId" = he."batchId"');
     // terminal outbreaks are excluded
     expect(text).toContain(`he.status NOT IN ('resolved', 'cancelled')`);
     expect(text).toContain('ORDER BY he."eventDate" DESC, he."createdAt" DESC');

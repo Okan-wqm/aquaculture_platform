@@ -345,4 +345,26 @@ describe('BiomassReportAssembler', () => {
     expect(mortalityQuery.fromDate).toBe('2026-06-01');
     expect(mortalityQuery.toDate).toBe('2026-06-30');
   });
+
+  it('scopes stockings to the site through the allocation ledger, not only the current composition', async () => {
+    // A batch stocked and emptied within the month holds no fish anywhere at
+    // assembly time; only the ledger still puts it in the site's tanks
+    // (FARM-CRITICAL-454 verification). The real-PostgreSQL proof is
+    // emptied-tank-history.postgres.spec.ts.
+    let stockingSql = '';
+    const rawQuery = jest.fn().mockImplementation((sql: string) => {
+      if (sql.includes('FROM batches_v2')) stockingSql = sql;
+      return Promise.resolve([]);
+    });
+    const assembler = makeAssembler(makeQueryBus(), makeCalculator(), rawQuery);
+    const now = new Date();
+
+    await assembler.assemble(tenantId, siteId, now.getUTCFullYear(), now.getUTCMonth() + 1);
+
+    expect(stockingSql).toContain('FROM tank_allocations ta');
+    expect(stockingSql).toContain('ta."batchId" = b.id');
+    expect(stockingSql).toContain(`ta."allocationType" IN ('initial_stocking', 'split', 'transfer_in')`);
+    // A stocking older than the ledger still counts while a site tank holds it.
+    expect(stockingSql).toContain(`held.value->>'batchId' = b.id::text`);
+  });
 });

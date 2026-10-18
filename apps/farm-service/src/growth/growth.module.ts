@@ -21,6 +21,7 @@ import { GrowthMeasurement } from './entities/growth-measurement.entity';
 
 // Services
 import { FCRCalculationService } from './services/fcr-calculation.service';
+import { GrowthSampleApplierService } from './services/growth-sample-applier.service';
 
 // Handlers
 import { GrowthCommandHandlers } from './handlers';
@@ -46,12 +47,16 @@ import { BackdatePolicyModule } from '../common/services/backdate-policy.module'
 // Doğrudan provider: FeedingProtocolModule import'u modül döngüsü yaratırdı
 // (BatchModule/HarvestModule emsali).
 import { FeedingProtocolCoreModule } from '../feeding-protocol/feeding-protocol-core.module';
+// A sample that moves a tank's weight refreshes the farm-stock read model the
+// apps show (GrowthSampleApplierService), through its single writer.
+import { FarmStockModule } from '../farm-stock/farm-stock.module';
 import { GrowthAiQueryResponder } from './responders/growth-ai-query.responder';
 
 @Module({
   imports: [
     // Band/oran çözümü çekirdek modülün TEK örneğinden (yaprak; döngü yok).
     FeedingProtocolCoreModule,
+    FarmStockModule,
     TypeOrmModule.forFeature([
       GrowthMeasurement,
       Batch,
@@ -68,6 +73,7 @@ import { GrowthAiQueryResponder } from './responders/growth-ai-query.responder';
   controllers: [GrowthAiQueryResponder],
   providers: [
     FCRCalculationService,
+    GrowthSampleApplierService,
     ...GrowthCommandHandlers,
     ...GrowthQueryHandlers,
     ...GrowthResolvers,

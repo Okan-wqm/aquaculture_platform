@@ -46,6 +46,31 @@ export interface TankBatchDelta {
   avgWeightG?: number;
   /** Optional last-mortality timestamp (mortality path) — stamped onto the row when present. */
   lastMortalityAt?: Date;
+  /**
+   * The weight stamps the incoming fish carry (a transfer's destination leg:
+   * the source share's `weighedOn` / `grownThrough`). Moved fish keep what is
+   * known about their weight, so a sample dated before their last weighing or
+   * before growth already applied to them cannot re-base them in their new
+   * unit (FARM-MEDIUM-453, FARM-CRITICAL-454). When the unit already holds the
+   * batch, the later day of each stamp is kept.
+   */
+  weightStamps?: Pick<BatchDetail, 'weighedOn' | 'grownThrough'>;
+}
+
+/** The later of two YYYY-MM-DD days; an absent day is no knowledge. */
+function laterDay(current: string | undefined, incoming: string | undefined): string | undefined {
+  if (current === undefined) return incoming;
+  if (incoming === undefined) return current;
+  return incoming > current ? incoming : current;
+}
+
+/** Carries the incoming fish's weight stamps onto the share that receives them. */
+function carryWeightStamps(detail: BatchDetail, stamps: TankBatchDelta['weightStamps']): void {
+  if (stamps === undefined) return;
+  const weighedOn = laterDay(detail.weighedOn, stamps.weighedOn);
+  const grownThrough = laterDay(detail.grownThrough, stamps.grownThrough);
+  if (weighedOn !== undefined) detail.weighedOn = weighedOn;
+  if (grownThrough !== undefined) detail.grownThrough = grownThrough;
 }
 
 export interface TankMeta {
@@ -151,12 +176,13 @@ export class TankBatchService {
       } else if (d.quantity > 0) {
         d.avgWeightG = (d.biomassKg * 1000) / d.quantity;
       }
+      if (delta.quantityDelta > 0) carryWeightStamps(d, delta.weightStamps);
       // A batch that drops to zero in this tank leaves the composition.
       if (d.quantity <= 0) {
         details.splice(idx, 1);
       }
     } else if (delta.quantityDelta > 0) {
-      details.push({
+      const incoming: BatchDetail = {
         batchId: delta.batchId,
         batchNumber: delta.batchNumber,
         quantity: delta.quantityDelta,
@@ -167,7 +193,9 @@ export class TankBatchService {
             ? (Math.max(0, delta.biomassDelta) * 1000) / delta.quantityDelta
             : 0),
         percentageOfTank: 0,
-      });
+      };
+      carryWeightStamps(incoming, delta.weightStamps);
+      details.push(incoming);
     } else if (delta.quantityDelta < 0) {
       // Removing from a batch that is not in this tank is an overdraft by
       // definition — the old silent no-op hid mis-attributed removals.
@@ -193,8 +221,14 @@ export class TankBatchService {
     // ALWAYS persist batchDetails[] (the SSoT) — including single-batch and
     // emptied tanks — so no downstream read or mutation loses the per-batch truth.
     tankBatch.batchDetails = details;
-    tankBatch.primaryBatchId = details[0]?.batchId;
-    tankBatch.primaryBatchNumber = details[0]?.batchNumber;
+    // An emptied tank names no batch. `null`, not `undefined`: TypeORM's UPDATE
+    // skips an undefined property, so the row kept the departed batch as its
+    // primary, and every reader that takes the primary as membership (the unit
+    // lock, the weighing path, the equipment resolver, protocol assignment) saw
+    // that batch in a tank with no fish (FARM-CRITICAL-454 verification).
+    const primary = details.length > 0 ? details[0]! : null;
+    tankBatch.primaryBatchId = primary === null ? null : primary.batchId;
+    tankBatch.primaryBatchNumber = primary === null ? null : primary.batchNumber;
 
     // A1 mirror retirement (ORPHAN-HIGH-353 step 2): the currentQuantity COUNT
     // mirror is no longer written — every count read was collapsed onto the

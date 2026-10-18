@@ -16,7 +16,9 @@ import {
   projectPersistedReadings,
   type EventId,
   type PersistedReadingMetric,
+  type SensorReadingEvent,
 } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, EntityManager, In } from 'typeorm';
 
 /**
@@ -187,35 +189,29 @@ interface TenantEdgeStatusPayload {
 }
 
 /**
- * Marks a failure of the DURABLE leg of message handling (the metric write
- * transaction). Only these propagate out of handleMessage: an unpersisted
- * reading must not be PUBACKed — the MQTT ack gate force-redelivers it from
- * the persistent session. Non-durable failures (parse, fan-out) stay
- * swallow-and-ack until the Task 1.6 disposition/DLQ contract classifies
- * them (SENSOR-CRITICAL-086).
+ * Marks a failure of the DURABLE leg of message handling: resolving the
+ * reading's sensor, then the one tenant transaction that writes the metric
+ * rows AND enqueues the reading's SensorReading into the transactional
+ * outbox. Only these propagate out of handleMessage: a reading whose rows or
+ * dispatch obligation did not commit must not be PUBACKed — the MQTT ack gate
+ * force-redelivers it from the persistent session (SENSOR-CRITICAL-086,
+ * SENSOR-CRITICAL-190, SENSOR-CRITICAL-191). A failed lookup belongs here, not
+ * with "no sensor": a PostgreSQL failover reaches the per-message sensor
+ * reload before it reaches the write. The fan-out itself is no longer a
+ * failure mode here: the outbox relay publishes the committed row. Parse
+ * failures stay ack-and-drop until the Task 1.6 disposition/DLQ contract
+ * classifies them (SENSOR-HIGH-093).
+ *
+ * Because every throw inside the leg holds PUBACK and reconnects the ONE
+ * shared MQTT connection, the code that runs there on device-controlled input
+ * is total: it never throws on a payload's shape (the identity digest hashes
+ * the wire bytes, an unparseable ts falls back to the receive time, and a
+ * non-scalar channel value is skipped).
  */
 class DurableWriteError extends Error {}
 
-/**
- * Stable, key-sorted JSON rendering so the same logical payload always
- * hashes to the same digest (Task 1.4 seed input).
- */
-function canonicalJson(value: unknown): string {
-  if (value === null || typeof value !== 'object') {
-    return JSON.stringify(value) ?? 'null';
-  }
-  if (Array.isArray(value)) {
-    return `[${value.map(canonicalJson).join(',')}]`;
-  }
-  const entries = Object.entries(value as Record<string, unknown>)
-    .filter(([, v]) => v !== undefined)
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`);
-  return `{${entries.join(',')}}`;
-}
-
-function sha256Hex(text: string): string {
-  return createHash('sha256').update(text, 'utf8').digest('hex');
+function sha256Hex(bytes: Buffer): string {
+  return createHash('sha256').update(bytes).digest('hex');
 }
 
 /**
@@ -228,7 +224,8 @@ function sha256Hex(text: string): string {
 @Injectable()
 export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MqttListenerService.name);
-  private readonly messageHandler: (topic: string, message: Buffer) => void;
+  // Promise-typed on purpose: the ack gate settles PUBACK on this promise.
+  private readonly messageHandler: (topic: string, message: Buffer) => Promise<void>;
 
   // Channel lookup cache: sensorId -> { channels, expiresAt }
   private readonly channelCache = new Map<
@@ -236,6 +233,11 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     { channels: SensorDataChannel[]; expiresAt: number }
   >();
   private readonly CHANNEL_CACHE_TTL_MS = 60_000; // 60 seconds
+
+  // When each sensor channel ("sensorId:channelId") last warned that a
+  // non-scalar value was skipped: one warn line an hour, not one per message.
+  private readonly nonScalarWarnedAt = new Map<string, number>();
+  private readonly NON_SCALAR_WARN_INTERVAL_MS = 3_600_000;
 
   // Cache for device lookups (tenantId:deviceCode -> device entity)
   private readonly deviceCache = new Map<string, { device: EdgeDevice; expiry: number }>();
@@ -264,6 +266,13 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly metricWriter: SensorMetricWriterService,
+    // SENSOR-CRITICAL-191: the reading's SensorReading is enqueued in the SAME
+    // tenant transaction as its metric rows, and the outbox relay owns the
+    // NATS delivery — the one post-commit delivery owner sensor-service has
+    // (SENSOR-CRITICAL-001). Required, never optional: without it there is no
+    // durable dispatch and the ack gate would release PUBACK for an event
+    // nothing will retry.
+    private readonly outboxPublisher: OutboxPublisher,
     @Optional()
     @Inject('EVENT_BUS')
     private readonly eventBus: IEventBus | null,
@@ -320,27 +329,35 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     @Inject(VfdEdgeReadService)
     private readonly vfdEdgeReadService: VfdEdgeReadService | null = null,
     // Task 1.8: erased-tenant tombstone — trailing optional so the
-    // `new`-based unit-test harness (positional args) stays untouched.
+    // `new`-based unit-test harness (positional args) stays untouched. The
+    // explicit token is load-bearing: a `T | null` parameter is emitted as
+    // `Object` in design:paramtypes, so without it Nest resolved no provider,
+    // @Optional() passed undefined, and the gate was null in every boot.
     @Optional()
+    @Inject(ErasedTenantTombstoneService)
     private readonly tombstone: ErasedTenantTombstoneService | null = null,
   ) {
     // Legacy edge/ topic flag (default: true for backward compatibility)
     this.legacyEdgeTopicsEnabled =
       this.configService.get('LEGACY_EDGE_TOPICS_ENABLED', 'true') === 'true';
 
-    // Bind message handler to this instance. The promise is RETURNED, not
-    // swallowed: MqttClientService's ack gate (dispatchDurable) awaits it to
-    // decide PUBACK-vs-redelivery (SENSOR-CRITICAL-086). A swallowed error
-    // here would ack a message that was never durably persisted.
-    this.messageHandler = (topic: string, message: Buffer) => {
+    // Bind message handler to this instance. The promise is RETURNED and a
+    // rejection is RETHROWN after it is counted: MqttClientService's ack gate
+    // (dispatchDurable) awaits this promise to decide PUBACK-vs-redelivery
+    // (SENSOR-CRITICAL-086). A `.catch` that only counts turns the rejection
+    // into a resolved promise, and the gate then acks a reading that was never
+    // persisted (SENSOR-CRITICAL-190).
+    this.messageHandler = (topic: string, message: Buffer): Promise<void> => {
       this.mqttClient?.recordMessageReceived();
-      return this.handleMessage(topic, message)
-        .then(() => {
+      return this.handleMessage(topic, message).then(
+        () => {
           this.mqttClient?.recordMessageProcessed();
-        })
-        .catch(() => {
+        },
+        (error: unknown) => {
           this.mqttClient?.recordMessageFailed();
-        });
+          throw error;
+        },
+      );
     };
   }
 
@@ -506,16 +523,6 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
-      // Task 1.8 (erasure tombstone): an erased tenant's late messages are
-      // ACK-dropped — persisting them would recreate the just-erased
-      // schema's data and enqueue a fresh outbox row (Swiss-cheese erasure).
-      if (this.tombstone?.isErased(sensor.tenantId)) {
-        this.logger.warn(
-          `ACK-drop for erased tenant on topic ${topic} — message discarded without persistence`,
-        );
-        return;
-      }
-
       // Parse message payload
       const data = this.parsePayload(payload, sensor);
 
@@ -524,14 +531,20 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
-      const now = new Date();
+      const receivedAt = new Date();
+      // Task 1.4 identity, from the raw wire bytes: a redelivery of the SAME
+      // wire message derives the same eventId, which the outbox's
+      // (tenantId, idempotencyKey) index collapses onto the row already
+      // committed.
+      const eventId = this.deriveLegacyReadingEventId(sensor, data, message, receivedAt);
 
-      // Save reading. A failure here means the reading was NOT durably
-      // persisted — it must propagate (wrapped in DurableWriteError) so the
-      // MQTT ack gate holds PUBACK and the persistent session redelivers
-      // (SENSOR-CRITICAL-086). Everything else in this handler stays
-      // swallow-and-ack until the Task 1.6 disposition/DLQ contract lands.
-      const persistedMetrics = await this.saveReading(sensor, data).catch((error: Error) => {
+      // Save the reading AND its dispatch obligation in one tenant
+      // transaction. A failure here means the rows or the SensorReading's
+      // outbox row did NOT commit — it must propagate (wrapped in
+      // DurableWriteError) so the MQTT ack gate holds PUBACK and the
+      // persistent session redelivers (SENSOR-CRITICAL-086/-191). Once this
+      // returns, both are durable and the outbox relay owns the publish.
+      await this.saveReading(sensor, data, eventId, receivedAt).catch((error: Error) => {
         throw new DurableWriteError(
           `Durable metric write failed for sensor ${sensor.id}: ${error.message}`,
         );
@@ -539,12 +552,6 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
       // Debounce lastSeenAt update (flushed every 30 seconds)
       this.lastSeenPending.set(sensor.id, sensor.tenantId);
-
-      // Publish real-time event for WebSocket clients, projected from the rows
-      // saveReading persisted (SENSOR-CRITICAL-111). `data` is passed on only
-      // as the identity input: a redelivery of the SAME wire message must keep
-      // collapsing onto one eventId.
-      await this.publishSensorReadingEvent(sensor, persistedMetrics, data, now);
     } catch (error) {
       if (error instanceof DurableWriteError) {
         // Not durable → no ack → redelivery. The ack gate in
@@ -1810,20 +1817,18 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   // ==================== Sensor Reading Events ====================
 
   /**
-   * Publish sensor reading event for real-time updates
+   * The SensorReading for the rows saveReading is writing, or null when none
+   * of them is in the reading vocabulary. Pure: the caller enqueues it in the
+   * same transaction as the rows, and the outbox relay publishes it.
    */
-  private async publishSensorReadingEvent(
+  private buildSensorReadingEvent(
     sensor: Sensor,
     persisted: readonly PersistedReadingMetric[],
-    identity: Record<string, unknown>,
+    eventId: EventId,
     timestamp: Date,
-  ): Promise<void> {
-    if (!this.eventBus) {
-      return;
-    }
-
-    // SENSOR-CRITICAL-111: the event body comes from the rows saveReading just
-    // wrote, never from the wire payload. That is what makes the published
+  ): SensorReadingEvent | null {
+    // SENSOR-CRITICAL-111: the event body comes from the rows saveReading
+    // writes, never from the wire payload. That is what makes the published
     // value the CALIBRATED one and carries the farm/pond/tank the alert
     // engine's rule query fails closed without.
     const projection = projectPersistedReadings(persisted);
@@ -1833,74 +1838,76 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       // as "nothing is wrong" and auto-resolves open INFO/LOW incidents as
       // "returned to normal". The metrics are persisted either way.
       this.logger.debug(
-        `Sensor ${sensor.id}: ${persisted.length} metric(s) stored, none in the reading vocabulary — no SensorReading published`,
+        `Sensor ${sensor.id}: ${persisted.length} metric(s) stored, none in the reading vocabulary — no SensorReading enqueued`,
       );
-      return;
+      return null;
     }
 
     const siteId = siteOfSensor(sensor);
-    try {
-      await this.eventBus.publish({
-        ...createBaseEvent('SensorReading', sensor.tenantId, {
-          aggregateId: sensor.id,
-          aggregateType: 'Sensor',
-          // Task 1.4 legacy-path identity: UUIDv5 over tenant + sensor +
-          // producer ts + canonical payload digest, so a re-emission of the
-          // SAME reading (e.g. after the MQTT ack gate redelivers and the
-          // row already upserted) collapses onto one eventId instead of
-          // double-firing downstream effects. The EDGE-assigned
-          // sourceEventId (Task 1.7) is the durable long-term answer; this
-          // fallback binds to the payload's own ts when present.
-          eventId: this.deriveLegacyReadingEventId(sensor, identity, timestamp),
-        }),
-        eventType: 'SensorReading' as const,
-        timestamp: timestamp.toISOString(),
-        sensorId: sensor.id,
-        ...projection.fields,
-        ...(projection.farmId !== undefined ? { farmId: projection.farmId } : {}),
-        ...(projection.pondId !== undefined ? { pondId: projection.pondId } : {}),
-        ...(projection.tankId !== undefined ? { tankId: projection.tankId } : {}),
-        ...(projection.parameter !== undefined ? { parameter: projection.parameter } : {}),
-        // The sensor's site: alert-engine places the alarm a rule raises from
-        // this reading on it (ALERT-MEDIUM-010), a UUID or nothing
-        // (ALERT-MEDIUM-013).
-        ...(siteId !== undefined ? { siteId } : {}),
-      });
-      this.logger.debug(`Published SensorReading event for sensor ${sensor.id}`);
-    } catch (error) {
-      this.logger.warn(`Failed to publish sensor reading event: ${(error as Error).message}`);
-    }
+    return {
+      ...createBaseEvent<SensorReadingEvent>('SensorReading', sensor.tenantId, {
+        aggregateId: sensor.id,
+        aggregateType: 'Sensor',
+        // Task 1.4 legacy-path identity (deriveLegacyReadingEventId): a
+        // re-emission of the SAME reading collapses onto one eventId — and,
+        // as the outbox idempotency key, onto one outbox row.
+        eventId,
+      }),
+      eventType: 'SensorReading',
+      timestamp: timestamp.toISOString(),
+      sensorId: sensor.id,
+      ...projection.fields,
+      ...(projection.farmId !== undefined ? { farmId: projection.farmId } : {}),
+      ...(projection.pondId !== undefined ? { pondId: projection.pondId } : {}),
+      ...(projection.tankId !== undefined ? { tankId: projection.tankId } : {}),
+      ...(projection.parameter !== undefined ? { parameter: projection.parameter } : {}),
+      // The sensor's site: alert-engine places the alarm a rule raises from
+      // this reading on it (ALERT-MEDIUM-010), a UUID or nothing
+      // (ALERT-MEDIUM-013).
+      ...(siteId !== undefined ? { siteId } : {}),
+    };
   }
 
   /**
    * Deterministic identity for the legacy MQTT path (plan Task 1.4):
-   * tenant + sensor + producer timestamp + payload SHA-256. The producer
-   * ts prefers the payload's own `ts`/`timestamp`/`producerTs` field; the
-   * receive time is the fallback (documented limitation: a redelivered
-   * legacy payload without its own ts gets a fresh receive-time identity —
-   * the edge-assigned sourceEventId removes that ambiguity).
+   * tenant + sensor + producer timestamp + SHA-256 of the wire bytes. The
+   * producer ts prefers the payload's own `ts`/`timestamp`/`producerTs`
+   * field; the receive time is the fallback (documented limitation: a
+   * redelivered legacy payload without a usable ts of its own gets a fresh
+   * receive-time identity — the edge-assigned sourceEventId removes that
+   * ambiguity, SENSOR-MEDIUM-195).
+   *
+   * Total over any payload: the caller derives it before the durable leg,
+   * and nothing here can throw on a payload's shape.
    */
   private deriveLegacyReadingEventId(
     sensor: Sensor,
     data: Record<string, unknown>,
+    wire: Buffer,
     receivedAt: Date,
   ): EventId {
     const producerTs = this.extractProducerTs(data) ?? receivedAt.toISOString();
-    const payloadSha = sha256Hex(canonicalJson(data));
+    // The digest is over the bytes the broker delivered, not a re-rendering
+    // of the parsed payload: a redelivery repeats those bytes exactly, and
+    // hashing them cannot throw. The recursive canonical rendering this
+    // replaces overflowed the stack on a deeply nested payload.
+    const payloadSha = sha256Hex(wire);
     return deriveEventId([sensor.tenantId, sensor.id, producerTs, payloadSha].join('\u0000'));
   }
 
+  /** The payload's own timestamp as ISO-8601, or null when it has none a Date can hold. */
   private extractProducerTs(data: Record<string, unknown>): string | null {
     for (const key of ['ts', 'timestamp', 'producerTs']) {
       const raw = data[key];
-      if (typeof raw === 'number' && Number.isFinite(raw)) {
-        return new Date(raw).toISOString();
+      if (typeof raw !== 'number' && (typeof raw !== 'string' || raw.length === 0)) {
+        continue;
       }
-      if (typeof raw === 'string' && raw.length > 0) {
-        const parsed = new Date(raw);
-        if (!Number.isNaN(parsed.getTime())) {
-          return parsed.toISOString();
-        }
+      // A number outside +/-8.64e15 ms (a nanosecond epoch, say) is as
+      // unusable as an unparseable string: the Date is invalid, and
+      // toISOString() would throw RangeError on it.
+      const parsed = new Date(raw);
+      if (!Number.isNaN(parsed.getTime())) {
+        return parsed.toISOString();
       }
     }
     return null;
@@ -1915,37 +1922,82 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
    * and the pool is deny-by-default outside a tenant context, so a reload with
    * only search_path pinned sees zero rows (SENSOR-HIGH-137 — every MQTT
    * reading was dropped at debug level from 2026-09-19 23:55Z).
+   *
+   * null means the lookup FOUND no sensor, or found one whose tenant is
+   * erased or gone; the gate then acks and drops the reading. A lookup that
+   * FAILED rejects with DurableWriteError instead: the reading was never
+   * persisted, so the ack gate must hold PUBACK (SENSOR-CRITICAL-190) — the
+   * reload runs on every message, so a PostgreSQL failover fails here before
+   * it reaches the write. The resolver's own swallow-and-negative-cache of a
+   * per-tenant read error is SENSOR-HIGH-196; a reload that fails the same
+   * way on every attempt for a LIVE tenant is SENSOR-HIGH-197.
    */
   private async findSensorByTopic(topic: string): Promise<Sensor | null> {
-    try {
-      const cachedInfo = await this.sensorTopicCache.getSensorByTopic(topic);
-      if (!cachedInfo) {
-        return null;
-      }
+    const lookupFailed = (error: unknown): never => {
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new DurableWriteError(`Sensor lookup failed for topic ${topic}: ${reason}`);
+    };
 
-      const sensor = await runInTenantRead(
+    const cachedInfo = await this.sensorTopicCache.getSensorByTopic(topic).catch(lookupFailed);
+    if (!cachedInfo) {
+      return null;
+    }
+
+    // Task 1.8 (erasure tombstone), asked of the mapping before anything
+    // reads the tenant's schema: an erased tenant's late messages are
+    // ACK-dropped. Persisting them would recreate the just-erased data and
+    // enqueue a fresh outbox row (Swiss-cheese erasure), and once the erasure
+    // has dropped the schema a reload could only fail.
+    if (this.tombstone?.isErased(cachedInfo.tenantId)) {
+      this.logger.warn(
+        `ACK-drop for erased tenant on topic ${topic} — message discarded without persistence`,
+      );
+      return null;
+    }
+
+    let sensor: Sensor | null;
+    try {
+      sensor = await runInTenantRead(
         this.dataSource,
         SENSOR_SOURCE_SCHEMA,
         cachedInfo.tenantId,
         (qr) => tenantManagerRepo(qr.manager, Sensor).findOne({ where: { id: cachedInfo.id } }),
       );
-
-      if (!sensor) {
-        // The resolver named a sensor its own tenant cannot read back: a stale
-        // cache entry (sensor deleted) or a broken read boundary. Either way
-        // readings are being lost, so this is an error, not a debug line —
-        // and the stale mapping is evicted so the next message re-resolves.
-        this.logger.error(
-          `Topic ${topic} resolved to sensor ${cachedInfo.id} (tenant ${cachedInfo.tenantId}) ` +
-            'but the tenant-scoped reload returned no row — reading dropped, topic mapping evicted',
-        );
-        await this.sensorTopicCache.invalidateSensor(cachedInfo.id, cachedInfo.tenantId);
+    } catch (reloadError) {
+      // A mapping outlives its tenant: one cached before db-migrate's delete
+      // job (deprovision or erasure) dropped the schema keeps resolving for
+      // up to an hour, and every reload through it fails the tenant boundary
+      // (SCHEMA_MISMATCH). Holding PUBACK on that would reconnect-loop the
+      // one shared connection for every tenant and can never succeed, so a
+      // failed reload of a tenant the platform no longer lists as active is
+      // "found nothing": its mappings are evicted and the reading dropped. A
+      // live tenant's failed reload, or one whose liveness cannot be read,
+      // stays a lookup failure and is redelivered.
+      const tenantGone = await this.sensorTopicCache
+        .evictIfTenantInactive(cachedInfo.tenantId)
+        .catch(() => lookupFailed(reloadError));
+      if (!tenantGone) {
+        return lookupFailed(reloadError);
       }
-      return sensor;
-    } catch (error) {
-      this.logger.error(`Error in sensor lookup for topic ${topic}: ${(error as Error).message}`);
+      this.logger.warn(
+        `Topic ${topic} maps to tenant ${cachedInfo.tenantId}, which is no longer active — ` +
+          "reading dropped, the tenant's topic mappings evicted",
+      );
       return null;
     }
+
+    if (!sensor) {
+      // The resolver named a sensor its own tenant cannot read back: a stale
+      // cache entry (sensor deleted) or a broken read boundary. Either way
+      // readings are being lost, so this is an error, not a debug line —
+      // and the stale mapping is evicted so the next message re-resolves.
+      this.logger.error(
+        `Topic ${topic} resolved to sensor ${cachedInfo.id} (tenant ${cachedInfo.tenantId}) ` +
+          'but the tenant-scoped reload returned no row — reading dropped, topic mapping evicted',
+      );
+      await this.sensorTopicCache.invalidateSensor(cachedInfo.id, cachedInfo.tenantId);
+    }
+    return sensor;
   }
 
   /**
@@ -1993,19 +2045,47 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Save sensor reading to database using narrow table format
-   * Each channel value becomes a separate row in sensor_metrics
+   * Make a skipped non-scalar channel value visible. Before the durable leg
+   * was made total, String() coerced a one-element array such as [23.5] to
+   * "23.5" and the reading was stored; now the channel is skipped, and a
+   * device that sends that shape would lose every reading with no other
+   * signal than a debug "Saved 0 metrics". Names the dataPath remedy, and
+   * never renders the value (a deep one is what made String() throw).
+   */
+  private warnNonScalarChannel(sensor: Sensor, channel: SensorDataChannel): void {
+    const key = `${sensor.id}:${channel.id}`;
+    const now = Date.now();
+    const lastWarnedAt = this.nonScalarWarnedAt.get(key);
+    if (lastWarnedAt !== undefined && now - lastWarnedAt < this.NON_SCALAR_WARN_INTERVAL_MS) {
+      return;
+    }
+    this.nonScalarWarnedAt.set(key, now);
+    const path = channel.dataPath || channel.channelKey;
+    this.logger.warn(
+      `Sensor ${sensor.id} channel ${channel.channelKey}: non-scalar value (array or object) ` +
+        `skipped, no reading stored. If the number is inside it, point the channel at it, ` +
+        `e.g. dataPath "${path}[0]". Repeats are not logged for an hour.`,
+    );
+  }
+
+  /**
+   * Save a sensor reading in narrow table format (each channel value becomes
+   * one sensor_metrics row) AND enqueue its SensorReading into the
+   * transactional outbox, in ONE tenant transaction: both commit or neither
+   * (SENSOR-CRITICAL-191). When this resolves the reading and its dispatch
+   * obligation are durable, which is what lets the ack gate release PUBACK.
    */
   private async saveReading(
     sensor: Sensor,
     data: Record<string, unknown>,
-  ): Promise<PersistedReadingMetric[]> {
-    return runInTenantTransaction(
+    eventId: EventId,
+    receivedAt: Date,
+  ): Promise<void> {
+    await runInTenantTransaction(
       this.dataSource,
       SENSOR_SOURCE_SCHEMA,
       sensor.tenantId,
       async (queryRunner) => {
-        const now = new Date();
         const channels = await this.getChannelsCached(sensor.id, queryRunner.manager);
         const metrics: SensorMetricInput[] = [];
         // SENSOR-CRITICAL-111: the reading event is projected from these rows,
@@ -2022,8 +2102,20 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
             continue;
           }
 
+          // Only a number or a numeric string is a reading. String() of an
+          // array or object recurses through the device's nesting and threw
+          // RangeError on a deep one, inside this transaction; a non-scalar
+          // value is skipped like a non-finite one, and the skip is logged.
+          if (typeof rawValue === 'object') {
+            this.warnNonScalarChannel(sensor, channel);
+            continue;
+          }
           const numericRawValue =
-            typeof rawValue === 'number' ? rawValue : parseFloat(String(rawValue));
+            typeof rawValue === 'number'
+              ? rawValue
+              : typeof rawValue === 'string'
+                ? parseFloat(rawValue)
+                : Number.NaN;
           if (!Number.isFinite(numericRawValue)) {
             continue;
           }
@@ -2041,7 +2133,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
           }
 
           metrics.push({
-            time: now,
+            time: receivedAt,
             sensorId: sensor.id,
             channelId: channel.id,
             tenantId: sensor.tenantId,
@@ -2057,7 +2149,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
             qualityCode,
             qualityBits,
             sourceProtocol: 'mqtt',
-            sourceTimestamp: now,
+            sourceTimestamp: receivedAt,
           });
 
           persisted.push({
@@ -2073,8 +2165,18 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
           await this.metricWriter.writeManaged(metrics, queryRunner.manager);
         }
 
+        // The eventId is the outbox idempotency key: a redelivery of the SAME
+        // wire message carries the same one and collapses onto the row
+        // already committed.
+        const event = this.buildSensorReadingEvent(sensor, persisted, eventId, receivedAt);
+        if (event) {
+          await this.outboxPublisher.enqueue(event, queryRunner.manager, {
+            idempotencyKey: event.eventId,
+            aggregateId: sensor.id,
+          });
+        }
+
         this.logger.debug(`Saved ${metrics.length} metrics for sensor ${sensor.id}`);
-        return persisted;
       },
     );
   }

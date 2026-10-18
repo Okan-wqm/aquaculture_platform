@@ -1337,7 +1337,7 @@ export class DailyFeedingExecutionService {
       biomassKg: Number(tankBatch.totalBiomassKg) || 0,
       waterTempC: temperatureResult.value,
       usingDefaultTemperature: temperatureResult.isDefault,
-      batchId: tankBatch.primaryBatchId,
+      batchId: tankBatch.primaryBatchId ?? undefined,
     };
   }
 

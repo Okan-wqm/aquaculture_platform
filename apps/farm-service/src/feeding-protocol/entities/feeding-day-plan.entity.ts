@@ -145,6 +145,8 @@ export interface RecalcLogEntry {
     | 'pour_correction'
     /** Operatörün `transitionUnitFeed` ile yaptığı manuel yem geçişi. */
     | 'manual_transition'
+    /** A weighing re-based the unit's weight (FARM-CRITICAL-454). */
+    | 'growth_sample'
     /**
      * Kaçırılan/atlanan öğünün kg'ının bir KISMININ kalan öğünlere
      * dağıtılması (W5, kullanıcı kararı 3). Varsayılan yüzde 0'dır: kaçan

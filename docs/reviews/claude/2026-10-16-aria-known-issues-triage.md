@@ -2363,3 +2363,20 @@ changes what each envelope asks, beyond moving its pointer.
 Re-checked on the integrated head `dc6376f13`: the five envelopes still set a non-repository
 allowed_scope (`plan-convergence/<id>`, `cycle/<id>`, `convergent/<seed>`), and
 validate_agent_response_evidence still refuses a ref outside it.
+
+### ARIA-LOW-615 — The changed-file type check drops declarations a tsconfig includes from elsewhere
+
+Full title: The changed-file type check carries only the .d.ts files inside a project's directory,
+so a declaration the project's tsconfig includes from elsewhere is dropped and the pre-push check
+type-checks a different program than tsc -p.
+
+- Evidence: `scripts/ci/type-check-changed-files.mjs` `declarationFilesFor` walked only the project
+  directory, while `tools/aria-adapters/tsconfig.json:14` (and `tools/gates/tsconfig.json`) include
+  `tests/invariants/js-yaml.d.ts`.
+- Found when pushing the wave-B integration. `tsc -p tools/aria-adapters/tsconfig.json` passed. The
+  pre-push check failed with TS7016 for `js-yaml` at
+  `tools/aria-adapters/workflow-shell-safety-adapter.ts:68` and
+  `tools/gates/workflow-input-injection.ts:40`.
+- Fixed on `fix/aria-known-issues-wave-b`: `declarationFilesFor` also carries every `.d.ts` in the
+  project's parsed file list (`ts.getParsedCommandLineOfConfigFile`). A tsconfig that cannot be read
+  fails loudly.

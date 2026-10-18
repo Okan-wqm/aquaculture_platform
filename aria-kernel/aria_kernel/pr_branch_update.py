@@ -56,6 +56,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 from .own_pr_delivery import CI_GREEN, aria_opened_prs, ci_summary
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
 
@@ -185,7 +186,7 @@ def _candidate(live: dict[str, Any] | None) -> tuple[str | None, str]:
     if ci["state"] != CI_GREEN:
         return None, f"head_checks_not_green:{ci['state']}"
     head = str(live.get("headRefOid") or "")
-    if re.fullmatch(r"[0-9a-f]{40}", head) is None:
+    if not is_object_id(head, formats=ANY_OBJECT_FORMAT):
         return None, "head_sha_unreadable"
     return head, ""
 
@@ -232,7 +233,7 @@ def _read_back_head(
         except (OSError, subprocess.SubprocessError):
             return None
         head = (read.stdout or "").strip()
-        if read.returncode == 0 and re.fullmatch(r"[0-9a-f]{40}", head) and head != previous_head:
+        if read.returncode == 0 and is_object_id(head, formats=ANY_OBJECT_FORMAT) and head != previous_head:
             return head
         if attempt + 1 < RESULT_READ_BACK_ATTEMPTS:
             pause(RESULT_READ_BACK_INTERVAL_SECONDS)

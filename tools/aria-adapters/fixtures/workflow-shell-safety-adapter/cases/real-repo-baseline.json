@@ -1,0 +1,34 @@
+{
+  "name": "real-repo-baseline",
+  "lane": "real_repo_baseline",
+  "input": {
+    "roots": [
+      ".github",
+      ".husky",
+      "scripts",
+      "tools",
+      "infra",
+      "infrastructure",
+      "platform",
+      "libs",
+      "sens-api-gateway",
+      "apps/sensor-ingestion",
+      "crates",
+      "sensorprotocols"
+    ]
+  },
+  "expected": {
+    "status": "ok",
+    "required_observations": ["workflow_shell_summary", "workflow_shell_file"],
+    "required_observation_values": [
+      {
+        "type": "workflow_shell_summary",
+        "details.parse_failures": 0,
+        "details.clean": true,
+        "details.authorities_complete": true
+      }
+    ],
+    "forbidden_findings": ["unpinned_action", "untrusted_workflow_interpolation"],
+    "max_findings": 12
+  }
+}

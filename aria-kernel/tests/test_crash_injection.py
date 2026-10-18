@@ -59,6 +59,7 @@ class CrashResidueTests(unittest.TestCase):
             title="crash residue",
             next_action="close F-1",
             wake_condition={"kind": "evidence", "key": "finding:F-1"},
+            evidence_refs=["apps/farm-service/src/f1.ts"],
             base_dir=self.tools,
         )["mission_id"]
         self._advance("CONTRACTING", "s1")
@@ -121,6 +122,7 @@ class CrashResidueTests(unittest.TestCase):
             title="bystander",
             next_action="triage p-2",
             wake_condition={"kind": "evidence", "key": "pressure:p-2"},
+            evidence_refs=["apps/farm-service/src/p2.ts"],
             base_dir=self.tools,
         )["mission_id"]
         self.events.write_text(self.events.read_text() + TORN_RECORD, encoding="utf-8")
@@ -204,6 +206,7 @@ class CrashSubprocessTests(unittest.TestCase):
                 title="killed",
                 next_action="close F-kill",
                 wake_condition={"kind": "evidence", "key": "finding:F-kill"},
+                evidence_refs=["apps/farm-service/src/kill.ts"],
                 base_dir=tools,
             )["mission_id"]
 

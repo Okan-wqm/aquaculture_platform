@@ -336,6 +336,10 @@ def cycle_service_examination(
             "source": pressure.get("source"),
             "severity": pressure.get("severity"),
             "affected_services": services,
+            # ARIA-HIGH-245 — the refs that scoped the pressure here travel
+            # with it: the service seeder records the ones in its project as
+            # the mission's evidence, which a summary without them could not.
+            "evidence": evidence,
         }
         if services:
             for service in services:

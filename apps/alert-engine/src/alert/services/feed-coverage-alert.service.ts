@@ -25,6 +25,7 @@ import type {
 
 import { AlertSeverity } from '../../database/entities/alert-rule.entity';
 import { AlertHistory } from '../entities/alert-history.entity';
+import { farmOrigin, siteOfScopeKey } from './alert-origin';
 import { FarmSignalIncidentService } from './farm-signal-incident.service';
 
 /**
@@ -75,6 +76,8 @@ export class FeedCoverageAlertService {
         ruleId,
         ruleName,
         tenantId: event.tenantId,
+        // A site's stock pool names the site; the tenant-wide pool none.
+        ...farmOrigin(siteOfScopeKey(event.siteScopeKey)),
         severity,
         message,
         triggeringData: {
@@ -128,6 +131,8 @@ export class FeedCoverageAlertService {
         ruleId,
         ruleName,
         tenantId: event.tenantId,
+        // A site's stock pool names the site; the tenant-wide pool none.
+        ...farmOrigin(siteOfScopeKey(event.siteScopeKey)),
         severity: AlertSeverity.WARNING,
         message,
         triggeringData: {

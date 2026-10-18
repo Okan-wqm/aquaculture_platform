@@ -1,6 +1,11 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 
-import { Batch, BatchStatus, BatchType } from '../entities/batch.entity';
+import {
+  Batch,
+  BatchStatus,
+  BatchType,
+  OPERATIONAL_BATCH_STATUSES,
+} from '../entities/batch.entity';
 
 import { BatchLifecyclePolicyService } from './batch-lifecycle-policy.service';
 
@@ -141,14 +146,13 @@ export class BatchDomainService {
     return this.lifecyclePolicy.canTransitionStatus(batch.status, newStatus);
   }
 
-  /** Is the batch in an active production state? */
+  /**
+   * Is the batch in an active production state? The set is
+   * OPERATIONAL_BATCH_STATUSES, which the 18:00 FCR sweep binds too, so a
+   * batch that can be fed is exactly a batch whose FCR is watched.
+   */
   isOperational(batch: Batch): boolean {
-    return [
-      BatchStatus.ACTIVE,
-      BatchStatus.GROWING,
-      BatchStatus.PRE_HARVEST,
-      BatchStatus.HARVESTING,
-    ].includes(batch.status);
+    return OPERATIONAL_BATCH_STATUSES.includes(batch.status);
   }
 
   isCleanerFishBatch(batch: Batch): boolean {

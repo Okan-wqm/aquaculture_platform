@@ -95,6 +95,7 @@ ATTRIBUTABLE_GATE_CODES: frozenset[str] = CROSS_REVIEW_REASON_CODES | frozenset(
 KERNEL_FORCED_CODES: frozenset[str] = frozenset({
     ENVELOPE_DEAD, "max_rounds_reached", "unresolved_material_risk", "implementation_delivery_exhausted",
     "cross_review_self_agreement", "implementation_envelope_no_writable_scope",
+    "implementation_envelope_unbound_plan", "implementation_envelope_body_unprovable",
 })
 #: Result rejection codes that are the kernel's own judgement of its own
 #: artefacts, never the agent's work.

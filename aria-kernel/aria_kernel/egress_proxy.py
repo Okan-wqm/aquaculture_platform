@@ -31,8 +31,9 @@ Both are served by the kernel process that builds the room
 service an operator must install and keep in step: a room cannot be built
 without its listener, and every allowlist is reviewed kernel code.
 
-Standard library only — a decision here must be readable by an operator in
-one screen.
+Standard library only (its socket directory is the stdlib-only
+``socket_holders.EGRESS_PROXY``) — a decision here must be readable by an
+operator in one screen.
 """
 from __future__ import annotations
 
@@ -40,19 +41,17 @@ import asyncio
 import atexit
 import json
 import os
-import re
 import shutil
-import socket
 import sys
-import tempfile
 import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Mapping
+from typing import Awaitable, Callable, Mapping
 
 from .provider_gateway import MAX_HEAD_BYTES as GATEWAY_MAX_HEAD_BYTES, ProviderGateway
-from .provider_routes import GATEWAY, ROOM_ROUTE_KEYS, TUNNEL, route as provider_route, tunnel_allowlist
+from .provider_routes import GATEWAY, TUNNEL, route as provider_route, tunnel_allowlist
+from .socket_holders import EGRESS_PROXY as _SOCKET_HOLDER
 
 MAX_HEADER_BYTES = 8192
 CONNECT_TIMEOUT_SECONDS = 20.0
@@ -60,13 +59,6 @@ IDLE_TIMEOUT_SECONDS = 600.0
 
 _UNIX_SOCKET_PATH_MAX = 107
 _START_TIMEOUT_SECONDS = 10.0
-# The kernel's socket directory, named like the other holders' (hook broker
-# `aria-hb-`, MCP broker `aria-mb-`, signing agent `aria-sa-`) so the
-# orchestrator's startup sweep can tell a killed process's directory by name.
-# One socket per room route, named by the route's key.
-_SOCKET_DIR_PREFIX = "aria-ep-"
-_SOCKET_NAMES: frozenset[str] = frozenset(ROOM_ROUTE_KEYS)
-_SOCKET_DIR_RE = re.compile(r"^aria-ep-[A-Za-z0-9_]{8}$")
 
 
 class EgressProxyUnavailable(RuntimeError):
@@ -307,59 +299,22 @@ def kernel_egress_sockets() -> dict[str, Path]:
     One set per process (a forked child starts its own): every room the
     process builds is handed the same sockets, so the argv the containment
     probe proves is the argv a spawn gets. They live in a private 0700
-    directory removed at exit; a room reaches its route's socket through its
-    bind alone. A process killed outright never reaches its exit; its
-    directory is the orchestrator's startup sweep's
-    (:func:`prune_stale_egress_proxies`).
+    directory removed at exit, one socket per room route named by the
+    route's key (``socket_holders.EGRESS_PROXY.socket_names``); a room
+    reaches its route's socket through its bind alone. A process killed
+    outright never reaches its exit; its directory is the orchestrator's
+    startup sweep's (:func:`socket_holders.prune_stale_holder_sockets`,
+    ARIA-LOW-565, over the ``socket_holders.EGRESS_PROXY`` declaration).
     """
     with _KERNEL_PROXY_LOCK:
         if _KERNEL_PROXY and _KERNEL_PROXY[0].serving():
             return {path.name: path for path in _KERNEL_PROXY[0].listeners}
-        directory = Path(tempfile.mkdtemp(prefix=_SOCKET_DIR_PREFIX))
+        directory = _SOCKET_HOLDER.make_directory()
         try:
-            proxy = ProxyThread({directory / key: _route_handler(key) for key in ROOM_ROUTE_KEYS}).start()
+            proxy = ProxyThread({directory / key: _route_handler(key) for key in _SOCKET_HOLDER.socket_names}).start()
         except EgressProxyUnavailable:
             shutil.rmtree(directory, ignore_errors=True)
             raise
         atexit.register(shutil.rmtree, directory, True)
         _KERNEL_PROXY[:] = [proxy]
         return {path.name: path for path in proxy.listeners}
-
-
-def _proxy_answers(socket_path: Path) -> bool:
-    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    try:
-        client.settimeout(1.0)
-        client.connect(str(socket_path))
-        return True
-    except OSError:
-        return False
-    finally:
-        client.close()
-
-
-def prune_stale_egress_proxies(*, temp_root: str | Path | None = None) -> dict[str, Any]:
-    """Remove the socket directories of kernel listeners that no longer answer
-    (a process killed outright never reached its ``atexit``). A directory one
-    of whose sockets still answers belongs to a live process and is left
-    alone; one holding anything but the route sockets is not ours to remove."""
-    root = Path(temp_root) if temp_root is not None else Path(tempfile.gettempdir())
-    swept: list[str] = []
-    live: list[str] = []
-    errors: list[str] = []
-    for entry in sorted(root.glob(f"{_SOCKET_DIR_PREFIX}*")):
-        if not entry.is_dir() or not _SOCKET_DIR_RE.match(entry.name):
-            continue
-        sockets = [entry / name for name in sorted(_SOCKET_NAMES)]
-        if any(path.is_socket() and _proxy_answers(path) for path in sockets):
-            live.append(entry.name)
-            continue
-        try:
-            if any(child.name not in _SOCKET_NAMES for child in entry.iterdir()):
-                continue
-            shutil.rmtree(entry)
-        except OSError as exc:
-            errors.append(f"{entry.name}:{type(exc).__name__}")
-        else:
-            swept.append(entry.name)
-    return {"scanned": len(swept) + len(live) + len(errors), "swept": swept, "live": live, "errors": errors}

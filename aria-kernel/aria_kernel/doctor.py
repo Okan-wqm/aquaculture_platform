@@ -57,6 +57,7 @@ def claude_cli_version_floor(repo_root: str | Path | None = None) -> str:
     return floor.strip()
 
 CHECK_STATUSES: tuple[str, ...] = ("ok", "warn", "fail")
+DOCTOR_REPORT_SCHEMA_VERSION = 1
 DOCTOR_EXIT_HEALTHY = 0
 DOCTOR_EXIT_UNHEALTHY = 3
 
@@ -102,7 +103,7 @@ class DoctorReport:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema_version": 1,
+            "schema_version": DOCTOR_REPORT_SCHEMA_VERSION,
             "healthy": self.healthy,
             "exit_code": self.exit_code,
             "tools_dir": self.tools_dir,
@@ -113,6 +114,27 @@ class DoctorReport:
             },
             "checks": [asdict(check) for check in self.checks],
         }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "DoctorReport":
+        """The report ``to_dict`` wrote, read back whole (ARIA-LOW-559).
+
+        The lane's self-improve step reads the report its doctor step wrote
+        instead of running every organ a second time. Strict: another schema
+        or a status outside ``CHECK_STATUSES`` is refused by name, and a
+        missing key raises — a report this module did not write is not one.
+        """
+        if data.get("schema_version") != DOCTOR_REPORT_SCHEMA_VERSION:
+            raise GovernanceError(f"doctor_report_schema_unsupported:{data.get('schema_version')!r}")
+        checks: list[DoctorCheck] = []
+        for row in data["checks"]:
+            if row["status"] not in CHECK_STATUSES:
+                raise GovernanceError(f"doctor_report_check_status_unknown:{row['name']}:{row['status']!r}")
+            checks.append(DoctorCheck(
+                name=row["name"], status=row["status"], reason=row["reason"], detail=dict(row["detail"]),
+                causes=tuple(DoctorCause(key=cause["key"], summary=cause["summary"]) for cause in row["causes"]),
+            ))
+        return cls(checks=tuple(checks), tools_dir=data["tools_dir"], workspace_root=data["workspace_root"])
 
 
 def _version_tuple(text: str) -> tuple[int, ...]:
@@ -141,15 +163,17 @@ def _guarded(name: str, probe: Callable[[], DoctorCheck]) -> DoctorCheck:
 def _check_integrity(tools_dir: Path, workspace_root: Path) -> DoctorCheck:
     from .integrity import verify_integrity
 
+    # ARIA-MEDIUM-120 — the count is the verdict's own (`issue_count`, the
+    # list `status` was decided on), the number `integrity verify` prints in
+    # the lanes. It used to be summed here from a key the verdict never wrote
+    # plus the tools sub-list, so a store failing only on runtime artifacts
+    # read `integrity_drift:0_issues`.
     result = verify_integrity(base_dir=tools_dir, workspace_root=workspace_root)
-    issues = list(result.get("issues") or [])
-    tools_issues = list((result.get("tools") or {}).get("issues") or [])
-    total = len(issues) + len(tools_issues)
-    if result.get("valid") is True:
-        return DoctorCheck("integrity", "ok", detail={"ledger_count": result.get("ledger_count")})
+    if result["valid"] is True:
+        return DoctorCheck("integrity", "ok", detail={"ledger_count": result["ledger_count"]})
     return DoctorCheck(
-        "integrity", "fail", f"integrity_drift:{total}_issues",
-        detail={"status": result.get("status"), "issue_count": total},
+        "integrity", "fail", f"integrity_drift:{result['issue_count']}_issues",
+        detail={"status": result["status"], "issue_count": result["issue_count"], "issue_codes": result["issue_codes"]},
     )
 
 
@@ -542,12 +566,16 @@ def _failed_cycle_causes(failed_cycles: tuple[dict[str, Any], ...]) -> tuple[Doc
 
 
 def _check_orchestrator(tools_dir: Path) -> DoctorCheck:
-    """A streak of ``cycle_failed`` exits is a FAULT, not a series of bad
-    nights. The orchestrator fails closed on a failed cycle — nothing behind
-    it (planner dispatch, the convergence drainer) runs — so a store whose
-    last runs all died that way has not planned anything, whatever the other
-    organs say. Four such runs in a row on the live store (2026-08-21 →
-    2026-09-04) read as healthy here before this organ existed.
+    """A streak of failed exits is a FAULT, not a series of bad nights. The
+    orchestrator fails closed on a failed cycle — nothing behind it (planner
+    dispatch, the convergence drainer) runs — and on a bridge left
+    unreplayed — nothing behind the bridge runs — so a store whose last runs
+    all died that way has not planned anything, whatever the other organs
+    say. Four such runs in a row on the live store (2026-08-21 → 2026-09-04)
+    read as healthy here before this organ existed. Which exits are failed is
+    `orchestrator_exit_history.FAILED_EXIT_REASONS`, the set the run's own
+    ``exits_clean`` is computed from (ARIA-MEDIUM-548); the WARN names the
+    newest exit's reason.
 
     A FAIL names its causes (`_failed_cycle_causes`), so a streak with a new
     cause is a new repair mission and the same cause on later nights is not."""
@@ -558,11 +586,11 @@ def _check_orchestrator(tools_dir: Path) -> DoctorCheck:
     if streak.all_failed:
         return DoctorCheck(
             "orchestrator", "fail",
-            f"orchestrator_exits_all_cycle_failed:{len(streak.exits)}", detail,
+            f"orchestrator_exits_all_failed:{len(streak.exits)}", detail,
             _failed_cycle_causes(streak.failed_cycles),
         )
     if streak.last_failed:
-        return DoctorCheck("orchestrator", "warn", "last_orchestrator_exit_cycle_failed", detail)
+        return DoctorCheck("orchestrator", "warn", f"last_orchestrator_exit_failed:{streak.exits[0]['exit_reason']}", detail)
     if len(streak.exits) < 2:
         return DoctorCheck("orchestrator", "ok", "insufficient_history", detail)
     return DoctorCheck("orchestrator", "ok", "", detail)

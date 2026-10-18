@@ -58,7 +58,10 @@ the request worktree:
    contract used to ask the AGENT to run (a Python function it cannot
    execute) and that no production path ran on a diff, so a committed
    secret reached GitHub; refused ``result_admissible:diff_secret_shaped``
-   by name before the suite, the push and the PR;
+   by name before the suite, the push and the PR — after 1b decided the
+   envelope too, whose codes the refusal carries when the verdict refused
+   it as well (ARIA-LOW-575), so a credential echoed into the envelope or
+   transcript is withheld like 1b's own;
 1b. the RESULT's admissibility (round 5): the kernel's own decision on the
    envelope — ``agent_invocations.judge_claim_submission``, the ONE chain
    ``submit_claim_result`` applies (the schema and the matrix against the
@@ -398,7 +401,9 @@ class ImplementationDeliveryRefusal(Exception):
 
     ``rejection_codes`` are the codes of the kernel's own verdict on the
     envelope when the refusal IS that verdict (``result_admissible``,
-    ``result_rejected``), and empty for every other refusal.
+    ``result_rejected``) or when the patch's secret scan refused
+    (``diff_secret_shaped``) and the verdict refused the envelope too
+    (ARIA-LOW-575), and empty for every other refusal.
     """
 
     def __init__(self, stage: str, reason: str, *, rejection_codes: Sequence[str] = ()) -> None:
@@ -892,10 +897,11 @@ def deliver_implementation(
     #     pushed. A secret-shaped string in the commit is the REQUEST's:
     #     refused here by name, before the suite runs, escalated, nothing
     #     pushed. Counts only — the scanner never names the value.
+    diff_secret: SecretLeakDetected | None = None
     try:
         verify_no_secret_in_diff(diff.stdout)
     except SecretLeakDetected as exc:
-        raise ImplementationDeliveryRefusal(RESULT_ADMISSIBLE_STAGE, f"diff_secret_shaped:{str(exc)[:300]}") from exc
+        diff_secret = exc
 
     # 1b. The result's admissibility (round 5): the submit's decision, in
     #     process, on the envelope the executor will submit, with the
@@ -904,6 +910,15 @@ def deliver_implementation(
     #     reach (its probes did not answer) is the host's, refused at the
     #     admission stage so the executor releases it harness-class like
     #     the submit would.
+    #
+    #     ARIA-LOW-575 — decided whatever 1a found: both precede the suite,
+    #     the push and the PR. 1a's refusal keeps its name and precedence,
+    #     and carries the verdict's codes when the verdict refused the
+    #     envelope too, so a credential the agent also echoed into its
+    #     envelope or transcript is withheld by the submit
+    #     (``ImplementationDeliveryRefusal.withholds_output``). 1a used to
+    #     raise before the verdict existed, and such bytes stayed under
+    #     outputs/ with no withheld row.
     try:
         judgment = judge_claim_submission(
             root=Path(base_dir), claim_id=claim_id, agent_id=agent_id,
@@ -915,7 +930,17 @@ def deliver_implementation(
             transcript=read_submission_transcript(transcript_path) if transcript_path is not None else None,
         )
     except GovernanceErrorType as exc:
+        if diff_secret is not None:
+            raise ImplementationDeliveryRefusal(
+                RESULT_ADMISSIBLE_STAGE, f"diff_secret_shaped:{str(diff_secret)[:300]}",
+            ) from diff_secret
         raise ImplementationDeliveryRefusal(RESULT_ADMISSIBLE_STAGE, f"judgment_refused:{str(exc)[:300]}") from exc
+    if diff_secret is not None:
+        refused_too = not judgment.admitted and not judgment.undecided
+        raise ImplementationDeliveryRefusal(
+            RESULT_ADMISSIBLE_STAGE, f"diff_secret_shaped:{str(diff_secret)[:300]}",
+            rejection_codes=judgment.rejection_codes if refused_too else (),
+        ) from diff_secret
     if judgment.undecided:
         raise ImplementationDeliveryRefusal(
             ADMISSION_STAGE, f"evidence_verification_unavailable:{','.join(judgment.rejection_codes)}",

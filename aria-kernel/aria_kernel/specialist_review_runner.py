@@ -435,6 +435,7 @@ def _specialist_plan_context(
     import json as _json
 
     from .plan_convergence import affected_surface_paths, plan_body_from_state, plan_status
+    from .pressure_evidence import split_citable_refs
     from .state_store import _git
     from .tool_registry import GovernanceError, ensure_tools_binding
 
@@ -449,7 +450,9 @@ def _specialist_plan_context(
     target_sha = _git(workspace, "rev-parse", "--verify", "HEAD^{commit}").strip()
     context = {
         "allowed_scope": paths,
-        "evidence_refs": list(content.get("evidence_refs") or []),
+        # ARIA-MEDIUM-385 — the plan's refs the agent law admits by shape;
+        # the whole body rides in the prompt below.
+        "evidence_refs": split_citable_refs(content.get("evidence_refs") or [])[0],
         "plan_revision_hash": body["content_hash"],
         "target_sha": target_sha,
         "context_repo_root": workspace,
@@ -516,9 +519,12 @@ def run_specialist_review_runner(
             profile=profile,
         )
 
+    # ARIA-MEDIUM-385 — the cycle rides on the request's cycle_id (as the
+    # plan context below carries it), never as an evidence ref the
+    # specialist would cite and the submit law refuse.
     request_context: dict[str, Any] = {
         "allowed_scope": [f"cycle/{cycle_id}"],
-        "evidence_refs": [f"cycle:{cycle_id}"],
+        "cycle_id": cycle_id,
     }
     plan_prompt = ""
     if workspace_root is not None:

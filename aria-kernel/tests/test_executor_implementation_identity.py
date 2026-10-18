@@ -99,6 +99,7 @@ from tests._helpers.declared_fixtures import segmented_ledger_bytes  # noqa: E40
 from tests._helpers.git_fixtures import _git, make_repo_with_initial_commit  # noqa: E402
 from tests._helpers.installation_credential import INSTALLATION_TOKEN  # noqa: E402
 from tests._helpers.production_shaped import production_staged_implementation_request  # noqa: E402
+from tests._helpers.sandbox_pins import require_sandbox_backend  # noqa: E402
 
 SOURCE = "apps/farm-service/src/sample-interval.ts"
 PLAN_ID = "plan-aria-high-115"
@@ -495,11 +496,9 @@ def completed_stderr_index(test: "ExecutorImplementationIdentityTests", stage: s
 class ExecutorImplementationIdentityTests(unittest.TestCase):
     def setUp(self) -> None:
         from aria_kernel import agent_invocations as ai
-        from aria_kernel.implementation_safety import sandbox_backend
         from aria_kernel.tool_registry import ensure_tools_binding
 
-        if sandbox_backend() is None:
-            self.skipTest("bwrap is not usable on this host; the executor refuses to claim here")
+        require_sandbox_backend()
         scratch = tempfile.TemporaryDirectory(prefix="aria-115-identity-")
         self.addCleanup(scratch.cleanup)
         self.root = Path(scratch.name).resolve()

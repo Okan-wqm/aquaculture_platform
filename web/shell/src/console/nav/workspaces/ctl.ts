@@ -12,6 +12,7 @@ import { FARM_OPERATION_PAGES as OPS } from '../pages/farmOperations';
 import { FARM_SETUP_PAGES as SETUP } from '../pages/farmSetup';
 import { FINANCE_PAGES } from '../pages/finance';
 import { SENSOR_PAGES as SNS } from '../pages/sensor';
+import { SHELL_PAGES } from '../pages/shell';
 import type { WorkspaceDef } from '../types';
 
 import { financeArea, moduleOverviewArea, teamArea } from './shared';
@@ -23,7 +24,7 @@ export const CTL_WORKSPACE: WorkspaceDef = {
   accentToken: '--color-sd-ws-ctl',
   module: 'sensor',
   areas: [
-    moduleOverviewArea('ctl-home'),
+    moduleOverviewArea('ctl-home', SHELL_PAGES.controlDashboard),
     {
       id: 'ctl-control',
       labelKey: 'nav.area.scadaDevices',

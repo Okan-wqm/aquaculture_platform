@@ -65,6 +65,7 @@ from .ledger import (
     load_declared_jsonl,
 )
 from .ledger_refs import find_row_by_source_ledger_ref
+from .operator_provenance import require_approval_scope
 from .merge_record import attested_plan_lineages, fold_lineage, lineage_credits_aria
 from .runtime_profile import enforce_profile_for_write
 from .tool_registry import (
@@ -462,6 +463,9 @@ def _validate_real_eval_provenance(
         expected_row_type="operator_approval",
     )
     _require_operator_approval_future(operator)
+    # ARIA-MEDIUM-512 — the approval backs only the agent it names; the
+    # rule's owner is operator_provenance.
+    require_approval_scope(operator, target_agent=target_agent)
     find_row_by_source_ledger_ref(
         root,
         context_ledger_ref or {},

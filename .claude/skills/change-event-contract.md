@@ -31,7 +31,7 @@ For simple optional-additive changes, use `add-entity-field` skill Step 6.
 
 - The event interface is declared via the `createBaseEvent<T>()` factory with a branded `EventId` (per ADR-006).
 - The producer service is identified (one of `farm-service`, `sensor-service`, `hr-service`, `messaging-service`, `billing-service`, `alert-engine`, `auth-service`, `admin-api-service`, `ai-service`, `hydroponics-service`, `notification-service`).
-- Consumers have been enumerated via `tools/ripple-tracer/` — NOT via grep of TypeScript symbols (grep misses wildcard subscriptions like `AQUACULTURE_EVENTS.Sensor.>`; ripple-tracer reads `infrastructure/nats/services.yaml` SSoT per ADR-015).
+- Consumers have been enumerated via `tools/ripple-tracer/` — NOT via grep of TypeScript symbols (grep misses subscriptions whose event type is a constant, a loop variable or a mapped list). The tracer's `consumers` are `eventConsumersFor` (`tools/gates/event-consumer-index.ts`), the set the plan-coverage witness also uses: every subscription site the type checker resolves to the event, durable JetStream consumers included, united with the `infrastructure/nats/services.yaml` grants that name it (ADR-015).
 
 ## Cascade
 
@@ -63,11 +63,11 @@ For simple optional-additive changes, use `add-entity-field` skill Step 6.
 
 **Affected files:** (none — analysis + output captured in implementation-planner package).
 
-**Mechanism:** invoke `tools/ripple-tracer/cli.ts --event <EventType>`. Output is a list of (service, subscription-subject, filter-pattern, consumer-file-path) tuples covering EVERY subscriber whose NATS filter matches the event's subject. This list is the authoritative consumer set for the dual-publish protocol.
+**Mechanism:** invoke `npm run ripple -- --event <EventType>` (`--format json` for machine output). Its `consumers` list is the authoritative consumer set for the dual-publish protocol: one row per application with its sources (`code_subscription`, `acl_grant`), the subscription sites as `path:line`, and the grant naming the event when one exists. A catch-all grant (`events.>`) is listed apart as a permission, not a consumer. An `unresolved` site is a subscription whose event type the scan cannot resolve; read it before dispatching.
 
-**Why:** grep of TS symbols misses wildcard subscriptions (`AQUACULTURE_EVENTS.Sensor.>`) and NATS filter patterns. Per ADR-015 + ADR-017-draft, `services.yaml` is the SSoT — the tracer reads it.
+**Why:** a durable JetStream consumer receives through `$JS.API.CONSUMER.>` and its inbox, so its `services.yaml` grants never name the event it consumes (ARIA-HIGH-313); the ACL alone missed most consumers. The code is the owner of what each service consumes; `services.yaml` (ADR-015) still supplies the producers and the grants of non-TypeScript consumers.
 
-**Verification:** package body includes the consumer-file list verbatim.
+**Verification:** package body includes the consumer rows (application and `path:line` sites) verbatim.
 
 **Cross-domain notifications:** one dispatch target per consumer service.
 

@@ -545,6 +545,51 @@ class TestV9ImplementerPromptCommandsAreDecidedByThePolicy(unittest.TestCase):
         self.assertEqual(self._verdict("git branch aria-impl-0123abcd"), ("miss", ""))
 
 
+class TestV9ImplementerContractStatesTheBashShape(unittest.TestCase):
+    """ARIA-LOW-561 — the contract tells the agent what one Bash call may be.
+
+    The hook refuses a pipe, a redirect, a chain, a substitution and an
+    unquoted expansion (`verify_bash_command_allowed`), and programs outside
+    the allow list (`cat`, `grep`, `sed`, ...). The contract said none of it,
+    so habitual `2>&1 | tail` validation runs were refused turn after turn
+    (6 `shell_control_operator` and many allowlist misses among 137 hook
+    decisions on aria/state). The section's examples are judged here by the
+    hook itself, so the prose cannot claim a verdict the gate does not give.
+    """
+
+    _SECTION = re.compile(r"^## Bash Command Shape\n(?P<body>.*?)(?=^## )", re.S | re.M)
+    _EXAMPLES = re.compile(r"```text\n(?P<lines>.*?)```", re.S)
+
+    def _section(self) -> str:
+        found = self._SECTION.search(_SHARED_CONTRACT_FILE.read_text(encoding="utf-8"))
+        self.assertIsNotNone(found, "the shared contract has no '## Bash Command Shape' section")
+        return found.group("body")
+
+    def test_the_section_names_every_refusal_class_of_the_gate(self) -> None:
+        source = (_REPO_ROOT / "aria-kernel" / "aria_kernel" / "implementation_safety.py").read_text(encoding="utf-8")
+        classes = set(re.findall(r'raise BashDenylistHit\(\s*f"(\w+_in_command):', source))
+        self.assertEqual(classes, {"shell_control_operator_in_command", "shell_substitution_in_command",
+                                   "shell_expansion_in_command"})
+        section = self._section()
+        for name in sorted(classes | {"BashAllowlistMiss"}):
+            with self.subTest(refusal=name):
+                self.assertIn(name, section)
+
+    def test_every_example_is_judged_by_the_hook_as_the_section_says(self) -> None:
+        from aria_kernel.hooks import decide_pre_tool
+
+        block = self._EXAMPLES.search(self._section())
+        self.assertIsNotNone(block, "the section carries its examples in a ```text block")
+        examples = [line.split(": ", 1) for line in block.group("lines").splitlines() if line.strip()]
+        self.assertIn("2>&1 | tail", " ".join(command for _, command in examples))
+        for verdict, command in examples:
+            with self.subTest(command=command):
+                self.assertIn(verdict, ("refused", "admitted"))
+                decided = decide_pre_tool({"tool_name": "Bash", "tool_input": {"command": command}},
+                                          workspace_root=_REPO_ROOT)
+                self.assertEqual(decided.decision, "deny" if verdict == "refused" else "allow", decided.reason)
+
+
 class TestV9ImplementerRunnerSelectionIsDerived(unittest.TestCase):
     """I-V9-IMPL-03 (ORPHAN-HIGH-728) — the agent above only ever runs if a
     runner selects it, and that selection must READ the profile table rather

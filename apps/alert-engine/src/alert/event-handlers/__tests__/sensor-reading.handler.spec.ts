@@ -239,12 +239,9 @@ describe('SensorReadingEventHandler', () => {
     it('should call alertEvaluationService.evaluateSensorReading inside context', async () => {
       const handler = createHandler();
 
+      const siteId = '0a0a0a0a-0000-4000-8000-00000000000a';
       await handler.handle({
-        eventId: 'evt-7',
-        eventType: 'SensorReading',
-        timestamp: new Date(),
-        tenantId: TEST_TENANT_ID,
-        sensorId: 'sensor-1',
+        ...sensorReadingEvent({ eventId: 'evt-7' }),
         // Readings are flat event fields (mapped via the PARAMETER_BY_READING_FIELD
         // SSoT), not a nested object — the flat-event contract per ADR-006. The
         // handler's extractor rebuilds the { temperature, ph } map the evaluation
@@ -253,7 +250,8 @@ describe('SensorReadingEventHandler', () => {
         readingPh: 7.2,
         farmId: 'farm-1',
         pondId: 'pond-1',
-      } as any);
+        siteId,
+      });
 
       expect(mockEvaluationService.evaluateSensorReading).toHaveBeenCalledTimes(1);
       expect(mockEvaluationService.evaluateSensorReading).toHaveBeenCalledWith(
@@ -263,6 +261,8 @@ describe('SensorReadingEventHandler', () => {
           readings: { temperature: 25, ph: 7.2 },
           farmId: 'farm-1',
           pondId: 'pond-1',
+          // The sensor's site reaches the alarm (ALERT-MEDIUM-010).
+          siteId,
         }),
       );
     });

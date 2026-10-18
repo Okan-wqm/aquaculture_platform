@@ -17,14 +17,25 @@ WHAT. `read_orchestrator_exit_streak` returns the last ``window`` exits
 (newest first), the failed cycles those exits COVER with their recorded
 cause, and the ``mission_candidate_refused`` histogram of those cycles. The
 doctor's ``orchestrator`` check reads this and nothing else: two or more
-exits that are ALL ``cycle_failed`` is a FAIL naming the causes; a newest
-exit of ``cycle_failed`` is otherwise a WARN (one bad night is weather, a
-streak is a fault); fewer than two exits with the newest clean is "ok —
+exits that are ALL failed (``FAILED_EXIT_REASONS``) is a FAIL naming the
+causes; a failed newest exit is otherwise a WARN (one bad night is weather,
+a streak is a fault); fewer than two exits with the newest clean is "ok —
 insufficient_history".
 
+THE EXIT VOCABULARY (ARIA-MEDIUM-548). This module owns it and the
+orchestrator writes it from here: the exit row's kind, the failed exits,
+and the bridge gate's phase names. A failed exit is one the orchestrator
+fails closed on — ``cycle_failed`` (the cycle's own verdict) or
+``bridge_replay_required`` (the bridge left work unreplayed under a strict
+profile). Each sends the cycle-failed notice, returns ``exits_clean=False``
+and counts no completed cycle for the cycle it ended on; the doctor reads
+the same set, so a night cannot be failed on one account and clean on
+another. The doctor used to read ``cycle_failed`` alone, from a copy of
+the literal, and a bridge night read clean here.
+
 WHICH CYCLES AN EXIT COVERS. One orchestrator run can complete several
-cycles before it exits (``max_cycles``), and a run that dies ``cycle_failed``
-reports ``cycles_completed: 0`` although its failed cycle DID write a
+cycles before it exits (``max_cycles``), and a run that dies on a failed
+exit reports ``cycles_completed: 0`` although its failed cycle DID write a
 ``cycle_completed`` row — so neither "the last ``window`` cycle rows" nor
 "the exits' ``cycles_completed`` summed" is the set of cycles the windowed
 exits cover; the first revision used the former and, with a three-cycle run
@@ -62,7 +73,14 @@ from .tool_registry import parse_utc_stamp
 
 EXIT_KIND = "autonomy_orchestrator_exit"
 REFUSAL_KIND = "mission_candidate_refused"
-CYCLE_FAILED = "cycle_failed"
+EXIT_CYCLE_FAILED = "cycle_failed"
+EXIT_BRIDGE_REPLAY_REQUIRED = "bridge_replay_required"
+FAILED_EXIT_REASONS: frozenset[str] = frozenset({EXIT_CYCLE_FAILED, EXIT_BRIDGE_REPLAY_REQUIRED})
+# The bridge gate's two names: the ``autonomy_state`` phase it transitions to
+# (status ``failed``), and the phase its failed-phase row names on the
+# cycle's summary, the night's summary and the doctor's cause key.
+BRIDGE_REPLAY_PHASE = EXIT_BRIDGE_REPLAY_REQUIRED
+BRIDGE_FAILED_PHASE = "bridge"
 DEFAULT_EXIT_WINDOW = 3
 # How many refusal rows to read back for the histogram. A refusal claim is
 # disclosed once (single digits on the live store across three weeks), so
@@ -81,12 +99,12 @@ class OrchestratorExitStreak:
     @property
     def all_failed(self) -> bool:
         return len(self.exits) >= 2 and all(
-            exit_row["exit_reason"] == CYCLE_FAILED for exit_row in self.exits
+            exit_row["exit_reason"] in FAILED_EXIT_REASONS for exit_row in self.exits
         )
 
     @property
     def last_failed(self) -> bool:
-        return bool(self.exits) and self.exits[0]["exit_reason"] == CYCLE_FAILED
+        return bool(self.exits) and self.exits[0]["exit_reason"] in FAILED_EXIT_REASONS
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -145,12 +163,26 @@ def _stamp(raw: Any) -> datetime | None:
     return parse_utc_stamp(raw) if isinstance(raw, str) else None
 
 
+def bridge_replay_reason(bridge_status: Any, pending_after: Any) -> str:
+    """The bridge gate's failure text: the cycle-failed notice's reason and the
+    error its failed-phase row carries, so both name the gate the same way."""
+    return f"bridge_status={bridge_status} pending_after={pending_after}"
+
+
 def _failed_cycles(
     root: Path, newest_exit_at: datetime | None, previous_exit_at: datetime | None,
 ) -> list[dict[str, Any]]:
-    """The non-ok ``cycle_completed`` rows recorded in
-    ``(previous_exit_at, newest_exit_at]``, newest first, each reduced to the
-    cause the orchestrator recorded for it. No exit → no covered cycles."""
+    """The failed verdicts recorded in ``(previous_exit_at, newest_exit_at]``,
+    newest first, each reduced to the cause the orchestrator recorded for it.
+    No exit → no covered cycles.
+
+    A verdict is a non-ok ``cycle_completed`` row (the cycle's own) or a
+    ``BRIDGE_REPLAY_PHASE`` row (the bridge gate, ARIA-MEDIUM-548): its cause
+    is the ``BRIDGE_FAILED_PHASE`` row the orchestrator names on the
+    summaries. A bridge night's own ``cycle_completed`` row is ``ok``, so
+    without it the streak of such nights had no recorded cause. A cycle a
+    continuing run recorded failed AND then failed the bridge on is listed
+    once per verdict."""
     if newest_exit_at is None:
         return []
     path = autonomy_state_path(root)
@@ -159,18 +191,27 @@ def _failed_cycles(
     rows = load_declared_jsonl(path, expected_surface="autonomy_state")
     causes: list[dict[str, Any]] = []
     for row in reversed(rows):
-        # ARIA-HIGH-098 — a ``degraded`` cycle completed and never causes a
-        # ``cycle_failed`` exit; listing it among the causes of one would
-        # name a tool as the reason a night died when the night lived. The
-        # doctor's ``tools`` organ is where a degraded tool is reported.
-        if row.get("phase") != "cycle_completed" or row.get("status") in {"ok", "degraded"}:
+        details = row.get("details") or {}
+        if row.get("phase") == "cycle_completed":
+            # ARIA-HIGH-098 — a ``degraded`` cycle completed and never causes
+            # a failed exit; listing it among the causes of one would name a
+            # tool as the reason a night died when the night lived. The
+            # doctor's ``tools`` organ is where a degraded tool is reported.
+            if row.get("status") in {"ok", "degraded"}:
+                continue
+            summary = details.get("summary") or {}
+        elif row.get("phase") == BRIDGE_REPLAY_PHASE:
+            summary = {"failed_phases": [{
+                "phase": BRIDGE_FAILED_PHASE,
+                "error": bridge_replay_reason(details.get("bridge_status"), details.get("pending_after")),
+            }]}
+        else:
             continue
         recorded_at = _stamp(row.get("recorded_at"))
         if recorded_at is None or recorded_at > newest_exit_at:
             continue
         if previous_exit_at is not None and recorded_at <= previous_exit_at:
             continue
-        summary = (row.get("details") or {}).get("summary") or {}
         integrity = summary.get("artifact_integrity") or {}
         causes.append({
             "cycle_id": row.get("cycle_id"),
@@ -196,9 +237,14 @@ def _failed_cycles(
 
 
 __all__ = [
-    "CYCLE_FAILED",
+    "BRIDGE_FAILED_PHASE",
+    "BRIDGE_REPLAY_PHASE",
     "DEFAULT_EXIT_WINDOW",
+    "EXIT_BRIDGE_REPLAY_REQUIRED",
+    "EXIT_CYCLE_FAILED",
     "EXIT_KIND",
+    "FAILED_EXIT_REASONS",
     "OrchestratorExitStreak",
+    "bridge_replay_reason",
     "read_orchestrator_exit_streak",
 ]

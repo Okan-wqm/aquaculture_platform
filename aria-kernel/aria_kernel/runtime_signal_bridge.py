@@ -16,18 +16,29 @@ signal into operator pressure that points ARIA's normal repo-evidence machinery
 at that area. The signal decides *where to look*; the repo evidence still decides
 *what is true*. A finding born from investigating a runtime lead must still pass
 the same evidence-verification gate as any other.
+
+ARIA-MEDIUM-271 — a runtime observation is an append-only event bound to the
+code it concerns. The bridge used to keep one JSON file per signal and
+rewrite it on resolve and on quarantine; a signal that recurred after it was
+resolved hashed to the same file and was dropped, and the files were no
+declared state surface, so no publish ever carried them. Every lifecycle
+step is now an event on one declared ledger
+(``runtime-signals/events.jsonl``): ``observed`` (each sighting, refs and
+text as they arrived), ``resolved`` and ``quarantined`` (closing events that
+never touch the observation). :func:`fold_runtime_signals` derives a
+signal's state from them, so a sighting after a close opens a new episode,
+and repeated sightings while open are counted (``occurrence_count``).
 """
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .ledger import atomic_write_json
-from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
+from .ledger import LedgerIntegrityError, load_declared_jsonl, state_transaction
+from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
 
 
 RUNTIME_SIGNAL_SOURCES = {"sentry", "incident", "prod_log", "telemetry", "operator", "external_scanner"}
@@ -135,12 +146,40 @@ def _bounded_text(field: str, value: Any, limit: int, *, allow_newlines: bool) -
     return text
 
 
-def _signals_dir(tools_root: Path) -> Path:
-    return tools_root / "runtime-signals"
+RUNTIME_SIGNAL_EVENTS_SURFACE = "runtime_signal_events"
+RUNTIME_SIGNAL_EVENT_SCHEMA = "aria/runtime-signal-event/v1"
+OBSERVED_EVENT = "observed"
+RESOLVED_EVENT = "resolved"
+QUARANTINED_EVENT = "quarantined"
+# The status each event leaves a signal in.
+_STATUS_AFTER: dict[str, str] = {OBSERVED_EVENT: "open", RESOLVED_EVENT: "resolved", QUARANTINED_EVENT: "quarantined"}
+_OBSERVATION_FIELDS: tuple[str, ...] = (
+    "source", "service", "summary", "code_refs", "severity", "reported_severity", "trust_grade",
+)
+
+# ARIA-MEDIUM-271 — the signals a kernel-owned producer outside the cycle
+# raises, by name. The dataflow watchdog cannot write the store the cycle
+# reads (it runs in its own checkout, and the cycle owns the store's
+# publish), so it dispatches the cycle naming one of these and the cycle
+# ingests it into its own store before it runs. A name, not text: the
+# dispatch input is a closed vocabulary, and the summary stays the stable
+# text the signal id is derived from.
+STANDING_RUNTIME_SIGNALS: dict[str, dict[str, Any]] = {
+    "dataflow_integrity_critical": {
+        "source": "telemetry",
+        "service": "platform-edge",
+        "summary": "dataflow watchdog: critical probe failure",
+        "code_refs": ["tools/watchdog/probe-runner.mjs"],
+        "severity": "critical",
+    },
+}
 
 
-def _signal_path(tools_root: Path, signal_id: str) -> Path:
-    return _signals_dir(tools_root) / f"{signal_id}.json"
+def runtime_signal_events_path(tools_root: str | Path) -> Path:
+    """The one ledger every runtime-signal event lands on (a literal, so the
+    ledger-roster sweep sees this writer)."""
+    tools_root = Path(tools_root)
+    return tools_root / "runtime-signals" / "events.jsonl"
 
 
 def _derive_signal_id(source: str, service: str, summary: str, code_refs: list[str]) -> str:
@@ -148,6 +187,68 @@ def _derive_signal_id(source: str, service: str, summary: str, code_refs: list[s
         "|".join([source, service, summary, *sorted(code_refs)]).encode("utf-8")
     ).hexdigest()[:16]
     return f"runtime-{digest}"
+
+
+def fold_runtime_signals(events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Each signal's state from its events, in ledger order.
+
+    An ``observed`` event on a signal that is not open starts a new episode
+    (``episode``; ``recorded_at`` is when that episode was first seen); one on
+    an open signal counts another sighting (``occurrence_count``,
+    ``last_observed_at``). A closing event sets the status and its own
+    fields and leaves the observation as it was observed. A row that names no
+    known event or signal is not a signal (the ledger has one writer, this
+    module).
+    """
+    records: dict[str, dict[str, Any]] = {}
+    for event in events:
+        kind = event.get("event")
+        signal_id = event.get("signal_id")
+        if kind not in _STATUS_AFTER or not isinstance(signal_id, str):
+            continue
+        record = records.get(signal_id)
+        if kind == OBSERVED_EVENT:
+            if record is None or record["status"] != "open":
+                record = {
+                    "$schema": "aria/runtime-signal/v1", "schema_version": 1, "signal_id": signal_id,
+                    "episode": (record["episode"] + 1) if record is not None else 1,
+                    "recorded_at": event.get("recorded_at"), "occurrence_count": 0,
+                }
+            for field in _OBSERVATION_FIELDS:
+                if field in event:
+                    record[field] = event[field]
+                else:
+                    record.pop(field, None)
+            record["status"] = "open"
+            record["occurrence_count"] += 1
+            record["last_observed_at"] = event.get("recorded_at")
+            records[signal_id] = record
+            continue
+        if record is None:
+            continue
+        record = dict(record)
+        record["status"] = _STATUS_AFTER[kind]
+        if kind == RESOLVED_EVENT:
+            record["resolved_at"] = event.get("recorded_at")
+            record["resolution_note"] = event.get("resolution_note")
+        else:
+            record["quarantined_at"] = event.get("recorded_at")
+            record["quarantine_reason"] = event.get("reason")
+        records[signal_id] = record
+    return records
+
+
+def _load_events(root: Path, transaction: Any = None) -> list[dict[str, Any]]:
+    path = runtime_signal_events_path(root)
+    if not path.exists():
+        return []
+    if transaction is not None:
+        return transaction.load_declared_jsonl(path, expected_surface=RUNTIME_SIGNAL_EVENTS_SURFACE)
+    return load_declared_jsonl(path, expected_surface=RUNTIME_SIGNAL_EVENTS_SURFACE)
+
+
+def _stamp(now: datetime | None) -> str:
+    return (now or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def ingest_runtime_signal(
@@ -160,10 +261,12 @@ def ingest_runtime_signal(
     base_dir: str | Path | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    """Record an external runtime signal as an UNVERIFIED investigation lead.
+    """Record one sighting of an external runtime signal as an UNVERIFIED investigation lead.
 
-    Idempotent: a signal with the same (source, service, summary, code_refs)
-    returns the existing open record rather than duplicating it.
+    The same (source, service, summary, code_refs) is the same signal: a
+    sighting while it is open counts another occurrence, a sighting after it
+    was resolved or quarantined opens a new episode (ARIA-MEDIUM-271).
+    Returns the signal's folded record.
     """
     if source not in RUNTIME_SIGNAL_SOURCES:
         raise GovernanceError(f"unknown runtime signal source: {source!r}")
@@ -190,17 +293,10 @@ def ingest_runtime_signal(
 
     root = ensure_tools_dir(base_dir)
     signal_id = _derive_signal_id(source, service, summary, code_refs)
-    path = _signal_path(root, signal_id)
-    if path.exists():
-        try:
-            return json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            pass  # overwrite a corrupt record
-
-    ts = (now or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    record = {
-        "$schema": "aria/runtime-signal/v1",
+    event: dict[str, Any] = {
+        "$schema": RUNTIME_SIGNAL_EVENT_SCHEMA,
         "schema_version": 1,
+        "event": OBSERVED_EVENT,
         "signal_id": signal_id,
         "source": source,
         "service": service,
@@ -210,30 +306,48 @@ def ingest_runtime_signal(
         # NOT evidence. An explicit, non-repo_verified grade so no downstream
         # consumer can mistake a runtime lead for confirmed repo evidence.
         "trust_grade": RUNTIME_TRUST_GRADE,
-        "status": "open",
-        "recorded_at": ts,
+        "recorded_at": _stamp(now),
     }
     if reported_severity != severity:
-        record["reported_severity"] = reported_severity
+        event["reported_severity"] = reported_severity
+    path = runtime_signal_events_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    append_tools_governance(
-        root,
-        "runtime_signal_ingested",
-        {"signal_id": signal_id, "source": source, "service": service, "severity": severity},
+    with state_transaction([root / "governance.jsonl", path]) as txn:
+        events = _load_events(root, txn)
+        prior = fold_runtime_signals(events).get(signal_id)
+        txn.append_declared_jsonl(path, event, expected_surface=RUNTIME_SIGNAL_EVENTS_SURFACE)
+        if prior is None or prior["status"] != "open":
+            # A new episode is disclosed; a repeat sighting of an open signal
+            # is counted on its record, not announced again.
+            details = {"signal_id": signal_id, "source": source, "service": service, "severity": severity}
+            if prior is not None:
+                details["reopened_from"] = prior["status"]
+            append_tools_governance(root, "runtime_signal_ingested", details, transaction=txn)
+    return fold_runtime_signals([*events, event])[signal_id]
+
+
+def ingest_standing_runtime_signal(
+    *, name: str, base_dir: str | Path | None = None, now: datetime | None = None,
+) -> dict[str, Any]:
+    """Ingest the kernel-owned signal ``name`` names (:data:`STANDING_RUNTIME_SIGNALS`)."""
+    spec = STANDING_RUNTIME_SIGNALS.get(name) if isinstance(name, str) else None
+    if spec is None:
+        raise GovernanceError(f"runtime_signal_standing_unknown: {str(name)[:64]!r}")
+    return ingest_runtime_signal(
+        source=spec["source"], service=spec["service"], summary=spec["summary"],
+        code_refs=list(spec["code_refs"]), severity=spec["severity"], base_dir=base_dir, now=now,
     )
-    return record
 
 
 _SIGNAL_ID_RE = re.compile(r"^runtime-[0-9a-f]{16}$")
 _SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 
 
-def _record_path(root: Path, signal_id: Any) -> Path:
-    """The record path for ``signal_id``; refused unless it is a bridge-minted id (never a path)."""
+def _require_signal_id(signal_id: Any) -> str:
+    """``signal_id`` when it is a bridge-minted id, else a GovernanceError."""
     if not isinstance(signal_id, str) or not _SIGNAL_ID_RE.match(signal_id):
         raise GovernanceError(f"runtime_signal_id_invalid: {str(signal_id)[:80]!r}")
-    return _signal_path(root, signal_id)
+    return signal_id
 
 
 def _ref_law_refusal(doc: dict[str, Any]) -> tuple[list[str], str | None]:
@@ -256,38 +370,34 @@ def _ref_law_refusal(doc: dict[str, Any]) -> tuple[list[str], str | None]:
 def scan_open_runtime_signals(*, base_dir: str | Path | None = None) -> dict[str, list[dict[str, Any]]]:
     """Open signals split by the CURRENT ref law, without writing anything.
 
-    ``open``: records whose refs all pass ``canonical_runtime_signal_ref``,
+    ``open``: signals whose refs all pass ``canonical_runtime_signal_ref``,
     returned with their refs canonical, most severe first. ``refused``:
-    open records that fail it — written before the bridge enforced the law
-    (a `*/*` frame, a `../` escape) — plus records that cannot be read, each
-    with its reason. A refused record never reaches a reader; moving it out
-    of the open set is ``quarantine_refused_runtime_signals``'s job, a
-    profile-gated write a cycle phase owns. This function is a pure read, so
-    pressure, belief decay and the list verb stay readers under every
-    profile.
+    open signals that fail it — observed before the bridge enforced the law
+    (a `*/*` frame, a `../` escape) — each with its reason, or the ledger
+    itself when it cannot be read (its relative path as the id). A refused
+    signal never reaches a reader; closing it is
+    ``quarantine_refused_runtime_signals``'s job, a profile-gated write a
+    cycle phase owns. This function is a pure read, so pressure, belief
+    decay and the list verb stay readers under every profile.
     """
     root = ensure_tools_dir(base_dir)
-    directory = _signals_dir(root)
-    if not directory.exists():
-        return {"open": [], "refused": []}
+    try:
+        events = _load_events(root)
+    except (OSError, UnicodeDecodeError, ValueError, LedgerIntegrityError) as exc:
+        return {"open": [], "refused": [{
+            "signal_id": runtime_signal_events_path(root).relative_to(root).as_posix(),
+            "reason": f"runtime_signal_unreadable: {type(exc).__name__}",
+        }]}
     rows: list[dict[str, Any]] = []
     refused: list[dict[str, Any]] = []
-    for path in sorted(directory.glob("runtime-*.json")):
-        try:
-            doc = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-            refused.append({"signal_id": path.stem, "reason": f"runtime_signal_unreadable: {type(exc).__name__}"})
+    for signal_id, record in sorted(fold_runtime_signals(events).items()):
+        if record.get("status") != "open":
             continue
-        if not isinstance(doc, dict):
-            refused.append({"signal_id": path.stem, "reason": "runtime_signal_unreadable: not an object"})
-            continue
-        if doc.get("status") != "open":
-            continue
-        canonical, reason = _ref_law_refusal(doc)
+        canonical, reason = _ref_law_refusal(record)
         if reason is not None:
-            refused.append({"signal_id": path.stem, "reason": reason})
+            refused.append({"signal_id": signal_id, "reason": reason})
             continue
-        rows.append({**doc, "code_refs": canonical})
+        rows.append({**record, "code_refs": canonical})
     rows.sort(key=lambda r: (_SEVERITY_ORDER.get(str(r.get("severity")), 9), str(r.get("signal_id"))))
     return {"open": rows, "refused": refused}
 
@@ -302,19 +412,18 @@ def quarantine_refused_runtime_signals(
     base_dir: str | Path | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    """Move every open record the current ref law refuses out of the open set.
+    """Close every open signal the current ref law refuses with a ``quarantined`` event.
 
     The cycle phase that consumes signals (belief decay) calls this before it
     reads them. With nothing refused it is a pure read and returns at once,
     under every profile. Otherwise the profile gate decides first: a profile
     that may not write governance gets ``status=withheld_by_profile`` with the
-    refused records listed and nothing written (the readers already withhold
-    them). Order per record, under the record's exclusive lock: re-read it (a
-    concurrent resolve wins — only a still-open, still-refused record moves),
-    write the governance row FIRST, then replace the record atomically with
-    ``status=quarantined``.
+    refused signals listed and nothing written (the readers already withhold
+    them). In one transaction over the governance and event ledgers: re-fold
+    (a concurrent resolve wins — only a still-open, still-refused signal is
+    closed), append the closing event and its governance row. The
+    observation itself is never rewritten.
     """
-    from .file_lock import with_exclusive_lock
     from .runtime_profile import enforce_profile_for_write
 
     root = ensure_tools_dir(base_dir)
@@ -328,37 +437,32 @@ def quarantine_refused_runtime_signals(
             raise
         return {"status": "withheld_by_profile", "reason": str(exc)[:200], "refused": refused,
                 "quarantined": [], "unreadable": []}
-    stamp = (now or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    stamp = _stamp(now)
     quarantined: list[dict[str, Any]] = []
-    unreadable: list[dict[str, Any]] = []
-    for candidate in refused:
-        try:
-            path = _record_path(root, candidate["signal_id"])
-        except GovernanceError:
-            unreadable.append(candidate)
-            continue
-        with with_exclusive_lock(path):
-            try:
-                doc = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-                unreadable.append(candidate)
-                continue
-            if not isinstance(doc, dict) or doc.get("status") != "open":
-                continue
-            _, reason = _ref_law_refusal(doc)
-            if reason is None:
-                continue
-            append_tools_governance(
-                root,
-                "runtime_signal_quarantined",
-                {"signal_id": candidate["signal_id"], "reason": reason[:200]},
-            )
-            atomic_write_json(path, {
-                **doc, "status": "quarantined", "quarantine_reason": reason, "quarantined_at": stamp,
-            })
-            quarantined.append({"signal_id": candidate["signal_id"], "reason": reason})
-    # An unreadable record names no ref law verdict to act on; it is reported
-    # on every run until an operator removes or repairs it.
+    # A ledger that cannot be read names no signal to close; it is reported
+    # on every run until an operator repairs it.
+    unreadable = [candidate for candidate in refused if not _SIGNAL_ID_RE.match(str(candidate["signal_id"]))]
+    candidates = [candidate for candidate in refused if candidate not in unreadable]
+    path = runtime_signal_events_path(root)
+    if candidates:
+        with state_transaction([root / "governance.jsonl", path]) as txn:
+            current = fold_runtime_signals(_load_events(root, txn))
+            for candidate in candidates:
+                record = current.get(candidate["signal_id"])
+                if record is None or record.get("status") != "open":
+                    continue
+                _, reason = _ref_law_refusal(record)
+                if reason is None:
+                    continue
+                txn.append_declared_jsonl(path, {
+                    "$schema": RUNTIME_SIGNAL_EVENT_SCHEMA, "schema_version": 1, "event": QUARANTINED_EVENT,
+                    "signal_id": candidate["signal_id"], "reason": reason, "recorded_at": stamp,
+                }, expected_surface=RUNTIME_SIGNAL_EVENTS_SURFACE)
+                append_tools_governance(
+                    root, "runtime_signal_quarantined",
+                    {"signal_id": candidate["signal_id"], "reason": reason[:200]}, transaction=txn,
+                )
+                quarantined.append({"signal_id": candidate["signal_id"], "reason": reason})
     return {"status": "applied", "quarantined": quarantined, "unreadable": unreadable}
 
 
@@ -371,24 +475,28 @@ def resolve_runtime_signal(
 ) -> dict[str, Any]:
     """Close a runtime signal once investigated, so it stops driving pressure.
 
-    Under the record's exclusive lock and replaced atomically, the same
-    discipline as quarantine, so the two can never lose each other's write.
+    Appends a ``resolved`` event; the observation is never rewritten, and a
+    later sighting of the same signal opens a new episode. Re-folded inside
+    the same transaction as the append, so a concurrent quarantine or resolve
+    is read before this one is written.
     """
-    from .file_lock import with_exclusive_lock
-
     if not isinstance(resolution_note, str) or not resolution_note.strip():
         raise GovernanceError("resolution_note is required")
+    signal_id = _require_signal_id(signal_id)
     root = ensure_tools_dir(base_dir)
-    path = _record_path(root, signal_id)
-    if not path.exists():
-        raise GovernanceError(f"runtime signal not found: {signal_id}")
-    with with_exclusive_lock(path):
-        record = json.loads(path.read_text(encoding="utf-8"))
-        if record.get("status") == "resolved":
+    path = runtime_signal_events_path(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with state_transaction([root / "governance.jsonl", path]) as txn:
+        events = _load_events(root, txn)
+        record = fold_runtime_signals(events).get(signal_id)
+        if record is None:
+            raise GovernanceError(f"runtime signal not found: {signal_id}")
+        if record["status"] == "resolved":
             return record
-        record["status"] = "resolved"
-        record["resolved_at"] = (now or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
-        record["resolution_note"] = resolution_note
-        append_tools_governance(root, "runtime_signal_resolved", {"signal_id": signal_id})
-        atomic_write_json(path, record)
-    return record
+        event = {
+            "$schema": RUNTIME_SIGNAL_EVENT_SCHEMA, "schema_version": 1, "event": RESOLVED_EVENT,
+            "signal_id": signal_id, "resolution_note": resolution_note, "recorded_at": _stamp(now),
+        }
+        txn.append_declared_jsonl(path, event, expected_surface=RUNTIME_SIGNAL_EVENTS_SURFACE)
+        append_tools_governance(root, "runtime_signal_resolved", {"signal_id": signal_id}, transaction=txn)
+    return fold_runtime_signals([*events, event])[signal_id]

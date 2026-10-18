@@ -89,14 +89,17 @@ def _night(nights_ago: int, blind: list[str] | None) -> dict:
 
 class UnobservedSurfaceGapTests(unittest.TestCase):
     def setUp(self) -> None:
-        self._orig = (cg.evaluate_observation_coverage, cg.list_capability_gaps)
+        self._orig = (cg.evaluate_observation_coverage, cg.list_capability_gaps, cg.list_tools)
         self.paths = types.SimpleNamespace(repo_root="/repo")
+        # The verdict is stubbed; the registry it would be judged against is
+        # never read from the placeholder root.
+        cg.list_tools = lambda base_dir=None: []
 
     def tearDown(self) -> None:
-        cg.evaluate_observation_coverage, cg.list_capability_gaps = self._orig
+        cg.evaluate_observation_coverage, cg.list_capability_gaps, cg.list_tools = self._orig
 
     def _run(self, verdict: ObservationVerdict, history: list[dict]):
-        cg.evaluate_observation_coverage = lambda repo_root: verdict
+        cg.evaluate_observation_coverage = lambda repo_root, *, tools: verdict
         cg.list_capability_gaps = lambda base_dir=None: history
         return cg._gaps_from_unobserved_surface("c1", self.paths, Path("/tmp"), "idx")
 
@@ -200,7 +203,7 @@ class UnobservedSurfaceGapTests(unittest.TestCase):
         self.assertIsNone(tonight)
 
     def test_an_exploding_measurement_never_takes_the_cycle_down(self) -> None:
-        def boom(repo_root):
+        def boom(repo_root, *, tools):
             raise RuntimeError("git unavailable")
 
         cg.evaluate_observation_coverage = boom
@@ -280,7 +283,7 @@ class NightlyRecordTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_the_gap_batch_records_tonights_blind_roots(self) -> None:
-        cg.evaluate_observation_coverage = lambda repo_root: _verdict(
+        cg.evaluate_observation_coverage = lambda repo_root, *, tools: _verdict(
             _blind_root("sens-api-gateway"),
         )
         cg.detect_capability_gaps(cycle_id="cyc-record", paths=self.paths, base_dir=self.tools_dir)
@@ -290,10 +293,65 @@ class NightlyRecordTests(unittest.TestCase):
         self.assertEqual(rows[-1]["gaps"], [])
 
     def test_a_night_that_could_not_measure_records_null_not_empty(self) -> None:
-        cg.evaluate_observation_coverage = lambda repo_root: _verdict(verdict="unknown")
+        cg.evaluate_observation_coverage = lambda repo_root, *, tools: _verdict(verdict="unknown")
         cg.detect_capability_gaps(cycle_id="cyc-unknown", paths=self.paths, base_dir=self.tools_dir)
         rows = cg.list_capability_gaps(base_dir=self.tools_dir)
         self.assertIsNone(rows[-1]["unobserved_roots"])
+
+
+class LiveRegistryObservationTests(unittest.TestCase):
+    """ARIA-HIGH-531 — tonight's blind roots are measured against the LIVE registry rows.
+
+    The workspace carries banned-phrase's real manifest (``declared_scope: ["**"]``)
+    as production does. A type-less glob is a read allowlist and observes
+    nothing; a dispatchable registry row with a typed glob observes its files
+    even though no committed manifest declares it (a genesis adapter).
+    """
+
+    def setUp(self) -> None:
+        from aria_kernel.tool_registry import ensure_tools_dir
+        from tests._helpers.git_fixtures import commit_files, make_local_git_repo
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        self.repo = make_local_git_repo(root, name="repo", initial_commit=False)
+        manifest = (_KERNEL.parent / "tools" / "aria-adapters" / "banned-phrase-adapter.tool.json").read_text(
+            encoding="utf-8",
+        )
+        commit_files(self.repo, {
+            "tools/aria-adapters/banned-phrase-adapter.tool.json": manifest,
+            "sens-api-gateway/src/lib.rs": "pub fn f() {}\n",
+        })
+        self.tools_dir = ensure_tools_dir(root / "aria-tools")
+        self.paths = types.SimpleNamespace(repo_root=str(self.repo))
+        self._orig = cg.effective_workspace_pressures
+        cg.effective_workspace_pressures = lambda paths: []
+
+    def tearDown(self) -> None:
+        cg.effective_workspace_pressures = self._orig
+
+    def _register(self, tool_id: str, declared_scope: list[str]) -> None:
+        from aria_kernel.tool_registry import register_tool
+        from tests._helpers.spine_fixture import spine_fixture_tool
+
+        register_tool({**spine_fixture_tool(tool_id), "declared_scope": declared_scope}, base_dir=self.tools_dir)
+
+    def _blind_tonight(self) -> list[str] | None:
+        cg.detect_capability_gaps(cycle_id="cyc-live", paths=self.paths, base_dir=self.tools_dir)
+        return cg.list_capability_gaps(base_dir=self.tools_dir)[-1]["unobserved_roots"]
+
+    def test_a_typeless_registered_scope_leaves_every_root_blind(self) -> None:
+        self._register("banned-phrase-adapter", ["**"])
+        self.assertEqual(self._blind_tonight(), ["sens-api-gateway", "tools"])
+
+    def test_a_typed_registry_row_without_a_manifest_observes(self) -> None:
+        self._register("banned-phrase-adapter", ["**"])
+        self._register("rust-genesis-adapter", ["sens-api-gateway/**/*.rs", "tools/**/*.json"])
+        self.assertEqual(self._blind_tonight(), [])
+
+    def test_no_registry_rows_is_an_unmeasured_night(self) -> None:
+        self.assertIsNone(self._blind_tonight())
 
 
 class ForwardPointerTests(unittest.TestCase):

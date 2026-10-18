@@ -781,12 +781,14 @@ jobs:
           fi
 
       - name: Upload response envelope (artefact)
-        # `drained == '0'` is a drain night where the queue emptied between
-        # the pending probe and the loop (or every child failed before
-        # publishing a path): there is nothing to upload, and
-        # `if-no-files-found: error` would turn "no work" into a red.
-        # Targeted runs never set `drained`, so the guard is a no-op there.
-        if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != '' && steps.executor.outputs.drained != '0'
+        # ARIA-MEDIUM-574 — the executor publishes, when it exits, the result
+        # files the kernel KEPT (`_publish_kept_artifact_paths_at_exit`): a
+        # credential refusal withholds (deletes) both, a refusal after the
+        # claim may leave neither, and a drain night whose queue emptied
+        # publishes nothing. An empty list is nothing to upload, in a
+        # targeted run and a drain alike; `if-no-files-found: error` stays
+        # for a path that WAS published and resolves to nothing here.
+        if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != '' && (steps.executor.outputs.envelope_path != '' || steps.executor.outputs.transcript_path != '')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           # Limited scope — response envelope plus its transcript anchor. claims.jsonl +

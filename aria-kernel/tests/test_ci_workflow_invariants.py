@@ -197,7 +197,7 @@ class CIWorkflowInvariants(unittest.TestCase):
         self.assertIsInstance(on, dict, msg="aria-kernel.yml has no `on:` block")
         self.assertIn("pull_request", on, msg="aria-kernel.yml must run on pull requests")
         self.assertIsNone(on["pull_request"], msg="aria-kernel.yml: the pull_request trigger must be unfiltered")
-        surface = kernel_lane_surface(kernel)
+        surface = kernel_lane_surface()
         for required in ("aria-kernel/**", "scripts/ci/aria-suite-run.sh", "docs/aria/**", "docs/adr/**",
                          "tools/aria-adapters/**"):
             self.assertIn(required, surface, f"aria-kernel.yml: the kernel surface lacks {required}")

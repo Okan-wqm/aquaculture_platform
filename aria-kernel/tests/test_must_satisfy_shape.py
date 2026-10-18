@@ -501,7 +501,9 @@ class ConvergedPlanWithBannedWordsStillMintsTests(unittest.TestCase):
             closure_manifest_text="{}", closure_manifest_hash="sha256:" + "0" * 64,
             closure_manifest_path="tools/coverage/plan-104-banned-words-r1.json",
             waivers=[{"node_id": self.path, "reason": self.waiver_reason}],
-            evidence_refs=["plan:plan-104-banned-words"], allowed_scope=[self.path],
+            # ARIA-MEDIUM-385 — the plan rides on plan_id; a `plan:` pointer is
+            # not a ref the critic can cite, so the mint refuses it.
+            evidence_refs=[self.path], allowed_scope=[self.path],
             base_dir=self.tools,
             admission=admit_request("convergence_drainer.plan_step", "completeness_critique", base_dir=self.tools),
         )

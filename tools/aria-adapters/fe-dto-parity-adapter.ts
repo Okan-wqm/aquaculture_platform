@@ -94,7 +94,12 @@ function collectDtoShapes(files: readonly string[], workspaceRoot: string): DtoS
   const shapes: DtoShape[] = [];
   for (const file of files) {
     const rel = normalizeWorkspacePath(relative(workspaceRoot, file));
-    const source = ts.createSourceFile(rel, readWorkspaceFile(file), ts.ScriptTarget.Latest, true);
+    const source = ts.createSourceFile(
+      rel,
+      readWorkspaceFile(workspaceRoot, file),
+      ts.ScriptTarget.Latest,
+      true,
+    );
     const visit = (node: ts.Node): void => {
       if (
         (ts.isClassDeclaration(node) || ts.isInterfaceDeclaration(node)) &&
@@ -130,8 +135,8 @@ export function analyzeFeDtoParity(input: AdapterInput, workspaceRoot = process.
   const backendFiles = filterFilesBySnapshot(
     (input.backendRoots ?? DEFAULT_BACKEND_ROOTS)
       .map((root) => resolveInsideWorkspace(workspaceRoot, root))
-      .filter((root) => workspacePathExists(root))
-      .flatMap((root) => collectFiles(root, { extensions: ['.ts'] }))
+      .filter((root) => workspacePathExists(workspaceRoot, root))
+      .flatMap((root) => collectFiles(workspaceRoot, root, { extensions: ['.ts'] }))
       .filter((path) => normalizeWorkspacePath(path).includes('/dto/')),
     workspaceRoot,
     input,
@@ -139,8 +144,8 @@ export function analyzeFeDtoParity(input: AdapterInput, workspaceRoot = process.
   const frontendFiles = filterFilesBySnapshot(
     (input.frontendRoots ?? DEFAULT_FRONTEND_ROOTS)
       .map((root) => resolveInsideWorkspace(workspaceRoot, root))
-      .filter((root) => workspacePathExists(root))
-      .flatMap((root) => collectFiles(root, { extensions: ['.ts', '.tsx'] }))
+      .filter((root) => workspacePathExists(workspaceRoot, root))
+      .flatMap((root) => collectFiles(workspaceRoot, root, { extensions: ['.ts', '.tsx'] }))
       .filter((path) => {
         const rel = normalizeWorkspacePath(path);
         // Generated contract types ARE the fix for this rule; only

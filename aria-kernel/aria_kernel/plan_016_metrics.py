@@ -133,6 +133,24 @@ def _plan_round_total(tools_root: Path) -> int:
     return total
 
 
+def plan_016_metric_reader_faults() -> tuple[type[BaseException], ...]:
+    """The closed set a ``compute_plan_016_metrics`` caller may report as an
+    unreadable store (ARIA-LOW-514).
+
+    ``LedgerIntegrityError`` — a ledger whose strict verification fails (a
+    corrupt or tampered row: what a damaged store raises here, measured on a
+    governance ledger with one non-JSON row); ``LedgerReadLimitError`` — a
+    row beyond the reader's bound; ``OSError`` — the file system. Anything
+    else (``TypeError``, ``KeyError``, ``ValueError``, ``AttributeError``) is
+    a defect in this computation and must raise, never read as a store the
+    counters could not open. Resolved lazily, like
+    ``knowledge_graph.effectiveness_reader_faults``.
+    """
+    from .ledger import LedgerIntegrityError, LedgerReadLimitError
+
+    return (LedgerIntegrityError, LedgerReadLimitError, OSError)
+
+
 def compute_plan_016_metrics(*, base_dir: str | Path | None = None) -> dict[str, int]:
     """Return the Plan 016 + Plan 020 counter set as a flat dict.
 

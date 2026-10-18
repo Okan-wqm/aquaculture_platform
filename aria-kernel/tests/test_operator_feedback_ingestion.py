@@ -300,6 +300,29 @@ class ConsumeOnceTests(_Fixture):
         self.assertEqual(again.admitted, ())
         self.assertEqual([d["reason"] for d in again.dropped], [ingestion.REQUEST_ID_REUSED])
 
+    def test_a_spent_request_costs_no_verification_and_no_ledger_growth(self) -> None:
+        # ARIA-LOW-268 — every historical request row went through ssh-keygen
+        # before the spent check, and every scan row re-listed every spent
+        # request, so plan-source time and the ingestion ledger grew with the
+        # history of requests ever filed rather than the requests still live.
+        self._bind_and_maybe_start("cyc-1", start=True)
+        live = self.fx.record(request_id="OP-live")
+        verified: list[str] = []
+        real_verify = ingestion.verify_operator_request
+
+        def counting_verify(row, **kwargs):
+            verified.append(str(row.get("id")))
+            return real_verify(row, **kwargs)
+
+        with mock.patch.object(ingestion, "verify_operator_request", counting_verify):
+            result = self._ingest("cyc-2")
+        self.assertEqual(verified, ["OP-live"], "only the live request is verified")
+        self.assertEqual([entry["id"] for entry in result.admitted], [live["id"]])
+        self.assertEqual([(s["id"], s["reason"]) for s in result.spent], [("OP-once", "consumed_by_started_plan")])
+        scan = [row for row in _ingestion_rows(self.tools) if row["row_type"] == ingestion.INGESTION_ROW_TYPE][-1]
+        self.assertNotIn("spent", scan, "the spent set lives in the history it is derived from")
+        self.assertEqual(scan["spent_count"], 1)
+
     def test_a_copy_at_a_new_position_with_a_new_ledger_hash_is_still_spent(self) -> None:
         # Round 1 keyed the spend on (id, ledger_hash) and the reused-id set on
         # rows still in the feedback file; ledger_hash is unsigned and
@@ -364,8 +387,10 @@ class CopyAndRollbackTests(_Fixture):
         # aria/state rolled back past the spend: the kernel's history is gone.
         ingestion.ingestion_ledger_path(self.tools).unlink()
         (self.tools / "plans" / "events.jsonl").unlink()
-        # Inside the signed window the history was the only memory: that is
-        # the bound the expiry sets, and check 12's merged-once proof backs it.
+        # Inside the signed window ingestion's history was its only memory, so
+        # the request is admitted again; check 12 refuses its merge from main's
+        # history (ARIA-MEDIUM-264,
+        # test_a_request_main_already_carries_cannot_merge_from_a_rolled_back_store).
         self.assertEqual([e["id"] for e in self._ingest("c2").admitted], ["OP-rollback"])
         later = datetime.now(timezone.utc) + timedelta(hours=3)
         result = self._ingest("c3", now=later)
@@ -429,6 +454,7 @@ class PreMergeObservationTests(_Fixture):
             feedback_rows=_feedback_rows(self.tools) if feedback_rows is None else feedback_rows,
             plan_events=_plan_events(self.tools) if plan_events is None else plan_events,
             allowed_signers=self.anchor if allowed_signers == b"default" else allowed_signers,
+            main_request_ids=frozenset(),
             now=now,
         )
 
@@ -474,6 +500,98 @@ class PreMergeObservationTests(_Fixture):
         merged_self = _plan_events(self.tools) + [{"plan_id": "plan-obs", "event_type": "implementation_merged",
                                                    "payload": {}}]
         self.assertTrue(self._observe(plan_events=merged_self)["operator_feedback_verified"])
+
+    def test_a_plan_for_another_subject_cannot_spend_the_request(self) -> None:
+        # ARIA-LOW-265 — check 12 matched the request to the plan by content
+        # hash, provenance id and signature only; the signed finding_id and
+        # grounding_digest were compared with the plan's start nowhere after
+        # synthesis, so a synthesis that bound the request to a plan for
+        # another finding (or another grounding) merged under its signature.
+        self.assertEqual((self.content["finding_id"], self.content["grounding_digest"]),
+                         (self.signed["finding_id"], self.signed["grounding_digest"]))
+        self.fx.seed_finding("F-008", refs=[f"{GROUNDED_FILE}:12"])
+        candidate = {"source_type": "operator_feedback", "candidate_id": "OP-obs",
+                     "row_ledger_hash": self.signed["ledger_hash"], "signer": self.fx.principal,
+                     "subject_digest": ors.request_subject_digest(self.signed)}
+        for field, value in (("finding_id", "F-008"), ("grounding_digest", "sha256:" + "0" * 64)):
+            with self.subTest(field=field):
+                plan_id = f"plan-retarget-{field}"
+                content = dict(self.content, **{field: value})
+                ingestion.bind_plan_synthesis(base_dir=self.tools, cycle_id="cyc-obs",
+                                              plan_content=content, candidate=candidate)
+                start_plan(plan_id=plan_id, plan_content=content, initial_revision_id=f"{plan_id}-r1",
+                           base_dir=self.tools, workspace_root=self.fx.repo)
+                observation = observe_operator_feedback_for_plan(
+                    plan_id=plan_id,
+                    plan_started=fold_plan_state(plan_id=plan_id, base_dir=self.tools)["plan_started"],
+                    ingestion_rows=_ingestion_rows(self.tools), feedback_rows=_feedback_rows(self.tools),
+                    plan_events=_plan_events(self.tools), allowed_signers=self.anchor,
+                    main_request_ids=frozenset(),
+                )
+                self.assertFalse(observation["operator_feedback_verified"])
+                self.assertEqual(observation["operator_feedback_unavailable_reason"],
+                                 f"operator_feedback_plan_subject_mismatch:{field}")
+        self.assertTrue(self._observe()["operator_feedback_verified"], "the signed plan itself still merges")
+
+    def test_a_request_main_already_carries_cannot_merge_from_a_rolled_back_store(self) -> None:
+        # ARIA-MEDIUM-264 — the merged-once proof read only the plan and
+        # ingestion ledgers, the two an aria/state rollback erases. The store
+        # here holds no merge of OP-obs anywhere, as after such a rollback,
+        # while main's history carries the request line an earlier delivery
+        # of OP-obs landed: the merge lane reads main, and refuses.
+        from aria_kernel.merge_authority import _capture_pre_merge_operator_feedback
+
+        rows = {"operator_feedback_ingestion": _ingestion_rows(self.tools),
+                "operator_feedback": _feedback_rows(self.tools),
+                "plan_convergence_events": _plan_events(self.tools)}
+        self.assertNotIn("implementation_merged", {e["event_type"] for e in rows["plan_convergence_events"]})
+
+        def capture(trust_sha: str) -> dict:
+            return _capture_pre_merge_operator_feedback(
+                plan_id="plan-obs", state=self.state, rows=rows, workspace=self.fx.repo, trust_sha=trust_sha,
+                tools=self.fx.tools,
+            )
+
+        before = git(self.fx.repo, "rev-parse", "HEAD").strip()
+        self.assertTrue(capture(before)["operator_feedback_verified"], capture(before))
+        neighbour = self.fx.commit_files(
+            {"docs/neighbour.md": "x\n"},
+            message="refactor(hr): another request (#1)\n\nAria-Operator-Request: OP-obs2",
+        )
+        self.assertTrue(capture(neighbour)["operator_feedback_verified"], "an id is matched whole, never by prefix")
+        # The squash commit's body lists the branch commits, so the line may
+        # sit indented under a bullet; it still spends the request.
+        merged = self.fx.commit_files(
+            {"docs/merged.md": "x\n"},
+            message="refactor(hr): first delivery (#2)\n\n* refactor(hr): first delivery\n\n  Aria-Operator-Request: OP-obs",
+        )
+        refused = capture(merged)
+        self.assertFalse(refused["operator_feedback_verified"])
+        self.assertEqual(refused["operator_feedback_unavailable_reason"], "operator_feedback_request_merged_on_main")
+
+    def test_an_unreadable_main_history_refuses_a_plan_that_spends_a_request(self) -> None:
+        # ARIA-MEDIUM-264 — no history, no merged-once proof: refused by name,
+        # never read as "not merged".
+        observation = observe_operator_feedback_for_plan(
+            plan_id="plan-obs", plan_started=self.state["plan_started"],
+            ingestion_rows=_ingestion_rows(self.tools), feedback_rows=_feedback_rows(self.tools),
+            plan_events=_plan_events(self.tools), allowed_signers=self.anchor, main_request_ids=None,
+        )
+        self.assertFalse(observation["operator_feedback_verified"])
+        self.assertEqual(observation["operator_feedback_unavailable_reason"],
+                         "operator_feedback_main_history_unavailable")
+        head = git(self.fx.repo, "rev-parse", "HEAD").strip()
+        key = "Aria-Operator-Request"
+        self.assertEqual(main_anchor.messages_naming(self.fx.repo, commit=head, key=key), ())
+        # The hardened reader answers None, never an empty history, for what it cannot read.
+        for commit, named in (("--output=/tmp/x", key), ("0" * 40, key), (head, "--all"), (head, "a b")):
+            with self.subTest(commit=commit, key=named):
+                self.assertIsNone(main_anchor.messages_naming(self.fx.repo, commit=commit, key=named))
+        common = Path(git(self.fx.repo, "rev-parse", "--git-common-dir").strip())
+        alternates = (common if common.is_absolute() else self.fx.repo / common) / "objects" / "info" / "alternates"
+        alternates.write_text(str(self.fx.repo / ".git" / "objects") + "\n", encoding="utf-8")
+        self.addCleanup(alternates.unlink)
+        self.assertIsNone(main_anchor.messages_naming(self.fx.repo, commit=head, key=key))
 
     def test_every_gap_is_a_named_reason(self) -> None:
         hand_started = {"plan_content": dict(self.content, title="hand-authored"),

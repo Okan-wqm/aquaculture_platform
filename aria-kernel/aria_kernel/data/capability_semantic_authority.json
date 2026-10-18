@@ -10,7 +10,7 @@
     "enterprise_readiness": 2,
     "executor": 1,
     "finding_funnel": 1,
-    "fixture_calibration": 1,
+    "fixture_calibration": 2,
     "pre_merge_perimeter": 1
   }
 }

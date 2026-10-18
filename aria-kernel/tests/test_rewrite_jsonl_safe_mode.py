@@ -22,6 +22,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from aria_kernel import ledger
+from aria_kernel.finding_subject import normalize_finding_message
 from aria_kernel.ledger import (
     _lock_requirements_for_path,
     append_jsonl,
@@ -323,7 +324,7 @@ class CanonicalJsonDigestTests(unittest.TestCase):
             "rule": "r1",
             "path": "apps/x.ts",
             "evidence_hash": evidence_hash,
-            "message": feedback_store._normalize_message("m"),
+            "message": normalize_finding_message("m"),
         }
         self.assertEqual(
             feedback_store.finding_fingerprint("tool-a", finding), f"finding:{_old_digest(normalized)}",

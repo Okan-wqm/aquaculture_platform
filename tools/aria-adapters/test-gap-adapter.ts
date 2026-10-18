@@ -27,7 +27,11 @@ interface AdapterInput {
   readonly coverageRoots?: readonly string[];
   readonly allowlist?: readonly string[];
   readonly includeWriteBoundaryFindings?: boolean;
-  readonly repo_snapshot?: { readonly allowed_paths?: readonly string[]; readonly snapshot_hash?: string; readonly repo_state_id?: string };
+  readonly repo_snapshot?: {
+    readonly allowed_paths?: readonly string[];
+    readonly snapshot_hash?: string;
+    readonly repo_state_id?: string;
+  };
 }
 
 interface EvidenceRef {
@@ -104,14 +108,13 @@ interface PathAlias {
   readonly targets: readonly string[];
 }
 
-
 export function analyzeTestGaps(input: AdapterInput, workspaceRoot = process.cwd()): AriaOutput {
   const roots = requireScanRoots('test-gap-adapter', input.roots);
   const allowlist = new Set((input.allowlist ?? []).map(normalizePath));
   const files = roots
     .map((root) => resolveInsideWorkspace(workspaceRoot, root))
-    .filter((root) => workspacePathExists(root))
-    .flatMap((root) => collectSourceAndTestFiles(root));
+    .filter((root) => workspacePathExists(workspaceRoot, root))
+    .flatMap((root) => collectSourceAndTestFiles(workspaceRoot, root));
   const snapshotFiles = filterFilesBySnapshot(files, workspaceRoot, input);
   const units = snapshotFiles.map((file) => readFileUnit(file, workspaceRoot));
   const tests = units.filter((unit) => unit.isTest);
@@ -122,7 +125,9 @@ export function analyzeTestGaps(input: AdapterInput, workspaceRoot = process.cwd
   const result: AnalysisResult = {
     observations: [],
     findings: [],
-    readPaths: [...units, ...providers.map((provider) => provider.unit)].map((unit) => unit.relativePath),
+    readPaths: [...units, ...providers.map((provider) => provider.unit)].map(
+      (unit) => unit.relativePath,
+    ),
   };
 
   for (const test of tests) {
@@ -188,7 +193,10 @@ export function analyzeTestGaps(input: AdapterInput, workspaceRoot = process.cwd
         confidence: weakMatchedTests.length > 0 ? 0.55 : 0.88,
         actionability: weakMatchedTests.length > 0 ? 'review_required' : 'actionable',
         review_reason: weakMatchedTests.length > 0 ? 'weak_symbol_test_match' : undefined,
-        details: { riskClass: risk.riskClass, weakMatchedTests: weakMatchedTests.map((test) => test.relativePath).sort() },
+        details: {
+          riskClass: risk.riskClass,
+          weakMatchedTests: weakMatchedTests.map((test) => test.relativePath).sort(),
+        },
       });
       continue;
     }
@@ -199,12 +207,16 @@ export function analyzeTestGaps(input: AdapterInput, workspaceRoot = process.cwd
         rule: 'security_source_without_security_test',
         severity: 'high',
         path: source.relativePath,
-        message: 'Security-sensitive source file has no adjacent or importing test coverage signal.',
+        message:
+          'Security-sensitive source file has no adjacent or importing test coverage signal.',
         evidence: [{ path: source.relativePath }],
         confidence: weakMatchedTests.length > 0 ? 0.55 : 0.86,
         actionability: weakMatchedTests.length > 0 ? 'review_required' : 'actionable',
         review_reason: weakMatchedTests.length > 0 ? 'weak_symbol_test_match' : undefined,
-        details: { riskClass: risk.riskClass, weakMatchedTests: weakMatchedTests.map((test) => test.relativePath).sort() },
+        details: {
+          riskClass: risk.riskClass,
+          weakMatchedTests: weakMatchedTests.map((test) => test.relativePath).sort(),
+        },
       });
       continue;
     }
@@ -215,12 +227,16 @@ export function analyzeTestGaps(input: AdapterInput, workspaceRoot = process.cwd
         rule: 'high_risk_source_without_adjacent_test',
         severity: 'medium',
         path: source.relativePath,
-        message: 'High-risk source file has no adjacent, sibling __tests__, or importing test coverage signal.',
+        message:
+          'High-risk source file has no adjacent, sibling __tests__, or importing test coverage signal.',
         evidence: [{ path: source.relativePath }],
         confidence: weakMatchedTests.length > 0 ? 0.5 : 0.75,
         actionability: weakMatchedTests.length > 0 ? 'review_required' : 'actionable',
         review_reason: weakMatchedTests.length > 0 ? 'weak_symbol_test_match' : undefined,
-        details: { riskClass: risk.riskClass, weakMatchedTests: weakMatchedTests.map((test) => test.relativePath).sort() },
+        details: {
+          riskClass: risk.riskClass,
+          weakMatchedTests: weakMatchedTests.map((test) => test.relativePath).sort(),
+        },
       });
     }
   }
@@ -244,7 +260,9 @@ export function analyzeTestGaps(input: AdapterInput, workspaceRoot = process.cwd
   result.findings.sort(compareById);
   result.readPaths.sort();
   const evidenceSources = Array.from(
-    new Set(result.findings.flatMap((finding) => finding.evidence.map((evidence) => evidence.path))),
+    new Set(
+      result.findings.flatMap((finding) => finding.evidence.map((evidence) => evidence.path)),
+    ),
   ).sort();
 
   return {
@@ -255,7 +273,8 @@ export function analyzeTestGaps(input: AdapterInput, workspaceRoot = process.cwd
     belief_candidates: [
       {
         belief_id: 'test-gap:high-risk-source-coverage-surface',
-        claim: 'high-risk backend, web security, and migration surfaces can be mapped to adjacent or importing test coverage signals',
+        claim:
+          'high-risk backend, web security, and migration surfaces can be mapped to adjacent or importing test coverage signals',
         confidence: 0.75,
         evidence_refs: ['apps/**/*.ts', 'libs/**/*.ts', 'platform/libs/**/*.ts', 'web/**/*.tsx'],
         source_tool_id: 'test-gap-adapter',
@@ -280,21 +299,37 @@ function classifySourceRisk(unit: FileUnit): SourceRisk {
   // return constants (F-010's health resolver) has no behaviour a test could
   // pin, whatever its file suffix says.
   const highRisk =
-    /(\.controller|\.resolver|\.handler|\.guard|\.strategy|\.middleware|\.interceptor)\.ts$/.test(path) &&
-    !isConstantWithoutDependencies(unit.sourceFile);
+    /(\.controller|\.resolver|\.handler|\.guard|\.strategy|\.middleware|\.interceptor)\.ts$/.test(
+      path,
+    ) && !isConstantWithoutDependencies(unit.sourceFile);
   // Security-sensitive is what the file DOES, not a word it contains: it
   // implements a guard, or it exposes a write to unauthenticated callers.
   // `@Public` anywhere in the text (a read, a comment) used to qualify.
   const securitySensitive = isGuardImplementation(unit) || hasPublicWrite(unit.sourceFile);
-  const writeBoundary = /@(Post|Put|Patch|Delete|Mutation)\b|\b(create|update|delete|remove|archive|approve|reject|reset|invite)\w*\s*\(/i.test(text);
-  const migrationHazard = /\/migrations\/.*\.ts$/.test(path)
-    && /\b(DROP|DELETE|TRUNCATE|ALTER\s+TYPE|ENABLE\s+ROW\s+LEVEL\s+SECURITY|FORCE\s+ROW\s+LEVEL\s+SECURITY)\b/i.test(text);
+  const writeBoundary =
+    /@(Post|Put|Patch|Delete|Mutation)\b|\b(create|update|delete|remove|archive|approve|reject|reset|invite)\w*\s*\(/i.test(
+      text,
+    );
+  const migrationHazard =
+    /\/migrations\/.*\.ts$/.test(path) &&
+    /\b(DROP|DELETE|TRUNCATE|ALTER\s+TYPE|ENABLE\s+ROW\s+LEVEL\s+SECURITY|FORCE\s+ROW\s+LEVEL\s+SECURITY)\b/i.test(
+      text,
+    );
   return { riskClass, highRisk, securitySensitive, migrationHazard, writeBoundary };
 }
 
 const WRITE_DECORATORS = new Set(['Post', 'Put', 'Patch', 'Delete', 'Mutation']);
 const GRAPHQL_FIELD_DECORATORS = new Set(['Query', 'Mutation', 'Subscription', 'ResolveField']);
-const ROUTE_DECORATORS = new Set(['Get', 'Post', 'Put', 'Patch', 'Delete', 'All', 'Head', 'Options']);
+const ROUTE_DECORATORS = new Set([
+  'Get',
+  'Post',
+  'Put',
+  'Patch',
+  'Delete',
+  'All',
+  'Head',
+  'Options',
+]);
 
 function classDeclarations(sourceFile: ts.SourceFile): ts.ClassDeclaration[] {
   const classes: ts.ClassDeclaration[] = [];
@@ -306,8 +341,10 @@ function classDeclarations(sourceFile: ts.SourceFile): ts.ClassDeclaration[] {
   return classes;
 }
 
-function decoratorCalls(node: ts.Node): { readonly name: string; readonly args: readonly ts.Expression[] }[] {
-  const decorators = ts.canHaveDecorators(node) ? ts.getDecorators(node) ?? [] : [];
+function decoratorCalls(
+  node: ts.Node,
+): { readonly name: string; readonly args: readonly ts.Expression[] }[] {
+  const decorators = ts.canHaveDecorators(node) ? (ts.getDecorators(node) ?? []) : [];
   return decorators.map((decorator) => {
     const call = ts.isCallExpression(decorator.expression) ? decorator.expression : undefined;
     const callee = call ? call.expression : decorator.expression;
@@ -372,7 +409,11 @@ function returnsConstant(body: ts.Block | undefined): boolean {
 function isConstantWithoutDependencies(sourceFile: ts.SourceFile): boolean {
   let classes = 0;
   for (const statement of sourceFile.statements) {
-    if (ts.isImportDeclaration(statement) || ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement)) {
+    if (
+      ts.isImportDeclaration(statement) ||
+      ts.isInterfaceDeclaration(statement) ||
+      ts.isTypeAliasDeclaration(statement)
+    ) {
       continue;
     }
     if (!ts.isClassDeclaration(statement)) {
@@ -388,7 +429,10 @@ function isConstantWithoutDependencies(sourceFile: ts.SourceFile): boolean {
         if (!returnsConstant(member.body)) {
           return false;
         }
-      } else if (!ts.isPropertyDeclaration(member) || (member.initializer !== undefined && !isConstantExpression(member.initializer))) {
+      } else if (
+        !ts.isPropertyDeclaration(member) ||
+        (member.initializer !== undefined && !isConstantExpression(member.initializer))
+      ) {
         return false;
       }
     }
@@ -401,11 +445,14 @@ interface CoverageProvider {
   readonly literals: readonly string[];
 }
 
-function readCoverageProviders(input: AdapterInput, workspaceRoot: string): readonly CoverageProvider[] {
+function readCoverageProviders(
+  input: AdapterInput,
+  workspaceRoot: string,
+): readonly CoverageProvider[] {
   const files = (input.coverageRoots ?? [])
     .map((root) => resolveInsideWorkspace(workspaceRoot, root))
-    .filter((root) => workspacePathExists(root))
-    .flatMap((root) => collectSourceAndTestFiles(root));
+    .filter((root) => workspacePathExists(workspaceRoot, root))
+    .flatMap((root) => collectSourceAndTestFiles(workspaceRoot, root));
   return filterFilesBySnapshot(files, workspaceRoot, input)
     .map((file) => readFileUnit(file, workspaceRoot))
     .filter((unit) => unit.isTest)
@@ -419,7 +466,9 @@ function stringLiteralTexts(sourceFile: ts.SourceFile): string[] {
     if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
       texts.push(node.text);
     } else if (ts.isTemplateExpression(node)) {
-      texts.push(node.head.text + node.templateSpans.map((span) => `X${span.literal.text}`).join(''));
+      texts.push(
+        node.head.text + node.templateSpans.map((span) => `X${span.literal.text}`).join(''),
+      );
     }
   });
   return texts;
@@ -438,7 +487,8 @@ function literalString(expression: ts.Expression | undefined, key: string): stri
         ts.isPropertyAssignment(property) &&
         ts.isIdentifier(property.name) &&
         property.name.text === key &&
-        (ts.isStringLiteral(property.initializer) || ts.isNoSubstitutionTemplateLiteral(property.initializer))
+        (ts.isStringLiteral(property.initializer) ||
+          ts.isNoSubstitutionTemplateLiteral(property.initializer))
       ) {
         return property.initializer.text;
       }
@@ -455,9 +505,13 @@ function graphQlFieldNames(sourceFile: ts.SourceFile): string[] {
       if (!ts.isMethodDeclaration(member) || !ts.isIdentifier(member.name)) {
         continue;
       }
-      const decorator = decoratorCalls(member).find((call) => GRAPHQL_FIELD_DECORATORS.has(call.name));
+      const decorator = decoratorCalls(member).find((call) =>
+        GRAPHQL_FIELD_DECORATORS.has(call.name),
+      );
       if (decorator !== undefined) {
-        const named = decorator.args.map((arg) => literalString(arg, 'name')).find((name) => name !== undefined);
+        const named = decorator.args
+          .map((arg) => literalString(arg, 'name'))
+          .find((name) => name !== undefined);
         fields.push(named ?? member.name.text);
       }
     }
@@ -498,7 +552,10 @@ function routePatterns(sourceFile: ts.SourceFile): RegExp[] {
 }
 
 /** Coverage-root specs that call one of the source's GraphQL fields or routes. */
-function callingProviders(source: FileUnit, providers: readonly CoverageProvider[]): readonly FileUnit[] {
+function callingProviders(
+  source: FileUnit,
+  providers: readonly CoverageProvider[],
+): readonly FileUnit[] {
   const fields = graphQlFieldNames(source.sourceFile).map(
     (field) => new RegExp(`(?:^|[^A-Za-z0-9_$])${escapeRegExp(field)}(?![A-Za-z0-9_])`),
   );
@@ -552,11 +609,19 @@ function matchingTests(
     if (dirname(test.relativePath) === sourceDir && testBase.startsWith(sourceBase)) {
       return true;
     }
-    if (dirname(test.relativePath).endsWith(`${sourceDir}/__tests__`) && testBase.includes(sourceBase)) {
+    if (
+      dirname(test.relativePath).endsWith(`${sourceDir}/__tests__`) &&
+      testBase.includes(sourceBase)
+    ) {
       return true;
     }
     return importedSpecifiers(test.sourceFile).some((specifier) => {
-      const resolved = resolveImportSpecifier(test.relativePath, specifier, sourcePaths, pathAliases);
+      const resolved = resolveImportSpecifier(
+        test.relativePath,
+        specifier,
+        sourcePaths,
+        pathAliases,
+      );
       return resolved === source.relativePath;
     });
   });
@@ -567,13 +632,18 @@ function weakSymbolTests(source: FileUnit, tests: readonly FileUnit[]): readonly
   if (symbolNames.length === 0) {
     return [];
   }
-  return tests.filter((test) => symbolNames.some((symbolName) => symbolName.length > 2 && test.text.includes(symbolName)));
+  return tests.filter((test) =>
+    symbolNames.some((symbolName) => symbolName.length > 2 && test.text.includes(symbolName)),
+  );
 }
 
 function basenameWithoutKnownSuffix(path: string): string {
   return basename(path)
     .replace(/\.(spec|test)\.(ts|tsx)$/, '')
-    .replace(/\.(controller|resolver|handler|guard|strategy|middleware|interceptor|service|entity|module|component)\.(ts|tsx)$/, '')
+    .replace(
+      /\.(controller|resolver|handler|guard|strategy|middleware|interceptor|service|entity|module|component)\.(ts|tsx)$/,
+      '',
+    )
     .replace(/\.(ts|tsx)$/, '');
 }
 
@@ -628,11 +698,11 @@ function candidatePathVariants(candidate: string): string[] {
 
 function readPathAliases(workspaceRoot: string): readonly PathAlias[] {
   const path = resolve(workspaceRoot, 'tsconfig.base.json');
-  if (!workspacePathExists(path)) {
+  if (!workspacePathExists(workspaceRoot, path)) {
     return [];
   }
   try {
-    const parsed = JSON.parse(readWorkspaceFile(path)) as {
+    const parsed = JSON.parse(readWorkspaceFile(workspaceRoot, path)) as {
       compilerOptions?: { paths?: Record<string, readonly string[]> };
     };
     return Object.entries(parsed.compilerOptions?.paths ?? {}).map(([key, targets]) => {
@@ -651,8 +721,14 @@ function readPathAliases(workspaceRoot: string): readonly PathAlias[] {
 function exportedSymbols(sourceFile: ts.SourceFile): string[] {
   const symbols = new Set<string>();
   visit(sourceFile, (node) => {
-    if ((ts.isClassDeclaration(node) || ts.isFunctionDeclaration(node) || ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) && node.name) {
-      const modifiers = ts.canHaveModifiers(node) ? ts.getModifiers(node) ?? [] : [];
+    if (
+      (ts.isClassDeclaration(node) ||
+        ts.isFunctionDeclaration(node) ||
+        ts.isInterfaceDeclaration(node) ||
+        ts.isTypeAliasDeclaration(node)) &&
+      node.name
+    ) {
+      const modifiers = ts.canHaveModifiers(node) ? (ts.getModifiers(node) ?? []) : [];
       if (modifiers.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) {
         symbols.add(node.name.text);
       }
@@ -662,7 +738,7 @@ function exportedSymbols(sourceFile: ts.SourceFile): string[] {
 }
 
 function readFileUnit(path: string, workspaceRoot: string): FileUnit {
-  const text = readWorkspaceFile(path);
+  const text = readWorkspaceFile(workspaceRoot, path);
   return {
     path,
     relativePath: normalizePath(relative(workspaceRoot, path)),
@@ -672,8 +748,8 @@ function readFileUnit(path: string, workspaceRoot: string): FileUnit {
   };
 }
 
-function collectSourceAndTestFiles(root: string): readonly string[] {
-  return collectFiles(root, {
+function collectSourceAndTestFiles(workspaceRoot: string, root: string): readonly string[] {
+  return collectFiles(workspaceRoot, root, {
     extensions: ['.ts', '.tsx'],
     // E13 FP class (2): archived corpus (e.g. migrations/.archive/<timestamp>/)
     // is dead code — it can neither need test coverage nor PROVIDE it (an

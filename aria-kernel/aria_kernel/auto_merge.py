@@ -465,11 +465,28 @@ def change_for_pr(
         ensure_tools_dir(base_dir) / "pr-lifecycle.jsonl",
         expected_surface="pr_lifecycle",
     )
-    latest_change_id: str | None = None
+    binding = pr_change_binding(rows, pr_number)
+    return None if binding is None else str(binding["change_id"])
+
+
+def pr_change_binding(rows: list[dict[str, Any]], pr_number: int) -> dict[str, Any] | None:
+    """The pr-lifecycle row that binds ``pr_number`` to its change, or None.
+
+    ARIA-HIGH-521 — the binding is ARIA's own record: the opener's row
+    (``pr_manager`` and ``self_revert`` write ``opened`` with the change_id
+    and proposal_id). GitHub knows neither, so the merge lane's ``observed``
+    row (``_merge_if_green_with_executor`` records ``adapter.get_pr``)
+    carries change_id None and binds nothing; it is also the LAST row by
+    the time the pre-merge perimeter reads the ledger. The binding is
+    therefore the latest row that carries a change_id, never the latest
+    row. ``change_for_pr`` and the perimeter's change join read it through
+    this one rule, over the file and over a verified prefix respectively.
+    """
+    binding: dict[str, Any] | None = None
     for row in rows:
         if row.get("pr_number") == pr_number and row.get("change_id"):
-            latest_change_id = str(row["change_id"])
-    return latest_change_id
+            binding = row
+    return binding
 
 
 def human_merge_decision(
@@ -824,6 +841,72 @@ def merge_if_green(
     )
 
 
+def read_required_status_checks(
+    *, root: Path, base_branch: str,
+) -> tuple[list[str] | None, str | None]:
+    """Plan 023 v3 §P-2 — fetch real branch-protection required contexts.
+
+    ARIA-CRITICAL-009 — the one reader of a base branch's required status
+    checks: the CI observer's snapshot (``ci._gh_pr_snapshot``) and the merge
+    lane's adapter (``GhCliGitHubAdapter.get_required_checks``) both read
+    through it. It is a plain GET built here (no method or field flags), so
+    it is not routed through the agents' ``gh api`` path guard, whose deny
+    list forbids ``branches/*/protection`` for agents absolutely; the merge
+    token is minted with administration:read for this read
+    (``gh_token_factory.DEFAULT_INSTALLATION_TOKEN_PERMISSIONS``).
+
+    Pre-Plan-023 _gh_pr_snapshot derived `required_checks` from
+    `gh pr checks` stdout, which lists the checks that ALREADY RAN on
+    the PR — not the checks branch protection requires. A PR with 0
+    runs against a base branch protected by `ci-affected` returned
+    required=[] and auto-merge then accepted "all required satisfied".
+
+    Post-fix: query the real protection contexts via gh api. Returns
+    a (contexts, error_code) tuple; the auto-merge consumer (P-4)
+    reads both. Failure paths discriminate explicitly:
+      * HTTP 200, populated → (contexts, None).
+      * HTTP 200, empty contexts → ([], 'branch_protection_no_required_checks_configured').
+      * HTTP 404 in stderr → (None, 'branch_protection_disabled_on_base').
+      * HTTP 401/403 in stderr → (None, 'branch_protection_lookup_permission_denied').
+      * Subprocess error / unrecognized failure → (None, 'branch_protection_lookup_failed').
+    """
+    try:
+        completed = subprocess.run(
+            [
+                "gh", "api",
+                f"repos/{{owner}}/{{repo}}/branches/{base_branch}/protection/required_status_checks",
+            ],
+            cwd=root, capture_output=True, text=True, check=False,
+        )
+    except (FileNotFoundError, OSError):
+        return None, "branch_protection_lookup_failed"
+    if completed.returncode != 0:
+        stderr = (completed.stderr or "").lower()
+        if "404" in stderr or "not protected" in stderr:
+            return None, "branch_protection_disabled_on_base"
+        if "401" in stderr or "403" in stderr or "forbidden" in stderr or "authentication required" in stderr:
+            return None, "branch_protection_lookup_permission_denied"
+        return None, "branch_protection_lookup_failed"
+    try:
+        body = json.loads(completed.stdout or "{}")
+    except json.JSONDecodeError:
+        return None, "branch_protection_lookup_failed"
+    contexts = body.get("contexts") if isinstance(body, dict) else None
+    if not isinstance(contexts, list):
+        return None, "branch_protection_lookup_failed"
+    # GitHub names each required check twice: the legacy `contexts` list and
+    # `checks[].context` (with the app the check must come from). The merge
+    # lane's reader read both; one reader keeps that, so a protection that
+    # lists a check only under `checks` is not read as unconfigured.
+    checks = body.get("checks")
+    named = [*contexts, *(item.get("context") for item in checks if isinstance(item, dict))] \
+        if isinstance(checks, list) else list(contexts)
+    contexts_str = sorted({str(c) for c in named if isinstance(c, str) and c.strip()})
+    if not contexts_str:
+        return [], "branch_protection_no_required_checks_configured"
+    return contexts_str, None
+
+
 def collect_github_snapshot(adapter: GitHubAdapter, pr: dict[str, Any]) -> dict[str, Any]:
     pr_number = int(pr["number"])
     base_branch = first_present_string(pr, "base_branch", "baseRefName", "base")
@@ -1118,14 +1201,21 @@ class GhCliGitHubAdapter:
         }
 
     def get_required_checks(self, base_branch: str) -> dict[str, Any]:
-        payload = self._gh_api_json(
-            [
-                f"repos/{self.owner}/{self.repo}/branches/{base_branch}/protection/required_status_checks",
-            ],
-        )
-        checks = payload.get("contexts", [])
-        checks.extend(item.get("context") for item in payload.get("checks", []) if isinstance(item, dict))
-        return {"readable": True, "required_checks": sorted({str(check) for check in checks if check})}
+        """The base branch's required status checks, in the snapshot's shape.
+
+        ARIA-CRITICAL-009 — read through ``read_required_status_checks``, the
+        reader the CI observer uses. This read went through ``_gh_api_json``,
+        whose agent path guard forbids ``branches/*/protection``: it raised
+        before any call, ``collect_github_snapshot`` swallowed that into an
+        unreadable protection with no cause, and every live merge-lane
+        evaluation blocked there, before the pre-merge perimeter. A refused
+        or empty read is unreadable here with its named ``lookup_error``.
+        """
+        checks, lookup_error = read_required_status_checks(root=self.cwd, base_branch=base_branch)
+        protection: dict[str, Any] = {"readable": lookup_error is None, "required_checks": checks or []}
+        if lookup_error is not None:
+            protection["lookup_error"] = lookup_error
+        return protection
 
     def get_checks(self, head_sha: str) -> dict[str, Any]:
         """Every check run and commit status on ``head_sha``, or unreadable.
@@ -1409,7 +1499,7 @@ def _required_checks(github: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(protection, dict):
         return {"readable": False, "checks": [], "lookup_error": "branch_protection_payload_unreadable"}
     # Plan 023 v3.1 §P-2-followup — propagate lookup_error from the
-    # _fetch_branch_protection_contexts helper. Pre-Plan-023.1 the
+    # read_required_status_checks helper. Pre-Plan-023.1 the
     # helper populated github.branch_protection.lookup_error on
     # network/HTTP failure but evaluate_auto_merge never read it; the
     # gate fell through to checks validation as if branch protection

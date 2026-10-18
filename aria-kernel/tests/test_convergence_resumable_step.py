@@ -282,15 +282,17 @@ class PlannerTwinContextTests(_StepCase):
     def test_affected_paths_reach_mint_without_becoming_evidence_or_write_scope(self) -> None:
         from aria_kernel import agent_invocations as ai
         body = self._prepare_named_planner_source()
-        # The actual discovery cycle is historical context, not a source-file
-        # citation. Its separately named affected owner supplies retrieval.
-        body["evidence_refs"] = ["cycle:cyc-step"]
+        # The plan cites a file outside its affected surface; the separately
+        # named affected owner supplies retrieval. (ARIA-MEDIUM-385: a
+        # `cycle:` pointer, as this fixture cited before, is refused at the
+        # mint — the challenger would cite it and the submit law refuse it.)
+        body["evidence_refs"] = ["docs/aria/SPEC.md"]
         body["affected_surfaces"] = [{"paths": ["aria-kernel/aria_kernel/knowledge_graph.py"]}]
         start_plan(plan_id="plan-1", initial_revision_id="rev-0", plan_content=body, base_dir=self.tools)
         result = self.step()
         self.assertEqual(result["arbiter_verdict"], "in_progress")
         request = next(row for row in self.requests() if row["role"] == "challenger_plan")
-        self.assertEqual(request["evidence_refs"], ["cycle:cyc-step"])
+        self.assertEqual(request["evidence_refs"], ["docs/aria/SPEC.md"])
         self.assertEqual(request["allowed_scope"], ["aria-kernel/aria_kernel/knowledge_graph.py"])
         self.assertEqual(request["plan_revision_hash"], content_hash(body))
         self.assertIn("aria-kernel/aria_kernel/knowledge_graph.py",
@@ -299,7 +301,7 @@ class PlannerTwinContextTests(_StepCase):
         self.assertEqual(request["context_source_paths"], ["aria-kernel/aria_kernel/knowledge_graph.py"])
         native = ai.verify_invocation_context_binding(request_id=request["request_id"], context_hash=request["context_hash"],
                                                      prompt_hash=request["prompt_hash"], base_dir=self.tools)
-        self.assertEqual(native["context"]["included_refs"], [{"ref": "cycle:cyc-step", "source": "evidence_refs"}])
+        self.assertEqual(native["context"]["included_refs"], [{"ref": "docs/aria/SPEC.md", "source": "evidence_refs"}])
         self.assertIn("knowledge_graph.conventions_for_paths", native["prompt"]["prompt_text"])
         self.assertEqual(ai.render_invocation_prompt(ai.fuse_prompt_envelope(request)), native["prompt"]["prompt_text"])
 
@@ -308,13 +310,13 @@ class PlannerTwinContextTests(_StepCase):
         body = self._prepare_named_planner_source()
         literal = "aria-kernel/aria_kernel/knowledge_graph.py"
         long_path = "aria-kernel/" + "ordinary-long-filename-" * 30 + ".py"
-        body["evidence_refs"] = ["cycle:cyc-step"]
+        body["evidence_refs"] = ["docs/aria/SPEC.md"]
         body["affected_surfaces"] = [{"paths": [literal, "aria-kernel/**", long_path]}]
         start_plan(plan_id="plan-1", initial_revision_id="rev-0", plan_content=body, base_dir=self.tools)
         self.assertEqual(fold_plan_state(plan_id="plan-1", base_dir=self.tools)["plan_started"]["plan_content"], body)
         self.assertEqual(self.step()["arbiter_verdict"], "in_progress")
         request = next(row for row in self.requests() if row["role"] == "challenger_plan")
-        self.assertEqual(request["evidence_refs"], ["cycle:cyc-step"])
+        self.assertEqual(request["evidence_refs"], ["docs/aria/SPEC.md"])
         self.assertEqual(request["allowed_scope"], [literal, "aria-kernel/**", long_path])
         self.assertEqual(request["context_source_paths"], [literal])
         self.assertEqual(request["context_source_paths_status"], {

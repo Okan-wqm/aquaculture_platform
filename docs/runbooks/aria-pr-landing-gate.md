@@ -40,7 +40,11 @@ nothing they cover, so the graph cannot reach them. Any change under
 into every scoped run at the `floor` tier (`applyInvariantFloor` in
 `scripts/ci/aria-suite-changed.mjs`): last priority, inside the budget
 discipline, never displacing a changed module. The hard guarantee is the
-required `aria-kernel` check, which always runs the full suite.
+required `aria-kernel` check: on a main push it runs the full suite, and on a
+pull request it runs the full suite whenever the PR touches the kernel surface
+declared in `.github/manifests/aria-kernel-surface.json`, the same surface this
+selector diffs. `aria-kernel/tests/test_kernel_surface.py` fails the build when
+a job that check can skip reads a workflow-level input outside that surface.
 
 ## Night budget
 

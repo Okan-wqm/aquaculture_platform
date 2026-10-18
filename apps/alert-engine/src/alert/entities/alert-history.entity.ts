@@ -2,6 +2,7 @@ import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, Index } from 
 import { ObjectType, Field, ID, GraphQLISODateTime } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 import { AlertSeverity } from '../../database/entities/alert-rule.entity';
+import { AlertModule } from './alert-module.enum';
 
 /**
  * Alert History Entity
@@ -10,6 +11,10 @@ import { AlertSeverity } from '../../database/entities/alert-rule.entity';
 @ObjectType()
 @Entity('alert_history')
 @Index(['tenantId', 'triggeredAt'])
+// The console reads alarms per site and per module (module dashboards, the
+// workspace menu's counts): both filters narrow by equality, newest first.
+@Index('IDX_alert_history_site_id_triggered_at', ['siteId', 'triggeredAt'])
+@Index('IDX_alert_history_module_triggered_at', ['module', 'triggeredAt'])
 // PE-02: Explicit descending composite index for the cooldown query
 // (ruleId equality + triggeredAt range with DESC ordering).
 @Index(['ruleId', 'triggeredAt'], { spatial: false, unique: false })
@@ -57,6 +62,25 @@ export class AlertHistory {
   @Field({ nullable: true })
   @Column({ name: 'sensor_id', nullable: true })
   sensorId?: string;
+
+  /**
+   * The farm site the alarm's source belongs to, as its producer knew it (the
+   * sensor's site, the measured unit's site, the day plan's site). Null when
+   * the source has no single site — a batch-level FCR, tenant-wide stock — or
+   * the row predates the column and no exact backfill reached it
+   * (migration 1801300000000).
+   */
+  @Field(() => ID, { nullable: true })
+  @Column({ name: 'site_id', type: 'uuid', nullable: true })
+  siteId?: string | null;
+
+  /**
+   * The module the alarm originates in (AlertModule). Null only on rows that
+   * predate the column and whose rule the backfill could not attribute.
+   */
+  @Field(() => AlertModule, { nullable: true })
+  @Column({ name: 'module', type: 'enum', enum: AlertModule, nullable: true })
+  module?: AlertModule | null;
 
   @Field(() => AlertSeverity)
   @Column({ name: 'severity', type: 'enum', enum: AlertSeverity })

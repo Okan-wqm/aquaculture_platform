@@ -39,7 +39,11 @@ interface AdapterInput {
   readonly allowlist?: readonly string[];
   readonly dbSnapshotPath?: string;
   readonly moduleTableAllowlist?: readonly string[];
-  readonly repo_snapshot?: { readonly allowed_paths?: readonly string[]; readonly snapshot_hash?: string; readonly repo_state_id?: string };
+  readonly repo_snapshot?: {
+    readonly allowed_paths?: readonly string[];
+    readonly snapshot_hash?: string;
+    readonly repo_state_id?: string;
+  };
 }
 
 interface EvidenceRef {
@@ -200,7 +204,7 @@ export function analyzeTypeOrmEntities(
   // sweeps the declared service list and merges.
   if (input.root === undefined) {
     const services = (input.services ?? DEFAULT_SERVICES).filter((service) =>
-      workspacePathExists(resolveInsideWorkspace(workspaceRoot, service.root)),
+      workspacePathExists(workspaceRoot, resolveInsideWorkspace(workspaceRoot, service.root)),
     );
     const outputs = services.map((service) =>
       analyzeTypeOrmEntities(
@@ -230,13 +234,17 @@ export function analyzeTypeOrmEntities(
   const serviceName = input.serviceName ?? 'farm';
   const checks = new Set(input.checks ?? DEFAULT_CHECKS);
   const scanRoot = resolveInsideWorkspace(workspaceRoot, requestedRoot);
-  if (!workspacePathExists(scanRoot)) {
+  if (!workspacePathExists(workspaceRoot, scanRoot)) {
     throw new Error(`scan root does not exist: ${requestedRoot}`);
   }
 
   const allowlist = new Set((input.allowlist ?? []).map(normalizePath));
   const moduleTableAllowlist = new Set((input.moduleTableAllowlist ?? []).map(String));
-  const files = filterFilesBySnapshot(collectEntityFiles(scanRoot), workspaceRoot, input);
+  const files = filterFilesBySnapshot(
+    collectEntityFiles(workspaceRoot, scanRoot),
+    workspaceRoot,
+    input,
+  );
   // The ownership policy is consulted by BOTH the entity_schema check (per-tenant
   // vs cross-tenant classification) and the module_schema check (declared-table
   // diff), so it is parsed exactly once per service run.
@@ -260,7 +268,9 @@ export function analyzeTypeOrmEntities(
   result.findings.sort(compareById);
   result.readPaths.sort();
   const evidenceSources = Array.from(
-    new Set(result.findings.flatMap((finding) => finding.evidence.map((evidence) => evidence.path))),
+    new Set(
+      result.findings.flatMap((finding) => finding.evidence.map((evidence) => evidence.path)),
+    ),
   ).sort();
 
   return {
@@ -313,7 +323,7 @@ function analyzeFiles(
   const readPaths = files.map((file) => normalizePath(relative(workspaceRoot, file)));
 
   for (const file of files) {
-    const sourceText = readWorkspaceFile(file);
+    const sourceText = readWorkspaceFile(workspaceRoot, file);
     const sourceFile = ts.createSourceFile(file, sourceText, ts.ScriptTarget.Latest, true);
     const relativePath = normalizePath(relative(workspaceRoot, file));
     const allowlisted = allowlist.has(relativePath);
@@ -327,7 +337,8 @@ function analyzeFiles(
         return;
       }
 
-      const line = sourceFile.getLineAndCharacterOfPosition(decorator.getStart(sourceFile)).line + 1;
+      const line =
+        sourceFile.getLineAndCharacterOfPosition(decorator.getStart(sourceFile)).line + 1;
       const className = node.name?.text ?? '<anonymous>';
       const entity = readEntityDecorator(decorator);
       const record: EntityRecord = {
@@ -417,7 +428,10 @@ function loadSchemaOwnershipPolicy(
   input: AdapterInput,
 ): SchemaOwnershipPolicy {
   const modulePath = resolveInsideWorkspace(workspaceRoot, MODULE_SCHEMA_PATH);
-  if (!workspacePathExists(modulePath) || !pathAllowedBySnapshot(workspaceRoot, MODULE_SCHEMA_PATH, input)) {
+  if (
+    !workspacePathExists(workspaceRoot, modulePath) ||
+    !pathAllowedBySnapshot(workspaceRoot, MODULE_SCHEMA_PATH, input)
+  ) {
     return {
       ssotReadable: false,
       tenantScopedModules: null,
@@ -427,7 +441,7 @@ function loadSchemaOwnershipPolicy(
   }
   const sourceFile = ts.createSourceFile(
     modulePath,
-    readWorkspaceFile(modulePath),
+    readWorkspaceFile(workspaceRoot, modulePath),
     ts.ScriptTarget.Latest,
     true,
   );
@@ -534,7 +548,11 @@ function analyzeMigrationRegistry(
   const MIGRATIONS_DIR = `${rootRel.replace(/\/$/, '')}/database/migrations`;
   const appModulePath = resolveInsideWorkspace(workspaceRoot, APP_MODULE_PATH);
   const migrationsDir = resolveInsideWorkspace(workspaceRoot, MIGRATIONS_DIR);
-  if (!workspacePathExists(appModulePath) || !workspacePathExists(migrationsDir) || !pathAllowedBySnapshot(workspaceRoot, APP_MODULE_PATH, input)) {
+  if (
+    !workspacePathExists(workspaceRoot, appModulePath) ||
+    !workspacePathExists(workspaceRoot, migrationsDir) ||
+    !pathAllowedBySnapshot(workspaceRoot, APP_MODULE_PATH, input)
+  ) {
     result.observations.push({
       id: `migration-registry:unavailable:${serviceName}`,
       type: 'migration_registry_unavailable',
@@ -543,13 +561,17 @@ function analyzeMigrationRegistry(
     return;
   }
   addReadPath(result, workspaceRoot, appModulePath);
-  const files = filterFilesBySnapshot(collectMigrationFiles(migrationsDir), workspaceRoot, input);
+  const files = filterFilesBySnapshot(
+    collectMigrationFiles(workspaceRoot, migrationsDir),
+    workspaceRoot,
+    input,
+  );
   for (const file of files) {
     addReadPath(result, workspaceRoot, file);
   }
   const fileClasses = new Map<string, string>();
   for (const file of files) {
-    const className = readFirstExportedClass(file);
+    const className = readFirstExportedClass(workspaceRoot, file);
     if (className) {
       fileClasses.set(className, normalizePath(relative(workspaceRoot, file)));
     }
@@ -565,8 +587,10 @@ function analyzeMigrationRegistry(
     const dataSourcePath = `${rootRel.replace(/\/$/, '')}/database/data-source.ts`;
     const dataSourceAbsolute = resolveInsideWorkspace(workspaceRoot, dataSourcePath);
     if (
-      workspacePathExists(dataSourceAbsolute) &&
-      /migrations:\s*\[[^\]]*database\/migrations\//.test(readWorkspaceFile(dataSourceAbsolute))
+      workspacePathExists(workspaceRoot, dataSourceAbsolute) &&
+      /migrations:\s*\[[^\]]*database\/migrations\//.test(
+        readWorkspaceFile(workspaceRoot, dataSourceAbsolute),
+      )
     ) {
       addReadPath(result, workspaceRoot, dataSourceAbsolute);
       result.observations.push({
@@ -589,7 +613,10 @@ function analyzeMigrationRegistry(
         path: APP_MODULE_PATH,
         line: registry.migrationsArrayLine,
         message: `Migration class '${className}' exists in ${filePath} but is not registered in app.module.ts migrations array.`,
-        evidence: [{ path: filePath }, { path: APP_MODULE_PATH, line: registry.migrationsArrayLine }],
+        evidence: [
+          { path: filePath },
+          { path: APP_MODULE_PATH, line: registry.migrationsArrayLine },
+        ],
         details: { className, filePath },
       });
     }
@@ -638,11 +665,11 @@ function analyzeDbSnapshot(
     return;
   }
   const snapshotPath = resolveInsideWorkspace(workspaceRoot, input.dbSnapshotPath);
-  if (!workspacePathExists(snapshotPath)) {
+  if (!workspacePathExists(workspaceRoot, snapshotPath)) {
     throw new Error(`dbSnapshotPath does not exist: ${input.dbSnapshotPath}`);
   }
   addReadPath(result, workspaceRoot, snapshotPath);
-  const snapshot = readJson(snapshotPath) as SchemaSnapshot;
+  const snapshot = readJson(workspaceRoot, snapshotPath) as SchemaSnapshot;
   const snapshotRel = normalizePath(relative(workspaceRoot, snapshotPath));
   const tables = new Map(snapshot.tables.map((table) => [table.name, table]));
 
@@ -702,7 +729,12 @@ function analyzeDbSnapshot(
           className: record.className,
           message: `Entity declares '${record.table}.${column.databaseName}' as uuid but snapshot type is '${dbColumn.dataType}'.`,
           evidence: [{ path: record.path, line: column.line }, { path: snapshotRel }],
-          details: { table: record.table, column: column.databaseName, expected: 'uuid', actual: dbColumn.dataType },
+          details: {
+            table: record.table,
+            column: column.databaseName,
+            expected: 'uuid',
+            actual: dbColumn.dataType,
+          },
         });
       }
       if (!column.nullable && dbColumn.isNullable === 'YES') {
@@ -790,7 +822,7 @@ function collectEntityRecords(result: AnalysisResult): EntityRecord[] {
 }
 
 function getEntityDecorator(node: ts.ClassDeclaration): ts.CallExpression | null {
-  const decorators = ts.canHaveDecorators(node) ? ts.getDecorators(node) ?? [] : [];
+  const decorators = ts.canHaveDecorators(node) ? (ts.getDecorators(node) ?? []) : [];
   for (const decorator of decorators) {
     const expression = decorator.expression;
     if (!ts.isCallExpression(expression)) {
@@ -814,11 +846,12 @@ function readEntityDecorator(call: ts.CallExpression): {
   // tolerate an absent node before asking TypeScript for its kind.
   const firstArg = call.arguments[0];
   const secondArg = call.arguments[1];
-  const optionsArg = firstArg && ts.isObjectLiteralExpression(firstArg)
-    ? firstArg
-    : secondArg && ts.isObjectLiteralExpression(secondArg)
-      ? secondArg
-      : null;
+  const optionsArg =
+    firstArg && ts.isObjectLiteralExpression(firstArg)
+      ? firstArg
+      : secondArg && ts.isObjectLiteralExpression(secondArg)
+        ? secondArg
+        : null;
   const table =
     firstArg && ts.isStringLiteralLike(firstArg)
       ? firstArg.text
@@ -833,7 +866,10 @@ function readEntityDecorator(call: ts.CallExpression): {
   };
 }
 
-function readEntityColumns(node: ts.ClassDeclaration, sourceFile: ts.SourceFile): readonly EntityColumn[] {
+function readEntityColumns(
+  node: ts.ClassDeclaration,
+  sourceFile: ts.SourceFile,
+): readonly EntityColumn[] {
   const columns: EntityColumn[] = [];
   for (const member of node.members) {
     if (!ts.isPropertyDeclaration(member) || !member.name || !ts.isIdentifier(member.name)) {
@@ -858,7 +894,7 @@ function readEntityColumns(node: ts.ClassDeclaration, sourceFile: ts.SourceFile)
 }
 
 function getColumnDecorator(node: ts.PropertyDeclaration): ts.CallExpression | null {
-  const decorators = ts.canHaveDecorators(node) ? ts.getDecorators(node) ?? [] : [];
+  const decorators = ts.canHaveDecorators(node) ? (ts.getDecorators(node) ?? []) : [];
   const names = new Set([
     'Column',
     'PrimaryColumn',
@@ -881,7 +917,10 @@ function getColumnDecorator(node: ts.PropertyDeclaration): ts.CallExpression | n
   return null;
 }
 
-function readColumnOptions(call: ts.CallExpression, propertyName: string): {
+function readColumnOptions(
+  call: ts.CallExpression,
+  propertyName: string,
+): {
   readonly databaseName: string;
   readonly type: string | null;
   readonly nullable: boolean;
@@ -892,7 +931,9 @@ function readColumnOptions(call: ts.CallExpression, propertyName: string): {
   // `secondArg` died when findObjectArg took over options discovery —
   // removed rather than underscore-parked (İ2: dead code is deleted).
   const optionsArg = findObjectArg(call.arguments);
-  const databaseName = optionsArg ? readStringProperty(optionsArg, 'name') ?? propertyName : propertyName;
+  const databaseName = optionsArg
+    ? (readStringProperty(optionsArg, 'name') ?? propertyName)
+    : propertyName;
   const explicitType =
     firstArg && ts.isStringLiteralLike(firstArg)
       ? firstArg.text
@@ -929,7 +970,12 @@ function readModuleSchema(
 ): ModuleSchemaRecord | null {
   let found: ModuleSchemaRecord | null = null;
   visit(sourceFile, (node) => {
-    if (found || !ts.isVariableDeclaration(node) || !ts.isIdentifier(node.name) || node.name.text !== 'MODULE_SCHEMAS') {
+    if (
+      found ||
+      !ts.isVariableDeclaration(node) ||
+      !ts.isIdentifier(node.name) ||
+      node.name.text !== 'MODULE_SCHEMAS'
+    ) {
       return;
     }
     const initializer = unwrapExpression(node.initializer);
@@ -1011,7 +1057,12 @@ function snakeCaseIdentifier(name: string): string {
 }
 
 function readMigrationRegistry(path: string, workspaceRoot: string): MigrationRegistry {
-  const sourceFile = ts.createSourceFile(path, readWorkspaceFile(path), ts.ScriptTarget.Latest, true);
+  const sourceFile = ts.createSourceFile(
+    path,
+    readWorkspaceFile(workspaceRoot, path),
+    ts.ScriptTarget.Latest,
+    true,
+  );
   const importedClasses = new Map<string, string>();
   const registeredClasses: string[] = [];
   let migrationsArrayLine = 1;
@@ -1023,8 +1074,13 @@ function readMigrationRegistry(path: string, workspaceRoot: string): MigrationRe
     if (!ts.isNamedImports(statement.importClause.namedBindings)) {
       continue;
     }
-    const specifier = ts.isStringLiteral(statement.moduleSpecifier) ? statement.moduleSpecifier.text : '';
-    if (!specifier.includes('/database/migrations/') && !specifier.includes('./database/migrations/')) {
+    const specifier = ts.isStringLiteral(statement.moduleSpecifier)
+      ? statement.moduleSpecifier.text
+      : '';
+    if (
+      !specifier.includes('/database/migrations/') &&
+      !specifier.includes('./database/migrations/')
+    ) {
       continue;
     }
     for (const element of statement.importClause.namedBindings.elements) {
@@ -1039,7 +1095,8 @@ function readMigrationRegistry(path: string, workspaceRoot: string): MigrationRe
     if (!ts.isArrayLiteralExpression(node.initializer)) {
       return;
     }
-    migrationsArrayLine = sourceFile.getLineAndCharacterOfPosition(node.initializer.getStart(sourceFile)).line + 1;
+    migrationsArrayLine =
+      sourceFile.getLineAndCharacterOfPosition(node.initializer.getStart(sourceFile)).line + 1;
     for (const element of node.initializer.elements) {
       if (ts.isIdentifier(element)) {
         registeredClasses.push(element.text);
@@ -1055,8 +1112,13 @@ function readMigrationRegistry(path: string, workspaceRoot: string): MigrationRe
   };
 }
 
-function readFirstExportedClass(path: string): string | null {
-  const sourceFile = ts.createSourceFile(path, readWorkspaceFile(path), ts.ScriptTarget.Latest, true);
+function readFirstExportedClass(workspaceRoot: string, path: string): string | null {
+  const sourceFile = ts.createSourceFile(
+    path,
+    readWorkspaceFile(workspaceRoot, path),
+    ts.ScriptTarget.Latest,
+    true,
+  );
   for (const statement of sourceFile.statements) {
     if (ts.isClassDeclaration(statement) && statement.name) {
       return statement.name.text;
@@ -1065,11 +1127,14 @@ function readFirstExportedClass(path: string): string | null {
   return null;
 }
 
-function readJson(path: string): unknown {
-  return readWorkspaceJson(path);
+function readJson(workspaceRoot: string, path: string): unknown {
+  return readWorkspaceJson(workspaceRoot, path);
 }
 
-function readStringProperty(object: ts.ObjectLiteralExpression, propertyName: string): string | null {
+function readStringProperty(
+  object: ts.ObjectLiteralExpression,
+  propertyName: string,
+): string | null {
   for (const property of object.properties) {
     if (!ts.isPropertyAssignment(property) || !isPropertyNamed(property.name, propertyName)) {
       continue;
@@ -1079,7 +1144,10 @@ function readStringProperty(object: ts.ObjectLiteralExpression, propertyName: st
   return null;
 }
 
-function readBooleanProperty(object: ts.ObjectLiteralExpression, propertyName: string): boolean | null {
+function readBooleanProperty(
+  object: ts.ObjectLiteralExpression,
+  propertyName: string,
+): boolean | null {
   for (const property of object.properties) {
     if (!ts.isPropertyAssignment(property) || !isPropertyNamed(property.name, propertyName)) {
       continue;
@@ -1094,7 +1162,10 @@ function readBooleanProperty(object: ts.ObjectLiteralExpression, propertyName: s
   return null;
 }
 
-function readStringArrayProperty(object: ts.ObjectLiteralExpression, propertyName: string): readonly string[] {
+function readStringArrayProperty(
+  object: ts.ObjectLiteralExpression,
+  propertyName: string,
+): readonly string[] {
   for (const property of object.properties) {
     if (!ts.isPropertyAssignment(property) || !isPropertyNamed(property.name, propertyName)) {
       continue;
@@ -1119,7 +1190,12 @@ function isPropertyNamed(name: ts.PropertyName, expected: string): boolean {
 
 function unwrapExpression(expression: ts.Expression | undefined): ts.Expression | undefined {
   let current = expression;
-  while (current && (ts.isAsExpression(current) || ts.isTypeAssertionExpression(current) || ts.isParenthesizedExpression(current))) {
+  while (
+    current &&
+    (ts.isAsExpression(current) ||
+      ts.isTypeAssertionExpression(current) ||
+      ts.isParenthesizedExpression(current))
+  ) {
     current = current.expression;
   }
   return current;
@@ -1130,19 +1206,19 @@ function visit(node: ts.Node, visitor: (node: ts.Node) => void): void {
   ts.forEachChild(node, (child) => visit(child, visitor));
 }
 
-function collectEntityFiles(root: string): readonly string[] {
-  return collectFiles(root, {
+function collectEntityFiles(workspaceRoot: string, root: string): readonly string[] {
+  return collectFiles(workspaceRoot, root, {
     extensions: ['.entity.ts'],
     // E13 FP class (2): archived corpus is dead code — no schema discipline applies.
     includeFile: (name, path) => !isArchivedWorkspacePath(path),
   });
 }
 
-function collectMigrationFiles(root: string): readonly string[] {
-  if (!workspacePathExists(root)) {
+function collectMigrationFiles(workspaceRoot: string, root: string): readonly string[] {
+  if (!workspacePathExists(workspaceRoot, root)) {
     return [];
   }
-  return collectFiles(root, {
+  return collectFiles(workspaceRoot, root, {
     extensions: ['.ts'],
     // E13 FP class (2): `.archive/<timestamp>/` migration snapshots are retired
     // by definition — they are never registered, so diffing them against the

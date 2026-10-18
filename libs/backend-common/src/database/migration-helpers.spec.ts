@@ -1,4 +1,10 @@
-import { addColumnWithIndex, dropColumnWithIndex } from './migration-helpers';
+import {
+  addColumnWithIndex,
+  type AddColumnWithIndexOptions,
+  dropColumnWithIndex,
+  isMigrationColumnTypeName,
+  type MigrationColumnType,
+} from './migration-helpers';
 
 /**
  * migration-helpers.spec.ts
@@ -27,27 +33,41 @@ import { addColumnWithIndex, dropColumnWithIndex } from './migration-helpers';
  *   6. A per-tenant table may not be pinned to a tenant-aware source
  *      schema; only MODULE_SCHEMAS infrastructureTables take one.
  *   7. CONCURRENTLY is refused inside an open transaction.
+ *   8. ARIA-LOW-405: the vocabulary is a compile-time type; an explicit
+ *      schema must own a migration lane (public, tenant clones and unlisted
+ *      names are refused); an enum is qualified with its table; and the
+ *      index is read back after the build, so an INVALID index left by a
+ *      failed CONCURRENTLY build fails the migration instead of being
+ *      skipped by IF NOT EXISTS.
  */
+
+/** The read-back assertValidIndex issues after every build. */
+const VALIDITY_READ =
+  'SELECT "indisvalid" AS "valid" FROM pg_index WHERE "indexrelid" = to_regclass($1)';
 
 class RecordingQueryRunner {
   readonly statements: string[] = [];
-  constructor(readonly isTransactionActive = false) {}
   readonly parameters: unknown[][] = [];
+  constructor(
+    readonly isTransactionActive = false,
+    /** What pg_index answers for the built index: one valid row by default. */
+    private readonly indexRows: unknown[] = [{ valid: true }],
+  ) {}
 
   query(statement: string, parameters?: unknown[]): Promise<unknown[]> {
     // Not async on purpose: no await inside, and @typescript-eslint/
     // require-await fires on an async method without one.
     this.statements.push(statement);
     this.parameters.push(parameters ?? []);
-    return Promise.resolve([]);
+    return Promise.resolve(statement === VALIDITY_READ ? this.indexRows : []);
   }
 }
 
-function runner(isTransactionActive = false): RecordingQueryRunner {
+function runner(isTransactionActive = false, indexRows?: unknown[]): RecordingQueryRunner {
   // The helpers take SqlStatementRunner (query + isTransactionActive), so
   // the recorder satisfies it structurally — no cast, per the
   // banned-construct gate.
-  return new RecordingQueryRunner(isTransactionActive);
+  return new RecordingQueryRunner(isTransactionActive, indexRows);
 }
 
 describe('addColumnWithIndex', () => {
@@ -62,7 +82,9 @@ describe('addColumnWithIndex', () => {
     expect(qr.statements).toEqual([
       'ALTER TABLE "equipment" ADD COLUMN IF NOT EXISTS "temperatureSensorId" uuid',
       'CREATE INDEX IF NOT EXISTS "IDX_equipment_temperatureSensorId" ON "equipment" ("temperatureSensorId")',
+      VALIDITY_READ,
     ]);
+    expect(qr.parameters[2]).toEqual(['"IDX_equipment_temperatureSensorId"']);
   });
 
   it('qualifies both statements when a schema is given', async () => {
@@ -80,6 +102,8 @@ describe('addColumnWithIndex', () => {
     expect(qr.statements[1]).toBe(
       'CREATE INDEX IF NOT EXISTS "IDX_tenant_provisioning_runs_leaseUntil" ON "admin"."tenant_provisioning_runs" ("leaseUntil")',
     );
+    // The read-back names the index exactly as the DDL placed it.
+    expect(qr.parameters[2]).toEqual(['"admin"."IDX_tenant_provisioning_runs_leaseUntil"']);
   });
 
   it('defaults the index to the added column and preserves multi-column order', async () => {
@@ -110,8 +134,41 @@ describe('addColumnWithIndex', () => {
   });
 });
 
+/**
+ * Compile-time half of the vocabulary (ARIA-LOW-405). ts-jest type-checks this
+ * file, so each tuple below must hold for the suite to compile at all: a type
+ * outside the vocabulary is not a MigrationColumnType, one inside it is.
+ */
+type IsMigrationColumnType<T> = T extends MigrationColumnType ? true : false;
+const REFUSED_BY_THE_TYPE: [
+  IsMigrationColumnType<'uuid NOT NULL'>,
+  IsMigrationColumnType<"text DEFAULT 'x'">,
+  IsMigrationColumnType<'uuid REFERENCES "users"("id")'>,
+  IsMigrationColumnType<'text; DROP TABLE users'>,
+  IsMigrationColumnType<'serial'>,
+  IsMigrationColumnType<'TEXT'>,
+  IsMigrationColumnType<'varchar'>,
+  IsMigrationColumnType<'numeric'>,
+  IsMigrationColumnType<''>,
+  IsMigrationColumnType<string>,
+] = [false, false, false, false, false, false, false, false, false, false];
+const ACCEPTED_BY_THE_TYPE: [
+  IsMigrationColumnType<'uuid'>,
+  IsMigrationColumnType<'numeric(12,3)'>,
+  IsMigrationColumnType<'numeric(12, 3)'>,
+  IsMigrationColumnType<'character varying(255)'>,
+  IsMigrationColumnType<'char(2)'>,
+  IsMigrationColumnType<'text[]'>,
+  IsMigrationColumnType<{ enumType: 'labor_category_enum' }>,
+] = [true, true, true, true, true, true, true];
+
 describe('addColumnWithIndex column type vocabulary', () => {
   const base = { table: 't', column: 'c', indexName: 'IDX_t_c' };
+
+  it('is a compile-time type (the tuples above type-check)', () => {
+    expect(REFUSED_BY_THE_TYPE.every((accepted) => !accepted)).toBe(true);
+    expect(ACCEPTED_BY_THE_TYPE.every((accepted) => accepted)).toBe(true);
+  });
 
   it.each([
     'uuid',
@@ -129,7 +186,8 @@ describe('addColumnWithIndex column type vocabulary', () => {
     'char(2)',
     'uuid[]',
     'text[]',
-  ])('accepts %s', async (columnType) => {
+  ] as const)('accepts %s', async (columnType) => {
+    expect(isMigrationColumnTypeName(columnType)).toBe(true);
     const qr = runner();
     await addColumnWithIndex(qr, { ...base, columnType });
     expect(qr.statements[0]).toBe(`ALTER TABLE "t" ADD COLUMN IF NOT EXISTS "c" ${columnType}`);
@@ -145,18 +203,42 @@ describe('addColumnWithIndex column type vocabulary', () => {
     'TEXT',
     'varchar',
     'numeric',
+    'numeric(12,\t3)',
     '',
-  ])('refuses %j before issuing any SQL', async (columnType) => {
-    const qr = runner();
-    await expect(addColumnWithIndex(qr, { ...base, columnType })).rejects.toThrow(/vocabulary/);
-    expect(qr.statements).toEqual([]);
+  ])('the runtime check refuses %j', (columnType) => {
+    expect(isMigrationColumnTypeName(columnType)).toBe(false);
   });
 
-  it('takes an enum type by validated, quoted, unqualified name', async () => {
+  // `${number}` admits these, so they compile; the runtime check refuses
+  // them before any SQL, which is why the helper keeps it.
+  it.each(['numeric(1.5,2)', 'numeric(-1, 2)', 'char(123456)', 'character varying(1e3)'] as const)(
+    'refuses %j, which the type admits, before issuing any SQL',
+    async (columnType) => {
+      const qr = runner();
+      await expect(addColumnWithIndex(qr, { ...base, columnType })).rejects.toThrow(/vocabulary/);
+      expect(qr.statements).toEqual([]);
+    },
+  );
+
+  it('takes an enum type by validated, quoted, unqualified name for an unqualified table', async () => {
     const qr = runner();
     await addColumnWithIndex(qr, { ...base, columnType: { enumType: 'labor_category_enum' } });
     expect(qr.statements[0]).toBe(
       'ALTER TABLE "t" ADD COLUMN IF NOT EXISTS "c" "labor_category_enum"',
+    );
+  });
+
+  it('qualifies an enum type with its table schema', async () => {
+    const qr = runner();
+    await addColumnWithIndex(qr, {
+      table: 'tenant_provisioning_runs',
+      column: 'phase',
+      columnType: { enumType: 'tenant_provisioning_phase_enum' },
+      indexName: 'IDX_tenant_provisioning_runs_phase',
+      schema: 'admin',
+    });
+    expect(qr.statements[0]).toBe(
+      'ALTER TABLE "admin"."tenant_provisioning_runs" ADD COLUMN IF NOT EXISTS "phase" "admin"."tenant_provisioning_phase_enum"',
     );
   });
 
@@ -198,6 +280,31 @@ describe('addColumnWithIndex schema placement', () => {
     );
   });
 
+  it.each(['public', 'tenant_0123456789abcdef', 'gateway', 'shared', 'not_a_schema'])(
+    'refuses schema %j, which owns no migration lane, on both sides before issuing any SQL',
+    async (schema) => {
+      const qr = runner();
+      await expect(
+        addColumnWithIndex(qr, {
+          table: 'audit_log',
+          column: 'traceId',
+          columnType: 'text',
+          indexName: 'IDX_audit_log_traceId',
+          schema,
+        }),
+      ).rejects.toThrow(/owns no migration lane/);
+      await expect(
+        dropColumnWithIndex(qr, {
+          table: 'audit_log',
+          column: 'traceId',
+          indexName: 'IDX_audit_log_traceId',
+          schema,
+        }),
+      ).rejects.toThrow(/owns no migration lane/);
+      expect(qr.statements).toEqual([]);
+    },
+  );
+
   it('refuses the same per-tenant pin on the drop side', async () => {
     const qr = runner();
     await expect(
@@ -213,7 +320,7 @@ describe('addColumnWithIndex schema placement', () => {
 });
 
 describe('addColumnWithIndex concurrently', () => {
-  const options = {
+  const options: AddColumnWithIndexOptions = {
     table: 'sensor_readings',
     column: 'qualityFlag',
     columnType: 'smallint',
@@ -233,6 +340,21 @@ describe('addColumnWithIndex concurrently', () => {
     const qr = runner(true);
     await expect(addColumnWithIndex(qr, options)).rejects.toThrow(/transaction/);
     expect(qr.statements).toEqual([]);
+  });
+
+  it('fails on an INVALID index of that name, which IF NOT EXISTS skipped', async () => {
+    const qr = runner(false, [{ valid: false }]);
+    await expect(addColumnWithIndex(qr, options)).rejects.toThrow(
+      /"IDX_sensor_readings_qualityFlag" is not a valid index.*DROP INDEX CONCURRENTLY IF EXISTS "IDX_sensor_readings_qualityFlag"/,
+    );
+    expect(qr.statements[2]).toBe(VALIDITY_READ);
+  });
+
+  it('fails when the name belongs to a relation that is not an index', async () => {
+    const qr = runner(false, []);
+    await expect(addColumnWithIndex(qr, { ...options, concurrently: false })).rejects.toThrow(
+      /is not a valid index/,
+    );
   });
 });
 

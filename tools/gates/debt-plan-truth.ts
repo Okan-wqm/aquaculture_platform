@@ -5,8 +5,10 @@
  * WHAT THIS MODULE ANSWERS
  *
  *   1. `deriveRegistrySnapshot(registryText)` — the registry tip hash, row
- *      count, OPEN / IN-PROGRESS counts and the active CRITICAL ids (OPEN or
- *      IN-PROGRESS, in registry order), as a pure function of the registry.
+ *      count, OPEN / IN-PROGRESS counts and the active CRITICAL ids (every
+ *      unresolved state — OPEN, IN-PROGRESS, BLOCKED, STALE — in registry
+ *      order, per `isUnresolvedFindingState`), as a pure function of the
+ *      registry.
  *   2. `checkDebtPlanTruth(snapshot, rows)` — does the truth table's active
  *      table cover exactly that active CRITICAL set? Four ways to fail, each
  *      naming ids: an active CRITICAL with no row (`missingRows`: a new one
@@ -40,6 +42,8 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+
+import { isUnresolvedFindingState } from './finding-registry-chain';
 
 export const REGISTRY_PATH = 'docs/reviews/_registry/findings.jsonl';
 export const DEBT_PLAN_DIR = 'docs/plans/2026-06-18-enterprise-grade-debt-closure';
@@ -88,10 +92,6 @@ export interface RegistrySnapshot {
   readonly closingCommitById: ReadonlyMap<string, string>;
 }
 
-function isActive(row: RegistryRow): boolean {
-  return row.state === 'OPEN' || row.state === 'IN-PROGRESS';
-}
-
 export function deriveRegistrySnapshot(registryText: string): RegistrySnapshot {
   const rows = registryText
     .split(/\r?\n/)
@@ -110,7 +110,10 @@ export function deriveRegistrySnapshot(registryText: string): RegistrySnapshot {
     open: rows.filter((row) => row.state === 'OPEN').length,
     inProgress: rows.filter((row) => row.state === 'IN-PROGRESS').length,
     activeCriticalIds: rows
-      .filter((row) => row.severity === 'CRITICAL' && isActive(row))
+      // Active = still owed. A BLOCKED or STALE CRITICAL keeps its row: the
+      // sweep's past-deadline BLOCKED is a judgement, not a resolution
+      // (ARIA-HIGH-534), and the `blocked` / `stale` buckets exist for it.
+      .filter((row) => row.severity === 'CRITICAL' && isUnresolvedFindingState(row.state))
       .map((row) => row.id),
     closingCommitById,
   };
@@ -205,8 +208,8 @@ function appendToResolvedEvidence(raw: string, entry: string): string {
  * the bytes to write. Refuses — throws before anything is written — when the
  * table is wrong in a way only a human can fix: an active CRITICAL with no
  * row, a duplicate row, an unknown bucket, or a CRITICAL that left the active
- * set without a closing commit (BLOCKED or STALE is a judgement, not a
- * resolution).
+ * set without a closing commit. Only RESOLVED leaves the active set (BLOCKED
+ * and STALE stay in it), so this last case is a RESOLVED row with no closer.
  */
 export function retireResolvedRows(
   truthTable: string,

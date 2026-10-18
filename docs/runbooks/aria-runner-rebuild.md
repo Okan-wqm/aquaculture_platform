@@ -41,7 +41,7 @@ only.
 | Claude CLI floor     | `claude_code_floor` in `.github/manifests/aria-claude-floor.json` (both lanes' preflight rejects older)                                                                                                                                                                |
 | Workspace checkout   | `/home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform`                                                                                                                                                                                       |
 | Runner limits        | `MemoryHigh=2300M MemoryMax=3G OOMPolicy=continue CPUQuota=200% CPUWeight=400` (`scripts/aria/runner-habitat/systemd/actions-runner.limits.conf`)                                                                                                                      |
-| Session limits       | `user-.slice MemoryHigh=2816M MemoryMax=3G` (`scripts/aria/runner-habitat/systemd/user-.slice.d/50-aria-memory-discipline.conf`)                                                                                                                                       |
+| Session memory       | no habitat cap on `user-.slice`/`user.slice` memory (ARIA-HIGH-247: the operator's sessions held 10.9 GB on the 31959 MiB host, 2026-09-29)                                                                                                                            |
 | Session CPU share    | `user.slice CPUWeight=50` against `system.slice` 100 (`scripts/aria/runner-habitat/systemd/user.slice.d/50-aria-cpu-discipline.conf`)                                                                                                                                  |
 | Runner identity (T2) | `User=gharunner Group=gharunner SupplementaryGroups= NoNewPrivileges=yes InaccessiblePaths=/root` (`scripts/aria/runner-habitat/systemd/actions-runner.identity.conf`; ADR-0023, restart the service after install)                                                    |
 | T2 probe (hourly)    | `aria-t2-probe.timer` runs `aria-kernel habitat t2-probe` as `gharunner` (`scripts/aria/runner-habitat/systemd/aria-t2-probe.{service,timer}`; verdict `aria_t2_boundary_held`, alerts in `infrastructure/monitoring/droplet/rules/80-aria-t2-boundary.yml`; ADR-0023) |
@@ -132,18 +132,24 @@ process `oom_score_adj=500` (its `ProcessInvokerWrapper` does this — not
 configurable), so whenever the _whole machine_ runs out of memory the
 kernel kills the ARIA cycle first, regardless of who consumed the memory
 (ARIA-HIGH-034: a 22 MB cycle process killed while sessions held 3.2 GiB).
-The budget therefore has to be enforced per tenant of the box:
+The runner therefore carries its own budget, and `OOMPolicy=continue`
+keeps its listener alive when a job process is killed:
 
 ```bash
-# both drop-ins are repo copies; the provision script installs + drift-checks them
+# the drop-ins are repo copies; the provision script installs + drift-checks them
 scripts/aria/provision_runner.sh            # apply (root)
 scripts/aria/provision_runner.sh --dry-run  # verify: expect ✓ on OOMPolicy/MemoryMax probes
 ```
 
-| Unit                                | Budget                                                                                              | Effect when exceeded                                                                                                                                               |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| runner service                      | `MemoryHigh=2300M`, `MemoryMax=3G`, `OOMPolicy=continue`, `CPUWeight=400` (`CPUQuota=200%` ceiling) | throttled first; a killed job process fails _that_ job only — the listener stays up and the queued job runs                                                        |
-| `user-.slice` (every login session) | `MemoryHigh=2816M`, `MemoryMax=3G`                                                                  | sessions are reclaimed/swapped, then the largest session process is killed _inside the slice_ — a runaway agent CLI can no longer take the machine to a global OOM |
+| Unit           | Budget                                                                                              | Effect when exceeded                                                                                        |
+| -------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| runner service | `MemoryHigh=2300M`, `MemoryMax=3G`, `OOMPolicy=continue`, `CPUWeight=400` (`CPUQuota=200%` ceiling) | throttled first; a killed job process fails _that_ job only — the listener stays up and the queued job runs |
+
+The login sessions carry no habitat memory cap (ARIA-HIGH-247). The habitat once
+shipped `user-.slice MemoryHigh=2816M MemoryMax=3G`, sized for a retired 7.8 GiB
+droplet. On the 31959 MiB host the operator's sessions held 10.9 GB
+(2026-09-29), so that cap would have had the cgroup OOM killer end them; the
+operator declined it and the habitat no longer carries it.
 
 CPU is a share, not a cap: under cgroup v2 a `Nice=` value only orders tasks
 inside one cgroup, so the runner's old `Nice=10` never counted against its
@@ -165,7 +171,7 @@ contents, are the verdict:
 
 ```bash
 systemctl show actions.runner.Okan-wqm-aquaculture_platform.suderra-droplet-claude.service -p MemoryMax -p OOMPolicy
-systemctl show user-0.slice -p MemoryMax -p MemoryCurrent
+systemctl show user-0.slice -p MemoryCurrent
 cat /sys/fs/cgroup/system.slice/actions.runner.*.service/memory.events   # `max N` = times the cap was hit
 ```
 

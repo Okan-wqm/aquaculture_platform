@@ -317,6 +317,8 @@ describe('DayPlanAdminService.transitionUnitFeed (K-9)', () => {
     expect(event['toFeedId']).toBe('feed-g4');
     expect(event['toFeedCode']).toBe('G4');
     expect(event['bandIndex']).toBe(1);
+    // The assignment's site travels to the audit row (ALERT-MEDIUM-010).
+    expect(event['siteId']).toBe(SITE);
   });
 
   it('komşu banda manuel geçiş KENDİ recalc’ında geri alınmaz (FARM-MEDIUM-251)', async () => {

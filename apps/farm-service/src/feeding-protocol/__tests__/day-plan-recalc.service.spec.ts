@@ -82,6 +82,7 @@ function makeDayPlan(over: Partial<FeedingDayPlan> = {}): FeedingDayPlan {
     protocolId: 'protocol-1',
     unitId: UNIT,
     unitCode: 'T-01',
+    siteId: 'site-1',
     planDate: '2026-07-20',
     plannedTotalKg: 1.5,
     recalcLog: [],
@@ -159,7 +160,7 @@ function makeHarness(opts: HarnessOpts = {}) {
   });
 
   const saved: unknown[] = [];
-  const enqueued: Array<{ eventType: string }> = [];
+  const enqueued: Array<{ eventType: string; siteId?: string }> = [];
 
   // Chainable query-builder double: setLock/where/andWhere/orderBy passthrough.
   let qbCall = 0;
@@ -276,6 +277,10 @@ describe('DayPlanRecalcService.recalcForUnit', () => {
     expect(harness.assignment.totalTransitions).toBe(1);
     expect(harness.meals.every((meal) => meal.feedId === 'feed-b')).toBe(true);
     expect(harness.enqueued.map((event) => event.eventType)).toContain('FeedTypeTransitioned');
+    // The day plan's site travels to the audit row (ALERT-MEDIUM-010).
+    expect(
+      harness.enqueued.find((event) => event.eventType === 'FeedTypeTransitioned')?.siteId,
+    ).toBe('site-1');
     // Yeni band oranı %2: 110kg × 2% = 2.2 → 1.32 / 0.88
     expect(harness.meals[0]!.plannedKg).toBeCloseTo(1.32);
   });

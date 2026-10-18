@@ -606,8 +606,10 @@ def materialize_agent_draft(
       * The ack-token consumption (operator-minted via
         ``aria-kernel ack mint`` for this draft's scope —
         :func:`ack_scope_for_draft` — and refused for any other draft,
-        intent, target or body. Autonomous auto-mint has no live lane
-        in current mainline authority).
+        intent, target or body; signed with the operator's key and verified
+        against the allowed-signers file committed at ``workspace_root``'s
+        commit on main, ARIA-MEDIUM-254. Autonomous auto-mint has no live
+        lane in current mainline authority).
       * The ``materialize_event_id`` UUID that links the
         three-event audit chain (draft_validated → ack_consumed
         → materialize_committed).
@@ -754,17 +756,6 @@ def materialize_agent_draft(
                 "body_sha256": hashlib.sha256(body.encode("utf-8")).hexdigest(),
             },
         )
-    # Plan ARIA-V3 §2g event 2 — ack_consumed (via the gate's
-    # unified path: operator-token consumed OR autonomous auto-mint).
-    # The scope is derived from THIS draft row — the body written below —
-    # by the function the mint derived it with (ARIA-MEDIUM-254 slice A).
-    gate_outcome = gate.acquire_or_consume(
-        ack_id=ack_id,
-        base_dir=ensure_tools_dir(base_dir),
-        scope=_ack_scope(draft),
-        commit_sha_at_mint=_git_head(worktree),
-        profile_state_at_mint=f"{gate.profile}:v1",
-    )
     target = worktree / target_path
     try:
         target.resolve().relative_to(worktree.resolve())
@@ -778,6 +769,20 @@ def materialize_agent_draft(
     # the existing file's author → refuse to overwrite (duel included —
     # that path escalates to HUMAN_REQUIRED, never through here).
     body = _enforce_model_tier_and_stamp(body, target=target, worktree=worktree)
+    # Plan ARIA-V3 §2g event 2 — ack_consumed (via the gate's
+    # unified path: operator-token consumed OR autonomous auto-mint).
+    # The scope is derived from THIS draft row — the body written below —
+    # by the function the mint derived it with (ARIA-MEDIUM-254 slice A).
+    # ARIA-MEDIUM-512 — consumed LAST, after every refusal above: the
+    # operator's token is spent only on a write that happens.
+    gate_outcome = gate.acquire_or_consume(
+        ack_id=ack_id,
+        base_dir=ensure_tools_dir(base_dir),
+        scope=_ack_scope(draft),
+        workspace_root=workspace_root,
+        commit_sha_at_mint=_git_head(worktree),
+        profile_state_at_mint=f"{gate.profile}:v1",
+    )
     file_sha256_pre = _file_sha256(target)
     touched = [target_path]
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -1153,15 +1158,23 @@ def _ack_scope(draft: dict[str, Any]) -> AckScope:
     return AckScope.of_draft(draft, kind="agent", body=_drafter_body(draft))
 
 
-def ack_scope_for_draft(draft_id: str, base_dir: str | Path | None) -> AckScope:
-    """ARIA-MEDIUM-254 slice A — the scope ``ack_ledger.mint_operator_ack`` binds an agent ack to.
+def ack_review_for_draft(draft_id: str, base_dir: str | Path | None) -> tuple[AckScope, str]:
+    """ARIA-MEDIUM-254 slice A / ARIA-MEDIUM-512 — what a agent ack for ``draft_id`` authorizes, with its body.
 
     The latest row of ``draft_id`` in the drafts ledger, the row
-    :func:`materialize_agent_draft` writes; materialize derives its own scope
-    from that row through :func:`_ack_scope` too, so a body re-drafted after
-    the mint no longer matches the ack.
+    :func:`materialize_agent_draft` writes; materialize derives its own scope from that
+    row through :func:`_ack_scope` too, so a body re-drafted after the mint no
+    longer matches the ack. The body and its scope come from ONE row read, so
+    the body the operator reviews (``aria-kernel ack scope``) is the body the
+    digest names.
     """
-    return _ack_scope(_find_draft(draft_id, base_dir))
+    draft = _find_draft(draft_id, base_dir)
+    return _ack_scope(draft), _drafter_body(draft)
+
+
+def ack_scope_for_draft(draft_id: str, base_dir: str | Path | None) -> AckScope:
+    """The scope :func:`ack_review_for_draft` derives, without the body."""
+    return ack_review_for_draft(draft_id, base_dir)[0]
 
 
 def _latest_sandbox(draft_id: str, base_dir: str | Path | None) -> dict[str, Any] | None:

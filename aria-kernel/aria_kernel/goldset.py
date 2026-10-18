@@ -275,7 +275,11 @@ def dispatch_goldset_curation(
     # An item's evidence may include a recorded agent artifact (a judge cites
     # what it judged). That is a store record, not repository evidence: it
     # stays in the corpus data below and is not handed out as a citation.
-    item_refs = sorted(cited - set(state_store_record_refs(sorted(cited), store_root=root)))
+    # ARIA-MEDIUM-385 — and only refs the agent law admits by shape: every
+    # item's refs stay in the corpus below as data.
+    from .pressure_evidence import split_citable_refs
+
+    item_refs = split_citable_refs(sorted(cited - set(state_store_record_refs(sorted(cited), store_root=root))))[0]
     corpus = json.dumps(
         [
             {key: item.get(key) for key in ("finding_id", "verdict", "severity", "source_type", "evidence_refs")}
@@ -310,7 +314,8 @@ def dispatch_goldset_curation(
             ),
         }],
         allowed_scope=["**"],
-        evidence_refs=[subject, *item_refs],
+        evidence_refs=item_refs or None,
+        subject_ref=subject,
         tool_id=tool_id,
         cycle_id=cycle_id,
         target_sha=target_sha,

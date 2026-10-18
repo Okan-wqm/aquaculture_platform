@@ -23,6 +23,16 @@ and derives, independent of where a row sits in the feedback ledger:
 * ``reported`` — drop keys already announced, so a row that stays bad is
   reported once, not every cycle (GSEC-LOW-009).
 
+That history lives in aria/state, and a rollback of aria/state erases it.
+The spend a rollback cannot erase is main's history (ARIA-MEDIUM-264): every
+commit of an operator plan's implementation, and its PR body, carries one
+:func:`merged_request_line` per request the plan spends
+(``plan_origin.commit_contract_for_plan``, verified before the PR opens), so
+the squash commit the merge queue lands on main carries it whether the
+repository's squash default copies the commit messages or the PR body.
+Check 12 (``operator_feedback_observation``) reads main's history at merge
+with :func:`merged_request_ids` and refuses a request main already carries.
+
 Refusals split in two (arbiter ruling iii): :data:`REQUEST_REFUSAL_REASONS`
 are request-intrinsic and spend; runner faults (no anchor, no verifier, no
 finding store) are not in the list, so ``record_request_refused`` cannot be
@@ -30,12 +40,14 @@ called with one. An abandoned or HUMAN_REQUIRED plan leaves its request spent.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any, Iterable
 
 from .evidence_validator import PLAN_EVIDENCE_INADMISSIBLE
 from .finding_grounding import INTRINSIC_ADMISSION_REASONS
 from .operator_request_terms import TERMS_REASONS
+from .tool_registry import GovernanceError
 
 INGESTION_ROW_TYPE = "ingestion"
 SYNTHESIS_BOUND_ROW_TYPE = "synthesis_bound"
@@ -54,6 +66,36 @@ REQUEST_REFUSAL_REASONS: tuple[str, ...] = (
     *INTRINSIC_ADMISSION_REASONS, REQUEST_TEXT_UNUSABLE, PLAN_EVIDENCE_INADMISSIBLE,
     *_SIGNED_SCHEMA_REASONS, *TERMS_REASONS,
 )
+
+# ARIA-MEDIUM-264 — the line main's history records a merged request by.
+MERGED_REQUEST_KEY = "Aria-Operator-Request"
+# Read leniently: the squash commit's body may list a branch commit's message
+# indented under a bullet, and git trailer keys are case-insensitive. Reading
+# more lines as spends only refuses more merges; reading fewer would admit a
+# spent request again.
+_MERGED_REQUEST_LINE_RE = re.compile(
+    r"^[\s*>-]*" + re.escape(MERGED_REQUEST_KEY) + r"\s*:\s*(\S+)", re.IGNORECASE,
+)
+
+
+def merged_request_line(request_id: str) -> str:
+    """The exact line a commit spending ``request_id`` carries."""
+    from .operator_feedback_signature import valid_request_id
+
+    if not valid_request_id(request_id):
+        raise GovernanceError(f"merged_request_id_invalid: {request_id!r}")
+    return f"{MERGED_REQUEST_KEY}: {request_id}"
+
+
+def merged_request_ids(messages: Iterable[str]) -> frozenset[str]:
+    """Every request id a commit message among ``messages`` records as merged."""
+    found: set[str] = set()
+    for message in messages:
+        for line in message.splitlines():
+            match = _MERGED_REQUEST_LINE_RE.match(line)
+            if match is not None:
+                found.add(match.group(1))
+    return frozenset(found)
 
 
 @dataclass(frozen=True)
@@ -118,6 +160,7 @@ def request_history(
 
 __all__ = [
     "INGESTION_ROW_TYPE",
+    "MERGED_REQUEST_KEY",
     "REQUEST_REFUSAL_REASONS",
     "REQUEST_REFUSED_ROW_TYPE",
     "REQUEST_TEXT_UNUSABLE",
@@ -126,6 +169,8 @@ __all__ = [
     "SYNTHESIS_BOUND_ROW_TYPE",
     "RequestHistory",
     "drop_key",
+    "merged_request_ids",
+    "merged_request_line",
     "request_history",
     "started_plan_hashes",
 ]

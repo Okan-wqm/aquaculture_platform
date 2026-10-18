@@ -42,6 +42,7 @@ from aria_kernel.runtime_artifacts import resolve_artifact_payload
 from aria_kernel.tool_registry import GovernanceError, register_tool
 from aria_kernel.tool_runner import run_tool
 from tests._helpers.git_fixtures import commit_files, make_local_git_repo
+from tests._helpers.sandbox_pins import require_sandbox_backend
 from tests.test_enterprise_cycle import shadow_tool
 
 PROBE = Path(__file__).resolve().parent / "_helpers" / "adapter_room_probe.py"
@@ -144,16 +145,11 @@ def _probe_facts(envelope: dict, tools: Path) -> dict:
     return json.loads(stdout)["observations"][0]["details"] if stdout.strip() else {}
 
 
-def _requires_backend(test: unittest.TestCase) -> None:
-    if impl.sandbox_backend() is None:
-        test.skipTest(f"bwrap is not usable on this host: {impl.sandbox_unavailable_detail()}")
-
-
 class LiveRoomTests(unittest.TestCase):
     """The probe through the REAL runners, inside a real bwrap room."""
 
     def setUp(self) -> None:
-        _requires_backend(self)
+        require_sandbox_backend()
         self.layout = RunnerLayout(self)
 
     def test_the_tool_runner_runs_the_adapter_in_a_room_that_holds(self) -> None:

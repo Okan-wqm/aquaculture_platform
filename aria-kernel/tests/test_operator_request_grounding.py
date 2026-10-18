@@ -307,7 +307,8 @@ class ProviderTests(_Fixture):
         self._synthesize("cyc-next")
         latest = ingestion.latest_ingestion_for_cycle(base_dir=self.fx.tools, cycle_id="cyc-next")
         self.assertEqual(latest["admitted"], [])
-        self.assertEqual([(s["id"], s["reason"]) for s in latest["spent"]], [("OP-closed", "refused")])
+        self.assertEqual(latest["spent_count"], 1)
+        self.assertEqual(ingestion.request_history_for(self.fx.tools).spent, {"OP-closed": "refused"})
 
     def test_a_runner_fault_never_spends_the_request(self) -> None:
         self.fx.seed_finding("F-007", refs=[f"{GROUNDED_FILE}:12"])

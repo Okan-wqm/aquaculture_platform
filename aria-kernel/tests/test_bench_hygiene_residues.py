@@ -10,14 +10,19 @@
 """
 from __future__ import annotations
 
+import ast
 import errno
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any, Callable
 from unittest.mock import patch
 
-from aria_kernel.ledger import append_declared_jsonl
+from aria_kernel import ledger as ledger_module
+from aria_kernel.ledger import StateTransaction, append_declared_jsonl, state_transaction
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+
+_KERNEL_ROOT = Path(__file__).resolve().parents[1]
 
 
 class EnospcClassificationTests(unittest.TestCase):
@@ -54,6 +59,94 @@ class EnospcClassificationTests(unittest.TestCase):
         from aria_kernel.report import _BLOCKED_REASON_KINDS
 
         self.assertIn("environment_failure_disk_full", _BLOCKED_REASON_KINDS)
+
+
+class EveryTransactionAppendNamesAFullDisk(unittest.TestCase):
+    """ARIA-MEDIUM-111 — the transaction API names a full disk like the module API.
+
+    About thirty governed append sites (notify's outbox, tool_registry,
+    agent_invocations, worker_dispatch, ...) append through a
+    ``state_transaction`` object, and the ENOSPC translation lived only in
+    the module-level wrappers around it: a full disk inside a transaction
+    surfaced as a raw ``OSError`` instead of ``environment_failure:disk_full``.
+    The fault is injected where a full disk really bites — the write — and
+    every append method the transaction exposes is exercised.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.tools = Path(self.tmp.name) / "aria-tools"
+        ensure_tools_dir(self.tools)
+        self.governance = self.tools / "governance.jsonl"
+        self.raw = Path(self.tmp.name) / "raw.jsonl"
+        self.requests = self.tools / "agent-invocations" / "requests.jsonl"
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def _appends(self) -> dict[str, tuple[Path, Callable[[StateTransaction], Any]]]:
+        row = {"schema_version": 1, "kind": "test"}
+        request = {"schema_version": 1, "row_type": "request", "row_id": "request:000001",
+                   "request_id": "AIR-000001", "role": "judge"}
+        return {
+            "append_jsonl": (self.raw, lambda txn: txn.append_jsonl(self.raw, row)),
+            "append_declared_jsonl": (self.governance, lambda txn: txn.append_declared_jsonl(
+                self.governance, row, expected_surface="tools_governance")),
+            "append_declared_jsonl_rows": (self.governance, lambda txn: txn.append_declared_jsonl_rows(
+                self.governance, [row, row], expected_surface="tools_governance")),
+            "append_segment_rows": (self.requests, lambda txn: txn.append_segment_rows(
+                self.tools, [request], expected_surface="agent_invocation_requests", bypass_profile_gate=True)),
+        }
+
+    def test_every_append_method_is_exercised(self) -> None:
+        methods = {name for name in vars(StateTransaction) if name.startswith("append")}
+        self.assertEqual(methods, set(self._appends()), "a new transaction append method needs a case here")
+
+    def test_enospc_at_the_write_names_the_environment(self) -> None:
+        full_disk = OSError(errno.ENOSPC, "No space left on device")
+        for name, (path, append) in self._appends().items():
+            with self.subTest(method=name):
+                with patch.object(ledger_module.os, "write", side_effect=full_disk):
+                    with self.assertRaisesRegex(GovernanceError, "environment_failure:disk_full"):
+                        with state_transaction([path]) as txn:
+                            append(txn)
+
+    def test_enospc_taking_the_locks_names_the_environment(self) -> None:
+        full_disk = OSError(errno.ENOSPC, "No space left on device")
+        with patch.object(ledger_module, "with_exclusive_lock", side_effect=full_disk):
+            with self.assertRaisesRegex(GovernanceError, "environment_failure:disk_full"):
+                with state_transaction([self.governance]):
+                    self.fail("the body ran without its locks")
+
+    def test_other_oserrors_inside_a_transaction_surface_as_themselves(self) -> None:
+        denied = OSError(errno.EACCES, "Permission denied")
+        for name, (path, append) in self._appends().items():
+            with self.subTest(method=name):
+                with patch.object(ledger_module.os, "write", side_effect=denied):
+                    with self.assertRaises(OSError) as ctx:
+                        with state_transaction([path]) as txn:
+                            append(txn)
+                self.assertEqual(ctx.exception.errno, errno.EACCES)
+                self.assertNotIsInstance(ctx.exception, GovernanceError)
+
+    def test_a_transaction_object_exists_only_inside_state_transaction(self) -> None:
+        """Every transaction append runs inside the translating scope.
+
+        ``StateTransaction`` is a public dataclass; one constructed anywhere
+        but ``ledger.state_transaction`` would hand out the append methods
+        without the locks and without the ENOSPC translation.
+        """
+        sites: list[str] = []
+        for root in (_KERNEL_ROOT / "aria_kernel", _KERNEL_ROOT.parent / "tools" / "aria-poc"):
+            for path in sorted(root.rglob("*.py")):
+                tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+                for function in ast.walk(tree):
+                    if not isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        continue
+                    for node in ast.walk(function):
+                        if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "StateTransaction":
+                            sites.append(f"{path.relative_to(_KERNEL_ROOT.parent).as_posix()}:{function.name}")
+        self.assertEqual(sites, ["aria-kernel/aria_kernel/ledger.py:state_transaction"])
 
 
 class HandEvidenceRemovalTests(unittest.TestCase):

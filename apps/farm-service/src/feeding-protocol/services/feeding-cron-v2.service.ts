@@ -76,6 +76,7 @@ import {
 } from '../entities/protocol-assignment.entity';
 import { FeedingDayPlan, FeedingDayPlanStatus } from '../entities/feeding-day-plan.entity';
 import { FeedingMeal, FeedingMealStatus } from '../entities/feeding-meal.entity';
+import { OPERATIONAL_BATCH_STATUSES } from '../../batch/entities/batch.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import {
   MealPlanGeneratorService,
@@ -230,6 +231,16 @@ export interface DryRunUnitPlan {
     | 'empty_unit'
     | 'no_plan';
   computed?: ComputedDayPlan;
+}
+
+/**
+ * An overdue meal with the day plan it belongs to (ALERT-LOW-015): the sweep
+ * pairs them once, so every step reads the plan's unit code, site and
+ * protocol from a value that is there by type.
+ */
+interface PlannedMeal {
+  readonly meal: FeedingMeal;
+  readonly plan: FeedingDayPlan;
 }
 
 /** Paylaşılan sayfa-döngüsü bağlamı (06:00 üretimi + K-3 dry-run). */
@@ -828,6 +839,23 @@ export class FeedingCronV2Service {
           })
         : [];
       const dayPlanById = new Map(sweepDayPlans.map((dp) => [dp.id, dp]));
+      // Each overdue meal with its day plan, paired once. The plans were loaded
+      // for exactly these meals, and the retention purge deletes a plan's meals
+      // before the plan in one transaction (purgeTenantRetention), so a meal
+      // without its plan is corrupt data: it is logged and left out of the
+      // sweep, never swept without the unit code and site its plan carries.
+      const withPlan = (meals: readonly FeedingMeal[]): PlannedMeal[] =>
+        meals.flatMap((meal) => {
+          const plan = dayPlanById.get(meal.dayPlanId);
+          if (plan !== undefined) return [{ meal, plan }];
+          this.logger.error(
+            `Overdue meal ${meal.id} of tenant ${tenantId} names day plan ${meal.dayPlanId}, ` +
+              'which does not exist; it is left out of the morning sweep.',
+          );
+          return [];
+        });
+      const plannedMissed = withPlan(overdueMissed);
+      const plannedPartials = withPlan(overduePartials);
       const sweepProtocolIds = [...new Set(sweepDayPlans.map((dp) => dp.protocolId))];
       const sweepProtocols = sweepProtocolIds.length
         ? await manager.find(FeedingProtocolV2, {
@@ -837,11 +865,11 @@ export class FeedingCronV2Service {
       const sweepProtocolById = new Map(sweepProtocols.map((p) => [p.id, p]));
 
       const sweepUnitIds = [
-        ...new Set([...overdueMissed, ...overduePartials].map((meal) => meal.unitId)),
+        ...new Set([...plannedMissed, ...plannedPartials].map(({ meal }) => meal.unitId)),
       ].sort();
       for (const unitId of sweepUnitIds) {
-        const unitMissed = overdueMissed.filter((meal) => meal.unitId === unitId);
-        const unitPartials = overduePartials.filter((meal) => meal.unitId === unitId);
+        const unitMissed = plannedMissed.filter(({ meal }) => meal.unitId === unitId);
+        const unitPartials = plannedPartials.filter(({ meal }) => meal.unitId === unitId);
 
         // Kanonik kilit sırası (FARM-MEDIUM-276): ünite kilidi öğün
         // yazımlarından ÖNCE, büyüme gerekip gerekmediğine BAKILMADAN alınır.
@@ -852,24 +880,28 @@ export class FeedingCronV2Service {
         const locked = await this.growthApplier.lockUnitForGrowth(manager, tenantId, unitId);
 
         // (a) Hiç döküm görmemiş, penceresi geçmiş öğünler → missed + event.
-        const missedKgByPlan = new Map<string, number>();
-        for (const meal of unitMissed) {
+        const missedByPlan = new Map<string, { plan: FeedingDayPlan; missedKg: number }>();
+        for (const { meal, plan } of unitMissed) {
           meal.status = FeedingMealStatus.MISSED;
           await manager.save(meal);
-          missedKgByPlan.set(
-            meal.dayPlanId,
-            (missedKgByPlan.get(meal.dayPlanId) ?? 0) + Number(meal.plannedKg),
-          );
+          const missed = missedByPlan.get(plan.id);
+          if (missed === undefined) {
+            missedByPlan.set(plan.id, { plan, missedKg: Number(meal.plannedKg) });
+          } else {
+            missed.missedKg += Number(meal.plannedKg);
+          }
           const event: MealMissedEvent = {
             ...createBaseEvent<MealMissedEvent>('MealMissed', tenantId, {
               aggregateId: meal.id,
               aggregateType: 'FeedingMeal',
             }),
             unitId: meal.unitId,
-            unitCode: dayPlanById.get(meal.dayPlanId)?.unitCode ?? '',
+            unitCode: plan.unitCode,
             mealId: meal.id,
             dayPlanId: meal.dayPlanId,
             scheduledAt: toEventIso(meal.scheduledAt),
+            // The alarm's site in alert-engine (ALERT-MEDIUM-010).
+            siteId: plan.siteId,
           };
           await this.outboxPublisher.enqueue(event, manager);
         }
@@ -877,11 +909,8 @@ export class FeedingCronV2Service {
         // W5 (kullanıcı kararı 3): kaçan öğünün kg'ı kalan öğünlere OTOMATİK
         // dağıtılmaz. Tenant açıkça telafi yüzdesi tanımladıysa yalnız o kadarı
         // dağıtılır — varsayılan 0'da bu çağrı hiçbir şeyi değiştirmez.
-        for (const [dayPlanId, missedKg] of missedKgByPlan) {
-          const plan = dayPlanById.get(dayPlanId);
-          if (plan) {
-            await this.recalcService.applyMissedCatchUp(manager, tenantId, plan, missedKg);
-          }
+        for (const { plan, missedKg } of missedByPlan.values()) {
+          await this.recalcService.applyMissedCatchUp(manager, tenantId, plan, missedKg);
         }
 
         // (b) Bayat partially_fed → otomatik finalize (D-8 pencere kapanışı).
@@ -891,12 +920,10 @@ export class FeedingCronV2Service {
         // öğünle AYNI koddan geçer. Bunu eskiden bir kopya + "SİMETRİ" yorumu
         // sağlıyordu; yorum iki gövdenin aynı kalacağını garanti etmez ve
         // etmemişti de — eşiğin `?? 15` varsayılanı iki ayrı ifadedeydi.
-        for (const meal of unitPartials) {
-          const sweepPlan = dayPlanById.get(meal.dayPlanId);
-          if (!sweepPlan) continue;
+        for (const { meal, plan } of unitPartials) {
           const mealPersisted = await this.finalization.finalize(manager, {
             tenantId,
-            dayPlan: sweepPlan,
+            dayPlan: plan,
             meal,
             locked,
             // Tick'in anı (D-B4). Eski kopya öğün başına `new Date()`
@@ -905,7 +932,7 @@ export class FeedingCronV2Service {
             finalizedAt: at,
             // Pencere kapandı; kimse kapatmadı — `fedBy` boş kalır.
             fedBy: null,
-            protocol: sweepProtocolById.get(sweepPlan.protocolId) ?? null,
+            protocol: sweepProtocolById.get(plan.protocolId) ?? null,
           });
           if (!mealPersisted) await manager.save(meal);
         }
@@ -913,14 +940,11 @@ export class FeedingCronV2Service {
         // Plan durumu: süpürme sonrası açık öğün kalmadıysa plan kapanır —
         // eski hâl planı `in_progress`'te asılı bırakıyordu. Karar aynı
         // servisten: kopyası koşulsuz UPDATE atıyordu.
-        const touchedPlanIds = [
-          ...new Set([...unitMissed, ...unitPartials].map((meal) => meal.dayPlanId)),
-        ];
-        for (const dayPlanId of touchedPlanIds) {
-          const plan = dayPlanById.get(dayPlanId);
-          if (plan) {
-            await this.finalization.settleDayPlanStatus(manager, tenantId, plan);
-          }
+        const touchedPlans = new Map(
+          [...unitMissed, ...unitPartials].map(({ plan }) => [plan.id, plan]),
+        );
+        for (const plan of touchedPlans.values()) {
+          await this.finalization.settleDayPlanStatus(manager, tenantId, plan);
         }
       }
 
@@ -1051,6 +1075,7 @@ export class FeedingCronV2Service {
         id: string;
         unitId: string;
         unitCode: string;
+        siteId: string;
         planDate: string;
         status: FeedingDayPlanStatus;
         plannedTotalKg: string | number;
@@ -1064,7 +1089,7 @@ export class FeedingCronV2Service {
         //
         // `cancelled` planlar HARİÇ (FARM-MEDIUM-256): tam hasat edilen tankın
         // iptal edilmiş planı her akşam "%100 az beslendi" alarmı üretiyordu.
-        `SELECT dp.id, dp."unitId", dp."unitCode", dp."planDate", dp.status,
+        `SELECT dp.id, dp."unitId", dp."unitCode", dp."siteId", dp."planDate", dp.status,
                 dp."plannedTotalKg", dp."unplannedActualKg",
                 (SELECT COALESCE(SUM(m."actualKg"), 0) FROM "feeding_meals" m
                   WHERE m."tenantId" = dp."tenantId" AND m."dayPlanId" = dp.id) AS "actualKg",
@@ -1136,6 +1161,8 @@ export class FeedingCronV2Service {
               actualKg: round3(actual),
               variancePercent: round3(dayVariancePercent),
               thresholdPercent: threshold,
+              // The alarm's site in alert-engine (ALERT-MEDIUM-010).
+              siteId: row.siteId,
             };
             await this.outboxPublisher.enqueue(underfed, manager);
           }
@@ -1168,48 +1195,71 @@ export class FeedingCronV2Service {
    * birebir; HEDEF ise artık P-14 zincirinden gelir (kullanıcı override →
    * v2 protokol → legacy program → species → endüstri → 1.5), yani alert
    * motorun fiilen beslediği hedefe karşı ölçülür.
-   */
-  /**
-   * 07:00 — stok kapsama değerlendirmesi (plan §5): her tenant'ın forecast
-   * snapshot'ı MAKS ufukta yeniden hesaplanır (K-10); `protocolFeedForecast`
-   * sorgusu ve mobil warehouseSummary bu satırı diler. Legacy scheduler'ın
-   * 10:00 checkFeedStock + weeklyFeedForecast görevlerinin varisi. Durable
-   * kapsama event'leri (FeedStockoutForecast/FeedTransitionUpcoming) GraphQL
-   * + alert-engine dilimiyle birlikte bağlanır (görev #8 takipte).
+   *
+   * WHY the work query selects on lifecycle alone (FARM-CRITICAL-444): it used
+   * to add `(fcr->>'actual')::numeric > 0`. `batches_v2.fcr.actual` starts at
+   * 0 and its only writer is CloseBatchHandler, which sets `isActive = false`
+   * in the same block, so no live batch ever passed and no FCRAlert was ever
+   * emitted. The FCR now comes from the single FCR authority, computed in this
+   * pass, so the sweep reads no stored copy that could go stale.
+   *
+   * Which batches: live (`isActive`) and in an OPERATIONAL_BATCH_STATUSES
+   * status, the set `assertFeedable` allows feeding in. It used to be a
+   * hand-typed `IN ('ACTIVE','GROWING')`, so a fed PRE_HARVEST or HARVESTING
+   * batch was never judged.
+   *
+   * Which FCR: the one at each batch's last weighing
+   * (`calculateFcrAtLastWeighingMany`). Growth is known only at a weighing, so
+   * feed up to today over that growth climbed every day until the next
+   * weighing and put on-target batches over the thresholds. An unweighed batch
+   * has no measured growth and is not judged.
    */
   async sweepFcrForTenant(tenantId: string): Promise<void> {
     await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const manager = queryRunner.manager;
-      const rows: Array<{ id: string; actual: string | number | null }> = await manager.query(
-        `SELECT b.id, (b.fcr->>'actual')::numeric AS actual
+      const rows: Array<{ id: string }> = await manager.query(
+        `SELECT b.id
            FROM "batches_v2" b
           WHERE b."tenantId" = $1
             AND b."isActive" = true
-            AND b.status IN ('ACTIVE', 'GROWING')
-            AND (b.fcr->>'actual')::numeric > 0`,
-        [tenantId],
+            AND b.status = ANY($2)`,
+        // Spread: the constant is readonly, the driver's parameter list is not.
+        [tenantId, [...OPERATIONAL_BATCH_STATUSES]],
       );
 
       if (rows.length === 0) return;
 
-      // TOPLU hedef + TOPLU trend (FARM-LOW-291): eskiden batch BAŞINA iki
-      // ek round-trip atılıyordu; 400 batch'lik bir tenant süpürmesi 800+
-      // sorgu demekti. Okumalar withTenantContext ALS çerçevesi içinde koşar
+      // TOPLU FCR + TOPLU hedef + TOPLU trend (FARM-LOW-291): batch başına
+      // round-trip yok; süpürme batch sayısından bağımsız sabit sayıda sorgu
+      // atar. Okumalar withTenantContext ALS çerçevesi içinde koşar
       // (runInTenantTransaction sarmalar) — repo checkout'ları tenant
       // şemasına yönlenir.
-      const targets = await this.fcrCalculation.getTargetFCRForBatches(
+      const atLastWeighing = await this.fcrCalculation.calculateFcrAtLastWeighingMany(
         tenantId,
         rows.map((row) => row.id),
       );
+      // Only a converting batch has an FCR to set against a target. Unweighed
+      // and unfed batches have nothing to judge. A not-growing batch (weighed,
+      // fed, no realized growth) has no finite FCR, and FCRAlert.currentFCR is
+      // a non-negative number on the wire, so it raises no FCRAlert here:
+      // FARM-HIGH-449 owns that alert.
+      const measured = [...atLastWeighing].flatMap(([batchId, judged]) =>
+        judged.kind === 'converting' ? [{ batchId, currentFCR: judged.fcr }] : [],
+      );
+      if (measured.length === 0) return;
 
-      const alerting = rows
-        .map((row) => {
-          const currentFCR = Number(row.actual);
-          const targetFCR = targets.get(row.id) ?? 0;
+      const targets = await this.fcrCalculation.getTargetFCRForBatches(
+        tenantId,
+        measured.map((candidate) => candidate.batchId),
+      );
+
+      const alerting = measured
+        .map(({ batchId, currentFCR }) => {
+          const targetFCR = targets.get(batchId) ?? 0;
           if (!targetFCR || targetFCR <= 0) return null;
           const variancePercent = ((currentFCR - targetFCR) / targetFCR) * 100;
           if (variancePercent <= FCR_WARNING_VARIANCE_PERCENT) return null;
-          return { batchId: row.id, currentFCR, targetFCR, variancePercent };
+          return { batchId, currentFCR, targetFCR, variancePercent };
         })
         .filter((candidate): candidate is NonNullable<typeof candidate> => candidate !== null);
       if (alerting.length === 0) return;

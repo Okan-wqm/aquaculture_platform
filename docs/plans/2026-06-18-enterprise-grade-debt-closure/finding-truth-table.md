@@ -211,6 +211,14 @@ resolved 467 findings that main-reachable commits had closed, 35 of them active 
 rows leave this table (their evidence stays in the registry as `closing_commits`). Active
 CRITICALs: 46.
 
+Updated 2026-10-17 (ARIA-HIGH-534, active means unresolved): `tools/gates/debt-plan-truth.ts`
+now derives the active CRITICAL set from `isUnresolvedFindingState`
+(`tools/gates/finding-registry-chain.ts`), so a BLOCKED or STALE CRITICAL keeps its row and only
+RESOLVED retires one. Counting only OPEN and IN-PROGRESS read the daily sweep's past-deadline
+BLOCKED transition as a CRITICAL leaving the debt with no closing commit, so every sweep PR failed
+this gate. `INFRA-CRITICAL-096`, BLOCKED since the 2026-09-04 note above, enters the table in the
+`blocked` bucket.
+
 Allowed truth buckets:
 
 - `real-open`
@@ -241,6 +249,7 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-090`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
 | `INFRA-CRITICAL-093`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
 | `INFRA-CRITICAL-095`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-096`  | BLOCKED        | 2026-07-19   | security-reviewer          | blocked                   |
 | `INFRA-CRITICAL-097`  | OPEN           | 2026-07-19   | security-reviewer          | real-open                 |
 | `INFRA-CRITICAL-098`  | OPEN           | 2026-07-19   | security-reviewer          | real-open                 |
 | `INFRA-CRITICAL-100`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
@@ -282,6 +291,10 @@ Score 100%**, zero messages under legal hold, and a green tick over "No legal ho
 litigation-hold surface. It is `already-fixed-needs-close`: the branch fixes it at Tier 1 (the
 client methods now require a tenant id, so the call the page made cannot be written) and deletes
 the placeholder, and the post-merge close ceremony records the main-reachable commit.
+Updated 2026-10-17 (lost-work reland, PR #2010): `FARM-CRITICAL-444` — the 18:00 FCR alert
+sweep selected only batches whose stored `fcr.actual` is above zero, which only a closed batch
+has, so it never alerted on a live batch. It is `already-fixed-needs-close`: the PR fixes it and
+the closure-reconcile lane records the main-reachable closer after merge.
 | `ORPHAN-CRITICAL-810` | OPEN | 2026-09-05 | infra-expert | real-open |
 | `ALERT-CRITICAL-004` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `ALERT-CRITICAL-009` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
@@ -1094,4 +1107,7 @@ tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
   Left the active table from bucket `already-fixed-needs-close`.
 - `ARIA-CRITICAL-215`: registry state is `RESOLVED` with closing commit
   `2a3fceee5`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `FARM-CRITICAL-444`: registry state is `RESOLVED` with closing commit
+  `9b998ec4b`, derived by `finding-registry reconcile` against `origin/main`.
   Left the active table from bucket `already-fixed-needs-close`.

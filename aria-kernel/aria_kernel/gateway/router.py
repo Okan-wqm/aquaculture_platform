@@ -114,7 +114,15 @@ def _route_issue_mission(
                     source_kind=binding.source_kind, source_id=binding.source_id, repo_hash=binding.repo_hash,
                     title=f"GitHub issue #{number}: {accepted_event.subject.get('title') or ''}"[:200],
                     next_action=ISSUE_MISSION_NEXT_ACTION,
-                    wake_condition={"kind": "timer", "key": f"github_issue:{number}"}, priority=1, base_dir=root,
+                    wake_condition={"kind": "timer", "key": f"github_issue:{number}"}, priority=1,
+                    # ARIA-HIGH-245 — an issue resolves to no repo ref: the
+                    # inbox keeps only the body's digest (one-way door 14) and
+                    # the agent law admits repo paths, not an issue URL. The
+                    # mission is recorded with none, so the scheduler skips it
+                    # as unevidenced (`mission_dispatch.drain_can_plan`) rather
+                    # than spend the slot on a request the drain consumes
+                    # unevidenced every cycle.
+                    evidence_refs=(), base_dir=root,
                 )
             except OSError as exc:
                 status = ("retryable_error" if attempt["mission_route"]["attempt"] < _inbox._MISSION_MAX_ATTEMPTS

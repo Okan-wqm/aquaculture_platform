@@ -659,6 +659,35 @@ def agent_ref_shape_refusal(ref: Any) -> str | None:
     return None
 
 
+# ARIA-MEDIUM-385 — the two codes the shape law gives a kernel-recorded agent
+# output: a store-relative path under ARIA's own prefixes, or a runner's
+# absolute path. The submit law admits such a ref for an arbitration role by
+# its results ledger BEFORE the shape law (``_check_agent_ref``,
+# ORPHAN-CRITICAL-734), and only the submit's checkout locates that ledger.
+_RECORDED_OUTPUT_SHAPE_CODES: frozenset[str] = frozenset({
+    "agent_evidence_self_output",
+    "agent_evidence_path_escapes_workspace",
+})
+
+
+def agent_ref_mint_refusal(ref: Any, *, role: str) -> str | None:
+    """ARIA-MEDIUM-385 — the code the submit law refuses ``ref`` with when an answer of ``role`` cites it, as far as a mint can decide; ``None`` otherwise.
+
+    An agent cites the refs its envelope hands it, so a ref this refuses is a
+    paid run the submit law will refuse (the class of ARIA-HIGH-384).
+    ``create_agent_invocation_request`` asks it of every evidence ref of every
+    new request. It is :func:`agent_ref_shape_refusal`, scoped as the submit
+    law is scoped: an arbitration role may cite a kernel-recorded agent
+    output, which the submit law verifies against the results ledger before
+    the shape law, so the two shape codes such an output draws are left to
+    the submit law for those roles. Every other code holds for every role.
+    """
+    refusal = agent_ref_shape_refusal(ref)
+    if role in ARBITRATION_ROLES and refusal in _RECORDED_OUTPUT_SHAPE_CODES:
+        return None
+    return refusal
+
+
 def _judge_agent_ref(
     ref: str,
     *,

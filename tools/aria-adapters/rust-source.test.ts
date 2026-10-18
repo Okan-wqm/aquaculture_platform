@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, posix, relative, resolve } from 'node:path';
 
@@ -963,6 +971,31 @@ const sha256 = (text: string): string => createHash('sha256').update(text, 'utf8
   assert.ok(Date.now() - started < 2_000, `manifest parse took ${Date.now() - started} ms`);
 }
 
+// ARIA-LOW-544: the `<sha256>  ./<path>` manifest grammar has one copy,
+// parseUpstreamManifest. The fork-hygiene gate (the owner of both manifests,
+// tools/gates/local-rumqttc-fork-hygiene.spec.ts) reads UPSTREAM-MANIFEST.sha256
+// and FORK-EDITS.sha256 through it; no other file under tools/ spells the
+// pattern, so the gate and this reader cannot disagree about a line.
+{
+  const toolsDir = resolve(__dirname, '..');
+  const grammar = '[0-9a-f]{64})\\s+(\\.\\/';
+  const holders: string[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name !== 'node_modules' && entry.name !== 'fixtures') walk(path);
+      } else if (entry.name.endsWith('.ts') && readFileSync(path, 'utf8').includes(grammar)) {
+        holders.push(relative(toolsDir, path).split('\\').join('/'));
+      }
+    }
+  };
+  walk(toolsDir);
+  assert.deepEqual(holders, ['aria-adapters/rust-cargo.ts']);
+  const gate = readFileSync(join(toolsDir, 'gates', 'local-rumqttc-fork-hygiene.spec.ts'), 'utf8');
+  assert.match(gate, /import \{ parseUpstreamManifest \} from '\.\.\/aria-adapters\/rust-cargo';/);
+}
+
 // ---------------------------------------------------------------------------
 // whole-workspace classification
 // ---------------------------------------------------------------------------
@@ -1048,7 +1081,7 @@ const sha256 = (text: string): string => createHash('sha256').update(text, 'utf8
   // which would let this case pass without the option under test.
   write('crate/target/debug/deps/generated.rs', 'unsafe fn g() {}');
   write('notes/target/kept.rs', ''); // a `target` dir with no manifest beside it is source
-  const walked = collectFiles(workspace, {
+  const walked = collectFiles(workspace, workspace, {
     extensions: ['.rs', 'Cargo.toml'],
     skipDir: cargoTargetDirSkip,
   })
@@ -1056,7 +1089,7 @@ const sha256 = (text: string): string => createHash('sha256').update(text, 'utf8
     .sort();
   assert.deepEqual(walked, ['crate/Cargo.toml', 'crate/src/lib.rs', 'notes/target/kept.rs']);
   // Without the option the walk is unchanged for every existing importer.
-  const unchanged = collectFiles(workspace, { extensions: ['.rs'] }).length;
+  const unchanged = collectFiles(workspace, workspace, { extensions: ['.rs'] }).length;
   assert.equal(unchanged, 3);
 }
 
@@ -1114,7 +1147,7 @@ const sha256 = (text: string): string => createHash('sha256').update(text, 'utf8
   write('c/src/plain.rs', '');
   symlinkSync(join(outside, 'secret.rs'), join(workspace, 'c/src/linked.rs'));
   symlinkSync(outside, join(workspace, 'c/src/dirlink'));
-  const walked = collectFiles(workspace, {
+  const walked = collectFiles(workspace, workspace, {
     extensions: ['.rs', 'Cargo.toml'],
     skipDir: cargoTargetDirSkip,
   })

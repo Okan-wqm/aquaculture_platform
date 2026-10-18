@@ -33,7 +33,6 @@ const SCAN_ROOTS = ['apps', 'libs', 'platform/libs', 'web', 'mcp'];
 /** Pre-registry copies, each removed by the finding named. */
 const KNOWN_COPIES: Readonly<Record<string, string>> = {
   'libs/node-components/src/nodes/SensorNode.tsx': 'SENSOR-MEDIUM-168',
-  'web/modules/dashboard/src/components/OverviewWidgets.tsx': 'SENSOR-MEDIUM-168',
   'web/modules/farm-module/src/hooks/useWaterQuality.ts': 'FARM-MEDIUM-364',
   'web/modules/sensor-module/src/components/dashboard/WidgetConfigModal.tsx': 'SENSOR-MEDIUM-168',
   'web/modules/sensor-module/src/graphql/aggregatedReadings.ts': 'SENSOR-MEDIUM-168',

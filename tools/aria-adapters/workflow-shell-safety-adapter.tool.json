@@ -1,0 +1,149 @@
+{
+  "tool_id": "workflow-shell-safety-adapter",
+  "kind": "adapter",
+  "version": "1.0.0",
+  "status": "SHADOW",
+  "security_class": true,
+  "declared_scope": [
+    ".github/workflows/*.{yml,yaml}",
+    ".github/actions/*/action.{yml,yaml}",
+    ".husky/**",
+    ".github/**/*.{sh,bash}",
+    "scripts/**/*.{sh,bash}",
+    "tools/**/*.{sh,bash}",
+    "infra/**/*.{sh,bash}",
+    "infrastructure/**/*.{sh,bash}",
+    "platform/**/*.{sh,bash}",
+    "libs/**/*.{sh,bash}",
+    "sens-api-gateway/**/*.{sh,bash}",
+    "apps/sensor-ingestion/**/*.{sh,bash}",
+    "crates/**/*.{sh,bash}",
+    "sensorprotocols/**/*.{sh,bash}"
+  ],
+  "output_schema": {
+    "type": "object",
+    "required": ["observations", "findings", "read_paths", "evidence_sources"]
+  },
+  "fixture_set": "tools/aria-adapters/fixtures/workflow-shell-safety-adapter",
+  "health_thresholds": {
+    "max_cost_units": 800
+  },
+  "default_input": {
+    "roots": [
+      ".github",
+      ".husky",
+      "scripts",
+      "tools",
+      "infra",
+      "infrastructure",
+      "platform",
+      "libs",
+      "sens-api-gateway",
+      "apps/sensor-ingestion",
+      "crates",
+      "sensorprotocols"
+    ]
+  },
+  "allowed_read_globs": [
+    ".github/**",
+    ".husky/**",
+    "scripts/**",
+    "tools/**",
+    "infra/**",
+    "infrastructure/**",
+    "platform/**",
+    "libs/**",
+    "sens-api-gateway/**",
+    "apps/sensor-ingestion/**",
+    "crates/**",
+    "sensorprotocols/**",
+    "aria-kernel/aria_kernel/implementation_safety.py",
+    "aria-kernel/aria_kernel/workflow_contract_registry.py"
+  ],
+  "forbidden_read_globs": [
+    ".claude/**",
+    ".git/**",
+    "agent-workspace/**",
+    ".aria-poc/**",
+    "aria-tools/**",
+    "node_modules/**",
+    "dist/**",
+    "coverage/**",
+    "tmp/**"
+  ],
+  "claim_types": ["workflow_shell_safety"],
+  "rules": {
+    "unpinned_action": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "A workflow or composite action runs third-party action code through a mutable reference, so whoever can move that tag or branch decides what the step runs.",
+      "premises": [
+        "The cited `uses:` names an external action whose ref is not a 40-character commit SHA (a tag, a branch, a short SHA or no ref).",
+        "The reference is not a local action (`./…`)."
+      ]
+    },
+    "untrusted_workflow_interpolation": {
+      "claim_type": "wrong_code",
+      "severity_cap": "CRITICAL",
+      "defect_claim": "A workflow splices a value an outside party controls into `run:` shell source, where the runner substitutes it before bash parses it, so the value runs as code.",
+      "premises": [
+        "The cited `${{ … }}` expression sits in a step's `run:` source, not in an `env:` or `with:` value.",
+        "The expression reads a workflow input (`inputs.*`, `github.event.inputs.*`) or an event field an outside author writes (a pull request's title, body or head branch, an issue or comment body, a commit message or author)."
+      ]
+    },
+    "overbroad_write_token": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "A job's GITHUB_TOKEN can write more than the job needs, so a compromised step can write to scopes no step uses.",
+      "premises": [
+        "The cited job's effective `permissions:` is `write-all`, or it grants `write` on a scope its job contract in aria-kernel/aria_kernel/workflow_contract_registry.py does not grant.",
+        "For a contract finding, the registry governs the cited job (its workflow file and job id)."
+      ]
+    },
+    "pipe_to_shell": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "A step or script runs code it downloads without verifying it, so the server (or anyone on the path to it) chooses what runs with the job's credentials.",
+      "premises": [
+        "The cited command pipes `curl` or `wget` output into a shell that reads its script from stdin, or passes it to a shell, `eval` or `source` as the script itself (`bash <(curl …)`, `sh -c \"$(wget …)\"`).",
+        "The command is executed (not inside a comment, a quoted string or a heredoc written to a file), and no checksum or signature check of the downloaded bytes happens before it runs."
+      ]
+    },
+    "governance_bypass_command": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "A workflow step or script force-pushes or skips git's hooks or signing, which the repository's rules forbid and ARIA's pre-PR-open perimeter refuses.",
+      "premises": [
+        "The cited git command is refused by `governance_bypass_refusal` (aria-kernel/aria_kernel/implementation_safety.py): a forced push (`--force`, `--force-with-lease`, `-f`, a `+` refspec), or `--no-verify`, `--no-gpg-sign`, `commit -n`, or a `core.hooksPath` override.",
+        "The command is executed by the step or script (not inside a comment, a quoted string or a heredoc written to a file)."
+      ]
+    },
+    "missing_strict_shell_mode": {
+      "claim_type": "absence_in_scope",
+      "severity_cap": "MEDIUM",
+      "defect_claim": "An executable Bash script runs on after a failed command or a failed pipeline stage, so it can act on a half-done step and report success.",
+      "premises": [
+        "The cited file is an executable Bash script (a bash, zsh or ksh interpreter line and the executable bit) that runs more than one pipeline.",
+        "Neither its interpreter line nor a top-level `set` turns on each of errexit, nounset and pipefail.",
+        "It is not POSIX sh, a sourced fragment or a fixture."
+      ]
+    }
+  },
+  "owner": "platform",
+  "runner": {
+    "type": "subprocess",
+    "argv": [
+      "npx",
+      "ts-node",
+      "--project",
+      "tools/gates/tsconfig.json",
+      "tools/aria-adapters/workflow-shell-safety-adapter.ts"
+    ],
+    "cwd": ".",
+    "timeout_ms": 180000,
+    "stdin_json": true
+  },
+  "freshness_window_hours": 168,
+  "parse_window_signature": "sha256:9943c2436e7c2e920b04f1313cb66cba55646caec1b7b0149634838e93959fba",
+  "schema_version": 1
+}

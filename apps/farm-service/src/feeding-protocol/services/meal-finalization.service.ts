@@ -147,6 +147,8 @@ export class MealFinalizationService {
         actualKg,
         variancePercent: meal.variancePercent,
         thresholdPercent: threshold,
+        // The alarm's site in alert-engine (ALERT-MEDIUM-010).
+        siteId: dayPlan.siteId,
       };
       await this.outboxPublisher.enqueue(underfed, manager);
     }

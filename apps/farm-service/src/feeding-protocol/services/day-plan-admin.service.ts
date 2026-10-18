@@ -284,6 +284,7 @@ export class DayPlanAdminService {
         bandIndex,
         avgWeightG: Number(tankBatch?.avgWeightG || 0),
         automatic: false,
+        siteId: assignment.siteId,
       };
       await this.outboxPublisher.enqueue(event, manager);
 

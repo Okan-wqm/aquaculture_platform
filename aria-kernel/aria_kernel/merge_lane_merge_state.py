@@ -31,13 +31,12 @@ incident pre-row:
 from __future__ import annotations
 
 import os
-import re
 from pathlib import Path
 from typing import Any, Callable
 
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 from .tool_registry import GovernanceError, utc_now
 
-_FULL_SHA = re.compile(r"[0-9a-f]{40}")
 SKIP_BEHIND = "skipped_branch_behind_base"
 SKIP_STATES: dict[str, str] = {
     "DIRTY": "skipped_merge_state_dirty",
@@ -77,7 +76,8 @@ def route_unmergeable_merge_state(
         return None
     base_sha = str((observed or {}).get("base_sha") or "")
     refusal = None
-    if _FULL_SHA.fullmatch(head_sha) and _FULL_SHA.fullmatch(base_sha) and workspace_root is not None:
+    full_ids = all(is_object_id(sha, formats=ANY_OBJECT_FORMAT) for sha in (head_sha, base_sha))
+    if full_ids and workspace_root is not None:
         # GSEC-MEDIUM-002 — the predicate the cycle reads too: an ARIA
         # implementation branch on main, the head's combined checks green,
         # and a head ARIA can vouch for (delivered, or a verified lineage).
@@ -87,7 +87,7 @@ def route_unmergeable_merge_state(
             base_branch=str((observed or {}).get("base_ref") or ""),
             checks_green=str((observed or {}).get("checks_state") or "").upper() == "SUCCESS",
         )
-    if not _FULL_SHA.fullmatch(head_sha) or not _FULL_SHA.fullmatch(base_sha) or workspace_root is None:
+    if not full_ids or workspace_root is None:
         update: dict[str, Any] = {"outcome": "head_base_or_checkout_unreadable"}
     elif refusal is not None:
         update = {"outcome": f"not_requested:{refusal}"}

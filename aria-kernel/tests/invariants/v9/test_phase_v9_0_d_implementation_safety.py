@@ -1153,6 +1153,13 @@ class TestV9PublicApi(unittest.TestCase):
             "COMMIT_SIGNATURE_VERIFY_TIMEOUT_SECONDS",
             "VALIDATION_SANDBOX_CONTAINMENT_FLAGS",
             "VALIDATION_OBSERVATION_CHILD",
+            # ARIA-HIGH-013 — one addition, a review event. The force-push
+            # and hook-bypass definition the `no_force_push` / `no_no_verify`
+            # perimeter checks refuse an argv with, made public so the
+            # workflow/shell safety adapter asks the same function about the
+            # repository's own workflows and scripts instead of keeping a
+            # second list of forbidden git flags.
+            "governance_bypass_refusal",
             # ARIA-MEDIUM-563 review — the host trees every room binds
             # read-only, built from the same tuple as the binds. The
             # kernel's credential-file reader refuses a token under one

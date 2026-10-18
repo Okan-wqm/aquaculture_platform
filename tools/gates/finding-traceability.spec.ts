@@ -19,10 +19,9 @@ import {
   findingRejectsClosure,
 } from './finding-traceability';
 import { removeFixtureTree } from './fixture-tree';
+import { hermeticGitEnv } from './hermetic-git';
 const repo = mkdtempSync(join(tmpdir(), 'finding-traceability-spec-'));
-const HERMETIC_ENV: NodeJS.ProcessEnv = Object.fromEntries(
-  Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')),
-);
+const HERMETIC_ENV: NodeJS.ProcessEnv = hermeticGitEnv();
 
 function git(args: readonly string[]): string {
   return execFileSync('git', ['-C', repo, ...args], {

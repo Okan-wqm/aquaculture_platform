@@ -98,7 +98,6 @@ class TheQueueWritesItsOwnSample(_Store):
         self.assertNotIn("r8", {item["run_id"] for item in sample["items"]})
         item = sample["items"][0]
         self.assertTrue(item["judgment_group_id"].startswith("judge:tool-x:fp"))
-        self.assertTrue(item["judge_verdicts"])
         file_rows = queue["verdict_file"]["verdicts"]
         self.assertEqual({row["verdict"] for row in file_rows}, {None})
         self.assertEqual({row["confirmed_by_operator"] for row in file_rows}, {False})
@@ -108,6 +107,73 @@ class TheQueueWritesItsOwnSample(_Store):
         self.assertEqual([i["run_id"] for i in again["sample"]["items"]], [i["run_id"] for i in sample["items"]],
                          "the draw is seeded")
 
+
+
+class TheQueueIsBlindAndRecordsItsDesign(_Store):
+    """ARIA-MEDIUM-276 — a label used as ground truth is collected blind, with
+    its inclusion probability recorded.
+
+    At 606169730 each queued item embedded the judges' verdicts (on the
+    sample the state store publishes, and the verdict file named the
+    stratum); the strata were split evenly with a share of at least one and
+    the list cut in stratum order, so no probability described the draw and
+    none was recorded; and the only answers were the two verdicts."""
+
+    def test_nothing_a_labeler_reads_carries_the_judges_verdicts(self) -> None:
+        self._seed_groups()
+        queue = build_label_queue(tool_id="tool-x", base_dir=self.tools, limit=9, cycle_id="c1")
+        stored = [row for row in load_jsonl(judgment_samples_path(self.tools))
+                  if row["sample_id"] == queue["sample"]["sample_id"]]
+        for item in [*queue["sample"]["items"], *stored[0]["items"]]:
+            self.assertFalse({"judge_verdicts", "verdict", "confidence", "judge_id"} & set(item), item)
+        for row in queue["verdict_file"]["verdicts"]:
+            self.assertEqual(set(row), {"run_id", "finding_id", "judgment_group_id", "verdict", "severity", "note",
+                                        "confirmed_by_operator"})
+
+    def test_each_item_carries_its_inclusion_probability_under_the_recorded_design(self) -> None:
+        self._seed_groups()  # 4 escalated, 4 auto-closed, 4 pending
+        for limit, expected in (
+            # share 3 of each stratum, nothing left to fill
+            (9, {"escalated": 3 / 4, "auto_closed_random": 3 / 4, "pending_random": 3 / 4}),
+            # share 3, then 1 slot from the 3 undrawn items pooled
+            (10, {"escalated": 3 / 4 + 1 / 4 * 1 / 3, "auto_closed_random": 3 / 4 + 1 / 4 * 1 / 3,
+                  "pending_random": 3 / 4 + 1 / 4 * 1 / 3}),
+            # below the stratum count: one draw from all twelve, every stratum reachable
+            (1, {"escalated": 1 / 12, "auto_closed_random": 1 / 12, "pending_random": 1 / 12}),
+        ):
+            with self.subTest(limit=limit):
+                sample = build_label_queue(tool_id="tool-x", base_dir=self.tools, limit=limit,
+                                           cycle_id=f"c{limit}")["sample"]
+                self.assertEqual(sample["sampling_design"]["method"], "stratified_srswor_then_pooled_remainder_srswor")
+                self.assertEqual(len(sample["items"]), limit)
+                for item in sample["items"]:
+                    self.assertAlmostEqual(item["inclusion_probability"], expected[item["stratum"]])
+                # Horvitz-Thompson identity: the probabilities of every
+                # available item sum to the number of items drawn.
+                total = sum(expected[stratum] * count for stratum, count in sample["strata_available"].items())
+                self.assertAlmostEqual(total, len(sample["items"]))
+
+    def test_a_label_carries_its_probability_and_cannot_judge_is_recorded_not_forced(self) -> None:
+        self._seed_groups()
+        queue = build_label_queue(tool_id="tool-x", base_dir=self.tools, limit=3, cycle_id="c1")
+        filled = json.loads(json.dumps(queue["verdict_file"]))
+        for row in filled["verdicts"]:
+            row["verdict"] = "true_positive"
+            row["confirmed_by_operator"] = True
+        filled["verdicts"][0]["verdict"] = "cannot_judge"
+        self.assertIn("cannot_judge", queue["sample"]["instructions"]["verdicts"])
+        result = record_operator_feedback_batch(sample_id=queue["sample"]["sample_id"], verdict_payload=filled,
+                                                base_dir=self.tools)
+        self.assertEqual(result["recorded_count"], 2, "an abstention mints no feedback row")
+        humans = [r for r in load_feedback(base_dir=self.tools) if r.get("source_type") == "human"]
+        self.assertEqual(len(humans), 2)
+        probability = {item["run_id"]: item["inclusion_probability"] for item in queue["sample"]["items"]}
+        for row in humans:
+            self.assertEqual(row["verdict"], "true_positive")
+            self.assertEqual(row["label_provenance"]["inclusion_probability"], probability[row["run_id"]])
+        recorded = [row for row in load_jsonl(judgment_samples_path(self.tools))
+                    if row["sample_id"] == queue["sample"]["sample_id"] and row["status"] == "recorded"]
+        self.assertEqual([entry["run_id"] for entry in recorded[0]["abstained"]], [filled["verdicts"][0]["run_id"]])
 
 class TheBatchLaneUnderTheQueue(_Store):
     def _queue(self) -> dict:

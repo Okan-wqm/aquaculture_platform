@@ -1,7 +1,6 @@
 import {
   closeSync,
   constants,
-  existsSync,
   fstatSync,
   lstatSync,
   openSync,
@@ -87,6 +86,15 @@ export function isWorkspaceRelativePath(path: string): boolean {
   );
 }
 
+/**
+ * The absolute path `requestedPath` spells under `workspaceRoot`, refused when
+ * the spelling leads out of it (`isWorkspaceRelativePath`). It names a path;
+ * it does not touch the filesystem, so it can name one that does not exist
+ * yet. What is AT the path is asked only through the contained accessors
+ * (`readWorkspaceFile`, `workspacePathExists`, `collectFiles`, all through
+ * `containedWorkspace`), which refuse a path with a symlink on any component:
+ * a symlink spelled inside the workspace can point anywhere (ARIA-LOW-543).
+ */
 export function resolveInsideWorkspace(workspaceRoot: string, requestedPath: string): string {
   const root = resolve(workspaceRoot);
   const resolved = resolve(root, requestedPath);
@@ -99,14 +107,44 @@ export function resolveInsideWorkspace(workspaceRoot: string, requestedPath: str
 }
 
 /**
+ * What the entry at `path` IS, asked of the path itself with lstat (no
+ * symlink followed), never of the directory listing that names it.
+ *
+ * The two answers differ inside the adapter room (`aria_kernel/adapter_room.py`):
+ * the room shows only what git tracks, and covers an untracked file beneath a
+ * tracked directory with a read-only bind of `/dev/null`. The parent's
+ * listing still names the entry with its on-disk type, "regular file"; the
+ * path itself is the character device the cover put there, which the room's
+ * mount refuses to open (EACCES). A walker that trusted the listing returned
+ * the covered entry and its adapter died opening it (ARIA-LOW-542:
+ * kernel-dead-wire-adapter exited 1 in the room with an untracked
+ * `aria_kernel/digest.py` in the checkout, 0 outside it). `collectFiles` and
+ * `containedWorkspace` both classify through this one function, so the walk
+ * lists exactly the files the reader will open; outside the room nothing is
+ * covered and both see every file.
+ */
+type EntryKind = 'absent' | 'symlink' | 'file' | 'directory' | 'special';
+
+function entryKindAt(path: string): EntryKind {
+  const stat = lstatSync(path, { throwIfNoEntry: false });
+  if (stat === undefined) return 'absent';
+  if (stat.isSymbolicLink()) return 'symlink';
+  if (stat.isFile()) return 'file';
+  if (stat.isDirectory()) return 'directory';
+  return 'special';
+}
+
+/**
  * What a workspace-relative path names, looked up without following any
  * symlink: `refused` when the path fails `isWorkspaceRelativePath` or any of
  * its components (the entry included) is a symlink, so nothing behind a
  * symlink is ever examined and the answer says nothing about files outside the
  * workspace; `absent` when no entry is there; `file` for a regular file;
- * `other` for a directory or a special file.
+ * `directory` for a directory; `other` for a special file (in the adapter
+ * room, the `/dev/null` cover over an untracked file, which the room does not
+ * show: see `entryKindAt`).
  */
-export type WorkspaceEntry = 'absent' | 'file' | 'other' | 'refused';
+export type WorkspaceEntry = 'absent' | 'file' | 'directory' | 'other' | 'refused';
 
 export interface ContainedWorkspace {
   readonly entry: (path: string) => WorkspaceEntry;
@@ -118,9 +156,10 @@ export interface ContainedWorkspace {
  * Filesystem access confined to a workspace: one resolver owns containment
  * (`isWorkspaceRelativePath`, then a component walk under the root's realpath
  * that refuses every symlink), so a caller cannot escape by passing an
- * unchecked path. `collectFiles` never follows a symlink either, so the walk
- * and this reader agree on what the workspace holds. The final open uses
- * O_NOFOLLOW, so a file swapped for a symlink after the check is refused too.
+ * unchecked path. `collectFiles` classifies each entry with the same
+ * `entryKindAt`, so the walk and this reader agree on what the workspace
+ * holds. The final open uses O_NOFOLLOW, so a file swapped for a symlink
+ * after the check is refused too.
  */
 export function containedWorkspace(workspaceRoot: string): ContainedWorkspace {
   const root = realpathSync(workspaceRoot);
@@ -130,13 +169,15 @@ export function containedWorkspace(workspaceRoot: string): ContainedWorkspace {
     let current = root;
     for (const [index, segment] of segments.entries()) {
       current = join(current, segment);
-      const stat = lstatSync(current, { throwIfNoEntry: false });
-      if (stat === undefined) return 'absent';
-      if (stat.isSymbolicLink()) return 'refused';
-      if (index === segments.length - 1) return stat.isFile() ? 'file' : 'other';
-      if (!stat.isDirectory()) return 'absent';
+      const kind = entryKindAt(current);
+      if (kind === 'absent') return 'absent';
+      if (kind === 'symlink') return 'refused';
+      if (index === segments.length - 1) {
+        return kind === 'file' || kind === 'directory' ? kind : 'other';
+      }
+      if (kind !== 'directory') return 'absent';
     }
-    return 'other';
+    return 'directory';
   };
   return {
     entry,
@@ -153,7 +194,15 @@ export function containedWorkspace(workspaceRoot: string): ContainedWorkspace {
   };
 }
 
+/**
+ * Every file under `root` (an absolute path inside `workspaceRoot`) whose
+ * name ends with one of `options.extensions`. The walk never follows a
+ * symlink, its root included: a root reached through a symlink on any
+ * component (`containedWorkspace`) walks nothing, exactly as a symlinked
+ * directory met inside the walk is skipped (ARIA-LOW-543).
+ */
 export function collectFiles(
+  workspaceRoot: string,
   root: string,
   options: {
     readonly extensions: readonly string[];
@@ -170,6 +219,10 @@ export function collectFiles(
     readonly skipDir?: (name: string, parentPath: string) => boolean;
   },
 ): readonly string[] {
+  const rootPath = workspaceRelative(workspaceRoot, root);
+  if (rootPath !== '' && containedWorkspace(workspaceRoot).entry(rootPath) === 'refused') {
+    return [];
+  }
   const files: string[] = [];
   const stack = [root];
   while (stack.length > 0) {
@@ -177,20 +230,25 @@ export function collectFiles(
     if (!current) {
       continue;
     }
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
-      const path = resolve(current, entry.name);
-      if (entry.isDirectory()) {
-        if (ADAPTER_EXCLUDED_DIRS.has(entry.name) && options.includeExcludedDir?.(entry.name) !== true) {
+    // The listing supplies names only; what each name IS comes from
+    // `entryKindAt` (see there: in the adapter room the listing's type of a
+    // covered untracked file is not what the path holds). A symlink, a
+    // special file and an entry gone since the listing are not walked.
+    for (const name of readdirSync(current)) {
+      const path = resolve(current, name);
+      const kind = entryKindAt(path);
+      if (kind === 'directory') {
+        if (ADAPTER_EXCLUDED_DIRS.has(name) && options.includeExcludedDir?.(name) !== true) {
           continue;
         }
-        if (options.skipDir !== undefined && options.skipDir(entry.name, current)) {
+        if (options.skipDir !== undefined && options.skipDir(name, current)) {
           continue;
         }
         stack.push(path);
       } else if (
-        entry.isFile() &&
-        options.extensions.some((extension) => entry.name.endsWith(extension)) &&
-        (options.includeFile?.(entry.name, path) ?? true)
+        kind === 'file' &&
+        options.extensions.some((extension) => name.endsWith(extension)) &&
+        (options.includeFile?.(name, path) ?? true)
       ) {
         files.push(path);
       }
@@ -211,12 +269,20 @@ export function filterFilesBySnapshot(
   return files.filter((file) => allowed.has(normalizeWorkspacePath(relative(workspaceRoot, file))));
 }
 
-export function pathAllowedBySnapshot(workspaceRoot: string, requestedPath: string, input: SnapshotInput): boolean {
+export function pathAllowedBySnapshot(
+  workspaceRoot: string,
+  requestedPath: string,
+  input: SnapshotInput,
+): boolean {
   const allowed = snapshotAllowedPathSet(input);
   if (!allowed) {
     return true;
   }
-  return allowed.has(normalizeWorkspacePath(relative(workspaceRoot, resolveInsideWorkspace(workspaceRoot, requestedPath))));
+  return allowed.has(
+    normalizeWorkspacePath(
+      relative(workspaceRoot, resolveInsideWorkspace(workspaceRoot, requestedPath)),
+    ),
+  );
 }
 
 function snapshotAllowedPathSet(input: SnapshotInput): ReadonlySet<string> | undefined {
@@ -227,16 +293,46 @@ function snapshotAllowedPathSet(input: SnapshotInput): ReadonlySet<string> | und
   return new Set(paths.map((path) => normalizeWorkspacePath(String(path))));
 }
 
-export function readWorkspaceFile(path: string): string {
-  return readFileSync(path, 'utf8');
+/**
+ * `path` (absolute, or relative to `workspaceRoot`) as a workspace-relative
+ * path: '' for the workspace root itself. A path outside the workspace comes
+ * back as `../…`, which `containedWorkspace` refuses.
+ */
+function workspaceRelative(workspaceRoot: string, path: string): string {
+  const root = resolve(workspaceRoot);
+  return normalizeWorkspacePath(relative(root, resolve(root, path)));
 }
 
-export function readWorkspaceJson(path: string): unknown {
-  return JSON.parse(readWorkspaceFile(path)) as unknown;
+/**
+ * The UTF-8 text of the workspace file at `path`, read through
+ * `containedWorkspace`: a path with a symlink on any component, a directory,
+ * a special file or a path outside the workspace is refused with an error.
+ * It was `readFileSync`, which followed every symlink, so a path an adapter
+ * named explicitly (kernel-dead-wire's policyDir and cliPath, typeorm's
+ * MODULE_SCHEMA_PATH) was read from wherever a symlink there pointed
+ * (ARIA-LOW-543).
+ */
+export function readWorkspaceFile(workspaceRoot: string, path: string): string {
+  return containedWorkspace(workspaceRoot).readFile(workspaceRelative(workspaceRoot, path));
 }
 
-export function workspacePathExists(path: string): boolean {
-  return existsSync(path);
+export function readWorkspaceJson(workspaceRoot: string, path: string): unknown {
+  return JSON.parse(readWorkspaceFile(workspaceRoot, path)) as unknown;
+}
+
+/**
+ * Whether `path` names workspace content: the workspace root, or a regular
+ * file or directory reached from it without crossing a symlink
+ * (`containedWorkspace`). A path through a symlink is not workspace content,
+ * as `collectFiles` skips one; neither is a special file (the adapter room's
+ * cover over an untracked file). It was `existsSync`, which followed
+ * symlinks (ARIA-LOW-543).
+ */
+export function workspacePathExists(workspaceRoot: string, path: string): boolean {
+  const relativePath = workspaceRelative(workspaceRoot, path);
+  if (relativePath === '') return true;
+  const entry = containedWorkspace(workspaceRoot).entry(relativePath);
+  return entry === 'file' || entry === 'directory';
 }
 
 export function normalizeWorkspacePath(path: string): string {

@@ -1,6 +1,18 @@
 #!/bin/sh
 . "$(dirname "$0")/_/husky.sh"
 
+# A push from a linked worktree hands this hook an absolute GIT_DIR, and every
+# process below inherits it. A suite that runs `git init`/`commit`/`checkout`
+# in a throwaway fixture with that environment acts on THIS repository instead:
+# on 2026-10-18 aria-doc-runtime-ssot.spec.ts committed a two-file tree onto the
+# branch being pushed and checked the worktree out to main (ARIA-MEDIUM-616).
+# The hook runs from the worktree root, so git finds the same repository
+# without these variables; dropping them changes nothing for the hook's own git
+# calls and closes the leak for everything it starts. Specs also take their
+# fixture env from tools/gates/hermetic-git.ts.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_COMMON_DIR \
+  GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE GIT_PREFIX
+
 # Husky inherits the user's shell PATH but NOT shell rc files.
 # `cargo` typically lives under $HOME/.cargo/bin which login shells
 # add via .bashrc/.zshrc — but a hook spawned from `git push` runs

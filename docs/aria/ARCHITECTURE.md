@@ -208,22 +208,27 @@ controls will run on this connected revision.
 
 #### aria-kernel/aria_kernel/architecture_spine_gate.py
 
-Source SHA256: `a096f44e3018d398c395124c438abfe9e6de1dd1a140bb1fbca7e6cddb807699`.
+Source SHA256: `154d03a47f02fbb1297c6feeb1ad29e7dba8f6452e32b7621cc745815abef604`.
 
-Owns source invariant measurement and native baseline/postcheck evidence. Event-schema comparison
-records introduced and removed violation identities while retaining count fallback for historical
-inputs. The private cycle-baseline decision reuses the existing same-plan governance readers and
-preserves an unresolved baseline hash; missing or replaced anchors remain unavailable. The private
-plan projection now carries that same selected postcheck, baseline hash and regression descriptors
-into plan evaluation. It reads source/native history and appends through the existing governance
-owner. The cycle and plan evaluator are its production consumers.
+Owns native baseline/postcheck evidence for the five spine invariants (contract
+`aria/architecture-spine/v2`). It holds no rule of its own: each invariant is the violation set of
+the one owner adapter `SPINE_INVARIANTS` names, by location-free identity
+(`finding_subject.adapter_violation_keys`), read from the run the spine refresh stored in the tools
+root it was given (ARIA-HIGH-045, ARIA-HIGH-525, ARIA-MEDIUM-526). `InvariantMeasurement` refuses
+any measured value that is not that set and its size. `compare_spine_measurements` reports removed
+identities as an improvement and introduced ones as a regression, and names what it could not
+compare: `unmeasured` (failed or missing run, unreadable artifact, over-budget set, changed producer,
+a pre-v2 block) and `excluded` (a quarantined owner). A postcheck records exactly one of
+`architecture_spine_regression`, `architecture_spine_unmeasured` and `architecture_spine_postcheck`.
+The private cycle-baseline decision keeps an unresolved regression's baseline, follows the latest
+verdict (an unmeasured row is none) and supersedes a retained count-only baseline, naming the
+regressions it held. The private plan projection reads all three kinds; an unmeasured comparison is
+`unavailable` (`invariant_unmeasured`). It appends through the existing governance owner. The cycle
+and plan evaluator are its production consumers.
 
-Evidence/review boundary: Original identity regression, clean comparison, legacy comparator and
-later-cycle retention controls exercised this owner in isolated runs. The corrective-consumer
-selection subsequently passed seven methods with two subtests in 212.27 seconds; five unchanged
-compatibility methods passed separately in 72.99 seconds. Changed producers/readers were peer
-reviewed; wider file reading remains partial. Connected candidate execution, actual model repair and
-native source-validation linkage remain open.
+Evidence/review boundary: `test_architecture_spine_gate.py` runs the real tool runner over fixture
+owner adapters whose store sits beside the workspace, as in production. Live production runs of the
+five owner adapters inside the runner are not yet observed.
 
 #### aria-kernel/aria_kernel/plan_convergence.py
 
@@ -319,17 +324,14 @@ execution remain unproven.
 
 #### aria-kernel/tests/test_architecture_spine_gate.py
 
-Source SHA256: `1b4e1bf420f253c9ddecb50dd4498fb996649af46a0bd723c722c19881f2f626`.
+Source SHA256: `e1694d62abaa4646adba3256bf3d9fedb338692bf031b82df6f300d5fb147bcf`.
 
-Tests the existing spine producers, comparison and native governance rows. Added event identity
-controls distinguish an equal-count swap from no drift, empty/restored identities and historical
-count fallback. Pytest/unittest is the caller; only disposable source and native test roots are
-written.
-
-Evidence/review boundary: Original equal-count RED and the four-method producer/comparator selection
-reached real native assertions; complementary controls are not additional reproduced defects.
-Existing affected compatibility was separately selected. New method/helper review is complete; the
-whole historical file is not re-certified by integration.
+Tests the spine gate's measurement shape, its set comparison and its native governance rows. The
+integration cases drive the five owner adapters as fake tools through the real tool runner
+(`tests/_helpers/spine_fixture.py`), with the tools root outside the workspace: an equal-count swap
+and a fix-two-break-one change are regressions, moved lines and totals are not, the refreshed run is
+the one measured, and a failed or quarantined owner is unmeasured or excluded by name. Pytest/unittest
+is the caller; only disposable source and native test roots are written.
 
 #### aria-kernel/tests/test_enterprise_cycle.py
 

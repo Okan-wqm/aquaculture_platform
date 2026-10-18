@@ -1,70 +1,76 @@
-"""Architecture Spine Gate (Plan 019 Phase 5.5).
+"""Architecture Spine Gate (Plan 019 Phase 5.5; contract ``aria/architecture-spine/v2``).
 
-Why a separate module: Plan 019 auth/schema/event remediation phases
-(4, 6, 9) each fix one invariant; without a cross-invariant guardrail
-a remediation can silently regress an unrelated invariant. The Spine
-Gate snapshots four ARIA invariants before + after each remediation
-and rejects the round if any baseline drift surfaces.
+WHY. Plan 019's auth/schema/event remediation phases each fix one invariant;
+without a cross-invariant guardrail a remediation can silently regress an
+unrelated one. The spine gate snapshots five architectural invariants before
+and after a remediation and rejects the round if any of them got worse.
 
-The four invariants snapshot per round:
+WHAT an invariant is (ARIA-HIGH-045, ARIA-HIGH-525, ARIA-MEDIUM-526):
 
-1. **tenant_scoping** — `getRepository()` callsite count (CLAUDE.md
-   tenant-isolation rule). Backed by tenant-scoping-adapter
-   (Plan 019 Phase 5 commit `aa9dc9d2`) when available; falls back to
-   a static repo-wide grep when the adapter is QUARANTINED or
-   un-bound.
-2. **event_contracts** — counts and source-file/symbol identities of
-   exported event interfaces without a matching JSON Schema filename
-   (CLAUDE.md §Event Contract Rules). The default static check walks
-   libs/event-contracts/src/**/*.ts; it does not validate schema contents.
-3. **schema_entity** — count of @Entity decorators violating ADR-011
-   (missing schema option, public schema, non-canonical shared schema).
-   Pure static check via _TYPEORM_ENTITY_RE.
-4. **auth_security** — JWT tenant-source mismatch + missing @UseGuards
-   coverage (CLAUDE.md tenant-ID-sourcing rule). Phase 6 will fill the
-   real check by binding security-boundary-adapter; Phase 5.5 ships a
-   stub that returns a sentinel pending=True measurement so the
-   framework is wired but the auth round count stays neutral until
-   Phase 6.
+- Each invariant IS the finding set of the one adapter that owns its rule
+  (``SPINE_INVARIANTS``). The gate holds no rule of its own: the static
+  producers it used to keep were second copies that measured the wrong set
+  (a ``getRepository(`` grep, 199 of 323 legal per-tenant entities called
+  violations, and 243 of 243 events "missing" a ``.json`` schema where the
+  catalogs are ``.schema.ts``).
+- A measurement is the owner's violation SET by location-free identity
+  (``finding_subject.adapter_violation_keys``), never a count: a swap of one
+  violation for another is one regression plus one improvement, and a net
+  improvement cannot absorb a newly introduced violation. Totals (declared
+  events, entities, observations) are not measurements at all, and
+  ``InvariantMeasurement`` refuses any other field (tier 1).
+- The set is read from the run the refresh produced
+  (``spine_orchestrator.refresh_spine_adapters`` returns the stored rows), in
+  the TOOLS ROOT the gate was given. ``<workspace>/aria-tools/runs.jsonl`` is
+  gitignored and production keeps its store outside the workspace, so the old
+  readers saw a pending stub on both sides, silently clean. Without a refresh
+  (``require_fresh_adapter_runs=False``) the latest recorded run of the tools
+  root is read and the provenance says so.
+- Coverage is explicit. ``measured`` carries the set; ``unmeasured`` (the
+  owner did not run ``ok``, its artifact is unreadable, the set exceeds its
+  row budget, the producer changed) and ``excluded`` (the owner is
+  quarantined) carry a reason and nothing to compare. Unmeasured fails closed
+  through the plan's ``unavailable`` comparison; excluded is named, and a
+  quarantine since the baseline is unmeasured, never a pass.
 
-Lifecycle (Plan 019 Phase 5.5 §Regression edge):
+Lifecycle:
 
-- `take_baseline(plan_id, cycle_id, ...)` — snapshot all four invariants
-  before remediation; persist as `architecture_spine_baseline`
-  governance event.
-- Remediation work happens in the calling phase.
-- `take_postcheck(plan_id, cycle_id, ...)` — snapshot again; compare
-  vs the latest baseline for the same plan_id; emit
-  `architecture_spine_postcheck` (clean) or
-  `architecture_spine_regression` (drift) governance event.
-- 5 consecutive regressions for the same plan_id without a clean
-  postcheck → emit `human_required_recorded` (reused from
-  human_required.py); the round counter is read from the governance
-  ledger so it is hash-chain-auditable.
+- ``take_baseline`` measures every invariant and records an
+  ``architecture_spine_baseline`` row carrying ``spine_contract``.
+- ``take_postcheck`` measures again, compares with the plan's latest
+  baseline (``compare_spine_measurements``) and records exactly one of
+  ``architecture_spine_regression`` (any introduced violation),
+  ``architecture_spine_unmeasured`` (no regression, some invariant not
+  comparable) or ``architecture_spine_postcheck`` (clean).
+- ``max_regression_rounds`` consecutive regressions for one plan (no clean
+  postcheck between; an unmeasured row neither counts nor resets) record a
+  HUMAN_REQUIRED item; the counter is read from the hash-chained ledger.
+- A cycle keeps a regressed plan's baseline until a clean postcheck resolves
+  it. A retained baseline from the count-only contract is superseded by a
+  fresh one that names what it supersedes and the regressions it held.
 
-Distinct from `architecture.py` (Plan 016 Faz E1): that module
-implements a single architecture-decision review (replace_with_adr /
-fix_in_place / etc.). The Spine Gate runs the architectural-invariant
-guardrail across multiple remediation rounds.
+Distinct from ``architecture.py`` (Plan 016 Faz E1), which reviews a single
+architecture decision; the spine gate guards invariants across remediation
+rounds.
 """
 from __future__ import annotations
 
 import hashlib
 import json
-import re
-import subprocess
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
+from .finding_subject import adapter_violation_keys
 from .governance_reader import read_governance_rows
 from .human_required import record_human_required
-from .ledger import load_jsonl
+from .runs_reader import latest_run_for_tool, raw_findings_count
+from .runtime_artifacts import run_raw_findings
 from .tool_registry import (
     GovernanceError,
     append_tools_governance,
     ensure_tools_dir,
+    get_tool,
     utc_now,
 )
 
@@ -99,292 +105,208 @@ SPINE_INVARIANTS: tuple[SpineInvariant, ...] = (
 INVARIANT_KINDS: tuple[str, ...] = tuple(spec.kind for spec in SPINE_INVARIANTS)
 SPINE_ADAPTER_IDS: tuple[str, ...] = tuple(spec.adapter_id for spec in SPINE_INVARIANTS)
 
+# The persisted measurement contract. A baseline row carries it; a block
+# without ``coverage`` is from the count-only contract before it (v1).
+SPINE_CONTRACT = "aria/architecture-spine/v2"
+
 # 5 consecutive regressions for the same plan_id → HUMAN_REQUIRED
 # (Plan 019 §Architecture Spine Gate acceptance).
 DEFAULT_MAX_REGRESSION_ROUNDS = 5
 
+# The bytes one invariant's identity set may take in a row. A postcheck row
+# holds two blocks per invariant (its own and, through the drifts, the
+# baseline's), so 2 x 5 x 64 KiB plus the row's other fields stays inside the
+# ledger's 1 MiB row cap (ledger.LEDGER_ROW_MAX_BYTES). A larger set is
+# unmeasured by name, never truncated into a different set.
+SPINE_IDENTITY_BUDGET_BYTES = 64 * 1024
+
+COVERAGE_STATES: tuple[str, ...] = ("measured", "unmeasured", "excluded")
+# The only fields a measured block holds: the set and its size.
+_MEASURED_FIELDS = frozenset({"violation_count", "violation_identities"})
+
+_BASELINE_KIND = "architecture_spine_baseline"
+_POSTCHECK_KIND = "architecture_spine_postcheck"
+_REGRESSION_KIND = "architecture_spine_regression"
+_UNMEASURED_KIND = "architecture_spine_unmeasured"
+# A verdict resolves (clean) or holds (regression) a plan's baseline; an
+# unmeasured comparison is neither.
+_VERDICT_KINDS: frozenset[str] = frozenset({_POSTCHECK_KIND, _REGRESSION_KIND})
+_COMPARISON_KINDS: frozenset[str] = _VERDICT_KINDS | {_UNMEASURED_KIND}
+_SPINE_EVENT_KINDS: frozenset[str] = _COMPARISON_KINDS | {_BASELINE_KIND}
+
+# The one success status of tool_health.RUN_STATUSES.
+_OK_RUN_STATUS = "ok"
+
 
 @dataclass(frozen=True)
 class InvariantMeasurement:
-    """One invariant's measurement at a point in time."""
+    """One invariant's measurement at a point in time.
+
+    ``source`` names the producer (``adapter:<id>@<manifest version>``);
+    ``provenance`` (run id, recorded_at, repo_state_id, selection) is
+    evidence for a reader and is never compared. The old count-only shape
+    cannot be built: a measured value must be the identity set and its size,
+    and nothing else.
+    """
     invariant: str
     measured_at: str
     measurements: dict[str, Any]
-    source: str  # "tool_runner:<tool_id>", "static:<fn_name>", "stub:<reason>"
+    source: str
+    coverage: str = "measured"
+    coverage_reason: str | None = None
+    provenance: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.coverage not in COVERAGE_STATES:
+            raise GovernanceError(f"spine_measurement_coverage_unknown: {self.invariant}: {self.coverage!r}")
+        if self.coverage != "measured":
+            if not self.coverage_reason:
+                raise GovernanceError(f"spine_measurement_reason_required: {self.invariant} is {self.coverage}")
+            if self.measurements:
+                raise GovernanceError(f"spine_measurement_unmeasured_has_values: {self.invariant}")
+            return
+        identities = self.measurements.get("violation_identities")
+        if not isinstance(identities, list) or not all(isinstance(value, str) for value in identities):
+            raise GovernanceError(f"spine_measurement_without_identities: {self.invariant}")
+        if set(self.measurements) != _MEASURED_FIELDS:
+            raise GovernanceError(
+                f"spine_measurement_fields_unknown: {self.invariant}: {sorted(set(self.measurements) - _MEASURED_FIELDS)}"
+            )
+        if len(set(identities)) != len(identities):
+            raise GovernanceError(f"spine_measurement_identities_not_a_set: {self.invariant}")
+        count = self.measurements["violation_count"]
+        if type(count) is not int or count != len(identities):
+            raise GovernanceError(f"spine_measurement_count_mismatch: {self.invariant}: {count!r} != {len(identities)}")
 
 
 @dataclass(frozen=True)
 class DriftReport:
-    """One field's drift between baseline and postcheck for one invariant."""
+    """One invariant's removed (improvement) or introduced (regression) violations."""
     invariant: str
     field: str
     baseline_value: Any
     postcheck_value: Any
-    direction: str  # "regression" | "improvement" | "unchanged"
+    direction: str  # "regression" | "improvement"
 
 
-# ---------------------------- default invariant checks ----------------------------
+@dataclass(frozen=True)
+class SpineComparison:
+    """A baseline/postcheck comparison: the drifts, and what could not be compared.
 
-_GET_REPOSITORY_RE = re.compile(r"(?<![\w.])getRepository\s*\(")
-_EVENT_INTERFACE_RE = re.compile(
-    r"export\s+interface\s+(\w+Event)\s+extends\s+BaseEvent",
-)
-_TYPEORM_ENTITY_RE = re.compile(
-    r"@Entity\s*\("
-    r"(?:\s*['\"](?P<table>\w+)['\"])?"
-    r"(?:\s*,\s*\{\s*schema\s*:\s*['\"](?P<schema>\w+)['\"][^}]*\})?"
-    r"\s*\)"
-)
-_SHARED_SCHEMA_TABLES = {
-    "audit_logs",
-    "gdpr_data_requests",
-    "user_consents",
-    "user_permissions",
-}
+    ``unmeasured`` and ``excluded`` are ``{"invariant", "reason"}`` entries;
+    an invariant in either has no drift.
+    """
+    drifts: tuple[DriftReport, ...]
+    unmeasured: tuple[dict[str, str], ...]
+    excluded: tuple[dict[str, str], ...]
 
 
-def _walk_ts_files(root: Path, sub_dirs: tuple[str, ...]) -> list[Path]:
-    """Yield *.ts files under each sub_dir, skipping common artefact roots."""
-    paths: list[Path] = []
-    for sub in sub_dirs:
-        base = root / sub
-        if not base.exists():
-            continue
-        for path in base.rglob("*.ts"):
-            rel = path.relative_to(root).as_posix()
-            if any(seg in rel for seg in (
-                "node_modules/", "dist/", "/__tests__/", ".spec.ts",
-                "aria-tools/",
-            )):
-                continue
-            paths.append(path)
-    return paths
+# ---------------------------- measuring the owner adapters ----------------------------
 
 
-def _check_tenant_scoping(workspace_root: Path) -> InvariantMeasurement:
-    """Static grep for `getRepository(` callsites under apps/ + libs/."""
-    callsites = 0
-    for path in _walk_ts_files(workspace_root, ("apps", "libs")):
+def _identity_budget_issue(identities: list[str]) -> str | None:
+    """``identity_set_over_budget`` when the set exceeds its share of a row."""
+    encoded = json.dumps(identities, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+    return "identity_set_over_budget" if len(encoded) > SPINE_IDENTITY_BUDGET_BYTES else None
+
+
+def _not_compared(
+    spec: SpineInvariant, coverage: str, reason: str, *, source: str, provenance: dict[str, Any] | None = None,
+) -> InvariantMeasurement:
+    return InvariantMeasurement(
+        invariant=spec.kind, measured_at=utc_now(), measurements={}, source=source,
+        coverage=coverage, coverage_reason=reason, provenance=provenance or {},
+    )
+
+
+def _measure_adapter_invariant(
+    spec: SpineInvariant, *, tools_root: Path, refresh: Mapping[str, Any] | None,
+) -> InvariantMeasurement:
+    """The violation set of ``spec``'s owner adapter, from one stored run.
+
+    With a refresh: the row the refresh stored or reused for the adapter
+    (``selection: refreshed``), never a newer row another caller recorded.
+    Without one: the latest row of the tools root (``latest_recorded``).
+    """
+    adapter_id = spec.adapter_id
+    unknown_source = f"adapter:{adapter_id}"
+    if refresh is not None:
+        selection = "refreshed"
+        states = {state["adapter_id"]: state for state in refresh["adapter_states"]}
+        state = states.get(adapter_id)
+        if state is None:
+            return _not_compared(spec, "unmeasured", "adapter_not_refreshed", source=unknown_source)
+        if state["source"] == "quarantined":
+            return _not_compared(spec, "excluded", "tool_quarantined", source=unknown_source)
+        if state["source"] == "unregistered":
+            return _not_compared(spec, "unmeasured", "adapter_unregistered", source=unknown_source)
+        version = str(refresh["adapter_versions"][adapter_id])
+        row = refresh["adapter_runs"].get(adapter_id)
+        if row is None:
+            missing = "adapter_run_failed" if state["source"] == "failed" else "adapter_run_missing"
+            return _not_compared(spec, "unmeasured", missing, source=f"{unknown_source}@{version}")
+    else:
+        selection = "latest_recorded"
         try:
-            content = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        callsites += sum(1 for _ in _GET_REPOSITORY_RE.finditer(content))
+            tool = get_tool(adapter_id, base_dir=tools_root)
+        except GovernanceError:
+            return _not_compared(spec, "unmeasured", "adapter_unregistered", source=unknown_source)
+        if tool["status"] == "QUARANTINED":
+            return _not_compared(spec, "excluded", "tool_quarantined", source=unknown_source)
+        version = str(tool["version"])
+        row = latest_run_for_tool(tools_root / "runs.jsonl", tool_id=adapter_id, base_dir=tools_root)
+        if row is None:
+            return _not_compared(spec, "unmeasured", "adapter_run_missing", source=f"{unknown_source}@{version}")
+    source = f"{unknown_source}@{version}"
+    provenance = {
+        "run_id": str(row["run_id"]),
+        "recorded_at": row["recorded_at"],
+        "repo_state_id": row["repo_snapshot"]["repo_state_id"],
+        "artifact_hash": row.get("artifact_hash"),
+        "adapter_version": version,
+        "selection": selection,
+    }
+    if row["status"] != _OK_RUN_STATUS:
+        return _not_compared(spec, "unmeasured", f"adapter_run_status:{row['status']}",
+                             source=source, provenance=provenance)
+    findings = run_raw_findings(row, base_dir=tools_root)
+    if findings is None:
+        return _not_compared(spec, "unmeasured", "adapter_run_artifact_unresolved",
+                             source=source, provenance=provenance)
+    if len(findings) != raw_findings_count(row):
+        return _not_compared(spec, "unmeasured", "adapter_findings_count_mismatch",
+                             source=source, provenance=provenance)
+    if not all(isinstance(finding, dict) for finding in findings):
+        return _not_compared(spec, "unmeasured", "adapter_findings_malformed",
+                             source=source, provenance=provenance)
+    identities = adapter_violation_keys(findings)
+    over_budget = _identity_budget_issue(identities)
+    if over_budget is not None:
+        return _not_compared(spec, "unmeasured", over_budget, source=source, provenance=provenance)
     return InvariantMeasurement(
-        invariant="tenant_scoping",
+        invariant=spec.kind,
         measured_at=utc_now(),
-        measurements={
-            "get_repository_callsite_count": callsites,
-        },
-        source="static:_check_tenant_scoping",
+        measurements={"violation_count": len(identities), "violation_identities": identities},
+        source=source,
+        provenance=provenance,
     )
 
 
-def _check_event_contracts(workspace_root: Path) -> InvariantMeasurement:
-    """Measure event interfaces without matching JSON Schema filenames."""
-    contracts_dir = workspace_root / "libs" / "event-contracts" / "src"
-    schemas_dir = contracts_dir / "schemas"
-    schema_stems = (
-        {p.stem.lower().removesuffix(".schema") for p in schemas_dir.rglob("*.json")}
-        if schemas_dir.exists() else set()
-    )
-    missing = 0
-    missing_identities: set[str] = set()
-    declared = 0
-    if contracts_dir.exists():
-        for path in contracts_dir.rglob("*.ts"):
-            rel = path.relative_to(workspace_root).as_posix()
-            if "/schemas/" in rel or rel.endswith(".spec.ts"):
-                continue
-            try:
-                content = path.read_text(encoding="utf-8")
-            except (OSError, UnicodeDecodeError):
-                continue
-            for match in _EVENT_INTERFACE_RE.finditer(content):
-                event_name = match.group(1)
-                declared += 1
-                snake = "".join(
-                    ("_" + ch.lower()) if i and ch.isupper() else ch.lower()
-                    for i, ch in enumerate(event_name)
-                )
-                if event_name.lower() not in schema_stems and snake not in schema_stems:
-                    missing += 1
-                    missing_identities.add(f"{rel}::{event_name}")
-    return InvariantMeasurement(
-        invariant="event_contracts",
-        measured_at=utc_now(),
-        measurements={
-            "declared_event_count": declared,
-            "missing_schema_count": missing,
-            "missing_schema_identities": sorted(missing_identities),
-        },
-        source="static:_check_event_contracts",
-    )
+def _default_invariant_checks(
+    *, tools_root: Path, refresh: Mapping[str, Any] | None,
+) -> dict[str, Callable[[Path], InvariantMeasurement]]:
+    """One check per ``SPINE_INVARIANTS`` row, bound to the tools root and the refresh.
 
-
-def _check_schema_entity(workspace_root: Path) -> InvariantMeasurement:
-    """Count @Entity decorators violating ADR-011."""
-    missing_schema = 0
-    public_schema = 0
-    non_canonical_shared = 0
-    total_entities = 0
-    apps_root = workspace_root / "apps"
-    if apps_root.exists():
-        for path in apps_root.rglob("*.entity.ts"):
-            rel = path.relative_to(workspace_root).as_posix()
-            if any(seg in rel for seg in ("node_modules/", "dist/", "/__tests__/", ".spec.ts")):
-                continue
-            try:
-                content = path.read_text(encoding="utf-8")
-            except (OSError, UnicodeDecodeError):
-                continue
-            for match in _TYPEORM_ENTITY_RE.finditer(content):
-                total_entities += 1
-                table = match.group("table")
-                schema = match.group("schema")
-                if schema is None and table is not None:
-                    missing_schema += 1
-                elif schema == "public":
-                    public_schema += 1
-                elif schema == "shared" and table not in _SHARED_SCHEMA_TABLES:
-                    non_canonical_shared += 1
-    return InvariantMeasurement(
-        invariant="schema_entity",
-        measured_at=utc_now(),
-        measurements={
-            "total_entities": total_entities,
-            "missing_schema_violation_count": missing_schema,
-            "public_schema_violation_count": public_schema,
-            "non_canonical_shared_count": non_canonical_shared,
-        },
-        source="static:_check_schema_entity",
-    )
-
-
-def _check_auth_security(workspace_root: Path) -> InvariantMeasurement:
-    """Plan 019 Phase 6.C — read latest security-boundary-adapter run from runs.jsonl.
-
-    Operator critique #2: don't write a new auth-access-boundary-adapter;
-    the existing tools/aria-adapters/security-boundary-adapter.ts covers
-    @UseGuards / public-write-endpoint / dangerous-html / raw-security-
-    sensitive-import rules and was bound to the registry in Plan 019
-    Phase 6.0. This check reads the LATEST adapter run from runs.jsonl
-    (cheap, non-recursive) instead of invoking the adapter from inside
-    the spine gate.
-
-    Operator workflow:
-      aria-kernel tool run --tool-id security-boundary-adapter ...
-      aria-kernel spine baseline --plan-id X --cycle-id Y
-    The spine gate reads the most-recent run and surfaces its raw
-    findings/observations counts as the auth_security invariant.
-
-    Falls back to pending=True when no adapter run exists yet — the
-    operator must run the adapter at least once before the spine gate
-    can capture an auth baseline.
+    The ``Callable[[Path], InvariantMeasurement]`` shape every
+    ``invariant_checks=`` caller already supplies; the workspace argument is
+    unused because the owner adapters already read it.
     """
-    runs_path = workspace_root / "aria-tools" / "runs.jsonl"
-    if not runs_path.exists():
-        return InvariantMeasurement(
-            invariant="auth_security",
-            measured_at=utc_now(),
-            measurements={
-                "pending": True,
-                "reason": "no aria-tools/runs.jsonl found",
-            },
-            source="stub:no_runs_ledger",
-        )
-    # Plan 026R §A.3 — strict runs.jsonl reader via runs_reader. A
-    # corrupt row surfaces as GovernanceError; missing/empty ledger
-    # yields None (pending) per the legacy contract.
-    from .runs_reader import latest_run_for_tool
-    try:
-        latest = latest_run_for_tool(runs_path, tool_id="security-boundary-adapter")
-    except OSError:
-        latest = None
-    if latest is None:
-        return InvariantMeasurement(
-            invariant="auth_security",
-            measured_at=utc_now(),
-            measurements={
-                "pending": True,
-                "reason": "no security-boundary-adapter run in runs.jsonl yet; run via tool_runner first",
-            },
-            source="stub:no_adapter_runs",
-        )
-    runner = latest.get("runner") or {}
-    return InvariantMeasurement(
-        invariant="auth_security",
-        measured_at=utc_now(),
-        measurements={
-            "raw_observations_count": int(runner.get("raw_observations_count", 0) or 0),
-            "raw_findings_count": int(runner.get("raw_findings_count", 0) or 0),
-            "adapter_run_status": str(latest.get("status") or "unknown"),
-            "adapter_run_id": str(latest.get("run_id") or ""),
-            "adapter_recorded_at": str(latest.get("recorded_at") or ""),
-        },
-        source="tool_runner:security-boundary-adapter",
-    )
-
-
-def _check_harness_security(workspace_root: Path) -> InvariantMeasurement:
-    """Plan 020 Phase 10 — read latest agent-harness-security-adapter run.
-
-    Same pattern as _check_auth_security: read the LATEST adapter run from
-    runs.jsonl + surface the raw findings/observations counts as the
-    harness_security invariant. The Phase 4 fresh orchestrator ensures
-    that row matches the current repo_state_id when require_fresh_adapter
-    _runs=True.
-    """
-    runs_path = workspace_root / "aria-tools" / "runs.jsonl"
-    if not runs_path.exists():
-        return InvariantMeasurement(
-            invariant="harness_security",
-            measured_at=utc_now(),
-            measurements={
-                "pending": True,
-                "reason": "no aria-tools/runs.jsonl found",
-            },
-            source="stub:no_runs_ledger",
-        )
-    # Plan 026R §A.3 — strict runs.jsonl reader via runs_reader (same
-    # contract as _check_auth_security above).
-    from .runs_reader import latest_run_for_tool
-    try:
-        latest = latest_run_for_tool(runs_path, tool_id="agent-harness-security-adapter")
-    except OSError:
-        latest = None
-    if latest is None:
-        return InvariantMeasurement(
-            invariant="harness_security",
-            measured_at=utc_now(),
-            measurements={
-                "pending": True,
-                "reason": "no agent-harness-security-adapter run in runs.jsonl yet",
-            },
-            source="stub:no_adapter_runs",
-        )
-    runner = latest.get("runner") or {}
-    return InvariantMeasurement(
-        invariant="harness_security",
-        measured_at=utc_now(),
-        measurements={
-            "raw_observations_count": int(runner.get("raw_observations_count", 0) or 0),
-            "raw_findings_count": int(runner.get("raw_findings_count", 0) or 0),
-            "adapter_run_status": str(latest.get("status") or "unknown"),
-            "adapter_run_id": str(latest.get("run_id") or ""),
-            "adapter_recorded_at": str(latest.get("recorded_at") or ""),
-        },
-        source="tool_runner:agent-harness-security-adapter",
-    )
-
-
-DEFAULT_INVARIANT_CHECKS: dict[str, Callable[[Path], InvariantMeasurement]] = {
-    "tenant_scoping": _check_tenant_scoping,
-    "event_contracts": _check_event_contracts,
-    "schema_entity": _check_schema_entity,
-    "auth_security": _check_auth_security,
-    "harness_security": _check_harness_security,
-}
+    return {
+        spec.kind: (lambda _workspace, _spec=spec: _measure_adapter_invariant(
+            _spec, tools_root=tools_root, refresh=refresh,
+        ))
+        for spec in SPINE_INVARIANTS
+    }
 
 
 # ---------------------------- baseline + postcheck primitives ----------------------------
@@ -406,18 +328,16 @@ def _baseline_hash(measurements: list[InvariantMeasurement]) -> str:
 def _run_invariant_checks(
     *,
     workspace_root: Path,
-    invariant_checks: dict[str, Callable[[Path], InvariantMeasurement]] | None,
+    invariant_checks: Mapping[str, Callable[[Path], InvariantMeasurement]],
 ) -> list[InvariantMeasurement]:
-    checks = invariant_checks if invariant_checks is not None else DEFAULT_INVARIANT_CHECKS
     measurements: list[InvariantMeasurement] = []
     for invariant in INVARIANT_KINDS:
-        check_fn = checks.get(invariant)
+        check_fn = invariant_checks.get(invariant)
         if check_fn is None:
             measurements.append(InvariantMeasurement(
-                invariant=invariant,
-                measured_at=utc_now(),
-                measurements={"unmapped": True},
+                invariant=invariant, measured_at=utc_now(), measurements={},
                 source="missing:no_check_registered",
+                coverage="unmeasured", coverage_reason="no_check_registered",
             ))
             continue
         result = check_fn(workspace_root)
@@ -426,8 +346,82 @@ def _run_invariant_checks(
                 f"invariant check {invariant!r} must return InvariantMeasurement, "
                 f"got {type(result).__name__}"
             )
+        if result.invariant != invariant:
+            raise GovernanceError(f"invariant check {invariant!r} returned {result.invariant!r}")
         measurements.append(result)
     return measurements
+
+
+def _measure_spine(
+    *,
+    workspace_root: Path,
+    tools_root: Path,
+    cycle_id: str,
+    invariant_checks: Mapping[str, Callable[[Path], InvariantMeasurement]] | None,
+    require_fresh_adapter_runs: bool,
+    freshness_max_age_seconds: int | None,
+) -> list[InvariantMeasurement]:
+    """Measure every invariant; the default checks read what the refresh stored.
+
+    Plan 020 Phase 4.B — with ``require_fresh_adapter_runs`` (and no
+    synthetic ``invariant_checks``) the refresh re-runs any owner adapter
+    whose latest run is not a fresh ``ok`` run of this working tree, and its
+    result is what the checks read (ARIA-HIGH-525). Synthetic checks skip the
+    refresh: the caller is feeding the measurements.
+    """
+    if invariant_checks is None:
+        refresh: Mapping[str, Any] | None = None
+        if require_fresh_adapter_runs:
+            # Lazy: the orchestrator imports this module's declaration.
+            from .spine_orchestrator import (
+                DEFAULT_FRESHNESS_MAX_AGE_SECONDS,
+                refresh_spine_adapters,
+            )
+            refresh = refresh_spine_adapters(
+                base_dir=tools_root,
+                workspace_root=workspace_root,
+                freshness_max_age_seconds=(
+                    freshness_max_age_seconds or DEFAULT_FRESHNESS_MAX_AGE_SECONDS
+                ),
+                cycle_id=cycle_id,
+            )
+        invariant_checks = _default_invariant_checks(tools_root=tools_root, refresh=refresh)
+    return _run_invariant_checks(workspace_root=workspace_root, invariant_checks=invariant_checks)
+
+
+def _record_baseline(
+    *,
+    plan_id: str,
+    cycle_id: str,
+    workspace_root: str | Path,
+    base_dir: str | Path | None,
+    invariant_checks: Mapping[str, Callable[[Path], InvariantMeasurement]] | None,
+    require_fresh_adapter_runs: bool,
+    freshness_max_age_seconds: int | None,
+    supersedes: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if not plan_id.strip():
+        raise GovernanceError("plan_id is required")
+    if not cycle_id.strip():
+        raise GovernanceError("cycle_id is required")
+    tools_root = ensure_tools_dir(base_dir)
+    measurements = _measure_spine(
+        workspace_root=Path(workspace_root).resolve(), tools_root=tools_root, cycle_id=cycle_id,
+        invariant_checks=invariant_checks, require_fresh_adapter_runs=require_fresh_adapter_runs,
+        freshness_max_age_seconds=freshness_max_age_seconds,
+    )
+    details: dict[str, Any] = {
+        "plan_id": plan_id,
+        "cycle_id": cycle_id,
+        "spine_contract": SPINE_CONTRACT,
+        "baseline_hash": _baseline_hash(measurements),
+        "invariant_measurements": _measurements_to_dict(measurements),
+        "fresh_adapter_runs_required": require_fresh_adapter_runs,
+    }
+    if supersedes is not None:
+        details["supersedes"] = supersedes
+    append_tools_governance(tools_root, _BASELINE_KIND, details)
+    return details
 
 
 def take_baseline(
@@ -440,75 +434,23 @@ def take_baseline(
     require_fresh_adapter_runs: bool = True,
     freshness_max_age_seconds: int | None = None,
 ) -> dict[str, Any]:
-    """Snapshot all four invariants + persist a hash-chained governance event.
+    """Measure every invariant and record an ``architecture_spine_baseline`` row.
 
-    Returns the persisted event details (including baseline_hash + the
-    full per-invariant measurements). Operator scripts use the returned
-    dict to thread the baseline_hash through the remediation work; the
-    matching `take_postcheck` call uses plan_id to resolve the latest
-    baseline automatically.
+    Returns the recorded details (``baseline_hash``, ``spine_contract`` and
+    the per-invariant measurements); ``take_postcheck`` resolves the plan's
+    latest baseline by ``plan_id``.
 
-    Plan 020 Phase 4.B — require_fresh_adapter_runs (default True):
-      When True, calls spine_orchestrator.refresh_spine_adapters BEFORE
-      running invariant checks. The orchestrator re-runs any of the
-      5 spine adapters whose latest row is stale (different repo_state_id
-      OR older than freshness_max_age_seconds) so the invariant readers
-      downstream see fresh rows by construction.
-
-      Set False for smoke tests / backward-compat callers that genuinely
-      want the cached-row behaviour. Frozen profile callers must set
-      False (or pre-warm caches), because the orchestrator itself routes
-      through tool_runner.run_tool which is profile-gated.
-
-      freshness_max_age_seconds defaults to the orchestrator's own
-      DEFAULT_FRESHNESS_MAX_AGE_SECONDS (600) when None.
+    ``require_fresh_adapter_runs`` (default True) refreshes the owner
+    adapters first and measures the runs the refresh stored. False reads the
+    latest recorded run of each owner in the tools root (frozen profiles,
+    where run_tool is gated, must pass False). ``freshness_max_age_seconds``
+    defaults to the orchestrator's DEFAULT_FRESHNESS_MAX_AGE_SECONDS (600).
     """
-    if not plan_id.strip():
-        raise GovernanceError("plan_id is required")
-    if not cycle_id.strip():
-        raise GovernanceError("cycle_id is required")
-    repo = Path(workspace_root).resolve()
-    tools_root = ensure_tools_dir(base_dir)
-
-    # Plan 020 Phase 4.B — fresh adapter orchestrator chokepoint.
-    # require_fresh_adapter_runs=True (default) AND invariant_checks is None
-    # → run the orchestrator. When invariant_checks is provided (smoke
-    # tests / fixture overrides), the caller is by definition feeding
-    # synthetic measurements; running real adapters would pollute the
-    # test snapshot with unrelated data + force every test to register
-    # 5 adapters in its isolated tools dir. Tier-2 "make it automatic"
-    # — caller's intent (real vs synthetic) drives the default.
-    if require_fresh_adapter_runs and invariant_checks is None:
-        # Local import keeps the spine_orchestrator pull lazy — callers
-        # that explicitly opt out of fresh runs (smoke tests, frozen
-        # profile cached-baseline path) avoid importing the orchestrator
-        # at all.
-        from .spine_orchestrator import (
-            DEFAULT_FRESHNESS_MAX_AGE_SECONDS,
-            refresh_spine_adapters,
-        )
-        refresh_spine_adapters(
-            base_dir=base_dir,
-            workspace_root=repo,
-            freshness_max_age_seconds=(
-                freshness_max_age_seconds or DEFAULT_FRESHNESS_MAX_AGE_SECONDS
-            ),
-            cycle_id=cycle_id,
-        )
-
-    measurements = _run_invariant_checks(
-        workspace_root=repo, invariant_checks=invariant_checks,
+    return _record_baseline(
+        plan_id=plan_id, cycle_id=cycle_id, workspace_root=workspace_root, base_dir=base_dir,
+        invariant_checks=invariant_checks, require_fresh_adapter_runs=require_fresh_adapter_runs,
+        freshness_max_age_seconds=freshness_max_age_seconds, supersedes=None,
     )
-    bh = _baseline_hash(measurements)
-    details = {
-        "plan_id": plan_id,
-        "cycle_id": cycle_id,
-        "baseline_hash": bh,
-        "invariant_measurements": _measurements_to_dict(measurements),
-        "fresh_adapter_runs_required": require_fresh_adapter_runs,
-    }
-    append_tools_governance(tools_root, "architecture_spine_baseline", details)
-    return details
 
 
 def _take_cycle_baseline(
@@ -519,54 +461,92 @@ def _take_cycle_baseline(
 
     Explicit ``take_baseline`` remains a fresh-capture operation. The cycle
     phase cannot silently replace an unresolved comparison obligation merely
-    because a later cycle has started. Reuse keeps the selected observation's
-    cycle and hash; an equivalent explicit capture can have the same hash.
-    The sidecar identifies the current consumer without relabeling that row.
+    because a later cycle has started. Retention follows the latest VERDICT
+    (regression or clean); an unmeasured comparison is neither. Reuse keeps
+    the selected observation's cycle and hash; the sidecar identifies the
+    current consumer without relabeling that row.
+
+    ARIA-HIGH-045 — a retained baseline from the count-only contract (no
+    ``spine_contract``) cannot be compared with a v2 measurement, so it is
+    superseded: a fresh baseline is recorded naming the hash, the contract
+    and the unresolved regressions it replaces, and later cycles reuse that
+    one until a v2 verdict exists.
     """
     if not plan_id.strip():
         raise GovernanceError("plan_id is required")
     if not cycle_id.strip():
         raise GovernanceError("cycle_id is required")
     root = ensure_tools_dir(base_dir)
-    latest_postcheck = _latest_plan_postcheck(root, plan_id)
-    if latest_postcheck is None or latest_postcheck["kind"] == "architecture_spine_postcheck":
+    verdict = _latest_plan_comparison(root, plan_id, _VERDICT_KINDS)
+    if verdict is None or verdict["kind"] == _POSTCHECK_KIND:
         return take_baseline(
             plan_id=plan_id, cycle_id=cycle_id,
             workspace_root=workspace_root, base_dir=root,
         )
-    previous = latest_postcheck["details"]
+    previous = verdict["details"]
     baseline = _latest_baseline_for_plan(root, plan_id)
-    if (baseline is None or not previous.get("baseline_hash")
-            or baseline.get("baseline_hash") != previous["baseline_hash"]):
+    if baseline is None or not previous.get("baseline_hash"):
+        raise GovernanceError("architecture_spine_unresolved_baseline_unavailable")
+    held_hash = previous["baseline_hash"]
+    current = baseline.get("spine_contract") == SPINE_CONTRACT
+    if baseline.get("baseline_hash") == held_hash and not current:
+        return _record_baseline(
+            plan_id=plan_id, cycle_id=cycle_id, workspace_root=workspace_root, base_dir=root,
+            invariant_checks=None, require_fresh_adapter_runs=True, freshness_max_age_seconds=None,
+            supersedes={
+                "baseline_hash": held_hash,
+                "spine_contract": baseline.get("spine_contract"),
+                "unresolved_regressions": [
+                    drift for drift in previous["drifts"] if drift.get("direction") == "regression"
+                ],
+            },
+        )
+    superseded = baseline.get("supersedes")
+    if baseline.get("baseline_hash") == held_hash:
+        reason = "unresolved_regression"
+    elif current and isinstance(superseded, dict) and superseded.get("baseline_hash") == held_hash:
+        reason = "superseded_pre_v2_regression"
+    else:
         raise GovernanceError("architecture_spine_unresolved_baseline_unavailable")
     return {
         **baseline,
         "baseline_reuse": {
             "cycle_id": cycle_id,
             "previous_postcheck_cycle_id": previous.get("cycle_id"),
-            "reason": "unresolved_regression",
+            "reason": reason,
         },
     }
 
 
-def _latest_plan_postcheck(root: Path, plan_id: str) -> dict[str, Any] | None:
-    """Read the existing plan's most recent native comparison row."""
+def _latest_plan_comparison(root: Path, plan_id: str, kinds: frozenset[str]) -> dict[str, Any] | None:
+    """The plan's most recent comparison row whose kind is in ``kinds``."""
     for row in read_governance_rows(root / "governance.jsonl", reverse=True, base_dir=root):
-        if row.get("kind") not in {"architecture_spine_postcheck", "architecture_spine_regression"}:
+        if row.get("kind") not in kinds:
             continue
         if (row.get("details") or {}).get("plan_id") == plan_id:
             return row
     return None
 
 
+def _named_invariants(value: Any) -> bool:
+    """A list of ``{"invariant", "reason"}`` entries naming spine invariants."""
+    return isinstance(value, list) and all(
+        isinstance(entry, dict) and entry.get("invariant") in INVARIANT_KINDS
+        and isinstance(entry.get("reason"), str) and entry["reason"]
+        for entry in value
+    )
+
+
 def _plan_comparison_obligation(root: Path, plan_id: str) -> dict[str, Any] | None:
     """Project native comparison evidence for the existing planning decision.
 
     Absence preserves unenrolled historical plans. An enrolled plan without
-    a completed, anchored comparison is unavailable, not observed clean.
-    The caller carries this one captured descriptor to its planner request.
+    a completed, anchored comparison is unavailable, not observed clean, and
+    so is a comparison some invariant could not take part in
+    (``invariant_unmeasured``). The caller carries this one captured
+    descriptor to its planner request.
     """
-    row = _latest_plan_postcheck(root, plan_id)
+    row = _latest_plan_comparison(root, plan_id, _COMPARISON_KINDS)
     baseline = _latest_baseline_for_plan(root, plan_id)
     if row is None and baseline is None:
         return None
@@ -596,93 +576,108 @@ def _plan_comparison_obligation(root: Path, plan_id: str) -> dict[str, Any] | No
         return {**observation, "status": "unavailable", "reason": "comparison_shape_unavailable"}
     regressions = [drift for drift in drifts if drift.get("direction") == "regression"]
     if (count != len(regressions)
-            or (row["kind"] == "architecture_spine_regression") != bool(count)):
+            or (row["kind"] == _REGRESSION_KIND) != bool(count)):
         return {**observation, "status": "unavailable", "reason": "comparison_shape_unavailable"}
-    return {
+    if row["kind"] == _UNMEASURED_KIND:
+        unmeasured = details.get("unmeasured_invariants")
+        if not _named_invariants(unmeasured) or not unmeasured:
+            return {**observation, "status": "unavailable", "reason": "comparison_shape_unavailable"}
+        return {
+            **observation, "status": "unavailable", "reason": "invariant_unmeasured",
+            "unmeasured_invariants": unmeasured,
+        }
+    result = {
         **observation,
         "status": "regression" if count else "clean",
         "regressions": regressions,
     }
+    # A v1 row predates exclusion and claims none; a v2 row names its own.
+    if "excluded_invariants" in details:
+        if not _named_invariants(details["excluded_invariants"]):
+            return {**observation, "status": "unavailable", "reason": "comparison_shape_unavailable"}
+        result["excluded_invariants"] = details["excluded_invariants"]
+    return result
 
 
-def detect_drift(
+def _stored_measurement(block: Any, side: str) -> tuple[InvariantMeasurement | None, str | None]:
+    """A stored block as a measurement, or the reason it is not one."""
+    if not isinstance(block, Mapping):
+        return None, f"{side}_missing"
+    if "coverage" not in block:
+        # The count-only contract (v1) observed no violation set.
+        return None, f"{side}_pre_v2"
+    try:
+        return InvariantMeasurement(
+            invariant=block["invariant"], measured_at=block["measured_at"],
+            measurements=dict(block["measurements"]), source=block["source"],
+            coverage=block["coverage"], coverage_reason=block["coverage_reason"],
+            provenance=dict(block["provenance"]),
+        ), None
+    except (GovernanceError, KeyError, TypeError, ValueError):
+        return None, f"{side}_malformed"
+
+
+def compare_spine_measurements(
     *,
-    baseline_measurements: dict[str, dict[str, Any]],
-    postcheck_measurements: dict[str, dict[str, Any]],
-) -> list[DriftReport]:
-    """Compare two measurement dicts; emit a DriftReport per changed field.
+    baseline: Mapping[str, Any],
+    postcheck: Mapping[str, Any],
+) -> SpineComparison:
+    """Compare two stored measurement maps invariant by invariant.
 
-    Direction:
-        regression  — postcheck value > baseline (more violations)
-        improvement — postcheck value < baseline (fewer violations)
-        unchanged   — values equal
-    Non-numeric fields (e.g. pending=True stub) compare by equality only;
-    pending==pending is NOT treated as drift.
-
-    Paired event-schema identity observations report removed and introduced
-    issues separately, replacing the corresponding count drift. If either
-    observation lacks identities, retain the historical count comparison;
-    absent identity evidence is not an observed empty set.
+    Per invariant, in order:
+      1. a baseline block that is not a v2 measurement → unmeasured;
+      2. baseline ``excluded`` → excluded, named (nothing to compare against);
+      3. a postcheck block that is not a v2 measurement → unmeasured;
+      4. baseline unmeasured → unmeasured (``baseline:<reason>``);
+      5. postcheck excluded with a measured baseline → unmeasured
+         (``<reason>_since_baseline``): a quarantine between the two must not
+         turn into a pass;
+      6. postcheck unmeasured → unmeasured (``postcheck:<reason>``);
+      7. a different producer (manifest version) → unmeasured
+         ``producer_changed``: two producers' sets are not one set over time;
+      8. otherwise removed identities are one ``improvement`` and introduced
+         identities one ``regression`` (field ``violation_identities``).
+    No other field is compared.
     """
     drifts: list[DriftReport] = []
+    unmeasured: list[dict[str, str]] = []
+    excluded: list[dict[str, str]] = []
     for invariant in INVARIANT_KINDS:
-        b_block = baseline_measurements.get(invariant) or {}
-        p_block = postcheck_measurements.get(invariant) or {}
-        b_meas = b_block.get("measurements") or {}
-        p_meas = p_block.get("measurements") or {}
-        all_fields = sorted(set(b_meas.keys()) | set(p_meas.keys()))
-        if invariant == "event_contracts":
-            identity_field = "missing_schema_identities"
-            b_ids = b_meas.get(identity_field)
-            p_ids = p_meas.get(identity_field)
-            paired_identities = (
-                isinstance(b_ids, list) and isinstance(p_ids, list)
-                and all(isinstance(value, str) for value in b_ids)
-                and all(isinstance(value, str) for value in p_ids)
-            )
-            # A historical missing field cannot identify an introduced or
-            # removed issue. Only paired observations replace the count.
-            all_fields = [name for name in all_fields if name != identity_field]
-            if paired_identities:
-                removed = sorted(set(b_ids) - set(p_ids))
-                introduced = sorted(set(p_ids) - set(b_ids))
-                if removed:
-                    drifts.append(DriftReport(
-                        invariant=invariant, field=identity_field,
-                        baseline_value=removed, postcheck_value=[],
-                        direction="improvement",
-                    ))
-                if introduced:
-                    drifts.append(DriftReport(
-                        invariant=invariant, field=identity_field,
-                        baseline_value=[], postcheck_value=introduced,
-                        direction="regression",
-                    ))
-                all_fields = [name for name in all_fields if name != "missing_schema_count"]
-        for field_name in all_fields:
-            b_val = b_meas.get(field_name)
-            p_val = p_meas.get(field_name)
-            if b_val == p_val:
-                continue
-            if isinstance(b_val, (int, float)) and isinstance(p_val, (int, float)):
-                if p_val > b_val:
-                    direction = "regression"
-                elif p_val < b_val:
-                    direction = "improvement"
-                else:
-                    direction = "unchanged"
-            else:
-                # Non-numeric mismatch is treated as a drift but not
-                # automatically a regression (operator interprets).
-                direction = "regression"
-            drifts.append(DriftReport(
-                invariant=invariant,
-                field=field_name,
-                baseline_value=b_val,
-                postcheck_value=p_val,
-                direction=direction,
-            ))
-    return drifts
+        base, base_issue = _stored_measurement(baseline.get(invariant), "baseline")
+        if base is None:
+            unmeasured.append({"invariant": invariant, "reason": str(base_issue)})
+            continue
+        if base.coverage == "excluded":
+            excluded.append({"invariant": invariant, "reason": str(base.coverage_reason)})
+            continue
+        post, post_issue = _stored_measurement(postcheck.get(invariant), "postcheck")
+        if post is None:
+            reason = str(post_issue)
+        elif base.coverage == "unmeasured":
+            reason = f"baseline:{base.coverage_reason}"
+        elif post.coverage == "excluded":
+            reason = f"{post.coverage_reason}_since_baseline"
+        elif post.coverage == "unmeasured":
+            reason = f"postcheck:{post.coverage_reason}"
+        elif post.source != base.source:
+            reason = "producer_changed"
+        else:
+            before = set(base.measurements["violation_identities"])
+            after = set(post.measurements["violation_identities"])
+            removed, introduced = sorted(before - after), sorted(after - before)
+            if removed:
+                drifts.append(DriftReport(
+                    invariant=invariant, field="violation_identities",
+                    baseline_value=removed, postcheck_value=[], direction="improvement",
+                ))
+            if introduced:
+                drifts.append(DriftReport(
+                    invariant=invariant, field="violation_identities",
+                    baseline_value=[], postcheck_value=introduced, direction="regression",
+                ))
+            continue
+        unmeasured.append({"invariant": invariant, "reason": reason})
+    return SpineComparison(drifts=tuple(drifts), unmeasured=tuple(unmeasured), excluded=tuple(excluded))
 
 
 def _latest_baseline_for_plan(
@@ -694,7 +689,7 @@ def _latest_baseline_for_plan(
     latest: dict[str, Any] | None = None
     latest_ts = ""
     for row in read_governance_rows(governance, base_dir=tools_root):
-        if row.get("kind") != "architecture_spine_baseline":
+        if row.get("kind") != _BASELINE_KIND:
             continue
         details = row.get("details") or {}
         if details.get("plan_id") != plan_id:
@@ -717,6 +712,8 @@ def _consecutive_regression_count(
     semantics). The helper preserves the ORIGINAL forward line
     number in any diagnostic, so operators investigating a
     corruption event can locate the row in the file directly.
+    An unmeasured comparison is not a verdict: it neither counts
+    nor breaks the streak.
     """
     governance = tools_root / "governance.jsonl"
     relevant: list[str] = []  # most-recent-first list of event kinds
@@ -724,12 +721,12 @@ def _consecutive_regression_count(
         governance, reverse=True, base_dir=tools_root,
     ):
         kind = row.get("kind")
-        if kind not in ("architecture_spine_postcheck", "architecture_spine_regression"):
+        if kind not in _VERDICT_KINDS:
             continue
         details = row.get("details") or {}
         if details.get("plan_id") != plan_id:
             continue
-        if kind == "architecture_spine_postcheck":
+        if kind == _POSTCHECK_KIND:
             return len(relevant)  # clean postcheck breaks the streak
         relevant.append(kind)
     return len(relevant)
@@ -746,19 +743,23 @@ def take_postcheck(
     require_fresh_adapter_runs: bool = True,
     freshness_max_age_seconds: int | None = None,
 ) -> dict[str, Any]:
-    """Snapshot invariants again + diff vs latest baseline for the same plan_id.
+    """Measure again and compare with the latest baseline for the same plan_id.
 
-    Emits exactly one of:
-      architecture_spine_postcheck   — no regressions, plan can advance
-      architecture_spine_regression  — at least one regression, plan blocked
+    Records exactly one of:
+      architecture_spine_regression  — at least one introduced violation
+      architecture_spine_unmeasured  — no regression, but some invariant
+                                       could not be compared (fail-closed:
+                                       the plan's comparison is unavailable)
+      architecture_spine_postcheck   — clean, the plan can advance
+    The details always carry ``unmeasured_invariants`` and
+    ``excluded_invariants``.
 
-    After `max_regression_rounds` consecutive regressions for the same
-    plan_id (without an intervening clean postcheck), also emits a
-    HUMAN_REQUIRED record via record_human_required().
+    After ``max_regression_rounds`` consecutive regressions for the same
+    plan_id (without an intervening clean postcheck), also records a
+    HUMAN_REQUIRED item via record_human_required().
 
-    Plan 020 Phase 4.B — require_fresh_adapter_runs (default True): see
-    take_baseline; same orchestrator chokepoint applies so the postcheck
-    invariants read freshly-produced adapter rows.
+    ``require_fresh_adapter_runs`` and ``freshness_max_age_seconds``: as
+    ``take_baseline``.
     """
     if not plan_id.strip():
         raise GovernanceError("plan_id is required")
@@ -766,25 +767,7 @@ def take_postcheck(
         raise GovernanceError("cycle_id is required")
     if max_regression_rounds < 1:
         raise GovernanceError("max_regression_rounds must be >= 1")
-    repo = Path(workspace_root).resolve()
     tools_root = ensure_tools_dir(base_dir)
-
-    # Same tier-2 "make it automatic" rule as take_baseline: synthetic
-    # invariant_checks bypass orchestrator; real callers go through it.
-    if require_fresh_adapter_runs and invariant_checks is None:
-        from .spine_orchestrator import (
-            DEFAULT_FRESHNESS_MAX_AGE_SECONDS,
-            refresh_spine_adapters,
-        )
-        refresh_spine_adapters(
-            base_dir=base_dir,
-            workspace_root=repo,
-            freshness_max_age_seconds=(
-                freshness_max_age_seconds or DEFAULT_FRESHNESS_MAX_AGE_SECONDS
-            ),
-            cycle_id=cycle_id,
-        )
-
     baseline = _latest_baseline_for_plan(tools_root, plan_id)
     if baseline is None:
         raise GovernanceError(
@@ -792,27 +775,30 @@ def take_postcheck(
             "call take_baseline first"
         )
 
-    measurements = _run_invariant_checks(
-        workspace_root=repo, invariant_checks=invariant_checks,
+    measurements = _measure_spine(
+        workspace_root=Path(workspace_root).resolve(), tools_root=tools_root, cycle_id=cycle_id,
+        invariant_checks=invariant_checks, require_fresh_adapter_runs=require_fresh_adapter_runs,
+        freshness_max_age_seconds=freshness_max_age_seconds,
     )
     postcheck_dict = _measurements_to_dict(measurements)
-    drifts = detect_drift(
-        baseline_measurements=baseline.get("invariant_measurements", {}),
-        postcheck_measurements=postcheck_dict,
+    comparison = compare_spine_measurements(
+        baseline=baseline["invariant_measurements"], postcheck=postcheck_dict,
     )
-    regressions = [d for d in drifts if d.direction == "regression"]
+    regressions = [d for d in comparison.drifts if d.direction == "regression"]
 
     details: dict[str, Any] = {
         "plan_id": plan_id,
         "cycle_id": cycle_id,
         "baseline_hash": baseline.get("baseline_hash"),
         "postcheck_measurements": postcheck_dict,
-        "drift_count": len(drifts),
+        "drift_count": len(comparison.drifts),
         "regression_count": len(regressions),
-        "drifts": [asdict(d) for d in drifts],
+        "drifts": [asdict(d) for d in comparison.drifts],
+        "unmeasured_invariants": list(comparison.unmeasured),
+        "excluded_invariants": list(comparison.excluded),
     }
     if regressions:
-        append_tools_governance(tools_root, "architecture_spine_regression", details)
+        append_tools_governance(tools_root, _REGRESSION_KIND, details)
         round_count = _consecutive_regression_count(tools_root, plan_id)
         if round_count >= max_regression_rounds:
             record_human_required(
@@ -824,7 +810,7 @@ def take_postcheck(
                     f"Operator must intervene; remediation strategy needs review. "
                     f"Latest regressions: "
                     + ", ".join(
-                        f"{d.invariant}.{d.field} ({d.baseline_value}→{d.postcheck_value})"
+                        f"{d.invariant}: introduced {d.postcheck_value}"
                         for d in regressions[:5]
                     )
                 ),
@@ -832,8 +818,10 @@ def take_postcheck(
             )
             details["human_required_emitted"] = True
             details["round_count"] = round_count
+    elif comparison.unmeasured:
+        append_tools_governance(tools_root, _UNMEASURED_KIND, details)
     else:
-        append_tools_governance(tools_root, "architecture_spine_postcheck", details)
+        append_tools_governance(tools_root, _POSTCHECK_KIND, details)
     return details
 
 
@@ -842,7 +830,7 @@ def list_spine_events(
     plan_id: str | None = None,
     base_dir: str | Path | None = None,
 ) -> list[dict[str, Any]]:
-    """Return all spine events (baseline / postcheck / regression).
+    """Return all spine events (baseline / postcheck / regression / unmeasured).
 
     Optionally filtered to a single plan_id. Useful for operator status
     queries via `aria-kernel spine status --plan-id X`.
@@ -853,11 +841,7 @@ def list_spine_events(
     governance = tools_root / "governance.jsonl"
     out: list[dict[str, Any]] = []
     for row in read_governance_rows(governance, base_dir=tools_root):
-        if row.get("kind") not in (
-            "architecture_spine_baseline",
-            "architecture_spine_postcheck",
-            "architecture_spine_regression",
-        ):
+        if row.get("kind") not in _SPINE_EVENT_KINDS:
             continue
         details = row.get("details") or {}
         if plan_id is not None and details.get("plan_id") != plan_id:

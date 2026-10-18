@@ -110,8 +110,8 @@ export class GetTankCapacityHandler implements IQueryHandler<GetTankCapacityQuer
         capacityStatus,
 
         batchCount,
-        primaryBatchId: tankBatch?.primaryBatchId,
-        primaryBatchNumber: tankBatch?.primaryBatchNumber,
+        primaryBatchId: tankBatch?.primaryBatchId ?? undefined,
+        primaryBatchNumber: tankBatch?.primaryBatchNumber ?? undefined,
 
         warnings,
       };

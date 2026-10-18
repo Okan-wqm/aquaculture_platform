@@ -306,10 +306,9 @@ const PLANS = {
   // the weighing day, so the ledger cut keeps them. Counting them both in the
   // weighed 3 kg and in the ledger reads growth 3 + 0.9 - 1 = 2.9 and FCR 0.93:
   // no alert for a batch 12.5% over target. At the end of the weighing day the
-  // batch holds 70 fish, 2.1 kg: growth 2.1 + 0.9 - 1 = 2. (30, not more: the
-  // fixture's tank composition still holds the stocked 1 kg, because no
-  // feeding run grows it here, and the mortality path refuses to take more
-  // biomass out of a tank than it holds.)
+  // batch holds 70 fish, 2.1 kg: growth 2.1 + 0.9 - 1 = 2. (The weighing has
+  // re-based the tank to 3 kg, FARM-CRITICAL-454, so the mortality path, which
+  // refuses to take more biomass out of a tank than it holds, takes the 0.9 kg.)
   thinnedOnWeighingDay: {
     tenantId: 'a5c3e817-0d4b-4f2a-9e61-7b8d2c4f0a93',
     code: 'FCR-THIN',

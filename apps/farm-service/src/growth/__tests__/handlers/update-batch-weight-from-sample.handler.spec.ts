@@ -12,6 +12,17 @@
  *   2. isProcessed flips atomically with the weight update (single tx commit).
  *   3. Already-processed measurement is rejected before any tx work.
  *   4. Missing measurement / missing locked batch throw correctly.
+ *   5. A sample of a stocked tank takes the unit lock for the tank it names
+ *      and moves that tank, exactly as RecordGrowthSampleHandler does
+ *      (FARM-CRITICAL-454); a sample older than the batch's last weighing
+ *      leaves weight.actual alone (FARM-MEDIUM-453). A stored sample can no
+ *      longer be corrected, so one whose tank the batch has left, or one that
+ *      names no tank for a batch now in several, still becomes the batch's
+ *      weight.actual and moves no tank (never the tank the batch went to).
+ *
+ * The sample applier and the unit writer are the REAL services (the unit
+ * lock and the re-base are spied for the stocked-tank case); the recalc and
+ * the read-model projection are typed doubles.
  *
  * tenantId is a valid UUID v4 (runInTenantTransaction rejects non-UUIDs).
  */
@@ -22,15 +33,34 @@ import { UpdateBatchWeightFromSampleHandler } from '../../handlers/update-batch-
 import { UpdateBatchWeightFromSampleCommand } from '../../commands/update-batch-weight-from-sample.command';
 import { GrowthMeasurement } from '../../entities/growth-measurement.entity';
 import { Batch } from '../../../batch/entities/batch.entity';
-import { createMockDataSource, createMockRepository } from '@aquaculture/testing';
+import type { TankBatch } from '../../../batch/entities/tank-batch.entity';
+import { FarmStockProjectionService } from '../../../farm-stock/farm-stock-projection.service';
+import {
+  BiomassGrowthApplierService,
+  type LockedUnit,
+} from '../../../feeding-protocol/services/biomass-growth-applier.service';
+import { DayPlanRecalcService } from '../../../feeding-protocol/services/day-plan-recalc.service';
+import { GrowthSampleApplierService } from '../../services/growth-sample-applier.service';
+import {
+  collaborator,
+  createMockDataSource,
+  createMockRepository,
+  stub,
+} from '@aquaculture/testing';
 
 const TENANT_UUID = '11111111-1111-4111-8111-111111111111';
 const BATCH_ID = 'batch-1';
 const MEASUREMENT_ID = 'measurement-1';
+const UNIT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const OTHER_UNIT = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 
 interface HarnessOpts {
   measurement?: Partial<GrowthMeasurement> | null;
   lockedBatch?: Partial<Batch> | null;
+  /** Builds the unit lockUnitForGrowth returns, from the locked batch row. */
+  lockedUnit?: (batch: Batch) => LockedUnit | null;
+  /** What the unit lookup answers: the tanks holding the batch. */
+  unitRows?: Array<{ tankId: string }>;
 }
 
 function makeHarness(opts: HarnessOpts = {}) {
@@ -86,6 +116,10 @@ function makeHarness(opts: HarnessOpts = {}) {
     }
     return Promise.resolve(null);
   });
+  // The unit lookup (BiomassGrowthApplierService.unitsHoldingBatch) runs on
+  // the tx manager, whose shared factory double has no `query` member. No tank
+  // holds the batch unless a case says so.
+  Object.assign(mockManager, { query: jest.fn().mockResolvedValue(opts.unitRows ?? []) });
   const queryRunner: Partial<QueryRunner> = {
     connect: jest.fn().mockResolvedValue(undefined),
     startTransaction: jest.fn().mockResolvedValue(undefined),
@@ -119,9 +153,27 @@ function makeHarness(opts: HarnessOpts = {}) {
   // a single cast satisfies the strictly-typed mock's resolve value.
   measurementRepository.findOne.mockResolvedValue(measurement as GrowthMeasurement | null);
 
+  const growthApplier = new BiomassGrowthApplierService();
+  const lockUnitForGrowth = jest
+    .spyOn(growthApplier, 'lockUnitForGrowth')
+    .mockImplementation(async () =>
+      opts.lockedUnit && lockedBatchRow ? opts.lockedUnit(lockedBatchRow as Batch) : null,
+    );
+  const applyMeasuredWeight = jest
+    .spyOn(growthApplier, 'applyMeasuredWeight')
+    .mockResolvedValue('rebased');
+  const recalcForUnit = jest.fn().mockResolvedValue(null);
+  const refreshContainers = jest.fn().mockResolvedValue(undefined);
+  const sampleApplier = new GrowthSampleApplierService(
+    growthApplier,
+    collaborator<DayPlanRecalcService>({ recalcForUnit }, 'DayPlanRecalcService'),
+    collaborator<FarmStockProjectionService>({ refreshContainers }, 'FarmStockProjectionService'),
+  );
+
   const handler = new UpdateBatchWeightFromSampleHandler(
     dataSource as DataSource,
     measurementRepository,
+    sampleApplier,
   );
 
   return {
@@ -132,6 +184,36 @@ function makeHarness(opts: HarnessOpts = {}) {
     commit,
     rollback,
     lockedBatchRow,
+    lockUnitForGrowth,
+    applyMeasuredWeight,
+    recalcForUnit,
+  };
+}
+
+/** A unit lock that holds 4800 fish of `batch` alone. */
+function unitHolding(batch: Batch): LockedUnit {
+  return {
+    tankBatch: stub<TankBatch>({ tankId: UNIT, tenantId: TENANT_UUID }),
+    batches: new Map([[batch.id, batch]]),
+    details: [
+      {
+        batchId: batch.id,
+        batchNumber: 'B-1',
+        quantity: 4800,
+        avgWeightG: 80,
+        biomassKg: 384,
+        percentageOfTank: 100,
+      },
+    ],
+  };
+}
+
+/** The tank the sample was stamped with, after the batch moved out of it. */
+function unitEmptied(): LockedUnit {
+  return {
+    tankBatch: stub<TankBatch>({ tankId: UNIT, tenantId: TENANT_UUID }),
+    batches: new Map(),
+    details: [],
   };
 }
 
@@ -192,5 +274,92 @@ describe('UpdateBatchWeightFromSampleHandler', () => {
     await expect(handler.execute(makeCommand())).rejects.toThrow(NotFoundException);
     expect(rollback).toHaveBeenCalledTimes(1);
     expect(commit).not.toHaveBeenCalled();
+  });
+});
+
+describe('UpdateBatchWeightFromSampleHandler — the same path as recording (FARM-CRITICAL-454)', () => {
+  it('locks the tank the sample names, moves it, and reprices its day plan', async () => {
+    const harness = makeHarness({ measurement: { tankId: UNIT }, lockedUnit: unitHolding });
+
+    await harness.handler.execute(makeCommand());
+
+    expect(harness.lockUnitForGrowth).toHaveBeenCalledWith(
+      harness.mockManager,
+      TENANT_UUID,
+      UNIT,
+    );
+    expect(harness.applyMeasuredWeight).toHaveBeenCalledWith(
+      harness.mockManager,
+      TENANT_UUID,
+      expect.objectContaining({ tankBatch: expect.objectContaining({ tankId: UNIT }) }),
+      { batchId: BATCH_ID, avgWeightG: 85, measuredAt: new Date('2026-03-01T00:00:00Z') },
+    );
+    expect(harness.recalcForUnit).toHaveBeenCalledWith(
+      harness.mockManager,
+      TENANT_UUID,
+      UNIT,
+      'growth_sample',
+    );
+    expect(harness.commit).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves weight.actual on a weighing from a later day (FARM-MEDIUM-453)', async () => {
+    const harness = makeHarness({
+      // The batch was weighed on 2026-03-05; the stored sample is from 03-01.
+      lockedBatch: {
+        weight: {
+          initial: { avgWeight: 5, totalBiomass: 25, measuredAt: new Date('2026-01-01') },
+          theoretical: {
+            avgWeight: 0,
+            totalBiomass: 0,
+            lastCalculatedAt: new Date('2026-01-01'),
+            basedOnFCR: 0,
+          },
+          actual: {
+            avgWeight: 95,
+            totalBiomass: 456,
+            lastMeasuredAt: new Date('2026-03-05T00:00:00Z'),
+            sampleSize: 50,
+            confidencePercent: 95,
+          },
+          variance: { weightDifference: 0, percentageDifference: 0, isSignificant: false },
+        },
+      },
+    });
+
+    const result = await harness.handler.execute(makeCommand());
+
+    expect(result.weight.actual.avgWeight).toBe(95);
+    expect(result.weight.actual.sampleSize).toBe(50);
+    // Processed: it was applied, and a later weighing is current.
+    expect(harness.measurementSave).toHaveBeenCalledTimes(1);
+  });
+
+  it("applies a stored sample whose tank the batch has since left to weight.actual, moving no tank", async () => {
+    // Recorded (updateBatchWeight false) while the batch was in UNIT, which
+    // stamped UNIT on it; the batch was moved out before it is applied.
+    const harness = makeHarness({ measurement: { tankId: UNIT }, lockedUnit: unitEmptied });
+
+    const result = await harness.handler.execute(makeCommand());
+
+    expect(result.weight.actual).toMatchObject({ avgWeight: 85, sampleSize: 100 });
+    expect(harness.batchSave).toHaveBeenCalledTimes(1);
+    expect(harness.applyMeasuredWeight).not.toHaveBeenCalled();
+    expect(harness.recalcForUnit).not.toHaveBeenCalled();
+    expect((harness.measurementSave.mock.calls[0]![0] as GrowthMeasurement).isProcessed).toBe(true);
+    expect(harness.commit).toHaveBeenCalledTimes(1);
+  });
+
+  it('applies a stored sample naming no tank, for a batch now in several, to weight.actual only', async () => {
+    // Stored unstamped before a sample of a multi-unit batch had to name its
+    // unit; nothing can name it now, and the batch's weight still takes it.
+    const harness = makeHarness({ unitRows: [{ tankId: UNIT }, { tankId: OTHER_UNIT }] });
+
+    const result = await harness.handler.execute(makeCommand());
+
+    expect(result.weight.actual.avgWeight).toBe(85);
+    expect(harness.lockUnitForGrowth).not.toHaveBeenCalled();
+    expect(harness.applyMeasuredWeight).not.toHaveBeenCalled();
+    expect(harness.commit).toHaveBeenCalledTimes(1);
   });
 });

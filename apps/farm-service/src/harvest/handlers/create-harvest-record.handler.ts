@@ -17,6 +17,14 @@
  * downstream consumers (read models, dashboards) read `undefined` for the
  * critical harvest-quantity field, silently producing zero rows in projections.
  *
+ * A harvest that takes the last fish out of its tank also enqueues TankCleared,
+ * in the same transaction. This handler is the one place that knows which tank
+ * it emptied: the composition writer returns the row it left. The BatchHarvested
+ * listener used to find the cleared tanks by `primaryBatchId`, i.e. by the
+ * departed batch an emptied tank kept naming only because TankBatchService left
+ * that marker stale; once the writer clears it, that query finds nothing
+ * (FARM-CRITICAL-454 verification).
+ *
  * @module Harvest/Handlers
  */
 import { runInTenantTransaction } from '@aquaculture/backend-common/database';
@@ -33,7 +41,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { CommandBus, CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { toEventIso, createBaseEvent } from '@platform/event-contracts';
-import type { BatchHarvestedEvent } from '@platform/event-contracts';
+import type { BatchHarvestedEvent, TankClearedEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { DayPlanRecalcService } from '../../feeding-protocol/services/day-plan-recalc.service';
 import { Repository, DataSource } from 'typeorm';
@@ -393,8 +401,9 @@ export class CreateHarvestRecordHandler
         // made the web panel show 900 while mobile showed 719). Derives every
         // aggregate + removes the batch from the composition when it reaches zero.
         // Mirrors the mortality/cull/transfer write paths (one writer, no drift).
+        let tankEmptied = false;
         if (tankBatch) {
-          await this.tankBatchService.applyBatchDelta(
+          const composition = await this.tankBatchService.applyBatchDelta(
             queryRunner.manager,
             tenantId,
             input.tankId,
@@ -406,6 +415,8 @@ export class CreateHarvestRecordHandler
             },
             { volumeM3: Number(tank.waterVolume || tank.volume) || 0 },
           );
+          // The tank held fish before this harvest and holds none after it.
+          tankEmptied = tankBatch.totalQuantity > 0 && composition.totalQuantity === 0;
         }
 
         // Tank biomass update. currentCount is derived + written by
@@ -462,6 +473,24 @@ export class CreateHarvestRecordHandler
           isFinal: isFinalHarvest,
         };
         await this.outboxPublisher.enqueue(harvestEvent, queryRunner.manager);
+        if (tankEmptied) {
+          // The tank is free for re-stocking. Enqueued with the harvest that
+          // emptied it, so it is published exactly once and only if the harvest
+          // commits; caused by the BatchHarvested above.
+          const tankCleared: TankClearedEvent = {
+            ...createBaseEvent<TankClearedEvent>('TankCleared', tenantId, {
+              aggregateId: tank.id,
+              aggregateType: 'Tank',
+              causationId: harvestEvent.eventId,
+              userId: recordedBy,
+            }),
+            tankId: tank.id,
+            tankCode: tank.code,
+            previousBatchId: batch.id,
+            clearedAt: toEventIso(harvestRecord.harvestDate),
+          };
+          await this.outboxPublisher.enqueue(tankCleared, queryRunner.manager);
+        }
         await this.mobileCommandReceipts.complete(queryRunner.manager, {
           tableName: 'farm_mobile_command_receipts',
           receipt,

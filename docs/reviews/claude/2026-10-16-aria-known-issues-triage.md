@@ -2380,3 +2380,31 @@ type-checks a different program than tsc -p.
 - Fixed on `fix/aria-known-issues-wave-b`: `declarationFilesFor` also carries every `.d.ts` in the
   project's parsed file list (`ts.getParsedCommandLineOfConfigFile`). A tsconfig that cannot be read
   fails loudly.
+
+### ARIA-MEDIUM-616 — Fixture git inherited the hook's GIT_DIR and wrote into the developer's repository
+
+Full title: A spec that runs git in a fixture inherits the hook's GIT*DIR, so from a worktree's
+pre-push it committed, branched and checked out in the developer's repository; eleven suites each
+kept their own copy of the GIT*\* filter and the twelfth forgot it.
+
+- Incident, 2026-10-18, pushing `fix/aria-known-issues-wave-b` from its worktree:
+  - The pre-push hook ran `aria-doc-runtime-ssot.spec.ts`, whose kernel-surface test built its
+    fixture git env as `{ ...process.env, ... }`.
+  - git hands a linked worktree's pre-push hook an absolute `GIT_DIR`. This was measured in a
+    scratch repository; a main checkout gets none.
+  - The fixture's `git commit -m base` landed on the branch being pushed as `a2d8093ee`, whose tree
+    was the fixture's two files. `checkout -b pr` created a branch, and `checkout main` moved the
+    worktree.
+  - Nothing reached the remote, because the next fixture commit failed inside the hook.
+  - Recovered with the operator's approval: `update-ref` back to `a7b1f1c57`, `symbolic-ref HEAD`,
+    `reset --mixed`, and `branch -D pr`.
+- Root cause: no owner for "git against a fixture". Eleven suites dropped `GIT_*` with their own
+  copy of the filter; the new one did not.
+- Fix:
+  - `tools/gates/hermetic-git.ts` (`hermeticGitEnv`) is the one place the filter is spelled. All
+    eleven copies and the spec now use it.
+  - `tests/invariants/hermetic-git-env-ssot.spec.ts` fails if the filter is spelled anywhere else.
+  - `.husky/pre-push` unsets `GIT_DIR` and its siblings before it runs anything. The hook still
+    resolves its own worktree and branch afterwards; this was measured.
+  - The pre-commit hook keeps `GIT_INDEX_FILE` on purpose, because its staged-content checks read
+    it.

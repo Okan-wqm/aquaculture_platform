@@ -22,12 +22,11 @@ import { after, test } from 'node:test';
 
 import { collectMergedClosures } from './finding-registry';
 import { removeFixtureTree } from './fixture-tree';
+import { hermeticGitEnv } from './hermetic-git';
 
 const GATES_DIR = resolve(__dirname);
 const repo = mkdtempSync(join(tmpdir(), 'finding-alias-wiring-spec-'));
-const HERMETIC_ENV: NodeJS.ProcessEnv = Object.fromEntries(
-  Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')),
-);
+const HERMETIC_ENV: NodeJS.ProcessEnv = hermeticGitEnv();
 
 const CANONICAL = 'FE-HIGH-313';
 const ALIAS = 'FE-HIGH-321';

@@ -18,6 +18,7 @@ import yaml from 'js-yaml';
 import { checkCurrentState } from '../../tools/gates/aria-authority-hash';
 
 import { removeFixtureTree } from '../../tools/gates/fixture-tree';
+import { hermeticGitEnv } from '../../tools/gates/hermetic-git';
 const REPO_ROOT = (() => {
   try {
     return execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
@@ -821,8 +822,11 @@ describe('ARIA live runtime/documentation SSoT', () => {
     const script = scope.run ?? '';
     const manifestPath = KERNEL_SURFACE_MANIFEST;
     const fixture = mkdtempSync(join(tmpdir(), 'aria-kernel-scope-'));
+    // Never the caller's git context: from a worktree's pre-push hook an inherited
+    // GIT_DIR made these commands commit, branch and check out in the developer's
+    // repository instead of the fixture (ARIA-MEDIUM-616).
     const gitEnv = {
-      ...process.env,
+      ...hermeticGitEnv(),
       GIT_CONFIG_GLOBAL: '/dev/null',
       GIT_CONFIG_NOSYSTEM: '1',
       GIT_AUTHOR_NAME: 'scope',

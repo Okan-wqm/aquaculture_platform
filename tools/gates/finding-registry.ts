@@ -115,6 +115,7 @@ import {
   readCommitMessage,
 } from './finding-traceability';
 import { commitReachableFrom, repoPinnedEnv } from './git-reachability';
+import { hermeticGitEnv } from './hermetic-git';
 
 // __dirname (CommonJS, per tools/gates/tsconfig.json) — this file
 // previously derived REPO_ROOT from import.meta.url, which forced the
@@ -175,9 +176,7 @@ export interface FindingAllocationAuthority {
   readonly activeRegistryPaths: () => readonly string[];
 }
 
-const HERMETIC_GIT_ENV: NodeJS.ProcessEnv = Object.fromEntries(
-  Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')),
-);
+const HERMETIC_GIT_ENV: NodeJS.ProcessEnv = hermeticGitEnv();
 
 function gitOutput(repoRoot: string, args: readonly string[]): string {
   return execFileSync('git', ['-C', repoRoot, ...args], {

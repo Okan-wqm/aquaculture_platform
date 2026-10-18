@@ -1499,13 +1499,19 @@ def _advance_checkout_tracking_ref(
                     "state_store_remote_history_unavailable: checkout ancestry "
                     "could not be verified"
                 ) from exc
+            # ARIA-LOW-577 — both are VERDICTS on the lineage the ancestry
+            # proof just read, not failures to reach the remote: refusals
+            # (exit 3 at the CLI), so the restore action reports a refused
+            # checkout instead of "failed to reach the remote", and nobody
+            # retries a replaced or rewound lineage into an adoption. The
+            # unverifiable case above stays a transport error.
             if target_behind:
-                raise StateStoreError(
+                raise StateStoreRefusal(
                     "state_store_remote_history_rewind: the validated remote tip "
                     "is behind local tracking; refusing to rewrite the anchor"
                 )
             if not current_behind:
-                raise StateStoreError(
+                raise StateStoreRefusal(
                     "state_store_remote_history_unrelated: the validated remote tip "
                     "does not descend from local tracking"
                 )

@@ -1119,7 +1119,10 @@ class ReCheckoutSafety(StateStoreTestCase):
         self.assertNotEqual(first_tip, tracking_before)
         _git(self.remote, "update-ref", "refs/heads/aria/state", first_tip)
 
-        with self.assertRaisesRegex(StateStoreError, "state_store_remote_history_rewind"):
+        # ARIA-LOW-577 — a rewind is a VERDICT on the lineage, not a failure
+        # to reach the remote: it must be the refusal type the CLI maps to
+        # exit 3, or the restore action reports it as a transport failure.
+        with self.assertRaisesRegex(StateStoreRefusal, "state_store_remote_history_rewind"):
             checkout_state_store(
                 self.repo,
                 store_dir=self.repo.parent / "rewound-store",
@@ -1127,6 +1130,44 @@ class ReCheckoutSafety(StateStoreTestCase):
 
         self.assertEqual(_git(self.repo, "rev-parse", tracking).strip(), tracking_before)
         self.assertEqual(self._scratch_state_refs(), [])
+
+    def test_checkout_refuses_a_new_root_replacement_tip_without_moving_tracking(
+        self,
+    ) -> None:
+        """ARIA-LOW-577 — the ARIA-HIGH-572 lab shape: the remote tip is a new root.
+
+        A host that tracked the old lineage must REFUSE the replacement by
+        name (StateStoreRefusal, exit 3), never report it as a transport
+        failure, and never move its publication anchor onto it.
+        """
+        store = self._bootstrap()
+        self._seed_surface(store, '{"row": 1}\n')
+        publish_state(
+            store, writer_fence=None,
+            snapshot=self._snapshot(store, "snap-1"),
+            cycle_id="cycle-1",
+            repo_hash=REPO_HASH,
+        )
+        tracking = "refs/remotes/origin/aria/state"
+        tracking_before = _git(self.repo, "rev-parse", tracking).strip()
+        empty_tree = _git(self.remote, "hash-object", "-t", "tree", "/dev/null").strip()
+        replacement = _git(
+            self.remote,
+            "-c", "user.name=Replacement", "-c", "user.email=r@example.invalid",
+            "commit-tree", empty_tree, "-m", "replacement root",
+        ).strip()
+        _git(self.remote, "update-ref", "refs/heads/aria/state", replacement)
+
+        with self.assertRaises(StateStoreRefusal) as ctx:
+            checkout_state_store(
+                self.repo,
+                store_dir=self.repo.parent / "replaced-store",
+            )
+
+        self.assertIn("state_store_remote_history_unrelated", str(ctx.exception))
+        self.assertEqual(_git(self.repo, "rev-parse", tracking).strip(), tracking_before)
+        self.assertEqual(self._scratch_state_refs(), [])
+        self.assertFalse((self.repo.parent / "replaced-store").exists())
 
     def test_checkout_rejects_noncanonical_remote_listings_without_ref_changes(
         self,

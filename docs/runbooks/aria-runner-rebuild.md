@@ -280,9 +280,13 @@ API-key mode is rejected by both lanes' preflight.
 4. Confirm no API-key variables anywhere in the runner environment or
    `.env`: `ANTHROPIC_API_KEY`, `CLAUDE_API_KEY`, `ANTHROPIC_AUTH_TOKEN`
    must all be absent — preflight hard-fails when one is set.
-5. Evidence the preflight checks — the kernel's one credential reader:
-   `sudo -u gharunner env ARIA_CLAUDE_OAUTH_TOKEN_FILE=/home/gharunner/.config/aria/claude_oauth_token PYTHONPATH=aria-kernel python3 -m aria_kernel.provider_credentials check anthropic`
-   prints `ok:file:<path>` (never the value).
+5. Evidence the preflight checks — the kernel's one credential reader prints `ok:file:<path>`
+   (never the value):
+
+   ```bash
+   sudo -u gharunner env ARIA_CLAUDE_OAUTH_TOKEN_FILE=/home/gharunner/.config/aria/claude_oauth_token PYTHONPATH=aria-kernel python3 -m aria_kernel.provider_credentials check anthropic
+   ```
+
 6. Re-mint before day 365 (the token's lifetime) and whenever a night
    reports `claude_auth_failure`: repeat step 2 over the same file; the
    gateway re-reads it per request, so no restart is needed.

@@ -33,6 +33,8 @@ _HABITAT = _REPO_ROOT / "scripts" / "aria" / "runner-habitat" / "systemd"
 _TRUST_ANCHORS = (
     ors.ALLOWED_SIGNERS_PATH, ors.NAMESPACE_REGISTRY_PATH, ors.ENROLMENTS_PATH, OPERATORS_POLICY_RELPATH,
     "docs/aria/policy/autonomy-unlock.json",
+    # ARIA-LOW-578 — every checkout proves the aria/state lineage against it.
+    "docs/aria/policy/state-lineage.json",
     "docs/recommendations/architectural-arbiter/2026-10-02-adr-0023-signature-namespace-registry.md",
     # ARIA-HIGH-260 — report_ingestion mints "external" findings from it.
     "docs/reviews/_registry/findings.jsonl",

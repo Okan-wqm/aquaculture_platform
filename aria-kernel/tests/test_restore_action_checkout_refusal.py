@@ -1,4 +1,4 @@
-"""ARIA-LOW-577 — a lineage refusal reaches the operator as a refusal.
+"""ARIA-LOW-577/578 — a lineage refusal reaches the operator as a refusal.
 
 The ARIA-HIGH-572 purge investigation replaced the remote ``aria/state`` tip
 with a commit that has a new root. A host that had tracked the old lineage
@@ -6,6 +6,10 @@ refused it, but by raising the transport class (``StateStoreError``), so
 ``state checkout`` exited 1 and the restore action printed "failed to reach
 the remote" and "wrote no verdict": a verdict on the state's lineage was
 reported as a network failure, which is the reading an operator retries.
+
+A host that never tracked the branch (ARIA-LOW-578) adopted the same
+replacement with exit 0; the checkout's lineage pin now refuses it there too,
+and through the same exit-3 channel.
 
 These tests run the restore action's checkout step itself, under the shell
 flags GitHub uses for ``shell: bash``, against the REAL kernel and a real
@@ -24,6 +28,7 @@ from pathlib import Path
 import yaml
 
 from tests._helpers.hermetic_git import apply_hermetic_git_env
+from tests._helpers.state_lineage_pin import write_state_lineage_policy
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 KERNEL_ROOT = REPO_ROOT / "aria-kernel"
@@ -61,11 +66,12 @@ def _checkout_step_script() -> str:
     return step["run"]
 
 
-def _root_commit(cwd: Path, message: str) -> str:
+def _commit(cwd: Path, message: str, *parents: str) -> str:
     empty_tree = _git(cwd, "hash-object", "-t", "tree", "/dev/null").strip()
+    parent_args = [arg for parent in parents for arg in ("-p", parent)]
     return _git(
         cwd, "-c", "user.name=Fixture", "-c", "user.email=f@example.invalid",
-        "commit-tree", empty_tree, "-m", message,
+        "commit-tree", empty_tree, *parent_args, "-m", message,
     ).strip()
 
 
@@ -92,15 +98,16 @@ class CheckoutStepReportsALineageRefusal(unittest.TestCase):
         (self.repo / "aria-kernel").symlink_to(KERNEL_ROOT, target_is_directory=True)
         with (self.repo / ".git" / "info" / "exclude").open("a", encoding="utf-8") as fh:
             fh.write("aria-kernel\n")
+        # The lineage the checkout's policy pins (ARIA-LOW-578): a genesis
+        # and one published commit on it.
+        self.genesis = _commit(self.remote, "genesis")
+        self.tip = _commit(self.remote, "a published snapshot", self.genesis)
+        _git(self.remote, "update-ref", STATE_REF, self.tip)
+        write_state_lineage_policy(self.repo, {"aria/state": self.genesis})
 
-    def _host_tracks_then_remote_is_replaced(self) -> tuple[str, str]:
-        """The host tracked lineage A; the remote's tip became new root B."""
-        tracked = _root_commit(self.remote, "old lineage")
-        _git(self.remote, "update-ref", STATE_REF, tracked)
+    def _host_tracks_the_tip(self) -> str:
         _git(self.repo, "fetch", "origin", f"{STATE_REF}:{TRACKING_REF}")
-        replacement = _root_commit(self.remote, "replacement root")
-        _git(self.remote, "update-ref", STATE_REF, replacement)
-        return tracked, replacement
+        return self.tip
 
     def _run_step(self) -> subprocess.CompletedProcess[str]:
         runner_temp = self.tmp / "runner-temp"
@@ -122,24 +129,50 @@ class CheckoutStepReportsALineageRefusal(unittest.TestCase):
             text=True, capture_output=True, timeout=300,
         )
 
-    def test_a_replaced_lineage_is_reported_as_a_refusal_not_a_transport_failure(self) -> None:
-        tracked, _replacement = self._host_tracks_then_remote_is_replaced()
-
-        proc = self._run_step()
-
+    def _assert_reported_as_refusal(self, proc: subprocess.CompletedProcess[str], reason: str) -> None:
         self.assertEqual(proc.returncode, 3, proc.stderr)
         self.assertIn("aria/state refused the checkout (verdict, not a transport failure)", proc.stderr)
-        self.assertIn("aria/state refusal: state_store_remote_history_unrelated", proc.stderr)
+        self.assertIn(f"aria/state refusal: {reason}", proc.stderr)
         self.assertNotIn("failed to reach the remote", proc.stderr)
         self.assertNotIn("wrote no verdict", proc.stderr)
         verdict = json.loads(
             (self.tmp / "runner-temp" / "aria-state-checkout.json").read_text(encoding="utf-8")
         )
         self.assertEqual(verdict["published"], False)
-        self.assertTrue(verdict["refusal"].startswith("state_store_remote_history_unrelated"))
-        # The publication anchor did not move onto the replacement.
-        self.assertEqual(_git(self.repo, "rev-parse", TRACKING_REF).strip(), tracked)
+        self.assertTrue(verdict["refusal"].startswith(reason), verdict)
         self.assertFalse((self.tmp / "github_output").exists())
+
+    def test_a_tip_that_left_the_tracked_history_is_reported_as_a_refusal(self) -> None:
+        # Same root (the pin holds), but the tip no longer descends from what
+        # this host tracked: the tracking ancestry's verdict, ARIA-LOW-577.
+        tracked = self._host_tracks_the_tip()
+        diverged = _commit(self.remote, "a rewritten tail", self.genesis)
+        _git(self.remote, "update-ref", STATE_REF, diverged)
+
+        proc = self._run_step()
+
+        self._assert_reported_as_refusal(proc, "state_store_remote_history_unrelated")
+        self.assertEqual(_git(self.repo, "rev-parse", TRACKING_REF).strip(), tracked)
+
+    def test_a_replaced_lineage_is_reported_as_a_refusal_on_a_tracking_host(self) -> None:
+        # The ARIA-HIGH-572 lab shape: the remote tip became a new root.
+        tracked = self._host_tracks_the_tip()
+        _git(self.remote, "update-ref", STATE_REF, _commit(self.remote, "replacement root"))
+
+        proc = self._run_step()
+
+        self._assert_reported_as_refusal(proc, "state_store_lineage_root_mismatch")
+        self.assertEqual(_git(self.repo, "rev-parse", TRACKING_REF).strip(), tracked)
+
+    def test_a_replaced_lineage_is_refused_on_a_fresh_host(self) -> None:
+        # The aria-state-maintenance shape (ARIA-LOW-578): a GitHub-hosted
+        # runner that never tracked aria/state used to adopt it with exit 0.
+        _git(self.remote, "update-ref", STATE_REF, _commit(self.remote, "replacement root"))
+
+        proc = self._run_step()
+
+        self._assert_reported_as_refusal(proc, "state_store_lineage_root_mismatch")
+        self.assertEqual(_git(self.repo, "for-each-ref", "--format=%(refname)", TRACKING_REF), "")
 
 
 if __name__ == "__main__":

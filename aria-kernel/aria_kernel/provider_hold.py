@@ -47,11 +47,15 @@ which re-probes and renews the back-off or admits; the served spawn closes
 the outage, ``record_provider_restored``). So for the night a provider is out
 when it is cooled, or when its outage is still open, its back-off was the
 policy's own (a reset the vendor STATED and that has passed is the vendor's
-word that the quota is back, and the night's spawns test it), and a waiting
-request will carry its re-probe (:func:`_awaiting_reprobe`). With nothing
-waiting, nothing would ever ask again and a hold would never end though the
-quota came back; then the night runs, and what it mints is the request the
-next drain re-probes with. Per-request callers keep reading the back-off.
+word that the quota is back, and the night's spawns test it), and a request
+the queue's own selection would hand out will carry its re-probe
+(:func:`_awaiting_reprobe`, which asks the owner's eligibility fold
+``agent_invocations.selection_skip`` — a request no drain would select, the
+fold's shadow/moot/undispatchable/anchor refusals, carries nothing). With
+nothing selectable, nothing would ever ask again and a hold would never end
+though the quota came back; then the night runs, and what it mints is the
+request the next drain re-probes with. Per-request callers keep reading the
+back-off.
 
 WHERE THE NIGHT ASKS. A cooldown is written only by a spawn's exhaustion arm
 (the executor child, the worker hook, a native admission probe), and the
@@ -100,8 +104,11 @@ CHECKPOINTS: tuple[str, ...] = (
 )
 
 
-# The derived request states a drain selects (`agent_invocations.next_pending_request`).
-_WAITING_STATES = frozenset({"PENDING", "REQUEUED"})
+# ARIA-HIGH-579 review — the night's carrier question is the queue owner's
+# selection eligibility (`agent_invocations.selection_skip`), never a local
+# copy of its state half: a request no drain would select (shadow, moot,
+# undispatchable, anchor-refused) carries no re-probe, and counting it would
+# stand a hold nothing can end.
 
 
 def _awaiting_reprobe(
@@ -122,16 +129,25 @@ def _awaiting_reprobe(
 
 
 def _reprobe_carried(base_dir: str | Path, providers: set[str], *, now: datetime) -> set[str]:
-    """Which of ``providers`` some waiting request's ladder names (its admission will re-probe them)."""
-    from .agent_invocations import derive_request_states
+    """Which of ``providers`` some selectable request's ladder names (its admission will re-probe them)."""
+    from .agent_invocations import _anchor_repo_root, derive_request_states, selection_skip
+    from .evidence_probe import GitProbeSession
     from .ledger import load_segments
+    from .provider_clock import provider_clock
     from .tool_registry import ensure_tools_dir
 
     root = ensure_tools_dir(base_dir)
     states = derive_request_states(base_dir=root, now=now)
+    # The same one-session shape a selection uses (`next_pending_request`):
+    # one probe clock for the whole question, and the night's read records
+    # nothing (`may_record` False) — a refusal it sees is still a skip.
+    repo_root = _anchor_repo_root(root)
+    probes = GitProbeSession()
+    clock = provider_clock(root)
     carried: set[str] = set()
     for request in load_segments(root, "agent_invocation_requests"):
-        if states.get(str(request.get("request_id"))) not in _WAITING_STATES:
+        if selection_skip(root, request, states=states, repo_root=repo_root, probes=probes,
+                          clock=clock, may_record=lambda: False, now=now) is not None:
             continue
         try:
             ladder = role_providers(str(request.get("role") or ""),

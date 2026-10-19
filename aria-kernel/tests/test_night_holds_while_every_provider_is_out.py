@@ -40,6 +40,7 @@ import io
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -552,6 +553,47 @@ class TheNightReadsTheOutageNotTheBackoff(unittest.TestCase):
         # back. The night runs, and what it mints is the request the next drain re-probes with.
         from aria_kernel.provider_hold import night_outage
 
+        self._anthropic_spent()
+        self._zai_refused()
+        self.assertIsNone(night_outage(self.base, now=self._CRON))
+
+    def test_a_standing_backoff_still_holds_on_its_clock(self) -> None:
+        from aria_kernel.provider_hold import night_outage
+
+        self._anthropic_spent()
+        self._zai_refused(times=1)
+        outage = night_outage(self.base, now=self._T0 + timedelta(minutes=5))
+        self.assertIsNotNone(outage)
+        self.assertEqual(outage.awaiting_reprobe, ())
+        self.assertEqual(outage.until, (self._T0 + timedelta(seconds=_POLICY_BACKOFF_SECONDS)).isoformat())
+
+    def test_a_waiter_no_drain_would_select_carries_no_reprobe(self) -> None:
+        # The owner's eligibility (`agent_invocations.selection_skip`) never hands out an
+        # implementation envelope the delivery has no authority for (ARIA-HIGH-388): no drain
+        # selects it, so its ladder names no re-probe. The state half alone counted it and stood
+        # a hold nothing could end — no drain asks, nothing restores, the outage stays open.
+        from aria_kernel.implementation_dispatch import implementation_dispatch_refusal
+        from aria_kernel.provider_hold import night_outage
+        from tests._helpers.production_shaped import production_implementation_request
+
+        # FIXTURE GIT — no GIT_* of a calling hook reaches the fixture repository.
+        saved_git = {name: os.environ.pop(name) for name in list(os.environ) if name.startswith("GIT_")}
+        try:
+            workspace = self.tmp / "implementation-ws"
+            (workspace / "apps").mkdir(parents=True)
+            (workspace / "apps" / "farm.txt").write_text("fixture\n", encoding="utf-8")
+            for argv in (("git", "init", "-q", str(workspace)),
+                         ("git", "-C", str(workspace), "add", "."),
+                         ("git", "-C", str(workspace), "-c", "user.email=fixture@aria.test",
+                          "-c", "user.name=fixture", "commit", "-qm", "fixture base")):
+                subprocess.run(argv, check=True)
+            envelope = production_implementation_request(
+                tools_dir=self.base, workspace_root=workspace, plan_id="plan-undispatchable-waiter",
+                allowed_path="apps/farm.txt")
+        finally:
+            os.environ.update(saved_git)
+        # The premise, read from the owner: this envelope is never handed out.
+        self.assertIsNotNone(implementation_dispatch_refusal(request=envelope, base_dir=self.base))
         self._anthropic_spent()
         self._zai_refused()
         self.assertIsNone(night_outage(self.base, now=self._CRON))

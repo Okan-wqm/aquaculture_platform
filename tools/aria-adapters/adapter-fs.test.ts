@@ -9,6 +9,7 @@ import {
   readWorkspaceFile,
   readWorkspaceJson,
   resolveInsideWorkspace,
+  workspaceIsExecutable,
   workspacePathExists,
 } from './adapter-fs';
 import { analyzeKernelDeadWire } from './kernel-dead-wire-adapter';
@@ -133,6 +134,25 @@ try {
       ),
       ['k/reader.py', 'policies/inside.json'],
       'a walk from the root lists regular files only: no symlink, no fifo',
+    );
+  }
+
+  // ---------------------------------------------------------------------
+  // ARIA-LOW-593 — the executable bit and the compiler host are the
+  // containment owner's too, so no adapter opens a second fs path.
+  // ---------------------------------------------------------------------
+  {
+    writeFileSync(join(workspace, 'k', 'tool-exec'), '#!/bin/sh\n', { mode: 0o755 });
+    writeFileSync(join(workspace, 'k', 'tool-plain'), '#!/bin/sh\n', { mode: 0o644 });
+    assert.equal(workspaceIsExecutable(workspace, 'k/tool-exec'), true);
+    assert.equal(workspaceIsExecutable(workspace, 'k/tool-plain'), false);
+    assert.equal(workspaceIsExecutable(workspace, 'k'), false, 'a directory is not executable');
+    assert.equal(workspaceIsExecutable(workspace, 'linked-cli.py'), false, 'never a symlink');
+    assert.equal(workspaceIsExecutable(workspace, workspace), false, 'not the root itself');
+    assert.equal(
+      workspaceIsExecutable(workspace, join(outside, 'cli.py')),
+      false,
+      'not a path outside the workspace',
     );
   }
 } finally {

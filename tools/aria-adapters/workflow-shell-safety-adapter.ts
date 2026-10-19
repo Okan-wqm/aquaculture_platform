@@ -62,7 +62,6 @@
 // read and observed with the reason `fixture` and raises no finding: fixture
 // workspaces are test data that no lane executes.
 import { createHash } from 'node:crypto';
-import { lstatSync } from 'node:fs';
 import { basename, join, relative } from 'node:path';
 
 import yaml from 'js-yaml';
@@ -84,6 +83,7 @@ import {
   pathAllowedBySnapshot,
   requireScanRoots,
   type RepoSnapshot,
+  workspaceIsExecutable,
 } from './adapter-fs';
 import { askKernelOwners } from './kernel-owners';
 import {
@@ -357,7 +357,7 @@ export function analyzeWorkflowShellSafety(
         includeExcludedDir: (name) => name === 'build',
         includeFile: (name, path) =>
           /\.(?:ya?ml|sh|bash)$/.test(name) ||
-          (!name.includes('.') && (lstatSync(path).mode & 0o111) !== 0),
+          (!name.includes('.') && workspaceIsExecutable(workspaceRoot, path)),
       }),
     ),
     workspaceRoot,
@@ -567,7 +567,7 @@ export function analyzeWorkflowShellSafety(
       otherExecutables.push({ file, interpreter: null });
       continue;
     }
-    const executable = (lstatSync(join(workspaceRoot, path)).mode & 0o111) !== 0;
+    const executable = workspaceIsExecutable(workspaceRoot, path);
     const parsed = parseShellScript(text);
     const [error] = parsed.errors;
     if (error !== undefined) failParse(file, error.line, error.message);

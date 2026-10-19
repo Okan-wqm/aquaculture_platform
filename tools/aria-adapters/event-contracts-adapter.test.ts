@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -97,18 +97,37 @@ const output = analyzeEventContracts({ root: 'libs/event-contracts/src' }, works
 
 assert.equal(output.metadata.adapter, 'event-contracts-adapter');
 assert.equal(output.findings.length, 0);
-assert.equal(output.observations.some((item) => item.type === 'event_contract_base'), true);
-assert.equal(output.observations.some((item) => item.type === 'event_interface' && item.eventType === 'BatchCreated'), true);
-assert.equal(output.observations.some((item) => item.type === 'event_interface' && item.eventType === 'AliasCreated'), true);
+assert.equal(
+  output.observations.some((item) => item.type === 'event_contract_base'),
+  true,
+);
 assert.equal(
   output.observations.some(
-    (item) => item.type === 'event_schema_catalog' && item.name === 'FARM_EVENT_SCHEMAS' && item.eventCount === 1,
+    (item) => item.type === 'event_interface' && item.eventType === 'BatchCreated',
   ),
   true,
 );
 assert.equal(
   output.observations.some(
-    (item) => item.type === 'event_schema_catalog' && item.name === 'SENSOR_EVENT_SCHEMAS' && item.eventCount === 1,
+    (item) => item.type === 'event_interface' && item.eventType === 'AliasCreated',
+  ),
+  true,
+);
+assert.equal(
+  output.observations.some(
+    (item) =>
+      item.type === 'event_schema_catalog' &&
+      item.name === 'FARM_EVENT_SCHEMAS' &&
+      item.eventCount === 1,
+  ),
+  true,
+);
+assert.equal(
+  output.observations.some(
+    (item) =>
+      item.type === 'event_schema_catalog' &&
+      item.name === 'SENSOR_EVENT_SCHEMAS' &&
+      item.eventCount === 1,
   ),
   true,
 );
@@ -122,7 +141,10 @@ assert.equal(
   ),
   true,
 );
-assert.equal(output.observations.some((item) => item.type === 'event_validator_dispatch'), true);
+assert.equal(
+  output.observations.some((item) => item.type === 'event_validator_dispatch'),
+  true,
+);
 assert.ok(output.read_paths.includes('libs/event-contracts/src/base-event.ts'));
 assert.equal(output.belief_candidates.length, 1);
 assert.equal(
@@ -163,7 +185,8 @@ writeFileSync(
 const emptyCatalogOutput = analyzeEventContracts({ root: 'libs/event-contracts/src' }, workspace);
 assert.equal(
   emptyCatalogOutput.findings.some(
-    (finding) => finding.rule === 'schema_catalog_empty' && finding.details?.catalog === 'EMPTY_EVENT_SCHEMAS',
+    (finding) =>
+      finding.rule === 'schema_catalog_empty' && finding.details?.catalog === 'EMPTY_EVENT_SCHEMAS',
   ),
   true,
 );
@@ -193,3 +216,87 @@ assert.equal(
 );
 
 process.stdout.write('event-contracts-adapter tests passed\n');
+
+// ARIA-LOW-593 — extendsBaseEvent resolved a heritage alias through a
+// symlinked module (the default ts.sys host follows symlinks), so an
+// interface counted as extending BaseEvent by content that lives only
+// outside the workspace. On adapter-fs's contained compiler host the
+// symlinked import is refused: workspace content alone does not establish
+// the inheritance, so the interface is not reported as an event interface.
+// A REAL in-workspace re-export keeps aliasing working — containment
+// refuses the symlink, not the alias.
+{
+  const base = mkdtempSync(join(tmpdir(), 'aria-event-contracts-link-'));
+  const linkedWorkspace = join(base, 'repo');
+  const outside = join(base, 'outside');
+  const linkedRoot = join(linkedWorkspace, 'libs/event-contracts/src');
+  mkdirSync(linkedRoot, { recursive: true });
+  mkdirSync(outside, { recursive: true });
+  // The re-export file lives outside, but TypeScript resolves its relative
+  // imports against the symlink's inside path, so the aliased target is the
+  // walked base-event.ts — the aliasing STATEMENT itself is the outside
+  // content the verdict would depend on.
+  writeFileSync(
+    join(outside, 're-export.ts'),
+    "export { BaseEvent as Ev } from './base-event';\n",
+    'utf8',
+  );
+  symlinkSync(join(outside, 're-export.ts'), join(linkedRoot, 'linked-events.ts'));
+  writeFileSync(
+    join(linkedRoot, 'base-event.ts'),
+    [
+      'export interface BaseEvent {',
+      '  eventId: string;',
+      '  eventType: string;',
+      '  timestamp: string;',
+      '  tenantId: string;',
+      '  version: number;',
+      '}',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  writeFileSync(
+    join(linkedRoot, 'tank-created.ts'),
+    [
+      "import { Ev } from './linked-events';",
+      'export interface TankCreated extends Ev { payload: string; }',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  writeFileSync(
+    join(linkedRoot, 'local-events.ts'),
+    "export { BaseEvent as LocalEv } from './base-event';\n",
+    'utf8',
+  );
+  writeFileSync(
+    join(linkedRoot, 'ration-issued.ts'),
+    [
+      "import { LocalEv } from './local-events';",
+      'export interface RationIssued extends LocalEv { amount: number; }',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  try {
+    const linked = analyzeEventContracts({ root: 'libs/event-contracts/src' }, linkedWorkspace);
+    const names = linked.observations
+      .filter((observation) => observation.type === 'event_interface')
+      .map((observation) => observation.name);
+    assert.equal(
+      names.includes('RationIssued'),
+      true,
+      'a real in-workspace re-export still establishes the heritage',
+    );
+    assert.equal(
+      names.includes('TankCreated'),
+      false,
+      'an interface whose BaseEvent heritage resolves only through a symlink is not an event interface',
+    );
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+}
+
+process.stdout.write('event-contracts-adapter containment tests passed\n');

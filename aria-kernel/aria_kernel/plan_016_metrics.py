@@ -287,7 +287,9 @@ def render_dashboard_markdown(
     )
     open_findings = _open_finding_count(repo_path) if repo_path is not None else 0
     open_debts = _open_debt_count(repo_path) if repo_path is not None else 0
-    hr_open = len(list_human_required(base_dir=tools_root))
+    hr_listing = list_human_required(base_dir=tools_root)
+    hr_open = len(hr_listing.rows)
+    hr_unreadable = [record.record_id for record in hr_listing.unreadable]
     gate_activity = _gate_activity_for_dashboard(tools_root)
 
     now = utc_now()
@@ -302,6 +304,8 @@ def render_dashboard_markdown(
         "## Unresolved Risks",
         "",
         f"- HUMAN_REQUIRED open: {hr_open}",
+        *( [f"- HUMAN_REQUIRED unreadable: {len(hr_unreadable)} ({', '.join(sorted(hr_unreadable))})"]
+           if hr_unreadable else [] ),
         f"- Open findings: {open_findings}",
         f"- Open debts: {open_debts}",
         "",

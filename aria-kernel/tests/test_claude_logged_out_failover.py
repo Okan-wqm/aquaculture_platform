@@ -181,7 +181,7 @@ class TheSpawnLaneGateAsksTheRoute(_LoggedOutHost):
         self.assertIn("::error::pre_claim_environment_gate: claude_auth_unavailable", stderr.getvalue())
         self.assertEqual(derive_request_state(request_id=self.ids["evidence_judgment"], base_dir=self.tools), "PENDING")
         self.assertEqual([(i.provider, i.kind) for i in open_outages(self.tools)], [("anthropic", "logged_out")])
-        items = [item for item in list_human_required(base_dir=self.tools)
+        items = [item for item in list_human_required(base_dir=self.tools).rows
                  if (item.get("context") or {}).get("kind") == "provider_outage"]
         self.assertEqual([(item["context"]["provider"], item["context"]["outage_kind"]) for item in items],
                          [("anthropic", "logged_out")])

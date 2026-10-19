@@ -134,10 +134,15 @@ def _store_metrics(root: Path) -> list[dict[str, Any]]:
     def _human_required() -> list[dict[str, Any]]:
         from .human_required import list_human_required
 
-        rows = list_human_required(base_dir=root)
+        listing = list_human_required(base_dir=root)
+        rows = listing.rows
         by_sev = Counter(str(r.get("severity") or "") for r in rows)
-        return [_metric("aria_human_required_open", n, {"severity": sev}) for sev, n in sorted(by_sev.items())] or [
+        counted = [_metric("aria_human_required_open", n, {"severity": sev}) for sev, n in sorted(by_sev.items())] or [
             _metric("aria_human_required_open", 0, {"severity": "none"})]
+        # ARIA-LOW-597 - the records the lister could not read are their own
+        # series, so the open counts can never read as the whole queue.
+        counted.append(_metric("aria_human_required_unreadable", len(listing.unreadable), {"queue": "human_required"}))
+        return counted
 
     def _missions() -> list[dict[str, Any]]:
         from .mission import list_open_missions

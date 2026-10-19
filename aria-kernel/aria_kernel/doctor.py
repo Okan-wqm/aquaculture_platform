@@ -410,12 +410,18 @@ def _check_queue(tools_dir: Path) -> DoctorCheck:
     from .mission import list_open_missions
 
     states = Counter(derive_request_states(base_dir=tools_dir).values())
-    open_hr = list_human_required(base_dir=tools_dir)
+    listing = list_human_required(base_dir=tools_dir)
+    open_hr = listing.rows
+    unreadable = [f"{record.record_id}:{record.reason}" for record in listing.unreadable]
     missions = Counter(str(m.get("state") or "") for m in list_open_missions(base_dir=tools_dir))
     detail = {"requests_by_state": dict(sorted(states.items())), "human_required_open": len(open_hr),
+              "human_required_unreadable": unreadable,
               "missions_open_by_state": dict(sorted(missions.items()))}
-    if open_hr:
-        return DoctorCheck("queue", "warn", f"human_required_open:{len(open_hr)}", detail)
+    if open_hr or unreadable:
+        # ARIA-LOW-597 - an unreadable record is named, never dropped from
+        # the count: the queue's true depth is unknowable while one is.
+        reason = f"human_required_open:{len(open_hr)}" + (f" unreadable:{len(unreadable)}" if unreadable else "")
+        return DoctorCheck("queue", "warn", reason, detail)
     return DoctorCheck("queue", "ok", "", detail)
 
 

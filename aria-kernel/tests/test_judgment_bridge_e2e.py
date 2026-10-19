@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 
 from aria_kernel.agent_invocations import claim_request, create_agent_invocation_request, submit_claim_result
+from aria_kernel.bridge_exceptions import BridgeContractRefused
 from aria_kernel.feedback_store import load_feedback
 from aria_kernel.judgment_bridge import (
     persist_supporting_payload,
@@ -379,6 +380,106 @@ class JudgeBridgeUnitTests(unittest.TestCase):
                 request=request, response=response, base_dir=self.tools
             )
 
+    def test_content_refusals_are_typed_refused_not_transient(self) -> None:
+        """ARIA-MEDIUM-172 — a judge-content refusal names a contract.
+
+        Every one of these is a pure function of the request/response pair:
+        the same input is refused again on every replay, so the retry lane
+        must be able to tell them from a transient fault by type. Today they
+        all raise plain ``GovernanceError`` — indistinguishable from I/O —
+        and the replay lane retries each until the budget runs out.
+        """
+        request = {"request_id": "req-x", "tool_id": "T", "run_id": "R", "finding_id": "F-001"}
+        cases = {
+            "malformed-details": {
+                "role": "evidence_judgment", "agent_id": "j", "details": "not an object",
+            },
+            "missing-ids": {
+                "role": "evidence_judgment", "agent_id": "j",
+                "details": {"verdict": {"verdict": "true_positive", "confidence": 0.9}},
+            },
+            "verdict-vocabulary": {
+                "role": "evidence_judgment", "agent_id": "j",
+                "details": {"verdict": {"verdict": "maybe", "confidence": 0.9}},
+            },
+            "missing-judge-identity": {
+                "role": "evidence_judgment", "agent_id": "j",
+                "details": {
+                    "verdict": {
+                        "verdict": "true_positive", "confidence": 0.9, "judge_id": "",
+                    }
+                },
+            },
+            "executor-shaped-identity": {
+                "role": "evidence_judgment", "agent_id": "j",
+                "details": {"verdict": {"verdict": "true_positive", "confidence": 0.9,
+                                        "judge_id": "ci-executor:gha-1"}},
+            },
+        }
+        for name, response in cases.items():
+            with self.subTest(case=name):
+                with self.assertRaises(BridgeContractRefused):
+                    record_judge_verdict_from_response(
+                        request=request, response=response, base_dir=self.tools,
+                    )
+
+    def test_a_feedback_store_fault_is_not_a_contract_refusal(self) -> None:
+        """The other half of the classification: an I/O-shaped GovernanceError
+        from the store the judge bridge writes to stays transient — retrying it
+        can succeed once the store is healthy again."""
+        from unittest import mock
+
+        request = {"request_id": "req-x", "tool_id": "T", "run_id": "R", "finding_id": "F-001"}
+        response = {
+            "role": "evidence_judgment",
+            "agent_id": "aria-evidence-judge",
+            "details": {
+                "verdict": {
+                    "verdict": "true_positive", "confidence": 0.9,
+                    "judge_id": "aria-evidence-judge", "rationale": "seen",
+                }
+            },
+        }
+        with mock.patch(
+            "aria_kernel.judgment_bridge.record_operator_feedback",
+            side_effect=GovernanceError("feedback_ledger_busy"),
+        ):
+            with self.assertRaises(GovernanceError) as ctx:
+                record_judge_verdict_from_response(
+                    request=request, response=response, base_dir=self.tools,
+                )
+        self.assertNotIsInstance(ctx.exception, BridgeContractRefused)
+
+    def test_the_hub_records_a_refusal_typed_and_the_watchdog_key_on_the_warning(self) -> None:
+        """ARIA-MEDIUM-172 — the hub's typing, observed at the hub: a refused
+        judge envelope lands in BOTH ``bridge_errors`` and ``bridge_refusals``
+        (the subset the retry lane ends by name), and its
+        ``agent_bridge_warning`` row carries the categorical
+        ``error_class`` the watchdog prefers."""
+        from aria_kernel.agent_invocations import _invoke_bridges_for_result
+        from aria_kernel.ledger import load_declared_jsonl
+
+        request = {"request_id": "req-x", "tool_id": "T", "run_id": "R", "finding_id": "F-001"}
+        response = {
+            "role": "evidence_judgment",
+            "agent_id": "aria-evidence-judge",
+            "details": {"verdict": {"verdict": "maybe", "confidence": 0.9}},
+        }
+        bridged = _invoke_bridges_for_result(
+            request=request, envelope=response, base_dir=self.tools,
+            root=self.tools, claim_id="claim-x", request_id="req-x",
+        )
+        self.assertEqual(len(bridged["bridge_errors"]), 1)
+        self.assertEqual(bridged["bridge_refusals"], bridged["bridge_errors"])
+        self.assertTrue(bridged["bridge_errors"][0].startswith("judge_bridge: "))
+        warnings = [
+            row for row in load_declared_jsonl(
+                self.tools / "governance.jsonl", expected_surface="tools_governance",
+            )
+            if row.get("kind") == "agent_bridge_warning"
+        ]
+        self.assertEqual(warnings[-1]["details"]["error_class"], "judge_bridge:contract_refused")
+
 
 class GoldsetSupportingPayloadTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -436,6 +537,24 @@ class GoldsetSupportingPayloadTests(unittest.TestCase):
         response = {"request_id": "req-x", "role": "goldset_curation", "details": {}}
         with self.assertRaisesRegex(GovernanceError, "details.proposal"):
             persist_supporting_payload(request=request, response=response, base_dir=self.tools)
+
+    def test_supporting_content_refusals_are_typed_refused(self) -> None:
+        # ARIA-MEDIUM-172 — the supporting bridge's content checks are as
+        # deterministic as the judge's: a role-shaped payload defect is
+        # refused the same way on every replay.
+        cases = {
+            "missing-request-id": ({"request_id": ""},
+                                   {"request_id": "", "role": "goldset_curation", "details": {}}),
+            "non-object-details": ({"request_id": "req-x"},
+                                   {"request_id": "req-x", "role": "goldset_curation",
+                                    "details": "not an object"}),
+            "missing-payload-key": ({"request_id": "req-x"},
+                                    {"request_id": "req-x", "role": "change_intelligence",
+                                     "details": {}}),
+        }
+        for name, (request, response) in cases.items():
+            with self.subTest(case=name), self.assertRaises(BridgeContractRefused):
+                persist_supporting_payload(request=request, response=response, base_dir=self.tools)
 
 
 if __name__ == "__main__":

@@ -51,6 +51,7 @@ from .typed_judgment import (
     materialize_evidence_refs,
     parse_single_answer,
 )
+from .bridge_exceptions import BridgeContractRefused
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 
 
@@ -326,7 +327,9 @@ def record_judge_verdict_from_response(
     # row that somehow slipped past still fails loudly, never half-folds.
     contract_errors = validate_judge_response(request=request, response=response)
     if contract_errors:
-        raise GovernanceError(
+        # ARIA-MEDIUM-172 — a deterministic content refusal: the same
+        # request/response pair is refused on every replay.
+        raise BridgeContractRefused(
             "judge bridge contract violation: " + "; ".join(contract_errors)
         )
 
@@ -361,7 +364,7 @@ def record_judge_verdict_from_response(
     run_id = request.get("run_id") or verdict_block.get("run_id")
     finding_id = request.get("finding_id") or verdict_block.get("finding_id")
     if not (tool_id and run_id and finding_id):
-        raise GovernanceError(
+        raise BridgeContractRefused(
             "judge bridge requires tool_id, run_id, finding_id in request or response.details.verdict; "
             f"got tool_id={tool_id!r}, run_id={run_id!r}, finding_id={finding_id!r}"
         )
@@ -375,7 +378,9 @@ def record_judge_verdict_from_response(
     if typed is not None:
         question, outcome = parse_typed_verdict(request, typed)
         if isinstance(outcome, ParseFailure):
-            raise GovernanceError(f"judge bridge typed verdict refused: {outcome.reason_code}: {outcome.detail}")
+            raise BridgeContractRefused(
+                f"judge bridge typed verdict refused: {outcome.reason_code}: {outcome.detail}"
+            )
         typed_answer = outcome
         verdict_block = {
             **verdict_block,
@@ -387,7 +392,7 @@ def record_judge_verdict_from_response(
 
     verdict = verdict_block.get("verdict")
     if verdict not in FEEDBACK_VERDICTS:
-        raise GovernanceError(
+        raise BridgeContractRefused(
             f"judge bridge expected verdict in {FEEDBACK_VERDICTS}, got {verdict!r}"
         )
     severity = _coerce_severity(verdict_block.get("severity") or details.get("severity"))
@@ -401,7 +406,7 @@ def record_judge_verdict_from_response(
     # mock lane and legacy envelopes carry it as `verdict.judge_id`.
     judge_id = details.get("agent_subagent_type") or verdict_block.get("judge_id")
     if not judge_id:
-        raise GovernanceError(
+        raise BridgeContractRefused(
             "judge bridge requires details.agent_subagent_type "
             "(or details.verdict.judge_id)"
         )
@@ -409,7 +414,7 @@ def record_judge_verdict_from_response(
         # Refuse loudly instead of silently repairing: an executor-shaped
         # identity means the producer regressed, and a repaired row would
         # hide that while still poisoning per-judge calibration.
-        raise GovernanceError(
+        raise BridgeContractRefused(
             f"judge bridge refuses executor-shaped judge identity: {judge_id!r}"
         )
 
@@ -500,14 +505,14 @@ def persist_supporting_payload(
         return None
     request_id = request.get("request_id") or response.get("request_id")
     if not request_id:
-        raise GovernanceError("supporting bridge requires request_id")
+        raise BridgeContractRefused("supporting bridge requires request_id")
     details = response.get("details") or {}
     if not isinstance(details, dict):
-        raise GovernanceError("supporting bridge expects response.details to be an object")
+        raise BridgeContractRefused("supporting bridge expects response.details to be an object")
     payload_key = "proposal" if role == "goldset_curation" else "impact_map"
     payload = details.get(payload_key)
     if payload is None:
-        raise GovernanceError(
+        raise BridgeContractRefused(
             f"supporting bridge expects response.details.{payload_key} for role {role!r}"
         )
 

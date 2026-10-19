@@ -102,29 +102,63 @@ def _label_stratum(row: dict[str, Any]) -> str:
     return "unstratified"
 
 
+def _label_weight(row: dict[str, Any]) -> float:
+    """Horvitz-Thompson weight of a ground-truth label (ARIA-LOW-608).
+
+    A label drawn from the queue's stratified sampling design carries the
+    probability it was included at (ARIA-MEDIUM-276) precisely so an
+    estimate over the sample can undo that design: each stratified label
+    counts as ``1/π``. Labels from no sampling design — unstratified human
+    labels and anchor consensus rows — carry no design to undo and weigh 1.
+    A stratified label whose π is missing or outside ``(0, 1]`` makes the
+    weighting silently wrong in a direction nobody can audit, so it is
+    refused by name instead of guessed at.
+    """
+    provenance = row.get("label_provenance")
+    if not isinstance(provenance, dict) or not provenance.get("stratum"):
+        return 1.0
+    pi = provenance.get("inclusion_probability")
+    # isinstance lets bool through and ``nan < 0``/``nan > 1`` are both
+    # False; every non-finite or out-of-range shape must be a refusal.
+    if isinstance(pi, bool) or not isinstance(pi, (int, float)) or not (0.0 < float(pi) <= 1.0):
+        raise GovernanceError(
+            "label_inclusion_probability_invalid: "
+            f"stratum {str(provenance.get('stratum'))!r} label "
+            f"{str(row.get('finding_id') or row.get('run_id') or _group_key(row))!r} "
+            f"carries inclusion_probability {pi!r}; a stratified label must "
+            "record a finite probability in (0, 1] (ARIA-MEDIUM-276)"
+        )
+    return 1.0 / float(pi)
+
+
 def _build_ground_truth_detail(
     rows: list[dict[str, Any]], *, base_dir: str | Path | None = None,
     unverified: list[dict[str, Any]] | None = None,
-) -> dict[tuple[str, str, str], tuple[str, str, frozenset[str]]]:
-    """Best ground-truth ``(verdict, source, observers)`` per finding.
+) -> dict[tuple[str, str, str], tuple[str, str, frozenset[str], float]]:
+    """Best ground-truth ``(verdict, source, observers, weight)`` per finding.
     human beats ai_consensus; an anchor row remembers who formed it; a
     human row that is not explicitly human or does not verify is skipped
     (and listed in ``unverified`` when the caller asks). The ``source`` of a
     human row carries its label stratum: ``human`` for a random or
     unstratified label, ``human_escalated`` for one drawn from the
-    escalations (review C3: reported, never the basis of `calibrated`)."""
-    truth: dict[tuple[str, str, str], tuple[str, str, frozenset[str]]] = {}
+    escalations (review C3: reported, never the basis of `calibrated`).
+    The ``weight`` is the label's Horvitz-Thompson weight ``1/π``
+    (ARIA-LOW-608): 1 for anchors and unstratified labels, which come from
+    no sampling design."""
+    truth: dict[tuple[str, str, str], tuple[str, str, frozenset[str], float]] = {}
     for row in rows:
         # JJ-1 — one predicate, five readers (see feedback_store).
         if not is_ground_truth_row(row):
             continue
         source = row.get("source_type") or "human"
+        weight = 1.0
         if source == "human" or row.get("source_type") is None:
             if not _human_row_is_verified(row, base_dir):
                 if unverified is not None:
                     unverified.append(row)
                 continue
             source = "human_escalated" if _label_stratum(row) == "escalated" else "human"
+            weight = _label_weight(row)
         verdict = str(row.get("verdict") or "")
         if not verdict:
             continue
@@ -135,17 +169,17 @@ def _build_ground_truth_detail(
         # later row. Last-write-wins within precedence: a later `human` always
         # overrides, a later `ai_consensus` overrides only when no `human` exists.
         if existing is None:
-            truth[key] = (verdict, source, observers)
+            truth[key] = (verdict, source, observers, weight)
         elif source.startswith("human"):
-            truth[key] = (verdict, source, observers)
+            truth[key] = (verdict, source, observers, weight)
         elif source == "ai_consensus" and not existing[1].startswith("human"):
-            truth[key] = (verdict, source, observers)
+            truth[key] = (verdict, source, observers, weight)
     return truth
 
 
 def _build_ground_truth(rows: list[dict[str, Any]]) -> dict[tuple[str, str, str], str]:
     """Best ground-truth verdict per finding. human beats ai_consensus."""
-    return {key: verdict for key, (verdict, _src, _obs) in _build_ground_truth_detail(rows).items()}
+    return {key: verdict for key, (verdict, _src, _obs, _w) in _build_ground_truth_detail(rows).items()}
 
 
 def brier_score(pairs: list[tuple[float, bool]]) -> float | None:
@@ -293,7 +327,12 @@ def score_judges(
     append for audit. One computation, two call shapes, no one-cycle lag.
 
     Positive class = ``true_positive``. Per judge: precision, recall, accuracy,
-    and a calibration signal (mean confidence on correct vs wrong calls). A
+    and a calibration signal (mean confidence on correct vs wrong calls).
+    The precision the degraded/ok decision reads is the Horvitz-Thompson
+    ratio estimate ``precision_ht`` (ARIA-LOW-608): every ground-truth label
+    weighs ``1/π`` under the label queue's stratified sampling design, so an
+    over-sampled stratum cannot dominate the estimate; the unweighted counts
+    stay beside it as raw evidence. A
     judge with >= ``min_samples`` ground-truth-backed verdicts whose precision
     drops below ``precision_floor`` is reported ``degraded`` — the operator-
     visible, detectable signal that the cheap-tier judgment is slipping.
@@ -325,7 +364,8 @@ def score_judges(
     def _fresh_bucket() -> dict[str, Any]:
         return {"tp": 0, "fp": 0, "fn": 0, "tn": 0, "n": 0, "correct": 0,
                 "conf_correct": [], "conf_wrong": [], "top_pairs": [], "tp_pairs": [], "decision_pairs": [],
-                "n_human": 0, "n_human_escalated": 0, "n_anchor_external": 0, "n_anchor_self_excluded": 0}
+                "n_human": 0, "n_human_escalated": 0, "n_anchor_external": 0, "n_anchor_self_excluded": 0,
+                "w_tp": 0.0, "w_fp": 0.0, "w_fn": 0.0}
 
     agg: dict[str, dict[str, Any]] = {}
     by_source: dict[tuple[str, str, str], dict[str, Any]] = {}
@@ -339,7 +379,7 @@ def score_judges(
         found = truth.get(_group_key(row))
         if found is None:
             continue
-        truth_verdict, truth_source, observers = found
+        truth_verdict, truth_source, observers, weight = found
         bucket = agg.setdefault(judge_id, _fresh_bucket())
         if truth_source == "ai_consensus" and judge_id in observers:
             # ARIA-HIGH-173 — an anchor this judge helped form is its own
@@ -358,9 +398,18 @@ def score_judges(
             if correct:
                 b["correct"] += 1
             if truth_verdict == "true_positive":
-                b["tp" if judge_verdict == "true_positive" else "fn"] += 1
+                if judge_verdict == "true_positive":
+                    b["tp"] += 1
+                    b["w_tp"] += weight
+                else:
+                    b["fn"] += 1
+                    b["w_fn"] += weight
             else:  # truth false_positive
-                b["fp" if judge_verdict == "true_positive" else "tn"] += 1
+                if judge_verdict == "true_positive":
+                    b["fp"] += 1
+                    b["w_fp"] += weight
+                else:
+                    b["tn"] += 1
             conf = row.get("confidence")
             if isinstance(conf, (int, float)) and not isinstance(conf, bool):
                 confidence = float(conf)
@@ -411,9 +460,16 @@ def score_judges(
         precision = round(b["tp"] / max(b["tp"] + b["fp"], 1), 3)
         recall = round(b["tp"] / max(b["tp"] + b["fn"], 1), 3)
         accuracy = round(b["correct"] / max(b["n"], 1), 3)
+        # ARIA-LOW-608 — the Horvitz-Thompson ratio estimates. With no
+        # stratified labels every weight is 1 and they equal the unweighted
+        # counts, so the pre-608 semantics are the π=1 special case.
+        w_tp_denom = b["w_tp"] + b["w_fp"]
+        w_rec_denom = b["w_tp"] + b["w_fn"]
+        precision_ht = round(b["w_tp"] / w_tp_denom, 3) if w_tp_denom > 0 else 0.0
+        recall_ht = round(b["w_tp"] / w_rec_denom, 3) if w_rec_denom > 0 else 0.0
         if b["n"] < min_samples:
             status = "insufficient_data"
-        elif precision < precision_floor:
+        elif precision_ht < precision_floor:
             status = "degraded"
         else:
             status = "ok"
@@ -422,8 +478,11 @@ def score_judges(
         judges.append({
             "judge_id": judge_id,
             "samples": b["n"],
+            "weighting": "horvitz_thompson",
             "precision": precision,
             "recall": recall,
+            "precision_ht": precision_ht,
+            "recall_ht": recall_ht,
             "accuracy": accuracy,
             "true_positive": b["tp"],
             "false_positive": b["fp"],

@@ -388,7 +388,7 @@ class AnOverturnedAnswerEscalates(_QuestioningFixture):
 
         # The escalation, keyed by the questioning envelope: an operator, not
         # a panel, reopens the decision (the context kind is unadmitted).
-        records = list_human_required(base_dir=self.tools_dir)
+        records = list_human_required(base_dir=self.tools_dir).rows
         self.assertEqual([r["request_id"] for r in records], [request_id])
         record = records[0]
         self.assertEqual(record["severity"], "MEDIUM")
@@ -428,7 +428,7 @@ class AnOverturnedAnswerEscalates(_QuestioningFixture):
         self.assertEqual(len(self._outcomes()), 1)
         # record_human_required is idempotent on the file: still one record.
         self.assertEqual(
-            [r["request_id"] for r in list_human_required(base_dir=self.tools_dir)],
+            [r["request_id"] for r in list_human_required(base_dir=self.tools_dir).rows],
             [request_id],
         )
 
@@ -456,7 +456,7 @@ class AnUpheldAnswerIsRecordedWithoutEscalation(_QuestioningFixture):
         self.assertEqual(rows[0]["verdict"], "upheld")
         self.assertIn("decision_questioning_folded", self._governance_kinds())
         # The decision survived re-review: nobody needs to look at it.
-        self.assertEqual(list_human_required(base_dir=self.tools_dir), [])
+        self.assertEqual(list_human_required(base_dir=self.tools_dir).rows, [])
 
     def test_insufficient_evidence_is_recorded_without_escalation(self) -> None:
         # "Cannot tell" is an honest answer the contract asks for, not a
@@ -479,7 +479,7 @@ class AnUpheldAnswerIsRecordedWithoutEscalation(_QuestioningFixture):
         self.assertEqual(
             [row["verdict"] for row in self._outcomes()], ["insufficient_evidence"],
         )
-        self.assertEqual(list_human_required(base_dir=self.tools_dir), [])
+        self.assertEqual(list_human_required(base_dir=self.tools_dir).rows, [])
 
 
 class AnUnreadableVerdictIsRecordedNotDropped(_QuestioningFixture):
@@ -512,7 +512,7 @@ class AnUnreadableVerdictIsRecordedNotDropped(_QuestioningFixture):
         self.assertIn("decision_questioning_verdict_unparsed", self._governance_kinds())
         self.assertNotIn("decision_questioning_folded", self._governance_kinds())
         # Unreadable is not overturned: no escalation.
-        self.assertEqual(list_human_required(base_dir=self.tools_dir), [])
+        self.assertEqual(list_human_required(base_dir=self.tools_dir).rows, [])
 
     def test_a_missing_output_artifact_is_unparsed_not_skipped(self) -> None:
         # The accepted row points at an artifact that is not there. Dropping
@@ -597,7 +597,7 @@ class AVerificationEnvelopeFromAnotherLaneIsNotFolded(_QuestioningFixture):
         self.assertEqual(summary["requests_seen"], 0)
         self.assertEqual(summary["outcomes_written"], 0)
         self.assertEqual(self._outcomes(), [])
-        self.assertEqual(list_human_required(base_dir=self.tools_dir), [])
+        self.assertEqual(list_human_required(base_dir=self.tools_dir).rows, [])
 
 
 class VerdictExtractionOrder(_QuestioningFixture):
@@ -699,7 +699,7 @@ class VerdictExtractionOrder(_QuestioningFixture):
         rows = self._outcomes()
         self.assertEqual(rows[0]["verdict"], "unparsed")
         self.assertEqual(rows[0]["unparsed_reason"], "verdict_absent")
-        self.assertEqual(list_human_required(base_dir=self.tools_dir), [])
+        self.assertEqual(list_human_required(base_dir=self.tools_dir).rows, [])
 
     def test_a_refusal_of_the_claim_name_stays_unparsed(self) -> None:
         # The refuter's second probe, same defect: prose DISCUSSING a
@@ -718,7 +718,7 @@ class VerdictExtractionOrder(_QuestioningFixture):
         rows = self._outcomes()
         self.assertEqual(rows[0]["verdict"], "unparsed")
         self.assertEqual(rows[0]["unparsed_reason"], "verdict_absent")
-        self.assertEqual(list_human_required(base_dir=self.tools_dir), [])
+        self.assertEqual(list_human_required(base_dir=self.tools_dir).rows, [])
 
     def test_two_different_directives_is_unparsed_not_the_scanners_pick(self) -> None:
         self._converge("plan-closed")
@@ -769,7 +769,7 @@ class AFrozenKernelCannotFold(_QuestioningFixture):
 
         self.assertIn("profile_violation", str(raised.exception))
         self.assertEqual(self._outcomes(), [])
-        self.assertEqual(list_human_required(base_dir=self.tools_dir), [])
+        self.assertEqual(list_human_required(base_dir=self.tools_dir).rows, [])
 
 
 class DecisionQuestioningIsACyclePhaseTest(unittest.TestCase):

@@ -702,12 +702,26 @@ function validateCommit(
         }
       }
     } else if (findingId.startsWith('ORPHAN-')) {
-      if (!orphanIds.has(findingId) && !registryIds.has(findingId)) {
+      const registryTarget = registryIds.get(findingId);
+      if (!orphanIds.has(findingId) && registryTarget === undefined) {
         out.push({
           sha: commit.shortSha,
           subject: commit.subject,
           reason: `Closes: trailer references unknown ORPHAN finding ID: ${findingId} (no matching "## ${findingId}" heading in docs/reviews/orphan-findings.md, and no such id in docs/reviews/_registry/findings.jsonl)`,
         });
+      } else if (
+        registryTarget !== undefined &&
+        !commitMessageClosesFindingExactly(commit.body, registryTarget)
+      ) {
+        // ARIA-LOW-607 — an ORPHAN id the registry holds is bound to that
+        // row's review_file by the same closure derivation as every other
+        // registry id. The ORPHAN lane used to check only that the id is
+        // known, so 31 OPEN rows filed against other review documents could
+        // be "closed" by a trailer citing the register — a trailer `reconcile`
+        // can never honour. Admission now agrees with the derivation, through
+        // the derivation's own matcher, exactly as the registry lane below
+        // has since PR #1425's renumbering smuggle.
+        out.push(cannotCloseItViolation(commit, path, findingId, registryTarget));
       }
     } else {
       const target = registryIds.get(findingId);
@@ -732,18 +746,33 @@ function validateCommit(
         // path against id since Plan 018 Phase 4; this is the same rule for the
         // registry lane, asked through the derivation's own matcher so the two
         // cannot drift apart again.
-        out.push({
-          sha: commit.shortSha,
-          subject: commit.subject,
-          reason:
-            `Closes: trailer cites ${path} for ${findingId}, but that finding's review file is ` +
-            `${target.review_file ?? '(none)'} — this trailer can never close it. ` +
-            `Cite the finding's own review file, or name the finding the change really closes.`,
-        });
+        out.push(cannotCloseItViolation(commit, path, findingId, target));
       }
     }
   }
   return out;
+}
+
+/**
+ * A trailer whose anchored review file is not the finding's own: it names the
+ * finding, but the closure derivation (`commitMessageClosesFindingExactly`)
+ * will never honour it, so admission refuses it in the same words whichever
+ * lane (registry id or registry-held ORPHAN id) asked.
+ */
+function cannotCloseItViolation(
+  commit: Commit,
+  path: string,
+  findingId: string,
+  target: FindingTrailerTarget,
+): Violation {
+  return {
+    sha: commit.shortSha,
+    subject: commit.subject,
+    reason:
+      `Closes: trailer cites ${path} for ${findingId}, but that finding's review file is ` +
+      `${target.review_file ?? '(none)'} — this trailer can never close it. ` +
+      `Cite the finding's own review file, or name the finding the change really closes.`,
+  };
 }
 
 function report(violations: Violation[]): void {

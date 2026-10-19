@@ -173,7 +173,7 @@ class EnforceExpertConsensusGateTests(unittest.TestCase):
                 base_dir=self.tools,
             )
         self.assertIn("expert_consensus_evidence_verified_failed", str(cm.exception))
-        pending = list_human_required(base_dir=self.tools)
+        pending = list_human_required(base_dir=self.tools).rows
         self.assertEqual(len(pending), 1)
         self.assertEqual(pending[0]["context"]["kind"], "expert_consensus_hallucination")
 
@@ -186,7 +186,7 @@ class EnforceExpertConsensusGateTests(unittest.TestCase):
                 base_dir=self.tools,
             )
         # Structural failure (not hallucination) → no HUMAN_REQUIRED escalation.
-        self.assertEqual(list_human_required(base_dir=self.tools), [])
+        self.assertEqual(list_human_required(base_dir=self.tools).rows, [])
 
 
 if __name__ == "__main__":

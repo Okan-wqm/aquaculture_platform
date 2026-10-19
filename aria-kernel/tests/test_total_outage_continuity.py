@@ -338,7 +338,7 @@ class TenDaysWithoutAProviderLoseNothing(unittest.TestCase):
                 "states": {key: derive_request_state(request_id=rid, base_dir=s.tools)
                            for key, rid in s.ids.items() if key != "queue_item"},
                 "breaker": circuit_breaker.current_state(s.tools),
-                "items": human_required.list_human_required(base_dir=s.tools),
+                "items": human_required.list_human_required(base_dir=s.tools).rows,
                 "queue_live": [row["queue_item_id"] for row in read_pending(s.tools)],
             }
         cls.claims = load_jsonl(s.tools / "agent-invocations" / "claims.jsonl")

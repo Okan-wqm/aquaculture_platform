@@ -275,7 +275,7 @@ def open_self_change_adjudication(*, mission_id: str, base_dir: str | Path | Non
     """The OPEN `self_change_adjudication` that names this mission, if any."""
     from .human_required import list_human_required
 
-    for record in list_human_required(base_dir=base_dir):
+    for record in list_human_required(base_dir=base_dir).rows:
         context = record.get("context") if isinstance(record.get("context"), dict) else {}
         if record.get("reason") == "self_change_adjudication" and str(context.get("mission_id") or "") == mission_id:
             return record

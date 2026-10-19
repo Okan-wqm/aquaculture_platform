@@ -113,6 +113,11 @@ class BrokerDecidesOutside(_Store):
                 "tool_response": {"exit_code": 0, "stdout": "x"}}
         with serve_hook_broker(base_dir=self.tools, workspace_root=self.workspace, request_id="AIR-j",
                                turn_budget=None) as broker:
+            # ARIA-MEDIUM-609 — the production shape: the CLI consults
+            # PreToolUse for a budgeted tool before its PostToolUse, and the
+            # broker journals the post-tool of a turn IT allowed.
+            allowed = call_hook(str(broker.socket_path), "pre-tool", _payload("Bash", command="git diff --stat"))
+            self.assertEqual(allowed[0], EXIT_ALLOW)
             journaled = call_hook(str(broker.socket_path), "post-tool", post)
             session = call_hook(str(broker.socket_path), "session",
                                 {"session_id": "sess-9", "hook_event_name": "SessionStart"})
@@ -134,6 +139,120 @@ class BrokerDecidesOutside(_Store):
                 oversized = call_hook(str(broker.socket_path), "pre-tool", _payload("Bash", command="x" * 200))
         self.assertEqual(oversized[0], EXIT_BLOCK)
         self.assertIn("hook_broker_error:ValueError", oversized[1])
+
+
+class ForgedVerbBounds(_Store):
+    """ARIA-MEDIUM-609 — the verbs the CLI cannot block on are the forgeable ones.
+
+    Any process in the agent's sandbox can open the broker's socket and ship
+    a post-tool or session payload of its own; the post-tool payload is
+    agent-attested end to end (tool name and outcome alike). One property per
+    test, each through the real socket against the real store:
+
+    * ten forged PostToolUse MCP failures leave the kernel's own MCP server
+      unquarantined — a decision that outlives the spawn (a store-wide
+      quarantine until an operator releases it) is taken only from outcomes
+      the kernel witnessed, never from the agent's attestation. The
+      agent-attested rows still land as telemetry;
+    * a post-tool for a budgeted tool is accepted once per tool_use_id THIS
+      broker allowed in pre-tool; a forged id, or a replayed one, writes no
+      row and is answered with an `unrecorded:over_bound` note;
+    * every other post-tool name (the matcher's non-budgeted tools and any
+      other name) is capped per broker — and a BUDGETED name on an
+      UNBUDGETED broker is capped too: the turn cap bounds its ids only
+      when one was compiled into the spawn, so the broker's flat cap
+      stands in for it there;
+    * session verbs are capped per broker (SessionStart/SessionEnd once,
+      PreCompact a small constant).
+    """
+
+    def _post(self, socket_path: Path, tool: str, tool_use_id: str, **extra: object) -> tuple[int, str]:
+        payload: dict = {"session_id": "sess-1", "tool_use_id": tool_use_id, "hook_event_name": "PostToolUse",
+                         "tool_name": tool, "tool_input": {}, "tool_response": {"exit_code": 0}}
+        payload.update(extra)
+        return call_hook(str(socket_path), "post-tool", payload)
+
+    def test_ten_forged_mcp_failures_never_quarantine_the_kernels_server(self) -> None:
+        from aria_kernel.mcp_client import quarantined_servers
+
+        with serve_hook_broker(base_dir=self.tools, workspace_root=self.workspace, request_id="AIR-mcp",
+                               turn_budget=None) as broker:
+            for index in range(10):
+                reply = self._post(broker.socket_path, "mcp__aria__status", f"toolu-forged-{index}",
+                                   tool_response={"is_error": True})
+                self.assertEqual(reply[0], EXIT_ALLOW, reply)
+            quarantined = quarantined_servers(self.tools)
+        self.assertEqual(quarantined, frozenset(), "the agent's own attestation quarantined the kernel's server")
+        calls = [json.loads(line) for line in (self.tools / "mcp" / "tool-calls.jsonl").read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([(row["side"], row["ok"]) for row in calls], [("client", False)] * 10,
+                         "the agent-attested rows still land as telemetry")
+
+    def test_a_post_tool_for_a_budgeted_tool_needs_this_brokers_own_pre_tool_allow(self) -> None:
+        with serve_hook_broker(base_dir=self.tools, workspace_root=self.workspace, request_id="AIR-once",
+                               turn_budget=8) as broker:
+            allowed = call_hook(str(broker.socket_path), "pre-tool", _payload("Bash", command="git status"))
+            self.assertEqual(allowed[0], EXIT_ALLOW)
+            journaled = self._post(broker.socket_path, "Bash", "toolu_1")
+            forged = self._post(broker.socket_path, "Bash", "toolu-forged")
+            replayed = self._post(broker.socket_path, "Bash", "toolu_1")
+        self.assertEqual(journaled, (EXIT_ALLOW, ""), "the allowed turn's own post-tool is journaled")
+        self.assertEqual(forged[0], EXIT_ALLOW)
+        self.assertEqual(json.loads(forged[1]), {"aria_journal": "unrecorded:over_bound"})
+        self.assertEqual(replayed[0], EXIT_ALLOW)
+        self.assertEqual(json.loads(replayed[1]), {"aria_journal": "unrecorded:over_bound"},
+                         "a tool_use_id is spent by its one post-tool")
+        self.assertEqual(len(journal_rows_for("AIR-once", base_dir=self.tools)), 1)
+
+    def test_every_other_post_tool_name_is_capped_per_broker(self) -> None:
+        with mock.patch.object(hb, "MAX_POST_TOOL_PER_TOOL_NAME", 3):
+            with serve_hook_broker(base_dir=self.tools, workspace_root=self.workspace, request_id="AIR-cap",
+                                   turn_budget=None) as broker:
+                replies = [self._post(broker.socket_path, "Read", f"toolu-r{index}") for index in range(5)]
+        self.assertEqual([reply[0] for reply in replies], [EXIT_ALLOW] * 5)
+        self.assertEqual([reply[1] for reply in replies[:3]], ["", "", ""], "within the cap the rows are journaled")
+        self.assertEqual([json.loads(reply[1]) for reply in replies[3:]],
+                         [{"aria_journal": "unrecorded:over_bound"}] * 2)
+        self.assertEqual(len(journal_rows_for("AIR-cap", base_dir=self.tools)), 3)
+
+    def test_a_budgeted_name_on_an_unbudgeted_broker_is_capped_per_broker(self) -> None:
+        # ARIA-MEDIUM-609, the residual half: hooks admits budgeted turns
+        # only when a turn cap was compiled into the spawn, so on an
+        # unbudgeted broker (turn_budget=None) nothing bounded the ids a
+        # forged pre-tool allow could mint — each (pre-tool allow,
+        # post-tool) pair wrote one work-journal row without end. The
+        # broker's flat cap stands in for the missing turn cap there.
+        with mock.patch.object(hb, "MAX_POST_TOOL_PER_TOOL_NAME", 3):
+            with serve_hook_broker(base_dir=self.tools, workspace_root=self.workspace, request_id="AIR-ub",
+                                   turn_budget=None) as broker:
+                allows = [call_hook(str(broker.socket_path), "pre-tool",
+                                    {**_payload("Bash", command="git status"), "tool_use_id": f"toolu-a{index}"})
+                          for index in range(5)]
+                replies = [self._post(broker.socket_path, "Bash", f"toolu-a{index}") for index in range(5)]
+        self.assertEqual([reply[0] for reply in allows], [EXIT_ALLOW] * 5, "the policy itself allows git status")
+        self.assertEqual([reply[0] for reply in replies], [EXIT_ALLOW] * 5)
+        self.assertEqual([reply[1] for reply in replies[:3]], ["", "", ""], "within the cap the rows are journaled")
+        self.assertEqual([json.loads(reply[1]) for reply in replies[3:]],
+                         [{"aria_journal": "unrecorded:over_bound"}] * 2)
+        self.assertEqual(len(journal_rows_for("AIR-ub", base_dir=self.tools)), 3,
+                         "a forger cannot mint journal rows past the flat cap")
+
+    def test_session_verbs_are_capped_per_broker(self) -> None:
+        from aria_kernel.handoff_ledger import list_handoffs
+
+        with mock.patch.object(hb, "MAX_PRE_COMPACT_SESSION_EVENTS", 2):
+            with serve_hook_broker(base_dir=self.tools, workspace_root=self.workspace, request_id="AIR-sess",
+                                   turn_budget=None) as broker:
+                starts = [call_hook(str(broker.socket_path), "session",
+                                    {"session_id": "s", "hook_event_name": "SessionStart"}) for _ in range(2)]
+                compacts = [call_hook(str(broker.socket_path), "session",
+                                      {"session_id": "s", "hook_event_name": "PreCompact"}) for _ in range(3)]
+        self.assertEqual(json.loads(starts[0][1])["aria_session"]["trigger"], "session_start")
+        self.assertEqual(json.loads(starts[1][1])["aria_session"]["status"], "unrecorded:over_bound")
+        self.assertEqual([json.loads(reply[1])["aria_session"].get("trigger") for reply in compacts],
+                         ["pre_compact", "pre_compact", None])
+        self.assertEqual(json.loads(compacts[2][1])["aria_session"]["status"], "unrecorded:over_bound")
+        self.assertEqual([row["trigger"] for row in list_handoffs(base_dir=self.tools)],
+                         ["session_start", "pre_compact", "pre_compact"])
 
 
 class ClientCommand(_Store):

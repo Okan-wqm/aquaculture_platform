@@ -229,6 +229,12 @@ def _scripted_implementer(
         "hook_payload = json.dumps({'session_id': 'sess-e2e', 'tool_use_id': 'toolu_e2e', 'hook_event_name': 'PostToolUse',\n"
         "    'tool_name': 'Bash', 'tool_input': {'command': 'git status'}, 'tool_response': {'exit_code': 0}})\n"
         "client = os.path.join(os.getcwd(), 'aria-kernel', 'aria_kernel', 'hook_client.py')\n"
+        # ARIA-MEDIUM-609 — the production shape: the CLI consults PreToolUse
+        # for a budgeted tool before its PostToolUse, and the broker journals
+        # the post-tool of a turn IT allowed.
+        "pre = dict(json.loads(hook_payload), hook_event_name='PreToolUse')\n"
+        "pre.pop('tool_response', None)\n"
+        "subprocess.run([sys.executable, client, 'pre-tool'], input=json.dumps(pre), capture_output=True, text=True)\n"
         "hook = subprocess.run([sys.executable, client, 'post-tool'], input=hook_payload, capture_output=True, text=True)\n"
         "packs = [p for p in os.listdir(os.path.join(common, 'objects', 'pack')) if p.endswith('.pack')]\n"
         "def unlinkable(path):\n"

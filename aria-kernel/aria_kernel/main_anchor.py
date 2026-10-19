@@ -18,11 +18,16 @@ WHAT.
   it only when it equals or is an ancestor of ``origin/main`` (or of
   ``GITHUB_SHA`` when the job runs on ``refs/heads/main``). A repository that
   declares object alternates is refused outright.
-* :func:`committed_blob` reads one file at a named commit with
-  ``git cat-file`` and recomputes the blob's object id from the bytes, so a
-  rewritten loose object is caught rather than trusted.
-* :func:`tracked_files_at` answers "is this a tracked file" from the commit's
-  tree (``git ls-tree``), not from the index a process can edit.
+* :func:`committed_blob` reads one file at a named commit through a verified
+  object-chain walk: the commit, every tree on the path and the final blob are
+  each re-hashed against their object id, so content at a named commit is
+  integrity-bound from the commit id down — a rewritten loose object anywhere
+  on the chain is caught rather than trusted (``git rev-parse <commit>:<path>``
+  and ``cat-file`` serve a rewritten loose tree or commit without checking its
+  hash, which is why the walk re-hashes every object itself).
+* :func:`tracked_files_at` answers "is this a tracked file" from the same
+  verified walk, not from the index a process can edit or an unverified
+  ``ls-tree``.
 * :func:`messages_naming` returns the message of every commit reachable from
   a named commit that mentions a key, case-insensitively: the merge lane
   reads main's history for the request lines a merged operator plan left
@@ -35,9 +40,15 @@ WHAT.
   operator's root signer (``operator_request_signature``) asks it too
   (ARIA-LOW-266).
 
-The merge lane's check 12 runs on a fresh GitHub-hosted clone; that is the
-backstop for a process that could rewrite ``.git`` wholesale, including
-``origin/main`` itself.
+The commit the walk starts from is chosen through local refs (ADR-0020's
+recorded boundary): a principal that can write ``.git`` can still steer WHICH
+commit is trusted. Inside ARIA no such principal exists — the containment binds
+the shared object store and every ref read-only for each contained spawn —
+except under the operator's explicit escape ``ARIA_ALLOW_UNCONFINED_WRITE``
+(tools/aria-poc/claude_runtime.py), and the runner uid itself, for which the
+merge lane's check 12 on a fresh GitHub-hosted clone is the backstop: it
+re-verifies the PR's live base on a host no runner process can rewrite,
+including ``origin/main`` itself.
 """
 from __future__ import annotations
 
@@ -229,7 +240,7 @@ def root_only_checkout(repo_root: str | Path) -> str | None:
     return worktree
 
 
-def _git(repo_root: str | Path, *args: str) -> subprocess.CompletedProcess[bytes] | None:
+def _git(repo_root: str | Path, *args: str, stdin_bytes: bytes | None = None) -> subprocess.CompletedProcess[bytes] | None:
     """git in ``repo_root`` through the scrubbed environment.
 
     A checkout whose configuration only root can change, read by a non-root
@@ -237,7 +248,8 @@ def _git(repo_root: str | Path, *args: str) -> subprocess.CompletedProcess[bytes
     (:func:`_root_owned_trusted`): the system and repository scopes cannot
     carry that key here, and the caller's global config is the caller's to
     write, so the command line is the one place this module states the trust
-    rule itself.
+    rule itself. ``stdin_bytes`` feeds the command's stdin instead of closing
+    it (``cat-file --batch`` reads its object ids that way).
     """
     git = _git_binary()
     if git is None:
@@ -247,7 +259,8 @@ def _git(repo_root: str | Path, *args: str) -> subprocess.CompletedProcess[bytes
     try:
         return subprocess.run(
             [git, *scope, "--literal-pathspecs", "-C", str(repo_root), *args],
-            stdin=subprocess.DEVNULL, capture_output=True, check=False,
+            input=stdin_bytes, stdin=None if stdin_bytes is not None else subprocess.DEVNULL,
+            capture_output=True, check=False,
             env=scrubbed_git_env(), timeout=_GIT_TIMEOUT_SECONDS,
         )
     except (OSError, subprocess.TimeoutExpired):
@@ -318,44 +331,192 @@ def resolve_main_anchor(repo_root: str | Path) -> MainAnchor:
     return MainAnchor(None, ANCHOR_NOT_ON_MAIN)
 
 
-def _blob_oid(content: bytes, oid_length: int) -> str:
-    header = f"blob {len(content)}\0".encode("ascii")
+def _object_oid(kind: str, body: bytes, oid_length: int) -> str:
+    """The object id git gives ``body`` as a ``kind`` object (sha256 for 64-hex ids)."""
+    header = f"{kind} {len(body)}\0".encode("ascii")
     digest = hashlib.sha256 if oid_length == 64 else hashlib.sha1
-    return digest(header + content).hexdigest()
+    return digest(header + body).hexdigest()
+
+
+def _read_verified(repo_root: str | Path, oids: list[str], kind: str) -> dict[str, bytes] | None:
+    """One ``git cat-file --batch`` read through the hardened git, each object
+    re-hashed against its id, or None for the whole read.
+
+    WHY. git serves a rewritten loose object without checking its hash on the
+    ``rev-parse``/``cat-file`` paths (measured on git 2.43.0: a root tree
+    rewritten under its genuine id resolves ``<commit>:<path>`` to the attacker's
+    blob while ``ls-tree`` alone notices), so the re-hash is this module's own
+    defense, not git's. Any object that is missing, of another type, or whose
+    bytes do not hash to its id fails the whole read: a chain is verified or it
+    is not read at all.
+    """
+    unique = list(dict.fromkeys(oids))
+    if not all(is_object_id(oid, formats=ANY_OBJECT_FORMAT) for oid in unique):
+        return None
+    proc = _git(repo_root, "cat-file", "--batch",
+                stdin_bytes="".join(f"{oid}\n" for oid in unique).encode("ascii"))
+    if proc is None or proc.returncode != 0:
+        return None
+    data = proc.stdout
+    cursor = 0
+    verified: dict[str, bytes] = {}
+    for oid in unique:
+        line_end = data.find(b"\n", cursor)
+        if line_end < 0:
+            return None
+        header = data[cursor:line_end].split(b" ")
+        if len(header) != 3 or header[0].decode("ascii", errors="replace") != oid:
+            return None
+        cursor = line_end + 1
+        if header[1] != kind.encode("ascii"):
+            return None
+        try:
+            size = int(header[2])
+        except ValueError:
+            return None
+        body = data[cursor:cursor + size]
+        if len(body) != size or data[cursor + size:cursor + size + 1] != b"\n":
+            return None
+        cursor += size + 1
+        if _object_oid(kind, body, len(oid)) != oid:
+            return None
+        verified[oid] = body
+    if cursor != len(data):
+        return None
+    return verified
+
+
+# A tree entry's mode names the object type it points at. Only these shapes
+# are classified; anything else fails the read rather than being guessed at.
+_BLOB_MODES = frozenset({"100644", "100755", "120000"})
+_TREE_MODE = "40000"
+_GITLINK_MODE = "160000"
+
+_TREE_LINE_RE = re.compile(rb"\Atree ([0-9a-f]{40}|[0-9a-f]{64})\n")
+
+
+def _tree_entries(body: bytes, oid_length: int) -> dict[bytes, tuple[str, str]] | None:
+    """A tree object's binary entries as ``name -> (mode, hex oid)``, or None.
+
+    The entry format is ``<mode> <name>\\0<raw oid>`` with a raw oid of 20
+    bytes (sha1) or 32 (sha256); a body that does not parse exactly to that
+    shape is None.
+    """
+    entries: dict[bytes, tuple[str, str]] = {}
+    raw_length = oid_length // 2
+    cursor = 0
+    while cursor < len(body):
+        space = body.find(b" ", cursor)
+        nul = body.find(b"\0", space + 1)
+        if space < 0 or nul < 0:
+            return None
+        mode = body[cursor:space].decode("ascii", errors="replace")
+        raw = body[nul + 1:nul + 1 + raw_length]
+        if len(raw) != raw_length:
+            return None
+        cursor = nul + 1 + raw_length
+        entries[body[space + 1:nul]] = (mode, raw.hex())
+    return entries
+
+
+def _resolve_verified(repo_root: str | Path, *, commit: str,
+                      paths: list[str]) -> dict[str, tuple[str, str]] | None:
+    """Map each of ``paths`` to its ``(mode, oid)`` in ``commit``'s tree, every
+    object on the way re-hashed against its id, or None.
+
+    The walk verifies the commit object, takes its ``tree`` line, then walks
+    the path components level by level with one batched read per depth for all
+    paths at once. A path with an empty, ``.`` or ``..`` component is absent
+    (not a read failure); a path whose entry exists is mapped with the mode
+    that names its object type — blob modes, ``40000`` a tree, ``160000`` a
+    gitlink. An unclassifiable mode fails the whole read.
+    """
+    commits = _read_verified(repo_root, [commit], "commit")
+    if commits is None:
+        return None
+    tree_line = _TREE_LINE_RE.match(commits[commit])
+    if tree_line is None:
+        return None
+    root = tree_line.group(1).decode("ascii")
+    # None ids a path that resolved as absent; a (mode, oid) entry is final
+    # and ``pending`` carries the paths still walking, grouped by the tree oid
+    # their next component is looked up in.
+    state: dict[str, tuple[str, str] | None] = {}
+    pending: dict[str, list[str]] = {}
+    for path in paths:
+        components = path.split("/")
+        if any(component in ("", ".", "..") for component in components):
+            state[path] = None
+        else:
+            pending.setdefault(root, []).append(path)
+    depth = 0
+    while pending:
+        depth += 1
+        trees = _read_verified(repo_root, list(pending), "tree")
+        if trees is None:
+            return None
+        next_pending: dict[str, list[str]] = {}
+        for tree_oid, walking in pending.items():
+            entries = _tree_entries(trees[tree_oid], len(tree_oid))
+            if entries is None:
+                return None
+            for path in walking:
+                components = path.split("/")
+                entry = entries.get(components[depth - 1].encode("utf-8"))
+                if entry is not None and entry[0] not in _BLOB_MODES | {_TREE_MODE, _GITLINK_MODE}:
+                    return None
+                if entry is None or depth == len(components):
+                    # Absent, or the path's own entry (a file, a symlink, a
+                    # bare directory, a gitlink — the callers classify).
+                    state[path] = entry
+                elif entry[0] == _TREE_MODE:
+                    next_pending.setdefault(entry[1], []).append(path)
+                else:
+                    # A blob or gitlink with components still to resolve
+                    # under it: the path names nothing in this tree.
+                    state[path] = None
+        pending = next_pending
+    return {path: entry for path, entry in state.items() if entry is not None}
 
 
 def committed_blob(repo_root: str | Path, *, commit: str, path: str) -> CommittedBlob | None:
-    """``path`` as committed at ``commit``, its bytes re-hashed against the object id."""
+    """``path`` as committed at ``commit``, through the verified object-chain walk."""
     if not isinstance(commit, str) or not is_object_id(commit, formats=ANY_OBJECT_FORMAT):
         return None
     if _declares_alternates(repo_root) is not False:
         return None
-    resolved = _git(repo_root, "rev-parse", "--verify", "--quiet", f"{commit}:{path}")
-    if resolved is None or resolved.returncode != 0:
+    resolved = _resolve_verified(repo_root, commit=commit, paths=[path])
+    if resolved is None or path not in resolved:
         return None
-    oid = resolved.stdout.decode("ascii", errors="replace").strip()
-    if not is_object_id(oid, formats=ANY_OBJECT_FORMAT):
+    mode, oid = resolved[path]
+    if mode not in _BLOB_MODES:
         return None
-    blob = _git(repo_root, "cat-file", "blob", oid)
-    if blob is None or blob.returncode != 0 or _blob_oid(blob.stdout, len(oid)) != oid:
+    blobs = _read_verified(repo_root, [oid], "blob")
+    if blobs is None:
         return None
-    return CommittedBlob(content=blob.stdout, commit=commit, blob_oid=oid)
+    return CommittedBlob(content=blobs[oid], commit=commit, blob_oid=oid)
 
 
 def tracked_files_at(repo_root: str | Path, *, commit: str, paths: list[str]) -> set[str] | None:
     """The subset of ``paths`` that are files in ``commit``'s tree, or None.
 
-    A directory is listed by its files, so a bare directory is not a file.
+    A directory is listed by its files, so a bare directory is not a file; a
+    gitlink names a commit in another repository and is not a file either. A
+    symlink's entry is a blob (the link text), so it stays a tracked file.
     """
     if not paths:
         return set()
     if not is_object_id(commit or "", formats=ANY_OBJECT_FORMAT):
         return None
-    proc = _git(repo_root, "ls-tree", "-r", "-z", "--name-only", "--full-tree", commit, "--", *paths)
-    if proc is None or proc.returncode != 0:
+    resolved = _resolve_verified(repo_root, commit=commit, paths=paths)
+    if resolved is None:
         return None
-    listed = {entry for entry in proc.stdout.decode("utf-8", errors="replace").split("\0") if entry}
-    return {path for path in paths if path in listed}
+    blob_oids = list(dict.fromkeys(
+        oid for mode, oid in resolved.values() if mode in _BLOB_MODES))
+    verified = _read_verified(repo_root, blob_oids, "blob") if blob_oids else {}
+    return {path for path in paths
+            if path in resolved and resolved[path][0] in _BLOB_MODES
+            and resolved[path][1] in verified}
 
 
 _MESSAGE_KEY_RE = re.compile(r"^[A-Za-z][A-Za-z0-9-]{0,62}$")

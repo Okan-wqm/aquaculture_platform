@@ -802,6 +802,13 @@ class _NestedOutputCases:
         errors = row["evidence_validation"]["errors"]
         self.assertNotIn("passwd=a", canonical_json(errors))
         self.assertLessEqual(len(canonical_json(errors)), INLINE_ROW_FIELD_MAX_BYTES)
+        # The marker says where the whole list is: the artifact is written from
+        # the bounded object (and v1 writes none), so it names a rebuild from
+        # the output, never a read-back of the list.
+        marker = row["evidence_validation"]["errors_spilled"]
+        self.assertEqual(marker["verification_status"], "digest_only")
+        self.assertNotIn("persists", marker["recovery"])
+        self.assertIn("validate_tool_output_evidence", marker["recovery"])
 
 
 class NestedOutputInTheDefaultFormat(_NestedOutputCases, unittest.TestCase):

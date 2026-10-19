@@ -32,8 +32,15 @@ payload, but audit evidence must remain complete and hash-verifiable.
     the slimmed row carries no digest of its own.
 - Adapter output the parser cannot store is a `schema_error` run, recorded and quarantined:
   output nested past `tool_runner.TOOL_OUTPUT_NESTING_MAX_DEPTH` (the stored-line bound less the
-  levels a row and a contention replay add around a parsed value), and a value the decoder refuses
-  to build (`output_value_not_decodable`).
+  levels a row and a contention replay add around a parsed value), a value the decoder refuses
+  to build (`output_value_not_decodable`), and a findings entry past
+  `tool_runner.TOOL_OUTPUT_FINDING_MAX_BYTES` (`output_finding_too_large`): each finding gets
+  raw-findings, findings and seeding rows of its own, appended before the run's health is decided.
+  Output that is not UTF-8 still fails before the parser (ARIA-HIGH-654).
+- `evidence_validation` is bounded before the artifact is written from it, so its sampled lists
+  are `digest_only`; the whole value is rebuilt with `validate_tool_output_evidence` over the
+  artifact's `payload.parsed_output`, and a `v1` or failed-write row keeps only the total and
+  digest.
 - `v2` run rows are thin and must resolve to a full artifact.
 - `runs_reader` is the only supported consumer surface for `runs.jsonl`.
 - Missing artifact, hash mismatch, path escape, write failure, or failed restore is `integrity_failed`.

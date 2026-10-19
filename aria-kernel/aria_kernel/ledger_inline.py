@@ -123,9 +123,10 @@ def sample_inline_list(
 def bounded_sample(values: list[Any], *, limit: int | None, max_bytes: int) -> list[Any]:
     """At most ``limit`` entries of ``values``, in order, whose row spelling fits ``max_bytes``.
 
-    The one bound on a list a ledger row carries (``sample_inline_list``'s
-    sample, ``runs_reader.run_path_citations``). An entry is never cut, since a
-    cut path names another file. An entry too large for the budget left is
+    The bound ``sample_inline_list``'s sample and
+    ``runs_reader.run_path_citations`` share; the row lists bounded otherwise
+    are named in docs/aria/runtime-artifact-contract.md. An entry is never
+    cut, since a cut path names another file. An entry too large for the budget left is
     skipped, and the entries after it are still taken: the adapter orders its
     own report, and one oversized entry reported first used to end the sample,
     hiding the ``.env`` read behind it (ARIA-HIGH-617). Nothing reads a sample

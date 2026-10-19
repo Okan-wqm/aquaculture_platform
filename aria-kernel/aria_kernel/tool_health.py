@@ -99,10 +99,19 @@ DEFAULT_FORBIDDEN_READ_GLOBS = HARD_FORBIDDEN_READ_GLOBS + DEFAULT_DENY_READ_GLO
 SELF_OUTPUT_MARKERS = SELF_OUTPUT_PREFIXES
 
 
-# ARIA-HIGH-017 — what a runs.jsonl reader is told about a field the row
-# bounded: where its whole value is recovered (ledger_inline's digest stubs
-# and sample markers name it).
+# ARIA-HIGH-017 — what a runs.jsonl reader is told about a parsed-output field
+# the row bounded: where its whole value is recovered (ledger_inline's digest
+# stubs and sample markers name it).
 RUNS_ROW_RECOVERY = "the full value persists in this run's runtime artifact (parsed_output)"
+# ARIA-HIGH-617 — what the bounded evidence_validation tells its reader. It is
+# bounded before the artifact is written from it, so the artifact holds the
+# same bounded object, and v1 or a failed write leaves no artifact at all: the
+# whole value is rebuilt from the output, never read back.
+EVIDENCE_VALIDATION_RECOVERY = (
+    "rebuild with evidence_validator.validate_tool_output_evidence over the run "
+    "artifact's payload.parsed_output at payload.repo_snapshot when artifact_status "
+    "is present; otherwise only the total and digest survive"
+)
 
 
 def runs_path(base_dir: str | Path | None = None) -> Path:
@@ -158,7 +167,7 @@ def record_run(
     # and the scrub's marker is longer than the shortest credential shapes, so
     # a bound taken before the scrub did not hold on the row.
     envelope["evidence_validation"] = spill_evidence_validation(
-        scrub_json(envelope["evidence_validation"]), recovery=RUNS_ROW_RECOVERY,
+        scrub_json(envelope["evidence_validation"]), recovery=EVIDENCE_VALIDATION_RECOVERY,
     )
 
     raw_findings = envelope.pop("raw_findings", None)

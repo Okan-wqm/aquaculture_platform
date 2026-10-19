@@ -13,7 +13,7 @@ from .adapter_room import adapter_stderr_sample, prepare_adapter_spawn, run_adap
 from .confidence import confidence_in_unit_interval
 from .evidence_validator import validate_tool_output_evidence
 from .genesis_adapter_custody import verify_genesis_dispatch
-from .ledger import LEDGER_ROW_NESTING_MAX_DEPTH, json_nesting_within_limit
+from .ledger import LEDGER_ROW_MAX_BYTES, LEDGER_ROW_NESTING_MAX_DEPTH, canonical_json, json_nesting_within_limit
 from .implementation_safety import (
     BashAllowlistMiss,
     BashDenylistHit,
@@ -52,6 +52,17 @@ TOOL_OUTPUT_ROW_NESTING_LEVELS = 3
 # tools/aria-adapters or aria-kernel/tests/fixtures is deeper than 8 levels
 # (2026-10-19), so the bound costs a real adapter nothing.
 TOOL_OUTPUT_NESTING_MAX_DEPTH = LEDGER_ROW_NESTING_MAX_DEPTH - TOOL_OUTPUT_ROW_NESTING_LEVELS
+# ARIA-HIGH-617 — the most canonical-JSON bytes one finding may take. record_run
+# stores each finding in rows of its own before it decides the run's health: a
+# raw-findings row (the finding inline in v1; its id as finding_id, and str()
+# of its id and rule as finding_summary), and for an ACTIVE tool a findings row
+# (the finding, its id, the services its paths name) and a seeding row. str()
+# at most doubles a value's JSON spelling (a backslash is escaped by repr, then
+# by JSON), so none of those rows holds more than three times a finding's
+# bytes besides its own fields, and an eighth of the row cap leaves each one
+# under it. ORPHAN-HIGH-798 measured 27,853 inline findings at about 2 KB
+# each, so the bound costs a real adapter nothing.
+TOOL_OUTPUT_FINDING_MAX_BYTES = LEDGER_ROW_MAX_BYTES // 8
 
 
 def run_tool(
@@ -418,6 +429,8 @@ PARSE_ERROR_CODES: frozenset[str] = frozenset({
     # ARIA-HIGH-617: JSON the decoder refuses to build a value from (an
     # integer longer than the interpreter's integer string limit).
     "output_value_not_decodable",
+    # ARIA-HIGH-617: a findings entry past TOOL_OUTPUT_FINDING_MAX_BYTES.
+    "output_finding_too_large",
     "output_not_dict",
     "cost_units_invalid",
     "metadata_not_dict",
@@ -442,13 +455,16 @@ def _parse_tool_output(
     so operators and observability layers see the specific failure
     mode.
 
-    ARIA-HIGH-617 — this is the one boundary where adapter text becomes a
-    value the kernel stores, and the two refusals below are output the later
+    ARIA-HIGH-617 — this is where the adapter's stdout, already text, becomes
+    a value the kernel stores, and the refusals below are output the later
     steps could not store. Each one otherwise left ``run_tool`` before
     ``record_run``, or wrote a row every publish refused, so the run went
     unrecorded or unpublishable, and a tool whose report held a ``.env`` read
     was never quarantined. Refused here, the run is ``schema_error``,
-    recorded and quarantined like any other:
+    recorded and quarantined like any other. (The bytes-to-text step comes
+    before this one: ``adapter_room.run_adapter`` decodes stdout and stderr as
+    strict UTF-8, and a byte that is not UTF-8 still raises out of
+    ``run_tool``, ARIA-HIGH-654.)
 
     * nesting past TOOL_OUTPUT_NESTING_MAX_DEPTH, measured before decoding by
       the kernel's one lexical scan (``ledger.json_nesting_within_limit``).
@@ -460,7 +476,11 @@ def _parse_tool_output(
       keeps that code;
     * a value the decoder refuses to build: ``json.loads`` raises a plain
       ValueError, not a JSONDecodeError, for an integer longer than the
-      interpreter's integer string limit (4,300 digits by default).
+      interpreter's integer string limit (4,300 digits by default);
+    * a findings entry past TOOL_OUTPUT_FINDING_MAX_BYTES, measured in
+      ``ledger.canonical_json``, the spelling a row is written in: each
+      finding gets rows of its own, appended before the run's health is
+      decided, and one oversized row refused the whole batch.
 
     The decoded output's other properties are checked by the shape checks
     below and by the evidence validator, not here.
@@ -489,6 +509,8 @@ def _parse_tool_output(
     for field in MINIMUM_OUTPUT_FIELDS:
         if not isinstance(payload.get(field), list):
             return None, f"field_not_list:{field}"
+    if any(len(canonical_json(finding)) > TOOL_OUTPUT_FINDING_MAX_BYTES for finding in payload["findings"]):
+        return None, "output_finding_too_large"
     if "cost_units" in payload and _non_negative_number(payload["cost_units"], default=None) is None:
         return None, "cost_units_invalid"
     if "metadata" in payload and not isinstance(payload["metadata"], dict):

@@ -1011,6 +1011,22 @@ duplicate `lint-changed-files`. The real residual is INFRA-MEDIUM-224.
   before it bounds it, and `runs_reader.run_path_citations` is the one citation of a run
   (pressure and capability gap). Each is a test that failed before it. ARIA-MEDIUM-647 is
   registered for v1's inline emitted lists.
+- **Verification round 4 (same branch, before merge):** a sibling append still decided the
+  quarantine. After the runs row, `record_run` appends one raw-findings row per finding (and, for
+  an ACTIVE tool, a findings row and a seeding row) before `evaluate_health`, and those rows hold
+  the adapter's finding with no bound: one finding whose id was 600,000 bytes made the
+  raw-findings row 1.2 MB, the batch was refused, the runs row said `scope_violation` and the tool
+  stayed SHADOW; an in-scope run with such a finding failed the tools phase every night. The fix
+  is at the parse boundary: `_parse_tool_output` refuses a findings entry past
+  `tool_runner.TOOL_OUTPUT_FINDING_MAX_BYTES` (an eighth of the row cap, measured in
+  `ledger.canonical_json`) as `output_finding_too_large`, so the run is `schema_error`, recorded
+  and quarantined. A finding at the bound, shaped to be stored largest (an id of backslashes,
+  which `finding_summary`'s `str()` escapes twice), fits every row that holds it. Also in this
+  round: the bounded `evidence_validation` names a rebuild from the output as its recovery,
+  since the artifact holds the same bounded object and v1 writes none. Each is a test that failed
+  before it (`test_tool_output_finding_bound.py`, `test_run_row_read_set_ref.py`).
+  ARIA-HIGH-654 (output that is not UTF-8) and ARIA-MEDIUM-655 (the scrubber's quadratic cost)
+  are registered.
 
 ### ARIA-HIGH-618 — memory candidates or raw-finding entries make a run unrecordable
 
@@ -1119,6 +1135,38 @@ duplicate `lint-changed-files`. The real residual is INFRA-MEDIUM-224.
   emitted finding), or the quarantine verdict is decided before the append as ARIA-HIGH-618
   plans. Test-first: the 3,000-finding v1 run is recorded and quarantined. Owner Okan-wqm,
   deadline 2026-11-15.
+
+### ARIA-HIGH-654 — adapter output that is not UTF-8 leaves run_tool before the run is recorded
+
+- **Raised by:** the independent verification (round 4) of the order chain's `R-NEW-runs-bound`
+  item (correctness lens).
+- **Problem:** `adapter_room.run_adapter` runs the adapter with `text=True`, so subprocess decodes
+  stdout and stderr as strict UTF-8 inside `subprocess.run`. One byte that is not UTF-8, in a
+  metadata string or in a stderr warning, raises `UnicodeDecodeError` (a ValueError). `run_tool`
+  catches only `SandboxUnavailable`, `TimeoutExpired` and `OSError`, so the error leaves before
+  `record_run`: no runs row, and a tool whose report shows a `.env` read stays SHADOW. The tools
+  phase propagates it, so the cycle aborts every night; the fixture refresh lane shares
+  `run_adapter` and dies the same way. Also on origin/main.
+- **Planned fix:** `run_adapter` returns bytes. `run_tool` and `run_fixture_case` decode stdout
+  explicitly, and output that is not UTF-8 is a named parse code (`output_not_utf8`), so the run
+  is `schema_error`, recorded and quarantined; stderr is decoded with `errors="replace"` before
+  `adapter_stderr_sample`. The other two callers decode the same way. Test-first from the probe,
+  in v1 and v2-shadow. This changes the sandbox's one process start and its four callers, so it is
+  a change of its own. Owner Okan-wqm, deadline 2026-10-31.
+
+### ARIA-MEDIUM-655 — the scrubber's cost is quadratic in an alphanumeric run's length
+
+- **Raised by:** the independent verification (round 4) of the order chain's `R-NEW-runs-bound`
+  item (security lens).
+- **Problem:** `secret_scrub._redact_counted`, the one redaction loop every scrubber runs, takes
+  0.30 s on a 5,000-character alphanumeric run, 4.71 s at 20,000 and 19.6 s at 40,000; a
+  600,000-character id did not finish within 10 minutes. `record_run` scrubs adapter strings
+  (`evidence_validation`, then the artifact payload) before `evaluate_health`, so one such string
+  in adapter output stalls the run ahead of its quarantine until the phase deadline kills the
+  cycle. Older than `R-NEW-runs-bound`, which adds one pass in v2-shadow and the first in v1.
+- **Planned fix:** the redact rows run in linear time (bounded quantifiers or a length-capped
+  pre-tokenisation). Test-first: a 1 MB alphanumeric string scrubs within a fixed time budget and
+  the credential-shape tests stay green. Owner Okan-wqm, deadline 2026-11-15.
 
 ## Registry amendments recorded at the L1 registry step
 

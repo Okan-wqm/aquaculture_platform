@@ -34,6 +34,9 @@ Findings from the design-handoff reference (Tenant Console D4) vs the repo.
 
 ## FE-HIGH-373 — tasks console dead in production (scalar selection on object lists)
 
+> Registry row FE-HIGH-374 (IN-PROGRESS, deadline 2026-11-02) tracks this same
+> tasks-console scalar-selection defect; its review_file cites this section.
+
 - **Evidence (live, app.suderra.com):** every query/mutation embedding
   `TASK_FIELDS`/`RECURRING_TEMPLATE_FIELDS` fails with
   `Field "checklistItems" of type "[TaskChecklistItem!]!" must have a selection of subfields`

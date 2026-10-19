@@ -113,7 +113,6 @@ export interface FeedingProtocolV2 {
   migrationNote?: string;
   createdAt: string;
   updatedAt: string;
-  version: number;
 }
 
 export interface FcrOverride {

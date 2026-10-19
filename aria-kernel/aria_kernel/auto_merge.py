@@ -7,6 +7,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, Protocol
 
+from . import github_issue_reads
 from .canonical_path import matches_repo_glob, normalize_repo_relpath
 from .github_writes import run_gh_write
 from .implementation_safety import (
@@ -1127,25 +1128,44 @@ class GhCliGitHubAdapter:
         if self._merge_authority_token == token:
             self._merge_authority_token = None
 
-    def get_open_issues(self, *, labels: list[str]) -> dict[str, Any]:
-        """Open issues carrying every label, via `gh issue list`."""
-        args = ["issue", "list", "--state", "open", "--limit", "50",
-                "--json", "number,title,labels"]
-        for label in labels:
-            args.extend(["--label", label])
+    def _gh_read(self, argv: list[str]) -> tuple[bool, str]:
+        """``(ok, output)`` for the shared REST readers — a refusal or a
+        transport failure is a failed read with its detail, never an
+        exception: the freeze gates report an unreadable listing rather
+        than raise through the merge decision."""
         try:
-            payload = self._gh_json(args)
-        except Exception as exc:  # an unreadable alarm is not an absent alarm
-            return {"readable": False, "reason": f"{exc.__class__.__name__}: {exc}", "issues": []}
-        if not isinstance(payload, list):
-            return {"readable": False, "reason": "gh_issue_list_not_a_list", "issues": []}
+            completed = subprocess.run(
+                ["gh", *argv], cwd=self.cwd, capture_output=True, text=True, check=False,
+            )
+        except OSError as exc:
+            return False, f"{exc.__class__.__name__}: {str(exc)[:200]}"
+        if completed.returncode != 0:
+            detail = ((completed.stderr or completed.stdout or "").strip().splitlines() or ["?"])[0][:200]
+            return False, f"rc={completed.returncode}: {detail}"
+        return True, completed.stdout or ""
+
+    def get_open_issues(self, *, labels: list[str]) -> dict[str, Any]:
+        """Every open issue carrying all ``labels`` — the WHOLE open set
+        through the one complete read
+        (``github_issue_reads.read_open_issues``), never a capped
+        newest-first window.
+
+        ARIA-MEDIUM-582 — this read feeds the self-merge freeze and the
+        watchdog incident gates, which filter by title: a notice older
+        than a 50-newest window was an absent freeze, and the merge
+        proceeded. An unreadable listing says so (the freeze gates refuse
+        on it), because an unreadable freeze is not an absent freeze.
+        """
+        repo = f"{self.owner}/{self.repo}"
+        endpoint = github_issue_reads.open_issues_endpoint(repo=repo, labels=labels)
+        if is_gh_api_path_forbidden(endpoint):
+            raise GovernanceError(f"forbidden gh api path: {endpoint}")
+        ok, rows, reason = github_issue_reads.read_open_issues(self._gh_read, repo=repo, labels=labels)
+        if not ok:
+            return {"readable": False, "reason": reason, "issues": []}
         return {
             "readable": True,
-            "issues": [
-                {"number": row.get("number"), "title": row.get("title")}
-                for row in payload
-                if isinstance(row, dict)
-            ],
+            "issues": [{"number": row["number"], "title": row["title"]} for row in rows],
         }
 
     def get_pr(self, number: int) -> dict[str, Any]:

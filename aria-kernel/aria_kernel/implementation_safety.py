@@ -255,6 +255,15 @@ ALLOWED_GH_API_PATHS: tuple[re.Pattern[str], ...] = (
         r"(?:files|commits|reviews|comments)(?:[/?#].*)?$"
     ),
     re.compile(r"^/repos/[^/]+/[^/]+/issues/[0-9]+/comments(?:[/?#].*)?$"),
+    # ARIA-MEDIUM-582 — the merge lane's freeze gates read the open-issue
+    # listing through the one complete REST read
+    # (github_issue_reads.read_open_issues; the lane's adapter consults this
+    # allowlist with exactly that endpoint). Same bargain as the bare pulls
+    # collection above: `GET` lists, anchored with no trailing path segment
+    # so it cannot stand in for a sub-resource (`issues/{n}/comments` is the
+    # only issue sub-resource allowed, and `POST` here is `gh issue create`,
+    # which the kernel's own issue writer already does by argv).
+    re.compile(r"^/repos/[^/]+/[^/]+/issues(?:[?#].*)?$"),
 )
 
 # Plan ARIA-V9.0-D — MAX_VALIDATION_RESULT_BYTES — per-result stdout

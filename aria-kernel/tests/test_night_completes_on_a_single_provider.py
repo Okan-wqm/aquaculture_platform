@@ -32,9 +32,11 @@ import os
 import unittest
 from pathlib import Path
 
-from tests._helpers.night_harness import DynamicZaiVendor, NightStore, serving_claude_cli
+from tests._helpers.night_harness import (
+    DynamicZaiVendor, NightStore, serving_claude_cli, serving_codex_cli,
+)
 from tests._helpers.operator_acts import operator_set_profile
-from tests._helpers.single_provider_host import claude_host, zai_host
+from tests._helpers.single_provider_host import claude_host, codex_host, zai_host
 
 _PROVIDER = "anthropic"
 _PLAN = "plan-only-claude"
@@ -345,6 +347,151 @@ class OnlyZaiNightCompletes(unittest.TestCase):
         self.assertEqual(set(observations), {"anthropic", "zai", "openai"})
         self.assertEqual(observations["zai"]["decision"], "available")
         for provider in ("anthropic", "openai"):
+            self.assertEqual(observations[provider]["decision"], "unavailable", provider)
+
+
+
+
+class OnlyCodexNightCompletes(unittest.TestCase):
+    """The same two nights on a host that presents Codex and nothing else.
+
+    Codex is not installed on this host (WP-P package §0): the CLI is the
+    recording fake (status probe + one ``exec --json`` run honouring
+    --output-last-message, exit 97 on unknown argv), the credential the
+    managed ChatGPT session file under ``CODEX_HOME`` — never an API key.
+    The read lane is what this night drives: glm_first's third rung serves
+    the round request on a host where the first two rungs are
+    decided-unavailable. The WRITE seat on Codex is WP-P's open cell (the
+    matrix's ``implementation x openai`` refusal, ``admits_writes=False``);
+    pinning its current refusal is test_provider_matrix_invariant's job and
+    opening it is the gate-flip commit's, not this night's.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        import tempfile
+
+        from aria_kernel.plan_convergence import start_plan
+
+        cls._tmp = Path(tempfile.mkdtemp(prefix="aria-night-only-codex-"))
+        cls.addClassCleanup(cls._cleanup)
+        cls.host = codex_host()
+        cls.addClassCleanup(cls.host.close)
+        script = serving_codex_cli(log=cls.host.invocation_log, plan_title="only-codex night plan")
+        cls.store = NightStore(cls._tmp)
+        cls.store.install_cli("codex", script)
+        env = cls.store.night_env(cls.host.environ())
+        cls._env = env
+        import unittest.mock
+
+        patch = unittest.mock.patch.dict(os.environ, env, clear=True)
+        patch.start()
+        cls.addClassCleanup(patch.stop)
+        operator_set_profile("standard", base_dir=cls.store.tools)
+        start_plan(plan_id=_PLAN, initial_revision_id="rev-0", plan_content={
+            "schema_version": 1, "title": "only-codex night plan",
+            "summary": "the plan the only-codex night carries",
+            "affected_surfaces": [{"paths": ["src/app.ts"]}],
+            "key_changes": [{"id": "kc-0", "description": "apply the declared change",
+                             "paths": ["src/app.ts"], "imports": []}],
+            "validation_commands": [{"cmd": "npx nx affected --target=lint", "timeout_ms": 600_000}],
+            "evidence_refs": ["src/app.ts:1"], "architectural_tier": 1,
+        }, base_dir=cls.store.tools)
+        cls.n1 = cls.store.run()
+        from aria_kernel.next_cycle_queue import append_pending
+
+        append_pending(cls.store.tools, source_cycle_id="cyc-before-this-night",
+                       pressure_id="PE-only-codex-queued")
+        cls.digest_before = _digest(cls.store, _UNTOUCHED_BY_A_HELD_NIGHT)
+        cls.requests_after_n1 = cls.store.requests()
+        cls.n2 = cls.store.run()
+        cls.digest_after = _digest(cls.store, _UNTOUCHED_BY_A_HELD_NIGHT)
+        cls.gov_after_n2 = cls.store.governance()
+        cls.cycles = cls.store.cycles_rows()
+
+    @classmethod
+    def _cleanup(cls) -> None:
+        import shutil
+        import os as _os
+        if _os.environ.get("ARIA_NIGHT_KEEP"):
+            print("KEEP", cls._tmp)
+            return
+        shutil.rmtree(cls._tmp, ignore_errors=True)
+
+    def test_the_host_presents_openai_and_nothing_else(self) -> None:
+        self.assertEqual([p.key for p in self.host.available()], ["openai"])
+        self.assertIsNone(self.host.which("claude"))
+
+    def test_the_night_exits_clean_and_completes_a_cycle(self) -> None:
+        code, summary, _rows = self.n2
+        self.assertEqual((code, summary["exit_reason"], summary["overall_status"]),
+                         (0, "max_cycles", "ok"), summary)
+        self.assertGreaterEqual(summary["cycles_completed"], 1)
+
+    def test_the_completed_cycle_is_observable_in_three_ledgers(self) -> None:
+        _code, _summary, rows = self.n2
+        self.assertIn("cycle_completed", [row["phase"] for row in rows])
+        cycle_ids = {row["cycle_id"] for row in rows if row.get("cycle_id")}
+        terminal = [row for row in self.cycles
+                    if row.get("event") == "completed" and row.get("cycle_id") in cycle_ids]
+        self.assertTrue(terminal, self.cycles)
+        exits = [row for row in self.gov_after_n2 if row["kind"] == "autonomy_orchestrator_exit"]
+        self.assertTrue(exits)
+        self.assertNotIn(exits[-1]["details"]["exit_reason"],
+                         ("cycle_failed", "autonomous_preflight_blocked"))
+
+    def test_every_ledger_a_held_night_freezes_moves_on_a_completed_night(self) -> None:
+        frozen = {name for name, before in self.digest_before.items()
+                  if self.digest_after.get(name) == before}
+        self.assertFalse(frozen, sorted(frozen))
+
+    def test_the_night_minted_and_the_next_night_really_served_the_round_request(self) -> None:
+        minted = [row for row in self.requests_after_n1 if row.get("convergence_id") == _PLAN]
+        self.assertEqual([row["role"] for row in minted], ["challenger_plan"], minted)
+        rid = minted[0]["request_id"]
+        from aria_kernel.agent_invocations import derive_request_state
+
+        self.assertEqual(derive_request_state(request_id=rid, base_dir=self.store.tools), "ACCEPTED")
+
+    def test_the_serving_night_attempted_on_the_surviving_provider(self) -> None:
+        attempts = [row["details"] for row in self.gov_after_n2
+                    if row["kind"] == "runtime_attempt_started"]
+        self.assertTrue(attempts, "the night completed without attempting any dispatch")
+        self.assertEqual({attempt["provider"] for attempt in attempts}, {"openai"})
+        self.assertEqual({attempt["runtime"] for attempt in attempts}, {"codex"})
+
+    def test_the_vendor_was_reached_through_the_recording_cli(self) -> None:
+        # BOTH codex invocations run inside the room (the status probe and the
+        # exec), so the host-side log stays empty: the run's evidence rides the
+        # sealed envelope's details, and the status probe's answer is what the
+        # admission's own observation recorded (auth_method chatgpt).
+        self.assertEqual(self.host.calls(), [])
+        minted = [row for row in self.requests_after_n1 if row.get("convergence_id") == _PLAN]
+        envelope = json.loads(Path(minted[0]["expected_output_path"]).read_text(encoding="utf-8"))
+        vendor_argv = envelope["details"]["vendor_argv"]
+        self.assertEqual(vendor_argv[0], "exec", vendor_argv)
+        self.assertIn("read-only", vendor_argv, vendor_argv)
+        self.assertNotIn("workspace-write", vendor_argv, vendor_argv)
+        attempt = next(row["details"] for row in self.gov_after_n2
+                       if row["kind"] == "runtime_attempt_started")
+        openai_row = next(row for row in attempt["admission"]["candidate_observations"]
+                          if row["provider"] == "openai")
+        self.assertEqual(openai_row["auth_method"], "chatgpt")
+
+    def test_no_row_charges_a_provider_the_scenario_killed(self) -> None:
+        for row in self.gov_after_n2:
+            if row["kind"] == "runtime_attempt_started":
+                self.assertEqual(row["details"]["provider"], "openai")
+        admissions = [row for row in self.gov_after_n2 if row["kind"] == "runtime_admission_unavailable"]
+        self.assertEqual(admissions, [], "the surviving provider needed no refusal row")
+
+    def test_the_dead_providers_appear_only_as_rungs_the_admission_walked_past(self) -> None:
+        attempt = next(row["details"] for row in self.gov_after_n2
+                       if row["kind"] == "runtime_attempt_started")
+        observations = {row["provider"]: row for row in attempt["admission"]["candidate_observations"]}
+        self.assertEqual(set(observations), {"anthropic", "zai", "openai"})
+        self.assertEqual(observations["openai"]["decision"], "available")
+        for provider in ("anthropic", "zai"):
             self.assertEqual(observations[provider]["decision"], "unavailable", provider)
 
 

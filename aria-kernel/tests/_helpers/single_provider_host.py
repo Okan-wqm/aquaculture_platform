@@ -162,7 +162,9 @@ RECORDING_CODEX = (
     + _recorder_prelude(Path("__CODEX_LOG__"))
     + "import json, os, sys\n"
     "argv = sys.argv[1:]\n"
-    "if argv[:2] == ['login', 'status']:\n"
+    "# The room inserts the run's configuration flags ahead of the subcommand\n"
+    "# (command[1:1] = configuration_argv()), so the probe is matched by suffix.\n"
+    "if argv[-2:] == ['login', 'status']:\n"
     "    print('Logged in using ChatGPT', file=sys.stderr); raise SystemExit(0)\n"
     "if not argv or argv[0] != 'exec':\n"
     "    raise SystemExit(97)\n"

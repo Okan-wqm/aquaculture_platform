@@ -928,6 +928,76 @@ duplicate `lint-changed-files`. The real residual is INFRA-MEDIUM-224.
 - **Planned fix:** one exported grammar derived from the registry schema, and every gate's
   pattern built from it. Deadline: 2027-04-15.
 
+### ARIA-MEDIUM-656 — a pr-lifecycle observation still carries and binds a PR's change
+
+- **Raised by:** the ARIA order chain, landing the wave-3 `G003-md1-binding` bucket (key
+  merge-delivery-1). Main closed ARIA-HIGH-521 in another form (577741a4d): the perimeter now binds
+  from the latest row that carries a `change_id`, so the merge lane's own `observed` row no longer
+  blocks every ARIA PR. The writer and the readers stayed as they were.
+- **Problem:** `auto_merge.record_pr_lifecycle` takes any event string, defaults to `observed`, and
+  copies `change_id`, `proposal_id`, `task_id`, `assignment_id` and `merge_route` from its payload
+  onto every event (`auto_merge.py:574`, `:605-618`). Five readers pick the binding by their own
+  rules: `auto_merge.pr_change_binding` (any row carrying a change id, `:503`, read by
+  `change_for_pr` and the perimeter), `change_outcome._merge_index` (every change any row names,
+  `:468`), `_capture_assessment_inputs` (`:883`), `self_revert._reverted_suite` (the latest
+  proposal, `:1189`) and `human_merge_decision` (`:534`). Measured on origin/main a488a36f2 with the
+  bucket's tests: an observed row naming `chg_forged` makes `change_for_pr` return it, and an
+  unrelated change named only by an observed row is credited with the PR's merge. The production
+  GitHub adapter carries none of these fields, so the lane's own observation does not re-bind a PR
+  today. A legacy row or any payload-carrying caller does.
+- **Planned fix:** `merge_record.pr_change_binding` owns the binding (the PR's `opened` rows), the
+  writer takes a required event from a closed vocabulary and writes binding fields only on
+  `opened`/`pr_dry_run`, every reader goes through the owner, and the second owner in `auto_merge`
+  is deleted. Deadline: 2027-01-17.
+
+### ARIA-LOW-657 — the opened row's delivered head is never compared with the committed commit
+
+- **Raised by:** the wave-3 `G003-md1-binding` fix round (review item 2), re-measured on origin/main
+  a488a36f2.
+- **Problem:** the perimeter compares only the live head with `committed.commit_sha`
+  (`merge_authority.py:1032`). An opened row recorded for another commit passes when the live head
+  is the committed commit, and `pr_row_hash` (`:1152`) then names a delivery that is not the merged
+  change. No producer on main writes that shape today.
+- **Planned fix:** `pr_change_join_unavailable` when the binding's delivered head is not the
+  committed commit. Deadline: 2027-04-17.
+
+### ARIA-LOW-658 — the pre-merge capture drops the lineage verifier's refusal name
+
+- **Raised by:** the wave-3 `G003-md1-binding` implementation (design D4), re-measured on
+  origin/main a488a36f2.
+- **Problem:** the updated-head branch raises `GovernanceError(f"{reason}:{exc.reason}")`
+  (`merge_authority.py:1043`), but the capture's handler records `(reason,)` (`:1163`), so an
+  unrecorded update is evidenced as plain `pr_change_join_unavailable`. The merge stays refused; the
+  operator cannot tell an unrecorded commit from an unbound PR.
+- **Planned fix:** the capture's reason takes the verifier's suffix before the raise. Deadline:
+  2027-04-17.
+
+### ARIA-LOW-659 — updated-head evidence does not capture the update receipts it relied on
+
+- **Raised by:** the wave-3 `G003-md1-binding` security review (fix notes, item A); re-read on
+  origin/main a488a36f2, unchanged.
+- **Problem:** the capture's sources hold no `tools/recovery/external-effects.jsonl`
+  (`merge_authority.py:940`, `:946`). The updated-head branch calls `verify_branch_update_lineage`
+  (`:1038`), which reads that ledger from disk (`branch_update_lineage.py:179`), and the second
+  transaction re-checks only the captured sources (`:1114`). Not a weakening: the ledger is
+  append-only and kernel-written. An updated-head evidence row cannot be replayed from its prefixes.
+- **Planned fix:** capture the ledger, pass its rows to the verifier and bind the receipts' hashes
+  into the evidence, in the next change that owns `branch_update_lineage.py` and
+  `merge_authority.py`. Deadline: 2026-10-31 (dated by that review round).
+
+### ARIA-LOW-660 — two more copies of the PR binding owner's opened-row rule
+
+- **Raised by:** the wave-3 `G003-md1-binding` architecture review (fix notes, item B); re-read on
+  origin/main a488a36f2, which also has the `implementation_reconciler` copy.
+- **Problem:** `own_pr_delivery.aria_opened_prs` (`own_pr_delivery.py:34`) and
+  `implementation_reconciler.py:178` select the latest `opened` row themselves;
+  `human_merge_surface` (`:128`, `:153`, `:203`, `:219`) and `pr_branch_update.py:340` read a PR's
+  change from that copy. They select the same row as the owner today, so a change to the owner's
+  rule would not reach them.
+- **Planned fix:** both built on `merge_record.pr_change_binding`, in the next change that owns
+  `own_pr_delivery.py` and `human_merge_surface.py`. Deadline: 2026-10-31 (dated by that review
+  round).
+
 ## Registry amendments recorded at the L1 registry step
 
 - **ARIA-HIGH-281** (wave-2 key R7-008): reopened by `finding-registry reopen`, which rejects

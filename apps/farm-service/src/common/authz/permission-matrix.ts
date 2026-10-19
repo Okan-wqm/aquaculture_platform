@@ -302,6 +302,9 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   batchGrowthPrediction: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   batchHarvestEligibility: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   batchHistory: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  // Daily mortality totals (health-page chart) — operational signal, same
+  // authorisation shape as the other batch read queries.
+  mortalityDailyHistory: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   // batchPerformance restricted to MANAGER + ADMIN — the query
   // exposes cost-per-kg, treatment totals, and labour costs which
   // are financial signals beyond the operator's scope.

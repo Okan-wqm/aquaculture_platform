@@ -78,4 +78,27 @@ describe('Health-event read handlers (fail-closed tenant boundary)', () => {
     expect(result.active).toBe(0);
     expect(mockManager.find).toHaveBeenCalledWith(expect.anything(), { where: { tenantId } });
   });
+
+  it('GetHealthEventStatsHandler counts only un-elapsed withdrawal periods', async () => {
+    const { mockDataSource, mockManager } = createMockDataSource();
+    const future = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000);
+    (mockManager.find as jest.Mock).mockResolvedValueOnce([
+      { status: 'active', severity: 'medium', eventType: 'disease', earliestHarvestDate: future },
+      {
+        status: 'resolved',
+        severity: 'low',
+        eventType: 'parasite',
+        // Withdrawal elapsed (yesterday) — must NOT count.
+        earliestHarvestDate: new Date(Date.now() - 24 * 60 * 60 * 1000),
+      },
+      // No withdrawal set — must NOT count.
+      { status: 'monitoring', severity: 'high', eventType: 'observation' },
+    ]);
+
+    const result = await new GetHealthEventStatsHandler(mockDataSource).execute(
+      new GetHealthEventStatsQuery(tenantId),
+    );
+
+    expect(result.withdrawalActive).toBe(1);
+  });
 });

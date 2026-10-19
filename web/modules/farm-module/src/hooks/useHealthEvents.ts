@@ -355,9 +355,18 @@ export interface HealthEventStats {
   critical: number;
   underTreatment: number;
   quarantined: number;
+  /** Events whose treatment withdrawal period has not elapsed yet. */
+  withdrawalActive: number;
   resolved: number;
   byEventType: Record<string, number>;
   bySeverity: Record<string, number>;
+}
+
+/** One day's mortality total (all sites) — the health page N-day chart point. */
+export interface MortalityDailyPoint {
+  /** ISO date (yyyy-mm-dd). */
+  date: string;
+  count: number;
 }
 
 // ============================================================================
@@ -559,6 +568,7 @@ export function useHealthEventStats() {
             critical
             underTreatment
             quarantined
+            withdrawalActive
             resolved
             byEventType
             bySeverity
@@ -839,5 +849,32 @@ export function useResolveHealthEvent() {
       if (tenantId) queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'healthEventStats') });
       if (tenantId) queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'criticalHealthEvents') });
     },
+  });
+}
+
+/**
+ * Daily mortality totals (all sites) for the health page's N-day chart.
+ * Days with zero mortality are absent — zero-fill for display.
+ */
+export function useMortalityDailyHistory(days = 14) {
+  const { token, tenantId } = useAuth();
+
+  return useQuery({
+    queryKey: createTenantQueryKey(tenantId, 'mortalityDailyHistory', days),
+    queryFn: async () => {
+      const query = `
+        query MortalityDailyHistory($days: Int) {
+          mortalityDailyHistory(days: $days) {
+            date
+            count
+          }
+        }
+      `;
+      const result = await graphqlClient.request<{
+        mortalityDailyHistory: MortalityDailyPoint[];
+      }>(query, { days });
+      return result.mortalityDailyHistory;
+    },
+    enabled: !!token && !!tenantId,
   });
 }

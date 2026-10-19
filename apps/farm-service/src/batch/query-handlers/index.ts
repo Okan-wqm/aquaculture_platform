@@ -10,6 +10,7 @@ import { GetBatchPerformanceHandler } from './get-batch-performance.handler';
 import { GetBatchHistoryHandler } from './get-batch-history.handler';
 import { GetBatchTraceabilityHandler } from './get-batch-traceability.handler';
 import { GetMortalityByCauseHandler } from './get-mortality-by-cause.handler';
+import { GetMortalityDailyHistoryHandler } from './get-mortality-daily-history.handler';
 import { GetTransfersSummaryHandler } from './get-transfers-summary.handler';
 
 export * from './get-batch.handler';
@@ -20,6 +21,7 @@ export * from './get-batch-performance.handler';
 export * from './get-batch-history.handler';
 export * from './get-batch-traceability.handler';
 export * from './get-mortality-by-cause.handler';
+export * from './get-mortality-daily-history.handler';
 export * from './get-transfers-summary.handler';
 
 /**
@@ -34,5 +36,6 @@ export const BatchQueryHandlers = [
   GetBatchHistoryHandler,
   GetBatchTraceabilityHandler,
   GetMortalityByCauseHandler,
+  GetMortalityDailyHistoryHandler,
   GetTransfersSummaryHandler,
 ];

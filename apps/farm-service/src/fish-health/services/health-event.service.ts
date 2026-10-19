@@ -26,6 +26,8 @@ export interface HealthEventStats {
   critical: number;
   underTreatment: number;
   quarantined: number;
+  /** Events whose treatment withdrawal period has not elapsed yet. */
+  withdrawalActive: number;
   resolved: number;
   byEventType: Record<string, number>;
   bySeverity: Record<string, number>;
@@ -193,11 +195,7 @@ export class HealthEventService {
   /**
    * End quarantine for a health event
    */
-  async endQuarantine(
-    tenantId: string,
-    id: string,
-    _userId: string,
-  ): Promise<HealthEvent> {
+  async endQuarantine(tenantId: string, id: string, _userId: string): Promise<HealthEvent> {
     const event = await this.findByIdOrFail(tenantId, id);
 
     event.isQuarantined = false;
@@ -274,10 +272,14 @@ export class HealthEventService {
 
     // Disease filters
     if (filter.diseaseCategory) {
-      query.andWhere('he.diseaseCategory = :diseaseCategory', { diseaseCategory: filter.diseaseCategory });
+      query.andWhere('he.diseaseCategory = :diseaseCategory', {
+        diseaseCategory: filter.diseaseCategory,
+      });
     }
     if (filter.diseaseName) {
-      query.andWhere('he.diseaseName ILIKE :diseaseName', { diseaseName: `%${filter.diseaseName}%` });
+      query.andWhere('he.diseaseName ILIKE :diseaseName', {
+        diseaseName: `%${filter.diseaseName}%`,
+      });
     }
 
     // Date filters
@@ -290,7 +292,9 @@ export class HealthEventService {
 
     // Treatment filters
     if (filter.isUnderTreatment !== undefined) {
-      query.andWhere('he.isUnderTreatment = :isUnderTreatment', { isUnderTreatment: filter.isUnderTreatment });
+      query.andWhere('he.isUnderTreatment = :isUnderTreatment', {
+        isUnderTreatment: filter.isUnderTreatment,
+      });
     }
     if (filter.isQuarantined !== undefined) {
       query.andWhere('he.isQuarantined = :isQuarantined', { isQuarantined: filter.isQuarantined });

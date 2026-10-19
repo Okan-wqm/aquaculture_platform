@@ -34,6 +34,7 @@ from aria_kernel import state_snapshot
 from aria_kernel.operator_request_terms import parse_utc
 from aria_kernel.tool_registry import GovernanceError
 from tests._helpers import operator_requests as helpers
+from tests._helpers.pre_merge_evidence import fixture_pre_merge_evidence
 from tests._helpers.operator_requests import (
     ALL_OPERATOR_NAMESPACES,
     AUDIENCE,
@@ -279,7 +280,7 @@ class MergeTimeEnrolmentExpiryTests(unittest.TestCase):
     def _perimeter(self, *, at: datetime, base: str | None = None, head: str | None = None,
                    bound: bool = True) -> safety.HardFailResult:
         fields = {field: f"{field}-x" for field in self._BOUND} if bound else {}
-        evidence = safety._PreMergeEvidence((), base_sha=base or self.base, head_sha=head or self.head, **fields)
+        evidence = fixture_pre_merge_evidence((), base_sha=base or self.base, head_sha=head or self.head, **fields)
         context = safety.HardFailContext(workspace_root=self.fx.repo, pre_merge_evidence=evidence)
         with mock.patch.object(safety, "datetime") as clock:
             clock.now.return_value = at

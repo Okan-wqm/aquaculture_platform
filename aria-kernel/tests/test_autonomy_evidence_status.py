@@ -1682,6 +1682,16 @@ def alias_factory(root):
                     f"{KERNEL}cycle.py",
                     "producer",
                 ),
+                # ARIA-HIGH-222 — the claim lane's backstop reads which heads
+                # already hold a claim (readiness_proofs.recorded_claim_heads)
+                # to pick the head it should claim next; it schedules the
+                # claim's production, never authorizes a merge.
+                (
+                    "enterprise_readiness",
+                    "enterprise_readiness_claims",
+                    f"{KERNEL}readiness_claim_sweep.py",
+                    "consumer",
+                ),
             },
             "reporting_or_prioritization": {
                 (
@@ -6466,7 +6476,6 @@ PENDING_CLOSURE_REGRESSION_REFS: dict[str, tuple[str, ...]] = {
         "aria-kernel/tests/test_workflow_mode_a_transport.py",
         "aria-kernel/tests/test_signed_readiness_snapshot.py",
     ),
-    "ARIA-HIGH-005": ("aria-kernel/tests/test_pre_merge_evidence.py",),
     "ARIA-HIGH-006": (
         "aria-kernel/tests/test_file_claim_atomic_acquire.py",
         "aria-kernel/tests/test_pre_merge_file_claims.py",

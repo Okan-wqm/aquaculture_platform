@@ -18,7 +18,13 @@ from .auto_merge import (
 from .autonomous_host_lease import release_remote_cas_lease
 from .autonomy_unlock import assert_autonomy_unlocked
 from .enterprise_readiness import verify_enterprise_readiness
-from .implementation_safety import GATE_PRE_MERGE, HardFailContext, run_hard_fail_checks
+from .implementation_safety import (
+    _PRE_MERGE_EVIDENCE_TOKEN,
+    GATE_PRE_MERGE,
+    HardFailContext,
+    _PreMergeEvidence,
+    run_hard_fail_checks,
+)
 from .incident_ledger import (
     ensure_pre_merge_incident_row,
     finalize_merge_incident,
@@ -235,12 +241,9 @@ def merge_pr_if_ready(
         else:
             fresh_pr = adapter.get_pr(pr_number)
             fresh_github = collect_github_snapshot(adapter, fresh_pr)
-            fresh_diff: str | None = None
-            if hasattr(adapter, "get_pr_diff"):
-                try:
-                    fresh_diff = adapter.get_pr_diff(pr_number)  # type: ignore[attr-defined]
-                except Exception:
-                    fresh_diff = None
+            # ARIA-MEDIUM-581 — a diff the fresh read could not fetch is
+            # blocked by its named cause; an adapter fault raises.
+            fresh_diff, fresh_diff_error = adapter.get_pr_diff(pr_number)
             if fresh_diff is None:
                 fresh_diff = fresh_pr.get("diff_text")
             fresh_decision = evaluate_auto_merge(
@@ -251,6 +254,7 @@ def merge_pr_if_ready(
                 cycle_id=cycle_id,
                 dry_run=True,
                 diff_text=fresh_diff,
+                diff_lookup_error=fresh_diff_error,
                 workspace_root=workspace_root,
             )
             latest_head_sha = fresh_decision.get("head_sha")
@@ -751,7 +755,6 @@ def _evaluate_pre_merge_perimeter(
     too incomplete to shape one is left to the capture, which names it
     (``pr_commit_identity_unavailable``).
     """
-    from .implementation_safety import _PreMergeEvidence
     from .merge_lane_workspace import (
         MergeLaneWorkspaceRefusal,
         pr_head_workspace,
@@ -781,7 +784,7 @@ def _evaluate_pre_merge_perimeter(
             diff_text=diff_text,
             base_branch=_base_branch(pr),
             pr_body=pr.get("body") if isinstance(pr.get("body"), str) else None,
-            pre_merge_evidence=_PreMergeEvidence((f"merge_lane_workspace_unavailable:{exc}",)),
+            pre_merge_evidence=_pre_merge_evidence((f"merge_lane_workspace_unavailable:{exc}",)),
         )
         return context, run_hard_fail_checks(context, gate=GATE_PRE_MERGE)
 
@@ -818,6 +821,13 @@ def request_implementation_expert_review(
     if state != "OPEN":
         result["reasons"] = [f"pr_not_open:{state or 'unobserved'}"]
         return result
+    # ARIA-MEDIUM-581 — the review is of the implementation's diff; one that
+    # cannot be read is named (an oversized diff, a refused token) instead of
+    # an evaluated perimeter that requests nothing for a reason it cannot say.
+    diff_text, diff_lookup_error = adapter.get_pr_diff(pr_number)
+    if diff_text is None:
+        result["reasons"] = [f"pr_diff_unavailable:{diff_lookup_error}"]
+        return result
     requested: list[str] = []
 
     def request(context: HardFailContext, report: Any) -> None:
@@ -829,7 +839,7 @@ def request_implementation_expert_review(
         workspace_root=workspace_root,
         base_dir=base_dir,
         pr=pr,
-        diff_text=adapter.get_pr_diff(pr_number),
+        diff_text=diff_text,
         while_shaped=request,
     )
     result["requested"] = requested
@@ -859,7 +869,6 @@ def _capture_pre_merge_context(
     from . import agent_invocations as _invocations
     from . import plan_convergence as _plans
     from .change_paths import read_change_paths as _read_change_paths
-    from .implementation_safety import _PreMergeEvidence
     from .ledger import LedgerIntegrityError as _LedgerIntegrityError
     from .ledger import _verify_jsonl_from_text
     from .ledger import load_jsonl_verified_text as _load_verified_text
@@ -874,7 +883,7 @@ def _capture_pre_merge_context(
         diff_text=diff_text,
         base_branch=_base_branch(pr),
         pr_body=pr.get("body") if isinstance(pr.get("body"), str) else None,
-        pre_merge_evidence=_PreMergeEvidence(("workspace_root_unavailable",)),
+        pre_merge_evidence=_pre_merge_evidence(("workspace_root_unavailable",)),
     )
     if workspace_root is None:
         return context
@@ -1138,8 +1147,8 @@ def _capture_pre_merge_context(
             context,
             affected_paths=tuple(merged_paths),
             envelope={"affected_surfaces": list(changed_paths)},
-            pre_merge_evidence=_PreMergeEvidence(
-                unavailable_reasons=gaps, pr_number=number, change_id=change_id,
+            pre_merge_evidence=_pre_merge_evidence(
+                gaps, pr_number=number, change_id=change_id,
                 pr_row_hash=binding["ledger_hash"], planned_row_hash=planned["ledger_hash"],
                 committed_row_hash=committed["ledger_hash"], plan_id=plan_id,
                 plan_revision_id=body["revision_id"], plan_content_hash=body["content_hash"],
@@ -1151,7 +1160,18 @@ def _capture_pre_merge_context(
             ),
         )
     except (OSError, ValueError, KeyError, TypeError, _LedgerIntegrityError, _StateStoreError):
-        return _replace(context, pre_merge_evidence=_PreMergeEvidence((reason,)))
+        return _replace(context, pre_merge_evidence=_pre_merge_evidence((reason,)))
+
+
+def _pre_merge_evidence(unavailable_reasons: Any, **observed: Any) -> _PreMergeEvidence:
+    """The one constructor of the immutable pre-merge snapshot.
+
+    ARIA-HIGH-005 (Task 8) — ``_PreMergeEvidence`` refuses construction
+    without the token held here, so the capture above (and the workspace
+    refusal beside it) is the only way a snapshot exists: a predicate input
+    cannot be assembled by hand and handed to the perimeter.
+    """
+    return _PreMergeEvidence(tuple(unavailable_reasons), _token=_PRE_MERGE_EVIDENCE_TOKEN, **observed)
 
 
 def _read_pre_merge_coverage_file(path: Path) -> bytes | None:

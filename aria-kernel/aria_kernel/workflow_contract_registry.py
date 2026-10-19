@@ -364,9 +364,12 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 # 510 → 570 (ARIA-HIGH-342, PR #1779 re-review R-3): the
                 # post-drain reserve now prices the leased publish's preamble
                 # outside the lock (cold staging, the fence's lease reads and
-                # renewal: 4500 s). The YAML is the pin; this must move with it
-                # (`_verify_job_timeout_minutes`).
-                job_timeout_minutes=570,
+                # renewal: 4500 s). 570 → 602 (ARIA-LOW-585): the steps
+                # allowance moved to its one kernel owner and was re-priced
+                # from #1371's measured 47 minutes; the cap moves WITH the
+                # reserve, so the drain window is unchanged. The YAML is the
+                # pin; this must move with it (`_verify_job_timeout_minutes`).
+                job_timeout_minutes=602,
                 required_steps=(
                     _EXECUTOR_RESTORE_STEP,
                     _EXECUTOR_LEASE_STEP,
@@ -492,12 +495,16 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 clean_worktree_policy="pre_and_post",
                 external_root_allowlist=("RUNNER_TEMP",),
                 # Operator decision (2026-08-13): the night's window is
-                # unbounded — the 360-minute platform ceiling, one value for
-                # every mode. Smoke runs 1-3 proved the 50-minute cap was the
-                # binding constraint; the ORPHAN-661/662 deadline pair keeps
-                # any value safe (the night seals + publishes at the wall).
+                # unbounded — a stated cap, one value for every mode (no
+                # 360-minute platform ceiling exists on a self-hosted
+                # runner). 360 → 454 (ARIA-LOW-585): the close-out margin is
+                # derived from the kernel's priced publish bounds and the cap
+                # moved WITH it, so the spawn window is unchanged. Smoke runs
+                # 1-3 proved a small cap was the binding constraint; the
+                # ORPHAN-661/662 deadline pair keeps any value safe (the
+                # night seals + publishes at the wall).
                 burn_in_timeout_floor_minutes=120,
-                job_timeout_minutes=360,
+                job_timeout_minutes=454,
                 # The producer is the shape aria-agent-executor mirrors, so it
                 # carries the same declared constraints — a reference
                 # implementation that is itself unpinned is a reference that
@@ -730,9 +737,13 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 # ARIA-HIGH-217 — the expert panel is requested here, on the
                 # PR head (a worktree of the detached checkout), and the
                 # requests are published with the claim.
+                # ARIA-HIGH-222 — every claim step reads the one bound
+                # target; the hourly backstop sweeps for it under the
+                # writer lease, from the store the restore checked out.
                 required_steps=(
                     _DETACH_STEP,
                     _RESTORE_STEP,
+                    "Bind the claim target",
                     "Build the rollback bundle",
                     "Publish the rollback bundle",
                     "Download the published rollback bundle",
@@ -741,6 +752,9 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                     _PUBLISH_STEP,
                 ),
                 step_order=(
+                    (_RESTORE_STEP, "Bind the claim target"),
+                    ("Bind the claim target", "Build the rollback bundle"),
+                    ("Bind the claim target", "Assemble the readiness claim"),
                     ("Build the rollback bundle", "Publish the rollback bundle"),
                     ("Publish the rollback bundle", "Download the published rollback bundle"),
                     ("Download the published rollback bundle", "Assemble the readiness claim"),

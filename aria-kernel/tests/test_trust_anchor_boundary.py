@@ -27,6 +27,7 @@ from aria_kernel import implementation_safety as safety
 from aria_kernel import operator_request_signature as ors
 from aria_kernel.operator_approval import OPERATORS_POLICY_RELPATH
 from tests._helpers.operator_requests import OperatorRequestFixture
+from tests._helpers.pre_merge_evidence import fixture_pre_merge_evidence
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _HABITAT = _REPO_ROOT / "scripts" / "aria" / "runner-habitat" / "systemd"
@@ -48,7 +49,7 @@ def _bound_evidence() -> safety._PreMergeEvidence:
     fields = ("repo_identity", "snapshot_hash", "pr_row_hash", "planned_row_hash", "committed_row_hash",
               "request_id", "claim_id", "request_row_hash", "claim_row_hash", "result_row_hash",
               "implementation_event_hash")
-    return safety._PreMergeEvidence((), **{field: f"{field}-x" for field in fields})
+    return fixture_pre_merge_evidence((), **{field: f"{field}-x" for field in fields})
 
 
 class ReadOnlyTrustAnchorTests(unittest.TestCase):

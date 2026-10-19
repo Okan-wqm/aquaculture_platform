@@ -412,6 +412,41 @@ class PreClaimGateTest(unittest.TestCase):
         self.assertIn("did not answer", gov.call_args.args[2]["detail"])
         self.assertEqual(stalled.stalled_attempts, 2)
 
+    def test_the_judge_batch_lane_is_asked_for_git_alone(self) -> None:
+        # ARIA-LOW-610 — the batch is one HTTP call: no room, no validation
+        # commands. On a host with no sandbox, no egress boundary, no Claude
+        # session and no node_modules it still claims when git answers, and
+        # is refused by name when git does not; the spawn lane on the same
+        # host is refused for the room.
+        with TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            _checkout_with_one_commit(workspace)
+            cwd = os.getcwd()
+            os.chdir(workspace)
+            try:
+                with patch.object(ci_executor, "_MOCK_MODE_AT_ENTRY", False), \
+                     patch.object(ci_executor, "preflight_claude_auth",
+                                  side_effect=ci_executor.ClaudeAuthUnavailable("no session")) as auth, \
+                     patch.object(ci_executor, "_sandbox_backend", return_value=None), \
+                     patch.object(ci_executor, "_egress_boundary_probe", return_value="no proxy"), \
+                     patch.object(ci_executor, "_append_tools_governance") as gov:
+                    batch = ci_executor._pre_claim_environment_gate(
+                        tools_dir=workspace, lane=ci_executor.PRE_CLAIM_LANE_JUDGE_BATCH)
+                    auth.assert_not_called()
+                    gov.assert_not_called()
+                    spawn = ci_executor._pre_claim_environment_gate(
+                        tools_dir=workspace, native_runtime=object())
+                    (workspace / ".git").rename(workspace / "not-a-git-dir")
+                    no_git = ci_executor._pre_claim_environment_gate(
+                        tools_dir=workspace, lane=ci_executor.PRE_CLAIM_LANE_JUDGE_BATCH)
+            finally:
+                os.chdir(cwd)
+
+        self.assertIsNone(batch)
+        self.assertEqual(spawn, "sandbox_unavailable")
+        self.assertEqual(no_git, "git_unavailable")
+        self.assertEqual(gov.call_args.args[1], "git_unavailable")
+
     def test_the_git_probe_is_the_kernels_own_session(self) -> None:
         # Not a private subprocess with its own bound: the same probe the
         # validator runs, so the two cannot disagree on what "answers" is.

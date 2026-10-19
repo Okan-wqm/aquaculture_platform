@@ -851,6 +851,10 @@ class BroaderScopeClaimsAndSubstringGates(unittest.TestCase):
             "/repos/o/r/pulls/12",
             "/repos/o/r/pulls/12/files",
             "/repos/o/r/issues/12/comments",
+            # ARIA-MEDIUM-582 — the merge lane's freeze gates read the whole
+            # open-issue set through github_issue_reads.read_open_issues.
+            "/repos/o/r/issues",
+            "/repos/o/r/issues?state=open&labels=aria,watchdog&per_page=100",
         ):
             with self.subTest(path=path):
                 self.assertFalse(

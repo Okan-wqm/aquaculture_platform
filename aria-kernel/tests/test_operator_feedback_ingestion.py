@@ -45,6 +45,7 @@ from aria_kernel.plan_synthesizer import (
     scan_operator_feedback,
 )
 from aria_kernel.tool_registry import GovernanceError
+from tests._helpers.pre_merge_evidence import fixture_pre_merge_evidence
 from tests._helpers.operator_requests import (
     GROUNDED_FILE,
     OperatorRequestFixture,
@@ -466,7 +467,7 @@ class PreMergeObservationTests(_Fixture):
         self.assertEqual(observation["operator_feedback_plan_started_hash"], self.state["plan_started"]["content_hash"])
         self.assertEqual(observation["operator_feedback_consumed_row_hashes"], (self.signed["ledger_hash"],))
         self.assertEqual(observation["operator_feedback_consumed_signers"], (self.fx.principal,))
-        evidence = safety._PreMergeEvidence((), **observation)
+        evidence = fixture_pre_merge_evidence((), **observation)
         self.assertTrue(evidence.operator_feedback_verified)
 
     def test_a_signer_the_anchor_no_longer_enrols_fails(self) -> None:
@@ -616,7 +617,7 @@ class PreMergeObservationTests(_Fixture):
                 observation = self._observe(**kwargs)
                 self.assertFalse(observation["operator_feedback_verified"])
                 self.assertEqual(observation["operator_feedback_unavailable_reason"], expected)
-                safety._PreMergeEvidence((), **observation)
+                fixture_pre_merge_evidence((), **observation)
         forged = [dict(r, admitted=[]) if r["ledger_hash"] == scan_row["ledger_hash"] else r for r in rows]
         self.assertEqual(self._observe(ingestion_rows=forged)["operator_feedback_unavailable_reason"],
                          "operator_feedback_consumption_mismatch")
@@ -666,7 +667,7 @@ class PredicateTests(unittest.TestCase):
             operator_feedback_verified=True,
         )
         base.update(overrides)
-        return safety._PreMergeEvidence(**base)
+        return fixture_pre_merge_evidence(**base)
 
     def _run(self, evidence: safety._PreMergeEvidence | None) -> safety.HardFailResult:
         report = safety.run_hard_fail_checks(

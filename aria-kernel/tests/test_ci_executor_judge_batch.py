@@ -192,5 +192,60 @@ class JudgeBatchLane(unittest.TestCase):
         _zai.NativeZaiLane._assert_secret_nowhere(self)
 
 
+    def test_a_workspace_whose_git_cannot_answer_claims_nothing(self) -> None:
+        """ARIA-LOW-610 — the batch asks the one pre-claim environment gate
+        before its first claim, for what its host must provide.
+
+        A workspace where git cannot answer ``rev-parse HEAD`` rejects every
+        finished result as ``verification_unavailable``: the batch claimed K
+        requests and paid the call before learning that. The gate refuses
+        such a host before any claim; the batch then claims nothing and
+        settles every member by name. The batch is HTTP-only, so git is the
+        only host check it is asked: this fixture's workspace has no sandbox
+        room and no node_modules, and the happy-path test above still claims
+        and serves all three.
+        """
+        import shutil
+
+        from aria_kernel.ledger import load_declared_jsonl
+
+        real_git = shutil.which("git")
+        broken = self.root / "git-without-head"
+        broken.mkdir()
+        wrapper = broken / "git"
+        wrapper.write_text(
+            "#!/bin/sh\n"
+            'if [ "$1" = rev-parse ] && [ "$2" = --verify ] && [ "$3" = "HEAD^{commit}" ]; then\n'
+            '  echo "fatal: unable to read tree (object store unreadable)" >&2\n'
+            "  exit 128\n"
+            "fi\n"
+            f'exec {real_git} "$@"\n',
+            encoding="utf-8",
+        )
+        wrapper.chmod(0o755)
+        self.environment["PATH"] = str(broken) + os.pathsep + self.environment["PATH"]
+        self.vendor.script.append((200, _zai._completion("OK", prompt_tokens=7, completion_tokens=1)))  # probe
+        self.vendor.script.append((200, _zai._completion(self._payload(self._excerpt_quote()),
+                                                         prompt_tokens=3000, completion_tokens=300)))
+        completed = self._run_batch()
+        self.assertIn("pre_claim_environment_gate: git_unavailable", completed.stderr)
+        claims_path = self.tools / "agent-invocations/claims.jsonl"
+        claims = (load_declared_jsonl(claims_path, expected_surface="agent_invocation_claims")
+                  if claims_path.exists() else [])
+        self.assertEqual([row for row in claims if row.get("request_id") in self.request_ids], [],
+                         "no member is claimed on a host whose git cannot answer")
+        for rid in self.request_ids:
+            self.assertEqual(self.ai.derive_request_state(request_id=rid, base_dir=self.tools), "PENDING")
+        summaries = self._summaries()
+        self.assertEqual({(summaries[r]["outcome"], summaries[r]["failure_detail_code"]) for r in self.request_ids},
+                         {("refused", "git_unavailable")})
+        self.assertEqual({summaries[r]["failure_class"] for r in self.request_ids}, {"harness_unavailable"})
+        governance = load_declared_jsonl(self.tools / "governance.jsonl", expected_surface="tools_governance")
+        gate_rows = [row for row in governance if row["kind"] == "git_unavailable"]
+        self.assertEqual(len(gate_rows), 1)
+        self.assertEqual(gate_rows[0]["details"]["source"], "ci_executor_pre_claim_gate")
+        self.assertEqual(len(self.vendor.script), 2, "the vendor was never called: no probe, no batch")
+
+
 if __name__ == "__main__":
     unittest.main()

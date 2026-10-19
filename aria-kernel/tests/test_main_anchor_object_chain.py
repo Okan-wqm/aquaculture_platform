@@ -56,6 +56,10 @@ def _write_loose(repo: Path, oid: str, header: str, body: bytes) -> None:
     """Write zlib(header + body) under ``oid``'s loose path, hash unchecked — the forgery."""
     target = repo / ".git" / "objects" / oid[:2] / oid[2:]
     target.parent.mkdir(parents=True, exist_ok=True)
+    # git writes loose objects read-only (0444), so truncating one in place is
+    # EACCES for every non-root user (the CI runner included); a forger who
+    # replaces the object drops it first — the directory is the fixture's own.
+    target.unlink(missing_ok=True)
     target.write_bytes(zlib.compress(header.encode("ascii") + body))
 
 

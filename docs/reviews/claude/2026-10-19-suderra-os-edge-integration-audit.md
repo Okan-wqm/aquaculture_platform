@@ -2323,3 +2323,115 @@ P3 2027-03-31. Yan bulgular, uygulama paketine alınana kadar önemine göre P1 
 - **Kök neden:** Decoders were treated as having the same trust level as the local config, so the sandbox focused only on runtime bounds.
 - **Mimari düzeltme yönü:** Reuse the signed bytecode-registry pattern: an ed25519-signed manifest over sha256(module), a maximum module size, and compilation in spawn_blocking with a timeout before registration.
 - **Doğrulama:** Unit tests: an oversized module is rejected, an unsigned or mis-signed module is rejected, and a valid signed module loads.
+
+## ADR-048 kalıntı riskleri
+
+ADR-048 tarafından bilerek sonraki bir faza bırakılan riskler. Her biri ADR-048'deki 'Takip edilen kalıntı riskler' tablosundaki R-NN satırına karşılık gelir.
+
+<a id="EDGE-MEDIUM-116"></a>
+
+### EDGE-MEDIUM-116 — Agent binary on /data is verified only before start; no kernel-enforced integrity until releases ship as signed verity images with DM_VERITY_VERIFY_ROOTHASH_SIG/IPE enforcement
+
+- **Önem:** MEDIUM · **Faz:** P2 · **Son tarih:** 2026-12-31 · **Sahip:** @Okan-wqm · **Durum:** OPEN
+- **Köken:** ADR-048 kalıntı riski R-01
+- **Kanıt (dosya:satır):** `docs/adr/048-suderra-os-edge-agent-integration-contract.md:1`
+- **Mimari düzeltme yönü:** Ship each agent release as a signed read-only verity image; enforce the root-hash signature in the kernel keyring (DM_VERITY_VERIFY_ROOTHASH_SIG) or IPE; keep ExecStartPre=+verify-current until then.
+
+<a id="EDGE-MEDIUM-117"></a>
+
+### EDGE-MEDIUM-117 — Root update worker cannot verify operator approvals until the edge-update.v2 statement carries them (P1 approval check is cloud-side only)
+
+- **Önem:** MEDIUM · **Faz:** P2 · **Son tarih:** 2026-12-31 · **Sahip:** @Okan-wqm · **Durum:** OPEN
+- **Köken:** ADR-048 kalıntı riski R-02
+- **Kanıt (dosya:satır):** `docs/adr/048-suderra-os-edge-agent-integration-contract.md:1`
+- **Mimari düzeltme yönü:** edge-update.v2 carries per-operator co-signatures verified by the root worker against the trust-anchor bundle.
+
+<a id="EDGE-MEDIUM-118"></a>
+
+### EDGE-MEDIUM-118 — No in-place USB/LAN agent or site-config update path for air-gapped sites; updates require re-provisioning
+
+- **Önem:** MEDIUM · **Faz:** P3 · **Son tarih:** 2027-03-31 · **Sahip:** @Okan-wqm · **Durum:** OPEN
+- **Köken:** ADR-048 kalıntı riski R-03
+- **Kanıt (dosya:satır):** `docs/adr/048-suderra-os-edge-agent-integration-contract.md:1`
+- **Mimari düzeltme yönü:** Signed USB update bundle ingress through the same root verifier, device-bound, with update_seq.
+
+<a id="EDGE-HIGH-119"></a>
+
+### EDGE-HIGH-119 — Online provisioning, device-lifecycle and command signing keys live outside KMS (service env secrets) until the KMS/OIDC signer lands; pilots run with this risk
+
+- **Önem:** HIGH · **Faz:** P2 · **Son tarih:** 2026-12-31 · **Sahip:** @Okan-wqm · **Durum:** OPEN
+- **Köken:** ADR-048 kalıntı riski R-04
+- **Kanıt (dosya:satır):** `apps/sensor-service/src/edge-device/command-envelope-signer.service.ts:171`
+- **Mimari düzeltme yönü:** Move all online signing keys into an Ed25519-capable KMS bound to one signer identity with per-signature audit, rate limits and tenant scoping.
+
+<a id="EDGE-MEDIUM-120"></a>
+
+### EDGE-MEDIUM-120 — TPM-less RPi4/CM4: rollback floor, epoch ratchet and agent keys are protected only by /data; SL2 cannot be claimed (operator decision Soru 3)
+
+- **Önem:** MEDIUM · **Faz:** P1 · **Son tarih:** 2026-11-30 · **Sahip:** @Okan-wqm · **Durum:** OPEN
+- **Köken:** ADR-048 kalıntı riski R-05
+- **Kanıt (dosya:satır):** `docs/adr/048-suderra-os-edge-agent-integration-contract.md:1`
+- **Mimari düzeltme yönü:** Require an add-on TPM plus OTP secure boot for RPi4/CM4 production sites, or restrict them to non-critical sites by policy enforced in the cloud.
+
+<a id="EDGE-MEDIUM-121"></a>
+
+### EDGE-MEDIUM-121 — Single platform-authenticated command actor; no per-operator keys and no two-person integrity until P2 (TPI-class commands are rejected meanwhile)
+
+- **Önem:** MEDIUM · **Faz:** P2 · **Son tarih:** 2026-12-31 · **Sahip:** @Okan-wqm · **Durum:** OPEN
+- **Köken:** ADR-048 kalıntı riski R-06
+- **Kanıt (dosya:satır):** `sens-api-gateway/src/authz/permission.rs:584-598`
+- **Mimari düzeltme yönü:** Per-operator keys in the RBAC manifest and co-signed TPI envelopes produced by the cloud.
+
+<a id="EDGE-MEDIUM-122"></a>
+
+### EDGE-MEDIUM-122 — Command envelope v3 binds to tenant, not device: a captured envelope can be replayed to another device of the same tenant within the 300 s window
+
+- **Önem:** MEDIUM · **Faz:** P2 · **Son tarih:** 2026-12-31 · **Sahip:** @Okan-wqm · **Durum:** OPEN
+- **Köken:** ADR-048 kalıntı riski R-07
+- **Kanıt (dosya:satır):** `sens-api-gateway/src/command_envelope/envelope.rs:390-415`
+- **Mimari düzeltme yönü:** Envelope v4 binds device_id (and device key hash) into the signed bytes; agent rejects envelopes for another device.
+
+<a id="EDGE-MEDIUM-123"></a>
+
+### EDGE-MEDIUM-123 — P0 MQTT CA set includes the public ISRG roots (broker uses Let's Encrypt); a private broker PKI replaces them in P2
+
+- **Önem:** MEDIUM · **Faz:** P2 · **Son tarih:** 2026-12-31 · **Sahip:** @Okan-wqm · **Durum:** OPEN
+- **Köken:** ADR-048 kalıntı riski R-08
+- **Kanıt (dosya:satır):** `infrastructure/nginx/droplet.conf:34-40`
+- **Mimari düzeltme yönü:** Private broker/device PKI; trust-anchor bundle ships current+next private roots; public roots removed from the suderra-os profile.
+
+<a id="EDGE-MEDIUM-124"></a>
+
+### EDGE-MEDIUM-124 — Physically wiping /data reopens provisioning mode until a write-once TPM NV 'provisioned' bit gates re-entry
+
+- **Önem:** MEDIUM · **Faz:** P3 · **Son tarih:** 2027-03-31 · **Sahip:** @Okan-wqm · **Durum:** OPEN
+- **Köken:** ADR-048 kalıntı riski R-09
+- **Kanıt (dosya:satır):** `docs/adr/048-suderra-os-edge-agent-integration-contract.md:1`
+- **Mimari düzeltme yönü:** TPM NV write-once provisioned index checked by the lifecycle service; re-entry needs a signed device-lifecycle statement plus physical presence.
+
+<a id="EDGE-LOW-125"></a>
+
+### EDGE-LOW-125 — Production images carry a conditionally started SSH daemon for provisioning until claim-code provisioning becomes the default
+
+- **Önem:** LOW · **Faz:** P3 · **Son tarih:** 2027-03-31 · **Sahip:** @Okan-wqm · **Durum:** OPEN
+- **Köken:** ADR-048 kalıntı riski R-10
+- **Kanıt (dosya:satır):** `docs/adr/048-suderra-os-edge-agent-integration-contract.md:1`
+- **Mimari düzeltme yönü:** Claim-code (outbound-only) provisioning as default; SSH daemon removed from prod images.
+
+<a id="EDGE-MEDIUM-126"></a>
+
+### EDGE-MEDIUM-126 — Activation has no proof-of-possession of a device key in P0-P2; binding relies on the provisioning token and the device-binding hash in the manifest
+
+- **Önem:** MEDIUM · **Faz:** P3 · **Son tarih:** 2027-03-31 · **Sahip:** @Okan-wqm · **Durum:** OPEN
+- **Köken:** ADR-048 kalıntı riski R-12
+- **Kanıt (dosya:satır):** `sens-api-gateway/src/provisioning.rs:324`
+- **Mimari düzeltme yönü:** Activation signed by a device-generated key (TPM-resident where available) and CSR-based device certificate issuance.
+
+<a id="EDGE-LOW-127"></a>
+
+### EDGE-LOW-127 — Short-lived device certificates: a site offline longer than the certificate lifetime loses its cloud connection until PoP re-certification, and needs a site visit if PoP fails
+
+- **Önem:** LOW · **Faz:** P3 · **Son tarih:** 2027-03-31 · **Sahip:** @Okan-wqm · **Durum:** OPEN
+- **Köken:** ADR-048 kalıntı riski R-13
+- **Kanıt (dosya:satır):** `docs/adr/048-suderra-os-edge-agent-integration-contract.md:1`
+- **Mimari düzeltme yönü:** Renewal window well before expiry, offline-tolerant grace with local-only operation, and a signed USB re-certification path.

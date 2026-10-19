@@ -20,7 +20,6 @@ import {
   Field,
   ID,
   Int,
-  GraphQLISODateTime,
   registerEnumType,
 } from '@nestjs/graphql';
 import { DateColumnTransformer } from '@aquaculture/backend-common/database';
@@ -296,9 +295,9 @@ export class Task {
   // instead of skipping an `undefined` field). reflect-metadata reflects a union
   // as `Object`, so a bare `@Field({ nullable: true })` can no longer infer the
   // GraphQL scalar and the SDL emitter aborts with "Undefined type error". The
-  // explicit thunk (GraphQLISODateTime for the timestamp, ID for the UUID) pins
+  // explicit thunk (Date for the timestamp, ID for the UUID) pins
   // the GraphQL type independently of the widened TS union.
-  @Field(() => GraphQLISODateTime, { nullable: true })
+  @Field(() => Date, { nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
   completedAt?: Date | null;
 

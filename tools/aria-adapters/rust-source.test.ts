@@ -6,7 +6,6 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
-  rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -1337,7 +1336,7 @@ process.stdout.write('rust-source.test.ts OK\n');
 // vanished from the walk. Containment does not follow: without a real
 // manifest beside it, `target` is ordinary source.
 {
-  const base = mkdtempSync(join(tmpdir(), 'aria-rust-manifest-link-'));
+  const base = makeFixtureTree('aria-rust-manifest-link-');
   const linkedWorkspace = join(base, 'ws');
   const outside = join(base, 'outside');
   mkdirSync(join(linkedWorkspace, 'pkg/src'), { recursive: true });
@@ -1347,21 +1346,17 @@ process.stdout.write('rust-source.test.ts OK\n');
   writeFileSync(join(linkedWorkspace, 'pkg/src/lib.rs'), '', 'utf8');
   writeFileSync(join(linkedWorkspace, 'pkg/target/debug/gen.rs'), '', 'utf8');
   symlinkSync(join(outside, 'Cargo.toml'), join(linkedWorkspace, 'pkg/Cargo.toml'));
-  try {
-    const walked = collectFiles(linkedWorkspace, linkedWorkspace, {
-      extensions: ['.rs', 'Cargo.toml'],
-      skipDir: cargoTargetDirSkip,
-    })
-      .map((path) => normalizeWorkspacePath(relative(linkedWorkspace, path)))
-      .sort();
-    assert.deepEqual(
-      walked,
-      ['pkg/src/lib.rs', 'pkg/target/debug/gen.rs'],
-      'a symlinked manifest does not make target/ a build directory',
-    );
-  } finally {
-    rmSync(base, { recursive: true, force: true });
-  }
+  const walked = collectFiles(linkedWorkspace, linkedWorkspace, {
+    extensions: ['.rs', 'Cargo.toml'],
+    skipDir: cargoTargetDirSkip,
+  })
+    .map((path) => normalizeWorkspacePath(relative(linkedWorkspace, path)))
+    .sort();
+  assert.deepEqual(
+    walked,
+    ['pkg/src/lib.rs', 'pkg/target/debug/gen.rs'],
+    'a symlinked manifest does not make target/ a build directory',
+  );
 }
 
 process.stdout.write('rust manifest containment test OK\n');

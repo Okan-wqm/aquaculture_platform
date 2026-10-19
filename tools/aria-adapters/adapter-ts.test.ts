@@ -5,15 +5,16 @@
 // default host's answers, and a program on the host resolves a real
 // in-workspace import while a symlinked one resolves to nothing.
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+import { makeFixtureTree } from '../gates/fixture-tree';
 
 import type { Node } from 'typescript';
 
 import { containedCompilerHost, createContainedProgram } from './adapter-ts';
 
-const base = mkdtempSync(join(tmpdir(), 'aria-adapter-ts-'));
+const base = makeFixtureTree('aria-adapter-ts-');
 const workspace = join(base, 'repo');
 const outside = join(base, 'outside');
 mkdirSync(join(workspace, 'k'), { recursive: true });
@@ -33,19 +34,19 @@ writeFileSync(join(outside, 'leaked.ts'), 'export const inside = "outside_tunabl
 symlinkSync(join(outside, 'leaked.ts'), join(workspace, 'k', 'linked-leaked.ts'));
 symlinkSync(outside, join(workspace, 'linked-outside'));
 
-try {
+{
   const host = containedCompilerHost(workspace, { noEmit: true });
   // Nothing behind a workspace symlink exists for the host.
   assert.equal(host.fileExists(join(workspace, 'k', 'exported.ts')), true);
   assert.equal(host.fileExists(join(workspace, 'k', 'linked-leaked.ts')), false);
   assert.equal(
-    host.readFile(join(workspace, 'k', 'exported.ts')),
+    host.readFile?.(join(workspace, 'k', 'exported.ts')),
     'export const inside = "inside_tunable";\n',
   );
-  assert.equal(host.readFile(join(workspace, 'k', 'linked-leaked.ts')), undefined);
-  assert.equal(host.directoryExists(join(workspace, 'k')), true);
-  assert.equal(host.directoryExists(join(workspace, 'linked-outside')), false);
-  assert.equal(host.directoryExists(outside), true, 'outside stays delegated');
+  assert.equal(host.readFile?.(join(workspace, 'k', 'linked-leaked.ts')), undefined);
+  assert.equal(host.directoryExists?.(join(workspace, 'k')), true);
+  assert.equal(host.directoryExists?.(join(workspace, 'linked-outside')), false);
+  assert.equal(host.directoryExists?.(outside), true, 'outside stays delegated');
   // A workspace path is its own resolution: no symlink is crossed.
   assert.equal(
     host.realpath?.(join(workspace, 'linked-outside')),
@@ -84,8 +85,6 @@ try {
     'any',
     'a symlinked import resolves to nothing',
   );
-} finally {
-  rmSync(base, { recursive: true, force: true });
 }
 
 process.stdout.write('adapter-ts.test.ts OK\n');

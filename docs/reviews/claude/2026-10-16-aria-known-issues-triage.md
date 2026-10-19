@@ -2663,3 +2663,172 @@ never consulted' (exit 3)
 - Measured by the 563 regression review: with an empty HOME, CLI 2.1.278 exits 1 with an empty
   stderr and the result `Not logged in - Please run /login`, so the probe returns 3. Today's runner
   still has its old login, so it turns red on the first rebuild.
+
+## ARIA-HIGH-579 — fixed (2026-10-18)
+
+What the proof showed, on the code before this change:
+
+- The nights were driven through `aria-kernel autonomy run --profile standard`, in process: the
+  command the nightly cycle step runs, with the runners the CLI selects. The stores were
+  production-shaped: a git workspace, a plan started through `plan_convergence`, the production
+  routing table and the production cooldown writer. In the test, `claude` and `gh` are logging
+  stubs, so no model is spawned and no network is reached.
+- With Anthropic (`rate_limit_event`, reset in 3 days) and Z.ai (429) both cooled, the night ran
+  every phase from `cycle_started` to `max_cycles_reached`. It exited `max_cycles` with
+  `overall_status: ok` and `cycles_completed: 1`. No row and no notice said it was an outage night.
+- It wrote cycle, discovery, pressure, reflection and memory rows. It booked the adopted plan in the
+  funnel again as minted and rejected (`cycles_minted` and `cycles_rejected` 1 -> 2 for one plan).
+  Ten such nights read as a stalled funnel to the doctor (`funnel_health`).
+- Where the adopted plan had no request in flight, its convergence step minted the next round
+  request (`challenger_plan`, `critical_path`), which no provider could serve.
+- The planner daemon polled its whole iteration budget and claimed nothing. With the CLI defaults
+  that is 10 iterations of 30 s.
+- What it did not do: claim, spawn, mint discretionary work (admission refused
+  `provider_unavailable`) or release anything as charged. The per-request waits held.
+- With only Anthropic cooled, the whole night ran and read seats were admitted to Z.ai. That is
+  expected and stays.
+
+What violates the decision, and what does not:
+
+- Violates: starting a cycle and recording it as a completed `ok` cycle, advancing a plan and
+  minting its round request while no provider can serve it, and booking funnel and learning rows
+  from a night on which nothing could run. There was no named hold.
+- Does not: the deterministic steps after the cycle step (doctor, self_improve, deliver, integrity
+  verify, publish) spawn no agent and write only their own ledgers. They keep running on a held
+  night, so the doctor still reads the store. The orchestrator's startup housekeeping also stays:
+  the orphan reaper already spares a request that waits on a provider, and key and socket pruning
+  touch no model work.
+
+What changed:
+
+- `provider_outage.fleet_outage`: every routed role is in an outage on this host. It asks
+  `provider_outage` once per role, so there is no second copy of the predicate.
+- `provider_hold` (new):
+  - `night_outage` reads the cooldowns and the host's providers. An unreadable ledger is not an
+    outage, as in the planner hook.
+  - `hold_if_every_provider_is_out` writes ONE `autonomy_state` row (`provider_outage_hold`, status
+    `held`, with the checkpoint, the cooled providers and when the first returns) and ONE
+    `cycle_held` notice.
+  - It runs `escalate_prolonged_outages`, so the 30-day bound still reaches the operator on held
+    nights. That bound ran only inside the cycle.
+- `autonomy_orchestrator` asks at three checkpoints:
+  - before a cycle starts, after the profile gate;
+  - after the planner drain;
+  - after the worker drain. These two drains are the night's only spawning lanes, and a spawn is the
+    only writer of a cooldown. A held night exits `provider_outage_hold`.
+- `orchestrator_exit_history.EXIT_PROVIDER_OUTAGE_HOLD` is a clean exit, not in
+  `FAILED_EXIT_REASONS`: exit code 0, no `cycle_failed` notice, no breaker count, and the doctor's
+  exit streak reads it as clean. `notify` gains the `cycle_held` kind and `AUTONOMY_PHASES` the
+  phase.
+- `tests/test_night_holds_while_every_provider_is_out.py` runs four nights on one store:
+  - night 0: every provider serves; the plan's round request is minted;
+  - night 1: all cooled; one hold row, no cycle started, the request, claim, admission, plan, queue,
+    funnel, memory, cycle and reflection ledgers byte-identical, one notice, exit 0;
+  - night 2: Z.ai back, Anthropic cooled; the same phases as night 0, the planner selects the
+    request night 0 minted, nothing re-minted;
+  - night 3: the planner's child spends Z.ai mid-night; the hold follows `planner_dispatch_drained`,
+    no request is minted after the spend, and the interrupted request is `REQUEUED` with no fault
+    requeue. Fast tests cover `fleet_outage` and the worker checkpoint (the review is not minted).
+- Red first: on the previous code 12 of the 19 tests failed. Six were behavioural (night 1 ran a
+  full cycle with exit `max_cycles`, no hold row and no notice; night 3 ran past the planner) and
+  six were the missing owner symbols.
+
+What is not done:
+
+- The cron still fires every night; the workflow is unchanged. The hold is decided in the kernel at
+  the cycle step, so the runner preflight, the state restore and the post-cycle steps still use
+  their minutes of host time on a held night.
+- The executor drain chained after the cycle still starts on a held night. Its per-request admission
+  refuses cooled providers, as before.
+- The scenario stands in for the planner hook's executor child, because the real hook makes a git
+  worktree of the repository that holds the executor. It runs under `standard`; a CONVERGED plan's
+  delivery under `strict` is not exercised on a held night. The hold at the cycle start skips that
+  sweep with the rest of the cycle.
+- The funnel counts an adopted plan once per cycle in which its convergence is stepped. This is not
+  an outage defect, so it was not registered here; a hold now keeps outage nights out of it.
+- The scenario test takes about 150 s. `suite_shard_weights.json` has no measured weight for it, so
+  CI places it by test count until the weights are next refreshed.
+
+### ARIA-HIGH-579 — review response (2026-10-18)
+
+The review of `8c5fb1a65` found one major and four minors; the round-2 scan of the cut-off fix
+found two more defects in the new carrier question. Each was reproduced first, and each fix is
+its own commit.
+
+- **Major: the night read the probe back-off, not the outage.** Reproduced with the reviewer's
+  probe. Anthropic was spent with a 3-day reset, and Z.ai was re-cooled four times from 02:40.
+  At 17:13 that day and the next, `night_outage` returned None while Z.ai's outage was still
+  open. The scenario now runs night 1 at production timing: Z.ai refused 14 h 44 min before the
+  run, with the policy 900 s back-off. On the previous code it ran the whole cycle and exited
+  `max_cycles`; 8 of the module's tests failed, all 33 pass at this tree.
+  - Fix (`10a7d9827`), at the one owner. `provider_outage.provider_outage`/`fleet_outage` take
+    `awaiting_reprobe`: providers that are out for the night with no clock. `provider_hold`
+    fills it with each provider that meets all three conditions:
+    - its outage is open;
+    - its back-off has lapsed, and that back-off was the policy's own. A reset the vendor
+      stated, once passed, is the vendor's word that the quota is back;
+    - a selectable request has it on its ladder (see the scan fix below for what selectable
+      means).
+  - Who releases the hold. The night carries no request, so it does not ask again. The drains'
+    native admission asks, and the served spawn closes the outage (`record_provider_restored`).
+  - Per-request callers (the planner hook and the discretionary mint admission) pass no
+    awaiting providers and keep reading the back-off. A lapsed back-off is exactly when their
+    request carries the re-probe (ARIA-HIGH-435).
+  - `provider_cooldown.latest_provider_cooldowns` is the one newest-row reader, and
+    `active_provider_cooldowns` filters it.
+  - **Operator gate — the nothing-waiting deviation, recorded before landing.** With every
+    provider out and NOTHING selectable to carry a re-probe, the night does not hold: it runs
+    one deterministic cycle and mints the request the next drain re-probes with. This narrows
+    the operator's 2026-10-17 hold rule ("when the quota runs out ARIA holds where it is") on
+    the empty-queue edge: holding there would stand for ever (no lane asks again, nothing
+    restores), which is a liveness loss the rule was never meant to buy. Relayed through the
+    program's owner on 2026-10-19 and recorded here as an ACCEPTED DEVIATION, pending Okan's
+    confirmation (surfaced to him as a to-confirm item with the reopen path). Verified at the
+    real entry point on this tree (scratch probe, production-shaped store, both outages open,
+    back-off lapsed, empty queue): exit 0 `max_cycles`, deterministic phases only, zero model
+    spawns, and the cooldown ledger unchanged — no admission probe spent anything. Reopening
+    conditions: if the operator reads the empty-queue night as work that must not even mint a
+    re-probe request, the night must hold and an explicit operator-approved release lane (a
+    scheduled admission re-probe) must replace the mint; if a provider-restoration or wake path
+    that could re-evaluate a standing hold lands, the nothing-waiting mint is no longer the
+    only release and the hold must return; and the first real all-out-and-idle night's doctor
+    and Actions output must be checked — reopen ARIA-HIGH-579 on any of them.
+- **Scan: the carrier question copied the state half of selection eligibility** (`e9a562216`).
+  The cut-off fix's `_WAITING_STATES` counted every `PENDING`/`REQUEUED` row, dropping the
+  owner's shadow, moot (ARIA-HIGH-360), undispatchable (ARIA-HIGH-388) and anchor
+  (ORPHAN-MEDIUM-492) refusals: a waiter no drain would ever select was counted as a re-probe
+  carrier, standing a hold nothing could end. The eligibility fold is now one function at the
+  queue's owner, `agent_invocations.selection_skip`; `next_pending_request` and
+  `provider_hold._reprobe_carried` both ask it (the night read-only). Red first: a store whose
+  only waiter is a real `issue_implementation_envelope` request the delivery has no authority
+  for held the night before the fix. The selection's own behaviour is unchanged (anchor, moot,
+  undispatchable and undecided suites re-run green).
+- **Scan: the fail-open over unreadable ledgers was silent — and the ledger's own RuntimeError
+  taxonomy raised past it** (`98af39493`). Each read the night needs is guarded and named
+  (`cooldown_ledger`, `outage_ledger`, `request_ledger`, `routing`) and records one
+  `hold_indeterminate` notice per unreadable source before the night runs on. Writing the red
+  found the second defect: a hash-broken governance ledger (`LedgerIntegrityError`) took the
+  checkpoint and the whole night down at all three call sites; it now fails open, named.
+- **Minor: the byte-identity pin was partly vacuous** (`6ad741435`). Reproduced: after night 0,
+  `queues`, `dispatch` and `skill-genesis` do not exist.
+  - A pinned path that is absent now fails the digest; a queued item is seeded through
+    `next_cycle_queue.append_pending` before night 1.
+  - `dispatch` and `skill-genesis` are dropped from the pin, since the fixture needs the triage
+    pipeline to write them. The docstring no longer claims they are pinned.
+- **Minor: nothing tested the night after a mid-night hold, and the held cycle skipped its
+  reflection** (`0e5b17a96`). Decided: a cycle held after its cycle step reflects, as the
+  failed exits do (`_reflect_on_failed_cycle`, ARIA-HIGH-420). The daily report is written and
+  the cycle's pressures reach the next night's queue.
+  - Red first: the worker-checkpoint test asserts the reflection row, and it failed on the
+    previous orchestrator (re-verified this round against the pre-fix tree).
+  - The scenario gains night 4. After night 3's hold, Z.ai is restored, and the night selects
+    the handed-back request with no remint and no fault requeue.
+- **Minor: the executor drain after a held night is unproven.** Not fixed; registered as
+  ARIA-LOW-627. The reviewer's first fix option, stopping the drain at the fleet outage, is
+  wrong after the major fix: the drain's native admission is the lane that re-probes the open
+  outage and restores the provider, so a drain that stopped there would leave the hold standing
+  for ever.
+- **Minor: no shard weight for the module.** Not fixed; registered as ARIA-LOW-628. The weights
+  file is generated from CI shard reports; a value typed by hand from this loaded host would be
+  a second, unmeasured source. The module took 446.6 s under nice 10 on the loaded host at the
+  review's round; 163-174 s in this round's runs.

@@ -137,8 +137,37 @@ describe('INVARIANT: the NATS generated-artifact gate is read-only and detects d
       const rejected = runGenerator(root, ['--chekc']);
 
       expect(rejected.status).toBe(64);
-      expect(rejected.stderr).toContain('usage: generate-nats-conf.py [--check]');
+      expect(rejected.stderr).toContain(
+        'usage: generate-nats-conf.py [--check | --print-generated-block]',
+      );
       expect(read(root, NATS_CONF)).toBe(before);
+    } finally {
+      removeFixtureTree(root);
+    }
+  });
+
+  it('prints the canonical block on stdout without touching any artifact', () => {
+    // --print-generated-block is how consumers derive the canonical form from the one owner
+    // (the messaging ACL smoke, ARIA-LOW-603) instead of re-rendering it and drifting.
+    const root = createFixture();
+    try {
+      const before = read(root, NATS_CONF);
+      const printed = runGenerator(root, ['--print-generated-block']);
+
+      expect(printed.status).toBe(0);
+      expect(printed.stderr).toBe('');
+      // Exactly the sentinel-delimited bytes of the committed nats.conf, no trailing newline.
+      const conf = before;
+      const begin = conf.indexOf('    # BEGIN GENERATED');
+      const end = conf.indexOf('    # END GENERATED');
+      expect(begin).toBeGreaterThanOrEqual(0);
+      expect(end).toBeGreaterThan(begin);
+      expect(printed.stdout).toBe(conf.slice(begin, end + '    # END GENERATED'.length));
+      // Read-only: neither artifact moved.
+      expect(read(root, NATS_CONF)).toBe(before);
+      expect(read(root, HELM_IDENTITIES)).toBe(
+        readFileSync(join(REPO_ROOT, HELM_IDENTITIES), 'utf8'),
+      );
     } finally {
       removeFixtureTree(root);
     }

@@ -20,6 +20,7 @@ tools chained together with fragile quoting.
 
   ./scripts/nats/generate-nats-conf.py
   ./scripts/nats/generate-nats-conf.py --check
+  ./scripts/nats/generate-nats-conf.py --print-generated-block
 
 By default: reads infrastructure/nats/services.yaml, replaces the block
 between `# BEGIN GENERATED` / `# END GENERATED` sentinels in
@@ -43,10 +44,17 @@ the tree, and drift has an exit code of its own.
 Idempotent: re-running on an already-generated nats.conf produces identical
 output (deterministic ordering + no timestamp injection).
 
+`--print-generated-block` writes exactly the bytes the renderer produces for
+services.yaml (the BEGIN..END block, no trailing newline) to stdout. Read-only
+like --check, but needs only services.yaml. It exists so consumers of the
+canonical form derive it from this one owner instead of re-implementing the
+rendering and drifting when it changes.
+
 # Exit codes
 
   0   success, file updated (or no changes needed); with --check, both
-      artifacts already match services.yaml
+      artifacts already match services.yaml; with --print-generated-block,
+      the block was printed
   1   services.yaml missing or invalid
   2   nats.conf missing, or sentinels not found
   3   --check only: a generated artifact does not match services.yaml
@@ -304,12 +312,25 @@ def splice_into_nats_conf(generated_block: str) -> tuple[str, bool]:
 
 def main() -> int:
     args = sys.argv[1:]
-    if args not in ([], ["--check"]):
-        sys.stderr.write("usage: generate-nats-conf.py [--check]\n")
+    if args not in ([], ["--check"], ["--print-generated-block"]):
+        sys.stderr.write(
+            "usage: generate-nats-conf.py [--check | --print-generated-block]\n"
+        )
         return 64
     check_only = args == ["--check"]
 
     services = load_services()
+
+    if args == ["--print-generated-block"]:
+        # Read-only: exactly the bytes render_generated_block produces for
+        # services.yaml, on stdout, nothing written and nats.conf not required.
+        # The canonical form of the generated block has one owner — this
+        # renderer — so consumers (the messaging ACL smoke) derive it from
+        # here instead of re-implementing it and drifting (allow_responses,
+        # INFRA-HIGH-188, was exactly such a drift).
+        sys.stdout.write(render_generated_block(services))
+        return 0
+
     block = render_generated_block(services)
     new_contents, nats_modified = splice_into_nats_conf(block)
     helm_contents = render_helm_identities(services)

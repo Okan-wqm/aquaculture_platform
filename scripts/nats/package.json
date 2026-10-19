@@ -1,0 +1,7 @@
+{
+  "name": "aqua-scripts-nats",
+  "version": "0.0.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "NATS operator scripts run through ts-node with tools/gates/tsconfig.json (module CommonJS). scripts/package.json declares type module, which would load these .ts files as ESM and break the extensionless import of the shared reader."
+}

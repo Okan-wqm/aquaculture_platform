@@ -580,11 +580,12 @@ describe('ARIA live runtime/documentation SSoT', () => {
     // that hands over to "each pinned".
     let bullet = '';
     for (let index = listStart; index < lines.length; index += 1) {
-      bullet += `${lines[index]} `;
-      if (lines[index].includes('each pinned')) break;
+      const line = lines[index] ?? '';
+      bullet += `${line} `;
+      if (line.includes('each pinned')) break;
     }
     expect(bullet).toContain(`the ${contexts.length} required checks`);
-    const listSegment = bullet.split(/,? each pinned/)[0];
+    const listSegment = bullet.split(/,? each pinned/)[0] ?? '';
     const named = [...listSegment.matchAll(/`([^`]+)`/g)].map((match) => match[1]);
     expect([...named].sort()).toEqual([...contexts].sort());
     if (manifest.required_status_checks.strict) {

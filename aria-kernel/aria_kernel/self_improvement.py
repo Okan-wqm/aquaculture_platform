@@ -486,6 +486,12 @@ def scan_signals(*, base_dir: str | Path | None, workspace_root: str | Path,
                          (adaptation_signals.RELEASE_SOURCE, lambda: adaptation_signals.release_classes(base_dir=root, now=readout.now))):
         try:
             classes.extend(read())
+        except adaptation_signals.PartiallyUnreadableAdaptation as partial:
+            # ARIA-LOW-597 at this seam: the readable records still count,
+            # and the unreadable ones are named beside them — the deadline
+            # reader's PartiallyUnreadableSource doctrine, carried through.
+            classes.extend(partial.classes)
+            unreadable.append(UnreadableSource("adaptation", f"{source}:{','.join(partial.undecided)}"))
         except adaptation_signals.adaptation_reader_faults() as exc:
             unreadable.append(UnreadableSource("adaptation", f"{source}:{type(exc).__name__}"))
     signals.extend(adaptation_signal(cls) for cls in classes)

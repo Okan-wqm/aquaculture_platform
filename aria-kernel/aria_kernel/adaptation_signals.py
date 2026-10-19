@@ -127,11 +127,22 @@ def human_required_class(record: dict[str, Any]) -> str:
 
 def human_required_classes(*, base_dir: str | Path) -> list[AdaptationClass]:
     """Every OPEN HUMAN_REQUIRED record, one class per kind; ids most urgent first
-    (`list_human_required` orders by SLA deadline)."""
+    (`list_human_required` orders by SLA deadline). The lister returns its
+    listing (ARIA-LOW-597): `rows` are the readable records, and when any
+    record file could not be read the reader raises
+    `PartiallyUnreadableAdaptation` carrying the readable classes and the
+    unreadable names, so no partly unreadable directory reads as a smaller
+    decided queue."""
     from .human_required import list_human_required
 
-    return _fold(HUMAN_REQUIRED_SOURCE, ((human_required_class(record), str(record.get("request_id") or ""))
-                                         for record in list_human_required(base_dir=base_dir)))
+    listing = list_human_required(base_dir=base_dir)
+    classes = _fold(HUMAN_REQUIRED_SOURCE, ((human_required_class(record), str(record.get("request_id") or ""))
+                                            for record in listing.rows))
+    if listing.unreadable:
+        raise PartiallyUnreadableAdaptation(
+            classes, [f"{record.record_id}:unreadable" for record in listing.unreadable]
+        )
+    return classes
 
 
 def _parse_instant(value: object) -> datetime | None:
@@ -191,15 +202,31 @@ def adaptation_reader_faults() -> tuple[type[BaseException], ...]:
     """The closed set a caller of these readers may report as an unreadable
     source (ARIA-LOW-587): the claims ledger is read through
     `load_declared_jsonl` and the HUMAN_REQUIRED directory through the file
-    system, so the ledger primitives' own (`ledger.ledger_read_faults`).
+    system, so the ledger primitives' own (`ledger.ledger_read_faults`),
+    beside the partial-read fault (ARIA-LOW-597) a HUMAN_REQUIRED directory
+    read raises when records beside the readable ones could not be read.
     Anything else is a defect and raises."""
     from .ledger import ledger_read_faults
 
-    return ledger_read_faults()
+    return (*ledger_read_faults(), PartiallyUnreadableAdaptation)
+
+
+class PartiallyUnreadableAdaptation(LookupError):
+    """A HUMAN_REQUIRED read that was only PARTLY readable (ARIA-LOW-597,
+    the deadline reader's `PartiallyUnreadableSource` doctrine): the
+    readable records' classes still count; the unreadable records are named
+    beside them, never silently dropped and never allowed to erase the
+    readable half."""
+
+    def __init__(self, classes: list["AdaptationClass"], undecided: list[str]) -> None:
+        super().__init__(",".join(undecided))
+        self.classes = classes
+        self.undecided = undecided
 
 
 __all__ = [
     "ADAPTATION_EVIDENCE_IDS_MAX", "ADAPTATION_SOURCES", "AdaptationClass", "HUMAN_REQUIRED_SOURCE",
+    "PartiallyUnreadableAdaptation",
     "RELEASE_FAULT_DOMAIN", "RELEASE_MIN_IN_WINDOW", "RELEASE_SOURCE", "RELEASE_WINDOW_DAYS", "UNCLASSIFIED",
     "WAIVER_KINDS", "WAIVER_SOURCE", "adaptation_reader_faults", "class_name", "human_required_class",
     "human_required_classes", "release_classes", "waiver_classes",

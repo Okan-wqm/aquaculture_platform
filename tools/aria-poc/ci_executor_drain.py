@@ -339,7 +339,14 @@ STATE_RESTORE_WORST_CASE_SECONDS = _engine._STATE_STORE_CHECKOUT_ARC_SECONDS
 # `writer-lease-wait-seconds` in aria-agent-executor.yml, pinned equal by
 # tests/test_state_lock_liveness_bound.py) before it yields by name.
 WRITER_LEASE_WAIT_SECONDS = 1800
-JOB_STEPS_ALLOWANCE_SECONDS = 900
+# ARIA-LOW-585 — the steps allowance has one owner, the kernel
+# (STATE_CLOSE_OUT_STEPS_ALLOWANCE_SECONDS, beside the publish preamble):
+# the 900 s private literal this lane kept priced the same integrity
+# verify + handoff + mint the kernel bounds at #1371's measured
+# 47 minutes, so the executor's reserve under-priced its own close-out
+# and the producer's margin (6000 s) sat below the kernel's priced
+# publish arc alone (7200 s). Both lanes read the one number now.
+JOB_STEPS_ALLOWANCE_SECONDS = _engine._STATE_CLOSE_OUT_STEPS_ALLOWANCE_SECONDS
 # ARIA-HIGH-342 (PR #1779 re-review R-3) — the publish is more than its
 # locked arc: before the lock the orchestrator builds the writer-lease fence
 # (lease reads, a renewal when the lease runs short) and stages the cold

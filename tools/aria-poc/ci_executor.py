@@ -154,6 +154,7 @@ try:
     )
     from aria_kernel.state_writer_lease import (
         PUBLISH_PREAMBLE_SECONDS as _STATE_PUBLISH_PREAMBLE_SECONDS,
+        STATE_CLOSE_OUT_STEPS_ALLOWANCE_SECONDS as _STATE_CLOSE_OUT_STEPS_ALLOWANCE_SECONDS,
     )
     # What the kernel's `human-required record` can legitimately wait
     # (its governance append, then the notification's channels and outbox
@@ -238,6 +239,8 @@ except Exception as _kernel_import_error:  # pragma: no cover - fallback keeps s
     _STATE_STORE_CHECKOUT_ARC_SECONDS = 2700.0
     _STATE_STORE_LIFECYCLE_LIVENESS_SECONDS = 2700.0  # ARIA-HIGH-342: the leased publish no longer replays
     _STATE_PUBLISH_PREAMBLE_SECONDS = 4500  # ARIA-HIGH-342: cold staging + the fence's lease reads and renewal
+    # ARIA-LOW-585 — #1371's measured integrity verify + handoff + mint.
+    _STATE_CLOSE_OUT_STEPS_ALLOWANCE_SECONDS = 47 * 60
     _HUMAN_REQUIRED_RECORD_WAIT_SECONDS = 2280.0
     # 4 canonical commands x 2700 s + 4 git calls x 300 s + 10 s commit
     # verification + 300 s result decision (the evidence probe clock) +

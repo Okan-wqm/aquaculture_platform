@@ -2,8 +2,8 @@
 
 The claim lane (aria-readiness-claim.yml) runs once per completed, green
 ``aria-merge-authority`` pull-request run. It takes the aria/state writer
-lease for 300 s at most; the executor holds that lease for up to 650 minutes
-and the cycle for up to 440, so a completion that lands while either runs
+lease for 300 s at most; the executor holds that lease for up to 682 minutes
+and the cycle for up to 534, so a completion that lands while either runs
 yields green and claims nothing. Nothing produced that head's claim again:
 the merge lane only consumes claims, and a dispatch of the claim lane is
 refused. A yield was terminal for the head.

@@ -13,8 +13,9 @@ name: aria-readiness-claim
 # token mint fail loudly instead of poisoning the claim with a PAT fallback.
 #
 # ARIA-HIGH-222 — a completion that meets a held aria/state writer lease
-# yields after 300 s and claims nothing, and the executor (650 min) and the
-# cycle (440 min) hold that lease for hours. The hourly schedule is the
+# yields after 300 s and claims nothing, and the executor (682 min) and the
+# cycle (534 min) hold that lease for hours (ARIA-LOW-585 moved the caps and
+# the TTLs with them, the margin arithmetic unchanged). The hourly schedule is the
 # backstop that makes a yield never terminal for a head: under the lease it
 # asks `readiness sweep-claimless` for an open head no claim names whose
 # completed, green aria-merge-authority run still has its proof artifact,

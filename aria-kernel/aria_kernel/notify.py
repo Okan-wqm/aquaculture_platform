@@ -34,6 +34,9 @@ NOTIFY_EVENT_KINDS: tuple[str, ...] = (
     "operator_cancelled", "gateway_rejected", "test",
     # ARIA-HIGH-579 — a night held in place because every provider is out (`provider_hold`).
     "cycle_held",
+    # ARIA-HIGH-579 (review) — the night's hold question could not even be asked: a ledger
+    # it reads was unreadable, the night failed open, and the failure names itself.
+    "hold_indeterminate",
 )
 NOTIFY_CHANNELS: tuple[str, ...] = ("stdout", "github_issue", "email", "telegram")
 NOTIFY_STATUSES: tuple[str, ...] = ("sent", "failed", "deduped", "dry_run", "unconfigured")

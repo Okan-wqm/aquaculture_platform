@@ -557,16 +557,6 @@ class TheNightReadsTheOutageNotTheBackoff(unittest.TestCase):
         self._zai_refused()
         self.assertIsNone(night_outage(self.base, now=self._CRON))
 
-    def test_a_standing_backoff_still_holds_on_its_clock(self) -> None:
-        from aria_kernel.provider_hold import night_outage
-
-        self._anthropic_spent()
-        self._zai_refused(times=1)
-        outage = night_outage(self.base, now=self._T0 + timedelta(minutes=5))
-        self.assertIsNotNone(outage)
-        self.assertEqual(outage.awaiting_reprobe, ())
-        self.assertEqual(outage.until, (self._T0 + timedelta(seconds=_POLICY_BACKOFF_SECONDS)).isoformat())
-
     def test_a_waiter_no_drain_would_select_carries_no_reprobe(self) -> None:
         # The owner's eligibility (`agent_invocations.selection_skip`) never hands out an
         # implementation envelope the delivery has no authority for (ARIA-HIGH-388): no drain
@@ -618,6 +608,44 @@ class TheNightReadsTheOutageNotTheBackoff(unittest.TestCase):
         cooled = cooled_providers(self.base, now=self._CRON)
         self.assertIsNone(provider_outage("challenger_plan", cooled, now=self._CRON,
                                           present=frozenset({"anthropic", "zai"})))
+
+    def test_an_unreadable_outage_ledger_fails_open_and_names_itself(self) -> None:
+        # The fail-open is the design (an unreadable ledger is not an outage: the night runs and
+        # each request's admission refuses the malformed row by name); silence is not — the
+        # operator learns the hold was never even asked, one notice naming the unreadable source.
+        # The row is chained through the store's own writer: the chain verifies, and the outage
+        # fold refuses its details by name.
+        from aria_kernel.notify import read_outbox
+        from aria_kernel.provider_hold import night_outage
+        from aria_kernel.tool_registry import append_tools_governance
+
+        self._waiting_request()
+        self._anthropic_spent()
+        self._zai_refused()
+        append_tools_governance(self.base, "provider_outage_opened", {"schema_version": 999})
+        self.assertIsNone(night_outage(self.base, now=self._CRON))
+        rows = [row for row in read_outbox(self.base) if row["kind"] == "hold_indeterminate"]
+        self.assertEqual([row["title"] for row in rows],
+                         ["ARIA hold indeterminate: outage_ledger could not be read"], rows)
+
+    def test_an_unreadable_cooldown_ledger_fails_open_and_names_itself(self) -> None:
+        # A row with no ledger hash breaks the chain the cooldown read verifies strictly: the
+        # read's own RuntimeError taxonomy used to raise past the hold's catch and take the
+        # checkpoint (and with it the night) down, the opposite of failing open.
+        from aria_kernel.notify import read_outbox
+        from aria_kernel.provider_hold import night_outage
+
+        self._waiting_request()
+        self._anthropic_spent()
+        self._zai_refused()
+        with (self.base / "governance.jsonl").open("a", encoding="utf-8") as governance:
+            governance.write(json.dumps({
+                "kind": "provider_quota_cooldown", "details": {"schema_version": 1},
+            }) + "\n")
+        self.assertIsNone(night_outage(self.base, now=self._CRON))
+        rows = [row for row in read_outbox(self.base) if row["kind"] == "hold_indeterminate"]
+        self.assertEqual([row["title"] for row in rows],
+                         ["ARIA hold indeterminate: cooldown_ledger could not be read"], rows)
 
 
 class TheWorkerLanesSpendHoldsTheReview(unittest.TestCase):

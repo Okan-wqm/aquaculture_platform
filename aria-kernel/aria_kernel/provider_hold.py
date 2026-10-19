@@ -22,7 +22,10 @@ WHAT. One question and one record, both here:
   owner of that predicate (``provider_outage.fleet_outage``: every routed
   role is in an outage on this host). An unreadable cooldown or outage ledger
   is not an outage: the night runs, and each request's admission refuses the
-  malformed row by name, as the planner hook already decides.
+  malformed row by name, as the planner hook already decides — and the
+  fail-open names itself (ONE ``hold_indeterminate`` notice per unreadable
+  source), because a hold that was silently never even asked is a defect
+  nobody sees.
 * :func:`hold_if_every_provider_is_out` — at a checkpoint, the hold: ONE
   ``autonomy_state`` row (phase ``provider_outage_hold``, status ``held``)
   naming the checkpoint, the cooled providers and when the first returns, and
@@ -87,6 +90,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .orchestrator_exit_history import EXIT_PROVIDER_OUTAGE_HOLD
+from .ledger import LedgerIntegrityError, LedgerReadLimitError, LedgerRowTooLargeError
 from .provider_outage import FleetOutage, cooled_providers, fleet_outage, host_providers, role_providers
 from .tool_registry import GovernanceError
 
@@ -96,12 +100,57 @@ HOLD_NOTICE_KIND = "cycle_held"
 # Fixed: the issue channel keeps one issue per title (ARIA-HIGH-415); what
 # varies rides the body.
 HOLD_NOTICE_TITLE = "ARIA cycle held: every provider is out"
+# ARIA-HIGH-579 (review) — the fail-open of an unreadable ledger, named. One
+# title per unreadable SOURCE (at most the cooldown, outage and request
+# ledgers and the routing table): the issue channel still keeps one issue per
+# title, and the operator sees WHICH read failed, not only that one did.
+HOLD_INDETERMINATE_NOTICE_KIND = "hold_indeterminate"
+HOLD_INDETERMINATE_NOTICE_TITLE = "ARIA hold indeterminate: {source} could not be read"
 CHECKPOINT_CYCLE_START = "cycle_start"
 CHECKPOINT_AFTER_PLANNER_DISPATCH = "after_planner_dispatch"
 CHECKPOINT_AFTER_WORKER_DISPATCH = "after_worker_dispatch"
 CHECKPOINTS: tuple[str, ...] = (
     CHECKPOINT_CYCLE_START, CHECKPOINT_AFTER_PLANNER_DISPATCH, CHECKPOINT_AFTER_WORKER_DISPATCH,
 )
+
+# The read-failure taxonomy of the ledgers this module reads: a row refused
+# by name (`GovernanceError`), an unreadable file (`OSError`, `ValueError`),
+# and the ledger's own integrity bounds (`ledger`).
+_UNREADABLE_ERRORS = (
+    GovernanceError, OSError, ValueError, LedgerIntegrityError, LedgerReadLimitError, LedgerRowTooLargeError,
+)
+_UNREADABLE = object()
+
+
+def _night_read(source: str, read: Any, *args: Any, **kwargs: Any) -> Any:
+    """One guarded ledger read for the night's question: fail open, named.
+
+    An unreadable ledger is not an outage — the night runs, and each
+    request's admission refuses the malformed row by name — but silently so
+    is a defect nobody sees (review of ARIA-HIGH-579): the fail-open records
+    ONE ``hold_indeterminate`` notice naming the source, so an operator
+    learns the hold was never even asked. The ledger's own RuntimeError
+    taxonomy is caught with it: a hash-broken governance ledger used to
+    raise past the hold's catch and take the whole checkpoint down.
+    """
+    try:
+        return read(*args, **kwargs)
+    except _UNREADABLE_ERRORS as exc:
+        from .notify import notify_best_effort
+
+        notify_best_effort(
+            kind=HOLD_INDETERMINATE_NOTICE_KIND, base_dir=_indeterminate_base(args),
+            title=HOLD_INDETERMINATE_NOTICE_TITLE.format(source=source),
+            body=(f"source: {source}\nreason: {str(exc)[:400]}\n"
+                  "the night's hold was not decided — this read failed, so the night runs and "
+                  "each request's admission refuses the malformed row by name"),
+        )
+        return _UNREADABLE
+
+
+def _indeterminate_base(args: tuple[Any, ...]) -> str | Path | None:
+    """The ``base_dir`` a guarded read was aimed at (its first argument, when given)."""
+    return args[0] if args and isinstance(args[0], (str, Path)) else None
 
 
 # ARIA-HIGH-579 review — the night's carrier question is the queue owner's
@@ -113,19 +162,28 @@ CHECKPOINTS: tuple[str, ...] = (
 
 def _awaiting_reprobe(
     base_dir: str | Path, cooled: Mapping[str, Any], *, now: datetime,
-) -> frozenset[str]:
-    """Providers out for the night on an open outage whose lapsed back-off a waiting request will re-probe."""
+) -> frozenset[str] | Any:
+    """Providers out for the night on an open outage whose lapsed back-off a
+    selectable request will re-probe, or ``_UNREADABLE`` when a ledger the
+    answer needs could not be read (the night fails open, named)."""
     from .provider_cooldown import latest_provider_cooldowns
     from .provider_outage_ledger import open_outages
 
-    lapsed = {interval.provider for interval in open_outages(base_dir)} - set(cooled)
+    outages = _night_read("outage_ledger", open_outages, base_dir)
+    if outages is _UNREADABLE:
+        return _UNREADABLE
+    lapsed = {interval.provider for interval in outages} - set(cooled)
     if not lapsed:
         return frozenset()
-    latest = latest_provider_cooldowns(base_dir)
+    latest = _night_read("cooldown_ledger", latest_provider_cooldowns, base_dir)
+    if latest is _UNREADABLE:
+        return _UNREADABLE
     # A reset the vendor stated, now passed, is its word that the quota is back.
     candidates = {provider for provider in lapsed
                   if (latest.get(provider) or {}).get("until_source") != "stated_reset"}
-    return frozenset(candidates & _reprobe_carried(base_dir, candidates, now=now)) if candidates else frozenset()
+    if not candidates:
+        return frozenset()
+    return _night_read("request_ledger", _reprobe_carried, base_dir, candidates, now=now)
 
 
 def _reprobe_carried(base_dir: str | Path, providers: set[str], *, now: datetime) -> set[str]:
@@ -161,14 +219,23 @@ def _reprobe_carried(base_dir: str | Path, providers: set[str], *, now: datetime
 
 
 def night_outage(base_dir: str | Path, *, now: datetime | None = None) -> FleetOutage | None:
-    """The fleet outage standing at ``now`` for a night, or None (an unreadable ledger is None)."""
+    """The fleet outage standing at ``now`` for a night, or None.
+
+    An unreadable ledger is not an outage: the night runs (each request's
+    admission refuses the malformed row by name), and the fail-open names
+    itself — one ``hold_indeterminate`` notice per unreadable source, so the
+    silence that used to hide a broken store is itself observable.
+    """
     moment = now or datetime.now(timezone.utc)
-    try:
-        cooled = cooled_providers(base_dir, now=moment)
-        return fleet_outage(cooled, now=moment, present=host_providers(),
-                            awaiting_reprobe=_awaiting_reprobe(base_dir, cooled, now=moment))
-    except (GovernanceError, OSError, ValueError):
+    cooled = _night_read("cooldown_ledger", cooled_providers, base_dir, now=moment)
+    if cooled is _UNREADABLE:
         return None
+    awaiting = _awaiting_reprobe(base_dir, cooled, now=moment)
+    if awaiting is _UNREADABLE:
+        return None
+    outage = _night_read("routing", fleet_outage, cooled, now=moment, present=host_providers(),
+                         awaiting_reprobe=awaiting)
+    return None if outage is _UNREADABLE else outage
 
 
 def hold_if_every_provider_is_out(

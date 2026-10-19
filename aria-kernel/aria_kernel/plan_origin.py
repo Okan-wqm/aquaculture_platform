@@ -121,6 +121,12 @@ TRAILERLESS_COMMIT_TYPES: tuple[str, ...] = tuple(
 class PlanOrigin:
     kind: str
     finding_id: str | None = None
+    # ARIA-LOW-607 — the review document the finding's registry row is filed
+    # against, stamped into the plan body at mint (beside ``finding_id``).
+    # None on every other origin kind, and on an ORPHAN body minted before the
+    # binding was carried (those bodies were minted by a scanner that selected
+    # ONLY register-filed rows, so the register is their review file).
+    review_file: str | None = None
 
 
 def plan_origin(plan_content: Any) -> PlanOrigin:
@@ -130,7 +136,22 @@ def plan_origin(plan_content: Any) -> PlanOrigin:
         return PlanOrigin(kind=ORIGIN_PLAN)
     finding_id = finding_id.strip()
     if ORPHAN_FINDING_ID_RE.match(finding_id):
-        return PlanOrigin(kind=ORIGIN_ORPHAN_FINDING, finding_id=finding_id)
+        review_file = plan_content.get("finding_review_file") if isinstance(plan_content, dict) else None
+        if review_file is not None and (
+            not isinstance(review_file, str)
+            or not review_file.strip()
+            or any(character.isspace() for character in review_file)
+        ):
+            raise GovernanceError(
+                f"plan_origin_finding_review_file_unusable: {review_file!r} cannot form a "
+                f"Closes: trailer path (CLOSES_TRAILER_RE takes a \\S+?# path); the finding's "
+                f"own review file is a path without whitespace"
+            )
+        return PlanOrigin(
+            kind=ORIGIN_ORPHAN_FINDING,
+            finding_id=finding_id,
+            review_file=review_file,
+        )
     if FINDING_ID_RE.match(finding_id) or F_AUTO_FINDING_ID_RE.match(finding_id):
         return PlanOrigin(kind=ORIGIN_F_FINDING, finding_id=finding_id)
     raise GovernanceError(
@@ -153,7 +174,16 @@ def commit_contract_for_plan(plan_content: Any, *, plan_id: str) -> dict[str, An
     origin = plan_origin(plan_content)
     trailer: str | None = None
     if origin.kind == ORIGIN_ORPHAN_FINDING:
-        trailer = f"Closes: {ORPHAN_FINDINGS_DOCUMENT}#{origin.finding_id}"
+        # ARIA-LOW-607 — the registry row's review_file is the single owner of
+        # the binding: the closure derivation honours a `Closes:` trailer only
+        # when the anchored file is that row's review_file, so a trailer
+        # hard-built from the register can never close a finding filed in
+        # another review document. The body carries the row's review_file
+        # (stamped at mint); a body without it was minted by the pre-607
+        # scanner, which selected only register-filed rows — the register IS
+        # that finding's review file.
+        document = origin.review_file or ORPHAN_FINDINGS_DOCUMENT
+        trailer = f"Closes: {document}#{origin.finding_id}"
     contract: dict[str, Any] = {
         "schema_version": COMMIT_CONTRACT_SCHEMA_VERSION,
         "plan_id": plan_id,

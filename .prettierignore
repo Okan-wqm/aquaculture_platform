@@ -34,3 +34,9 @@ libs/**/src/generated/
 # tests/invariants/admin-openapi-artifact-parity.spec.ts. Reformatting it would
 # make the committed bytes differ from what the generator produces.
 apps/admin-api-service/openapi.json
+
+# Suderra edge contract fixtures and TEST-ONLY keys (ADR-048 DEC-25)
+# Written by contracts/suderra-edge/v*/tools/generate.py and pinned by SHA256SUMS,
+# which Suderra-OS vendors by digest; reformatting a byte breaks the pin.
+contracts/suderra-edge/*/fixtures/
+contracts/suderra-edge/*/test-keys/

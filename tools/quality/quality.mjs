@@ -309,6 +309,14 @@ function classifyFormatFile(path) {
       'byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)',
     );
   }
+  if (/^contracts\/suderra-edge\/v[0-9]+\/(fixtures|test-keys)\//.test(path)) {
+    return excluded(
+      path,
+      'generated',
+      'suderra-edge-contract-generator',
+      "written by contracts/suderra-edge/v*/tools/generate.py and pinned by that directory's SHA256SUMS, which Suderra-OS vendors by digest; tests/invariants/suderra-edge-contracts.spec.ts refuses a reformatted byte",
+    );
+  }
   if (path.startsWith('.aria-ci/') || path.startsWith('aria-tools/')) {
     return excluded(
       path,

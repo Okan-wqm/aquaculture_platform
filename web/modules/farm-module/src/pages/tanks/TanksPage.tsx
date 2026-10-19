@@ -1,28 +1,32 @@
 /**
- * Tanks Page Component
- * Lists all tanks with their batch metrics
+ * Tanks Page — /sites/tanks table view.
+ *
+ * Layout (design_handoff tenant console "Tanks"): the Üretim / Temizlikçi
+ * balık view tabs, the unit/batch/feed search, ONE horizontal filter row
+ * (site buttons · category buttons · Dolu/Boş), a result-count line, then
+ * the dense unit table. Tank operations no longer live in a page-level
+ * toolbar: clicking a row opens the right-side TankDetailDrawer which
+ * carries the metrics grid, the density·capacity bar, live Sıcaklık/DO,
+ * the feeding block, and the operation buttons (mortality, sampling,
+ * transfer/split, grading, cull, water temperature, feeding plan — and
+ * "stock this unit" for empty units).
  */
 import React, { useState, useMemo, useCallback } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import {
-  useTanksList,
-  tankStatusColors,
-  tankTypeLabels,
-  waterTypeLabels,
-} from '../../hooks/useTanks';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Button, Input, Select, useI18n, type MessageKey } from '@aquaculture/shared-ui';
+import { Plus, RefreshCw, Search } from 'lucide-react';
+import { useTanksList } from '../../hooks/useTanks';
+import { useSpeciesList } from '../../hooks/useSpecies';
 import { isBlockingError } from '../../utils/list-view-state';
-import {
-  TankWithBatch,
-  TankFilterState,
-  initialFilterState,
-  tankToTankWithBatch,
-  tankWithBatchToTankBatch,
-} from './types';
-import { tankColumns, cleanerFishColumns } from './columns';
+import { TankWithBatch, tankToTankWithBatch, tankWithBatchToTankBatch } from './types';
+import { tankColumns, cleanerFishColumns, cleanerFishColumnGroups } from './columns';
 import { useColumnVisibility } from './useColumnVisibility';
 import { ColumnVisibilityMenu } from './ColumnVisibilityMenu';
+import { TankTable } from './components/TankTable';
+import { TankDetailDrawer, type TankDetailVariant } from './components/TankDetailDrawer';
+import { SamplingModal } from './components/SamplingModal';
 
-// Quick Actions Components
+// Quick-action disambiguation components (tank hosting both fish types)
 import {
   FishTypeSelector,
   CleanerBatchSelector,
@@ -30,120 +34,171 @@ import {
   WaterTemperatureModal,
 } from './components';
 
-// Production Modals
+// Production operation modals
 import { MortalityModal } from '../production/components/MortalityModal';
 import { TransferModal } from '../production/components/TransferModal';
 import { GradingModal } from '../production/components/GradingModal';
 import { CullModal } from '../production/components/CullModal';
 import { BatchFormModal } from '../production/components/BatchFormModal';
 
-// Cleaner Fish Modals
+// Cleaner-fish modals
 import { MortalityModal as CleanerMortalityModal } from '../cleaner-fish/components/MortalityModal';
 import { TransferModal as CleanerTransferModal } from '../cleaner-fish/components/TransferModal';
 import { CreateBatchModal } from '../cleaner-fish/components/CreateBatchModal';
 import { DeployModal } from '../cleaner-fish/components/DeployModal';
 import { RemoveModal } from '../cleaner-fish/components/RemoveModal';
 
-// Types
 import {
   CleanerFishBatch,
   useCleanerFishBatches,
   useCleanerFishSpecies,
 } from '../../hooks/useCleanerFish';
-import {
-  DataTable,
-  type DataTableColumn,
-  PageHeader,
-  Button,
-  Select,
-} from '@aquaculture/shared-ui';
-import {
-  ArrowLeftRight,
-  ArrowRight,
-  Droplet,
-  ListFilter,
-  Plus,
-  RefreshCw,
-  Scissors,
-  Search as SearchIcon,
-  TriangleAlert,
-} from 'lucide-react';
 
 // ============================================================================
-// STATUS COLORS
+// FILTER MODEL
 // ============================================================================
 
-const statusColors: Record<string, string> = {
-  OPERATIONAL: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
-  ACTIVE: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
-  PREPARING: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
-  MAINTENANCE: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
-  CLEANING: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
-  HARVESTING: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
-  FALLOW: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
-  QUARANTINE: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
-  OUT_OF_SERVICE: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
-  DECOMMISSIONED: 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400',
-};
+type SiteFilter = string; // siteId, or '__none__' for units without a site
+type CategoryFilter = 'all' | 'tank' | 'pond' | 'cage';
+type OccupancyFilter = 'all' | 'occupied' | 'empty';
 
-const categoryLabels: Record<string, string> = {
-  tank: 'Tank',
-  pond: 'Pond',
-  cage: 'Cage',
-  TANK: 'Tank',
-  POND: 'Pond',
-  CAGE: 'Cage',
-};
-
-// ============================================================================
-// HELPER FUNCTIONS
-// ============================================================================
-
-/**
- * Format date for display
- */
-function formatDate(date: Date | string | undefined): string {
-  if (!date) return '-';
-  const d = typeof date === 'string' ? new Date(date) : date;
-  return d.toLocaleDateString('tr-TR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  });
+interface FilterState {
+  search: string;
+  siteId: SiteFilter; // 'all' | siteId
+  category: CategoryFilter;
+  occupancy: OccupancyFilter;
+  status: string; // 'all' | tank status enum
 }
 
-/**
- * Format number with optional decimals
- */
-function formatNumber(value: number | undefined, decimals = 1): string {
-  if (value === undefined || value === null) return '-';
-  return value.toLocaleString('tr-TR', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: decimals,
-  });
+const NO_SITE_KEY = '__none__';
+
+const INITIAL_FILTERS: FilterState = {
+  search: '',
+  siteId: 'all',
+  category: 'all',
+  occupancy: 'all',
+  status: 'all',
+};
+
+/** Tank statuses offered by the status filter (labels via tanksV2.status.*). */
+const STATUS_OPTIONS = [
+  'OPERATIONAL',
+  'ACTIVE',
+  'PREPARING',
+  'MAINTENANCE',
+  'CLEANING',
+  'HARVESTING',
+  'FALLOW',
+  'QUARANTINE',
+  'OUT_OF_SERVICE',
+  'DECOMMISSIONED',
+] as const;
+
+const STATUS_LABEL_KEYS: Record<string, MessageKey> = {
+  OPERATIONAL: 'tanksV2.status.OPERATIONAL',
+  ACTIVE: 'tanksV2.status.ACTIVE',
+  PREPARING: 'tanksV2.status.PREPARING',
+  MAINTENANCE: 'tanksV2.status.MAINTENANCE',
+  CLEANING: 'tanksV2.status.CLEANING',
+  HARVESTING: 'tanksV2.status.HARVESTING',
+  FALLOW: 'tanksV2.status.FALLOW',
+  QUARANTINE: 'tanksV2.status.QUARANTINE',
+  OUT_OF_SERVICE: 'tanksV2.status.OUT_OF_SERVICE',
+  DECOMMISSIONED: 'tanksV2.status.DECOMMISSIONED',
+};
+
+/** Ordered category → button label key (only present categories render). */
+const CATEGORY_LABEL_KEYS: Record<Exclude<CategoryFilter, 'all'>, MessageKey> = {
+  tank: 'tanksV2.filter.tanks',
+  pond: 'tanksV2.filter.ponds',
+  cage: 'tanksV2.filter.cages',
+};
+
+const CATEGORY_ORDER: Exclude<CategoryFilter, 'all'>[] = ['tank', 'pond', 'cage'];
+
+interface SegButtonProps {
+  label: string;
+  active: boolean;
+  onClick: () => void;
 }
+
+/** One button of the single-row filter bar (design `seg()` — square, filled active). */
+const SegButton: React.FC<SegButtonProps> = ({ label, active, onClick }) => (
+  <Button
+    variant={active ? 'primary' : 'secondary'}
+    size="sm"
+    onClick={onClick}
+    aria-pressed={active}
+    className={`min-h-[42px] shrink-0 px-3.5 text-[15.5px] font-medium ${
+      active ? '' : 'text-gray-700 hover:text-accent-700'
+    }`}
+  >
+    {label}
+  </Button>
+);
 
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
 
 export const TanksPage: React.FC = () => {
+  const { t, locale } = useI18n();
+  const navigate = useNavigate();
+
   // URL params for tab selection (supports redirect from /sites/cleaner-fish)
   const [searchParams, setSearchParams] = useSearchParams();
   const tabFromUrl = searchParams.get('tab');
-
-  // Tab state
   const [activeTab, setActiveTab] = useState<'production' | 'cleanerFish'>(
     tabFromUrl === 'cleanerFish' ? 'cleanerFish' : 'production',
   );
 
-  // New Batch modal state
-  const [showBatchModal, setShowBatchModal] = useState(false);
+  // ============================================================================
+  // DATA
+  // ============================================================================
 
-  // Filter state
-  const [filters, setFilters] = useState<TankFilterState>(initialFilterState);
+  // Fetch ALL tanks with batch metrics — useTanksList pages through the backend
+  // list (100/page) when no pagination is passed, so no container is invisible.
+  const { data, isLoading: tanksLoading, error, refetch } = useTanksList({ isActive: true });
 
-  // Column visibility (for production tab)
+  // Species display names for the table / drawer batch lines
+  // (localName → commonName → code)
+  const { data: speciesData } = useSpeciesList({ isActive: true, limit: 100 });
+  const speciesNames = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const s of speciesData?.items ?? []) {
+      map[s.code] = s.localName || s.commonName || s.code;
+    }
+    return map;
+  }, [speciesData]);
+
+  // Cleaner fish data (management bar + deploy modal)
+  const {
+    data: cfBatches,
+    isLoading: cfBatchesLoading,
+    refetch: refetchCfBatches,
+  } = useCleanerFishBatches();
+  const { data: cfSpecies, isLoading: cfSpeciesLoading } = useCleanerFishSpecies();
+
+  const isLoading =
+    tanksLoading || (activeTab === 'cleanerFish' && (cfBatchesLoading || cfSpeciesLoading));
+
+  const tableData: TankWithBatch[] = useMemo(() => {
+    if (!data?.items) return [];
+    return data.items.map(tankToTankWithBatch);
+  }, [data?.items]);
+
+  const activeCfBatches = useMemo(() => {
+    if (!cfBatches) return [];
+    return cfBatches.filter((b) => b.currentQuantity > 0 && b.status === 'ACTIVE');
+  }, [cfBatches]);
+
+  // ============================================================================
+  // FILTERS
+  // ============================================================================
+
+  const [filters, setFilters] = useState<FilterState>(INITIAL_FILTERS);
+
+  // Column visibility — production table (30-column model, 9 design defaults)
   const {
     visibleColumns,
     toggleColumn,
@@ -153,7 +208,7 @@ export const TanksPage: React.FC = () => {
     isColumnVisible,
   } = useColumnVisibility();
 
-  // Column visibility (for cleaner fish tab)
+  // Column visibility — cleaner-fish table (per-batch cf* columns)
   const {
     visibleColumns: cfVisibleColumns,
     toggleColumn: cfToggleColumn,
@@ -163,42 +218,86 @@ export const TanksPage: React.FC = () => {
     isColumnVisible: cfIsColumnVisible,
   } = useColumnVisibility('tanks-page-cf-column-visibility', cleanerFishColumns);
 
-  // Cleaner Fish Batch Management State
-  const [showCreateBatchModal, setShowCreateBatchModal] = useState(false);
-  const [showDeployModal, setShowDeployModal] = useState(false);
-  const [showRemoveModal, setShowRemoveModal] = useState(false);
-  const [selectedDeployBatch, setSelectedDeployBatch] = useState<CleanerFishBatch | null>(null);
-  const [removeBatchInfo, setRemoveBatchInfo] = useState<{
-    batch: CleanerFishBatch;
-    tankId: string;
-  } | null>(null);
+  // The active tab's visible columns, in model order
+  const activeColumns = useMemo(() => {
+    return activeTab === 'cleanerFish'
+      ? cleanerFishColumns.filter((col) => cfIsColumnVisible(col.key))
+      : tankColumns.filter((col) => isColumnVisible(col.key));
+  }, [activeTab, cfIsColumnVisible, isColumnVisible]);
 
-  // Cleaner Fish Data Hooks
-  const {
-    data: cfBatches,
-    isLoading: cfBatchesLoading,
-    refetch: refetchCfBatches,
-  } = useCleanerFishBatches();
-  const { data: cfSpecies, isLoading: cfSpeciesLoading } = useCleanerFishSpecies();
+  const filteredData = useMemo(() => {
+    const q = filters.search.toLowerCase();
+    return tableData.filter((tank) => {
+      const matchesSearch =
+        q === '' ||
+        tank.name.toLowerCase().includes(q) ||
+        tank.code.toLowerCase().includes(q) ||
+        (tank.batchNumber?.toLowerCase().includes(q) ?? false) ||
+        (tank.speciesCode?.toLowerCase().includes(q) ?? false) ||
+        (tank.feedName?.toLowerCase().includes(q) ?? false) ||
+        (tank.feedCode?.toLowerCase().includes(q) ?? false);
 
-  // Active cleaner fish batches (for deploy modal)
-  const activeCfBatches = useMemo(() => {
-    if (!cfBatches) return [];
-    return cfBatches.filter((b) => b.currentQuantity > 0 && b.status === 'ACTIVE');
-  }, [cfBatches]);
+      const matchesSite =
+        filters.siteId === 'all' || (tank.siteId ?? NO_SITE_KEY) === filters.siteId;
+      const matchesCategory = filters.category === 'all' || tank.category === filters.category;
+      const stocked = !!(tank.batchNumber || tank.hasCleanerFish);
+      const matchesOccupancy =
+        filters.occupancy === 'all' || (filters.occupancy === 'occupied' ? stocked : !stocked);
+      const matchesStatus = filters.status === 'all' || tank.status === filters.status;
 
-  // Fetch ALL tanks with batch metrics — useTanksList pages through the backend
-  // list (100/page) when no pagination is passed, so no container is invisible.
-  const { data, isLoading: tanksLoading, error, refetch } = useTanksList({ isActive: true });
-  const isLoading =
-    tanksLoading || (activeTab === 'cleanerFish' && (cfBatchesLoading || cfSpeciesLoading));
+      return matchesSearch && matchesSite && matchesCategory && matchesOccupancy && matchesStatus;
+    });
+  }, [tableData, filters]);
+
+  // Site buttons — distinct sites present in the data
+  const siteButtons = useMemo(() => {
+    const labels = new Map<string, string>();
+    for (const tank of tableData) {
+      const key = tank.siteId ?? NO_SITE_KEY;
+      if (!labels.has(key)) {
+        labels.set(key, tank.siteName || tank.departmentName || t('tanksV2.filter.noSite'));
+      }
+    }
+    return [...labels.entries()]
+      .map(([key, label]) => ({ key, label }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [tableData, t]);
+
+  // Category buttons — only categories present in the data
+  const categoryButtons = useMemo(() => {
+    return CATEGORY_ORDER.filter((cat) => tableData.some((tank) => tank.category === cat));
+  }, [tableData]);
+
+  // Result-count line: "N birim · X kg" over the filtered rows
+  const countLine = useMemo(() => {
+    const biomass = filteredData.reduce((sum, tank) => sum + (tank.biomass ?? 0), 0);
+    const numberLocale = locale === 'tr' ? 'tr-TR' : 'en-US';
+    const biomassLabel =
+      biomass >= 1000
+        ? `${(biomass / 1000).toLocaleString(numberLocale, { maximumFractionDigits: 1 })} t`
+        : `${biomass.toLocaleString(numberLocale, { maximumFractionDigits: biomass < 10 ? 2 : 0 })} kg`;
+    return t('tanksV2.grid.count', {
+      count: filteredData.length,
+      biomass: biomassLabel,
+    });
+  }, [filteredData, locale, t]);
+
+  const setFilter = useCallback(<K extends keyof FilterState>(key: K, value: FilterState[K]) => {
+    setFilters((prev) => ({ ...prev, [key]: value }));
+  }, []);
 
   // ============================================================================
-  // QUICK ACTIONS STATE
+  // TANK DETAIL DRAWER + OPERATION STATE
   // ============================================================================
 
-  // Selected tank for operations
-  const [selectedTankId, setSelectedTankId] = useState<string | null>(null);
+  const [detailTankId, setDetailTankId] = useState<string | null>(null);
+  const [showSamplingModal, setShowSamplingModal] = useState(false);
+
+  // The unit the drawer (and any operation launched from it) acts on.
+  const selectedTank = useMemo(() => {
+    if (!detailTankId) return null;
+    return tableData.find((tk) => tk.id === detailTankId) || null;
+  }, [detailTankId, tableData]);
 
   // Modal visibility states
   const [showMortalityModal, setShowMortalityModal] = useState(false);
@@ -216,208 +315,133 @@ export const TanksPage: React.FC = () => {
   const [showCleanerBatchSelector, setShowCleanerBatchSelector] = useState(false);
   const [selectedCleanerBatch, setSelectedCleanerBatch] = useState<CleanerFishBatch | null>(null);
 
-  // ============================================================================
-  // DATA TRANSFORMATION
-  // ============================================================================
-
-  // Transform to TankWithBatch format
-  const tableData: TankWithBatch[] = useMemo(() => {
-    if (!data?.items) return [];
-    return data.items.map(tankToTankWithBatch);
-  }, [data?.items]);
-
-  // Selected tank object
-  const selectedTank = useMemo(() => {
-    if (!selectedTankId) return null;
-    return tableData.find((t) => t.id === selectedTankId) || null;
-  }, [selectedTankId, tableData]);
-
-  // ============================================================================
-  // QUICK ACTIONS HANDLERS
-  // ============================================================================
+  // Batch creation / cleaner-fish batch management
+  const [showBatchModal, setShowBatchModal] = useState(false);
+  const [showCreateBatchModal, setShowCreateBatchModal] = useState(false);
+  const [showDeployModal, setShowDeployModal] = useState(false);
+  const [showRemoveModal, setShowRemoveModal] = useState(false);
+  const [removeBatchInfo, setRemoveBatchInfo] = useState<{
+    batch: CleanerFishBatch;
+    tankId: string;
+  } | null>(null);
 
   /**
-   * Handle mortality button click
+   * Minimal cleaner-batch shape built from a tank's cleanerFishDetails entry —
+   * the cleaner-fish operation modals consume the CleanerFishBatch form.
    */
-  const handleMortalityClick = useCallback(() => {
-    if (!selectedTankId || !selectedTank) return;
+  const cleanerBatchFromDetail = useCallback(
+    (detail: {
+      batchId: string;
+      batchNumber: string;
+      speciesId: string;
+      quantity: number;
+      deployedAt: string;
+    }): CleanerFishBatch => ({
+      id: detail.batchId,
+      batchNumber: detail.batchNumber,
+      speciesId: detail.speciesId,
+      initialQuantity: detail.quantity,
+      currentQuantity: detail.quantity,
+      stockedAt: detail.deployedAt,
+      status: 'ACTIVE',
+      isActive: true,
+      createdAt: detail.deployedAt,
+      updatedAt: detail.deployedAt,
+    }),
+    [],
+  );
 
-    const hasProd = !!selectedTank.batchNumber;
-    const hasCleaner = selectedTank.hasCleanerFish;
+  /**
+   * Route a mortality/transfer click from the drawer through the fish-type and
+   * cleaner-batch disambiguation chain (same behaviour as the old toolbar).
+   */
+  const runTankOperation = useCallback(
+    (operation: 'mortality' | 'transfer') => {
+      if (!selectedTank) return;
 
-    if (hasProd && hasCleaner) {
-      // Show fish type selector
-      setPendingOperation('mortality');
-      setShowFishTypeSelector(true);
-    } else if (hasProd) {
-      setOperationFishType('production');
-      setShowMortalityModal(true);
-    } else if (hasCleaner) {
-      setOperationFishType('cleaner');
-      // If multiple cleaner batches, show batch selector
-      if ((selectedTank.cleanerFishDetails?.length || 0) > 1) {
-        setPendingOperation('mortality');
-        setShowCleanerBatchSelector(true);
-      } else if (selectedTank.cleanerFishDetails?.[0]) {
-        // Single batch - convert to CleanerFishBatch format (minimal required fields)
-        const detail = selectedTank.cleanerFishDetails[0];
-        setSelectedCleanerBatch({
-          id: detail.batchId,
-          batchNumber: detail.batchNumber,
-          speciesId: detail.speciesId,
-          initialQuantity: detail.quantity,
-          currentQuantity: detail.quantity,
-          stockedAt: detail.deployedAt,
-          status: 'ACTIVE',
-          isActive: true,
-          createdAt: detail.deployedAt,
-          updatedAt: detail.deployedAt,
-        });
-        setShowMortalityModal(true);
+      const hasProd = !!selectedTank.batchNumber;
+      const hasCleaner = selectedTank.hasCleanerFish;
+
+      if (hasProd && hasCleaner) {
+        setPendingOperation(operation);
+        setShowFishTypeSelector(true);
+      } else if (hasProd) {
+        setOperationFishType('production');
+        if (operation === 'mortality') setShowMortalityModal(true);
+        else setShowTransferModal(true);
+      } else if (hasCleaner) {
+        setOperationFishType('cleaner');
+        if ((selectedTank.cleanerFishDetails?.length ?? 0) > 1) {
+          setPendingOperation(operation);
+          setShowCleanerBatchSelector(true);
+        } else if (selectedTank.cleanerFishDetails?.[0]) {
+          setSelectedCleanerBatch(cleanerBatchFromDetail(selectedTank.cleanerFishDetails[0]));
+          if (operation === 'mortality') setShowMortalityModal(true);
+          else setShowTransferModal(true);
+        }
       }
-    }
-  }, [selectedTankId, selectedTank]);
+    },
+    [cleanerBatchFromDetail, selectedTank],
+  );
 
-  /**
-   * Handle transfer button click
-   */
-  const handleTransferClick = useCallback(() => {
-    if (!selectedTankId || !selectedTank) return;
+  const handleMortalityClick = useCallback(() => runTankOperation('mortality'), [runTankOperation]);
+  const handleTransferClick = useCallback(() => runTankOperation('transfer'), [runTankOperation]);
 
-    const hasProd = !!selectedTank.batchNumber;
-    const hasCleaner = selectedTank.hasCleanerFish;
-
-    if (hasProd && hasCleaner) {
-      // Show fish type selector
-      setPendingOperation('transfer');
-      setShowFishTypeSelector(true);
-    } else if (hasProd) {
-      setOperationFishType('production');
-      setShowTransferModal(true);
-    } else if (hasCleaner) {
-      setOperationFishType('cleaner');
-      // If multiple cleaner batches, show batch selector
-      if ((selectedTank.cleanerFishDetails?.length || 0) > 1) {
-        setPendingOperation('transfer');
-        setShowCleanerBatchSelector(true);
-      } else if (selectedTank.cleanerFishDetails?.[0]) {
-        const detail = selectedTank.cleanerFishDetails[0];
-        setSelectedCleanerBatch({
-          id: detail.batchId,
-          batchNumber: detail.batchNumber,
-          speciesId: detail.speciesId,
-          initialQuantity: detail.quantity,
-          currentQuantity: detail.quantity,
-          stockedAt: detail.deployedAt,
-          status: 'ACTIVE',
-          isActive: true,
-          createdAt: detail.deployedAt,
-          updatedAt: detail.deployedAt,
-        });
-        setShowTransferModal(true);
-      }
-    }
-  }, [selectedTankId, selectedTank]);
-
-  /**
-   * Handle cull button click (production fish only)
-   */
   const handleCullClick = useCallback(() => {
-    if (!selectedTankId || !selectedTank) return;
-
-    if (!selectedTank.batchNumber) {
-      // No production fish to cull
-      return;
+    if (selectedTank?.batchNumber) {
+      setOperationFishType('production');
+      setShowCullModal(true);
     }
+  }, [selectedTank]);
 
-    setOperationFishType('production');
-    setShowCullModal(true);
-  }, [selectedTankId, selectedTank]);
-
-  /**
-   * Handle grading button click (production fish only)
-   */
   const handleGradingClick = useCallback(() => {
-    if (!selectedTankId || !selectedTank) return;
-
-    if (!selectedTank.batchNumber) {
-      // No production fish to grade
-      return;
+    if (selectedTank?.batchNumber) {
+      setOperationFishType('production');
+      setShowGradingModal(true);
     }
+  }, [selectedTank]);
 
-    setOperationFishType('production');
-    setShowGradingModal(true);
-  }, [selectedTankId, selectedTank]);
+  const handleSamplingClick = useCallback(() => {
+    if (selectedTank?.batchNumber) {
+      setShowSamplingModal(true);
+    }
+  }, [selectedTank]);
 
-  /**
-   * Handle record-water-temperature button click.
-   *
-   * Water temperature applies to the tank itself (not a specific batch/fish
-   * type), so unlike mortality/transfer this needs no production-vs-cleaner
-   * disambiguation — it just opens the compact temperature modal for the
-   * selected tank.
-   */
   const handleWaterTempClick = useCallback(() => {
-    if (!selectedTankId || !selectedTank) return;
-    setShowWaterTempModal(true);
-  }, [selectedTankId, selectedTank]);
+    if (selectedTank) setShowWaterTempModal(true);
+  }, [selectedTank]);
 
-  /**
-   * Handle water-temperature save success — close the modal and refetch the
-   * tanks list so the feed-rate columns (feedingRatePercent / dailyFeedKg)
-   * recompute with the newly recorded temperature.
-   */
-  const handleWaterTempSuccess = useCallback(() => {
-    setShowWaterTempModal(false);
-    refetch();
-  }, [refetch]);
+  /** Besleme planını aç — the unit's feeding plan lives on /sites/feeding. */
+  const handleOpenFeedingPlan = useCallback(() => {
+    navigate('/sites/feeding');
+  }, [navigate]);
 
-  /**
-   * Handle fish type selection (when tank has both types)
-   */
+  /** Boş birimi stokla — batch creation (with tank allocation) flow. */
+  const handleStockUnit = useCallback(() => {
+    setShowBatchModal(true);
+  }, []);
+
   const handleFishTypeSelect = useCallback(
     (type: 'production' | 'cleaner') => {
       setShowFishTypeSelector(false);
       setOperationFishType(type);
 
       if (type === 'production') {
-        if (pendingOperation === 'mortality') {
-          setShowMortalityModal(true);
-        } else if (pendingOperation === 'transfer') {
-          setShowTransferModal(true);
-        }
+        if (pendingOperation === 'mortality') setShowMortalityModal(true);
+        else if (pendingOperation === 'transfer') setShowTransferModal(true);
       } else if (type === 'cleaner' && selectedTank) {
-        // Check if multiple cleaner batches
-        if ((selectedTank.cleanerFishDetails?.length || 0) > 1) {
+        if ((selectedTank.cleanerFishDetails?.length ?? 0) > 1) {
           setShowCleanerBatchSelector(true);
         } else if (selectedTank.cleanerFishDetails?.[0]) {
-          const detail = selectedTank.cleanerFishDetails[0];
-          setSelectedCleanerBatch({
-            id: detail.batchId,
-            batchNumber: detail.batchNumber,
-            speciesId: detail.speciesId,
-            initialQuantity: detail.quantity,
-            currentQuantity: detail.quantity,
-            stockedAt: detail.deployedAt,
-            status: 'ACTIVE',
-            isActive: true,
-            createdAt: detail.deployedAt,
-            updatedAt: detail.deployedAt,
-          });
-          if (pendingOperation === 'mortality') {
-            setShowMortalityModal(true);
-          } else if (pendingOperation === 'transfer') {
-            setShowTransferModal(true);
-          }
+          setSelectedCleanerBatch(cleanerBatchFromDetail(selectedTank.cleanerFishDetails[0]));
+          if (pendingOperation === 'mortality') setShowMortalityModal(true);
+          else if (pendingOperation === 'transfer') setShowTransferModal(true);
         }
       }
     },
-    [pendingOperation, selectedTank],
+    [cleanerBatchFromDetail, pendingOperation, selectedTank],
   );
 
-  /**
-   * Handle cleaner batch selection
-   */
   const handleCleanerBatchSelect = useCallback(
     (batch: {
       batchId: string;
@@ -431,51 +455,46 @@ export const TanksPage: React.FC = () => {
       deployedAt: string;
     }) => {
       setShowCleanerBatchSelector(false);
-      setSelectedCleanerBatch({
-        id: batch.batchId,
-        batchNumber: batch.batchNumber,
-        speciesId: batch.speciesId,
-        initialQuantity: batch.quantity,
-        currentQuantity: batch.quantity,
-        stockedAt: batch.deployedAt,
-        status: 'ACTIVE',
-        isActive: true,
-        createdAt: batch.deployedAt,
-        updatedAt: batch.deployedAt,
-      });
+      setSelectedCleanerBatch(cleanerBatchFromDetail(batch));
 
-      if (pendingOperation === 'mortality') {
-        setShowMortalityModal(true);
-      } else if (pendingOperation === 'transfer') {
-        setShowTransferModal(true);
-      }
+      if (pendingOperation === 'mortality') setShowMortalityModal(true);
+      else if (pendingOperation === 'transfer') setShowTransferModal(true);
     },
-    [pendingOperation],
+    [cleanerBatchFromDetail, pendingOperation],
   );
 
-  /**
-   * Handle operation success - reset state and refetch
-   */
+  /** Operation success — refetch and reset the operation chain; the drawer
+   * stays open and re-renders with the refreshed metrics. */
   const handleOperationSuccess = useCallback(() => {
     refetch();
     setShowMortalityModal(false);
     setShowTransferModal(false);
     setShowCullModal(false);
     setShowGradingModal(false);
-    setSelectedTankId(null);
+    setShowSamplingModal(false);
     setOperationFishType(null);
     setPendingOperation(null);
     setSelectedCleanerBatch(null);
   }, [refetch]);
 
-  /**
-   * Close all modals and reset state
-   */
+  /** Sampling success — the drawer stays open; metrics refresh via refetch. */
+  const handleSamplingSuccess = useCallback(() => {
+    refetch();
+    setShowSamplingModal(false);
+  }, [refetch]);
+
+  const handleWaterTempSuccess = useCallback(() => {
+    setShowWaterTempModal(false);
+    refetch();
+  }, [refetch]);
+
+  /** Close all operation modals (the drawer itself stays untouched). */
   const handleCloseModals = useCallback(() => {
     setShowMortalityModal(false);
     setShowTransferModal(false);
     setShowCullModal(false);
     setShowGradingModal(false);
+    setShowSamplingModal(false);
     setShowWaterTempModal(false);
     setShowFishTypeSelector(false);
     setShowCleanerBatchSelector(false);
@@ -484,9 +503,17 @@ export const TanksPage: React.FC = () => {
     setSelectedCleanerBatch(null);
   }, []);
 
-  // ============================================================================
-  // CLEANER FISH BATCH MANAGEMENT HANDLERS
-  // ============================================================================
+  const handleRemoveFromTank = useCallback(
+    (batchId: string) => {
+      if (!detailTankId) return;
+      const batch = cfBatches?.find((b) => b.id === batchId) || null;
+      if (batch) {
+        setRemoveBatchInfo({ batch, tankId: detailTankId });
+        setShowRemoveModal(true);
+      }
+    },
+    [cfBatches, detailTankId],
+  );
 
   const handleCreateBatchSuccess = useCallback(() => {
     setShowCreateBatchModal(false);
@@ -496,21 +523,9 @@ export const TanksPage: React.FC = () => {
 
   const handleDeploySuccess = useCallback(() => {
     setShowDeployModal(false);
-    setSelectedDeployBatch(null);
     refetchCfBatches();
     refetch();
   }, [refetchCfBatches, refetch]);
-
-  const handleRemoveFromTank = useCallback(
-    (tankId: string, batchId: string) => {
-      const batch = cfBatches?.find((b) => b.id === batchId) || null;
-      if (batch) {
-        setRemoveBatchInfo({ batch, tankId });
-        setShowRemoveModal(true);
-      }
-    },
-    [cfBatches],
-  );
 
   const handleRemoveSuccess = useCallback(() => {
     setShowRemoveModal(false);
@@ -519,423 +534,42 @@ export const TanksPage: React.FC = () => {
     refetch();
   }, [refetchCfBatches, refetch]);
 
-  // ============================================================================
-  // FILTERING
-  // ============================================================================
-
-  // Apply filters
-  const filteredData = useMemo(() => {
-    return tableData.filter((tank) => {
-      // Search filter
-      const matchesSearch =
-        filters.search === '' ||
-        tank.name.toLowerCase().includes(filters.search.toLowerCase()) ||
-        tank.code.toLowerCase().includes(filters.search.toLowerCase()) ||
-        tank.batchNumber?.toLowerCase().includes(filters.search.toLowerCase());
-
-      // Category filter (case-insensitive comparison)
-      const matchesCategory =
-        filters.category === 'all' ||
-        tank.category.toUpperCase() === filters.category.toUpperCase();
-
-      // Status filter
-      const matchesStatus = filters.status === 'all' || tank.status === filters.status;
-
-      // Department filter
-      const matchesDepartment =
-        filters.departmentId === 'all' || tank.departmentId === filters.departmentId;
-
-      // Has batch filter
-      const matchesHasBatch =
-        filters.hasBatch === 'all' ||
-        (filters.hasBatch === 'yes' && tank.batchNumber) ||
-        (filters.hasBatch === 'no' && !tank.batchNumber);
-
-      return (
-        matchesSearch && matchesCategory && matchesStatus && matchesDepartment && matchesHasBatch
-      );
-    });
-  }, [tableData, filters]);
-
-  // Get active columns based on visibility (production tab)
-  const activeColumns = useMemo(() => {
-    return tankColumns.filter((col) => isColumnVisible(col.key));
-  }, [isColumnVisible]);
-
-  // Get active columns based on visibility (cleaner fish tab)
-  const activeCleanerFishColumns = useMemo(() => {
-    return cleanerFishColumns.filter((col) => cfIsColumnVisible(col.key));
-  }, [cfIsColumnVisible]);
-
-  // Handle filter change
-  const handleFilterChange = useCallback((key: keyof TankFilterState, value: string) => {
-    setFilters((prev) => ({ ...prev, [key]: value }));
-  }, []);
-
-  // Render cell value
-  const renderCell = useCallback((tank: TankWithBatch, columnKey: string): React.ReactNode => {
-    switch (columnKey) {
-      case 'name':
-        return <div className="font-medium text-gray-900 dark:text-gray-100">{tank.name}</div>;
-      case 'code':
-        return (
-          <span className="text-gray-600 dark:text-gray-400 font-mono text-sm">{tank.code}</span>
-        );
-      case 'category':
-        return (
-          <span
-            className={`px-2 py-1 rounded text-xs font-medium ${
-              tank.category === 'pond'
-                ? 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200'
-                : tank.category === 'cage'
-                  ? 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
-                  : 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200'
-            }`}
-          >
-            {categoryLabels[tank.category] || tank.category}
-          </span>
-        );
-      case 'status':
-        return (
-          <span
-            className={`px-2 py-1 rounded text-xs font-medium ${
-              statusColors[tank.status] ||
-              'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
-            }`}
-          >
-            {tank.status}
-          </span>
-        );
-      case 'departmentName':
-        return tank.departmentName || '-';
-      case 'tankType':
-        return tank.tankType || '-';
-      case 'material':
-        return tank.material || '-';
-      case 'waterType':
-        return tank.waterType || '-';
-      case 'volume':
-        return formatNumber(tank.volume, 1);
-      case 'maxBiomass':
-        return formatNumber(tank.maxBiomass, 0);
-      case 'maxDensity':
-        return formatNumber(tank.maxDensity, 1);
-      case 'batchNumber': {
-        // Combined batch (e.g. "B-1 + B-2") when several batches share the tank;
-        // fall back to the single primary batch number otherwise.
-        const details = tank.batchDetails;
-        const batchLabel =
-          details && details.length > 1
-            ? details.map((d) => d.batchNumber).join(' + ')
-            : tank.batchNumber;
-        return batchLabel ? (
-          <span className="text-info-600 dark:text-info-400 font-medium" title={batchLabel}>
-            {batchLabel}
-          </span>
-        ) : (
-          <span className="text-gray-400 dark:text-gray-500">-</span>
-        );
-      }
-      case 'pieces':
-        return formatNumber(tank.pieces, 0);
-      case 'avgWeight':
-        return formatNumber(tank.avgWeight, 1);
-      case 'biomass':
-        return formatNumber(tank.biomass, 1);
-      case 'density':
-        return tank.density !== undefined ? (
-          <span
-            className={`${
-              tank.isOverCapacity
-                ? 'text-error-600 dark:text-error-400 font-bold'
-                : tank.density > (tank.maxDensity || 30) * 0.9
-                  ? 'text-warning-600 dark:text-warning-400'
-                  : 'text-gray-900 dark:text-gray-100'
-            }`}
-          >
-            {formatNumber(tank.density, 1)}
-          </span>
-        ) : (
-          '-'
-        );
-      case 'survivalRate':
-        return tank.survivalRate !== undefined ? (
-          <span
-            className={`${
-              tank.survivalRate >= 95
-                ? 'text-success-600 dark:text-success-400'
-                : tank.survivalRate >= 90
-                  ? 'text-warning-600 dark:text-warning-400'
-                  : 'text-error-600 dark:text-error-400'
-            }`}
-          >
-            {formatNumber(tank.survivalRate, 1)}%
-          </span>
-        ) : (
-          '-'
-        );
-      case 'mortalityRate':
-        return tank.mortalityRate !== undefined ? (
-          <span
-            className={`${
-              tank.mortalityRate <= 1
-                ? 'text-success-600 dark:text-success-400'
-                : tank.mortalityRate <= 5
-                  ? 'text-warning-600 dark:text-warning-400'
-                  : 'text-error-600 dark:text-error-400'
-            }`}
-          >
-            {formatNumber(tank.mortalityRate, 2)}%
-          </span>
-        ) : (
-          '-'
-        );
-      case 'fcr':
-        return tank.fcr !== undefined ? (
-          <span
-            className={`${
-              tank.fcr <= 1.2
-                ? 'text-success-600 dark:text-success-400'
-                : tank.fcr <= 1.5
-                  ? 'text-warning-600 dark:text-warning-400'
-                  : 'text-error-600 dark:text-error-400'
-            }`}
-          >
-            {formatNumber(tank.fcr, 2)}
-          </span>
-        ) : (
-          '-'
-        );
-      case 'growthRate':
-        return formatNumber(tank.growthRate, 2);
-      case 'sgr':
-        return tank.sgr !== undefined ? `${formatNumber(tank.sgr, 2)}%` : '-';
-      case 'capacityUsedPercent':
-        return tank.capacityUsedPercent !== undefined ? (
-          <div className="flex items-center gap-2">
-            <div className="w-16 bg-gray-200 dark:bg-gray-700 rounded h-2">
-              <div
-                className={`h-2 rounded ${
-                  tank.capacityUsedPercent > 100
-                    ? 'bg-error-500'
-                    : tank.capacityUsedPercent > 80
-                      ? 'bg-warning-500'
-                      : 'bg-success-500'
-                }`}
-                style={{ width: `${Math.min(tank.capacityUsedPercent, 100)}%` }}
-              />
-            </div>
-            <span className="text-sm">{formatNumber(tank.capacityUsedPercent, 0)}%</span>
-          </div>
-        ) : (
-          '-'
-        );
-      case 'daysSinceStocking':
-        return formatNumber(tank.daysSinceStocking, 0);
-      case 'lastFeedingAt':
-        return formatDate(tank.lastFeedingAt);
-      case 'lastSamplingAt':
-        return formatDate(tank.lastSamplingAt);
-      case 'projectedHarvestDate':
-        return formatDate(tank.projectedHarvestDate);
-      case 'speciesCode':
-        return tank.speciesCode ? (
-          <span className="font-medium text-gray-700 dark:text-gray-300">{tank.speciesCode}</span>
-        ) : (
-          <span className="text-gray-400 dark:text-gray-500">-</span>
-        );
-      case 'feedCode':
-        return tank.feedCode ? (
-          <span className="text-info-600 dark:text-info-400">{tank.feedCode}</span>
-        ) : (
-          <span className="text-gray-400 dark:text-gray-500">-</span>
-        );
-      case 'feedingRatePercent':
-        return tank.feedingRatePercent !== undefined ? (
-          <span>{formatNumber(tank.feedingRatePercent, 2)}%</span>
-        ) : (
-          '-'
-        );
-      case 'dailyFeedKg':
-        return tank.dailyFeedKg !== undefined ? (
-          <span className="font-medium">{formatNumber(tank.dailyFeedKg, 2)}</span>
-        ) : (
-          '-'
-        );
-      default:
-        return '-';
-    }
-  }, []);
-
-  // Render cleaner fish cell value for tank-level columns
-  const renderCleanerFishTankCell = useCallback(
-    (tank: TankWithBatch, columnKey: string): React.ReactNode => {
-      switch (columnKey) {
-        case 'name':
-          return <div className="font-medium text-gray-900 dark:text-gray-100">{tank.name}</div>;
-        case 'code':
-          return (
-            <span className="text-gray-600 dark:text-gray-400 font-mono text-sm">{tank.code}</span>
-          );
-        case 'category':
-          return (
-            <span
-              className={`px-2 py-1 rounded text-xs font-medium ${
-                tank.category === 'pond'
-                  ? 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200'
-                  : tank.category === 'cage'
-                    ? 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
-                    : 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200'
-              }`}
-            >
-              {categoryLabels[tank.category] || tank.category}
-            </span>
-          );
-        case 'status':
-          return (
-            <span
-              className={`px-2 py-1 rounded text-xs font-medium ${
-                statusColors[tank.status] ||
-                'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
-              }`}
-            >
-              {tank.status}
-            </span>
-          );
-        case 'departmentName':
-          return tank.departmentName || '-';
-        case 'volume':
-          return formatNumber(tank.volume, 1);
-        default:
-          return '-';
-      }
+  const switchTab = useCallback(
+    (tab: 'production' | 'cleanerFish') => {
+      setActiveTab(tab);
+      setDetailTankId(null);
+      // Keep the URL shareable: ?tab=cleanerFish round-trips through the
+      // /sites/cleaner-fish redirect.
+      const next = new URLSearchParams(searchParams);
+      if (tab === 'cleanerFish') next.set('tab', 'cleanerFish');
+      else next.delete('tab');
+      setSearchParams(next, { replace: true });
     },
-    [],
+    [searchParams, setSearchParams],
   );
 
-  // Render cleaner fish cell value for batch-level columns (single batch)
-  const renderCleanerFishBatchCell = useCallback(
-    (tank: TankWithBatch, columnKey: string, batchIndex: number): React.ReactNode => {
-      const cf = tank.cleanerFishDetails?.[batchIndex];
-      if (!cf) return '-';
+  // ============================================================================
+  // RENDER
+  // ============================================================================
 
-      switch (columnKey) {
-        case 'cfSpecies':
-          return <span className="text-sm">{cf.speciesName}</span>;
-
-        case 'cfQuantity':
-          return <span className="text-sm">{formatNumber(cf.quantity, 0)}</span>;
-
-        case 'cfAvgWeight':
-          return <span className="text-sm">{formatNumber(cf.avgWeightG, 1)}</span>;
-
-        case 'cfBiomass':
-          return <span className="text-sm">{formatNumber(cf.biomassKg, 2)}</span>;
-
-        case 'cfSourceType':
-          return (
-            <span
-              className={`px-1.5 py-0.5 rounded text-xs ${
-                cf.sourceType === 'farmed'
-                  ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
-                  : 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300'
-              }`}
-            >
-              {cf.sourceType === 'farmed' ? 'Farmed' : 'Wild'}
-            </span>
-          );
-
-        case 'cfDeployedAt':
-          return <span className="text-sm">{formatDate(new Date(cf.deployedAt))}</span>;
-
-        case 'cfBatchNumber':
-          return <span className="text-sm font-mono">{cf.batchNumber}</span>;
-
-        case 'cfBatchCount':
-          // Only show on first row
-          if (batchIndex === 0) {
-            return formatNumber(tank.cleanerFishDetails?.length || 0, 0);
-          }
-          return null;
-
-        // Mortality tracking columns
-        case 'cfInitialQuantity':
-          return <span className="text-sm">{formatNumber(cf.initialQuantity, 0)}</span>;
-
-        case 'cfTotalMortality':
-          return cf.totalMortality ? (
-            <span className="text-sm text-error-600 dark:text-error-400 font-medium">
-              {formatNumber(cf.totalMortality, 0)}
-            </span>
-          ) : (
-            <span className="text-sm text-gray-400 dark:text-gray-500">0</span>
-          );
-
-        case 'cfMortalityRate':
-          return cf.mortalityRate !== undefined ? (
-            <span
-              className={`text-sm ${
-                cf.mortalityRate <= 1
-                  ? 'text-success-600 dark:text-success-400'
-                  : cf.mortalityRate <= 5
-                    ? 'text-warning-600 dark:text-warning-400'
-                    : 'text-error-600 dark:text-error-400'
-              }`}
-            >
-              {formatNumber(cf.mortalityRate, 2)}%
-            </span>
-          ) : (
-            <span className="text-sm text-gray-400 dark:text-gray-500">0%</span>
-          );
-
-        case 'cfLastMortalityAt':
-          return cf.lastMortalityAt ? (
-            <span className="text-sm">{formatDate(new Date(cf.lastMortalityAt))}</span>
-          ) : (
-            <span className="text-sm text-gray-400 dark:text-gray-500">-</span>
-          );
-
-        case 'cfSurvivalRate':
-          if (cf.initialQuantity && cf.initialQuantity > 0) {
-            const survivalRate = (cf.quantity / cf.initialQuantity) * 100;
-            return (
-              <span
-                className={`text-sm ${
-                  survivalRate >= 95
-                    ? 'text-success-600 dark:text-success-400'
-                    : survivalRate >= 90
-                      ? 'text-warning-600 dark:text-warning-400'
-                      : 'text-error-600 dark:text-error-400'
-                }`}
-              >
-                {formatNumber(survivalRate, 1)}%
-              </span>
-            );
-          }
-          return <span className="text-sm text-gray-400 dark:text-gray-500">-</span>;
-
-        default:
-          return '-';
-      }
-    },
-    [],
-  );
-
-  // Check if column is tank-level (not cleaner fish specific)
-  const isTankLevelColumn = useCallback((columnKey: string): boolean => {
-    return !columnKey.startsWith('cf');
-  }, []);
-
-  // Loading state
   if (isLoading) {
     return (
       <div className="p-6">
         <div className="animate-pulse">
-          <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-48 mb-4" />
-          <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-96 mb-6" />
-          <div className="space-y-3">
-            {[...Array(5)].map((_, i) => (
-              <div key={i} className="h-12 bg-gray-200 dark:bg-gray-700 rounded" />
+          <div className="mb-4 flex gap-6">
+            <div className="h-8 w-32 rounded bg-gray-200" />
+            <div className="h-8 w-44 rounded bg-gray-200" />
+          </div>
+          <div className="mb-3 h-12 w-full max-w-[620px] bg-gray-200" />
+          <div className="mb-3 flex gap-2">
+            {[...Array(7)].map((_, i) => (
+              <div key={i} className="h-[42px] w-28 bg-gray-200" />
+            ))}
+          </div>
+          <div className="mb-4 h-5 w-48 bg-gray-200" />
+          <div className="space-y-2">
+            {[...Array(8)].map((_, i) => (
+              <div key={i} className="h-14 bg-gray-200" />
             ))}
           </div>
         </div>
@@ -944,252 +578,110 @@ export const TanksPage: React.FC = () => {
   }
 
   // Blocking error state — ONLY when the initial load failed and there is no
-  // cached data to show. If a background refetch fails but we already have data,
-  // we keep rendering it (stale-on-error) and surface a non-blocking banner in
-  // the main view below instead of blanking the page.
+  // cached data to show. A failed background refetch keeps the table visible
+  // with a non-blocking banner instead of blanking the page.
   if (isBlockingError(error, data != null)) {
     return (
       <div className="p-6">
-        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4">
-          <h3 className="text-error-800 dark:text-error-200 font-medium">Error loading tanks</h3>
-          <p className="text-error-600 dark:text-error-400 text-sm mt-1">
-            {(error as Error).message}
-          </p>
-          <button
-            onClick={() => refetch()}
-            className="mt-3 px-4 py-2 bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200 rounded-lg hover:bg-error-200 dark:hover:bg-error-800/60"
-          >
-            Retry
-          </button>
+        <div className="rounded-lg border border-error-200 bg-error-50 p-4 dark:border-error-800 dark:bg-error-900/20">
+          <h3 className="font-medium text-error-800">{t('tanksV2.error.title')}</h3>
+          <p className="mt-1 text-sm text-error-600">{(error as Error).message}</p>
+          <Button variant="secondary" onClick={() => refetch()} className="mt-3">
+            {t('tanksV2.error.retry')}
+          </Button>
         </div>
       </div>
     );
   }
 
-  // Both tabs pick their columns from a config; the cleaner-fish tab spreads a
-  // tank over one row per batch (DataTable has no rowSpan), so tank-level cells
-  // render on the first row only.
-  type TankRow = (typeof filteredData)[number];
-  const productionTableColumns: DataTableColumn<TankRow>[] = activeColumns.map((col) => ({
-    key: col.key,
-    header: col.header,
-    align: col.align,
-    render: (_value, tank) => (
-      <span className="whitespace-nowrap">{renderCell(tank, col.key)}</span>
-    ),
-  }));
-  type CleanerFishRow = {
-    tank: TankRow;
-    batchIdx: number;
-    isFirstRow: boolean;
-    batchCount: number;
-  };
-  const cleanerFishRows: CleanerFishRow[] = filteredData.flatMap((tank) => {
-    const batchCount = tank.cleanerFishDetails?.length || 0;
-    return Array.from({ length: Math.max(1, batchCount) }, (_, batchIdx) => ({
-      tank,
-      batchIdx,
-      isFirstRow: batchIdx === 0,
-      batchCount,
-    }));
-  });
-  const cleanerFishTableColumns: DataTableColumn<CleanerFishRow>[] = activeCleanerFishColumns.map(
-    (col) => ({
-      key: col.key,
-      header: col.header,
-      align: col.align,
-      render: (_value, row) =>
-        isTankLevelColumn(col.key) ? (
-          row.isFirstRow ? (
-            <span className="whitespace-nowrap">
-              {renderCleanerFishTankCell(row.tank, col.key)}
-            </span>
-          ) : null
-        ) : (
-          <span className="whitespace-nowrap">
-            {row.batchCount === 0
-              ? '-'
-              : renderCleanerFishBatchCell(row.tank, col.key, row.batchIdx)}
-          </span>
-        ),
-    }),
-  );
-
   return (
     <div className="p-6">
-      {/* Non-blocking refresh error — shown while keeping the last-loaded data
-          visible, so a failed background refetch never blanks the table. */}
       {error && (
-        <div className="mb-4 flex items-center justify-between rounded-lg border border-warning-200 dark:border-warning-800 bg-warning-50 dark:bg-warning-900/20 p-3">
-          <p className="text-sm text-warning-800 dark:text-warning-200">
-            Couldn&apos;t refresh tanks — showing the last loaded data.{' '}
-            <span className="text-warning-700 dark:text-warning-300">
-              {(error as Error).message}
-            </span>
+        <div className="mb-4 flex items-center justify-between rounded border border-warning-200 bg-warning-50 p-3 dark:border-warning-800 dark:bg-warning-900/20">
+          <p className="text-sm text-warning-800">
+            {t('tanksV2.error.stale')}{' '}
+            <span className="text-warning-700">{(error as Error).message}</span>
           </p>
-          <button
-            onClick={() => refetch()}
-            className="ml-3 shrink-0 rounded bg-warning-100 dark:bg-warning-900/40 px-3 py-1 text-sm text-warning-800 dark:text-warning-200 hover:bg-warning-200 dark:hover:bg-warning-800/60"
-          >
-            Retry
-          </button>
+          <Button variant="secondary" size="sm" onClick={() => refetch()} className="ml-3 shrink-0">
+            {t('tanksV2.error.retry')}
+          </Button>
         </div>
       )}
 
-      {/* Page Header with Quick Actions */}
-      <PageHeader
-        title="Tanks, Ponds & Cages"
-        description="View all tanks, ponds and sea cages with their current batch metrics"
-        actions={
-          <>
-            {/* Quick Actions - Top Right */}
-            <div className="flex items-center gap-2 bg-gray-50 dark:bg-gray-800 rounded-lg p-2 border border-gray-200 dark:border-gray-700">
-              <Select
-                aria-label="Quick action tank"
-                fullWidth={false}
-                size="sm"
-                className="min-w-[160px]"
-                value={selectedTankId || ''}
-                onChange={(e) => setSelectedTankId(e.target.value || null)}
-                options={[
-                  { value: '', label: 'Select Tank...' },
-                  ...tableData
-                    .filter((t) => t.batchNumber || t.hasCleanerFish)
-                    .map((tank) => ({
-                      value: tank.id,
-                      label: `${tank.name} ${tank.hasCleanerFish ? '🐟' : ''}`,
-                    })),
-                ]}
-              />
+      {/* ── View tabs: Üretim / Temizlikçi balık ── */}
+      <div className="mb-4 flex items-end gap-6 border-b border-gray-200">
+        <Button
+          variant="ghost"
+          onClick={() => switchTab('production')}
+          className={`relative border-b-2 pb-2 text-xl font-semibold ${
+            activeTab === 'production'
+              ? 'border-accent-600 text-accent-700'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          {t('tanksV2.tab.production')}
+          <span className="ml-2 rounded bg-accent-100 px-2 py-0.5 align-middle text-xs font-medium text-accent-700 dark:bg-accent-900/40 dark:text-accent-200">
+            {tableData.filter((tk) => tk.batchNumber).length}
+          </span>
+        </Button>
+        <Button
+          variant="ghost"
+          onClick={() => switchTab('cleanerFish')}
+          className={`relative border-b-2 pb-2 text-xl font-semibold ${
+            activeTab === 'cleanerFish'
+              ? 'border-success-600 text-success-700'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          {t('tanksV2.tab.cleanerFish')}
+          <span className="ml-2 rounded bg-success-100 px-2 py-0.5 align-middle text-xs font-medium text-success-700 dark:bg-success-900/40 dark:text-success-200">
+            {tableData.filter((tk) => tk.hasCleanerFish).length}
+          </span>
+        </Button>
+      </div>
 
-              <div className="h-6 w-px bg-gray-300" />
-
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleMortalityClick}
-                disabled={!selectedTankId}
-                title="Record Mortality"
-              >
-                <TriangleAlert className="w-5 h-5" aria-hidden="true" />
-              </Button>
-
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleTransferClick}
-                disabled={!selectedTankId}
-                title="Transfer Fish"
-              >
-                <ArrowLeftRight className="w-5 h-5" aria-hidden="true" />
-              </Button>
-
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleCullClick}
-                disabled={!selectedTankId || !selectedTank?.batchNumber}
-                title="Record Cull"
-              >
-                <Scissors className="w-5 h-5" aria-hidden="true" />
-              </Button>
-
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleGradingClick}
-                disabled={!selectedTankId || !selectedTank?.batchNumber}
-                title="Grade Fish"
-              >
-                <ListFilter className="w-5 h-5" aria-hidden="true" />
-              </Button>
-
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleWaterTempClick}
-                disabled={!selectedTankId}
-                title="Record Water Temperature"
-              >
-                {/* Water-drop icon — records the manual water temperature the feed-rate uses */}
-                <Droplet className="w-5 h-5" aria-hidden="true" />
-              </Button>
-
-              <div className="h-6 w-px bg-gray-300" />
-
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => setShowBatchModal(true)}
-                title="New Batch"
-              >
-                <Plus className="w-4 h-4 mr-1" aria-hidden="true" />
-                New Batch
-              </Button>
-            </div>
-          </>
-        }
-        className="mb-6"
-      />
-
-      {/* Toolbar */}
-      <div className="flex flex-wrap gap-4 mb-6 items-center">
-        {/* Search */}
-        <div className="relative flex-1 min-w-[200px] max-w-md">
-          <SearchIcon
-            className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 dark:text-gray-500"
-            aria-hidden="true"
-          />
-          <input
-            type="text"
-            placeholder="Search tanks..."
+      {/* ── Search ── */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="relative min-w-[220px] flex-1 md:max-w-[620px]">
+          <Search className="absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
+          <Input
+            type="search"
+            placeholder={t('tanksV2.searchPlaceholder')}
+            aria-label={t('tanksV2.searchPlaceholder')}
             value={filters.search}
-            onChange={(e) => handleFilterChange('search', e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
+            onChange={(e) => setFilter('search', e.target.value)}
+            className="min-h-[50px] w-full py-2 pl-11 pr-4 text-base"
           />
         </div>
 
-        {/* Category Filter */}
-        <Select
-          options={[
-            { value: 'all', label: 'All Categories' },
-            { value: 'TANK', label: 'Tanks' },
-            { value: 'POND', label: 'Ponds' },
-            { value: 'CAGE', label: 'Cages' },
-          ]}
-          value={filters.category}
-          onChange={(e) => handleFilterChange('category', e.target.value)}
-        />
+        {activeTab === 'production' ? (
+          <Button
+            variant="primary"
+            onClick={() => setShowBatchModal(true)}
+            className="flex items-center gap-1.5"
+          >
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            {t('tanksV2.newBatch')}
+          </Button>
+        ) : (
+          <>
+            <Button
+              variant="primary"
+              onClick={() => setShowCreateBatchModal(true)}
+              className="bg-success-600 hover:bg-success-700"
+            >
+              {t('tanksV2.createBatch')}
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => setShowDeployModal(true)}
+              disabled={activeCfBatches.length === 0}
+            >
+              {t('tanksV2.deployToTank')}
+            </Button>
+          </>
+        )}
 
-        {/* Status Filter */}
-        <Select
-          options={[
-            { value: 'all', label: 'All Status' },
-            { value: 'ACTIVE', label: 'Active' },
-            { value: 'OPERATIONAL', label: 'Operational' },
-            { value: 'PREPARING', label: 'Preparing' },
-            { value: 'MAINTENANCE', label: 'Maintenance' },
-            { value: 'FALLOW', label: 'Fallow' },
-            { value: 'CLEANING', label: 'Cleaning' },
-            { value: 'HARVESTING', label: 'Harvesting' },
-            { value: 'QUARANTINE', label: 'Quarantine' },
-          ]}
-          value={filters.status}
-          onChange={(e) => handleFilterChange('status', e.target.value)}
-        />
-
-        {/* Has Batch Filter */}
-        <Select
-          options={[
-            { value: 'all', label: 'All' },
-            { value: 'yes', label: 'With Batch' },
-            { value: 'no', label: 'Empty' },
-          ]}
-          value={filters.hasBatch}
-          onChange={(e) => handleFilterChange('hasBatch', e.target.value)}
-        />
-
-        {/* Column Visibility Menu */}
         {activeTab === 'production' ? (
           <ColumnVisibilityMenu
             columns={tankColumns}
@@ -1199,7 +691,7 @@ export const TanksPage: React.FC = () => {
             onReset={resetToDefaults}
             onShowAll={showAllColumns}
           />
-        ) : activeTab === 'cleanerFish' ? (
+        ) : (
           <ColumnVisibilityMenu
             columns={cleanerFishColumns}
             visibleColumns={cfVisibleColumns}
@@ -1207,125 +699,129 @@ export const TanksPage: React.FC = () => {
             onToggleGroup={cfToggleGroup}
             onReset={cfResetToDefaults}
             onShowAll={cfShowAllColumns}
+            groups={cleanerFishColumnGroups}
           />
-        ) : null}
+        )}
 
-        {/* Refresh Button */}
-        <Button variant="ghost" onClick={() => refetch()} title="Refresh">
-          <RefreshCw className="w-5 h-5" aria-hidden="true" />
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => refetch()}
+          title={t('tanksV2.filter.refresh')}
+          className="p-2"
+        >
+          <RefreshCw className="h-5 w-5" aria-hidden="true" />
         </Button>
       </div>
 
-      {/* Tabs */}
-      <div className="flex border-b border-gray-200 dark:border-gray-700 mb-6">
-        <button
-          onClick={() => setActiveTab('production')}
-          className={`px-6 py-3 font-medium text-sm border-b-2 transition-colors ${
-            activeTab === 'production'
-              ? 'border-info-500 text-info-600 dark:text-info-400'
-              : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
-          }`}
-        >
-          Production Batches
-          <span className="ml-2 px-2 py-0.5 text-xs rounded bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300">
-            {filteredData.filter((t) => t.batchNumber).length}
-          </span>
-        </button>
-        <button
-          onClick={() => setActiveTab('cleanerFish')}
-          className={`px-6 py-3 font-medium text-sm border-b-2 transition-colors ${
-            activeTab === 'cleanerFish'
-              ? 'border-success-500 text-success-600 dark:text-success-400'
-              : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
-          }`}
-        >
-          Cleaner Fish
-          <span className="ml-2 px-2 py-0.5 text-xs rounded bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300">
-            {filteredData.filter((t) => t.hasCleanerFish).length}
-          </span>
-        </button>
-      </div>
+      {/* ── Single-row filter bar: sites · categories · occupancy ── */}
+      <div className="mb-3 flex flex-wrap items-center gap-x-6 gap-y-2">
+        <div role="group" className="flex flex-wrap gap-1.5">
+          <SegButton
+            label={t('tanksV2.filter.allSites')}
+            active={filters.siteId === 'all'}
+            onClick={() => setFilter('siteId', 'all')}
+          />
+          {siteButtons.map((site) => (
+            <SegButton
+              key={site.key}
+              label={site.label}
+              active={filters.siteId === site.key}
+              onClick={() => setFilter('siteId', site.key)}
+            />
+          ))}
+        </div>
 
-      {/* Data Table - Production Tab */}
-      {activeTab === 'production' && (
-        <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-          <DataTable<TankRow>
-            data={filteredData}
-            columns={productionTableColumns}
-            keyExtractor={(tank) => tank.id}
-            emptyMessage="No tanks or ponds found"
-            searchable={false}
-            sortable={false}
-            stickyHeader={false}
-            className="border-0 rounded-none shadow-none"
+        {categoryButtons.length > 0 && (
+          <div role="group" className="flex flex-wrap gap-1.5">
+            <SegButton
+              label={t('tanksV2.filter.all')}
+              active={filters.category === 'all'}
+              onClick={() => setFilter('category', 'all')}
+            />
+            {categoryButtons.map((category) => (
+              <SegButton
+                key={category}
+                label={t(CATEGORY_LABEL_KEYS[category])}
+                active={filters.category === category}
+                onClick={() => setFilter('category', category)}
+              />
+            ))}
+          </div>
+        )}
+
+        <div role="group" className="flex flex-wrap gap-1.5">
+          <SegButton
+            label={t('tanksV2.filter.all')}
+            active={filters.occupancy === 'all'}
+            onClick={() => setFilter('occupancy', 'all')}
+          />
+          <SegButton
+            label={t('tanksV2.filter.occupied')}
+            active={filters.occupancy === 'occupied'}
+            onClick={() => setFilter('occupancy', 'occupied')}
+          />
+          <SegButton
+            label={t('tanksV2.filter.empty')}
+            active={filters.occupancy === 'empty'}
+            onClick={() => setFilter('occupancy', 'empty')}
           />
         </div>
-      )}
 
-      {/* Data Table - Cleaner Fish Tab with Rowspan */}
-      {activeTab === 'cleanerFish' && (
-        <>
-          {/* Cleaner Fish Action Bar */}
-          <div className="flex items-center justify-between mb-4 bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800 rounded-lg p-3">
-            <div className="flex items-center gap-4">
-              <span className="text-sm font-medium text-success-800 dark:text-success-200">
-                {activeCfBatches.length} active batch{activeCfBatches.length !== 1 ? 'es' : ''}
-                {' · '}
-                {filteredData.filter((t) => t.hasCleanerFish).length} tanks with cleaner fish
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button variant="primary" size="sm" onClick={() => setShowCreateBatchModal(true)}>
-                <Plus className="w-4 h-4" aria-hidden="true" />
-                Create Batch
-              </Button>
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => setShowDeployModal(true)}
-                disabled={activeCfBatches.length === 0}
-              >
-                <ArrowRight className="w-4 h-4" aria-hidden="true" />
-                Deploy to Tank
-              </Button>
-            </div>
-          </div>
-          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-            <DataTable<CleanerFishRow>
-              data={cleanerFishRows}
-              columns={cleanerFishTableColumns}
-              keyExtractor={(row) => `${row.tank.id}-${row.batchIdx}`}
-              rowClassName={(row) =>
-                row.isFirstRow ? '' : 'border-t border-gray-100 dark:border-gray-700'
-              }
-              emptyMessage="No tanks or ponds found"
-              searchable={false}
-              sortable={false}
-              stickyHeader={false}
-              className="border-0 rounded-none shadow-none"
-            />
-          </div>
-        </>
-      )}
-
-      {/* Footer Info */}
-      <div className="mt-4 text-sm text-gray-500 dark:text-gray-400 text-right">
-        Showing {filteredData.length} of {tableData.length} tanks/ponds
-        {' | '}
-        {activeTab === 'production' ? (
-          <>
-            {visibleColumns.size} of {tankColumns.length} columns visible
-          </>
-        ) : activeTab === 'cleanerFish' ? (
-          <>
-            {cfVisibleColumns.size} of {cleanerFishColumns.length} columns visible
-          </>
-        ) : null}
+        {/* Status filter (legacy toolbar feature, kept in the same row) */}
+        <Select
+          value={filters.status}
+          onChange={(e) => setFilter('status', e.target.value)}
+          aria-label={t('tanksV2.filter.status')}
+          className="min-h-[42px] text-[15.5px]"
+          options={[
+            { value: 'all', label: t('tanksV2.filter.allStatuses') },
+            ...STATUS_OPTIONS.map((status) => ({
+              value: status,
+              label: t(STATUS_LABEL_KEYS[status]),
+            })),
+          ]}
+        />
       </div>
 
+      {/* ── Result count ── */}
+      <p className="mb-4 text-[15.5px] text-gray-600">{countLine}</p>
+
+      {/* ── Unit table ── */}
+      <TankTable
+        tanks={filteredData}
+        columns={activeColumns}
+        speciesNames={speciesNames}
+        variant={activeTab}
+        selectedTankId={detailTankId}
+        onRowClick={(tank) => setDetailTankId(tank.id)}
+      />
+
       {/* ======================================================================== */}
-      {/* MODALS                                                                   */}
+      {/* MODALS & DRAWER                                                           */}
       {/* ======================================================================== */}
+
+      {/* Tank detail drawer — the operations hub */}
+      {selectedTank && (
+        <TankDetailDrawer
+          isOpen
+          onClose={() => setDetailTankId(null)}
+          tank={selectedTank}
+          speciesName={
+            selectedTank.speciesCode ? speciesNames[selectedTank.speciesCode] : undefined
+          }
+          variant={activeTab as TankDetailVariant}
+          onMortality={handleMortalityClick}
+          onSampling={handleSamplingClick}
+          onTransfer={handleTransferClick}
+          onGrading={handleGradingClick}
+          onCull={handleCullClick}
+          onWaterTemp={handleWaterTempClick}
+          onOpenFeedingPlan={handleOpenFeedingPlan}
+          onStockUnit={handleStockUnit}
+          onRemoveCleanerBatch={handleRemoveFromTank}
+        />
+      )}
 
       {/* Fish Type Selector Modal (when tank has both production and cleaner fish) */}
       {showFishTypeSelector && selectedTank && pendingOperation && (
@@ -1349,7 +845,7 @@ export const TanksPage: React.FC = () => {
         />
       )}
 
-      {/* Production Fish Modals */}
+      {/* Production operation modals */}
       {showMortalityModal && operationFishType === 'production' && selectedTank && (
         <MortalityModal
           isOpen={showMortalityModal}
@@ -1386,6 +882,16 @@ export const TanksPage: React.FC = () => {
         />
       )}
 
+      {/* Tartım örneklemesi — growth sample for the drawer tank's batch */}
+      {showSamplingModal && selectedTank && (
+        <SamplingModal
+          isOpen={showSamplingModal}
+          onClose={() => setShowSamplingModal(false)}
+          tank={selectedTank}
+          onSuccess={handleSamplingSuccess}
+        />
+      )}
+
       {/* Record Water Temperature (tank-level — no batch/fish-type needed) */}
       {showWaterTempModal && selectedTank && (
         <WaterTemperatureModal
@@ -1397,16 +903,16 @@ export const TanksPage: React.FC = () => {
         />
       )}
 
-      {/* Cleaner Fish Modals */}
+      {/* Cleaner fish operation modals */}
       {showMortalityModal &&
         operationFishType === 'cleaner' &&
         selectedCleanerBatch &&
-        selectedTankId && (
+        detailTankId && (
           <CleanerMortalityModal
             isOpen={showMortalityModal}
             onClose={handleCloseModals}
             batch={selectedCleanerBatch}
-            tankId={selectedTankId}
+            tankId={detailTankId}
             onSuccess={handleOperationSuccess}
           />
         )}
@@ -1414,22 +920,22 @@ export const TanksPage: React.FC = () => {
       {showTransferModal &&
         operationFishType === 'cleaner' &&
         selectedCleanerBatch &&
-        selectedTankId && (
+        detailTankId && (
           <CleanerTransferModal
             isOpen={showTransferModal}
             onClose={handleCloseModals}
             batch={selectedCleanerBatch}
-            sourceTankId={selectedTankId}
-            tanks={tableData.map((t) => ({
-              id: t.id,
-              name: t.name,
-              code: t.code,
+            sourceTankId={detailTankId}
+            tanks={tableData.map((tk) => ({
+              id: tk.id,
+              name: tk.name,
+              code: tk.code,
             }))}
             onSuccess={handleOperationSuccess}
           />
         )}
 
-      {/* Cleaner Fish Batch Management Modals */}
+      {/* Cleaner fish batch management modals */}
       <CreateBatchModal
         isOpen={showCreateBatchModal}
         onClose={() => setShowCreateBatchModal(false)}
@@ -1439,16 +945,13 @@ export const TanksPage: React.FC = () => {
 
       <DeployModal
         isOpen={showDeployModal}
-        onClose={() => {
-          setShowDeployModal(false);
-          setSelectedDeployBatch(null);
-        }}
-        batch={selectedDeployBatch}
+        onClose={() => setShowDeployModal(false)}
+        batch={null}
         batches={activeCfBatches}
-        tanks={tableData.map((t) => ({
-          id: t.id,
-          name: t.name,
-          code: t.code,
+        tanks={tableData.map((tk) => ({
+          id: tk.id,
+          name: tk.name,
+          code: tk.code,
         }))}
         onSuccess={handleDeploySuccess}
       />
@@ -1466,7 +969,7 @@ export const TanksPage: React.FC = () => {
         />
       )}
 
-      {/* New Batch Modal */}
+      {/* Batch creation — header button and "stock this unit" both land here */}
       <BatchFormModal
         isOpen={showBatchModal}
         onClose={() => setShowBatchModal(false)}

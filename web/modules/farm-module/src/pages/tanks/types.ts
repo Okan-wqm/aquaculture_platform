@@ -5,6 +5,7 @@
 
 import { Tank, BatchDetail } from '../../hooks/useTanks';
 import { TankBatch } from '../production/types/batch.types';
+import type { MessageKey } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // CONSTANTS
@@ -18,12 +19,23 @@ export const COLUMN_VISIBILITY_STORAGE_KEY = 'tanks-page-column-visibility';
 
 export interface TankColumn {
   key: string;
-  header: string;
+  /** i18n message key for the column header (compile-checked label SSoT). */
+  header: MessageKey;
   defaultVisible: boolean;
   sortable?: boolean;
   align?: 'left' | 'center' | 'right';
   width?: string;
-  group?: 'basic' | 'specifications' | 'batch' | 'metrics' | 'operations' | 'feeding' | 'cleanerFish' | 'cleanerFishMortality';
+  group?:
+    | 'basic'
+    | 'specifications'
+    | 'batch'
+    | 'metrics'
+    | 'operations'
+    | 'feeding'
+    | 'cleanerFish'
+    | 'cleanerFishMortality'
+    | 'core'
+    | 'extra';
 }
 
 // ============================================================================
@@ -52,6 +64,7 @@ export interface TankWithBatch {
   volume?: number;
   maxBiomass?: number;
   maxDensity?: number;
+  temperatureSensorId?: string;
 
   // Current batch info
   batchNumber?: string;
@@ -60,20 +73,20 @@ export interface TankWithBatch {
   batchDetails?: BatchDetail[];
 
   // Stock metrics
-  pieces?: number;           // currentQuantity - fish count
-  avgWeight?: number;        // grams
-  biomass?: number;          // kg
-  density?: number;          // kg/m3
+  pieces?: number; // currentQuantity - fish count
+  avgWeight?: number; // grams
+  biomass?: number; // kg
+  density?: number; // kg/m3
 
   // Performance metrics
-  initialQuantity?: number;  // initial fish count when stocked
-  totalMortality?: number;   // total mortality count
-  totalCull?: number;        // total cull count
-  survivalRate?: number;     // percentage
-  mortalityRate?: number;    // percentage
-  fcr?: number;              // feed conversion ratio
-  growthRate?: number;       // g/day
-  sgr?: number;              // specific growth rate %/day
+  initialQuantity?: number; // initial fish count when stocked
+  totalMortality?: number; // total mortality count
+  totalCull?: number; // total cull count
+  survivalRate?: number; // percentage
+  mortalityRate?: number; // percentage
+  fcr?: number; // feed conversion ratio
+  growthRate?: number; // g/day
+  sgr?: number; // specific growth rate %/day
 
   // Capacity metrics
   capacityUsedPercent?: number;
@@ -112,10 +125,10 @@ export interface TankWithBatch {
     sourceType: 'farmed' | 'wild_caught';
     deployedAt: string;
     // Mortality tracking fields
-    initialQuantity?: number;      // İlk yerleştirilen miktar
-    totalMortality?: number;       // Toplam mortality
-    mortalityRate?: number;        // Mortality oranı (%)
-    lastMortalityAt?: string;      // Son mortality tarihi
+    initialQuantity?: number; // İlk yerleştirilen miktar
+    totalMortality?: number; // Toplam mortality
+    mortalityRate?: number; // Mortality oranı (%)
+    lastMortalityAt?: string; // Son mortality tarihi
   }>;
   hasCleanerFish?: boolean;
 }
@@ -176,6 +189,7 @@ export function tankToTankWithBatch(equipment: Tank): TankWithBatch {
     volume: equipment.volume || (specs.effectiveVolume as number) || (specs.waterVolume as number),
     maxBiomass: specs.maxBiomass as number,
     maxDensity: specs.maxDensity as number,
+    temperatureSensorId: equipment.temperatureSensorId,
 
     // Batch metrics from TankBatch entity
     batchNumber: bm?.batchNumber,

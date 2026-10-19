@@ -613,10 +613,6 @@ class OrchestratorWiringTests(unittest.TestCase):
                          "IMPLEMENTATION_REQUESTED")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class OperatorWithdrawConvergedTests(unittest.TestCase):
     """ARIA-HIGH-362 (review M3) — the guarded default refuses a CONVERGED
     plan; the operator CLI names the state it withdraws from, and only then
@@ -644,3 +640,7 @@ class OperatorWithdrawConvergedTests(unittest.TestCase):
         with self.assertRaises(GovernanceError):
             self._cli("--from-state", "IMPLEMENTATION_REQUESTED")
         self.assertEqual(self._state()["state"], "CONVERGED")
+
+
+if __name__ == "__main__":
+    unittest.main()

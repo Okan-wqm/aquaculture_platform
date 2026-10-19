@@ -40,6 +40,7 @@ import {
   verify,
 } from '../../tools/gates/finding-registry-chain';
 import { mergeAppendOnlyRegistry } from '../../tools/gates/finding-registry-merge';
+import { removeFixtureTree } from '../../tools/gates/fixture-tree';
 
 const REPO_ROOT = resolve(process.cwd());
 const REGISTRY_RELATIVE_PATH = 'docs/reviews/_registry/findings.jsonl';
@@ -388,65 +389,69 @@ describe('INVARIANT: finding registry merge driver', () => {
 
     it('resolves the real shape without a conflict, and refuses a real one', () => {
       const repo = mkdtempSync(join(tmpdir(), 'findings-merge-driver-'));
-      git(repo, ['init', '-q', '-b', 'main']);
-      // The driver is registered with absolute paths because the merge runs
-      // in this throwaway repo, not in the checkout that owns the script.
-      const manifest = readDriverManifest();
-      const driverCommand = (manifest['findings-registry']?.driver ?? '')
-        .replace('./node_modules/', `${REPO_ROOT}/node_modules/`)
-        .replace(/tools\/gates\//g, `${REPO_ROOT}/tools/gates/`);
-      git(repo, ['config', '--local', 'merge.findings-registry.driver', driverCommand]);
-      writeFileSync(
-        join(repo, '.gitattributes'),
-        `${REGISTRY_RELATIVE_PATH} merge=findings-registry\n`,
-        'utf8',
-      );
-
-      const base = ledger(['ADMIN-HIGH-001', 'ADMIN-HIGH-002', 'ADMIN-HIGH-003']);
-      writeLedger(repo, base);
-      git(repo, ['add', '-A']);
-      git(repo, ['commit', '-q', '-m', 'chore: seed the ledger']);
-
-      git(repo, ['checkout', '-q', '-b', 'branch']);
-      writeLedger(repo, appendRow(base, 'ADMIN-HIGH-135'));
-      git(repo, ['commit', '-q', '-a', '-m', 'chore: branch appends a finding']);
-
-      git(repo, ['checkout', '-q', 'main']);
-      writeLedger(repo, closeRow(base, 'ADMIN-HIGH-002', 'abc123456789'));
-      git(repo, ['commit', '-q', '-a', '-m', 'chore: upstream closes a finding']);
-
-      git(repo, ['checkout', '-q', 'branch']);
-      // No conflict: this is the whole point of the driver.
-      git(repo, ['merge', '-q', '--no-edit', 'main']);
-
-      const merged = parseRegistryJsonl(readFileSync(join(repo, REGISTRY_RELATIVE_PATH), 'utf8'));
-      expect(merged.map((entry) => entry.id)).toEqual([
-        'ADMIN-HIGH-001',
-        'ADMIN-HIGH-002',
-        'ADMIN-HIGH-003',
-        'ADMIN-HIGH-135',
-      ]);
-      expect(merged[1]?.state).toBe('RESOLVED');
-      expect(verify(merged).ok).toBe(true);
-      expect(git(repo, ['status', '--porcelain']).trim()).toBe('');
-
-      // And a genuine conflict still stops the merge, with markers on disk.
-      const afterMerge = merged;
-      git(repo, ['checkout', '-q', '-b', 'divergent', 'main']);
-      writeLedger(repo, closeRow(afterMerge.slice(0, 3), 'ADMIN-HIGH-003', 'cccccccccccc'));
-      git(repo, ['commit', '-q', '-a', '-m', 'chore: upstream closes 003']);
-      git(repo, ['checkout', '-q', 'main']);
-      writeLedger(repo, closeRow(afterMerge.slice(0, 3), 'ADMIN-HIGH-003', 'dddddddddddd'));
-      git(repo, ['commit', '-q', '-a', '-m', 'chore: main closes 003 differently']);
-
-      let refused = false;
       try {
-        git(repo, ['merge', '-q', '--no-edit', 'divergent']);
-      } catch {
-        refused = true;
+        git(repo, ['init', '-q', '-b', 'main']);
+        // The driver is registered with absolute paths because the merge runs
+        // in this throwaway repo, not in the checkout that owns the script.
+        const manifest = readDriverManifest();
+        const driverCommand = (manifest['findings-registry']?.driver ?? '')
+          .replace('./node_modules/', `${REPO_ROOT}/node_modules/`)
+          .replace(/tools\/gates\//g, `${REPO_ROOT}/tools/gates/`);
+        git(repo, ['config', '--local', 'merge.findings-registry.driver', driverCommand]);
+        writeFileSync(
+          join(repo, '.gitattributes'),
+          `${REGISTRY_RELATIVE_PATH} merge=findings-registry\n`,
+          'utf8',
+        );
+
+        const base = ledger(['ADMIN-HIGH-001', 'ADMIN-HIGH-002', 'ADMIN-HIGH-003']);
+        writeLedger(repo, base);
+        git(repo, ['add', '-A']);
+        git(repo, ['commit', '-q', '-m', 'chore: seed the ledger']);
+
+        git(repo, ['checkout', '-q', '-b', 'branch']);
+        writeLedger(repo, appendRow(base, 'ADMIN-HIGH-135'));
+        git(repo, ['commit', '-q', '-a', '-m', 'chore: branch appends a finding']);
+
+        git(repo, ['checkout', '-q', 'main']);
+        writeLedger(repo, closeRow(base, 'ADMIN-HIGH-002', 'abc123456789'));
+        git(repo, ['commit', '-q', '-a', '-m', 'chore: upstream closes a finding']);
+
+        git(repo, ['checkout', '-q', 'branch']);
+        // No conflict: this is the whole point of the driver.
+        git(repo, ['merge', '-q', '--no-edit', 'main']);
+
+        const merged = parseRegistryJsonl(readFileSync(join(repo, REGISTRY_RELATIVE_PATH), 'utf8'));
+        expect(merged.map((entry) => entry.id)).toEqual([
+          'ADMIN-HIGH-001',
+          'ADMIN-HIGH-002',
+          'ADMIN-HIGH-003',
+          'ADMIN-HIGH-135',
+        ]);
+        expect(merged[1]?.state).toBe('RESOLVED');
+        expect(verify(merged).ok).toBe(true);
+        expect(git(repo, ['status', '--porcelain']).trim()).toBe('');
+
+        // And a genuine conflict still stops the merge, with markers on disk.
+        const afterMerge = merged;
+        git(repo, ['checkout', '-q', '-b', 'divergent', 'main']);
+        writeLedger(repo, closeRow(afterMerge.slice(0, 3), 'ADMIN-HIGH-003', 'cccccccccccc'));
+        git(repo, ['commit', '-q', '-a', '-m', 'chore: upstream closes 003']);
+        git(repo, ['checkout', '-q', 'main']);
+        writeLedger(repo, closeRow(afterMerge.slice(0, 3), 'ADMIN-HIGH-003', 'dddddddddddd'));
+        git(repo, ['commit', '-q', '-a', '-m', 'chore: main closes 003 differently']);
+
+        let refused = false;
+        try {
+          git(repo, ['merge', '-q', '--no-edit', 'divergent']);
+        } catch {
+          refused = true;
+        }
+        expect(refused).toBe(true);
+        expect(readFileSync(join(repo, REGISTRY_RELATIVE_PATH), 'utf8')).toContain('<<<<<<<');
+      } finally {
+        removeFixtureTree(repo);
       }
-      expect(refused).toBe(true);
-      expect(readFileSync(join(repo, REGISTRY_RELATIVE_PATH), 'utf8')).toContain('<<<<<<<');
     }, 60_000);
   });
 });

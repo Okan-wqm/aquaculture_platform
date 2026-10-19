@@ -83,10 +83,6 @@ class TheSeamsAreNamedOnce(unittest.TestCase):
             self.assertIn(helper, self.functions)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TheAdmissionIsSplitIntoAProbeAndABinding(unittest.TestCase):
     """`_adaptive_pre_claim_admission` = policy → request binding →
     `_admit_native_route` (the fleet probe, once per profile) →
@@ -127,3 +123,7 @@ class TheBatchChildSpellsNoKernelArgvItself(unittest.TestCase):
         for helper in ("_claim_request_via_cli", "_render_and_bind_prompt", "_submit_via_cli", "_reconcile_native_result",
                        "_admit_native_route", "_bind_request_to_route", "_batch_worst_case_seconds"):
             self.assertIn(helper, calls, helper)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -628,10 +628,6 @@ class AnchorBlockedReasonTest(unittest.TestCase):
         self.assertEqual(anchor["blocked_reason"], [])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class MergeRunVerbTest(unittest.TestCase):
     """ARIA-HIGH-198 — `aria-kernel merge-lane run --pr N` runs the SAME runner and
     authority the cycle uses, for exactly that PR, on the invoking host."""
@@ -665,3 +661,7 @@ class MergeRunVerbTest(unittest.TestCase):
         # The operator's verb is the one path that may execute a merge; the
         # nightly cycle selects the same runner with executes_merges=False.
         self.assertIs(seen["executes_merges"], True)
+
+
+if __name__ == "__main__":
+    unittest.main()

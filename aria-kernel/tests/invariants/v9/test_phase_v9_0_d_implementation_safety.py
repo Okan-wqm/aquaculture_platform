@@ -1198,10 +1198,6 @@ class TestV9PublicApi(unittest.TestCase):
         )
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class ResourceLimitSelectionTests(unittest.TestCase):
     """ORPHAN-HIGH-470 — limits are selected on capability, not presence.
 
@@ -1273,3 +1269,7 @@ class ResourceLimitSelectionTests(unittest.TestCase):
             self.assertIn("resource_limits_unavailable", str(ctx.exception))
         finally:
             impl._systemd_run_available.cache_clear()
+
+
+if __name__ == "__main__":
+    unittest.main()

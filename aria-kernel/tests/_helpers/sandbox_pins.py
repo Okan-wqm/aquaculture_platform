@@ -5,10 +5,12 @@ egress boundary, the rooms) skips on a host whose bwrap cannot confine, and a
 skipped test is green. The kernel lane proves and provisions the backend
 before its suite runs (``.github/actions/ensure-sandbox-backend``), so on that
 lane a skipped pin is a containment proof that did not run. Each such skip
-raises here, with ``suite_shards.SANDBOX_SKIP_MARKER`` first in its reason; the
-shard runner lists those skips in its report and ``suite_shards verify``
-refuses a run that has any. ``tests/test_suite_shards.py`` refuses a sandbox
-skip whose reason is spelled anywhere but here.
+raises here, with ``aria_kernel.sandbox_pin_skip.SANDBOX_SKIP_MARKER`` first in
+its reason; the shard runner lists those skips in its report and
+``suite_shards verify`` refuses a run that has any, and the pytest half's lane
+run (``--refuse-sandbox-skips``) refuses one too (ARIA-LOW-599).
+``tests/test_suite_shards.py`` refuses a sandbox skip whose reason is spelled
+anywhere but here.
 
 Off the lane (a laptop, a host without user namespaces) the pins still skip,
 which is the sandbox's own fail-closed contract: it refuses rather than
@@ -21,7 +23,7 @@ import shutil
 import unittest
 from typing import NoReturn
 
-from tests._helpers.suite_shards import SANDBOX_SKIP_MARKER
+from aria_kernel.sandbox_pin_skip import SANDBOX_SKIP_MARKER
 
 
 def skip_sandbox_pin(detail: str) -> NoReturn:

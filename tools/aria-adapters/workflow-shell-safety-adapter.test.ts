@@ -1,17 +1,9 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import {
-  chmodSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
+import { makeFixtureTree } from '../gates/fixture-tree';
 import { inspectUsesText } from '../gates/gha-sha-pin';
 import { findRunBlockInjections } from '../gates/workflow-input-injection';
 
@@ -23,12 +15,8 @@ import { analyzeWorkflowShellSafety } from './workflow-shell-safety-adapter';
 // committed fixture.
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
-const workspace = mkdtempSync(join(tmpdir(), 'aria-workflow-shell-safety-'));
-const outside = mkdtempSync(join(tmpdir(), 'aria-workflow-shell-outside-'));
-process.on('exit', () => {
-  rmSync(workspace, { recursive: true, force: true });
-  rmSync(outside, { recursive: true, force: true });
-});
+const workspace = makeFixtureTree('aria-workflow-shell-safety-');
+const outside = makeFixtureTree('aria-workflow-shell-outside-');
 
 const SHA = 'a'.repeat(40);
 

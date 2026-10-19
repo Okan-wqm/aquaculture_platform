@@ -32,6 +32,9 @@ import {
   assignFinding,
   canonicalizeOwnerSpelling,
   type Finding,
+  findUnownedPastDeadline,
+  planSweep,
+  sweepReportLines,
   validateRegistrySuffixForRechain,
   writeRegistry,
 } from './finding-registry';
@@ -455,4 +458,95 @@ void test('ARIA-MEDIUM-535: canonicalize-owner rewrites one spelling to its hand
   const after = readFileSync(registryPath, 'utf8');
   assert.equal(run('okan', 'Okan-wqm'), 0);
   assert.equal(readFileSync(registryPath, 'utf8'), after);
+});
+
+// --- ARIA-MEDIUM-601: a BLOCKED row is accountable; the sweep never writes an ownerless one ---
+
+void test('ARIA-MEDIUM-601: the row contract refuses a BLOCKED row without an accountable owner, at any severity', () => {
+  const violations = (entry: Finding): string[] =>
+    validateRegistrySuffixForRechain([entry], 0, SCHEMA_PATH);
+  for (const severity of ['HIGH', 'MEDIUM', 'LOW'] as const) {
+    const id = `ARIA-${severity}-920`;
+    assert.deepEqual(violations(row({ id, severity, state: 'BLOCKED' })), []);
+    for (const missing of [
+      { owner_user: null },
+      { owner_user: '' },
+      { owner_user: '   ' },
+      { deadline: null },
+    ]) {
+      assert.notDeepEqual(
+        violations(row({ id, severity, state: 'BLOCKED', ...missing })),
+        [],
+        `BLOCKED ${severity} with ${JSON.stringify(missing)} must be refused`,
+      );
+    }
+  }
+  // The rule is BLOCKED's, not every unresolved row's: an ownerless OPEN HIGH stays valid.
+  assert.deepEqual(
+    violations(row({ id: 'ARIA-HIGH-921', severity: 'HIGH', owner_user: null, deadline: null })),
+    [],
+  );
+});
+
+void test('ARIA-MEDIUM-601: the sweep reports a lapsed ownerless row UNOWNED and plans no transition for it', () => {
+  const lapsed = '2026-10-01';
+  const long_ago = '2026-01-01T00:00:00Z';
+  const entries = [
+    row({ id: 'ARIA-HIGH-930', severity: 'HIGH', owner_user: null, deadline: lapsed }),
+    // Ownerless, lapsed AND older than the STALE threshold: no STALE fall-through either.
+    row({
+      id: 'ARIA-MEDIUM-931',
+      severity: 'MEDIUM',
+      owner_user: '  ',
+      deadline: lapsed,
+      created_at: long_ago,
+    }),
+    row({ id: 'ARIA-HIGH-932', severity: 'HIGH', deadline: lapsed }),
+    row({ id: 'ARIA-HIGH-933', severity: 'HIGH', owner_user: null, deadline: '2026-12-01' }),
+    row({
+      id: 'ARIA-HIGH-934',
+      severity: 'HIGH',
+      owner_user: null,
+      deadline: lapsed,
+      state: 'RESOLVED',
+      closed_at: '2026-10-02T00:00:00Z',
+      closing_commits: ['0a8f4887f'],
+    }),
+  ];
+  const actions = planSweep(entries, { staleAfterDays: 30, dryRun: true, now: NOW });
+  assert.deepEqual(
+    actions.map((action) => [action.id, action.toState]),
+    [['ARIA-HIGH-932', 'BLOCKED']],
+    'only the owned lapsed row is blocked',
+  );
+  assert.deepEqual(
+    findUnownedPastDeadline(entries, NOW).map((entry) => entry.id),
+    ['ARIA-HIGH-930', 'ARIA-MEDIUM-931'],
+  );
+});
+
+void test('ARIA-MEDIUM-601: the sweep report keeps its first line and lists UNOWNED rows after it', () => {
+  const unowned = [
+    row({ id: 'ARIA-HIGH-940', severity: 'HIGH', owner_user: null, deadline: '2026-10-01' }),
+  ];
+  const hint = 'finding-registry assign ARIA-HIGH-940 --owner-user=<handle>';
+  // Clean: the workflow greps ^Sweep clean: on the first line to decide has_changes.
+  assert.deepEqual(sweepReportLines({ scanned: 3, actions: [], unowned }), [
+    'Sweep clean: 0 transitions needed (3 entries scanned).',
+    `  UNOWNED ARIA-HIGH-940 past deadline 2026-10-01 (${hint})`,
+  ]);
+  assert.deepEqual(sweepReportLines({ scanned: 3, actions: [], unowned: [] }), [
+    'Sweep clean: 0 transitions needed (3 entries scanned).',
+  ]);
+  const action = {
+    id: 'ARIA-HIGH-941',
+    fromState: 'OPEN' as const,
+    toState: 'BLOCKED' as const,
+    reason: 'past deadline 2026-10-01',
+  };
+  assert.deepEqual(sweepReportLines({ scanned: 3, actions: [action], unowned }), [
+    'Sweep plan (1 transitions):',
+    `  UNOWNED ARIA-HIGH-940 past deadline 2026-10-01 (${hint})`,
+    '  ARIA-HIGH-941: OPEN → BLOCKED  (past deadline 2026-10-01)',
+  ]);
 });

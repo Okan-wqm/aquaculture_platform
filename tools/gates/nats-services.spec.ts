@@ -117,6 +117,56 @@ void test('quoted and unquoted list items parse identically', () => {
   assert.equal(unquoted[0]?.subscribe[0], 'events.*.Other');
 });
 
+// ARIA-LOW-603 — what a valid document holds beyond its schema. The messaging ACL smoke checked
+// these on its own private parse; the reader owns them now, so every consumer gets them.
+const TWO_SERVICES = (second: string, secondApplication: string): string =>
+  MINIMAL('fixture_service', 'fixture-service') +
+  MINIMAL(second, secondApplication)
+    .split('\n')
+    .filter((line) => line !== 'version: 1' && line !== 'services:')
+    .join('\n');
+
+void test('two entries for one identity, or for one application, throw NatsServicesInvalid', () => {
+  assert.doesNotThrow(() => parseNatsServices(TWO_SERVICES('other_service', 'other-service')));
+  assert.throws(
+    () => parseNatsServices(TWO_SERVICES('fixture_service', 'other-service')),
+    (error: unknown) =>
+      error instanceof NatsServicesInvalid &&
+      /duplicate service fixture_service/.test(error.message),
+  );
+  assert.throws(
+    () => parseNatsServices(TWO_SERVICES('other_service', 'fixture-service')),
+    (error: unknown) =>
+      error instanceof NatsServicesInvalid &&
+      /duplicate application fixture-service/.test(error.message),
+  );
+});
+
+void test('a grant listed twice in one permission throws NatsServicesInvalid', () => {
+  const repeated = MINIMAL('fixture_service', 'fixture-service', '  - _INBOX.>');
+  assert.throws(
+    () => parseNatsServices(repeated),
+    (error: unknown) =>
+      error instanceof NatsServicesInvalid &&
+      /fixture_service\.publish repeats _INBOX\.>/.test(error.message),
+  );
+});
+
+for (const [malformed, rule] of [
+  ['events.foo..bar', /empty NATS subject token/],
+  ['events.foo*bar', /partial NATS subject wildcard token/],
+  ['request.>.x', /NATS subject wildcard before the final token/],
+] as const) {
+  void test(`a grant that is not a NATS subject (${malformed}) throws NatsServicesInvalid`, () => {
+    // The schema's character class admits each of these; the broker does not.
+    const document = MINIMAL('fixture_service', 'fixture-service', `  - ${malformed}`);
+    assert.throws(
+      () => parseNatsServices(document),
+      (error: unknown) => error instanceof NatsServicesInvalid && rule.test(error.message),
+    );
+  });
+}
+
 void test('a document the SSoT schema refuses throws NatsServicesInvalid', () => {
   const withoutApplication = MINIMAL('fixture_service', 'fixture-service').replace(
     '  application: fixture-service\n',
@@ -228,25 +278,45 @@ void test('a grant that admits the event only through wildcards is catch-all; on
   );
 });
 
-/** Tool sources outside node_modules, fixtures and specs. */
-function toolSources(dir: string): string[] {
+/**
+ * Sources under `dir`, outside node_modules and fixtures. Under tools/ a spec or test is left out:
+ * there it builds temp services.yaml fixtures or is the live oracle. Under tests/invariants every
+ * file is a spec, and a spec that reads the SSoT is exactly the private reader this pin refuses.
+ */
+function sourcesUnder(dir: string, includeSpecs: boolean): string[] {
   const out: string[] = [];
   for (const name of readdirSync(dir)) {
     const path = join(dir, name);
     if (name === 'node_modules' || name === 'fixtures') continue;
-    if (statSync(path).isDirectory()) out.push(...toolSources(path));
-    else if (/\.(ts|mts|mjs|js)$/.test(name) && !/\.(spec|test)\.[mc]?[jt]s$/.test(name))
+    if (statSync(path).isDirectory()) out.push(...sourcesUnder(path, includeSpecs));
+    else if (
+      /\.(ts|mts|mjs|js)$/.test(name) &&
+      (includeSpecs || !/\.(spec|test)\.[mc]?[jt]s$/.test(name))
+    )
       out.push(path);
   }
   return out;
 }
 
-void test('no tool outside this module names the services.yaml path, so no tool reads it privately', () => {
-  // A string literal whose whole content is a path ending in services.yaml, or a path join
-  // ending in that segment: the shape of every private reader this module replaced. Prose that
-  // mentions the file inside a longer string does not match.
-  const pathLiteral = /(['"`])[\w./-]*services\.yaml\1|,\s*(['"`])services\.yaml\2\s*\)/;
-  const flagged = toolSources(join(REPO_ROOT, 'tools'))
+/**
+ * Where a private reader could live: every tool (ARIA-MEDIUM-314), every invariant spec and every
+ * NATS operator script, the messaging ACL smoke and its test included (ARIA-LOW-603). The e2e oracles (e2e/tests/integration/nats-invariants.spec.ts and
+ * nats-subject-contract.spec.ts) stay outside on purpose: they judge the broker semantics this
+ * module implements and must not depend on it.
+ */
+const PINNED_SOURCES = (): string[] => [
+  ...sourcesUnder(join(REPO_ROOT, 'tools'), false),
+  ...sourcesUnder(join(REPO_ROOT, 'tests', 'invariants'), true),
+  ...sourcesUnder(join(REPO_ROOT, 'scripts', 'nats'), true),
+];
+
+void test('no tool, invariant or NATS script outside this module names the services.yaml path, so none reads it privately', () => {
+  // A string literal whose whole content is a path whose last segment is services.yaml, or a
+  // path join ending in that segment: the shape of every private reader this module replaced.
+  // Prose that mentions the file inside a longer string does not match, and neither does another
+  // file whose name merely ends in "services.yaml" (a helm backend-services.yaml).
+  const pathLiteral = /(['"`])(?:[\w.-]+\/)*services\.yaml\1|,\s*(['"`])services\.yaml\2\s*\)/;
+  const flagged = PINNED_SOURCES()
     .filter((path) => {
       const code = readFileSync(path, 'utf8')
         .replace(/\/\*[\s\S]*?\*\//g, '')

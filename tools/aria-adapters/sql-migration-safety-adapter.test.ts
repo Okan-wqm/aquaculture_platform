@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
+import { makeFixtureTree } from '../gates/fixture-tree';
 import { MIGRATION_SQL_LINT_RULE_IDS } from '../gates/migration-sql-lint';
 
 import {
@@ -17,12 +17,8 @@ import {
 // violates them. The committed fixture case covers the whole-tree owners.
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
-const workspace = mkdtempSync(join(tmpdir(), 'aria-sql-migration-safety-'));
-const outside = mkdtempSync(join(tmpdir(), 'aria-sql-migration-outside-'));
-process.on('exit', () => {
-  rmSync(workspace, { recursive: true, force: true });
-  rmSync(outside, { recursive: true, force: true });
-});
+const workspace = makeFixtureTree('aria-sql-migration-safety-');
+const outside = makeFixtureTree('aria-sql-migration-outside-');
 
 const FARM = 'apps/farm-service/src/database/migrations';
 const BILLING = 'apps/billing-service/src/database/migrations';

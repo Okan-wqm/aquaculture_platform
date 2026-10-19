@@ -358,6 +358,26 @@ class RegistryDeadlines(_Fixture):
             "deadlines_undecided:registry_finding:FileNotFoundError;deadlines_lapsed:1:tool_registry_status.ARCHIVED(-1d)",
         )
 
+    def test_a_row_with_no_owner_is_named_unenforced_not_swept(self) -> None:
+        # ARIA-MEDIUM-601 — the sweep blocks a lapsed row only when it names
+        # an owner_user (a BLOCKED row is an override its owner signs); an
+        # ownerless one is reported UNOWNED and never moves, so the organ must
+        # not promise it a sweep.
+        self.write_registry([
+            {"id": "A-HIGH-001", "state": "OPEN", "deadline": _day(-2, self.now), "owner_user": None},
+            {"id": "B-HIGH-002", "state": "OPEN", "deadline": _day(-2, self.now), "owner_user": "  "},
+            {"id": "C-HIGH-003", "state": "OPEN", "deadline": _day(-2, self.now)},
+            {"id": "D-HIGH-004", "state": "OPEN", "deadline": _day(-2, self.now), "owner_user": "Okan-wqm"},
+        ])
+        rows = {row.key: row for row in deadlines.read_registry_deadlines(self.tools, self.ws)}
+        for key in ("A-HIGH-001", "B-HIGH-002", "C-HIGH-003"):
+            self.assertIn("UNOWNED", rows[key].enforced_by, key)
+            self.assertIn("finding-registry assign", rows[key].enforced_by, key)
+            self.assertNotIn("plans BLOCKED", rows[key].consequence, key)
+            self.assertFalse(rows[key].lapse_is_fault, key)
+        self.assertIn("planSweep", rows["D-HIGH-004"].enforced_by)
+        self.assertIn("plans BLOCKED", rows["D-HIGH-004"].consequence)
+
     def test_the_live_registry_is_readable_by_the_organ(self) -> None:
         rows = deadlines.read_registry_deadlines(self.tools, _REPO_ROOT)
         self.assertTrue(rows, "the committed registry carries OPEN findings with deadlines")
@@ -367,7 +387,8 @@ class RegistryDeadlines(_Fixture):
 class ReadoutAndConsumers(_Fixture):
     def _seed_all_three(self) -> None:
         self.write_waivers(self.waiver(_day(5, self.now)))
-        self.write_registry([{"id": "SENSOR-CRITICAL-108", "state": "OPEN", "deadline": _day(1, self.now)}])
+        self.write_registry([{"id": "SENSOR-CRITICAL-108", "state": "OPEN", "deadline": _day(1, self.now),
+                              "owner_user": "Okan-wqm"}])
         record_human_required(request_id="AIR-late", severity="HIGH", reason="late", base_dir=self.tools,
                               now=self.now - timedelta(days=5))
 

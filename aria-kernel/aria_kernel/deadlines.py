@@ -4,7 +4,8 @@ WHY: the kernel enforces several deadlines — a waiver's `expires_on` in any
 of the three dated manifests (surface-reachability, control-reachability,
 batch-containment; the gate that owns each refuses a lapsed one), a HUMAN_REQUIRED
 record's `sla_deadline` (the operator's Plan-016 promise), a review-registry
-finding's `deadline` (the daily state sweep plans a lapsed one to BLOCKED) —
+finding's `deadline` (the daily state sweep plans a lapsed one to BLOCKED,
+or names it UNOWNED when it has no owner_user to sign the override) —
 and each fired at its own gate on its own day with no earlier word from
 anything. Eight waivers lapsed on 2026-09-13 and every kernel lane on main
 was red the next morning. A deadline the kernel will enforce is a deadline
@@ -196,12 +197,27 @@ def read_registry_deadlines(tools_dir: Path, workspace_root: Path) -> list[Deadl
         deadline = finding.get("deadline")
         if not deadline or str(finding.get("state")) in REGISTRY_DEADLINE_STATES_EXCLUDED:
             continue
+        owner = finding.get("owner_user")
+        tag = f"[{finding.get('severity')}, {finding.get('state')}]"
+        if isinstance(owner, str) and owner.strip():
+            enforced_by = "finding-state-sweep.yml → sweep PR (tools/gates/finding-registry.ts planSweep)"
+            consequence = f"the daily sweep plans BLOCKED into a sweep PR that lands only when merged {tag}"
+        else:
+            # ARIA-MEDIUM-601 — a BLOCKED row is an override its owner_user
+            # signs, so the sweep never blocks an ownerless row: it reports it
+            # UNOWNED (findUnownedPastDeadline) and the row does not move
+            # until `finding-registry assign` gives it an owner.
+            enforced_by = (
+                "unenforced: owner_user is null or blank, so the sweep reports UNOWNED "
+                "(tools/gates/finding-registry.ts findUnownedPastDeadline; finding-registry assign)"
+            )
+            consequence = f"the daily sweep names it UNOWNED and moves nothing until an owner is assigned {tag}"
         rows.append(DeadlineRow(
             kind=REGISTRY_FINDING,
             key=str(finding["id"]),
             due_at=_registry_due_at(str(deadline)),
-            enforced_by="finding-state-sweep.yml → sweep PR (tools/gates/finding-registry.ts planSweep)",
-            consequence=f"the daily sweep plans BLOCKED into a sweep PR that lands only when merged [{finding.get('severity')}, {finding.get('state')}]",
+            enforced_by=enforced_by,
+            consequence=consequence,
             lapse_is_fault=False,
         ))
     return rows

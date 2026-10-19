@@ -3734,10 +3734,6 @@ class PortableValidationContinuity(StateStoreTestCase):
                     self.assertFalse((repo / "aria-tools").exists())
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class AHollowWorktreeIsNotUnpublishedWork(StateStoreTestCase):
     """ARIA-HIGH-155 — the store directory is there, its worktree registered,
     its ``.git`` link gone (``git clean -ffdx`` between two jobs on the
@@ -3802,3 +3798,7 @@ class AHollowWorktreeIsNotUnpublishedWork(StateStoreTestCase):
             checkout_state_store(self.repo, store_dir=root)
         self.assertIn("state_store_unpushed_commits", str(ctx.exception))
         self.assertFalse(sorted(self.repo.glob(".aria-state-store.hollow-*")))
+
+
+if __name__ == "__main__":
+    unittest.main()

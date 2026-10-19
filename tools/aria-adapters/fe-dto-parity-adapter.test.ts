@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+import { makeFixtureTree } from '../gates/fixture-tree';
 
 import { analyzeFeDtoParity } from './fe-dto-parity-adapter';
 
-const workspace = mkdtempSync(join(tmpdir(), 'aria-fe-dto-parity-'));
+const workspace = makeFixtureTree('aria-fe-dto-parity-');
 mkdirSync(join(workspace, 'apps/farm-service/src/batch/dto'), { recursive: true });
 mkdirSync(join(workspace, 'web/modules/farm-module/src/types'), { recursive: true });
 mkdirSync(join(workspace, 'web/modules/farm-module/src/generated'), { recursive: true });

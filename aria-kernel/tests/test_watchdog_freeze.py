@@ -251,10 +251,6 @@ class FreezeScopeTests(unittest.TestCase):
         self.assertEqual(adapter.other_calls, [], "nothing past the freeze ran, the merge least of all")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TheFreezeMustNotStopTheRun(unittest.TestCase):
     """The claim this whole control rests on, finally driven.
 
@@ -382,3 +378,7 @@ class TheFreezeMustNotStopTheRun(unittest.TestCase):
         )
         runner(base_dir=self.base, workspace_root=self.base)
         self.assertIsNone(adapter.labels_asked, "strict asked the watchdog it must not need")
+
+
+if __name__ == "__main__":
+    unittest.main()

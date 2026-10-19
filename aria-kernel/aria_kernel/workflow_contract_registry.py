@@ -987,6 +987,63 @@ def workflow_job_contract_for_file(workflow_file: str, job_id: str) -> WorkflowJ
     return None
 
 
+# ARIA-HIGH-589 — the GITHUB_TOKEN scopes a ``permissions:`` keyword grants.
+# GitHub's ``write-all`` / ``read-all`` set EVERY scope at once, so the verifier
+# must expand a keyword into this set before judging it; reading only a
+# mapping let a governed job declare ``write-all`` and pass its contract.
+# Source: GitHub Actions "permissions" workflow syntax (scope list).
+GITHUB_TOKEN_SCOPES: tuple[str, ...] = (
+    "actions",
+    "attestations",
+    "checks",
+    "contents",
+    "deployments",
+    "discussions",
+    "id-token",
+    "issues",
+    "models",
+    "packages",
+    "pages",
+    "pull-requests",
+    "repository-projects",
+    "security-events",
+    "statuses",
+)
+
+_PERMISSION_KEYWORDS: dict[str, str] = {"write-all": "write", "read-all": "read"}
+
+
+def declared_token_permissions(declared: Any) -> dict[str, Any] | None:
+    """The scope map a ``permissions:`` value grants the job's GITHUB_TOKEN.
+
+    ONE reading of the value, at either level: a mapping as declared, the
+    keywords ``write-all`` / ``read-all`` as every scope in
+    ``GITHUB_TOKEN_SCOPES``, and an empty value (``{}`` or a bare
+    ``permissions:``) as no scope. Any other value is not a grant GitHub
+    accepts, so it answers None and the caller refuses it.
+    """
+    if declared is None:
+        return {}
+    if isinstance(declared, Mapping):
+        return dict(declared)
+    if isinstance(declared, str) and declared in _PERMISSION_KEYWORDS:
+        return {scope: _PERMISSION_KEYWORDS[declared] for scope in GITHUB_TOKEN_SCOPES}
+    return None
+
+
+def job_token_permissions(job: Mapping[str, Any], workflow: Mapping[str, Any]) -> dict[str, Any] | None:
+    """What a job's token is granted: the job's own ``permissions:`` when it
+    declares one (it REPLACES the workflow-level value, as GitHub applies it,
+    so a job's ``read-all`` drops the workflow's writes), else the
+    workflow-level value. Neither declared answers ``{}``: the contract cannot
+    see the repository default, so it credits no scope."""
+    if "permissions" in job:
+        return declared_token_permissions(job["permissions"])
+    if "permissions" in workflow:
+        return declared_token_permissions(workflow["permissions"])
+    return {}
+
+
 def uncontracted_write_scopes(actual: Mapping[str, Any], required: Mapping[str, str]) -> tuple[str, ...]:
     """The token scopes ``actual`` grants ``write`` that the job contract's
     ``required`` permissions do not: the least-privilege half of a governed
@@ -1048,9 +1105,12 @@ def cycle_wall_clock_cap_seconds(workflow_id: str, *, job_id: str | None = None)
 
 __all__ = [
     "AUDITED_WORKFLOW_EXCLUSIONS",
+    "GITHUB_TOKEN_SCOPES",
     "WALL_CLOCK_RESERVE_MINUTES",
     "WORKFLOW_CONTRACTS",
     "cycle_wall_clock_cap_seconds",
+    "declared_token_permissions",
+    "job_token_permissions",
     "AuditedWorkflowExclusion",
     "WorkflowAbortGate",
     "WorkflowContract",

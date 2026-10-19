@@ -180,10 +180,6 @@ class RecoveryClassifies(unittest.TestCase):
         self.assertIn("_decide_session_and_recovery(", executor)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TheExecutorHandsTheStoreToBothDecisions(unittest.TestCase):
     """ARIA-HIGH-179 — one store: the executor decides `--resume` against the
     store the sandbox binds, so a resume is issued only for a transcript the
@@ -201,3 +197,7 @@ class TheExecutorHandsTheStoreToBothDecisions(unittest.TestCase):
                          "both containment shapes and the write wrapper pass the store through")
         with mock.patch.dict("os.environ", {"ARIA_SESSION_STORE_DIR": "/srv/aria/sessions"}):
             self.assertEqual(claude_runtime._session_store_dir(), Path("/srv/aria/sessions"))
+
+
+if __name__ == "__main__":
+    unittest.main()

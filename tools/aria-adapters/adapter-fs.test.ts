@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
+
+import { makeFixtureTree } from '../gates/fixture-tree';
 
 import {
   collectFiles,
@@ -24,7 +25,7 @@ import { analyzeKernelDeadWire } from './kernel-dead-wire-adapter';
 // The workspace sits in `base` beside `outside`, which stands for anything
 // beyond the checkout; each symlink below is one a checkout can carry.
 
-const base = mkdtempSync(join(tmpdir(), 'aria-adapter-fs-'));
+const base = makeFixtureTree('aria-adapter-fs-');
 const workspace = join(base, 'repo');
 const outside = join(base, 'outside');
 const write = (path: string, text: string): void => {
@@ -48,7 +49,7 @@ symlinkSync(join(outside, 'kernel'), join(workspace, 'linked-kernel'));
 const relativePaths = (paths: readonly string[]): readonly string[] =>
   paths.map((path) => relative(workspace, join(workspace, path)));
 
-try {
+{
   // ---------------------------------------------------------------------
   // An adapter does not read through a symlink it was told to read.
   // ---------------------------------------------------------------------
@@ -135,8 +136,6 @@ try {
       'a walk from the root lists regular files only: no symlink, no fifo',
     );
   }
-} finally {
-  rmSync(base, { recursive: true, force: true });
 }
 
 process.stdout.write('adapter-fs.test.ts OK\n');

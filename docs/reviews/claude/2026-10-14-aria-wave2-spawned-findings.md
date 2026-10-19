@@ -1027,7 +1027,7 @@ duplicate `lint-changed-files`. The real residual is INFRA-MEDIUM-224.
   longer depends on the append succeeding. Taking the raw-finding sample off the v2-shadow row
   changes what the runtime artifact contract says v2-shadow preserves, and ADR-035 makes v2 the
   operator's decision. So that half waits for that decision, or keeps the contract through the
-  artifact. Owner okan, deadline 2026-10-30.
+  artifact. Owner Okan-wqm, deadline 2026-10-30.
 - **Why ARIA-HIGH-617 did not take this along (restated at verification round 1):** ARIA-HIGH-617
   changed one v2-shadow field, `scope_violations`. That list is derived from the read set, the
   artifact already holds it, and the row's marker now carries the truncation fields ADR-035 asks
@@ -1063,7 +1063,7 @@ duplicate `lint-changed-files`. The real residual is INFRA-MEDIUM-224.
 - **Planned fix:** bound every adapter-controlled row field by construction (ARIA-HIGH-618's
   artifact move with byte-bounded samples, plus ARIA-MEDIUM-619), pinned by a test that writes a
   week of maximal rows. The alternative is a publish compaction that brings the window under
-  budget. Owner okan, deadline 2026-11-15.
+  budget. Owner Okan-wqm, deadline 2026-11-15.
 
 ### ARIA-HIGH-629 — a hot run artifact has no size bound, so one run can refuse every publish
 
@@ -1081,7 +1081,7 @@ duplicate `lint-changed-files`. The real residual is INFRA-MEDIUM-224.
   bounded heads plus size and digest once `parsed_output` holds the parse, a bulk that cannot fit
   spilled with reason code, total and digest, and `payload.scope_violations` stored as positions
   into `payload.read_paths`. Test-first: a 12 MiB non-ASCII report and a 70 MiB `budget_exceeded`
-  stdout each leave an artifact under the cap, and the next snapshot succeeds. Owner okan,
+  stdout each leave an artifact under the cap, and the next snapshot succeeds. Owner Okan-wqm,
   deadline 2026-10-31.
 
 ### ARIA-MEDIUM-630 — runs rows reach the published surface without the boundary encoder
@@ -1102,7 +1102,7 @@ duplicate `lint-changed-files`. The real residual is INFRA-MEDIUM-224.
 - **Planned fix:** the declared append of a published surface (or `record_run`'s row) goes through
   `scrub_json` plus the `sanitized_json_text` refusal, and a refused list falls back to a
   `digest_only` marker with a reason code. Test-first: each case's row line passes
-  `verify_no_secret_in_diff`. Owner okan, deadline 2026-11-15.
+  `verify_no_secret_in_diff`. Owner Okan-wqm, deadline 2026-11-15.
 
 ### ARIA-MEDIUM-647 — a v1 row keeps an ACTIVE tool's emitted lists inline with no bound
 

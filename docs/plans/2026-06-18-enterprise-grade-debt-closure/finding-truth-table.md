@@ -254,7 +254,6 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-100`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
 | `ADMIN-CRITICAL-087`  | OPEN           | 2026-09-04   | admin-expert               | real-open                 |
 | `DEPLOY-CRITICAL-017` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
-| `PLAT-CRITICAL-931`   | IN-PROGRESS    | 2026-10-19   | zcode                      | already-fixed-needs-close |
 
 Updated 2026-09-10 (W9t, the SUPER_ADMIN audit's last unmigrated page): one active CRITICAL added.
 Updated 2026-10-10 (farm E2E campaign, PR #1951): seven CRITICALs registered
@@ -1148,4 +1147,7 @@ tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
   Left the active table from bucket `real-open`.
 - `INFRA-CRITICAL-233`: registry state is `RESOLVED` with closing commit
   `30cbf58fa`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `PLAT-CRITICAL-931`: registry state is `RESOLVED` with closing commit
+  `44bb256a2`, derived by `finding-registry reconcile` against `origin/main`.
   Left the active table from bucket `already-fixed-needs-close`.

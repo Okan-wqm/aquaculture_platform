@@ -8,9 +8,9 @@ import assert from 'node:assert/strict';
 import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { makeFixtureTree } from '../gates/fixture-tree';
-
 import type { Node } from 'typescript';
+
+import { makeFixtureTree } from '../gates/fixture-tree';
 
 import { containedCompilerHost, createContainedProgram } from './adapter-ts';
 

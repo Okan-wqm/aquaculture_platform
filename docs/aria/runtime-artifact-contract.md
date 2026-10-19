@@ -6,7 +6,21 @@ payload, but audit evidence must remain complete and hash-verifiable.
 ## Contract
 
 - `ARIA_RUN_LEDGER_FORMAT=v1|v2-shadow|v2` controls rollout.
-- Default `v2-shadow` preserves legacy run fields while writing v2 artifact refs.
+- Default `v2-shadow` preserves legacy run fields while writing v2 artifact refs, except the lists
+  that grow with an adapter's own report, which its artifact holds whole:
+  - `read_paths` is stored as `read_paths_ref` (count, sha256, `json_pointer`
+    `/payload/read_paths`; ARIA-HIGH-523);
+  - `scope_violations` keeps at most 20 entries within the per-field inline budget, forbidden reads
+    first, plus `scope_violations_spilled` (reason code, total, sampled, sha256, verification status
+    `artifact_backed`, `json_pointer` `/payload/scope_violations`; ARIA-HIGH-617).
+- A `v1` row, and a row whose artifact write failed, has no artifact to point at: `read_paths` and
+  `scope_violations` stay whole up to the per-field inline budget
+  (`ledger_inline.INLINE_ROW_FIELD_MAX_BYTES`, counted in the row's own encoding). Beyond it the row
+  keeps the longest prefix that fits plus a `<key>_spilled` marker with verification status
+  `digest_only`: the total and digest survive, the rest of the list does not (ARIA-HIGH-617). A
+  failed write is already `integrity_failed`; `v1` declares `legacy_inline_or_sample_only`.
+- Every list sample on a row has one shape, `ledger_inline.sample_inline_list`, and one digest
+  spelling, `ledger.sha256_digest_of_canonical_json`.
 - `v2` run rows are thin and must resolve to a full artifact.
 - `runs_reader` is the only supported consumer surface for `runs.jsonl`.
 - Missing artifact, hash mismatch, path escape, write failure, or failed restore is `integrity_failed`.

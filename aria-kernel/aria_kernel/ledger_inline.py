@@ -22,6 +22,8 @@ import hashlib
 import json
 from typing import Any
 
+from .ledger import canonical_json, sha256_digest_of_canonical_json
+
 # Per-field inline budget. Well under ``ledger.LEDGER_ROW_MAX_BYTES`` so a row
 # carrying several bounded fields plus the chain hashes still clears the
 # primitive's cap with wide margin.
@@ -67,26 +69,66 @@ def spill_oversized_inline(field: str, value: Any, *, recovery: str) -> Any:
     }
 
 
-def sample_inline_list(key: str, values: list[Any], limit: int) -> dict[str, Any]:
-    """The row fields that stand in for list ``key``: whole, or sampled with a marker.
+# Why a sampled list's marker exists: the list did not fit its inline budget.
+SAMPLED_LIST_REASON_CODE = "inline_row_list_budget"
 
-    At most ``limit`` entries: ``{key: values}``. More: the first ``limit``
-    under ``key`` plus ``<key>_spilled`` carrying the total and the digest of
-    the whole list, so a reader knows the sample is partial and can check a
-    recovered list against it. The one spelling of a sampled row list
-    (evidence_validation's lists here, a run row's scope_violations in
-    tool_health).
+
+def sample_inline_list(
+    key: str,
+    values: list[Any],
+    *,
+    limit: int | None,
+    json_pointer: str | None,
+    recovery: str,
+    max_bytes: int = INLINE_ROW_FIELD_MAX_BYTES,
+) -> dict[str, Any]:
+    """The row fields that stand in for list ``key``: whole, or a bounded sample with a marker.
+
+    The one spelling of a sampled row list (evidence_validation's lists here,
+    a run row's read set and scope violations in ``tool_health``). The list is
+    stored whole when it has at most ``limit`` entries (``None``: no count
+    limit) and its row spelling fits ``max_bytes``. Otherwise the row keeps the
+    longest prefix of at most ``limit`` entries that fits ``max_bytes``, so the
+    sample is bounded by construction whatever the entries hold (ARIA-HIGH-617:
+    twenty 60,000-character entries were within a count limit and made a
+    1.2 MB row). An entry is never cut, since a cut path names another file; an
+    entry larger than the budget ends the sample. Bytes are counted in
+    ``ledger.canonical_json``, the spelling the ledger writes a row in: a
+    non-ASCII character is two to four bytes in UTF-8 but a six- or
+    twelve-byte escape on the row, so a UTF-8 count would not bound the row.
+
+    ``<key>_spilled`` then records what the No Silent Loss contract
+    (docs/aria/runtime-artifact-contract.md) asks of a truncation: the reason
+    code, the total, how many entries were kept, the whole list's digest, a
+    verification status, and where the whole list lives. The digest is
+    ``ledger.sha256_digest_of_canonical_json``, the spelling
+    ``runs_reader.read_paths_reference`` names a read set with, so a row never
+    carries two digest spellings. ``json_pointer`` addresses the whole list
+    inside the row's artifact (``artifact_backed``); without one only the count
+    and digest survive (``digest_only``), and ``recovery`` must say so.
     """
-    if len(values) <= limit:
+    if (limit is None or len(values) <= limit) and len(canonical_json(values)) <= max_bytes:
         return {key: values}
-    return {
-        key: values[:limit],
-        f"{key}_spilled": {
-            "spilled_sample": True,
-            "total": len(values),
-            "sha256": "sha256:" + hashlib.sha256(_serialize(values)).hexdigest(),
-        },
+    sample: list[Any] = []
+    used = len("[]")
+    for value in values if limit is None else values[:limit]:
+        cost = len(canonical_json(value)) + (len(",") if sample else 0)
+        if used + cost > max_bytes:
+            break
+        sample.append(value)
+        used += cost
+    marker: dict[str, Any] = {
+        "spilled_sample": True,
+        "reason_code": SAMPLED_LIST_REASON_CODE,
+        "total": len(values),
+        "sampled": len(sample),
+        "sha256": sha256_digest_of_canonical_json(values),
+        "verification_status": "artifact_backed" if json_pointer is not None else "digest_only",
+        "recovery": recovery,
     }
+    if json_pointer is not None:
+        marker["json_pointer"] = json_pointer
+    return {key: sample, f"{key}_spilled": marker}
 
 
 def spill_evidence_validation(validation: dict[str, Any], *, recovery: str) -> dict[str, Any]:
@@ -105,7 +147,7 @@ def spill_evidence_validation(validation: dict[str, Any], *, recovery: str) -> d
         value = validation[key]
         sample = EVIDENCE_VALIDATION_LIST_SAMPLES.get(key)
         if sample is not None and isinstance(value, list):
-            kept.update(sample_inline_list(key, value, sample))
+            kept.update(sample_inline_list(key, value, limit=sample, json_pointer=None, recovery=recovery))
         else:
             kept[key] = value
     return {

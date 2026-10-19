@@ -948,6 +948,22 @@ duplicate `lint-changed-files`. The real residual is INFRA-MEDIUM-224.
   reported out-of-scope paths raised `LedgerRowTooLargeError` before the fix. After it the row is
   under 16 KiB and the tool is quarantined. A production-shaped run that also carries 50
   raw-finding samples makes a 29,719-byte row.
+- **Verification round 1 (same branch, before merge):** that first commit left the failure open in
+  three places. (1) Where no artifact holds the read set, the row kept `read_paths` inline without
+  a bound. The adapter can force that state: the artifact encoder refuses a credential-shaped key
+  in its `parsed_output`, or a credential shape in a reported path, and a full disk fails the write
+  too. A v1 row writes no artifact at all. 20,000 paths then made a 1.24 MB row, and the run was
+  neither recorded nor quarantined. (2) The sample was bounded by count only: twenty 60,000-character
+  entries made a 1.2 MB row. (3) A `.env` read reported after 20 others was missing from the row
+  sample. The fix: `sample_inline_list` bounds the sample by bytes, counted in the ledger's own
+  row encoding (`ledger.canonical_json`). Its marker carries reason code, total, sampled, digest
+  (`ledger.sha256_digest_of_canonical_json`, the spelling `read_paths_ref` uses), verification
+  status and `json_pointer` or recovery text. On a row with no artifact, both lists stay whole up
+  to the per-field inline budget and keep a `digest_only` sample beyond it. Forbidden reads lead
+  the list. Each case is a red-first test in `test_run_row_read_set_ref.py`: a credential key, an
+  escape-formed path, a full disk, v1, long entries, a non-string entry, a single 1.1 MB entry and
+  a forbidden read after 25 others. All of them are now recorded and quarantined, with the rows
+  under 2 x 128 KiB plus 16 KiB.
 
 ### ARIA-HIGH-618 — memory candidates or raw-finding entries make a run unrecordable
 
@@ -962,8 +978,17 @@ duplicate `lint-changed-files`. The real residual is INFRA-MEDIUM-224.
 - **Planned fix:** the artifact carries the candidates and the raw-finding sample. The row keeps
   count, digest and sample, memory ingestion reads the artifact, and the quarantine verdict no
   longer depends on the append succeeding. Taking the raw-finding sample off the v2-shadow row
-  changes what ADR-035 says v2-shadow preserves, so that half waits for the operator's v2 decision
-  or keeps the contract through the artifact. Owner okan, deadline 2026-10-30.
+  changes what the runtime artifact contract says v2-shadow preserves, and ADR-035 makes v2 the
+  operator's decision. So that half waits for that decision, or keeps the contract through the
+  artifact. Owner okan, deadline 2026-10-30.
+- **Why ARIA-HIGH-617 did not take this along (restated at verification round 1):** ARIA-HIGH-617
+  changed one v2-shadow field, `scope_violations`. That list is derived from the read set, the
+  artifact already holds it, and the row's marker now carries the truncation fields ADR-035 asks
+  for (pointer, digest, count, reason code, verification status). The two fields here are not
+  like that. `raw_findings_sample` is the one row field `record_run` already drops in `v2` and
+  keeps in `v2-shadow`, so moving it is the v2 decision itself. `memory_candidates` has a row reader
+  (`memory._ingest_memory_candidates`) that must move to the artifact first. Each is a change of
+  its own in other modules.
 
 ### ARIA-MEDIUM-619 — evidence_validation still sets the runs surface's publish bound
 
@@ -975,6 +1000,23 @@ duplicate `lint-changed-files`. The real residual is INFRA-MEDIUM-224.
   ARIA-HIGH-523 measured a 12.3 MB week at the 2026-10-15 rate.
 - **Planned fix:** the row keeps the structural keys plus count, digest and sample, and the run
   artifact holds the whole object. Deadline: 2026-11-15.
+
+### ARIA-MEDIUM-626 — the runs publish window is bounded only by adapter output
+
+- **Raised by:** the independent verification (round 1) of the order chain's `R-NEW-runs-bound`
+  item. That item is order-map SUP-01, "Bound runs.jsonl by bytes", whose test-first reads: a publish
+  whose runs surface would exceed its byte budget compacts to under the budget, never refuses.
+  ARIA-HIGH-617 bounds a row's read-set lists. That is not this.
+- **Problem:** `bound_compactable_surfaces` slims only rows older than seven days. If the surface is
+  still over 64 MiB it raises `SurfaceBoundError`. At 75 runs a day, rows averaging over about
+  125 KiB fill the window. `memory_candidates` and `raw_findings_sample` have no bound below the
+  1 MiB row cap. ARIA-HIGH-618 names the rows over that cap, not the sub-cap rows that fill the
+  window, and evidence_validation's share belongs to ARIA-MEDIUM-619. Today the live runs.jsonl is
+  39,116,912 bytes and grows by about 12.3 MB a week.
+- **Planned fix:** bound every adapter-controlled row field by construction (ARIA-HIGH-618's
+  artifact move with byte-bounded samples, plus ARIA-MEDIUM-619), pinned by a test that writes a
+  week of maximal rows. The alternative is a publish compaction that brings the window under
+  budget. Owner okan, deadline 2026-11-15.
 
 ## Registry amendments recorded at the L1 registry step
 

@@ -24,11 +24,10 @@ the silent-skip pattern on runs.jsonl fail at build time.
 """
 from __future__ import annotations
 
-import hashlib
-import json
 from pathlib import Path
 from typing import Any, Iterator
 
+from .ledger import sha256_digest_of_canonical_json
 from .runtime_artifacts import resolve_artifact_payload
 from .strict_jsonl_reader import read_strict_jsonl
 from .tool_registry import GovernanceError
@@ -119,9 +118,13 @@ READ_PATHS_POINTER = "/payload/read_paths"
 
 
 def read_set_digest(paths: list[Any]) -> str:
-    """The content address of a read set: sha256 of its canonical JSON."""
-    encoded = json.dumps(paths, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-    return "sha256:" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    """The content address of a read set: the kernel's one canonical-JSON digest.
+
+    ``ledger.sha256_digest_of_canonical_json``, the spelling every
+    ``ledger_inline`` sample marker names its whole list with (ARIA-HIGH-617),
+    so the stand-ins on one row verify the same way.
+    """
+    return sha256_digest_of_canonical_json(paths)
 
 
 def read_paths_reference(paths: list[Any]) -> dict[str, Any]:
@@ -135,7 +138,13 @@ def run_read_paths(row: dict[str, Any], *, base_dir: str | Path | None) -> list[
     A row written before ARIA-HIGH-523, a v1 row (no artifact), a row whose
     artifact write failed and the writer's in-memory envelope carry the list
     inline, and it is returned as stored: a compacted pre-fix row still reads
-    its five-path sample, as every reader read it before. A row with a
+    its five-path sample, as every reader read it before. A v1 or failed-write
+    row whose read set did not fit its inline budget (ARIA-HIGH-617) reads the
+    sample its writer kept; ``read_paths_spilled`` beside it names the total
+    and digest of the reported set, which nothing else holds. The stored-row
+    callers cite the paths as evidence (pressure, capability gap), which the
+    kept sample serves; the scope verdict was judged on the writer's in-memory
+    envelope, whose set is whole, and is recorded in the row's status. A row with a
     ``read_paths_ref`` is resolved from its artifact and checked against the
     count and digest the row recorded. A set that cannot be read back is
     refused by name, never read as empty: the row says the set exists.

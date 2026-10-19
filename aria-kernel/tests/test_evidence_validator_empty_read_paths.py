@@ -233,6 +233,42 @@ class ParseToolOutputErrorCodeTests(unittest.TestCase):
         self.assertIsNone(payload)
         self.assertEqual(error, "output_not_json")
 
+    def test_the_parser_accepts_its_nesting_bound_and_refuses_one_level_more(self) -> None:
+        """ARIA-HIGH-617: the bound leaves the levels a kernel row adds around
+        a parsed value, so output the parser accepts stays storable."""
+        from aria_kernel.ledger import JSON_NESTING_MAX_DEPTH, REPLAY_TRANSPORT_NESTING_LEVELS
+        from aria_kernel.tool_runner import TOOL_OUTPUT_NESTING_MAX_DEPTH, TOOL_OUTPUT_ROW_NESTING_LEVELS
+
+        self.assertEqual(
+            TOOL_OUTPUT_NESTING_MAX_DEPTH + TOOL_OUTPUT_ROW_NESTING_LEVELS + REPLAY_TRANSPORT_NESTING_LEVELS,
+            JSON_NESTING_MAX_DEPTH,
+        )
+        tool = _make_tool()
+        for depth, expected in ((TOOL_OUTPUT_NESTING_MAX_DEPTH, None), (TOOL_OUTPUT_NESTING_MAX_DEPTH + 1, "output_nesting_too_deep")):
+            with self.subTest(depth=depth):
+                # The object is one level; read_paths and its nested lists are the rest.
+                deep = "[" * (depth - 1) + "]" * (depth - 1)
+                stdout = '{"observations":[],"findings":[],"read_paths":' + deep + ',"evidence_sources":[]}'
+                payload, error = _parse_tool_output(stdout, tool)
+                self.assertEqual(error, expected)
+                self.assertEqual(payload is None, expected is not None)
+
+    def test_an_integer_the_decoder_refuses_returns_output_value_not_decodable(self) -> None:
+        """ARIA-HIGH-617: json.loads refuses an integer of more than 4,300
+        digits with a ValueError that is not a JSONDecodeError. It left the
+        parser and run_tool before record_run, so the run went unrecorded."""
+        from aria_kernel.tool_runner import PARSE_ERROR_CODES
+
+        tool = _make_tool()
+        stdout = (
+            '{"observations":[],"findings":[],"read_paths":[".env"],"evidence_sources":[],'
+            '"metadata":{"n":' + "7" * 4_301 + "}}"
+        )
+        payload, error = _parse_tool_output(stdout, tool)
+        self.assertIsNone(payload)
+        self.assertEqual(error, "output_value_not_decodable")
+        self.assertIn("output_value_not_decodable", PARSE_ERROR_CODES)
+
     def test_non_object_payload_returns_output_not_dict(self) -> None:
         tool = _make_tool()
         payload, error = _parse_tool_output("[1, 2, 3]", tool)

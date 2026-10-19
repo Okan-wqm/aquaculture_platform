@@ -83,15 +83,15 @@ def sample_inline_list(
     The one spelling of a sampled row list (evidence_validation's lists here,
     a run row's read set and scope violations in ``tool_health``). The list is
     stored whole when it has at most ``limit`` entries (``None``: no count
-    limit) and its row spelling fits ``max_bytes``. Otherwise the row keeps the
-    longest prefix of at most ``limit`` entries that fits ``max_bytes``, so the
-    sample is bounded by construction whatever the entries hold (ARIA-HIGH-617:
-    twenty 60,000-character entries were within a count limit and made a
-    1.2 MB row). An entry is never cut, since a cut path names another file; an
-    entry larger than the budget ends the sample. Bytes are counted in
-    ``ledger.canonical_json``, the spelling the ledger writes a row in: a
-    non-ASCII character is two to four bytes in UTF-8 but a six- or
-    twelve-byte escape on the row, so a UTF-8 count would not bound the row.
+    limit) and its row spelling fits ``max_bytes``. Otherwise the row keeps
+    ``bounded_sample``: at most ``limit`` entries, in order, that fit
+    ``max_bytes``, so the sample is bounded by construction whatever the
+    entries hold (ARIA-HIGH-617: twenty 60,000-character entries were within a
+    count limit and made a 1.2 MB row). An entry is never cut, since a cut path
+    names another file. Bytes are counted in ``ledger.canonical_json``, the
+    spelling the ledger writes a row in: a non-ASCII character is two to four
+    bytes in UTF-8 but a six- or twelve-byte escape on the row, so a UTF-8
+    count would not bound the row.
 
     ``<key>_spilled`` then records what the No Silent Loss contract
     (docs/aria/runtime-artifact-contract.md) asks of a truncation: the reason
@@ -105,7 +105,7 @@ def sample_inline_list(
     """
     if (limit is None or len(values) <= limit) and len(canonical_json(values)) <= max_bytes:
         return {key: values}
-    sample = bounded_prefix(values, limit=limit, max_bytes=max_bytes)
+    sample = bounded_sample(values, limit=limit, max_bytes=max_bytes)
     marker: dict[str, Any] = {
         "spilled_sample": True,
         "reason_code": SAMPLED_LIST_REASON_CODE,
@@ -120,24 +120,30 @@ def sample_inline_list(
     return {key: sample, f"{key}_spilled": marker}
 
 
-def bounded_prefix(values: list[Any], *, limit: int | None, max_bytes: int) -> list[Any]:
-    """The longest prefix of ``values``, at most ``limit`` entries, whose row spelling fits ``max_bytes``.
+def bounded_sample(values: list[Any], *, limit: int | None, max_bytes: int) -> list[Any]:
+    """At most ``limit`` entries of ``values``, in order, whose row spelling fits ``max_bytes``.
 
     The one bound on a list a ledger row carries (``sample_inline_list``'s
-    sample, the paths a pressure cites of a tool run). An entry is never cut,
-    since a cut path names another file, and an entry larger than the budget
-    ends the prefix. Bytes are counted in ``ledger.canonical_json``, the
-    spelling the ledger writes a row in. ``limit`` ``None``: no count limit.
+    sample, ``runs_reader.run_path_citations``). An entry is never cut, since a
+    cut path names another file. An entry too large for the budget left is
+    skipped, and the entries after it are still taken: the adapter orders its
+    own report, and one oversized entry reported first used to end the sample,
+    hiding the ``.env`` read behind it (ARIA-HIGH-617). Nothing reads a sample
+    as positions of the whole list; its marker names the total and the
+    digest. Bytes are counted in ``ledger.canonical_json``, the spelling the
+    ledger writes a row in. ``limit`` ``None``: no count limit.
     """
-    prefix: list[Any] = []
+    sample: list[Any] = []
     used = len("[]")
-    for value in values if limit is None else values[:limit]:
-        cost = len(canonical_json(value)) + (len(",") if prefix else 0)
-        if used + cost > max_bytes:
+    for value in values:
+        if limit is not None and len(sample) >= limit:
             break
-        prefix.append(value)
+        cost = len(canonical_json(value)) + (len(",") if sample else 0)
+        if used + cost > max_bytes:
+            continue
+        sample.append(value)
         used += cost
-    return prefix
+    return sample
 
 
 def spill_evidence_validation(validation: dict[str, Any], *, recovery: str) -> dict[str, Any]:

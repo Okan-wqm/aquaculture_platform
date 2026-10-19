@@ -16,11 +16,24 @@ payload, but audit evidence must remain complete and hash-verifiable.
 - A `v1` row, and a row whose artifact write failed, has no artifact to point at: `read_paths` and
   `scope_violations` stay whole up to the per-field inline budget
   (`ledger_inline.INLINE_ROW_FIELD_MAX_BYTES`, counted in the row's own encoding). Beyond it the row
-  keeps the longest prefix that fits plus a `<key>_spilled` marker with verification status
-  `digest_only`: the total and digest survive, the rest of the list does not (ARIA-HIGH-617). A
-  failed write is already `integrity_failed`; `v1` declares `legacy_inline_or_sample_only`.
-- Every list sample on a row has one shape, `ledger_inline.sample_inline_list`, and one digest
-  spelling, `ledger.sha256_digest_of_canonical_json`.
+  keeps the entries that fit, in order (an entry is never cut; one too long for the budget left is
+  skipped), plus a `<key>_spilled` marker with verification status `digest_only`: the total and
+  digest survive, the rest of the list does not (ARIA-HIGH-617). A failed write is already
+  `integrity_failed`; `v1` declares `legacy_inline_or_sample_only`.
+- The lists the writer samples (`read_paths`, `scope_violations`, and `evidence_validation`'s
+  `evidence_sources` and `errors`, each scrubbed first and then bounded) have one shape,
+  `ledger_inline.sample_inline_list`, and one digest spelling,
+  `ledger.sha256_digest_of_canonical_json`. Other lists on a row do not have that shape:
+  - `runner.raw_findings_sample` (the first 50 raw findings) and `memory_candidates` stay inline
+    with no byte bound and no marker until ARIA-HIGH-618 lands; a `v1` row also keeps
+    `emitted_observations` and `emitted_findings` whole (ARIA-MEDIUM-647);
+  - runs compaction slims a row that its writer kept whole (no `read_paths_spilled`) to
+    `read_paths_count` plus its first five paths; the whole row is in the compaction archive, and
+    the slimmed row carries no digest of its own.
+- Adapter output the parser cannot store is a `schema_error` run, recorded and quarantined:
+  output nested past `tool_runner.TOOL_OUTPUT_NESTING_MAX_DEPTH` (the stored-line bound less the
+  levels a row and a contention replay add around a parsed value), and a value the decoder refuses
+  to build (`output_value_not_decodable`).
 - `v2` run rows are thin and must resolve to a full artifact.
 - `runs_reader` is the only supported consumer surface for `runs.jsonl`.
 - Missing artifact, hash mismatch, path escape, write failure, or failed restore is `integrity_failed`.

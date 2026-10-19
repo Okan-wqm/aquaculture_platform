@@ -7,9 +7,8 @@ from pathlib import Path
 from typing import Any
 
 from .ledger import append_declared_jsonl, load_declared_jsonl, sha256_of_canonical_json
-from .ledger_inline import bounded_prefix
 from .pressure_evidence import require_citable_evidence, split_citable_refs
-from .runs_reader import read_runs_rows, run_read_paths
+from .runs_reader import read_runs_rows, run_path_citations
 from .state_manifest import surface_for_path
 from .tool_health import runs_path
 from .tool_registry import GovernanceError, ensure_tools_dir, list_tools, utc_now
@@ -556,7 +555,7 @@ def run_pressure(
                     pressure_type="CONTRADICTION",
                     severity="high",
                     reason=f"tool health violation: {run.get('tool_id')} {status}",
-                    **_citable(_run_path_citations(run, root)),
+                    **_citable(run_path_citations(run, base_dir=root)),
                     occurrence_count=1,
                     candidate_tools=[str(run.get("tool_id"))],
                     recommended_action="inspect quarantine reason before next run",
@@ -577,7 +576,7 @@ def run_pressure(
                     pressure_type="REPETITION",
                     severity="medium",
                     reason=f"raw SHADOW findings increased for {run.get('tool_id')}: +{delta}",
-                    **_citable(_run_path_citations(run, root)),
+                    **_citable(run_path_citations(run, base_dir=root)),
                     occurrence_count=delta,
                     candidate_tools=[str(run.get("tool_id"))],
                     recommended_action="sample and judge increased SHADOW findings before calibration",
@@ -1212,40 +1211,6 @@ def _citable(value: Any) -> dict[str, list[str]]:
     """
     evidence, provenance = split_citable_refs(_array_of_strings(value))
     return {"evidence": evidence, "provenance_refs": provenance}
-
-
-# ARIA-HIGH-617 — what a pressure cites of one tool run: at most this many of
-# its paths, within this many bytes of the row's encoding.
-RUN_PATH_CITATION_LIMIT = 20
-RUN_PATH_CITATION_MAX_BYTES = 4 * 1024
-
-
-def _run_path_citations(run: dict[str, Any], root: Path) -> list[str]:
-    """The paths a pressure cites of a tool run: a bounded prefix, whatever the adapter reported.
-
-    ARIA-HIGH-617 — a run's paths are the adapter's own report (``read_paths``,
-    and ``scope_violations`` derived from it), bounded only by the 12 MiB
-    stdout cap, and ``run_pressure`` appends the cycle's pressures to
-    pressure-log.jsonl as ONE ledger row under the 1 MiB row cap. Citing a
-    run's whole read set made that row too large for a 20,000-path report,
-    and the refused append failed the pressure phase, which has no
-    ``on_error``, so the cycle aborted after the run itself was recorded and
-    its tool quarantined. Every run citation is therefore
-    ``ledger_inline.bounded_prefix`` of at most RUN_PATH_CITATION_LIMIT paths
-    within RUN_PATH_CITATION_MAX_BYTES (an entry is never cut; one longer than
-    the budget ends the prefix). A scope violation cites the violations its
-    row keeps, the forbidden reads first (``find_scope_violations``): they are
-    the evidence of the violation. Every other run cites its read set
-    (``runs_reader.run_read_paths``).
-    """
-    violations = run.get("scope_violations")
-    if run.get("status") == "scope_violation" and isinstance(violations, list):
-        paths = violations
-    else:
-        paths = run_read_paths(run, base_dir=root)
-    return bounded_prefix(
-        _array_of_strings(paths), limit=RUN_PATH_CITATION_LIMIT, max_bytes=RUN_PATH_CITATION_MAX_BYTES,
-    )
 
 
 def _raw_finding_delta(run: dict[str, Any], cycle_id: str, root: Path) -> int:

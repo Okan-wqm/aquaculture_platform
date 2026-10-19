@@ -302,7 +302,7 @@ VIOLATION_SAMPLE = 20
 # them), whatever the adapter reported; the rest of a fixture row is small.
 BOUNDED_ROW_BYTES = 2 * 128 * 1024 + SMALL_ROW_BYTES
 # What one pressure cites of a tool run, whatever the adapter reported: at most
-# 20 paths within 4 KiB (pressure.RUN_PATH_CITATION_LIMIT / _MAX_BYTES).
+# 20 paths within 4 KiB (runs_reader.RUN_PATH_CITATION_LIMIT / _MAX_BYTES).
 RUN_PATH_CITATIONS = 20
 RUN_PATH_CITATION_BYTES = 4 * 1024
 # Assembled from parts, so this file matches no detection shape.
@@ -506,6 +506,28 @@ class AScopeViolationOverAWideReadSet(_ScopeViolationStore):
         payload = resolve_artifact_payload(row["artifact_ref"], base_dir=self.tools)["payload"]
         self.assertEqual(row["scope_violations_spilled"]["sha256"], _digest(payload["scope_violations"]))
 
+    def test_an_oversized_forbidden_read_first_does_not_hide_the_ones_behind_it(self) -> None:
+        # The adapter orders its report: one forbidden read longer than the
+        # row's budget, reported first, ended the sample, so the row kept no
+        # violation at all and the .env read was visible only in the artifact.
+        oversized = "secrets/" + "x" * 200_000
+        reported = [oversized, ".env", "secrets/prod.key", *_out_of_scope_paths(30)]
+        row = self._record(reported).row
+        self.assertEqual(row["scope_violations"][:2], [".env", "secrets/prod.key"])
+        self.assertNotIn(oversized, row["scope_violations"])
+        self.assertEqual(len(row["scope_violations"]), VIOLATION_SAMPLE)
+        self.assertEqual(row["scope_violations_spilled"]["total"], len(reported))
+
+    def test_an_oversized_forbidden_read_first_does_not_hide_the_ones_behind_it_from_the_pressure(self) -> None:
+        # The row keeps all three; the pressure's 4 KiB budget skipped none
+        # but ended at the first, and cited nothing.
+        long_forbidden = ".env." + "a" * 5_000
+        _bytes, row = self._recorded_and_quarantined(
+            self._record([long_forbidden, ".env", "secrets/prod.key"]), "scope_violation",
+        )
+        self.assertEqual(row["scope_violations"], [long_forbidden, ".env", "secrets/prod.key"])
+        self.assertCountEqual(self._tool_quarantine_citations(), [".env", "secrets/prod.key"])
+
 
 class AWideReportNoArtifactHolds(_ScopeViolationStore):
     """The adapter can make the artifact write fail; the run is still recorded and quarantined.
@@ -649,6 +671,36 @@ def _adapter_stdout(*, read_paths: str = '[".env"]', metadata: str = '{"fixture"
     )
 
 
+def deep_finding_stdout(depth: int, *, read_paths: str = '[".env","src/app.ts"]') -> str:
+    """Stdout exactly ``depth`` levels deep, its depth carried where a kernel row nests it deepest.
+
+    The one finding's ``id`` is the nested value. A run row stores the finding
+    under ``runner.raw_findings_sample``, and the finding cites no evidence,
+    so ``evidence_validation`` echoes its id as a ``finding_evidence_missing``
+    error's ``finding_id`` (and a fixture-runs case nests that error under
+    ``cases[i].evidence_validation``).
+    """
+    # The object (1), findings (2) and the finding (3): the id's lists start at 4.
+    levels = depth - 3
+    finding = '{"id":' + "[" * levels + '"deep"' + "]" * levels + ',"rule":"fixture"}'
+    return (
+        '{"observations":[],"findings":[' + finding + '],"read_paths":' + read_paths
+        + ',"evidence_sources":[],"cost_units":1,"metadata":{"fixture":true}}'
+    )
+
+
+def deepest_accepted_depth() -> int:
+    """The deepest ``deep_finding_stdout`` the parser accepts, asked of the parser itself."""
+    from aria_kernel.tool_runner import _parse_tool_output
+
+    tool = shadow_tool()
+    depth = 4
+    assert _parse_tool_output(deep_finding_stdout(depth), tool)[0] is not None
+    while depth < 10_000 and _parse_tool_output(deep_finding_stdout(depth + 1), tool)[0] is not None:
+        depth += 1
+    return depth
+
+
 class _NestedOutputCases:
     """One adapter run end to end through ``run_tool``, its stdout given as text."""
 
@@ -707,6 +759,49 @@ class _NestedOutputCases:
         self.assertIsNone(row["runner"]["parse_error"])
         self.assertEqual(row["scope_violations"][0], ".env")
         self.assertEqual(tool_status, "QUARANTINED")
+
+    def test_an_integer_the_decoder_refuses_is_refused_and_quarantined(self) -> None:
+        # json.loads refuses an integer of more than 4,300 digits with a plain
+        # ValueError. The parser caught only JSONDecodeError, so the error left
+        # run_tool before record_run: no row, and the tool stayed SHADOW.
+        row, tool_status = self._run(_adapter_stdout(metadata='{"n":' + "7" * 4_301 + "}"))
+        self.assertEqual(row["status"], "schema_error")
+        self.assertEqual(row["runner"]["parse_error"], "output_value_not_decodable")
+        self.assertEqual(tool_status, "QUARANTINED")
+
+    def test_the_deepest_output_the_parser_accepts_is_recorded_published_and_quarantined(self) -> None:
+        # The parser accepted output as deep as the stored-line bound, and a row
+        # nests a parsed value one level deeper than stdout: the run was recorded
+        # and quarantined, and every publish of the runs ledger was refused.
+        from aria_kernel.state_snapshot import build_snapshot
+
+        row, tool_status = self._run(deep_finding_stdout(deepest_accepted_depth()))
+        self.assertEqual(row["status"], "scope_violation")
+        self.assertIsNone(row["runner"]["parse_error"])
+        self.assertEqual(tool_status, "QUARANTINED")
+        build_snapshot(snapshot_id="nested", cycle_id="cyc-nested", lane="test", roots={"tools": self.tools})
+
+    def test_the_stored_evidence_validation_is_bounded_after_its_scrub(self) -> None:
+        # The scrub's marker is longer than the shortest credential shapes
+        # ('passwd=a' grows 2.78 times), and evidence_validation was bounded
+        # before the row scrubbed it, so its stored list outgrew the budget.
+        from aria_kernel.artifact_safety import scrub_json
+        from aria_kernel.ledger import canonical_json
+        from aria_kernel.ledger_inline import INLINE_ROW_FIELD_MAX_BYTES
+
+        dense = [f"docs/{i:02d}/" + "passwd=a " * 280 for i in range(20)]
+        self.assertLess(len(canonical_json(dense)), INLINE_ROW_FIELD_MAX_BYTES / 2, "premise: within the budget as reported")
+        self.assertGreater(len(canonical_json(scrub_json(dense))), INLINE_ROW_FIELD_MAX_BYTES, "premise: over it once scrubbed")
+        row, tool_status = self._run(json.dumps({
+            "observations": [], "findings": [], "read_paths": [".env", *dense],
+            "evidence_sources": [], "cost_units": 1,
+        }))
+        self.assertEqual(row["status"], "scope_violation")
+        self.assertEqual(tool_status, "QUARANTINED")
+        # Each reported path is echoed by a read_path_outside_snapshot error.
+        errors = row["evidence_validation"]["errors"]
+        self.assertNotIn("passwd=a", canonical_json(errors))
+        self.assertLessEqual(len(canonical_json(errors)), INLINE_ROW_FIELD_MAX_BYTES)
 
 
 class NestedOutputInTheDefaultFormat(_NestedOutputCases, unittest.TestCase):

@@ -29,8 +29,12 @@ from .state_manifest import (
 __all__ = [
     "LedgerIntegrityError",
     "LedgerReadLimitError",
+    "LedgerRowTooDeepError",
     "LedgerRowTooLargeError",
+    "JSON_NESTING_MAX_DEPTH",
     "LEDGER_ROW_MAX_BYTES",
+    "LEDGER_ROW_NESTING_MAX_DEPTH",
+    "REPLAY_TRANSPORT_NESTING_LEVELS",
     "REPLAY_TRANSPORT_SCHEMA_PREFIX",
     "ROW_FORMAT_VERSION",
     "STATE_LOCK_LIVENESS_SECONDS",
@@ -106,6 +110,21 @@ class LedgerReadLimitError(RuntimeError):
 # imports this constant; it has no number of its own.
 LEDGER_ROW_MAX_BYTES = 1024 * 1024
 
+# ARIA-HIGH-617 — the nesting bound every strict reader enforces on a stored
+# JSON line (`json_nesting_within_limit`'s default): the snapshot walk
+# (`verify_jsonl_chunks`), the replay staging verification and the evidence
+# readers. Contention replay re-appends a producer row inside a transport
+# row's `producer_payload` (`_make_replay_transport_row`), one level deeper,
+# and the staged copy is verified by the same walk. A producer row therefore
+# keeps that level free: the append primitive refuses a row past
+# LEDGER_ROW_NESTING_MAX_DEPTH (a transport row is checked against the readers'
+# bound itself), so no writer can seal a line the readers refuse or the
+# replay could not carry. The bytes cap above, measured the same way, is the
+# precedent.
+JSON_NESTING_MAX_DEPTH = 128
+REPLAY_TRANSPORT_NESTING_LEVELS = 1
+LEDGER_ROW_NESTING_MAX_DEPTH = JSON_NESTING_MAX_DEPTH - REPLAY_TRANSPORT_NESTING_LEVELS
+
 # How long a state writer waits for the LIVE holder of a state-group, index
 # or file lock before concluding the holder is wedged:
 # `STATE_LOCK_LIVENESS_SECONDS`, imported above from
@@ -174,7 +193,20 @@ class LedgerRowTooLargeError(RuntimeError):
     pass
 
 
-def json_nesting_within_limit(content: str, *, max_depth: int = 128) -> bool:
+class LedgerRowTooDeepError(LedgerRowTooLargeError):
+    """A row offered to the append primitive is nested past its stored-line bound.
+
+    A row too large in nesting rather than in bytes: the strict readers would
+    refuse its line (``JSON_NESTING_MAX_DEPTH``), or contention replay could
+    not carry it (``LEDGER_ROW_NESTING_MAX_DEPTH``). Raised before the row is
+    written, like its base class, so a writer that already handles a row it
+    cannot store handles this one too.
+    """
+
+    pass
+
+
+def json_nesting_within_limit(content: str, *, max_depth: int = JSON_NESTING_MAX_DEPTH) -> bool:
     """Reject pathological JSON nesting before handing input to ``json``.
 
     CPython's decoder recursion limit is process-global and can change between
@@ -1389,9 +1421,8 @@ def _append_rows_locked_body(
         stored = dict(record)
         stored["previous_ledger_hash"] = previous_hash
         stored["ledger_hash"] = _record_hash(stored, previous_hash)
-        line = (
-            json.dumps(stored, sort_keys=True, separators=(",", ":")) + "\n"
-        ).encode("utf-8")
+        text = json.dumps(stored, sort_keys=True, separators=(",", ":"))
+        line = (text + "\n").encode("utf-8")
         # ARIA-HIGH-034 — refuse BEFORE the fd is opened: the chain tail, the
         # index and the file are exactly as the verifier accepted them above.
         # `len(line)` is the same quantity the snapshot reader compares per
@@ -1403,6 +1434,20 @@ def _append_rows_locked_body(
                 f"bytes={len(line)}:cap={LEDGER_ROW_MAX_BYTES}: the row would "
                 "be unpublishable (snapshot line cap); bound the writer's inline "
                 "payload with ledger_inline.spill_oversized_inline"
+            )
+        # ARIA-HIGH-617 — the nesting bound, measured on the same text the
+        # strict readers walk, so write side and read side agree by
+        # construction (see JSON_NESTING_MAX_DEPTH). Refused the same way.
+        nesting_bound = (
+            JSON_NESTING_MAX_DEPTH
+            if _is_replay_transport_candidate(stored)
+            else LEDGER_ROW_NESTING_MAX_DEPTH
+        )
+        if not json_nesting_within_limit(text, max_depth=nesting_bound):
+            raise LedgerRowTooDeepError(
+                f"ledger_row_too_deep:{path.as_posix()}:max_depth={nesting_bound}: "
+                "the strict readers or the contention replay would refuse the "
+                "row; bound the nesting of what the writer stores"
             )
         stored_rows.append(stored)
         lines.append(line)

@@ -19,7 +19,7 @@ from .feedback_store import (
     record_raw_findings_for_run,
 )
 from .ledger import append_declared_jsonl, append_jsonl as append_chained_jsonl, load_jsonl as load_chained_jsonl
-from .ledger_inline import sample_inline_list
+from .ledger_inline import sample_inline_list, spill_evidence_validation
 from .quarantine import quarantine_tool
 from .runs_reader import READ_PATHS_REF_FIELD, read_paths_reference, read_runs_rows, run_read_paths
 from .runtime_artifacts import (
@@ -99,6 +99,12 @@ DEFAULT_FORBIDDEN_READ_GLOBS = HARD_FORBIDDEN_READ_GLOBS + DEFAULT_DENY_READ_GLO
 SELF_OUTPUT_MARKERS = SELF_OUTPUT_PREFIXES
 
 
+# ARIA-HIGH-017 — what a runs.jsonl reader is told about a field the row
+# bounded: where its whole value is recovered (ledger_inline's digest stubs
+# and sample markers name it).
+RUNS_ROW_RECOVERY = "the full value persists in this run's runtime artifact (parsed_output)"
+
+
 def runs_path(base_dir: str | Path | None = None) -> Path:
     return ensure_tools_dir(base_dir) / "runs.jsonl"
 
@@ -146,6 +152,14 @@ def record_run(
         envelope["scope_violations"] = scope_violations
     if envelope["status"] == "ok" and envelope["evidence_validation"].get("valid") is False:
         envelope["status"] = "evidence_error"
+    # ARIA-HIGH-617 — scrubbed, then bounded, once, before the artifact and
+    # the row are written from it: evidence_validation echoes the adapter's
+    # own entries (reported paths, finding and belief ids, evidence sources),
+    # and the scrub's marker is longer than the shortest credential shapes, so
+    # a bound taken before the scrub did not hold on the row.
+    envelope["evidence_validation"] = spill_evidence_validation(
+        scrub_json(envelope["evidence_validation"]), recovery=RUNS_ROW_RECOVERY,
+    )
 
     raw_findings = envelope.pop("raw_findings", None)
     artifact_payload = envelope.pop("_runtime_artifact_payload", None)
@@ -364,20 +378,18 @@ def _ledger_row_fields(envelope: dict[str, Any]) -> dict[str, Any]:
       ``payload.scope_violations``;
     * no artifact (v1 writes none; a failed write, which the adapter itself
       can cause, left none): each list stays whole up to the per-field inline
-      budget, as before, and beyond it the row keeps the longest prefix that
-      fits plus a ``digest_only`` marker, since nothing else holds the list.
+      budget, as before, and beyond it the row keeps the entries that fit, in
+      order, plus a ``digest_only`` marker, since nothing else holds the list.
       Such a run is ``integrity_failed`` (a failed write) or carries
       ``legacy_inline_or_sample_only`` (v1), which declares samples.
 
     ``evidence_validation`` names the same adapter-reported entries again
-    (``read_path_outside_snapshot`` errors carry each path), so the row
-    stores it scrubbed too, as the artifact does.
+    (``read_path_outside_snapshot`` errors carry each path); ``record_run``
+    has already scrubbed and then bounded it, the order every list here takes.
     """
     fields = dict(envelope)
     read_paths = scrub_json(fields.pop("read_paths"))
     violations = fields.pop("scope_violations", None)
-    if "evidence_validation" in fields:
-        fields["evidence_validation"] = scrub_json(fields["evidence_validation"])
     if fields.get("artifact_status") == "present" and isinstance(fields.get("artifact_ref"), dict):
         fields[READ_PATHS_REF_FIELD] = read_paths_reference(read_paths)
         if isinstance(violations, list):

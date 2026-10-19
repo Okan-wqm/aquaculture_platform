@@ -11,7 +11,7 @@ from .agent_routing import ROUTING_TABLE_REL, unowned_projects
 from .candidate_blocks import GENESIS_ADJUDICATION_REQUIRED
 from .fitness import list_fitness_reports
 from .ledger import append_declared_jsonl, load_jsonl
-from .runs_reader import read_runs_rows, run_read_paths
+from .runs_reader import read_runs_rows, run_path_citations
 from .memory import list_memory
 from .observation_coverage import (
     ADAPTER_DIR,
@@ -526,7 +526,7 @@ def _gaps_from_shadow_runs(cycle_id: str, root: Path, base_dir: str | Path | Non
         emitted = _emitted_count(run, "findings")
         if raw_count < 3 or emitted:
             continue
-        paths = [str(path) for path in run_read_paths(run, base_dir=root)[:20]]
+        paths = run_path_citations(run, base_dir=root)
         related = related_agents_for_paths(paths=paths, base_dir=base_dir)
         gap_type = "existing_agent_extension" if related else "agent_gap"
         gaps.append(

@@ -92,5 +92,60 @@ class LedgerRowCapTests(unittest.TestCase):
         self.assertEqual(appended["previous_ledger_hash"], rows[0]["ledger_hash"])
 
 
+def _row_nested_to(line_depth: int) -> dict:
+    """A row whose written line is exactly ``line_depth`` levels deep: the object, then lists."""
+    value: object = "leaf"
+    for _ in range(line_depth - 1):
+        value = [value]
+    return {"note": value}
+
+
+class LedgerRowNestingTests(unittest.TestCase):
+    """ARIA-HIGH-617 — the primitive also owns the nesting bound every strict reader enforces.
+
+    The snapshot reader (``verify_jsonl_chunks``) refuses a line nested past
+    ``JSON_NESTING_MAX_DEPTH``, and contention replay wraps a producer row one
+    level deeper (``producer_payload``) before its staging is verified the same
+    way. The append checked bytes only, so a row the readers refuse could be
+    sealed into an append-only chain, and every later publish refused the
+    surface with no way to drop the row.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.path = Path(self._tmp.name) / "scratch.jsonl"
+
+    def test_a_row_at_the_bound_is_accepted(self) -> None:
+        from aria_kernel.ledger import LEDGER_ROW_NESTING_MAX_DEPTH, json_nesting_within_limit
+
+        append_jsonl(self.path, _row_nested_to(LEDGER_ROW_NESTING_MAX_DEPTH), test_fixture=True)
+        [line] = self.path.read_text(encoding="utf-8").splitlines()
+        self.assertTrue(json_nesting_within_limit(line, max_depth=LEDGER_ROW_NESTING_MAX_DEPTH))
+        self.assertFalse(json_nesting_within_limit(line, max_depth=LEDGER_ROW_NESTING_MAX_DEPTH - 1))
+
+    def test_a_row_contention_replay_could_not_carry_is_refused_and_nothing_is_written(self) -> None:
+        from aria_kernel.ledger import (
+            JSON_NESTING_MAX_DEPTH,
+            LEDGER_ROW_NESTING_MAX_DEPTH,
+            REPLAY_TRANSPORT_NESTING_LEVELS,
+            LedgerRowTooDeepError,
+        )
+
+        self.assertEqual(LEDGER_ROW_NESTING_MAX_DEPTH + REPLAY_TRANSPORT_NESTING_LEVELS, JSON_NESTING_MAX_DEPTH)
+        append_jsonl(self.path, {"seed": 1}, test_fixture=True)
+        before = self.path.read_bytes()
+        for line_depth in (JSON_NESTING_MAX_DEPTH, JSON_NESTING_MAX_DEPTH + 1):
+            with self.subTest(line_depth=line_depth):
+                with self.assertRaises(LedgerRowTooDeepError) as caught:
+                    append_jsonl(self.path, _row_nested_to(line_depth), test_fixture=True)
+                # A writer that already handles a row it cannot store handles this one.
+                self.assertIsInstance(caught.exception, LedgerRowTooLargeError)
+                self.assertIn("ledger_row_too_deep:", str(caught.exception))
+                self.assertEqual(self.path.read_bytes(), before)
+        appended = append_jsonl(self.path, {"seed": 2}, test_fixture=True)
+        self.assertEqual(appended["previous_ledger_hash"], read_jsonl(self.path)[0]["ledger_hash"])
+
+
 if __name__ == "__main__":
     unittest.main()

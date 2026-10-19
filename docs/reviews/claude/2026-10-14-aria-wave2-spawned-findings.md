@@ -992,6 +992,25 @@ duplicate `lint-changed-files`. The real residual is INFRA-MEDIUM-224.
   `test_run_row_read_set_ref.py` or `test_evidence_validator_empty_read_paths.py` that failed
   before it. Not covered: the hot artifact's size (ARIA-HIGH-629) and the runs row's missing
   boundary encoder (ARIA-MEDIUM-630).
+- **Verification round 3 (same branch, before merge):** the parse boundary still let two kinds of
+  output through. (1) `json.loads` raises a plain ValueError, not a JSONDecodeError, for an
+  integer longer than 4,300 digits, and the parser caught only JSONDecodeError: the error left
+  `run_tool` before `record_run`, so a report that read `.env` went unrecorded (also on main).
+  (2) The parser's nesting bound equalled the readers' bound (128), but a runs row nests a parsed
+  value one level deeper than stdout (`runner.raw_findings_sample`, `evidence_validation`'s
+  `finding_id`) and a fixture-runs case three levels deeper, so output at the bound was recorded
+  and quarantined and then refused by every publish (`snapshot_ledger_invalid:runs.jsonl`), with
+  no way to drop a sealed row. The fix: the parser refuses a value the decoder cannot build as
+  `output_value_not_decodable`, and bounds nesting at `tool_runner.TOOL_OUTPUT_NESTING_MAX_DEPTH`
+  (124): `ledger.LEDGER_ROW_NESTING_MAX_DEPTH` (127, the readers' 128 less the level contention
+  replay's `producer_payload` adds) less the three levels a row adds. The append primitive now
+  also refuses a row past that bound (`LedgerRowTooDeepError`, a `LedgerRowTooLargeError`), so no
+  writer can seal a line the readers or the replay would refuse. Also in this round: a sample
+  skips an entry too long for its budget instead of stopping at it (an oversized forbidden read
+  reported first had hidden the `.env` read behind it), `record_run` scrubs `evidence_validation`
+  before it bounds it, and `runs_reader.run_path_citations` is the one citation of a run
+  (pressure and capability gap). Each is a test that failed before it. ARIA-MEDIUM-647 is
+  registered for v1's inline emitted lists.
 
 ### ARIA-HIGH-618 — memory candidates or raw-finding entries make a run unrecordable
 
@@ -1084,6 +1103,22 @@ duplicate `lint-changed-files`. The real residual is INFRA-MEDIUM-224.
   `scrub_json` plus the `sanitized_json_text` refusal, and a refused list falls back to a
   `digest_only` marker with a reason code. Test-first: each case's row line passes
   `verify_no_secret_in_diff`. Owner okan, deadline 2026-11-15.
+
+### ARIA-MEDIUM-647 — a v1 row keeps an ACTIVE tool's emitted lists inline with no bound
+
+- **Raised by:** the independent verification (round 3) of the order chain's `R-NEW-runs-bound`
+  item (completeness lens).
+- **Problem:** in the v1 format (no artifact) `record_run` keeps `emitted_observations` and
+  `emitted_findings` on the runs row whole (ORPHAN-HIGH-798's v1 exception), bounded only by the
+  12 MiB stdout cap. 3,000 emitted findings (1,486,891 bytes) make the append raise
+  `LedgerRowTooLargeError` before `evaluate_health`: no runs row, and a tool that read `.env`
+  stays SHADOW. The same input in v2-shadow is recorded and quarantined. No workflow selects v1
+  today, and only an ACTIVE tool emits.
+- **Planned fix:** the v1 row samples the emitted lists through `ledger_inline.sample_inline_list`
+  once observations have a durable home besides the row (findings.jsonl already holds every
+  emitted finding), or the quarantine verdict is decided before the append as ARIA-HIGH-618
+  plans. Test-first: the 3,000-finding v1 run is recorded and quarantined. Owner Okan-wqm,
+  deadline 2026-11-15.
 
 ## Registry amendments recorded at the L1 registry step
 

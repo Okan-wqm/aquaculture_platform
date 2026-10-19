@@ -313,6 +313,24 @@ deadline 2026-11-17.
 | `ALERT-CRITICAL-009` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `SENSOR-CRITICAL-173` | OPEN | 2026-10-08 | claude | real-open |
 | `PLAT-CRITICAL-925` | OPEN | 2026-10-18 | claude | real-open |
+| `EDGE-CRITICAL-072` | OPEN | 2026-11-03 | claude | real-open |
+| `EDGE-CRITICAL-079` | OPEN | 2026-11-03 | claude | real-open |
+| `EDGE-CRITICAL-081` | OPEN | 2026-11-03 | claude | real-open |
+| `INFRA-CRITICAL-238` | OPEN | 2026-11-03 | claude | real-open |
+| `SENSOR-CRITICAL-271` | OPEN | 2026-11-03 | claude | real-open |
+| `SENSOR-CRITICAL-276` | OPEN | 2026-11-03 | claude | real-open |
+| `SENSOR-CRITICAL-277` | OPEN | 2026-11-03 | claude | real-open |
+| `SENSOR-CRITICAL-285` | OPEN | 2026-11-03 | claude | real-open |
+| `SENSOR-CRITICAL-286` | OPEN | 2026-11-03 | claude | real-open |
+| `SENSOR-CRITICAL-287` | OPEN | 2026-11-03 | claude | real-open |
+| `EDGE-CRITICAL-078` | OPEN | 2026-12-01 | claude | real-open |
+| `SENSOR-CRITICAL-290` | OPEN | 2026-12-01 | claude | real-open |
+| `SENSOR-CRITICAL-291` | OPEN | 2026-12-01 | claude | real-open |
+| `SENSOR-CRITICAL-292` | OPEN | 2026-12-01 | claude | real-open |
+| `SENSOR-CRITICAL-269` | OPEN | 2026-12-22 | claude | real-open |
+| `SENSOR-CRITICAL-270` | OPEN | 2026-12-22 | claude | real-open |
+| `SENSOR-CRITICAL-280` | OPEN | 2026-12-22 | claude | real-open |
+| `SENSOR-CRITICAL-324` | OPEN | 2026-12-22 | claude | real-open |
 
 Updated 2026-10-17 (lost-work re-land, PR #2007): one active CRITICAL added.
 `INFRA-CRITICAL-233` — an ordinary leaf renewal (`droplet-up.sh` passing `--force` once the redis
@@ -321,6 +339,19 @@ running NATS broker does not hold. The same branch fixes it: the generator renew
 the kept CA and replaces the CA only when asked to by name. Proof: the `INFRA-CRITICAL-233` case of
 `tests/invariants/production-cert-identity-store.spec.ts`. The closure-reconcile lane records the
 main-reachable closer after merge and moves this row to `Resolved Evidence`.
+
+Updated 2026-10-19 (SCADA end-to-end audit, `docs/reviews/claude/2026-10-19-scada-e2e-audit.md`):
+eighteen active CRITICALs added, all `real-open`, owner Okan-wqm through
+`docs/plans/2026-10-19-scada-e2e-rebuild/PLAN.md`. Together they are why no SCADA package or
+automation program has ever run on an edge device: the edge refuses every deploy at the
+two-person-integrity gate and the cloud cannot sign one (`SENSOR-CRITICAL-276`, `-277`,
+`INFRA-CRITICAL-238`), device replies are never correlated (`SENSOR-CRITICAL-271`), live values and
+control writes flow in neither direction (`SENSOR-CRITICAL-285`, `-286`, `-287`,
+`EDGE-CRITICAL-078`, `-079`, `-081`), the edge VM never drives an output (`EDGE-CRITICAL-072`), the
+runtimes do not render what the builder draws (`SENSOR-CRITICAL-290`, `-291`, `-292`), and the
+program path ships no Structured Text while simulation never runs it (`SENSOR-CRITICAL-269`, `-270`,
+`-280`, `-324`). The first-sprint column is the start of the plan phase that closes each row; the
+registry `deadline` is that phase's end (F1 2026-11-30, F2 2026-12-21, F3 2027-01-18).
 
 ## Mutation Rules
 

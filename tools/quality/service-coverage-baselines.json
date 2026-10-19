@@ -1,38 +1,38 @@
 {
   "admin-api-service": {
-    "branches": 17.03,
-    "functions": 20.8,
-    "lines": 31.45,
+    "branches": 22.04,
+    "functions": 26.3,
+    "lines": 47.38,
     "statements": 27.43
   },
   "auth-service": {
-    "branches": 46.9,
-    "functions": 27.44,
-    "lines": 51.46,
+    "branches": 52.15,
+    "functions": 64.03,
+    "lines": 69.17,
     "statements": 48.56
   },
   "billing-service": {
-    "branches": 47.09,
-    "functions": 33.37,
-    "lines": 53.33,
+    "branches": 53.55,
+    "functions": 61.47,
+    "lines": 70.26,
     "statements": 53.05
   },
   "farm-service": {
-    "branches": 42.17,
-    "functions": 28.03,
-    "lines": 56.69,
+    "branches": 45.14,
+    "functions": 65.85,
+    "lines": 65.51,
     "statements": 33.84
   },
   "hr-service": {
-    "branches": 30.3,
-    "functions": 15.62,
-    "lines": 34.29,
+    "branches": 31.75,
+    "functions": 64.13,
+    "lines": 62.35,
     "statements": 34.66
   },
   "sensor-service": {
-    "branches": 24.57,
-    "functions": 18.76,
-    "lines": 43.56,
+    "branches": 31.15,
+    "functions": 58.13,
+    "lines": 56.23,
     "statements": 39.85
   }
 }

@@ -71,6 +71,15 @@ on:
           kernel refuses the operation without one.
         required: false
         type: string
+      rechain_of:
+        description: >-
+          ARIA-MEDIUM-398 bounded re-chain: non-empty marks this run as the
+          ONE direct drain hop for the window-skipped, drain-minted
+          implementation requests named here (comma-joined). A re-chain run
+          never re-chains again -- the rhythm decider's depth brake reads
+          this -- and after it the normal cycle edge applies.
+        required: false
+        type: string
 
 # Z1 (ORPHAN-712) — shared self-hosted workspace group; see
 # dataflow-integrity-watchdog.yml for the measured wipe this prevents.
@@ -169,6 +178,12 @@ jobs:
       # dispatch itself runs in `chain-next-cycle`, the one job whose token
       # may write actions.
       chain_dispatch: ${{ steps.chain.outputs.dispatch }}
+      # ARIA-MEDIUM-398 — the bounded drain→drain edge leaves the same way:
+      # the drain's own verdict (cycle_rhythm.evaluate_drain_rechain, fed by
+      # the drain's summary) keys `chain-next-drain`, which supersedes
+      # `chain-next-cycle` for this run when it fires.
+      rechain_dispatch: ${{ steps.executor.outputs.rechain_dispatch }}
+      rechain_request_ids: ${{ steps.executor.outputs.rechain_request_ids }}
     steps:
       # ARIA-HIGH-124 (round 3) — the absolute deadline every spawn and every
       # delivery in this job runs under is anchored HERE, at launch (the
@@ -664,6 +679,10 @@ jobs:
           # ARIA-CRITICAL-246 — the lane's ambient gh identity is the job
           # token (a Bot); a delivery mints its own App token below.
           GH_TOKEN: ${{ github.token }}
+          # ARIA-MEDIUM-398 — empty on every ordinary run; non-empty only on
+          # the one bounded re-chain dispatch, where it is the depth brake's
+          # "this run IS the re-chain" fact.
+          ARIA_DRAIN_RECHAIN_OF: ${{ inputs.rechain_of }}
           CLAUDE_CLI_MOCK: ${{ steps.preflight.outputs.effective_mock }}
           CLAUDE_CLI_MOCK_SOURCE: ${{ steps.preflight.outputs.mock_source }}
           ARIA_CLAUDE_REQUIRE_USAGE: '1'
@@ -1073,7 +1092,7 @@ jobs:
   # granted, a refusal is a fault somebody has to see.
   chain-next-cycle:
     needs: executor
-    if: always() && needs.executor.outputs.chain_dispatch == 'true'
+    if: always() && needs.executor.outputs.chain_dispatch == 'true' && needs.executor.outputs.rechain_dispatch != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -1087,3 +1106,34 @@ jobs:
           set -euo pipefail
           gh workflow run aria-auto-cycle.yml --ref main --repo "${REPOSITORY}"
           echo "::notice::chained the next cycle"
+
+  # ARIA-MEDIUM-398 — the drain's own bounded return edge, in the exact
+  # ARIA-HIGH-244 shape: the executor decides (cycle_rhythm's
+  # evaluate_drain_rechain, fed by the drain's window_skipped_self_minted
+  # summary and the one-per-request executor_drain_rechain ledger rows) and
+  # hands the verdict over as job outputs; this job holds `actions: write`
+  # and nothing else, on a hosted runner, so no write scope reaches the
+  # self-hosted drain for the sake of one API call. A re-chain run takes
+  # work the drain itself minted and then window-skipped straight to the
+  # next executor run instead of waiting a full cycle for it — and it
+  # supersedes `chain-next-cycle` for that run (the two `if:`s are mutually
+  # exclusive), so one run never queues two pending runs into the shared
+  # aria-selfhosted-workspace group. The re-chained drain takes the normal
+  # cycle edge; the depth brake in the decider keeps this at one hop.
+  chain-next-drain:
+    needs: executor
+    if: always() && needs.executor.outputs.rechain_dispatch == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch the bounded drain re-chain
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RECHAIN_OF: ${{ needs.executor.outputs.rechain_request_ids }}
+        run: |
+          set -euo pipefail
+          gh workflow run aria-agent-executor.yml --ref main --repo "${REPOSITORY}" -f "rechain_of=${RECHAIN_OF}"
+          echo "::notice::re-chained the drain for ${RECHAIN_OF}"

@@ -985,35 +985,21 @@ fi
 # skip-if-exists logic (line 45-46 of generate-internal-certs.sh)
 # makes the no-op case ~100ms total. New per-service certs added in
 # lockstep with services.yaml will land on next deploy automatically,
-# without operator intervention. --force is reserved for proactive
-# renewal of existing certs nearing expiry.
+# without operator intervention.
+#
+# Renewal is the generator's decision, not this script's (INFRA-CRITICAL-233).
+# The generator owns the managed leaf set (its server sets plus the clients it
+# derives from services.yaml), so it reads every leaf's expiry. Once any one
+# is inside 30 days, it re-issues every leaf under the validated CA it keeps:
+# NATS and PostgreSQL keep running across an application rollout on the CA
+# they started with. It refuses a store whose CA copies or leaves name another
+# root. Replacing the CA (--rotate-ca) is an operator ceremony that recreates
+# every consumer, and no deploy path passes an option.
 echo "=== TLS certificate generation (always-run; idempotent) ==="
 # Read TLS material from the persistent certs dir (DEPLOY_CERTS_DIR), which is
 # symlinked into the checkout as ./certs — generate-internal-certs.sh writes
 # there via that symlink, and docker-compose.droplet.yml bind-mounts ./certs.
-CERT_RENEW=false
-if [ -f "${DEPLOY_CERTS_DIR}/redis/redis-cert.pem" ]; then
-  EXPIRY=$(openssl x509 -enddate -noout -in "${DEPLOY_CERTS_DIR}/redis/redis-cert.pem" 2>/dev/null | cut -d= -f2)
-  if [ -n "$EXPIRY" ]; then
-    EXPIRY_EPOCH=$(date -d "$EXPIRY" +%s 2>/dev/null || echo 0)
-    NOW_EPOCH=$(date +%s)
-    DAYS_LEFT=$(( (EXPIRY_EPOCH - NOW_EPOCH) / 86400 ))
-    echo "  Server certificate expires in ${DAYS_LEFT} days"
-    if [ "$DAYS_LEFT" -lt 30 ]; then
-      echo "  Expiring soon — proactive full regeneration"
-      CERT_RENEW=true
-    fi
-  fi
-fi
-if [ "$CERT_RENEW" = true ]; then
-  bash infrastructure/docker/scripts/generate-internal-certs.sh --force
-else
-  # No --force: script generates ONLY missing certs; existing valid
-  # certs stay untouched. Catches "new service added since last
-  # deploy" → its client cert gets generated even if shared CA cert
-  # is still valid for 300+ days.
-  bash infrastructure/docker/scripts/generate-internal-certs.sh
-fi
+bash infrastructure/docker/scripts/generate-internal-certs.sh
 
 # ──────────────────────────────────────────────────────────────
 # ADR-016 Phase A — Pre-flight validation

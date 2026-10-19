@@ -315,6 +315,14 @@ deadline 2026-11-17.
 | `SENSOR-CRITICAL-173` | OPEN | 2026-10-08 | claude | real-open |
 | `PLAT-CRITICAL-925` | OPEN | 2026-10-18 | claude | real-open |
 
+Updated 2026-10-17 (lost-work re-land, PR #2007): one active CRITICAL added.
+`INFRA-CRITICAL-233` — an ordinary leaf renewal (`droplet-up.sh` passing `--force` once the redis
+leaf nears expiry) also regenerated the internal CA, so restarted services trusted a root the
+running NATS broker does not hold. The same branch fixes it: the generator renews every leaf under
+the kept CA and replaces the CA only when asked to by name. Proof: the `INFRA-CRITICAL-233` case of
+`tests/invariants/production-cert-identity-store.spec.ts`. The closure-reconcile lane records the
+main-reachable closer after merge and moves this row to `Resolved Evidence`.
+
 ## Mutation Rules
 
 - Change a row out of `real-open` only with a linked code/test/registry proof.
@@ -1138,3 +1146,6 @@ tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
 - `ARIA-CRITICAL-009`: registry state is `RESOLVED` with closing commit
   `8cb35a5cf`, derived by `finding-registry reconcile` against `origin/main`.
   Left the active table from bucket `real-open`.
+- `INFRA-CRITICAL-233`: registry state is `RESOLVED` with closing commit
+  `30cbf58fa`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.

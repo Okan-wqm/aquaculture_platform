@@ -78,6 +78,30 @@ decision. The fix must cover every consumer of a renewed leaf, not the broker al
 2026-12-16. The row was widened to this scope before merge, after the change's first
 verification round.
 
+## INFRA-HIGH-237
+
+An ordinary certificate run into an empty store mints a new CA while the NATS broker and
+PostgreSQL still run on the old one. Found by the INFRA-CRITICAL-233 change's security
+verification (probe P3, again as P7 in run R12), next to that change and not fixed by it.
+
+- `infrastructure/docker/scripts/generate-internal-certs.sh:881-899`: with no CA and no managed
+  leaf, key or CA copy in the store, the no-option run mints a CA and publishes it by rename.
+  Nothing compares it with the root the running consumers hold.
+- `scripts/deploy/deploy-paths.sh:74` and `:137`: `DEPLOY_CERTS_DIR` follows
+  `DEPLOY_SOURCE_REPO`, and `mkdir -p` creates the store, empty, when it is missing.
+- `scripts/deploy/droplet-up.sh:1002` runs the generator with no option and continues on exit
+  0; a selective rollout then recreates only the services it rolls out (`:1479`).
+
+Failure scenario: `DEPLOY_SOURCE_REPO` or `DEPLOY_CERTS_DIR` is overridden, or the store is
+wiped. The generator exits 0 with `[done] CA`. Every restarted service presents a leaf the
+running broker does not trust and refuses the broker's leaf, so each fails the NATS handshake.
+Certificate expiry cannot reach this path, and a partly wiped store already refuses after the
+INFRA-CRITICAL-233 change; only a store with no managed file at all keeps main's behavior.
+
+Suggested direction: `droplet-up.sh` refuses a run whose generator minted a CA while any
+`aqua-` container is running, unless it takes the full-stack path. Deadline 2026-12-18. The
+finding was first minted as INFRA-HIGH-236 in a commit that never landed; 236 has no row.
+
 ## FARM-CRITICAL-444
 
 The 18:00 FCR alert sweep never fires for a live batch. Lost-work item 2, half 601; the old

@@ -23,6 +23,7 @@ import os
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -446,6 +447,101 @@ class DrainBudgetWorstCaseTests(unittest.TestCase):
                 )
                 self.assertEqual(rc, 0)
                 self.assertEqual(len(calls["dispatch"]), dispatched)
+
+
+class DrainRechainWiringTests(unittest.TestCase):
+    """ARIA-MEDIUM-398 — the drain's own summary carries the re-chain facts.
+
+    The DECISION is pure (``cycle_rhythm.evaluate_drain_rechain``); the drain
+    owns the facts and the ledger: which window-skipped requests were minted
+    during this drain (``created_at`` at or after the drain's wall-clock
+    start), the one-per-request ``executor_drain_rechain`` rows the next
+    run's decider reads as its bound, and the outputs the workflow's
+    ``chain-next-drain`` job is keyed on. A request minted BEFORE the drain
+    is the ordinary window skip it always was — it waits for the cycle.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _skip_two_implementations(self, env=None):
+        """A drain whose window holds neither implementation child.
+
+        AIR-IMPL was minted after the drain started (a mid-drain mint, as
+        the planner turn produces); AIR-OLD predates the drain. Both are
+        window-skipped; only AIR-IMPL is self-minted.
+        """
+        minted_mid_drain = (datetime.now(timezone.utc) + timedelta(seconds=60)).isoformat()
+        judge_child = ci_executor.child_worst_case_seconds(1800)
+        implementation_delivery = 4 * 2700
+        queue = [
+            {"request_id": "AIR-IMPL", "target_agent": "aria-implementer",
+             "role": "implementation", "created_at": minted_mid_drain},
+            {"request_id": "AIR-OLD", "target_agent": "aria-implementer",
+             "role": "implementation", "created_at": "2026-01-01T00:00:00Z"},
+            None,
+        ]
+        stderr = io.StringIO()
+        with patch.object(
+            ci_executor, "_request_delivery_seconds",
+            side_effect=lambda *, tools_dir, request_id: implementation_delivery,
+        ), contextlib.redirect_stderr(stderr):
+            rc, calls, output = _drain(
+                queue, {},
+                env={
+                    "ARIA_DRAIN_BUDGET_SECONDS": str(judge_child + implementation_delivery - 1),
+                    "MAX_TIMEOUT_SECONDS": "1800",
+                    **(env or {}),
+                },
+                tmp=self._tmp.name,
+            )
+        return rc, calls, output, stderr.getvalue()
+
+    def test_a_window_skipped_self_minted_implementation_is_handed_to_one_rechain(self) -> None:
+        from aria_kernel.ledger import load_declared_jsonl
+
+        rc, calls, output, stage = self._skip_two_implementations()
+        self.assertEqual((rc, calls["dispatch"]), (0, []))
+        # The stage line and the run's output contract carry the new fact.
+        self.assertIn("window_skipped=2", stage)
+        self.assertIn("window_skipped_self_minted=1", stage)
+        self.assertIn("window_skipped_self_minted=1\n", output)
+        self.assertIn("rechain_dispatch=true\n", output)
+        self.assertIn("rechain_request_ids=AIR-IMPL\n", output)
+        rows = [
+            row for row in load_declared_jsonl(
+                Path(self._tmp.name) / "aria-tools" / "governance.jsonl",
+                expected_surface="tools_governance",
+            )
+        ]
+        rechain_rows = [row for row in rows if row.get("kind") == "executor_drain_rechain"]
+        self.assertEqual(
+            [row["details"]["request_id"] for row in rechain_rows], ["AIR-IMPL"],
+            "exactly the self-minted skip gets the one-per-request ledger row",
+        )
+        completed = next(row for row in rows if row.get("kind") == "executor_drain_completed")
+        self.assertEqual(completed["details"]["window_skipped_self_minted"], 1)
+
+    def test_a_rechain_run_reports_the_skip_but_never_rechains_again(self) -> None:
+        from aria_kernel.ledger import load_declared_jsonl
+
+        rc, _, output, _ = self._skip_two_implementations(
+            env={"ARIA_DRAIN_RECHAIN_OF": "AIR-IMPL"},
+        )
+        self.assertEqual(rc, 0)
+        # The fact is still reported (the run page and the aggregate stay
+        # honest), but the depth brake refuses the second hop by name.
+        self.assertIn("window_skipped_self_minted=1\n", output)
+        self.assertIn("rechain_dispatch=false\n", output)
+        self.assertIn("rechain_reason=rechain_depth_exhausted\n", output)
+        rows = load_declared_jsonl(
+            Path(self._tmp.name) / "aria-tools" / "governance.jsonl",
+            expected_surface="tools_governance",
+        )
+        self.assertFalse([row for row in rows if row.get("kind") == "executor_drain_rechain"])
 
 
 class DrainJudgeBatchTests(unittest.TestCase):

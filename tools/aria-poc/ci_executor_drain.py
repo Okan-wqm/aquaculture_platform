@@ -34,6 +34,8 @@ import dispatch_failure as _dispatch_failure
 try:
     sys.path.insert(0, str(_POC_DIR.parents[1] / "aria-kernel"))
     from aria_kernel.circuit_breaker import evaluate_breaker, record_failure
+    from aria_kernel.cycle_rhythm import evaluate_drain_rechain, parse_iso_timestamp
+    from aria_kernel.ledger import load_declared_jsonl
     from aria_kernel.provider_cooldown import active_provider_cooldowns
     from aria_kernel.provider_outage_ledger import standing_outage
     from aria_kernel.agent_surface import JUDGE_ROLES as _JUDGE_ROLES
@@ -42,6 +44,9 @@ try:
 except ImportError:  # pragma: no cover — kernel-less standalone import
     evaluate_breaker = None  # type: ignore[assignment]
     record_failure = None  # type: ignore[assignment]
+    evaluate_drain_rechain = None  # type: ignore[assignment]
+    parse_iso_timestamp = None  # type: ignore[assignment]
+    load_declared_jsonl = None  # type: ignore[assignment]
     active_provider_cooldowns = None  # type: ignore[assignment]
     standing_outage = None  # type: ignore[assignment]
     _JUDGE_ROLES = ()  # type: ignore[assignment]
@@ -235,6 +240,9 @@ def build_drain_governance_payload(
     harness_failed: int = 0,
     request_failed: int = 0,
     standing_outage: list[dict] | None = None,
+    window_skipped_self_minted: int = 0,
+    rechain_dispatch: bool = False,
+    rechain_request_ids: list[str] | None = None,
 ) -> dict:
     """ARIA-HIGH-003 — the schema-v2 ``executor_drain_completed`` aggregate.
 
@@ -244,6 +252,11 @@ def build_drain_governance_payload(
     the joined evidence target: non-empty only when every dispatched
     request carried the SAME trusted target SHA — a mixed-SHA drain joins
     as "" and stays honest instead of inventing one SHA for many trees.
+    The ARIA-MEDIUM-398 fields carry the bounded drain→drain edge's facts:
+    how many window-skipped requests this drain itself minted, and the
+    verdict + request ids the workflow's ``chain-next-drain`` job is keyed
+    on (the one-per-request ``executor_drain_rechain`` rows are appended
+    separately, at the moment the verdict is handed over).
     """
     return {
         "schema_version": 2,
@@ -270,6 +283,11 @@ def build_drain_governance_payload(
         "target_sha": target_sha,
         # ARIA-MEDIUM-438 — the children that re-probed an outage already open.
         "standing_outage": list(standing_outage or []),
+        # ARIA-MEDIUM-398 — the self-minted window skips and the re-chain
+        # verdict over them (the decision itself is cycle_rhythm's).
+        "window_skipped_self_minted": window_skipped_self_minted,
+        "rechain_dispatch": rechain_dispatch,
+        "rechain_request_ids": list(rechain_request_ids or []),
     }
 
 
@@ -707,6 +725,29 @@ def _operator_paused(tools_dir: Path) -> bool:
     return False
 
 
+def _already_rechained_request_ids(tools_dir: Path) -> set[str]:
+    """ARIA-MEDIUM-398 — the requests that have had their one drain hop.
+
+    The ``executor_drain_rechain`` rows are the one-per-request ledger the
+    re-chain decider bounds itself with: a request this set names waits for
+    the cycle like every other window skip. An absent ledger (a store that
+    never re-chained) reads as empty, not as an error.
+    """
+    if load_declared_jsonl is None:
+        return set()
+    path = tools_dir / "governance.jsonl"
+    if not path.exists():
+        return set()
+    rechained: set[str] = set()
+    for row in load_declared_jsonl(path, expected_surface="tools_governance"):
+        if row.get("kind") != "executor_drain_rechain":
+            continue
+        request_id = str((row.get("details") or {}).get("request_id") or "")
+        if request_id:
+            rechained.add(request_id)
+    return rechained
+
+
 def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
     """Consume pending agent requests until the queue, cap, or clock runs out.
 
@@ -752,6 +793,12 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
     never exit codes.
     """
     started = time.monotonic()
+    # ARIA-MEDIUM-398 — the wall-clock start the self-minted comparison
+    # reads: a request whose created_at is at or after this was minted
+    # DURING this drain, so a drain that must then window-skip it owes it
+    # one direct re-chain, not a wait for the next cycle's executor.
+    drain_started_wall = datetime.now(timezone.utc)
+    self_minted_window_skipped: dict[str, str] = {}
     attempted: set[str] = set()
     # ARIA-HIGH-003 — requests skipped by the keyed same-run circuit. They
     # stay pending for a later healthy drain and are surfaced to the kernel
@@ -1274,6 +1321,22 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
                     {"request_id": request_id, "run_id": run_ref, "worst_case_seconds": request_worst_case,
                      "remaining_seconds": int(_drain_budget_seconds() - elapsed)},
                 )
+            # ARIA-MEDIUM-398 — a skip of an IMPLEMENTATION request this
+            # drain itself minted is the re-chain case: the request is
+            # PENDING, the window will never grow inside this run, and the
+            # only chain out used to be the next cycle. Record it for the
+            # bounded drain→drain edge decided below.
+            minted_at = (
+                parse_iso_timestamp(str(request.get("created_at") or ""))
+                if parse_iso_timestamp is not None
+                else None
+            )
+            if (
+                str(request.get("role") or "") == "implementation"
+                and minted_at is not None
+                and minted_at >= drain_started_wall
+            ):
+                self_minted_window_skipped[str(request_id)] = str(request.get("created_at"))
             continue
         worktree = None
         if worktree_per_request:
@@ -1317,7 +1380,8 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
         f"drain_done attempted={len(attempted)} succeeded={succeeded} "
         f"failed={failed} harness_failed={harness_failed} request_failed={request_failed} "
         f"stop={stop_reason} "
-        f"circuit_skipped={len(circuit_excluded)} window_skipped={len(window_excluded)}"
+        f"circuit_skipped={len(circuit_excluded)} window_skipped={len(window_excluded)} "
+        f"window_skipped_self_minted={len(self_minted_window_skipped)}"
     )
     # The stop reason on the run page itself (a GitHub annotation, the
     # channel the request-fault warnings already use), so why a drain ended
@@ -1327,6 +1391,40 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
         f"succeeded={succeeded} failed={failed}\n"
     )
     sys.stdout.flush()
+    # ARIA-MEDIUM-398 — the bounded drain→drain edge. The decision is
+    # cycle_rhythm's (pure, every refusal named); this is where the drain
+    # hands its facts over: one executor_drain_rechain row per re-chained
+    # request is the one-per-request ledger that bounds the NEXT run's
+    # decision, and the verdict leaves as step output for the workflow's
+    # chain-next-drain job. An undecidable re-chain (kernel-less import)
+    # fails CLOSED — the cycle edge still applies, exactly as an unread
+    # rhythm clock does.
+    already_rechained = _already_rechained_request_ids(tools_dir)
+    rechain_waiting = sorted(
+        request_id
+        for request_id in self_minted_window_skipped
+        if request_id not in already_rechained
+    )
+    if evaluate_drain_rechain is None:
+        rechain_dispatch, rechain_reason = False, "rechain_undecidable"
+    else:
+        rechain = evaluate_drain_rechain(
+            window_skipped_self_minted=frozenset(self_minted_window_skipped),
+            already_rechained_request_ids=already_rechained,
+            dispatched_as_rechain=bool((os.environ.get("ARIA_DRAIN_RECHAIN_OF") or "").strip()),
+        )
+        rechain_dispatch, rechain_reason = rechain.dispatch, rechain.reason
+        if rechain_dispatch and _engine._append_tools_governance is not None:
+            for request_id in rechain_waiting:
+                _engine._append_tools_governance(
+                    tools_dir,
+                    "executor_drain_rechain",
+                    {
+                        "request_id": request_id,
+                        "run_id": run_ref,
+                        "minted_at": self_minted_window_skipped[request_id],
+                    },
+                )
     if _engine._append_tools_governance is not None:
         try:
             _engine._append_tools_governance(
@@ -1346,6 +1444,9 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
                     breaker_state=_breaker_state(tools_dir),
                     target_sha=_joined_target_sha(dispatched_target_shas),
                     standing_outage=standing_reprobes,
+                    window_skipped_self_minted=len(self_minted_window_skipped),
+                    rechain_dispatch=rechain_dispatch,
+                    rechain_request_ids=rechain_waiting if rechain_dispatch else [],
                 ),
             )
         except Exception as exc:  # noqa: BLE001 — governance-write failure
@@ -1364,5 +1465,11 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
             handle.write(f"drain_failed={failed}\n")
             handle.write(f"drain_harness_failed={harness_failed}\n")
             handle.write(f"drain_request_failed={request_failed}\n")
+            handle.write(f"window_skipped_self_minted={len(self_minted_window_skipped)}\n")
+            handle.write(f"rechain_dispatch={'true' if rechain_dispatch else 'false'}\n")
+            handle.write(
+                f"rechain_request_ids={','.join(rechain_waiting) if rechain_dispatch else ''}\n"
+            )
+            handle.write(f"rechain_reason={rechain_reason}\n")
     return drain_exit_code(attempted=len(attempted), succeeded=succeeded,
                            harness_failed=harness_failed, request_failed=request_failed)

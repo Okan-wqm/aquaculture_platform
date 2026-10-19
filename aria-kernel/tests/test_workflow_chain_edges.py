@@ -111,6 +111,42 @@ class ChainEdgesFire(unittest.TestCase):
         ]
         self.assertIn("aria-auto-cycle.yml", targets)
 
+    def test_i_chain_04_the_drains_bounded_self_rechain_is_declared_and_exclusive(self) -> None:
+        # ARIA-MEDIUM-398 — the drain → drain edge: ONE bounded re-chain run
+        # for implementation requests the drain itself minted and then
+        # window-skipped, instead of waiting a full cycle for the next
+        # executor. The edge is real only when all four holds exist: the
+        # `rechain_of` input is declared (a re-chain run knows it is one and
+        # the decider's depth brake reads it), the dispatch job's token is
+        # `actions: write` ONLY on a hosted runner (the ARIA-HIGH-244 shape),
+        # the dispatch carries `rechain_of`, and the two outbound edges are
+        # mutually exclusive — a run must never queue both a pending cycle
+        # and a pending drain into the shared aria-selfhosted-workspace group.
+        executor = _load(_WORKFLOWS / "aria-agent-executor.yml")
+        dispatch_inputs = (
+            (_triggers(executor).get("workflow_dispatch") or {}).get("inputs") or {}
+        )
+        self.assertIn("rechain_of", dispatch_inputs)
+        jobs = executor.get("jobs") or {}
+        self.assertIn("chain-next-drain", jobs)
+        rechain = jobs["chain-next-drain"]
+        self.assertEqual(rechain.get("needs"), "executor")
+        self.assertEqual(rechain.get("permissions"), {"actions": "write"})
+        self.assertEqual(rechain.get("runs-on"), "ubuntu-latest")
+        run_bodies = [
+            str(step.get("run") or "")
+            for job_id, _, step in _steps(executor)
+            if job_id == "chain-next-drain"
+        ]
+        self.assertTrue(any("aria-agent-executor.yml" in body for body in run_bodies))
+        self.assertTrue(any("rechain_of=" in body for body in run_bodies))
+        rechain_if = str(rechain.get("if")).replace(" ", "")
+        cycle_if = str(jobs["chain-next-cycle"].get("if")).replace(" ", "")
+        self.assertIn("needs.executor.outputs.rechain_dispatch=='true'", rechain_if)
+        # The mutual exclusion, spelled on the cycle edge: when the re-chain
+        # fires, it supersedes the cycle edge for that run.
+        self.assertIn("needs.executor.outputs.rechain_dispatch!='true'", cycle_if)
+
     def test_the_detector_sees_the_trap(self) -> None:
         """The pre-fix shape: a listener on a workflow the other starts with
         the job token must be flagged."""

@@ -44,6 +44,7 @@ from aria_kernel.state_store import (
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from aria_kernel.tools_binding import bind_tools_root
 from tests._helpers.declared_fixtures import append_declared_fixture
+from tests._helpers.state_lineage_pin import pin_bootstrapped_lineage, sync_fixture_lineage_pin
 from tests._helpers.writer_lease import holding_writer_lease, leased_publish
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -95,7 +96,13 @@ class _TwoLanes(unittest.TestCase):
         return repo
 
     def _store(self, repo: Path, name: str):
-        return checkout_state_store(repo, store_dir=self.base / name)
+        # ARIA-LOW-578 — every clone reads the same lineage pin, as every lane
+        # reads main's; the bootstrapping clone pins the genesis it minted.
+        sync_fixture_lineage_pin(repo, self.remote)
+        store = checkout_state_store(repo, store_dir=self.base / name)
+        if store.bootstrapped:
+            pin_bootstrapped_lineage(store)
+        return store
 
     def _append(self, store, cycle_id: str) -> None:
         root = tools_root(store)

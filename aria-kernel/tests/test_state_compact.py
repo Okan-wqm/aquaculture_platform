@@ -279,6 +279,35 @@ class StateCompactTests(unittest.TestCase):
         wet = compact_state(base_dir=self.tools, retain_days=7)
         self.assertEqual(wet["surfaces"]["raw_findings"]["after_rows"], before - 2)
 
+    def test_a_read_paths_only_row_is_slimmed_archived_and_counted(self) -> None:
+        # ARIA-LOW-571 — an old row whose only slimmable field is read_paths
+        # (no evidence envelopes: a legacy row the envelope strip does not
+        # reach) used to be slimmed in memory and dropped: `stripped` counted
+        # envelopes only, so a pass with no envelope to strip returned before
+        # the rewrite and the archive. One flag decides the row; it counts.
+        only = self._tmp / "read-paths-only"
+        ensure_tools_dir(only)
+        self._write_ledger(only / "runs.jsonl", [{
+            "recorded_at": _old_ts(30),
+            "run_id": "run-read-paths-only",
+            "tool_id": "tool-a",
+            "cycle_id": "cyc-old",
+            "status": "ok",
+            "evidence_validation": {"valid": True},
+            "read_paths": [f"src/legacy{i}.ts" for i in range(40)],
+        }])
+
+        result = compact_state(base_dir=only, retain_days=7)
+
+        self.assertEqual(result["surfaces"]["runs"]["stripped_rows"], 1)
+        row = load_declared_jsonl(only / "runs.jsonl", expected_surface="runs")[0]
+        self.assertEqual(row["read_paths_count"], 40)
+        self.assertEqual(row["read_paths"], [f"src/legacy{i}.ts" for i in range(5)])
+        archive = next((only / "archives").glob("runs-compact-*.jsonl.gz"))
+        with gzip.open(archive, "rt", encoding="utf-8") as fh:
+            archived = [json.loads(line) for line in fh]
+        self.assertEqual([len(r["read_paths"]) for r in archived], [40], "the archive keeps the row pristine")
+
     def test_archives_written(self) -> None:
         compact_state(base_dir=self.tools, retain_days=7)
         archive_dir = self.tools / "archives"

@@ -277,11 +277,14 @@ def record_operator_request(
     from .operator_request_signature import (
         OPERATOR_ACTOR_CLASSES,
         allowed_signers_for_checkout,
+        refuse_untrusted_signing_environment,
         sign_operator_request,
         verify_operator_request,
     )
     from .operator_request_terms import utc_iso
 
+    refuse_untrusted_signing_environment(repo_root, act="operator_request")
+    stream = subject_stream if subject_stream is not None else sys.stderr
     text = str(request or "").strip()
     if not text:
         raise GovernanceError("operator_request_text_required")
@@ -323,6 +326,7 @@ def record_operator_request(
     admission = admit_finding(load_grounding_context(repo_root), target, write_roots=write_roots)
     if not admission.admitted:
         raise GovernanceError(f"operator_request_finding_not_a_plan_ground: {admission.reason}")
+    stream.write(request_authorization_text(target, admission))
     authored = datetime.now(timezone.utc).replace(microsecond=0)
     row = sign_operator_request({
         "schema_version": OPERATOR_REQUEST_SCHEMA_VERSION,
@@ -339,8 +343,7 @@ def record_operator_request(
         "status": OPERATOR_REQUEST_STATUS_UNADDRESSED,
         "actor_class": actor_class,
         **({"write_roots": list(write_roots)} if write_roots is not None else {}),
-    }, signing_key=signing_key, signer_principal=signer_principal,
-        subject_stream=subject_stream if subject_stream is not None else sys.stderr)
+    }, signing_key=signing_key, signer_principal=signer_principal, subject_stream=stream)
     verdict = verify_operator_request(row, allowed_signers=signers)
     if not verdict.valid:
         raise GovernanceError(f"operator_request_signature_unverified: {verdict.reason}")
@@ -358,6 +361,34 @@ def record_operator_request(
         "ledger_hash": stored.get("ledger_hash"),
     })
     return stored
+
+
+def request_authorization_text(finding_id: str, admission: Any) -> str:
+    """ARIA-LOW-266 — what the subject's ``grounding_digest`` stands for, as the operator reads it.
+
+    The signed subject names the grounding by its sha256 only. These are the
+    refs that digest is computed over — recomputed here, so the list shown is
+    the list signed — and the surfaces the request lets a plan change, and
+    those it may only read (``finding_grounding.FindingAdmission``).
+    """
+    from .finding_grounding import grounding_digest
+
+    refs = tuple(admission.evidence_refs)
+    if grounding_digest(refs) != admission.grounding_digest:
+        raise GovernanceError("operator_request_grounding_digest_unexplained")
+
+    def listed(items: Any) -> list[str]:
+        return [f"  - {item}" for item in items] or ["  (none)"]
+
+    return "\n".join([
+        f"aria-kernel: this request lets one plan change code for {finding_id}.",
+        f"grounding_digest {admission.grounding_digest} is the sha256 of these evidence refs:",
+        *listed(refs),
+        f"the plan may change these surfaces (write basis: {admission.write_basis}):",
+        *listed(admission.affected_surfaces),
+        "and may only read these:",
+        *listed(admission.evidence_surfaces),
+    ]) + "\n"
 
 
 def _ids_already_used(ledger: Path, root: Path) -> set[str]:
@@ -428,6 +459,7 @@ __all__ = [
     "append_signed_operator_feedback_row",
     "canonical_signing_bytes",
     "is_operator_request_row",
+    "request_authorization_text",
     "valid_request_id",
     "operator_feedback_ledger_path",
     "operator_request_schema_reason",

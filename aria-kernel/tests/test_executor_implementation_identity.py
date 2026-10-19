@@ -99,6 +99,7 @@ from tests._helpers.declared_fixtures import segmented_ledger_bytes  # noqa: E40
 from tests._helpers.git_fixtures import _git, make_repo_with_initial_commit  # noqa: E402
 from tests._helpers.installation_credential import INSTALLATION_TOKEN  # noqa: E402
 from tests._helpers.production_shaped import production_staged_implementation_request  # noqa: E402
+from tests._helpers.sandbox_pins import require_sandbox_backend  # noqa: E402
 
 SOURCE = "apps/farm-service/src/sample-interval.ts"
 PLAN_ID = "plan-aria-high-115"
@@ -129,7 +130,6 @@ def _mint_branch_with_a_ten_digit_run(plan_id: str) -> str:
 # by the kernel's PR opener and stamped by the executor. The agent never
 # sees it.
 FIXTURE_PR_URL = "https://github.com/fixture/aria-high-124/pull/124"
-_STATUS = {"loggedIn": True, "authMethod": "claude.ai", "apiProvider": "firstParty", "subscriptionType": "max"}
 
 
 def _scripted_implementer(
@@ -170,8 +170,6 @@ def _scripted_implementer(
         "argv = sys.argv[1:]\n"
         "if argv == ['--version']:\n"
         "    print('2.1.269 (Claude Code)'); raise SystemExit(0)\n"
-        "if argv[:3] == ['auth', 'status', '--json']:\n"
-        f"    print(json.dumps({_STATUS!r})); raise SystemExit(0)\n"
         "prompt = sys.stdin.read()\n"
         "def git(*args):\n"
         "    done = subprocess.run(['git', *args], capture_output=True, text=True)\n"
@@ -498,11 +496,9 @@ def completed_stderr_index(test: "ExecutorImplementationIdentityTests", stage: s
 class ExecutorImplementationIdentityTests(unittest.TestCase):
     def setUp(self) -> None:
         from aria_kernel import agent_invocations as ai
-        from aria_kernel.implementation_safety import sandbox_backend
         from aria_kernel.tool_registry import ensure_tools_binding
 
-        if sandbox_backend() is None:
-            self.skipTest("bwrap is not usable on this host; the executor refuses to claim here")
+        require_sandbox_backend()
         scratch = tempfile.TemporaryDirectory(prefix="aria-115-identity-")
         self.addCleanup(scratch.cleanup)
         self.root = Path(scratch.name).resolve()
@@ -515,6 +511,11 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
         config_dir = self.home / ".claude"
         config_dir.mkdir(parents=True)
         (config_dir / ".credentials.json").write_text('{"fixture":"managed-session"}\n', encoding="utf-8")
+        # ARIA-MEDIUM-563 — the route's credential: the kernel's own token,
+        # outside the checkout, injected by the gateway (never by the CLI).
+        kernel_token = self.root / "claude_oauth_token"
+        kernel_token.write_text("kernel-token-fixture-" + "i" * 24 + "\n", encoding="utf-8")
+        kernel_token.chmod(0o600)
         self.ai = ai
         agent = _REPO_ROOT / ".claude/agents/aria-implementer.md"
         # Operator policy: the legacy lane reserves opus's notional spawn
@@ -600,6 +601,7 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
         self.environment = {
             "PATH": os.pathsep.join([str(self.fixture_bin), str(self.binary_dir), os.defpath]),
             "HOME": str(self.home), "CLAUDE_CONFIG_DIR": str(config_dir),
+            "ARIA_CLAUDE_OAUTH_TOKEN_FILE": str(kernel_token),
             "ARIA_REPO_STATE_ROOT": str(self.root / "repo-state"),
             "ARIA_WORKSPACE_BASE": str(self.root / "workspaces"),
             "PYTHONDONTWRITEBYTECODE": "1", "PYTHONPATH": str(_KERNEL_DIR),

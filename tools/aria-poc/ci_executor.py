@@ -25,8 +25,9 @@ Account-budget discipline:
 Invocation contract: see tools/aria-poc/ci_executor_contract_proven.md
 for the load-bearing contract — argv shape locked by Plan ARIA-V3
 invariant I-V3-21. `CLAUDE_CLI_MOCK=1` wires the test fixture path;
-`CLAUDE_CLI_MOCK=0` requires a live `claude` binary on $PATH and a
-managed Claude Code login on a trusted/private runner.
+`CLAUDE_CLI_MOCK=0` requires a live `claude` binary on $PATH and the
+kernel's Claude token (ARIA_CLAUDE_OAUTH_TOKEN_FILE, injected by the provider
+gateway — ARIA-MEDIUM-563) on a trusted/private runner.
 """
 from __future__ import annotations
 
@@ -1004,6 +1005,14 @@ def _publish_artifact_paths(envelope_path: Path, transcript_path: Path) -> None:
     that claimed a request, AFTER the agent work had already succeeded. The
     producer knows the path; it says so here instead of letting YAML guess.
 
+    ARIA-MEDIUM-574 — only a file that exists is named: what the kernel
+    KEPT. A credential refusal deletes the envelope and the transcript
+    under its withheld row (`agent_invocations._withhold_submission_sources`),
+    and a refusal after the claim may leave neither; naming those paths made
+    the upload step fail the job on exactly the files the withholding
+    removed. Called only through `_publish_kept_artifact_paths_at_exit`, so
+    the question is asked after the terminal, never at claim time.
+
     Paths are emitted relative to the workspace because that is what
     actions/upload-artifact resolves against; an absolute path outside the
     workspace would silently upload nothing.
@@ -1020,9 +1029,26 @@ def _publish_artifact_paths(envelope_path: Path, transcript_path: Path) -> None:
         except ValueError:
             return resolved.as_posix()
 
+    kept = [(key, path) for key, path in (("envelope_path", envelope_path), ("transcript_path", transcript_path))
+            if path.is_file()]
     with open(output_file, "a", encoding="utf-8") as handle:
-        handle.write(f"envelope_path={_relative(envelope_path)}\n")
-        handle.write(f"transcript_path={_relative(transcript_path)}\n")
+        for key, path in kept:
+            handle.write(f"{key}={_relative(path)}\n")
+
+
+def _publish_kept_artifact_paths_at_exit(runtime_stack: _ExitStack, envelope_path: Path, transcript_path: Path) -> None:
+    """ARIA-MEDIUM-574 — publish a request's result files when the process
+    exits, from what is on disk then.
+
+    The paths are known at claim time, but whether the files exist is
+    decided by the terminal: the kernel's submit keeps them or withholds
+    them, a refusal may come before either was written. The entry's
+    runtime stack unwinds after `_main` (or the judge batch) returned, so
+    the publication follows every terminal on every exit path without a
+    call at each of them. Contexts entered later (the lease guard's release
+    on an uncaught exit) unwind before it and never touch these files.
+    """
+    runtime_stack.callback(_publish_artifact_paths, envelope_path, transcript_path)
 
 
 def _write_sanitized_envelope(path: Path, envelope: dict[str, Any]) -> None:
@@ -2184,6 +2210,12 @@ def invoke_claude_cli(
         {**(request_envelope if isinstance(request_envelope, dict) else {}), "role": role},
         target_agent=subagent_type,
     )
+    # ARIA-LOW-567 — the rung this spawn RAN, once one runs (`_dispatch_attempt`).
+    # The summary names it, as the native lane's names its admitted pair
+    # (ARIA-HIGH-182): with a provider cooled the ladder runs another rung
+    # first, and a summary that named the ladder head made the drain read a
+    # new outage of that rung as a re-probe of the head's standing one.
+    _ran_route: DispatchRoute | None = None
     _summary_emitted = False
 
     def _emit_dispatch_summary(
@@ -2196,7 +2228,7 @@ def invoke_claude_cli(
             return
         _summary_emitted = True
         _write_dispatch_summary(
-            route=_dispatch_route, request_id=request_id, outcome=outcome,
+            route=_ran_route or _dispatch_route, request_id=request_id, outcome=outcome,
             failure=failure, exit_code=exit_code,
         )
         if on_outcome is not None:
@@ -2273,6 +2305,8 @@ def invoke_claude_cli(
                                        provider=_provider_for_model(model), model=model, lane="spawn")
                 except _RouteRecordRefused as exc:
                     raise ClaudeCliUnavailable(f"claim_route_record_unavailable: {exc}") from exc
+            nonlocal _ran_route
+            _ran_route = _replace(_dispatch_route, provider=_provider_for_model(model), model=model)
             # The auth failover is written in tier names; the runtime that
             # serves a tier is the fleet's decision. A Z.ai tier (its own HTTP
             # transport since the 2026-09-11 policy) never reaches the claude
@@ -3415,6 +3449,10 @@ _ZAI_SYSTEM_PROMPT = (
     "no prose before or after it."
 )
 _ZAI_AUTH_METHOD = "subscription_api_key"
+# ARIA-MEDIUM-563 — the Anthropic route bills the subscription through the
+# kernel's own token (`claude setup-token`), the binding table's
+# ("anthropic", "claude", "subscription") row.
+_CLAUDE_AUTH_METHOD = "subscription"
 
 
 @_dataclass(frozen=True)
@@ -4241,30 +4279,44 @@ def _admit_native_route(
                 return _replace(observed, control_status="available", control_reason="native_readonly_runtime_prepared")
             return _probe_codex_auth_status(environ=environment, timeout_seconds=timeout_seconds)
         if provider.runtime_hint == "claude":
-            # The managed Anthropic session: `claude auth status --json` is the
-            # non-model status the CLI itself reports (authMethod claude.ai =
-            # subscription); control is the existing bwrap containment that
-            # every Claude spawn already runs under. The spawn stays
-            # run_claude_exec; this only admits it natively and binds the
-            # attempt to the same settings identity the session fingerprint uses.
+            # ARIA-MEDIUM-563 — the Anthropic route's credential is the
+            # kernel's: the gateway injects it, no spawn holds a login. So
+            # the status is the kernel's credential boundary
+            # (`provider_credentials`: the 0600 token file named by
+            # ARIA_CLAUDE_OAUTH_TOKEN_FILE), DECIDED unavailable by name when
+            # it refuses; whether the token still works is the first spawn's
+            # answer (an upstream 401 is `claude_auth_failure`). Control is
+            # the existing bwrap containment every Claude spawn runs under.
+            # The spawn stays run_claude_exec; this only admits it natively
+            # and binds the attempt to the same settings identity the
+            # session fingerprint uses.
             from aria_kernel.implementation_safety import sandbox_backend as _sandbox_backend_probe
-            from claude_runtime import ManagedClaudeContext, _probe_claude_auth_status
+            from aria_kernel.provider_credentials import ProviderCredentialUnavailable, read_provider_credential
+            from claude_runtime import CLAUDE_GATEWAY_CREDENTIAL_ABSENT, ManagedClaudeContext
 
-            observed = _probe_claude_auth_status(environ=environment, timeout_seconds=timeout_seconds)
-            if observed.decision is not StatusDecision.AVAILABLE:
-                return observed
+            try:
+                credential = read_provider_credential(provider.key, environment, room_trees=(repo_root,))
+            except ProviderCredentialUnavailable as exc:
+                return _RuntimeStatusObservation("unavailable", reason=CLAUDE_GATEWAY_CREDENTIAL_ABSENT,
+                                                 control_status="unavailable", control_reason=exc.reason,
+                                                 auth_method=_CLAUDE_AUTH_METHOD,
+                                                 decision=StatusDecision.UNAVAILABLE)
+            observed = _RuntimeStatusObservation(
+                "available", quota_observation="unknown", reason="claude_gateway_credential_present",
+                auth_method=_CLAUDE_AUTH_METHOD, credential_source=f"kernel_{credential.source}",
+                decision=StatusDecision.AVAILABLE,
+            )
             if _sandbox_backend_probe() is None:
-                # The vendor said yes; THIS host cannot contain the spawn.
-                # Controls unavailable on a decided-available auth: the
-                # ladder halts here as `provider_control_unavailable`
+                # The credential is there; THIS host cannot contain the
+                # spawn. Controls unavailable on a decided-available auth:
+                # the ladder halts here as `provider_control_unavailable`
                 # (never a later vendor — a missing sandbox is not an auth
                 # reason), and the row says which host fact stopped it.
                 return _replace(observed, control_status="unavailable", control_reason="sandbox_unavailable")
             recording = UsageRecording(request_id=request_id, role=str(request.get("role") or ""),
                                        target_agent=target_agent, base_dir=tools_dir)
             contexts[provider.key] = ManagedClaudeContext(
-                auth_method=observed.auth_method, subscription_type=None,
-                config_dir=environment.get("CLAUDE_CONFIG_DIR"),
+                auth_method=_CLAUDE_AUTH_METHOD, credential_source=f"kernel_{credential.source}",
                 settings_hash=spawn_settings_hash(agent_profile=profile, usage_recording=recording,
                                                   workspace_root=repo_root),
             )
@@ -4561,6 +4613,7 @@ def _claude_preflight_refusal(*, tools_dir: Path, request_id: str | None, target
 
 def _pre_claim_environment_gate(
     *, tools_dir: Path, request_id: str | None = None, target_agent: str | None = None,
+    native_runtime: _NativeRuntimePlan | None = None,
 ) -> str | None:
     """Refuse to CLAIM a request the environment cannot host (FAZ 5b).
 
@@ -4576,15 +4629,27 @@ def _pre_claim_environment_gate(
     request is NEVER claimed: it stays
     PENDING for a healthy host instead of consuming a lease + requeue here.
     Mock mode skips the gate — a mock dispatch needs none of the surfaces.
+
+    ARIA-MEDIUM-564 — one gate for both lanes. Claude's preflight is the
+    spawn lane's question only: an admitted ``native_runtime`` already had
+    its provider's auth decided by the fleet's own status probe, so it is
+    not asked again (a logged-out Claude must not refuse an admitted Z.ai
+    route). Everything after it is the HOST's, whatever route was admitted
+    — the room's sandbox and egress boundary, git answering in the
+    workspace, node_modules on the walk up — so it runs on both. Before,
+    ``_main`` skipped the whole gate once a native route was admitted, and
+    production (adaptive policy since 2026-09-12) never asked any of them.
     """
     if _MOCK_MODE_AT_ENTRY:
         return None
 
     kind: str | None = None
     detail = ""
-    claude_refusal = _claude_preflight_refusal(tools_dir=tools_dir, request_id=request_id, target_agent=target_agent)
-    if claude_refusal is not None:
-        kind, detail = "claude_auth_unavailable", claude_refusal
+    if native_runtime is None:
+        claude_refusal = _claude_preflight_refusal(tools_dir=tools_dir, request_id=request_id,
+                                                   target_agent=target_agent)
+        if claude_refusal is not None:
+            kind, detail = "claude_auth_unavailable", claude_refusal
     if kind is None and _sandbox_backend is not None and _sandbox_backend() is None:
         # ARIA-HIGH-123 — the detail names WHY (the git containment probe's
         # refusal when that is what failed): an operator reading the row
@@ -4594,11 +4659,13 @@ def _pre_claim_environment_gate(
             f"sandbox_backend() returned None ({why}); write-capable spawns would be refused"
         )
     if kind is None and _egress_boundary_probe is not None:
-        # ARIA-HIGH-143 — the spawn's room has its own network namespace and
-        # one road out, the kernel's allowlist proxy. The probe asks a real
-        # managed room, from inside, whether that holds on this host (no
-        # route out, an off-allowlist target refused by name); when it does
-        # not, the request stays PENDING until the host can build one.
+        # ARIA-HIGH-143 / ARIA-MEDIUM-563 — the spawn's room has its own
+        # network namespace and one road out, its provider route: for the
+        # managed Claude room, the kernel's provider gateway. The probe asks
+        # a real managed room, from inside, whether that holds on this host
+        # (no route out, no proxy, no credential but the placeholder, an
+        # unpinned request refused by name); when it does not, the request
+        # stays PENDING until the host can build one.
         egress_gap = _egress_boundary_probe()
         if egress_gap is not None:
             kind, detail = "egress_boundary_unavailable", egress_gap
@@ -4967,8 +5034,8 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
                 native_runtime = admission_exit
             elif isinstance(admission_exit, _NativeAdmissionRefusal):
                 return admission_exit.exit_code
-        gate_kind = (_pre_claim_environment_gate(tools_dir=tools_dir, request_id=request_id, target_agent=subagent_type)
-                     if native_runtime is None else None)
+        gate_kind = _pre_claim_environment_gate(tools_dir=tools_dir, request_id=request_id, target_agent=subagent_type,
+                                                native_runtime=native_runtime)
         if gate_kind is not None:
             return 1
         # Step 1 — claim the request through the kernel CLI. The lease is
@@ -5141,7 +5208,7 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
 
     timeout = _max_timeout_seconds()
     transcript_output_path = expected_output_path.with_suffix(".transcript.jsonl")
-    _publish_artifact_paths(expected_output_path, transcript_output_path)
+    _publish_kept_artifact_paths_at_exit(_runtime_stack, expected_output_path, transcript_output_path)
     # Plan 032 Faz 032c — recovery FIRST: a request whose previous attempt
     # left an external intent without a receipt is not re-run blind. Then
     # the session decision (fresh vs resume, fingerprint-bound) and, for a

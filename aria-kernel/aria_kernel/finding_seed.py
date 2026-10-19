@@ -56,6 +56,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Mapping
 
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 from .finding import CLAIM_TYPES, SEVERITY_RANK
 from .finding_grounding import (
     FINDING_SURFACES_READONLY,
@@ -74,7 +75,6 @@ SUBJECT_ABSENT = "f_finding_subject_absent"
 SUBJECT_UNVERIFIABLE = "f_finding_subject_unverifiable"
 SEED_REASONS: tuple[str, ...] = (SUBJECT_ABSENT, SUBJECT_UNVERIFIABLE)
 _LINE_RE = re.compile(r":([0-9]+)$")
-_COMMIT_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 # A side name is an identifier the scanner read from code (an option-group id,
 # an enum or type name); anything else is not passed into a plan.
 _SIDE_NAME_RE = re.compile(r"^[A-Za-z_$][A-Za-z0-9_.$\-]{0,99}$")
@@ -229,7 +229,7 @@ def _reread_lines(
             current.append(ref)  # a file ref: admission already found it tracked at the anchor
             continue
         origin = origins.get(ref) or minted
-        if not isinstance(origin, str) or _COMMIT_RE.fullmatch(origin) is None:
+        if not isinstance(origin, str) or not is_object_id(origin, formats=ANY_OBJECT_FORMAT):
             return None, {"cause": "ref_origin_unrecorded", "ref": ref}
         if origin == anchor:
             current.append(ref)

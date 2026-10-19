@@ -29,6 +29,7 @@ from aria_kernel.plan_convergence import (
 from aria_kernel.tool_registry import GovernanceError
 from tests._helpers.declared_fixtures import append_declared_fixture, segmented_ledger_bytes
 from tests._helpers.operator_acts import operator_set_profile
+from tests._helpers.spine_fixture import SPINE_FIXTURE_VERSION, SpineFixture, findings_path, register_spine_adapters
 
 
 class PlanConvergenceTests(unittest.TestCase):
@@ -765,6 +766,7 @@ class PlanConvergenceTests(unittest.TestCase):
         self.assertEqual(make_local_git_repo(self.root.parent, name=self.root.name, initial_commit=False), self.root)
         _git(["add", "."], cwd=self.root)
         _git(["commit", "-q", "-m", "fixture: event schema before regression"], cwd=self.root)
+        spine = self._spine_fixture()
         ensure_tools_binding(self.tools_dir, workspace_root=self.root)
         operator_set_profile("strict", base_dir=self.tools_dir)
         plan_id = "plan-1"
@@ -783,19 +785,22 @@ class PlanConvergenceTests(unittest.TestCase):
         before_plan = (self.tools_dir / "plans/events.jsonl").read_bytes()
         baseline = take_baseline(plan_id=plan_id, cycle_id="cyc-native-repair-baseline",
                                  workspace_root=self.root, base_dir=self.tools_dir)
-        self.assertEqual(baseline["invariant_measurements"]["event_contracts"]["measurements"]["missing_schema_identities"], [])
+        self.assertEqual(baseline["invariant_measurements"]["event_contracts"]["measurements"], self._event_violations())
+        # The remediation removes the schema; the owner adapter reports it.
         schema.unlink()
-        _git(["add", schema_path], cwd=self.root)
+        self._set_events(spine, "AlphaEvent")
+        _git(["add", "-A"], cwd=self.root)
         _git(["commit", "-q", "-m", "fixture: remove one required schema"], cwd=self.root)
         current_sha = _git(["rev-parse", "HEAD"], cwd=self.root).stdout.strip()
         self.assertEqual(subprocess.check_output(["git", "status", "--porcelain"], cwd=self.root), b"")
         measured = take_postcheck(plan_id=plan_id, cycle_id="cyc-native-repair-regression",
                                   workspace_root=self.root, base_dir=self.tools_dir)
-        identity = source_path + "::AlphaEvent"
         self.assertEqual(measured["regression_count"], 1)
         self.assertEqual(measured["baseline_hash"], baseline["baseline_hash"])
-        self.assertEqual(measured["postcheck_measurements"]["event_contracts"]["source"], "static:_check_event_contracts")
-        self.assertEqual(measured["postcheck_measurements"]["event_contracts"]["measurements"]["missing_schema_identities"], [identity])
+        self.assertEqual(measured["postcheck_measurements"]["event_contracts"]["source"],
+                         f"adapter:{self._EVENTS}@{SPINE_FIXTURE_VERSION}")
+        self.assertEqual(measured["postcheck_measurements"]["event_contracts"]["measurements"],
+                         self._event_violations("AlphaEvent"))
         spine_rows = [row for row in read_governance_rows(self.tools_dir / "governance.jsonl", base_dir=self.tools_dir)
                       if row.get("kind", "").startswith("architecture_spine_")
                       and row.get("details", {}).get("plan_id") == plan_id]
@@ -836,20 +841,61 @@ class PlanConvergenceTests(unittest.TestCase):
         self.assertEqual(segmented_ledger_bytes(self.tools_dir, "agent_invocation_requests"), before_requests)
         self.assertEqual((self.tools_dir / "plans/events.jsonl").read_bytes(), before_plan)
 
+    # ARIA-HIGH-045 — the spine's event_contracts invariant is
+    # event-contracts-adapter's violation set, measured through the real tool
+    # runner (tests/_helpers/spine_fixture.py): the test edits what the
+    # adapter reports, the way a remediation edits the code it reads.
+    _EVENTS = "event-contracts-adapter"
+    _EVENT_SOURCE = "libs/event-contracts/src/ordinary-events.ts"
+
+    def _spine_fixture(self) -> SpineFixture:
+        """The five spine adapters registered in this tools dir, reporting nothing.
+
+        The workspace becomes a git repository with the event source
+        committed (the room shows only what git tracks); a later call with a
+        new tools dir re-registers and resets the findings in place.
+        """
+        from aria_kernel.tool_registry import ensure_tools_dir
+        from tests._helpers.git_fixtures import commit_files, make_local_git_repo
+
+        if not (self.root / ".git").exists():
+            make_local_git_repo(self.root.parent, name=self.root.name, initial_commit=False)
+        if not (self.root / self._EVENT_SOURCE).exists():
+            commit_files(self.root, {self._EVENT_SOURCE: "export interface AlphaEvent {}\n"})
+        spine = SpineFixture(self.root, ensure_tools_dir(self.tools_dir))
+        if (self.root / findings_path(self._EVENTS)).exists():
+            register_spine_adapters(self.tools_dir)
+            self._set_events(spine)
+        else:
+            spine.register_clean()
+        return spine
+
+    def _event_finding(self, name: str) -> dict:
+        return {
+            "id": f"event-{name}", "rule": "event_schema_missing", "path": self._EVENT_SOURCE, "line": 1,
+            "severity": "medium", "message": f"{name} has no schema", "details": {"event": name},
+            "evidence": [{"path": self._EVENT_SOURCE, "line": 1}],
+        }
+
+    def _event_violations(self, *names: str) -> dict:
+        from aria_kernel.finding_subject import adapter_violation_keys
+
+        identities = adapter_violation_keys([self._event_finding(name) for name in names])
+        return {"violation_count": len(identities), "violation_identities": identities}
+
+    def _set_events(self, spine: SpineFixture, *names: str) -> None:
+        spine.set_findings(self._EVENTS, [self._event_finding(name) for name in names], commit=False)
+
     def _native_spine_evaluation_fixture(self, *, risks=None):
         from aria_kernel.architecture_spine_gate import take_baseline
-        source = self.root / "libs/event-contracts/src/ordinary-events.ts"
-        schema = self.root / "libs/event-contracts/src/schemas/alpha_event.json"
-        schema.parent.mkdir(parents=True, exist_ok=True)
-        source.write_text("interface BaseEvent { eventId: string; }\nexport interface AlphaEvent extends BaseEvent {}\n", encoding="utf-8")
-        schema.write_text('{"type":"object"}\n', encoding="utf-8")
+        spine = self._spine_fixture()
         self.start()
         self.request_round(1, "farm-expert")
         self.critique("farm-expert", [] if risks is None else risks)
         baseline = take_baseline(plan_id="plan-1", cycle_id="cyc-evaluation-baseline",
                                  workspace_root=self.root, base_dir=self.tools_dir)
-        self.assertEqual(baseline["invariant_measurements"]["event_contracts"]["measurements"]["missing_schema_identities"], [])
-        return schema, baseline
+        self.assertEqual(baseline["invariant_measurements"]["event_contracts"]["measurements"], self._event_violations())
+        return spine, baseline
 
     def test_native_baseline_without_postcheck_is_unavailable(self):
         self._native_spine_evaluation_fixture()
@@ -865,8 +911,8 @@ class PlanConvergenceTests(unittest.TestCase):
 
     def test_native_replaced_spine_anchor_cannot_be_converged(self):
         from aria_kernel.architecture_spine_gate import take_baseline, take_postcheck
-        schema, baseline = self._native_spine_evaluation_fixture()
-        schema.unlink()
+        spine, baseline = self._native_spine_evaluation_fixture()
+        self._set_events(spine, "AlphaEvent")
         failed = take_postcheck(plan_id="plan-1", cycle_id="cyc-evaluation-failed",
                                workspace_root=self.root, base_dir=self.tools_dir)
         self.assertEqual(failed["regression_count"], 1)
@@ -890,8 +936,8 @@ class PlanConvergenceTests(unittest.TestCase):
             ):
                 with self.subTest(case=case):
                     self.tools_dir = original_tools.parent / ("native-refusal-" + case)
-                    schema, _baseline = self._native_spine_evaluation_fixture(risks=risks)
-                    schema.unlink()
+                    spine, _baseline = self._native_spine_evaluation_fixture(risks=risks)
+                    self._set_events(spine, "AlphaEvent")
                     failed = take_postcheck(plan_id="plan-1", cycle_id="cyc-native-" + case,
                                            workspace_root=self.root, base_dir=self.tools_dir)
                     self.assertEqual(failed["regression_count"], 1)
@@ -907,9 +953,9 @@ class PlanConvergenceTests(unittest.TestCase):
     def test_native_legal_revision_retains_obligation_until_clean_postcheck(self):
         from aria_kernel.architecture_spine_gate import take_postcheck
         from aria_kernel.governance_reader import read_governance_rows
-        schema, baseline = self._native_spine_evaluation_fixture()
+        spine, baseline = self._native_spine_evaluation_fixture()
         original_plan_hash = plan_status(plan_id="plan-1", base_dir=self.tools_dir)["latest_revision"]["content_hash"]
-        schema.unlink()
+        self._set_events(spine, "AlphaEvent")
         failed = take_postcheck(plan_id="plan-1", cycle_id="cyc-native-revision-failed",
                                workspace_root=self.root, base_dir=self.tools_dir)
         self.assertEqual(failed["regression_count"], 1)
@@ -927,7 +973,7 @@ class PlanConvergenceTests(unittest.TestCase):
         second = evaluate_plan(plan_id="plan-1", round_number=2, base_dir=self.tools_dir)
         self.assertEqual(second["status"], "next_round_required")
         self.assertEqual(second["architecture_spine"], first["architecture_spine"])
-        schema.write_text('{"type":"object"}\n', encoding="utf-8")
+        self._set_events(spine)
         repaired = take_postcheck(plan_id="plan-1", cycle_id="cyc-native-revision-repaired",
                                   workspace_root=self.root, base_dir=self.tools_dir)
         self.assertEqual(repaired["regression_count"], 0)
@@ -945,21 +991,55 @@ class PlanConvergenceTests(unittest.TestCase):
 
     def test_native_other_plan_comparison_does_not_enroll_this_plan(self):
         from aria_kernel.architecture_spine_gate import take_baseline, take_postcheck
-        source = self.root / "libs/event-contracts/src/ordinary-events.ts"
-        schema = self.root / "libs/event-contracts/src/schemas/alpha_event.json"
-        schema.parent.mkdir(parents=True)
-        source.write_text("interface BaseEvent { eventId: string; }\nexport interface AlphaEvent extends BaseEvent {}\n")
-        schema.write_text('{"type":"object"}\n')
+        spine = self._spine_fixture()
         self.start()
         self.request_round(1, "farm-expert")
         self.critique("farm-expert", [])
         take_baseline(plan_id="other-plan", cycle_id="cyc-other-baseline", workspace_root=self.root, base_dir=self.tools_dir)
-        schema.unlink()
+        self._set_events(spine, "AlphaEvent")
         failed = take_postcheck(plan_id="other-plan", cycle_id="cyc-other-regression", workspace_root=self.root, base_dir=self.tools_dir)
         self.assertEqual(failed["regression_count"], 1)
         result = evaluate_plan(plan_id="plan-1", round_number=1, base_dir=self.tools_dir)
         self.assertEqual(result["event"]["payload"]["terminal_state"], "CONVERGED")
         self.assertNotIn("architecture_spine", {item["gate"] for item in result["event"]["payload"]["gate_decisions"]})
+
+    def test_unmeasured_spine_is_unavailable_and_unattributed(self) -> None:
+        # ARIA-HIGH-045 / ARIA-HIGH-525 — an invariant the gate could not
+        # measure (here: its owner's run crashed) is not a clean comparison.
+        # The plan goes HUMAN_REQUIRED through the existing `unavailable`
+        # branch, and the environment fault is attributed to no drafter.
+        from aria_kernel.architecture_spine_gate import INVARIANT_KINDS, InvariantMeasurement, take_baseline, take_postcheck
+        from aria_kernel.failure_attribution import InvocationLedgersSource, attribute_evaluation
+        from aria_kernel.tool_registry import utc_now
+
+        def measured(kind):
+            return lambda _root: InvariantMeasurement(
+                invariant=kind, measured_at=utc_now(), source=f"fixture:{kind}",
+                measurements={"violation_count": 0, "violation_identities": []},
+            )
+
+        checks = {kind: measured(kind) for kind in INVARIANT_KINDS}
+        self.start()
+        self.request_round(1, "farm-expert")
+        self.critique("farm-expert", [])
+        take_baseline(plan_id="plan-1", cycle_id="cyc-unmeasured-baseline", workspace_root=self.root,
+                      base_dir=self.tools_dir, invariant_checks=checks)
+        checks["auth_security"] = lambda _root: InvariantMeasurement(
+            invariant="auth_security", measured_at=utc_now(), measurements={}, source="fixture:auth_security",
+            coverage="unmeasured", coverage_reason="adapter_run_status:crash",
+        )
+        unmeasured = take_postcheck(plan_id="plan-1", cycle_id="cyc-unmeasured-postcheck", workspace_root=self.root,
+                                    base_dir=self.tools_dir, invariant_checks=checks)
+        self.assertEqual(unmeasured["regression_count"], 0)
+        result = evaluate_plan(plan_id="plan-1", round_number=1, base_dir=self.tools_dir)
+        payload = result["event"]["payload"]
+        self.assertEqual(payload["terminal_state"], "HUMAN_REQUIRED")
+        self.assertIn("architecture_spine_unavailable:invariant_unmeasured", payload["reason_codes"])
+        gate = next(item for item in payload["gate_decisions"] if item["gate"] == "architecture_spine")
+        self.assertEqual(gate["unmeasured_invariants"],
+                         [{"invariant": "auth_security", "reason": "postcheck:adapter_run_status:crash"}])
+        self.assertIsNone(attribute_evaluation(payload, plan_id="plan-1", drafter="agent:drafter",
+                                               ledgers=InvocationLedgersSource(self.tools_dir)))
 
     def test_native_drainer_carries_same_spine_observation_to_primary_request(self) -> None:
         import subprocess
@@ -988,6 +1068,7 @@ class PlanConvergenceTests(unittest.TestCase):
         self.assertEqual(make_local_git_repo(self.root.parent, name=self.root.name, initial_commit=False), self.root)
         _git(["add", "."], cwd=self.root)
         _git(["commit", "-q", "-m", "fixture: event schema before regression"], cwd=self.root)
+        spine = self._spine_fixture()
         ensure_tools_binding(self.tools_dir, workspace_root=self.root)
         operator_set_profile("strict", base_dir=self.tools_dir)
         plan_id = "plan-1"
@@ -1006,19 +1087,22 @@ class PlanConvergenceTests(unittest.TestCase):
         before_plan = (self.tools_dir / "plans/events.jsonl").read_bytes()
         baseline = take_baseline(plan_id=plan_id, cycle_id="cyc-native-repair-baseline",
                                  workspace_root=self.root, base_dir=self.tools_dir)
-        self.assertEqual(baseline["invariant_measurements"]["event_contracts"]["measurements"]["missing_schema_identities"], [])
+        self.assertEqual(baseline["invariant_measurements"]["event_contracts"]["measurements"], self._event_violations())
+        # The remediation removes the schema; the owner adapter reports it.
         schema.unlink()
-        _git(["add", schema_path], cwd=self.root)
+        self._set_events(spine, "AlphaEvent")
+        _git(["add", "-A"], cwd=self.root)
         _git(["commit", "-q", "-m", "fixture: remove one required schema"], cwd=self.root)
         current_sha = _git(["rev-parse", "HEAD"], cwd=self.root).stdout.strip()
         self.assertEqual(subprocess.check_output(["git", "status", "--porcelain"], cwd=self.root), b"")
         measured = take_postcheck(plan_id=plan_id, cycle_id="cyc-native-repair-regression",
                                   workspace_root=self.root, base_dir=self.tools_dir)
-        identity = source_path + "::AlphaEvent"
         self.assertEqual(measured["regression_count"], 1)
         self.assertEqual(measured["baseline_hash"], baseline["baseline_hash"])
-        self.assertEqual(measured["postcheck_measurements"]["event_contracts"]["source"], "static:_check_event_contracts")
-        self.assertEqual(measured["postcheck_measurements"]["event_contracts"]["measurements"]["missing_schema_identities"], [identity])
+        self.assertEqual(measured["postcheck_measurements"]["event_contracts"]["source"],
+                         f"adapter:{self._EVENTS}@{SPINE_FIXTURE_VERSION}")
+        self.assertEqual(measured["postcheck_measurements"]["event_contracts"]["measurements"],
+                         self._event_violations("AlphaEvent"))
         spine_rows = [row for row in read_governance_rows(self.tools_dir / "governance.jsonl", base_dir=self.tools_dir)
                       if row.get("kind", "").startswith("architecture_spine_")
                       and row.get("details", {}).get("plan_id") == plan_id]

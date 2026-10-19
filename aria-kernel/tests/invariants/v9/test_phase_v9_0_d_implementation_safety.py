@@ -390,11 +390,26 @@ class TestV9SecretScan(unittest.TestCase):
         diff = "ANTHROPIC_API_KEY=sk-ant-api03-deadbeef0123456789abcdef0123456"
         with self.assertRaises(_is.SecretLeakDetected):
             _is.verify_no_secret_in_diff(diff)
+        # ARIA-MEDIUM-620 — the setup-token body is base64url: an underscore
+        # inside the first 32 characters after sk-ant- must be refused like
+        # any other body (the redact view has always admitted '_').
+        setup_token = "sk-ant-" + "oat01-" + "Ab3_" + "Q" * 60
+        with self.assertRaises(_is.SecretLeakDetected):
+            _is.verify_no_secret_in_diff(f"pasted {setup_token} into the diff")
 
     def test_i_v9_secret_01_private_key_caught(self):
         diff = "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAA..."
         with self.assertRaises(_is.SecretLeakDetected):
             _is.verify_no_secret_in_diff(diff)
+        # The boundary's PEM redactor is label-agnostic ([A-Z0-9 ]*, like
+        # the DLP and system_one rows); the refusal row used to name four
+        # labels only, so an ENCRYPTED (pkcs8 v2) or plain pkcs8 block
+        # passed the diff scan while the boundary redacted it.
+        for header in ("ENCRYPTED PRIVATE KEY", "PRIVATE KEY"):
+            with self.subTest(header=header):
+                block = f"-----BEGIN {header}-----\nMIIEpAIBAA..."
+                with self.assertRaises(_is.SecretLeakDetected):
+                    _is.verify_no_secret_in_diff(block)
 
     def test_i_v9_secret_01_clean_diff_passes(self):
         diff = "diff --git a/x.py b/x.py\n+def foo():\n+    return 42\n"
@@ -406,6 +421,16 @@ class TestV9SecretScan(unittest.TestCase):
         bad = {"details": {"validation_results": [{"stdout": fake_aws_key}]}}
         with self.assertRaises(_is.SecretLeakDetected):
             _is.verify_no_secret_in_envelope(bad)
+        # The bearer row's redaction reads the scheme in any case and the
+        # standard-base64 alphabet (+, /); the refusal used to read capital-B
+        # "Bearer" and the URL-safe alphabet only, so both shapes passed
+        # while the boundary redacted them.
+        for scheme in ("Bearer", "bearer"):
+            body = "Np+" * 12 + "/Q"
+            with self.subTest(scheme=scheme):
+                bad_bearer = {"headers": {"authorization": f"{scheme} {body}"}}
+                with self.assertRaises(_is.SecretLeakDetected):
+                    _is.verify_no_secret_in_envelope(bad_bearer)
 
     def test_i_v9_secret_01_error_message_does_not_leak_value(self):
         """SecretLeakDetected message MUST count hits but NOT include
@@ -1062,9 +1087,10 @@ class TestV9PublicApi(unittest.TestCase):
             "SandboxUnavailable", "sandbox_backend",
             # ARIA-HIGH-123 — why sandbox_backend() answered None (the git
             # containment probe's reason), for the pre-claim gate's row; and
-            # the managed route's network setting, which the containment
-            # probe builds with so it proves the implementer's own argv.
-            "sandbox_unavailable_detail", "MANAGED_SPAWN_ALLOW_NETWORK",
+            # the managed route's provider route, which the containment
+            # probe builds with so it proves the implementer's own argv
+            # (ARIA-MEDIUM-563: a route key, no longer a network bool).
+            "sandbox_unavailable_detail", "MANAGED_SPAWN_PROVIDER",
             # ORPHAN-HIGH-470 — the limiter contract is typed for the same
             # reason: apply_resource_limits RAISES rather than handing back
             # bare argv when no limiter is usable.
@@ -1124,10 +1150,10 @@ class TestV9PublicApi(unittest.TestCase):
             # event. The limiter's bus plumbing is named and read by one owner
             # so every lane probes its limiter in the environment that launches
             # it; the managed Claude sandbox wrapper binds the resolved
-            # executable, the spawn's documents and one credential file into
-            # the private home (the mirror of the Codex runtime-state wrapper).
+            # executable and the spawn's documents (the mirror of the Codex
+            # runtime-state wrapper); no login file since ARIA-MEDIUM-563.
             "LIMITER_CONTROL_ENV_NAMES", "limiter_control_environment",
-            "wrap_managed_claude_in_sandbox", "CLAUDE_LOGIN_CREDENTIALS_FILENAME",
+            "wrap_managed_claude_in_sandbox",
             # ARIA-HIGH-104 (2) — the one whole-entry matching rule the
             # pre-PR-open suite check and the merge gate's hygiene battery share.
             "canonical_command_satisfied_by",
@@ -1152,6 +1178,19 @@ class TestV9PublicApi(unittest.TestCase):
             "COMMIT_SIGNATURE_VERIFY_TIMEOUT_SECONDS",
             "VALIDATION_SANDBOX_CONTAINMENT_FLAGS",
             "VALIDATION_OBSERVATION_CHILD",
+            # ARIA-HIGH-013 — one addition, a review event. The force-push
+            # and hook-bypass definition the `no_force_push` / `no_no_verify`
+            # perimeter checks refuse an argv with, made public so the
+            # workflow/shell safety adapter asks the same function about the
+            # repository's own workflows and scripts instead of keeping a
+            # second list of forbidden git flags.
+            "governance_bypass_refusal",
+            # ARIA-MEDIUM-563 review — the host trees every room binds
+            # read-only, built from the same tuple as the binds. The
+            # kernel's credential-file reader refuses a token under one
+            # (rooms run as the kernel's uid), so it reads the room
+            # builder's list instead of keeping a copy.
+            "room_host_roots",
         }
         self.assertEqual(
             set(_is.__all__), canonical,

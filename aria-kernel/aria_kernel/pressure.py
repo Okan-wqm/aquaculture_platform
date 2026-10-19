@@ -523,13 +523,18 @@ def run_pressure(
                     f"{signal.get('service')}: {signal.get('summary')}"
                 ),
                 **_citable(signal.get("code_refs")),
-                occurrence_count=1,
+                # ARIA-MEDIUM-271 — the sightings of this episode, and the
+                # signal's own id as the subject: without it every runtime
+                # pressure was `pressure:runtime_signal:unknown` and a lookup
+                # by id found only the first.
+                occurrence_count=int(signal.get("occurrence_count") or 1),
                 candidate_tools=[],
                 recommended_action=(
                     "investigate the referenced code area with repo evidence; this "
                     "runtime lead is UNVERIFIED (trust_grade=runtime_unverified) — "
                     "confirm against the repo before treating it as a finding"
                 ),
+                discriminator=str(signal.get("signal_id")),
             ),
         )
     # ARIA-HIGH-370 — each tool's dial (``calibration_dials``) scales the

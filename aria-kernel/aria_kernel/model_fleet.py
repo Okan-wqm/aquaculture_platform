@@ -39,12 +39,13 @@ class Provider:
     """The model this provider's roles run on when the caller pins nothing."""
 
     credential_env: str | None
-    """The env var whose presence proves the credential is configured.
+    """The env var holding the credential VALUE (CI-secret injection), if the
+    provider admits one.
 
-    None means the provider authenticates through a managed session on the
-    host (the Claude Code CLI login) — availability then reduces to the CLI
-    being installed, which is the honest cheap signal; a dead session is
-    the runtime's auth-failure path, not this module's guess.
+    None for a provider whose credential is only ever a file
+    (`credential_file_env`). The Anthropic credential is the kernel's alone
+    (ARIA-MEDIUM-563): a dedicated token in a 0600 file the provider gateway
+    reads per request, never a value in any environment a spawn inherits.
     """
 
     runtime_hint: str
@@ -111,6 +112,10 @@ _FLEET: tuple[Provider, ...] = (
         credential_env=None,
         runtime_hint="claude",
         admits_writes=True,
+        # ARIA-MEDIUM-563 — the long-lived token `claude setup-token` mints,
+        # held by the kernel and injected by the provider gateway; no room
+        # holds it (`provider_routes`, `provider_credentials`).
+        credential_file_env="ARIA_CLAUDE_OAUTH_TOKEN_FILE",
     ),
     Provider(
         key="zai",
@@ -206,13 +211,14 @@ def available_providers(environ: dict[str, str] | None = None) -> list[Provider]
             if _credential_named(provider, env):
                 out.append(provider)
             continue
-        if provider.credential_env is None:
-            # Managed Claude session: the CLI binary is the availability
-            # fact this module can see without side effects.
-            if shutil.which("claude", path=search_path) is not None:
-                out.append(provider)
-            continue
-        if bool(env.get(provider.credential_env, "").strip()):
+        if provider.runtime_hint == "claude":
+            # The CLI on PATH is the cheap fact. The kernel's credential
+            # boundary (ARIA-MEDIUM-563: the gateway's token file) is NOT read
+            # here: its refusal is a DECIDED provider fact the preflight and
+            # the native admission name (`claude_gateway_credential_absent`)
+            # and cool anthropic for, which opens the outage the operator is
+            # told about (ARIA-HIGH-441). Leaving anthropic out of the host
+            # for an absent token would route past it in silence.
             if shutil.which("claude", path=search_path) is not None:
                 out.append(provider)
     return out
@@ -234,9 +240,17 @@ def route_model(provider: Provider, profile_model: str, environ: Mapping[str, st
     return provider_model(provider, dict(environ))
 
 
+def fleet_provider(key: str) -> Provider:
+    """The fleet row for ``key`` — the SSoT a credential boundary binds its variable names to."""
+    for provider in _FLEET:
+        if provider.key == key:
+            return provider
+    raise KeyError(f"fleet_provider_unknown:{key}")
+
+
 def zai_provider() -> Provider:
     """The Z.ai fleet row — the SSoT the HTTP transport binds its variable names to."""
-    return next(provider for provider in _FLEET if provider.key == "zai")
+    return fleet_provider("zai")
 
 
 def provider_models(provider: Provider, environ: Mapping[str, str] | None = None) -> frozenset[str]:

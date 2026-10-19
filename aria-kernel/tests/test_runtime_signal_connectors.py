@@ -25,6 +25,7 @@ from aria_kernel.runtime_signal_bridge import (
     RUNTIME_SIGNAL_SOURCES,
     RUNTIME_TRUST_GRADE,
     ingest_runtime_signal,
+    load_open_runtime_signals,
 )
 from aria_kernel.tool_registry import ensure_tools_dir
 
@@ -76,6 +77,38 @@ class RuntimeSignalSchemaSyncTests(unittest.TestCase):
             set(self.schema["required"]),
             set(record_keys),
         )
+
+
+    def test_every_event_the_bridge_writes_carries_what_the_event_schema_requires(self) -> None:
+        # ARIA-MEDIUM-271 — the persisted unit is the event; the record above
+        # is its fold.
+        from aria_kernel.ledger import load_declared_jsonl
+        from aria_kernel.runtime_signal_bridge import (
+            OBSERVED_EVENT,
+            QUARANTINED_EVENT,
+            RESOLVED_EVENT,
+            RUNTIME_SIGNAL_EVENT_SCHEMA,
+            resolve_runtime_signal,
+            runtime_signal_events_path,
+        )
+
+        schema = json.loads(
+            (REPO_ROOT / "docs/aria/schemas/runtime-signal-event.schema.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(schema["$id"], RUNTIME_SIGNAL_EVENT_SCHEMA)
+        self.assertEqual(set(schema["properties"]["event"]["enum"]),
+                         {OBSERVED_EVENT, RESOLVED_EVENT, QUARANTINED_EVENT})
+        required_by_event = {rule["if"]["properties"]["event"]["const"]: rule["then"]["required"]
+                             for rule in schema["allOf"]}
+        with tempfile.TemporaryDirectory() as tmp:
+            record = ingest_runtime_signal(source="operator", service="s", summary="m",
+                                           code_refs=["src/a.ts"], base_dir=tmp)
+            resolve_runtime_signal(signal_id=record["signal_id"], resolution_note="done", base_dir=tmp)
+            events = load_declared_jsonl(runtime_signal_events_path(Path(tmp)), expected_surface="runtime_signal_events")
+        self.assertEqual([event["event"] for event in events], [OBSERVED_EVENT, RESOLVED_EVENT])
+        for event in events:
+            missing = set(schema["required"]) | set(required_by_event[event["event"]])
+            self.assertEqual(missing - set(event), set(), event["event"])
 
 
 class ResolveCodeRefTests(unittest.TestCase):
@@ -181,9 +214,7 @@ class ImportSignalsTests(unittest.TestCase):
         self.assertEqual(result["ingested"], 1)
         self.assertEqual(len(result["signal_ids"]), 1)
         self.assertEqual(result["dropped"], [])
-        record = json.loads(
-            next((self.tools / "runtime-signals").glob("*.json")).read_text(encoding="utf-8")
-        )
+        [record] = load_open_runtime_signals(base_dir=self.tools)
         self.assertEqual(record["source"], "prod_log")
         # prod_log content is outside-authored: its severity is capped and the
         # reported value kept beside the bounded one.

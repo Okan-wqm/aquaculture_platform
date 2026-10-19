@@ -36,7 +36,14 @@ def main(argv: list[str] | None = None) -> int:
     # adapter writes when the kernel's own decoder could not re-encode it
     # (nesting past the decoder's recursion limit; ARIA-HIGH-617).
     parser.add_argument("--stdout-b64")
+    # Text the run writes to stderr before it answers (base64 UTF-8): what a
+    # crashing adapter leaves behind (ARIA-LOW-542).
+    parser.add_argument("--stderr-b64")
     args = parser.parse_args(argv)
+
+    if args.stderr_b64:
+        sys.stderr.write(base64.b64decode(args.stderr_b64.encode("ascii")).decode("utf-8"))
+        sys.stderr.flush()
 
     if args.sleep_seconds:
         time.sleep(args.sleep_seconds)

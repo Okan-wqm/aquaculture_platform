@@ -15,13 +15,22 @@ names → every consumed request row, and for each consumed row
   (``…_consumed_row_unsigned:<reason>``);
 * re-checks the signed terms at merge time — expiry, audience, grounding
   digest present (``…_consumed_row_refused:<reason>``);
+* requires the plan's start to name the signed ``finding_id`` and
+  ``grounding_digest`` (``…_plan_subject_mismatch:<field>``, ARIA-LOW-265):
+  synthesis matches them at admission, and the merge proves the plan it
+  merges is still the one the operator signed for;
 * matches the signed subject the binding recorded, so a row swapped under
   the same id and position is refused;
+* refuses when main's history already carries the request
+  (``…_request_merged_on_main``, ARIA-MEDIUM-264): every merged delivery of
+  an operator plan lands a ``merged_request_line`` on main
+  (``operator_request_spend``), and a rollback of aria/state cannot erase
+  main. The merge owner reads that history at the PR's live base on the
+  merge lane's fresh clone; an unreadable history is
+  ``…_main_history_unavailable``, never "not merged";
 * refuses when the same request id is bound to another plan whose
-  implementation already merged (``…_request_already_merged``). That proof is
-  derived from the plan and ingestion ledgers the merge owner captured; a
-  store rolled back past the earlier merge would hide it, which is what the
-  signed expiry bounds.
+  implementation already merged (``…_request_already_merged``), from the
+  plan and ingestion ledgers the merge owner captured.
 
 Every gap is a named ``operator_feedback_unavailable_reason``; the
 predicate never infers a pass from an empty field.
@@ -29,24 +38,25 @@ predicate never infers a pass from an empty field.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
-from .operator_feedback_ingestion import PROVENANCE_REF_PREFIX
+from .ledger import load_declared_jsonl
+from .operator_feedback_ingestion import INGESTION_SURFACE, ingestion_ledger_path, plan_request_ids
 from .operator_feedback_signature import operator_request_schema_reason
 from .operator_request_signature import AllowedSigners, request_subject_digest, verify_operator_request
 from .operator_request_spend import INGESTION_ROW_TYPE, SYNTHESIS_BOUND_ROW_TYPE
-from .tool_registry import GovernanceError
+from .tool_registry import GovernanceError, ensure_tools_dir_readonly
 
 ALREADY_MERGED = "operator_feedback_request_already_merged"
-
-
-def _consumed_refs(plan_content: Any) -> set[str]:
-    """Request ids the started plan names as its provenance (never its evidence, ORPHAN-HIGH-519)."""
-    refs = plan_content.get("provenance_refs") if isinstance(plan_content, dict) else None
-    return {
-        str(ref)[len(PROVENANCE_REF_PREFIX):]
-        for ref in (refs or []) if isinstance(ref, str) and ref.startswith(PROVENANCE_REF_PREFIX)
-    }
+# ARIA-MEDIUM-264 — main's history, the record a rollback of aria/state
+# cannot erase, already carries the request; or that history could not be read.
+MERGED_ON_MAIN = "operator_feedback_request_merged_on_main"
+MAIN_HISTORY_UNAVAILABLE = "operator_feedback_main_history_unavailable"
+# ARIA-LOW-265 — the plan_started content names another finding or grounding
+# than the request row it consumed signs.
+PLAN_SUBJECT_MISMATCH = "operator_feedback_plan_subject_mismatch"
+_SIGNED_PLAN_SUBJECT: tuple[str, ...] = ("finding_id", "grounding_digest")
 
 
 def _merged_elsewhere(
@@ -72,19 +82,21 @@ def _merged_elsewhere(
     return any(other != plan_id and started.get(other) in bound_hashes for other in merged)
 
 
-def observe_operator_feedback_for_plan(
-    *,
-    plan_id: str,
+def _walk_synthesis_binding(
     plan_started: dict[str, Any] | None,
     ingestion_rows: list[dict[str, Any]],
-    feedback_rows: list[dict[str, Any]],
-    plan_events: list[dict[str, Any]],
-    allowed_signers: AllowedSigners | None,
-    now: datetime | None = None,
-) -> dict[str, Any]:
-    """The pre-merge observation; see the module docstring for every refusal it names."""
-    moment = now or datetime.now(timezone.utc)
-    observation: dict[str, Any] = {}
+    observation: dict[str, Any],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """The structural half of the walk: ``plan_started`` → its ``synthesis_bound``
+    row → the ingestion it names → the consumption the plan declares.
+
+    Fills ``observation`` stage by stage and returns the started plan content
+    with the consumed entries, or raises ``GovernanceError`` naming the first
+    stage that failed. It reads no signature and no clock, so its answer is a
+    property of the plan and the ingestion ledger alone: the merge reads it,
+    and so does the implementation mint before anything is spent
+    (:func:`synthesis_binding_refusal`).
+    """
     reason = "operator_feedback_plan_start_unavailable"
     try:
         if not isinstance(plan_started, dict):
@@ -122,13 +134,67 @@ def observe_operator_feedback_for_plan(
         if not isinstance(consumed, list):
             raise GovernanceError(reason)
         consumed_ids = {str(entry.get("id")) for entry in consumed if isinstance(entry, dict)}
-        if consumed_ids != _consumed_refs(started_content):
+        if consumed_ids != plan_request_ids(started_content):
             raise GovernanceError(reason)
         identity = ("id", "ledger_hash", "signer", "subject_digest")
         admitted_keys = {tuple(entry.get(key) for key in identity) for entry in admitted if isinstance(entry, dict)}
         for entry in consumed:
             if tuple(entry.get(key) for key in identity) not in admitted_keys:
                 raise GovernanceError(reason)
+        return started_content, consumed
+    except (KeyError, TypeError, ValueError) as exc:
+        raise GovernanceError(reason) from exc
+
+
+def synthesis_binding_refusal(
+    plan_started: dict[str, Any] | None, ingestion_rows: list[dict[str, Any]],
+) -> str | None:
+    """ARIA-HIGH-529 — the reason the merge walk refuses ``plan_started``
+    before it reads a single signature, or None when its synthesis is bound.
+
+    Only the provider binds a synthesis (``bind_plan_synthesis``); a plan
+    started by ``plan start``, by skill authoring or by the V7 fallback has
+    no ``synthesis_bound`` row, and nothing appends one later, so this answer
+    does not change for the plan's lifetime."""
+    try:
+        _walk_synthesis_binding(plan_started, ingestion_rows, {})
+    except GovernanceError as exc:
+        return str(exc)
+    return None
+
+
+def plan_synthesis_binding_refusal(state: dict[str, Any], *, base_dir: str | Path | None) -> str | None:
+    """:func:`synthesis_binding_refusal` of a folded plan, read against the
+    store's hash-chained ingestion ledger (an absent ledger binds nothing)."""
+    root = ensure_tools_dir_readonly(base_dir)
+    path = None if root is None else ingestion_ledger_path(root)
+    rows = (load_declared_jsonl(path, expected_surface=INGESTION_SURFACE)
+            if path is not None and path.exists() else [])
+    return synthesis_binding_refusal(state.get("plan_started"), rows)
+
+
+def observe_operator_feedback_for_plan(
+    *,
+    plan_id: str,
+    plan_started: dict[str, Any] | None,
+    ingestion_rows: list[dict[str, Any]],
+    feedback_rows: list[dict[str, Any]],
+    plan_events: list[dict[str, Any]],
+    allowed_signers: AllowedSigners | None,
+    main_request_ids: frozenset[str] | None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """The pre-merge observation; see the module docstring for every refusal it names.
+
+    ``main_request_ids`` are the request ids main's history records as merged
+    (``operator_request_spend.merged_request_ids`` over main), or None when
+    that history could not be read.
+    """
+    moment = now or datetime.now(timezone.utc)
+    observation: dict[str, Any] = {}
+    reason = "operator_feedback_plan_start_unavailable"
+    try:
+        started_content, consumed = _walk_synthesis_binding(plan_started, ingestion_rows, observation)
         reason = "operator_feedback_consumed_row_unavailable"
         row_hashes: list[str] = []
         signers: list[str] = []
@@ -147,6 +213,15 @@ def observe_operator_feedback_for_plan(
             terms = operator_request_schema_reason(matches[0], now=moment, anchor=allowed_signers)
             if terms is not None:
                 raise GovernanceError("operator_feedback_consumed_row_refused:" + terms)
+            # ARIA-LOW-265 — the plan this merge starts from targets the
+            # subject the operator signed: same finding, same grounding.
+            for field in _SIGNED_PLAN_SUBJECT:
+                if started_content.get(field) != matches[0].get(field):
+                    raise GovernanceError(f"{PLAN_SUBJECT_MISMATCH}:{field}")
+            if main_request_ids is None:
+                raise GovernanceError(MAIN_HISTORY_UNAVAILABLE)
+            if entry["id"] in main_request_ids:
+                raise GovernanceError(MERGED_ON_MAIN)
             if _merged_elsewhere(str(entry["id"]), plan_id=plan_id,
                                  ingestion_rows=ingestion_rows, plan_events=plan_events):
                 raise GovernanceError(ALREADY_MERGED)
@@ -164,4 +239,12 @@ def observe_operator_feedback_for_plan(
         return observation
 
 
-__all__ = ["ALREADY_MERGED", "observe_operator_feedback_for_plan"]
+__all__ = [
+    "ALREADY_MERGED",
+    "MAIN_HISTORY_UNAVAILABLE",
+    "MERGED_ON_MAIN",
+    "PLAN_SUBJECT_MISMATCH",
+    "observe_operator_feedback_for_plan",
+    "plan_synthesis_binding_refusal",
+    "synthesis_binding_refusal",
+]

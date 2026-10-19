@@ -73,6 +73,8 @@ class MissionTestBase(unittest.TestCase):
             wake_condition=kw.pop(
                 "wake_condition", {"kind": "evidence", "key": f"finding:{source_id}"}
             ),
+            # ARIA-HIGH-245 — the mint records the evidence its contract names.
+            evidence_refs=kw.pop("evidence_refs", [f"apps/farm-service/src/{source_id}.ts"]),
             base_dir=self.base,
             **kw,
         )

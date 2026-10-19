@@ -55,7 +55,7 @@ class OneSignalPerTransitionResolvedByTheNextSuccess(_Store):
         items = self.items()
         self.assertEqual(len(items), 1)
         self.assertTrue(items[0]["reason"].startswith("provider_unavailable:anthropic:auth"))
-        self.assertIn("login", items[0]["reason"], "the remedy travels with the item")
+        self.assertIn("claude setup-token", items[0]["reason"], "the remedy travels with the item")
 
     def test_the_reprobe_backs_off_while_the_outage_stands(self) -> None:
         windows = [self.cool(_T0 + timedelta(minutes=m), claim=f"CL-{m}")["details"]["cooldown_seconds"]
@@ -135,7 +135,7 @@ class TheAdmissionDetectsALoggedOutSessionAndItsReturn(_Store):
         from aria_kernel.provider_cooldown import active_provider_cooldowns
         from aria_kernel.provider_outage_ledger import open_outages
 
-        self._observe("managed_session_logged_out", "unavailable")
+        self._observe("claude_gateway_credential_absent", "unavailable")
         self.assertEqual([(i.provider, i.kind) for i in open_outages(self.tools)], [("anthropic", "logged_out")])
         self.assertEqual(active_provider_cooldowns(self.tools)["anthropic"]["reason"], "logged_out")
         self.assertEqual(len(self.items()), 1)
@@ -143,9 +143,9 @@ class TheAdmissionDetectsALoggedOutSessionAndItsReturn(_Store):
     def test_logged_in_closes_the_login_outage_but_not_a_dead_token(self) -> None:
         from aria_kernel.provider_outage_ledger import open_outages
 
-        self._observe("managed_session_logged_out", "unavailable")
+        self._observe("claude_gateway_credential_absent", "unavailable")
         self.cool(_T0 + timedelta(days=400))  # an `auth` (expired token) outage too
-        self._observe("managed_session_logged_in", "available")
+        self._observe("claude_gateway_credential_present", "available")
         self.assertEqual([(i.provider, i.kind) for i in open_outages(self.tools)], [("anthropic", "auth")])
 
     def test_a_logged_out_cooldown_is_refused_as_a_credential_fact(self) -> None:

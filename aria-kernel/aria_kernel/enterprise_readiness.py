@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 from .ledger import append_declared_jsonl, is_sha256_digest, load_declared_jsonl
 from .ledger_refs import find_row_by_source_ledger_ref, ledger_ref_for_row
 from .runtime_artifacts import ArtifactRefV2
@@ -134,7 +135,7 @@ def evaluate_enterprise_readiness_claim(claim: dict[str, Any]) -> EnterpriseRead
     if not isinstance(claim.get("pr_number"), int) or claim.get("pr_number") <= 0:
         reasons.append("readiness_pr_number_required")
         failures.append("readiness_binding_required")
-    if not isinstance(claim.get("head_sha"), str) or not _is_full_sha(str(claim.get("head_sha"))):
+    if not is_object_id(claim.get("head_sha"), formats=ANY_OBJECT_FORMAT):
         reasons.append("readiness_head_sha_must_be_full_git_sha")
         failures.append("readiness_binding_required")
 
@@ -1143,7 +1144,7 @@ def _compare_live_field(
         failures.append("readiness_live_binding_required")
         return
     live = str(live_value)
-    if require_full_sha and not _is_full_sha(live):
+    if require_full_sha and not is_object_id(live, formats=ANY_OBJECT_FORMAT):
         reasons.append("readiness_live_head_sha_required")
         failures.append("readiness_live_binding_required")
         return
@@ -1169,10 +1170,6 @@ def _sha256_bytes(data: bytes) -> str:
     import hashlib
 
     return "sha256:" + hashlib.sha256(data).hexdigest()
-
-
-def _is_full_sha(value: str) -> bool:
-    return len(value) == 40 and all(ch in "0123456789abcdef" for ch in value)
 
 
 def _expiry_is_future(value: str) -> bool:

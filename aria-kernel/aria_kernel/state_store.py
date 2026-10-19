@@ -68,6 +68,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 from .ledger import (
     StateTransaction,
     _lock_requirements_for_path,
@@ -1340,11 +1341,8 @@ def _stageable_pathspecs(store: StateStore, specs: set[str]) -> list[str]:
 
 
 def _full_git_sha(value: str) -> bool:
-    return (
-        value != "0" * 40
-        and len(value) == 40
-        and all(character in "0123456789abcdef" for character in value)
-    )
+    # A full object id that is not git's null id (all zeros, in either format).
+    return is_object_id(value, formats=ANY_OBJECT_FORMAT) and set(value) != {"0"}
 
 
 def _parse_remote_tip_listing(listing: str, *, ref: str) -> _RemoteTipProbe:
@@ -1517,7 +1515,9 @@ def _advance_checkout_tracking_ref(
                 "update-ref",
                 tracking_ref,
                 target,
-                current or ("0" * 40),
+                # Empty old-value: "the ref must not exist" (git-update-ref), in either
+                # object format; forty zeros was SHA-1's null id only.
+                current or "",
             ),
         )
         if proc.returncode == 0:
@@ -1550,7 +1550,9 @@ def _advance_tracking_ref_cas(store: StateStore, target: str) -> None:
                 "update-ref",
                 tracking,
                 target,
-                current or ("0" * 40),
+                # Empty old-value: "the ref must not exist" (git-update-ref), in either
+                # object format; forty zeros was SHA-1's null id only.
+                current or "",
             ),
         )
         if proc.returncode == 0:

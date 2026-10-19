@@ -75,6 +75,22 @@ from .cycle import job_deadline_epoch
 from .file_lock import with_exclusive_lock
 from .ledger import LedgerIntegrityError
 from .next_cycle_queue import defer_projection, mark_consumed, read_pending
+from .orchestrator_exit_history import (
+    BRIDGE_FAILED_PHASE,
+    BRIDGE_REPLAY_PHASE,
+    EXIT_BRIDGE_REPLAY_REQUIRED,
+    EXIT_CYCLE_FAILED,
+    EXIT_KIND,
+    EXIT_PROVIDER_OUTAGE_HOLD,
+    FAILED_EXIT_REASONS,
+    bridge_replay_reason,
+)
+from .provider_hold import (
+    CHECKPOINT_AFTER_PLANNER_DISPATCH,
+    CHECKPOINT_AFTER_WORKER_DISPATCH,
+    CHECKPOINT_CYCLE_START,
+    hold_if_every_provider_is_out,
+)
 from .reflection import run_reflection
 from .reflection_inputs import pedagogy_lint_snapshot, producer_reflection_kwargs
 from .tool_registry import GovernanceError
@@ -176,8 +192,15 @@ def _notify_cycle_failed(root: Path, *, cycle_id: str, exit_reason: str, reason:
     the exit so a continuing run's failed cycle that then also needs a
     bridge replay is two notices, not a dedup of the second.
     ``notify_best_effort`` never raises into the run it reports on.
+
+    ARIA-MEDIUM-548 — ``exit_reason`` is one of ``FAILED_EXIT_REASONS``, the
+    set ``exits_clean`` is computed from, so no exit can notify a failure and
+    still exit clean.
     """
     from .notify import notify_best_effort
+
+    if exit_reason not in FAILED_EXIT_REASONS:
+        raise ValueError(f"cycle_failed notice for an exit outside FAILED_EXIT_REASONS: {exit_reason}")
 
     notify_best_effort(
         kind="cycle_failed", key=f"{cycle_id}:{exit_reason}", base_dir=root,
@@ -641,6 +664,11 @@ def _reflect_on_failed_cycle(
     pedagogy_snapshot: dict[str, Any] | None,
 ) -> dict[str, Any]:
     """ARIA-HIGH-420 — the reflection of a night that ended on a failed exit.
+
+    ARIA-HIGH-579 review — also of a cycle held mid-night because every
+    provider went out after its cycle step (``provider_hold``): the lanes
+    behind the hold did not run, which is the shape this reflection already
+    reports, and the cycle's pressures still reach the next night's queue.
 
     WHY: the cycle runs with ``defer_reflection=True``, so the orchestrator
     is the only writer of the reflection row. Before this, the two failed
@@ -1548,33 +1576,29 @@ def run_autonomy_orchestrator(
                         )
                 # ARIA-HIGH-123 — the same net for the sockets the executor
                 # holds for an implementer's window: the ssh-agent that
-                # signs for the sandbox (`signing_agent`) and the hook
-                # broker the sandbox's hooks talk to (`hook_broker`). Each
-                # dies with its holder (PR_SET_PDEATHSIG; a daemon thread of
-                # the executor), but the socket directory a killed holder
-                # left behind stays until swept; a directory whose socket
-                # still answers belongs to a live holder and is left alone.
-                # Nothing swept, nothing said.
+                # signs for the sandbox (`signing_agent`), the hook broker
+                # the sandbox's hooks talk to (`hook_broker`), the MCP
+                # broker (ARIA-HIGH-124) and the kernel egress proxy, one
+                # per process that built a room (ARIA-HIGH-143). Each dies
+                # with its holder (PR_SET_PDEATHSIG; a daemon thread of the
+                # executor; atexit), but the socket directory a killed
+                # holder left behind stays until swept; a directory whose
+                # socket still answers belongs to a live holder and is left
+                # alone. ARIA-LOW-565 — ONE sweep over every holder
+                # `socket_holders` declares, keyed by the holder's name; a
+                # new holder is swept by being declared there. Nothing
+                # swept, nothing said.
                 try:
                     from .delivery_credentials import prune_stale_delivery_credential_dirs
-                    from .egress_proxy import prune_stale_egress_proxies
-                    from .hook_broker import prune_stale_hook_brokers
-                    from .mcp_broker import prune_stale_mcp_brokers
-                    from .signing_agent import prune_stale_signing_agents
+                    from .socket_holders import prune_stale_holder_sockets
                     _sockets_pruned = {
-                        "signing_agents": prune_stale_signing_agents(),
-                        "hook_brokers": prune_stale_hook_brokers(),
-                        # ARIA-HIGH-124 — the MCP broker's socket, the same class.
-                        "mcp_brokers": prune_stale_mcp_brokers(),
+                        **prune_stale_holder_sockets(),
                         # ARIA-HIGH-124 (round 6) — the delivery credential's
                         # private directory: a killed executor leaves it
                         # (with the token file, if the kill fell between the
                         # mint's write and the hold's read); older than the
                         # provider's hour it is nobody's.
                         "delivery_credential_dirs": prune_stale_delivery_credential_dirs(),
-                        # ARIA-HIGH-143 — the kernel egress proxy's socket
-                        # directory, one per process that built a room.
-                        "egress_proxies": prune_stale_egress_proxies(),
                     }
                 except Exception as _sweep_exc:
                     append_tools_governance(
@@ -1657,6 +1681,18 @@ def run_autonomy_orchestrator(
                         },
                     )
                     exit_reason = preflight_reason or "autonomous_preflight_blocked"
+                    break
+
+                # ARIA-HIGH-579 — every provider is out of quota: the night
+                # holds where it stands. No cycle starts, so nothing is
+                # minted, claimed, rebuilt or spent; the next night with a
+                # provider continues the same requests and plans
+                # (`provider_hold`, one row and one notice, a clean exit).
+                if hold_if_every_provider_is_out(
+                    root, cycle_id=None, checkpoint=CHECKPOINT_CYCLE_START,
+                    profile=profile_snapshot, daemon_id=daemon_id,
+                ) is not None:
+                    exit_reason = EXIT_PROVIDER_OUTAGE_HOLD
                     break
 
                 cycle_id = datetime.now(timezone.utc).strftime(
@@ -1781,7 +1817,7 @@ def run_autonomy_orchestrator(
                 # fails closed. Before the reflection, so a reflection that
                 # raises cannot cost the operator the notice.
                 if cycle_status == "failed":
-                    _notify_cycle_failed(root, cycle_id=cycle_id, exit_reason="cycle_failed",
+                    _notify_cycle_failed(root, cycle_id=cycle_id, exit_reason=EXIT_CYCLE_FAILED,
                                          reason=_cycle_failure_reason(cycle_summary["cycle"]))
                 # C5/E8 — one warn-mode pedagogy snapshot per cycle,
                 # taken ONCE here (not inside the kwargs builder) so
@@ -1790,9 +1826,7 @@ def run_autonomy_orchestrator(
                 # branch because the failed exits reflect too
                 # (ARIA-HIGH-420).
                 pedagogy_snapshot = pedagogy_lint_snapshot(workspace_root)
-                if cycle_status in {"ok", "degraded"}:
-                    cycles_completed += 1
-                elif fail_closed_on_cycle_failure:
+                if cycle_status == "failed" and fail_closed_on_cycle_failure:
                     # ARIA-HIGH-420 — the work lanes are skipped and the
                     # reflection still runs, so a failed night writes its
                     # report and queues the next cycle's work.
@@ -1803,7 +1837,7 @@ def run_autonomy_orchestrator(
                         pedagogy_snapshot=pedagogy_snapshot,
                     )
                     per_cycle_results.append(cycle_summary)
-                    exit_reason = "cycle_failed"
+                    exit_reason = EXIT_CYCLE_FAILED
                     break
 
                 # Plan ARIA-V10.4 Phase 1 instrumentation — cost-attribution
@@ -1864,6 +1898,25 @@ def run_autonomy_orchestrator(
                         "iterations": planner_result.get("iterations"),
                     },
                 )
+                # ARIA-HIGH-579 — a planner spawn may have spent the last
+                # provider's window: every model phase behind it holds.
+                _midnight_hold = hold_if_every_provider_is_out(
+                    root, cycle_id=cycle_id, checkpoint=CHECKPOINT_AFTER_PLANNER_DISPATCH,
+                    profile=profile_snapshot, daemon_id=daemon_id,
+                )
+                if _midnight_hold is not None:
+                    cycle_summary[EXIT_PROVIDER_OUTAGE_HOLD] = _midnight_hold
+                    # The cycle step ran: its reflection queues the cycle's
+                    # pressures for the next night (`provider_hold`).
+                    cycle_summary["reflection"] = _reflect_on_failed_cycle(
+                        root=root, cycle_id=cycle_id, profile=profile_snapshot,
+                        workspace_root=workspace_root,
+                        cycle_summary=cycle_summary, cycle_result=cycle_result,
+                        pedagogy_snapshot=pedagogy_snapshot,
+                    )
+                    per_cycle_results.append(cycle_summary)
+                    exit_reason = EXIT_PROVIDER_OUTAGE_HOLD
+                    break
 
                 # Phase: bridge drain (C.5 retry).
                 bridge_result = bridge_drainer(
@@ -1893,7 +1946,7 @@ def run_autonomy_orchestrator(
                     AutonomyStateReducer.transition(
                         root,
                         cycle_id=cycle_id,
-                        phase="bridge_replay_required",
+                        phase=BRIDGE_REPLAY_PHASE,
                         status="failed",
                         profile=profile_snapshot,
                         details={
@@ -1903,14 +1956,15 @@ def run_autonomy_orchestrator(
                     )
                     cycle_summary["failed_phases"] = list(cycle_summary.get("failed_phases", [])) + [
                         {
-                            "phase": "bridge",
+                            "phase": BRIDGE_FAILED_PHASE,
                             "status": "failed",
+                            "error": bridge_replay_reason(bridge_status, pending_after),
                             "bridge_status": bridge_status,
                             "pending_after": pending_after,
                         },
                     ]
-                    _notify_cycle_failed(root, cycle_id=cycle_id, exit_reason="bridge_replay_required",
-                                         reason=f"bridge_status={bridge_status} pending_after={pending_after}")
+                    _notify_cycle_failed(root, cycle_id=cycle_id, exit_reason=EXIT_BRIDGE_REPLAY_REQUIRED,
+                                         reason=bridge_replay_reason(bridge_status, pending_after))
                     # ARIA-HIGH-420 — the second failed exit reflects like
                     # the first one does.
                     cycle_summary["reflection"] = _reflect_on_failed_cycle(
@@ -1920,8 +1974,17 @@ def run_autonomy_orchestrator(
                         pedagogy_snapshot=pedagogy_snapshot,
                     )
                     per_cycle_results.append(cycle_summary)
-                    exit_reason = "bridge_replay_required"
+                    exit_reason = EXIT_BRIDGE_REPLAY_REQUIRED
                     break
+
+                # ARIA-MEDIUM-548 — a cycle is completed once it has passed
+                # both fail-closed gates: its own verdict and the bridge
+                # replay. Counted at `cycle_completed`, before the bridge, a
+                # bridge_replay_required night that notified a failure was
+                # also one completed cycle. A failed cycle the run continues
+                # past (fail_closed_on_cycle_failure=False) is not counted.
+                if cycle_status in {"ok", "degraded"}:
+                    cycles_completed += 1
 
                 # ARIA-HIGH-362 — CONVERGED plans an earlier cycle offered and
                 # left CONVERGED are offered again, through the same entry the
@@ -1989,10 +2052,14 @@ def run_autonomy_orchestrator(
                     base_dir=root,
                     workspace_root=Path(workspace_root) if workspace_root else root,
                     profile=str(profile_snapshot or "standard"),
-                    primary_drafter=_v7_select_drafter(role="primary_authoring", cycle_id=cycle_id),
-                    challenger_drafter=_v7_select_drafter(role="challenger_authoring", cycle_id=cycle_id),
-                    evidence_judge=_v7_select_judge(role="evidence_judgment", cycle_id=cycle_id),
-                    adversarial_judge=_v7_select_judge(role="adversarial_judgment", cycle_id=cycle_id),
+                    # ARIA-MEDIUM-507 — the store is bound at the producer:
+                    # each dispatcher mints into and reads back from `root`.
+                    primary_drafter=_v7_select_drafter(role="primary_authoring", base_dir=root, cycle_id=cycle_id),
+                    challenger_drafter=_v7_select_drafter(
+                        role="challenger_authoring", base_dir=root, cycle_id=cycle_id,
+                    ),
+                    evidence_judge=_v7_select_judge(role="evidence_judgment", base_dir=root, cycle_id=cycle_id),
+                    adversarial_judge=_v7_select_judge(role="adversarial_judgment", base_dir=root, cycle_id=cycle_id),
                     sandbox_runner=_v7_select_sandbox_runner(),
                 )
                 cycle_summary["skill_genesis"] = _v7_genesis_result
@@ -2766,6 +2833,25 @@ def run_autonomy_orchestrator(
                             worker_result.get("retries_attempted"),
                     },
                 )
+                # ARIA-HIGH-579 — the same question after the worker lane's
+                # spawns: the review it would mint holds.
+                _midnight_hold = hold_if_every_provider_is_out(
+                    root, cycle_id=cycle_id, checkpoint=CHECKPOINT_AFTER_WORKER_DISPATCH,
+                    profile=profile_snapshot, daemon_id=daemon_id,
+                )
+                if _midnight_hold is not None:
+                    cycle_summary[EXIT_PROVIDER_OUTAGE_HOLD] = _midnight_hold
+                    # The cycle step ran: its reflection queues the cycle's
+                    # pressures for the next night (`provider_hold`).
+                    cycle_summary["reflection"] = _reflect_on_failed_cycle(
+                        root=root, cycle_id=cycle_id, profile=profile_snapshot,
+                        workspace_root=workspace_root,
+                        cycle_summary=cycle_summary, cycle_result=cycle_result,
+                        pedagogy_snapshot=pedagogy_snapshot,
+                    )
+                    per_cycle_results.append(cycle_summary)
+                    exit_reason = EXIT_PROVIDER_OUTAGE_HOLD
+                    break
 
                 # Plan ARIA-V5 §2 V5.2 Phase 5.2 — Gate B post-impl
                 # adversarial review. Mint adversarial_judge +
@@ -2981,7 +3067,7 @@ def run_autonomy_orchestrator(
 
             if profile_announce_allowed:
                 append_tools_governance(
-                    root, "autonomy_orchestrator_exit",
+                    root, EXIT_KIND,
                     {
                         "daemon_id": daemon_id,
                         "cycles_completed": cycles_completed,
@@ -2998,7 +3084,7 @@ def run_autonomy_orchestrator(
                 "worker_assignments_dispatched": worker_total,
                 "auto_merges_completed": auto_merges_total,
                 "exit_reason": exit_reason,
-                "exits_clean": exit_reason not in {"cycle_failed"},
+                "exits_clean": exit_reason not in FAILED_EXIT_REASONS,
                 "per_cycle": per_cycle_results,
                 "daemon_agent_id": daemon_agent_id,
             }

@@ -41,7 +41,7 @@ only.
 | Claude CLI floor     | `claude_code_floor` in `.github/manifests/aria-claude-floor.json` (both lanes' preflight rejects older)                                                                                                                                                                |
 | Workspace checkout   | `/home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform`                                                                                                                                                                                       |
 | Runner limits        | `MemoryHigh=2300M MemoryMax=3G OOMPolicy=continue CPUQuota=200% CPUWeight=400` (`scripts/aria/runner-habitat/systemd/actions-runner.limits.conf`)                                                                                                                      |
-| Session limits       | `user-.slice MemoryHigh=2816M MemoryMax=3G` (`scripts/aria/runner-habitat/systemd/user-.slice.d/50-aria-memory-discipline.conf`)                                                                                                                                       |
+| Session memory       | no habitat cap on `user-.slice`/`user.slice` memory (ARIA-HIGH-247: the operator's sessions held 10.9 GB on the 31959 MiB host, 2026-09-29)                                                                                                                            |
 | Session CPU share    | `user.slice CPUWeight=50` against `system.slice` 100 (`scripts/aria/runner-habitat/systemd/user.slice.d/50-aria-cpu-discipline.conf`)                                                                                                                                  |
 | Runner identity (T2) | `User=gharunner Group=gharunner SupplementaryGroups= NoNewPrivileges=yes InaccessiblePaths=/root` (`scripts/aria/runner-habitat/systemd/actions-runner.identity.conf`; ADR-0023, restart the service after install)                                                    |
 | T2 probe (hourly)    | `aria-t2-probe.timer` runs `aria-kernel habitat t2-probe` as `gharunner` (`scripts/aria/runner-habitat/systemd/aria-t2-probe.{service,timer}`; verdict `aria_t2_boundary_held`, alerts in `infrastructure/monitoring/droplet/rules/80-aria-t2-boundary.yml`; ADR-0023) |
@@ -60,8 +60,8 @@ prevent.
   fine-grained PAT (step 3).
 - Read access to the production compose env file on the droplet (source
   of the observability key value, step 3).
-- The operator's Claude subscription account for the managed login
-  (step 4). API keys are NOT a substitute — the lanes hard-fail when
+- The operator's Claude subscription account, to mint the kernel's token
+  with `claude setup-token` (step 4). API keys are NOT a substitute — the lanes hard-fail when
   `ANTHROPIC_API_KEY` / `CLAUDE_API_KEY` / `ANTHROPIC_AUTH_TOKEN` is set.
 - Egress to `github.com`, `api.github.com`, `api.anthropic.com`.
 - Create the service account: `useradd -m -s /bin/bash gharunner`
@@ -132,18 +132,24 @@ process `oom_score_adj=500` (its `ProcessInvokerWrapper` does this — not
 configurable), so whenever the _whole machine_ runs out of memory the
 kernel kills the ARIA cycle first, regardless of who consumed the memory
 (ARIA-HIGH-034: a 22 MB cycle process killed while sessions held 3.2 GiB).
-The budget therefore has to be enforced per tenant of the box:
+The runner therefore carries its own budget, and `OOMPolicy=continue`
+keeps its listener alive when a job process is killed:
 
 ```bash
-# both drop-ins are repo copies; the provision script installs + drift-checks them
+# the drop-ins are repo copies; the provision script installs + drift-checks them
 scripts/aria/provision_runner.sh            # apply (root)
 scripts/aria/provision_runner.sh --dry-run  # verify: expect ✓ on OOMPolicy/MemoryMax probes
 ```
 
-| Unit                                | Budget                                                                                              | Effect when exceeded                                                                                                                                               |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| runner service                      | `MemoryHigh=2300M`, `MemoryMax=3G`, `OOMPolicy=continue`, `CPUWeight=400` (`CPUQuota=200%` ceiling) | throttled first; a killed job process fails _that_ job only — the listener stays up and the queued job runs                                                        |
-| `user-.slice` (every login session) | `MemoryHigh=2816M`, `MemoryMax=3G`                                                                  | sessions are reclaimed/swapped, then the largest session process is killed _inside the slice_ — a runaway agent CLI can no longer take the machine to a global OOM |
+| Unit           | Budget                                                                                              | Effect when exceeded                                                                                        |
+| -------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| runner service | `MemoryHigh=2300M`, `MemoryMax=3G`, `OOMPolicy=continue`, `CPUWeight=400` (`CPUQuota=200%` ceiling) | throttled first; a killed job process fails _that_ job only — the listener stays up and the queued job runs |
+
+The login sessions carry no habitat memory cap (ARIA-HIGH-247). The habitat once
+shipped `user-.slice MemoryHigh=2816M MemoryMax=3G`, sized for a retired 7.8 GiB
+droplet. On the 31959 MiB host the operator's sessions held 10.9 GB
+(2026-09-29), so that cap would have had the cgroup OOM killer end them; the
+operator declined it and the habitat no longer carries it.
 
 CPU is a share, not a cap: under cgroup v2 a `Nice=` value only orders tasks
 inside one cgroup, so the runner's old `Nice=10` never counted against its
@@ -165,7 +171,7 @@ contents, are the verdict:
 
 ```bash
 systemctl show actions.runner.Okan-wqm-aquaculture_platform.suderra-droplet-claude.service -p MemoryMax -p OOMPolicy
-systemctl show user-0.slice -p MemoryMax -p MemoryCurrent
+systemctl show user-0.slice -p MemoryCurrent
 cat /sys/fs/cgroup/system.slice/actions.runner.*.service/memory.events   # `max N` = times the cap was hit
 ```
 
@@ -248,28 +254,45 @@ enters policy or ledgers. The value is the observability-service
 droplet's compose env file into the runner `.env` under the ARIA name.
 Rotating the observability key means updating both places.
 
-## Step 4 — Claude Code managed-login checklist (10 min)
+## Step 4 — Claude Code token checklist (10 min)
 
-ARIA's live runtime is Claude Code CLI under a **managed (subscription)
-login** on this trusted runner (`docs/aria/CURRENT_STATE.md` §Runtime).
+ARIA's live runtime is Claude Code CLI on the subscription
+(`docs/aria/CURRENT_STATE.md` §Runtime), reached through the kernel's
+provider gateway (ARIA-MEDIUM-563): no agent room holds a login or a token.
+The gateway injects the kernel's own credential — a dedicated long-lived
+token that `claude setup-token` mints — on every request it forwards.
 API-key mode is rejected by both lanes' preflight.
 
 1. Install Claude Code so the `gharunner` user can run it; verify the
    floor: `sudo -u gharunner claude --version` ≥ the `claude_code_floor` in
    `.github/manifests/aria-claude-floor.json`.
-2. Log in interactively AS `gharunner` (`sudo -u gharunner -i claude`,
-   then `/login`) with the managed subscription account.
-3. Confirm no API-key variables anywhere in the runner environment or
+2. Mint the kernel's token AS `gharunner` with the subscription account:
+   `sudo -u gharunner -i claude setup-token`. Write the printed token, and
+   nothing else, to `/home/gharunner/.config/aria/claude_oauth_token`
+   (one line), then `chmod 0600` it, owned by `gharunner`. The kernel
+   refuses (`credential_file_in_room_tree`) a token inside any tree a room
+   is given: its own checkout, the spawn's workspace, and the host roots
+   every room binds read-only (`/usr`, `/etc/ssl`, `/lib`, `/bin`, … and the
+   kernel's interpreter prefix). It also refuses a symlink, a file another
+   account owns, and anything but one line of printable ASCII.
+3. Add `ARIA_CLAUDE_OAUTH_TOKEN_FILE=/home/gharunner/.config/aria/claude_oauth_token`
+   to the runner `.env` and restart the runner service.
+4. Confirm no API-key variables anywhere in the runner environment or
    `.env`: `ANTHROPIC_API_KEY`, `CLAUDE_API_KEY`, `ANTHROPIC_AUTH_TOKEN`
    must all be absent — preflight hard-fails when one is set.
-4. Evidence the preflight checks: `/home/gharunner/.claude/.credentials.json`
-   (or `config.json`; `CLAUDE_CONFIG_DIR` respected) exists.
-5. Live smoke: `sudo -u gharunner claude -p "say OK"` returns OK.
-   ORPHAN-CRITICAL-591 is why this step exists: an expired OAuth session
-   made five nights of executor runs fail as `claude_cli_exit_1`. The
-   failure now names itself (`claude_cli_auth_failure`), but renewal is
-   always this manual credential act — sessions expire, so re-run this
-   checklist whenever a night reports auth failure.
+5. Evidence the preflight checks — the kernel's one credential reader prints `ok:file:<path>`
+   (never the value):
+
+   ```bash
+   sudo -u gharunner env ARIA_CLAUDE_OAUTH_TOKEN_FILE=/home/gharunner/.config/aria/claude_oauth_token PYTHONPATH=aria-kernel python3 -m aria_kernel.provider_credentials check anthropic
+   ```
+
+6. Re-mint before day 365 (the token's lifetime) and whenever a night
+   reports `claude_auth_failure`: repeat step 2 over the same file; the
+   gateway re-reads it per request, so no restart is needed.
+   ORPHAN-CRITICAL-591 is why this step exists: an expired credential made
+   five nights of executor runs fail as `claude_cli_exit_1`; the failure now
+   names itself (`claude_auth_failure`) and its remedy.
 
 ## Step 5 — State-store bootstrap pointer (2 min)
 

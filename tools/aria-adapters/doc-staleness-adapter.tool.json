@@ -3,6 +3,7 @@
   "kind": "adapter",
   "version": "1.0.0",
   "status": "SHADOW",
+  "security_class": false,
   "declared_scope": ["docs/**/*.md"],
   "output_schema": {
     "type": "object",

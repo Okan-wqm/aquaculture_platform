@@ -88,16 +88,11 @@ from aria_kernel.hook_broker import HOOK_BROKER_SOCKET_ENV, SANDBOX_HOOK_BROKER_
 from aria_kernel.signing_agent import hold_signing_agent
 from tests._helpers.ambient_git_config import AMBIENT_GIT_CONFIG, injected_git_config
 from tests._helpers.git_fixtures import _git, make_repo_with_initial_commit
+from tests._helpers.sandbox_pins import require_sandbox_backend
 
 CYCLE = "cyc-aria-high-123"
 BRANCH = "aria-impl-0123abcd"
 _KERNEL_ROOT = Path(__file__).resolve().parents[1]
-
-
-def _skip_without_bwrap(case: unittest.TestCase) -> None:
-    impl._bwrap_available.cache_clear()
-    if impl.sandbox_backend() is None:
-        case.skipTest("bwrap is not usable on this host; the sandbox refuses rather than degrading")
 
 
 def _pairs(argv: list[str]) -> list[tuple[str, str, str]]:
@@ -152,7 +147,7 @@ class _Checkout(unittest.TestCase):
     def _argv(self, script: str, containment, *, hook_broker_socket: Path | None = None,
               wrap=None, extra_flags: list[str] = ()) -> list[str]:
         wrapper = wrap or impl.wrap_bash_in_sandbox
-        argv = wrapper(["sh", "-c", script], workspace_root=self.worktree, allow_network=True,
+        argv = wrapper(["sh", "-c", script], workspace_root=self.worktree, provider=impl.MANAGED_SPAWN_PROVIDER,
                        git=containment, hook_broker_socket=hook_broker_socket)
         if extra_flags:
             separator = argv.index("--")
@@ -266,7 +261,7 @@ class DerivationTests(_Checkout):
             derive_git_containment(self.repo, commit_capable=True)
         self.assertEqual(refused.exception.reason, "shared_checkout_scope:--local")
         self.assertIsNone(derive_git_containment(self.repo, commit_capable=False))
-        argv = impl._sandbox_argv(["true"], workspace_root=self.repo, allow_network=False,
+        argv = impl._sandbox_argv(["true"], workspace_root=self.repo, 
                                   git=derive_git_containment(self.repo, commit_capable=False))
         writable = [argv[i + 1] for i, tok in enumerate(argv) if tok == "--bind"]
         self.assertEqual(writable, [str(self.repo)])
@@ -323,12 +318,12 @@ class DerivationTests(_Checkout):
     def test_the_wrapper_refuses_a_containment_derived_for_another_workspace(self) -> None:
         containment = derive_git_containment(self.sibling, commit_capable=False)
         with self.assertRaises(impl.SandboxUnavailable) as refused:
-            impl._sandbox_argv(["true"], workspace_root=self.worktree, allow_network=False, git=containment)
+            impl._sandbox_argv(["true"], workspace_root=self.worktree, git=containment)
         self.assertIn("git_containment_workspace_mismatch", str(refused.exception))
 
     def test_the_wrapper_appends_the_git_binds_after_readonly_paths_and_never_binds_a_store(self) -> None:
         containment = derive_git_containment(self.worktree, commit_capable=True)
-        argv = impl._sandbox_argv(["true"], workspace_root=self.worktree, allow_network=False, git=containment)
+        argv = impl._sandbox_argv(["true"], workspace_root=self.worktree, git=containment)
         marker = argv.index(str(self.worktree / ".git"))
         self.assertLess(marker, argv.index(str(self.common)), "READONLY_PATHS first, the derived git binds after")
         self.assertIn("--unshare-net", argv)
@@ -338,7 +333,7 @@ class DerivationTests(_Checkout):
     def test_a_missing_hook_broker_socket_is_refused_by_name(self) -> None:
         containment = derive_git_containment(self.worktree, commit_capable=True)
         with self.assertRaises(impl.SandboxUnavailable) as refused:
-            impl._sandbox_argv(["true"], workspace_root=self.worktree, allow_network=False, git=containment,
+            impl._sandbox_argv(["true"], workspace_root=self.worktree, git=containment,
                                hook_broker_socket=self.root / "nowhere.sock")
         self.assertIn("hook_broker_socket_missing", str(refused.exception))
 
@@ -349,7 +344,7 @@ class _HeldIdentity(_Checkout):
 
     def setUp(self) -> None:
         super().setUp()
-        _skip_without_bwrap(self)
+        require_sandbox_backend(fresh_probe=True)
         from aria_kernel.gh_token_factory import mint_signing_key, revoke_signing_key
 
         key = mint_signing_key(cycle_id=CYCLE, workspace_root=self.worktree)
@@ -859,6 +854,51 @@ class PublicationTests(_Quarantine):
         read_only = derive_git_containment(self.worktree, commit_capable=False)
         self.assertEqual(publish_quarantine(read_only).refs_published, ())
 
+    def _bounded_reads(self) -> tuple[list[tuple[str, int]], object]:
+        """Record every (path, limit) the publication reads from the replica."""
+        from aria_kernel.untrusted_tree import UntrustedTree
+
+        reads: list[tuple[str, int]] = []
+        real_read = UntrustedTree.read
+
+        def recording(tree: UntrustedTree, relative: str, limit: int = -1) -> bytes:
+            reads.append((relative, limit))
+            return real_read(tree, relative, limit)
+
+        return reads, mock.patch.object(UntrustedTree, "read", recording)
+
+    def test_an_oversized_ref_file_is_discarded_by_name_and_never_read_whole(self) -> None:
+        # ARIA-LOW-569 — a ref holds an object id and a newline. A ref file
+        # the agent padded inside its own replica (here: the commit's real
+        # id, then whitespace) was read whole into the executor's memory,
+        # and `strip()` made the padding vanish: the branch was published.
+        # It is discarded by name instead, never truncated into an id.
+        self.containment = gc.replace(self.containment, seeded_refs=((BRANCH, self.base),))
+        sha = self._quarantined_commit(BRANCH)
+        (self.replica / "refs" / "heads" / BRANCH).write_text(sha + "\n" + " " * (64 * 1024), encoding="utf-8")
+        reads, recording = self._bounded_reads()
+        with recording:
+            publication = publish_quarantine(self.containment)
+        self.assertIsNone(publication.refusal)
+        self.assertEqual(publication.refs_published, ())
+        self.assertEqual(publication.refs_discarded, ((BRANCH, "ref_file_too_large"),))
+        self.assertNotEqual(_git(["rev-parse", "--verify", "-q", BRANCH], cwd=self.repo, check=False).returncode, 0)
+        self.assertEqual(list((self.replica / "refs" / "heads").iterdir()), [])
+        ref_reads = [limit for relative, limit in reads if relative.startswith("refs/heads/") or relative == "HEAD"]
+        self.assertTrue(ref_reads, reads)
+        self.assertTrue(all(0 < limit <= gc._MAX_REPLICA_REF_BYTES + 1 for limit in ref_reads), reads)
+
+    def test_an_oversized_replica_head_names_no_branch(self) -> None:
+        # The replica's HEAD is the agent's file too: padded past any
+        # `ref: refs/heads/aria-impl-<hex>`, it adopts nothing (the branch
+        # itself, a well-formed ref, is still published).
+        self.containment = gc.replace(self.containment, seeded_refs=((BRANCH, self.base),))
+        self._quarantined_commit(BRANCH)
+        (self.replica / "HEAD").write_text(f"ref: refs/heads/{BRANCH}\n" + " " * (64 * 1024), encoding="utf-8")
+        publication = publish_quarantine(self.containment)
+        self.assertEqual((publication.refusal, publication.refs_published, publication.head_adopted),
+                         (None, (BRANCH,), None))
+
 
 def _snapshot(root: Path) -> dict[str, tuple[str, bytes]]:
     """Every entry under ``root`` by its own kind, never through a link (a
@@ -1185,7 +1225,7 @@ class DependencyTreeTests(_Checkout):
         """Node walks up from the cwd for `node_modules`; the per-request
         worktree resolves the checkout's, which the sandbox hid — the
         canonical validation suite could not start inside. Bound read-only."""
-        _skip_without_bwrap(self)
+        require_sandbox_backend(fresh_probe=True)
         binary = self.repo / "node_modules" / ".bin"
         binary.mkdir()
         (binary / "nx").write_text("#!/bin/sh\necho NX_FROM_CHECKOUT \"$@\"\n", encoding="utf-8")
@@ -1226,7 +1266,7 @@ class TemporaryDirectoryTests(unittest.TestCase):
         """`TMPDIR` is in the spawn's baseline environment; a host value the
         sandbox does not mount made `git commit` die writing the buffer it
         signs. The sandbox exports its own /tmp as TMPDIR, by name."""
-        _skip_without_bwrap(self)
+        require_sandbox_backend(fresh_probe=True)
         with tempfile.TemporaryDirectory() as workspace:
             argv = impl.wrap_bash_in_sandbox(["sh", "-c", "echo $TMPDIR; test -d \"$TMPDIR\""], workspace_root=workspace)
             done = subprocess.run(argv, capture_output=True, text=True, timeout=30,

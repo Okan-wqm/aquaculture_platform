@@ -421,10 +421,10 @@ class ArchitectureSpineGateBypassTests(unittest.TestCase):
                 invariant_checks={
                     inv: (lambda root, _i=inv: InvariantMeasurement(
                         invariant=_i, measured_at="2026-05-08T00:00:00+00:00",
-                        measurements={"test": True}, source=f"fixture:{_i}",
+                        measurements={"violation_count": 0, "violation_identities": []},
+                        source=f"fixture:{_i}",
                     ))
-                    for inv in ("tenant_scoping", "event_contracts",
-                                "schema_entity", "auth_security")
+                    for inv in gate.INVARIANT_KINDS
                 },
             )
         self.assertEqual(called["refresh"], 0,

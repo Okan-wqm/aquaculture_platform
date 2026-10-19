@@ -40,6 +40,7 @@ import {
   currentStateAnchors,
 } from './aria-authority-hash';
 import { removeFixtureTree } from './fixture-tree';
+import { hermeticGitEnv } from './hermetic-git';
 
 const GATES_ROOT = __dirname;
 const SPEC_REPO_ROOT = join(GATES_ROOT, '..', '..');
@@ -56,7 +57,7 @@ const DAY_D_PLUS_1 = '2026-08-23T12:00:00Z';
  * GIT_INDEX_FILE pointing at the HOST repository's index).
  */
 const HERMETIC_GIT_ENV: NodeJS.ProcessEnv = {
-  ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))),
+  ...hermeticGitEnv(),
   LC_ALL: 'C',
   GIT_CONFIG_NOSYSTEM: '1',
   GIT_CONFIG_GLOBAL: '/dev/null',

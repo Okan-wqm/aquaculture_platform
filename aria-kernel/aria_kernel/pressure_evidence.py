@@ -83,12 +83,15 @@ def split_citable_refs(refs: Iterable[Any]) -> tuple[list[str], list[str]]:
     return evidence, provenance
 
 
-def require_citable_evidence(source: str, evidence: Iterable[Any]) -> list[str]:
+def require_citable_evidence(source: str, evidence: Iterable[Any], *, record: str = "pressure") -> list[str]:
     """``evidence`` unchanged when every ref passes the agent law's shape; otherwise a named refusal.
 
     Called by ``pressure._pressure`` for every source, so a producer that puts
     a ledger, PR or store ref into ``evidence`` fails at construction (and in
-    its tests), not at a paid agent run three hops downstream.
+    its tests), not at a paid agent run three hops downstream. ``record``
+    names the kind of record being built (``pressure``, ``mission``) in the
+    refusal code, so the same law refuses each record under its own name
+    (ARIA-HIGH-245: `mission.open_mission` asks this function too).
     """
     from .evidence_validator import agent_ref_shape_refusal
 
@@ -96,7 +99,7 @@ def require_citable_evidence(source: str, evidence: Iterable[Any]) -> list[str]:
     refused = [(ref, code) for ref in refs if (code := agent_ref_shape_refusal(ref)) is not None]
     if refused:
         raise GovernanceError(
-            f"pressure_evidence_not_agent_citable: source {source!r} names {refused[:3]} as "
+            f"{record}_evidence_not_agent_citable: source {source!r} names {refused[:3]} as "
             "evidence; a ref no agent can cite back belongs in provenance_refs"
         )
     return [str(ref) for ref in refs]

@@ -214,13 +214,15 @@ class SelfImprovement(_Store):
         missions = [m for m in list_open_missions(base_dir=self.tools) if m["source_kind"] == si.SELF_IMPROVEMENT_SOURCE_KIND]
         self.assertEqual(len(missions), len(opened))
         foreign = open_mission(source_kind="github_issue", source_id="issue-1", repo_hash=canonical_identity(self.ws), title="t",
-                               next_action="triage_github_issue", wake_condition={"kind": "timer", "key": "k"}, base_dir=self.tools)
+                               next_action="triage_github_issue", wake_condition={"kind": "timer", "key": "k"}, evidence_refs=(),
+                               base_dir=self.tools)
         with self.assertRaises(GovernanceError):
             si.propose_self_change(mission_id=str(foreign["mission_id"]), base_dir=self.tools, workspace_root=self.ws,
                                    evidence_paths=["aria-kernel/aria_kernel/search.py"], problem="p", proposed_change="c")
         mission_id = str(missions[0]["mission_id"]) if missions else str(open_mission(
             source_kind=si.SELF_IMPROVEMENT_SOURCE_KIND, source_id="manual:x", repo_hash=canonical_identity(self.ws), title="manual",
-            next_action=si.SELF_CHANGE_NEXT_ACTION, wake_condition={"kind": "evidence", "key": "manual"}, base_dir=self.tools)["mission_id"])
+            next_action=si.SELF_CHANGE_NEXT_ACTION, wake_condition={"kind": "evidence", "key": "manual"}, evidence_refs=(),
+            base_dir=self.tools)["mission_id"])
         with self.assertRaises(GovernanceError):
             si.propose_self_change(mission_id=mission_id, base_dir=self.tools, workspace_root=self.ws,
                                    evidence_paths=["aria-kernel/aria_kernel/data/runtime_profiles.json"], problem="p", proposed_change="widen")

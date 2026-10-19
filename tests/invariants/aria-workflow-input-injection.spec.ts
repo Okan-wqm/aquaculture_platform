@@ -42,6 +42,14 @@
  * class entirely; matching any expression whose BODY reads the inputs context
  * removes the second. `env:` and `with:` values are untouched by design: an env
  * value reaches the script as data, and an action validates its own inputs.
+ *
+ * # The pull-request-controlled payload (ARIA-HIGH-013)
+ *
+ * The same splice is code injection when the value is a field an outside
+ * author writes: a pull request's title, body or head branch, an issue or
+ * comment body, a commit message. The rule — inputs and that payload — lives in
+ * tools/gates/workflow-input-injection.ts, which ARIA's workflow/shell safety
+ * adapter imports too, so this gate and ARIA's observation are one rule.
  */
 
 import { readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -49,24 +57,15 @@ import { resolve, join } from 'node:path';
 
 import yaml from 'js-yaml';
 
+import {
+  EXPRESSION_BLOCK_RE,
+  NAMED_INPUT_READ_RE,
+  findRunBlockInjections,
+  type InjectionViolation,
+} from '../../tools/gates/workflow-input-injection';
+
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const WORKFLOWS_DIR = join(REPO_ROOT, '.github', 'workflows');
-
-/**
- * Only text inside `${{ ... }}` is substituted by the runner, so that is the
- * only place an injection can come from. Prose in a shell comment that NAMES
- * `inputs.x` without the expression braces is inert and is not reported.
- */
-const EXPRESSION_BLOCK_RE = /\$\{\{([\s\S]*?)\}\}/g;
-
-/**
- * A read of the inputs context anywhere in an expression body: `inputs.x`,
- * `inputs['x']`, `github.event.inputs.x`. The look-behind keeps a longer
- * identifier (`my_inputs.x`, `steps.inputs.x`) from matching; the
- * `github.event.inputs` alternative is listed explicitly because its `inputs`
- * is preceded by `.`.
- */
-const INPUTS_CONTEXT_RE = /(?<![A-Za-z0-9_.])(?:github\.event\.inputs|inputs)\s*(?:\.|\[)/;
 
 interface Violation {
   readonly file: string;
@@ -75,10 +74,6 @@ interface Violation {
   readonly snippet: string;
 }
 
-type WorkflowStep = Record<string, unknown> & { run?: unknown };
-type WorkflowJob = Record<string, unknown> & { steps?: unknown };
-type WorkflowDocument = { jobs?: Record<string, WorkflowJob> } | null;
-
 function workflowFiles(filter: (name: string) => boolean = () => true): string[] {
   return readdirSync(WORKFLOWS_DIR)
     .filter((f) => f.endsWith('.yml') || f.endsWith('.yaml'))
@@ -86,50 +81,8 @@ function workflowFiles(filter: (name: string) => boolean = () => true): string[]
     .sort();
 }
 
-/**
- * Every input-reading expression in the `run:` source of every step of every
- * job. The YAML text is passed in (not a path) so the fixture test below can
- * pin the scanner against the exact shapes that shipped.
- */
-function findRunBlockViolationsInText(text: string, label: string): Violation[] {
-  const document = yaml.load(text) as WorkflowDocument;
-  const lines = text.split('\n');
-  const violations: Violation[] = [];
-
-  // js-yaml keeps mapping order, so jobs and steps are visited in file order
-  // and a forward-only cursor maps each run block back to its source lines
-  // (for the file:line in the report; the verdict never depends on it).
-  let cursor = 0;
-  for (const job of Object.values(document?.jobs ?? {})) {
-    const steps = Array.isArray(job?.steps) ? (job.steps as WorkflowStep[]) : [];
-    for (const step of steps) {
-      if (typeof step?.run !== 'string') continue;
-      const runLines = step.run.split('\n');
-      const firstContent = runLines.findIndex((line) => line.trim() !== '');
-      const anchor = runLines[firstContent]?.trim() ?? '';
-      const anchorLine = lines.findIndex((line, index) => index >= cursor && line.includes(anchor));
-      const runStartLine = anchorLine >= 0 ? anchorLine - firstContent : -1;
-      if (anchorLine >= 0) cursor = anchorLine + (runLines.length - firstContent);
-
-      for (const match of step.run.matchAll(EXPRESSION_BLOCK_RE)) {
-        const body = match[1];
-        if (body === undefined || !INPUTS_CONTEXT_RE.test(body)) continue;
-        const offsetInRun = step.run.slice(0, match.index).split('\n').length - 1;
-        const lineIndex = runStartLine >= 0 ? runStartLine + offsetInRun : -1;
-        violations.push({
-          file: label,
-          lineNo: lineIndex + 1,
-          line: lines[lineIndex] ?? runLines[offsetInRun] ?? '',
-          snippet: match[0],
-        });
-      }
-    }
-  }
-  return violations;
-}
-
-function findRunBlockViolations(yamlPath: string): Violation[] {
-  return findRunBlockViolationsInText(readFileSync(yamlPath, 'utf-8'), yamlPath);
+function findRunBlockViolations(yamlPath: string): InjectionViolation[] {
+  return findRunBlockInjections(readFileSync(yamlPath, 'utf-8'), yamlPath);
 }
 
 // The unquoted-heredoc rule below stays scoped to ARIA-owned workflows: it was
@@ -197,7 +150,7 @@ function findHeredocViolations(yamlPath: string): Violation[] {
 }
 
 describe('workflow input injection invariant (Plan 024 v3 §B-3, INFRA-CRITICAL-080)', () => {
-  test('no workflow interpolates an input (${{ inputs.* }} or ${{ github.event.inputs.* }}) inside run: source', () => {
+  test('no workflow interpolates an input or a pull-request-controlled event field inside run: source', () => {
     const files = workflowFiles();
     // The deploy lane is the reason the scope is repo-wide; losing it from the
     // scan (a rename, a filter regression) must fail loudly, not pass quietly.
@@ -221,8 +174,9 @@ describe('workflow input injection invariant (Plan 024 v3 §B-3, INFRA-CRITICAL-
         )
         .join('\n');
       throw new Error(
-        `Plan 024 v3 §B-3 / INFRA-CRITICAL-080 violation — workflow input ` +
-          `interpolated into run: shell source:\n${summary}\n\n` +
+        `Plan 024 v3 §B-3 / INFRA-CRITICAL-080 / ARIA-HIGH-013 violation — ` +
+          `workflow input or untrusted event field interpolated into run: ` +
+          `shell source:\n${summary}\n\n` +
           `Fix: move the input to an env: block on the step (or job), ` +
           `then reference it as "$VAR" inside run: with a regex validate ` +
           `before any shell use. For inter-job data flow, use outputs: + ` +
@@ -245,15 +199,15 @@ describe('workflow input injection invariant (Plan 024 v3 §B-3, INFRA-CRITICAL-
       '        run: |',
       '          REASON="${{ inputs.bypass_reason || github.event.inputs.bypass_reason || \'\' }}"',
     ]);
-    expect(findRunBlockViolationsInText(fallbackChain, 'fixture')).toHaveLength(1);
+    expect(findRunBlockInjections(fallbackChain, 'fixture')).toHaveLength(1);
 
     // The `- run: |` spelling the line scanner never entered.
     const dashRun = job(['      - run: |', '          echo "${{ inputs.head_sha }}"']);
-    expect(findRunBlockViolationsInText(dashRun, 'fixture')).toHaveLength(1);
+    expect(findRunBlockInjections(dashRun, 'fixture')).toHaveLength(1);
 
     // Single-line run and the legacy github.event.inputs spelling.
     const inline = job(['      - run: echo "value=${{ github.event.inputs.tag }}"']);
-    expect(findRunBlockViolationsInText(inline, 'fixture')).toHaveLength(1);
+    expect(findRunBlockInjections(inline, 'fixture')).toHaveLength(1);
 
     // The repaired shape: the value crosses as env data, the script reads "$VAR".
     const envChannel = job([
@@ -263,7 +217,20 @@ describe('workflow input injection invariant (Plan 024 v3 §B-3, INFRA-CRITICAL-
       '        run: |',
       '          printf \'%s\\n\' "${REASON}"',
     ]);
-    expect(findRunBlockViolationsInText(envChannel, 'fixture')).toHaveLength(0);
+    expect(findRunBlockInjections(envChannel, 'fixture')).toHaveLength(0);
+
+    // ARIA-HIGH-013 — the pull-request-controlled event payload is the same
+    // class: an outside author writes the title, the branch name, the comment.
+    const prTitle = job(['      - run: echo "${{ github.event.pull_request.title }}"']);
+    expect(findRunBlockInjections(prTitle, 'fixture')).toHaveLength(1);
+    const headRef = job(['      - run: |', '          git checkout "${{ github.head_ref }}"']);
+    expect(findRunBlockInjections(headRef, 'fixture')).toHaveLength(1);
+    const commentBody = job([
+      '      - run: |',
+      '          BODY="${{ github.event.comment.body }}" ./reply.sh',
+      '          echo "${{ github.event.head_commit.message }}"',
+    ]);
+    expect(findRunBlockInjections(commentBody, 'fixture')).toHaveLength(2);
 
     // Other contexts and inert prose are not this rule's subject.
     const otherContexts = job([
@@ -271,7 +238,7 @@ describe('workflow input injection invariant (Plan 024 v3 §B-3, INFRA-CRITICAL-
       '          # inputs.head_sha is passed through env below',
       '          echo "${{ github.sha }} ${{ steps.scope.outputs.reason }}"',
     ]);
-    expect(findRunBlockViolationsInText(otherContexts, 'fixture')).toHaveLength(0);
+    expect(findRunBlockInjections(otherContexts, 'fixture')).toHaveLength(0);
   });
 
   test('no aria-* workflow opens an unquoted heredoc whose body runs commands', () => {
@@ -332,5 +299,158 @@ describe('workflow input injection invariant (Plan 024 v3 §B-3, INFRA-CRITICAL-
 
     const quoted = shipped.replace('<<EOF', "<<'EOF'");
     expect(write(quoted)).toHaveLength(0);
+  });
+});
+
+/**
+ * ARIA-LOW-510: an inputs read must name an input the workflow declares.
+ *
+ * aria-kernel.yml compacted with `${{ github.event.inputs.retain_days || '7' }}`
+ * while its `workflow_dispatch` declared no inputs: the knob did not exist (the
+ * expression always gave '7') and GitHub refuses a dispatch that passes an
+ * undeclared input. Nothing compared the reads with the declarations.
+ *
+ * Declared inputs are the keys of `on.workflow_dispatch.inputs` and
+ * `on.workflow_call.inputs`. Reads are taken from the parsed document, so YAML
+ * comments never count: every `${{ ... }}` in any string value, plus every
+ * `if:` value, which GitHub evaluates as an expression with or without braces.
+ */
+interface UndeclaredInputRead {
+  readonly file: string;
+  readonly at: string;
+  readonly input: string;
+}
+
+function declaredWorkflowInputs(document: unknown): Set<string> {
+  const declared = new Set<string>();
+  if (typeof document !== 'object' || document === null) return declared;
+  const on = (document as Record<string, unknown>).on;
+  if (typeof on !== 'object' || on === null || Array.isArray(on)) return declared;
+  for (const trigger of ['workflow_dispatch', 'workflow_call']) {
+    const config = (on as Record<string, unknown>)[trigger];
+    if (typeof config !== 'object' || config === null) continue;
+    const inputs = (config as Record<string, unknown>).inputs;
+    if (typeof inputs !== 'object' || inputs === null) continue;
+    for (const name of Object.keys(inputs)) declared.add(name);
+  }
+  return declared;
+}
+
+function namedInputReads(expressionBody: string): string[] {
+  const names: string[] = [];
+  for (const read of expressionBody.matchAll(NAMED_INPUT_READ_RE)) {
+    const name = read[1] ?? read[2];
+    if (name !== undefined) names.push(name);
+  }
+  return names;
+}
+
+function findUndeclaredInputReadsInText(text: string, label: string): UndeclaredInputRead[] {
+  const document: unknown = yaml.load(text);
+  const declared = declaredWorkflowInputs(document);
+  const reads: UndeclaredInputRead[] = [];
+
+  const visit = (node: unknown, path: string, key: string | undefined): void => {
+    if (typeof node === 'string') {
+      const bodies = [...node.matchAll(EXPRESSION_BLOCK_RE)].map((match) => match[1] ?? '');
+      if (key === 'if' && !node.includes('${{')) bodies.push(node);
+      for (const body of bodies) {
+        for (const input of namedInputReads(body)) {
+          if (!declared.has(input)) reads.push({ file: label, at: path, input });
+        }
+      }
+      return;
+    }
+    if (Array.isArray(node)) {
+      node.forEach((item, index) => visit(item, `${path}[${index}]`, undefined));
+      return;
+    }
+    if (typeof node === 'object' && node !== null) {
+      for (const [childKey, child] of Object.entries(node)) {
+        visit(child, path === '' ? childKey : `${path}.${childKey}`, childKey);
+      }
+    }
+  };
+  visit(document, '', undefined);
+  return reads;
+}
+
+describe('workflow input declarations (ARIA-LOW-510)', () => {
+  test('every inputs read in a workflow names an input its workflow_dispatch or workflow_call declares', () => {
+    const files = workflowFiles();
+    expect(files).toEqual(
+      expect.arrayContaining(['aria-kernel.yml', 'aria-state-maintenance.yml']),
+    );
+
+    const undeclared: UndeclaredInputRead[] = [];
+    for (const file of files) {
+      undeclared.push(
+        ...findUndeclaredInputReadsInText(readFileSync(join(WORKFLOWS_DIR, file), 'utf-8'), file),
+      );
+    }
+
+    expect(undeclared.map((read) => `${read.file}: inputs.${read.input} at ${read.at}`)).toEqual(
+      [],
+    );
+  });
+
+  test('the declaration scanner fires on every read shape, and spares declared inputs and comments', () => {
+    // A gate nobody has seen fail is a gate nobody knows the direction of.
+    const workflow = (on: string[], steps: string[]): string =>
+      [
+        'on:',
+        ...on,
+        'jobs:',
+        '  x:',
+        '    runs-on: ubuntu-latest',
+        '    steps:',
+        ...steps,
+        '',
+      ].join('\n');
+    const names = (text: string): string[] =>
+      findUndeclaredInputReadsInText(text, 'fixture').map((read) => read.input);
+
+    // The shape that shipped in aria-kernel.yml: env read, dispatch without inputs.
+    const shipped = workflow(
+      ['  workflow_dispatch:', '  pull_request:'],
+      [
+        '      - name: Compact',
+        '        env:',
+        "          RETAIN_DAYS: ${{ github.event.inputs.retain_days || '7' }}",
+        '        run: echo "$RETAIN_DAYS"',
+      ],
+    );
+    expect(names(shipped)).toEqual(['retain_days']);
+
+    // Declaring it under workflow_dispatch (or workflow_call) answers the read.
+    const declaredDispatch = shipped.replace(
+      '  workflow_dispatch:\n',
+      "  workflow_dispatch:\n    inputs:\n      retain_days:\n        default: '7'\n",
+    );
+    expect(names(declaredDispatch)).toEqual([]);
+    const declaredCall = shipped.replace(
+      '  workflow_dispatch:\n',
+      '  workflow_call:\n    inputs:\n      retain_days:\n        type: string\n',
+    );
+    expect(names(declaredCall)).toEqual([]);
+
+    // Index form, the bare-expression `if:` and a `with:` value are reads too.
+    const otherShapes = workflow(
+      ['  workflow_dispatch:'],
+      [
+        "      - if: inputs.dry_run == 'true'",
+        '        uses: ./.github/actions/x',
+        '        with:',
+        "          sha: ${{ inputs['head_sha'] }}",
+      ],
+    );
+    expect(names(otherShapes).sort()).toEqual(['dry_run', 'head_sha']);
+
+    // A YAML comment naming an input, and other contexts, are not reads.
+    const inert = workflow(
+      ['  workflow_dispatch:', '  # ${{ inputs.retain_days }} is not declared here'],
+      ['      - run: echo "${{ steps.scope.outputs.reason }} ${{ github.sha }}"'],
+    );
+    expect(names(inert)).toEqual([]);
   });
 });

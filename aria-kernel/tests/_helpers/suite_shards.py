@@ -24,6 +24,14 @@ WHY COVERAGE CANNOT SILENTLY SHRINK (tier 1 + tier 3):
     1..N reported, all N saw the same suite, and the modules they ran are
     disjoint and cover it — test counts included.
 
+WHY A SKIPPED SANDBOX PIN FAILS THE RUN (ARIA-MEDIUM-130). The real-bwrap
+pins skip on a host that cannot confine, and a skip is green. The lane proves
+the backend before the suite (``ensure-sandbox-backend``), so there a skipped
+pin is a containment proof that did not run, and nothing but step order said
+so. Every such skip goes through ``tests/_helpers/sandbox_pins.py`` and starts
+with ``SANDBOX_SKIP_MARKER``; each report lists them, and ``verify`` refuses a
+report that has any, or that does not account for them at all.
+
 WHY WEIGHTS CANNOT COST COVERAGE. Weights only decide balance. A module the
 weights file does not name weighs its test count times the measured median
 seconds-per-test, so a stale file costs wall-clock, never a test. Refresh it
@@ -50,7 +58,9 @@ from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any, TextIO
 
-REPORT_SCHEMA = "aria-suite-shard-report/v1"
+REPORT_SCHEMA = "aria-suite-shard-report/v2"
+# The first word of every real-sandbox skip reason (tests/_helpers/sandbox_pins.py).
+SANDBOX_SKIP_MARKER = "sandbox_pin_skipped"
 KERNEL_ROOT = Path(__file__).resolve().parents[2]
 WEIGHTS_PATH = Path(__file__).with_name("suite_shard_weights.json")
 DISCOVERY_PATTERN = "*test*.py"
@@ -196,6 +206,8 @@ def run_shard(
         "modules": {name: {"tests": counts[name], "seconds": seconds.get(name)} for name in mine},
         "tests_run": result.testsRun,
         "successful": result.wasSuccessful(),
+        "sandbox_skips": sorted(test.id() for test, reason in result.skipped
+                                if reason.startswith(SANDBOX_SKIP_MARKER)),
         # ARIA-MEDIUM-411 — a re-run shard's report supersedes the attempt it
         # re-ran; outside Actions there is one attempt.
         "run_attempt": int(os.environ.get("GITHUB_RUN_ATTEMPT") or 1),
@@ -230,6 +242,14 @@ def verify_reports(reports: Sequence[Mapping[str, Any]]) -> list[str]:
             tests += int(row["tests"])
         if report.get("successful") is not True:
             problems.append(f"shard {report['shard']} was not successful")
+        sandbox_skips = report.get("sandbox_skips")
+        if not isinstance(sandbox_skips, list):
+            problems.append(f"shard {report['shard']} does not account for its sandbox-pin skips")
+        elif sandbox_skips:
+            problems.append(
+                f"shard {report['shard']} skipped {len(sandbox_skips)} real-sandbox pin(s) on a lane that "
+                f"verified the backend: {', '.join(sandbox_skips[:5])}"
+            )
     if len(owner) != reports[0]["suite_modules"]:
         problems.append(f"shards ran {len(owner)} modules; discovery found {reports[0]['suite_modules']}")
     if tests != reports[0]["suite_tests"]:
@@ -287,7 +307,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         for report in sorted(reports, key=lambda item: int(item["shard"])):
             ran = sum(row["seconds"] or 0 for row in report["modules"].values())
             print(f"shard {report['shard']}/{report['total']}: {len(report['modules'])} modules, "
-                  f"{report['tests_run']} tests, {ran / 60:.1f} min, successful={report['successful']}")
+                  f"{report['tests_run']} tests, {ran / 60:.1f} min, successful={report['successful']}, "
+                  f"sandbox pins skipped={len(report.get('sandbox_skips') or [])}")
         problems = verify_reports(reports)
         for problem in problems:
             print(f"suite shard coverage: {problem}", file=sys.stderr)

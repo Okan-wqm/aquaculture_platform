@@ -74,6 +74,14 @@ const tsconfigRootDir = fileURLToPath(new URL('.', import.meta.url));
 // into a project (exactly what `root: true` prevented under ESLint 8).
 const PROJECT_GLOBS = PROJECT_LINT_OVERRIDES.map((p) => `${p.dir}/**`);
 
+// The @nx/enforce-module-boundaries options of the non-project zones, named
+// once so override 1b (ARIA adapters -> tools/gates) extends rather than copies.
+const NX_MODULE_BOUNDARIES = {
+  enforceBuildableLibDependency: true,
+  allow: ['@aquaculture/shared-ui', '@aquaculture/shared-ui/*'],
+  depConstraints: [{ sourceTag: '*', onlyDependOnLibsWithTags: ['*'] }],
+};
+
 // libs/migration-harness has its OWN nested `.eslintrc.json` that `extends` the
 // root (it is NOT `root: true`). Under ESLint 8, an extended parent's
 // path-glob overrides (`libs/**/src/**/*.ts`) are re-based to the EXTENDING
@@ -393,13 +401,25 @@ export default [
     ignores: PROJECT_GLOBS,
     plugins: { '@nx': nx },
     rules: {
+      '@nx/enforce-module-boundaries': ['error', NX_MODULE_BOUNDARIES],
+    },
+  },
+
+  // ── override 1b: ARIA adapters observe through the gates' owners ──
+  // tools/gates is not an Nx project, so a relative import into it is an
+  // "external resource" to @nx/enforce-module-boundaries. The ARIA closure plan
+  // (Tasks 13-16) requires each observation adapter to call the gate module
+  // that owns its policy rather than carry a second copy of the rule
+  // (ARIA-HIGH-011: sql-migration-safety-adapter -> migration-sql-lint et al.).
+  // This block allows exactly that edge — an adapter source directly in
+  // tools/aria-adapters importing `../gates/<module>` — and nothing else.
+  {
+    files: ['tools/aria-adapters/*.ts'],
+    plugins: { '@nx': nx },
+    rules: {
       '@nx/enforce-module-boundaries': [
         'error',
-        {
-          enforceBuildableLibDependency: true,
-          allow: ['@aquaculture/shared-ui', '@aquaculture/shared-ui/*'],
-          depConstraints: [{ sourceTag: '*', onlyDependOnLibsWithTags: ['*'] }],
-        },
+        { ...NX_MODULE_BOUNDARIES, allow: [...NX_MODULE_BOUNDARIES.allow, '../gates/*'] },
       ],
     },
   },

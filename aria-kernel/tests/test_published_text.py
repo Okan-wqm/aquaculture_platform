@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from aria_kernel.artifact_safety import published_text
+from aria_kernel.artifact_safety import published_tail, published_text
 
 
 class PublishedTextTests(unittest.TestCase):
@@ -32,6 +32,16 @@ class PublishedTextTests(unittest.TestCase):
 
     def test_the_text_is_bounded(self) -> None:
         self.assertEqual(len(published_text("x" * 5000, store_root=None, limit=300)), 300)
+
+    def test_the_tail_keeps_the_end_and_redacts_before_the_cut(self) -> None:
+        # ARIA-LOW-542 — a crash's cause is at the end of its stderr. The
+        # whole text is sanitized first: cutting first would leave the last
+        # 20 characters of this token, a fragment no redactor recognises.
+        token = "ghp_" + "A" * 36
+        out = published_tail("x" * 5000 + " " + token + "\nexit 1", store_root=None, limit=30)
+        self.assertEqual(len(out), 30)
+        self.assertTrue(out.endswith("<secret-redacted>\nexit 1"), out)
+        self.assertNotIn("AAAA", out)
 
 
 if __name__ == "__main__":

@@ -24,9 +24,10 @@ substituted (CURRENT_STATE.md, Z.ai row).
 
 THE CREDENTIAL BOUNDARY. The secret is read from a root-only file named by
 ARIA_ZAI_API_KEY_FILE (or, for CI-secret injection, from ARIA_ZAI_API_KEY),
-held in a `ZaiCredential` whose repr, str and dataclass fields never expose
-it, and used exactly once per call to build an Authorization header. It is
-never placed in os.environ, argv, a ledger row, a governance event, an
+held in a `ProviderCredential` (the kernel's one credential reader,
+`aria_kernel.provider_credentials`) whose repr, str and dataclass fields
+never expose it, and used exactly once per call to build an Authorization
+header. It is never placed in os.environ, argv, a ledger row, a governance event, an
 exception message or a transcript — the `settings_hash` the executor records
 covers endpoint/model/transport only. `agent_env.SECRET_SHAPED_ENV_NAME`
 already drops both variable names from every agent child.
@@ -36,7 +37,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import stat
 import time
 import urllib.error
 import urllib.request
@@ -45,6 +45,12 @@ from pathlib import Path
 from typing import Any, Callable
 
 from aria_kernel.model_fleet import zai_provider as _zai_provider
+from aria_kernel.provider_credentials import (
+    ProviderCredential,
+    ProviderCredentialUnavailable,
+    read_provider_credential,
+)
+from aria_kernel.provider_routes import route as _provider_route
 from aria_kernel.status_probe import StatusDecision
 
 _PROVIDER = _zai_provider()
@@ -97,13 +103,12 @@ ZAI_REASONING_EFFORTS: dict[str, str] = {
 }
 USER_AGENT = "aria-kernel-zai-runtime/1"
 
-# Documented base URLs (docs.z.ai/devpack/tool/others, 2026-09-11). The
-# Anthropic-protocol route is deliberately absent: it exists for tools that
-# speak Anthropic Messages, i.e. the redirected CLI this module replaces.
-ZAI_ENDPOINTS: dict[str, str] = {
-    "coding": "https://api.z.ai/api/coding/paas/v4",
-    "general": "https://api.z.ai/api/paas/v4",
-}
+# Documented base URLs — the kernel-transport row of the provider route
+# table (`aria_kernel.provider_routes`, the one place a provider host is
+# named). The Anthropic-protocol route is deliberately absent: it exists for
+# tools that speak Anthropic Messages, i.e. the redirected CLI this module
+# replaces.
+ZAI_ENDPOINTS: dict[str, str] = dict(_provider_route(ZAI_PROVIDER_KEY).base_urls)
 CHAT_COMPLETIONS_PATH = "/chat/completions"
 
 # Vendor business codes that name a quota/balance condition even when the
@@ -125,72 +130,18 @@ class ZaiTransportUnavailable(RuntimeError):
     """The transport could not complete a request (timeout, DNS, connection)."""
 
 
-@dataclass(frozen=True)
-class ZaiCredential:
-    """The secret, held once, exposed only as an Authorization header value."""
-
-    source: str
-    """``file`` or ``env`` — which boundary supplied it. Never the value."""
-
-    location: str
-    """The file path or the env var NAME. Never the value."""
-
-    _secret: str = field(repr=False, compare=False, default="")
-
-    def authorization_header(self) -> str:
-        return "Bearer " + self._secret
-
-    def __str__(self) -> str:
-        return f"ZaiCredential(source={self.source})"
-
-    def __repr__(self) -> str:
-        return f"ZaiCredential(source={self.source!r}, location={self.location!r})"
-
-
-def read_zai_credential(environ: dict[str, str] | None = None) -> ZaiCredential:
+def read_zai_credential(environ: dict[str, str] | None = None) -> ProviderCredential:
     """Establish the credential from ONE boundary, refusing by name otherwise.
 
-    Two sources are never combined: a file path AND an env value present at
-    once is ``credential_sources_ambiguous`` — the operator must say which
-    one is live, because a stale one of the pair would otherwise decide
-    silently. The file must be a regular file readable by its owner only
-    (``credential_file_permissions``): a group- or world-readable key is a
-    copy every process on the host can take.
+    The boundary is the kernel's one reader of provider credentials
+    (``aria_kernel.provider_credentials``: one source, a 0600 regular file of
+    one line outside every room-bound tree, or the CI value); its refusal is
+    raised here under this transport's error type with the same reason.
     """
-    env = dict(os.environ if environ is None else environ)
-    file_path = env.get(ZAI_CREDENTIAL_FILE_ENV, "").strip()
-    env_value = env.get(ZAI_CREDENTIAL_ENV, "").strip()
-    if file_path and env_value:
-        raise ZaiCredentialUnavailable(
-            "credential_sources_ambiguous",
-            f"both {ZAI_CREDENTIAL_FILE_ENV} and {ZAI_CREDENTIAL_ENV} are set; keep one",
-        )
-    if file_path:
-        path = Path(file_path)
-        try:
-            info = path.stat()
-        except OSError as exc:
-            raise ZaiCredentialUnavailable("credential_file_unreadable", type(exc).__name__) from exc
-        if not stat.S_ISREG(info.st_mode):
-            raise ZaiCredentialUnavailable("credential_file_unreadable", "not a regular file")
-        if info.st_mode & 0o077:
-            raise ZaiCredentialUnavailable(
-                "credential_file_permissions",
-                f"{path} mode {stat.S_IMODE(info.st_mode):04o} is readable beyond its owner; chmod 0600",
-            )
-        try:
-            secret = path.read_text(encoding="utf-8").strip()
-        except (OSError, UnicodeError) as exc:
-            raise ZaiCredentialUnavailable("credential_file_unreadable", type(exc).__name__) from exc
-        if not secret or "\n" in secret:
-            raise ZaiCredentialUnavailable("credential_file_empty", "expected exactly one non-empty line")
-        return ZaiCredential(source="file", location=str(path), _secret=secret)
-    if env_value:
-        return ZaiCredential(source="env", location=ZAI_CREDENTIAL_ENV, _secret=env_value)
-    raise ZaiCredentialUnavailable(
-        "credential_not_configured",
-        f"set {ZAI_CREDENTIAL_FILE_ENV} to a 0600 file holding the key (or {ZAI_CREDENTIAL_ENV} in CI)",
-    )
+    try:
+        return read_provider_credential(ZAI_PROVIDER_KEY, os.environ if environ is None else environ)
+    except ProviderCredentialUnavailable as exc:
+        raise ZaiCredentialUnavailable(exc.reason, exc.detail) from exc
 
 
 def zai_credential_configured(environ: dict[str, str] | None = None) -> bool:
@@ -266,7 +217,7 @@ def _urllib_opener(request: urllib.request.Request, timeout_seconds: float) -> Z
 
 
 def _post_chat_completion(
-    credential: ZaiCredential, *, base_url: str, payload: dict[str, Any],
+    credential: ProviderCredential, *, base_url: str, payload: dict[str, Any],
     timeout_seconds: float, opener: Opener | None,
 ) -> ZaiHttpResponse:
     request = urllib.request.Request(
@@ -359,7 +310,7 @@ def _classify(status: int, code: str | None) -> tuple[str, str, str, StatusDecis
 
 
 def probe_zai_status(
-    credential: ZaiCredential, *, endpoint: str, base_url: str, model: str,
+    credential: ProviderCredential, *, endpoint: str, base_url: str, model: str,
     timeout_seconds: float, opener: Opener | None = None,
 ) -> ZaiStatusObservation:
     """One minimal completion against the SELECTED endpoint; report what came back.
@@ -458,7 +409,7 @@ def resolve_zai_max_tokens(environ: dict[str, str] | None = None) -> int:
 
 
 def run_zai_chat(
-    credential: ZaiCredential, *, base_url: str, model: str, system: str, user: str,
+    credential: ProviderCredential, *, base_url: str, model: str, system: str, user: str,
     timeout_seconds: float = DEFAULT_ZAI_TIMEOUT_SECONDS, max_tokens: int = DEFAULT_ZAI_MAX_TOKENS,
     temperature: float = 0.0, reasoning_effort: str | None = None, json_object: bool = False,
     opener: Opener | None = None,
@@ -607,7 +558,7 @@ def _turn_tool_calls(message: dict[str, Any]) -> tuple[dict[str, str], ...]:
 
 
 def run_zai_turn(
-    credential: ZaiCredential, *, base_url: str, model: str, messages: list[dict[str, Any]],
+    credential: ProviderCredential, *, base_url: str, model: str, messages: list[dict[str, Any]],
     tools: list[dict[str, Any]], timeout_seconds: float = DEFAULT_ZAI_TIMEOUT_SECONDS,
     max_tokens: int = DEFAULT_ZAI_MAX_TOKENS, temperature: float = 0.0, reasoning_effort: str | None = None,
     opener: Opener | None = None,
@@ -691,7 +642,7 @@ def run_zai_turn(
 class ZaiExecutionContext:
     """What the executor holds between admission and the call: never the secret's value."""
 
-    credential: ZaiCredential
+    credential: ProviderCredential
     endpoint: str
     base_url: str
     model: str
@@ -726,7 +677,7 @@ __all__ = [
     "DEFAULT_ZAI_TIMEOUT_SECONDS", "ZAI_CREDENTIAL_ENV", "ZAI_CREDENTIAL_FILE_ENV",
     "DEFAULT_ZAI_MAX_TOKENS", "ZAI_ENDPOINTS", "ZAI_ENDPOINT_ENV", "ZAI_MAX_TOKENS_ENV", "ZAI_MODEL_ENV",
     "ZAI_PROVIDER_KEY", "ZAI_REASONING_EFFORTS", "ZAI_TRANSPORT",
-    "ZAI_AUTH_METHOD", "ZaiCredential", "ZaiCredentialUnavailable", "ZaiExecutionContext",
+    "ZAI_AUTH_METHOD", "ZaiCredentialUnavailable", "ZaiExecutionContext",
     "ZaiHttpResponse", "ZaiRunResult", "prepare_zai_context",
     "ZaiStatusObservation", "ZaiTransportUnavailable", "probe_zai_status",
     "ZAI_JSON_OBJECT_ENV", "read_zai_credential", "resolve_zai_endpoint", "resolve_zai_json_object",

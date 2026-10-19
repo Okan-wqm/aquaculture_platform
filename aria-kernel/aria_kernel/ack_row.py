@@ -8,7 +8,12 @@ I-V3-19b locks ``actor_kind`` as the operator vs autonomous discriminator.
 
 Field semantics:
 
-  ``schema_version`` — row format version; every mint writes ``1``.
+  ``schema_version`` — row format version; every mint writes
+    :data:`ACK_ROW_SCHEMA_VERSION` (``2`` since ARIA-MEDIUM-254; rows minted
+    before it carry ``1`` and no operator terms).
+  ``row_kind`` — :data:`OPERATOR_ACK_ROW_KIND` on an operator mint (the
+    signed subject's kind inside the ``aria-operator-request`` namespace);
+    ``None`` for autonomous.
   ``ack_id`` — UUID4 minted at ack creation; primary key.
   ``event_time`` — ISO-8601 UTC at mint.
   ``actor_kind`` — ``"operator"`` (CLI mint with explicit reason) or
@@ -32,9 +37,17 @@ Field semantics:
   ``reason`` — operator-supplied --reason text (or auto-reason code).
   ``auto_reason_code`` — enum value for autonomous mints
     (``classifier_pass``, etc.); ``None`` for operator.
-  ``signature`` — HMAC-SHA256 of the canonical row content.
-  ``signed_key_id`` — UUID of the HMAC key version used; resolved
-    against the rolling key list at verify time.
+  ``signature`` — operator mint: the operator's armored SSH signature
+    (ARIA-MEDIUM-254), verified with ``ssh-keygen -Y verify`` against the
+    allowed-signers file committed on main; autonomous mint: HMAC-SHA256 of
+    the canonical row content.
+  ``signed_key_id`` — autonomous mint: UUID of the HMAC key version used,
+    resolved against the rolling key list at verify time; ``None`` on an
+    operator mint (no kernel-held key signs it).
+  ``actor_class`` / ``audience`` / ``expires_at`` / ``signer_principal`` —
+    the operator-act terms every operator subject signs (ADR-0023): who
+    signs, as T0 or T1, for which repository, until when. ``None`` for
+    autonomous.
   ``consumed_at`` — legacy compatibility field. New consumes do not
     mutate the mint row; they append ``aria/ack-consumption/v1`` rows.
   ``consumed_by_event_id`` — legacy compatibility field paired with
@@ -66,6 +79,13 @@ ACK_ACTOR_KINDS: frozenset[str] = frozenset({
     "operator",
     "autonomous_profile",
 })
+# ARIA-MEDIUM-254 — an operator ack is the operator's own signed act: a
+# subject of this kind inside the ``aria-operator-request`` namespace, as an
+# MCP write approval is (``mcp_server.MCP_WRITE_ROW_KIND``). The kind is
+# inside the signed bytes, so an ack never verifies as a plan request or a
+# write approval and neither verifies as an ack.
+OPERATOR_ACK_ROW_KIND = "operator_ack"
+ACK_ROW_SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -88,7 +108,7 @@ class AckLedgerRow:
     kind: str  # "agent" | "skill"
     body_sha256: str
     signature: str
-    signed_key_id: str
+    signed_key_id: str | None  # None on an operator mint (ARIA-MEDIUM-254)
     breaker_state_at_mint: str
     profile_state_at_mint: str
     commit_sha_at_mint: str
@@ -104,6 +124,13 @@ class AckLedgerRow:
     consumed_by_event_id: str | None = None
     # Audit chain link
     parent_observation_id: str | None = None
+    # ARIA-MEDIUM-254 — the operator-act terms of an operator mint; None for
+    # autonomous. ``signer_principal`` is stamped by the signer.
+    row_kind: str | None = None
+    actor_class: str | None = None
+    audience: str | None = None
+    expires_at: str | None = None
+    signer_principal: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -162,6 +189,8 @@ ACK_SCOPE_FIELDS: tuple[str, ...] = tuple(f.name for f in fields(AckScope))
 
 
 __all__ = [
+    "ACK_ROW_SCHEMA_VERSION",
+    "OPERATOR_ACK_ROW_KIND",
     "AckLedgerRow",
     "AckScope",
     "ACK_ROW_REQUIRED_FIELDS",

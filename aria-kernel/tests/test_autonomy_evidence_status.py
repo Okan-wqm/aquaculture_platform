@@ -93,6 +93,8 @@ EXPECTED_COMMON_AUTHORITY = (
     f"{KERNEL}state_manifest.py",
     f"{KERNEL}state_snapshot.py",
     f"{KERNEL}state_store.py",
+    # ledger imports it at module level and runs it on every append (ARIA-LOW-541).
+    f"{KERNEL}state_store_lifecycle_arcs.py",
     f"{KERNEL}tool_registry.py",
     f"{KERNEL}tools_binding.py",
     f"{KERNEL}workspace.py",
@@ -1628,6 +1630,18 @@ def alias_factory(root):
                     f"{KERNEL}autonomy_orchestrator.py",
                     "consumer",
                 ),
+                # ARIA-HIGH-579 — the night's hold asks the queue's own
+                # selection fold (agent_invocations.selection_skip over
+                # derive_request_states) to learn whether any drain would
+                # carry a provider's re-probe; it reads request state to
+                # decide whether the night runs at all, never whether the
+                # executor's work is accepted.
+                (
+                    "executor",
+                    "agent_invocation_results",
+                    f"{KERNEL}provider_hold.py",
+                    "consumer",
+                ),
                 # ARIA-HIGH-364 — the request-admission door reads result
                 # timestamps to measure the drain rate and executor
                 # liveness; it decides whether NEW work may be minted,
@@ -2615,6 +2629,56 @@ class NativeProofContractTests(unittest.TestCase):
             expected,
         )
 
+    def test_common_authorities_hold_ledger_import_time_closure(self) -> None:
+        """ARIA-LOW-541 — every kernel module ledger.py executes when it is
+        imported is a common authority, so the clean-worktree guard
+        (``_evaluator_worktree_blocker``) checks it. The set is hand-kept;
+        it missed state_store_lifecycle_arcs.py, which ledger imports at
+        module level and runs on every append, as it had missed digest.py
+        (ARIA-LOW-517). The closure is derived from the source here, so the
+        next import ledger gains fails this test by name."""
+        import ast
+
+        package = Path(autonomy_evidence_module.__file__).resolve().parent
+
+        def module_imports(module: str) -> set[str]:
+            source = package / f"{module}.py"
+            if not source.is_file():
+                source = package / module / "__init__.py"
+            found: set[str] = set()
+
+            def visit(statements: list[ast.stmt]) -> None:
+                for statement in statements:
+                    if isinstance(statement, ast.ImportFrom) and statement.level == 1:
+                        if statement.module:
+                            found.add(statement.module.split(".")[0])
+                        else:
+                            found.update(alias.name for alias in statement.names)
+                    elif isinstance(statement, (ast.If, ast.Try, ast.With)):
+                        visit(statement.body)
+                        visit(getattr(statement, "orelse", []))
+                        visit(getattr(statement, "finalbody", []))
+                        for handler in getattr(statement, "handlers", []):
+                            visit(handler.body)
+
+            visit(ast.parse(source.read_text(encoding="utf-8")).body)
+            return found
+
+        closure: set[str] = set()
+        pending = ["ledger"]
+        while pending:
+            module = pending.pop()
+            if module not in closure:
+                closure.add(module)
+                pending.extend(module_imports(module) - closure)
+        self.assertIn("state_store_lifecycle_arcs", closure)
+        common = set(autonomy_evidence_module._COMMON_AUTHORITY_PATHS)
+        missing = sorted(
+            f"{KERNEL}{module}.py" for module in closure
+            if f"{KERNEL}{module}.py" not in common
+        )
+        self.assertEqual(missing, [])
+
     def test_every_capability_hash_includes_common_admission_authorities(
         self,
     ) -> None:
@@ -2626,6 +2690,7 @@ class NativeProofContractTests(unittest.TestCase):
             "aria-kernel/aria_kernel/state_manifest.py",
             "aria-kernel/aria_kernel/state_snapshot.py",
             "aria-kernel/aria_kernel/state_store.py",
+            "aria-kernel/aria_kernel/state_store_lifecycle_arcs.py",
             "aria-kernel/aria_kernel/tool_registry.py",
             "aria-kernel/aria_kernel/tools_binding.py",
             "aria-kernel/aria_kernel/workspace.py",
@@ -2965,9 +3030,13 @@ class NativeProofContractTests(unittest.TestCase):
         self.assertEqual(candidates[0].evidence_target_sha, "a" * 40)
 
     def test_fixture_native_schema_reaches_declared_non_live_target_gate(self) -> None:
+        # The producer's current row (ARIA-MEDIUM-400: schema version 2 names
+        # the workspace commit and the argv scripts digest it measured).
         base = {
             "$schema": "aria/agent-eval-fixture-run/v1",
-            "schema_version": 1,
+            "schema_version": 2,
+            "workspace_commit_sha": "c" * 40,
+            "argv_scripts_hash": "sha256:" + "8" * 64,
             "at": "2026-08-23T00:00:00Z",
             "tool_id": "fixture-adapter",
             "tool_version": "1.0.0",
@@ -6155,7 +6224,13 @@ class OperatorPrerequisiteTests(unittest.TestCase):
                     capabilities["enterprise_readiness"].blockers,
                 )
 
-    def test_target_policy_regression_ref_must_exist_as_regular_blob(self) -> None:
+    def test_an_absent_regression_ref_is_named_and_hides_no_operator_blocker(self) -> None:
+        """ARIA-HIGH-520 — a ref the target tree does not hold yet is a
+        proof still owed by its task, not a malformed policy. It is named
+        (``closure_policy_regression_refs_unresolved``) and the Mode-A
+        operator blocker is composed beside it; it used to be reported as
+        ``operator_prerequisite_policy_invalid`` alone, which hid the one
+        action only the operator can take."""
         self._commit_policy("OPEN")
         policy_path = (
             self.repo / "docs" / "aria" / "policy"
@@ -6173,9 +6248,41 @@ class OperatorPrerequisiteTests(unittest.TestCase):
             repo_root=self.repo,
             target_sha=_git(self.repo, "rev-parse", "HEAD"),
         )
-        self.assertIn(
-            "operator_prerequisite_policy_invalid",
+        readiness = capabilities["enterprise_readiness"]
+        self.assertEqual(
+            readiness.blockers,
+            (
+                "closure_policy_regression_refs_unresolved",
+                "github_app_mode_a_unconfigured",
+            ),
+        )
+        self.assertEqual(readiness.state, "operator_blocked")
+
+    def test_an_invalid_policy_still_composes_the_mode_a_blocker(self) -> None:
+        """ARIA-HIGH-520 — every blocker is composed; none returns early.
+        The Mode-A prerequisite is pinned in code (ORPHAN-MEDIUM-789's
+        metadata) and read from the readiness evidence alone, so an invalid
+        or unreadable policy does not hide it."""
+        policy_path = (
+            self.repo / "docs" / "aria" / "policy"
+            / "autonomy-closure-findings.json"
+        )
+        policy_path.parent.mkdir(parents=True, exist_ok=True)
+        policy_path.write_text("not-json\n", encoding="utf-8")
+        _git(self.repo, "add", ".")
+        _git(self.repo, "commit", "-m", "malformed policy")
+
+        capabilities = _apply_operator_prerequisites(
+            capabilities=self._capabilities("live_proven"),
+            repo_root=self.repo,
+            target_sha=_git(self.repo, "rev-parse", "HEAD"),
+        )
+        self.assertEqual(
             capabilities["enterprise_readiness"].blockers,
+            (
+                "github_app_mode_a_unconfigured",
+                "operator_prerequisite_policy_invalid",
+            ),
         )
 
     def test_target_policy_regression_ref_rejects_non_blob_entry(self) -> None:
@@ -6262,6 +6369,54 @@ class OperatorPrerequisiteTests(unittest.TestCase):
         )
         self.assertIn("state_tools_unavailable", status.blockers)
         self.assertIn("github_app_mode_a_unconfigured", status.blockers)
+
+
+# ARIA-HIGH-520 — the closure policy's regression refs this checkout does not
+# hold yet, by finding: each is the proof test its open task still owes
+# (docs/aria/policy/autonomy-closure-findings.json). The evaluator names them
+# as `closure_policy_regression_refs_unresolved`; this record is what keeps
+# that blocker honest. A ref that disappears without a policy migration — how
+# ORPHAN-HIGH-778's test_provider_redirect.py went missing (deleted by
+# 450f457a3) — fails here by name, and a pending proof that lands must leave
+# the record in the same commit.
+PENDING_CLOSURE_REGRESSION_REFS: dict[str, tuple[str, ...]] = {
+    "ORPHAN-HIGH-779": ("aria-kernel/tests/test_learning_funnel_scheduled_path.py",),
+    "ORPHAN-MEDIUM-789": (
+        "aria-kernel/tests/test_workflow_mode_a_transport.py",
+        "aria-kernel/tests/test_signed_readiness_snapshot.py",
+    ),
+    "ARIA-HIGH-004": ("aria-kernel/tests/test_promotion_funnel_e2e.py",),
+    "ARIA-HIGH-005": ("aria-kernel/tests/test_pre_merge_evidence.py",),
+    "ARIA-HIGH-006": (
+        "aria-kernel/tests/test_file_claim_atomic_acquire.py",
+        "aria-kernel/tests/test_pre_merge_file_claims.py",
+    ),
+    "ARIA-CRITICAL-009": ("aria-kernel/tests/test_pre_merge_consensus_and_coverage.py",),
+    "ARIA-HIGH-010": ("tools/aria-adapters/rust-runtime-safety-adapter.test.ts",),
+    "ARIA-HIGH-012": ("tools/aria-adapters/infrastructure-policy-adapter.test.ts",),
+    "ARIA-HIGH-014": ("aria-kernel/tests/test_vertical_slice_evidence.py",),
+    "ARIA-CRITICAL-015": ("aria-kernel/tests/test_autonomy_stage_progression.py",),
+}
+
+
+class ClosurePolicyRegressionRefsTests(unittest.TestCase):
+    """ARIA-HIGH-520 — the real policy's absent refs are exactly the record."""
+
+    def test_every_absent_regression_ref_is_a_recorded_pending_proof(self) -> None:
+        repo = Path(__file__).resolve().parents[2]
+        policy = json.loads(
+            (repo / "docs" / "aria" / "policy" / "autonomy-closure-findings.json")
+            .read_text(encoding="utf-8"),
+        )
+        absent: dict[str, tuple[str, ...]] = {}
+        for entry in policy["entries"]:
+            missing = tuple(
+                ref for ref in entry["regression_test_refs"]
+                if not (repo / ref).is_file()
+            )
+            if missing:
+                absent[entry["finding_id"]] = missing
+        self.assertEqual(absent, PENDING_CLOSURE_REGRESSION_REFS)
 
 
 if __name__ == "__main__":

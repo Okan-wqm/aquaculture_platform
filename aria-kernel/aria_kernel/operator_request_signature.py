@@ -40,6 +40,7 @@ import base64
 import binascii
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -50,7 +51,14 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, TextIO
 
-from .main_anchor import committed_blob, resolve_main_anchor, tracked_files_at
+from .main_anchor import (
+    committed_blob,
+    resolve_main_anchor,
+    root_only_checkout,
+    root_only_dir,
+    root_only_tree,
+    tracked_files_at,
+)
 from .operator_request_terms import parse_utc
 from .tool_registry import GovernanceError
 
@@ -569,6 +577,43 @@ def runner_key_blobs(*, workspace_root: str | Path, base_dir: str | Path | None)
     return frozenset(keys)
 
 
+# ARIA-LOW-266 — ADR-0018's operator procedure (sign as root from a
+# root-owned checkout) was documentation only. A root signer now refuses an
+# environment another account could have prepared: the checkout git reads
+# the anchor and the grounding from (its config can make git run code), the
+# working directory Python resolves ``-m`` imports against, and the kernel
+# package whose code assembles and prints the subject. Every operator
+# recorder calls :func:`refuse_untrusted_signing_environment` before it reads
+# anything (pinned by ``tests/test_operator_request_signature.py``).
+SIGNING_ENVIRONMENT_UNTRUSTED = "signing_environment_untrusted"
+
+
+def signing_environment_reason(checkout: str | Path) -> str | None:
+    """Where a root signer stands that another account can write, or None (not root, or all root-only)."""
+    if os.geteuid() != 0:
+        return None
+    if root_only_checkout(checkout) is None:
+        return f"checkout:{os.path.realpath(checkout)}"
+    try:
+        here = os.path.realpath(os.getcwd())
+        cwd_trusted = root_only_dir(here)
+    except OSError:
+        return "cwd:unresolved"
+    if not cwd_trusted:
+        return f"cwd:{here}"
+    kernel = Path(__file__).resolve().parent
+    if not root_only_tree(kernel):
+        return f"kernel:{kernel.as_posix()}"
+    return None
+
+
+def refuse_untrusted_signing_environment(checkout: str | Path, *, act: str) -> None:
+    """Raise ``<act>_signing_environment_untrusted: <where>`` per :func:`signing_environment_reason`."""
+    reason = signing_environment_reason(checkout)
+    if reason is not None:
+        raise GovernanceError(f"{act}_{SIGNING_ENVIRONMENT_UNTRUSTED}: {reason}")
+
+
 def sign_operator_subject(
     subject: dict[str, Any], *, namespace: str, domain_tag: str, signing_key: str | Path,
     signer_principal: str, subject_stream: TextIO | None = None,
@@ -751,6 +796,7 @@ def record_enrolment(
     """
     from .operator_request_terms import utc_iso
 
+    refuse_untrusted_signing_environment(repo_root, act="operator_enrol")
     runner_keys = runner_key_blobs(workspace_root=repo_root, base_dir=base_dir)
     if runner_keys is None:
         raise GovernanceError(f"operator_enrol_anchor_unavailable: {RUNNER_KEYS_UNAVAILABLE}")
@@ -854,7 +900,9 @@ __all__ = [
     "request_subject_digest",
     "runner_key_blobs",
     "sign_operator_request",
+    "refuse_untrusted_signing_environment",
     "sign_operator_subject",
+    "signing_environment_reason",
     "signature_key_blob",
     "subject_signing_bytes",
     "valid_principal",

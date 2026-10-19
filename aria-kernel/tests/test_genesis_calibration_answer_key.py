@@ -17,7 +17,8 @@ from pathlib import Path
 
 from aria_kernel.dispatcher_factory import select_sandbox_runner
 from aria_kernel.skill_genesis import CALIBRATION_FIXTURE_VISIBLE_FIELDS
-from tests.test_genesis_adapter_custody import _git_workspace, _manifest, _requires_backend, accept_drafter_result
+from tests._helpers.sandbox_pins import require_sandbox_backend
+from tests.test_genesis_adapter_custody import _git_workspace, _manifest, accept_drafter_result
 
 # Reads its stdin and answers from whatever judgment it can find there.
 ANSWER_KEY_ECHO = """import json
@@ -33,7 +34,7 @@ print(json.dumps({"seen": seen, "findings": [{"finding_fingerprint": fp} for fp 
 
 class AnswerKeyTests(unittest.TestCase):
     def setUp(self) -> None:
-        _requires_backend(self)
+        require_sandbox_backend()
         base = Path(tempfile.mkdtemp(prefix="aria-genesis-key-", dir="/var/tmp"))
         self.addCleanup(shutil.rmtree, base, True)
         self.workspace = _git_workspace(base)

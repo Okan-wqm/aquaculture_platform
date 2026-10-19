@@ -11,19 +11,21 @@ present; nothing removed them.
 
 WHAT: a spawn environment is BUILT, never copied. It starts from a closed
 baseline (locale, PATH, TLS/proxy configuration), adds the Claude CLI's own
-configuration namespace, adds ONLY the authentication material the CLI needs
-(the managed-login directory and, when the operator uses it, the OAuth token),
-adds the names the agent's runtime profile explicitly passes through, and
-records — by NAME, never by value — what was passed and what was dropped.
-Anything secret-shaped that was not explicitly granted is dropped even if it
-sits in the CLI's configuration namespace.
+configuration namespace, adds the names the agent's runtime profile
+explicitly passes through, and records — by NAME, never by value — what was
+passed and what was dropped. Anything secret-shaped that was not explicitly
+granted is dropped even if it sits in the CLI's configuration namespace.
+
+No authentication material is passed at all (ARIA-MEDIUM-563). The CLI
+reaches its provider through the kernel's gateway, which injects the
+kernel's own credential; the caller adds the gateway route's variables (a
+socket and a placeholder credential, ``provider_routes``) as ``extra``. The
+operator's login directory and ``CLAUDE_CODE_OAUTH_TOKEN`` used to be passed
+through, so every spawn — and every process it ran — could read the token.
 
 HOME is synthetic. The sandbox already mounts an ephemeral tmpfs home
 (``implementation_safety.SANDBOX_HOME``); outside the sandbox the same shape is
 given here so a read-only spawn cannot read the runner user's real home either.
-The managed login lives in ``CLAUDE_CONFIG_DIR``; when the runner did not set
-it, it is derived from the REAL home once, here, so the synthetic HOME never
-silently loses the credential the spawn needs.
 """
 from __future__ import annotations
 
@@ -40,9 +42,6 @@ BASELINE_ENV_NAMES: tuple[str, ...] = (
     "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS",
     "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy",
 )
-# The Claude CLI's authentication material. Explicit, so a secret-shaped name
-# reaching the agent is a decision this module made out loud.
-CLAUDE_AUTH_ENV_NAMES: tuple[str, ...] = ("CLAUDE_CONFIG_DIR", "CLAUDE_CODE_OAUTH_TOKEN")
 # The CLI's configuration namespace (non-secret members only — see the filter).
 CLAUDE_CONFIG_ENV_PREFIX = "CLAUDE_CODE_"
 # What a RUNNING Claude Code process exports to its own children — its
@@ -61,7 +60,7 @@ ARIA_RUNTIME_ENV_NAMES: tuple[str, ...] = (
     "IS_SANDBOX", "ARIA_JOB_DEADLINE_EPOCH", "ARIA_CLAUDE_SANDBOX",
 )
 # The shape of a credential. A name matching this is dropped unless it is in
-# the explicit auth set or the profile's passthrough list.
+# the profile's passthrough list.
 # Segment-anchored so a configuration knob that merely CONTAINS the word
 # (`CLAUDE_CODE_MAX_OUTPUT_TOKENS`) is not mistaken for a credential
 # (`GH_TOKEN`, `NPM_AUTH_TOKEN`, `ANTHROPIC_API_KEY`).
@@ -70,7 +69,6 @@ SECRET_SHAPED_ENV_NAME = re.compile(
     re.IGNORECASE,
 )
 SYNTHETIC_HOME_PREFIX = "aria-agent-home-"
-CLAUDE_CONFIG_DIRNAME = ".claude"
 
 
 def _codex_status_environment(base: Mapping[str, str]) -> dict[str, str]:
@@ -122,7 +120,6 @@ class AgentEnvReport:
     dropped_count: int
     dropped_secret_shaped: tuple[str, ...]
     home: str
-    claude_config_dir: str | None
 
     def to_governance(self) -> dict[str, object]:
         return {
@@ -131,7 +128,6 @@ class AgentEnvReport:
             "dropped_count": self.dropped_count,
             "dropped_secret_shaped": list(self.dropped_secret_shaped),
             "synthetic_home": self.home,
-            "claude_config_dir_bound": self.claude_config_dir is not None,
         }
 
 
@@ -139,25 +135,6 @@ class AgentEnvReport:
 class AgentEnv:
     env: dict[str, str] = field(default_factory=dict)
     report: AgentEnvReport | None = None
-
-
-def derive_claude_config_dir(base: Mapping[str, str]) -> str | None:
-    """Where the managed login lives, made explicit.
-
-    ``CLAUDE_CONFIG_DIR`` wins when the runner set it. Otherwise the CLI's own
-    default is ``$HOME/.claude`` of the REAL home — which the synthetic HOME
-    would hide — so it is derived here from the real home and handed over by
-    name. When neither an OAuth token nor a real home is available there is
-    nothing to derive, and the spawn's auth preflight is what says so.
-    """
-    explicit = str(base.get("CLAUDE_CONFIG_DIR") or "").strip()
-    if explicit:
-        return explicit
-    real_home = str(base.get("HOME") or "").strip()
-    if not real_home:
-        return None
-    candidate = Path(real_home) / CLAUDE_CONFIG_DIRNAME
-    return str(candidate) if candidate.is_dir() else None
 
 
 def synthetic_home(*, tmp_root: str | Path | None = None, tag: str = "") -> Path:
@@ -182,12 +159,12 @@ def build_agent_env(
 ) -> AgentEnv:
     """Build the spawn environment from ``base`` (normally ``os.environ``).
 
-    ``extra`` carries the per-spawn additions the caller computed (provider
-    redirect variables, the IS_SANDBOX acknowledgement) — added AFTER the
+    ``extra`` carries the per-spawn additions the caller computed (the
+    provider gateway route's variables, the IS_SANDBOX acknowledgement) — added AFTER the
     filter, because the caller chose them deliberately. ``home`` lets a
     caller reuse a synthetic home it already made; otherwise one is created.
     """
-    allowed_exact = set(BASELINE_ENV_NAMES) | set(CLAUDE_AUTH_ENV_NAMES) | set(ARIA_RUNTIME_ENV_NAMES)
+    allowed_exact = set(BASELINE_ENV_NAMES) | set(ARIA_RUNTIME_ENV_NAMES)
     passthrough = tuple(dict.fromkeys(str(name) for name in profile_passthrough if name))
     allowed_exact |= set(passthrough)
 
@@ -209,11 +186,6 @@ def build_agent_env(
         if SECRET_SHAPED_ENV_NAME.search(name):
             dropped_secret.append(name)
 
-    config_dir = derive_claude_config_dir(base)
-    if config_dir and "CLAUDE_CONFIG_DIR" not in env:
-        env["CLAUDE_CONFIG_DIR"] = config_dir
-        passed.append("CLAUDE_CONFIG_DIR")
-
     home_path = Path(home) if home is not None else synthetic_home(tmp_root=tmp_root)
     env["HOME"] = str(home_path)
     env["XDG_CONFIG_HOME"] = str(home_path / "xdg" / "config")
@@ -232,7 +204,6 @@ def build_agent_env(
         dropped_count=dropped,
         dropped_secret_shaped=tuple(sorted(set(dropped_secret))),
         home=str(home_path),
-        claude_config_dir=env.get("CLAUDE_CONFIG_DIR"),
     )
     return AgentEnv(env=env, report=report)
 
@@ -251,12 +222,10 @@ __all__ = [
     "AgentEnv",
     "AgentEnvReport",
     "BASELINE_ENV_NAMES",
-    "CLAUDE_AUTH_ENV_NAMES",
     "CLAUDE_CONFIG_ENV_PREFIX",
     "CLAUDE_INSTANCE_ENV_NAMES",
     "SECRET_SHAPED_ENV_NAME",
     "build_agent_env",
     "cleanup_synthetic_home",
-    "derive_claude_config_dir",
     "synthetic_home",
 ]

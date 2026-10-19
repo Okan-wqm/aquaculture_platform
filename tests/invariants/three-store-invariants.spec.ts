@@ -442,7 +442,7 @@ const EXPECTED_CLOSURE_REFERENCES = {
   'ORPHAN-HIGH-778': [
     'docs/reviews/orphan-findings.md#ORPHAN-HIGH-778',
     'docs/reviews/orphan-findings.md#ORPHAN-HIGH-778',
-    ['aria-kernel/tests/test_provider_redirect.py'],
+    ['aria-kernel/tests/test_claude_runtime_serves_anthropic_only.py'],
   ],
   'ORPHAN-HIGH-779': [
     'docs/reviews/orphan-findings.md#ORPHAN-HIGH-779',

@@ -45,8 +45,8 @@ from aria_kernel.signing_agent import (
     SigningAgentUnavailable,
     hold_signing_agent,
     lifetime_until,
-    prune_stale_signing_agents,
 )
+from aria_kernel.socket_holders import SIGNING_AGENT, prune_stale_socket_dirs
 
 
 def _fingerprint(public_key: Path) -> str:
@@ -136,7 +136,7 @@ class SigningAgentTests(unittest.TestCase):
         self.assertFalse(_alive(agent_pid), "the agent outlived a SIGKILLed holder")
         self.assertTrue(socket_path.parent.exists(), "the killed holder never reached its cleanup")
         self.assertEqual(self._listed(socket_path), [], "nothing answers on the socket")
-        swept = prune_stale_signing_agents(temp_root=temp_root)
+        swept = prune_stale_socket_dirs(SIGNING_AGENT, temp_root=temp_root)
         self.assertEqual(swept["swept"], [socket_path.parent.name])
         self.assertFalse(socket_path.parent.exists())
 
@@ -152,7 +152,7 @@ class SigningAgentTests(unittest.TestCase):
         (temp_root / "aria-sa-files000" / "cycle-key").write_text("", encoding="utf-8")
         with mock.patch.object(tempfile, "tempdir", str(temp_root)):
             with hold_signing_agent(self.key, expected_fingerprint=self.fingerprint) as agent:
-                swept = prune_stale_signing_agents(temp_root=temp_root)
+                swept = prune_stale_socket_dirs(SIGNING_AGENT, temp_root=temp_root)
                 self.assertTrue(agent.socket_path.is_socket(), "the live agent's socket survives the sweep")
                 self.assertEqual(self._listed(agent.socket_path), [self.fingerprint])
         self.assertEqual(swept["live"], [agent.socket_path.parent.name])
@@ -270,7 +270,7 @@ class SigningAgentTests(unittest.TestCase):
     @staticmethod
     def _live_agent_dirs() -> set[Path]:
         return {path for path in Path(tempfile.gettempdir()).glob("aria-sa-*")
-                if path.is_dir() and (path / sa._SOCKET_NAME).exists()}
+                if path.is_dir() and (path / SIGNING_AGENT.socket_name).exists()}
 
     def test_a_wrong_fingerprint_is_refused_and_leaves_no_agent(self) -> None:
         # The host temp dir is shared with every other suite running on this

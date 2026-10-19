@@ -25,15 +25,15 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 from .tool_registry import GovernanceError
 
-_FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 _DIFF_HEADER = re.compile(r"^diff --git ", re.MULTILINE)
 _GIT_TIMEOUT_SECONDS = 120
 
 
 def _require_sha(value: object, *, name: str) -> str:
-    if not isinstance(value, str) or not _FULL_SHA.fullmatch(value):
+    if not isinstance(value, str) or not is_object_id(value, formats=ANY_OBJECT_FORMAT):
         raise GovernanceError(f"dlp_diff_surface_sha_invalid:{name}")
     return value
 

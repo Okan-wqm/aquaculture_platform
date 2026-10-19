@@ -37,8 +37,9 @@ environ was readable through ``/proc/<pid>/environ`` by a same-uid process)
 and with a provider pattern that matches nothing (``-P '!*'``): the socket is
 handed to the sandbox, and ``ssh-add -s <library>`` through it would make
 the KERNEL-side agent ``dlopen`` a library the agent named. The orphan
-sweep (``prune_stale_signing_agents``, the orchestrator's startup pass next
-to the key reaper) removes socket directories whose agent no longer
+sweep (``socket_holders.prune_stale_holder_sockets``, ARIA-LOW-565, over the
+``socket_holders.SIGNING_AGENT`` declaration; the orchestrator's startup pass
+next to the key reaper) removes socket directories whose agent no longer
 answers.
 
 The refusals are by name (``SigningAgentUnavailable.reason``):
@@ -54,30 +55,22 @@ from __future__ import annotations
 
 import ctypes
 import os
-import re
 import shutil
 import signal
-import socket
 import subprocess
-import tempfile
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator
 
+from .socket_holders import SIGNING_AGENT as _SOCKET_HOLDER
+
 # Linux `sun_path` is 108 bytes including the terminator.
 _UNIX_SOCKET_PATH_MAX = 107
 _AGENT_START_TIMEOUT_SECONDS = 10.0
 _AGENT_STOP_TIMEOUT_SECONDS = 5.0
 _SSH_ADD_TIMEOUT_SECONDS = 15
-_SOCKET_DIR_PREFIX = "aria-sa-"
-_SOCKET_NAME = "agent"
-# The shape of a directory THIS module made: the prefix, mkdtemp's 8-char
-# suffix, and nothing inside but the socket. The sweep removes nothing
-# else — a test fixture's `aria-sa-test-*` root, a directory with files in
-# it, are not the kernel's to delete.
-_SOCKET_DIR_RE = re.compile(r"^aria-sa-[A-Za-z0-9_]{8}$")
 # `ssh-agent -t`: a key added without its own lifetime expires after this
 # many seconds. The holder passes the window's remaining time; this is the
 # ceiling when no deadline is known (an operator shell), so no agent holds
@@ -219,8 +212,8 @@ def hold_signing_agent(
     lifetime = int(lifetime_seconds)
     if lifetime <= 0 or lifetime > MAX_LIFETIME_SECONDS:
         raise SigningAgentUnavailable("lifetime_invalid")
-    socket_dir = Path(tempfile.mkdtemp(prefix=_SOCKET_DIR_PREFIX))
-    socket_path = socket_dir / _SOCKET_NAME
+    socket_dir = _SOCKET_HOLDER.make_directory()
+    socket_path = socket_dir / _SOCKET_HOLDER.socket_name
     process: subprocess.Popen[bytes] | None = None
     try:
         if len(str(socket_path).encode()) > _UNIX_SOCKET_PATH_MAX:
@@ -257,48 +250,6 @@ def hold_signing_agent(
         shutil.rmtree(socket_dir, ignore_errors=True)
 
 
-def _agent_answers(socket_path: Path) -> bool:
-    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    try:
-        client.settimeout(1.0)
-        client.connect(str(socket_path))
-        return True
-    except OSError:
-        return False
-    finally:
-        client.close()
-
-
-def prune_stale_signing_agents(*, temp_root: str | Path | None = None) -> dict[str, Any]:
-    """Remove the socket directories of agents that no longer answer.
-
-    A holder killed outright leaves its ``aria-sa-*`` directory behind
-    (the agent itself is gone with the holder, ``PR_SET_PDEATHSIG``); a
-    directory whose socket nobody listens on is swept. A directory whose
-    agent still answers belongs to a live holder and is left alone.
-    """
-    root = Path(temp_root) if temp_root is not None else Path(tempfile.gettempdir())
-    swept: list[str] = []
-    live: list[str] = []
-    errors: list[str] = []
-    for entry in sorted(root.glob(f"{_SOCKET_DIR_PREFIX}*")):
-        if not entry.is_dir() or not _SOCKET_DIR_RE.match(entry.name):
-            continue
-        socket_path = entry / _SOCKET_NAME
-        if socket_path.is_socket() and _agent_answers(socket_path):
-            live.append(entry.name)
-            continue
-        try:
-            if any(child.name != _SOCKET_NAME for child in entry.iterdir()):
-                continue
-            shutil.rmtree(entry)
-        except OSError as exc:
-            errors.append(f"{entry.name}:{type(exc).__name__}")
-        else:
-            swept.append(entry.name)
-    return {"scanned": len(swept) + len(live) + len(errors), "swept": swept, "live": live, "errors": errors}
-
-
 __all__ = [
     "DEFAULT_LIFETIME_SECONDS",
     "MAX_LIFETIME_SECONDS",
@@ -307,5 +258,4 @@ __all__ = [
     "SigningAgentUnavailable",
     "hold_signing_agent",
     "lifetime_until",
-    "prune_stale_signing_agents",
 ]

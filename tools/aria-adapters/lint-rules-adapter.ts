@@ -128,8 +128,8 @@ export function selectFiles(input: AdapterInput, workspaceRoot: string): readonl
   const files: string[] = [];
   for (const root of roots) {
     const absolute = resolveInsideWorkspace(workspaceRoot, root);
-    if (!workspacePathExists(absolute)) continue;
-    for (const file of collectFiles(absolute, {
+    if (!workspacePathExists(workspaceRoot, absolute)) continue;
+    for (const file of collectFiles(workspaceRoot, absolute, {
       extensions: SOURCE_EXTENSIONS,
       includeFile: (name, path) =>
         !name.endsWith('.d.ts') &&

@@ -72,7 +72,8 @@ class TheOwnersRowsAreRead(_Store):
         self.assertEqual(impact["pr_event"], {"pr_number": 7, "event": "merged", "head_sha": HEAD,
                                               "merge_commit_sha": None})
         [request] = self.requests()
-        self.assertIn(change_intelligence_subject_ref(pr_number=7, head_sha=HEAD), request["evidence_refs"])
+        # ARIA-MEDIUM-385 — the merge is the request's subject, never a citation.
+        self.assertEqual(request["subject_ref"], change_intelligence_subject_ref(pr_number=7, head_sha=HEAD))
 
     def test_a_second_run_plans_and_asks_nothing(self) -> None:
         self.merge()
@@ -142,7 +143,7 @@ class AStoreTheCopyAlreadyServed(_Store):
             suggested_prompt="Plan the revalidation impact of this merge.",
             must_satisfy=[{"id": "impact-map", "description": "details.impact_map"}],
             allowed_scope=["**"],
-            evidence_refs=[change_intelligence_subject_ref(pr_number=1906, head_sha=HEAD)],
+            subject_ref=change_intelligence_subject_ref(pr_number=1906, head_sha=HEAD),
             cycle_id="cyc-legacy", target_sha=HEAD, base_dir=self.tools, admission=admission,
         )
 

@@ -2,8 +2,9 @@
 
 WHY this module exists
 ----------------------
-Pre-Plan-020, `architecture_spine_gate._check_auth_security` (and any other
-adapter-backed invariant) read the LATEST adapter run from runs.jsonl with
+Pre-Plan-020, the spine gate's adapter-backed invariant readers (the
+deleted ``_check_auth_security`` and ``_check_harness_security``) read the
+LATEST adapter run from runs.jsonl with
 no freshness guarantee. The "latest" row could be 12 hours old, taken
 against a different commit, run on a different worktree — and the spine
 gate would happily report "auth invariant unchanged from baseline" even
@@ -25,7 +26,8 @@ Phase 4 fixes that with a fresh-orchestrator chokepoint:
   both are named in ``adapter_states``.
 - architecture_spine_gate.take_baseline / take_postcheck call this
   orchestrator BEFORE running invariant checks (require_fresh_adapter_runs
-  default True).
+  default True) and measure the stored rows it RETURNS, never a newer row
+  another caller recorded in runs.jsonl since (ARIA-HIGH-525).
 - emit `spine_orchestrator_refresh_complete` governance event with
   {repo_state_id, run_ids: {adapter_id: run_id}, fresh_count, cached_count,
   adapter_states}; the return adds the recorded rows (``adapter_runs``) and

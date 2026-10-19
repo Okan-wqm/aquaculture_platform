@@ -56,6 +56,7 @@ import {
   verify,
 } from '../../tools/gates/finding-registry-chain';
 import { mergeRegistryText } from '../../tools/gates/finding-registry-merge';
+import { hermeticGitEnv } from '../../tools/gates/hermetic-git';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const DEBT_PLAN_DIR = 'docs/plans/2026-06-18-enterprise-grade-debt-closure';
@@ -69,7 +70,7 @@ const FORMERLY_PINNED = [
 ];
 
 const HERMETIC_GIT_ENV: NodeJS.ProcessEnv = {
-  ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))),
+  ...hermeticGitEnv(),
   LC_ALL: 'C',
   GIT_CONFIG_NOSYSTEM: '1',
   GIT_CONFIG_GLOBAL: '/dev/null',

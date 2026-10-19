@@ -660,6 +660,14 @@ const RULES: readonly Rule[] = [
 ];
 
 /**
+ * Every rule id this gate reports, in rule order. ARIA's
+ * `sql-migration-safety-adapter` projects each one onto a finding rule of its
+ * own and refuses to run when a rule here has no projection, so a rule added
+ * to this gate cannot be dropped silently from the observation (ARIA-HIGH-011).
+ */
+export const MIGRATION_SQL_LINT_RULE_IDS: readonly string[] = RULES.map((rule) => rule.id);
+
+/**
  * Strip single-line and block TypeScript comments. Preserve newlines so
  * line-number reporting against the original file stays accurate.
  */
@@ -776,17 +784,29 @@ export function scanMigrationSql(sql: string): readonly Violation[] {
   return scanSqlChunks('<inline migration>', sql, [{ sql, offset: 0 }]);
 }
 
-function scanMigrationFile(relPath: string): Violation[] {
-  const abs = resolve(REPO_ROOT, relPath);
-  if (!existsSync(abs)) return [];
-  const source = readFileSync(abs, 'utf8');
+/**
+ * The one inspection of a migration's source text: a `.sql` file is scanned
+ * whole, a TypeORM `.ts` migration through its `<runner>.query(\`...\`)`
+ * template literals with comments stripped, and every rule above runs on each
+ * chunk. Pure — it reads nothing — so the CLI below and ARIA's
+ * `sql-migration-safety-adapter` (ARIA-HIGH-011) reach one verdict for one
+ * file instead of carrying two copies of the delta-safety rules.
+ */
+export function inspectMigrationSource(relPath: string, source: string): readonly Violation[] {
   const chunks: { sql: string; offset: number }[] = relPath.toLowerCase().endsWith('.sql')
     ? [{ sql: source, offset: 0 }]
     : [...extractSqlChunks(source)];
   return scanSqlChunks(relPath, source, chunks);
 }
 
-function isMigrationFile(relPath: string): boolean {
+function scanMigrationFile(relPath: string): readonly Violation[] {
+  const abs = resolve(REPO_ROOT, relPath);
+  if (!existsSync(abs)) return [];
+  return inspectMigrationSource(relPath, readFileSync(abs, 'utf8'));
+}
+
+/** Whether `relPath` is a migration this gate governs (see MIGRATION_PATH_REGEX). */
+export function isMigrationFile(relPath: string): boolean {
   return MIGRATION_PATH_REGEX.test(relPath);
 }
 

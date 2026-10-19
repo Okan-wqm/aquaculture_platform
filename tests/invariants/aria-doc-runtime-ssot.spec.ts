@@ -557,6 +557,41 @@ describe('ARIA live runtime/documentation SSoT', () => {
     }
   });
 
+  it('the GitHub App runbook states the required checks and strict pin the manifest enforces', () => {
+    // ARIA-HIGH-213 — "an operator runbook states the settings the code
+    // enforces". bd8d2c6f5 (#1676) fixed every gap the finding named, but
+    // section 6 kept "the 4 required checks" after 9454d3a93/58e5a2fab made
+    // aria-kernel the fifth context of the SSoT manifest, and nothing compared
+    // the two. The list and the count are pinned to the manifest here, plus
+    // the strict sentence the manifest's own gate enforces.
+    const manifest = JSON.parse(read('.github/manifests/main-required-status-checks.json')) as {
+      required_status_checks: { strict: boolean; contexts: string[] };
+    };
+    const contexts = manifest.required_status_checks.contexts;
+    const sectionSix =
+      read('docs/runbooks/aria-github-app-setup.md')
+        .split(/^## /m)
+        .find((chunk) => chunk.startsWith('6. ')) ?? '';
+    expect(sectionSix).not.toBe('');
+    const lines = sectionSix.split(/\r?\n/);
+    const listStart = lines.findIndex((line) => line.includes('required checks'));
+    expect(listStart).toBeGreaterThanOrEqual(0);
+    // The bullet wraps, so the list is every line from its first to the one
+    // that hands over to "each pinned".
+    let bullet = '';
+    for (let index = listStart; index < lines.length; index += 1) {
+      bullet += `${lines[index]} `;
+      if (lines[index].includes('each pinned')) break;
+    }
+    expect(bullet).toContain(`the ${contexts.length} required checks`);
+    const listSegment = bullet.split(/,? each pinned/)[0];
+    const named = [...listSegment.matchAll(/`([^`]+)`/g)].map((match) => match[1]);
+    expect([...named].sort()).toEqual([...contexts].sort());
+    if (manifest.required_status_checks.strict) {
+      expect(sectionSix).toContain('`strict: true`');
+    }
+  });
+
   it('Claude Code executor contract is mainline, version-bound, and has no pending verification placeholders', () => {
     const contract = read('tools/aria-poc/ci_executor_contract_proven.md');
     expect(contract).toContain('checkout the `main` target ref');

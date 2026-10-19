@@ -2493,3 +2493,80 @@ What is not done:
   an outage defect, so it was not registered here; a hold now keeps outage nights out of it.
 - The scenario test takes about 150 s. `suite_shard_weights.json` has no measured weight for it, so
   CI places it by test count until the weights are next refreshed.
+
+### ARIA-HIGH-579 — review response (2026-10-18)
+
+The review of `8c5fb1a65` found one major and four minors; the round-2 scan of the cut-off fix
+found two more defects in the new carrier question. Each was reproduced first, and each fix is
+its own commit.
+
+- **Major: the night read the probe back-off, not the outage.** Reproduced with the reviewer's
+  probe. Anthropic was spent with a 3-day reset, and Z.ai was re-cooled four times from 02:40.
+  At 17:13 that day and the next, `night_outage` returned None while Z.ai's outage was still
+  open. The scenario now runs night 1 at production timing: Z.ai refused 14 h 44 min before the
+  run, with the policy 900 s back-off. On the previous code it ran the whole cycle and exited
+  `max_cycles`; 8 of the module's tests failed, all 33 pass at this tree.
+  - Fix (`10a7d9827`), at the one owner. `provider_outage.provider_outage`/`fleet_outage` take
+    `awaiting_reprobe`: providers that are out for the night with no clock. `provider_hold`
+    fills it with each provider that meets all three conditions:
+    - its outage is open;
+    - its back-off has lapsed, and that back-off was the policy's own. A reset the vendor
+      stated, once passed, is the vendor's word that the quota is back;
+    - a selectable request has it on its ladder (see the scan fix below for what selectable
+      means).
+  - Who releases the hold. The night carries no request, so it does not ask again. The drains'
+    native admission asks, and the served spawn closes the outage (`record_provider_restored`).
+  - Per-request callers (the planner hook and the discretionary mint admission) pass no
+    awaiting providers and keep reading the back-off. A lapsed back-off is exactly when their
+    request carries the re-probe (ARIA-HIGH-435).
+  - `provider_cooldown.latest_provider_cooldowns` is the one newest-row reader, and
+    `active_provider_cooldowns` filters it.
+  - **Operator gate — the nothing-waiting deviation, recorded before landing.** With every
+    provider out and NOTHING selectable to carry a re-probe, the night does not hold: it runs
+    one deterministic cycle and mints the request the next drain re-probes with. This narrows
+    the operator's 2026-10-17 hold rule ("when the quota runs out ARIA holds where it is") on
+    the empty-queue edge: holding there would stand for ever (no lane asks again, nothing
+    restores), which is a liveness loss the rule was never meant to buy. Put to Okan before
+    this PR lands; recorded here as an accepted deviation. Reopening condition: if the operator
+    reads the empty-queue night as work that must not even mint a re-probe request, the night
+    must hold and an explicit operator-approved release lane (a scheduled admission re-probe)
+    must replace the mint — reopen ARIA-HIGH-579 then.
+- **Scan: the carrier question copied the state half of selection eligibility** (`e9a562216`).
+  The cut-off fix's `_WAITING_STATES` counted every `PENDING`/`REQUEUED` row, dropping the
+  owner's shadow, moot (ARIA-HIGH-360), undispatchable (ARIA-HIGH-388) and anchor
+  (ORPHAN-MEDIUM-492) refusals: a waiter no drain would ever select was counted as a re-probe
+  carrier, standing a hold nothing could end. The eligibility fold is now one function at the
+  queue's owner, `agent_invocations.selection_skip`; `next_pending_request` and
+  `provider_hold._reprobe_carried` both ask it (the night read-only). Red first: a store whose
+  only waiter is a real `issue_implementation_envelope` request the delivery has no authority
+  for held the night before the fix. The selection's own behaviour is unchanged (anchor, moot,
+  undispatchable and undecided suites re-run green).
+- **Scan: the fail-open over unreadable ledgers was silent — and the ledger's own RuntimeError
+  taxonomy raised past it** (`98af39493`). Each read the night needs is guarded and named
+  (`cooldown_ledger`, `outage_ledger`, `request_ledger`, `routing`) and records one
+  `hold_indeterminate` notice per unreadable source before the night runs on. Writing the red
+  found the second defect: a hash-broken governance ledger (`LedgerIntegrityError`) took the
+  checkpoint and the whole night down at all three call sites; it now fails open, named.
+- **Minor: the byte-identity pin was partly vacuous** (`6ad741435`). Reproduced: after night 0,
+  `queues`, `dispatch` and `skill-genesis` do not exist.
+  - A pinned path that is absent now fails the digest; a queued item is seeded through
+    `next_cycle_queue.append_pending` before night 1.
+  - `dispatch` and `skill-genesis` are dropped from the pin, since the fixture needs the triage
+    pipeline to write them. The docstring no longer claims they are pinned.
+- **Minor: nothing tested the night after a mid-night hold, and the held cycle skipped its
+  reflection** (`0e5b17a96`). Decided: a cycle held after its cycle step reflects, as the
+  failed exits do (`_reflect_on_failed_cycle`, ARIA-HIGH-420). The daily report is written and
+  the cycle's pressures reach the next night's queue.
+  - Red first: the worker-checkpoint test asserts the reflection row, and it failed on the
+    previous orchestrator (re-verified this round against the pre-fix tree).
+  - The scenario gains night 4. After night 3's hold, Z.ai is restored, and the night selects
+    the handed-back request with no remint and no fault requeue.
+- **Minor: the executor drain after a held night is unproven.** Not fixed; registered as
+  ARIA-LOW-627. The reviewer's first fix option, stopping the drain at the fleet outage, is
+  wrong after the major fix: the drain's native admission is the lane that re-probes the open
+  outage and restores the provider, so a drain that stopped there would leave the hold standing
+  for ever.
+- **Minor: no shard weight for the module.** Not fixed; registered as ARIA-LOW-628. The weights
+  file is generated from CI shard reports; a value typed by hand from this loaded host would be
+  a second, unmeasured source. The module took 446.6 s under nice 10 on the loaded host at the
+  review's round; 163-174 s in this round's runs.

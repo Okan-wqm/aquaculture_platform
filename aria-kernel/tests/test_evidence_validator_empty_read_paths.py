@@ -210,6 +210,29 @@ class ParseToolOutputErrorCodeTests(unittest.TestCase):
         self.assertIsNone(payload)
         self.assertEqual(error, "output_not_json")
 
+    def test_output_nested_past_the_bound_returns_output_nesting_too_deep(self) -> None:
+        """ARIA-HIGH-617: refused before decoding. json.loads raised
+        RecursionError past about 20,000 levels and the scrub on the way to
+        the store past about 1,000, so the run was never recorded."""
+        from aria_kernel.tool_runner import PARSE_ERROR_CODES
+
+        tool = _make_tool()
+        for depth in (200, 20_000):
+            with self.subTest(depth=depth):
+                deep = "[" * depth + "]" * depth
+                stdout = '{"observations":[],"findings":[],"read_paths":[' + deep + '],"evidence_sources":[]}'
+                payload, error = _parse_tool_output(stdout, tool)
+                self.assertIsNone(payload)
+                self.assertEqual(error, "output_nesting_too_deep")
+        self.assertIn("output_nesting_too_deep", PARSE_ERROR_CODES)
+
+    def test_unbalanced_output_stays_output_not_json(self) -> None:
+        """Text the lexical bound cannot pair is not JSON, however deep it opens."""
+        tool = _make_tool()
+        payload, error = _parse_tool_output('{"observations":' + "[" * 20_000, tool)
+        self.assertIsNone(payload)
+        self.assertEqual(error, "output_not_json")
+
     def test_non_object_payload_returns_output_not_dict(self) -> None:
         tool = _make_tool()
         payload, error = _parse_tool_output("[1, 2, 3]", tool)

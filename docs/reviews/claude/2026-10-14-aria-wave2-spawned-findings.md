@@ -470,6 +470,11 @@ verb can record are listed at the end.
 - **Planned fix:** bucket `R-NEW-runs-bound` (landing L4, or a standalone PR off main per operator
   Q1): rows keep a count, digest and sample; a lossless backfill slims old rows. Deadline:
   2026-12-14.
+- **Landed:** 2f66f8923 (PR #1996): `read_paths_ref` on the row and `runs_reader.run_read_paths`
+  as the one reader. The bucket's index shape (`read_paths_count/digest/sample`, `run_row_index`)
+  and its backfill did not land: their failure no longer happens on main (ARIA order chain,
+  `R-NEW-runs-bound`). The remaining row and window bounds are ARIA-HIGH-617 (closed by that
+  chain item), ARIA-HIGH-618, ARIA-MEDIUM-619, ARIA-MEDIUM-626 and ARIA-HIGH-629.
 
 ### ARIA-HIGH-524 — agent transcripts are published unscanned
 
@@ -964,6 +969,29 @@ duplicate `lint-changed-files`. The real residual is INFRA-MEDIUM-224.
   escape-formed path, a full disk, v1, long entries, a non-string entry, a single 1.1 MB entry and
   a forbidden read after 25 others. All of them are now recorded and quarantined, with the rows
   under 2 x 128 KiB plus 16 KiB.
+- **Verification round 2 (same branch, before merge):** the rows were bounded, but the
+  consequence "the cycle aborts" was still reachable two ways. (1) The pressure phase cited
+  `run_read_paths(run)` whole for every `scope_violation` or `evidence_error` run of the cycle,
+  and appends the cycle's pressures as one pressure-log.jsonl row under the same 1 MiB cap; the
+  phase has no `on_error` (`cycle.py`). 20,000 paths made that row 1,243,619 bytes, so the run was
+  recorded and its tool quarantined, and the cycle then aborted in the pressure phase. The
+  `evidence_error` variant had existed on main since ARIA-HIGH-523. (2) Structure instead of size:
+  an entry nested about 1,200 deep made `artifact_safety.scrub_json` (one Python frame per level)
+  raise RecursionError out of `record_run` before the append, in v2-shadow (the artifact payload,
+  also through `parsed_output.metadata`) and in v1 (the row's read set, which the first fix
+  commit had started to scrub). Nested about 20,000 deep, `json.loads` raised it in the parser.
+  The fix: `pressure._run_path_citations` cites at most 20 paths within 4 KiB
+  (`ledger_inline.bounded_prefix`, which `sample_inline_list` now also uses), and a scope
+  violation cites the violations its row keeps, forbidden reads first. `tool_runner._parse_tool_output`
+  refuses output nested past the kernel's lexical bound (`ledger.json_nesting_within_limit`)
+  before decoding it, as `output_nesting_too_deep`, so the run ends `schema_error`, recorded and
+  quarantined. Also in this round: the row's `evidence_validation` is scrubbed (its
+  `read_path_outside_snapshot` errors echoed each reported path raw), runs compaction leaves a
+  row its writer already sampled alone, and `spill_oversized_inline` and the
+  `spill_evidence_validation` gate count and digest in `ledger.canonical_json`. Each is a test in
+  `test_run_row_read_set_ref.py` or `test_evidence_validator_empty_read_paths.py` that failed
+  before it. Not covered: the hot artifact's size (ARIA-HIGH-629) and the runs row's missing
+  boundary encoder (ARIA-MEDIUM-630).
 
 ### ARIA-HIGH-618 — memory candidates or raw-finding entries make a run unrecordable
 
@@ -1017,6 +1045,45 @@ duplicate `lint-changed-files`. The real residual is INFRA-MEDIUM-224.
   artifact move with byte-bounded samples, plus ARIA-MEDIUM-619), pinned by a test that writes a
   week of maximal rows. The alternative is a publish compaction that brings the window under
   budget. Owner okan, deadline 2026-11-15.
+
+### ARIA-HIGH-629 — a hot run artifact has no size bound, so one run can refuse every publish
+
+- **Raised by:** the independent verification (round 2) of the order chain's `R-NEW-runs-bound`
+  item (correctness lens).
+- **Problem:** `write_run_artifact` encodes the whole payload with no bound against the snapshot's
+  64 MiB per-file cap (`state_snapshot.SNAPSHOT_MAX_SURFACE_BLOB_BYTES`), and `tool_runner` keeps
+  stdout and stderr whole, also past the 12 MiB parse cap. A file over the cap makes the snapshot
+  raise `snapshot_surface_too_large`, so every publish is refused until hot retention (20 cycles)
+  drops the artifact. On origin/main a `budget_exceeded` run with 70 MiB of stdout writes a
+  73,401,132-byte artifact. ARIA-HIGH-617's `payload.scope_violations` is a fourth copy of a
+  scope-violating run's read set and lowers the threshold for parsed runs: a report just under
+  12 MiB with 5 non-ASCII characters per path gives a 67,176,917-byte artifact.
+- **Planned fix:** the artifact is bounded below the cap at write time: stdout and stderr kept as
+  bounded heads plus size and digest once `parsed_output` holds the parse, a bulk that cannot fit
+  spilled with reason code, total and digest, and `payload.scope_violations` stored as positions
+  into `payload.read_paths`. Test-first: a 12 MiB non-ASCII report and a 70 MiB `budget_exceeded`
+  stdout each leave an artifact under the cap, and the next snapshot succeeds. Owner okan,
+  deadline 2026-10-31.
+
+### ARIA-MEDIUM-630 — runs rows reach the published surface without the boundary encoder
+
+- **Raised by:** the independent verification (round 2) of the order chain's `R-NEW-runs-bound`
+  item (security lens).
+- **Problem:** `record_run` appends the runs row through the declared append, with no
+  `artifact_safety.sanitized_json_text` step (ARIA-LOW-547 made that the one encoding step of every
+  published JSON writer, and the run artifact goes through it). On a row with no artifact the
+  read-set sample is only `scrub_json`ed. `scrub_json` never rewrites a mapping key and cannot see
+  a refusal hit the row's ASCII escaping forms. So a read-set entry `{<ghp_ token>: "docs/x.md"}`
+  puts the token on the row line in v1 and in v2-shadow (where the key also fails the artifact
+  write), and `"x" + U+00EA + "ws_secret_access_key=" + U+001A` makes the row line hit the
+  `aws_secret_access_key` refusal pattern twice. Both lines fail
+  `implementation_safety.verify_no_secret_in_diff`. Not new: on origin/main the lists were stored
+  raw. ARIA-HIGH-617's round 2 scrubs the row's `evidence_validation`, which echoed each reported
+  path raw.
+- **Planned fix:** the declared append of a published surface (or `record_run`'s row) goes through
+  `scrub_json` plus the `sanitized_json_text` refusal, and a refused list falls back to a
+  `digest_only` marker with a reason code. Test-first: each case's row line passes
+  `verify_no_secret_in_diff`. Owner okan, deadline 2026-11-15.
 
 ## Registry amendments recorded at the L1 registry step
 

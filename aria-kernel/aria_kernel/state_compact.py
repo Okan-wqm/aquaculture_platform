@@ -741,7 +741,12 @@ def _compact_runs(path: Path, root: Path, cutoff: datetime, dry_run: bool) -> tu
             if isinstance(ev, dict) and isinstance(ev.get("evidence_envelopes"), list):
                 will_strip = True
             rp = row.get("read_paths")
-            if isinstance(rp, list) and len(rp) > 20:
+            # A row whose writer already sampled its read set
+            # (``read_paths_spilled``, ledger_inline.sample_inline_list;
+            # ARIA-HIGH-617) is bounded, and its marker names the true total:
+            # sampling it again would record the sample's length as the total.
+            slim_read_paths = isinstance(rp, list) and len(rp) > 20 and "read_paths_spilled" not in row
+            if slim_read_paths:
                 will_strip = True
             if will_strip:
                 # The archive must carry the row as it was BEFORE slimming.
@@ -754,7 +759,7 @@ def _compact_runs(path: Path, root: Path, cutoff: datetime, dry_run: bool) -> tu
                 envelopes = ev.pop("evidence_envelopes")
                 ev["evidence_envelope_count"] = len(envelopes)
                 stripped += 1
-            if isinstance(rp, list) and len(rp) > 20:
+            if slim_read_paths:
                 row["read_paths_count"] = len(rp)
                 row["read_paths"] = rp[:5]
         kept.append(row)

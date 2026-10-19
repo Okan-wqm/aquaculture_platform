@@ -368,10 +368,16 @@ def _ledger_row_fields(envelope: dict[str, Any]) -> dict[str, Any]:
       fits plus a ``digest_only`` marker, since nothing else holds the list.
       Such a run is ``integrity_failed`` (a failed write) or carries
       ``legacy_inline_or_sample_only`` (v1), which declares samples.
+
+    ``evidence_validation`` names the same adapter-reported entries again
+    (``read_path_outside_snapshot`` errors carry each path), so the row
+    stores it scrubbed too, as the artifact does.
     """
     fields = dict(envelope)
     read_paths = scrub_json(fields.pop("read_paths"))
     violations = fields.pop("scope_violations", None)
+    if "evidence_validation" in fields:
+        fields["evidence_validation"] = scrub_json(fields["evidence_validation"])
     if fields.get("artifact_status") == "present" and isinstance(fields.get("artifact_ref"), dict):
         fields[READ_PATHS_REF_FIELD] = read_paths_reference(read_paths)
         if isinstance(violations, list):

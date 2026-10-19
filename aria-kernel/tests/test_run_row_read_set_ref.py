@@ -22,11 +22,15 @@ These tests pin:
 * (ARIA-HIGH-617) a scope violation over a wide read set is recorded and
   quarantines: the row samples the violations and the artifact holds them all;
   where no artifact holds the read set (v1, a failed write) both lists are
-  bounded by bytes on the row, and long or non-string entries are bounded too.
+  bounded by bytes on the row, and long or non-string entries are bounded too;
+  the same cycle's pressure phase cites a bounded sample, so its one
+  pressure-log row is appended; adapter output nested past the kernel's
+  nesting bound is refused by the parser (schema_error) and quarantines.
 """
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
@@ -183,9 +187,10 @@ class ProductionShapedReadSet(unittest.TestCase):
                 self.assertEqual(fixed, self._pressures(_legacy_shape(stored, self.read_set)))
                 [(emitted, _reason, evidence, provenance)] = fixed
                 self.assertEqual(emitted, source)
-                cited = len(evidence) + len(provenance)
-                # tool_quarantine cites the whole set, shadow_raw_delta its first 20.
-                self.assertEqual(cited, PRODUCTION_READ_SET_SIZE if status != "ok" else 20)
+                # Both cite a bounded sample (ARIA-HIGH-617): the first 20 paths
+                # of the set within the citation budget. tool_quarantine cited
+                # the whole set, which a wide report made too large to append.
+                self.assertEqual([*evidence, *provenance], self.read_set[:20])
 
     def test_the_capability_gap_gives_the_answer_the_inline_row_gave(self) -> None:
         from aria_kernel import capability_gap
@@ -296,8 +301,13 @@ VIOLATION_SAMPLE = 20
 # ledger_inline's per-field budget inline (128 KiB, counted as the row stores
 # them), whatever the adapter reported; the rest of a fixture row is small.
 BOUNDED_ROW_BYTES = 2 * 128 * 1024 + SMALL_ROW_BYTES
+# What one pressure cites of a tool run, whatever the adapter reported: at most
+# 20 paths within 4 KiB (pressure.RUN_PATH_CITATION_LIMIT / _MAX_BYTES).
+RUN_PATH_CITATIONS = 20
+RUN_PATH_CITATION_BYTES = 4 * 1024
 # Assembled from parts, so this file matches no detection shape.
 CREDENTIAL_SHAPED_KEY = "gh" + "p_" + "Kq7" * 12
+CREDENTIAL_SHAPED_READ_PATH = f"docs/generated/{CREDENTIAL_SHAPED_KEY}.md"
 ESCAPE_FORMED_CREDENTIAL_PATH = "x" + chr(0xEA) + "ws_secret" + "_access_key" + "=" + chr(0x1A)
 
 
@@ -327,14 +337,18 @@ class _ScopeViolationStore(unittest.TestCase):
         self.addCleanup(env.stop)
         register_tool(shadow_tool(), base_dir=self.tools)
 
-    def _record(self, read_paths: list[Any], *, parsed_output: dict[str, Any] | None = None) -> Any:
+    def _record(
+        self, read_paths: list[Any], *, parsed_output: dict[str, Any] | None = None, evidence_valid: bool = True,
+        evidence_validation: dict[str, Any] | None = None, run_id: str = "run-escape",
+    ) -> Any:
         from aria_kernel.tool_health import record_run
 
         run: dict[str, Any] = {
-            "schema_version": 1, "run_id": "run-escape", "tool_id": "fixture-shadow-tool",
+            "schema_version": 1, "run_id": run_id, "tool_id": "fixture-shadow-tool",
             "cycle_id": "cyc-escape", "status": "ok", "input_hash": "sha256:" + "1" * 64,
             "output_hash": "sha256:" + "2" * 64, "read_paths": read_paths, "emitted_observations": [],
-            "emitted_findings": [], "evidence_validation": {"valid": True, "evidence_sources": []},
+            "emitted_findings": [],
+            "evidence_validation": evidence_validation or {"valid": evidence_valid, "evidence_sources": []},
             "operator_feedback_refs": [], "duration_ms": 10, "cost_units": 1,
         }
         if parsed_output is not None:
@@ -354,6 +368,50 @@ class _ScopeViolationStore(unittest.TestCase):
         self.assertEqual(recorded.health_decision["action"], "quarantine")
         self.assertEqual(get_tool("fixture-shadow-tool", self.tools)["status"], "QUARANTINED")
         return row_bytes, row
+
+    def _credential_shaped_read(self, **record: Any) -> tuple[dict[str, Any], str]:
+        """Record one read of a credential-shaped path, echoed by evidence_validation; the row and its redaction.
+
+        The stored line must pass the kernel's own refusal scan: the row is
+        published on aria/state, and the read set's entries are the adapter's.
+        """
+        from aria_kernel.artifact_safety import scrub_text
+        from aria_kernel.implementation_safety import verify_no_secret_in_diff
+
+        redacted = scrub_text(CREDENTIAL_SHAPED_READ_PATH)
+        self.assertNotIn(CREDENTIAL_SHAPED_KEY, redacted, "premise: the scrub redacts the shape")
+        echo = {"code": "read_path_outside_snapshot", "path": CREDENTIAL_SHAPED_READ_PATH}
+        self._record(
+            [CREDENTIAL_SHAPED_READ_PATH],
+            evidence_validation={"valid": False, "evidence_sources": [], "errors": [echo]}, **record,
+        )
+        [line] = (self.tools / "runs.jsonl").read_text(encoding="utf-8").splitlines()
+        self.assertNotIn(CREDENTIAL_SHAPED_KEY, line)
+        verify_no_secret_in_diff(line)
+        row = json.loads(line)
+        self.assertEqual(row["status"], "integrity_failed" if "parsed_output" in record else "scope_violation")
+        self.assertEqual(row["scope_violations"], [redacted])
+        # A failed write adds its own run_artifact_write_failed error after the echo.
+        self.assertEqual(row["evidence_validation"]["errors"][0], {**echo, "path": redacted})
+        return row, redacted
+
+    def _tool_quarantine_citations(self) -> list[str]:
+        """The same cycle's pressure phase, run for real: what its tool_quarantine pressure cites.
+
+        ``run_pressure`` appends the cycle's pressures to pressure-log.jsonl as
+        one ledger row under the 1 MiB row cap; the phase has no on_error, so a
+        refused append fails the cycle (order-map SUP-20).
+        """
+        from aria_kernel.pressure import run_pressure
+
+        payload = run_pressure(cycle_id="cyc-escape", base_dir=self.tools)
+        [line] = (self.tools / "pressure" / "pressure-log.jsonl").read_bytes().splitlines()
+        self.assertEqual(json.loads(line)["cycle_id"], "cyc-escape")
+        [quarantine] = [p for p in payload["pressures"] if p["source"] == "tool_quarantine"]
+        cited = [*quarantine["evidence"], *quarantine["provenance_refs"]]
+        self.assertLessEqual(len(cited), RUN_PATH_CITATIONS)
+        self.assertLessEqual(len(json.dumps(cited, separators=(",", ":")).encode("utf-8")), RUN_PATH_CITATION_BYTES)
+        return cited
 
 
 class AScopeViolationOverAWideReadSet(_ScopeViolationStore):
@@ -412,6 +470,32 @@ class AScopeViolationOverAWideReadSet(_ScopeViolationStore):
         self.assertEqual(row["scope_violations"], [])
         self.assertEqual(row["scope_violations_spilled"]["total"], 1)
         self.assertEqual(row["scope_violations_spilled"]["sampled"], 0)
+
+    def test_the_cycle_s_pressure_phase_appends_after_a_wide_violation(self) -> None:
+        # The run row was bounded, but the pressure phase cited the run's whole
+        # read set: 20,000 paths made its pressure-log row 1,243,619 B, and the
+        # refused append failed the cycle the run row no longer failed.
+        reported = [*_out_of_scope_paths(WIDE_VIOLATION_COUNT), ".env"]
+        self._recorded_and_quarantined(self._record(reported), "scope_violation")
+        # A scope violation cites the violations, the forbidden read first.
+        self.assertIn(".env", self._tool_quarantine_citations())
+
+    def test_an_evidence_error_over_a_wide_read_set_does_not_fail_the_pressure_phase(self) -> None:
+        # The ARIA-HIGH-523 variant: in-scope paths, invalid evidence. The run
+        # row names its read set by reference; the pressure cited it whole.
+        in_scope = [f"src/generated/area-{i % 97:02d}/page-{i:05d}.generated.ts" for i in range(WIDE_VIOLATION_COUNT)]
+        self._recorded_and_quarantined(self._record(in_scope, evidence_valid=False), "evidence_error")
+        self.assertEqual(self._tool_quarantine_citations(), in_scope[:RUN_PATH_CITATIONS])
+
+    def test_long_entries_do_not_fail_the_pressure_phase(self) -> None:
+        # Twenty in-scope entries of 60,000 characters are within a count of 20.
+        long_entries = [f"src/generated/{i:02d}/" + "p" * 60_000 + ".ts" for i in range(RUN_PATH_CITATIONS)]
+        self._recorded_and_quarantined(self._record(long_entries, evidence_valid=False), "evidence_error")
+        self.assertEqual(self._tool_quarantine_citations(), [])
+
+    def test_a_credential_shaped_read_is_redacted_wherever_the_row_names_it(self) -> None:
+        row, _redacted = self._credential_shaped_read()
+        self.assertEqual(row["read_paths_ref"]["count"], 1)
 
     def test_a_forbidden_read_leads_the_row_sample(self) -> None:
         # 25 generated-tree reads, then .env: a sample of the first 20 left the
@@ -476,6 +560,12 @@ class AWideReportNoArtifactHolds(_ScopeViolationStore):
         row = self._record(_out_of_scope_paths(WIDE_VIOLATION_COUNT), parsed_output={CREDENTIAL_SHAPED_KEY: 1}).row
         self.assertEqual(run_read_paths(row, base_dir=self.tools), row["read_paths"])
 
+    def test_a_credential_shaped_read_is_redacted_on_a_failed_write_row(self) -> None:
+        # No artifact holds the list, so the row stores it inline: scrubbed.
+        row, redacted = self._credential_shaped_read(parsed_output={CREDENTIAL_SHAPED_KEY: 1})
+        self.assertEqual(row["artifact_status"], "write_failed")
+        self.assertEqual(row["read_paths"], [redacted])
+
     def test_a_narrow_failed_write_keeps_its_lists_whole(self) -> None:
         reported = ["src/app.ts", *_out_of_scope_paths(3)]
         row = self._record(reported, parsed_output={CREDENTIAL_SHAPED_KEY: 1}).row
@@ -507,6 +597,125 @@ class AWideReportInTheV1Format(_ScopeViolationStore):
         self.assertEqual(row["scope_violations"], _out_of_scope_paths(3))
         self.assertNotIn("scope_violations_spilled", row)
 
+    def test_a_credential_shaped_read_is_redacted_on_a_v1_row(self) -> None:
+        row, redacted = self._credential_shaped_read()
+        self.assertEqual(row["read_paths"], [redacted])
+
+    def test_compaction_leaves_the_writer_s_sample_and_its_marker_true(self) -> None:
+        # One owner samples the list: runs compaction re-sampled a row its
+        # writer had already bounded, and recorded the sample's length as the total.
+        from datetime import datetime, timedelta, timezone
+
+        from aria_kernel import state_compact
+        from aria_kernel.ledger import load_declared_jsonl
+
+        written = self._record(_out_of_scope_paths(WIDE_VIOLATION_COUNT)).row
+        self.assertGreater(len(written["read_paths"]), 20, "premise: over compaction's own threshold")
+        # A row with evidence envelopes, so compaction rewrites the ledger.
+        enveloped = {"valid": True, "evidence_sources": [], "evidence_envelopes": [{"path": "src/app.ts"}]}
+        self._record(["src/app.ts"], evidence_validation=enveloped, run_id="run-enveloped")
+        runs = self.tools / "runs.jsonl"
+        _kept, stripped = state_compact._compact_runs(runs, self.tools, datetime.now(timezone.utc) + timedelta(days=1), False)
+        self.assertEqual(stripped, 1)
+        [compacted] = [row for row in load_declared_jsonl(runs, expected_surface="runs") if row["run_id"] == "run-escape"]
+        self.assertEqual(compacted["read_paths"], written["read_paths"])
+        self.assertEqual(compacted["read_paths_spilled"], written["read_paths_spilled"])
+        self.assertEqual(compacted["read_paths_spilled"]["total"], WIDE_VIOLATION_COUNT)
+        self.assertNotIn("read_paths_count", compacted)
+
+
+# ARIA-HIGH-617, verification round 2: the structure of the adapter's output,
+# not its size. An entry nested about 1,200 deep made the scrub on the way to
+# the store (artifact_safety.scrub_json, one Python frame per level) raise
+# RecursionError out of record_run, before the append and evaluate_health: in
+# v2-shadow on the artifact payload (read_paths or parsed_output), in v1 on the
+# row's read set. Nested about 20,000 deep, json.loads itself raised it in the
+# parser. Either way no run was recorded and a tool that read .env stayed
+# SHADOW. The parser now refuses output nested past the kernel's lexical bound
+# (ledger.json_nesting_within_limit) before it decodes it.
+NESTED_PAST_THE_SCRUB = 1_200
+NESTED_PAST_THE_DECODER = 20_000
+
+
+def _nested(depth: int) -> str:
+    return "[" * depth + '"docs/out-of-scope.md"' + "]" * depth
+
+
+def _adapter_stdout(*, read_paths: str = '[".env"]', metadata: str = '{"fixture":true}') -> str:
+    """An adapter's stdout as text, so a test can write nesting the encoder could not."""
+    return (
+        '{"observations":[],"findings":[],"read_paths":' + read_paths
+        + ',"evidence_sources":[],"cost_units":1,"metadata":' + metadata + "}"
+    )
+
+
+class _NestedOutputCases:
+    """One adapter run end to end through ``run_tool``, its stdout given as text."""
+
+    LEDGER_FORMAT: str
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        root = Path(self._tmp.name)
+        self.workspace = make_local_git_repo(root, name="work", initial_commit=False)
+        (self.workspace / "src").mkdir()
+        (self.workspace / "src" / "app.ts").write_text("x\n", encoding="utf-8")
+        _git(["add", "--", "src"], self.workspace)
+        _git(["commit", "-q", "-m", "fixture"], self.workspace)
+        self.tools = root / "tools"
+        self.tools.mkdir()
+        env = patch.dict(os.environ, {"ARIA_RUN_LEDGER_FORMAT": self.LEDGER_FORMAT})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def _run(self, stdout: str) -> tuple[dict[str, Any], str]:
+        from aria_kernel.tool_registry import get_tool
+
+        tool = shadow_tool()
+        encoded = base64.b64encode(stdout.encode("utf-8")).decode("ascii")
+        tool["runner"]["argv"] = ["python3", FAKE_RUNNER.as_posix(), "--stdout-b64", encoded]
+        tool["runner"]["timeout_ms"] = 60_000
+        register_tool(tool, base_dir=self.tools)
+        run_tool(
+            "fixture-shadow-tool", {}, "cyc-nested", run_id="run-nested",
+            workspace_root=self.workspace, base_dir=self.tools,
+        )
+        [(_bytes, row)] = _rows(self.tools)
+        return row, get_tool("fixture-shadow-tool", self.tools)["status"]
+
+    def _assert_refused_and_quarantined(self, stdout: str) -> None:
+        row, tool_status = self._run(stdout)
+        self.assertEqual(row["status"], "schema_error")
+        self.assertEqual(row["runner"]["parse_error"], "output_nesting_too_deep")
+        self.assertEqual(tool_status, "QUARANTINED")
+
+    def test_a_read_set_entry_nested_past_the_scrub_is_refused_and_quarantined(self) -> None:
+        self._assert_refused_and_quarantined(_adapter_stdout(read_paths=f'[".env",{_nested(NESTED_PAST_THE_SCRUB)}]'))
+
+    def test_metadata_nested_past_the_scrub_is_refused_and_quarantined(self) -> None:
+        self._assert_refused_and_quarantined(_adapter_stdout(metadata='{"deep":' + _nested(NESTED_PAST_THE_SCRUB) + "}"))
+
+    def test_output_nested_past_the_decoder_is_refused_and_quarantined(self) -> None:
+        self._assert_refused_and_quarantined(_adapter_stdout(read_paths=f'[".env",{_nested(NESTED_PAST_THE_DECODER)}]'))
+
+    def test_a_nested_entry_within_the_bound_is_judged_as_a_read(self) -> None:
+        # The object, the read_paths list and 120 levels: within the bound, so
+        # the output is parsed, the .env read is judged, and that quarantines.
+        row, tool_status = self._run(_adapter_stdout(read_paths=f'[".env",{_nested(120)}]'))
+        self.assertEqual(row["status"], "scope_violation")
+        self.assertIsNone(row["runner"]["parse_error"])
+        self.assertEqual(row["scope_violations"][0], ".env")
+        self.assertEqual(tool_status, "QUARANTINED")
+
+
+class NestedOutputInTheDefaultFormat(_NestedOutputCases, unittest.TestCase):
+    LEDGER_FORMAT = "v2-shadow"
+
+
+class NestedOutputInTheV1Format(_NestedOutputCases, unittest.TestCase):
+    LEDGER_FORMAT = "v1"
+
 
 class TheSampleHelperIsBoundedByBytes(unittest.TestCase):
     """``ledger_inline.sample_inline_list`` bounds every caller, evidence_validation's lists too."""
@@ -520,6 +729,24 @@ class TheSampleHelperIsBoundedByBytes(unittest.TestCase):
         self.assertLessEqual(len(stored.encode("utf-8")), INLINE_ROW_FIELD_MAX_BYTES)
         self.assertEqual(spilled["errors_spilled"]["total"], 20)
         self.assertEqual(spilled["errors_spilled"]["recovery"], "re-run the validator")
+
+    def test_an_oversized_value_is_counted_and_named_as_the_row_stores_it(self) -> None:
+        # One encoding per row: spill_oversized_inline and the evidence_validation
+        # gate counted UTF-8 and digested an unsorted, non-ASCII spelling.
+        from aria_kernel.ledger import canonical_json, sha256_digest_of_canonical_json
+        from aria_kernel.ledger_inline import INLINE_ROW_FIELD_MAX_BYTES, spill_evidence_validation, spill_oversized_inline
+
+        wide = "docs/" + chr(0x00E7) * 61_000
+        self.assertLess(len(wide.encode("utf-8")), INLINE_ROW_FIELD_MAX_BYTES, "premise: under the budget in UTF-8")
+        self.assertGreater(len(canonical_json(wide)), 2 * INLINE_ROW_FIELD_MAX_BYTES, "premise: over it on the row")
+        stub = spill_oversized_inline("value", wide, recovery="none")
+        self.assertEqual(stub["size_bytes"], len(canonical_json(wide)))
+        self.assertEqual(stub["sha256"], sha256_digest_of_canonical_json(wide))
+        validation = {"valid": False, "errors": [{"code": "read_path_outside_snapshot", "path": wide}]}
+        spilled = spill_evidence_validation(validation, recovery="none")
+        self.assertEqual(spilled["spilled_bulk"]["sha256"], sha256_digest_of_canonical_json(validation))
+        self.assertEqual(spilled["errors_spilled"]["sha256"], sha256_digest_of_canonical_json(validation["errors"]))
+        self.assertLessEqual(len(canonical_json(spilled)), INLINE_ROW_FIELD_MAX_BYTES)
 
     def test_the_budget_counts_the_bytes_the_row_stores(self) -> None:
         # The ledger writes a row with ASCII escapes, so one non-ASCII character

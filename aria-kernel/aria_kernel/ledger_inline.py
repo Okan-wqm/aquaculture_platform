@@ -18,8 +18,6 @@ The helpers are pure: same input, same output, no I/O.
 
 from __future__ import annotations
 
-import hashlib
-import json
 from typing import Any
 
 from .ledger import canonical_json, sha256_digest_of_canonical_json
@@ -45,24 +43,22 @@ EVIDENCE_VALIDATION_LIST_SAMPLES = {
 }
 
 
-def _serialize(value: Any) -> bytes:
-    return json.dumps(value, ensure_ascii=False, default=str).encode("utf-8")
-
-
 def spill_oversized_inline(field: str, value: Any, *, recovery: str) -> Any:
     """Return ``value`` unchanged under the cap, else a digest stub.
 
     ``recovery`` names where the full value lives or how it is rebuilt —
-    the stub is only honest when the reader can act on it.
+    the stub is only honest when the reader can act on it. The size is
+    counted, and the digest taken, in ``ledger.canonical_json``, the
+    spelling the ledger writes the row in (ARIA-HIGH-617): a UTF-8 count
+    let a non-ASCII value take up to three times the budget on the row, and
+    a second encoding gave one row two digest spellings.
     """
-    serialized = _serialize(value)
-    size = len(serialized)
+    size = len(canonical_json(value))
     if size <= INLINE_ROW_FIELD_MAX_BYTES:
         return value
-    digest = hashlib.sha256(serialized).hexdigest()
     return {
         "spilled": True,
-        "sha256": f"sha256:{digest}",
+        "sha256": sha256_digest_of_canonical_json(value),
         "size_bytes": size,
         "total_marker": "see:size_bytes",
         "recovery": f"{field} exceeded the inline row cap; {recovery}",
@@ -109,14 +105,7 @@ def sample_inline_list(
     """
     if (limit is None or len(values) <= limit) and len(canonical_json(values)) <= max_bytes:
         return {key: values}
-    sample: list[Any] = []
-    used = len("[]")
-    for value in values if limit is None else values[:limit]:
-        cost = len(canonical_json(value)) + (len(",") if sample else 0)
-        if used + cost > max_bytes:
-            break
-        sample.append(value)
-        used += cost
+    sample = bounded_prefix(values, limit=limit, max_bytes=max_bytes)
     marker: dict[str, Any] = {
         "spilled_sample": True,
         "reason_code": SAMPLED_LIST_REASON_CODE,
@@ -131,6 +120,26 @@ def sample_inline_list(
     return {key: sample, f"{key}_spilled": marker}
 
 
+def bounded_prefix(values: list[Any], *, limit: int | None, max_bytes: int) -> list[Any]:
+    """The longest prefix of ``values``, at most ``limit`` entries, whose row spelling fits ``max_bytes``.
+
+    The one bound on a list a ledger row carries (``sample_inline_list``'s
+    sample, the paths a pressure cites of a tool run). An entry is never cut,
+    since a cut path names another file, and an entry larger than the budget
+    ends the prefix. Bytes are counted in ``ledger.canonical_json``, the
+    spelling the ledger writes a row in. ``limit`` ``None``: no count limit.
+    """
+    prefix: list[Any] = []
+    used = len("[]")
+    for value in values if limit is None else values[:limit]:
+        cost = len(canonical_json(value)) + (len(",") if prefix else 0)
+        if used + cost > max_bytes:
+            break
+        prefix.append(value)
+        used += cost
+    return prefix
+
+
 def spill_evidence_validation(validation: dict[str, Any], *, recovery: str) -> dict[str, Any]:
     """Bound an ``evidence_validation`` object for inline storage.
 
@@ -138,7 +147,7 @@ def spill_evidence_validation(validation: dict[str, Any], *, recovery: str) -> d
     kept (lists sampled with a total + digest marker) and the whole object is
     represented once more as a digest stub under ``spilled_bulk``.
     """
-    if len(_serialize(validation)) <= INLINE_ROW_FIELD_MAX_BYTES:
+    if len(canonical_json(validation)) <= INLINE_ROW_FIELD_MAX_BYTES:
         return validation
     kept: dict[str, Any] = {}
     for key in EVIDENCE_VALIDATION_STRUCTURAL_KEYS:

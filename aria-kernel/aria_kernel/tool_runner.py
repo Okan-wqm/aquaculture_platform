@@ -13,6 +13,7 @@ from .adapter_room import prepare_adapter_spawn, run_adapter
 from .confidence import confidence_in_unit_interval
 from .evidence_validator import validate_tool_output_evidence
 from .genesis_adapter_custody import verify_genesis_dispatch
+from .ledger import json_nesting_within_limit
 from .implementation_safety import (
     BashAllowlistMiss,
     BashDenylistHit,
@@ -400,6 +401,8 @@ def _is_glob_ref(ref: str) -> bool:
 # audit see the specific reason instead of a generic "schema_error".
 PARSE_ERROR_CODES: frozenset[str] = frozenset({
     "output_not_json",
+    # ARIA-HIGH-617: nested past ledger.json_nesting_within_limit's bound.
+    "output_nesting_too_deep",
     "output_not_dict",
     "cost_units_invalid",
     "metadata_not_dict",
@@ -423,7 +426,24 @@ def _parse_tool_output(
     rejection. The runner-envelope writer carries `runner.parse_error`
     so operators and observability layers see the specific failure
     mode.
+
+    ARIA-HIGH-617 — the output's nesting is bounded here, before it is
+    decoded, by the kernel's one lexical bound
+    (``ledger.json_nesting_within_limit``). Every later step walks the
+    parsed output by recursion: ``json.loads`` raised RecursionError past
+    about 20,000 levels, and the scrub on the way to the store
+    (``artifact_safety.scrub_json``, one Python frame per level) past about
+    1,000. Either error left ``record_run`` before its append and
+    ``evaluate_health``, so the run went unrecorded and a tool whose report
+    held a ``.env`` read was never quarantined. Refused here, such output is
+    a ``schema_error`` run, recorded and quarantined like any other. Text
+    the bound cannot pair (unclosed brackets or strings) is not JSON at
+    all, and keeps that code.
     """
+    if not json_nesting_within_limit(stdout):
+        if json_nesting_within_limit(stdout, max_depth=len(stdout)):
+            return None, "output_nesting_too_deep"
+        return None, "output_not_json"
     try:
         payload = json.loads(stdout)
     except json.JSONDecodeError:

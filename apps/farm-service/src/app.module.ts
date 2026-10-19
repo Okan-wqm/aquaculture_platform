@@ -12,6 +12,7 @@ import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import { AUDIT_LOG_SERVICE, type IAuditLogService } from '@aquaculture/backend-common/audit';
 import { LegalHoldModule } from '@aquaculture/backend-common/compliance';
 import { SourceSchemaBootstrapService } from '@aquaculture/backend-common/database';
+import { DateTimeScalar } from '@aquaculture/backend-common/graphql';
 import { RolesGuard, ServiceIdentityGuard, TenantGuard } from '@aquaculture/backend-common/guards';
 import {
   createGraphqlOperationLimitPlugin,
@@ -202,6 +203,15 @@ import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
           federation: 2,
           path: join(process.cwd(), 'dist/graphql/subgraphs/farm.graphql'),
         },
+        /**
+         * Platform DateTime scalar (SSoT: backend-common/graphql). TypeORM
+         * hydrates `date` columns to date-only strings; the default NestJS
+         * DateTime scalar serializes only Date instances and returns null for
+         * them, crashing every query that selects such a field (production:
+         * purchaseOrders.expectedDeliveryDate, workOrders.dueDate). The shared
+         * scalar accepts every date representation the platform produces.
+         */
+        scalarsMap: [{ type: Date, scalar: DateTimeScalar }],
         /** SEC-CSRF: Apollo CSRF prevention. Rejects simple-CORS GraphQL
          *  requests that cannot carry a custom header — defense against
          *  cross-site GraphQL execution from a victim's browser. The

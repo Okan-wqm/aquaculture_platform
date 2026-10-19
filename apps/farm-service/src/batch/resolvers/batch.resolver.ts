@@ -72,9 +72,11 @@ import { BatchFeedAssignment } from '../entities/batch-feed-assignment.entity';
 import { BatchLocation } from '../entities/batch-location.entity';
 import { Batch, BatchStatus } from '../entities/batch.entity';
 import { GenerateBatchNumberQuery } from '../queries/generate-batch-number.query';
+import { GetMortalityDailyHistoryQuery } from '../queries/get-mortality-daily-history.query';
 import { GetBatchHistoryQuery, BatchHistoryEventType } from '../queries/get-batch-history.query';
 import { GetBatchTraceabilityQuery } from '../queries/get-batch-traceability.query';
 import { BatchTraceabilityResponse } from '../dto/batch-traceability.response';
+import { DailyMortalityPointResponse } from '../dto/daily-mortality.response';
 import { GetBatchPerformanceQuery } from '../queries/get-batch-performance.query';
 import { GetBatchQuery } from '../queries/get-batch.query';
 import { ListAvailableTanksQuery } from '../queries/list-available-tanks.query';
@@ -273,6 +275,18 @@ export class BatchResolver {
     return this.queryBus.execute(new GenerateBatchNumberQuery(tenantId));
   }
 
+  /**
+   * Daily mortality totals (all sites) for the health page's N-day chart.
+   * Days with zero mortality are absent — callers zero-fill for display.
+   */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
+  @Query(() => [DailyMortalityPointResponse], { name: 'mortalityDailyHistory' })
+  async mortalityDailyHistory(
+    @Tenant() tenantId: string,
+    @Args('days', { type: () => Int, defaultValue: 14 }) days: number,
+  ): Promise<DailyMortalityPointResponse[]> {
+    return this.queryBus.execute(new GetMortalityDailyHistoryQuery(tenantId, days));
+  }
   // -------------------------------------------------------------------------
   // MUTATIONS
   // -------------------------------------------------------------------------

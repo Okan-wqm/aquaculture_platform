@@ -4403,6 +4403,11 @@ export type DailyFeedingPlanResponse = {
   totalPlannedKg: Scalars['Float']['output'];
 };
 
+export type DailyMortalityPointResponse = {
+  count: Scalars['Int']['output'];
+  date: Scalars['String']['output'];
+};
+
 export type DashboardLayout = {
   createdAt: Scalars['DateTime']['output'];
   createdBy?: Maybe<Scalars['String']['output']>;
@@ -8194,6 +8199,7 @@ export type HealthEventStatsResponse = {
   resolved: Scalars['Int']['output'];
   total: Scalars['Int']['output'];
   underTreatment: Scalars['Int']['output'];
+  withdrawalActive: Scalars['Int']['output'];
 };
 
 /** Olay durumu */
@@ -15957,6 +15963,7 @@ export type Query = {
   messagesSince: Array<Message>;
   moduleUsageStats: Array<ModuleUsageStatResponse>;
   moduleUsers: Array<User>;
+  mortalityDailyHistory: Array<DailyMortalityPointResponse>;
   myAnnouncements: Array<AnnouncementListItem>;
   myAttendanceRecords: Array<AttendanceRecord>;
   myAttendanceSummary: AttendanceSummary;
@@ -17415,6 +17422,11 @@ export type QueryMessagesSinceArgs = {
 
 export type QueryModuleUsersArgs = {
   moduleId: Scalars['ID']['input'];
+};
+
+
+export type QueryMortalityDailyHistoryArgs = {
+  days?: Scalars['Int']['input'];
 };
 
 

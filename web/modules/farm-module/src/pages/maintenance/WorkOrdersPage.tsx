@@ -19,6 +19,7 @@ import {
 } from '@aquaculture/shared-ui';
 import {
   useWorkOrders,
+  useWorkOrderStatistics,
   useCreateWorkOrder,
   useUpdateWorkOrder,
   useCompleteWorkOrder,
@@ -313,6 +314,9 @@ export const WorkOrdersPage: React.FC = () => {
 
   // API hooks - existing
   const { data, isLoading, error, refetch } = useWorkOrders(filter, page, 20);
+  // KPI strip (design): last-30-day window for "Tamamlanan · 30 gün"
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const { data: woStats } = useWorkOrderStatistics(thirtyDaysAgo, undefined);
   const createMutation = useCreateWorkOrder();
   const updateMutation = useUpdateWorkOrder();
   const completeMutation = useCompleteWorkOrder();
@@ -678,6 +682,35 @@ export const WorkOrdersPage: React.FC = () => {
         description="Bakım iş emirlerini görüntüleyin ve yönetin"
         actions={<Button onClick={handleOpenCreate}>Yeni İş Emri</Button>}
       />
+
+      {/* KPI strip (design) */}
+      {woStats && (
+        <div className="grid grid-cols-2 border border-gray-200 bg-white sm:grid-cols-4 dark:border-gray-700 dark:bg-gray-900">
+          {(
+            [
+              {
+                label: 'Açık',
+                value:
+                  woStats.draft + woStats.pendingApproval + woStats.approved + woStats.scheduled,
+                cls: 'text-gray-900',
+              },
+              { label: 'Gecikmiş', value: woStats.overdue, cls: 'text-error-600' },
+              { label: 'Devam eden', value: woStats.inProgress, cls: 'text-accent-600' },
+              { label: 'Tamamlanan · 30 gün', value: woStats.completed, cls: 'text-success-600' },
+            ] as const
+          ).map((kpi) => (
+            <div
+              key={kpi.label}
+              className="flex flex-col gap-1.5 border-b border-r border-gray-200 px-6 py-4 dark:border-gray-700"
+            >
+              <span className="text-xs font-bold uppercase tracking-widest text-gray-500">
+                {kpi.label}
+              </span>
+              <span className={`text-4xl font-semibold leading-none ${kpi.cls}`}>{kpi.value}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Filters */}
       <Card className="p-4">

@@ -60,6 +60,11 @@ const CROSS_SUBGRAPH_FIELDS: Record<string, string> = {
   // or piece of equipment takes part in
   // (web/modules/farm-module/src/graphql/processFlows.operations.ts).
   processes: 'sensor-service',
+  // The tanks console's detail drawer reads the tank's linked temperature
+  // sensor's latest reading (Sıcaklık/DO) through the federated batch query
+  // the sensor module's SCADA already uses (useSensorReadments calls the same
+  // root field); farm-service has no sensor-reading resolver by design.
+  latestReadingsBatch: 'sensor-service',
 };
 
 interface FrontendRootField {

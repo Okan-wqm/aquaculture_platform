@@ -947,6 +947,9 @@ def validate_tool_definition(tool: dict[str, Any]) -> dict[str, Any]:
         )
     if "default_input" in candidate and not isinstance(candidate["default_input"], dict):
         raise GovernanceError("default_input must be a JSON object when provided")
+    # ARIA-LOW-594 — the declared scope must lie inside what default_input
+    # walks (see _validate_scope_walked_by_default_input).
+    _validate_scope_walked_by_default_input(candidate)
     if "rules" in candidate:
         # ARIA-HIGH-324 — the per-rule judgment contract (rule_contract) is
         # checked at the one gate every registry row passes, so a contract
@@ -1790,6 +1793,57 @@ def resolve_transition_approval(
 def _require_string(tool: dict[str, Any], field: str) -> None:
     if not isinstance(tool.get(field), str) or not tool[field].strip():
         raise GovernanceError(f"{field} must be a non-empty string")
+
+
+def _glob_literal_prefix(pattern: str) -> str:
+    """The literal directory part of a glob: everything before the first
+    metacharacter, without a trailing slash (``''`` — the repository root —
+    when the glob starts with a metacharacter, e.g. ``**`` or ``*.json``)."""
+    cut = len(pattern)
+    for index, char in enumerate(pattern):
+        if char in "*?[{":
+            cut = index
+            break
+    return pattern[:cut].rstrip("/")
+
+
+def _validate_scope_walked_by_default_input(candidate: dict[str, Any]) -> None:
+    """ARIA-LOW-594 — a declared scope the production input never walks is
+    coverage theatre.
+
+    ``observation_coverage.adapter_scopes`` counts a path as observed when an
+    adapter DECLARES it, never asking whether the production input ever
+    reaches it: bundle-budget-adapter declared ``web/**`` while its
+    ``default_input.roots`` walked only web/shell, web/modules and web/apps,
+    so every web/shared-ui file counted as observed without being read — a
+    coverage claim the coverage map cannot itself refute. The registry write
+    gate is the one point every manifest passes, so the tie lives here: with
+    roots (or coverageRoots) declared, each declared_scope glob's literal
+    prefix must be one of those roots or lie under one. A manifest without
+    ``default_input`` walks its declared scope directly and is exempt.
+    """
+    default_input = candidate.get("default_input")
+    if not isinstance(default_input, dict):
+        return
+    roots: list[str] = []
+    for key in ("roots", "coverageRoots"):
+        declared = default_input.get(key)
+        if isinstance(declared, list):
+            roots.extend(str(root) for root in declared)
+    if not roots:
+        return
+    walked = sorted({root.rstrip("/") for root in roots if root.rstrip("/")})
+    for scope_glob in candidate["declared_scope"]:
+        prefix = _glob_literal_prefix(str(scope_glob))
+        if any(prefix == root or prefix.startswith(f"{root}/") for root in walked):
+            continue
+        raise GovernanceError(
+            f"declared_scope_outside_walked_roots:{scope_glob}: its literal "
+            f"prefix {prefix!r} is neither a default_input root nor under one, "
+            f"so observation_coverage would count every matching file as "
+            f"observed though production never walks it (walked roots: "
+            f"{', '.join(walked)})"
+        )
 
 
 def _validate_output_schema(schema: dict[str, Any]) -> None:

@@ -1,10 +1,14 @@
 {
   "tool_id": "bundle-budget-adapter",
   "kind": "adapter",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "status": "SHADOW",
   "security_class": false,
-  "declared_scope": ["web/**/*.{ts,tsx,js,json}"],
+  "declared_scope": [
+    "web/shell/**/*.{ts,tsx,js,json}",
+    "web/modules/**/*.{ts,tsx,js,json}",
+    "web/apps/**/*.{ts,tsx,js,json}"
+  ],
   "output_schema": {
     "type": "object",
     "required": ["observations", "findings", "read_paths", "evidence_sources"]
@@ -65,6 +69,6 @@
     "stdin_json": true
   },
   "freshness_window_hours": 168,
-  "parse_window_signature": "sha256:5870176b20a60f6611b661ffdbbdad134e8e5d494efcd2a4dcf7a29cf58bed32",
-  "schema_version": 1
+  "schema_version": 1,
+  "parse_window_signature": "sha256:3e054dced46b1f224060971e00e182f62e22053ebbdb6aa382b03639aeed3635"
 }

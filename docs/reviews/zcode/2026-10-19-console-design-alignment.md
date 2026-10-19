@@ -45,3 +45,26 @@ Findings from the design-handoff reference (Tenant Console D4) vs the repo.
   `notes { id text createdBy createdAt }`) in `useTasks.ts` and
   `useRecurringTemplates.ts`; the frontend `ChecklistItem`/`TaskNote` types
   already match the wire shape.
+
+## FE-HIGH-375 — feeding protocols console dead: FE requests the non-contract `version` field
+
+- **Evidence (live, app.suderra.com):** `feedingProtocolsV2` returns
+  `Cannot query field "version" on type "FeedingProtocolV2"` — list, detail,
+  create and update protocol operations all embed the same fragment, so
+  /sites/feeding renders "Failed to load protocols" and the protocol/assignment
+  tabs cannot load or save.
+- **Root cause:** `@VersionColumn()` is a DB-layer optimistic lock
+  (`feeding-protocol-v2.entity.ts:274`) with no `@Field()`, so the wire type has
+  no `version`; the FE fragment (and the unused hook type member) carried it.
+- **Fix:** drop `version` from `FEEDING_PROTOCOL_V2_FIELDS` and the hook type —
+  backend contract unchanged, no FE consumer reads it.
+
+## FE-HIGH-376 — health console status chips send lowercase DB values
+
+- **Evidence (live):** `healthEvents(filter:{status: "active"})` →
+  `Value "active" does not exist in "HealthEventStatus". Did you mean the enum
+value "ACTIVE"?` — the PR #2026 chip row shipped `active/monitoring/resolved`
+  (DB values) instead of the wire enum keys, so every chip click blanked the
+  page behind "Error loading health events. Please try again."
+- **Fix:** chip values to `ACTIVE/MONITORING/RESOLVED` (same wire-key rule the
+  page's own label maps and FARM-CRITICAL-409 already follow).

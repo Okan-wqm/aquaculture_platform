@@ -25,7 +25,6 @@ const FEEDING_PROTOCOL_V2_FIELDS = `
   migrationNote
   createdAt
   updatedAt
-  version
 `;
 
 const PROTOCOL_ASSIGNMENT_FIELDS = `

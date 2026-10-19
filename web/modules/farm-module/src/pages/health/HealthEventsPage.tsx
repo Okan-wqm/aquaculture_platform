@@ -794,9 +794,9 @@ export const HealthEventsPage: React.FC = () => {
         {(
           [
             { value: '', label: t('healthPage.filter.all') },
-            { value: 'active', label: t('healthPage.filter.active') },
-            { value: 'monitoring', label: t('healthPage.filter.monitoring') },
-            { value: 'resolved', label: t('healthPage.filter.resolved') },
+            { value: 'ACTIVE', label: t('healthPage.filter.active') },
+            { value: 'MONITORING', label: t('healthPage.filter.monitoring') },
+            { value: 'RESOLVED', label: t('healthPage.filter.resolved') },
           ] as const
         ).map((chip) => (
           <button

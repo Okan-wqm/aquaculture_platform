@@ -150,6 +150,31 @@ class StoreChecks(unittest.TestCase):
         )
         self.assertEqual(doctor._check_plan_ledger(self.tools).status, "ok")
 
+    def test_the_learning_funnel_names_where_findings_stop_at_head(self) -> None:
+        """ARIA-HIGH-004 — the learning funnel has a reader: ten raw findings
+        no judge was ever asked about are a named stall at the workspace HEAD,
+        and a workspace with no HEAD has no target to measure against."""
+        from aria_kernel.feedback_store import record_raw_findings_for_run
+
+        check = doctor._check_learning_funnel(self.tools, self.root)
+        self.assertEqual((check.status, check.reason), ("warn", "learning_funnel_target_unresolved"))
+
+        (self.root / "README.md").write_text("fixture\n", encoding="utf-8")
+        track_existing(self.root, "README.md")
+        check = doctor._check_learning_funnel(self.tools, self.root)
+        self.assertEqual((check.status, check.reason), ("ok", ""))
+
+        record_raw_findings_for_run(
+            {"tool_id": "adapter-a", "run_id": "run-1", "status": "ok", "runner": {}},
+            [{"id": f"F-{index}", "rule": "r", "path": "src/a.ts", "line": index, "message": f"m{index}"}
+             for index in range(10)],
+            base_dir=self.tools,
+        )
+        check = doctor._check_learning_funnel(self.tools, self.root)
+        self.assertEqual((check.status, check.reason), ("warn", "learning_funnel_stalled:raw->judge_request"))
+        self.assertEqual((check.detail["counts"]["raw"], check.detail["counts"]["judge_request"]), (10, 0))
+        self.assertIn("learning_funnel", [c.name for c in run_doctor(base_dir=self.tools, workspace_root=self.root).checks])
+
     def _seed_live_requests(self, tools: Path) -> None:
         append_declared_jsonl(
             tools / "agent-invocations" / "requests.jsonl",

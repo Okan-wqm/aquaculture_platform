@@ -36,50 +36,11 @@ from aria_kernel.pressure import explain_pressure, run_pressure
 from aria_kernel.tool_registry import GovernanceError, transition_tool, get_tool
 from aria_kernel.architecture_spine_gate import INVARIANT_KINDS, SPINE_ADAPTER_IDS
 from aria_kernel.finding_subject import adapter_violation_keys
+from tests._helpers.active_evidence import register_active_for_test
 from tests._helpers.production_shaped import cycle_workspace
 from tests._helpers.spine_fixture import SPINE_FIXTURE_VERSION, SpineFixture, findings_path
 
 FAKE_RUNNER = Path(__file__).resolve().parent / "_helpers" / "fake_tool_runner.py"
-
-
-def register_active_for_test(tool, base_dir):
-    """Plan 023 v3 §C-3 — test fixture helper (mirrors test_tool_governance).
-
-    register_tool now rejects first-time registrations at ACTIVE / CALIBRATE
-    / QUARANTINED. Route ACTIVE through SHADOW + transition_tool, route
-    QUARANTINED through SHADOW + quarantine_tool, and let the initial-lifecycle
-    state (SHADOW) pass through register_tool unchanged.
-    """
-    target = tool.get("status", "ACTIVE")
-    if target == "SHADOW":
-        return register_tool(tool, base_dir=base_dir)
-    if target not in ("ACTIVE", "CALIBRATE", "QUARANTINED"):
-        return register_tool(tool, base_dir=base_dir)
-    initial = {**tool, "status": "SHADOW"}
-    register_tool(initial, base_dir=base_dir)
-    if target == "QUARANTINED":
-        from aria_kernel.quarantine import quarantine_tool
-        return quarantine_tool(
-            tool["tool_id"], "test fixture quarantine", base_dir=base_dir,
-        )
-    # ARIA-CRITICAL-216 — the promotion is an operator's GitHub act (faked).
-    from tests._helpers.operator_acts import github_operator_acts
-
-    with github_operator_acts() as github:
-        return transition_tool(
-            tool["tool_id"],
-            target_status=target,
-            reason="test fixture promotion",
-            precision=1.0,
-            critical_false_positives=0,
-            evidence_chains_valid=True,
-            operator_approval_ref=github.approve(
-                "tool_promote", {"tool": tool["tool_id"], "target": target},
-            ),
-            base_dir=base_dir,
-        )
-
-
 
 
 def fake_tool_argv(output):

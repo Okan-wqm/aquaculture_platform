@@ -18,6 +18,7 @@ import time
 from types import MappingProxyType
 from typing import Any, Callable, Iterable, Iterator, Literal, Mapping
 
+from .funnel_health import learning_stage_blockers
 from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 from .ledger import SEGMENT_OPENED_ROW_TYPE
 from .state_snapshot import (
@@ -1143,7 +1144,15 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             schema_versions=frozenset({1}),
             identity_field="finding_fingerprint",
             integrity_hash_field="ledger_hash",
-            authoritative_sha_field=None,
+            # ARIA-HIGH-004 — a promotion names the commit its consensus's
+            # judge requests were minted at (finding_promotion.promotion_row,
+            # stamped from the trusted request envelope through
+            # judgment_bridge and generate_ai_consensus, never inferred), so
+            # a finding_funnel proof binds the tree it judged. A legacy row,
+            # or one whose judges judged different trees (target_sha None),
+            # stays countable history and never becomes live_proven.
+            # finding_funnel@2 (capability_semantic_authority.json).
+            authoritative_sha_field="target_sha",
             upcaster=_identity_upcaster,
             terminal_predicate=lambda row: bool(row.get("finding_id")),
         ),),
@@ -1199,7 +1208,11 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             schema_versions=frozenset({2}),
             identity_field="execution_run_id",
             integrity_hash_field="ledger_hash",
-            authoritative_sha_field=None,
+            # ARIA-HIGH-004 — the suite's checkout HEAD, named by the run
+            # that measured it (fixture_runner.fixture_suite_row, ARIA-
+            # MEDIUM-400), binds the proof to the tree it ran against.
+            # fixture_calibration@3 (capability_semantic_authority.json).
+            authoritative_sha_field="workspace_commit_sha",
             upcaster=_identity_upcaster,
             terminal_predicate=lambda row: (
                 row.get("row_type") == "fixture_run_suite"
@@ -1369,6 +1382,15 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             "enterprise_autonomy_unlock_events",
         ),
     ),
+})
+# ARIA-HIGH-004 — the counts (of ``capability_counts``) that measure the
+# learning stages a capability proves, upstream first. Any one at zero names
+# ``funnel_health.learning_stage_blockers``'s blocker and keeps the capability
+# from live_proven; the full join, stage by stage, is
+# ``funnel_health.derive_learning_funnel_health`` over the store.
+_LEARNING_STAGE_COUNTS: Mapping[str, tuple[str, ...]] = MappingProxyType({
+    "finding_funnel": ("ai_consensus_true_positive", "unique_promoted"),
+    "fixture_calibration": ("fixture_suites_passed", "judge_rows", "adapter_rows"),
 })
 CAPABILITY_AUTHORITY_PATHS: Mapping[str, tuple[str, ...]] = MappingProxyType({
     key: spec.authority_paths
@@ -3666,6 +3688,12 @@ class _StreamingEvidenceAccumulator:
             else:  # pragma: no cover - roster is exhaustive above
                 unlock_blocker = None
             blockers: set[str] = set()
+            # ARIA-HIGH-004 — a capability that proves learning stages is
+            # never live_proven while one of them holds nothing: a passing
+            # fixture suite with no judge or adapter calibration behind it
+            # is not a calibrated adapter.
+            learning_stages = _LEARNING_STAGE_COUNTS.get(capability, ())
+            blockers.update(learning_stage_blockers({name: counts[name] for name in learning_stages}))
             if capability in self.count_rejected:
                 counts = {
                     surface: self.surface_counts[surface]

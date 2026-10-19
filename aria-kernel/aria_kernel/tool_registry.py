@@ -1516,6 +1516,7 @@ def transition_tool(
     precision: float | None = None,
     critical_false_positives: int = 0,
     evidence_chains_valid: bool = False,
+    active_evidence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Plan ARIA-V6 §2e v2 B-V1-1 — auto_promote_token added.
 
@@ -1576,6 +1577,16 @@ def transition_tool(
     transition: its only exits are CALIBRATE, on such an act (what
     ``unquarantine_tool`` asks for), and the narrowing ones in
     ``_QUARANTINE_EXITS_WITHOUT_APPROVAL``.
+
+    ARIA-HIGH-004 — SHADOW -> ACTIVE also binds its evidence:
+    ``active_evidence`` (built by ``adapter_calibration.active_transition_
+    evidence``) names the calibration report, the readiness verdict it holds,
+    the fixture run that verdict read, the tool version and the commit, and
+    ``adapter_calibration.verify_active_transition_evidence`` re-derives every
+    one of them from the ledgers before any authority is resolved. Missing,
+    stale or mismatched evidence refuses the promotion; the verified evidence
+    lands in ``last_transition`` so the ACTIVE row names what it stood on.
+    Every other transition is unchanged.
     """
     if target_status not in TOOL_STATUSES:
         raise GovernanceError(f"unknown lifecycle state: {target_status}")
@@ -1586,6 +1597,7 @@ def transition_tool(
     # Set only by SHADOW -> ACTIVE, the one transition the panel authorizes.
     _panel_promote_verified = False
     _genesis_drafted = False
+    _verified_active_evidence: dict[str, Any] | None = None
     if target_status in RUNNER_REQUIRED_STATUSES and "runner" not in tool:
         raise GovernanceError(f"{target_status} tool requires runner configuration")
     current = tool["status"]
@@ -1616,6 +1628,15 @@ def transition_tool(
                 raise GovernanceError("SHADOW -> ACTIVE requires precision above threshold")
             if critical_false_positives > 0:
                 raise GovernanceError("SHADOW -> ACTIVE requires zero critical false positives")
+            # ARIA-HIGH-004 — the evidence the promotion stands on, verified
+            # among the structural gates: it spends nothing, so a refusal
+            # here leaves the operator's act unspent. Late import:
+            # adapter_calibration reads this module at import time.
+            from .adapter_calibration import verify_active_transition_evidence
+
+            _verified_active_evidence = verify_active_transition_evidence(
+                tool_id, active_evidence, base_dir=base_dir,
+            )
             # The panel token is VERIFIED once, here among the structural
             # gates, and both the genesis authority check and the predicate
             # below read the verdict: presence is not authority.
@@ -1735,6 +1756,11 @@ def transition_tool(
                         "operator_approval": operator_approval,
                     }
                     if operator_approval is not None
+                    else {}
+                ),
+                **(
+                    {"active_evidence": _verified_active_evidence}
+                    if _verified_active_evidence is not None
                     else {}
                 ),
             },

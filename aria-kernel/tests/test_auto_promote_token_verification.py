@@ -23,6 +23,7 @@ from aria_kernel.adapter_calibration import (
     verify_auto_promote_token,
 )
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from tests._helpers.active_evidence import stand_in_active_evidence
 
 
 def _envelope(payload: dict, key: bytes) -> str:
@@ -110,6 +111,9 @@ class TransitionGateTests(unittest.TestCase):
         self._tmp = Path(tempfile.mkdtemp(prefix="aria-787-gate-"))
         self.tools = self._tmp / "aria-tools"
         ensure_tools_dir(self.tools)
+        # The subject is the authority clause; the ACTIVE evidence gate
+        # (ARIA-HIGH-004) is stood in, as the ledgers behind it would be.
+        stand_in_active_evidence(self)
 
     def tearDown(self) -> None:
         shutil.rmtree(self._tmp, ignore_errors=True)

@@ -7,7 +7,7 @@ thing the gate existed to measure. The proof is now computed HERE, from the
 same ledgers replay reads, and injected into the evidence by
 `record_transition` — the caller's opinion no longer reaches the gate.
 
-Two measured components:
+Three measured components:
 
 * **Window superiority** — `agent_eval.compare_eval_windows` (the program's
   own success test, reused not rewritten): the promotion window must be
@@ -18,6 +18,10 @@ Two measured components:
   Bradley-Terry rating must top every opponent it faced. Fewer matches →
   the duel component reports `not_evaluated` and the window alone decides
   (a thin duel ledger must not block the lane that FEEDS it).
+* **Judge fitness** (ARIA-HIGH-125) — a candidate the newest fitness report
+  measured as a judge on a promoted gold corpus must hold the judge
+  precision floor on every corpus it was measured on; an agent no corpus
+  measures reports ``unmeasured`` and the window decides.
 
 Small on purpose — operator preference 2026-08-11: files stay short.
 """
@@ -110,11 +114,42 @@ def compute_eval_window_superiority(
         if own <= top_opponent:
             reasons.append("duel_rating_not_superior")
 
+    fitness = judge_fitness(entity_id=entity_id, base_dir=base_dir)
+    reasons.extend(
+        f"judge_fitness_below_threshold:{row['tool_id']}:precision={row['precision']}<{row['floor']}"
+        for row in fitness["rows"] if row["precision"] < row["floor"]
+    )
+
     return {
         "schema_version": 1,
         "entity_id": entity_id,
         "window": window,
         "duel": duel,
+        "fitness": fitness,
         "passed": not reasons,
         "reasons": reasons,
     }
+
+
+def judge_fitness(*, entity_id: str, base_dir: str | Path | None = None) -> dict[str, Any]:
+    """ARIA-HIGH-125 — the candidate's replay fitness from the newest fitness
+    report: every gold corpus on which it was measured as a judge, with the
+    judge precision floor (``judge_calibration.DEFAULT_PRECISION_FLOOR``) each
+    row is held to. An agent no gold corpus measures is ``unmeasured`` and the
+    window decides, as the duel ledger's absence does: the corpus measures
+    judges, and a planner has none to be measured on."""
+    from .fitness import list_fitness_reports
+    from .judge_calibration import DEFAULT_PRECISION_FLOOR
+    from .role_fitness import MEASURED
+
+    reports = list_fitness_reports(base_dir=base_dir)
+    by_tool = ((reports[-1] if reports else {}).get("role_fitness") or {}).get("judges") or {}
+    rows = [
+        {"tool_id": tool_id, "goldset_hash": group.get("goldset_hash"), "samples": judge["samples"],
+         "precision": judge["precision"], "recall": judge["recall"], "ece": judge["ece"],
+         "floor": DEFAULT_PRECISION_FLOOR}
+        for tool_id, group in sorted(by_tool.items())
+        for judge in group.get("judges") or []
+        if judge.get("judge_id") == entity_id and judge.get("status") == MEASURED
+    ]
+    return {"status": MEASURED if rows else "unmeasured", "rows": rows}

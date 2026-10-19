@@ -24,6 +24,7 @@ from aria_kernel import (
 from aria_kernel.cli import main
 from aria_kernel.feedback_store import record_operator_feedback
 from tests._helpers.git_fixtures import track_existing
+from tests._helpers.active_evidence import register_active_for_test
 
 FAKE_RUNNER = Path(__file__).resolve().parent / "_helpers" / "fake_tool_runner.py"
 
@@ -49,61 +50,6 @@ def runner(argv=None, **overrides):
     }
     config.update(overrides)
     return config
-
-
-def register_active_for_test(tool, base_dir):
-    """Plan 023 v3 §C-3 — test fixture helper.
-
-    register_tool now rejects first-time registrations at ACTIVE / CALIBRATE
-    / QUARANTINED. Tests that need ACTIVE-tool behavior must route through
-    the lifecycle: SHADOW first-register, then transition_tool() with
-    synthetic gate values that satisfy the ACTIVE precondition checks.
-    Production callers cannot call this helper — it lives in the test
-    namespace only and uses a faked operator GitHub act / precision=1.0 /
-    evidence_chains_valid=True purely for fixture wiring.
-
-    For the initial-lifecycle state (SHADOW) and intentional
-    rejection-path probes (BROKEN status, missing fields, etc.), the
-    helper falls through to register_tool unchanged so the test author's
-    intent is preserved.
-    """
-    target = tool.get("status", "ACTIVE")
-    if target == "SHADOW":
-        # The initial-lifecycle state passes through register_tool unchanged.
-        return register_tool(tool, base_dir=base_dir)
-    if target not in ("ACTIVE", "CALIBRATE", "QUARANTINED"):
-        # Invalid status values (BROKEN, etc.) reach register_tool's
-        # validation and raise as before.
-        return register_tool(tool, base_dir=base_dir)
-    # Route ACTIVE / CALIBRATE / QUARANTINED through the legitimate
-    # lifecycle: SHADOW first-register, then the appropriate API.
-    initial = {**tool, "status": "SHADOW"}
-    register_tool(initial, base_dir=base_dir)
-    if target == "QUARANTINED":
-        from aria_kernel.quarantine import quarantine_tool
-        return quarantine_tool(
-            tool["tool_id"],
-            "test fixture quarantine",
-            base_dir=base_dir,
-        )
-    # ARIA-CRITICAL-216 — the promotion is an operator's GitHub act (faked).
-    from tests._helpers.operator_acts import github_operator_acts
-
-    with github_operator_acts() as github:
-        return transition_tool(
-            tool["tool_id"],
-            target_status=target,
-            reason="test fixture promotion",
-            precision=1.0,
-            critical_false_positives=0,
-            evidence_chains_valid=True,
-            operator_approval_ref=github.approve(
-                "tool_promote", {"tool": tool["tool_id"], "target": target},
-            ),
-            base_dir=base_dir,
-        )
-
-
 
 
 def valid_tool(**overrides):

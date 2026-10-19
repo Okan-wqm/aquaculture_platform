@@ -27,6 +27,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .agent_invocations import request_anchor_sha
 from .agent_surface import JUDGE_ROLES, SUPPORTING_ROLES
 from .confidence import confidence_in_unit_interval
 from .feedback_store import (
@@ -466,6 +467,12 @@ def record_judge_verdict_from_response(
         finding_fingerprint=request.get("finding_fingerprint") or verdict_block.get("finding_fingerprint"),
         confidence_source=confidence_source if confidence is not None else None,
         evidence_selection="index" if typed_answer is not None else "ref",
+        # ARIA-HIGH-004 — the learning funnel joins a judgment to the request
+        # it answers and to the commit that request was minted at, both from
+        # the MINT (the same D1 doctrine as the group id and fingerprint
+        # above): a judge's payload never names its own request or tree.
+        request_ids=[str(request["request_id"])] if request.get("request_id") else None,
+        target_sha=request_anchor_sha(request),
         base_dir=base_dir,
     )
     return row

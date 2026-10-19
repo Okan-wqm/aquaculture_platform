@@ -661,6 +661,26 @@ def _check_learning(tools_dir: Path) -> DoctorCheck:
     return DoctorCheck("learning", "ok", "" if detail["episodes"] else "no_episodes", detail)
 
 
+def _check_learning_funnel(tools_dir: Path, workspace: Path) -> DoctorCheck:
+    """ARIA-HIGH-004 — the learning funnel joined end to end at the
+    workspace's HEAD (``funnel_health.derive_learning_funnel_health``): each
+    stage's count, the history beside it, and a WARN naming every stage that
+    took ten and passed none on. The delivery funnel's organ (``funnel``)
+    reads plans; this one reads what a finding must pass to change what ARIA
+    trusts. With no HEAD there is no target to bind the join to, and that is
+    said, not guessed."""
+    from .convergence_drainer import _resolve_workspace_head_sha
+    from .funnel_health import derive_learning_funnel_health
+
+    head = _resolve_workspace_head_sha(workspace)
+    if head is None:
+        return DoctorCheck("learning_funnel", "warn", "learning_funnel_target_unresolved", {"workspace": str(workspace)})
+    health = derive_learning_funnel_health(base_dir=tools_dir, target_sha=head)
+    if health.blockers:
+        return DoctorCheck("learning_funnel", "warn", ",".join(health.blockers), health.as_dict())
+    return DoctorCheck("learning_funnel", "ok", detail=health.as_dict())
+
+
 CALIBRATION_GATE_DOWNGRADE_WARN_DAYS: int = 7
 
 
@@ -801,6 +821,7 @@ def run_doctor(
         _guarded("gateway_heartbeat_fresh", lambda: _check_gateway_heartbeat_fresh(tools_dir)),
         _guarded("economy", lambda: _check_economy(tools_dir)),
         _guarded("learning", lambda: _check_learning(tools_dir)),
+        _guarded("learning_funnel", lambda: _check_learning_funnel(tools_dir, workspace)),
         _guarded("orchestrator", lambda: _check_orchestrator(tools_dir)),
         _guarded("tools", lambda: _check_tools(tools_dir)),
         _guarded("deadlines", lambda: _check_deadlines(tools_dir, workspace)),

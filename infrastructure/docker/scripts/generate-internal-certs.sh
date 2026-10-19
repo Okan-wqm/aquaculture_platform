@@ -58,9 +58,36 @@ case "$#:${1:-}" in
 esac
 LEAF_VALIDITY_DAYS=365
 LEAF_RENEWAL_WINDOW_DAYS=30
-# The server sets issued below, in order; the continuity and expiry checks read
-# the same list (production-cert-identity-store.spec.ts pins the two together).
-MANAGED_SERVER_NAMES=(nats redis postgres)
+# The managed server sets, one row each: name|CN|subjectAltName|private-key mode.
+# Directory preparation, issuance and the continuity and expiry checks all
+# iterate this table, and load_server_set is the only reader of a row: it
+# refuses a name the table does not hold, so no server set or file can be
+# issued without also being checked.
+MANAGED_SERVER_SETS=(
+  'nats|nats|DNS:nats,DNS:aqua-nats,DNS:localhost|0644'
+  'redis|redis|DNS:redis,DNS:aqua-redis,DNS:localhost|0644'
+  'postgres|postgres|DNS:postgres,DNS:aqua-postgres,DNS:localhost|0600'
+)
+# Looks the named set up in MANAGED_SERVER_SETS and sets SERVER_SET_CN,
+# SERVER_SET_SAN, SERVER_SET_KEY_MODE and the set's paths (SERVER_SET_DIR,
+# SERVER_SET_KEY, SERVER_SET_CERT, SERVER_SET_CA): the one place a server set's
+# files are spelled; even the PostgreSQL aliases name them through it. Any
+# other name ends the run before a file is touched.
+load_server_set() {
+  local row name
+  for row in "${MANAGED_SERVER_SETS[@]}"; do
+    IFS='|' read -r name SERVER_SET_CN SERVER_SET_SAN SERVER_SET_KEY_MODE <<< "${row}"
+    if [ "${name}" = "$1" ]; then
+      SERVER_SET_DIR="${CERTS_DIR}/${name}"
+      SERVER_SET_KEY="${SERVER_SET_DIR}/${name}-key.pem"
+      SERVER_SET_CERT="${SERVER_SET_DIR}/${name}-cert.pem"
+      SERVER_SET_CA="${SERVER_SET_DIR}/ca-cert.pem"
+      return 0
+    fi
+  done
+  echo "error: not a managed server set: $1 (every server set is a row of MANAGED_SERVER_SETS)" >&2
+  exit 1
+}
 declare -a MANAGED_LEAF_CERTS=()
 declare -a MANAGED_LEAF_KEYS=()
 declare -a MANAGED_LEAF_PURPOSES=()
@@ -395,29 +422,30 @@ if [[ ! "${CERTIFICATE_OWNER_UID}" =~ ^[0-9]+$ ]]; then
   certificate_store_error 'could not determine the deploy uid'
   exit 1
 fi
-prepare_certificate_directories \
-  "${CERTS_DIR}" \
-  "${CERTS_DIR}/ca" \
-  "${CERTS_DIR}/nats" \
-  "${CERTS_DIR}/nats/clients" \
-  "${CERTS_DIR}/redis" \
-  "${CERTS_DIR}/postgres"
+declare -a CERTIFICATE_DIRECTORIES=("${CERTS_DIR}" "${CERTS_DIR}/ca")
+for server_set in "${MANAGED_SERVER_SETS[@]}"; do
+  load_server_set "${server_set%%|*}"
+  CERTIFICATE_DIRECTORIES+=("${SERVER_SET_DIR}")
+done
+CERTIFICATE_DIRECTORIES+=("${CERTS_DIR}/nats/clients")
+prepare_certificate_directories "${CERTIFICATE_DIRECTORIES[@]}"
 assert_certificate_directory "${CERTS_DIR}" 'DEPLOY_CERTS_DIR'
 
 validate_existing_server_set() {
-  local name="$1" cn="$2" key_mode="$3" dir="$4"
+  local name="$1"
 
+  load_server_set "${name}"
   validate_existing_certificate_asset \
-    "${dir}/${name}-key.pem" "${key_mode}" "${name} server private key"
+    "${SERVER_SET_KEY}" "${SERVER_SET_KEY_MODE}" "${name} server private key"
   validate_existing_certificate_asset \
-    "${dir}/${name}-cert.pem" 0644 "${name} server certificate"
+    "${SERVER_SET_CERT}" 0644 "${name} server certificate"
   validate_existing_certificate_asset \
-    "${dir}/ca-cert.pem" 0644 "${name} server CA certificate"
-  validate_canonical_ca_copy "${dir}/ca-cert.pem" "${name} server CA certificate"
+    "${SERVER_SET_CA}" 0644 "${name} server CA certificate"
+  validate_canonical_ca_copy "${SERVER_SET_CA}" "${name} server CA certificate"
   validate_certificate_key_pair \
-    "${dir}/${name}-key.pem" \
-    "${dir}/${name}-cert.pem" \
-    "O=Aquaculture Platform,CN=${cn}" \
+    "${SERVER_SET_KEY}" \
+    "${SERVER_SET_CERT}" \
+    "O=Aquaculture Platform,CN=${SERVER_SET_CN}" \
     "${CERTS_DIR}/ca/ca-cert.pem" \
     sslserver \
     "${name} server"
@@ -445,14 +473,15 @@ add_managed_leaf() {
 }
 
 store_holds_issued_identity() {
-  local index name
+  local index server_set
   for index in "${!MANAGED_LEAF_CERTS[@]}"; do
     if path_exists "${MANAGED_LEAF_CERTS[index]}" || path_exists "${MANAGED_LEAF_KEYS[index]}"; then
       return 0
     fi
   done
-  for name in "${MANAGED_SERVER_NAMES[@]}"; do
-    if path_exists "${CERTS_DIR}/${name}/ca-cert.pem"; then
+  for server_set in "${MANAGED_SERVER_SETS[@]}"; do
+    load_server_set "${server_set%%|*}"
+    if path_exists "${SERVER_SET_CA}"; then
       return 0
     fi
   done
@@ -465,10 +494,12 @@ store_holds_issued_identity() {
 # every file as it was. Time is not checked: an expired leaf still names the
 # root it was issued under.
 require_store_issued_under_kept_ca() {
-  local index name path label
+  local index server_set name path label
 
-  for name in "${MANAGED_SERVER_NAMES[@]}"; do
-    path="${CERTS_DIR}/${name}/ca-cert.pem"
+  for server_set in "${MANAGED_SERVER_SETS[@]}"; do
+    name=${server_set%%|*}
+    load_server_set "${name}"
+    path=${SERVER_SET_CA}
     if path_exists "${path}"; then
       if [ -L "${path}" ] || [ ! -f "${path}" ]; then
         certificate_store_error "${name} server CA certificate is not a regular non-symlink file: ${path}"
@@ -532,6 +563,63 @@ require_ca_outlives_new_leaf() {
   fi
 }
 
+# Seconds since the epoch at which a certificate stops being valid.
+certificate_expiry_epoch() {
+  local path="$1" label="$2" not_after
+
+  if ! not_after=$(openssl x509 -in "${path}" -noout -enddate 2>/dev/null); then
+    certificate_store_error "${label} has no parseable expiry: ${path}"
+    return 1
+  fi
+  if ! date -u -d "${not_after#notAfter=}" +%s 2>/dev/null; then
+    certificate_store_error "${label} expiry '${not_after}' is not a date: ${path}"
+    return 1
+  fi
+}
+
+# Every run that completes states when the earliest managed leaf stops
+# verifying and whether the CA can still sign its renewal, so the countdown to a
+# renewal (and to the --rotate-ca a CA near its end needs) is in every deploy
+# log, not only in the run that acts. A leaf stops verifying at the earlier of
+# its own notAfter and its CA's. The renewal starts LEAF_RENEWAL_WINDOW_DAYS
+# before the leaf's notAfter, and require_ca_outlives_new_leaf refuses it from
+# LEAF_VALIDITY_DAYS before the CA's, so each line is computed from those dates.
+report_identity_lifetimes() {
+  local index epoch earliest_epoch='' earliest_label='' ca_epoch now
+  local last_issue_epoch renewal_epoch renewal leaf_line
+
+  now=$(date -u +%s)
+  for index in "${!MANAGED_LEAF_CERTS[@]}"; do
+    epoch=$(certificate_expiry_epoch \
+      "${MANAGED_LEAF_CERTS[index]}" "${MANAGED_LEAF_LABELS[index]} certificate") || return 1
+    if [ -z "${earliest_epoch}" ] || [ "${epoch}" -lt "${earliest_epoch}" ]; then
+      earliest_epoch=${epoch}
+      earliest_label=${MANAGED_LEAF_LABELS[index]}
+    fi
+  done
+  ca_epoch=$(certificate_expiry_epoch \
+    "${CERTS_DIR}/ca/ca-cert.pem" 'certificate authority certificate') || return 1
+  last_issue_epoch=$((ca_epoch - LEAF_VALIDITY_DAYS * 86400))
+  renewal_epoch=$((earliest_epoch - LEAF_RENEWAL_WINDOW_DAYS * 86400))
+  if [ "${renewal_epoch}" -lt "${last_issue_epoch}" ]; then
+    renewal="every leaf renews once one is inside ${LEAF_RENEWAL_WINDOW_DAYS} days"
+  else
+    renewal="its renewal, due from $(date -u -d "@${renewal_epoch}" +%F), falls after the CA's last issuing date and will be refused"
+  fi
+  leaf_line="earliest leaf: ${earliest_label} certificate, notAfter $(date -u -d "@${earliest_epoch}" +%F)"
+  if [ "${ca_epoch}" -lt "${earliest_epoch}" ]; then
+    leaf_line+=", but the CA expires first: every leaf stops verifying on $(date -u -d "@${ca_epoch}" +%F) ($(((ca_epoch - now) / 86400)) days left; ${renewal})"
+  else
+    leaf_line+=" ($(((earliest_epoch - now) / 86400)) days left; ${renewal})"
+  fi
+  echo "  [expiry] ${leaf_line}"
+  if [ "${last_issue_epoch}" -gt "${now}" ]; then
+    echo "  [expiry] CA: notAfter $(date -u -d "@${ca_epoch}" +%F) ($(((ca_epoch - now) / 86400)) days left); last date a new leaf can be issued: $(date -u -d "@${last_issue_epoch}" +%F); replace it with --rotate-ca before then"
+  else
+    echo "  [expiry] CA: notAfter $(date -u -d "@${ca_epoch}" +%F) ($(((ca_epoch - now) / 86400)) days left); it can sign no ${LEAF_VALIDITY_DAYS}-day leaf since $(date -u -d "@${last_issue_epoch}" +%F), so every renewal and new identity is refused: run --rotate-ca now"
+  fi
+}
+
 require_safe_generation_target() {
   local path="$1" label="$2" actual_uid actual_links
 
@@ -561,11 +649,17 @@ new_certificate_serial() {
   printf '%s\n' "${serial}"
 }
 
+# Publishes DESTINATION as a relative alias of TARGET, a file in the same
+# directory that must already be a regular non-symlink file.
 publish_postgres_alias() {
   local target="$1" destination="$2" stage_directory stage_alias
   local alias_uid alias_links
 
-  create_stage_directory "${PG_DIR}/.postgres-alias.XXXXXX"
+  if [ -L "${destination%/*}/${target}" ] || [ ! -f "${destination%/*}/${target}" ]; then
+    certificate_store_error "PostgreSQL alias target is not a regular non-symlink file: ${destination%/*}/${target}"
+    return
+  fi
+  create_stage_directory "${destination%/*}/.postgres-alias.XXXXXX"
   stage_directory=${GENERATED_STAGE}
   stage_alias="${stage_directory}/alias"
   ln -s -- "${target}" "${stage_alias}"
@@ -598,31 +692,42 @@ publish_postgres_alias() {
   rmdir -- "${stage_directory}"
 }
 
+# Issues, or validates and keeps, the named set of MANAGED_SERVER_SETS; every
+# value it issues from is read from that row. Each staged file sits beside the
+# path it is published to, so publication is a rename.
 generate_server_cert() {
-  local name="$1" cn="$2" san="$3" key_mode="${4:-0644}" dir="${CERTS_DIR}/${1}"
+  local name="$1" cn san key_mode dir key_path cert_path ca_path
   local key_stage csr_stage cert_stage ca_stage cert_serial
+  load_server_set "${name}"
+  cn=${SERVER_SET_CN}
+  san=${SERVER_SET_SAN}
+  key_mode=${SERVER_SET_KEY_MODE}
   case "${key_mode}" in
     0600|0644) ;;
     *) echo "error: invalid private-key mode for ${name}: ${key_mode}" >&2; exit 1 ;;
   esac
+  dir=${SERVER_SET_DIR}
+  key_path=${SERVER_SET_KEY}
+  cert_path=${SERVER_SET_CERT}
+  ca_path=${SERVER_SET_CA}
   assert_certificate_directory "${dir}" "${name} server directory"
   if [ "$RENEW_LEAVES" = false ] && certificate_set_has_any_path \
-    "${dir}/${name}-key.pem" "${dir}/${name}-cert.pem" "${dir}/ca-cert.pem"; then
-    validate_existing_server_set "${name}" "${cn}" "${key_mode}" "${dir}"
+    "${key_path}" "${cert_path}" "${ca_path}"; then
+    validate_existing_server_set "${name}"
     echo "  [skip] ${name}"
     return
   fi
   require_ca_outlives_new_leaf
-  require_safe_generation_target "${dir}/${name}-key.pem" "${name} server private key"
-  require_safe_generation_target "${dir}/${name}-cert.pem" "${name} server certificate"
-  require_safe_generation_target "${dir}/ca-cert.pem" "${name} server CA certificate"
-  create_stage_file "${dir}/.${name}-key.pem.XXXXXX"
+  require_safe_generation_target "${key_path}" "${name} server private key"
+  require_safe_generation_target "${cert_path}" "${name} server certificate"
+  require_safe_generation_target "${ca_path}" "${name} server CA certificate"
+  create_stage_file "${key_path%/*}/.${key_path##*/}.XXXXXX"
   key_stage=${GENERATED_STAGE}
-  create_stage_file "${dir}/.${name}.csr.XXXXXX"
+  create_stage_file "${cert_path%/*}/.${name}.csr.XXXXXX"
   csr_stage=${GENERATED_STAGE}
-  create_stage_file "${dir}/.${name}-cert.pem.XXXXXX"
+  create_stage_file "${cert_path%/*}/.${cert_path##*/}.XXXXXX"
   cert_stage=${GENERATED_STAGE}
-  create_stage_file "${dir}/.ca-cert.pem.XXXXXX"
+  create_stage_file "${ca_path%/*}/.${ca_path##*/}.XXXXXX"
   ca_stage=${GENERATED_STAGE}
   cert_serial=$(new_certificate_serial)
 
@@ -653,9 +758,9 @@ generate_server_cert() {
   # certificate and CA copy are fully staged and cryptographically validated.
   # The deploy path never recreates a consumer until this script succeeds, so
   # an interrupted publication cannot expose a usable mixed identity.
-  mv -fT -- "${cert_stage}" "${dir}/${name}-cert.pem"
-  mv -fT -- "${ca_stage}" "${dir}/ca-cert.pem"
-  mv -fT -- "${key_stage}" "${dir}/${name}-key.pem"
+  mv -fT -- "${cert_stage}" "${cert_path}"
+  mv -fT -- "${ca_stage}" "${ca_path}"
+  mv -fT -- "${key_stage}" "${key_path}"
   echo "  [done] ${name} (CN=${cn})"
 }
 
@@ -771,10 +876,9 @@ if [ -z "$SERVICE_NAMES" ]; then
   echo "error: no service names extracted from ${SERVICES_YAML}" >&2
   exit 1
 fi
-for name in "${MANAGED_SERVER_NAMES[@]}"; do
-  add_managed_leaf \
-    "${CERTS_DIR}/${name}/${name}-cert.pem" "${CERTS_DIR}/${name}/${name}-key.pem" \
-    sslserver "${name} server"
+for server_set in "${MANAGED_SERVER_SETS[@]}"; do
+  load_server_set "${server_set%%|*}"
+  add_managed_leaf "${SERVER_SET_CERT}" "${SERVER_SET_KEY}" sslserver "${server_set%%|*} server"
 done
 while IFS= read -r svc; do
   [ -n "$svc" ] || continue
@@ -830,9 +934,9 @@ if [ "$ROTATE_CA" = false ]; then
     RENEW_LEAVES=true
   fi
 fi
-generate_server_cert "nats" "nats" "DNS:nats,DNS:aqua-nats,DNS:localhost"
-generate_server_cert "redis" "redis" "DNS:redis,DNS:aqua-redis,DNS:localhost"
-generate_server_cert "postgres" "postgres" "DNS:postgres,DNS:aqua-postgres,DNS:localhost" 0600
+for server_set in "${MANAGED_SERVER_SETS[@]}"; do
+  generate_server_cert "${server_set%%|*}"
+done
 
 # Per-service mTLS client certs, one per name derived above from services.yaml.
 # One name per line, read without word-splitting or glob expansion: the CN list
@@ -843,14 +947,17 @@ while IFS= read -r svc; do
   generate_per_service_client_cert "$svc"
 done <<< "$SERVICE_NAMES"
 
-# PostgreSQL expects server.crt and server.key (not postgres-cert.pem)
-# Publish compatibility aliases by same-directory atomic rename. Canonical
-# production Compose mounts the regular source files directly, but these
-# aliases remain for local entrypoints and must never follow a hostile target.
-PG_DIR="${CERTS_DIR}/postgres"
-publish_postgres_alias postgres-cert.pem "${PG_DIR}/server.crt"
-publish_postgres_alias postgres-key.pem "${PG_DIR}/server.key"
-publish_postgres_alias ca-cert.pem "${PG_DIR}/root.crt"
-echo "  [done] PostgreSQL symlinks (server.crt → postgres-cert.pem)"
+# PostgreSQL expects server.crt, server.key and root.crt. They are published as
+# aliases of the postgres row's own files, read from load_server_set, by
+# same-directory atomic rename. Canonical production Compose mounts the regular
+# source files directly, but these aliases remain for local entrypoints and
+# must never follow a hostile target.
+load_server_set postgres
+publish_postgres_alias "${SERVER_SET_CERT##*/}" "${SERVER_SET_DIR}/server.crt"
+publish_postgres_alias "${SERVER_SET_KEY##*/}" "${SERVER_SET_DIR}/server.key"
+publish_postgres_alias "${SERVER_SET_CA##*/}" "${SERVER_SET_DIR}/root.crt"
+echo "  [done] PostgreSQL symlinks (server.crt → ${SERVER_SET_CERT##*/})"
+
+report_identity_lifetimes
 
 echo "=== Done ==="

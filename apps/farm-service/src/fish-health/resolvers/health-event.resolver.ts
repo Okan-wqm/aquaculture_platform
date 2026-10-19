@@ -6,11 +6,14 @@
  *
  * @module FishHealth
  */
-import { Resolver, Query, Mutation, Args, ID, Int, ObjectType, Field, GraphQLISODateTime } from '@nestjs/graphql';
+import { Resolver, Query, Mutation, Args, ID, Int, ObjectType, Field } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { CurrentTenant, CurrentUser, Role, Roles } from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
-import { StandardPaginatedResponse, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+import {
+  StandardPaginatedResponse,
+  IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
 import GraphQLJSON from 'graphql-type-json';
 
 import { HealthEvent, HealthEventStatus, TreatmentDetails } from '../entities/health-event.entity';
@@ -36,8 +39,7 @@ import { GetHealthEventStatsQuery } from '../queries/get-health-event-stats.quer
 export class PaginatedHealthEventsResponse extends StandardPaginatedResponse(HealthEvent) {}
 
 @ObjectType({
-  description:
-    'A single health event that currently blocks a batch from being harvested.',
+  description: 'A single health event that currently blocks a batch from being harvested.',
 })
 export class BlockingHealthEventOutput {
   @Field(() => ID)
@@ -49,7 +51,7 @@ export class BlockingHealthEventOutput {
   @Field({ nullable: true })
   diseaseName?: string;
 
-  @Field(() => GraphQLISODateTime)
+  @Field(() => Date)
   earliestHarvestDate!: Date;
 
   @Field(() => Int, { nullable: true })
@@ -69,7 +71,7 @@ export class HarvestEligibilityOutput {
   @Field()
   eligible!: boolean;
 
-  @Field(() => GraphQLISODateTime, {
+  @Field(() => Date, {
     nullable: true,
     description: 'Latest earliestHarvestDate among blocking events.',
   })
@@ -98,6 +100,10 @@ export class HealthEventStatsResponse {
 
   @Field(() => Int)
   quarantined!: number;
+
+  /** Events whose treatment withdrawal period has not elapsed yet. */
+  @Field(() => Int)
+  withdrawalActive!: number;
 
   @Field(() => Int)
   resolved!: number;
@@ -162,9 +168,7 @@ export class HealthEventResolver {
     @Args('batchId', { type: () => ID }) batchId: string,
     @Args('activeOnly', { nullable: true, defaultValue: false }) activeOnly: boolean,
   ): Promise<HealthEvent[]> {
-    return this.queryBus.execute(
-      new ListHealthEventsByBatchQuery(tenantId, batchId, activeOnly),
-    );
+    return this.queryBus.execute(new ListHealthEventsByBatchQuery(tenantId, batchId, activeOnly));
   }
 
   /**
@@ -172,9 +176,7 @@ export class HealthEventResolver {
    */
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [HealthEvent], { description: 'Get critical health events' })
-  async criticalHealthEvents(
-    @CurrentTenant() tenantId: string,
-  ): Promise<HealthEvent[]> {
+  async criticalHealthEvents(@CurrentTenant() tenantId: string): Promise<HealthEvent[]> {
     return this.queryBus.execute(new ListCriticalHealthEventsQuery(tenantId));
   }
 
@@ -183,9 +185,7 @@ export class HealthEventResolver {
    */
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [HealthEvent], { description: 'Get events with overdue follow-ups' })
-  async overdueHealthFollowUps(
-    @CurrentTenant() tenantId: string,
-  ): Promise<HealthEvent[]> {
+  async overdueHealthFollowUps(@CurrentTenant() tenantId: string): Promise<HealthEvent[]> {
     return this.queryBus.execute(new ListOverdueFollowUpsQuery(tenantId));
   }
 
@@ -194,9 +194,7 @@ export class HealthEventResolver {
    */
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => HealthEventStatsResponse, { description: 'Get health event statistics' })
-  async healthEventStats(
-    @CurrentTenant() tenantId: string,
-  ): Promise<HealthEventStats> {
+  async healthEventStats(@CurrentTenant() tenantId: string): Promise<HealthEventStats> {
     return this.queryBus.execute(new GetHealthEventStatsQuery(tenantId));
   }
 
@@ -262,7 +260,12 @@ export class HealthEventResolver {
     @Args('treatment') treatment: TreatmentDetailsInput,
   ): Promise<HealthEvent> {
     this.logger.log(`Starting treatment for health event ${id}`);
-    return this.healthEventService.startTreatment(tenantId, id, treatment as TreatmentDetails, user.sub);
+    return this.healthEventService.startTreatment(
+      tenantId,
+      id,
+      treatment as TreatmentDetails,
+      user.sub,
+    );
   }
 
   /**
@@ -350,13 +353,13 @@ export class HealthEventResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => HarvestEligibilityOutput, {
     description:
-      "Check whether a batch can be harvested on the given date " +
+      'Check whether a batch can be harvested on the given date ' +
       'without violating an active medicine withdrawal period.',
   })
   async batchHarvestEligibility(
     @CurrentTenant() tenantId: string,
     @Args('batchId', { type: () => ID }) batchId: string,
-    @Args('harvestDate', { type: () => GraphQLISODateTime }) harvestDate: Date,
+    @Args('harvestDate', { type: () => Date }) harvestDate: Date,
   ): Promise<HarvestEligibilityOutput> {
     const result = await this.harvestEligibilityService.checkEligibility(
       tenantId,

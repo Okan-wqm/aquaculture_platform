@@ -6,11 +6,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { DataSource } from 'typeorm';
 
-import {
-  HealthEvent,
-  HealthEventStatus,
-  HealthSeverity,
-} from '../entities/health-event.entity';
+import { HealthEvent, HealthEventStatus, HealthSeverity } from '../entities/health-event.entity';
 import { HealthEventStats } from '../services/health-event.service';
 import { GetHealthEventStatsQuery } from '../queries/get-health-event-stats.query';
 
@@ -32,10 +28,13 @@ export class GetHealthEventStatsHandler implements IQueryHandler<GetHealthEventS
         critical: 0,
         underTreatment: 0,
         quarantined: 0,
+        withdrawalActive: 0,
         resolved: 0,
         byEventType: {},
         bySeverity: {},
       };
+
+      const now = new Date();
 
       for (const event of events) {
         if (
@@ -52,6 +51,12 @@ export class GetHealthEventStatsHandler implements IQueryHandler<GetHealthEventS
         }
         if (event.isQuarantined) {
           stats.quarantined++;
+        }
+        // Withdrawal is active while the earliest allowed harvest date is
+        // still in the future (set by startTreatment from the withdrawal
+        // period; see HealthEvent.startTreatment).
+        if (event.earliestHarvestDate && event.earliestHarvestDate > now) {
+          stats.withdrawalActive++;
         }
         if (
           event.severity === HealthSeverity.CRITICAL ||

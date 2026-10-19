@@ -4101,6 +4101,11 @@ type TankCountReconcileRow {
   healed: Boolean!
 }
 
+type DailyMortalityPointResponse {
+  date: String!
+  count: Int!
+}
+
 type Species
   @key(fields: "id")
 {
@@ -5309,6 +5314,7 @@ type HealthEventStatsResponse {
   critical: Int!
   underTreatment: Int!
   quarantined: Int!
+  withdrawalActive: Int!
   resolved: Int!
   byEventType: JSON!
   bySeverity: JSON!
@@ -6222,6 +6228,7 @@ type Query {
   batchTraceability(id: ID!): BatchTraceabilityResponse!
   availableTanks(siteId: ID, departmentId: ID, excludeFullTanks: Boolean = false): [AvailableTankResponse!]!
   generateBatchNumber: String!
+  mortalityDailyHistory(days: Int! = 14): [DailyMortalityPointResponse!]!
   cleanerFishSpecies: [CleanerFishSpeciesInfo!]!
   cleanerFishBatches(status: BatchStatus): [Batch!]!
   tankCleanerFish(tankId: ID!): TankCleanerFishInfo

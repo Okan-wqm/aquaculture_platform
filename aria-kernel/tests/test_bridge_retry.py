@@ -312,6 +312,9 @@ class DeriveRequestStateBridgeAwareTests(unittest.TestCase):
             envelope_evidence_hash=self.envelope_evidence_hash,
             role="evidence_judgment",
             transition="permanent_fail", attempt_number=3,
+            # ARIA-MEDIUM-172 — a permanent_fail row names why from the
+            # closed vocabulary; this seed is the budget-spent shape.
+            terminal_reason="retry_budget_exhausted",
         )
         self.assertEqual(
             derive_request_state(request_id=self.request_id, base_dir=self.base),

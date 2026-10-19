@@ -88,7 +88,7 @@ class SandboxResolutionTests(_InstalledCheckout):
     def _inside(self, script: str, *, write_scope: list[str] | None = None) -> subprocess.CompletedProcess[str]:
         require_sandbox_backend(fresh_probe=True)
         argv = impl.wrap_bash_in_sandbox(["sh", "-c", script], workspace_root=self.worktree,
-                                         allow_network=False, write_scope=write_scope)
+                                         write_scope=write_scope)
         return subprocess.run(argv, capture_output=True, text=True, timeout=60)
 
     def test_a_workspace_link_resolves_to_the_worktrees_own_code(self) -> None:

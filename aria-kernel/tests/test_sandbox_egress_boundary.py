@@ -1,4 +1,5 @@
-"""ARIA-HIGH-143 / ARIA-HIGH-528 — a room that reaches its provider has no other road out.
+"""ARIA-HIGH-143 / ARIA-HIGH-528 / ARIA-MEDIUM-563 — a room that reaches its
+provider has no other road out, and reaches it only as the kernel.
 
 The managed Claude room (``wrap_managed_claude_in_sandbox``, every
 implementer and every read-contained role) and the Codex runtime-state room
@@ -8,7 +9,10 @@ allowlist proxy, but a proxy variable is advice: a test file the agent wrote
 and an allowed runner opened a socket to any address the host could reach —
 a public host, the host's own loopback services (the production stack's
 Postgres, Redis, NATS listen there), an abstract unix socket — and sent what
-the room can read, the CLI's own credential included.
+the room can read, the CLI's own credential included. ARIA-MEDIUM-563: even
+through the allowlist proxy, an opaque tunnel to a provider host carried any
+credential the room held or brought, and the Claude room held the
+operator's login.
 
 Every test here runs the REAL argv under the REAL bwrap and asks the room
 itself, with a probe program standing where the CLI stands:
@@ -16,10 +20,13 @@ itself, with a probe program standing where the CLI stands:
 * nothing on the host answers a direct connect — not loopback, not a host
   interface address, not an abstract socket — and no route leaves the
   namespace at all;
-* the provider IS reached, and only through the kernel's allowlist proxy:
-  a client that honours ``HTTPS_PROXY`` (as the Claude and Codex CLIs do)
+* the Claude room holds no credential and no proxy: its one road is the
+  kernel's provider gateway, which forwards pinned requests under the
+  kernel's credential and refuses the rest by name;
+* the Codex room's provider IS reached, and only through the kernel's
+  CONNECT proxy for the OpenAI hosts: a client that honours ``HTTPS_PROXY``
   tunnels to an allowlisted endpoint and is refused by name for anything
-  else, the host's loopback services included.
+  else, another provider's host and the host's loopback services included.
 """
 from __future__ import annotations
 
@@ -39,6 +46,9 @@ from unittest import mock
 
 from aria_kernel import egress_proxy
 from aria_kernel import implementation_safety as impl
+from aria_kernel import provider_gateway
+from aria_kernel.provider_credentials import ProviderCredential
+from aria_kernel.provider_routes import ROOM_CREDENTIAL_PLACEHOLDER, route
 from tests._helpers.sandbox_pins import require_sandbox_backend
 
 PYTHON = os.path.realpath(sys.executable)
@@ -102,6 +112,27 @@ elif mode == "connect-raw":
     out = {"answer": answer.decode("latin-1")}
 elif mode == "env":
     out = {name: os.environ.get(name) for name in ("HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy", "NO_PROXY")}
+elif mode == "credentials":
+    # What a process in the room could take: a login file under its home, its
+    # config dir or /tmp, and every credential-shaped variable it holds.
+    found = []
+    for root in sorted({os.environ.get("HOME", ""), os.environ.get("CLAUDE_CONFIG_DIR", ""), "/tmp"} - {""}):
+        for directory, _dirs, files in os.walk(root):
+            found += [os.path.join(directory, name) for name in files if name in (".credentials.json", "auth.json")]
+    out = {"files": found, "environ": dict(os.environ)}
+elif mode == "gateway":
+    # A raw request to the socket the room's environment names.
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:  # allowlist-external-network: the probe speaking to the room's own gateway socket
+        sock.settimeout(10)
+        sock.connect(os.environ["ANTHROPIC_UNIX_SOCKET"])
+        sock.sendall(args[0].encode("latin-1"))
+        answer = b""
+        while True:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            answer += chunk
+    out = {"answer": answer.decode("latin-1")}
 elif mode == "exit":
     sys.exit(int(args[0]))
 print(json.dumps(out))
@@ -172,11 +203,15 @@ class _RoomCase(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         return json.loads(completed.stdout.strip().splitlines()[-1])
 
+    # What the caller hands the room's spawn. A room must not depend on it
+    # for its road, and must not let a credential in it through.
+    handed: dict[str, str] = {}
+
     def complete_room(self, *args: str, timeout: float = 60) -> subprocess.CompletedProcess:
         argv = self.build([PYTHON, "-I", "-c", PROBE, *args])
         return subprocess.run(
             argv, capture_output=True, text=True, timeout=timeout,
-            env={"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"},
+            env={"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8", **self.handed},
         )
 
     def service(self, family: int, address: object) -> _Service:
@@ -245,6 +280,15 @@ class _FakeProvider:
         self.server.server_close()
 
 
+def _replace_kernel_listener(case: unittest.TestCase, key: str, listener: Path) -> None:
+    """The room is built with the production binds and environment; only
+    the kernel's listener for ``key`` is replaced by the test's."""
+    production = egress_proxy.kernel_egress_sockets()
+    patcher = mock.patch.object(egress_proxy, "kernel_egress_sockets", return_value={**production, key: listener})
+    patcher.start()
+    case.addCleanup(patcher.stop)
+
+
 class _ThroughTheProxyOnly:
     """The provider is reached, and only through the allowlist proxy. The
     kernel's proxy is replaced for the room by one whose allowlist names the
@@ -256,13 +300,11 @@ class _ThroughTheProxyOnly:
         self.addCleanup(provider.close)
         directory = Path(tempfile.mkdtemp(prefix="aria-egress-sock-"))
         self.addCleanup(lambda: __import__("shutil").rmtree(directory, ignore_errors=True))
-        proxy = egress_proxy.ProxyThread(
+        proxy = egress_proxy.ProxyThread.connect(
             directory / "proxy.sock", egress_proxy.Allowlist.parse([f"127.0.0.1:{provider.port}"]),
         ).start()
         self.addCleanup(proxy.stop)
-        patcher = mock.patch.object(egress_proxy, "kernel_egress_socket", return_value=proxy.socket_path)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        _replace_kernel_listener(self, "openai", proxy.socket_path)
         return provider
 
     def test_an_allowlisted_endpoint_answers_through_the_proxy(self) -> None:
@@ -280,7 +322,7 @@ class _ThroughTheProxyOnly:
         self.assertNotIn(service.secret.decode(), seen["answer"])
 
     def test_the_kernels_own_allowlist_refuses_the_hosts_loopback(self) -> None:
-        # No replacement: the production proxy and PROVIDER_ENDPOINTS. A
+        # No replacement: the production proxy and the route's targets. A
         # loopback production service is not a provider, through the proxy
         # or around it.
         service = self.service(socket.AF_INET, ("127.0.0.1", 0))
@@ -302,15 +344,150 @@ class _ThroughTheProxyOnly:
         self.assertEqual(self.complete_room("exit", "7").returncode, 7)
 
 
-class TheManagedClaudeRoom(_RoomCase, _NoRouteOut, _ThroughTheProxyOnly):
-    """ARIA-HIGH-143 — the commit-capable implementer's room (and every
-    read-contained role's: the same wrapper with an empty write scope)."""
+class _RecordingUpstream:
+    """What the provider would see: a loopback HTTP server recording each
+    request's head and body, answering 200."""
+
+    def __init__(self) -> None:
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        seen = self.seen = []
+
+        class Handler(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+
+            def do_POST(self) -> None:  # noqa: N802 - the stdlib's hook name
+                body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+                seen.append({"path": self.path, "headers": [(k.lower(), v) for k, v in self.headers.items()],
+                             "body": body.decode("latin-1")})
+                reply = b'{"type":"message","content":[{"type":"text","text":"ok"}]}'
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(reply)))
+                self.end_headers()
+                self.wfile.write(reply)
+
+            def log_message(self, *args: object) -> None:
+                pass
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.port = self.server.server_address[1]
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def close(self) -> None:
+        self.server.shutdown()
+        self.server.server_close()
+
+
+KERNEL_FIXTURE_TOKEN = "kernel-fixture-" + secrets.token_hex(12)
+ROOM_FIXTURE_TOKEN = "room-fixture-" + secrets.token_hex(12)
+
+
+class TheManagedClaudeRoom(_RoomCase, _NoRouteOut):
+    """ARIA-HIGH-143 / ARIA-MEDIUM-563 — the commit-capable implementer's room
+    (and every read-contained role's: the same wrapper with an empty write
+    scope). Its spawn is handed every credential a careless caller could
+    pass and a proxy the room cannot reach; none of them may arrive."""
+
+    handed = {
+        "CLAUDE_CODE_OAUTH_TOKEN": ROOM_FIXTURE_TOKEN, "ANTHROPIC_API_KEY": ROOM_FIXTURE_TOKEN,
+        "ANTHROPIC_AUTH_TOKEN": ROOM_FIXTURE_TOKEN, "CLAUDE_API_KEY": ROOM_FIXTURE_TOKEN,
+        "ANTHROPIC_BASE_URL": "https://attacker.example", "HTTPS_PROXY": "http://127.0.0.1:9",
+        "https_proxy": "http://127.0.0.1:9",
+    }
 
     def build(self, argv: list[str]) -> list[str]:
         return impl.wrap_managed_claude_in_sandbox(
-            argv, workspace_root=self.workspace, write_scope=(), executable=Path(PYTHON),
-            spawn_files=(), managed_login_dir=None,
+            argv, workspace_root=self.workspace, write_scope=(), executable=Path(PYTHON), spawn_files=(),
         )
+
+    def kernel_gateway(self) -> tuple[_RecordingUpstream, list[tuple[str, int]]]:
+        """The production gateway mechanism with the kernel's credential a
+        fixture and its upstream the recording server on loopback."""
+        upstream = _RecordingUpstream()
+        self.addCleanup(upstream.close)
+        opened: list[tuple[str, int]] = []
+
+        async def opener(host: str, port: int):
+            import asyncio
+
+            opened.append((host, port))
+            return await asyncio.open_connection("127.0.0.1", upstream.port)
+
+        gateway = provider_gateway.ProviderGateway(
+            route("anthropic"), open_upstream=opener, decide=lambda **fields: None,
+            credential=lambda: ProviderCredential(provider="anthropic", source="file", location="/fixture",
+                                                  _secret=KERNEL_FIXTURE_TOKEN),
+        )
+        directory = Path(tempfile.mkdtemp(prefix="aria-gw-sock-"))
+        self.addCleanup(lambda: __import__("shutil").rmtree(directory, ignore_errors=True))
+        thread = egress_proxy.ProxyThread({directory / "anthropic": gateway.handle}).start()
+        self.addCleanup(thread.stop)
+        _replace_kernel_listener(self, "anthropic", thread.socket_path)
+        return upstream, opened
+
+    def test_the_room_holds_no_provider_credential(self) -> None:
+        seen = self.run_room("credentials")
+        self.assertEqual(seen["files"], [], "a login file is reachable in the room")
+        environ = seen["environ"]
+        self.assertNotIn(ROOM_FIXTURE_TOKEN, json.dumps(environ), "a handed credential reached the room")
+        self.assertEqual(environ["CLAUDE_CODE_OAUTH_TOKEN"], ROOM_CREDENTIAL_PLACEHOLDER)
+        for name in route("anthropic").room_unset:
+            self.assertNotIn(name, environ)
+        self.assertEqual(environ["ANTHROPIC_BASE_URL"], "http://localhost")
+        self.assertEqual(environ["ANTHROPIC_UNIX_SOCKET"], route("anthropic").room_socket)
+
+    def test_no_wrapper_parameter_binds_a_login(self) -> None:
+        import inspect
+
+        self.assertNotIn("managed_login_dir", inspect.signature(impl.wrap_managed_claude_in_sandbox).parameters)
+        argv = self.build([PYTHON, "-c", "pass"])
+        separator = argv.index("--")
+        self.assertFalse([arg for arg in argv[:separator] if ".credentials.json" in arg or "auth.json" in arg])
+
+    def test_no_tunnel_to_any_provider_host(self) -> None:
+        seen = self.run_room("env")
+        self.assertEqual({seen[name] for name in ("HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy")}, {None})
+        argv = self.build([PYTHON, "-c", "pass"])
+        separator = argv.index("--")
+        self.assertNotIn(impl.SANDBOX_EGRESS_PROXY_SOCKET, argv[:separator])
+        self.assertNotIn(impl.SANDBOX_EGRESS_RELAY, argv)
+        # The one socket in the room speaks no CONNECT to anyone.
+        for host in ("api.anthropic.com", "platform.claude.com", "api.z.ai", "api.openai.com"):
+            with self.subTest(host=host):
+                answer = self.run_room("gateway", f"CONNECT {host}:443 HTTP/1.1\r\nhost: {host}:443\r\n\r\n")
+                self.assertTrue(answer["answer"].startswith("HTTP/1.1 403"), answer)
+                self.assertIn(f"gateway_refused:request_not_pinned:CONNECT {host}:443", answer["answer"])
+
+    def test_a_room_key_is_replaced_by_the_kernels(self) -> None:
+        upstream, opened = self.kernel_gateway()
+        body = json.dumps({"model": "claude-opus", "max_tokens": 1, "messages": [{"role": "user", "content": "hi"}]})
+        request = (f"POST /v1/messages?beta=true HTTP/1.1\r\nhost: localhost\r\n"
+                   f"authorization: Bearer {ROOM_FIXTURE_TOKEN}\r\nx-api-key: {ROOM_FIXTURE_TOKEN}\r\n"
+                   f"content-length: {len(body)}\r\n\r\n{body}")
+        answer = self.run_room("gateway", request)["answer"]
+        self.assertTrue(answer.startswith("HTTP/1.1 200"), answer)
+        self.assertEqual(opened, [("api.anthropic.com", 443)])
+        (forwarded,) = upstream.seen
+        headers = dict(forwarded["headers"])
+        self.assertEqual(headers["authorization"], f"Bearer {KERNEL_FIXTURE_TOKEN}")
+        self.assertNotIn("x-api-key", headers)
+        self.assertIn("oauth-2025-04-20", headers["anthropic-beta"])
+        self.assertNotIn(ROOM_FIXTURE_TOKEN, json.dumps(forwarded))
+
+    def test_unpinned_requests_and_provider_fetches_are_refused_in_the_room(self) -> None:
+        _upstream, opened = self.kernel_gateway()
+        mcp = json.dumps({"model": "m", "max_tokens": 1, "messages": [],
+                          "mcp_servers": [{"type": "url", "url": "https://attacker.example/", "name": "x"}]})
+        for request, reason in (
+            (f"POST /v1/files HTTP/1.1\r\nauthorization: Bearer {ROOM_FIXTURE_TOKEN}\r\n"
+             "content-length: 0\r\n\r\n", "request_not_pinned:POST /v1/files"),
+            (f"POST /v1/messages HTTP/1.1\r\ncontent-length: {len(mcp)}\r\n\r\n{mcp}", "body_field:mcp_servers"),
+        ):
+            with self.subTest(reason=reason):
+                answer = self.run_room("gateway", request)["answer"]
+                self.assertTrue(answer.startswith("HTTP/1.1 403"), answer)
+                self.assertIn(f"gateway_refused:{reason}", answer)
+        self.assertEqual(opened, [], "a refused request reached the upstream")
 
     def test_the_hosts_resolver_is_not_bound(self) -> None:
         argv = self.build([PYTHON, "-c", "pass"])
@@ -341,14 +518,30 @@ class TheCodexRuntimeRoom(_RoomCase, _NoRouteOut, _ThroughTheProxyOnly):
             managed_auth_directory=auth, executable=Path(PYTHON), environment=environment,
         )
 
+    def test_its_tunnel_admits_only_the_openai_hosts(self) -> None:
+        # The production proxy, no replacement: another provider's host is
+        # refused by name before any connection (ARIA-MEDIUM-563).
+        for host in ("api.anthropic.com", "platform.claude.com", "api.z.ai"):
+            with self.subTest(host=host):
+                seen = self.run_room("connect-raw", host, "443")
+                self.assertTrue(seen["answer"].startswith("HTTP/1.1 403 Forbidden"), seen)
+                self.assertIn(f"egress_refused:target_not_allowlisted:{host}:443", seen["answer"])
 
-class TheBareEgressRoom(_RoomCase, _NoRouteOut):
-    """``wrap_bash_in_sandbox(allow_network=True)`` alone — the write shape
-    without a managed executable (``claude_runtime``): no pid namespace, so
-    the relay's own lifetime rule is all that ends it."""
+
+class TheBareGatewayRoom(_RoomCase, _NoRouteOut):
+    """``wrap_bash_in_sandbox(provider="anthropic")`` alone — the write shape
+    without a managed executable (``claude_runtime``)."""
 
     def build(self, argv: list[str]) -> list[str]:
-        return impl.wrap_bash_in_sandbox(argv, workspace_root=self.workspace, allow_network=True, write_scope=())
+        return impl.wrap_bash_in_sandbox(argv, workspace_root=self.workspace, provider="anthropic", write_scope=())
+
+
+class TheBareTunnelRoom(_RoomCase, _NoRouteOut):
+    """``wrap_bash_in_sandbox(provider="openai")`` alone: no pid namespace,
+    so the relay's own lifetime rule is all that ends it."""
+
+    def build(self, argv: list[str]) -> list[str]:
+        return impl.wrap_bash_in_sandbox(argv, workspace_root=self.workspace, provider="openai", write_scope=())
 
     def test_the_relay_does_not_outlive_the_command(self) -> None:
         marker = "relay-lifetime-" + secrets.token_hex(6)
@@ -413,17 +606,46 @@ class TheGateProvesTheBoundaryInARoom(unittest.TestCase):
     def test_this_hosts_managed_room_holds_the_boundary(self) -> None:
         self.assertIsNone(impl.egress_boundary_probe())
 
-    def test_a_proxy_that_admits_the_probe_target_is_no_boundary(self) -> None:
-        directory = Path(tempfile.mkdtemp(prefix="aria-egress-sock-"))
+    def _served(self, answer: bytes) -> Path:
+        """A listener in place of the kernel's gateway that answers ``answer``
+        to anything — a gateway that forwards what it should refuse."""
+        import asyncio
+
+        async def permissive(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+            await reader.read(65536)
+            writer.write(answer)
+            await writer.drain()
+            writer.close()
+
+        directory = Path(tempfile.mkdtemp(prefix="aria-gw-sock-"))
         self.addCleanup(lambda: __import__("shutil").rmtree(directory, ignore_errors=True))
-        permissive = egress_proxy.ProxyThread(
-            directory / "proxy.sock", egress_proxy.Allowlist.parse([impl.EGRESS_PROBE_TARGET]),
-        ).start()
-        self.addCleanup(permissive.stop)
-        with mock.patch.object(egress_proxy, "kernel_egress_socket", return_value=permissive.socket_path):
+        thread = egress_proxy.ProxyThread({directory / "anthropic": permissive}).start()
+        self.addCleanup(thread.stop)
+        return thread.socket_path
+
+    def test_a_gateway_that_forwards_an_unpinned_path_is_no_boundary(self) -> None:
+        listener = self._served(b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\nok")
+        production = egress_proxy.kernel_egress_sockets()
+        with mock.patch.object(egress_proxy, "kernel_egress_sockets",
+                               return_value={**production, "anthropic": listener}):
             reason = impl.egress_boundary_probe()
         self.assertIsNotNone(reason)
-        self.assertIn("egress boundary does not hold", reason)
+        self.assertIn("gateway_did_not_refuse_an_unpinned_request_by_name", reason)
+
+    def test_a_room_that_keeps_a_credential_variable_is_no_boundary(self) -> None:
+        real = impl._provider_room
+
+        def keeps_the_key(provider: str) -> tuple[list[str], list[str]]:
+            binds, door = real(provider)
+            kept = [i for i in range(len(binds) - 1) if binds[i] == "--unsetenv" and binds[i + 1] == "ANTHROPIC_API_KEY"]
+            for index in reversed(kept):
+                del binds[index:index + 2]
+            return binds, door
+
+        with mock.patch.object(impl, "_provider_room", keeps_the_key):
+            reason = impl.egress_boundary_probe()
+        self.assertIsNotNone(reason)
+        self.assertIn("room_holds_a_credential_variable:ANTHROPIC_API_KEY", reason)
 
 
 if __name__ == "__main__":

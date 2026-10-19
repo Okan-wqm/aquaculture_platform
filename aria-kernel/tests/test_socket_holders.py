@@ -10,7 +10,10 @@ only if its author wrote a fifth copy and a fifth call.
 WHAT IS PINNED: every holder is a ``socket_holders.SocketHolder``
 declaration, the one sweep covers every declaration, the orchestrator runs
 that sweep, and no other module carries a sweep or a holder prefix of its
-own.
+own. A holder's sockets are a fixed set in its declaration: the egress
+proxy serves one per room route (ARIA-MEDIUM-563, the provider gateway's
+``anthropic`` socket beside the CONNECT tunnel's ``openai``), and the sweep
+removes such a directory only when none of them answers.
 """
 from __future__ import annotations
 
@@ -22,7 +25,8 @@ import unittest
 from pathlib import Path
 
 from aria_kernel import socket_holders
-from aria_kernel.socket_holders import SOCKET_HOLDERS, prune_stale_holder_sockets
+from aria_kernel.provider_routes import ROOM_ROUTE_KEYS
+from aria_kernel.socket_holders import EGRESS_PROXY, SOCKET_HOLDERS, prune_stale_holder_sockets, prune_stale_socket_dirs
 
 _KERNEL = Path(socket_holders.__file__).resolve().parent
 
@@ -35,27 +39,64 @@ class TheSweepCoversEveryDeclaredHolder(unittest.TestCase):
     def _dead_directory(self, holder: socket_holders.SocketHolder, suffix: str) -> Path:
         directory = self.temp_root / f"{holder.prefix}{suffix}"
         directory.mkdir()
-        dead = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)  # allowlist-external-network: binds a unix socket file and closes it; nothing is sent
-        dead.bind(str(directory / holder.socket_name))
-        dead.close()
+        for name in holder.socket_names:
+            dead = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)  # allowlist-external-network: binds a unix socket file and closes it; nothing is sent
+            dead.bind(str(directory / name))
+            dead.close()
         return directory
+
+    def _listening(self, directory: Path, name: str) -> None:
+        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)  # allowlist-external-network: a unix socket listener in a temp dir; nothing is sent
+        self.addCleanup(listener.close)
+        listener.bind(str(directory / name))
+        listener.listen(1)
 
     def test_the_four_holders_are_declared(self) -> None:
         self.assertEqual(
-            sorted((holder.name, holder.prefix, holder.socket_name) for holder in SOCKET_HOLDERS),
-            [("egress_proxies", "aria-ep-", "sock"), ("hook_brokers", "aria-hb-", "sock"),
-             ("mcp_brokers", "aria-mb-", "sock"), ("signing_agents", "aria-sa-", "agent")],
+            sorted((holder.name, holder.prefix, holder.socket_names) for holder in SOCKET_HOLDERS),
+            [("egress_proxies", "aria-ep-", ("anthropic", "openai")), ("hook_brokers", "aria-hb-", ("sock",)),
+             ("mcp_brokers", "aria-mb-", ("sock",)), ("signing_agents", "aria-sa-", ("agent",))],
         )
+
+    def test_the_egress_proxys_sockets_are_the_room_routes(self) -> None:
+        # ARIA-MEDIUM-563 — the kernel serves one listener per room route,
+        # named by the route's key; the sweep's set is that table's, not a copy.
+        self.assertEqual(EGRESS_PROXY.socket_names, ROOM_ROUTE_KEYS)
+        with self.assertRaisesRegex(ValueError, "socket_holder_has_several_sockets:egress_proxies"):
+            EGRESS_PROXY.socket_name
+
+    def test_a_declaration_needs_distinct_socket_names(self) -> None:
+        for names in ((), ("sock", "sock")):
+            with self.subTest(names=names), self.assertRaisesRegex(ValueError, "socket_holder_names_invalid"):
+                socket_holders.SocketHolder(name="x", prefix="aria-xx-", socket_names=names)
+
+    def test_a_multi_socket_directory_is_live_while_any_socket_answers(self) -> None:
+        # The gateway's socket answering keeps the directory, even when the
+        # tunnel's is dead; a directory with every socket dead is swept, and
+        # one holding a socket name the declaration does not list is left.
+        live = self._dead_directory(EGRESS_PROXY, "live0000")
+        (live / "anthropic").unlink()
+        self._listening(live, "anthropic")
+        dead = self._dead_directory(EGRESS_PROXY, "dead0000")
+        foreign = self._dead_directory(EGRESS_PROXY, "frgn0000")
+        dead_extra = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)  # allowlist-external-network: binds a unix socket file and closes it; nothing is sent
+        dead_extra.bind(str(foreign / "sock"))
+        dead_extra.close()
+
+        swept = prune_stale_socket_dirs(EGRESS_PROXY, temp_root=self.temp_root)
+
+        self.assertEqual(swept["live"], [live.name])
+        self.assertEqual(swept["swept"], [dead.name])
+        self.assertTrue(live.exists())
+        self.assertFalse(dead.exists())
+        self.assertTrue(foreign.exists())
 
     def test_one_sweep_removes_every_holders_dead_directory_and_keeps_a_live_one(self) -> None:
         dead = {holder.name: self._dead_directory(holder, "dead0000") for holder in SOCKET_HOLDERS}
         live_holder = SOCKET_HOLDERS[0]
         live_dir = self.temp_root / f"{live_holder.prefix}live0000"
         live_dir.mkdir()
-        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)  # allowlist-external-network: a unix socket listener in a temp dir; nothing is sent
-        self.addCleanup(listener.close)
-        listener.bind(str(live_dir / live_holder.socket_name))
-        listener.listen(1)
+        self._listening(live_dir, live_holder.socket_names[0])
 
         swept = prune_stale_holder_sockets(temp_root=self.temp_root)
 

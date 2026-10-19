@@ -40,15 +40,15 @@ WHAT IS THE SAME AS THE CLAUDE WRITER (one owner each, called, never copied):
 
 WHAT DIFFERS, ON PURPOSE:
 
-* No network in the room. The Claude room shares the host's network only
-  because the CLI inside it calls its provider (`MANAGED_SPAWN_ALLOW_NETWORK`);
-  here the provider call is the loop's, outside, so the room is the
-  validation sandbox's shape: `--unshare-net`.
+* No provider road in the room. The Claude room is handed the kernel's
+  provider gateway because the CLI inside it calls its provider
+  (`MANAGED_SPAWN_PROVIDER`); here the provider call is the loop's, outside,
+  so the room is the validation sandbox's shape: `--unshare-net` and nothing.
 * One room per call. Each tool call gets a fresh room built by the same
   builder: the workspace persists between calls, `/tmp` and background
   processes do not (the Claude room's live as long as the CLI).
-* No Claude credential in the room: the CLI's auth names are removed from
-  the built environment, and the room refuses to start if any secret-shaped
+* No Claude credential in the room: the built environment carries none
+  (`agent_env`), the CLI's configuration names are removed from it, and the room refuses to start if any secret-shaped
   name remains or if the Z.ai key file lies under any path the room binds.
 * A completion cap (`COMPLETIONS_PER_BUDGETED_TURN` x the turn budget): the
   CLI ends its own session; an HTTP conversation needs a bound of its own.
@@ -95,7 +95,7 @@ ROOM_CHILD = Path(__file__).resolve().with_name("zai_room_child.py")
 ROOM_BUILTIN_TOOLS: tuple[str, ...] = ("Read", "Grep", "Glob", "Edit", "Write", "Bash")
 ROOM_FILE_TOOLS: frozenset[str] = frozenset({"Read", "Grep", "Glob", "Edit", "Write"})
 READ_RULE_TOOLS: frozenset[str] = frozenset({"Read", "Grep", "Glob"})
-ROOM_ALLOW_NETWORK = False
+ROOM_PROVIDER: str | None = None
 # The CLI's Bash tool bounds: 2 minutes by default, 10 at most, 30k
 # characters of output.
 BASH_DEFAULT_TIMEOUT_MS = 120_000
@@ -320,7 +320,7 @@ class _Room:
     """The per-call room: the Claude writer's sandbox shape, built per call."""
 
     def __init__(self, seat: RoomSeat, policy: RoomPolicy) -> None:
-        from aria_kernel.agent_env import CLAUDE_AUTH_ENV_NAMES, CLAUDE_CONFIG_ENV_PREFIX, SECRET_SHAPED_ENV_NAME, build_agent_env
+        from aria_kernel.agent_env import CLAUDE_CONFIG_ENV_PREFIX, SECRET_SHAPED_ENV_NAME, build_agent_env
         from aria_kernel.git_containment import GitContainmentRefusal, derive_git_containment
 
         self.workspace = Path(seat.workspace_root).resolve()
@@ -336,9 +336,8 @@ class _Room:
             "ARIA_REQUEST_ID": seat.request_id, "PYTHONPATH": str(self.workspace / "aria-kernel"),
         })
         self.home = built.env["HOME"]
-        # The CLI's login is the CLI's: nothing in this room runs it.
-        self.env = {name: value for name, value in built.env.items()
-                    if name not in CLAUDE_AUTH_ENV_NAMES and not name.startswith(CLAUDE_CONFIG_ENV_PREFIX)}
+        # The CLI's configuration is the CLI's: nothing in this room runs it.
+        self.env = {name: value for name, value in built.env.items() if not name.startswith(CLAUDE_CONFIG_ENV_PREFIX)}
         leaked = sorted(name for name in self.env if SECRET_SHAPED_ENV_NAME.search(name)
                         or name in (ZAI_CREDENTIAL_ENV, ZAI_CREDENTIAL_FILE_ENV))
         if leaked:
@@ -362,7 +361,7 @@ class _Room:
 
         try:
             command = wrap_bash_in_sandbox(
-                inner, workspace_root=self.workspace, allow_network=ROOM_ALLOW_NETWORK, write_scope=self.write_scope,
+                inner, workspace_root=self.workspace, provider=ROOM_PROVIDER, write_scope=self.write_scope,
                 extra_ro_binds=(ROOM_CHILD,), git=self.git,
             )
         except SandboxUnavailable as exc:
@@ -719,7 +718,7 @@ def run_zai_writer(
 
 __all__ = [
     "BASH_DEFAULT_TIMEOUT_MS", "BASH_MAX_TIMEOUT_MS", "COMPLETIONS_PER_BUDGETED_TURN", "CallVerdict",
-    "ROOM_ALLOW_NETWORK", "ROOM_BUILTIN_TOOLS", "ROOM_CHILD", "ROOM_SYSTEM_PROMPT", "RoomPolicy", "RoomSeat",
+    "ROOM_BUILTIN_TOOLS", "ROOM_PROVIDER", "ROOM_CHILD", "ROOM_SYSTEM_PROMPT", "RoomPolicy", "RoomSeat",
     "STOP_COMPLETED", "ZaiLoopResult", "claude_run_result", "decide_call", "prepare_zai_credential", "room_policy",
     "run_zai_tool_loop", "run_zai_writer",
 ]

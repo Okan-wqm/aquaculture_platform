@@ -961,12 +961,14 @@ export class FeedingCronV2Service {
       const pendingRollups: Array<{
         id: string;
         unitId: string;
+        planDate: string;
         expectedFcr: number;
         appliedKg: number;
         totalActualKg: number;
       }> = await manager.query(
         `SELECT dp.id,
                 dp."unitId",
+                dp."planDate"::text                    AS "planDate",
                 (dp.resolution->>'expectedFcr')::numeric AS "expectedFcr",
                 dp."rollupAppliedKg"::numeric          AS "appliedKg",
                 t.total                                AS "totalActualKg"
@@ -1025,7 +1027,14 @@ export class FeedingCronV2Service {
             );
             continue;
           }
-          await this.growthApplier.applyGrowth(manager, tenantId, locked, growthKg, expectedFcr);
+          await this.growthApplier.applyGrowth(
+            manager,
+            tenantId,
+            locked,
+            growthKg,
+            expectedFcr,
+            plan.planDate,
+          );
         }
         await manager.query(
           `UPDATE "feeding_day_plans"

@@ -16,6 +16,13 @@ fifth copy and remembered the call. Here a holder is a declaration
 (``SocketHolder.make_directory``), and ``prune_stale_holder_sockets`` sweeps
 every declaration in ``SOCKET_HOLDERS``, which is every ``SocketHolder``
 this module declares.
+
+A holder listens on a fixed set of sockets in its directory: one for three
+of them, one per room route for the egress proxy (ARIA-MEDIUM-563: the
+provider gateway and the CONNECT tunnel each serve their route on a socket
+named by the route's key, ``provider_routes.ROOM_ROUTE_KEYS``). The set is
+the declaration's, so the sweep removes only a directory that holds nothing
+but those sockets and none of them answers.
 """
 from __future__ import annotations
 
@@ -27,13 +34,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .provider_routes import ROOM_ROUTE_KEYS
+
 # `tempfile.mkdtemp` appends eight characters from this alphabet.
 _MKDTEMP_SUFFIX = r"[A-Za-z0-9_]{8}"
 
 
 @dataclass(frozen=True)
 class SocketHolder:
-    """A holder's socket directory, ``<temp root>/<prefix><8 chars>/<socket_name>``.
+    """A holder's socket directory, ``<temp root>/<prefix><8 chars>/``, holding
+    the sockets named in ``socket_names`` and nothing else.
 
     ``name`` keys the holder's summary in the orchestrator's
     ``sockets_pruned`` governance row.
@@ -41,7 +51,19 @@ class SocketHolder:
 
     name: str
     prefix: str
-    socket_name: str
+    socket_names: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if not self.socket_names or len(set(self.socket_names)) != len(self.socket_names):
+            raise ValueError(f"socket_holder_names_invalid:{self.name}")
+
+    @property
+    def socket_name(self) -> str:
+        """The socket of a holder that listens on one; a multi-socket holder
+        names each of its sockets itself (``socket_names``)."""
+        if len(self.socket_names) != 1:
+            raise ValueError(f"socket_holder_has_several_sockets:{self.name}")
+        return self.socket_names[0]
 
     def make_directory(self) -> Path:
         """A new private directory for one holder's socket (mode 0700)."""
@@ -51,10 +73,11 @@ class SocketHolder:
         return re.fullmatch(re.escape(self.prefix) + _MKDTEMP_SUFFIX, entry.name) is not None
 
 
-SIGNING_AGENT = SocketHolder(name="signing_agents", prefix="aria-sa-", socket_name="agent")
-HOOK_BROKER = SocketHolder(name="hook_brokers", prefix="aria-hb-", socket_name="sock")
-MCP_BROKER = SocketHolder(name="mcp_brokers", prefix="aria-mb-", socket_name="sock")
-EGRESS_PROXY = SocketHolder(name="egress_proxies", prefix="aria-ep-", socket_name="sock")
+SIGNING_AGENT = SocketHolder(name="signing_agents", prefix="aria-sa-", socket_names=("agent",))
+HOOK_BROKER = SocketHolder(name="hook_brokers", prefix="aria-hb-", socket_names=("sock",))
+MCP_BROKER = SocketHolder(name="mcp_brokers", prefix="aria-mb-", socket_names=("sock",))
+# One socket per room route, named by the route's key (ARIA-MEDIUM-563).
+EGRESS_PROXY = SocketHolder(name="egress_proxies", prefix="aria-ep-", socket_names=ROOM_ROUTE_KEYS)
 
 SOCKET_HOLDERS: tuple[SocketHolder, ...] = tuple(
     value for value in tuple(globals().values()) if isinstance(value, SocketHolder)
@@ -75,11 +98,11 @@ def socket_answers(socket_path: Path) -> bool:
 
 
 def prune_stale_socket_dirs(holder: SocketHolder, *, temp_root: str | Path | None = None) -> dict[str, Any]:
-    """Remove ``holder``'s directories whose socket no longer answers.
+    """Remove ``holder``'s directories none of whose sockets answers.
 
-    A directory whose socket still answers belongs to a live holder and is
-    left alone; one holding anything but the socket is not the holder's to
-    remove.
+    A directory one of whose sockets still answers belongs to a live holder
+    and is left alone; one holding anything but the holder's sockets is not
+    the holder's to remove.
     """
     root = Path(temp_root) if temp_root is not None else Path(tempfile.gettempdir())
     swept: list[str] = []
@@ -88,12 +111,12 @@ def prune_stale_socket_dirs(holder: SocketHolder, *, temp_root: str | Path | Non
     for entry in sorted(root.glob(f"{holder.prefix}*")):
         if not entry.is_dir() or not holder.owns(entry):
             continue
-        socket_path = entry / holder.socket_name
-        if socket_path.is_socket() and socket_answers(socket_path):
+        sockets = [entry / name for name in holder.socket_names]
+        if any(path.is_socket() and socket_answers(path) for path in sockets):
             live.append(entry.name)
             continue
         try:
-            if any(child.name != holder.socket_name for child in entry.iterdir()):
+            if any(child.name not in holder.socket_names for child in entry.iterdir()):
                 continue
             shutil.rmtree(entry)
         except OSError as exc:

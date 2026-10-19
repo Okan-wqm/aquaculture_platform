@@ -58,6 +58,14 @@ def _probe_families() -> dict[str, tuple[str, str]]:
         # The escaped form an envelope's free text carries once JSON-dumped.
         "pgp_block_json_escaped": (f"{pgp_header}\\n{_KEY_BODY}\\n{pgp_footer} tail", _KEY_BODY),
         "openssh_block_truncated": (f"{_BEGIN}OPENSSH PRIVATE KEY-----\n{_KEY_BODY}", _KEY_BODY),
+        # ARIA-MEDIUM-620 — the setup-token shape ARIA now holds: base64url,
+        # so an underscore sits inside the first 32 body characters.
+        "anthropic_setup_token": ("token " + "sk-ant-oat01-" + "Ab3_" + "Q" * 60 + " end", "Ab3_" + "Q" * 60),
+        # The refusal view's own widenings: an ENCRYPTED (pkcs8 v2) block and
+        # a standard-base64 bearer-style authorization token.
+        "encrypted_pkcs8_block": (
+            f"{_BEGIN}ENCRYPTED PRIVATE KEY-----\n{_KEY_BODY}\n{_END}ENCRYPTED PRIVATE KEY-----\nend", _KEY_BODY),
+        "bearer_standard_base64": ("authorization: bearer" + " " + "m3+" * 12 + "/Q" + " end", "m3+" * 12 + "/Q"),
         "aws_secret_access_key": ("conf aws_secret_access_key" + " = " + "W" * 40 + " end", "W" * 40),
         "gho_token": ("token gh" + "o_" + "a" * 36 + " end", "a" * 36),
         "ghr_token": ("token gh" + "r_" + "b" * 36 + " end", "b" * 36),

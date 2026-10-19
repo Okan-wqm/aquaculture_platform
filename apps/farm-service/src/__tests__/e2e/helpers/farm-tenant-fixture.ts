@@ -49,7 +49,10 @@ import { withTenantContext } from '@aquaculture/backend-common';
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { Role } from '@aquaculture/backend-common/decorators';
+import { collaborator, stubMember } from '@aquaculture/testing';
 import { ConfigService } from '@nestjs/config';
+import { CommandBus, QueryBus } from '@platform/cqrs';
+import type { IEventBus } from '@platform/event-bus';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource } from 'typeorm';
 
@@ -65,6 +68,20 @@ import { CreateBatchHandler } from '../../../batch/handlers/create-batch.handler
 import { RecordMortalityHandler } from '../../../batch/handlers/record-mortality.handler';
 import { TransferBatchHandler } from '../../../batch/handlers/transfer-batch.handler';
 import { GetBatchHandler } from '../../../batch/query-handlers/get-batch.handler';
+import { GetMortalityByCauseQuery } from '../../../batch/queries/get-mortality-by-cause.query';
+import { GetTransfersSummaryQuery } from '../../../batch/queries/get-transfers-summary.query';
+import { BiomassCalculatorService } from '../../../batch/services/biomass-calculator.service';
+import { StockReconstructionService } from '../../../batch/services/stock-reconstruction.service';
+import { HarvestCompletedListener } from '../../../events/listeners/harvest-completed.listener';
+import { GetSiteFeedConsumptionQuery } from '../../../feeding/queries/get-site-feed-consumption.query';
+import { HealthEvent } from '../../../fish-health/entities/health-event.entity';
+import { BatchHarvestEligibilityService } from '../../../fish-health/services/batch-harvest-eligibility.service';
+import { HarvestPlan } from '../../../harvest/entities/harvest-plan.entity';
+import { HarvestRecord } from '../../../harvest/entities/harvest-record.entity';
+import { CreateHarvestRecordHandler } from '../../../harvest/handlers/create-harvest-record.handler';
+import { HarvestPolicyService } from '../../../harvest/services/harvest-policy.service';
+import { DiseaseReportAssembler } from '../../../regulatory/assembly/assemblers/disease.assembler';
+import { BiomassReportAssembler } from '../../../regulatory/assembly/biomass.assembler';
 import { MortalityCullPolicyService } from '../../../batch/services/mortality-cull-policy.service';
 import { RemovalQuantityPolicyService } from '../../../batch/services/removal-quantity-policy.service';
 import { BackdatePolicyService } from '../../../common/services/backdate-policy.service';
@@ -72,6 +89,7 @@ import { FeedingDayPlan } from '../../../feeding-protocol/entities/feeding-day-p
 import { FeedingMeal } from '../../../feeding-protocol/entities/feeding-meal.entity';
 import { FeedingProtocolV2 } from '../../../feeding-protocol/entities/feeding-protocol-v2.entity';
 import { ProtocolAssignment } from '../../../feeding-protocol/entities/protocol-assignment.entity';
+import { BiomassGrowthApplierService } from '../../../feeding-protocol/services/biomass-growth-applier.service';
 import { DayPlanRecalcService } from '../../../feeding-protocol/services/day-plan-recalc.service';
 import { ProtocolRateService } from '../../../feeding-protocol/services/protocol-rate.service';
 import { ProtocolResolutionService } from '../../../feeding-protocol/services/protocol-resolution.service';
@@ -97,7 +115,9 @@ import { FeedingProgramTank } from '../../../feeding/entities/feeding-program-ta
 import { FeedingRecord } from '../../../feeding/entities/feeding-record.entity';
 import { GrowthMeasurement } from '../../../growth/entities/growth-measurement.entity';
 import { RecordGrowthSampleHandler } from '../../../growth/handlers/record-growth-sample.handler';
+import { UpdateBatchWeightFromSampleHandler } from '../../../growth/handlers/update-batch-weight-from-sample.handler';
 import { FCRCalculationService } from '../../../growth/services/fcr-calculation.service';
+import { GrowthSampleApplierService } from '../../../growth/services/growth-sample-applier.service';
 import { SiteContact } from '../../../site/entities/site-contact.entity';
 import { Supplier } from '../../../supplier/entities/supplier.entity';
 import { SupplierSite } from '../../../supplier/entities/supplier-site.entity';
@@ -264,6 +284,8 @@ export function createFixtureFcrCalculationService(dataSource: DataSource): FCRC
  */
 export interface FixtureBatchRecorders {
   recordGrowthSample: RecordGrowthSampleHandler;
+  /** Applies a sample stored with `updateBatchWeight` false, later. */
+  updateBatchWeightFromSample: UpdateBatchWeightFromSampleHandler;
   recordMortality: RecordMortalityHandler;
 }
 
@@ -272,7 +294,21 @@ export function createFixtureBatchRecorders(dataSource: DataSource): FixtureBatc
   // No backdate env override: the production defaults (growth 30 days,
   // mortality 14 days) apply.
   const backdatePolicy = new BackdatePolicyService(new ConfigService());
+  const dayPlanRecalc = new DayPlanRecalcService(
+    outboxPublisher,
+    new ProtocolResolutionService(new ProtocolRateService()),
+  );
+  const farmStockProjection = new FarmStockProjectionService();
+  // A weighing moves the tank it weighed and reprices that tank's live day
+  // plan (FARM-CRITICAL-454), so the recorder carries the real unit writer,
+  // recalc and read-model projection.
+  const growthApplier = new BiomassGrowthApplierService();
 
+  const sampleApplier = new GrowthSampleApplierService(
+    growthApplier,
+    dayPlanRecalc,
+    farmStockProjection,
+  );
   const recordGrowthSample = new RecordGrowthSampleHandler(
     dataSource,
     dataSource.getRepository(GrowthMeasurement),
@@ -280,6 +316,12 @@ export function createFixtureBatchRecorders(dataSource: DataSource): FixtureBatc
     createFixtureFcrCalculationService(dataSource),
     backdatePolicy,
     outboxPublisher,
+    sampleApplier,
+  );
+  const updateBatchWeightFromSample = new UpdateBatchWeightFromSampleHandler(
+    dataSource,
+    dataSource.getRepository(GrowthMeasurement),
+    sampleApplier,
   );
 
   const recordMortality = new RecordMortalityHandler(
@@ -292,21 +334,140 @@ export function createFixtureBatchRecorders(dataSource: DataSource): FixtureBatc
     dataSource.getRepository(Tank),
     dataSource.getRepository(EquipmentType),
     outboxPublisher,
-    new DayPlanRecalcService(
-      outboxPublisher,
-      new ProtocolResolutionService(new ProtocolRateService()),
-    ),
+    dayPlanRecalc,
     new RemovalQuantityPolicyService(),
     backdatePolicy,
     new AuditLogService(dataSource.getRepository(AuditLog)),
     new SiteAuthorizationService(),
     new TankBatchService(),
     new MortalityCullPolicyService(),
-    new FarmStockProjectionService(),
+    farmStockProjection,
     new MobileCommandReceiptService(),
   );
 
-  return { recordGrowthSample, recordMortality };
+  return { recordGrowthSample, updateBatchWeightFromSample, recordMortality };
+}
+
+/**
+ * The entities the harvest writer and the regulatory drafts read on top of
+ * FIXTURE_ENTITIES: the harvest ledger, the plans the harvest policy consults,
+ * and the health events the withdrawal gate and the disease draft read.
+ */
+export const HARVEST_ENTITIES = [HarvestPlan, HarvestRecord, HealthEvent] as const;
+
+/** The production harvest writer and the listener that consumes what it enqueues. */
+export interface FixtureHarvestWriters {
+  createHarvest: CreateHarvestRecordHandler;
+  /** The BatchHarvested listener over the fixture DataSource, publishing onto `eventBus`. */
+  harvestListener(eventBus: IEventBus): HarvestCompletedListener;
+}
+
+/**
+ * Builds CreateHarvestRecordHandler with its real collaborators. The one stand-in
+ * is the CommandBus: the final-harvest close chain (CloseBatchCommand) is
+ * dispatched after the harvest commits, owns its own transaction, and is not
+ * what a harvest-ledger suite asserts. The DataSource must register
+ * FIXTURE_ENTITIES and HARVEST_ENTITIES, and the suite must create the outbox and
+ * the farm-stock read model.
+ */
+export function createFixtureHarvestWriters(dataSource: DataSource): FixtureHarvestWriters {
+  const outboxPublisher = new OutboxPublisher(FarmOutbox);
+  const config = new ConfigService();
+  const commandBus = collaborator<CommandBus>(
+    { execute: stubMember<CommandBus['execute']>(() => Promise.resolve(undefined)) },
+    'CommandBus',
+  );
+  const createHarvest = new CreateHarvestRecordHandler(
+    dataSource,
+    outboxPublisher,
+    new DayPlanRecalcService(
+      outboxPublisher,
+      new ProtocolResolutionService(new ProtocolRateService()),
+    ),
+    commandBus,
+    new BatchHarvestEligibilityService(dataSource),
+    new BackdatePolicyService(config),
+    new HarvestPolicyService(dataSource.getRepository(HarvestPlan), config),
+    dataSource.getRepository(HarvestRecord),
+    dataSource.getRepository(Batch),
+    dataSource.getRepository(TankOperation),
+    dataSource.getRepository(TankBatch),
+    dataSource.getRepository(Tank),
+    new TankBatchService(),
+    new FinanceSettingsService(dataSource),
+    new SiteAuthorizationService(),
+    new FarmStockProjectionService(),
+    new MobileCommandReceiptService(),
+  );
+  return {
+    createHarvest,
+    harvestListener: (eventBus) =>
+      new HarvestCompletedListener(dataSource.getRepository(Batch), eventBus),
+  };
+}
+
+/** The regulatory drafts that scope a batch to a site. */
+export interface FixtureRegulatoryAssemblers {
+  biomass: BiomassReportAssembler;
+  disease: DiseaseReportAssembler;
+}
+
+/**
+ * Builds the biomass and disease draft assemblers over the fixture DataSource.
+ * The standing-stock calculator is the real one. The biomass draft's mortality,
+ * transfers and feed sections come from CQRS queries a site-scope suite does not
+ * assert, so the QueryBus answers them with empty results. The period-end
+ * reconstruction answers "incomplete": the real one selects `species.name`,
+ * which the species table does not have, so on the real schema it fails every
+ * stale-period draft (FARM-HIGH-458). The DataSource must register
+ * FIXTURE_ENTITIES and HARVEST_ENTITIES.
+ */
+export function createFixtureRegulatoryAssemblers(
+  dataSource: DataSource,
+): FixtureRegulatoryAssemblers {
+  const answerEmpty = (query: object): Promise<object> => {
+    if (query instanceof GetMortalityByCauseQuery) {
+      return Promise.resolve({ totalCount: 0, byCause: [], details: [], recordCount: 0 });
+    }
+    if (query instanceof GetTransfersSummaryQuery) {
+      return Promise.resolve({ records: [], recordCount: 0 });
+    }
+    if (query instanceof GetSiteFeedConsumptionQuery) {
+      return Promise.resolve({ totalKg: 0, byFeedType: [], recordCount: 0 });
+    }
+    return Promise.reject(
+      new Error(`Fixture QueryBus has no answer for ${query.constructor.name}`),
+    );
+  };
+  const queryBus = collaborator<QueryBus>(
+    { execute: stubMember<QueryBus['execute']>(answerEmpty) },
+    'QueryBus',
+  );
+  const biomass = new BiomassReportAssembler(
+    dataSource,
+    queryBus,
+    new BiomassCalculatorService(
+      dataSource.getRepository(Batch),
+      dataSource.getRepository(TankBatch),
+      dataSource.getRepository(Tank),
+      dataSource.getRepository(GrowthMeasurement),
+    ),
+    collaborator<StockReconstructionService>(
+      {
+        reconstructSiteStockAtPeriodEnd: () =>
+          Promise.resolve({
+            complete: false,
+            incompleteReason: 'not reconstructed by the fixture',
+            totalQuantity: 0,
+            totalBiomassKg: 0,
+            batchCount: 0,
+            speciesBreakdown: [],
+          }),
+      },
+      'StockReconstructionService',
+    ),
+  );
+  return { biomass, disease: new DiseaseReportAssembler(dataSource) };
 }
 
 /** The production command handlers a fixture needs to stock a tank. */

@@ -240,7 +240,6 @@ Allowed truth buckets:
 | `ORPHAN-CRITICAL-420` | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
 | `ORPHAN-CRITICAL-516` | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
 | `ORPHAN-CRITICAL-517` | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
-| `ARIA-CRITICAL-009`   | OPEN           | Task 12      | platform-autonomy          | real-open                 |
 | `ARIA-CRITICAL-015`   | OPEN           | Task 19      | platform-autonomy          | real-open                 |
 | `SENSOR-CRITICAL-108` | OPEN           | 2026-09-03   | zcode                      | real-open                 |
 | `INFRA-CRITICAL-081`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
@@ -295,10 +294,25 @@ Updated 2026-10-17 (lost-work reland, PR #2010): `FARM-CRITICAL-444` — the 18:
 sweep selected only batches whose stored `fcr.actual` is above zero, which only a closed batch
 has, so it never alerted on a live batch. It is `already-fixed-needs-close`: the PR fixes it and
 the closure-reconcile lane records the main-reachable closer after merge.
+Updated 2026-10-18 (lost-work reland, LW-RATION-600): `FARM-CRITICAL-454` — a growth weighing
+never reached the feeding ration: both growth-sample writers stopped at `Batch.weight.actual`,
+while every ration path reads the tank's `tank_batches` weight. It is `already-fixed-needs-close`:
+the branch fixes it and the closure-reconcile lane records the main-reachable closer after merge.
+Updated 2026-10-18 (lost-work reland, LW-SENSOR-ACK): `SENSOR-CRITICAL-190` — the handler the MQTT
+listener registers on the ack gate swallowed every rejection, so a failed metric write was
+PUBACKed; `SENSOR-CRITICAL-191` — the SensorReading was published after the metric commit, and a
+failed publish was acked with nothing left to retry it. Both are `already-fixed-needs-close`: the
+branch fixes them and the closure-reconcile lane records the main-reachable closer after merge.
+Updated 2026-10-18 (LW-SENSOR-ACK verification, round 1): `PLAT-CRITICAL-925` — the outbox relay
+counts transport failures toward its five-attempt dead-letter budget, so a NATS or JetStream outage
+longer than about 40-60 s dead-letters every pending row of every service, and nothing replays a
+dead-lettered row. It is `real-open`: the fix belongs in `@platform/outbox`, owner okan/claude,
+deadline 2026-11-17.
 | `ORPHAN-CRITICAL-810` | OPEN | 2026-09-05 | infra-expert | real-open |
 | `ALERT-CRITICAL-004` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `ALERT-CRITICAL-009` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `SENSOR-CRITICAL-173` | OPEN | 2026-10-08 | claude | real-open |
+| `PLAT-CRITICAL-925` | OPEN | 2026-10-18 | claude | real-open |
 
 ## Mutation Rules
 
@@ -1111,3 +1125,15 @@ tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
 - `FARM-CRITICAL-444`: registry state is `RESOLVED` with closing commit
   `9b998ec4b`, derived by `finding-registry reconcile` against `origin/main`.
   Left the active table from bucket `already-fixed-needs-close`.
+- `FARM-CRITICAL-454`: registry state is `RESOLVED` with closing commit
+  `abf0132dd`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `SENSOR-CRITICAL-190`: registry state is `RESOLVED` with closing commit
+  `ff6e08aee`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `SENSOR-CRITICAL-191`: registry state is `RESOLVED` with closing commit
+  `ff6e08aee`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.
+- `ARIA-CRITICAL-009`: registry state is `RESOLVED` with closing commit
+  `8cb35a5cf`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `real-open`.

@@ -143,7 +143,7 @@ class ReadonlyPathsExtensionTests(unittest.TestCase):
                 containment = derive_git_containment(worktree, commit_capable=True, signing=SandboxSigning(
                     keys_dir=keys, public_key_path=keys / "cyc.pub", agent_socket=agent_socket,
                 ))
-                argv = impl._sandbox_argv(["true"], workspace_root=worktree, allow_network=False, git=containment,
+                argv = impl._sandbox_argv(["true"], workspace_root=worktree, git=containment,
                                           hook_broker_socket=broker_socket)
             binds = [(argv[i], argv[i + 1]) for i, tok in enumerate(argv) if tok in ("--bind", "--ro-bind", "--tmpfs")]
             targets = [(argv[i], argv[i + 2]) for i, tok in enumerate(argv) if tok in ("--bind", "--ro-bind")]

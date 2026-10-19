@@ -183,6 +183,8 @@ export class UpdateFeedingRecordHandler
             locked,
             amountDiff / expectedFcr,
             expectedFcr,
+            // The corrected record's own feeding day, not the day it was corrected.
+            saved.feedingDate,
           );
         }
         if (preview.tankId) {

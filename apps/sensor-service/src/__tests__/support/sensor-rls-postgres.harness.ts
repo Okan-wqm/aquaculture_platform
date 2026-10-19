@@ -62,6 +62,13 @@ export interface SensorRlsHarness {
   readonly runtimePassword: string;
   readonly harness: HarnessContext;
   schemaOf(tenantId: string): string;
+  /**
+   * What db-migrate's tenant schema delete job (deprovision or erasure) leaves
+   * behind, in one transaction as that job commits it: the schema dropped with
+   * CASCADE and the ledger row out of `active`, so
+   * platform.list_active_tenant_schema_mappings() no longer lists the tenant.
+   */
+  deprovisionTenant(tenantId: string): Promise<void>;
   shutdown(): Promise<void>;
 }
 
@@ -130,18 +137,9 @@ export async function bootSensorRlsHarness(
 
   // The least-privilege mapping production serves through
   // platform.list_active_tenant_schema_mappings().
-  const mappings = options.tenants
-    .map((tenantId) => `('${getTenantSchemaName(tenantId)}', '${tenantId}'::uuid, true, true)`)
-    .join(',\n          ');
+  const activeTenants = new Set(options.tenants);
   await admin.query('CREATE SCHEMA IF NOT EXISTS platform');
-  await admin.query(`
-    CREATE OR REPLACE FUNCTION platform.list_active_tenant_schema_mappings()
-    RETURNS TABLE (schema_name text, tenant_id uuid, schema_exists boolean, committed_proof boolean)
-    LANGUAGE sql STABLE AS $fn$
-      SELECT * FROM (VALUES
-          ${mappings}
-      ) AS t(schema_name, tenant_id, schema_exists, committed_proof)
-    $fn$`);
+  await publishActiveTenantMappings(admin, [...activeTenants]);
   await admin.query(`GRANT USAGE ON SCHEMA platform TO ${runtimeRole}`);
   await admin.query(
     `GRANT EXECUTE ON FUNCTION platform.list_active_tenant_schema_mappings() TO ${runtimeRole}`,
@@ -168,11 +166,45 @@ export async function bootSensorRlsHarness(
     runtimePassword,
     harness,
     schemaOf: getTenantSchemaName,
+    async deprovisionTenant(tenantId: string): Promise<void> {
+      activeTenants.delete(tenantId);
+      await admin.transaction(async (manager) => {
+        await manager.query(`DROP SCHEMA IF EXISTS "${getTenantSchemaName(tenantId)}" CASCADE`);
+        await publishActiveTenantMappings(manager, [...activeTenants]);
+      });
+    },
     async shutdown(): Promise<void> {
       if (runtime.isInitialized) await runtime.destroy();
       await shutdownHarness(harness);
     },
   };
+}
+
+/**
+ * (Re)define the active tenant↔schema mapping the harness serves. In
+ * production the function reads the admin.tenant_schemas ledger; here it lists
+ * the active tenants directly, and CREATE OR REPLACE keeps the runtime role's
+ * EXECUTE grant across a redefinition.
+ */
+async function publishActiveTenantMappings(
+  executor: Pick<DataSource, 'query'>,
+  tenants: readonly string[],
+): Promise<void> {
+  const rows = tenants.map(
+    (tenantId) =>
+      `SELECT '${getTenantSchemaName(tenantId)}'::text, '${tenantId}'::uuid, true, true`,
+  );
+  // No active tenant is an empty result, not an empty VALUES list.
+  const body =
+    rows.length > 0
+      ? rows.join('\n      UNION ALL ')
+      : 'SELECT NULL::text, NULL::uuid, true, true WHERE false';
+  await executor.query(`
+    CREATE OR REPLACE FUNCTION platform.list_active_tenant_schema_mappings()
+    RETURNS TABLE (schema_name text, tenant_id uuid, schema_exists boolean, committed_proof boolean)
+    LANGUAGE sql STABLE AS $fn$
+      ${body}
+    $fn$`);
 }
 
 /** Arm FORCE RLS with the platform helper under db-migrate's DDL authority. */

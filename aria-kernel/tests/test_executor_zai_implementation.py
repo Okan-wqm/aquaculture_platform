@@ -85,7 +85,8 @@ def _stand(test: unittest.TestCase, *, native: bool, logged_in: bool = True) -> 
     a `claude` that answers only `--version` / `auth status` (anything else
     is a model spawn, recorded and failed). ``native`` commits the native
     managed-subscription policy production runs; without it the child takes
-    the spawn lane. ``logged_in`` False removes the managed login."""
+    the spawn lane. ``logged_in`` False removes the kernel's Claude token
+    (ARIA-MEDIUM-563: the route's credential; the host login is not asked)."""
     original = _identity.make_repo_with_initial_commit
 
     def with_the_production_policy(root: Path, files: dict[str, str], **kwargs: object) -> Path:
@@ -109,20 +110,16 @@ def _stand(test: unittest.TestCase, *, native: bool, logged_in: bool = True) -> 
     test.key_file.chmod(0o600)
     test.environment.update({"ARIA_ZAI_API_KEY_FILE": str(test.key_file), "ARIA_ZAI_ENDPOINT": test.vendor.base_url})
     test.claude_log = test.root / "claude-spawns.jsonl"
-    # `claude auth status` as the CLI answers it, logged in or out.
-    status = dict(_identity._STATUS) if logged_in else {**_identity._STATUS, "loggedIn": False}
     test._install_fixture_executable("claude", (
         "import json, sys\n"
         "argv = sys.argv[1:]\n"
         "if argv == ['--version']:\n"
         "    print('2.1.269 (Claude Code)'); raise SystemExit(0)\n"
-        "if argv[:3] == ['auth', 'status', '--json']:\n"
-        f"    print(json.dumps({status!r})); raise SystemExit(0)\n"
         f"open({str(test.claude_log)!r}, 'a').write(json.dumps(argv) + '\\n')\n"
         "raise SystemExit(1)\n"
     ))
     if not logged_in:
-        (Path(test.environment["CLAUDE_CONFIG_DIR"]) / ".credentials.json").unlink()
+        test.environment.pop("ARIA_CLAUDE_OAUTH_TOKEN_FILE")
 
 
 class TheImplementerRunsOnZaiWhileClaudeIsCooled(unittest.TestCase):
@@ -338,7 +335,7 @@ class NoUsableProviderIsToldNotHidden(unittest.TestCase):
         refused = [row["details"] for row in self._governance("runtime_admission_unavailable")]
         self.assertEqual([row["reason"] for row in refused], ["no_eligible_provider"])
         reasons = {row["provider"]: row["status_reason"] for row in refused[0]["candidate_observations"]}
-        self.assertEqual((reasons["anthropic"], reasons["zai"]), ("managed_session_logged_out", "provider_not_configured"))
+        self.assertEqual((reasons["anthropic"], reasons["zai"]), ("claude_gateway_credential_absent", "provider_not_configured"))
         self.assertEqual((self._claim_rows(), self.vendor.received), ([], []))
         self.assertEqual([(i.provider, i.kind) for i in open_outages(self.tools)], [("anthropic", "logged_out")])
         items = [item["context"] for item in list_human_required(base_dir=self.tools)

@@ -902,7 +902,7 @@ sequenceDiagram
   participant Artifacts as Artifact Graph
   participant Gates as Validation Gates
 
-  CI->>Claude: managed Claude Code login
+  CI->>Claude: spawn in a room bound to the kernel's provider gateway (kernel-held token)
   Claude->>Kernel: run with workspace-root and tools-dir
   Kernel->>Tools: write bounded ledgers
   Kernel->>Artifacts: attach hash-bound proof
@@ -1570,27 +1570,30 @@ and stops the daemon. Pinned by `tests/test_provider_quota_cooldown.py`,
 
 The Z.ai transport (operator policy 2026-09-11: Z.ai only through its own subscription API; never a
 credential handed to the `claude` or `codex` child). `read_zai_credential` establishes the secret
-from exactly one boundary and refuses by name (`credential_not_configured`,
-`credential_file_unreadable`, `credential_file_permissions`, `credential_file_empty`,
-`credential_sources_ambiguous`); `resolve_zai_endpoint` names the documented Coding-Plan
-(`/api/coding/paas/v4`) and general (`/api/paas/v4`) OpenAI-compatible base URLs or an explicit
-`custom` URL; `probe_zai_status` spends one `max_tokens=1` completion to record what the selected
-endpoint actually answered as the (auth, quota, reason, HTTP status, vendor code/message)
-observation; `run_zai_chat` sends the kernel-rendered prompt as the user turn and returns content,
-the vendor's usage block and the same `auth_failure`/`credit_exhaustion` classification the CLI
-runtimes report. In `ci_executor`, `observe_status` prepares a `ZaiExecutionContext` for the
-admission probe, `_invoke_native_zai` mirrors `_invoke_native_codex` row for row (attempt
-reservation, transcript = raw response body, sealed envelope, usage-or-refuse,
-`runtime_attempt_finished` with `provider_session_provenance="http_response_id"`), and the legacy
-auth failover's Z.ai rung reaches `_run_zai_as_claude_result` (AUTH failures of read-only roles
-only, since 2026-09-12). Proven end to end against a local stand-in vendor with the real executor
-child and real kernel claim/submit (`tests/test_ci_executor_native_zai.py`); the secret is asserted
-absent from every file the kernel writes. Live (2026-09-11): the Coding-Plan route answered 200 and
-the general route 429/1113, and the first accepted native planner result ran here — with three
-transport facts measured on the way: GLM-5.3 reasons by default against `max_tokens` (default now
-65,536, `ARIA_ZAI_MAX_TOKENS`; route effort → `reasoning_effort`; an exhausted budget is
-`output_budget_exhausted`), and `response_format=json_object` made it rewrite `.json` evidence paths
-(opt-in via `ARIA_ZAI_JSON_OBJECT=1`).
+from exactly one boundary through the kernel's one credential reader
+(`aria-kernel/aria_kernel/provider_credentials.py`) and refuses by name
+(`credential_not_configured`, `credential_file_in_room_tree`, `credential_file_unreadable`,
+`credential_file_owner`, `credential_file_permissions`, `credential_file_too_large`,
+`credential_file_empty`, `credential_file_malformed`, `credential_sources_ambiguous`);
+`resolve_zai_endpoint` names the documented Coding-Plan (`/api/coding/paas/v4`) and general
+(`/api/paas/v4`) OpenAI-compatible base URLs or an explicit `custom` URL; `probe_zai_status` spends
+one `max_tokens=1` completion to record what the selected endpoint actually answered as the (auth,
+quota, reason, HTTP status, vendor code/message) observation; `run_zai_chat` sends the
+kernel-rendered prompt as the user turn and returns content, the vendor's usage block and the same
+`auth_failure`/`credit_exhaustion` classification the CLI runtimes report. In `ci_executor`,
+`observe_status` prepares a `ZaiExecutionContext` for the admission probe, `_invoke_native_zai`
+mirrors `_invoke_native_codex` row for row (attempt reservation, transcript = raw response body,
+sealed envelope, usage-or-refuse, `runtime_attempt_finished` with
+`provider_session_provenance="http_response_id"`), and the legacy auth failover's Z.ai rung reaches
+`_run_zai_as_claude_result` (AUTH failures of read-only roles only, since 2026-09-12). Proven end to
+end against a local stand-in vendor with the real executor child and real kernel claim/submit
+(`tests/test_ci_executor_native_zai.py`); the secret is asserted absent from every file the kernel
+writes. Live (2026-09-11): the Coding-Plan route answered 200 and the general route 429/1113, and
+the first accepted native planner result ran here — with three transport facts measured on the way:
+GLM-5.3 reasons by default against `max_tokens` (default now 65,536, `ARIA_ZAI_MAX_TOKENS`; route
+effort → `reasoning_effort`; an exhausted budget is `output_budget_exhausted`), and
+`response_format=json_object` made it rewrite `.json` evidence paths (opt-in via
+`ARIA_ZAI_JSON_OBJECT=1`).
 
 ### `aria-kernel/aria_kernel/agent_contract_delivery.py`
 

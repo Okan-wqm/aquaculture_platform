@@ -1629,7 +1629,8 @@ a probe that did not answer is neither.
 The observation is three-valued BY CONSTRUCTION. Every `_RuntimeStatusObservation` carries a
 required `decision: StatusDecision` named at the site that saw the answer — `AVAILABLE` (the vendor
 confirmed the managed session / credential), `UNAVAILABLE` (the vendor or the ledger SAID no:
-`managed_session_logged_out`, `api_key_auth_not_managed`, `managed_login_required`,
+`claude_gateway_credential_absent` (the kernel's Claude credential boundary refused, ARIA-MEDIUM-563),
+`managed_login_required`,
 `cli_reported_not_logged_in`, a Z.ai 401/403, a Z.ai 429/402 or entitlement refusal,
 `cli_unavailable`, `provider_not_configured`, `provider_quota_cooldown`,
 `provider_readonly_runtime`, and the managed Codex route's decided refusals
@@ -1644,23 +1645,21 @@ error, a vendor 5xx, a managed context this host could not bind). A contradictor
 the type, never on a reason string. The Z.ai probe's `_classify` returns the decision beside
 auth/quota/reason; a 429 is DECIDED unavailable with auth still `available`.
 
-The answer decides before the exit code (verifier, 2026-09-12). Both managed CLIs report a
-logged-out session as an answer AND a non-zero exit: Claude Code 2.1.269 prints `{"loggedIn": false,
-…}` then `process.exit(loggedIn ? 0 : 1)` (read from the installed binary; reproduced offline with
-an empty config dir), Codex 0.154.0 prints `Not logged in` and exits 1 (reproduced offline with an
-empty `CODEX_HOME`). `tools/aria-poc/status_answers.py` owns the classification for both:
-`classify_claude_status_answer(stdout, returncode)` reads the JSON document first (a boolean
-`loggedIn` is the vendor's answer whatever the exit — logged out → `managed_session_logged_out`
-UNAVAILABLE carrying `exit_code=1`), `classify_codex_status_answer(output, returncode)` reads the
-line first (`Not logged in` → `cli_reported_not_logged_in` UNAVAILABLE, with the same read-only
-PATH-alias-warning tolerance as the login lines). The exit code is consulted in the shared no-answer
-arm and nowhere else — pinned structurally by `tests/test_status_answers_before_exit_codes.py` (an
-AST scan: neither classifier compares `returncode`) and behaviourally through the real probes with
-scripted binaries that mirror the installed exit codes; the lane fixtures
-(`test_ci_executor_native_claude._fake_claude`, the smoke suite's Codex status fixture) exit as the
-real CLIs do. The probes (`claude_runtime._probe_claude_auth_status`,
-`codex_runtime._probe_codex_auth_status`) keep the spawn — environment boundary, per-attempt cap,
-byte cap, reaping, the limiter's dead-bus arm — and hand the bytes to the classifier.
+The answer decides before the exit code (verifier, 2026-09-12). The managed Codex CLI reports a
+logged-out session as an answer AND a non-zero exit: Codex 0.154.0 prints `Not logged in` and exits
+1 (reproduced offline with an empty `CODEX_HOME`). `tools/aria-poc/status_answers.py` owns the
+classification: `classify_codex_status_answer(output, returncode)` reads the line first (`Not logged
+in` → `cli_reported_not_logged_in` UNAVAILABLE, with the same read-only PATH-alias-warning tolerance
+as the login lines). The exit code is consulted in the no-answer arm and nowhere else — pinned
+structurally by `tests/test_status_answers_before_exit_codes.py` (an AST scan: the classifier never
+compares `returncode`) and behaviourally through the real probe with scripted binaries that mirror
+the installed exit codes. The probe (`codex_runtime._probe_codex_auth_status`) keeps the spawn —
+environment boundary, per-attempt cap, byte cap, reaping, the limiter's dead-bus arm — and hands the
+bytes to the classifier. The Anthropic route asks no CLI (ARIA-MEDIUM-563): its credential is the
+kernel's own gateway token, so the admission reads the kernel's credential boundary
+(`provider_credentials.read_provider_credential`) and decides `claude_gateway_credential_absent`
+UNAVAILABLE by name, or AVAILABLE with quota unknown; a token that no longer works is the first
+spawn's `claude_auth_failure`.
 
 The liveness bound. `recheck_timeout_seconds` (genesis policy, 20 s) keeps its meaning as the cap of
 ONE attempt. `status_probe.observe_until_decided` retries ONLY an undecided observation:
@@ -2609,8 +2608,8 @@ gate`, `pr create`, the push — and the `aria` MCP server once spawned inside a
   commit-capable containment derived with that signing exposure, the sandbox stood on the probe's
   `aria-impl-*` branch by the kernel (`stand_on_implementation_branch`, ARIA-HIGH-124), `git
 status` / the branch check / a signed `git commit` inside the real argv built with the managed
-  route's network setting
-  (`MANAGED_SPAWN_ALLOW_NETWORK`), `git config --local`, a hooks write and a read of the private
+  route's provider route
+  (`MANAGED_SPAWN_PROVIDER`), `git config --local`, a hooks write and a read of the private
   key REFUSED inside, a planted `refs/heads/main.lock` that must not reach the repository, then
   the executor's own publication and `git verify-commit` against the minted key from outside).
   `/etc/passwd` and `/etc/group` are system binds: `ssh-keygen -Y sign` resolves its uid before it

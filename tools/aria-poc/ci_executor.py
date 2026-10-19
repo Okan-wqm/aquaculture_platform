@@ -25,8 +25,9 @@ Account-budget discipline:
 Invocation contract: see tools/aria-poc/ci_executor_contract_proven.md
 for the load-bearing contract — argv shape locked by Plan ARIA-V3
 invariant I-V3-21. `CLAUDE_CLI_MOCK=1` wires the test fixture path;
-`CLAUDE_CLI_MOCK=0` requires a live `claude` binary on $PATH and a
-managed Claude Code login on a trusted/private runner.
+`CLAUDE_CLI_MOCK=0` requires a live `claude` binary on $PATH and the
+kernel's Claude token (ARIA_CLAUDE_OAUTH_TOKEN_FILE, injected by the provider
+gateway — ARIA-MEDIUM-563) on a trusted/private runner.
 """
 from __future__ import annotations
 
@@ -3448,6 +3449,10 @@ _ZAI_SYSTEM_PROMPT = (
     "no prose before or after it."
 )
 _ZAI_AUTH_METHOD = "subscription_api_key"
+# ARIA-MEDIUM-563 — the Anthropic route bills the subscription through the
+# kernel's own token (`claude setup-token`), the binding table's
+# ("anthropic", "claude", "subscription") row.
+_CLAUDE_AUTH_METHOD = "subscription"
 
 
 @_dataclass(frozen=True)
@@ -4274,30 +4279,44 @@ def _admit_native_route(
                 return _replace(observed, control_status="available", control_reason="native_readonly_runtime_prepared")
             return _probe_codex_auth_status(environ=environment, timeout_seconds=timeout_seconds)
         if provider.runtime_hint == "claude":
-            # The managed Anthropic session: `claude auth status --json` is the
-            # non-model status the CLI itself reports (authMethod claude.ai =
-            # subscription); control is the existing bwrap containment that
-            # every Claude spawn already runs under. The spawn stays
-            # run_claude_exec; this only admits it natively and binds the
-            # attempt to the same settings identity the session fingerprint uses.
+            # ARIA-MEDIUM-563 — the Anthropic route's credential is the
+            # kernel's: the gateway injects it, no spawn holds a login. So
+            # the status is the kernel's credential boundary
+            # (`provider_credentials`: the 0600 token file named by
+            # ARIA_CLAUDE_OAUTH_TOKEN_FILE), DECIDED unavailable by name when
+            # it refuses; whether the token still works is the first spawn's
+            # answer (an upstream 401 is `claude_auth_failure`). Control is
+            # the existing bwrap containment every Claude spawn runs under.
+            # The spawn stays run_claude_exec; this only admits it natively
+            # and binds the attempt to the same settings identity the
+            # session fingerprint uses.
             from aria_kernel.implementation_safety import sandbox_backend as _sandbox_backend_probe
-            from claude_runtime import ManagedClaudeContext, _probe_claude_auth_status
+            from aria_kernel.provider_credentials import ProviderCredentialUnavailable, read_provider_credential
+            from claude_runtime import CLAUDE_GATEWAY_CREDENTIAL_ABSENT, ManagedClaudeContext
 
-            observed = _probe_claude_auth_status(environ=environment, timeout_seconds=timeout_seconds)
-            if observed.decision is not StatusDecision.AVAILABLE:
-                return observed
+            try:
+                credential = read_provider_credential(provider.key, environment, room_trees=(repo_root,))
+            except ProviderCredentialUnavailable as exc:
+                return _RuntimeStatusObservation("unavailable", reason=CLAUDE_GATEWAY_CREDENTIAL_ABSENT,
+                                                 control_status="unavailable", control_reason=exc.reason,
+                                                 auth_method=_CLAUDE_AUTH_METHOD,
+                                                 decision=StatusDecision.UNAVAILABLE)
+            observed = _RuntimeStatusObservation(
+                "available", quota_observation="unknown", reason="claude_gateway_credential_present",
+                auth_method=_CLAUDE_AUTH_METHOD, credential_source=f"kernel_{credential.source}",
+                decision=StatusDecision.AVAILABLE,
+            )
             if _sandbox_backend_probe() is None:
-                # The vendor said yes; THIS host cannot contain the spawn.
-                # Controls unavailable on a decided-available auth: the
-                # ladder halts here as `provider_control_unavailable`
+                # The credential is there; THIS host cannot contain the
+                # spawn. Controls unavailable on a decided-available auth:
+                # the ladder halts here as `provider_control_unavailable`
                 # (never a later vendor — a missing sandbox is not an auth
                 # reason), and the row says which host fact stopped it.
                 return _replace(observed, control_status="unavailable", control_reason="sandbox_unavailable")
             recording = UsageRecording(request_id=request_id, role=str(request.get("role") or ""),
                                        target_agent=target_agent, base_dir=tools_dir)
             contexts[provider.key] = ManagedClaudeContext(
-                auth_method=observed.auth_method, subscription_type=None,
-                config_dir=environment.get("CLAUDE_CONFIG_DIR"),
+                auth_method=_CLAUDE_AUTH_METHOD, credential_source=f"kernel_{credential.source}",
                 settings_hash=spawn_settings_hash(agent_profile=profile, usage_recording=recording,
                                                   workspace_root=repo_root),
             )
@@ -4640,11 +4659,13 @@ def _pre_claim_environment_gate(
             f"sandbox_backend() returned None ({why}); write-capable spawns would be refused"
         )
     if kind is None and _egress_boundary_probe is not None:
-        # ARIA-HIGH-143 — the spawn's room has its own network namespace and
-        # one road out, the kernel's allowlist proxy. The probe asks a real
-        # managed room, from inside, whether that holds on this host (no
-        # route out, an off-allowlist target refused by name); when it does
-        # not, the request stays PENDING until the host can build one.
+        # ARIA-HIGH-143 / ARIA-MEDIUM-563 — the spawn's room has its own
+        # network namespace and one road out, its provider route: for the
+        # managed Claude room, the kernel's provider gateway. The probe asks
+        # a real managed room, from inside, whether that holds on this host
+        # (no route out, no proxy, no credential but the placeholder, an
+        # unpinned request refused by name); when it does not, the request
+        # stays PENDING until the host can build one.
         egress_gap = _egress_boundary_probe()
         if egress_gap is not None:
             kind, detail = "egress_boundary_unavailable", egress_gap

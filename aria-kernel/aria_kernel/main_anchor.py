@@ -61,7 +61,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id, object_id_pattern
 
 _GIT_TIMEOUT_SECONDS = 30
 MAIN_TRACKING_REF = "refs/remotes/origin/main"
@@ -392,7 +392,9 @@ _BLOB_MODES = frozenset({"100644", "100755", "120000"})
 _TREE_MODE = "40000"
 _GITLINK_MODE = "160000"
 
-_TREE_LINE_RE = re.compile(rb"\Atree ([0-9a-f]{40}|[0-9a-f]{64})\n")
+# The id fragment itself is the owner's non-capturing rule; the capture group
+# around it is this grammar's, so `_resolve_verified` can read the tree id.
+_TREE_LINE_RE = re.compile(("\\Atree (" + object_id_pattern(ANY_OBJECT_FORMAT) + r")\n").encode("ascii"))
 
 
 def _tree_entries(body: bytes, oid_length: int) -> dict[bytes, tuple[str, str]] | None:

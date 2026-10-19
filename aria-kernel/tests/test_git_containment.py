@@ -129,6 +129,10 @@ class _Checkout(unittest.TestCase):
         _git(["tag", "v0-fixture"], cwd=self.repo)
         _git(["pack-refs"], cwd=self.repo)
         self.base = _git(["rev-parse", "HEAD"], cwd=self.repo).stdout.strip()
+        # ARIA-LOW-269 (b): the tracking ref the main anchor trusts, published
+        # on the host as a cycle's checkout carries it, so `refs/remotes` is a
+        # real shared entry the control-surface probes can aim at.
+        _git(["update-ref", "refs/remotes/origin/main", self.base], cwd=self.repo)
         self.worktree = self.repo / "aria-worktrees" / "req-1"
         self.sibling = self.repo / "aria-worktrees" / "req-sibling"
         self.worktree.parent.mkdir()
@@ -493,6 +497,16 @@ class UnderRealBwrapTests(_HeldIdentity):
 
     def test_control_surfaces_are_unwritable_and_siblings_invisible(self) -> None:
         pack = self.common / "objects" / "pack" / self.packs_before[0]
+        # ARIA-LOW-269 (b): a real loose object on the host, so an EXISTING
+        # objects fan-out directory is among the surfaces probed.
+        minted = subprocess.run(
+            ["git", "hash-object", "-w", "--stdin"], cwd=self.repo, input="aria-269 probe\n",
+            capture_output=True, text=True, env=probe_git_environment(), check=True).stdout.strip()
+        fan_out = self.common / "objects" / minted[:2]
+        # The host state the probes must leave byte-identical (ARIA-LOW-269
+        # (b): the invariant is host state, never ALLOWED inside a tmpfs).
+        head_bytes = (self.common / "HEAD").read_bytes()
+        objects_before = _snapshot(self.common / "objects")
         probes = {
             "hooks": f"echo x > {self.worktree}/.husky/pre-commit",
             "hooks_new_file": f"echo x > {self.worktree}/.husky/post-checkout",
@@ -508,6 +522,13 @@ class UnderRealBwrapTests(_HeldIdentity):
                                     "&& git update-ref refs/heads/main HEAD"),
             "git_delete_ref_main": "git update-ref -d refs/heads/main",
             "git_branch_force_main": "git branch -f main HEAD",
+            # ARIA-LOW-269 (b): the anchor's OTHER ref — refs/remotes/origin/
+            # main, published on the host as a cycle's checkout carries it —
+            # the common HEAD, and a file in an existing objects fan-out.
+            "origin_main_ref": f"echo {self.base} > {self.common}/refs/remotes/origin/main",
+            "git_update_ref_origin_main": "git update-ref refs/remotes/origin/main HEAD",
+            "common_head": f"echo x > {self.common}/HEAD",
+            "object_in_existing_fan_out": f"echo x > {fan_out}/probe",
             "packed_refs": f"echo x >> {self.common}/packed-refs",
             "pack_unlink": f"rm -f {pack} && test ! -e {pack}",
             "pack_truncate": f"( : > {pack} )",
@@ -531,10 +552,14 @@ class UnderRealBwrapTests(_HeldIdentity):
         expected["packed_refs_lock_sibling"] = "ALLOWED"
         self.assertEqual(outcomes, expected)
         self.assertFalse((self.common / "packed-refs.lock").exists(), "the lock sibling died with the sandbox")
-        # And nothing changed outside.
+        # And nothing changed outside — the anchor's tracking ref and the
+        # common HEAD included.
         self.assertEqual(_git(["config", "--worktree", "user.signingkey"], cwd=self.worktree).stdout.strip(),
                          str(self.key.private_key_path))
         self.assertEqual(_git(["rev-parse", "main"], cwd=self.repo).stdout.strip(), self.base)
+        self.assertEqual(_git(["rev-parse", "refs/remotes/origin/main"], cwd=self.repo).stdout.strip(), self.base)
+        self.assertEqual((self.common / "HEAD").read_bytes(), head_bytes)
+        self.assertEqual(_snapshot(self.common / "objects"), objects_before)
         self.assertEqual(sorted(path.name for path in (self.common / "objects" / "pack").iterdir()), self.packs_before)
         self.assertFalse((self.common / "objects" / "info" / "alternates").exists())
         self.assertFalse((self.common / "objects" / "maintenance.lock").exists())

@@ -3404,3 +3404,74 @@ worktree (aria-order-chain), so the "only 626 is free" window the work order des
 - **ARIA-LOW-646** (main-shard-weights-1) — the kernel suite's shard weights go stale as modules
   are added and only a manual refresh rebalances them (suite_shards.py:1-40, aria-kernel.yml:139);
   the general class beside ARIA-LOW-628's single unweighed module.
+
+## Wave C — state-store, learning and self-improve closures (2026-10-19)
+
+The integration merges `fix/aria-kc-state-store`, `fix/aria-kc-learning` and the finished
+commits of `fix/aria-kc-self-improve` (586, 587 and the ARIA-HIGH-122 design-step-1 commit
+`5b24c84d9`; the staged step-3 `kernel_change_lane` work stays on the lane worktree, unmerged,
+and 122 stays OPEN).
+
+### ARIA-LOW-577 — a checkout lineage refusal reports as a refusal, not a transport failure
+
+Closed by `db07329bb`. Red first: the ReCheckoutSafety rewind test tightened to
+StateStoreRefusal failed with StateStoreError state_store_remote_history_rewind; the new-root
+replacement test (the ARIA-HIGH-572 lab shape) failed with StateStoreError
+state_store_remote_history_unrelated; the new test_restore_action_checkout_refusal ran the
+action's restore step under GitHub's bash flags against a fixture remote whose tip became a new
+root and failed "1 != 3" with "failed to reach the remote" on stderr. Both lineage branches now
+raise StateStoreRefusal with the same reason codes and `state checkout` exits 3; the genuinely
+unreadable "ancestry could not be verified" branch stays StateStoreError.
+
+### ARIA-LOW-578 — the aria/state lineage is pinned on main so no host adopts a replaced lineage
+
+Closed by `ef9042a5e`. Red first (test_state_store_lineage_pin.py + the restore-action test
+against the unwired checkout): 11 failed / 7 passed — the CLI case failed "0 != 3" (the
+ARIA-HIGH-572 lab's exit-0 adoption of a new root reproduced), the fresh-host new-root case
+"StateStoreRefusal not raised", the action's fresh-host step exited 1 with "wrote no verdict",
+and the two publish-path tests both failed "StateStoreRefusal not raised". Green after 17 + 3.
+The pin is committed policy (docs/aria/policy/state-lineage.json, CODEOWNERS-protected, outside
+every ARIA write scope) naming the one root each state branch's history must have; the owner
+module aria_kernel/state_lineage.py proves it before anything adopts a tip, whether or not the
+host tracks the branch, and state_store_lineage_history_truncated is read through the commit
+object with replace refs disabled, so a `git replace --graft` cannot forge descent.
+
+### ARIA-LOW-611 — a declared ledger is read once per append, not three times
+
+Closed by `38018702a`. Red first (test_ledger_append_single_read.py on the old body): a strict
+append read the ledger 3 times (3 != 1), a non-strict one twice (2 != 1); under cProfile on a
+30,000-row (26 MB) strict ledger the removed \_read_jsonl_stored + heal_torn_tail passes spent
+2.8 s of 20.6 s and made 180,039 json.loads calls against 90,036 after. The append body now
+takes its tail hash from \_tail_hash_for_append: strict surfaces verify the whole chain and
+refuse a corrupt one (declared_jsonl_refuses_append_to_corrupt_chain) before anything is healed
+or written, the torn tail is truncated from that same text, and non-strict surfaces keep their
+one full parse. The 26 test files that reach these internals pass.
+
+### ARIA-HIGH-004 — the learning funnel is joined end to end and ACTIVE is bound to its evidence
+
+Closed by `bbb4eaae3` (review file docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md).
+Red first: ImportError active_transition_evidence / derive_learning_funnel_health and doctor
+AttributeError \_check_learning_funnel on the pre-fix tree. funnel_health joins the funnel's
+stages only on the identities the producers stamp (request/run ids, fingerprint, tool version,
+fixture corpus, calibration report ids, target commit); a row lacking a key advances nothing,
+legacy rows count as history only, and a stage holding at least 10 whose successor holds 0 is
+named `learning_funnel_stalled:<up>-><down>`. The lane's ARIA-HIGH-125 (`993eb9cec`) and
+ARIA-HIGH-129 (`71528eb52`) measure halves land with the merge and stay OPEN per their own
+commit bodies, pending the operator decisions and the live corpus.
+
+### ARIA-LOW-586 — reflection sections absorb only declared reader faults and name them
+
+Closed by `347721d81`. Red first: tests/test_reflection_reader_faults.py failed 24 (14 tests +
+10 subtests) on the pre-fix tree — every section returned [] for a corrupt ledger / non-JSON
+registry, every injected TypeError was swallowed, `unreadable` was absent, and the AST pin
+listed the ten handlers. After: 16 passed + 10 subtests, dependents green (384 passed, 314
+subtests).
+
+### ARIA-LOW-587 — scan_signals absorbs only declared reader faults and names them
+
+Closed by `324dc096e`. Red first: tests/test_self_improvement_reader_faults.py failed 14 on the
+pre-fix tree (TypeError not raised for all five readers, RuntimeError not raised for a crashed
+doctor run, no `unreadable` on scan/opener/action/CLI), 10 + 5 subtests green after.
+ledger.ledger_read_faults() is the one declaration of what a ledger reader may treat as a store
+fault. BREAKING CHANGE carried in the lane commit: scan_signals returns SignalScan and
+open_self_improvement_missions returns MissionOpening, every caller updated in that commit.

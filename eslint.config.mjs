@@ -457,6 +457,53 @@ export default [
     },
   },
 
+  // ── overrides 2b/2c: adapter filesystem access has ONE owner (ARIA-LOW-593) ──
+  // adapter-fs.ts (containedWorkspace) is that owner: every adapter reads the
+  // workspace through its helpers, and no other adapter source may open a
+  // second path to the filesystem. Two shapes of bypass are refused, each
+  // with its own exemption: a direct node:fs import (exempt: adapter-fs.ts,
+  // the owner), and a ts.Program built on the default compiler host — ts.sys
+  // reads every imported module itself, following symlinks, so a program
+  // created outside the contained host escapes containment exactly like a
+  // readFileSync would (exempt: adapter-ts.ts, the one builder on that host).
+  // Both blocks sit AFTER override 2 on purpose: flat config resolves
+  // per-file rules last-write-wins, and override 2 redefines both rules for
+  // every non-project source. The specs are exempt: they build fixtures,
+  // not verdicts.
+  {
+    files: ['tools/aria-adapters/*.ts'],
+    ignores: ['tools/aria-adapters/adapter-fs.ts', 'tools/aria-adapters/*.test.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: ['node:fs', 'fs', 'node:fs/promises', 'fs/promises'].map((name) => ({
+            name,
+            message:
+              'adapter filesystem access has one owner: read the workspace through ' +
+              "adapter-fs.ts's contained helpers instead.",
+          })),
+        },
+      ],
+    },
+  },
+  {
+    files: ['tools/aria-adapters/*.ts'],
+    ignores: ['tools/aria-adapters/adapter-ts.ts', 'tools/aria-adapters/*.test.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            "CallExpression[callee.type='MemberExpression'][callee.property.name='createProgram']",
+          message:
+            'a program on the default compiler host reads imported modules through ts.sys, ' +
+            'following symlinks — build it through adapter-ts.ts, the one contained builder.',
+        },
+      ],
+    },
+  },
+
   // ── overrides 3-4: web/apps type-aware project pins (aquamobil is NON-cjs) ──
   {
     files: ['web/apps/**/*.ts', 'web/apps/**/*.tsx'],

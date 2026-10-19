@@ -11,6 +11,7 @@ import {
   resolveInsideWorkspace as resolveAdapterPath,
   workspacePathExists,
 } from './adapter-fs';
+import { createContainedProgram } from './adapter-ts';
 
 type CheckName = 'base_event' | 'event_interfaces' | 'schema_catalogs' | 'validator_dispatch';
 type FindingRule =
@@ -118,7 +119,10 @@ export function analyzeEventContracts(
     workspaceRoot,
     input,
   );
-  const program = createAnalysisProgram(files);
+  // ARIA-LOW-593 — the program is built on the containment owner's host, so
+  // a heritage alias that resolves only through a symlinked module resolves
+  // to nothing: workspace content alone must establish the inheritance.
+  const program = createContainedProgram(workspaceRoot, files);
   const units = files.map((file) => readSourceUnit(file, workspaceRoot, program));
   const context: AnalysisContext = {
     checker: program.getTypeChecker(),
@@ -384,18 +388,6 @@ function analyzeValidatorDispatch(units: readonly SourceUnit[], result: Analysis
       });
     }
   }
-}
-
-function createAnalysisProgram(files: readonly string[]): ts.Program {
-  return ts.createProgram([...files], {
-    target: ts.ScriptTarget.ES2022,
-    module: ts.ModuleKind.CommonJS,
-    moduleResolution: ts.ModuleResolutionKind.NodeJs,
-    esModuleInterop: true,
-    skipLibCheck: true,
-    strict: false,
-    noEmit: true,
-  });
 }
 
 function readSourceUnit(path: string, workspaceRoot: string, program: ts.Program): SourceUnit {

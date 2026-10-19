@@ -97,7 +97,8 @@
       "defect_claim": "A job's GITHUB_TOKEN can write more than the job needs, so a compromised step can write to scopes no step uses.",
       "premises": [
         "The cited job's effective `permissions:` is `write-all`, or it grants `write` on a scope its job contract in aria-kernel/aria_kernel/workflow_contract_registry.py does not grant.",
-        "For a contract finding, the registry governs the cited job (its workflow file and job id)."
+        "For a contract finding, the registry governs the cited job (its workflow file and job id).",
+        "For an ungoverned `contents: write` finding, no registry contract governs the cited job and no `reason:` comment beside the grant names why the write scope is needed."
       ]
     },
     "pipe_to_shell": {

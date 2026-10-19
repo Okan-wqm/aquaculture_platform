@@ -96,6 +96,28 @@ const GOVERNED = workflow([
 ]);
 write('.github/workflows/rule-health-report.yml', GOVERNED);
 
+// ARIA-LOW-592 — the one case only the harness's broad_shell_permission
+// covered: an UNGOVERNED job's `contents: write` with no scoped-reason
+// comment. Workflow token scope has one owner (overbroad_write_token), so
+// the case moved here as its third sub-kind: `publish` is flagged,
+// `documented` — the same grant carrying a reason comment — is not.
+const UNGOVERNED_WRITE = workflow([
+  '  publish:',
+  '    runs-on: ubuntu-latest',
+  '    permissions:',
+  '      contents: write',
+  '    steps:',
+  '      - run: echo publish',
+  '  documented:',
+  '    runs-on: ubuntu-latest',
+  '    permissions:',
+  '      # reason: tag the release the build produced (deploy-owner signoff)',
+  '      contents: write',
+  '    steps:',
+  '      - run: echo documented',
+]);
+write('.github/workflows/release-notes.yml', UNGOVERNED_WRITE);
+
 const SHELL = workflow([
   '  shell:',
   '    runs-on: ubuntu-latest',
@@ -243,6 +265,7 @@ assert.deepEqual(
   overbroad.map((finding) => [finding.path, finding.subject, finding.owner_rule_id]).sort(),
   [
     ['.github/workflows/perms.yml', 'everything', 'write-all'],
+    ['.github/workflows/release-notes.yml', 'publish', 'ungoverned-write-scope'],
     ['.github/workflows/rule-health-report.yml', 'generate:packages', 'uncontracted-write-scope'],
   ],
 );
@@ -250,6 +273,14 @@ const governedOwner = overbroad.find(
   (finding) => finding.owner_rule_id === 'uncontracted-write-scope',
 );
 assert.equal(governedOwner?.owner, 'aria-kernel/aria_kernel/workflow_contract_registry.py');
+const ungovernedFinding = overbroad.find(
+  (finding) => finding.owner_rule_id === 'ungoverned-write-scope',
+);
+assert.equal(
+  ungovernedFinding?.subject,
+  'publish',
+  'the documented grant carries its reason and is not flagged',
+);
 const permsJobs = observation(
   'workflow-shell-safety-adapter:file:.github/workflows/perms.yml',
 ).jobs;

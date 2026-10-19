@@ -158,7 +158,10 @@ class ForgedVerbBounds(_Store):
       broker allowed in pre-tool; a forged id, or a replayed one, writes no
       row and is answered with an `unrecorded:over_bound` note;
     * every other post-tool name (the matcher's non-budgeted tools and any
-      other name) is capped per broker;
+      other name) is capped per broker — and a BUDGETED name on an
+      UNBUDGETED broker is capped too: the turn cap bounds its ids only
+      when one was compiled into the spawn, so the broker's flat cap
+      stands in for it there;
     * session verbs are capped per broker (SessionStart/SessionEnd once,
       PreCompact a small constant).
     """
@@ -210,6 +213,28 @@ class ForgedVerbBounds(_Store):
         self.assertEqual([json.loads(reply[1]) for reply in replies[3:]],
                          [{"aria_journal": "unrecorded:over_bound"}] * 2)
         self.assertEqual(len(journal_rows_for("AIR-cap", base_dir=self.tools)), 3)
+
+    def test_a_budgeted_name_on_an_unbudgeted_broker_is_capped_per_broker(self) -> None:
+        # ARIA-MEDIUM-609, the residual half: hooks admits budgeted turns
+        # only when a turn cap was compiled into the spawn, so on an
+        # unbudgeted broker (turn_budget=None) nothing bounded the ids a
+        # forged pre-tool allow could mint — each (pre-tool allow,
+        # post-tool) pair wrote one work-journal row without end. The
+        # broker's flat cap stands in for the missing turn cap there.
+        with mock.patch.object(hb, "MAX_POST_TOOL_PER_TOOL_NAME", 3):
+            with serve_hook_broker(base_dir=self.tools, workspace_root=self.workspace, request_id="AIR-ub",
+                                   turn_budget=None) as broker:
+                allows = [call_hook(str(broker.socket_path), "pre-tool",
+                                    {**_payload("Bash", command="git status"), "tool_use_id": f"toolu-a{index}"})
+                          for index in range(5)]
+                replies = [self._post(broker.socket_path, "Bash", f"toolu-a{index}") for index in range(5)]
+        self.assertEqual([reply[0] for reply in allows], [EXIT_ALLOW] * 5, "the policy itself allows git status")
+        self.assertEqual([reply[0] for reply in replies], [EXIT_ALLOW] * 5)
+        self.assertEqual([reply[1] for reply in replies[:3]], ["", "", ""], "within the cap the rows are journaled")
+        self.assertEqual([json.loads(reply[1]) for reply in replies[3:]],
+                         [{"aria_journal": "unrecorded:over_bound"}] * 2)
+        self.assertEqual(len(journal_rows_for("AIR-ub", base_dir=self.tools)), 3,
+                         "a forger cannot mint journal rows past the flat cap")
 
     def test_session_verbs_are_capped_per_broker(self) -> None:
         from aria_kernel.handoff_ledger import list_handoffs

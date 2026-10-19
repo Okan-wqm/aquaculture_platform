@@ -90,9 +90,11 @@ _LISTEN_BACKLOG = 4 * MAX_CONCURRENT_REQUESTS
 # to write a journal, MCP or handoff row on the kernel's store. One bounded
 # set is accepted per broker, priced for a legitimate spawn: a budgeted
 # tool's post-tool arrives once per tool_use_id THIS broker allowed in
-# pre-tool (the turn cap bounds those ids), every other tool name — the
-# matcher's non-budgeted tools (Read|Grep|Glob|Agent) and any other name a
-# forger picks — gets this flat per-broker cap (2x the default 120-turn cap:
+# pre-tool (the turn cap bounds those ids where one was compiled into the
+# spawn; an UNBUDGETED broker has none, so its admitted ids are TOTAL-capped
+# at the same flat number below), every other tool name — the matcher's
+# non-budgeted tools (Read|Grep|Glob|Agent) and any other name a forger
+# picks — gets this flat per-broker cap (2x the default 120-turn cap:
 # one journaled post-tool per admitted turn with headroom for parallel
 # calls), and each session trigger is capped on its own (SessionStart and
 # SessionEnd once, PreCompact a small constant — a session compacts rarely).
@@ -149,17 +151,29 @@ class _Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
         # that races them.
         self._bounds_lock = threading.Lock()
         self._allowed_tool_uses: set[str] = set()
+        self._admitted_tool_uses = 0
         self._post_tool_counts: dict[str, int] = {}
         self._session_event_counts: dict[str, int] = {}
         super().__init__(socket_path, _Handler)
 
     def note_allowed_tool_use(self, tool_name: str, tool_use_id: str, *, allowed: bool) -> None:
         """Record that this broker's pre-tool ALLOWED ``tool_use_id`` (a
-        budgeted tool's post-tool is accepted against it, once)."""
+        budgeted tool's post-tool is accepted against it, once).
+
+        A turn cap bounds those ids only where one was compiled into the
+        spawn (hooks admits budgeted turns at all only then), so an
+        UNBUDGETED broker caps their TOTAL itself at
+        ``MAX_POST_TOOL_PER_TOOL_NAME`` — without that a forged pre-tool
+        allow mints one journal row per (allow, post-tool) pair without
+        end (ARIA-MEDIUM-609, the unbudgeted residual).
+        """
         from .turn_budget import BUDGETED_TOOL_NAMES
 
         if allowed and tool_name in BUDGETED_TOOL_NAMES and tool_use_id:
             with self._bounds_lock:
+                if self.turn_budget is None and self._admitted_tool_uses >= MAX_POST_TOOL_PER_TOOL_NAME:
+                    return
+                self._admitted_tool_uses += 1
                 self._allowed_tool_uses.add(tool_use_id)
 
     def accept_post_tool(self, tool_name: str, tool_use_id: str) -> bool:

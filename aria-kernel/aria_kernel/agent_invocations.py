@@ -6684,7 +6684,9 @@ def submit_claim_result(
     # results.jsonl stays IMMUTABLE (no patch); transitions land here.
     from .bridge_status_ledger import (
         BRIDGE_REQUIRED_ROLES,
+        BridgeOutcome,
         append_bridge_status,
+        bridge_transition,
     )
     envelope_role = envelope.get("role")
     result_row_ledger_hash = str(persisted.get("ledger_hash") or "")
@@ -6701,17 +6703,24 @@ def submit_claim_result(
             attempt_number=0,
         )
     elif bridged["bridge_errors"]:
-        # Bridge failed — record a ``pending_retry`` transition with
-        # attempt_number=1 (first attempt). F.1 orchestrator drains
-        # pending bridges on subsequent cycles.
+        # Bridge failed — record what the ONE transition owner decides
+        # (ARIA-MEDIUM-168/172). A deterministic refusal is
+        # ``permanent_fail``/``refused`` at attempt 1: the same sealed
+        # envelope is refused identically on every replay, so a retry
+        # would burn the budget to relearn it. Only a transient error
+        # schedules ``pending_retry`` for the F.1 orchestrator to drain
+        # on subsequent cycles.
+        outcome = BridgeOutcome.from_bridged(bridged)
+        transition, terminal_reason = bridge_transition(outcome, attempt=1)
         append_bridge_status(
             base_dir=root,
             result_row_ledger_hash=result_row_ledger_hash,
             envelope_evidence_hash=submitted_hash,
             role=envelope_role,
-            transition="pending_retry",
+            transition=transition,
             attempt_number=1,
-            error_detail="; ".join(bridged["bridge_errors"])[:500],
+            error_detail=outcome.detail() or None,
+            terminal_reason=terminal_reason,
         )
     else:
         # Bridge succeeded — record ``ok`` transition.

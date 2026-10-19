@@ -84,9 +84,10 @@ An ordinary certificate run into an empty store mints a new CA while the NATS br
 PostgreSQL still run on the old one. Found by the INFRA-CRITICAL-233 change's security
 verification (probe P3, again as P7 in run R12), next to that change and not fixed by it.
 
-- `infrastructure/docker/scripts/generate-internal-certs.sh:881-899`: with no CA and no managed
+- `infrastructure/docker/scripts/generate-internal-certs.sh:910-928`: with no CA and no managed
   leaf, key or CA copy in the store, the no-option run mints a CA and publishes it by rename.
-  Nothing compares it with the root the running consumers hold.
+  Nothing compares it with the root the running consumers hold. The row cites `:881-899`: the
+  same branch, before this change's expiry-report and alias edits above it moved it 29 lines.
 - `scripts/deploy/deploy-paths.sh:74` and `:137`: `DEPLOY_CERTS_DIR` follows
   `DEPLOY_SOURCE_REPO`, and `mkdir -p` creates the store, empty, when it is missing.
 - `scripts/deploy/droplet-up.sh:1002` runs the generator with no option and continues on exit
@@ -98,9 +99,18 @@ running broker does not trust and refuses the broker's leaf, so each fails the N
 Certificate expiry cannot reach this path, and a partly wiped store already refuses after the
 INFRA-CRITICAL-233 change; only a store with no managed file at all keeps main's behavior.
 
-Suggested direction: `droplet-up.sh` refuses a run whose generator minted a CA while any
-`aqua-` container is running, unless it takes the full-stack path. Deadline 2026-12-18. The
-finding was first minted as INFRA-HIGH-236 in a commit that never landed; 236 has no row.
+Direction (this section replaces the direction in the row's notes; the row is append-only): the
+decision belongs to the generator, before anything is published. A `droplet-up.sh` refusal
+after the run comes too late. The generator has already published the new CA and leaves by
+rename (`generate-internal-certs.sh:926-927`, then the issuance loop). The next deploy finds a
+store consistent under the new root, prints `[skip] CA`, passes
+`require_store_issued_under_kept_ca`, and its selective rollout splits the restarted services
+one deploy later. Reading the generator's `[done] CA` line back would also make `droplet-up.sh`
+a second judge of a decision the generator owns. So an ordinary run with no option never mints
+a CA: into a store with no CA it refuses before staging a file. Minting takes an explicit mode
+that only the first-install or full-stack path passes, the path that recreates every consumer
+after it. Deadline 2026-12-18. The finding was first minted as INFRA-HIGH-236 in a commit that
+never landed; 236 has no row.
 
 ## FARM-CRITICAL-444
 

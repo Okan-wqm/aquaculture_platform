@@ -70,8 +70,9 @@ MANAGED_SERVER_SETS=(
 )
 # Looks the named set up in MANAGED_SERVER_SETS and sets SERVER_SET_CN,
 # SERVER_SET_SAN, SERVER_SET_KEY_MODE and the set's paths (SERVER_SET_DIR,
-# SERVER_SET_KEY, SERVER_SET_CERT, SERVER_SET_CA): the one place a server path
-# is spelled. Any other name ends the run before a file is touched.
+# SERVER_SET_KEY, SERVER_SET_CERT, SERVER_SET_CA): the one place a server set's
+# files are spelled; even the PostgreSQL aliases name them through it. Any
+# other name ends the run before a file is touched.
 load_server_set() {
   local row name
   for row in "${MANAGED_SERVER_SETS[@]}"; do
@@ -576,11 +577,16 @@ certificate_expiry_epoch() {
   fi
 }
 
-# Every run states the earliest managed-leaf expiry and the last date the CA can
-# sign a new leaf, so the countdown to a renewal (and to the --rotate-ca a CA
-# near its end needs) is in every deploy log, not only in the run that acts.
+# Every run that completes states when the earliest managed leaf stops
+# verifying and whether the CA can still sign its renewal, so the countdown to a
+# renewal (and to the --rotate-ca a CA near its end needs) is in every deploy
+# log, not only in the run that acts. A leaf stops verifying at the earlier of
+# its own notAfter and its CA's. The renewal starts LEAF_RENEWAL_WINDOW_DAYS
+# before the leaf's notAfter, and require_ca_outlives_new_leaf refuses it from
+# LEAF_VALIDITY_DAYS before the CA's, so each line is computed from those dates.
 report_identity_lifetimes() {
   local index epoch earliest_epoch='' earliest_label='' ca_epoch now
+  local last_issue_epoch renewal_epoch renewal leaf_line
 
   now=$(date -u +%s)
   for index in "${!MANAGED_LEAF_CERTS[@]}"; do
@@ -593,8 +599,25 @@ report_identity_lifetimes() {
   done
   ca_epoch=$(certificate_expiry_epoch \
     "${CERTS_DIR}/ca/ca-cert.pem" 'certificate authority certificate') || return 1
-  echo "  [expiry] earliest leaf: ${earliest_label} certificate, notAfter $(date -u -d "@${earliest_epoch}" +%F) ($(((earliest_epoch - now) / 86400)) days left; every leaf renews once one is inside ${LEAF_RENEWAL_WINDOW_DAYS} days)"
-  echo "  [expiry] CA: notAfter $(date -u -d "@${ca_epoch}" +%F) ($(((ca_epoch - now) / 86400)) days left); last date a new leaf can be issued: $(date -u -d "@$((ca_epoch - LEAF_VALIDITY_DAYS * 86400))" +%F); replace it with --rotate-ca before then"
+  last_issue_epoch=$((ca_epoch - LEAF_VALIDITY_DAYS * 86400))
+  renewal_epoch=$((earliest_epoch - LEAF_RENEWAL_WINDOW_DAYS * 86400))
+  if [ "${renewal_epoch}" -lt "${last_issue_epoch}" ]; then
+    renewal="every leaf renews once one is inside ${LEAF_RENEWAL_WINDOW_DAYS} days"
+  else
+    renewal="its renewal, due from $(date -u -d "@${renewal_epoch}" +%F), falls after the CA's last issuing date and will be refused"
+  fi
+  leaf_line="earliest leaf: ${earliest_label} certificate, notAfter $(date -u -d "@${earliest_epoch}" +%F)"
+  if [ "${ca_epoch}" -lt "${earliest_epoch}" ]; then
+    leaf_line+=", but the CA expires first: every leaf stops verifying on $(date -u -d "@${ca_epoch}" +%F) ($(((ca_epoch - now) / 86400)) days left; ${renewal})"
+  else
+    leaf_line+=" ($(((earliest_epoch - now) / 86400)) days left; ${renewal})"
+  fi
+  echo "  [expiry] ${leaf_line}"
+  if [ "${last_issue_epoch}" -gt "${now}" ]; then
+    echo "  [expiry] CA: notAfter $(date -u -d "@${ca_epoch}" +%F) ($(((ca_epoch - now) / 86400)) days left); last date a new leaf can be issued: $(date -u -d "@${last_issue_epoch}" +%F); replace it with --rotate-ca before then"
+  else
+    echo "  [expiry] CA: notAfter $(date -u -d "@${ca_epoch}" +%F) ($(((ca_epoch - now) / 86400)) days left); it can sign no ${LEAF_VALIDITY_DAYS}-day leaf since $(date -u -d "@${last_issue_epoch}" +%F), so every renewal and new identity is refused: run --rotate-ca now"
+  fi
 }
 
 require_safe_generation_target() {
@@ -626,11 +649,17 @@ new_certificate_serial() {
   printf '%s\n' "${serial}"
 }
 
+# Publishes DESTINATION as a relative alias of TARGET, a file in the same
+# directory that must already be a regular non-symlink file.
 publish_postgres_alias() {
   local target="$1" destination="$2" stage_directory stage_alias
   local alias_uid alias_links
 
-  create_stage_directory "${PG_DIR}/.postgres-alias.XXXXXX"
+  if [ -L "${destination%/*}/${target}" ] || [ ! -f "${destination%/*}/${target}" ]; then
+    certificate_store_error "PostgreSQL alias target is not a regular non-symlink file: ${destination%/*}/${target}"
+    return
+  fi
+  create_stage_directory "${destination%/*}/.postgres-alias.XXXXXX"
   stage_directory=${GENERATED_STAGE}
   stage_alias="${stage_directory}/alias"
   ln -s -- "${target}" "${stage_alias}"
@@ -918,15 +947,16 @@ while IFS= read -r svc; do
   generate_per_service_client_cert "$svc"
 done <<< "$SERVICE_NAMES"
 
-# PostgreSQL expects server.crt and server.key (not postgres-cert.pem)
-# Publish compatibility aliases by same-directory atomic rename. Canonical
-# production Compose mounts the regular source files directly, but these
-# aliases remain for local entrypoints and must never follow a hostile target.
-PG_DIR="${CERTS_DIR}/postgres"
-publish_postgres_alias postgres-cert.pem "${PG_DIR}/server.crt"
-publish_postgres_alias postgres-key.pem "${PG_DIR}/server.key"
-publish_postgres_alias ca-cert.pem "${PG_DIR}/root.crt"
-echo "  [done] PostgreSQL symlinks (server.crt → postgres-cert.pem)"
+# PostgreSQL expects server.crt, server.key and root.crt. They are published as
+# aliases of the postgres row's own files, read from load_server_set, by
+# same-directory atomic rename. Canonical production Compose mounts the regular
+# source files directly, but these aliases remain for local entrypoints and
+# must never follow a hostile target.
+load_server_set postgres
+publish_postgres_alias "${SERVER_SET_CERT##*/}" "${SERVER_SET_DIR}/server.crt"
+publish_postgres_alias "${SERVER_SET_KEY##*/}" "${SERVER_SET_DIR}/server.key"
+publish_postgres_alias "${SERVER_SET_CA##*/}" "${SERVER_SET_DIR}/root.crt"
+echo "  [done] PostgreSQL symlinks (server.crt → ${SERVER_SET_CERT##*/})"
 
 report_identity_lifetimes
 

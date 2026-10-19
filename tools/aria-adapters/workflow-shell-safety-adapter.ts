@@ -21,7 +21,11 @@
 //   overbroad_write_token            aria-kernel/aria_kernel/workflow_contract_registry.py
 //                                    (`uncontracted_write_scopes`) for a job the
 //                                    registry governs; `permissions: write-all`
-//                                    (every scope) for any job
+//                                    (every scope) for any job; an ungoverned
+//                                    job's `contents: write` with no registry
+//                                    contract and no scoped-reason comment
+//                                    (ARIA-LOW-592, the case the harness's
+//                                    broad_shell_permission used to carry)
 //   governance_bypass_command        aria-kernel/aria_kernel/implementation_safety.py
 //                                    (`governance_bypass_refusal`: the force-push
 //                                    and hook/signing-bypass definition the
@@ -734,6 +738,45 @@ export function analyzeWorkflowShellSafety(
         `job \`${scope.job}\` grants \`${scopeName}: write\`, which its contract in the workflow registry does not; the contract is the job's least privilege.`,
         `Drop ${scopeName}: write from the job, or add it to the job contract in ${REGISTRY_OWNER} with the reason it is needed.`,
       );
+    }
+    // ARIA-LOW-592 — the one case only the harness's broad_shell_permission
+    // covered: an UNGOVERNED job's `contents: write`. Workflow token scope
+    // has one owner (this rule), so the case moved here: the repository
+    // write scope is granted with no registry contract to justify it and no
+    // `reason:` comment beside the grant. A governed job is the registry's
+    // business alone (uncontracted-write-scope above); the harness's
+    // comment-less regex never asks the registry and is retired.
+    if (
+      verdict?.governed !== true &&
+      typeof scope.permissions === 'object' &&
+      scope.permissions !== null &&
+      scope.permissions.contents === 'write'
+    ) {
+      const contentsLine =
+        scope.declaredAt === 'job' && permissionsLine >= 0
+          ? lineIndexOf(file.lines, /^\s+contents:\s*write\b/, permissionsLine + 1)
+          : lineIndexOf(file.lines, /^contents:\s*write\b/);
+      // The same escape the retired harness rule gave: a `reason` in the
+      // two lines above the grant (comment or text) is the scoped
+      // justification the finding asks for.
+      const oneBased = contentsLine + 1;
+      const escapeChunk =
+        contentsLine >= 0
+          ? file.lines.slice(Math.max(0, oneBased - 3), oneBased - 1).join('\n')
+          : '';
+      if (!/reason/i.test(escapeChunk)) {
+        emit(
+          RULES.overbroad_write_token,
+          file,
+          contentsLine >= 0 ? oneBased : anchor,
+          `${scope.job}:contents: write`,
+          SELF,
+          'ungoverned-write-scope',
+          scope.job,
+          `job \`${scope.job}\` grants \`contents: write\` with no registry contract and no scoped-reason comment: the workflow token can write the repository, whatever its steps use.`,
+          'Register the job contract in aria-kernel/aria_kernel/workflow_contract_registry.py with the scopes it needs, or carry a `reason:` comment beside the grant naming why the write scope is needed.',
+        );
+      }
     }
   });
   for (const { jobs, details } of workflowJobs) {

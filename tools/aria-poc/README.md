@@ -118,7 +118,7 @@ Adapters, which the kernel runs as tools:
 
 | Module | Role |
 |---|---|
-| `agent_harness_security_adapter.py` | Plan 020 Phase 10 agent-harness security adapter: seven detection rules over agent prompts, workflows, ARIA tooling and the kernel. |
+| `agent_harness_security_adapter.py` | Plan 020 Phase 10 agent-harness security adapter: six detection rules over agent prompts, workflows, ARIA tooling and the kernel (workflow token scope is workflow-shell-safety-adapter's, ARIA-LOW-592). |
 | `banned_phrase_adapter.py` | Wraps the `tools/gates/banned-phrase.ts` Node CLI and emits its result in the kernel runner's observation/finding shape. |
 | `cqrs_adapter.py` | Plan 020 Phase 14.B: flags a controller that skips the command/query bus or injects a repository directly. |
 | `dual_alias_adapter.py` | Checks that every module-resolution surface maps both `@aquaculture/backend-common` and `@platform/backend-common` to the same entrypoint. |

@@ -32,9 +32,9 @@ import os
 import unittest
 from pathlib import Path
 
-from tests._helpers.night_harness import NightStore, serving_claude_cli
+from tests._helpers.night_harness import DynamicZaiVendor, NightStore, serving_claude_cli
 from tests._helpers.operator_acts import operator_set_profile
-from tests._helpers.single_provider_host import claude_host
+from tests._helpers.single_provider_host import claude_host, zai_host
 
 _PROVIDER = "anthropic"
 _PLAN = "plan-only-claude"
@@ -214,6 +214,138 @@ class OnlyClaudeNightCompletes(unittest.TestCase):
         requests = self.store.requests()
         roles = {row["role"] for row in requests if row.get("convergence_id") == _PLAN}
         self.assertIn("cross_review", roles, "the challenger was accepted but no review round followed")
+
+
+
+
+class OnlyZaiNightCompletes(unittest.TestCase):
+    """The same two nights on a host that presents Z.ai and nothing else.
+
+    No CLI exists anywhere on the night's PATH: the kernel's own HTTP
+    transport is the route, and the vendor substitute is a local server
+    standing in for api.z.ai (the native Z.ai lane's fixture shape). The
+    completed-night contract is OnlyClaudeNightCompletes' (inherited); what
+    changes is the provider every attempt must name and the dead pair the
+    admission walked past (Anthropic has no CLI on PATH, Codex no session).
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        import tempfile
+
+        from aria_kernel.plan_convergence import start_plan
+
+        cls._tmp = Path(tempfile.mkdtemp(prefix="aria-night-only-zai-"))
+        cls.addClassCleanup(cls._cleanup)
+        cls.vendor = DynamicZaiVendor(plan_title="only-zai night plan").start()
+        cls.addClassCleanup(cls.vendor.stop)
+        cls.host = zai_host(endpoint=cls.vendor.base_url)
+        cls.addClassCleanup(cls.host.close)
+        cls.store = NightStore(cls._tmp)
+        env = cls.store.night_env(cls.host.environ())
+        cls._env = env
+        import unittest.mock
+
+        patch = unittest.mock.patch.dict(os.environ, env, clear=True)
+        patch.start()
+        cls.addClassCleanup(patch.stop)
+        operator_set_profile("standard", base_dir=cls.store.tools)
+        start_plan(plan_id=_PLAN, initial_revision_id="rev-0", plan_content={
+            "schema_version": 1, "title": "only-zai night plan",
+            "summary": "the plan the only-zai night carries",
+            "affected_surfaces": [{"paths": ["src/app.ts"]}],
+            "key_changes": [{"id": "kc-0", "description": "apply the declared change",
+                             "paths": ["src/app.ts"], "imports": []}],
+            "validation_commands": [{"cmd": "npx nx affected --target=lint", "timeout_ms": 600_000}],
+            "evidence_refs": ["src/app.ts:1"], "architectural_tier": 1,
+        }, base_dir=cls.store.tools)
+        cls.n1 = cls.store.run()
+        from aria_kernel.next_cycle_queue import append_pending
+
+        append_pending(cls.store.tools, source_cycle_id="cyc-before-this-night",
+                       pressure_id="PE-only-zai-queued")
+        cls.digest_before = _digest(cls.store, _UNTOUCHED_BY_A_HELD_NIGHT)
+        cls.requests_after_n1 = cls.store.requests()
+        cls.n2 = cls.store.run()
+        cls.digest_after = _digest(cls.store, _UNTOUCHED_BY_A_HELD_NIGHT)
+        cls.gov_after_n2 = cls.store.governance()
+        cls.cycles = cls.store.cycles_rows()
+
+    @classmethod
+    def _cleanup(cls) -> None:
+        import shutil
+        import os as _os
+        if _os.environ.get("ARIA_NIGHT_KEEP"):
+            print("KEEP", cls._tmp)
+            return
+        shutil.rmtree(cls._tmp, ignore_errors=True)
+
+    def test_the_host_presents_zai_and_nothing_else(self) -> None:
+        self.assertEqual([p.key for p in self.host.available()], ["zai"])
+        self.assertIsNone(self.host.which("claude"))
+        self.assertIsNone(self.host.which("codex"))
+
+    def test_the_night_exits_clean_and_completes_a_cycle(self) -> None:
+        code, summary, _rows = self.n2
+        self.assertEqual((code, summary["exit_reason"], summary["overall_status"]),
+                         (0, "max_cycles", "ok"), summary)
+        self.assertGreaterEqual(summary["cycles_completed"], 1)
+
+    def test_the_completed_cycle_is_observable_in_three_ledgers(self) -> None:
+        _code, _summary, rows = self.n2
+        self.assertIn("cycle_completed", [row["phase"] for row in rows])
+        cycle_ids = {row["cycle_id"] for row in rows if row.get("cycle_id")}
+        terminal = [row for row in self.cycles
+                    if row.get("event") == "completed" and row.get("cycle_id") in cycle_ids]
+        self.assertTrue(terminal, self.cycles)
+        exits = [row for row in self.gov_after_n2 if row["kind"] == "autonomy_orchestrator_exit"]
+        self.assertTrue(exits)
+        self.assertNotIn(exits[-1]["details"]["exit_reason"],
+                         ("cycle_failed", "autonomous_preflight_blocked"))
+
+    def test_every_ledger_a_held_night_freezes_moves_on_a_completed_night(self) -> None:
+        frozen = {name for name, before in self.digest_before.items()
+                  if self.digest_after.get(name) == before}
+        self.assertFalse(frozen, sorted(frozen))
+
+    def test_the_night_minted_and_the_next_night_really_served_the_round_request(self) -> None:
+        minted = [row for row in self.requests_after_n1 if row.get("convergence_id") == _PLAN]
+        self.assertEqual([row["role"] for row in minted], ["challenger_plan"], minted)
+        rid = minted[0]["request_id"]
+        from aria_kernel.agent_invocations import derive_request_state
+
+        self.assertEqual(derive_request_state(request_id=rid, base_dir=self.store.tools), "ACCEPTED")
+
+    def test_the_serving_night_attempted_on_the_surviving_provider(self) -> None:
+        attempts = [row["details"] for row in self.gov_after_n2
+                    if row["kind"] == "runtime_attempt_started"]
+        self.assertTrue(attempts, "the night completed without attempting any dispatch")
+        self.assertEqual({attempt["provider"] for attempt in attempts}, {"zai"})
+
+    def test_the_vendor_was_reached_through_the_local_transport(self) -> None:
+        self.assertTrue(self.vendor.received, "the night never reached the vendor")
+        self.assertTrue(all(row["path"] == "/chat/completions" for row in self.vendor.received))
+        run_turns = [row["json"] for row in self.vendor.received
+                     if "obligation_data" in str(row["json"]["messages"][-1]["content"])]
+        self.assertTrue(run_turns, "no run turn reached the vendor")
+        self.assertEqual(run_turns[-1]["model"], "glm-5.3")
+        self.assertTrue(all(row["authorization"] for row in self.vendor.received))
+
+    def test_no_row_charges_a_provider_the_scenario_killed(self) -> None:
+        for row in self.gov_after_n2:
+            if row["kind"] == "runtime_attempt_started":
+                self.assertEqual(row["details"]["provider"], "zai")
+        admissions = [row for row in self.gov_after_n2 if row["kind"] == "runtime_admission_unavailable"]
+        self.assertEqual(admissions, [], "the surviving provider needed no refusal row")
+
+    def test_the_dead_providers_appear_only_as_rungs_the_admission_walked_past(self) -> None:
+        attempt = next(row["details"] for row in self.gov_after_n2
+                       if row["kind"] == "runtime_attempt_started")
+        observations = {row["provider"]: row for row in attempt["admission"]["candidate_observations"]}
+        self.assertEqual(set(observations), {"anthropic", "zai", "openai"})
+        self.assertEqual(observations["zai"]["decision"], "available")
+        for provider in ("anthropic", "openai"):
+            self.assertEqual(observations[provider]["decision"], "unavailable", provider)
 
 
 if __name__ == "__main__":

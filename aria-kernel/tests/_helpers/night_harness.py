@@ -294,6 +294,76 @@ class NightStore:
         return code, json.loads(out.getvalue()), self.autonomy_rows()[before:]
 
 
+class DynamicZaiVendor:
+    """A local ``http.server`` standing in for api.z.ai, answering from the prompt.
+
+    The kernel's own HTTP transport (no CLI, no room) reaches this server the
+    way the native Z.ai lane's fixture does. Every completion's content is
+    DERIVED from the user turn it received: a request carrying the rendered
+    prompt's obligation blocks gets the challenger envelope for exactly those
+    obligations; the admission probe (a minimal completion with no obligation
+    data) gets a plain answer, as the vendor would.
+    """
+
+    def __init__(self, *, plan_title: str) -> None:
+        self.plan_title = plan_title
+        self.received: list[dict[str, Any]] = []
+        self._server: Any = None
+
+    @property
+    def base_url(self) -> str:
+        assert self._server is not None
+        return f"http://127.0.0.1:{self._server.server_address[1]}"
+
+    def start(self) -> "DynamicZaiVendor":
+        vendor = self
+
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        class Route(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:  # noqa: N802
+                body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+                document = json.loads(body.decode("utf-8"))
+                vendor.received.append({"path": self.path,
+                                        "authorization": self.headers.get("Authorization"),
+                                        "json": document})
+                completion = zai_completion_for(
+                    str(document.get("messages", [{}])[-1].get("content", "")),
+                    plan_title=vendor.plan_title,
+                ) if "obligation_data" in str(document.get("messages", [{}])[-1].get("content", "")) \
+                    else _probe_completion()
+                raw = json.dumps(completion).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+
+            def log_message(self, *args: object) -> None:
+                return
+
+        self._server = ThreadingHTTPServer(("127.0.0.1", 0), Route)
+        import threading
+
+        threading.Thread(target=self._server.serve_forever, daemon=True).start()
+        return self
+
+    def stop(self) -> None:
+        if self._server is not None:
+            self._server.shutdown()
+            self._server.server_close()
+
+
+def _probe_completion() -> dict[str, Any]:
+    return {
+        "id": "chatcmpl-night-zai-probe", "model": "glm-5.3",
+        "choices": [{"index": 0, "finish_reason": "stop",
+                     "message": {"role": "assistant", "content": "OK"}}],
+        "usage": {"prompt_tokens": 7, "completion_tokens": 1},
+    }
+
+
 __all__ = [
-    "NightStore", "NIGHT_AGENTS", "serving_claude_cli", "serving_codex_cli", "zai_completion_for",
+    "DynamicZaiVendor", "NightStore", "NIGHT_AGENTS", "serving_claude_cli", "serving_codex_cli",
+    "zai_completion_for",
 ]

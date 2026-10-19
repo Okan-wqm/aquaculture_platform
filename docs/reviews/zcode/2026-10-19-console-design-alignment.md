@@ -32,7 +32,7 @@ Findings from the design-handoff reference (Tenant Console D4) vs the repo.
 - Fixed: Açık / Gecikmiş / Devam eden / Tamamlanan·30g from the existing
   `workOrderStatistics` query.
 
-## FE-HIGH-373 — tasks console dead in production (scalar selection on object lists)
+## FE-HIGH-373 / FE-HIGH-374 — tasks console dead in production (scalar selection on object lists)
 
 - **Evidence (live, app.suderra.com):** every query/mutation embedding
   `TASK_FIELDS`/`RECURRING_TEMPLATE_FIELDS` fails with
@@ -40,6 +40,7 @@ Findings from the design-handoff reference (Tenant Console D4) vs the repo.
   (same for `notes`). Validation fails before execution, so the UI's
   create/save buttons never reach the server — the user sees dead buttons and
   no records. `createTask` with a valid input saves fine when called directly.
+- **Registry id:** FE-HIGH-373 (first registration) / FE-HIGH-374 (re-registered for the closure ceremony after the first entry's chain position).
 - **Fix:** subfield selections
   (`checklistItems { id text isCompleted completedAt completedBy }`,
   `notes { id text createdBy createdAt }`) in `useTasks.ts` and

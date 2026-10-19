@@ -102,6 +102,8 @@ export interface Tank {
   };
   equipmentTypeId: string;
   equipmentType?: EquipmentType;
+  // Linked temperature sensor (feeding-rate + tank drawer live readings)
+  temperatureSensorId?: string;
   // Tank specifications (from specifications JSON)
   volume?: number;
   specifications?: {
@@ -167,6 +169,7 @@ const EQUIPMENT_WITH_BATCHES_QUERY = `
           category
           icon
         }
+        temperatureSensorId
         specifications
         volume
         isTank
@@ -349,3 +352,51 @@ export const waterTypeLabels: Record<string, string> = {
   SALTWATER: 'Saltwater',
   BRACKISH: 'Brackish',
 };
+
+// ============================================================================
+// LIVE SENSOR READINGS (federated sensor-service query)
+// ============================================================================
+
+/** Latest reading of one sensor, as returned by the federated `latestReadingsBatch`. */
+export interface LatestSensorReading {
+  sensorId: string;
+  timestamp: string;
+  readings: {
+    temperature?: number;
+    dissolvedOxygen?: number;
+  };
+}
+
+const LATEST_READINGS_BATCH_QUERY = `
+  query GetLatestReadingsBatch($sensorIds: [ID!]!) {
+    latestReadingsBatch(sensorIds: $sensorIds) {
+      sensorId
+      timestamp
+      readings {
+        temperature
+        dissolvedOxygen
+      }
+    }
+  }
+`;
+
+/**
+ * Latest reading for a tank's linked sensor — feeds the Sıcaklık/DO rows in
+ * the tank detail drawer. Runs only when a sensorId is linked; sensors without
+ * a published reading are absent from the result.
+ */
+export function useLatestSensorReading(sensorId: string | undefined) {
+  const { token, tenantId } = useAuth();
+
+  return useQuery({
+    queryKey: createTenantQueryKey(tenantId, 'tanks', 'latest-sensor-reading', sensorId ?? null),
+    queryFn: async () => {
+      const data = await graphqlClient.request<{
+        latestReadingsBatch: LatestSensorReading[];
+      }>(LATEST_READINGS_BATCH_QUERY, { sensorIds: [sensorId] });
+      return data.latestReadingsBatch[0] ?? null;
+    },
+    staleTime: 60000,
+    enabled: !!token && !!tenantId && !!sensorId,
+  });
+}

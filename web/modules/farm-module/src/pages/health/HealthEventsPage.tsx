@@ -52,7 +52,9 @@ import {
   CreateHealthEventInput,
 } from '../../hooks/useHealthEvents';
 import { isBlockingError } from '../../utils/list-view-state';
-import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, useI18n } from '@aquaculture/shared-ui';
+import { useTanksList } from '../../hooks/useTanks';
+import { useMortalityDailyHistory } from '../../hooks/useHealthEvents';
 
 // ============================================================================
 // CONSTANTS
@@ -235,6 +237,35 @@ export const HealthEventsPage: React.FC = () => {
   // API hooks
   const { data, isLoading, error, refetch } = useHealthEvents(filter);
   const { data: stats } = useHealthEventStats();
+  const { t, locale } = useI18n();
+  const { data: mortalityHistory } = useMortalityDailyHistory(14);
+
+  // Unit column (design "Birim"): tank code + site resolved from the tank list
+  const { data: tanksData } = useTanksList({ isActive: true });
+  const tankById = useMemo(() => {
+    const map: Record<string, { code: string; siteName?: string; name: string }> = {};
+    for (const tank of tanksData?.items ?? []) {
+      map[tank.id] = {
+        code: tank.code,
+        name: tank.name,
+        siteName: tank.department?.site?.name,
+      };
+    }
+    return map;
+  }, [tanksData?.items]);
+
+  // 14-day daily mortality series, zero-filled for display
+  const mortalitySeries = useMemo(() => {
+    const byDate = new Map((mortalityHistory ?? []).map((point) => [point.date, point.count]));
+    const days: { date: string; count: number }[] = [];
+    for (let i = 13; i >= 0; i -= 1) {
+      const d = new Date();
+      d.setUTCDate(d.getUTCDate() - i);
+      const key = d.toISOString().slice(0, 10);
+      days.push({ date: key, count: byDate.get(key) ?? 0 });
+    }
+    return days;
+  }, [mortalityHistory]);
   const createMutation = useCreateHealthEvent();
   const updateMutation = useUpdateHealthEvent();
   const deleteMutation = useDeleteHealthEvent();
@@ -558,8 +589,25 @@ export const HealthEventsPage: React.FC = () => {
   type ItemRow = (typeof filteredItems)[number];
   const itemRowColumns: DataTableColumn<ItemRow>[] = [
     {
+      key: 'unit',
+      header: t('healthPage.col.unit'),
+      render: (_value, item) =>
+        item.tankId && tankById[item.tankId] ? (
+          <>
+            <div className="text-lg font-semibold leading-tight text-gray-900 dark:text-gray-100">
+              {tankById[item.tankId].code}
+            </div>
+            <div className="text-[13px] text-gray-500 dark:text-gray-400">
+              {tankById[item.tankId].siteName ?? ''}
+            </div>
+          </>
+        ) : (
+          <span className="text-gray-400">—</span>
+        ),
+    },
+    {
       key: 'event',
-      header: 'Event',
+      header: t('healthPage.col.event'),
       render: (_value, item) => (
         <>
           <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{item.title}</div>
@@ -742,6 +790,32 @@ export const HealthEventsPage: React.FC = () => {
       )}
 
       {/* Header */}
+      {/* Status chips (design row) — quick status narrowing beside the header */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        {(
+          [
+            { value: '', label: t('healthPage.filter.all') },
+            { value: 'active', label: t('healthPage.filter.active') },
+            { value: 'monitoring', label: t('healthPage.filter.monitoring') },
+            { value: 'resolved', label: t('healthPage.filter.resolved') },
+          ] as const
+        ).map((chip) => (
+          <button
+            key={chip.value || 'all'}
+            type="button"
+            aria-pressed={(filter.status || '') === chip.value}
+            onClick={() => handleFilterChange('status', chip.value)}
+            className={`inline-flex min-h-[42px] shrink-0 items-center border px-3.5 text-[15.5px] font-medium transition-colors ${
+              (filter.status || '') === chip.value
+                ? 'border-blue-600 bg-blue-600 text-white'
+                : 'border-gray-300 bg-transparent text-gray-700 hover:border-blue-400 hover:text-blue-700'
+            }`}
+          >
+            {chip.label}
+          </button>
+        ))}
+      </div>
+
       <PageHeader
         title="Health Events"
         description="Track and manage fish health events, treatments, and quarantine"
@@ -753,74 +827,45 @@ export const HealthEventsPage: React.FC = () => {
         }
       />
 
-      {/* Stats Cards */}
+      {/* KPI strip (design) — design's four tiles + our critical/closed extras */}
       {stats && (
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-          <Card className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-info-100 dark:bg-info-900/40 rounded-lg">
-                <Activity className="w-5 h-5 text-info-600 dark:text-info-400" />
-              </div>
-              <div>
-                <div className="text-sm text-gray-500 dark:text-gray-400">Total Events</div>
-                <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-                  {stats.total}
-                </div>
-              </div>
+        <div className="grid grid-cols-2 border border-gray-200 bg-white sm:grid-cols-3 lg:grid-cols-6">
+          {(
+            [
+              { label: t('healthPage.kpi.open'), value: stats.active, cls: 'text-red-600' },
+              {
+                label: t('healthPage.kpi.critical'),
+                value: stats.critical,
+                cls: 'text-orange-600',
+              },
+              {
+                label: t('healthPage.kpi.treatment'),
+                value: stats.underTreatment,
+                cls: 'text-purple-600',
+              },
+              {
+                label: t('healthPage.kpi.quarantine'),
+                value: stats.quarantined,
+                cls: 'text-yellow-600',
+              },
+              {
+                label: t('healthPage.kpi.withdrawal'),
+                value: stats.withdrawalActive,
+                cls: 'text-teal-600',
+              },
+              { label: t('healthPage.kpi.resolved'), value: stats.resolved, cls: 'text-gray-900' },
+            ] as const
+          ).map((kpi) => (
+            <div
+              key={kpi.label}
+              className="flex flex-col gap-1.5 border-b border-r border-gray-200 px-6 py-4"
+            >
+              <span className="text-xs font-bold uppercase tracking-widest text-gray-500">
+                {kpi.label}
+              </span>
+              <span className={`text-4xl font-semibold leading-none ${kpi.cls}`}>{kpi.value}</span>
             </div>
-          </Card>
-          <Card className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-error-100 dark:bg-error-900/40 rounded-lg">
-                <AlertTriangle className="w-5 h-5 text-error-600 dark:text-error-400" />
-              </div>
-              <div>
-                <div className="text-sm text-gray-500 dark:text-gray-400">Active</div>
-                <div className="text-2xl font-bold text-error-600 dark:text-error-400">
-                  {stats.active}
-                </div>
-              </div>
-            </div>
-          </Card>
-          <Card className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-error-100 dark:bg-error-900/40 rounded-lg">
-                <AlertTriangle className="w-5 h-5 text-error-600 dark:text-error-400" />
-              </div>
-              <div>
-                <div className="text-sm text-gray-500 dark:text-gray-400">Critical</div>
-                <div className="text-2xl font-bold text-error-600 dark:text-error-400">
-                  {stats.critical}
-                </div>
-              </div>
-            </div>
-          </Card>
-          <Card className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-accent-100 dark:bg-accent-900/40 rounded-lg">
-                <Pill className="w-5 h-5 text-accent-600 dark:text-accent-400" />
-              </div>
-              <div>
-                <div className="text-sm text-gray-500 dark:text-gray-400">Under Treatment</div>
-                <div className="text-2xl font-bold text-accent-600 dark:text-accent-400">
-                  {stats.underTreatment}
-                </div>
-              </div>
-            </div>
-          </Card>
-          <Card className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-warning-100 dark:bg-warning-900/40 rounded-lg">
-                <Shield className="w-5 h-5 text-warning-600 dark:text-warning-400" />
-              </div>
-              <div>
-                <div className="text-sm text-gray-500 dark:text-gray-400">Quarantined</div>
-                <div className="text-2xl font-bold text-warning-600 dark:text-warning-400">
-                  {stats.quarantined}
-                </div>
-              </div>
-            </div>
-          </Card>
+          ))}
         </div>
       )}
 
@@ -956,6 +1001,57 @@ export const HealthEventsPage: React.FC = () => {
             )}
           </div>
         )}
+      </Card>
+
+      {/* Daily mortality · last 14 days (design chart, real records) */}
+      <Card className="p-6">
+        <div className="flex flex-wrap items-baseline gap-4">
+          <h2 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
+            {t('healthPage.chart.title', { days: 14 })}
+          </h2>
+          <span className="text-[15px] text-gray-500 dark:text-gray-400">
+            {t('healthPage.chart.note')}
+          </span>
+        </div>
+        <div className="mt-4 flex h-[200px] items-end gap-1.5 border-b border-gray-900/70 pt-6">
+          {mortalitySeries.map((day) => {
+            const max = Math.max(...mortalitySeries.map((d) => d.count), 1);
+            const avg =
+              mortalitySeries.reduce((sum, d) => sum + d.count, 0) / mortalitySeries.length;
+            const spike = day.count > 0 && day.count > avg * 2;
+            return (
+              <div
+                key={day.date}
+                className="flex min-w-0 flex-1 flex-col items-center justify-end gap-1.5"
+                style={{ height: '100%' }}
+                title={`${day.date}: ${day.count}`}
+              >
+                <span className="text-[13px] font-medium text-gray-600 dark:text-gray-300">
+                  {day.count}
+                </span>
+                <div
+                  className={`w-full ${spike ? 'bg-red-500' : 'bg-blue-400'}`}
+                  style={{
+                    height: `${Math.max((day.count / max) * 100, day.count > 0 ? 4 : 0)}%`,
+                  }}
+                />
+              </div>
+            );
+          })}
+        </div>
+        <div className="mt-1.5 flex gap-1.5">
+          {mortalitySeries.map((day) => (
+            <span
+              key={day.date}
+              className="min-w-0 flex-1 whitespace-nowrap text-center text-[13px] text-gray-500 dark:text-gray-400"
+            >
+              {new Date(`${day.date}T00:00:00`).toLocaleDateString(
+                locale === 'tr' ? 'tr-TR' : 'en-US',
+                { day: 'numeric', month: 'short' },
+              )}
+            </span>
+          ))}
+        </div>
       </Card>
 
       {/* Create/Edit Modal */}

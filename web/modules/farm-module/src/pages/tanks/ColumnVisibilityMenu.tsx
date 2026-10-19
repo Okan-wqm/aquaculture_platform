@@ -1,12 +1,16 @@
 /**
  * Column Visibility Menu Component
- * Dropdown menu for toggling column visibility with group support
+ * Dropdown menu for toggling column visibility with group support.
+ *
+ * Groups are derived from the `columns` prop (optionally reordered/labelled
+ * through `groups`), and every label — group or column — is an i18n message
+ * key translated here, so the menu serves the production tank table (30
+ * columns), the cleaner-fish table, and any other column model.
  */
-import React, { useState, useRef, useEffect } from 'react';
-import { Button } from '@aquaculture/shared-ui';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { useI18n, type MessageKey } from '@aquaculture/shared-ui';
 import { TankColumn } from './types';
-import { columnGroups, getColumnsByGroup } from './columns';
-import { ChevronDown, Columns3 } from 'lucide-react';
+import { columnGroups } from './columns';
 
 interface ColumnVisibilityMenuProps {
   columns: TankColumn[];
@@ -15,6 +19,8 @@ interface ColumnVisibilityMenuProps {
   onToggleGroup: (groupColumns: string[], visible: boolean) => void;
   onReset: () => void;
   onShowAll: () => void;
+  /** Ordered group key → label-key map; defaults to the tank-column groups. */
+  groups?: { key: string; label: MessageKey }[];
 }
 
 export const ColumnVisibilityMenu: React.FC<ColumnVisibilityMenuProps> = ({
@@ -24,9 +30,20 @@ export const ColumnVisibilityMenu: React.FC<ColumnVisibilityMenuProps> = ({
   onToggleGroup,
   onReset,
   onShowAll,
+  groups = columnGroups,
 }) => {
+  const { t } = useI18n();
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // Only groups that actually have columns in this model, in `groups` order.
+  const activeGroups = useMemo(
+    () => groups.filter((g) => columns.some((col) => col.group === g.key)),
+    [columns, groups],
+  );
+
+  const columnsOfGroup = (group: string): TankColumn[] =>
+    columns.filter((col) => col.group === group);
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -47,20 +64,20 @@ export const ColumnVisibilityMenu: React.FC<ColumnVisibilityMenuProps> = ({
 
   // Check if all columns in a group are visible
   const isGroupFullyVisible = (group: string): boolean => {
-    const groupCols = getColumnsByGroup(group);
+    const groupCols = columnsOfGroup(group);
     return groupCols.every((col) => visibleColumns.has(col.key));
   };
 
   // Check if any column in a group is visible
   const isGroupPartiallyVisible = (group: string): boolean => {
-    const groupCols = getColumnsByGroup(group);
+    const groupCols = columnsOfGroup(group);
     const visibleInGroup = groupCols.filter((col) => visibleColumns.has(col.key));
     return visibleInGroup.length > 0 && visibleInGroup.length < groupCols.length;
   };
 
   // Toggle all columns in a group
   const handleGroupToggle = (group: string) => {
-    const groupCols = getColumnsByGroup(group);
+    const groupCols = columnsOfGroup(group);
     const allVisible = isGroupFullyVisible(group);
     onToggleGroup(
       groupCols.map((c) => c.key),
@@ -71,53 +88,75 @@ export const ColumnVisibilityMenu: React.FC<ColumnVisibilityMenuProps> = ({
   return (
     <div className="relative" ref={menuRef}>
       {/* Toggle Button */}
-      <Button variant="secondary" onClick={() => setIsOpen(!isOpen)}>
-        <Columns3 className="w-5 h-5 text-gray-500 dark:text-gray-400" aria-hidden="true" />
-        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-          Columns ({visibleColumns.size}/{columns.length})
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center gap-2 border border-gray-300 bg-white px-4 py-2.5 transition-colors hover:bg-gray-50"
+      >
+        <svg
+          className="h-5 w-5 text-gray-500"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"
+          />
+        </svg>
+        <span className="text-sm font-medium text-gray-700">
+          {t('tanksV2.menu.columns', { shown: visibleColumns.size, total: columns.length })}
         </span>
-        <ChevronDown
-          className={`w-4 h-4 text-gray-400 dark:text-gray-500 transition-transform ${isOpen ? 'rotate-180' : ''}`}
-          aria-hidden="true"
-        />
-      </Button>
+        <svg
+          className={`h-4 w-4 text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
 
       {/* Dropdown Menu */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-72 bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-lg) border border-gray-200 dark:border-gray-700 z-50 max-h-[70vh] overflow-hidden flex flex-col">
+        <div className="absolute right-0 z-50 mt-2 flex max-h-[70vh] w-72 flex-col overflow-hidden border border-gray-200 bg-white shadow-xl">
           {/* Header */}
-          <div className="p-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
-            <div className="flex justify-between items-center">
-              <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-                Show Columns
+          <div className="border-b border-gray-200 bg-gray-50 p-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold text-gray-700">
+                {t('tanksV2.menu.showColumns')}
               </span>
               <div className="flex gap-2">
-                <Button variant="ghost" size="xs" onClick={onShowAll}>
-                  Show All
-                </Button>
+                <button
+                  onClick={onShowAll}
+                  className="text-xs font-medium text-blue-600 hover:text-blue-800"
+                >
+                  {t('tanksV2.menu.showAll')}
+                </button>
                 <span className="text-gray-300">|</span>
-                <Button variant="ghost" size="xs" onClick={onReset}>
-                  Reset
-                </Button>
+                <button
+                  onClick={onReset}
+                  className="text-xs font-medium text-gray-600 hover:text-gray-800"
+                >
+                  {t('tanksV2.menu.reset')}
+                </button>
               </div>
             </div>
           </div>
 
           {/* Column Groups */}
-          <div className="overflow-y-auto flex-1">
-            {columnGroups.map((group) => {
-              const groupCols = getColumnsByGroup(group.key);
+          <div className="flex-1 overflow-y-auto">
+            {activeGroups.map((group) => {
+              const groupCols = columnsOfGroup(group.key);
               const isFullyVisible = isGroupFullyVisible(group.key);
               const isPartiallyVisible = isGroupPartiallyVisible(group.key);
 
               return (
-                <div
-                  key={group.key}
-                  className="border-b border-gray-100 dark:border-gray-700 last:border-b-0"
-                >
+                <div key={group.key} className="border-b border-gray-100 last:border-b-0">
                   {/* Group Header */}
                   <div
-                    className="flex items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-800 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700"
+                    className="flex cursor-pointer items-center gap-2 bg-gray-50 px-3 py-2 hover:bg-gray-100"
                     onClick={() => handleGroupToggle(group.key)}
                   >
                     <input
@@ -127,13 +166,11 @@ export const ColumnVisibilityMenu: React.FC<ColumnVisibilityMenuProps> = ({
                         if (el) el.indeterminate = isPartiallyVisible;
                       }}
                       onChange={() => handleGroupToggle(group.key)}
-                      className="h-4 w-4 text-info-600 rounded border-gray-300 dark:border-gray-600 cursor-pointer"
+                      className="h-4 w-4 cursor-pointer rounded border-gray-300 text-blue-600"
                       onClick={(e) => e.stopPropagation()}
                     />
-                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                      {group.label}
-                    </span>
-                    <span className="text-xs text-gray-400 dark:text-gray-500 ml-auto">
+                    <span className="text-sm font-medium text-gray-700">{t(group.label)}</span>
+                    <span className="ml-auto text-xs text-gray-400">
                       {groupCols.filter((c) => visibleColumns.has(c.key)).length}/{groupCols.length}
                     </span>
                   </div>
@@ -143,17 +180,15 @@ export const ColumnVisibilityMenu: React.FC<ColumnVisibilityMenuProps> = ({
                     {groupCols.map((col) => (
                       <label
                         key={col.key}
-                        className="flex items-center gap-2 px-4 py-1.5 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer"
+                        className="flex cursor-pointer items-center gap-2 px-4 py-1.5 hover:bg-gray-50"
                       >
                         <input
                           type="checkbox"
                           checked={visibleColumns.has(col.key)}
                           onChange={() => onToggle(col.key)}
-                          className="h-4 w-4 text-info-600 rounded border-gray-300 dark:border-gray-600"
+                          className="h-4 w-4 rounded border-gray-300 text-blue-600"
                         />
-                        <span className="text-sm text-gray-600 dark:text-gray-400">
-                          {col.header}
-                        </span>
+                        <span className="text-sm text-gray-600">{t(col.header)}</span>
                       </label>
                     ))}
                   </div>
@@ -163,10 +198,8 @@ export const ColumnVisibilityMenu: React.FC<ColumnVisibilityMenuProps> = ({
           </div>
 
           {/* Footer */}
-          <div className="p-2 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
-            <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
-              Settings are saved automatically
-            </p>
+          <div className="border-t border-gray-200 bg-gray-50 p-2">
+            <p className="text-center text-xs text-gray-500">{t('tanksV2.menu.saved')}</p>
           </div>
         </div>
       )}

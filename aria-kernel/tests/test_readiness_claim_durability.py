@@ -100,6 +100,11 @@ class _Adapter:
         self.merged.append({"pr_number": pr_number, **kwargs})
         return {"merged": True, "merge_commit_sha": "f" * 40}
 
+    def get_pr_diff(self, pr_number: int) -> tuple[str | None, str | None]:
+        # The Protocol's required read (ARIA-MEDIUM-581); this fixture's PR
+        # carries no diff, and says so by name.
+        return None, "fixture_pr_diff_absent"
+
 
 def _gates_before_readiness() -> list:
     return [

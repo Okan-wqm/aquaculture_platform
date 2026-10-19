@@ -243,6 +243,11 @@ class _RecordingAdapter:
         self.merge_calls.append({"pr_number": pr_number, **kwargs})
         return {"merged": True}
 
+    def get_pr_diff(self, pr_number: int) -> tuple[str | None, str | None]:
+        # The Protocol's required read (ARIA-MEDIUM-581); this fixture's PR
+        # carries no diff, and says so by name.
+        return None, "fixture_pr_diff_absent"
+
     def get_open_issues(self, *, labels: list[str]) -> dict:
         return {"readable": True, "issues": []}
 

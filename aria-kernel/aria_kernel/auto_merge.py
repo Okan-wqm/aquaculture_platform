@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from copy import deepcopy
 from pathlib import Path
@@ -95,16 +96,20 @@ class GitHubAdapter(Protocol):
     def get_unresolved_conversation_count(self, number: int) -> dict[str, Any]:
         ...
 
-    def get_pr_diff(self, number: int) -> str | None:
-        """Plan 023 v3 §P-6 — required Protocol method.
+    def get_pr_diff(self, number: int) -> tuple[str | None, str | None]:
+        """Plan 023 v3 §P-6 — required Protocol method: ``(diff, lookup_error)``.
 
         Live mode (GhCliGitHubAdapter) implements via `gh pr diff
         <number>`. Snapshot/test mode returns the diff fixture from
         the seeded payload. evaluate_auto_merge fails-closed on
-        empty / whitespace / malformed diff content (P-6 fix), so an
-        adapter implementation that returns None / empty surfaces as
-        an explicit auto_merge_blocked reason rather than a silent
-        path-class-only acceptance.
+        empty / whitespace / malformed diff content (P-6 fix).
+
+        ARIA-MEDIUM-581 — a diff that could not be read is ``(None, code)``,
+        the code naming why (``pr_diff_too_large``, ``pr_diff_refused_403``,
+        ...), the shape ``read_required_status_checks`` returns. The gate
+        names that code in its blocking reason, so an operator can tell a
+        token refusal from an oversized change. An adapter fault is not a
+        lookup outcome: it raises.
         """
         ...
 
@@ -249,9 +254,14 @@ def evaluate_auto_merge(
     cycle_id: str | None = None,
     dry_run: bool = True,
     diff_text: str | None = None,
+    diff_lookup_error: str | None = None,
     workspace_root: str | Path | None,
 ) -> dict[str, Any]:
     """Whether ``pr`` may auto-merge; records the decision.
+
+    ``diff_lookup_error`` is why ``diff_text`` could not be read
+    (``GitHubAdapter.get_pr_diff``), named in the blocking reason when the
+    diff is missing (ARIA-MEDIUM-581).
 
     ARIA-CRITICAL-215 — path risk is the PR's change as the checkout at
     ``workspace_root`` holds it, read and classified by the one reader of a
@@ -293,8 +303,13 @@ def evaluate_auto_merge(
     if diff_text is None:
         # Diff content REQUIRED for auto-merge. Fail-closed: caller
         # must supply diff (typically via gh pr diff <pr_number>) so
-        # path-class + content-class AND-merge can run.
-        reasons.append("diff_text missing — auto_merge_requires_diff_content")
+        # path-class + content-class AND-merge can run. ARIA-MEDIUM-581 —
+        # a read that failed names its cause after the reason; a caller that
+        # supplied no diff and read none (the CI observer) has none to name.
+        reasons.append(
+            "diff_text missing — auto_merge_requires_diff_content"
+            + (f": {diff_lookup_error}" if diff_lookup_error else "")
+        )
     elif not diff_text.strip():
         # Plan 023 v3 §P-6 — empty / whitespace-only diff treated as a
         # missing diff. Pre-fix scan_unified_diff_text("") returned []
@@ -793,16 +808,15 @@ def _merge_if_green_with_executor(
     github = collect_github_snapshot(adapter, pr)
     # Plan 022 §H-2 — auto-merge content scan requires diff_text. If
     # caller didn't pass it, fall back to pr.diff_text (some adapters
-    # surface it directly), then to the adapter if it exposes a
-    # get_pr_diff() optional method. Otherwise pass None and let
-    # evaluate_auto_merge fail-closed.
+    # surface it directly), then to the adapter's required get_pr_diff().
+    # ARIA-MEDIUM-581 — a diff the adapter could not read carries its named
+    # cause into the decision; an adapter that raises is a fault, not a
+    # missing diff, and is not caught here.
+    diff_lookup_error: str | None = None
     if diff_text is None:
         diff_text = pr.get("diff_text")
-        if diff_text is None and hasattr(adapter, "get_pr_diff"):
-            try:
-                diff_text = adapter.get_pr_diff(pr_number)  # type: ignore[attr-defined]
-            except Exception:
-                diff_text = None
+    if diff_text is None:
+        diff_text, diff_lookup_error = adapter.get_pr_diff(pr_number)
     decision = evaluate_auto_merge(
         pr=pr,
         github=github,
@@ -811,6 +825,7 @@ def _merge_if_green_with_executor(
         cycle_id=cycle_id,
         dry_run=dry_run,
         diff_text=diff_text,
+        diff_lookup_error=diff_lookup_error,
         workspace_root=workspace_root,
     )
     return decision
@@ -839,6 +854,30 @@ def merge_if_green(
         diff_text=diff_text,
         workspace_root=workspace_root,
     )
+
+
+_HTTP_STATUS_RE = re.compile(r"\bHTTP (\d{3})\b")
+
+
+def pr_diff_lookup_error(*, returncode: int, stderr: str) -> str:
+    """Why ``gh pr diff`` refused, as a named code (ARIA-MEDIUM-581).
+
+    gh prints the API's status on stderr (``HTTP 406: Sorry, the diff
+    exceeded the maximum number of files (300)``). GitHub answers 406 for a
+    diff over its line or file limit (``pr_diff_too_large``) and 401/403 for
+    a token without pull-request read (``pr_diff_refused_<status>``); any
+    other status is ``pr_diff_lookup_failed:http_<status>``, and a failure
+    with no status (a transport error) ``pr_diff_lookup_failed:exit_<code>``.
+    """
+    match = _HTTP_STATUS_RE.search(stderr)
+    if match is None:
+        return f"pr_diff_lookup_failed:exit_{returncode}"
+    status = match.group(1)
+    if status == "406":
+        return "pr_diff_too_large"
+    if status in ("401", "403"):
+        return f"pr_diff_refused_{status}"
+    return f"pr_diff_lookup_failed:http_{status}"
 
 
 def read_required_status_checks(
@@ -1033,15 +1072,15 @@ class SnapshotGitHubAdapter:
             return {}
         return {pr["number"]: head}
 
-    def get_pr_diff(self, number: int) -> str | None:
+    def get_pr_diff(self, number: int) -> tuple[str | None, str | None]:
         """Plan 023 v3 §P-6 — read pre-seeded diff from the snapshot
-        payload. Returns None when the fixture didn't supply a diff so
-        evaluate_auto_merge's empty-diff fail-closed gate fires."""
+        payload. A fixture that supplied none is ``fixture_pr_diff_absent``,
+        so evaluate_auto_merge's missing-diff gate fires by name."""
         _ = number
         diff = self.payload.get("github", {}).get("pr_diff")
         if not isinstance(diff, str) or not diff.strip():
-            return None
-        return diff
+            return None, "fixture_pr_diff_absent"
+        return diff, None
 
     def merge_pr(self, number: int, *, method: str, expected_head_sha: str) -> dict[str, Any]:
         call = {"number": number, "method": method, "expected_head_sha": expected_head_sha}
@@ -1300,25 +1339,28 @@ class GhCliGitHubAdapter:
                 return {"readable": True, "unresolved_count": unresolved}
             cursor = page_info.get("endCursor")
 
-    def get_pr_diff(self, number: int) -> str | None:
+    def get_pr_diff(self, number: int) -> tuple[str | None, str | None]:
         """Plan 023 v3 §P-6 — fetch the unified diff from gh CLI.
 
-        Returns the diff text on success, or None on any subprocess
-        failure / empty output. evaluate_auto_merge's empty-diff gate
-        then converts the None / empty case into an explicit
-        auto_merge_requires_nonempty_unified_diff blocking reason.
+        ``(diff, None)`` on success. ARIA-MEDIUM-581 — otherwise
+        ``(None, code)``: ``gh_unavailable`` when gh cannot be run,
+        ``pr_diff_empty`` for an empty answer, and for a refused read the
+        code ``pr_diff_lookup_error`` reads from gh's stderr (an oversized
+        diff and a token refusal used to be the same bare None).
         """
         try:
             completed = subprocess.run(
                 ["gh", "pr", "diff", str(number)],
                 cwd=self.cwd, capture_output=True, text=True, check=False,
             )
-        except (FileNotFoundError, OSError):
-            return None
+        except OSError:
+            return None, "gh_unavailable"
         if completed.returncode != 0:
-            return None
+            return None, pr_diff_lookup_error(returncode=completed.returncode, stderr=completed.stderr or "")
         diff = completed.stdout or ""
-        return diff if diff.strip() else None
+        if not diff.strip():
+            return None, "pr_diff_empty"
+        return diff, None
 
     def merge_pr(
         self,

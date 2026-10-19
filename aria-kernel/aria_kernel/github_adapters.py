@@ -160,11 +160,11 @@ class RecordingGitHubAdapter:
         # claim there is no incident.
         return {"readable": False, "reason": "recording_adapter_no_fetch", "issues": []}
 
-    def get_pr_diff(self, number: int) -> str | None:
+    def get_pr_diff(self, number: int) -> tuple[str | None, str | None]:
         self._record("get_pr_diff", number=number)
-        # Empty diff → evaluate_auto_merge fails closed (Plan 023 v3
-        # §P-6 — empty/whitespace/malformed diff blocks auto-merge).
-        return ""
+        # A recording profile fetched no diff, so it names that
+        # (ARIA-MEDIUM-581) and evaluate_auto_merge fails closed on it.
+        return None, "recording_adapter_no_fetch"
 
     def merge_pr(
         self, number: int, *, method: str, expected_head_sha: str,

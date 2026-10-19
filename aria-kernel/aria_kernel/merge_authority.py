@@ -241,12 +241,9 @@ def merge_pr_if_ready(
         else:
             fresh_pr = adapter.get_pr(pr_number)
             fresh_github = collect_github_snapshot(adapter, fresh_pr)
-            fresh_diff: str | None = None
-            if hasattr(adapter, "get_pr_diff"):
-                try:
-                    fresh_diff = adapter.get_pr_diff(pr_number)  # type: ignore[attr-defined]
-                except Exception:
-                    fresh_diff = None
+            # ARIA-MEDIUM-581 — a diff the fresh read could not fetch is
+            # blocked by its named cause; an adapter fault raises.
+            fresh_diff, fresh_diff_error = adapter.get_pr_diff(pr_number)
             if fresh_diff is None:
                 fresh_diff = fresh_pr.get("diff_text")
             fresh_decision = evaluate_auto_merge(
@@ -257,6 +254,7 @@ def merge_pr_if_ready(
                 cycle_id=cycle_id,
                 dry_run=True,
                 diff_text=fresh_diff,
+                diff_lookup_error=fresh_diff_error,
                 workspace_root=workspace_root,
             )
             latest_head_sha = fresh_decision.get("head_sha")
@@ -823,6 +821,13 @@ def request_implementation_expert_review(
     if state != "OPEN":
         result["reasons"] = [f"pr_not_open:{state or 'unobserved'}"]
         return result
+    # ARIA-MEDIUM-581 — the review is of the implementation's diff; one that
+    # cannot be read is named (an oversized diff, a refused token) instead of
+    # an evaluated perimeter that requests nothing for a reason it cannot say.
+    diff_text, diff_lookup_error = adapter.get_pr_diff(pr_number)
+    if diff_text is None:
+        result["reasons"] = [f"pr_diff_unavailable:{diff_lookup_error}"]
+        return result
     requested: list[str] = []
 
     def request(context: HardFailContext, report: Any) -> None:
@@ -834,7 +839,7 @@ def request_implementation_expert_review(
         workspace_root=workspace_root,
         base_dir=base_dir,
         pr=pr,
-        diff_text=adapter.get_pr_diff(pr_number),
+        diff_text=diff_text,
         while_shaped=request,
     )
     result["requested"] = requested

@@ -2781,11 +2781,18 @@ its own commit.
     one deterministic cycle and mints the request the next drain re-probes with. This narrows
     the operator's 2026-10-17 hold rule ("when the quota runs out ARIA holds where it is") on
     the empty-queue edge: holding there would stand for ever (no lane asks again, nothing
-    restores), which is a liveness loss the rule was never meant to buy. Put to Okan before
-    this PR lands; recorded here as an accepted deviation. Reopening condition: if the operator
-    reads the empty-queue night as work that must not even mint a re-probe request, the night
-    must hold and an explicit operator-approved release lane (a scheduled admission re-probe)
-    must replace the mint — reopen ARIA-HIGH-579 then.
+    restores), which is a liveness loss the rule was never meant to buy. Relayed through the
+    program's owner on 2026-10-19 and recorded here as an ACCEPTED DEVIATION, pending Okan's
+    confirmation (surfaced to him as a to-confirm item with the reopen path). Verified at the
+    real entry point on this tree (scratch probe, production-shaped store, both outages open,
+    back-off lapsed, empty queue): exit 0 `max_cycles`, deterministic phases only, zero model
+    spawns, and the cooldown ledger unchanged — no admission probe spent anything. Reopening
+    conditions: if the operator reads the empty-queue night as work that must not even mint a
+    re-probe request, the night must hold and an explicit operator-approved release lane (a
+    scheduled admission re-probe) must replace the mint; if a provider-restoration or wake path
+    that could re-evaluate a standing hold lands, the nothing-waiting mint is no longer the
+    only release and the hold must return; and the first real all-out-and-idle night's doctor
+    and Actions output must be checked — reopen ARIA-HIGH-579 on any of them.
 - **Scan: the carrier question copied the state half of selection eligibility** (`e9a562216`).
   The cut-off fix's `_WAITING_STATES` counted every `PENDING`/`REQUEUED` row, dropping the
   owner's shadow, moot (ARIA-HIGH-360), undispatchable (ARIA-HIGH-388) and anchor

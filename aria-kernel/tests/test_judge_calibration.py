@@ -7,6 +7,7 @@ a judge with too few ground-truth-backed votes reads ``insufficient_data``.
 """
 from __future__ import annotations
 
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -72,6 +73,95 @@ class JudgeCalibrationTests(unittest.TestCase):
 
         thin = by_id["judge-thin"]
         self.assertEqual(thin["status"], "insufficient_data")
+
+    def test_precision_weights_human_labels_by_inverse_inclusion_probability(self) -> None:
+        """ARIA-LOW-608 red — Horvitz-Thompson over the label queue's strata.
+
+        The label queue records each drawn label's inclusion probability
+        (ARIA-MEDIUM-276) precisely so an estimate built from the sample can
+        weight each label by the inverse of that probability. The escalated
+        stratum is over-sampled relative to its population share (it exists
+        because escalations are the hard cases), so counting labels with
+        weight 1 biases precision toward the over-sampled stratum. Here:
+        10 escalated labels the judged wrong (judge said true_positive,
+        truth false_positive, π=1.0 → weight 1 each) and 8 auto_closed_random
+        labels the judged right (π=0.1 → weight 10 each). Unweighted
+        precision is 8/18 ≈ 0.444 — below the 0.7 floor, "degraded"; the
+        HT ratio estimate is 80/90 ≈ 0.889 — above the floor, "ok". Today
+        the module reads label_provenance.stratum only and every label
+        counts with weight 1."""
+        for i in range(10):
+            record_operator_feedback(
+                tool_id="tool-x", run_id=f"esc-{i}", finding_id=f"esc-{i}",
+                verdict="false_positive", severity="medium", note="escalated truth",
+                source_type="human", judgment_group_id=f"esc-{i}", base_dir=self.tools,
+                label_provenance={"queue_id": "q1", "stratum": "escalated",
+                                  "inclusion_probability": 1.0},
+            )
+            record_operator_feedback(
+                tool_id="tool-x", run_id=f"esc-{i}", finding_id=f"esc-{i}",
+                verdict="true_positive", severity="medium", note="judge vote",
+                source_type="ai_judge", judge_id="judge-bad", confidence=0.95,
+                judgment_group_id=f"esc-{i}", base_dir=self.tools,
+            )
+        for i in range(8):
+            record_operator_feedback(
+                tool_id="tool-x", run_id=f"rnd-{i}", finding_id=f"rnd-{i}",
+                verdict="true_positive", severity="medium", note="random truth",
+                source_type="human", judgment_group_id=f"rnd-{i}", base_dir=self.tools,
+                label_provenance={"queue_id": "q1", "stratum": "auto_closed_random",
+                                  "inclusion_probability": 0.1},
+            )
+            record_operator_feedback(
+                tool_id="tool-x", run_id=f"rnd-{i}", finding_id=f"rnd-{i}",
+                verdict="true_positive", severity="medium", note="judge vote",
+                source_type="ai_judge", judge_id="judge-bad", confidence=0.95,
+                judgment_group_id=f"rnd-{i}", base_dir=self.tools,
+            )
+        result = compute_judge_calibration(cycle_id="c1", base_dir=self.tools)
+        [bad] = result["judges"]
+        # The unweighted counts stay, as raw evidence.
+        self.assertEqual(bad["samples"], 18)
+        self.assertEqual(bad["precision"], round(8 / 18, 3))
+        self.assertEqual(bad["false_positive"], 10)
+        # The HT ratio estimate and the status that follows it.
+        self.assertEqual(bad["weighting"], "horvitz_thompson")
+        self.assertAlmostEqual(bad["precision_ht"], round(80 / 90, 3), places=3)
+        self.assertAlmostEqual(bad["recall_ht"], 1.0, places=3)
+        self.assertEqual(bad["status"], "ok")
+        self.assertEqual(result["degraded_judges"], [])
+
+    def test_a_stratified_label_without_a_usable_inclusion_probability_is_refused(self) -> None:
+        """A stratified label MUST carry a π in (0,1]: a missing or out-of-range
+        probability makes the weighting silently wrong in a direction nobody
+        can audit, so the calibration refuses by name instead of guessing."""
+        from aria_kernel.tool_registry import GovernanceError
+
+        for provenance in (
+            {"stratum": "escalated", "inclusion_probability": 0.0},
+            {"stratum": "escalated", "inclusion_probability": 1.5},
+            {"stratum": "escalated", "inclusion_probability": "most"},
+            {"stratum": "escalated"},
+        ):
+            with self.subTest(provenance=provenance):
+                tools = Path(tempfile.mkdtemp(prefix="aria-calib-pi-")) / "aria-tools"
+                ensure_tools_dir(tools)
+                record_operator_feedback(
+                    tool_id="tool-x", run_id="r1", finding_id="f1", verdict="true_positive",
+                    severity="medium", note="truth", source_type="human",
+                    judgment_group_id="g1", base_dir=tools, label_provenance=provenance,
+                )
+                record_operator_feedback(
+                    tool_id="tool-x", run_id="r1", finding_id="f1", verdict="true_positive",
+                    severity="medium", note="vote", source_type="ai_judge",
+                    judge_id="judge-bad", confidence=0.9, judgment_group_id="g1",
+                    base_dir=tools,
+                )
+                with self.assertRaisesRegex(
+                    GovernanceError, "label_inclusion_probability_invalid",
+                ):
+                    compute_judge_calibration(base_dir=tools)
+                shutil.rmtree(tools.parent, ignore_errors=True)
 
     def test_calibration_signal_separates_confidence(self) -> None:
         self._seed()

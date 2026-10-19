@@ -46,7 +46,14 @@ The ack-ledger HMAC key lives at `aria-tools/secrets/ack_hmac.key` on the operat
 - Has `chmod 0600` (operator-readable only).
 - Is gitignored via `.gitignore` rule `aria-tools/secrets/` (verified by invariant `I-V3-19c`).
 - Is NEVER committed to git history (verified by `I-V3-19d` `git log` scan).
-- Contains a JSON document `{"keys": [{"key_id": "<uuid>", "secret": "<base64>", "minted_at": "<ts>", "retired_at": <ts|null>}, ...]}` with the rolling key list (most recent first), and, once a key has been revoked (§3), `"revoked": [{"key_id", "minted_at", "revoked_at", "reason"}, ...]` — ids and reasons only, never a secret.
+- Contains a JSON document with the rolling key list (most recent first) and, once a key has been
+  revoked (§3), a `revoked` record list — ids and reasons only, never a secret:
+
+  ```json
+  {"keys": [{"key_id": "<uuid>", "secret": "<base64>", "minted_at": "<ts>", "retired_at": <ts|null>}, ...]}
+  {"revoked": [{"key_id", "minted_at", "revoked_at", "reason"}, ...]}
+  ```
+
 - Retains the **last 5 keys** for historical signature verification (locked by `I-V3-19e`).
 
 If `aria-tools/secrets/ack_hmac.key` does not exist, `aria-kernel ack init --reason <text> --operator-approval-ref <ref>` mints the first key and creates the file. The reason text is validated via `_validate_reason` (Plan ARIA-V2 §AUDITTRAIL-HIGH-005).
@@ -106,15 +113,17 @@ aria-kernel ack revoke-key \
 
 `ack revoke-key` (ARIA-LOW-598):
 
-- Removes the named key from the rolling list **without** the standard retirement grace period: its secret
-  is deleted from the key file at once, so a leaked copy can no longer produce a row that verifies.
-- Keeps a revocation record (`key_id`, `minted_at`, `revoked_at`, `reason`) beside the list and emits an
-  `ack_key_revoked` governance event with the `--operator-approval-ref`. No later rotation, init or DR
-  regeneration drops the record; `ack list-keys` shows it under `revoked`.
-- Refuses the current head key (`hmac_revoke_head_key`): rotate first (Step 1), then revoke the key that
-  was the head. Refuses an id the rolling list does not hold and one already revoked.
-- Any historical row signed by the revoked key becomes UNVERIFIABLE — but the row CONTENT remains (forensic
-  value preserved): `ack verify` reports it as `signed_key_revoked`, never as valid and never as an unknown key.
+- Removes the named key from the rolling list **without** the standard retirement grace period: its
+  secret is deleted from the key file at once, so a leaked copy can no longer produce a row that
+  verifies.
+- Keeps a revocation record (`key_id`, `minted_at`, `revoked_at`, `reason`) beside the list and emits
+  an `ack_key_revoked` governance event with the `--operator-approval-ref`. No later rotation, init
+  or DR regeneration drops the record; `ack list-keys` shows it under `revoked`.
+- Refuses the current head key (`hmac_revoke_head_key`): rotate first (Step 1), then revoke the key
+  that was the head. Refuses an id the rolling list does not hold and one already revoked.
+- Any historical row signed by the revoked key becomes UNVERIFIABLE — but the row CONTENT remains
+  (forensic value preserved): `ack verify` reports it as `signed_key_revoked`, never as valid and
+  never as an unknown key.
 
 ---
 
@@ -190,6 +199,10 @@ When auditing ack-ledger integrity:
 2. Confirm `.gitignore` covers `aria-tools/secrets/`.
 3. Confirm `git log --all --full-history -- aria-tools/secrets/` returns empty.
 4. Run `aria-kernel ack verify --range full`; capture rows that fail.
-5. For each failure row, look up `signed_key_id` in the rolling list AND in the revocation records (`aria-kernel ack list-keys` → `revoked`, and the `ack_key_revoked` governance events); classify (rotated-out-grace-window vs revoked vs lost-key vs forged). A revoked key's rows already verify as `signed_key_revoked`.
-6. Cross-reference `ack_key_rotated` / `ack_key_emergency_rotated` / `ack_key_revoked` / `ack_key_dr_regenerated` events with the operator's incident log.
+5. For each failure row, look up `signed_key_id` in the rolling list AND in the revocation records
+   (`aria-kernel ack list-keys` → `revoked`, and the `ack_key_revoked` governance events); classify
+   (rotated-out-grace-window vs revoked vs lost-key vs forged). A revoked key's rows already verify
+   as `signed_key_revoked`.
+6. Cross-reference `ack_key_rotated` / `ack_key_emergency_rotated` / `ack_key_revoked` /
+   `ack_key_dr_regenerated` events with the operator's incident log.
 7. Emit auditor decision row to `docs/reviews/aria/<date>-ack-key-audit.md`.

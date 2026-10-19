@@ -6,17 +6,7 @@
  *
  * @module FishHealth
  */
-import {
-  Resolver,
-  Query,
-  Mutation,
-  Args,
-  ID,
-  Int,
-  ObjectType,
-  Field,
-  GraphQLISODateTime,
-} from '@nestjs/graphql';
+import { Resolver, Query, Mutation, Args, ID, Int, ObjectType, Field } from '@nestjs/graphql';
 import { UseGuards, Logger } from '@nestjs/common';
 import { CurrentTenant, CurrentUser, Role, Roles } from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
@@ -61,7 +51,7 @@ export class BlockingHealthEventOutput {
   @Field({ nullable: true })
   diseaseName?: string;
 
-  @Field(() => GraphQLISODateTime)
+  @Field(() => Date)
   earliestHarvestDate!: Date;
 
   @Field(() => Int, { nullable: true })
@@ -81,7 +71,7 @@ export class HarvestEligibilityOutput {
   @Field()
   eligible!: boolean;
 
-  @Field(() => GraphQLISODateTime, {
+  @Field(() => Date, {
     nullable: true,
     description: 'Latest earliestHarvestDate among blocking events.',
   })
@@ -369,7 +359,7 @@ export class HealthEventResolver {
   async batchHarvestEligibility(
     @CurrentTenant() tenantId: string,
     @Args('batchId', { type: () => ID }) batchId: string,
-    @Args('harvestDate', { type: () => GraphQLISODateTime }) harvestDate: Date,
+    @Args('harvestDate', { type: () => Date }) harvestDate: Date,
   ): Promise<HarvestEligibilityOutput> {
     const result = await this.harvestEligibilityService.checkEligibility(
       tenantId,

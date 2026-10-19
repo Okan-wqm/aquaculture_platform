@@ -312,7 +312,6 @@ deadline 2026-11-17.
 | `ALERT-CRITICAL-004` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `ALERT-CRITICAL-009` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `SENSOR-CRITICAL-173` | OPEN | 2026-10-08 | claude | real-open |
-| `INFRA-CRITICAL-233` | OPEN | 2026-10-17 | claude | already-fixed-needs-close |
 | `PLAT-CRITICAL-925` | OPEN | 2026-10-18 | claude | real-open |
 
 Updated 2026-10-17 (lost-work re-land, PR #2007): one active CRITICAL added.
@@ -1146,3 +1145,6 @@ tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
 - `ARIA-CRITICAL-009`: registry state is `RESOLVED` with closing commit
   `8cb35a5cf`, derived by `finding-registry reconcile` against `origin/main`.
   Left the active table from bucket `real-open`.
+- `INFRA-CRITICAL-233`: registry state is `RESOLVED` with closing commit
+  `30cbf58fa`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.

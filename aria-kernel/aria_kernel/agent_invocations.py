@@ -8,7 +8,7 @@ import stat
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Mapping, Sequence
 
 from .agent_contract import CONTRACT_ENFORCED_ROLES, REQUEST_SCHEMA, validate_request
 from .agent_surface import (
@@ -3617,6 +3617,93 @@ def sweep_expired_anchors(
     return {"swept": swept, "by_role": by_role}
 
 
+@dataclass
+class SelectionSkip:
+    """Why a selection would not hand ``request`` out this poll (``None``: it would).
+
+    ``reason`` is one word naming the arm that refused; ``detail`` carries the
+    arm's own detail (the derived state, the dispatch refusal, the anchor
+    refusal or why the anchor gate could not answer).
+    """
+
+    reason: str
+    detail: str | None = None
+
+
+def selection_skip(
+    root: Path,
+    request: Mapping[str, Any],
+    *,
+    states: Mapping[str, str],
+    repo_root: Path | None,
+    probes: "GitProbeSession",
+    clock: "ProviderClock",
+    may_record: Callable[[], bool],
+    now: datetime | None = None,
+) -> SelectionSkip | None:
+    """The ONE per-request eligibility fold every selection boundary asks.
+
+    ``next_pending_request`` hands out the oldest request this fold passes.
+    ARIA-HIGH-579 (review): ``provider_hold`` asks the same fold to learn
+    whether any drain would hand a request out at all — a provider whose
+    lapsed back-off only a request this fold admits would carry is out for
+    the night, while a request no drain would select carries nothing and
+    counting it would stand a hold nothing can end. The fold lives here, at
+    the queue's owner, because the two questions must not diverge: a
+    half-copied eligibility is how a hold outlives the queue it watches.
+
+    Caller-specific filters (role, target agent, already-attempted ids) stay
+    with the caller; everything a drain and the night must agree on is here:
+    the shadow lane, the derived state, mootness (ARIA-HIGH-360),
+    dispatchability (ARIA-HIGH-388) and the anchor verdict
+    (ORPHAN-MEDIUM-492). ``may_record`` gates the fold's durable refusals
+    exactly as the selection does; a read-only caller (the night's question)
+    passes ``lambda: False`` and the request is still skipped. A skip whose
+    reason is ``anchor_undecided`` is not a refusal: the row stays PENDING
+    and the next selection asks git again.
+    """
+    from .human_required_adjudication import adjudication_envelope_is_moot
+    from .implementation_dispatch import disclose_undispatchable, implementation_dispatch_refusal
+
+    if _target_is_shadow(root, str(request.get("target_agent") or "")) and not request.get("shadow_eval"):
+        return SelectionSkip("shadow_target", str(request.get("target_agent") or ""))
+    state = states.get(str(request.get("request_id") or ""), "PENDING")
+    if state not in {"PENDING", "REQUEUED"}:
+        return SelectionSkip("state", state)
+    # ARIA-HIGH-360 — a panel envelope whose answer the adjudication sweep
+    # would never read (its escalation is resolved, handed to the operator,
+    # or of a kind no panel decides) is never handed out.
+    if adjudication_envelope_is_moot(root, request):
+        return SelectionSkip("moot", None)
+    # ARIA-HIGH-388 — an implementation request the delivery could not carry
+    # (no delivery authority) or whose plan already ended is never handed
+    # out: before any claim, identity mint or credential lease.
+    undispatchable = implementation_dispatch_refusal(request=request, base_dir=root)
+    if undispatchable is not None:
+        if may_record():
+            disclose_undispatchable(request=request, reason=undispatchable, base_dir=root)
+        return SelectionSkip("undispatchable", undispatchable)
+    if repo_root is not None:
+        moment = now or _utc_now_dt()
+        verdict = _anchor_refusal_reason(
+            request,
+            repo_root,
+            probes=probes,
+            clock=clock,
+            now=moment,
+            max_age_seconds=_anchor_max_age_seconds(root),
+        )
+        if verdict.refusal is not None:
+            # Under a profile that stops writes the refusal is not made
+            # durable; the request is still skipped (re-review N2).
+            if may_record():
+                _record_anchor_stale(root, request, verdict.refusal, now=moment)
+            return SelectionSkip("anchor_stale", verdict.refusal)
+        if verdict.undecided is not None:
+            return SelectionSkip("anchor_undecided", verdict.undecided)
+    return None
+
+
 def next_pending_request(
     *,
     role: str | None = None,
@@ -3648,8 +3735,6 @@ def next_pending_request(
     from a clean ledger.
     """
     from .evidence_probe import GitProbeSession
-    from .human_required_adjudication import adjudication_envelope_is_moot
-    from .implementation_dispatch import disclose_undispatchable, implementation_dispatch_refusal
 
     root = ensure_tools_dir(base_dir)
     repo_root = _anchor_repo_root(root)
@@ -3692,8 +3777,6 @@ def next_pending_request(
         return writable[0]
 
     for request in requests:
-        if _target_is_shadow(root, str(request.get("target_agent") or "")) and not request.get("shadow_eval"):
-            continue
         if role and request.get("role") != role:
             continue
         if target_agent and request.get("target_agent") != target_agent:
@@ -3703,45 +3786,15 @@ def next_pending_request(
         # structurally failing request used to end the entire drain.
         if exclude_request_ids and str(request.get("request_id")) in exclude_request_ids:
             continue
-        state = states.get(str(request.get("request_id") or ""), "PENDING")
-        if state not in {"PENDING", "REQUEUED"}:
-            continue
-        # ARIA-HIGH-360 — a panel envelope whose answer the adjudication
-        # sweep would never read (its escalation is resolved, handed to the
-        # operator, or of a kind no panel decides) is never handed out.
-        if adjudication_envelope_is_moot(root, request):
-            continue
-        # ARIA-HIGH-388 — an implementation request the delivery could not
-        # carry (no delivery authority) or whose plan already ended is never
-        # handed out: before any claim, identity mint or credential lease.
-        undispatchable = implementation_dispatch_refusal(request=request, base_dir=root)
-        if undispatchable is not None:
-            if may_record():
-                disclose_undispatchable(request=request, reason=undispatchable, base_dir=root)
-            continue
-        if repo_root is not None:
-            now = _utc_now_dt()
-            verdict = _anchor_refusal_reason(
-                request,
-                repo_root,
-                probes=probes,
-                clock=clock,
-                now=now,
-                max_age_seconds=_anchor_max_age_seconds(root),
-            )
-            if verdict.refusal is not None:
-                # Under a profile that stops writes the refusal is not made
-                # durable; the request is still skipped (re-review N2).
-                if may_record():
-                    _record_anchor_stale(root, request, verdict.refusal, now=now)
-                continue
-            if verdict.undecided is not None:
-                # Skipped, not refused: the row stays PENDING and the next
-                # selection asks git again.
-                undecided[str(request.get("request_id") or "")] = verdict.undecided
-                continue
-        selected = request
-        break
+        skip = selection_skip(root, request, states=states, repo_root=repo_root,
+                              probes=probes, clock=clock, may_record=may_record)
+        if skip is None:
+            selected = request
+            break
+        if skip.reason == "anchor_undecided":
+            # Skipped, not refused: the row stays PENDING and the next
+            # selection asks git again.
+            undecided[str(request.get("request_id") or "")] = skip.detail or ""
     if undecided:
         append_tools_governance(
             root,

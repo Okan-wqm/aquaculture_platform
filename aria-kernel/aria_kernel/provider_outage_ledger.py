@@ -55,9 +55,12 @@ OUTAGE_SCHEMA_VERSION = 1
 # The closed outage vocabulary (``provider_cooldown.PROVIDER_EXHAUSTION_SIGNATURES``
 # maps every detection signature onto one of these).
 OUTAGE_KINDS: tuple[str, ...] = ("quota", "auth", "logged_out", "unreachable")
-# Restores an admission may record: it observes the login, nothing else. An
-# expired OAuth token still reads "logged in" to `claude auth status`
-# (2026-08-04..08), so an admission closing `auth` would flap the item.
+# Restores an admission may record: it observes the kernel's credential
+# boundary (`provider_credentials`: a well-formed 0600 token file is
+# configured), nothing else. A revoked or expired token still passes that
+# boundary — as an expired OAuth token still read "logged in" to the retired
+# `claude auth status` (2026-08-04..08) — so an admission closing `auth`
+# would flap the item.
 ADMISSION_RESTORABLE_KINDS: frozenset[str] = frozenset({"logged_out"})
 # Bound on the clock (design item 2): an outage open this long is surfaced
 # once more as its own HUMAN_REQUIRED item. Work is never killed by it; the
@@ -97,10 +100,13 @@ def outage_remedy(provider: str, kind: str) -> str:
         return (f"renew the {provider} subscription or credit, or wait for its quota reset; "
                 "ARIA resumes on its own at the next successful spawn")
     if kind in ("auth", "logged_out") and key_env:
-        return f"replace the {provider} key file at {os.environ.get(key_env) or '$' + key_env}"
+        # ARIA-MEDIUM-563 — anthropic's credential is the kernel's own token
+        # (the gateway injects it), minted by `claude setup-token`.
+        mint = " (mint it with `claude setup-token` as the runner user)" if provider == "anthropic" else ""
+        return f"replace the {provider} credential file at {os.environ.get(key_env) or '$' + key_env}{mint}"
     if kind in ("auth", "logged_out"):
         return (f"re-login the {provider} runtime on the runner host as the runner user "
-                "(`claude` then /login for anthropic, `codex login` for openai)")
+                "(`codex login` for openai)")
     return (f"check the runner host's network and the {provider} status page; "
             "ARIA resumes on its own at the next successful spawn")
 

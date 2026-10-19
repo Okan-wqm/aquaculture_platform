@@ -6,11 +6,15 @@ operator drives), NOT through a raw model API. It mirrors the small,
 dependency-light shape of the previous Codex contract so both
 ``ci_executor.py`` and ``worker_executor.py`` consume one runtime:
 
-* Managed Claude Code auth (a logged-in subscription session on a trusted /
-  private runner) is the default. Raw ``ANTHROPIC_API_KEY`` billing is
-  disallowed unless an operator explicitly opts in via a future policy —
-  the same fail-closed posture the Codex contract held for ChatGPT-managed
-  auth vs. API keys.
+* Subscription auth through the kernel's provider gateway (ARIA-MEDIUM-563):
+  the CLI holds a placeholder and reaches the provider only through the
+  gateway's socket, which injects the kernel's own credential — a dedicated
+  token minted with ``claude setup-token`` in a 0600 file named by
+  ``ARIA_CLAUDE_OAUTH_TOKEN_FILE`` (``aria_kernel.provider_credentials``).
+  No spawn holds the operator's login or any token. Raw
+  ``ANTHROPIC_API_KEY`` billing is disallowed unless an operator explicitly
+  opts in via a future policy — the same fail-closed posture the Codex
+  contract held for ChatGPT-managed auth vs. API keys.
 * The live invocation shape is ``claude -p --output-format stream-json
   --verbose --model <model>`` with the prompt on stdin and (on a trusted
   runner) ``--dangerously-skip-permissions`` so the agent can edit its
@@ -143,8 +147,11 @@ VALID_PERMISSION_MODES: tuple[str, ...] = ("acceptEdits", "bypassPermissions", "
 
 API_KEY_ENV_VARS = ("ANTHROPIC_API_KEY", "CLAUDE_API_KEY")
 # Claude Code honours ANTHROPIC_AUTH_TOKEN / custom base URLs for proxy
-# billing; those bypass the managed subscription session the same way an
-# API key does, so they are gated under the same policy switch.
+# billing; those bypass the subscription the same way an API key does, so in
+# the EXECUTOR's own environment they are gated under the same policy
+# switch. A spawn never inherits them (`agent_env` drops them by name); the
+# spawn's ANTHROPIC_BASE_URL is the gateway route's, set by the kernel
+# (`provider_routes`).
 UNSAFE_BILLING_ENV_VARS = ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL")
 
 # There is NO per-spawn provider redirect any more. ORPHAN-HIGH-764 had
@@ -398,16 +405,18 @@ def _assert_budget_before_spawn() -> None:
     assert_within_budget(tools_dir, estimated_run_usd=estimate)
 
 
-def preflight_claude_auth(*, timeout_seconds: int = 20) -> dict[str, Any]:
-    """Verify the Claude Code CLI is present and managed-auth is usable
-    without spending tokens.
+def preflight_claude_auth(*, timeout_seconds: int = 20, room_trees: Sequence[Path] = ()) -> dict[str, Any]:
+    """Verify the Claude Code CLI is present and the kernel's credential
+    boundary holds, without spending tokens.
 
-    The Claude Code CLI does not expose a token-free ``login status --json``
-    probe, so the preflight is: (1) policy-environment check (no API-key /
-    proxy billing leak), (2) ``claude --version`` must succeed, (3) a
-    managed-auth credential surface must exist on the runner (the logged-in
-    session file). If the credential surface is absent, real mode fails
-    closed. Local tests may set ``ARIA_CLAUDE_AUTH_PREFLIGHT_SKIP=1``.
+    (1) policy-environment check (no API-key / proxy billing leak), (2)
+    ``claude --version`` must succeed, (3) the kernel's Anthropic credential
+    must pass its boundary (``provider_credentials``: a 0600 regular file of
+    one line, named by ``ARIA_CLAUDE_OAUTH_TOKEN_FILE``, outside the kernel's
+    checkout and ``room_trees``). That is the credential the gateway injects;
+    the host's own Claude login is not consulted, because no spawn uses it.
+    If the boundary refuses, real mode fails closed by name. Local tests may
+    set ``ARIA_CLAUDE_AUTH_PREFLIGHT_SKIP=1``.
     """
     assert_claude_policy_environment()
     binary = claude_binary()
@@ -436,90 +445,46 @@ def preflight_claude_auth(*, timeout_seconds: int = 20) -> dict[str, Any]:
     ):
         return {"status": "skipped_by_env", "version": version}
 
-    if not _managed_auth_present():
+    from aria_kernel.provider_credentials import ProviderCredentialUnavailable, read_provider_credential
+
+    try:
+        credential = read_provider_credential("anthropic", room_trees=room_trees)
+    except ProviderCredentialUnavailable as exc:
         # ARIA-HIGH-441 — a provider fact: the lane holding the claim cools
-        # anthropic under `claude_logged_out` (the logged-out signature the
-        # native admission's seam already uses), so the queue routes past a
-        # Claude that is logged out instead of re-claiming into it.
+        # anthropic under `claude_logged_out` (the signature of a Claude with
+        # no usable credential on this host, the native admission's seam
+        # uses it too), so the queue routes past it instead of re-claiming
+        # into it.
         raise ProviderCredentialAbsent(
-            "claude_managed_auth_absent: no logged-in Claude Code session found; "
-            "run `claude` login on the runner or set "
-            "ARIA_CLAUDE_AUTH_PREFLIGHT_SKIP=1 for a dry-run",
-            provider="anthropic", model=None, signature="claude_logged_out", marker="claude_managed_auth_absent",
-        )
-    return {"status": "ok", "version": version}
+            f"{CLAUDE_GATEWAY_CREDENTIAL_ABSENT}:{exc.reason}: the kernel's Claude credential boundary "
+            f"refused ({exc}); mint one with `claude setup-token` into a 0600 file named by "
+            f"ARIA_CLAUDE_OAUTH_TOKEN_FILE, or set {AUTH_PREFLIGHT_SKIP_ENV_VAR}=1 for a dry-run",
+            provider="anthropic", model=None, signature="claude_logged_out",
+            marker=CLAUDE_GATEWAY_CREDENTIAL_ABSENT,
+        ) from exc
+    return {"status": "ok", "version": version, "credential_source": f"kernel_{credential.source}"}
 
 
-# The managed session's own status command. `claude auth status --json` is a
-# non-model call that reports the login state the CLI will actually use:
-# authMethod "claude.ai" is the managed subscription; an API-key or console
-# login is the billing bypass ARIA refuses. It is the Anthropic mirror of
-# `codex login status` and, like it, proves the session at admission time —
-# not remaining quota, and not the result of a later model turn. The
-# document is classified by `status_answers` (the one reader of the
-# vendor's answer for both CLIs; `MANAGED_AUTH_METHOD_CLAUDE_AI` lives
-# there), imported where the probe runs like every other kernel-side
-# import in this module.
+# ARIA-MEDIUM-563 — the reason, by name, that the kernel's Claude credential
+# boundary refused: the preflight's marker and the native admission's status
+# reason (`provider_outage_seams` cools anthropic under `claude_logged_out`
+# for it).
+CLAUDE_GATEWAY_CREDENTIAL_ABSENT = "claude_gateway_credential_absent"
 
 
 @dataclass(frozen=True)
 class ManagedClaudeContext:
-    """What native admission holds for the managed Anthropic route.
+    """What native admission holds for the Anthropic route.
 
     The spawn itself stays the existing `run_claude_exec` (agent_env build,
     containment, cancel polling); this records the identity the attempt row
-    binds to and the status facts the fleet admission read.
+    binds to and the credential facts the fleet admission read — the
+    source of the kernel's credential, never its value.
     """
 
     auth_method: str
-    subscription_type: str | None
-    config_dir: str | None
+    credential_source: str
     settings_hash: str
-
-
-def _probe_claude_auth_status(
-    *, environ: dict[str, str], timeout_seconds: float, binary: str | None = None,
-) -> Any:
-    """Observe `claude auth status --json`, retaining only its type.
-
-    Returned as the fleet's `_RuntimeStatusObservation`, each row naming its
-    `StatusDecision` at the site that saw the answer. This owner runs the
-    spawn (the environment boundary, the per-attempt cap) and names what
-    never produced an answer: no CLI on PATH → `cli_unavailable` (DECIDED —
-    the host, not the vendor, said so); slow or unspawnable → UNDECIDED.
-    The bytes the CLI wrote go to `status_answers.classify_claude_status_answer`,
-    which reads the DOCUMENT before the exit code: the installed CLI exits
-    1 on a logged-out session while still printing `{"loggedIn": false}`,
-    and that is a DECIDED refusal, not a stall. Only when no document was
-    read does the exit code name the undecided reason. Raw output never
-    leaves this owner; the email/org fields are not recorded.
-    """
-    from status_answers import classify_claude_status_answer
-    from aria_kernel.status_probe import StatusDecision, _RuntimeStatusObservation
-
-    name = binary or environ.get(CLAUDE_BINARY_ENV_VAR, "claude")
-    executable = name if os.path.isabs(name) else shutil.which(name, path=environ.get("PATH", os.defpath))
-    command = (name, "auth", "status", "--json")
-    if executable is None:
-        return _RuntimeStatusObservation("unavailable", reason="cli_unavailable", command=command,
-                                         decision=StatusDecision.UNAVAILABLE)
-    if timeout_seconds <= 0:
-        return _RuntimeStatusObservation("unknown", reason="status_deadline_elapsed", command=command,
-                                         decision=StatusDecision.UNDECIDED)
-    allowed = {"PATH", "HOME", "CLAUDE_CONFIG_DIR", "LANG", "LC_ALL", "TMPDIR", "XDG_CONFIG_HOME"}
-    status_env = {name: value for name, value in environ.items() if name in allowed}
-    try:
-        completed = subprocess.run(
-            [executable, "auth", "status", "--json"], capture_output=True, text=True,
-            timeout=min(20.0, float(timeout_seconds)), env=status_env, check=False,
-        )
-    except subprocess.TimeoutExpired:
-        return _RuntimeStatusObservation("unknown", reason="status_timeout", command=command,
-                                         decision=StatusDecision.UNDECIDED)
-    except OSError:
-        return _RuntimeStatusObservation("unknown", reason="status_command_unavailable", command=command,
-                                         decision=StatusDecision.UNDECIDED)
-    return classify_claude_status_answer(completed.stdout, completed.returncode, command=command)
 
 
 def _session_store_dir() -> Path | None:
@@ -531,27 +496,6 @@ def _session_store_dir() -> Path | None:
     except ImportError:  # pragma: no cover - kernel always importable here
         return None
     return session_store_dir()
-
-
-def _managed_auth_present() -> bool:
-    """True when a logged-in Claude Code session credential surface exists.
-
-    Claude Code persists the managed session under ``$CLAUDE_CONFIG_DIR``
-    (default ``~/.claude``). We probe for the credentials file or the
-    config dir's auth record rather than invoking a billable turn.
-    """
-    config_dir = os.environ.get("CLAUDE_CONFIG_DIR")
-    candidates = []
-    if config_dir:
-        candidates.append(Path(config_dir))
-    home = Path(os.path.expanduser("~"))
-    candidates.append(home / ".claude")
-    for base in candidates:
-        if (base / ".credentials.json").is_file():
-            return True
-        if (base / "config.json").is_file():
-            return True
-    return False
 
 
 def build_claude_exec_argv(
@@ -742,7 +686,6 @@ def _apply_write_containment(
     write_scope: Sequence[str] | None = None,
     executable: Path | None = None,
     spawn_files: Sequence[Path] = (),
-    managed_login_dir: Path | None = None,
     git_containment: Any | None = None,
     hook_broker_socket: Path | None = None,
     mcp_broker_socket: Path | None = None,
@@ -759,9 +702,9 @@ def _apply_write_containment(
 
     ``executable`` is the CLI resolved outside the sandbox (run by absolute
     path inside it), ``spawn_files`` the documents this spawn wrote for the
-    CLI, ``managed_login_dir`` the login directory whose one credential file
-    is mounted into the private home — see the kernel's
-    ``wrap_managed_claude_in_sandbox`` (ARIA-HIGH-077).
+    CLI — see the kernel's ``wrap_managed_claude_in_sandbox``
+    (ARIA-HIGH-077). No login is mounted: the room's credential is the
+    gateway route's placeholder (ARIA-MEDIUM-563).
 
     ARIA-HIGH-123 — ``git_containment`` is the commit-capable git
     containment the executor derived when it held the implementer's
@@ -783,10 +726,11 @@ def _apply_write_containment(
     always ran unconfined and the containment existed only as text the
     agent could ignore.
 
-    ``allow_network=True`` because the agent process must reach the Claude
-    API — and only that: the room has its own network namespace whose one
-    road out is the kernel's allowlist proxy (ARIA-HIGH-143), so the agent's
-    own bash commands reach no host but the provider's, and none directly.
+    ``provider=MANAGED_SPAWN_PROVIDER`` because the agent process must reach
+    the Claude API — and only that: the room has its own network namespace
+    whose one road out is the kernel's provider gateway (ARIA-HIGH-143,
+    ARIA-MEDIUM-563), so the agent's own bash commands reach no host at all,
+    and the provider only with pinned requests under the kernel's credential.
     The other property bought here is that the kernel, workflows and agent
     definitions cannot be mutated regardless of what the agent decides to
     do.
@@ -797,7 +741,7 @@ def _apply_write_containment(
         if read_containment:
             return _apply_read_containment(
                 argv, workspace_root=workspace_root, executable=executable, spawn_files=spawn_files,
-                managed_login_dir=managed_login_dir, hook_broker_socket=hook_broker_socket,
+                hook_broker_socket=hook_broker_socket,
                 session_store_dir=session_store_dir,
             )
         return argv
@@ -805,6 +749,7 @@ def _apply_write_containment(
     try:
         from aria_kernel.git_containment import GitContainmentRefusal, derive_git_containment
         from aria_kernel.implementation_safety import (
+            MANAGED_SPAWN_PROVIDER,
             SandboxUnavailable,
             wrap_bash_in_sandbox,
             wrap_managed_claude_in_sandbox,
@@ -826,12 +771,12 @@ def _apply_write_containment(
     try:
         if executable is None:
             return wrap_bash_in_sandbox(
-                argv, workspace_root=workspace, allow_network=True, write_scope=write_scope,
+                argv, workspace_root=workspace, provider=MANAGED_SPAWN_PROVIDER, write_scope=write_scope,
                 git=git, hook_broker_socket=hook_broker_socket, mcp_broker_socket=mcp_broker_socket,
             )
         return wrap_managed_claude_in_sandbox(
             argv, workspace_root=workspace, write_scope=write_scope, executable=executable,
-            spawn_files=spawn_files, managed_login_dir=managed_login_dir, git=git,
+            spawn_files=spawn_files, git=git,
             hook_broker_socket=hook_broker_socket, mcp_broker_socket=mcp_broker_socket,
             session_store_dir=session_store_dir,
         )
@@ -861,7 +806,6 @@ def _apply_read_containment(
     workspace_root: str | Path | None,
     executable: Path | None,
     spawn_files: Sequence[Path] = (),
-    managed_login_dir: Path | None = None,
     hook_broker_socket: Path | None = None,
     session_store_dir: Path | None = None,
 ) -> list[str]:
@@ -869,9 +813,9 @@ def _apply_read_containment(
 
     ``wrap_managed_claude_in_sandbox`` with an EMPTY write scope binds the
     workspace read-only and nothing writable under it; the git binds are
-    derived read-only; the private home carries only the managed login
-    (writable for the OAuth refresh, ARIA-HIGH-157) and ``CLAUDE_CONFIG_DIR``
-    points inside it, so the host's own settings, plugins and session store
+    derived read-only; the private home carries no login (the gateway holds
+    the credential, ARIA-MEDIUM-563) and ``CLAUDE_CONFIG_DIR`` points inside
+    it, so the host's own settings, plugins and session store
     are out of reach; the hook broker keeps its socket so the turn budget
     and the journal stay outside. No MCP broker: no read profile names one.
     """
@@ -890,7 +834,7 @@ def _apply_read_containment(
     try:
         return wrap_managed_claude_in_sandbox(
             argv, workspace_root=workspace, write_scope=(), executable=executable,
-            spawn_files=spawn_files, managed_login_dir=managed_login_dir, git=git,
+            spawn_files=spawn_files, git=git,
             hook_broker_socket=hook_broker_socket, mcp_broker_socket=None,
             session_store_dir=session_store_dir,
         )
@@ -1389,6 +1333,22 @@ def _run_spawn(
     return subprocess.CompletedProcess(argv, proc.returncode, "".join(out_lines), "".join(err_chunks))
 
 
+def _gateway_spawn_environment() -> dict[str, str]:
+    """The managed route's gateway variables, naming THIS process's gateway
+    socket (``egress_proxy.kernel_egress_sockets``) — refused by name when
+    the kernel cannot serve it: a spawn is never handed a road that is not
+    there, nor a credential instead."""
+    from aria_kernel.egress_proxy import EgressProxyUnavailable, kernel_egress_sockets
+    from aria_kernel.implementation_safety import MANAGED_SPAWN_PROVIDER
+    from aria_kernel.provider_routes import gateway_environment
+
+    try:
+        socket_path = kernel_egress_sockets()[MANAGED_SPAWN_PROVIDER]
+    except EgressProxyUnavailable as exc:
+        raise ClaudePolicyViolation(f"claude_provider_gateway_unavailable: {exc}") from exc
+    return gateway_environment(MANAGED_SPAWN_PROVIDER, str(socket_path))
+
+
 def assert_model_served_by_claude_runtime(model: str | None) -> None:
     """Refuse, by name, a model that belongs to another provider.
 
@@ -1437,7 +1397,7 @@ def run_claude_exec(
     read_containment: bool = False,
 ) -> ClaudeRunResult:
     assert_model_served_by_claude_runtime(model)
-    preflight_claude_auth()
+    preflight_claude_auth(room_trees=(Path(cwd),) if cwd is not None else ())
     if read_containment and (skip_permissions or permission_mode is not None):
         raise ClaudePolicyViolation("claude_read_containment_with_write_permissions")
     assert_write_runner_ok(skip_permissions=skip_permissions, permission_mode=permission_mode)
@@ -1523,11 +1483,15 @@ def run_claude_exec(
         )
         argv.extend(["--strict-mcp-config", "--mcp-config", str(mcp_config_path)])
         # The spawn environment is BUILT (agent_env), never copied: baseline +
-        # CLI auth + profile passthrough, secrets dropped by name. Built before
-        # containment so the managed-login directory it derived can be ro-bound.
+        # profile passthrough, secrets dropped by name, and the gateway
+        # route's variables (ARIA-MEDIUM-563): the kernel's own gateway
+        # socket and the placeholder credential. A spawn outside a room
+        # reaches the gateway through that socket; a room names its bound
+        # path instead (`implementation_safety._provider_room`).
         spawn_env, env_report = _build_spawn_env(
             passthrough=passthrough,
-            extra={**({"IS_SANDBOX": "1"} if _sandbox_acknowledged() else {}),
+            extra={**_gateway_spawn_environment(),
+                   **({"IS_SANDBOX": "1"} if _sandbox_acknowledged() else {}),
                    # PYTHONPATH names the workspace's kernel tree exactly as
                    # in the lanes, for the agent's own validation runs
                    # (`python3 -m unittest …` over kernel tests). No kernel
@@ -1546,7 +1510,6 @@ def run_claude_exec(
                    **({MCP_BROKER_SOCKET_ENV: str(mcp_broker.socket_path)} if mcp_broker is not None else {}),
                    **(dict(extra_env) if extra_env else {})},
         )
-        config_dir = env_report.claude_config_dir if env_report is not None else None
         # The binary the attempt names is the binary that runs: resolved ONCE,
         # here, in the built environment's PATH, and run by that absolute path
         # inside and outside the sandbox (ARIA-HIGH-077).
@@ -1560,7 +1523,6 @@ def run_claude_exec(
             write_scope=write_scope,
             executable=executable,
             spawn_files=tuple(path for path in (settings_path, mcp_config_path) if path is not None),
-            managed_login_dir=Path(config_dir) if config_dir else None,
             git_containment=git_containment,
             hook_broker_socket=broker.socket_path if broker is not None else None,
             mcp_broker_socket=mcp_broker.socket_path if mcp_broker is not None else None,
@@ -1964,7 +1926,10 @@ def extract_auth_failure(
         "returncode": returncode,
         # The remedy is a human act on the runner host, so it travels with the
         # detection rather than living only in a runbook nobody opens at 03:00.
-        "remedy": "re-authenticate the Claude CLI on the runner host (`claude` login as the runner user)",
+        # ARIA-MEDIUM-563 — the credential is the kernel's gateway token, so
+        # the act is re-minting it, not logging the CLI in.
+        "remedy": ("re-mint the kernel's Claude token on the runner host (`claude setup-token` as the runner "
+                   "user, into the 0600 file ARIA_CLAUDE_OAUTH_TOKEN_FILE names)"),
     }
 
 

@@ -62,9 +62,14 @@ longer resolves. The authority-surface digest of any commit is derived on demand
 
 ## Runtime
 
-ARIA live autonomous execution is Claude Code CLI based and must use a managed Claude Code login
-session on a trusted/private runner. Direct API-key / proxy-billing runtime mode is not the default
-authority for this repository.
+ARIA live autonomous execution is Claude Code CLI based on a trusted/private runner. Its credential
+is the kernel's own Claude token (`claude setup-token`, a 0600 file named by
+`ARIA_CLAUDE_OAUTH_TOKEN_FILE`, read only by `aria-kernel/aria_kernel/provider_credentials.py`); no
+agent room holds a login or a token. Every Claude spawn reaches the provider only through the
+kernel's provider gateway (`aria-kernel/aria_kernel/provider_gateway.py`, routes in
+`aria-kernel/aria_kernel/provider_routes.py`), which pins the Messages requests and injects that
+token (ARIA-MEDIUM-563). Direct API-key / proxy-billing runtime mode is not the default authority
+for this repository.
 
 Legacy Codex executor language in older docs is historical or compatibility reference unless an
 executable contract explicitly calls it. Any live doc section that treats `codex exec`,

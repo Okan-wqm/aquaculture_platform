@@ -1630,6 +1630,18 @@ def alias_factory(root):
                     f"{KERNEL}autonomy_orchestrator.py",
                     "consumer",
                 ),
+                # ARIA-HIGH-579 — the night's hold asks the queue's own
+                # selection fold (agent_invocations.selection_skip over
+                # derive_request_states) to learn whether any drain would
+                # carry a provider's re-probe; it reads request state to
+                # decide whether the night runs at all, never whether the
+                # executor's work is accepted.
+                (
+                    "executor",
+                    "agent_invocation_results",
+                    f"{KERNEL}provider_hold.py",
+                    "consumer",
+                ),
                 # ARIA-HIGH-364 — the request-admission door reads result
                 # timestamps to measure the drain rate and executor
                 # liveness; it decides whether NEW work may be minted,

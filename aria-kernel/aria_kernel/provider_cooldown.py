@@ -104,7 +104,7 @@ PROVIDER_EXHAUSTION_SIGNATURES: dict[str, tuple[str, str]] = {
     "zai_auth_refusal": ("zai", "auth"),                  # HTTP 401/403, vendor codes 1000-1004
     "codex_quota_marker": ("openai", "quota"),
     "codex_auth_marker": ("openai", "auth"),
-    "claude_logged_out": ("anthropic", "logged_out"),    # `claude auth status`: loggedIn false
+    "claude_logged_out": ("anthropic", "logged_out"),    # the kernel's Claude credential boundary refused
     "codex_logged_out": ("openai", "logged_out"),        # `codex login status`: Not logged in
     "claude_unreachable": ("anthropic", "unreachable"),  # API 429 / 529 overload / connection error
     "zai_unreachable": ("zai", "unreachable"),           # HTTP transport timeout / DNS / connection
@@ -360,6 +360,22 @@ def _cooldown_rows(base_dir: str | Path | None) -> list[dict[str, Any]]:
             if row.get("kind") == PROVIDER_COOLDOWN_GOVERNANCE_KIND]
 
 
+def latest_provider_cooldowns(base_dir: str | Path | None) -> dict[str, dict[str, Any]]:
+    """The newest cooldown row per provider, expired or not, keyed by provider.
+
+    ARIA-HIGH-579 review — the night asks how a LAPSED back-off ended: a
+    vendor-stated reset (``until_source`` ``stated_reset``) that has passed is
+    the vendor's word that the quota is back; a policy back-off that ran out
+    only says when to ask again.
+    """
+    latest: dict[str, dict[str, Any]] = {}
+    for details in _cooldown_rows(base_dir):
+        # Ledger order is time order: the last row seen per provider is the
+        # newest and is the one that decides.
+        latest[details["provider"]] = details
+    return latest
+
+
 def active_provider_cooldowns(
     base_dir: str | Path | None, *, now: datetime | None = None,
 ) -> dict[str, dict[str, Any]]:
@@ -368,16 +384,11 @@ def active_provider_cooldowns(
     Reads `governance.jsonl` (the only place the row lives). An expired row
     does not cool anything; a malformed row is refused by name (see
     `_validated_cooldown`). The newest row per provider wins, so a later
-    shorter cooldown is not shadowed by an earlier longer one.
+    shorter cooldown is not shadowed by an earlier longer one: expiry is
+    applied AFTER the newest row is chosen.
     """
     moment = now or _utc_now()
-    active: dict[str, dict[str, Any]] = {}
-    for details in _cooldown_rows(base_dir):
-        # Ledger order is time order: the last row seen per provider is the
-        # newest and is the one that decides. Expiry is applied AFTER the
-        # walk so an older, longer cooldown cannot outlive a newer, shorter one.
-        active[details["provider"]] = details
-    return {provider: details for provider, details in active.items()
+    return {provider: details for provider, details in latest_provider_cooldowns(base_dir).items()
             if _parse_iso(details["until"]) > moment}
 
 
@@ -410,6 +421,7 @@ __all__ = [
     "QUOTA_WINDOW_EXHAUSTED_UTILIZATION",
     "active_provider_cooldowns",
     "detection_reset",
+    "latest_provider_cooldowns",
     "provider_cooldown_for_claim",
     "provider_cooldown_seconds",
     "record_provider_cooldown",

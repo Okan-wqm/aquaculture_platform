@@ -1,9 +1,9 @@
 """ARIA-HIGH-107 (verifier, 2026-09-12) — the vendor's answer decides before its exit code.
 
-Both managed CLIs report a logged-out session as an answer AND a non-zero
-exit: Claude Code 2.1.269 prints `{"loggedIn": false, ...}` then
-`process.exit(loggedIn ? 0 : 1)` (read from the installed binary; reproduced
-offline with an empty config dir), Codex 0.154.0 prints `Not logged in` and
+Both managed CLIs reported a logged-out session as an answer AND a non-zero
+exit: Claude Code 2.1.269 printed `{"loggedIn": false, ...}` then
+`process.exit(loggedIn ? 0 : 1)` (its status is no longer asked:
+ARIA-MEDIUM-563 moved the Anthropic credential to the kernel), Codex 0.154.0 prints `Not logged in` and
 exits 1 (reproduced offline with an empty CODEX_HOME). A probe that tested
 `returncode != 0` before reading the document laundered that DECIDED "no"
 into UNDECIDED `status_not_confirmed` — retried three times with backoff,
@@ -13,15 +13,13 @@ turned into a stall that halts every dispatch until a human logs in.
 
 What this pins, one property per test:
 
-* `status_answers.classify_claude_status_answer` / `classify_codex_status_answer`
-  read the document or line first: a logged-out answer with exit 1 is
+* `status_answers.classify_codex_status_answer` reads the line first: a logged-out answer with exit 1 is
   DECIDED unavailable carrying `exit_code=1`; a login line is DECIDED
   available; only an answer-less run lets the exit code name the undecided
   reason (`status_not_confirmed` non-zero, `status_output_unrecognized` zero).
-* Structurally (AST): neither classifier compares `returncode` anywhere but
+* Structurally (AST): the classifier never compares `returncode` anywhere but
   the shared no-answer arm, so the ordering cannot regress silently.
-* The real probes (`claude_runtime._probe_claude_auth_status`,
-  `codex_runtime._probe_codex_auth_status`) reach the same decisions
+* The real probe (`codex_runtime._probe_codex_auth_status`) reaches the same decisions
   through scripted binaries that mirror the installed CLIs' exit codes,
   including Codex's read-only PATH-alias warning tolerance.
 * `codex_runtime._prepare_managed_codex_context` names a DECIDED route
@@ -33,7 +31,6 @@ What this pins, one property per test:
 from __future__ import annotations
 
 import ast
-import json
 import os
 import sys
 import tempfile
@@ -57,58 +54,27 @@ def _decision(name: str):
 
     return StatusDecision[name]
 
-_CLAUDE_COMMAND = ("claude", "auth", "status", "--json")
 _CODEX_COMMAND = ("codex", "login", "status")
-_LOGGED_OUT_DOCUMENT = json.dumps({"loggedIn": False, "authMethod": "none", "apiProvider": "firstParty",
-                                   "analyticsDisabled": False, "projectsDirectory": "/x", "configDirectory": "/x"})
-_LOGGED_IN_DOCUMENT = json.dumps({"loggedIn": True, "authMethod": "claude.ai", "apiProvider": "firstParty",
-                                  "subscriptionType": "max", "email": "ordinary@example.invalid"})
-_CONSOLE_DOCUMENT = json.dumps({"loggedIn": True, "authMethod": "console", "apiProvider": "firstParty"})
 _READONLY_WARNING = (
     "WARNING: proceeding, even though we could not create PATH aliases: Read-only file system (os error 30)"
 )
 
 
-class TheClaudeDocumentDecidesBeforeTheExitCode(unittest.TestCase):
-    def _classify(self, stdout: str, returncode: int):
-        from status_answers import classify_claude_status_answer
+class TheClaudeStatusIsNotTheHostLogin(unittest.TestCase):
+    """ARIA-MEDIUM-563 — the Anthropic route's credential is the kernel's own
+    gateway token, so `claude auth status` (the host login) is asked by no
+    admission any more: its classifier and probe are retired, not left as a
+    second, unread answer to the same question."""
 
-        return classify_claude_status_answer(stdout, returncode, command=_CLAUDE_COMMAND)
+    def test_the_claude_status_classifier_and_probe_are_gone(self) -> None:
+        import claude_runtime
+        import status_answers
 
-    def test_a_logged_out_document_with_exit_one_is_decided_unavailable(self) -> None:
-        # The installed CLI's shape. The defect, first: exit-code-first
-        # classification called this `status_not_confirmed` / undecided.
-        observed = self._classify(_LOGGED_OUT_DOCUMENT + "\n", 1)
-        self.assertIs(observed.decision, _decision("UNAVAILABLE"))
-        self.assertEqual((observed.auth_observation, observed.reason, observed.exit_code, observed.credential_source),
-                         ("unavailable", "managed_session_logged_out", 1, "managed_session"))
-        self.assertEqual(observed.command, _CLAUDE_COMMAND)
-
-    def test_a_logged_in_subscription_is_decided_available(self) -> None:
-        observed = self._classify(_LOGGED_IN_DOCUMENT, 0)
-        self.assertIs(observed.decision, _decision("AVAILABLE"))
-        self.assertEqual((observed.auth_observation, observed.reason, observed.auth_method, observed.exit_code),
-                         ("available", "managed_session_logged_in", "subscription", 0))
-
-    def test_a_console_login_is_decided_unavailable_by_name(self) -> None:
-        observed = self._classify(_CONSOLE_DOCUMENT, 0)
-        self.assertIs(observed.decision, _decision("UNAVAILABLE"))
-        self.assertEqual((observed.reason, observed.auth_method), ("api_key_auth_not_managed", "api_key"))
-
-    def test_only_an_answer_less_run_lets_the_exit_code_speak(self) -> None:
-        for stdout, returncode, reason in (
-            ("", 1, "status_not_confirmed"),
-            ("Segmentation fault", 139, "status_not_confirmed"),
-            ("", 0, "status_output_unrecognized"),
-            ("{\"loggedIn\": \"yes\"}", 0, "status_output_unrecognized"),
-            ("[1, 2]", 1, "status_not_confirmed"),
-            ("not json at all", 0, "status_output_unrecognized"),
-        ):
-            with self.subTest(stdout=stdout, returncode=returncode):
-                observed = self._classify(stdout, returncode)
-                self.assertIs(observed.decision, _decision("UNDECIDED"))
-                self.assertEqual((observed.auth_observation, observed.reason, observed.exit_code),
-                                 ("unknown", reason, returncode))
+        self.assertFalse(hasattr(status_answers, "classify_claude_status_answer"))
+        self.assertFalse(hasattr(status_answers, "MANAGED_AUTH_METHOD_CLAUDE_AI"))
+        self.assertFalse(hasattr(claude_runtime, "_probe_claude_auth_status"))
+        source = (_POC_DIR / "ci_executor.py").read_text(encoding="utf-8")
+        self.assertNotIn('"auth", "status"', source)
 
 
 class TheCodexLineDecidesBeforeTheExitCode(unittest.TestCase):
@@ -165,7 +131,7 @@ class TheOrderingIsStructural(unittest.TestCase):
     def test_neither_classifier_compares_the_exit_code(self) -> None:
         tree = ast.parse((_POC_DIR / "status_answers.py").read_text(encoding="utf-8"))
         functions = {node.name: node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)}
-        for name in ("classify_claude_status_answer", "classify_codex_status_answer"):
+        for name in ("classify_codex_status_answer",):
             with self.subTest(function=name):
                 compared = [
                     node for node in ast.walk(functions[name])
@@ -195,23 +161,6 @@ class TheRealProbesReachTheSameDecisions(unittest.TestCase):
             encoding="utf-8",
         )
         executable.chmod(0o755)
-
-    def test_the_claude_probe_decides_a_logged_out_exit_one(self) -> None:
-        from claude_runtime import _probe_claude_auth_status
-
-        self._script("claude", "stdout", _LOGGED_OUT_DOCUMENT + "\n", 1)
-        observed = _probe_claude_auth_status(environ=self.environ, timeout_seconds=10)
-        # The defect, first: exit-code-first classification reported
-        # ("unknown", "status_not_confirmed", 1) for the vendor's own "no".
-        self.assertEqual((observed.auth_observation, observed.reason, observed.exit_code),
-                         ("unavailable", "managed_session_logged_out", 1))
-        self.assertIs(observed.decision, _decision("UNAVAILABLE"))
-        self._script("claude", "stdout", _LOGGED_IN_DOCUMENT + "\n", 0)
-        observed = _probe_claude_auth_status(environ=self.environ, timeout_seconds=10)
-        self.assertIs(observed.decision, _decision("AVAILABLE"))
-        self._script("claude", "stderr", "panic\n", 1)
-        observed = _probe_claude_auth_status(environ=self.environ, timeout_seconds=10)
-        self.assertEqual((observed.decision, observed.reason), (_decision("UNDECIDED"), "status_not_confirmed"))
 
     def test_the_codex_probe_decides_a_not_logged_in_exit_one(self) -> None:
         from codex_runtime import _probe_codex_auth_status

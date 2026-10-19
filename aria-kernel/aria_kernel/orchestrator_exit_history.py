@@ -76,6 +76,11 @@ REFUSAL_KIND = "mission_candidate_refused"
 EXIT_CYCLE_FAILED = "cycle_failed"
 EXIT_BRIDGE_REPLAY_REQUIRED = "bridge_replay_required"
 FAILED_EXIT_REASONS: frozenset[str] = frozenset({EXIT_CYCLE_FAILED, EXIT_BRIDGE_REPLAY_REQUIRED})
+# ARIA-HIGH-579 — every provider is out, so the night held where it stood
+# (`provider_hold`). A clean exit, never a failed one: the outage is the
+# vendors' weather, and the next night with a provider continues the work.
+# It is also the `autonomy_state` phase the hold records.
+EXIT_PROVIDER_OUTAGE_HOLD = "provider_outage_hold"
 # The bridge gate's two names: the ``autonomy_state`` phase it transitions to
 # (status ``failed``), and the phase its failed-phase row names on the
 # cycle's summary, the night's summary and the doctor's cause key.
@@ -243,6 +248,7 @@ __all__ = [
     "EXIT_BRIDGE_REPLAY_REQUIRED",
     "EXIT_CYCLE_FAILED",
     "EXIT_KIND",
+    "EXIT_PROVIDER_OUTAGE_HOLD",
     "FAILED_EXIT_REASONS",
     "OrchestratorExitStreak",
     "bridge_replay_reason",

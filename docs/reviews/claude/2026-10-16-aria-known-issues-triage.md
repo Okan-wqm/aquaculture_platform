@@ -2408,3 +2408,427 @@ kept their own copy of the GIT*\* filter and the twelfth forgot it.
     resolves its own worktree and branch afterwards; this was measured.
   - The pre-commit hook keeps `GIT_INDEX_FILE` on purpose, because its staged-content checks read
     it.
+
+## ARIA-MEDIUM-563 — fixed (provider gateway)
+
+Branch `fix/aria-563-provider-gateway`, five commits on `5d886865a`, then merged with
+`fix/aria-known-issues-wave-b` (`08da1a565`) in the merge commit `02ad81e36`, then with
+`origin/main` (`ce65e1e34`, which carries wave B as `be662681f`) in `700333e92`. This closes 563 for
+the Claude room (the anthropic gateway route). The Codex room keeps the same defect class and is
+registered as ARIA-MEDIUM-621. Each commit body carries the full account and its proof.
+
+What changed:
+
+- `bd8f3d3f4`: a room reaches a provider only through a kernel gateway that holds the kernel's
+  credential.
+  - `aria_kernel/provider_routes.py` is the one table of how each provider is reached, and the only
+    place a provider host is named. anthropic is a gateway route; openai is a tunnel route (the
+    Codex room only, OpenAI hosts only); zai is a kernel transport that no room reaches.
+    `egress_proxy.PROVIDER_ENDPOINTS` is deleted, and `platform.claude.com` and `api.z.ai` leave
+    every room.
+  - `aria_kernel/provider_gateway.py` (stdlib) serves the anthropic route on a unix socket. It pins
+    `POST /v1/messages` and `/v1/messages/count_tokens` and refuses everything else by name. It also
+    refuses provider-side fetches (`mcp_servers`, `container`, server tools, url/file sources, file
+    ids). It drops every room credential and injects the kernel's.
+  - `aria_kernel/provider_credentials.py` is the one reader of kernel-held provider credentials.
+    Anthropic's credential is a `claude setup-token` token in `ARIA_CLAUDE_OAUTH_TOKEN_FILE`.
+  - The managed Claude room gets the gateway socket and a placeholder credential. It gets no login
+    file, no CONNECT socket and no relay, and keeps `--unshare-net`. `agent_env` passes no login and
+    no token to any spawn.
+  - The preflight, the native admission, both workflows and `provision_runner.sh` read the kernel's
+    credential boundary (`claude_gateway_credential_absent`), not the host login.
+- `a67330a81`: `provider_credentials.read_secret_file` is the one credential-file reader. It refuses
+  a file under the checkout, under every host root a room binds (`room_host_roots()`, the room
+  builder's own tuple), and under the caller's trees. It also refuses symlinks, foreign owners,
+  group/other bits, oversize files and multi-line content. `jev_runtime` reads through it.
+- `6b45b74c1`: the gateway forwards only bytes it validated.
+  - It refuses C0 controls in the request line and in header names and values (tab allowed in
+    values).
+  - It refuses a body that is not UTF-8, that has a duplicate key or that has NaN, and forwards its
+    own serialization of the checked document.
+  - It answers a missing kernel token as 401 `authentication_error`, not 503.
+- `ea2aa5002`: the API-key refusal message names `claude setup-token` in plain quotes, so the CI
+  step no longer runs it. A hygiene invariant scans every workflow and action for an unescaped
+  backtick inside double quotes.
+- `756bb13c9`: the executor contract, CURRENT_STATE §Runtime, the ARCHITECTURE sequence and ADR-040
+  describe the kernel token behind the gateway, and `aria-doc-runtime-ssot.spec.ts` pins it.
+
+Landing round (takeover, 2026-10-18) — three commits on `700333e92`:
+
+- `349f2d5b7` (`test(aria)`): the egress probe's `gateway` socket line carries its
+  `# allowlist-external-network:<reason>` opt-out, the one probe line its four siblings' review
+  comment was missing. The no-external-network scanner had failed the suite's shard 5 on the
+  merged tree (measured in the live run: `banned token 'socket.socket('`, failures=1); the
+  comment-only edit keeps every shard report's `suite_digest` valid, so only shard 5 re-ran.
+- `49166f040` (`fix(aria)`, closes ARIA-MEDIUM-620): the `anthropic_api_key` row's detect regex
+  admits `_` exactly as its redact regex always has, and the row's fixture becomes a setup-token
+  body with an underscore inside the first 32 characters, so the table's constructor contract
+  proves the widened class. Red first at the real entry (`SecretLeakDetected not raised` for
+  `sk-ant-oat01-Ab3_Q…` in `verify_no_secret_in_diff`) and at the table contract
+  (`detect_misses_fixture`).
+- `9c4d1f251` (`chore(aria)`): the refusal view's PEM and bearer rows widen to their own redact
+  shapes — any `[A-Z ]*PRIVATE KEY` armour label (ENCRYPTED and plain pkcs8 included) and the
+  case-insensitive scheme with the standard-base64 alphabet. Red first at both real entries (four
+  `SecretLeakDetected not raised` cases). This defect had no registered row and this lane may not
+  run `findings:add`, so the commit carries no `Closes:` trailer (the PROC-LOW-053 interim form);
+  the stub `s2-refuseview-pem-bearer-1.json` records it for the next registry-owning lane, and
+  both secret-scrub widenings land strictly before any §8 token mint.
+
+Proofs:
+
+- Red at base `5d886865a`, measured with real bwrap:
+  - The managed Claude room held `/tmp/aria-agent-home/.claude/.credentials.json`.
+  - The handed `CLAUDE_CODE_OAUTH_TOKEN` and `ANTHROPIC_API_KEY` reached the room's env.
+  - CONNECT to `api.anthropic.com`, `platform.claude.com`, `api.z.ai` and `api.openai.com` answered
+    `200 Connection Established`.
+  - The new tests failed on the base tree: ImportError for the gateway and credentials modules,
+    seven stray host literals, the agent_env pins, the preflight pins and the `provider=` room pins.
+- Offline real-CLI proof through the production gateway, as uid 1000, with only the gateway's
+  credential (a fixture) and its upstream (a fake Messages API on loopback) swapped:
+  - CLI 2.1.278 in the production managed room returned result `ok`.
+  - The upstream saw one `POST /v1/messages?beta=true` with the kernel's credential and the oauth
+    beta, and no `x-api-key`, room key or placeholder.
+  - With no token configured, the CLI exits 1 after 2.6 s with
+    `401 gateway_refused:provider_credential_unavailable:credential_not_configured`.
+    `extract_auth_failure` names that `claude_auth_failure`, with the re-mint remedy.
+  - On the production listeners with nothing swapped, the in-room probe is refused by name on
+    CONNECT, `/v1/files`, `mcp_servers` and url sources. A direct connect is `ENETUNREACH`, and
+    `egress_boundary_probe()` is `None`.
+- Security review: one blocker and two majors, each reproduced before it was fixed.
+  - Blocker: bare LF/CR in a header line, an LF after a header name, and a smuggled second request
+    reached the upstream head next to the kernel's credential. Fixed in `6b45b74c1`; the reviewer's
+    probe is now refused with `head_control_character`.
+  - Major: the body was checked after a last-key-wins parse, but the original bytes were forwarded,
+    so a duplicate `tools` key hid a server tool. Fixed in `6b45b74c1` with `body_duplicate_key`,
+    `body_not_utf8` and forwarding of the checked document.
+  - Major: the workflows ran `claude setup-token` through backticks in their error message,
+    reproduced with a fake `claude` on PATH. Fixed in `ea2aa5002`.
+  - Regression review majors: stale runtime docs were fixed in `756bb13c9`. `Closes:` landed while
+    the Codex route stays open and the residuals had no ids; they are registered below
+    (ARIA-MEDIUM-620 to ARIA-LOW-625).
+  - Review minors fixed: the 503 now answers 401 (`6b45b74c1`); the system roots and jev's second
+    reader are fixed in `a67330a81`.
+- Merge onto wave B (`02ad81e36`):
+  - Wave B's ARIA-LOW-565 (`3e1176b24`) made `socket_holders` the one owner of the killed-holder
+    sweep. A `SocketHolder` now declares a fixed set of socket names. `EGRESS_PROXY`'s set is
+    `provider_routes.ROOM_ROUTE_KEYS`, so the gateway's `anthropic` socket joins it, and there is no
+    second sweep.
+  - The updated `test_socket_holders` failed 7 cases against wave B's owner and passes on the merge.
+  - `44f05589e` wraps the two over-long doc lines that 563 itself wrote (the changed-docs lint).
+  - Merge with `origin/main` (`700333e92`): no conflicts. Main now runs the kernel suite as ten
+    shards (`6149faad0`).
+  - Checks on `700333e92` plus the registry rows below:
+    - the full kernel suite as CI runs it, run once over the ten shards at `700333e92` and shard 5
+      alone re-run at the final tree after `349f2d5b7` (a comment-only edit keeps every other
+      shard's `suite_digest` — module names and counts — identical, re-measured before the re-run):
+      shards 1-4 and 6-10 green at `700333e92` (71-242 modules, 742-1915 tests each); shard 5 red
+      at `700333e92` on exactly the missing egress opt-out (failures=1), green at the final tree
+      (918 tests, 26.8 min, 0 sandbox-pin skips, `suite_digest` unchanged); the pytest-native
+      half: 76 passed, 9854 deselected (both trees);
+      `suite_shards.py verify` at the final tree: ten shards, 893 modules, 9854 tests, exit 0;
+    - under real bwrap, `test_sandbox_egress_boundary` and `test_egress_proxy` with no sandbox skip
+      (in the shard-5 runs above);
+    - the changed modules' owner runs at the final tree: the full v9 implementation-safety module,
+      `test_credential_shapes_single_owner`, `test_secret_scrub_policy`,
+      `test_scrub_credentials_not_counters`, `test_transcript_scrub`,
+      `test_redact_view_covers_every_view`, the v8 prerequisite and safety/telemetry modules
+      (181 tests), `test_provider_gateway`, `test_implementation_delivery`,
+      `test_published_text`, `test_real_mode_env_guard` and `test_fixture_runner_crash_stderr`
+      (64 tests), all green;
+    - the 31 invariant jest specs that pin the workflows and docs (334 tests) at `700333e92`, and
+      at the final tree, date-stamped: `aria-doc-runtime-ssot` 29 passed and the registry project
+      587 passed (jest, the exact project configs; local TS runs are unverified — this worktree's
+      `node_modules` symlinks to aria-repair-1's, CI is the authority),
+      `type-check-changed-files` 1 project passed; `markdownlint-changed` 0 billed lines, logged in
+      the PR body.
+
+What is NOT done:
+
+- The live model call through the real room waits on the operator. The kernel token file
+  `/home/gharunner/.config/aria/claude_oauth_token` does not exist; minting it with
+  `sudo -u gharunner -i claude setup-token` is an identity act. This is an operator action, not a
+  code defect, so it has no finding id. The steps are in `docs/runbooks/aria-runner-rebuild.md`
+  Step 4.
+- The Codex route keeps the ChatGPT login and an opaque OpenAI tunnel: ARIA-MEDIUM-621.
+- The refusal view's `sk-ant` underscore gap (ARIA-MEDIUM-620) is fixed in this PR by
+  `49166f040`; the row is closed by finding-closure-reconcile from that commit's `Closes:`
+  trailer. The refusal view's PEM/bearer widening (`9c4d1f251`) has no registered row yet: stub
+  `s2-refuseview-pem-bearer-1.json`, for the next registry-owning lane.
+- The gateway has no per-spawn request budget: ARIA-LOW-622.
+- The body/beta policy is a denylist: ARIA-LOW-623.
+- The runner attestation reads `CLAUDE_CODE_OAUTH_TOKEN`: ARIA-LOW-624.
+- The capability probe runs on the host login: ARIA-LOW-625.
+
+## Findings raised while fixing ARIA-MEDIUM-563
+
+The 563 fixer wrote six stubs (`g563-1` to `g563-6`). Each was re-checked on the merge with wave B
+(`02ad81e36`): wave B fixed none of them, and none matches an existing registry row. All six are
+registered with `finding-registry add` as ARIA-MEDIUM-620 to ARIA-LOW-625, then replayed with
+`finding-registry add-explicit` onto the registry after the `origin/main` merge, so their hash chain
+continues main's tail. Each is OPEN, owner
+Okan-wqm, agent claude, cycle `2026-10-17-aria-563`, deadline 2026-11-14 (none is HIGH).
+
+### ARIA-MEDIUM-620 — The refusal view misses sk-ant tokens with an underscore in their body
+
+Full title: The kernel's refusal view misses an Anthropic token whose first 32 characters after
+sk-ant- contain an underscore (every setup-token / OAuth token is base64url)
+
+Fixed in this PR by `49166f040` (the detect regex admits `_` like the redact one; the row's
+fixture carries the setup-token shape). The row was registered OPEN before the fix landed and is
+closed by finding-closure-reconcile from the fixing commit's `Closes:` trailer.
+
+- `aria-kernel/aria_kernel/secret_scrub.py:306-307`: the `anthropic_api_key` row detects
+  `sk-ant-[A-Za-z0-9-]{32,}` (no `_`) and redacts `sk-ant-[A-Za-z0-9_\-]{32,}`.
+- `aria-kernel/aria_kernel/implementation_safety.py:277`: `SECRET_SCAN_PATTERNS` is built from the
+  detect patterns.
+- Measured on the merge: for `'sk-ant-' + 'oat01-' + 'Ab3_' + 'Q' * 60`, `SECRET_SCAN_PATTERNS`
+  finds nothing. `secret_scrub.credential_shapes_in` names `anthropic_api_key` and `generic_sk_key`.
+- 563 makes such a token ARIA's Anthropic credential. For a random base64url body, about a third of
+  them would pass `verify_no_secret_in_diff` if pasted into a diff. No room holds the token, so the
+  exposure is an operator paste.
+
+### ARIA-MEDIUM-621 — The Codex room still holds the ChatGPT login and an opaque OpenAI tunnel
+
+Full title: The Codex runtime room still holds the ChatGPT login (auth.json, ro-bound) and an opaque
+CONNECT tunnel to the OpenAI hosts
+
+- `aria-kernel/aria_kernel/implementation_safety.py:1583-1605`: `_wrap_runtime_state_in_sandbox`
+  ro-binds `<auth>/auth.json` into the room and builds it with `provider="openai"`.
+- `aria-kernel/aria_kernel/provider_routes.py:104-110`: the openai row is a tunnel to `chatgpt.com`,
+  `auth.openai.com` and `api.openai.com`.
+- `tools/aria-poc/codex_runtime.py:398-402`: the room has no code-running tool (shell_tool,
+  unified_exec, apps and web_search are off), so the agent-run-code vector is absent there.
+- This host has no `codex` binary, so whether Codex honours a base-URL or unix-socket redirect
+  cannot be measured. The fix is a gateway row for openai (or a per-room CA) and dropping the
+  auth.json bind.
+
+### ARIA-LOW-622 — No per-spawn request or byte budget at the provider gateway
+
+Full title: Any process in the Claude room can spend the operator's subscription quota through the
+provider gateway; no per-spawn request or byte budget bounds it
+
+- `aria-kernel/aria_kernel/provider_gateway.py:282-308`: `ProviderGateway.handle` forwards every
+  pinned `POST /v1/messages` under the kernel credential and keeps no per-socket counter.
+- `aria-kernel/aria_kernel/egress_proxy.py:280`: one gateway handler per route serves every room the
+  process builds.
+- This is quota spend, not exfiltration: only pinned Messages calls pass, with no server tools and
+  no url/file sources. The hook broker's turn budget bounds the CLI's own turns, not raw requests to
+  the socket.
+
+### ARIA-LOW-623 — The provider gateway's body and beta policy is a denylist
+
+Full title: The provider gateway's body and beta policy refuses known-bad items (denylist): an
+unknown top-level Messages field, a file_id outside messages/system and any anthropic-beta member
+reach the provider under the kernel credential
+
+- `aria-kernel/aria_kernel/provider_gateway.py:86`: `REFUSED_BODY_FIELDS` is
+  `('mcp_servers', 'container')`.
+- `aria-kernel/aria_kernel/provider_gateway.py:129-145`: `refuse_body_reason` walks only `messages`
+  and `system` for `file_id` and sources.
+- `aria-kernel/aria_kernel/provider_gateway.py:256-267`: `_upstream_head` forwards every
+  `anthropic-beta` member the room sent.
+- The security review's probe cases `unknown_toplevel`, `file_id_in_tools` and `beta_passthrough`
+  were still admitted after `6b45b74c1`.
+- An allowlist needs the request vocabulary of each installed CLI version under each production
+  argv. For CLI 2.1.278 that is 10 top-level keys and 11 beta members (in the registry notes).
+  Otherwise every spawn is refused.
+
+### ARIA-LOW-624 — The runner attestation reads CLAUDE_CODE_OAUTH_TOKEN, not the kernel's token
+
+Full title: The runner attestation measures claude_auth from CLAUDE_CODE_OAUTH_TOKEN, a variable no
+kernel path uses since ARIA-MEDIUM-563; a runner set up per the runbook attests 'absent'
+
+- `aria-kernel/aria_kernel/runner_attestation.py:338`:
+  `managed_auth_present = bool(os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"))`.
+- `aria-kernel/aria_kernel/runner_attestation.py:523-524`: a `claude_auth` outside
+  `APPROVED_CLAUDE_AUTH` raises `runner_attestation_claude_managed_auth_required`.
+- `aria-kernel/aria_kernel/provider_credentials.py:170`: `read_provider_credential('anthropic')` is
+  the kernel's boundary.
+- No merge is blocked: an agent-lane refusal is only a `::warning::`, and since ARIA-HIGH-220 the
+  merge gate reads only the merge lane's rows. On the base the agent-lane rows were already
+  'absent'.
+
+### ARIA-LOW-625 — The capability probe runs Claude on the host login, not through the gateway
+
+Full title: The capability probe (hook_probe.py) still runs Claude unconfined on the host login; a
+runner rebuilt per the ARIA-MEDIUM-563 runbook (no host login) reports a false 'PreToolUse hook was
+never consulted' (exit 3)
+
+- `tools/aria-poc/hook_probe.py:68`: the probe's env is `{**os.environ, ...}`, not the gateway
+  route.
+- `tools/aria-poc/hook_probe.py:81-83`: a failure maps to exit 2 only when stderr contains `auth`.
+- `.github/workflows/aria-runner-capability-probe.yml:76`: exit 3 is a red job.
+- `docs/runbooks/aria-runner-rebuild.md:269-272`: Step 4 item 2 mints the kernel token, and there is
+  no host login on a rebuilt runner.
+- Measured by the 563 regression review: with an empty HOME, CLI 2.1.278 exits 1 with an empty
+  stderr and the result `Not logged in - Please run /login`, so the probe returns 3. Today's runner
+  still has its old login, so it turns red on the first rebuild.
+
+## ARIA-HIGH-579 — fixed (2026-10-18)
+
+What the proof showed, on the code before this change:
+
+- The nights were driven through `aria-kernel autonomy run --profile standard`, in process: the
+  command the nightly cycle step runs, with the runners the CLI selects. The stores were
+  production-shaped: a git workspace, a plan started through `plan_convergence`, the production
+  routing table and the production cooldown writer. In the test, `claude` and `gh` are logging
+  stubs, so no model is spawned and no network is reached.
+- With Anthropic (`rate_limit_event`, reset in 3 days) and Z.ai (429) both cooled, the night ran
+  every phase from `cycle_started` to `max_cycles_reached`. It exited `max_cycles` with
+  `overall_status: ok` and `cycles_completed: 1`. No row and no notice said it was an outage night.
+- It wrote cycle, discovery, pressure, reflection and memory rows. It booked the adopted plan in the
+  funnel again as minted and rejected (`cycles_minted` and `cycles_rejected` 1 -> 2 for one plan).
+  Ten such nights read as a stalled funnel to the doctor (`funnel_health`).
+- Where the adopted plan had no request in flight, its convergence step minted the next round
+  request (`challenger_plan`, `critical_path`), which no provider could serve.
+- The planner daemon polled its whole iteration budget and claimed nothing. With the CLI defaults
+  that is 10 iterations of 30 s.
+- What it did not do: claim, spawn, mint discretionary work (admission refused
+  `provider_unavailable`) or release anything as charged. The per-request waits held.
+- With only Anthropic cooled, the whole night ran and read seats were admitted to Z.ai. That is
+  expected and stays.
+
+What violates the decision, and what does not:
+
+- Violates: starting a cycle and recording it as a completed `ok` cycle, advancing a plan and
+  minting its round request while no provider can serve it, and booking funnel and learning rows
+  from a night on which nothing could run. There was no named hold.
+- Does not: the deterministic steps after the cycle step (doctor, self_improve, deliver, integrity
+  verify, publish) spawn no agent and write only their own ledgers. They keep running on a held
+  night, so the doctor still reads the store. The orchestrator's startup housekeeping also stays:
+  the orphan reaper already spares a request that waits on a provider, and key and socket pruning
+  touch no model work.
+
+What changed:
+
+- `provider_outage.fleet_outage`: every routed role is in an outage on this host. It asks
+  `provider_outage` once per role, so there is no second copy of the predicate.
+- `provider_hold` (new):
+  - `night_outage` reads the cooldowns and the host's providers. An unreadable ledger is not an
+    outage, as in the planner hook.
+  - `hold_if_every_provider_is_out` writes ONE `autonomy_state` row (`provider_outage_hold`, status
+    `held`, with the checkpoint, the cooled providers and when the first returns) and ONE
+    `cycle_held` notice.
+  - It runs `escalate_prolonged_outages`, so the 30-day bound still reaches the operator on held
+    nights. That bound ran only inside the cycle.
+- `autonomy_orchestrator` asks at three checkpoints:
+  - before a cycle starts, after the profile gate;
+  - after the planner drain;
+  - after the worker drain. These two drains are the night's only spawning lanes, and a spawn is the
+    only writer of a cooldown. A held night exits `provider_outage_hold`.
+- `orchestrator_exit_history.EXIT_PROVIDER_OUTAGE_HOLD` is a clean exit, not in
+  `FAILED_EXIT_REASONS`: exit code 0, no `cycle_failed` notice, no breaker count, and the doctor's
+  exit streak reads it as clean. `notify` gains the `cycle_held` kind and `AUTONOMY_PHASES` the
+  phase.
+- `tests/test_night_holds_while_every_provider_is_out.py` runs four nights on one store:
+  - night 0: every provider serves; the plan's round request is minted;
+  - night 1: all cooled; one hold row, no cycle started, the request, claim, admission, plan, queue,
+    funnel, memory, cycle and reflection ledgers byte-identical, one notice, exit 0;
+  - night 2: Z.ai back, Anthropic cooled; the same phases as night 0, the planner selects the
+    request night 0 minted, nothing re-minted;
+  - night 3: the planner's child spends Z.ai mid-night; the hold follows `planner_dispatch_drained`,
+    no request is minted after the spend, and the interrupted request is `REQUEUED` with no fault
+    requeue. Fast tests cover `fleet_outage` and the worker checkpoint (the review is not minted).
+- Red first: on the previous code 12 of the 19 tests failed. Six were behavioural (night 1 ran a
+  full cycle with exit `max_cycles`, no hold row and no notice; night 3 ran past the planner) and
+  six were the missing owner symbols.
+
+What is not done:
+
+- The cron still fires every night; the workflow is unchanged. The hold is decided in the kernel at
+  the cycle step, so the runner preflight, the state restore and the post-cycle steps still use
+  their minutes of host time on a held night.
+- The executor drain chained after the cycle still starts on a held night. Its per-request admission
+  refuses cooled providers, as before.
+- The scenario stands in for the planner hook's executor child, because the real hook makes a git
+  worktree of the repository that holds the executor. It runs under `standard`; a CONVERGED plan's
+  delivery under `strict` is not exercised on a held night. The hold at the cycle start skips that
+  sweep with the rest of the cycle.
+- The funnel counts an adopted plan once per cycle in which its convergence is stepped. This is not
+  an outage defect, so it was not registered here; a hold now keeps outage nights out of it.
+- The scenario test takes about 150 s. `suite_shard_weights.json` has no measured weight for it, so
+  CI places it by test count until the weights are next refreshed.
+
+### ARIA-HIGH-579 — review response (2026-10-18)
+
+The review of `8c5fb1a65` found one major and four minors; the round-2 scan of the cut-off fix
+found two more defects in the new carrier question. Each was reproduced first, and each fix is
+its own commit.
+
+- **Major: the night read the probe back-off, not the outage.** Reproduced with the reviewer's
+  probe. Anthropic was spent with a 3-day reset, and Z.ai was re-cooled four times from 02:40.
+  At 17:13 that day and the next, `night_outage` returned None while Z.ai's outage was still
+  open. The scenario now runs night 1 at production timing: Z.ai refused 14 h 44 min before the
+  run, with the policy 900 s back-off. On the previous code it ran the whole cycle and exited
+  `max_cycles`; 8 of the module's tests failed, all 33 pass at this tree.
+  - Fix (`10a7d9827`), at the one owner. `provider_outage.provider_outage`/`fleet_outage` take
+    `awaiting_reprobe`: providers that are out for the night with no clock. `provider_hold`
+    fills it with each provider that meets all three conditions:
+    - its outage is open;
+    - its back-off has lapsed, and that back-off was the policy's own. A reset the vendor
+      stated, once passed, is the vendor's word that the quota is back;
+    - a selectable request has it on its ladder (see the scan fix below for what selectable
+      means).
+  - Who releases the hold. The night carries no request, so it does not ask again. The drains'
+    native admission asks, and the served spawn closes the outage (`record_provider_restored`).
+  - Per-request callers (the planner hook and the discretionary mint admission) pass no
+    awaiting providers and keep reading the back-off. A lapsed back-off is exactly when their
+    request carries the re-probe (ARIA-HIGH-435).
+  - `provider_cooldown.latest_provider_cooldowns` is the one newest-row reader, and
+    `active_provider_cooldowns` filters it.
+  - **Operator gate — the nothing-waiting deviation, recorded before landing.** With every
+    provider out and NOTHING selectable to carry a re-probe, the night does not hold: it runs
+    one deterministic cycle and mints the request the next drain re-probes with. This narrows
+    the operator's 2026-10-17 hold rule ("when the quota runs out ARIA holds where it is") on
+    the empty-queue edge: holding there would stand for ever (no lane asks again, nothing
+    restores), which is a liveness loss the rule was never meant to buy. Relayed through the
+    program's owner on 2026-10-19 and recorded here as an ACCEPTED DEVIATION, pending Okan's
+    confirmation (surfaced to him as a to-confirm item with the reopen path). Verified at the
+    real entry point on this tree (scratch probe, production-shaped store, both outages open,
+    back-off lapsed, empty queue): exit 0 `max_cycles`, deterministic phases only, zero model
+    spawns, and the cooldown ledger unchanged — no admission probe spent anything. Reopening
+    conditions: if the operator reads the empty-queue night as work that must not even mint a
+    re-probe request, the night must hold and an explicit operator-approved release lane (a
+    scheduled admission re-probe) must replace the mint; if a provider-restoration or wake path
+    that could re-evaluate a standing hold lands, the nothing-waiting mint is no longer the
+    only release and the hold must return; and the first real all-out-and-idle night's doctor
+    and Actions output must be checked — reopen ARIA-HIGH-579 on any of them.
+- **Scan: the carrier question copied the state half of selection eligibility** (`e9a562216`).
+  The cut-off fix's `_WAITING_STATES` counted every `PENDING`/`REQUEUED` row, dropping the
+  owner's shadow, moot (ARIA-HIGH-360), undispatchable (ARIA-HIGH-388) and anchor
+  (ORPHAN-MEDIUM-492) refusals: a waiter no drain would ever select was counted as a re-probe
+  carrier, standing a hold nothing could end. The eligibility fold is now one function at the
+  queue's owner, `agent_invocations.selection_skip`; `next_pending_request` and
+  `provider_hold._reprobe_carried` both ask it (the night read-only). Red first: a store whose
+  only waiter is a real `issue_implementation_envelope` request the delivery has no authority
+  for held the night before the fix. The selection's own behaviour is unchanged (anchor, moot,
+  undispatchable and undecided suites re-run green).
+- **Scan: the fail-open over unreadable ledgers was silent — and the ledger's own RuntimeError
+  taxonomy raised past it** (`98af39493`). Each read the night needs is guarded and named
+  (`cooldown_ledger`, `outage_ledger`, `request_ledger`, `routing`) and records one
+  `hold_indeterminate` notice per unreadable source before the night runs on. Writing the red
+  found the second defect: a hash-broken governance ledger (`LedgerIntegrityError`) took the
+  checkpoint and the whole night down at all three call sites; it now fails open, named.
+- **Minor: the byte-identity pin was partly vacuous** (`6ad741435`). Reproduced: after night 0,
+  `queues`, `dispatch` and `skill-genesis` do not exist.
+  - A pinned path that is absent now fails the digest; a queued item is seeded through
+    `next_cycle_queue.append_pending` before night 1.
+  - `dispatch` and `skill-genesis` are dropped from the pin, since the fixture needs the triage
+    pipeline to write them. The docstring no longer claims they are pinned.
+- **Minor: nothing tested the night after a mid-night hold, and the held cycle skipped its
+  reflection** (`0e5b17a96`). Decided: a cycle held after its cycle step reflects, as the
+  failed exits do (`_reflect_on_failed_cycle`, ARIA-HIGH-420). The daily report is written and
+  the cycle's pressures reach the next night's queue.
+  - Red first: the worker-checkpoint test asserts the reflection row, and it failed on the
+    previous orchestrator (re-verified this round against the pre-fix tree).
+  - The scenario gains night 4. After night 3's hold, Z.ai is restored, and the night selects
+    the handed-back request with no remint and no fault requeue.
+- **Minor: the executor drain after a held night is unproven.** Not fixed; registered as
+  ARIA-LOW-627. The reviewer's first fix option, stopping the drain at the fleet outage, is
+  wrong after the major fix: the drain's native admission is the lane that re-probes the open
+  outage and restores the provider, so a drain that stopped there would leave the hold standing
+  for ever.
+- **Minor: no shard weight for the module.** Not fixed; registered as ARIA-LOW-628. The weights
+  file is generated from CI shard reports; a value typed by hand from this loaded host would be
+  a second, unmeasured source. The module took 446.6 s under nice 10 on the loaded host at the
+  review's round; 163-174 s in this round's runs.

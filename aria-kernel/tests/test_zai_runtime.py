@@ -146,12 +146,15 @@ class CredentialBoundary(unittest.TestCase):
         self.assertNotIn(self.SECRET, str(caught.exception))
 
     def test_an_empty_or_multiline_file_is_refused_by_name(self) -> None:
-        for content in ("", "\n", "line-one\nline-two\n"):
+        # The kernel's one credential-file reader (ARIA-MEDIUM-563 review):
+        # an empty file is empty, a second line is malformed.
+        for content, reason in (("", "credential_file_empty"), ("\n", "credential_file_empty"),
+                                ("line-one\nline-two\n", "credential_file_malformed")):
             path = self._key_file(content)
             with self.subTest(content=repr(content)):
                 with self.assertRaises(zai_runtime.ZaiCredentialUnavailable) as caught:
                     zai_runtime.read_zai_credential({zai_runtime.ZAI_CREDENTIAL_FILE_ENV: str(path)})
-                self.assertEqual(caught.exception.reason, "credential_file_empty")
+                self.assertEqual(caught.exception.reason, reason)
 
     def test_a_missing_file_is_refused_by_name(self) -> None:
         with self.assertRaises(zai_runtime.ZaiCredentialUnavailable) as caught:

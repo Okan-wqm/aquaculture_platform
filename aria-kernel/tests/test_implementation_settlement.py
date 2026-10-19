@@ -405,7 +405,7 @@ class PostDeliveryHandOver(_ImplementationRequested):
     def _records(self) -> list[dict]:
         from aria_kernel.human_required import list_human_required
 
-        return [row for row in list_human_required(base_dir=self.tools, include_resolved=True)
+        return [row for row in list_human_required(base_dir=self.tools, include_resolved=True).rows
                 if (row.get("context") or {}).get("kind") == "human_merge_pr"]
 
     def _change_id(self) -> str:

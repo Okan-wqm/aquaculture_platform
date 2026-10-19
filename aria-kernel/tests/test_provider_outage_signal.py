@@ -44,7 +44,7 @@ class _Store(unittest.TestCase):
     def items(self, *, resolved: bool = False) -> list[dict]:
         from aria_kernel.human_required import list_human_required
 
-        return list_human_required(base_dir=self.tools, include_resolved=resolved)
+        return list_human_required(base_dir=self.tools, include_resolved=resolved).rows
 
 
 class OneSignalPerTransitionResolvedByTheNextSuccess(_Store):

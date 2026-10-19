@@ -2303,7 +2303,7 @@ class TheStartupReaperCollectsAbandonmentNotLateness(unittest.TestCase):
         from aria_kernel.human_required import list_human_required
 
         escalations = [
-            row for row in list_human_required(base_dir=self.base)
+            row for row in list_human_required(base_dir=self.base).rows
             if row.get("context", {}).get("plan_id") == "plan-729"
         ]
         self.assertEqual(len(escalations), 1, escalations)
@@ -2319,7 +2319,7 @@ class TheStartupReaperCollectsAbandonmentNotLateness(unittest.TestCase):
         from aria_kernel.human_required import list_human_required
 
         escalations = [
-            row for row in list_human_required(base_dir=self.base)
+            row for row in list_human_required(base_dir=self.base).rows
             if row.get("context", {}).get("plan_id") == "plan-729"
         ]
         self.assertEqual(len(escalations), 1, escalations)

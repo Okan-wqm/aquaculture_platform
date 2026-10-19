@@ -117,6 +117,22 @@ class DeadlineRow:
         }
 
 
+class PartiallyUnreadableSource(LookupError):
+    """A source whose surface read PARTLY (ARIA-LOW-597).
+
+    ``rows`` are the readable rows — they still count; ``undecided`` names,
+    one entry each, the parts that could not be read. ``read_deadlines``
+    counts the rows and marks the parts, so a partly unreadable source is
+    never reported as a smaller decided set, nor does one unreadable record
+    hide the readable ones.
+    """
+
+    def __init__(self, rows: list["DeadlineRow"], undecided: list[str]) -> None:
+        super().__init__(",".join(undecided))
+        self.rows = rows
+        self.undecided = undecided
+
+
 @dataclass(frozen=True)
 class DeadlineSource:
     kind: str
@@ -163,11 +179,18 @@ def _waiver_source(manifest: WaiverManifest) -> DeadlineSource:
 
 def read_human_required_deadlines(tools_dir: Path, workspace_root: Path) -> list[DeadlineRow]:
     """Open records through the report's own lister, so the doctor and the
-    daily report's HUMAN_REQUIRED section count the same queue."""
+    daily report's HUMAN_REQUIRED section count the same queue.
+
+    ARIA-LOW-597 — a record file the lister cannot read is named undecided
+    while the readable records still count: this reader raises
+    `PartiallyUnreadableSource` carrying both, so the readout never reports
+    the queue as a smaller DECIDED set, and the unreadable records appear in
+    `undecided` under this source's kind, one by name."""
     from .human_required import list_human_required
 
+    listing = list_human_required(base_dir=tools_dir, include_resolved=False)
     rows: list[DeadlineRow] = []
-    for record in list_human_required(base_dir=tools_dir, include_resolved=False):
+    for record in listing.rows:
         rows.append(DeadlineRow(
             kind=HUMAN_REQUIRED_SLA,
             key=str(record["request_id"]),
@@ -176,6 +199,10 @@ def read_human_required_deadlines(tools_dir: Path, workspace_root: Path) -> list
             consequence=f"the operator SLA is breached [{record.get('severity')}]",
             lapse_is_fault=True,
         ))
+    if listing.unreadable:
+        raise PartiallyUnreadableSource(
+            rows, [f"{record.record_id}:unreadable" for record in listing.unreadable]
+        )
     return rows
 
 
@@ -273,8 +300,16 @@ def read_deadlines(
             continue
         try:
             rows.extend(source.read(tools, workspace or tools))
+        except PartiallyUnreadableSource as partial:
+            rows.extend(partial.rows)
+            undecided.extend(f"{source.kind}:{name}" for name in partial.undecided)
         except Exception as exc:  # noqa: BLE001 — the reader reports, it does not crash the doctor
-            undecided.append(f"{source.kind}:{type(exc).__name__}")
+            # A LookupError may name what it could not read (ARIA-LOW-597):
+            # its message is kept — one undecided entry per named record,
+            # each under the source's own kind — instead of collapsing to
+            # the exception's class name.
+            detail = str(exc) if isinstance(exc, LookupError) and str(exc) else type(exc).__name__
+            undecided.extend(f"{source.kind}:{part}" for part in detail.split(","))
     rows.sort(key=lambda row: (row.due_at, row.kind, row.key))
     return DeadlineReadout(rows=tuple(rows), undecided=tuple(undecided), now=moment, warning_days=warning_days)
 

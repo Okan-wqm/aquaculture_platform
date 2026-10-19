@@ -172,7 +172,7 @@ def record_handed_over_pr(
     from .own_pr_delivery import ci_summary
 
     root = ensure_tools_dir(base_dir)
-    for record in list_human_required(base_dir=root):
+    for record in list_human_required(base_dir=root).rows:
         context = record.get("context") or {}
         if context.get("kind") == HUMAN_MERGE_PR_KIND and context.get("pr_number") == pr_number \
                 and record.get("status") == "open":
@@ -219,7 +219,7 @@ def surface_human_merge_prs(
     opened = aria_opened_prs(base_dir=root)
     open_records = {
         int(record["context"]["pr_number"]): record
-        for record in list_human_required(base_dir=root)
+        for record in list_human_required(base_dir=root).rows
         if (record.get("context") or {}).get("kind") == HUMAN_MERGE_PR_KIND
         and type((record.get("context") or {}).get("pr_number")) is int
     }

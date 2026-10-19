@@ -6325,8 +6325,14 @@ def _main(argv: list[str] | None = None) -> int:
             print(json.dumps(row, indent=2, sort_keys=True))
             return 0
         if args.human_required_command == "list":
-            rows = list_human_required(base_dir=args.tools_dir, include_resolved=args.include_resolved)
-            print(json.dumps(rows, indent=2, sort_keys=True))
+            listing = list_human_required(base_dir=args.tools_dir, include_resolved=args.include_resolved)
+            print(json.dumps({
+                "open": list(listing.rows),
+                "unreadable": [
+                    {"request_id": record.record_id, "reason": record.reason}
+                    for record in listing.unreadable
+                ],
+            }, indent=2, sort_keys=True))
             return 0
         if args.human_required_command == "resolve":
             row = resolve_human_required(

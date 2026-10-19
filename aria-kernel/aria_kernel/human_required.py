@@ -21,6 +21,7 @@ event on creation so the audit chain still captures the escalation.
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping
@@ -226,27 +227,61 @@ def record_human_required(
     return record
 
 
+@dataclass(frozen=True)
+class UnreadableRecord:
+    """A record file the lister could not read (ARIA-LOW-597).
+
+    ``record_id`` is the file's stem — by ``_human_required_path``
+    construction that IS the record's ``request_id``. ``reason`` is a short
+    deterministic class name (``invalid_json``, ``IsADirectoryError`` …),
+    never the raw exception text.
+    """
+
+    record_id: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class HumanRequiredListing:
+    """What ``list_human_required`` read: the readable rows AND the records
+    it could not (ARIA-LOW-597, HIGH-108 doctrine — an unreadable source is
+    named beside the rows, never silently skipped, so no reader of this
+    listing can report a smaller queue than the directory holds)."""
+
+    rows: list[dict[str, Any]] = field(default_factory=list)
+    unreadable: tuple[UnreadableRecord, ...] = ()
+
+
 def list_human_required(
     *,
     base_dir: str | Path | None = None,
     include_resolved: bool = False,
-) -> list[dict[str, Any]]:
-    """List HUMAN_REQUIRED entries, sorted by SLA deadline (most urgent first)."""
+) -> HumanRequiredListing:
+    """List HUMAN_REQUIRED entries, sorted by SLA deadline (most urgent
+    first), beside every record file that could not be read."""
     root = ensure_tools_dir(base_dir)
     directory = _human_required_dir(root)
     if not directory.exists():
-        return []
+        return HumanRequiredListing()
     rows: list[dict[str, Any]] = []
+    unreadable: list[UnreadableRecord] = []
     for path in directory.glob("*.json"):
         try:
             doc = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+        except json.JSONDecodeError:
+            unreadable.append(UnreadableRecord(record_id=path.stem, reason="invalid_json"))
+            continue
+        except OSError as exc:
+            unreadable.append(UnreadableRecord(record_id=path.stem, reason=type(exc).__name__))
+            continue
+        if not isinstance(doc, dict):
+            unreadable.append(UnreadableRecord(record_id=path.stem, reason="not_an_object"))
             continue
         if not include_resolved and doc.get("status") != "open":
             continue
         rows.append(doc)
     rows.sort(key=lambda r: r.get("sla_deadline", ""))
-    return rows
+    return HumanRequiredListing(rows=rows, unreadable=tuple(unreadable))
 
 
 RESOLVED_BY_OPERATOR: str = "operator"

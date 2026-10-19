@@ -345,9 +345,11 @@ def _human_required_summary(tools_root: Path) -> dict[str, Any]:
     """
     from .human_required import list_human_required
 
-    items = list_human_required(base_dir=tools_root, include_resolved=False)
-    if not items:
-        return {"open": 0, "breaching_sla": 0, "items": [], "tiers": {}}
+    listing = list_human_required(base_dir=tools_root, include_resolved=False)
+    items = listing.rows
+    unreadable = [{"request_id": record.record_id, "reason": record.reason} for record in listing.unreadable]
+    if not items and not unreadable:
+        return {"open": 0, "breaching_sla": 0, "items": [], "tiers": {}, "unreadable": []}
     now = datetime.now(timezone.utc)
     breaching = 0
     tiers: dict[str, int] = {}
@@ -390,7 +392,7 @@ def _human_required_summary(tools_root: Path) -> dict[str, Any]:
 
     human_merge = [item for item in items if (item.get("context") or {}).get("kind") == HUMAN_MERGE_PR_KIND]
     return {"open": len(items), "breaching_sla": breaching, "items": items[:5], "tiers": tiers,
-            "human_merge": human_merge}
+            "human_merge": human_merge, "unreadable": unreadable}
 
 
 def _summarize_findings(repo_root: Path) -> dict[str, Any]:

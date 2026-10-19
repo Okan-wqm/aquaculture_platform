@@ -46,7 +46,8 @@ def _human_required(tools: Path, workspace: Path | None, now: datetime, limit: i
     from .human_required import list_human_required
     from .human_required_adjudication import DISPOSITION_ESCALATE_OPERATOR
 
-    records = list_human_required(base_dir=tools)
+    listing = list_human_required(base_dir=tools)
+    records = listing.rows
     now_text = _stamp(now)
 
     def kind_of(record: dict[str, Any]) -> str:
@@ -79,6 +80,11 @@ def _human_required(tools: Path, workspace: Path | None, now: datetime, limit: i
         "sla_lapsed": sum(1 for record in records
                           if record.get("sla_deadline") and str(record["sla_deadline"]) <= now_text),
         "by_kind": dict(sorted(Counter(kind_of(record) for record in records).items())),
+        # ARIA-LOW-597 — the records the lister could not read are named in
+        # the section and lifted into the inbox's `undecided` roll-up by
+        # `read_operator_inbox`; a corrupted record file must shrink nothing.
+        "unreadable": [{"request_id": u.record_id, "reason": u.reason} for u in listing.unreadable],
+        "undecided": [f"human_required:{u.record_id}:unreadable" for u in listing.unreadable],
         "items": items,
     }
 
@@ -162,10 +168,16 @@ def read_operator_inbox(
     undecided: list[str] = []
     for name, read in _SECTIONS:
         try:
-            sections[name] = read(tools, workspace, moment, limit)
+            section = read(tools, workspace, moment, limit)
         except Exception as exc:  # noqa: BLE001 — an unreadable owner is named, the others are still read
             detail = str(exc) if isinstance(exc, LookupError) and str(exc) else type(exc).__name__
             undecided.append(f"{name}:{detail}")
+            continue
+        sections[name] = section
+        # A section that read PART of its surface names what it could not
+        # (ARIA-LOW-597): its dict may carry `undecided` entries, which are
+        # lifted into the inbox's roll-up beside the sections that raised.
+        undecided.extend(f"{entry}" for entry in section.pop("undecided", []))
     return {
         "schema": INBOX_SCHEMA,
         "generated_at": _stamp(moment),

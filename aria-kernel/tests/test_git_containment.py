@@ -718,9 +718,15 @@ class StoreOutsideTheSandboxTests(_HeldIdentity):
         payload = json.dumps({"session_id": "sess-1", "tool_use_id": "toolu_1", "hook_event_name": "PostToolUse",
                               "tool_name": "Bash", "tool_input": {"command": "git status"},
                               "tool_response": {"exit_code": 0}})
+        pre = json.dumps({"session_id": "sess-1", "tool_use_id": "toolu_1", "hook_event_name": "PreToolUse",
+                          "tool_name": "Bash", "tool_input": {"command": "git status"}})
         script = (
             f"printf 'store_dir='; ( test -d {self.store} && echo present ) || echo absent; {checks} {forge} "
             f"printf 'broker_env='; echo ${{{HOOK_BROKER_SOCKET_ENV}:-unset}}; "
+            # ARIA-MEDIUM-609 — the production shape: the CLI consults
+            # PreToolUse for a budgeted tool before its PostToolUse, and the
+            # broker journals the post-tool of a turn IT allowed.
+            f"printf %s {pre!r} | python3 {self.client} pre-tool >/dev/null; "
             f"printf 'hook_rc='; ( printf %s {payload!r} | python3 {self.client} post-tool >/dev/null; echo $? )"
         )
         done = self._run(script, self.containment, hook_broker_socket=broker_socket)

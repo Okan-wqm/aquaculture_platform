@@ -15,9 +15,13 @@ Invariants:
                 server spawned inside against the store; a spawn that serves no broker
                 is refused the server by name.
   I-V12-MCP-03  the PostToolUse hook journals `mcp__*` calls (server + tool + input
-                hash, never arguments) and feeds mcp/tool-calls.jsonl; ≥10 calls with
-                error rate ≥ 0.5 quarantine the server (governance row); release needs
-                an operator ref.
+                hash, never arguments) and feeds mcp/tool-calls.jsonl as CLIENT
+                telemetry; quarantine (ARIA-MEDIUM-609) is derived only from the
+                kernel's own side=server rows over the real broker — ≥10 witnessed
+                faults with error rate ≥ 0.5 quarantine the server (governance row),
+                minus the caller-caused classes; release needs an operator ref. The
+                registry refuses a stdio/http server no kernel-side witness can
+                vouch for (kernel_socket carries it by construction).
   I-V12-MCP-04  `aria-kernel mcp serve` speaks newline JSON-RPC (initialize,
                 tools/list, tools/call, ping, unknown method → -32601); read tools
                 answer from the store; write tools are absent without --allow-writes
@@ -80,9 +84,15 @@ class RegistryAndProfiles(_Store):
         self.assertIn("human_required_resolve", shipped.servers["aria"].exclude)
         self.assertFalse(shipped.servers["aria"].allows_tool("human_required_resolve"))
         self.assertTrue(shipped.servers["aria"].allows_tool("search"))
-        good = {"transport": "stdio", "command": "python3", "args": [], "env_passthrough": ["PYTHONPATH"], "tools": {"include": ["*"]}}
+        good = {"transport": "stdio", "command": "python3", "args": [], "env_passthrough": ["PYTHONPATH"],
+                "tools": {"include": ["*"]}, "kernel_side_witness": True}
         self.assertEqual(list(self._registry({"ok": good}).servers), ["ok"])
+        # ARIA-MEDIUM-609 — a stdio/http server whose outcomes only the agent's
+        # PostToolUse attestation reports has no kernel-side witness to ground a
+        # quarantine, so registering it is refused by name.
+        witnessless = {k: v for k, v in good.items() if k != "kernel_side_witness"}
         for bad in (
+            witnessless,
             {**good, "env_passthrough": ["GH_TOKEN"]},
             {**good, "env_passthrough": ["lowercase"]},
             {**good, "surprise": 1},
@@ -127,7 +137,8 @@ class SpawnConfigIsStrict(_Store):
         self.assertEqual(mc.mcp_config_for_profile(None), {"mcpServers": {}})
         self.assertEqual(mc.mcp_tool_rules(profile_by_id("judge_opus")), ("mcp__aria",))
         self.assertEqual(set(mc.mcp_tool_rules(impl)), {"mcp__aria__human_required_resolve", "mcp__aria__runtime_signal_ingest"})
-        registry = self._registry({"aria": {"transport": "stdio", "command": "python3"}, "other": {"transport": "http", "url": "https://x"}})
+        registry = self._registry({"aria": {"transport": "stdio", "command": "python3", "kernel_side_witness": True},
+                                   "other": {"transport": "http", "url": "https://x", "kernel_side_witness": True}})
         with self.assertRaises(GovernanceError):
             mc.mcp_config_for_profile(type("P", (), {"mcp_servers": ("nope",)})(), registry=registry)
         import claude_runtime
@@ -146,6 +157,11 @@ class SpawnConfigIsStrict(_Store):
 
 class CallsAreLedgeredAndQuarantined(_Store):
     def test_I_V12_MCP_03_journal_health_quarantine_release(self) -> None:
+        # Client half — telemetry: the PostToolUse hook journals `mcp__*`
+        # calls (server + tool + input hash, never arguments) and feeds
+        # mcp/tool-calls.jsonl. ARIA-MEDIUM-609: those rows are the agent's
+        # own attestation of its payload, so they never count toward health
+        # or quarantine — however many of them fail, the server stays up.
         payload = {"session_id": "s", "tool_use_id": "t", "tool_name": "mcp__aria__search",
                    "tool_input": {"query": "ghp_" + "A" * 40}, "tool_response": {"is_error": False}}
         code, _ = hooks.run_hook("post-tool", payload, base_dir=self.tools, workspace_root=self.ws, request_id="AIR-1")
@@ -154,12 +170,43 @@ class CallsAreLedgeredAndQuarantined(_Store):
         self.assertEqual((journal[0]["command_family"], journal[0]["mcp_server"], journal[0]["mcp_tool"]), ("mcp", "aria", "search"))
         self.assertNotIn("ghp_", json.dumps(journal), "arguments never enter the journal")
         self.assertTrue(journal[0]["input_hash"].startswith("sha256:"))
-        self.assertEqual(mc.evaluate_mcp_health("aria", base_dir=self.tools)["calls"], 1)
+        client_rows = mc.load_declared_jsonl(self.tools.joinpath(*mc.TOOL_CALLS_RELPATH), expected_surface=mc.TOOL_CALLS_SURFACE)
+        self.assertEqual([row["side"] for row in client_rows], ["client"])
+        health = mc.evaluate_mcp_health("aria", base_dir=self.tools)
+        self.assertEqual((health["calls"], health["quarantined"]), (0, False), "client rows are telemetry, never the witness")
         for i in range(11):
             hooks.run_hook("post-tool", {**payload, "tool_use_id": f"t{i}", "tool_response": {"is_error": True}},
                            base_dir=self.tools, workspace_root=self.ws, request_id="AIR-1")
         health = mc.evaluate_mcp_health("aria", base_dir=self.tools)
+        self.assertEqual((health["calls"], health["quarantined"]), (0, False), "a forged PostToolUse burst cannot quarantine the server")
+        # Server half — the witness: faults that are the SERVER's own (a
+        # corrupted mission-events ledger the strict reader refuses), driven
+        # through the REAL broker and stdlib relay the way the CLI's calls
+        # reach the server; the tenth kernel-witnessed fault quarantines,
+        # and only an operator ref releases.
+        events = self.tools / "missions" / "mission-events.jsonl"
+        events.parent.mkdir(parents=True, exist_ok=True)
+        events.write_text("this line is not json\n", encoding="utf-8")
+        from aria_kernel.claude_settings import ISOLATED_INTERPRETER_FLAGS
+        from aria_kernel.mcp_broker import MCP_BROKER_SOCKET_ENV, serve_mcp_broker
+
+        relay = _REPO_ROOT / "aria-kernel" / "aria_kernel" / "mcp_relay.py"
+        requests = [
+            {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}},
+            {"jsonrpc": "2.0", "method": "notifications/initialized"},
+            *[{"jsonrpc": "2.0", "id": 100 + i, "method": "tools/call",
+               "params": {"name": "missions_list", "arguments": {}}} for i in range(10)],
+        ]
+        with serve_mcp_broker(base_dir=self.tools, workspace_root=self.ws, request_id="AIR-1") as broker:
+            done = subprocess.run([sys.executable, *ISOLATED_INTERPRETER_FLAGS, str(relay)],
+                                  input="".join(json.dumps(m) + "\n" for m in requests),
+                                  capture_output=True, text=True, timeout=60,
+                                  env={"PATH": os.defpath, MCP_BROKER_SOCKET_ENV: str(broker.socket_path)})
+        self.assertEqual(done.returncode, 0, done.stderr[-300:])
+        self.assertEqual(len(done.stdout.splitlines()), 11, "initialize and ten calls answered")
+        health = mc.evaluate_mcp_health("aria", base_dir=self.tools)
         self.assertTrue(health["quarantined"])
+        self.assertGreaterEqual(health["calls"], mc.QUARANTINE_MIN_CALLS)
         self.assertGreaterEqual(health["error_rate"], mc.QUARANTINE_ERROR_RATE)
         self.assertIn(mc.MCP_QUARANTINED_EVENT, (self.tools / "governance.jsonl").read_text(encoding="utf-8"))
         self.assertEqual(mc.mcp_config_for_profile(profile_by_id("implementer"), base_dir=self.tools), {"mcpServers": {}}, "quarantined servers drop out of every spawn")

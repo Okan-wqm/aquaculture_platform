@@ -1959,6 +1959,47 @@ def _publish_sandbox_commits(*, tools_dir: Path, request_id: str, claim_id: str,
     return publication
 
 
+def _append_governance_reported(tools_dir: Path | None, kind: str, payload: dict[str, Any]) -> None:
+    """Append one governance row, REPORTING a store that refused it (ARIA-LOW-584).
+
+    Six append sites around the model-refusal exit sat in
+    ``try/except Exception: pass`` — the registry names
+    ``model_refusal_unresolved``; the five siblings swallowed the same
+    way. A row the store refuses — a full disk, which
+    ``state_transaction`` names ``environment_failure:disk_full`` — left
+    no trace at all, not even on stderr, so the operator could not tell
+    an escalation that landed from one whose evidence row was lost. One
+    reporter owns the shape now (the ``human_required_record_unavailable``
+    tier, one row per effect): the kernel store's own ``GovernanceError``
+    refusal is named in a ``::error::`` line — kind, request, cause — and
+    the effect the row reported still proceeds (the refusal still
+    escalates via its HUMAN_REQUIRED record; the charge is still recorded
+    beside it). Anything else raised while appending is a programming
+    error and propagates as the job error it is. ``tools_dir`` None means
+    the caller had no store to write to; that decision stays the
+    caller's, as it was.
+    """
+    if tools_dir is None:
+        return
+    try:
+        from aria_kernel.tool_registry import (
+            GovernanceError, append_tools_governance, ensure_tools_dir,
+        )
+    except Exception as exc:  # noqa: BLE001 — standalone fallback: no kernel, no store
+        sys.stderr.write(
+            f"::error::aria executor could not record {kind} for request "
+            f"{payload.get('request_id') or '?'}: no kernel store ({exc})\n"
+        )
+        return
+    try:
+        append_tools_governance(ensure_tools_dir(tools_dir), kind, payload)
+    except GovernanceError as exc:
+        sys.stderr.write(
+            f"::error::aria executor could not record {kind} for request "
+            f"{payload.get('request_id') or '?'}: {exc}\n"
+        )
+
+
 def invoke_claude_cli(
     *,
     request_id: str,
@@ -2162,24 +2203,17 @@ def invoke_claude_cli(
     # return at the mock branch above).
     _clear_stale_dispatch_artifacts(output_path, resolved_transcript_path)
     if tools_dir is not None:
-        try:
-            _env_audit_keys = sorted([
-                k for k in os.environ.keys()
-                if k.startswith(("CLAUDE_", "ANTHROPIC_")) or k in ("HOME", "USER")
-            ])
-            _env_audit_payload = {
-                "subagent_type": subagent_type,
-                "request_id": request_id,
-                "claude_sensitive_env_keys_present": _env_audit_keys,
-                "api_key_mode_allowed": os.environ.get("ARIA_ALLOW_CLAUDE_API_KEY_MODE") == "1",
-            }
-            from aria_kernel.tool_registry import (
-                append_tools_governance as _at_gov,
-                ensure_tools_dir as _ens_tools,
-            )
-            _at_gov(_ens_tools(tools_dir), "claude_subprocess_env_audit", _env_audit_payload)
-        except Exception:
-            pass
+        _env_audit_keys = sorted([
+            k for k in os.environ.keys()
+            if k.startswith(("CLAUDE_", "ANTHROPIC_")) or k in ("HOME", "USER")
+        ])
+        _env_audit_payload = {
+            "subagent_type": subagent_type,
+            "request_id": request_id,
+            "claude_sensitive_env_keys_present": _env_audit_keys,
+            "api_key_mode_allowed": os.environ.get("ARIA_ALLOW_CLAUDE_API_KEY_MODE") == "1",
+        }
+        _append_governance_reported(tools_dir, "claude_subprocess_env_audit", _env_audit_payload)
     # Plan 023 §A — per-agent model/effort tiering. Both levers resolve from
     # the dispatched agent's frontmatter (scout tier runs cheaper; the
     # decider/writer tier stays on the most expensive model). Fail-safe:
@@ -2188,18 +2222,11 @@ def invoke_claude_cli(
     agent_profile = read_agent_runtime_profile(subagent_type)
     read_containment = read_contained_profile(agent_profile)
     if tools_dir is not None and read_containment:
-        try:
-            from aria_kernel.tool_registry import (
-                append_tools_governance as _rc_gov,
-                ensure_tools_dir as _rc_ens,
-            )
-            _rc_gov(_rc_ens(tools_dir), "claude_spawn_read_contained", {
-                "request_id": request_id, "subagent_type": subagent_type,
-                "profile_id": getattr(agent_profile, "profile_id", None),
-                "tools": list(getattr(agent_profile, "tools", ()) or ()),
-            })
-        except Exception:
-            pass
+        _append_governance_reported(tools_dir, "claude_spawn_read_contained", {
+            "request_id": request_id, "subagent_type": subagent_type,
+            "profile_id": getattr(agent_profile, "profile_id", None),
+            "tools": list(getattr(agent_profile, "tools", ()) or ()),
+        })
     # ARIA-HIGH-002 — resolve the dispatch route BEFORE the claim is taken:
     # the trusted request envelope names the agent/role, the frontmatter SSoT
     # resolves the model, the redirect SSoT resolves the provider, and a
@@ -2373,16 +2400,10 @@ def invoke_claude_cli(
             )
 
         def _gov(event: str, payload: dict[str, Any]) -> None:
-            if tools_dir is None:
-                return
-            try:
-                from aria_kernel.tool_registry import (
-                    append_tools_governance as _fb_gov,
-                    ensure_tools_dir as _fb_ens,
-                )
-                _fb_gov(_fb_ens(tools_dir), event, payload)
-            except Exception:
-                pass
+            # ARIA-LOW-584 — one reporter: a row the store refuses is named
+            # on stderr, never dropped (this closure carries the credit and
+            # failover observations the operator prices nights from).
+            _append_governance_reported(tools_dir, event, payload)
 
         # Operator decision 2026-09-12 — the detection is audited where it is
         # made; the DECISION (requeue under a provider cooldown, never a
@@ -2488,14 +2509,13 @@ def invoke_claude_cli(
                 "refusal": completed.refusal,
             }
             if tools_dir is not None:
-                try:
-                    from aria_kernel.tool_registry import (
-                        append_tools_governance as _ru_gov,
-                        ensure_tools_dir as _ru_ens,
-                    )
-                    _ru_gov(_ru_ens(tools_dir), "model_refusal_unresolved", _unresolved_payload)
-                except Exception:
-                    pass
+                # ARIA-LOW-584 — the registry's named site: the row is
+                # appended through the one reporter, so a store that
+                # refuses it (a full disk names
+                # environment_failure:disk_full) is a ::error:: line
+                # naming the kind and the cause, and the escalation below
+                # still runs. A programming error in the append raises.
+                _append_governance_reported(tools_dir, "model_refusal_unresolved", _unresolved_payload)
                 # One recorder (round 3): in-process, the category in the
                 # record's context. The caller's arm releases this spawn
                 # harness-class (`claude_spawn_refused`) whatever happens
@@ -2782,37 +2802,29 @@ def _record_claude_cli_usage(
             # The charge is real enough to keep the caps binding, but the
             # operator needs to know it is inferred so the rate can be
             # corrected — silence here is how an estimate becomes "the number".
-            try:
-                from aria_kernel.tool_registry import append_tools_governance
-                append_tools_governance(
-                    tools_dir,
-                    "cost_pricing_inferred_from_family",
-                    {
-                        "model": model,
-                        "matched_family": priced.matched_key,
-                        "estimated_usd": priced.usd,
-                        "request_id": request_id,
-                    },
-                )
-            except Exception:
-                pass
+            _append_governance_reported(
+                tools_dir,
+                "cost_pricing_inferred_from_family",
+                {
+                    "model": model,
+                    "matched_family": priced.matched_key,
+                    "estimated_usd": priced.usd,
+                    "request_id": request_id,
+                },
+            )
         if estimated_usd == 0.0 and (input_tokens or output_tokens):
             # Tokens were consumed but no price resolved — make the zero
             # loud instead of silently under-counting the caps.
-            try:
-                from aria_kernel.tool_registry import append_tools_governance
-                append_tools_governance(
-                    tools_dir,
-                    "cost_pricing_unknown_model",
-                    {
-                        "model": model,
-                        "input_tokens": input_tokens,
-                        "output_tokens": output_tokens,
-                        "request_id": request_id,
-                    },
-                )
-            except Exception:
-                pass
+            _append_governance_reported(
+                tools_dir,
+                "cost_pricing_unknown_model",
+                {
+                    "model": model,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "request_id": request_id,
+                },
+            )
         record_cost_attribution(
             cycle_id=cycle_id,
             plan_id=plan_id,

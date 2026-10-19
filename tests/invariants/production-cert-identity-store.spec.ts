@@ -82,18 +82,27 @@ function runGenerator(
   });
 }
 
-function runAssetValidator(
-  certsDirectory: string,
-  assetPath: string,
-  expectedMode: '0600' | '0644',
-): SpawnSyncReturns<string> {
+/**
+ * The generator up to its first issuing step: every function, the managed
+ * server table and the store's directory preparation, so a harness can call
+ * one function against a real store.
+ */
+function generatorDefinitions(): string {
   const generator = readFileSync(GENERATOR_PATH, 'utf8');
   const generationStart = generator.indexOf(
     '\necho "=== Generating Internal TLS Certificates ==="',
   );
   if (generationStart < 0) throw new Error('certificate generator validation boundary is missing');
+  return generator.slice(0, generationStart);
+}
+
+function runAssetValidator(
+  certsDirectory: string,
+  assetPath: string,
+  expectedMode: '0600' | '0644',
+): SpawnSyncReturns<string> {
   const validationHarness = [
-    generator.slice(0, generationStart),
+    generatorDefinitions(),
     `validate_existing_certificate_asset "\${ASSET_PATH}" ${expectedMode} 'fixture asset'`,
   ].join('\n');
   return spawnSync('/bin/bash', ['-c', validationHarness], {
@@ -114,13 +123,8 @@ function runClientSetValidator(
   certificatePath: string,
   expectedIdentity: string,
 ): SpawnSyncReturns<string> {
-  const generator = readFileSync(GENERATOR_PATH, 'utf8');
-  const generationStart = generator.indexOf(
-    '\necho "=== Generating Internal TLS Certificates ==="',
-  );
-  if (generationStart < 0) throw new Error('certificate generator validation boundary is missing');
   const validationHarness = [
-    generator.slice(0, generationStart),
+    generatorDefinitions(),
     'validate_existing_client_set "${KEY_PATH}" "${CERTIFICATE_PATH}" "CN=${EXPECTED_IDENTITY}" "fixture client"',
   ].join('\n');
   return spawnSync('/bin/bash', ['-c', validationHarness], {
@@ -141,13 +145,8 @@ function runCanonicalCaCopyValidator(
   certsDirectory: string,
   caPath: string,
 ): SpawnSyncReturns<string> {
-  const generator = readFileSync(GENERATOR_PATH, 'utf8');
-  const generationStart = generator.indexOf(
-    '\necho "=== Generating Internal TLS Certificates ==="',
-  );
-  if (generationStart < 0) throw new Error('certificate generator validation boundary is missing');
   const validationHarness = [
-    generator.slice(0, generationStart),
+    generatorDefinitions(),
     'validate_canonical_ca_copy "${CA_PATH}" "fixture CA copy"',
   ].join('\n');
   return spawnSync('/bin/bash', ['-c', validationHarness], {
@@ -158,6 +157,30 @@ function runCanonicalCaCopyValidator(
       LC_ALL: 'C',
       DEPLOY_CERTS_DIR: certsDirectory,
       CA_PATH: caPath,
+    },
+  });
+}
+
+/**
+ * One generate_server_cert call with ARGUMENT under --renew-leaves, made
+ * outside the issuance loop. The store also gets a prepared directory for a
+ * set the table does not hold (minio), so the call meets no missing directory.
+ */
+function runServerSetIssuer(certsDirectory: string, argument: string): SpawnSyncReturns<string> {
+  const issuingHarness = [
+    generatorDefinitions(),
+    'prepare_certificate_directories "${CERTS_DIR}/minio"',
+    'RENEW_LEAVES=true',
+    'generate_server_cert "${SERVER_SET_ARGUMENT}"',
+  ].join('\n');
+  return spawnSync('/bin/bash', ['-c', issuingHarness], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    env: {
+      PATH: '/usr/bin:/bin',
+      LC_ALL: 'C',
+      DEPLOY_CERTS_DIR: certsDirectory,
+      SERVER_SET_ARGUMENT: argument,
     },
   });
 }
@@ -693,6 +716,61 @@ describe('production certificate identity store', () => {
     }
   });
 
+  it('issues a server identity only for a set the managed table holds', () => {
+    const root = mkdtempSync(join(tmpdir(), 'aqua-cert-server-table-'));
+    const certs = join(root, 'certs');
+    const serverSetFiles = [
+      ...SERVER_LEAVES,
+      ...CA_COPIES,
+      'nats/nats-key.pem',
+      'redis/redis-key.pem',
+      'postgres/postgres-key.pem',
+    ];
+    mkdirSync(certs, { mode: 0o700 });
+    try {
+      expect(runGenerator(certs).status).toBe(0);
+      const issued = snapshot(certs, serverSetFiles);
+      // The continuity and expiry checks read the table's rows, so a server
+      // identity issued from anything else would be neither: a row outside the
+      // table, a table name with a widened subjectAltName, a bare unlisted name.
+      for (const argument of [
+        'minio|minio|DNS:minio|0644',
+        'nats|nats|DNS:nats,DNS:evil.example|0644',
+        'minio',
+      ]) {
+        const result = runServerSetIssuer(certs, argument);
+        expectFailure(result, `not a managed server set: ${argument}`);
+        expect({ argument, minio: readdirSync(join(certs, 'minio')) }).toEqual({
+          argument,
+          minio: [],
+        });
+        expect({ argument, store: snapshot(certs, serverSetFiles) }).toEqual({
+          argument,
+          store: issued,
+        });
+      }
+      // A table name is issued under the kept CA, from the table's own row.
+      const renewed = runServerSetIssuer(certs, 'redis');
+      expect(renewed.status).toBe(0);
+      expect(renewed.stdout).toContain('[done] redis (CN=redis)');
+      expect(snapshot(certs, ['redis/redis-cert.pem'])['redis/redis-cert.pem']).not.toBe(
+        issued['redis/redis-cert.pem'],
+      );
+      expect(readFileSync(join(certs, 'redis/ca-cert.pem'))).toEqual(
+        readFileSync(join(certs, 'ca/ca-cert.pem')),
+      );
+      expect(
+        verifiesAgainst(
+          join(certs, 'ca/ca-cert.pem'),
+          join(certs, 'redis/redis-cert.pem'),
+          'sslserver',
+        ),
+      ).toBe(true);
+    } finally {
+      removeFixtureTree(root);
+    }
+  });
+
   it('refuses to issue a leaf that would outlive the CA that signs it', () => {
     const root = mkdtempSync(join(tmpdir(), 'aqua-cert-ca-lifetime-'));
     const certs = join(root, 'certs');
@@ -1152,7 +1230,7 @@ describe('production certificate identity store', () => {
     expect(generator).toContain('[ -L "${path}" ] || [ ! -f "${path}" ]');
     expect(generator).toContain('[ ! -s "${path}" ]');
     expect(generator).toContain("actual_mode=$(stat -c '%a'");
-    expect(generator).toContain('validate_existing_server_set "${name}" "${cn}"');
+    expect(generator).toContain('validate_existing_server_set "${name}"');
     expect(generator).toContain('validate_existing_client_set');
     expect(generator).toContain('validate_certificate_key_pair');
     expect(generator).toContain('validate_certificate_authority');

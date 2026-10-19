@@ -989,13 +989,12 @@ fi
 #
 # Renewal is the generator's decision, not this script's (INFRA-CRITICAL-233).
 # The generator owns the managed leaf set (its server sets plus the clients it
-# derives from services.yaml), so it reads every leaf's expiry. Once any one
-# is inside 30 days, it re-issues every leaf under the validated CA it keeps:
-# NATS and PostgreSQL keep running across an application rollout on the CA
-# they started with. It refuses a store whose CA copies or leaves name another
-# root. Replacing the CA (--rotate-ca) is an operator ceremony that recreates
-# every consumer, and no deploy path passes an option. Every run ends with two
-# [expiry] lines (earliest leaf; the CA's last issuing date) in this log.
+# derives from services.yaml), so it reads every leaf's expiry and logs two
+# [expiry] lines (earliest leaf; the CA's last issuing date). Once any one is
+# inside 30 days, it re-issues every leaf under the validated CA it keeps, the
+# root NATS and PostgreSQL keep running on across an application rollout, and
+# it refuses a store whose CA copies or leaves name another root. --rotate-ca is
+# an operator ceremony that recreates every consumer; no deploy path passes it.
 echo "=== TLS certificate generation (always-run; idempotent) ==="
 # Read TLS material from the persistent certs dir (DEPLOY_CERTS_DIR), which is
 # symlinked into the checkout as ./certs — generate-internal-certs.sh writes

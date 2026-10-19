@@ -60,20 +60,32 @@ LEAF_VALIDITY_DAYS=365
 LEAF_RENEWAL_WINDOW_DAYS=30
 # The managed server sets, one row each: name|CN|subjectAltName|private-key mode.
 # Directory preparation, issuance and the continuity and expiry checks all
-# iterate this table, and every server path comes from load_server_set_paths,
-# so no server set or file can be issued without also being checked.
+# iterate this table, and load_server_set is the only reader of a row: it
+# refuses a name the table does not hold, so no server set or file can be
+# issued without also being checked.
 MANAGED_SERVER_SETS=(
   'nats|nats|DNS:nats,DNS:aqua-nats,DNS:localhost|0644'
   'redis|redis|DNS:redis,DNS:aqua-redis,DNS:localhost|0644'
   'postgres|postgres|DNS:postgres,DNS:aqua-postgres,DNS:localhost|0600'
 )
-# The one place a server path is spelled: sets SERVER_SET_DIR, SERVER_SET_KEY,
-# SERVER_SET_CERT and SERVER_SET_CA for the named set.
-load_server_set_paths() {
-  SERVER_SET_DIR="${CERTS_DIR}/$1"
-  SERVER_SET_KEY="${SERVER_SET_DIR}/$1-key.pem"
-  SERVER_SET_CERT="${SERVER_SET_DIR}/$1-cert.pem"
-  SERVER_SET_CA="${SERVER_SET_DIR}/ca-cert.pem"
+# Looks the named set up in MANAGED_SERVER_SETS and sets SERVER_SET_CN,
+# SERVER_SET_SAN, SERVER_SET_KEY_MODE and the set's paths (SERVER_SET_DIR,
+# SERVER_SET_KEY, SERVER_SET_CERT, SERVER_SET_CA): the one place a server path
+# is spelled. Any other name ends the run before a file is touched.
+load_server_set() {
+  local row name
+  for row in "${MANAGED_SERVER_SETS[@]}"; do
+    IFS='|' read -r name SERVER_SET_CN SERVER_SET_SAN SERVER_SET_KEY_MODE <<< "${row}"
+    if [ "${name}" = "$1" ]; then
+      SERVER_SET_DIR="${CERTS_DIR}/${name}"
+      SERVER_SET_KEY="${SERVER_SET_DIR}/${name}-key.pem"
+      SERVER_SET_CERT="${SERVER_SET_DIR}/${name}-cert.pem"
+      SERVER_SET_CA="${SERVER_SET_DIR}/ca-cert.pem"
+      return 0
+    fi
+  done
+  echo "error: not a managed server set: $1 (every server set is a row of MANAGED_SERVER_SETS)" >&2
+  exit 1
 }
 declare -a MANAGED_LEAF_CERTS=()
 declare -a MANAGED_LEAF_KEYS=()
@@ -411,7 +423,7 @@ if [[ ! "${CERTIFICATE_OWNER_UID}" =~ ^[0-9]+$ ]]; then
 fi
 declare -a CERTIFICATE_DIRECTORIES=("${CERTS_DIR}" "${CERTS_DIR}/ca")
 for server_set in "${MANAGED_SERVER_SETS[@]}"; do
-  load_server_set_paths "${server_set%%|*}"
+  load_server_set "${server_set%%|*}"
   CERTIFICATE_DIRECTORIES+=("${SERVER_SET_DIR}")
 done
 CERTIFICATE_DIRECTORIES+=("${CERTS_DIR}/nats/clients")
@@ -419,11 +431,11 @@ prepare_certificate_directories "${CERTIFICATE_DIRECTORIES[@]}"
 assert_certificate_directory "${CERTS_DIR}" 'DEPLOY_CERTS_DIR'
 
 validate_existing_server_set() {
-  local name="$1" cn="$2" key_mode="$3"
+  local name="$1"
 
-  load_server_set_paths "${name}"
+  load_server_set "${name}"
   validate_existing_certificate_asset \
-    "${SERVER_SET_KEY}" "${key_mode}" "${name} server private key"
+    "${SERVER_SET_KEY}" "${SERVER_SET_KEY_MODE}" "${name} server private key"
   validate_existing_certificate_asset \
     "${SERVER_SET_CERT}" 0644 "${name} server certificate"
   validate_existing_certificate_asset \
@@ -432,7 +444,7 @@ validate_existing_server_set() {
   validate_certificate_key_pair \
     "${SERVER_SET_KEY}" \
     "${SERVER_SET_CERT}" \
-    "O=Aquaculture Platform,CN=${cn}" \
+    "O=Aquaculture Platform,CN=${SERVER_SET_CN}" \
     "${CERTS_DIR}/ca/ca-cert.pem" \
     sslserver \
     "${name} server"
@@ -467,7 +479,7 @@ store_holds_issued_identity() {
     fi
   done
   for server_set in "${MANAGED_SERVER_SETS[@]}"; do
-    load_server_set_paths "${server_set%%|*}"
+    load_server_set "${server_set%%|*}"
     if path_exists "${SERVER_SET_CA}"; then
       return 0
     fi
@@ -485,7 +497,7 @@ require_store_issued_under_kept_ca() {
 
   for server_set in "${MANAGED_SERVER_SETS[@]}"; do
     name=${server_set%%|*}
-    load_server_set_paths "${name}"
+    load_server_set "${name}"
     path=${SERVER_SET_CA}
     if path_exists "${path}"; then
       if [ -L "${path}" ] || [ ! -f "${path}" ]; then
@@ -651,17 +663,20 @@ publish_postgres_alias() {
   rmdir -- "${stage_directory}"
 }
 
-# Issues, or validates and keeps, one row of MANAGED_SERVER_SETS. Each staged
-# file sits beside the path it is published to, so publication is a rename.
+# Issues, or validates and keeps, the named set of MANAGED_SERVER_SETS; every
+# value it issues from is read from that row. Each staged file sits beside the
+# path it is published to, so publication is a rename.
 generate_server_cert() {
-  local name cn san key_mode dir key_path cert_path ca_path
+  local name="$1" cn san key_mode dir key_path cert_path ca_path
   local key_stage csr_stage cert_stage ca_stage cert_serial
-  IFS='|' read -r name cn san key_mode <<< "$1"
+  load_server_set "${name}"
+  cn=${SERVER_SET_CN}
+  san=${SERVER_SET_SAN}
+  key_mode=${SERVER_SET_KEY_MODE}
   case "${key_mode}" in
     0600|0644) ;;
     *) echo "error: invalid private-key mode for ${name}: ${key_mode}" >&2; exit 1 ;;
   esac
-  load_server_set_paths "${name}"
   dir=${SERVER_SET_DIR}
   key_path=${SERVER_SET_KEY}
   cert_path=${SERVER_SET_CERT}
@@ -669,7 +684,7 @@ generate_server_cert() {
   assert_certificate_directory "${dir}" "${name} server directory"
   if [ "$RENEW_LEAVES" = false ] && certificate_set_has_any_path \
     "${key_path}" "${cert_path}" "${ca_path}"; then
-    validate_existing_server_set "${name}" "${cn}" "${key_mode}"
+    validate_existing_server_set "${name}"
     echo "  [skip] ${name}"
     return
   fi
@@ -833,7 +848,7 @@ if [ -z "$SERVICE_NAMES" ]; then
   exit 1
 fi
 for server_set in "${MANAGED_SERVER_SETS[@]}"; do
-  load_server_set_paths "${server_set%%|*}"
+  load_server_set "${server_set%%|*}"
   add_managed_leaf "${SERVER_SET_CERT}" "${SERVER_SET_KEY}" sslserver "${server_set%%|*} server"
 done
 while IFS= read -r svc; do
@@ -891,7 +906,7 @@ if [ "$ROTATE_CA" = false ]; then
   fi
 fi
 for server_set in "${MANAGED_SERVER_SETS[@]}"; do
-  generate_server_cert "${server_set}"
+  generate_server_cert "${server_set%%|*}"
 done
 
 # Per-service mTLS client certs, one per name derived above from services.yaml.

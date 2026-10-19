@@ -269,6 +269,20 @@ function reissueClientLeafUnderStoreCa(
   chmodSync(certificate, 0o644);
 }
 
+/** The UTC calendar date (YYYY-MM-DD) on which a certificate expires. */
+function notAfterDate(path: string): string {
+  const result = spawnSync(
+    '/usr/bin/openssl',
+    ['x509', '-in', path, '-noout', '-enddate', '-dateopt', 'iso_8601'],
+    { encoding: 'utf8', env: { PATH: '/usr/bin:/bin', LC_ALL: 'C' } },
+  );
+  const date = /^notAfter=(\d{4}-\d{2}-\d{2}) /.exec(result.stdout);
+  if (result.status !== 0 || date === null) {
+    throw new Error(`could not read the expiry of ${path}: ${result.stderr}`);
+  }
+  return String(date[1]);
+}
+
 /** Writes bytes to a store file with an exact mode, recreating it when it is gone. */
 function place(path: string, bytes: Buffer, fileMode: number): void {
   writeFileSync(path, bytes);
@@ -366,8 +380,11 @@ function dropletGeneratorOptions(): readonly string[] {
   const calls = deployGeneratorInvocations().filter(
     ({ file }) => file === 'scripts/deploy/droplet-up.sh',
   );
-  expect(calls.length).toBe(1);
-  return (calls[0]?.argv ?? '').split(/\s+/).filter((option) => option.length > 0);
+  const [call] = calls;
+  if (calls.length !== 1 || call === undefined) {
+    throw new Error(`droplet-up.sh must call the generator exactly once; found ${calls.length}`);
+  }
+  return call.argv.split(/\s+/).filter((option) => option.length > 0);
 }
 
 describe('production certificate identity store', () => {
@@ -395,7 +412,11 @@ describe('production certificate identity store', () => {
       copyFileSync(join(certs, 'nats/nats-cert.pem'), join(running, 'broker-server.pem'));
       const authority = snapshot(certs, authorityPaths);
 
-      // Nothing is near expiry: the deploy's call changes nothing.
+      // One client leaf has 60 days left, outside the renewal window: the
+      // deploy's call changes nothing, and its log still names that leaf as
+      // the earliest expiry and states when the CA stops accepting new leaves,
+      // so the countdown is in every deploy log, not only in the one that acts.
+      reissueClientLeafUnderStoreCa(certs, root, EXPIRING_IDENTITY, 60);
       const fresh = snapshot(certs, leafPaths);
       const quiet = deploy();
       expect({ status: quiet.status, renewing: quiet.stdout.includes('[renew]') }).toEqual({
@@ -403,6 +424,22 @@ describe('production certificate identity store', () => {
         renewing: false,
       });
       expect(snapshot(certs, leafPaths)).toEqual(fresh);
+      // Whole UTC days: the CA's last issuing date is its expiry date less 365.
+      const caExpiry = notAfterDate(join(certs, 'ca/ca-cert.pem'));
+      const lastIssuance = new Date(Date.parse(`${caExpiry}T00:00:00Z`) - 365 * 86_400_000)
+        .toISOString()
+        .slice(0, 10);
+      const leafExpiry = notAfterDate(join(certs, EXPIRING_CLIENT_LEAF));
+      expect(quiet.stdout).toMatch(
+        new RegExp(
+          `\\[expiry\\] earliest leaf: ${EXPIRING_IDENTITY} client certificate, notAfter ${leafExpiry} \\((59|60) days left; every leaf renews once one is inside 30 days\\)`,
+        ),
+      );
+      expect(quiet.stdout).toMatch(
+        new RegExp(
+          `\\[expiry\\] CA: notAfter ${caExpiry} \\((3649|3650) days left\\); last date a new leaf can be issued: ${lastIssuance}; replace it with --rotate-ca before then`,
+        ),
+      );
 
       // One client leaf enters the renewal window while the redis leaf is
       // fresh, as after a renewal that stopped part way through. The deploy's
@@ -524,6 +561,7 @@ describe('production certificate identity store', () => {
     const issuedPaths = [
       ...CA_COPIES,
       ...SERVER_LEAVES,
+      'redis/redis-key.pem',
       CLIENT_LEAF,
       CLIENT_LEAF.replace('-cert.pem', '-key.pem'),
     ];
@@ -541,6 +579,9 @@ describe('production certificate identity store', () => {
         }
       };
       const alternate = generateAlternateClientIdentity(root, 'auth_service');
+      const alternateServerDirectory = join(root, 'alternate-server');
+      mkdirSync(alternateServerDirectory, { mode: 0o700 });
+      const alternateServer = generateAlternateClientIdentity(alternateServerDirectory, 'redis');
       // Each store holds identities issued under a root other than the one in
       // ca/ (or under a ca/ that is gone). Renewing or issuing there would hand
       // restarted services a root the running consumers do not hold.
@@ -571,6 +612,27 @@ describe('production certificate identity store', () => {
           fragments: [
             'postgres server CA certificate does not exactly match the canonical CA certificate',
             'postgres server CA certificate does not exactly match the canonical CA certificate',
+          ],
+        },
+        {
+          // A server leaf is read from the same path it is issued to: the
+          // registration and issuance loops share one table and one path helper.
+          name: 'server leaf from another CA',
+          diverge: (): void => {
+            place(
+              join(certs, 'redis/redis-cert.pem'),
+              readFileSync(alternateServer.clientCertificate),
+              0o644,
+            );
+            place(
+              join(certs, 'redis/redis-key.pem'),
+              readFileSync(alternateServer.clientKey),
+              0o644,
+            );
+          },
+          fragments: [
+            'redis server certificate was not issued under the kept certificate authority',
+            'redis server certificate was not issued under the kept certificate authority',
           ],
         },
         {
@@ -1109,12 +1171,6 @@ describe('production certificate identity store', () => {
     expect(serverGenerator.indexOf('mv -fT -- "${ca_stage}"')).toBeLessThan(
       serverGenerator.indexOf('mv -fT -- "${key_stage}"'),
     );
-    // The continuity and expiry checks read MANAGED_SERVER_NAMES; a server set
-    // issued outside that list would be renewed without either check.
-    const managedServers = /^MANAGED_SERVER_NAMES=\(([a-z ]+)\)$/m.exec(generator);
-    expect(
-      [...generator.matchAll(/^generate_server_cert "([a-z]+)"/gm)].map((call) => call[1]),
-    ).toEqual((managedServers?.[1] ?? '').split(' '));
     expect(generator).not.toContain('-CAcreateserial');
     expect(generator).toContain('-set_serial "0x${cert_serial}"');
     expect(generator).toContain('publish_postgres_alias postgres-cert.pem');

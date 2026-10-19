@@ -994,7 +994,8 @@ fi
 # NATS and PostgreSQL keep running across an application rollout on the CA
 # they started with. It refuses a store whose CA copies or leaves name another
 # root. Replacing the CA (--rotate-ca) is an operator ceremony that recreates
-# every consumer, and no deploy path passes an option.
+# every consumer, and no deploy path passes an option. Every run ends with two
+# [expiry] lines (earliest leaf; the CA's last issuing date) in this log.
 echo "=== TLS certificate generation (always-run; idempotent) ==="
 # Read TLS material from the persistent certs dir (DEPLOY_CERTS_DIR), which is
 # symlinked into the checkout as ./certs — generate-internal-certs.sh writes

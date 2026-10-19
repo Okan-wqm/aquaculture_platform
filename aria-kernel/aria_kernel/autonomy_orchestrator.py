@@ -665,6 +665,11 @@ def _reflect_on_failed_cycle(
 ) -> dict[str, Any]:
     """ARIA-HIGH-420 — the reflection of a night that ended on a failed exit.
 
+    ARIA-HIGH-579 review — also of a cycle held mid-night because every
+    provider went out after its cycle step (``provider_hold``): the lanes
+    behind the hold did not run, which is the shape this reflection already
+    reports, and the cycle's pressures still reach the next night's queue.
+
     WHY: the cycle runs with ``defer_reflection=True``, so the orchestrator
     is the only writer of the reflection row. Before this, the two failed
     exits (fail-closed ``cycle_failed`` and ``bridge_replay_required``) wrote
@@ -1901,6 +1906,14 @@ def run_autonomy_orchestrator(
                 )
                 if _midnight_hold is not None:
                     cycle_summary[EXIT_PROVIDER_OUTAGE_HOLD] = _midnight_hold
+                    # The cycle step ran: its reflection queues the cycle's
+                    # pressures for the next night (`provider_hold`).
+                    cycle_summary["reflection"] = _reflect_on_failed_cycle(
+                        root=root, cycle_id=cycle_id, profile=profile_snapshot,
+                        workspace_root=workspace_root,
+                        cycle_summary=cycle_summary, cycle_result=cycle_result,
+                        pedagogy_snapshot=pedagogy_snapshot,
+                    )
                     per_cycle_results.append(cycle_summary)
                     exit_reason = EXIT_PROVIDER_OUTAGE_HOLD
                     break
@@ -2828,6 +2841,14 @@ def run_autonomy_orchestrator(
                 )
                 if _midnight_hold is not None:
                     cycle_summary[EXIT_PROVIDER_OUTAGE_HOLD] = _midnight_hold
+                    # The cycle step ran: its reflection queues the cycle's
+                    # pressures for the next night (`provider_hold`).
+                    cycle_summary["reflection"] = _reflect_on_failed_cycle(
+                        root=root, cycle_id=cycle_id, profile=profile_snapshot,
+                        workspace_root=workspace_root,
+                        cycle_summary=cycle_summary, cycle_result=cycle_result,
+                        pedagogy_snapshot=pedagogy_snapshot,
+                    )
                     per_cycle_results.append(cycle_summary)
                     exit_reason = EXIT_PROVIDER_OUTAGE_HOLD
                     break

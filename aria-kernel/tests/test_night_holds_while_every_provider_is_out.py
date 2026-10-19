@@ -372,6 +372,13 @@ class ANightWithEveryProviderOutHoldsAndTheNextContinues(unittest.TestCase):
         self.assertIsNotNone(self.night.planner.requests_at_exhaustion)
         self.assertEqual(len(self.requests_after_n3), self.night.planner.requests_at_exhaustion)
 
+    def test_the_cycle_the_spend_cut_short_still_reflects(self) -> None:
+        # ARIA-HIGH-420's rule for a night cut short: its reflection writes the daily report and
+        # queues the next cycle's work, so a held cycle hands its pressures on.
+        cycle_id = self.n3[2][0]["cycle_id"]
+        self.assertEqual([row["cycle_id"] for row in self.reflections_after_n3 if row.get("cycle_id") == cycle_id],
+                         [cycle_id])
+
     def test_the_request_the_spend_interrupted_waits_uncharged(self) -> None:
         (minted_n0,) = self.plan_requests_n0
         rid = minted_n0["request_id"]
@@ -382,6 +389,21 @@ class ANightWithEveryProviderOutHoldsAndTheNextContinues(unittest.TestCase):
         self.assertEqual(derive_request_state(request_id=rid, base_dir=self.night.tools), "REQUEUED")
 
     # --- night 4: Z.ai back after the mid-night hold ---------------------------------------------
+
+    def test_the_night_after_a_mid_night_hold_runs(self) -> None:
+        code, summary, rows = self.n4
+        self.assertEqual((code, summary["exit_reason"]), (0, "max_cycles"), summary)
+        self.assertNotIn(HOLD_PHASE, _phases(rows))
+
+    def test_the_night_after_a_mid_night_hold_continues_the_handed_back_request(self) -> None:
+        (minted_n0,) = self.plan_requests_n0
+        rid = minted_n0["request_id"]
+        self.assertEqual(set(self.selected_n4), {rid})
+        plan_requests = [row["request_id"] for row in self.requests_after_n4 if row.get("convergence_id") == _PLAN]
+        self.assertEqual(plan_requests, [rid])
+        self.assertEqual([row["request_id"] for row in self.requests_after_n4 if row.get("remint_of")], [])
+        self.assertEqual(_request_fault_requeue_count(load_jsonl(self.night.tools / "agent-invocations"
+                                                                 / "claims.jsonl"), rid), 0)
 
     # --- every night ---------------------------------------------------------------------------
 
@@ -605,6 +627,11 @@ class TheWorkerLanesSpendHoldsTheReview(unittest.TestCase):
         rows = load_jsonl(self.base / "autonomy_state.jsonl")
         self.assertEqual(_phases(rows)[-2:], ["worker_dispatch_drained", HOLD_PHASE])
         self.assertEqual(rows[-1]["details"]["checkpoint"], CHECKPOINT_AFTER_WORKER_DISPATCH)
+        # The cycle step ran before the hold: its reflection still writes (ARIA-HIGH-420's rule).
+        cycle_id = rows[-1]["cycle_id"]
+        reflections = load_jsonl(self.base / "reflections.jsonl") if (self.base / "reflections.jsonl").exists() else []
+        self.assertEqual([row["cycle_id"] for row in reflections if row.get("cycle_id") == cycle_id], [cycle_id])
+        self.assertEqual(result["per_cycle"][-1]["reflection"]["cycle_id"], cycle_id)
 
 
 if __name__ == "__main__":

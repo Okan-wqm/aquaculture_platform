@@ -18,11 +18,12 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 
 import yaml from 'js-yaml';
 
 import { removeExistingFixtureTree, removeFixtureTree } from '../../tools/gates/fixture-tree';
+import { NATS_SERVICES_YAML } from '../../tools/gates/nats-services';
 jest.setTimeout(180_000);
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
@@ -98,7 +99,7 @@ function runGeneratorVariant(
   const variant = join(scripts, 'generate-internal-certs.sh');
   mkdirSync(scripts, { recursive: true, mode: 0o700 });
   mkdirSync(nats, { recursive: true, mode: 0o700 });
-  copyFileSync(join(REPO_ROOT, 'infrastructure/nats/services.yaml'), join(nats, 'services.yaml'));
+  copyFileSync(join(REPO_ROOT, NATS_SERVICES_YAML), join(nats, basename(NATS_SERVICES_YAML)));
   writeFileSync(variant, transform(readFileSync(GENERATOR_PATH, 'utf8')), { mode: 0o700 });
   return spawnSync('/bin/bash', [variant], {
     cwd: workDirectory,

@@ -1148,6 +1148,7 @@ tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
 - `INFRA-CRITICAL-233`: registry state is `RESOLVED` with closing commit
   `30cbf58fa`, derived by `finding-registry reconcile` against `origin/main`.
   Left the active table from bucket `already-fixed-needs-close`.
-- `PLAT-CRITICAL-931`: registry state is `RESOLVED` with closing commit
-  `44bb256a2`, derived by `finding-registry reconcile` against `origin/main`.
-  Left the active table from bucket `already-fixed-needs-close`.
+
+Updated 2026-10-19: `PLAT-CRITICAL-931` (production date-column serialization
+crash) closed by 44bb256a2 on main — left the active table from bucket
+`already-fixed-needs-close`.

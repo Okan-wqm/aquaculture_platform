@@ -115,8 +115,15 @@ Per-service NATS mTLS certs are minted by
 `infrastructure/docker/scripts/generate-internal-certs.sh` with a 365-day validity. Every deploy
 renews them: once any managed leaf is inside 30 days of expiry, the deploy's generator run issues
 every leaf again under the CA the store already holds. That deploy does not recreate a consumer
-it did not roll out (INFRA-HIGH-235), so after a deploy logs `[renew]`, run step 3. A manual
-rotation is **three steps** that MUST happen in order.
+it did not roll out (INFRA-HIGH-235), so after a deploy logs `[renew]`, run step 3. Every
+generator run that completes, renewing or not, ends with two `[expiry]` lines. The first reads
+the store's leaves: the date the earliest one stops verifying (its own expiry, or the CA's when
+that comes first) with the days left, and whether the CA can still sign its renewal. A consumer
+the rollout did not recreate may still serve an older leaf (INFRA-HIGH-235). The second gives
+the CA's expiry and the last date it can sign a 365-day leaf. From that date the generator
+refuses to issue any leaf until the CA is replaced with `--rotate-ca`, and the CA line ends
+`run --rotate-ca now`. A run that refuses exits non-zero with an `error:` line and prints neither
+`[expiry]` line. A manual rotation is **three steps** that MUST happen in order.
 
 1. **Renew on the droplet, against its own store.** From the deploy checkout, as the user that
    owns the store (the generator refuses files another uid owns):

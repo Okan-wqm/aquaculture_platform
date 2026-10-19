@@ -82,18 +82,56 @@ function runGenerator(
   });
 }
 
-function runAssetValidator(
+/**
+ * Runs a copy of the generator whose source TRANSFORM rewrote, from a scratch
+ * tree laid out like the repository (the copy reads services.yaml through its
+ * own location), so a spec can change one spelling and see what every reader
+ * of it does.
+ */
+function runGeneratorVariant(
+  workDirectory: string,
   certsDirectory: string,
-  assetPath: string,
-  expectedMode: '0600' | '0644',
+  transform: (source: string) => string,
 ): SpawnSyncReturns<string> {
+  const scripts = join(workDirectory, 'infrastructure/docker/scripts');
+  const nats = join(workDirectory, 'infrastructure/nats');
+  const variant = join(scripts, 'generate-internal-certs.sh');
+  mkdirSync(scripts, { recursive: true, mode: 0o700 });
+  mkdirSync(nats, { recursive: true, mode: 0o700 });
+  copyFileSync(join(REPO_ROOT, 'infrastructure/nats/services.yaml'), join(nats, 'services.yaml'));
+  writeFileSync(variant, transform(readFileSync(GENERATOR_PATH, 'utf8')), { mode: 0o700 });
+  return spawnSync('/bin/bash', [variant], {
+    cwd: workDirectory,
+    encoding: 'utf8',
+    env: {
+      PATH: process.env.PATH ?? '/usr/bin:/bin',
+      LC_ALL: 'C',
+      DEPLOY_CERTS_DIR: certsDirectory,
+    },
+  });
+}
+
+/**
+ * The generator up to its first issuing step: every function, the managed
+ * server table and the store's directory preparation, so a harness can call
+ * one function against a real store.
+ */
+function generatorDefinitions(): string {
   const generator = readFileSync(GENERATOR_PATH, 'utf8');
   const generationStart = generator.indexOf(
     '\necho "=== Generating Internal TLS Certificates ==="',
   );
   if (generationStart < 0) throw new Error('certificate generator validation boundary is missing');
+  return generator.slice(0, generationStart);
+}
+
+function runAssetValidator(
+  certsDirectory: string,
+  assetPath: string,
+  expectedMode: '0600' | '0644',
+): SpawnSyncReturns<string> {
   const validationHarness = [
-    generator.slice(0, generationStart),
+    generatorDefinitions(),
     `validate_existing_certificate_asset "\${ASSET_PATH}" ${expectedMode} 'fixture asset'`,
   ].join('\n');
   return spawnSync('/bin/bash', ['-c', validationHarness], {
@@ -114,13 +152,8 @@ function runClientSetValidator(
   certificatePath: string,
   expectedIdentity: string,
 ): SpawnSyncReturns<string> {
-  const generator = readFileSync(GENERATOR_PATH, 'utf8');
-  const generationStart = generator.indexOf(
-    '\necho "=== Generating Internal TLS Certificates ==="',
-  );
-  if (generationStart < 0) throw new Error('certificate generator validation boundary is missing');
   const validationHarness = [
-    generator.slice(0, generationStart),
+    generatorDefinitions(),
     'validate_existing_client_set "${KEY_PATH}" "${CERTIFICATE_PATH}" "CN=${EXPECTED_IDENTITY}" "fixture client"',
   ].join('\n');
   return spawnSync('/bin/bash', ['-c', validationHarness], {
@@ -141,13 +174,8 @@ function runCanonicalCaCopyValidator(
   certsDirectory: string,
   caPath: string,
 ): SpawnSyncReturns<string> {
-  const generator = readFileSync(GENERATOR_PATH, 'utf8');
-  const generationStart = generator.indexOf(
-    '\necho "=== Generating Internal TLS Certificates ==="',
-  );
-  if (generationStart < 0) throw new Error('certificate generator validation boundary is missing');
   const validationHarness = [
-    generator.slice(0, generationStart),
+    generatorDefinitions(),
     'validate_canonical_ca_copy "${CA_PATH}" "fixture CA copy"',
   ].join('\n');
   return spawnSync('/bin/bash', ['-c', validationHarness], {
@@ -158,6 +186,30 @@ function runCanonicalCaCopyValidator(
       LC_ALL: 'C',
       DEPLOY_CERTS_DIR: certsDirectory,
       CA_PATH: caPath,
+    },
+  });
+}
+
+/**
+ * One generate_server_cert call with ARGUMENT under --renew-leaves, made
+ * outside the issuance loop. The store also gets a prepared directory for a
+ * set the table does not hold (minio), so the call meets no missing directory.
+ */
+function runServerSetIssuer(certsDirectory: string, argument: string): SpawnSyncReturns<string> {
+  const issuingHarness = [
+    generatorDefinitions(),
+    'prepare_certificate_directories "${CERTS_DIR}/minio"',
+    'RENEW_LEAVES=true',
+    'generate_server_cert "${SERVER_SET_ARGUMENT}"',
+  ].join('\n');
+  return spawnSync('/bin/bash', ['-c', issuingHarness], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    env: {
+      PATH: '/usr/bin:/bin',
+      LC_ALL: 'C',
+      DEPLOY_CERTS_DIR: certsDirectory,
+      SERVER_SET_ARGUMENT: argument,
     },
   });
 }
@@ -269,6 +321,50 @@ function reissueClientLeafUnderStoreCa(
   chmodSync(certificate, 0o644);
 }
 
+/** The UTC calendar date (YYYY-MM-DD) on which a certificate expires. */
+function notAfterDate(path: string): string {
+  const result = spawnSync(
+    '/usr/bin/openssl',
+    ['x509', '-in', path, '-noout', '-enddate', '-dateopt', 'iso_8601'],
+    { encoding: 'utf8', env: { PATH: '/usr/bin:/bin', LC_ALL: 'C' } },
+  );
+  const date = /^notAfter=(\d{4}-\d{2}-\d{2}) /.exec(result.stdout);
+  if (result.status !== 0 || date === null) {
+    throw new Error(`could not read the expiry of ${path}: ${result.stderr}`);
+  }
+  return String(date[1]);
+}
+
+/** The UTC calendar date DAYS whole days before DATE (both YYYY-MM-DD). */
+function daysBefore(date: string, days: number): string {
+  return new Date(Date.parse(`${date}T00:00:00Z`) - days * 86_400_000).toISOString().slice(0, 10);
+}
+
+/**
+ * Re-signs the store's CA with its own key and subject to a shorter lifetime,
+ * and writes the result to the CA and every CA copy: the same root, so every
+ * leaf still chains to it, but nearer its end.
+ */
+function resignStoreCa(certs: string, workDirectory: string, days: number): void {
+  const resigned = join(workDirectory, `ca-${days}-days.pem`);
+  runOpenSsl([
+    'req',
+    '-new',
+    '-x509',
+    '-days',
+    String(days),
+    '-key',
+    join(certs, 'ca/ca-key.pem'),
+    '-out',
+    resigned,
+    '-subj',
+    '/CN=Aquaculture Internal CA',
+  ]);
+  for (const copy of ['ca/ca-cert.pem', ...CA_COPIES]) {
+    place(join(certs, copy), readFileSync(resigned), 0o644);
+  }
+}
+
 /** Writes bytes to a store file with an exact mode, recreating it when it is gone. */
 function place(path: string, bytes: Buffer, fileMode: number): void {
   writeFileSync(path, bytes);
@@ -366,8 +462,11 @@ function dropletGeneratorOptions(): readonly string[] {
   const calls = deployGeneratorInvocations().filter(
     ({ file }) => file === 'scripts/deploy/droplet-up.sh',
   );
-  expect(calls.length).toBe(1);
-  return (calls[0]?.argv ?? '').split(/\s+/).filter((option) => option.length > 0);
+  const [call] = calls;
+  if (calls.length !== 1 || call === undefined) {
+    throw new Error(`droplet-up.sh must call the generator exactly once; found ${calls.length}`);
+  }
+  return call.argv.split(/\s+/).filter((option) => option.length > 0);
 }
 
 describe('production certificate identity store', () => {
@@ -395,7 +494,11 @@ describe('production certificate identity store', () => {
       copyFileSync(join(certs, 'nats/nats-cert.pem'), join(running, 'broker-server.pem'));
       const authority = snapshot(certs, authorityPaths);
 
-      // Nothing is near expiry: the deploy's call changes nothing.
+      // One client leaf has 60 days left, outside the renewal window: the
+      // deploy's call changes nothing, and its log still names that leaf as
+      // the earliest expiry and states when the CA stops accepting new leaves,
+      // so the countdown is in every deploy log, not only in the one that acts.
+      reissueClientLeafUnderStoreCa(certs, root, EXPIRING_IDENTITY, 60);
       const fresh = snapshot(certs, leafPaths);
       const quiet = deploy();
       expect({ status: quiet.status, renewing: quiet.stdout.includes('[renew]') }).toEqual({
@@ -403,6 +506,20 @@ describe('production certificate identity store', () => {
         renewing: false,
       });
       expect(snapshot(certs, leafPaths)).toEqual(fresh);
+      // Whole UTC days: the CA's last issuing date is its expiry date less 365.
+      const caExpiry = notAfterDate(join(certs, 'ca/ca-cert.pem'));
+      const lastIssuance = daysBefore(caExpiry, 365);
+      const leafExpiry = notAfterDate(join(certs, EXPIRING_CLIENT_LEAF));
+      expect(quiet.stdout).toMatch(
+        new RegExp(
+          `\\[expiry\\] earliest leaf: ${EXPIRING_IDENTITY} client certificate, notAfter ${leafExpiry} \\((59|60) days left; every leaf renews once one is inside 30 days\\)`,
+        ),
+      );
+      expect(quiet.stdout).toMatch(
+        new RegExp(
+          `\\[expiry\\] CA: notAfter ${caExpiry} \\((3649|3650) days left\\); last date a new leaf can be issued: ${lastIssuance}; replace it with --rotate-ca before then`,
+        ),
+      );
 
       // One client leaf enters the renewal window while the redis leaf is
       // fresh, as after a renewal that stopped part way through. The deploy's
@@ -524,6 +641,7 @@ describe('production certificate identity store', () => {
     const issuedPaths = [
       ...CA_COPIES,
       ...SERVER_LEAVES,
+      'redis/redis-key.pem',
       CLIENT_LEAF,
       CLIENT_LEAF.replace('-cert.pem', '-key.pem'),
     ];
@@ -541,6 +659,9 @@ describe('production certificate identity store', () => {
         }
       };
       const alternate = generateAlternateClientIdentity(root, 'auth_service');
+      const alternateServerDirectory = join(root, 'alternate-server');
+      mkdirSync(alternateServerDirectory, { mode: 0o700 });
+      const alternateServer = generateAlternateClientIdentity(alternateServerDirectory, 'redis');
       // Each store holds identities issued under a root other than the one in
       // ca/ (or under a ca/ that is gone). Renewing or issuing there would hand
       // restarted services a root the running consumers do not hold.
@@ -571,6 +692,27 @@ describe('production certificate identity store', () => {
           fragments: [
             'postgres server CA certificate does not exactly match the canonical CA certificate',
             'postgres server CA certificate does not exactly match the canonical CA certificate',
+          ],
+        },
+        {
+          // A server leaf is read from the same path it is issued to: the
+          // registration and issuance loops share one table and one path helper.
+          name: 'server leaf from another CA',
+          diverge: (): void => {
+            place(
+              join(certs, 'redis/redis-cert.pem'),
+              readFileSync(alternateServer.clientCertificate),
+              0o644,
+            );
+            place(
+              join(certs, 'redis/redis-key.pem'),
+              readFileSync(alternateServer.clientKey),
+              0o644,
+            );
+          },
+          fragments: [
+            'redis server certificate was not issued under the kept certificate authority',
+            'redis server certificate was not issued under the kept certificate authority',
           ],
         },
         {
@@ -631,6 +773,61 @@ describe('production certificate identity store', () => {
     }
   });
 
+  it('issues a server identity only for a set the managed table holds', () => {
+    const root = mkdtempSync(join(tmpdir(), 'aqua-cert-server-table-'));
+    const certs = join(root, 'certs');
+    const serverSetFiles = [
+      ...SERVER_LEAVES,
+      ...CA_COPIES,
+      'nats/nats-key.pem',
+      'redis/redis-key.pem',
+      'postgres/postgres-key.pem',
+    ];
+    mkdirSync(certs, { mode: 0o700 });
+    try {
+      expect(runGenerator(certs).status).toBe(0);
+      const issued = snapshot(certs, serverSetFiles);
+      // The continuity and expiry checks read the table's rows, so a server
+      // identity issued from anything else would be neither: a row outside the
+      // table, a table name with a widened subjectAltName, a bare unlisted name.
+      for (const argument of [
+        'minio|minio|DNS:minio|0644',
+        'nats|nats|DNS:nats,DNS:evil.example|0644',
+        'minio',
+      ]) {
+        const result = runServerSetIssuer(certs, argument);
+        expectFailure(result, `not a managed server set: ${argument}`);
+        expect({ argument, minio: readdirSync(join(certs, 'minio')) }).toEqual({
+          argument,
+          minio: [],
+        });
+        expect({ argument, store: snapshot(certs, serverSetFiles) }).toEqual({
+          argument,
+          store: issued,
+        });
+      }
+      // A table name is issued under the kept CA, from the table's own row.
+      const renewed = runServerSetIssuer(certs, 'redis');
+      expect(renewed.status).toBe(0);
+      expect(renewed.stdout).toContain('[done] redis (CN=redis)');
+      expect(snapshot(certs, ['redis/redis-cert.pem'])['redis/redis-cert.pem']).not.toBe(
+        issued['redis/redis-cert.pem'],
+      );
+      expect(readFileSync(join(certs, 'redis/ca-cert.pem'))).toEqual(
+        readFileSync(join(certs, 'ca/ca-cert.pem')),
+      );
+      expect(
+        verifiesAgainst(
+          join(certs, 'ca/ca-cert.pem'),
+          join(certs, 'redis/redis-cert.pem'),
+          'sslserver',
+        ),
+      ).toBe(true);
+    } finally {
+      removeFixtureTree(root);
+    }
+  });
+
   it('refuses to issue a leaf that would outlive the CA that signs it', () => {
     const root = mkdtempSync(join(tmpdir(), 'aqua-cert-ca-lifetime-'));
     const certs = join(root, 'certs');
@@ -666,6 +863,148 @@ describe('production certificate identity store', () => {
           issued: false,
         });
       }
+    } finally {
+      removeFixtureTree(root);
+    }
+  });
+
+  it('logs when the earliest leaf stops verifying and whether the CA can still sign its renewal', () => {
+    const root = mkdtempSync(join(tmpdir(), 'aqua-cert-expiry-report-'));
+    const certs = join(root, 'certs');
+    const storePaths = [
+      'ca/ca-key.pem',
+      'ca/ca-cert.pem',
+      ...CA_COPIES,
+      ...SERVER_LEAVES,
+      CLIENT_LEAF,
+      EXPIRING_CLIENT_LEAF,
+    ];
+    const options = dropletGeneratorOptions();
+    const deploy = (): SpawnSyncReturns<string> => runGenerator(certs, {}, options);
+    mkdirSync(certs, { mode: 0o700 });
+    try {
+      expect(runGenerator(certs).status).toBe(0);
+
+      // The CA can sign a 365-day leaf today but not when the earliest leaf
+      // falls due: the leaf line must not promise that renewal.
+      resignStoreCa(certs, root, 500);
+      reissueClientLeafUnderStoreCa(certs, root, EXPIRING_IDENTITY, 300);
+      const closingStore = snapshot(certs, storePaths);
+      const closing = deploy();
+      expect({ status: closing.status, stderr: closing.stderr }).toEqual({ status: 0, stderr: '' });
+      expect(snapshot(certs, storePaths)).toEqual(closingStore);
+      const closingCaExpiry = notAfterDate(join(certs, 'ca/ca-cert.pem'));
+      const closingLeafExpiry = notAfterDate(join(certs, EXPIRING_CLIENT_LEAF));
+      expect(closing.stdout).toMatch(
+        new RegExp(
+          `\\[expiry\\] earliest leaf: ${EXPIRING_IDENTITY} client certificate, notAfter ${closingLeafExpiry} \\((299|300) days left; its renewal, due from ${daysBefore(closingLeafExpiry, 30)}, falls after the CA's last issuing date and will be refused\\)`,
+        ),
+      );
+      expect(closing.stdout).toMatch(
+        new RegExp(
+          `\\[expiry\\] CA: notAfter ${closingCaExpiry} \\((499|500) days left\\); last date a new leaf can be issued: ${daysBefore(closingCaExpiry, 365)}; replace it with --rotate-ca before then`,
+        ),
+      );
+
+      // The CA can no longer sign a 365-day leaf, and it expires before the
+      // leaves: every leaf stops verifying on the CA's date, and the log says
+      // that the next renewal or new identity is refused, as it is.
+      resignStoreCa(certs, root, 200);
+      reissueClientLeafUnderStoreCa(certs, root, EXPIRING_IDENTITY, 300);
+      const overdueStore = snapshot(certs, storePaths);
+      const overdue = deploy();
+      expect({ status: overdue.status, stderr: overdue.stderr }).toEqual({ status: 0, stderr: '' });
+      expect(snapshot(certs, storePaths)).toEqual(overdueStore);
+      const overdueCaExpiry = notAfterDate(join(certs, 'ca/ca-cert.pem'));
+      const overdueLeafExpiry = notAfterDate(join(certs, EXPIRING_CLIENT_LEAF));
+      expect(overdue.stdout).toMatch(
+        new RegExp(
+          `\\[expiry\\] earliest leaf: ${EXPIRING_IDENTITY} client certificate, notAfter ${overdueLeafExpiry}, but the CA expires first: every leaf stops verifying on ${overdueCaExpiry} \\((199|200) days left; its renewal, due from ${daysBefore(overdueLeafExpiry, 30)}, falls after the CA's last issuing date and will be refused\\)`,
+        ),
+      );
+      expect(overdue.stdout).toMatch(
+        new RegExp(
+          `\\[expiry\\] CA: notAfter ${overdueCaExpiry} \\((199|200) days left\\); it can sign no 365-day leaf since ${daysBefore(overdueCaExpiry, 365)}, so every renewal and new identity is refused: run --rotate-ca now`,
+        ),
+      );
+      expect(overdue.stdout).not.toContain('before then');
+      expectFailure(
+        runGenerator(certs, {}, ['--renew-leaves']),
+        'the certificate authority expires before a new 365-day leaf would; replace it with --rotate-ca',
+      );
+      expect(snapshot(certs, storePaths)).toEqual(overdueStore);
+    } finally {
+      removeFixtureTree(root);
+    }
+  });
+
+  it('publishes the PostgreSQL aliases from the postgres row of the managed table', () => {
+    const root = mkdtempSync(join(tmpdir(), 'aqua-cert-postgres-alias-'));
+    const certs = join(root, 'certs');
+    const postgres = join(certs, 'postgres');
+    // Another file layout in load_server_set, the one place a set's files are
+    // spelled: the aliases must follow it, never name the old files.
+    const respelling: readonly (readonly [string, string])[] = [
+      [
+        'SERVER_SET_KEY="${SERVER_SET_DIR}/${name}-key.pem"',
+        'SERVER_SET_KEY="${SERVER_SET_DIR}/${name}-server-key.pem"',
+      ],
+      [
+        'SERVER_SET_CERT="${SERVER_SET_DIR}/${name}-cert.pem"',
+        'SERVER_SET_CERT="${SERVER_SET_DIR}/${name}-server-cert.pem"',
+      ],
+      [
+        'SERVER_SET_CA="${SERVER_SET_DIR}/ca-cert.pem"',
+        'SERVER_SET_CA="${SERVER_SET_DIR}/${name}-ca-cert.pem"',
+      ],
+    ];
+    mkdirSync(certs, { mode: 0o700 });
+    try {
+      const variant = runGeneratorVariant(join(root, 'variant'), certs, (source) =>
+        respelling.reduce((text, [spelled, respelled]) => {
+          const pieces = text.split(spelled);
+          if (pieces.length !== 2) throw new Error(`the generator must spell ${spelled} once`);
+          return pieces.join(respelled);
+        }, source),
+      );
+      expect({ status: variant.status, stderr: variant.stderr }).toEqual({ status: 0, stderr: '' });
+      expect({
+        'server.crt': readlinkSync(join(postgres, 'server.crt')),
+        'server.key': readlinkSync(join(postgres, 'server.key')),
+        'root.crt': readlinkSync(join(postgres, 'root.crt')),
+      }).toEqual({
+        'server.crt': 'postgres-server-cert.pem',
+        'server.key': 'postgres-server-key.pem',
+        'root.crt': 'postgres-ca-cert.pem',
+      });
+      expect(readFileSync(join(postgres, 'root.crt'))).toEqual(
+        readFileSync(join(certs, 'ca/ca-cert.pem')),
+      );
+      expect(
+        verifiesAgainst(join(postgres, 'root.crt'), join(postgres, 'server.crt'), 'sslserver'),
+      ).toBe(true);
+
+      // An alias is never published onto a file that is not there.
+      const dangling = spawnSync(
+        '/bin/bash',
+        [
+          '-c',
+          [
+            generatorDefinitions(),
+            'publish_postgres_alias postgres-cert.pem "${CERTS_DIR}/postgres/server.crt"',
+          ].join('\n'),
+        ],
+        {
+          cwd: REPO_ROOT,
+          encoding: 'utf8',
+          env: { PATH: '/usr/bin:/bin', LC_ALL: 'C', DEPLOY_CERTS_DIR: certs },
+        },
+      );
+      expectFailure(dangling, 'PostgreSQL alias target is not a regular non-symlink file');
+      expect(readlinkSync(join(postgres, 'server.crt'))).toBe('postgres-server-cert.pem');
+      expect(readdirSync(postgres).filter((entry) => entry.startsWith('.postgres-alias.'))).toEqual(
+        [],
+      );
     } finally {
       removeFixtureTree(root);
     }
@@ -1090,7 +1429,7 @@ describe('production certificate identity store', () => {
     expect(generator).toContain('[ -L "${path}" ] || [ ! -f "${path}" ]');
     expect(generator).toContain('[ ! -s "${path}" ]');
     expect(generator).toContain("actual_mode=$(stat -c '%a'");
-    expect(generator).toContain('validate_existing_server_set "${name}" "${cn}"');
+    expect(generator).toContain('validate_existing_server_set "${name}"');
     expect(generator).toContain('validate_existing_client_set');
     expect(generator).toContain('validate_certificate_key_pair');
     expect(generator).toContain('validate_certificate_authority');
@@ -1109,15 +1448,11 @@ describe('production certificate identity store', () => {
     expect(serverGenerator.indexOf('mv -fT -- "${ca_stage}"')).toBeLessThan(
       serverGenerator.indexOf('mv -fT -- "${key_stage}"'),
     );
-    // The continuity and expiry checks read MANAGED_SERVER_NAMES; a server set
-    // issued outside that list would be renewed without either check.
-    const managedServers = /^MANAGED_SERVER_NAMES=\(([a-z ]+)\)$/m.exec(generator);
-    expect(
-      [...generator.matchAll(/^generate_server_cert "([a-z]+)"/gm)].map((call) => call[1]),
-    ).toEqual((managedServers?.[1] ?? '').split(' '));
     expect(generator).not.toContain('-CAcreateserial');
     expect(generator).toContain('-set_serial "0x${cert_serial}"');
-    expect(generator).toContain('publish_postgres_alias postgres-cert.pem');
+    expect(generator).toContain(
+      'publish_postgres_alias "${SERVER_SET_CERT##*/}" "${SERVER_SET_DIR}/server.crt"',
+    );
     expect(generator).not.toContain('ln -sf ');
   });
 });

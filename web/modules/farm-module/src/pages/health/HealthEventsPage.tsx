@@ -5,7 +5,6 @@
 import React, { useState, useMemo } from 'react';
 import {
   Card,
-  Button,
   Modal,
   Input,
   Select,
@@ -52,7 +51,7 @@ import {
   CreateHealthEventInput,
 } from '../../hooks/useHealthEvents';
 import { isBlockingError } from '../../utils/list-view-state';
-import { DataTable, type DataTableColumn, useI18n } from '@aquaculture/shared-ui';
+import { Button, DataTable, type DataTableColumn, useI18n } from '@aquaculture/shared-ui';
 import { useTanksList } from '../../hooks/useTanks';
 import { useMortalityDailyHistory } from '../../hooks/useHealthEvents';
 
@@ -807,8 +806,8 @@ export const HealthEventsPage: React.FC = () => {
             onClick={() => handleFilterChange('status', chip.value)}
             className={`inline-flex min-h-[42px] shrink-0 items-center border px-3.5 text-[15.5px] font-medium transition-colors ${
               (filter.status || '') === chip.value
-                ? 'border-blue-600 bg-blue-600 text-white'
-                : 'border-gray-300 bg-transparent text-gray-700 hover:border-blue-400 hover:text-blue-700'
+                ? 'border-accent-600 bg-accent-600 text-white'
+                : 'border-gray-300 bg-transparent text-gray-700 hover:border-accent-400 hover:text-accent-700'
             }`}
           >
             {chip.label}
@@ -829,36 +828,36 @@ export const HealthEventsPage: React.FC = () => {
 
       {/* KPI strip (design) — design's four tiles + our critical/closed extras */}
       {stats && (
-        <div className="grid grid-cols-2 border border-gray-200 bg-white sm:grid-cols-3 lg:grid-cols-6">
+        <div className="grid grid-cols-2 border border-gray-200 bg-white sm:grid-cols-3 lg:grid-cols-6 dark:border-gray-700 dark:bg-gray-900">
           {(
             [
-              { label: t('healthPage.kpi.open'), value: stats.active, cls: 'text-red-600' },
+              { label: t('healthPage.kpi.open'), value: stats.active, cls: 'text-error-600' },
               {
                 label: t('healthPage.kpi.critical'),
                 value: stats.critical,
-                cls: 'text-orange-600',
+                cls: 'text-warning-600',
               },
               {
                 label: t('healthPage.kpi.treatment'),
                 value: stats.underTreatment,
-                cls: 'text-purple-600',
+                cls: 'text-accent-600',
               },
               {
                 label: t('healthPage.kpi.quarantine'),
                 value: stats.quarantined,
-                cls: 'text-yellow-600',
+                cls: 'text-warning-600',
               },
               {
                 label: t('healthPage.kpi.withdrawal'),
                 value: stats.withdrawalActive,
-                cls: 'text-teal-600',
+                cls: 'text-info-600',
               },
               { label: t('healthPage.kpi.resolved'), value: stats.resolved, cls: 'text-gray-900' },
             ] as const
           ).map((kpi) => (
             <div
               key={kpi.label}
-              className="flex flex-col gap-1.5 border-b border-r border-gray-200 px-6 py-4"
+              className="flex flex-col gap-1.5 border-b border-r border-gray-200 px-6 py-4 dark:border-gray-700"
             >
               <span className="text-xs font-bold uppercase tracking-widest text-gray-500">
                 {kpi.label}
@@ -1022,15 +1021,14 @@ export const HealthEventsPage: React.FC = () => {
             return (
               <div
                 key={day.date}
-                className="flex min-w-0 flex-1 flex-col items-center justify-end gap-1.5"
-                style={{ height: '100%' }}
+                className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1.5"
                 title={`${day.date}: ${day.count}`}
               >
                 <span className="text-[13px] font-medium text-gray-600 dark:text-gray-300">
                   {day.count}
                 </span>
                 <div
-                  className={`w-full ${spike ? 'bg-red-500' : 'bg-blue-400'}`}
+                  className={`w-full ${spike ? 'bg-error-500' : 'bg-accent-400'}`}
                   style={{
                     height: `${Math.max((day.count / max) * 100, day.count > 0 ? 4 : 0)}%`,
                   }}

@@ -424,7 +424,11 @@ describe('TanksPage', () => {
     // Open the column menu and enable an opt-in column
     await user.click(screen.getByRole('button', { name: /Columns \(9\/30\)/ }));
     await user.click(screen.getByText('Status'));
-    expect(await screen.findByRole('columnheader', { name: 'Status' })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getAllByRole('columnheader').some((th) => th.textContent === 'Status')).toBe(
+        true,
+      );
+    });
 
     // "Show all" reaches the full 30-column model
     await user.click(screen.getByRole('button', { name: 'Show all' }));
@@ -461,7 +465,10 @@ describe('TanksPage', () => {
     });
 
     // Tank-level + per-batch cleaner columns render (defaults of the cf model)
-    const headers = screen.getAllByRole('columnheader').map((th) => th.textContent);
+    const headers = screen
+      .getAllByRole('columnheader')
+      .map((th) => th.textContent)
+      .filter((text): text is string => text !== null && text !== '');
     expect(headers).toEqual([
       'Unit',
       'Volume (m³)',

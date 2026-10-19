@@ -6,14 +6,13 @@
  * (batch + species) · Fish · Avg weight · Biomass · Density with capacity
  * bar · FCR · Survival · Last fed. The full model carries 30 selectable
  * columns (tanksV2.col.*) through the column-visibility menu; the
- * cleaner-fish tab renders the cf* per-batch columns with rowspan tank
- * cells, preserving the legacy multi-batch view inside the new design.
- *
- * Row click opens the detail drawer; the selected row is highlighted and
- * over-capacity rows carry the warning tint.
+ * cleaner-fish tab renders the cf* per-batch columns (one row per batch;
+ * the drawer keeps the batch grouping). Rendered through the shared
+ * DataTable (FE-HIGH-069); row click opens the detail drawer, the selected
+ * row is highlighted and over-capacity rows carry the warning tint.
  */
 import React from 'react';
-import { useI18n, type MessageKey } from '@aquaculture/shared-ui';
+import { useI18n, DataTable, type DataTableColumn, type MessageKey } from '@aquaculture/shared-ui';
 import { TankWithBatch, TankColumn } from '../types';
 
 interface TankTableProps {
@@ -48,6 +47,12 @@ const CATEGORY_LABEL_KEYS: Record<string, MessageKey> = {
   cage: 'tanksV2.filter.cages',
 };
 
+/** One cleaner-fish row: a tank paired with one of its batches (or none). */
+interface CleanerRow {
+  tank: TankWithBatch;
+  batchIndex: number;
+}
+
 export const TankTable: React.FC<TankTableProps> = ({
   tanks,
   columns,
@@ -75,14 +80,11 @@ export const TankTable: React.FC<TankTableProps> = ({
 
   if (tanks.length === 0) {
     return (
-      <div className="border border-gray-200 bg-white px-4 py-10 text-center text-gray-500">
+      <div className="border border-gray-200 bg-white px-4 py-10 text-center text-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400">
         {t('tanksV2.grid.noResults')}
       </div>
     );
   }
-
-  const alignClass = (col: TankColumn): string =>
-    col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left';
 
   const locationLine = (tank: TankWithBatch): string =>
     [tank.departmentName, tank.siteName].filter(Boolean).join(' · ');
@@ -115,9 +117,9 @@ export const TankTable: React.FC<TankTableProps> = ({
               : ''}
           </span>
         </div>
-        <div className="h-2 border border-gray-300">
+        <div className="h-2 border border-gray-300 dark:border-gray-600">
           <div
-            className={`h-full ${tank.isOverCapacity ? 'bg-amber-500' : 'bg-blue-600'}`}
+            className={`h-full ${tank.isOverCapacity ? 'bg-warning-500' : 'bg-accent-600'}`}
             style={{ width: `${cap ?? 0}%` }}
           />
         </div>
@@ -127,9 +129,11 @@ export const TankTable: React.FC<TankTableProps> = ({
 
   /** Unit cell — big code + department · site subline (design). */
   const renderUnitCell = (tank: TankWithBatch): React.ReactNode => (
-    <div className="pr-3">
-      <div className="text-lg font-semibold leading-tight text-gray-900">{tank.code}</div>
-      <div className="whitespace-nowrap text-[13px] text-gray-500">
+    <div>
+      <div className="text-lg font-semibold leading-tight text-gray-900 dark:text-gray-100">
+        {tank.code}
+      </div>
+      <div className="whitespace-nowrap text-[13px] text-gray-500 dark:text-gray-400">
         {locationLine(tank) || tank.name}
       </div>
     </div>
@@ -141,14 +145,18 @@ export const TankTable: React.FC<TankTableProps> = ({
       case 'code':
         return renderUnitCell(tank);
       case 'name':
-        return <span className="font-medium text-gray-900">{tank.name}</span>;
+        return <span className="font-medium text-gray-900 dark:text-gray-100">{tank.name}</span>;
       case 'batchNumber': {
         const label = batchLabel(tank);
         const species = speciesLabel(tank);
         return label ? (
           <div>
-            <div className="whitespace-nowrap font-medium text-gray-900">{label}</div>
-            {species && <div className="text-[13px] text-gray-500">{species}</div>}
+            <div className="whitespace-nowrap font-medium text-gray-900 dark:text-gray-100">
+              {label}
+            </div>
+            {species && (
+              <div className="text-[13px] text-gray-500 dark:text-gray-400">{species}</div>
+            )}
           </div>
         ) : (
           <span className="italic text-gray-400">{t('tanksV2.unit.emptyReady')}</span>
@@ -231,13 +239,13 @@ export const TankTable: React.FC<TankTableProps> = ({
     }
   };
 
-  /** Cleaner-fish tank-level cell renderer (rowspan'd on multi-batch rows). */
+  /** Cleaner-fish tank-level cell renderer. */
   const renderCleanerTankCell = (tank: TankWithBatch, key: string): React.ReactNode => {
     switch (key) {
       case 'code':
         return renderUnitCell(tank);
       case 'name':
-        return <span className="font-medium text-gray-900">{tank.name}</span>;
+        return <span className="font-medium text-gray-900 dark:text-gray-100">{tank.name}</span>;
       case 'category': {
         const labelKey = CATEGORY_LABEL_KEYS[tank.category];
         return labelKey ? t(labelKey) : tank.category;
@@ -282,7 +290,7 @@ export const TankTable: React.FC<TankTableProps> = ({
       case 'cfDeployedAt':
         return formatDate(cf.deployedAt);
       case 'cfBatchCount':
-        return batchIndex === 0 ? fmt(tank.cleanerFishDetails?.length || 0, 0) : null;
+        return fmt(tank.cleanerFishDetails?.length || 0, 0);
       case 'cfInitialQuantity':
         return fmt(cf.initialQuantity, 0);
       case 'cfTotalMortality':
@@ -306,101 +314,58 @@ export const TankTable: React.FC<TankTableProps> = ({
   const rowClasses = (tank: TankWithBatch): string => {
     const selected = tank.id === selectedTankId;
     const over = !!tank.isOverCapacity;
-    return `cursor-pointer border-l-4 transition-colors ${
-      selected
-        ? 'border-l-blue-600 bg-blue-50'
-        : over
-          ? 'border-l-amber-500 bg-amber-50 hover:bg-amber-100/60'
-          : 'border-l-transparent hover:bg-gray-50'
-    }`;
+    if (selected) return 'bg-accent-50 dark:bg-accent-900/30';
+    if (over) return 'bg-warning-50 dark:bg-warning-900/20';
+    return '';
   };
 
-  return (
-    <div className="overflow-x-auto border border-gray-200 bg-white">
-      <table className="w-full text-[15px]">
-        <thead className="bg-gray-50">
-          <tr>
-            {columns.map((col, index) => (
-              <th
-                key={col.key}
-                className={`border-l border-gray-200 px-3 py-3 text-xs font-medium text-gray-500 ${alignClass(
-                  col,
-                )} ${index === 0 ? 'border-l-0 pl-6' : ''}`}
-              >
-                {t(col.header)}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-200">
-          {variant === 'production'
-            ? tanks.map((tank) => (
-                <tr
-                  key={tank.id}
-                  onClick={() => onRowClick(tank)}
-                  className={rowClasses(tank)}
-                  aria-label={`${tank.code} ${tank.name}`}
-                >
-                  {columns.map((col) => (
-                    <td
-                      key={col.key}
-                      className={`whitespace-nowrap border-l border-gray-100 px-3 py-3 text-[15px] ${alignClass(
-                        col,
-                      )} ${col.key === columns[0]?.key ? 'border-l-0 pl-6' : ''}`}
-                    >
-                      {renderCell(tank, col.key)}
-                    </td>
-                  ))}
-                </tr>
-              ))
-            : tanks.flatMap((tank) => {
-                // Cleaner fish: one row per batch, tank-level columns rowspan'd
-                const batchCount = tank.cleanerFishDetails?.length || 0;
-                const rowCount = Math.max(1, batchCount);
+  type Row = TankWithBatch | CleanerRow;
+  const tableColumns: DataTableColumn<Row>[] = columns.map((col) => ({
+    key: col.key,
+    header: t(col.header),
+    align: col.align,
+    render: (_value, row) => {
+      if ('tank' in row) {
+        if (isTankLevelColumn(col.key)) {
+          return renderCleanerTankCell(row.tank, col.key);
+        }
+        return renderCleanerBatchCell(row.tank, col.key, row.batchIndex);
+      }
+      return renderCell(row, col.key);
+    },
+  }));
 
-                return Array.from({ length: rowCount }, (_, batchIdx) => {
-                  const isFirstRow = batchIdx === 0;
-                  return (
-                    <tr
-                      key={`${tank.id}-${batchIdx}`}
-                      onClick={() => onRowClick(tank)}
-                      className={rowClasses(tank)}
-                      aria-label={`${tank.code} ${tank.name}`}
-                    >
-                      {columns.map((col) => {
-                        if (isTankLevelColumn(col.key)) {
-                          if (!isFirstRow) return null;
-                          return (
-                            <td
-                              key={col.key}
-                              rowSpan={rowCount > 1 ? rowCount : undefined}
-                              className={`whitespace-nowrap border-l border-gray-100 px-3 py-3 align-top text-[15px] ${alignClass(
-                                col,
-                              )} ${col.key === columns[0]?.key ? 'border-l-0 pl-6' : ''}`}
-                            >
-                              {renderCleanerTankCell(tank, col.key)}
-                            </td>
-                          );
-                        }
-                        return (
-                          <td
-                            key={col.key}
-                            className={`whitespace-nowrap border-l border-gray-100 px-3 py-2 text-sm ${alignClass(
-                              col,
-                            )}`}
-                          >
-                            {batchCount === 0
-                              ? '—'
-                              : renderCleanerBatchCell(tank, col.key, batchIdx)}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  );
-                });
-              })}
-        </tbody>
-      </table>
+  // Cleaner fish: flatten to one row per batch so the shared DataTable can
+  // render the per-batch cf* columns (the drawer keeps the batch grouping).
+  const rows: Row[] =
+    variant === 'production'
+      ? [...tanks]
+      : tanks.flatMap((tank) => {
+          const batchCount = tank.cleanerFishDetails?.length ?? 0;
+          if (batchCount === 0) return [{ tank, batchIndex: 0 }];
+          return Array.from({ length: batchCount }, (_, i) => ({ tank, batchIndex: i }));
+        });
+
+  return (
+    <div className="overflow-x-auto border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
+      {/* key: DataTable's internal visible-column set is initialised once per
+          mount, so any change to the visible column SET (tab switch, column
+          menu toggle) must remount it to take effect. */}
+      <DataTable<Row>
+        key={columns.map((col) => col.key).join('|')}
+        data={rows}
+        columns={tableColumns}
+        keyExtractor={(row) => ('tank' in row ? `${row.tank.id}-${row.batchIndex}` : row.id)}
+        onRowClick={(row) => onRowClick('tank' in row ? row.tank : row)}
+        rowClassName={(row) => rowClasses('tank' in row ? row.tank : row)}
+        emptyMessage={t('tanksV2.grid.noResults')}
+        searchable={false}
+        sortable={false}
+        stickyHeader={false}
+        hoverable
+        bordered={false}
+        compact
+      />
     </div>
   );
 };

@@ -7,7 +7,7 @@
  * weight update so avgWeight/biomass follow the measurement.
  */
 import React, { useMemo, useState } from 'react';
-import { useI18n, useAuth } from '@aquaculture/shared-ui';
+import { Modal, Button, Checkbox, Input, Textarea, useI18n, useAuth } from '@aquaculture/shared-ui';
 import { useRecordGrowthSample, type IndividualMeasurement } from '../../../hooks/useGrowth';
 import { TankWithBatch } from '../types';
 
@@ -116,171 +116,144 @@ export const SamplingModal: React.FC<SamplingModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-label={t('tanksV2.sampling.title')}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={t('tanksV2.sampling.title')}
+      description={`${tank.code} · ${tank.batchNumber ?? ''}`}
+      size="lg"
     >
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white shadow-xl">
-        <div className="border-b border-gray-100 px-6 py-4">
-          <h3 className="text-lg font-semibold text-gray-900">{t('tanksV2.sampling.title')}</h3>
-          <p className="mt-0.5 text-sm text-gray-500">
-            {tank.code} · {tank.batchNumber}
-          </p>
-        </div>
-
-        <div className="space-y-4 px-6 py-5">
-          {/* Date */}
-          <div>
-            <label htmlFor="sampling-date" className="mb-1 block text-sm font-medium text-gray-700">
-              {t('tanksV2.sampling.date')}
-            </label>
-            <input
-              id="sampling-date"
-              type="date"
-              value={measurementDate}
-              onChange={(e) => setMeasurementDate(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
-          {/* Individual weights */}
-          <div>
-            <div className="mb-1 flex items-center justify-between">
-              <span className="text-sm font-medium text-gray-700">
-                {t('tanksV2.sampling.weights')}
-              </span>
-              <button
-                type="button"
-                onClick={addWeight}
-                className="rounded bg-gray-100 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-200"
-              >
-                + {t('tanksV2.sampling.addWeight')}
-              </button>
-            </div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {weights.map((weight, index) => (
-                <div key={index} className="relative">
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    min="0"
-                    step="0.01"
-                    value={weight}
-                    onChange={(e) => updateWeight(index, e.target.value)}
-                    placeholder={`${tank.avgWeight ?? 0}`}
-                    aria-label={`${t('tanksV2.sampling.weights')} ${index + 1}`}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 pr-8 text-sm focus:ring-2 focus:ring-blue-500"
-                  />
-                  {weights.length > MIN_INDIVIDUAL_MEASUREMENTS && (
-                    <button
-                      type="button"
-                      onClick={() => removeWeight(index)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-red-600"
-                      aria-label={`${t('tanksV2.popup.removeBatch')} ${index + 1}`}
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Population */}
-          <div>
-            <label
-              htmlFor="sampling-population"
-              className="mb-1 block text-sm font-medium text-gray-700"
-            >
-              {t('tanksV2.sampling.population')}
-            </label>
-            <input
-              id="sampling-population"
-              type="number"
-              min="0"
-              value={populationSize}
-              onChange={(e) => setPopulationSize(parseInt(e.target.value, 10) || 0)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
-          {/* Computed preview */}
-          {sampleAverage !== null && (
-            <div className="rounded-lg bg-blue-50 px-4 py-3 text-sm text-blue-900">
-              <div>{t('tanksV2.sampling.computedAvg', { avg: fmt(sampleAverage, 2) })}</div>
-              {estimatedBiomass !== null && (
-                <div className="mt-0.5">
-                  {t('tanksV2.sampling.computedBiomass', { biomass: fmt(estimatedBiomass, 1) })}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Update batch weight */}
-          <label className="flex items-center gap-2 text-sm text-gray-700">
-            <input
-              type="checkbox"
-              checked={updateBatchWeight}
-              onChange={(e) => setUpdateBatchWeight(e.target.checked)}
-              className="h-4 w-4 rounded border-gray-300"
-            />
-            {t('tanksV2.sampling.updateBatchWeight')}
+      <div className="space-y-4">
+        {/* Date */}
+        <div>
+          <label htmlFor="sampling-date" className="mb-1 block text-sm font-medium text-gray-700">
+            {t('tanksV2.sampling.date')}
           </label>
+          <Input
+            id="sampling-date"
+            type="date"
+            value={measurementDate}
+            onChange={(e) => setMeasurementDate(e.target.value)}
+          />
+        </div>
 
-          {/* Notes */}
-          <div>
-            <label
-              htmlFor="sampling-notes"
-              className="mb-1 block text-sm font-medium text-gray-700"
-            >
-              {t('tanksV2.sampling.notes')}
-            </label>
-            <textarea
-              id="sampling-notes"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              rows={2}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-blue-500"
-            />
+        {/* Individual weights */}
+        <div>
+          <div className="mb-1 flex items-center justify-between">
+            <span className="text-sm font-medium text-gray-700">
+              {t('tanksV2.sampling.weights')}
+            </span>
+            <Button variant="secondary" size="sm" onClick={addWeight} className="px-2 py-1 text-xs">
+              + {t('tanksV2.sampling.addWeight')}
+            </Button>
           </div>
-
-          {errors.length > 0 && (
-            <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
-              {errors.map((err) => (
-                <div key={err}>{err}</div>
-              ))}
-            </div>
-          )}
-          {recordSample.isError && (
-            <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
-              {(recordSample.error as Error).message}
-            </div>
-          )}
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {weights.map((weight, index) => (
+              <div key={index} className="relative">
+                <Input
+                  type="number"
+                  inputMode="decimal"
+                  min={0}
+                  step="0.01"
+                  value={weight}
+                  onChange={(e) => updateWeight(index, e.target.value)}
+                  placeholder={`${tank.avgWeight ?? 0}`}
+                  aria-label={`${t('tanksV2.sampling.weights')} ${index + 1}`}
+                  className="w-full px-3 py-2 pr-8 text-sm"
+                />
+                {weights.length > MIN_INDIVIDUAL_MEASUREMENTS && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => removeWeight(index)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 px-1 text-gray-400 hover:text-error-600"
+                    aria-label={`${t('tanksV2.popup.removeBatch')} ${index + 1}`}
+                  >
+                    ×
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-gray-100 px-6 py-4">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+        {/* Population */}
+        <div>
+          <label
+            htmlFor="sampling-population"
+            className="mb-1 block text-sm font-medium text-gray-700"
           >
-            {t('feedingV2.mealBoard.cancel')}
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleSubmit()}
-            disabled={errors.length > 0 || recordSample.isPending || !tank.batchId}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {t('tanksV2.sampling.submit')}
-          </button>
+            {t('tanksV2.sampling.population')}
+          </label>
+          <Input
+            id="sampling-population"
+            type="number"
+            min={0}
+            value={populationSize}
+            onChange={(e) => setPopulationSize(parseInt(e.target.value, 10) || 0)}
+          />
         </div>
+
+        {/* Computed preview */}
+        {sampleAverage !== null && (
+          <div className="rounded-lg bg-accent-50 px-4 py-3 text-sm text-accent-900 dark:bg-accent-900/20 dark:text-accent-100">
+            <div>{t('tanksV2.sampling.computedAvg', { avg: fmt(sampleAverage, 2) })}</div>
+            {estimatedBiomass !== null && (
+              <div className="mt-0.5">
+                {t('tanksV2.sampling.computedBiomass', { biomass: fmt(estimatedBiomass, 1) })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Update batch weight */}
+        <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+          <Checkbox
+            checked={updateBatchWeight}
+            onChange={(e) => setUpdateBatchWeight(e.target.checked)}
+          />
+          {t('tanksV2.sampling.updateBatchWeight')}
+        </label>
+
+        {/* Notes */}
+        <div>
+          <label htmlFor="sampling-notes" className="mb-1 block text-sm font-medium text-gray-700">
+            {t('tanksV2.sampling.notes')}
+          </label>
+          <Textarea
+            id="sampling-notes"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            rows={2}
+          />
+        </div>
+
+        {errors.length > 0 && (
+          <div className="rounded-lg bg-error-50 px-4 py-3 text-sm text-error-700 dark:bg-error-900/20 dark:text-error-200">
+            {errors.map((err) => (
+              <div key={err}>{err}</div>
+            ))}
+          </div>
+        )}
+        {recordSample.isError && (
+          <div className="rounded-lg bg-error-50 px-4 py-3 text-sm text-error-700 dark:bg-error-900/20 dark:text-error-200">
+            {(recordSample.error as Error).message}
+          </div>
+        )}
       </div>
-    </div>
+
+      <div className="mt-5 flex justify-end gap-2 border-t border-gray-200 pt-4">
+        <Button variant="secondary" onClick={onClose}>
+          {t('feedingV2.mealBoard.cancel')}
+        </Button>
+        <Button
+          variant="primary"
+          onClick={() => void handleSubmit()}
+          disabled={errors.length > 0 || recordSample.isPending || !tank.batchId}
+        >
+          {t('tanksV2.sampling.submit')}
+        </Button>
+      </div>
+    </Modal>
   );
 };

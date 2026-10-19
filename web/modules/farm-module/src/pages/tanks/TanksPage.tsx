@@ -13,7 +13,8 @@
  */
 import React, { useState, useMemo, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { useI18n, type MessageKey } from '@aquaculture/shared-ui';
+import { Button, Input, Select, useI18n, type MessageKey } from '@aquaculture/shared-ui';
+import { Plus, RefreshCw, Search } from 'lucide-react';
 import { useTanksList } from '../../hooks/useTanks';
 import { useSpeciesList } from '../../hooks/useSpecies';
 import { isBlockingError } from '../../utils/list-view-state';
@@ -123,18 +124,17 @@ interface SegButtonProps {
 
 /** One button of the single-row filter bar (design `seg()` — square, filled active). */
 const SegButton: React.FC<SegButtonProps> = ({ label, active, onClick }) => (
-  <button
-    type="button"
+  <Button
+    variant={active ? 'primary' : 'secondary'}
+    size="sm"
     onClick={onClick}
     aria-pressed={active}
-    className={`inline-flex min-h-[42px] shrink-0 items-center border px-3.5 text-[15.5px] font-medium transition-colors ${
-      active
-        ? 'border-blue-600 bg-blue-600 text-white'
-        : 'border-gray-300 bg-transparent text-gray-700 hover:border-blue-400 hover:text-blue-700'
+    className={`min-h-[42px] shrink-0 px-3.5 text-[15.5px] font-medium ${
+      active ? '' : 'text-gray-700 hover:text-accent-700'
     }`}
   >
     {label}
-  </button>
+  </Button>
 );
 
 // ============================================================================
@@ -583,15 +583,12 @@ export const TanksPage: React.FC = () => {
   if (isBlockingError(error, data != null)) {
     return (
       <div className="p-6">
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4">
-          <h3 className="font-medium text-red-800">Error loading tanks</h3>
-          <p className="mt-1 text-sm text-red-600">{(error as Error).message}</p>
-          <button
-            onClick={() => refetch()}
-            className="mt-3 rounded bg-red-100 px-4 py-2 text-red-800 hover:bg-red-200"
-          >
-            Retry
-          </button>
+        <div className="rounded-lg border border-error-200 bg-error-50 p-4 dark:border-error-800 dark:bg-error-900/20">
+          <h3 className="font-medium text-error-800">{t('tanksV2.error.title')}</h3>
+          <p className="mt-1 text-sm text-error-600">{(error as Error).message}</p>
+          <Button variant="secondary" onClick={() => refetch()} className="mt-3">
+            {t('tanksV2.error.retry')}
+          </Button>
         </div>
       </div>
     );
@@ -600,111 +597,88 @@ export const TanksPage: React.FC = () => {
   return (
     <div className="p-6">
       {error && (
-        <div className="mb-4 flex items-center justify-between rounded border border-amber-200 bg-amber-50 p-3">
-          <p className="text-sm text-amber-800">
-            Couldn&apos;t refresh tanks — showing the last loaded data.{' '}
-            <span className="text-amber-700">{(error as Error).message}</span>
+        <div className="mb-4 flex items-center justify-between rounded border border-warning-200 bg-warning-50 p-3 dark:border-warning-800 dark:bg-warning-900/20">
+          <p className="text-sm text-warning-800">
+            {t('tanksV2.error.stale')}{' '}
+            <span className="text-warning-700">{(error as Error).message}</span>
           </p>
-          <button
-            onClick={() => refetch()}
-            className="ml-3 shrink-0 bg-amber-100 px-3 py-1 text-sm text-amber-800 hover:bg-amber-200"
-          >
-            Retry
-          </button>
+          <Button variant="secondary" size="sm" onClick={() => refetch()} className="ml-3 shrink-0">
+            {t('tanksV2.error.retry')}
+          </Button>
         </div>
       )}
 
       {/* ── View tabs: Üretim / Temizlikçi balık ── */}
       <div className="mb-4 flex items-end gap-6 border-b border-gray-200">
-        <button
-          type="button"
+        <Button
+          variant="ghost"
           onClick={() => switchTab('production')}
-          className={`relative border-b-2 pb-2 text-xl font-semibold transition-colors ${
+          className={`relative border-b-2 pb-2 text-xl font-semibold ${
             activeTab === 'production'
-              ? 'border-blue-600 text-blue-700'
+              ? 'border-accent-600 text-accent-700'
               : 'border-transparent text-gray-500 hover:text-gray-700'
           }`}
         >
           {t('tanksV2.tab.production')}
-          <span className="ml-2 rounded-full bg-blue-100 px-2 py-0.5 align-middle text-xs font-medium text-blue-700">
+          <span className="ml-2 rounded bg-accent-100 px-2 py-0.5 align-middle text-xs font-medium text-accent-700 dark:bg-accent-900/40 dark:text-accent-200">
             {tableData.filter((tk) => tk.batchNumber).length}
           </span>
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
+          variant="ghost"
           onClick={() => switchTab('cleanerFish')}
-          className={`relative border-b-2 pb-2 text-xl font-semibold transition-colors ${
+          className={`relative border-b-2 pb-2 text-xl font-semibold ${
             activeTab === 'cleanerFish'
-              ? 'border-green-600 text-green-700'
+              ? 'border-success-600 text-success-700'
               : 'border-transparent text-gray-500 hover:text-gray-700'
           }`}
         >
           {t('tanksV2.tab.cleanerFish')}
-          <span className="ml-2 rounded-full bg-green-100 px-2 py-0.5 align-middle text-xs font-medium text-green-700">
+          <span className="ml-2 rounded bg-success-100 px-2 py-0.5 align-middle text-xs font-medium text-success-700 dark:bg-success-900/40 dark:text-success-200">
             {tableData.filter((tk) => tk.hasCleanerFish).length}
           </span>
-        </button>
+        </Button>
       </div>
 
       {/* ── Search ── */}
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <div className="relative min-w-[220px] flex-1 md:max-w-[620px]">
-          <svg
-            className="absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={1.5}
-              d="M21 21l-4.34-4.34M11 3a8 8 0 100 16 8 8 0 100-16z"
-            />
-          </svg>
-          <input
+          <Search className="absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
+          <Input
             type="search"
             placeholder={t('tanksV2.searchPlaceholder')}
             aria-label={t('tanksV2.searchPlaceholder')}
             value={filters.search}
             onChange={(e) => setFilter('search', e.target.value)}
-            className="min-h-[50px] w-full border border-gray-300 py-2 pl-11 pr-4 text-base focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
+            className="min-h-[50px] w-full py-2 pl-11 pr-4 text-base"
           />
         </div>
 
         {activeTab === 'production' ? (
-          <button
-            type="button"
+          <Button
+            variant="primary"
             onClick={() => setShowBatchModal(true)}
-            className="inline-flex items-center gap-1.5 bg-blue-600 px-3 py-2.5 text-sm font-medium text-white hover:bg-blue-700"
+            className="flex items-center gap-1.5"
           >
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 4v16m8-8H4"
-              />
-            </svg>
+            <Plus className="h-4 w-4" aria-hidden="true" />
             {t('tanksV2.newBatch')}
-          </button>
+          </Button>
         ) : (
           <>
-            <button
-              type="button"
+            <Button
+              variant="primary"
               onClick={() => setShowCreateBatchModal(true)}
-              className="inline-flex items-center gap-1.5 bg-green-600 px-3 py-2.5 text-sm font-medium text-white hover:bg-green-700"
+              className="bg-success-600 hover:bg-success-700"
             >
-              + {t('tanksV2.createBatch')}
-            </button>
-            <button
-              type="button"
+              {t('tanksV2.createBatch')}
+            </Button>
+            <Button
+              variant="primary"
               onClick={() => setShowDeployModal(true)}
               disabled={activeCfBatches.length === 0}
-              className="inline-flex items-center gap-1.5 bg-blue-600 px-3 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {t('tanksV2.deployToTank')}
-            </button>
+            </Button>
           </>
         )}
 
@@ -729,21 +703,15 @@ export const TanksPage: React.FC = () => {
           />
         )}
 
-        <button
-          type="button"
+        <Button
+          variant="secondary"
+          size="sm"
           onClick={() => refetch()}
           title={t('tanksV2.filter.refresh')}
-          className="rounded p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+          className="p-2"
         >
-          <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-            />
-          </svg>
-        </button>
+          <RefreshCw className="h-5 w-5" aria-hidden="true" />
+        </Button>
       </div>
 
       {/* ── Single-row filter bar: sites · categories · occupancy ── */}
@@ -801,19 +769,19 @@ export const TanksPage: React.FC = () => {
         </div>
 
         {/* Status filter (legacy toolbar feature, kept in the same row) */}
-        <select
+        <Select
           value={filters.status}
           onChange={(e) => setFilter('status', e.target.value)}
           aria-label={t('tanksV2.filter.status')}
-          className="min-h-[42px] border border-gray-300 bg-white px-3 text-[15.5px] text-gray-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
-        >
-          <option value="all">{t('tanksV2.filter.allStatuses')}</option>
-          {STATUS_OPTIONS.map((status) => (
-            <option key={status} value={status}>
-              {t(STATUS_LABEL_KEYS[status])}
-            </option>
-          ))}
-        </select>
+          className="min-h-[42px] text-[15.5px]"
+          options={[
+            { value: 'all', label: t('tanksV2.filter.allStatuses') },
+            ...STATUS_OPTIONS.map((status) => ({
+              value: status,
+              label: t(STATUS_LABEL_KEYS[status]),
+            })),
+          ]}
+        />
       </div>
 
       {/* ── Result count ── */}

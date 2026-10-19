@@ -685,7 +685,7 @@ export const WorkOrdersPage: React.FC = () => {
 
       {/* KPI strip (design) */}
       {woStats && (
-        <div className="grid grid-cols-2 border border-gray-200 bg-white sm:grid-cols-4">
+        <div className="grid grid-cols-2 border border-gray-200 bg-white sm:grid-cols-4 dark:border-gray-700 dark:bg-gray-900">
           {(
             [
               {
@@ -694,14 +694,14 @@ export const WorkOrdersPage: React.FC = () => {
                   woStats.draft + woStats.pendingApproval + woStats.approved + woStats.scheduled,
                 cls: 'text-gray-900',
               },
-              { label: 'Gecikmiş', value: woStats.overdue, cls: 'text-red-600' },
-              { label: 'Devam eden', value: woStats.inProgress, cls: 'text-blue-600' },
-              { label: 'Tamamlanan · 30 gün', value: woStats.completed, cls: 'text-green-600' },
+              { label: 'Gecikmiş', value: woStats.overdue, cls: 'text-error-600' },
+              { label: 'Devam eden', value: woStats.inProgress, cls: 'text-accent-600' },
+              { label: 'Tamamlanan · 30 gün', value: woStats.completed, cls: 'text-success-600' },
             ] as const
           ).map((kpi) => (
             <div
               key={kpi.label}
-              className="flex flex-col gap-1.5 border-b border-r border-gray-200 px-6 py-4"
+              className="flex flex-col gap-1.5 border-b border-r border-gray-200 px-6 py-4 dark:border-gray-700"
             >
               <span className="text-xs font-bold uppercase tracking-widest text-gray-500">
                 {kpi.label}

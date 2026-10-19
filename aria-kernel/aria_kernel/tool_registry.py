@@ -124,6 +124,12 @@ class GovernanceError(ValueError):
     """Raised when a tool governance rule rejects an operation."""
 
 
+class RegistryShapeError(GovernanceError):
+    """registry.json parsed, but it is not an object with a ``tools`` array:
+    a damaged store, named apart from a governance refusal so a reader can
+    declare it (``registry_reader_faults``, ARIA-LOW-586)."""
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
@@ -847,8 +853,22 @@ def load_registry(base_dir: str | os.PathLike[str] | None = None) -> dict[str, A
     with path.open("r", encoding="utf-8") as handle:
         data = json.load(handle)
     if not isinstance(data, dict) or not isinstance(data.get("tools"), list):
-        raise GovernanceError(f"{path} must contain an object with a tools array")
+        raise RegistryShapeError(f"{path} must contain an object with a tools array")
     return data
+
+
+def registry_reader_faults() -> tuple[type[BaseException], ...]:
+    """The closed set a ``load_registry`` / ``list_tools`` caller may report
+    as an unreadable registry (ARIA-LOW-586).
+
+    ``OSError`` — the file system; ``UnicodeDecodeError`` and
+    ``json.JSONDecodeError`` — a registry.json that is not UTF-8 JSON;
+    ``RegistryShapeError`` — JSON that is not an object with a ``tools``
+    array. Anything else (``TypeError``, ``KeyError``, a plain
+    ``GovernanceError`` such as an unknown lifecycle state asked of
+    ``list_tools``) is a defect in the caller or the reader and must raise.
+    """
+    return (OSError, UnicodeDecodeError, json.JSONDecodeError, RegistryShapeError)
 
 
 def save_registry(

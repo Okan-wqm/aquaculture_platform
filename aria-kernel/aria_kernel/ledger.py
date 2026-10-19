@@ -31,6 +31,7 @@ __all__ = [
     "LedgerReadLimitError",
     "LedgerRowTooLargeError",
     "LEDGER_ROW_MAX_BYTES",
+    "ledger_read_faults",
     "REPLAY_TRANSPORT_SCHEMA_PREFIX",
     "ROW_FORMAT_VERSION",
     "STATE_LOCK_LIVENESS_SECONDS",
@@ -84,6 +85,24 @@ class LedgerReadLimitError(RuntimeError):
     """An immutable ledger exceeded an explicit evidence-read budget."""
 
     pass
+
+
+def ledger_read_faults() -> tuple[type[BaseException], ...]:
+    """The closed set a reader of this module's ledgers may treat as a fault
+    of the STORE rather than of the code (ARIA-LOW-514, ARIA-LOW-587).
+
+    ``LedgerIntegrityError`` — a row that is not JSON, a broken hash chain, a
+    segment chain that does not link (what a corrupt or tampered store raises
+    through ``read_jsonl``, ``load_jsonl_verified``, ``load_declared_jsonl``
+    and ``load_segments``); ``LedgerReadLimitError`` — a ledger past the
+    reader's evidence budget; ``OSError`` — the file system. ``TypeError``,
+    ``KeyError``, ``ValueError`` and ``AttributeError`` are defects in the
+    reader and are deliberately absent: a caller that absorbs them turns a
+    kernel bug into a ledger nobody could open. A reader built on these
+    primitives declares its own ``*_reader_faults()`` from this set, next to
+    the reader, so a reader that grows a new fault widens its own declaration.
+    """
+    return (LedgerIntegrityError, LedgerReadLimitError, OSError)
 
 
 # ARIA-HIGH-034 — the ONE row-size cap, owned by the append primitive.

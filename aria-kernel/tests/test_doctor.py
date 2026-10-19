@@ -406,7 +406,7 @@ class GatewayHeartbeatFresh(unittest.TestCase):
         from aria_kernel.self_improvement import ANNOUNCE_REMEDY, scan_signals
 
         self._beat(age_seconds=4 * 24 * 3600)
-        signals = {(s.kind, s.key): s for s in scan_signals(base_dir=self.tools, workspace_root=self.root)}
+        signals = {(s.kind, s.key): s for s in scan_signals(base_dir=self.tools, workspace_root=self.root).signals}
         self.assertEqual(signals[("host_fault", "gateway_heartbeat_fresh")].remedy, ANNOUNCE_REMEDY)
         self.assertNotIn(("doctor_fail", "gateway_heartbeat_fresh"), signals)
 

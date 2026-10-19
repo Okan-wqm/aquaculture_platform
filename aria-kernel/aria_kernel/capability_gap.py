@@ -136,6 +136,16 @@ def latest_capability_gaps(*, base_dir: str | Path | None = None) -> list[dict[s
     return gaps if isinstance(gaps, list) else []
 
 
+def capability_gap_reader_faults() -> tuple[type[BaseException], ...]:
+    """The closed set a ``latest_capability_gaps`` caller may report as an
+    unreadable gap ledger (ARIA-LOW-587): the ledger primitives' own
+    (``ledger.ledger_read_faults``) — the reader is one ``load_jsonl`` of
+    ``capability-gaps/gaps.jsonl``. Anything else is a defect and raises."""
+    from .ledger import ledger_read_faults
+
+    return ledger_read_faults()
+
+
 def _gaps_from_adapter_registry(
     cycle_id: str,
     paths: Any | None,

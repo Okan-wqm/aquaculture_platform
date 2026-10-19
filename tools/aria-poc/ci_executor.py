@@ -4592,9 +4592,14 @@ def _claude_preflight_refusal(*, tools_dir: Path, request_id: str | None, target
     return None
 
 
+PRE_CLAIM_LANE_SPAWN = "spawn"
+PRE_CLAIM_LANE_JUDGE_BATCH = "judge_batch"
+
+
 def _pre_claim_environment_gate(
     *, tools_dir: Path, request_id: str | None = None, target_agent: str | None = None,
     native_runtime: _NativeRuntimePlan | None = None,
+    lane: str = PRE_CLAIM_LANE_SPAWN,
 ) -> str | None:
     """Refuse to CLAIM a request the environment cannot host (FAZ 5b).
 
@@ -4620,18 +4625,29 @@ def _pre_claim_environment_gate(
     workspace, node_modules on the walk up — so it runs on both. Before,
     ``_main`` skipped the whole gate once a native route was admitted, and
     production (adaptive policy since 2026-09-12) never asked any of them.
+
+    ARIA-LOW-610 — ``lane`` says which host surfaces THIS dispatch shapes.
+    The spawn lane (default) asks everything above. The judge-batch lane
+    is one HTTP-only typed call with no room and no validation commands,
+    so of the host checks only git is load-bearing for it — every evidence
+    ref of its result is still verified with git probes in this workspace
+    — and it asks for git alone: a host with no sandbox, no egress
+    boundary and no node_modules still serves a batch when git answers,
+    and a git that cannot answer refuses the whole batch before any claim
+    or probe, every member settled by name.
     """
     if _MOCK_MODE_AT_ENTRY:
         return None
 
+    asks_room = lane == PRE_CLAIM_LANE_SPAWN  # the judge-batch lane has no room
     kind: str | None = None
     detail = ""
-    if native_runtime is None:
+    if asks_room and native_runtime is None:
         claude_refusal = _claude_preflight_refusal(tools_dir=tools_dir, request_id=request_id,
                                                    target_agent=target_agent)
         if claude_refusal is not None:
             kind, detail = "claude_auth_unavailable", claude_refusal
-    if kind is None and _sandbox_backend is not None and _sandbox_backend() is None:
+    if kind is None and asks_room and _sandbox_backend is not None and _sandbox_backend() is None:
         # ARIA-HIGH-123 — the detail names WHY (the git containment probe's
         # refusal when that is what failed): an operator reading the row
         # must tell "no bwrap" from "bwrap cannot host a commit".
@@ -4639,7 +4655,7 @@ def _pre_claim_environment_gate(
         kind, detail = "sandbox_unavailable", (
             f"sandbox_backend() returned None ({why}); write-capable spawns would be refused"
         )
-    if kind is None and _egress_boundary_probe is not None:
+    if kind is None and asks_room and _egress_boundary_probe is not None:
         # ARIA-HIGH-143 — the spawn's room has its own network namespace and
         # one road out, the kernel's allowlist proxy. The probe asks a real
         # managed room, from inside, whether that holds on this host (no
@@ -4660,7 +4676,7 @@ def _pre_claim_environment_gate(
         git_detail = _git_availability_gap(_GitProbeSession(), workspace=Path.cwd())
         if git_detail is not None:
             kind, detail = "git_unavailable", git_detail
-    if kind is None and not _node_modules_resolvable_from(Path.cwd()):
+    if kind is None and asks_room and not _node_modules_resolvable_from(Path.cwd()):
         kind, detail = "env_deps_missing", (
             "no node_modules on the walk up from the workspace; agent validation commands cannot run"
         )

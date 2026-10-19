@@ -63,6 +63,7 @@ from aria_kernel.orchestrator_exit_history import (
     EXIT_PROVIDER_OUTAGE_HOLD, FAILED_EXIT_REASONS, read_orchestrator_exit_streak,
 )
 from aria_kernel.plan_convergence import start_plan
+from aria_kernel.next_cycle_queue import append_pending
 from aria_kernel.provider_cooldown import active_provider_cooldowns, record_provider_cooldown
 from aria_kernel.provider_outage_ledger import open_outages, record_provider_restored
 from aria_kernel.provider_hold import (
@@ -82,14 +83,18 @@ _POLICY_BACKOFF_SECONDS = 900
 # outage it opens is what the night reads.
 _MIDNIGHT_BACKOFF_SECONDS = 5
 # The store's ledgers a held night must leave byte-identical: every request, claim, admission,
-# plan event, queued item and worker assignment, and what a cycle books and learns. Measured on
-# the code before ARIA-HIGH-579, the all-cooled night of this scenario ran a whole cycle: it
-# re-booked the adopted plan as minted and rejected in the funnel (knowledge-graph), wrote
-# learning rows (memory) and a reflection, and recorded a completed cycle (cycles.jsonl).
+# plan event and queued item, and what a cycle books and learns. Measured on the code before
+# ARIA-HIGH-579, the all-cooled night of this scenario ran a whole cycle: it re-booked the
+# adopted plan as minted and rejected in the funnel (knowledge-graph), wrote learning rows
+# (memory) and a reflection, and recorded a completed cycle (cycles.jsonl). Each path must exist
+# before the digest is taken (`_Night.work_digest`): a path the fixture never writes would pin
+# nothing. The worker lane's assignments (``dispatch``) need the triage pipeline to exist and
+# are not pinned here; the worker checkpoint is `TheWorkerLanesSpendHoldsTheReview`.
 _UNTOUCHED_BY_A_HELD_NIGHT = (
-    "agent-invocations", "plans/events.jsonl", "queues", "dispatch", "skill-genesis", "knowledge-graph",
-    "memory", "cycles.jsonl", "reflections.jsonl",
+    "agent-invocations", "plans/events.jsonl", "queues", "knowledge-graph", "memory", "cycles.jsonl",
+    "reflections.jsonl",
 )
+_SEEDED_PRESSURE = "PE-held-night-queued"
 
 
 def _plan_content() -> dict[str, Any]:
@@ -156,6 +161,8 @@ class _Night:
         out: dict[str, bytes] = {}
         for name in _UNTOUCHED_BY_A_HELD_NIGHT:
             root = self.tools / name
+            if not root.exists():
+                raise AssertionError(f"pinned path absent, so it pins nothing: {name}")
             paths = [root] if root.is_file() else sorted(root.rglob("*")) if root.is_dir() else []
             for path in paths:
                 if path.is_file() and not path.name.endswith(".lock"):
@@ -241,6 +248,8 @@ class ANightWithEveryProviderOutHoldsAndTheNextContinues(unittest.TestCase):
         )
         cls.zai_cooled_at_n1 = "zai" in active_provider_cooldowns(night.tools)
         cls.zai_outage_open_at_n1 = any(i.provider == "zai" for i in open_outages(night.tools))
+        # A queued item the held night must leave where it stands.
+        append_pending(night.tools, source_cycle_id="cyc-before-the-outage", pressure_id=_SEEDED_PRESSURE)
         cls.outbox_before_n1 = len(read_outbox(night.tools))
         cls.work_before_n1 = night.work_digest()
         cls.n1 = night.run()

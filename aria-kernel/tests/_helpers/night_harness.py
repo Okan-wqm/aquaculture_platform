@@ -100,7 +100,9 @@ def serving_claude_cli(*, log: Path, plan_title: str) -> str:
     """The Claude vendor substitute: records every call, answers one stream-json run.
 
     Same shape as the native Claude lane's fixture (``--version``; ``-p`` with
-    the prompt on stdin; assistant + result stream-json with a usage block),
+    the prompt on stdin; assistant + result stream-json with a usage block and
+    the resolved model id the real CLI reports — the alias the route ran on
+    never prices, and a fixture that omits it records an unknown-model cost),
     with the response derived from the rendered prompt. The recording travels
     BOTH ways the room allows: a best-effort append to the host-side log (the
     status probes run outside the room and always reach it), and the argv
@@ -133,6 +135,7 @@ def serving_claude_cli(*, log: Path, plan_title: str) -> str:
         "print(json.dumps({'type': 'assistant', 'message': {'role': 'assistant', 'content': "
         "[{'type': 'text', 'text': message}]}}))\n"
         "print(json.dumps({'type': 'result', 'subtype': 'success', 'is_error': False, 'result': message,\n"
+        "                  'model': 'claude-opus-4-20250514',\n"
         "                  'usage': {'input_tokens': 900, 'output_tokens': 120}, "
         "'session_id': 'fixture-night-session'}))\n"
     )

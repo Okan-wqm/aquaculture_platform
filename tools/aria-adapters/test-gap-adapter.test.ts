@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+import { makeFixtureTree } from '../gates/fixture-tree';
 
 import { analyzeTestGaps } from './test-gap-adapter';
 
-const workspace = mkdtempSync(join(tmpdir(), 'aria-test-gap-adapter-'));
+const workspace = makeFixtureTree('aria-test-gap-adapter-');
 const root = join(workspace, 'apps/farm-service/src');
 mkdirSync(join(root, 'batch', '__tests__'), { recursive: true });
 mkdirSync(join(root, 'database', 'migrations'), { recursive: true });
@@ -175,7 +176,7 @@ assert.equal(
 
 // ARIA-MEDIUM-329 — security-sensitivity, high risk and coverage, measured on
 // the shapes that produced F-010.
-const e2eWorkspace = mkdtempSync(join(tmpdir(), 'aria-test-gap-e2e-'));
+const e2eWorkspace = makeFixtureTree('aria-test-gap-e2e-');
 const write = (path: string, body: string): void => {
   mkdirSync(join(e2eWorkspace, path, '..'), { recursive: true });
   writeFileSync(join(e2eWorkspace, path), body, 'utf8');

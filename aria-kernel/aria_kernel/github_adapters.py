@@ -44,8 +44,8 @@ import subprocess
 import threading
 from pathlib import Path
 from typing import Any, Sequence
-from urllib.parse import urlencode
 
+from . import github_issue_reads
 from .auto_merge import GhCliGitHubAdapter
 from .github_writes import GitHubWriteRefused, run_gh_write
 from .hmac_keyring import utc_now_stamp
@@ -160,11 +160,11 @@ class RecordingGitHubAdapter:
         # claim there is no incident.
         return {"readable": False, "reason": "recording_adapter_no_fetch", "issues": []}
 
-    def get_pr_diff(self, number: int) -> str | None:
+    def get_pr_diff(self, number: int) -> tuple[str | None, str | None]:
         self._record("get_pr_diff", number=number)
-        # Empty diff → evaluate_auto_merge fails closed (Plan 023 v3
-        # §P-6 — empty/whitespace/malformed diff blocks auto-merge).
-        return ""
+        # A recording profile fetched no diff, so it names that
+        # (ARIA-MEDIUM-581) and evaluate_auto_merge fails closed on it.
+        return None, "recording_adapter_no_fetch"
 
     def merge_pr(
         self, number: int, *, method: str, expected_head_sha: str,
@@ -300,34 +300,16 @@ class GhCliIssueWriter:
     def _open_issues(self, labels: Sequence[str]) -> tuple[bool, list[dict[str, Any]], str]:
         """Every open issue carrying all ``labels``, as ``{number, title, url}``.
 
-        ARIA-LOW-554 — the WHOLE open set: the REST issues list, every page of
-        it (``--paginate --slurp``: one JSON array of the page arrays). The
-        lookup used ``gh issue list --limit 100``, the 100 newest; once more
-        than 100 open issues carried the labels, an older fixed-title issue
-        was outside that window and a second issue was opened for its title.
-        Still the list and never the search index (ARIA-HIGH-415: the index
-        lags a just-created issue). The REST list carries pull requests too,
-        marked ``pull_request``; they are not issues here, as they were not in
-        ``gh issue list``. ``gh api`` takes no ``--repo``: the repository is in
-        the endpoint, or ``{owner}/{repo}``, which ``gh`` resolves from the
-        working directory exactly as ``gh issue list`` did without one.
+        ARIA-LOW-554 landed the WHOLE-open-set read here; ARIA-MEDIUM-582
+        made it the one owner of that question
+        (``github_issue_reads.read_open_issues``), because the merge lane's
+        adapter — which reads through the same REST list for the freeze
+        gates — kept a second, 50-newest copy. This class now brings only
+        its own ``gh`` plumbing; the read's contract (every page, never
+        the search index, pull requests dropped, an unreadable listing
+        named) is documented at the reader.
         """
-        query = urlencode({"state": "open", "labels": ",".join(labels), "per_page": 100}, safe=",")
-        endpoint = f"repos/{self._repo or '{owner}/{repo}'}/issues?{query}"
-        ok, out = self._gh_read(["api", "--paginate", "--slurp", endpoint])
-        if not ok:
-            return False, [], f"issue_list_failed:{out}"
-        try:
-            pages = json.loads(out)
-        except ValueError:
-            return False, [], "issue_list_unparseable"
-        if not isinstance(pages, list) or not all(isinstance(page, list) for page in pages):
-            return False, [], "issue_list_unparseable"
-        return True, [
-            {"number": row.get("number"), "title": row.get("title"), "url": row.get("html_url")}
-            for page in pages for row in page
-            if isinstance(row, dict) and "pull_request" not in row
-        ], ""
+        return github_issue_reads.read_open_issues(self._gh_read, repo=self._repo, labels=labels)
 
     def _find_open(self, title: str, labels: Sequence[str]) -> tuple[bool, dict[str, Any] | None, str]:
         ok, rows, reason = self._open_issues(labels)

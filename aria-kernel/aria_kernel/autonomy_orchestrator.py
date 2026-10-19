@@ -941,6 +941,7 @@ def _calibration_reporter_and_auto_promotion(
     cycle_id: str,
     cycle_summary: dict[str, Any],
     profile_snapshot: dict[str, Any],
+    workspace_root: str | Path | None,
 ) -> None:
     """Plan ARIA-V7 §3 Phase 7.6 — calibration_reporter + the V6.4 first caller.
 
@@ -971,10 +972,16 @@ def _calibration_reporter_and_auto_promotion(
     ]
     if _v7_calibration_tool_ids:
         try:
+            # ARIA-HIGH-004 — the report names the commit this cycle ran at
+            # (the checkout HEAD every other phase resolves), so a SHADOW ->
+            # ACTIVE transition can bind it; no workspace, no commit.
+            from .convergence_drainer import _resolve_workspace_head_sha
+
             calibration_result = generate_adapter_calibration_report(
                     tool_ids=_v7_calibration_tool_ids,
                     base_dir=root,
                     cycle_id=cycle_id,
+                    target_sha=_resolve_workspace_head_sha(workspace_root) if workspace_root else None,
                 )
             cycle_summary["calibration_reporter"] = calibration_result
         except Exception as _v7_calib_exc:
@@ -2167,7 +2174,7 @@ def run_autonomy_orchestrator(
                     # cycle ran, tool health exists); a no-pressure night
                     # is not a reason to skip precision history.
                     _calibration_reporter_and_auto_promotion(
-                        root, cycle_id, cycle_summary, profile_snapshot,
+                        root, cycle_id, cycle_summary, profile_snapshot, workspace_root,
                     )
                     post_drain_reflection = run_reflection(
                         cycle_id=cycle_id,
@@ -2203,7 +2210,7 @@ def run_autonomy_orchestrator(
                         "plan_id": active_plan_id, "refusal": _seed_ticket.refusal,
                     }
                     _calibration_reporter_and_auto_promotion(
-                        root, cycle_id, cycle_summary, profile_snapshot,
+                        root, cycle_id, cycle_summary, profile_snapshot, workspace_root,
                     )
                     post_drain_reflection = run_reflection(
                         cycle_id=cycle_id,
@@ -2351,7 +2358,7 @@ def run_autonomy_orchestrator(
                     # ORPHAN-HIGH-782 — an invalid plan must not cost the
                     # night its precision history; the cycle itself ran.
                     _calibration_reporter_and_auto_promotion(
-                        root, cycle_id, cycle_summary, profile_snapshot,
+                        root, cycle_id, cycle_summary, profile_snapshot, workspace_root,
                     )
                     post_drain_reflection = run_reflection(
                         cycle_id=cycle_id,
@@ -2446,7 +2453,7 @@ def run_autonomy_orchestrator(
                     # Reporting is observational; it is not gated on plan
                     # convergence.
                     _calibration_reporter_and_auto_promotion(
-                        root, cycle_id, cycle_summary, profile_snapshot,
+                        root, cycle_id, cycle_summary, profile_snapshot, workspace_root,
                     )
                     # Plan ARIA-V3.3 §2b + V5.4 §3f — post-drain
                     # reflection STILL runs on convergence-blocked
@@ -2777,7 +2784,7 @@ def run_autonomy_orchestrator(
                     # ORPHAN-HIGH-782 — a specialist-blocked cycle still
                     # ran end to end; its precision history must not rot.
                     _calibration_reporter_and_auto_promotion(
-                        root, cycle_id, cycle_summary, profile_snapshot,
+                        root, cycle_id, cycle_summary, profile_snapshot, workspace_root,
                     )
                     # Reflection still runs (V3.3 §2b + V5.4 §3f)
                     # on specialist-blocked cycles so daily report
@@ -2993,7 +3000,7 @@ def run_autonomy_orchestrator(
                 # calibration. The convergence-blocked branch calls the
                 # same helper before its own reflection.
                 _calibration_reporter_and_auto_promotion(
-                    root, cycle_id, cycle_summary, profile_snapshot,
+                    root, cycle_id, cycle_summary, profile_snapshot, workspace_root,
                 )
 
                 # Plan ARIA-V3.3 §2b + V5.4 §3f — post-drain reflection

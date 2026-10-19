@@ -500,8 +500,9 @@ class L566OneSweepAppendsItsGovernanceRowsOnce(_Store):
     the tail hash (ARIA-HIGH-237 pays that once per BATCH, ``append_declared_jsonl_rows``). The
     sweep appended one ``agent_claim_<kind>`` row per expired claim, each its own append, so N
     expired claims cost 2N full parses of governance.jsonl (25.9 MB on aria/state) on top of
-    the lookup. The sweep's rows are one batch now: one verification and one tail read,
-    whatever N is, and every row is still written."""
+    the lookup. The sweep's rows are one batch now: one append pass, whatever N is, and every
+    row is still written (since ARIA-LOW-611 that pass reads the file once: the verification
+    yields the tail hash)."""
 
     def _expired(self, n: int) -> None:
         for index in range(1, n + 1):
@@ -515,7 +516,9 @@ class L566OneSweepAppendsItsGovernanceRowsOnce(_Store):
         from aria_kernel import ledger
         from aria_kernel.agent_invocations import reap_stale_claims
 
-        parses = {"verify_jsonl": 0, "_read_jsonl_stored": 0}
+        # ARIA-LOW-611 — the append body's one read-verify-tail pass; it was a
+        # verify_jsonl read plus a _read_jsonl_stored re-parse per append.
+        parses = {"_tail_hash_for_append": 0}
         real = {name: getattr(ledger, name) for name in parses}
 
         def counted(name):  # noqa: ANN001, ANN202
@@ -525,8 +528,7 @@ class L566OneSweepAppendsItsGovernanceRowsOnce(_Store):
                 return real[name](path, *args, **kwargs)
             return call
 
-        with patch.object(ledger, "verify_jsonl", counted("verify_jsonl")), \
-                patch.object(ledger, "_read_jsonl_stored", counted("_read_jsonl_stored")):
+        with patch.object(ledger, "_tail_hash_for_append", counted("_tail_hash_for_append")):
             reaped = reap_stale_claims(base_dir=self.tools, now=_T0 + timedelta(hours=2))
         return reaped, parses
 
@@ -540,7 +542,7 @@ class L566OneSweepAppendsItsGovernanceRowsOnce(_Store):
         self._expired(3)
         reaped, parses = self._sweep_counting_append_parses()
         self.assertEqual(len(reaped["requeued"]), 3)
-        self.assertEqual(parses, {"verify_jsonl": 1, "_read_jsonl_stored": 1})
+        self.assertEqual(parses, {"_tail_hash_for_append": 1})
         rows = self._governance_rows("agent_claim_requeued")
         self.assertEqual([row["details"]["claim_id"] for row in rows], ["CL-1", "CL-2", "CL-3"])
         self.assertEqual({row["details"]["reason"] for row in rows}, {"lease_expired"})
@@ -548,7 +550,7 @@ class L566OneSweepAppendsItsGovernanceRowsOnce(_Store):
     def test_a_sweep_that_reaps_nothing_appends_nothing(self) -> None:
         reaped, parses = self._sweep_counting_append_parses()
         self.assertEqual(reaped["stale"], [])
-        self.assertEqual(parses, {"verify_jsonl": 0, "_read_jsonl_stored": 0})
+        self.assertEqual(parses, {"_tail_hash_for_append": 0})
 
     def test_a_claim_reaped_before_a_later_claim_fails_keeps_its_governance_row(self) -> None:
         # The rows used to be appended per claim, right after its claims

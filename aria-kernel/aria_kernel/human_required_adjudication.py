@@ -1351,9 +1351,11 @@ def sweep_human_required_adjudications(
     throttled_retry: list[dict[str, str]] = []
 
     try:
-        escalations = list_human_required(base_dir=root)
+        escalation_listing = list_human_required(base_dir=root)
+        escalations = escalation_listing.rows
     except Exception as exc:  # pragma: no cover — defensive, see docstring
         return {"status": "failed", "error": str(exc)[:300]}
+    unreadable_records = [record.record_id for record in escalation_listing.unreadable]
 
     existing = {
         str(row.get("escalation_request_id"))
@@ -1453,6 +1455,10 @@ def sweep_human_required_adjudications(
         "throttled_retry": throttled_retry,
         "skipped": skipped,
         "escalations_seen": len(escalations),
+        # ARIA-LOW-597 — the escalation records the lister could not read:
+        # named here, never adjudicated and never silently dropped from the
+        # count the cycle logs.
+        "unreadable_records": unreadable_records,
     }
 
 

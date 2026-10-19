@@ -39,8 +39,15 @@
  *
  * Callers use these helpers instead of `rmSync` directly, enforced by
  * `tests/invariants/fixture-tree-removal-ssot.spec.ts`.
+ *
+ * The module also owns the creation half for script-style tests
+ * (`makeFixtureTree`, ARIA-LOW-595): a file run whole by ts-node builds its
+ * workspace at module level, where there is no `afterAll`, and eleven
+ * `tools/aria-adapters` tests left their trees in the temp dir on every run.
  */
-import { rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 /**
  * Retry budget for a single removal. Worst case is a linear backoff summing to
@@ -81,4 +88,36 @@ export function removeExistingFixtureTree(path: string): void {
     maxRetries: FIXTURE_TREE_REMOVAL_MAX_RETRIES,
     retryDelay: FIXTURE_TREE_REMOVAL_RETRY_DELAY_MS,
   });
+}
+
+/** Trees `makeFixtureTree` made in this process, removed when it exits. */
+const treesRemovedAtExit = new Set<string>();
+
+function removeTreesAtExit(): void {
+  for (const path of treesRemovedAtExit) {
+    removeFixtureTree(path);
+  }
+  treesRemovedAtExit.clear();
+}
+
+/**
+ * Make a fixture tree under the OS temp dir that is removed when the process
+ * exits — normally, through `process.exit`, or on an uncaught failure (Node
+ * emits `exit` for each, and removal is synchronous, which is all `exit`
+ * allows).
+ *
+ * For a script-style test, where the process is the test's lifetime. A suite
+ * with `afterAll`/`finally` keeps removing its trees there with
+ * `removeFixtureTree`, so a long-lived Jest worker does not hold them.
+ *
+ * One `exit` listener serves every tree, so a test that makes many does not
+ * trip Node's listener-leak warning.
+ */
+export function makeFixtureTree(prefix: string): string {
+  const path = mkdtempSync(join(tmpdir(), prefix));
+  if (treesRemovedAtExit.size === 0) {
+    process.once('exit', removeTreesAtExit);
+  }
+  treesRemovedAtExit.add(path);
+  return path;
 }

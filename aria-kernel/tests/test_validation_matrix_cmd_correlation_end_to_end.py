@@ -294,10 +294,6 @@ class CmdCorrelationEndToEndTests(unittest.TestCase):
                 self.assertIsNone(get_change_chain(change_id=change["change_id"], base_dir=tools)["validated"])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class RequiredTestIdentityTests(unittest.TestCase):
     """Plan 023 v3 §R-3, corrected: an nx requirement is matched by what the
     command RUNS (target on project), not by the spec table's spelling —
@@ -330,3 +326,7 @@ class RequiredTestIdentityTests(unittest.TestCase):
         self.assertFalse(required_test_cmd_satisfied_by("nx affected --target=test", "npx nx run-many --target=test --projects=a"))
         self.assertTrue(required_test_cmd_satisfied_by("schema-invariants", "npx jest e2e/tests/integration/schema-invariants.spec.ts"))
         self.assertFalse(required_test_cmd_satisfied_by("schema-invariants", "echo ok"))
+
+
+if __name__ == "__main__":
+    unittest.main()

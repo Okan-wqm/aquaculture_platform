@@ -77,6 +77,7 @@ import {
   canonicalJson,
   chainTip,
   type Finding,
+  hasAccountableOwner,
   isDeadlineLapsed,
   isUnresolvedFindingState,
   parseRegistryJsonl,
@@ -1370,17 +1371,68 @@ function cmdAssign(args: readonly string[], lease: RegistryLockLease): number {
   );
 }
 
-interface SweepConfig {
+export interface SweepConfig {
   readonly staleAfterDays: number;
   readonly dryRun: boolean;
   readonly now: Date;
 }
 
-interface SweepAction {
+export interface SweepAction {
   readonly id: string;
   readonly fromState: Finding['state'];
   readonly toState: Finding['state'];
   readonly reason: string;
+}
+
+/**
+ * ARIA-MEDIUM-601 — an unresolved row whose deadline has lapsed but that
+ * names no accountable owner. BLOCKED is an override someone signs as the
+ * row's `owner_user` (README "Override protocol"), and the row contract
+ * (`$defs/accountable`) refuses a BLOCKED row without one, so the sweep
+ * cannot block it: it reports it UNOWNED instead, with the `assign` command
+ * that gives it an owner. The one predicate `planSweep` and
+ * `findUnownedPastDeadline` share.
+ */
+function isUnownedPastDeadline(entry: Finding, now: Date): boolean {
+  return (
+    isUnresolvedFindingState(entry.state) &&
+    typeof entry.deadline === 'string' &&
+    entry.deadline !== '' &&
+    isDeadlineLapsed(entry.deadline, now) &&
+    !hasAccountableOwner(entry)
+  );
+}
+
+/** The lapsed unresolved rows the sweep reports UNOWNED rather than blocking. */
+export function findUnownedPastDeadline(entries: readonly Finding[], now: Date): Finding[] {
+  return entries.filter((entry) => isUnownedPastDeadline(entry, now));
+}
+
+/**
+ * The sweep's report. The first line is the verdict the finding-state-sweep
+ * workflow greps (`^Sweep clean:` means no transition, so no PR); UNOWNED rows
+ * follow it, so they reach the log in the clean case and the sweep PR body
+ * otherwise, and then each planned transition.
+ */
+export function sweepReportLines(report: {
+  readonly scanned: number;
+  readonly actions: readonly SweepAction[];
+  readonly unowned: readonly Finding[];
+}): string[] {
+  const head =
+    report.actions.length === 0
+      ? `Sweep clean: 0 transitions needed (${report.scanned} entries scanned).`
+      : `Sweep plan (${report.actions.length} transitions):`;
+  return [
+    head,
+    ...report.unowned.map(
+      (entry) =>
+        `  UNOWNED ${entry.id} past deadline ${entry.deadline} (finding-registry assign ${entry.id} --owner-user=<handle>)`,
+    ),
+    ...report.actions.map(
+      (action) => `  ${action.id}: ${action.fromState} → ${action.toState}  (${action.reason})`,
+    ),
+  ];
 }
 
 /**
@@ -1389,7 +1441,10 @@ interface SweepAction {
  *
  *   * OPEN / IN-PROGRESS finding older than `staleAfterDays`
  *     (default 30) → STALE.
- *   * Any non-RESOLVED finding with `deadline` in the past → BLOCKED.
+ *   * Any non-RESOLVED finding with `deadline` in the past → BLOCKED, when
+ *     it names an accountable `owner_user`. One that does not gets no
+ *     transition at all (not STALE either): it is reported UNOWNED
+ *     (`findUnownedPastDeadline`, ARIA-MEDIUM-601).
  *
  * Deterministic ordering: deadline check before staleness check so a
  * past-deadline STALE-candidate lands in BLOCKED (the stronger signal).
@@ -1411,6 +1466,9 @@ export function planSweep(entries: readonly Finding[], config: SweepConfig): Swe
 
     // Deadline check (stronger signal) runs first.
     if (entry.deadline && isDeadlineLapsed(entry.deadline, config.now)) {
+      // ARIA-MEDIUM-601 — no owner, no override signer: reported UNOWNED,
+      // never blocked, and never retired to STALE by the calendar either.
+      if (isUnownedPastDeadline(entry, config.now)) continue;
       if (entry.state !== 'BLOCKED') {
         actions.push({
           id: entry.id,
@@ -1464,25 +1522,17 @@ function cmdSweep(args: string[], lease: RegistryLockLease): number {
   }
 
   const entries = loadRegistry();
-  const actions = planSweep(entries, {
-    staleAfterDays,
-    dryRun,
-    now: new Date(),
-  });
-
-  if (actions.length === 0) {
-    console.log(`Sweep clean: 0 transitions needed (${entries.length} entries scanned).`);
-    return 0;
+  const now = new Date();
+  const actions = planSweep(entries, { staleAfterDays, dryRun, now });
+  const unowned = findUnownedPastDeadline(entries, now);
+  for (const line of sweepReportLines({ scanned: entries.length, actions, unowned })) {
+    writeOut(line);
   }
-
-  console.log(`Sweep plan (${actions.length} transitions):`);
-  for (const a of actions) {
-    console.log(`  ${a.id}: ${a.fromState} → ${a.toState}  (${a.reason})`);
-  }
+  if (actions.length === 0) return 0;
 
   if (dryRun) {
-    console.log('');
-    console.log('--dry-run: no mutations written.');
+    writeOut('');
+    writeOut('--dry-run: no mutations written.');
     return 0;
   }
 

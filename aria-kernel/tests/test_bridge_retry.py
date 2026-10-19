@@ -50,6 +50,58 @@ from tests._helpers.declared_fixtures import append_declared_fixture
 
 
 class BridgeConstantsTests(unittest.TestCase):
+    def test_the_mint_time_marker_has_exactly_one_result_row_reader(self) -> None:
+        """ARIA-MEDIUM-168 — a result row's ``bridge_status`` key is a
+        mint-time constant that NEVER updates (the row is immutable), so a
+        module that reads it as the fold's state reads a stale marker. The
+        fold status has one owner: ``bridge_status_ledger.derive_bridge_state``
+        (through the ledger). This AST invariant walks every production
+        kernel source and refuses any read of the key outside the
+        sanctioned files: the ledger's derive (the owner), the submit
+        path's WRITE (``agent_invocations``), and the orchestrator's own
+        drain-summary dicts (``autonomy_orchestrator``,
+        ``orchestrator_exit_history`` — their own rows, not result rows)."""
+        import ast
+        import inspect
+
+        from aria_kernel import bridge_status_ledger
+        from aria_kernel.bridge_status_ledger import derive_bridge_state
+        from aria_kernel.control_reachability import production_sources
+
+        sanctioned = {
+            "agent_invocations.py",
+            "autonomy_orchestrator.py",
+            "bridge_status_ledger.py",
+            "orchestrator_exit_history.py",
+        }
+        kernel_root = Path(bridge_status_ledger.__file__).parent
+        offenders: list[str] = []
+        for source in production_sources(kernel_root.parent.parent):
+            if not source.is_relative_to(kernel_root):
+                continue  # the invariant binds the kernel package's modules
+            tree = ast.parse(source.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                reads_key = (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "get"
+                    and node.args
+                    and isinstance(node.args[0], ast.Constant)
+                    and node.args[0].value == "bridge_status"
+                ) or (
+                    isinstance(node, ast.Subscript)
+                    and isinstance(node.slice, ast.Constant)
+                    and node.slice.value == "bridge_status"
+                )
+                if reads_key and source.name not in sanctioned:
+                    offenders.append(f"{source.name}:{node.lineno}")
+        self.assertEqual(offenders, [])
+        # And the sanctioned read in the ledger is the derive's own.
+        self.assertIn(
+            'result_row.get("bridge_status")',
+            inspect.getsource(derive_bridge_state),
+        )
+
     def test_bridge_required_roles_shape(self) -> None:
         self.assertEqual(
             BRIDGE_REQUIRED_ROLES,
@@ -312,6 +364,9 @@ class DeriveRequestStateBridgeAwareTests(unittest.TestCase):
             envelope_evidence_hash=self.envelope_evidence_hash,
             role="evidence_judgment",
             transition="permanent_fail", attempt_number=3,
+            # ARIA-MEDIUM-172 — a permanent_fail row names why from the
+            # closed vocabulary; this seed is the budget-spent shape.
+            terminal_reason="retry_budget_exhausted",
         )
         self.assertEqual(
             derive_request_state(request_id=self.request_id, base_dir=self.base),

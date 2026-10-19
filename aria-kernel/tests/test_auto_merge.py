@@ -124,6 +124,13 @@ class FakeGitHubAdapter:
         _ = number
         return self.github_payload["conversations"]
 
+    def get_pr_diff(self, number):
+        # The Protocol's required read (ARIA-MEDIUM-581): the PR's diff, or
+        # why it could not be read.
+        _ = number
+        diff = self.pr_payload.get("diff_text")
+        return (diff, None) if diff else (None, "fixture_pr_diff_absent")
+
     def merge_pr(self, number, *, method, expected_head_sha):
         if self.fail_merge:
             raise RuntimeError("merge failed")

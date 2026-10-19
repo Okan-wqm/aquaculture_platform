@@ -124,6 +124,12 @@ class GovernanceError(ValueError):
     """Raised when a tool governance rule rejects an operation."""
 
 
+class RegistryShapeError(GovernanceError):
+    """registry.json parsed, but it is not an object with a ``tools`` array:
+    a damaged store, named apart from a governance refusal so a reader can
+    declare it (``registry_reader_faults``, ARIA-LOW-586)."""
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
@@ -847,8 +853,22 @@ def load_registry(base_dir: str | os.PathLike[str] | None = None) -> dict[str, A
     with path.open("r", encoding="utf-8") as handle:
         data = json.load(handle)
     if not isinstance(data, dict) or not isinstance(data.get("tools"), list):
-        raise GovernanceError(f"{path} must contain an object with a tools array")
+        raise RegistryShapeError(f"{path} must contain an object with a tools array")
     return data
+
+
+def registry_reader_faults() -> tuple[type[BaseException], ...]:
+    """The closed set a ``load_registry`` / ``list_tools`` caller may report
+    as an unreadable registry (ARIA-LOW-586).
+
+    ``OSError`` — the file system; ``UnicodeDecodeError`` and
+    ``json.JSONDecodeError`` — a registry.json that is not UTF-8 JSON;
+    ``RegistryShapeError`` — JSON that is not an object with a ``tools``
+    array. Anything else (``TypeError``, ``KeyError``, a plain
+    ``GovernanceError`` such as an unknown lifecycle state asked of
+    ``list_tools``) is a defect in the caller or the reader and must raise.
+    """
+    return (OSError, UnicodeDecodeError, json.JSONDecodeError, RegistryShapeError)
 
 
 def save_registry(
@@ -947,6 +967,9 @@ def validate_tool_definition(tool: dict[str, Any]) -> dict[str, Any]:
         )
     if "default_input" in candidate and not isinstance(candidate["default_input"], dict):
         raise GovernanceError("default_input must be a JSON object when provided")
+    # ARIA-LOW-594 — the declared scope must lie inside what default_input
+    # walks (see _validate_scope_walked_by_default_input).
+    _validate_scope_walked_by_default_input(candidate)
     if "rules" in candidate:
         # ARIA-HIGH-324 — the per-rule judgment contract (rule_contract) is
         # checked at the one gate every registry row passes, so a contract
@@ -1516,6 +1539,7 @@ def transition_tool(
     precision: float | None = None,
     critical_false_positives: int = 0,
     evidence_chains_valid: bool = False,
+    active_evidence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Plan ARIA-V6 §2e v2 B-V1-1 — auto_promote_token added.
 
@@ -1576,6 +1600,16 @@ def transition_tool(
     transition: its only exits are CALIBRATE, on such an act (what
     ``unquarantine_tool`` asks for), and the narrowing ones in
     ``_QUARANTINE_EXITS_WITHOUT_APPROVAL``.
+
+    ARIA-HIGH-004 — SHADOW -> ACTIVE also binds its evidence:
+    ``active_evidence`` (built by ``adapter_calibration.active_transition_
+    evidence``) names the calibration report, the readiness verdict it holds,
+    the fixture run that verdict read, the tool version and the commit, and
+    ``adapter_calibration.verify_active_transition_evidence`` re-derives every
+    one of them from the ledgers before any authority is resolved. Missing,
+    stale or mismatched evidence refuses the promotion; the verified evidence
+    lands in ``last_transition`` so the ACTIVE row names what it stood on.
+    Every other transition is unchanged.
     """
     if target_status not in TOOL_STATUSES:
         raise GovernanceError(f"unknown lifecycle state: {target_status}")
@@ -1586,6 +1620,7 @@ def transition_tool(
     # Set only by SHADOW -> ACTIVE, the one transition the panel authorizes.
     _panel_promote_verified = False
     _genesis_drafted = False
+    _verified_active_evidence: dict[str, Any] | None = None
     if target_status in RUNNER_REQUIRED_STATUSES and "runner" not in tool:
         raise GovernanceError(f"{target_status} tool requires runner configuration")
     current = tool["status"]
@@ -1616,6 +1651,15 @@ def transition_tool(
                 raise GovernanceError("SHADOW -> ACTIVE requires precision above threshold")
             if critical_false_positives > 0:
                 raise GovernanceError("SHADOW -> ACTIVE requires zero critical false positives")
+            # ARIA-HIGH-004 — the evidence the promotion stands on, verified
+            # among the structural gates: it spends nothing, so a refusal
+            # here leaves the operator's act unspent. Late import:
+            # adapter_calibration reads this module at import time.
+            from .adapter_calibration import verify_active_transition_evidence
+
+            _verified_active_evidence = verify_active_transition_evidence(
+                tool_id, active_evidence, base_dir=base_dir,
+            )
             # The panel token is VERIFIED once, here among the structural
             # gates, and both the genesis authority check and the predicate
             # below read the verdict: presence is not authority.
@@ -1737,6 +1781,11 @@ def transition_tool(
                     if operator_approval is not None
                     else {}
                 ),
+                **(
+                    {"active_evidence": _verified_active_evidence}
+                    if _verified_active_evidence is not None
+                    else {}
+                ),
             },
         },
         base_dir,
@@ -1790,6 +1839,57 @@ def resolve_transition_approval(
 def _require_string(tool: dict[str, Any], field: str) -> None:
     if not isinstance(tool.get(field), str) or not tool[field].strip():
         raise GovernanceError(f"{field} must be a non-empty string")
+
+
+def _glob_literal_prefix(pattern: str) -> str:
+    """The literal directory part of a glob: everything before the first
+    metacharacter, without a trailing slash (``''`` — the repository root —
+    when the glob starts with a metacharacter, e.g. ``**`` or ``*.json``)."""
+    cut = len(pattern)
+    for index, char in enumerate(pattern):
+        if char in "*?[{":
+            cut = index
+            break
+    return pattern[:cut].rstrip("/")
+
+
+def _validate_scope_walked_by_default_input(candidate: dict[str, Any]) -> None:
+    """ARIA-LOW-594 — a declared scope the production input never walks is
+    coverage theatre.
+
+    ``observation_coverage.adapter_scopes`` counts a path as observed when an
+    adapter DECLARES it, never asking whether the production input ever
+    reaches it: bundle-budget-adapter declared ``web/**`` while its
+    ``default_input.roots`` walked only web/shell, web/modules and web/apps,
+    so every web/shared-ui file counted as observed without being read — a
+    coverage claim the coverage map cannot itself refute. The registry write
+    gate is the one point every manifest passes, so the tie lives here: with
+    roots (or coverageRoots) declared, each declared_scope glob's literal
+    prefix must be one of those roots or lie under one. A manifest without
+    ``default_input`` walks its declared scope directly and is exempt.
+    """
+    default_input = candidate.get("default_input")
+    if not isinstance(default_input, dict):
+        return
+    roots: list[str] = []
+    for key in ("roots", "coverageRoots"):
+        declared = default_input.get(key)
+        if isinstance(declared, list):
+            roots.extend(str(root) for root in declared)
+    if not roots:
+        return
+    walked = sorted({root.rstrip("/") for root in roots if root.rstrip("/")})
+    for scope_glob in candidate["declared_scope"]:
+        prefix = _glob_literal_prefix(str(scope_glob))
+        if any(prefix == root or prefix.startswith(f"{root}/") for root in walked):
+            continue
+        raise GovernanceError(
+            f"declared_scope_outside_walked_roots:{scope_glob}: its literal "
+            f"prefix {prefix!r} is neither a default_input root nor under one, "
+            f"so observation_coverage would count every matching file as "
+            f"observed though production never walks it (walked roots: "
+            f"{', '.join(walked)})"
+        )
 
 
 def _validate_output_schema(schema: dict[str, Any]) -> None:

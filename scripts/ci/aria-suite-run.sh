@@ -37,9 +37,10 @@ export PYTHONDONTWRITEBYTECODE=1
 export PYTHONPATH="aria-kernel:.${PYTHONPATH:+:$PYTHONPATH}"
 
 # The pytest-owned half of the partition, whole — one definition for the full
-# run and for the sharded lane.
+# run and for the sharded lane. Arguments are plugin options placed before the
+# test root.
 pytest_native() {
-  python3 -m pytest -q -p aria_kernel.pytest_native_only aria-kernel
+  python3 -m pytest -q -p aria_kernel.pytest_native_only "$@" aria-kernel
 }
 
 if [ "${1:-}" = "--shard" ]; then
@@ -53,7 +54,12 @@ elif [ "${1:-}" = "--pytest-native" ]; then
     echo "usage: $0 --pytest-native" >&2
     exit 2
   fi
-  pytest_native
+  # ARIA-LOW-599 — this mode is the kernel lane's, and the lane provisions the
+  # sandbox backend before it, so a real-sandbox pin that skipped is a
+  # containment proof that did not run: the run is refused, as `suite_shards
+  # verify` refuses one in the unittest half. The whole-suite run below is a
+  # laptop's, where the pin's skip is the sandbox's own fail-closed contract.
+  pytest_native --refuse-sandbox-skips
 elif [ "$#" -gt 0 ]; then
   # Dots for unittest module names, slashes for pytest paths — both derive
   # from the same argument list, so the two collectors cannot disagree about

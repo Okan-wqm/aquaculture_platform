@@ -10,19 +10,28 @@
  * GitHub flagging the change. SHA pinning is the single control that
  * makes third-party workflow code tamper-evident.
  *
+ * This module is the ONE owner of the rule (ARIA-MEDIUM-590). The invariant
+ * `tests/invariants/aria-workflow-sha-pin.spec.ts` and ARIA's workflow/shell
+ * safety adapter read `inspectUsesText`; neither keeps a copy, and the gate's
+ * own spec fails on any TypeScript source that restates it.
+ *
  * # What the gate accepts
  *
  *   - `uses: actions/checkout@<40-char-sha>` (with optional `# v4.2.2` comment)
  *   - `uses: ./.github/actions/<local-action>` (repo-local; not subject to tag drift)
- *   - `uses: ./<any-relative-path>` (local action)
+ *   - `uses: ./<any-relative-path>` / `../<path>` (local action)
+ *   - `uses: docker://<image>@sha256:<64-hex digest>` (content-addressed image)
  *   - Blank / comment / non-`uses:` lines
  *
- * # What the gate rejects
+ * # What the gate rejects (`PinViolation.reason`)
  *
- *   - `uses: actions/checkout@v4` (tag pin)
- *   - `uses: actions/checkout@main` (branch pin)
- *   - `uses: actions/checkout@42` (short SHA)
- *   - Any mutable reference
+ *   - `mutable_ref`: `actions/checkout@v4` (tag), `@main` (branch), `@42`
+ *     (short SHA). A channel-style action is no exception: the channel is an
+ *     input (`dtolnay/rust-toolchain@<sha>` with `toolchain: nightly`, as
+ *     fuzz-st-parser-nightly.yml does), so a branch ref buys nothing.
+ *   - `missing_ref`: `owner/repo` with no `@` — runs the default branch.
+ *   - `docker_not_digest`: `docker://alpine:3.20` or `docker://alpine` — a
+ *     registry tag is as mutable as a git tag.
  *
  * # Exit codes
  *
@@ -39,14 +48,38 @@ const WORKFLOWS_DIR = resolve(REPO_ROOT, '.github', 'workflows');
 const ACTIONS_DIR = resolve(REPO_ROOT, '.github', 'actions');
 
 const SHA40 = /^[a-f0-9]{40}$/;
+const DOCKER_DIGEST = /^docker:\/\/[^@\s]+@sha256:[a-f0-9]{64}$/;
+
+/** Why a `uses:` reference fails the rule (see the header). */
+export type PinViolationReason = 'mutable_ref' | 'missing_ref' | 'docker_not_digest';
 
 export interface PinViolation {
   readonly file: string;
   readonly line: number;
   readonly uses: string;
+  readonly reason: PinViolationReason;
 }
 
-function collectYamlFiles(): string[] {
+/**
+ * The rule for one `uses:` target: null when it is pinned (a local action, a
+ * 40-hex commit SHA, a docker image by sha256 digest), otherwise the reason.
+ */
+function pinVerdictOf(target: string): PinViolationReason | null {
+  if (target.startsWith('./') || target.startsWith('../')) return null;
+  if (target.startsWith('docker://')) {
+    return DOCKER_DIGEST.test(target) ? null : 'docker_not_digest';
+  }
+  const atIdx = target.lastIndexOf('@');
+  if (atIdx === -1) return 'missing_ref';
+  return SHA40.test(target.slice(atIdx + 1)) ? null : 'mutable_ref';
+}
+
+/**
+ * Every file the rule governs, as absolute paths: the workflows and the
+ * composite actions the repository owns. Exported so the invariant spec walks
+ * the same set instead of keeping its own.
+ */
+export function collectYamlFiles(): string[] {
   const out: string[] = [];
   if (existsSync(WORKFLOWS_DIR)) {
     for (const name of readdirSync(WORKFLOWS_DIR)) {
@@ -87,36 +120,22 @@ function checkFile(path: string): PinViolation[] {
 }
 
 /**
- * The gate's rule over one file's text: every `uses:` reference that is not
- * a local action and not pinned to a 40-hex commit SHA. Pure, so the gate's
- * walk and ARIA's workflow/shell safety adapter (ARIA-HIGH-013) read the same
- * verdict for the same text.
+ * The gate's rule over one file's text: every `uses:` reference that
+ * `pinVerdictOf` refuses. Pure, so the gate's walk, the invariant spec and
+ * ARIA's workflow/shell safety adapter (ARIA-HIGH-013) read the same verdict
+ * for the same text.
  */
 export function inspectUsesText(rel: string, raw: string): PinViolation[] {
-  const lines = raw.split('\n');
   const violations: PinViolation[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!;
+  for (const [i, line] of raw.split('\n').entries()) {
     // Skip comments + empty.
     const trimmed = line.trim();
     if (trimmed.length === 0 || trimmed.startsWith('#')) continue;
     // Match `uses: <ref>` or `- uses: <ref>`.
-    const match = trimmed.match(/^-?\s*uses:\s*(\S+)/);
-    if (!match) continue;
-    const ref = match[1]!;
-    // Local action (./ or ../) — always allowed.
-    if (ref.startsWith('./') || ref.startsWith('../')) continue;
-    // External reference: owner/repo@<ref>.
-    const atIdx = ref.lastIndexOf('@');
-    if (atIdx === -1) {
-      // No @ — implicit default branch, reject.
-      violations.push({ file: rel, line: i + 1, uses: ref });
-      continue;
-    }
-    const pin = ref.slice(atIdx + 1);
-    if (!SHA40.test(pin)) {
-      violations.push({ file: rel, line: i + 1, uses: ref });
-    }
+    const ref = /^-?\s*uses:\s*(?<ref>\S+)/.exec(trimmed)?.groups?.['ref'];
+    if (ref === undefined) continue;
+    const reason = pinVerdictOf(ref);
+    if (reason !== null) violations.push({ file: rel, line: i + 1, uses: ref, reason });
   }
   return violations;
 }
@@ -155,10 +174,10 @@ export function main(argv: readonly string[]): number {
     if (violations.length > 0) {
       process.stdout.write('\n── NON-SHA uses: ──\n');
       for (const v of violations) {
-        process.stdout.write(`  ${v.file}:${v.line}  ${v.uses}\n`);
+        process.stdout.write(`  ${v.file}:${v.line}  ${v.uses}  (${v.reason})\n`);
       }
       process.stdout.write(
-        '\n✗ Plan v3 R27: every third-party `uses:` MUST be pinned to a 40-char commit SHA. Replace tag/branch refs with the commit SHA + a `# vX.Y.Z` comment.\n',
+        '\n✗ Plan v3 R27: every third-party `uses:` MUST be pinned to a 40-char commit SHA (a docker:// image to its sha256 digest). Replace tag/branch refs with the commit SHA + a `# vX.Y.Z` comment.\n',
       );
     } else {
       process.stdout.write('✓ Every third-party `uses:` is SHA-pinned.\n');

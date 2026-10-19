@@ -48,11 +48,22 @@ JUDGE_BATCH_SYSTEM_PROMPT = (
 
 
 class JudgeBatchRefused(RuntimeError):
-    """The batch cannot start; every request is refused under ``reason``."""
+    """The batch cannot start; every request is refused under ``reason``.
 
-    def __init__(self, reason: str) -> None:
+    ``failure_class``/``retryable`` say what the refusal IS, in
+    ``_refuse_dispatch``'s vocabulary: the default is the executor's own
+    admission policy (``policy_violation``, not retryable); a refusal the
+    HOST caused — the pre-claim environment gate — is
+    ``harness_unavailable`` and retryable, because the host, not the
+    request, is what must change (ARIA-LOW-610).
+    """
+
+    def __init__(self, reason: str, *, failure_class: str = "policy_violation",
+                 retryable: bool = False) -> None:
         super().__init__(reason)
         self.reason = reason
+        self.failure_class = failure_class
+        self.retryable = retryable
 
 
 @dataclass
@@ -194,7 +205,8 @@ def run_judge_batch(
         sys.stderr.write(f"judge_batch_refused: {exc.reason}\n")
         for request_id in request_ids:
             _engine._refuse_dispatch(request={"role": role}, request_id=request_id, target_agent=target_agent,
-                                     reason=exc.reason.split(":", 1)[0])
+                                     reason=exc.reason.split(":", 1)[0],
+                                     failure_class=exc.failure_class, retryable=exc.retryable)
         return _engine.REFUSAL_EXIT_CODE
 
 
@@ -236,6 +248,23 @@ def _run_judge_batch(
     not_pending = [m.request_id for m in members if states.get(m.request_id) not in ("PENDING", "REQUEUED")]
     if not_pending:
         raise JudgeBatchRefused(f"judge_batch_request_not_pending:{','.join(not_pending)[:120]}")
+
+    # ARIA-LOW-610 — the ONE pre-claim environment gate, asked for what
+    # this lane's host must provide, before the fleet probe and before any
+    # claim: the batch is a single HTTP-only typed call with no room and
+    # no validation commands, so git — the probe every evidence ref of
+    # its result is verified with — is the only host check it is asked
+    # (`lane=PRE_CLAIM_LANE_JUDGE_BATCH`). A git that cannot answer
+    # `rev-parse HEAD` in this workspace rejects each finished result as
+    # `verification_unavailable` after the paid call and re-runs it every
+    # night; refused here, nothing is probed, nothing claimed, and every
+    # member is settled by name as a retryable harness refusal.
+    gate_kind = _engine._pre_claim_environment_gate(
+        tools_dir=tools_dir, request_id=batch_id, target_agent=target_agent,
+        lane=_engine.PRE_CLAIM_LANE_JUDGE_BATCH,
+    )
+    if gate_kind is not None:
+        raise JudgeBatchRefused(gate_kind, failure_class="harness_unavailable", retryable=True)
 
     # Task binding: one anchor for the whole batch (same target_sha by
     # construction), so one git probe answers for every member.

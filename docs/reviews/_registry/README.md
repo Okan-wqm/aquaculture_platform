@@ -137,10 +137,14 @@ invariant.
 
 ### Accountability
 
-An unresolved CRITICAL must carry a non-blank `owner_user` and a `deadline`
-(schema `$defs/accountable`). A CRITICAL is exempt from the 30-day STALE timer, so
-its deadline is the only clock that moves it. A row registered before the rule
-gains its fields through:
+An unresolved CRITICAL and every BLOCKED row must carry a non-blank
+`owner_user` and a `deadline` (schema `$defs/accountable`). A CRITICAL is exempt
+from the 30-day STALE timer, so its deadline is the only clock that moves it. A
+BLOCKED row is an override its `owner_user` signs, so the sweep blocks a lapsed
+row only when it names one; a lapsed row with no owner gets no transition and is
+reported `UNOWNED <id> past deadline <date>` under the sweep's first line
+(`findUnownedPastDeadline` in `tools/gates/finding-registry.ts`). A row
+registered before the rule gains its fields through:
 
 ```bash
 npx ts-node --project tools/gates/tsconfig.json tools/gates/finding-registry.ts \

@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+import { makeFixtureTree } from '../gates/fixture-tree';
 
 import { analyzeTypeOrmEntities } from './typeorm-entity-schema-adapter';
 
-const workspace = mkdtempSync(join(tmpdir(), 'aria-typeorm-adapter-'));
+const workspace = makeFixtureTree('aria-typeorm-adapter-');
 const root = join(workspace, 'apps/farm-service/src');
 mkdirSync(join(root, 'ok'), { recursive: true });
 mkdirSync(join(root, 'bad'), { recursive: true });
@@ -13,9 +14,12 @@ mkdirSync(join(root, 'tenant'), { recursive: true });
 mkdirSync(join(root, 'infra'), { recursive: true });
 mkdirSync(join(workspace, 'apps/billing-service/src'), { recursive: true });
 mkdirSync(join(workspace, 'libs/backend-common/src/database'), { recursive: true });
-mkdirSync(join(workspace, 'apps/farm-service/src/database/migrations/.archive/2026-01-01T00-00-00-000Z'), {
-  recursive: true,
-});
+mkdirSync(
+  join(workspace, 'apps/farm-service/src/database/migrations/.archive/2026-01-01T00-00-00-000Z'),
+  {
+    recursive: true,
+  },
+);
 
 writeFileSync(
   join(root, 'ok/schema.entity.ts'),
@@ -95,7 +99,10 @@ writeFileSync(
   'utf8',
 );
 writeFileSync(
-  join(root, 'database/migrations/.archive/2026-01-01T00-00-00-000Z/1600000000000-RetiredMigration.ts'),
+  join(
+    root,
+    'database/migrations/.archive/2026-01-01T00-00-00-000Z/1600000000000-RetiredMigration.ts',
+  ),
   `export class RetiredMigration1600000000000 {}`,
   'utf8',
 );
@@ -153,30 +160,31 @@ writeFileSync(
   'utf8',
 );
 writeFileSync(
-  join(workspace, 'apps/farm-service/src/database/migrations/1782000000000-UnregisteredMigration.ts'),
+  join(
+    workspace,
+    'apps/farm-service/src/database/migrations/1782000000000-UnregisteredMigration.ts',
+  ),
   `export class UnregisteredMigration1782000000000 {}`,
   'utf8',
 );
 writeFileSync(
   join(workspace, 'snapshot.json'),
-  JSON.stringify(
-    {
-      schema: 'farm',
-      tables: [
-        {
-          schema: 'farm',
-          name: 'schema_entities',
-          columns: [
-            { name: 'id', dataType: 'uuid', isNullable: 'NO' },
-            { name: 'tenantId', dataType: 'text', isNullable: 'YES' },
-            { name: 'display_name', dataType: 'text', isNullable: 'YES' },
-            { name: 'legacy_column', dataType: 'text', isNullable: 'YES' },
-          ],
-        },
-        { schema: 'farm', name: 'missing_schema_entities', columns: [] },
-      ],
-    },
-  ),
+  JSON.stringify({
+    schema: 'farm',
+    tables: [
+      {
+        schema: 'farm',
+        name: 'schema_entities',
+        columns: [
+          { name: 'id', dataType: 'uuid', isNullable: 'NO' },
+          { name: 'tenantId', dataType: 'text', isNullable: 'YES' },
+          { name: 'display_name', dataType: 'text', isNullable: 'YES' },
+          { name: 'legacy_column', dataType: 'text', isNullable: 'YES' },
+        ],
+      },
+      { schema: 'farm', name: 'missing_schema_entities', columns: [] },
+    ],
+  }),
   'utf8',
 );
 
@@ -217,7 +225,7 @@ const infraFinding = output.findings.find(
     finding.rule === 'typeorm_entity_schema_required' &&
     finding.path === 'apps/farm-service/src/infra/outbox-event.entity.ts',
 );
-assert.ok(infraFinding?.message.includes("infrastructureTables"), infraFinding?.message);
+assert.ok(infraFinding?.message.includes('infrastructureTables'), infraFinding?.message);
 // The SSoT MODULE_SCHEMAS entry is cited as evidence for infra-table findings.
 assert.equal(
   infraFinding?.evidence.some(
@@ -275,12 +283,12 @@ assert.ok(output.read_paths.includes('apps/farm-service/src/ok/schema.entity.ts'
 assert.ok(output.read_paths.includes('libs/backend-common/src/database/schema-manager.service.ts'));
 assert.ok(output.read_paths.includes('apps/farm-service/src/app.module.ts'));
 assert.ok(output.read_paths.includes('snapshot.json'));
-assert.equal(output.findings.every((finding) => Array.isArray(finding.evidence)), true);
-assert.equal(output.belief_candidates.length, 1);
 assert.equal(
-  output.belief_candidates[0]?.belief_id,
-  'typeorm:farm-service:entity-schema-surface',
+  output.findings.every((finding) => Array.isArray(finding.evidence)),
+  true,
 );
+assert.equal(output.belief_candidates.length, 1);
+assert.equal(output.belief_candidates[0]?.belief_id, 'typeorm:farm-service:entity-schema-surface');
 assert.ok(output.belief_candidates[0]?.evidence_refs.includes('apps/farm-service/src/**/*.ts'));
 
 // Deliberate-break control 1: a platform-level service (billing is NOT in
@@ -303,7 +311,7 @@ assert.equal(billingOutput.findings[0]?.details?.tenantScoped, false);
 // Deliberate-break control 2: when the SSoT file is unreadable the check
 // fails CLOSED — a tenant-scoped-looking service still gets flagged, so a
 // broken/renamed schema-manager cannot silently disable the rule.
-const bareWorkspace = mkdtempSync(join(tmpdir(), 'aria-typeorm-adapter-bare-'));
+const bareWorkspace = makeFixtureTree('aria-typeorm-adapter-bare-');
 mkdirSync(join(bareWorkspace, 'apps/farm-service/src'), { recursive: true });
 writeFileSync(
   join(bareWorkspace, 'apps/farm-service/src/pond.entity.ts'),

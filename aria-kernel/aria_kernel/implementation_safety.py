@@ -255,6 +255,15 @@ ALLOWED_GH_API_PATHS: tuple[re.Pattern[str], ...] = (
         r"(?:files|commits|reviews|comments)(?:[/?#].*)?$"
     ),
     re.compile(r"^/repos/[^/]+/[^/]+/issues/[0-9]+/comments(?:[/?#].*)?$"),
+    # ARIA-MEDIUM-582 — the merge lane's freeze gates read the open-issue
+    # listing through the one complete REST read
+    # (github_issue_reads.read_open_issues; the lane's adapter consults this
+    # allowlist with exactly that endpoint). Same bargain as the bare pulls
+    # collection above: `GET` lists, anchored with no trailing path segment
+    # so it cannot stand in for a sub-resource (`issues/{n}/comments` is the
+    # only issue sub-resource allowed, and `POST` here is `gh issue create`,
+    # which the kernel's own issue writer already does by argv).
+    re.compile(r"^/repos/[^/]+/[^/]+/issues(?:[?#].*)?$"),
 )
 
 # Plan ARIA-V9.0-D — MAX_VALIDATION_RESULT_BYTES — per-result stdout
@@ -2188,6 +2197,14 @@ class _PreMergeEvidence:
 
     These are observations, not check verdicts. The merge owner captures
     them from verified native prefixes and the repository snapshot.
+
+    ARIA-HIGH-005 (Task 8) — constructed only by the merge owner's capture
+    (``merge_authority._pre_merge_evidence``), which holds
+    ``_PRE_MERGE_EVIDENCE_TOKEN``. Every pre-merge predicate reads these
+    fields as the native identities of the implementation being merged, so a
+    snapshot assembled by hand is the perimeter's input forged without a
+    single ledger being read: it is refused as a ``ForgedVerdict``, the same
+    rule ``HardFailReport`` follows for the registry's output.
     """
 
     unavailable_reasons: tuple[str, ...]
@@ -2287,6 +2304,13 @@ class _PreMergeEvidence:
     turn_budget_refusal_reason: str | None = None
     turn_budget_ledger_tip: str | None = None
     turn_budget_unavailable_reason: str | None = None
+    _token: object = field(default=None, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        _require_registry_token(
+            self._token, "_PreMergeEvidence", "merge_authority._pre_merge_evidence",
+            expected=_PRE_MERGE_EVIDENCE_TOKEN,
+        )
 
     @property
     def available(self) -> bool:
@@ -2399,9 +2423,16 @@ class ForgedVerdict(RuntimeError):
 # turns the docstring's "impossible" into the truth it always claimed to be.
 _REPORT_TOKEN: object = object()
 
+# ARIA-HIGH-005 — the pre-merge snapshot's own construction token, held by
+# its one producer (merge_authority's capture). A separate object from
+# _REPORT_TOKEN: the capture may build evidence, never a passing report.
+_PRE_MERGE_EVIDENCE_TOKEN: object = object()
 
-def _require_registry_token(token: object, type_name: str, producer: str) -> None:
-    if token is not _REPORT_TOKEN:
+
+def _require_registry_token(
+    token: object, type_name: str, producer: str, *, expected: object = _REPORT_TOKEN,
+) -> None:
+    if token is not expected:
         raise ForgedVerdict(
             f"forged_perimeter_verdict:{type_name} may only be constructed by "
             f"{producer}; a hand-assembled verdict is the perimeter bypassed "
@@ -2927,6 +2958,62 @@ def implementation_allowed_scope(
 
 _FORCE_PUSH_LONG_FLAGS: frozenset[str] = frozenset({"--force", "--force-with-lease"})
 
+# git's global options — the spellings that may precede the subcommand
+# (`git -C dir push ...`, `git -c k=v commit ...`), as a closed vocabulary:
+# those that take their value as the next argv entry (most also accept it
+# joined with `=`), and the flags that stand alone. Verified against git
+# 2.43.0's own parsing: `--exec-path` alone makes git print and exit, so a
+# subcommand after it never runs. Anything else before the subcommand is
+# unknown to this vocabulary, and the callers fail closed on it.
+_GIT_SEPARATE_VALUE_OPTIONS: frozenset[str] = frozenset({
+    "-C", "-c", "--config-env", "--git-dir", "--work-tree", "--namespace",
+})
+_GIT_JOINED_VALUE_OPTIONS: frozenset[str] = frozenset({
+    "--git-dir", "--work-tree", "--namespace", "--super-prefix", "--exec-path",
+})
+_GIT_STANDALONE_OPTIONS: frozenset[str] = frozenset({
+    "--no-pager", "-p", "--paginate", "-P", "--bare", "--no-replace-objects",
+    "--literal-pathspecs", "--glob-pathspecs", "--noglob-pathspecs",
+    "--icase-pathspecs", "--no-optional-locks", "--exec-path",
+    "-h", "--help", "--version",
+})
+
+
+def _git_subcommand(argv: Sequence[str]) -> tuple[str, list[str]] | None:
+    """``(subcommand, argv from the subcommand on)`` when ``argv`` starts with
+    git and every option before the subcommand is one this closed vocabulary
+    prices, else ``None``.
+
+    ARIA-LOW-591 — ``None`` means "cannot see to the subcommand": the argv
+    does not start with git, no subcommand follows the options, or a leading
+    dash-option is unknown here. The callers treat ``None`` as a possible
+    push or commit (fail closed), because a global option they cannot price
+    is exactly the spelling that used to slip past an ``argv[:2]`` check:
+    ``git -C dir push -f`` and ``git -c k=v push --force`` reached git
+    unexamined while ``git push --force`` was refused.
+    """
+    tokens = [str(token) for token in argv]
+    if not tokens or tokens[0] != "git":
+        return None
+    index = 1
+    while index < len(tokens):
+        token = tokens[index]
+        if not token.startswith("-"):
+            return token, tokens[index:]
+        lowered = token.lower()
+        name = lowered.partition("=")[0]
+        if name in _GIT_JOINED_VALUE_OPTIONS and "=" in token:
+            index += 1
+        elif name in _GIT_SEPARATE_VALUE_OPTIONS:
+            if index + 1 >= len(tokens):
+                return None
+            index += 2
+        elif lowered in _GIT_STANDALONE_OPTIONS:
+            index += 1
+        else:
+            return None
+    return None
+
 
 def _argv_forces_a_push(argv: list[str]) -> str | None:
     """The offending token when ``argv`` is a force-push, else ``None``.
@@ -2944,10 +3031,20 @@ def _argv_forces_a_push(argv: list[str]) -> str | None:
     what makes short clusters (``-fu``) and a leading ``+`` refspec
     decidable without also rejecting a filename that happens to contain
     ``-f``.
+
+    ARIA-LOW-591 — the subcommand is found through :func:`_git_subcommand`,
+    so git's global options (``-C dir``, ``-c k=v``, ``--git-dir=...``) no
+    longer hide the push; an option the vocabulary cannot price fails closed
+    and the argv is scanned as a possible push.
     """
-    if argv[:2] != ["git", "push"]:
+    tokens = [str(token) for token in argv]
+    if not tokens or tokens[0] != "git":
         return None
-    for token in argv[2:]:
+    classified = _git_subcommand(tokens)
+    if classified is not None and classified[0] != "push":
+        return None
+    tail = classified[1][1:] if classified is not None else tokens[1:]
+    for token in tail:
         lowered = token.lower()
         if lowered in _FORCE_PUSH_LONG_FLAGS:
             return token
@@ -2995,10 +3092,14 @@ def _argv_bypasses_hooks(argv: Sequence[str]) -> str | None:
 
     The hook-bypass half of the governance perimeter, as a pure function of
     the argv so every reader asks the same question (see
-    :func:`governance_bypass_refusal`).
+    :func:`governance_bypass_refusal`). The subcommand is found through
+    :func:`_git_subcommand` (ARIA-LOW-591), so ``git -C dir commit -n`` is
+    judged as the commit it is; an option the vocabulary cannot price fails
+    closed and the argv is judged as a possible commit.
     """
     tokens = [str(token) for token in argv]
-    is_commit = tokens[:2] == ["git", "commit"]
+    classified = _git_subcommand(tokens)
+    is_commit = bool(tokens) and tokens[0] == "git" and (classified is None or classified[0] == "commit")
     for index, token in enumerate(tokens):
         lowered = token.lower()
         if lowered in _HOOK_BYPASS_FLAGS:

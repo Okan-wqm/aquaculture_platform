@@ -29,14 +29,13 @@ openssl x509 -req -days 7 -in "$TMP_DIR/nats.csr" \
   -CA "$TMP_DIR/certs/ca-cert.pem" -CAkey "$TMP_DIR/ca-key.pem" -CAcreateserial \
   -out "$TMP_DIR/certs/nats-cert.pem" -copy_extensions copyall >/dev/null 2>&1
 
-# One certificate per identity the SSoT declares; the CN is the NATS user.
+# One certificate per identity the SSoT declares; the CN is the NATS user. The
+# roster comes from the smoke tool itself, which reads services.yaml through the
+# shared reader (tools/gates/nats-services.ts, ARIA-LOW-603) — this harness used
+# to embed its own `node -e` YAML parse here.
 mapfile -t SERVICE_NAMES < <(
-  node -e "
-    const { parse } = require('yaml');
-    const { readFileSync } = require('node:fs');
-    const doc = parse(readFileSync('$ROOT/infrastructure/nats/services.yaml', 'utf8'));
-    for (const s of doc.services) console.log(s.name);
-  "
+  "$ROOT/node_modules/.bin/ts-node" --project "$ROOT/tools/gates/tsconfig.json" \
+    "$ROOT/tools/scripts/nats-boot-path-acl-smoke.ts" --print-identities
 )
 if [ "${#SERVICE_NAMES[@]}" -eq 0 ]; then
   echo "boot-path smoke: services.yaml yielded no services" >&2

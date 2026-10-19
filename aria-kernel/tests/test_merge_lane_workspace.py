@@ -263,8 +263,8 @@ class TheExpertPanelIsRequestedAtClaimTimeTests(_Origin):
         def get_pr(self, number: int) -> dict:
             return dict(self.pr)
 
-        def get_pr_diff(self, number: int) -> str:
-            return "diff"
+        def get_pr_diff(self, number: int) -> tuple[str | None, str | None]:
+            return "diff", None
 
     def test_the_request_is_made_on_the_pr_head(self) -> None:
         from aria_kernel.merge_authority import request_implementation_expert_review

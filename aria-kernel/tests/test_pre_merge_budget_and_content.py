@@ -59,6 +59,7 @@ from aria_kernel.implementation_safety import (
 from aria_kernel.tool_registry import ensure_tools_dir
 from aria_kernel.turn_budget_policy import IMPLEMENTER_TURN_BUDGET_DEFAULTS
 from tests.test_turn_budget_policy import write_override
+from tests._helpers.pre_merge_evidence import fixture_pre_merge_evidence
 
 # The kernel default; the predicate judges against whatever the policy says.
 _CAP = IMPLEMENTER_TURN_BUDGET_DEFAULTS["budgeted_turns"]
@@ -195,8 +196,8 @@ class PlanContentBindingTests(unittest.TestCase):
 def _bound_evidence(**budget) -> _PreMergeEvidence:
     """Every native binding field the predicates require, plus the budget view."""
     sha = "b" * 40
-    return _PreMergeEvidence(
-        unavailable_reasons=(), repo_identity="repo", snapshot_hash="sha256:snap",
+    return fixture_pre_merge_evidence(
+        (), repo_identity="repo", snapshot_hash="sha256:snap",
         pr_row_hash="sha256:pr", planned_row_hash="sha256:planned", committed_row_hash="sha256:committed",
         request_id="AIR-1", claim_id="claim-1", request_row_hash="sha256:req", claim_row_hash="sha256:claim",
         result_row_hash="sha256:res", implementation_event_hash="sha256:evt",

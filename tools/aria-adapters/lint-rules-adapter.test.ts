@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+import { makeFixtureTree } from '../gates/fixture-tree';
 
 import { analyzeLintRules, selectFiles, severityFor } from './lint-rules-adapter';
 
 async function main(): Promise<void> {
-  const workspace = mkdtempSync(join(tmpdir(), 'aria-lint-rules-'));
+  const workspace = makeFixtureTree('aria-lint-rules-');
   const src = join(workspace, 'apps/sample-service/src');
   mkdirSync(src, { recursive: true });
   writeFileSync(

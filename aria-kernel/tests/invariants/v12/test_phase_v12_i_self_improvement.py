@@ -200,13 +200,13 @@ class SelfImprovement(_Store):
         from aria_kernel import recovery
 
         recovery.record_intent(request_id="AIR-1", effect_kind="git_push", target="origin/x", intended_postcondition={}, base_dir=self.tools)
-        signals = si.scan_signals(base_dir=self.tools, workspace_root=self.ws)
+        signals = si.scan_signals(base_dir=self.tools, workspace_root=self.ws).signals
         for signal in signals:
             self.assertIn(signal.kind, si.SIGNAL_KINDS)
-        opened = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=2)
+        opened = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=2).opened
         # ARIA-MEDIUM-417: the budget bounds what a call OPENS; re-sightings are reported, free.
         self.assertLessEqual(sum(1 for o in opened if not o["idempotent"]), 2)
-        again = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=2)
+        again = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=2).opened
         self.assertTrue(all(o["idempotent"] for o in again), "the same signals reopen nothing")
         from aria_kernel.mission import list_open_missions, open_mission
         from aria_kernel.workspace import canonical_identity

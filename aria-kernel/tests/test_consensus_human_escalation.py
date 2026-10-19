@@ -60,7 +60,7 @@ class ConsensusEscalationTests(unittest.TestCase):
         self.assertTrue(
             any(s.get("kind") == "benign_not_escalated" for s in result["skipped"])
         )
-        open_rows = list_human_required(base_dir=self.tools)
+        open_rows = list_human_required(base_dir=self.tools).rows
         self.assertEqual(len(open_rows), 2)
 
     def test_severity_mapping(self) -> None:
@@ -70,7 +70,7 @@ class ConsensusEscalationTests(unittest.TestCase):
         )
         sweep_consensus_uncertainties_for_human_required(base_dir=self.tools)
         rows = {r["reason"].split("(")[1].split(")")[0]: r["severity"]
-                for r in list_human_required(base_dir=self.tools)}
+                for r in list_human_required(base_dir=self.tools).rows}
         self.assertEqual(rows["judge_disagreement"], "HIGH")
         self.assertEqual(rows["low_confidence"], "MEDIUM")
 
@@ -82,7 +82,7 @@ class ConsensusEscalationTests(unittest.TestCase):
         self.assertEqual(len(first["created"]), 1)
         second = sweep_consensus_uncertainties_for_human_required(base_dir=self.tools)
         self.assertEqual(len(second["created"]), 0)
-        self.assertEqual(len(list_human_required(base_dir=self.tools)), 1)
+        self.assertEqual(len(list_human_required(base_dir=self.tools).rows), 1)
 
 
 if __name__ == "__main__":

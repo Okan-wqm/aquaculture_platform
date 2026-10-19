@@ -555,6 +555,67 @@ class TestV9SizeCap(unittest.TestCase):
         self.assertIn("TRUNCATED", result)
 
 
+class GovernanceBypassGlobalOptionTests(unittest.TestCase):
+    """ARIA-LOW-591 — git's global options precede the subcommand; the
+    perimeter read argv[:2].
+
+    `git -C dir push -f` and `git -c k=v push --force` reached git unexamined
+    (probed 2026-10-17: both returned None while `git push --force` was
+    refused), so the force-push definition did not hold for every spelling of
+    a push. The sandbox argv allowlist refuses the escaping forms first, but
+    the workflow/shell safety adapter asks this same function about the
+    repository's scripts, where a `git -C "$dir" push --force` sat unseen.
+    Every case here drives the ONE definition, ``governance_bypass_refusal``
+    (ARIA-HIGH-013), at its real entry point.
+    """
+
+    def test_global_options_do_not_hide_a_force_push(self) -> None:
+        for argv, offender in (
+            (["git", "-C", "d", "push", "-f"], "-f"),
+            (["git", "-c", "a=b", "push", "--force"], "--force"),
+            (["git", "--git-dir=x", "push", "+main"], "+main"),
+            (["git", "--git-dir", ".git", "push", "--force-with-lease"], "--force-with-lease"),
+            (["git", "-C", "d", "-c", "a=b", "--no-pager", "push", "-fu"], "-fu"),
+        ):
+            with self.subTest(argv=argv):
+                self.assertEqual(_is.governance_bypass_refusal(argv),
+                                 ("no_force_push", f"force_flag_in_bash_argv:{offender}"))
+
+    def test_global_options_do_not_hide_a_hook_bypass(self) -> None:
+        self.assertEqual(_is.governance_bypass_refusal(["git", "-C", "d", "commit", "-n"]),
+                         ("no_no_verify", "hook_bypass_flag:-n"))
+        self.assertEqual(_is.governance_bypass_refusal(["git", "-c", "a=b", "commit", "--no-verify"]),
+                         ("no_no_verify", "hook_bypass_flag:--no-verify"))
+
+    def test_an_unknown_leading_option_fails_closed_as_a_possible_push_or_commit(self) -> None:
+        self.assertEqual(_is.governance_bypass_refusal(["git", "--future-global", "push", "--force"]),
+                         ("no_force_push", "force_flag_in_bash_argv:--force"))
+        self.assertEqual(_is.governance_bypass_refusal(["git", "--future-global", "commit", "-n"]),
+                         ("no_no_verify", "hook_bypass_flag:-n"))
+
+    def test_legitimate_git_with_global_options_still_passes(self) -> None:
+        for argv in (
+            ["git", "-C", "d", "status"],
+            ["git", "-c", "a=b", "push", "origin", "main"],
+            ["git", "--git-dir=.git", "--no-pager", "log", "-n", "5"],
+            ["git", "-C", "d", "commit", "-m", "x"],
+            ["git", "-C", "d", "push", "origin", "HEAD:refs/heads/aria-impl-0123abcd4567890"],
+            ["bash", "-c", "git push --force"],
+        ):
+            with self.subTest(argv=argv):
+                self.assertIsNone(_is.governance_bypass_refusal(argv), argv)
+
+    def test_the_perimeter_checks_refuse_the_same_argv(self) -> None:
+        """The gate the adapter's verdict mirrors: `_check_no_force_push` and
+        `_check_no_no_verify` refuse an action carrying the escaping forms."""
+        forced = _is._check_no_force_push(_is.HardFailContext(bash_argv=["git", "-C", "d", "push", "-f"]))
+        self.assertFalse(forced.passed)
+        self.assertEqual(forced.reason, "force_flag_in_bash_argv:-f")
+        verified = _is._check_no_no_verify(_is.HardFailContext(bash_argv=["git", "-c", "a=b", "commit", "-n"]))
+        self.assertFalse(verified.passed)
+        self.assertEqual(verified.reason, "hook_bypass_flag:-n")
+
+
 class TestPhaseAPrePrOpenChecks(unittest.TestCase):
     """ORPHAN-CRITICAL-428 phase A — the five mechanical checks.
 
@@ -1198,10 +1259,6 @@ class TestV9PublicApi(unittest.TestCase):
         )
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class ResourceLimitSelectionTests(unittest.TestCase):
     """ORPHAN-HIGH-470 — limits are selected on capability, not presence.
 
@@ -1273,3 +1330,7 @@ class ResourceLimitSelectionTests(unittest.TestCase):
             self.assertIn("resource_limits_unavailable", str(ctx.exception))
         finally:
             impl._systemd_run_available.cache_clear()
+
+
+if __name__ == "__main__":
+    unittest.main()

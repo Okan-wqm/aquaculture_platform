@@ -240,10 +240,6 @@ class ModelTierInvariantTests(unittest.TestCase):
             )
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class FableTierValidityTests(unittest.TestCase):
     """K1 — fable/max become valid frontmatter values (ORPHAN-HIGH-283)."""
 
@@ -276,3 +272,7 @@ class WhitelistOrphanResolutionTests(unittest.TestCase):
         # Plan 032 Faz 032b — roster agents resolve through their kernel
         # runtime profile; the frontmatter is a mirror, not the source.
         self.assertIn(profile.source, {"frontmatter", "kernel_profile"})
+
+
+if __name__ == "__main__":
+    unittest.main()

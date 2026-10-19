@@ -5,20 +5,41 @@ import hmac
 import json
 import os
 import secrets
+import uuid
 from pathlib import Path
 from typing import Any
 
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 from .ledger import append_declared_jsonl, load_jsonl as load_chained_jsonl
 from .readiness import adapter_active_readiness
 from .tool_registry import GovernanceError, ensure_tools_dir, get_tool, utc_now
 
 
 __all__ = [
+    "ACTIVE_EVIDENCE_FIELDS",
+    "active_transition_evidence",
     "generate_adapter_calibration_report",
     "list_adapter_calibration_reports",
     "compute_auto_promote_token",
     "AutoPromoteIneligibleError",
+    "verify_active_transition_evidence",
 ]
+
+# ARIA-HIGH-004 — what a SHADOW -> ACTIVE transition binds: the calibration
+# report that measured the tool (by id and ledger hash), the readiness verdict
+# that report holds (by hash), the fixture run that verdict read, the tool
+# version measured and the commit the report's cycle ran at. Built here
+# (``active_transition_evidence``) and verified here
+# (``verify_active_transition_evidence``), so the promotion callers and the
+# registry's transition hold one definition of it.
+ACTIVE_EVIDENCE_FIELDS: tuple[str, ...] = (
+    "calibration_report_ref",
+    "calibration_report_hash",
+    "readiness_verdict_hash",
+    "fixture_run_refs",
+    "tool_version",
+    "target_sha",
+)
 
 
 class AutoPromoteIneligibleError(Exception):
@@ -38,13 +59,24 @@ def generate_adapter_calibration_report(
     tool_ids: list[str],
     base_dir: str | Path | None = None,
     cycle_id: str | None = None,
+    target_sha: str | None = None,
 ) -> dict[str, Any]:
+    """One calibration report over ``tool_ids``: each tool's readiness verdict.
+
+    ARIA-HIGH-004 — the report is joinable: its own id, and the commit of the
+    cycle that produced it (``target_sha`` from the caller's envelope; None
+    when the caller names none, which no ACTIVE transition accepts).
+    """
     if not tool_ids or not all(isinstance(tool_id, str) and tool_id.strip() for tool_id in tool_ids):
         raise GovernanceError("adapter calibration report requires tool_ids")
+    if target_sha is not None and not is_object_id(target_sha, formats=ANY_OBJECT_FORMAT):
+        raise GovernanceError("adapter calibration target_sha must be a full git object id")
     reports = [_tool_report(tool_id.strip(), base_dir) for tool_id in tool_ids]
     row = {
         "schema_version": 1,
         "recorded_at": utc_now(),
+        "report_id": f"acal-{uuid.uuid4().hex[:24]}",
+        "target_sha": target_sha,
         "cycle_id": cycle_id,
         "tool_ids": [report["tool_id"] for report in reports],
         "reports": reports,
@@ -64,6 +96,114 @@ def _tool_report(tool_id: str, base_dir: str | Path | None) -> dict[str, Any]:
     if tool.get("kind") != "adapter":
         raise GovernanceError(f"tool is not an adapter: {tool_id}")
     return adapter_active_readiness(tool_id, base_dir=base_dir)
+
+
+def _report_fixture_run_ref(report: dict[str, Any]) -> str | None:
+    """The fixture run a readiness verdict read (its latest suite row)."""
+    latest = (report.get("fixture_status") or {}).get("latest") or {}
+    ref = latest.get("execution_run_id")
+    return str(ref) if isinstance(ref, str) and ref.strip() else None
+
+
+def _newest_tool_report(
+    tool_id: str, base_dir: str | Path | None,
+) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    for row in reversed(list_adapter_calibration_reports(base_dir=base_dir)):
+        for report in row.get("reports") or []:
+            if isinstance(report, dict) and report.get("tool_id") == tool_id:
+                return row, report
+    return None
+
+
+def active_transition_evidence(
+    tool_id: str,
+    *,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """The evidence a SHADOW -> ACTIVE transition of ``tool_id`` binds.
+
+    Taken from the NEWEST calibration report that measured the tool — never
+    an older green one past a newer red one. Raises GovernanceError naming
+    the gap when no report measured the tool; everything else (a report that
+    is not green, a stale fixture, an unbound commit) is refused by
+    ``verify_active_transition_evidence`` with its own name.
+    """
+    found = _newest_tool_report(tool_id, base_dir)
+    if found is None:
+        raise GovernanceError(
+            f"active_evidence_calibration_report_missing: no adapter calibration report measured {tool_id}"
+        )
+    row, report = found
+    fixture_ref = _report_fixture_run_ref(report)
+    return {
+        "calibration_report_ref": row.get("report_id"),
+        "calibration_report_hash": row.get("ledger_hash"),
+        "readiness_verdict_hash": report.get("verdict_hash"),
+        "fixture_run_refs": [fixture_ref] if fixture_ref else [],
+        "tool_version": report.get("tool_version"),
+        "target_sha": row.get("target_sha"),
+    }
+
+
+def verify_active_transition_evidence(
+    tool_id: str,
+    evidence: Any,
+    *,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Refuse a SHADOW -> ACTIVE transition whose evidence is missing, stale
+    or mismatched; return the verified evidence otherwise.
+
+    Re-derived from the ledgers, never taken from the caller: the report is
+    found by id and must carry the claimed ledger hash and be the newest
+    report that measured the tool; its verdict for the tool must be green,
+    hash to what it records and to what the evidence names, and describe the
+    registered tool's current version and manifest; the fixture run it read
+    must still be the tool's current passing suite; and the report must name
+    the commit it measured, the commit the evidence names.
+    """
+    from .fixture_runner import latest_fixture_status, tool_manifest_hash
+    from .readiness import readiness_verdict_hash
+
+    def refuse(reason: str) -> GovernanceError:
+        return GovernanceError(f"active_evidence_{reason}: tool_id={tool_id}")
+
+    if evidence is None:
+        raise refuse("missing")
+    if not isinstance(evidence, dict) or set(evidence) != set(ACTIVE_EVIDENCE_FIELDS):
+        raise refuse("malformed")
+    tool = get_tool(tool_id, base_dir)
+    found = _newest_tool_report(tool_id, base_dir)
+    if found is None:
+        raise refuse("calibration_report_missing")
+    row, report = found
+    if row.get("report_id") != evidence["calibration_report_ref"]:
+        raise refuse("calibration_report_not_newest")
+    if row.get("ledger_hash") != evidence["calibration_report_hash"]:
+        raise refuse("calibration_report_hash_mismatch")
+    target_sha = row.get("target_sha")
+    if not is_object_id(target_sha, formats=ANY_OBJECT_FORMAT):
+        raise refuse("calibration_report_target_unbound")
+    if evidence["target_sha"] != target_sha:
+        raise refuse("target_sha_mismatch")
+    if report.get("active_ready") is not True:
+        raise refuse("readiness_not_active_ready")
+    recorded_hash = report.get("verdict_hash")
+    if recorded_hash != readiness_verdict_hash(report) or evidence["readiness_verdict_hash"] != recorded_hash:
+        raise refuse("readiness_verdict_hash_mismatch")
+    if (
+        report.get("tool_version") != tool.get("version")
+        or evidence["tool_version"] != tool.get("version")
+        or report.get("tool_manifest_hash") != tool_manifest_hash(tool)
+    ):
+        raise refuse("tool_changed_since_calibration")
+    fixture_ref = _report_fixture_run_ref(report)
+    if fixture_ref is None or evidence["fixture_run_refs"] != [fixture_ref]:
+        raise refuse("fixture_run_mismatch")
+    current = latest_fixture_status(tool_id, base_dir=base_dir)
+    if not current["current_tool_passed"] or (current.get("latest") or {}).get("execution_run_id") != fixture_ref:
+        raise refuse("fixture_run_stale")
+    return {field: evidence[field] for field in ACTIVE_EVIDENCE_FIELDS}
 
 
 def compute_auto_promote_token(
@@ -143,6 +283,15 @@ def compute_auto_promote_token(
                 f"auto_promote_critical_fp_present: tool_id={tool_id!r} "
                 f"critical_false_positives={cfps}"
             )
+    # ARIA-HIGH-125 — the window above is the judges' precision on the
+    # adapter's findings; ARIA promoting itself also needs the number nobody
+    # in its loop wrote: the newest fitness report's measurement against the
+    # promoted gold corpus, current and at the adapter's floor.
+    from .role_fitness import adapter_fitness_blocker
+
+    fitness_blocker = adapter_fitness_blocker(tool_id, base_dir=base_dir)
+    if fitness_blocker is not None:
+        raise AutoPromoteIneligibleError(f"auto_promote_{fitness_blocker}: tool_id={tool_id!r}")
 
     # Tamper-evident HMAC token bound to workspace + cycle + commit.
     # ORPHAN-HIGH-787 — self-describing envelope so the CONSUMER can

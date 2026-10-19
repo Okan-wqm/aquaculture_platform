@@ -1,14 +1,15 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+import { makeFixtureTree } from '../gates/fixture-tree';
 
 import { analyzeKernelDeadWire } from './kernel-dead-wire-adapter';
 
 // A synthetic kernel: one policy file, one production reader, one test module,
 // one CLI. Every FP trap the real repo taught this rule is present, because a
 // rule is only worth shipping if it can be shown NOT to fire.
-const workspace = mkdtempSync(join(tmpdir(), 'aria-kernel-dead-wire-'));
+const workspace = makeFixtureTree('aria-kernel-dead-wire-');
 const kernel = join(workspace, 'aria-kernel/aria_kernel');
 mkdirSync(join(kernel, 'data'), { recursive: true });
 mkdirSync(join(kernel, 'tests'), { recursive: true });

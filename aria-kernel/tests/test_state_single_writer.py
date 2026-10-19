@@ -57,6 +57,7 @@ from aria_kernel.state_writer_lease import WRITER_LEASE_TOKEN_ENV
 from aria_kernel.tools_binding import bind_tools_root
 
 from tests._helpers.declared_fixtures import append_declared_fixture
+from tests._helpers.state_lineage_pin import pin_bootstrapped_lineage, sync_fixture_lineage_pin
 from tests._helpers.writer_lease import holding_writer_lease
 
 REPO_HASH = "repohash0342"
@@ -176,7 +177,13 @@ class _TwoWriters(unittest.TestCase):
         return repo
 
     def _store(self, repo: Path):
-        return checkout_state_store(repo, store_dir=repo / ".aria-state-store")
+        # ARIA-LOW-578 — every clone reads the same lineage pin, as every lane
+        # reads main's; the bootstrapping clone pins the genesis it minted.
+        sync_fixture_lineage_pin(repo, self.remote)
+        store = checkout_state_store(repo, store_dir=repo / ".aria-state-store")
+        if store.bootstrapped:
+            pin_bootstrapped_lineage(store)
+        return store
 
     @staticmethod
     def _bind(store) -> Path:

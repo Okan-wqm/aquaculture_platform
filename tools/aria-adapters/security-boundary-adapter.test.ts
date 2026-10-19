@@ -1,18 +1,21 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+import { makeFixtureTree } from '../gates/fixture-tree';
 
 import { analyzeSecurityBoundaries } from './security-boundary-adapter';
 
-const workspace = mkdtempSync(join(tmpdir(), 'aria-security-boundary-adapter-'));
+const workspace = makeFixtureTree('aria-security-boundary-adapter-');
 const apiRoot = join(workspace, 'apps/gateway-api/src');
 const unguardedRoot = join(workspace, 'apps/unguarded-api/src');
 const webRoot = join(workspace, 'web/shell/src');
 mkdirSync(apiRoot, { recursive: true });
 mkdirSync(unguardedRoot, { recursive: true });
 mkdirSync(webRoot, { recursive: true });
-mkdirSync(join(workspace, '.claude', 'worktrees', 'stale', 'apps', 'bad-api', 'src'), { recursive: true });
+mkdirSync(join(workspace, '.claude', 'worktrees', 'stale', 'apps', 'bad-api', 'src'), {
+  recursive: true,
+});
 
 writeFileSync(
   join(apiRoot, 'app.module.ts'),
@@ -143,43 +146,86 @@ writeFileSync(
   'utf8',
 );
 
-const output = analyzeSecurityBoundaries({ roots: ['apps/gateway-api/src', 'apps/unguarded-api/src', 'web/shell/src'] }, workspace);
+const output = analyzeSecurityBoundaries(
+  { roots: ['apps/gateway-api/src', 'apps/unguarded-api/src', 'web/shell/src'] },
+  workspace,
+);
 const directRootOutput = analyzeSecurityBoundaries({ roots: ['.'] }, workspace);
 
 assert.equal(output.metadata.adapter, 'security-boundary-adapter');
-assert.equal(output.observations.some((item) => item.type === 'security_boundary_endpoint'), true);
-assert.equal(output.observations.some((item) => item.type === 'security_sensitive_sink'), true);
+assert.equal(
+  output.observations.some((item) => item.type === 'security_boundary_endpoint'),
+  true,
+);
+assert.equal(
+  output.observations.some((item) => item.type === 'security_sensitive_sink'),
+  true,
+);
 assert.equal(
   output.findings.some(
-    (finding) => finding.rule === 'public_write_endpoint_without_allowlist' && finding.path.endsWith('unsafe-public.controller.ts'),
+    (finding) =>
+      finding.rule === 'public_write_endpoint_without_allowlist' &&
+      finding.path.endsWith('unsafe-public.controller.ts'),
   ),
   true,
 );
 assert.equal(
   output.findings.some(
-    (finding) => finding.rule === 'mutation_missing_role_boundary' && finding.path.includes('/unguarded-api/'),
+    (finding) =>
+      finding.rule === 'mutation_missing_role_boundary' && finding.path.includes('/unguarded-api/'),
   ),
   true,
 );
 assert.equal(
   output.findings.some(
-    (finding) => finding.rule === 'dangerous_html_without_sanitizer' && finding.path.endsWith('unsafe-html.tsx'),
+    (finding) =>
+      finding.rule === 'dangerous_html_without_sanitizer' &&
+      finding.path.endsWith('unsafe-html.tsx'),
   ),
   true,
 );
 assert.equal(
   output.findings.some(
-    (finding) => finding.rule === 'raw_security_sensitive_import' && finding.path.endsWith('raw-sdk.service.ts'),
+    (finding) =>
+      finding.rule === 'raw_security_sensitive_import' &&
+      finding.path.endsWith('raw-sdk.service.ts'),
   ),
   true,
 );
-assert.equal(output.findings.some((finding) => finding.path.endsWith('health.controller.ts')), false);
-assert.equal(output.findings.some((finding) => finding.path.includes('/gateway-api/') && finding.path.endsWith('/unsafe.resolver.ts')), false);
-assert.equal(output.findings.some((finding) => finding.path.endsWith('/safe.resolver.ts')), false);
-assert.equal(output.findings.some((finding) => finding.path.endsWith('/safe-html.tsx')), false);
-assert.equal(output.findings.some((finding) => finding.path.endsWith('/comment-only-html.tsx')), false);
-assert.equal(output.observations.some((observation) => observation.path?.endsWith('/comment-only-html.tsx')), false);
-assert.equal(directRootOutput.read_paths.some((path) => path.includes('.claude/worktrees')), false);
-assert.equal(directRootOutput.findings.some((finding) => finding.message.includes('must-not-be-read')), false);
+assert.equal(
+  output.findings.some((finding) => finding.path.endsWith('health.controller.ts')),
+  false,
+);
+assert.equal(
+  output.findings.some(
+    (finding) =>
+      finding.path.includes('/gateway-api/') && finding.path.endsWith('/unsafe.resolver.ts'),
+  ),
+  false,
+);
+assert.equal(
+  output.findings.some((finding) => finding.path.endsWith('/safe.resolver.ts')),
+  false,
+);
+assert.equal(
+  output.findings.some((finding) => finding.path.endsWith('/safe-html.tsx')),
+  false,
+);
+assert.equal(
+  output.findings.some((finding) => finding.path.endsWith('/comment-only-html.tsx')),
+  false,
+);
+assert.equal(
+  output.observations.some((observation) => observation.path?.endsWith('/comment-only-html.tsx')),
+  false,
+);
+assert.equal(
+  directRootOutput.read_paths.some((path) => path.includes('.claude/worktrees')),
+  false,
+);
+assert.equal(
+  directRootOutput.findings.some((finding) => finding.message.includes('must-not-be-read')),
+  false,
+);
 
 process.stdout.write('security-boundary-adapter tests passed\n');

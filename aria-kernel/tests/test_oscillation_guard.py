@@ -59,7 +59,7 @@ class OscillationGuardTests(unittest.TestCase):
 
     def test_record_reopen_has_no_human_required_side_effect(self) -> None:
         record_reopen(fingerprint=FP, cycle_id="c1", base_dir=self.tools)
-        self.assertEqual(list_human_required(base_dir=self.tools), [])
+        self.assertEqual(list_human_required(base_dir=self.tools).rows, [])
 
     def test_guard_passes_below_threshold(self) -> None:
         record_reopen(fingerprint=FP, cycle_id="c1", base_dir=self.tools)
@@ -77,7 +77,7 @@ class OscillationGuardTests(unittest.TestCase):
         self.assertIn("oscillation_fix_dispatch_blocked", str(cm.exception))
 
         # HUMAN_REQUIRED record was created with the oscillation context.
-        pending = list_human_required(base_dir=self.tools)
+        pending = list_human_required(base_dir=self.tools).rows
         self.assertEqual(len(pending), 1)
         self.assertEqual(pending[0]["severity"], "HIGH")
         self.assertEqual(pending[0]["context"]["kind"], "oscillation")
@@ -106,7 +106,7 @@ class OscillationGuardTests(unittest.TestCase):
             with self.assertRaises(GovernanceError):
                 guard_fix_dispatch(fingerprint=FP, cycle_id="c-final", base_dir=self.tools)
         # Still exactly one HUMAN_REQUIRED record.
-        self.assertEqual(len(list_human_required(base_dir=self.tools)), 1)
+        self.assertEqual(len(list_human_required(base_dir=self.tools).rows), 1)
 
 
 if __name__ == "__main__":

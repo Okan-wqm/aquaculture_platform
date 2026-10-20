@@ -1298,12 +1298,17 @@ duplicate `lint-changed-files`. The real residual is INFRA-MEDIUM-224.
 - **Raised by:** the wave-3 `G010-238-pin-breakers` implementation (residual 3, widened by its fix
   round); re-read on the landing branch from origin/main e1f659819.
 - **Problem:** `trip_scope` binds to `NO_RECORDED_INSTANCE` when the state records no `tripped_at`
-  (`circuit_breaker.py:502-524`, `operator_approval.py:97-104`). An unspent `tripped_at=none` act,
+  (`circuit_breaker.py:502-524`, `operator_approval.py:97-108`). An unspent `tripped_at=none` act,
   posted while the breaker is ok, authorizes a later reset that truncates a window still
   accumulating failures (`reset_breaker` has no not-tripped no-op, `:557-560`), and a trip derived
-  only from damaged rows records no stamp (`:326`).
+  only from damaged rows records no stamp (`:326`). Since the chain's fix round 1, a recorded stamp
+  that is not one timezone-aware ISO-8601 token also binds to `none`, as an undecodable state
+  already did. Before that, `canonical_scope` refused such a stamp, so the stop could not be
+  cleared through its verb at all. A writer of the state file could already produce `none` by
+  dropping the field, so this adds no new way to reach it.
 - **Planned fix:** every trip writes its instance, and a failure-breaker reset with nothing tripped
-  is a no-op without an act. Deadline: 2027-04-18.
+  is a no-op without an act. The stale-stamp half, a record that lags the ledger, is ARIA-LOW-670.
+  One fix covers 666, 667 and 670. Deadline: 2027-04-18.
 
 ### ARIA-LOW-667 — reset and evidence quarantine cut the ledger without its lock
 
@@ -1337,6 +1342,23 @@ duplicate `lint-changed-files`. The real residual is INFRA-MEDIUM-224.
   pinned, so a new writer that clears a breaker without writing the row passes.
 - **Planned fix:** an AST detector of the clearing writes, allowed only inside RAISING functions,
   with the narrowing writers declared. Deadline: 2027-04-18.
+
+### ARIA-LOW-670 — a breaker act binds to a state record that can lag the ledger
+
+- **Raised by:** the independent verification of the ARIA order chain item `G010-238-pin-breakers`
+  (round 1, security lens), on the landing branch from origin/main e1f659819.
+- **Problem:** `trip_scope` reads `tripped_at` from `autonomous-state.json`
+  (`circuit_breaker.py:502-524`). That record is rewritten in place. `record_failure` appends the
+  failure row first (`:420`) and restamps the state afterwards, in a separate write (`:441-445`). A
+  kill between the two leaves a new failure under the old stamp. The module re-derives its verdict
+  from the ledger for exactly this reason (`:336-337`). The reviewer names a second path: a publish
+  race or gap recovery that adopts a remote state file still showing the old stamp
+  (`state_store.rebase_store_onto_remote`). In both cases an unspent act for the old trip still
+  passes, and `reset_breaker` truncates a window that holds a failure the act never covered
+  (`:557`). The evidence quarantine binds to the same scope.
+- **Planned fix:** with ARIA-LOW-666/667, derive the instance from the evidence itself (the newest
+  in-window failure row's `ts`, or a digest of the ledger). Read it under the ledger lock, then
+  re-read and compare it under that lock before the write. Deadline: 2027-04-18.
 
 ## Registry amendments recorded at the L1 registry step
 

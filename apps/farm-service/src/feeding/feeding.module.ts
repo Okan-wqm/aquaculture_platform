@@ -47,7 +47,7 @@ import { GrowthSimulatorService } from './services/growth-simulator.service';
 import { FeedingProgramService } from './services/feeding-program.service';
 import { DailyFeedingExecutionService } from './services/daily-feeding-execution.service';
 import { FeedingLedgerService } from './services/feeding-ledger.service';
-import { WaterTemperatureService } from '../water-quality/services/water-temperature.service';
+import { WaterTemperatureCoreModule } from '../water-quality/water-temperature-core.module';
 // D-7 (plan-dışı yem bağlama): stateless motor yardımcıları doğrudan provider —
 // FeedingProtocolModule import'u modül döngüsü yaratırdı (BatchModule emsali).
 import { FeedingProtocolCoreModule } from '../feeding-protocol/feeding-protocol-core.module';
@@ -82,6 +82,8 @@ import { FeedingAiQueryResponder } from './responders/feeding-ai-query.responder
 
 @Module({
   imports: [
+    // WaterTemperatureService's provider home — imported, never re-provided.
+    WaterTemperatureCoreModule,
     // D-7 / P-31: plan-dışı yem ve gün planı yeniden hesabı çekirdek modülün
     // TEK örneğini kullanır (feeding-protocol-core.module.ts).
     FeedingProtocolCoreModule,
@@ -111,7 +113,6 @@ import { FeedingAiQueryResponder } from './responders/feeding-ai-query.responder
   controllers: [FeedingAiQueryResponder, GetFeedingOverviewResponder],
   providers: [
     FeedSelectorService,
-    WaterTemperatureService,
     BilinearInterpolationService,
     GrowthSimulatorService,
     FeedingProgramService,

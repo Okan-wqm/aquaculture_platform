@@ -12,8 +12,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
 use super::encoding::{
-    is_ed25519_public_key, is_kernel_symbol, is_os_version, is_pem_certificate, is_semver,
-    is_sha256_hex, is_tag_id, is_timestamp, is_uuid,
+    is_ed25519_public_key, is_https_url, is_kernel_symbol, is_os_version, is_pem_certificate,
+    is_semver, is_sha256_hex, is_tag_id, is_timestamp, is_uuid,
 };
 use super::json::{MAX_SAFE_INTEGER, check_strict_object};
 use super::registry::{
@@ -489,6 +489,10 @@ pub struct SiteConfig {
     pub expires_at: String,
     /// Every site file by fixed path.
     pub files: BTreeMap<SitePath, SiteFile>,
+    /// Where root fetches the site bundle when the statement arrives on the
+    /// update channel; the agent never fetches it.
+    #[serde(default)]
+    pub site_bundle_url: Option<String>,
     /// The delivered RBAC manifest.
     pub rbac_manifest: RbacRef,
 }
@@ -513,6 +517,9 @@ impl Statement for SiteConfig {
                 file.size_bytes <= 1_048_576,
                 "site file size_bytes out of range",
             )?;
+        }
+        if let Some(url) = &self.site_bundle_url {
+            ensure(is_https_url(url), "site_bundle_url is not an https URL")?;
         }
         self.rbac_manifest.digest.validate()?;
         sequence(

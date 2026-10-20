@@ -84,6 +84,7 @@ string_enum!(
         ReleaseProfileMismatch => "release-profile-mismatch",
         OsVersionTooOld => "os-version-too-old",
         AgentAbiUnsupported => "agent-abi-unsupported",
+        CompatibleMismatch => "compatible-mismatch",
         KernelConfigMissing => "kernel-config-missing",
         SiteConfigDigestMismatch => "site-config-digest-mismatch",
         TrustAnchorsDigestMismatch => "trust-anchors-digest-mismatch",
@@ -166,6 +167,9 @@ string_enum!(
         DeviceLifecycle => "suderra.device-lifecycle.v1",
         SiteConfig => "suderra.site-config.v1",
         RbacManifest => "suderra.rbac-manifest.v1",
+        EdgeUpdate => "suderra.edge-update.v1",
+        OsUpdate => "suderra.os-update.v1",
+        SiteNetpolicy => "suderra.site-netpolicy.v1",
     }
 );
 
@@ -359,6 +363,74 @@ impl StatementType {
                 ],
                 agent_omits: Some(&[R::KeyEpochBelowRatchet]),
             },
+            // The update statements and the site policy are verified by root
+            // alone: the agent only carries the first two to the update channel
+            // (channels.json) and never reads the third.
+            T::EdgeUpdate => StatementSpec {
+                signing_purpose: Purpose::EdgeProvisioning,
+                device_bound: true,
+                tenant_bound: true,
+                sequence: Some(SequenceRule {
+                    field: "update_seq",
+                    equal: EqualSeq::Reject,
+                }),
+                nested: &[T::EdgeRelease],
+                checks: &[
+                    R::NotYetValid,
+                    R::Expired,
+                    R::DeviceBindingMismatch,
+                    R::DeviceIdMismatch,
+                    R::TenantMismatch,
+                    R::BoardMismatch,
+                    R::RollbackBelowFloor,
+                    R::SequenceReplay,
+                    R::ReleaseDigestMismatch,
+                    R::ReleaseMismatch,
+                ],
+                agent_omits: None,
+            },
+            T::OsUpdate => StatementSpec {
+                signing_purpose: Purpose::EdgeProvisioning,
+                device_bound: true,
+                tenant_bound: true,
+                sequence: Some(SequenceRule {
+                    field: "update_seq",
+                    equal: EqualSeq::Reject,
+                }),
+                nested: &[],
+                checks: &[
+                    R::NotYetValid,
+                    R::Expired,
+                    R::DeviceBindingMismatch,
+                    R::DeviceIdMismatch,
+                    R::TenantMismatch,
+                    R::CompatibleMismatch,
+                    R::OsVersionTooOld,
+                    R::RollbackBelowFloor,
+                    R::AgentAbiUnsupported,
+                    R::SequenceReplay,
+                ],
+                agent_omits: None,
+            },
+            T::SiteNetpolicy => StatementSpec {
+                signing_purpose: Purpose::ConfigIntegrity,
+                device_bound: true,
+                tenant_bound: true,
+                sequence: Some(SequenceRule {
+                    field: "update_seq",
+                    equal: EqualSeq::IdenticalOnly,
+                }),
+                nested: &[],
+                checks: &[
+                    R::NotYetValid,
+                    R::Expired,
+                    R::DeviceBindingMismatch,
+                    R::DeviceIdMismatch,
+                    R::TenantMismatch,
+                    R::SequenceReplay,
+                ],
+                agent_omits: None,
+            },
         }
     }
 }
@@ -412,6 +484,7 @@ string_enum!(
     /// (common.schema.json `site_path`).
     SitePath {
         ConfigYaml => "config.yaml",
+        IoConfigYaml => "io-config.yaml",
         SitePolicyJson => "site-policy.json",
         HardwareInventoryYaml => "hardware-inventory.yaml",
         RevpiConfigRsc => "revpi/config.rsc",

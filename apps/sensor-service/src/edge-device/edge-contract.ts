@@ -21,6 +21,9 @@ export const STATEMENT = {
   deviceLifecycle: 'suderra.device-lifecycle.v1',
   trustAnchors: 'suderra.trust-anchors.v1',
   edgeRelease: 'suderra.edge-release.v1',
+  edgeUpdate: 'suderra.edge-update.v1',
+  osUpdate: 'suderra.os-update.v1',
+  siteNetpolicy: 'suderra.site-netpolicy.v1',
 } as const;
 
 export type StatementType = (typeof STATEMENT)[keyof typeof STATEMENT];
@@ -41,8 +44,12 @@ export type CloudSigningPurpose =
  * statement. The golden spec asserts this table equals statements.json.
  */
 export interface StatementsByPurpose {
-  'edge-provisioning': typeof STATEMENT.edgeProvisioning | typeof STATEMENT.activationReceipt;
-  'config-integrity': typeof STATEMENT.siteConfig;
+  'edge-provisioning':
+    | typeof STATEMENT.edgeProvisioning
+    | typeof STATEMENT.activationReceipt
+    | typeof STATEMENT.edgeUpdate
+    | typeof STATEMENT.osUpdate;
+  'config-integrity': typeof STATEMENT.siteConfig | typeof STATEMENT.siteNetpolicy;
   'rbac-manifest': typeof STATEMENT.rbacManifest;
   'device-lifecycle': typeof STATEMENT.deviceLifecycle;
   command: never;
@@ -51,8 +58,13 @@ export interface StatementsByPurpose {
 export const CLOUD_SIGNED_STATEMENTS: {
   readonly [P in CloudSigningPurpose]: readonly StatementsByPurpose[P][];
 } = {
-  'edge-provisioning': [STATEMENT.edgeProvisioning, STATEMENT.activationReceipt],
-  'config-integrity': [STATEMENT.siteConfig],
+  'edge-provisioning': [
+    STATEMENT.edgeProvisioning,
+    STATEMENT.activationReceipt,
+    STATEMENT.edgeUpdate,
+    STATEMENT.osUpdate,
+  ],
+  'config-integrity': [STATEMENT.siteConfig, STATEMENT.siteNetpolicy],
   'rbac-manifest': [STATEMENT.rbacManifest],
   'device-lifecycle': [STATEMENT.deviceLifecycle],
   command: [],
@@ -207,6 +219,7 @@ export type Arch = 'aarch64' | 'x86_64';
 
 export const SITE_PATHS = [
   'config.yaml',
+  'io-config.yaml',
   'site-policy.json',
   'hardware-inventory.yaml',
   'revpi/config.rsc',
@@ -246,7 +259,96 @@ export type SiteConfigStatement = {
   readonly not_before: string;
   readonly expires_at: string;
   readonly files: { readonly [path: string]: SiteFileRef };
+  /** Where root fetches the site bundle when the statement travels the update channel. */
+  readonly site_bundle_url?: string;
   readonly rbac_manifest: { readonly digest: Sha256Digest; readonly policy_version: number };
+};
+
+/**
+ * suderra.edge-update.v1 (DEC-2.4): device-bound, one release statement by
+ * digest. contract 1.x has no `approvals` member, so none can be written.
+ */
+export type EdgeUpdateStatement = {
+  readonly _type: typeof STATEMENT.edgeUpdate;
+  readonly tenant_id: string;
+  readonly device_id: string;
+  readonly device_binding: DeviceBinding;
+  readonly board: BoardProfile;
+  readonly arch: Arch;
+  readonly agent_profile: 'suderra-os';
+  readonly version: string;
+  readonly security_version: number;
+  readonly update_seq: number;
+  readonly not_before: string;
+  readonly expires_at: string;
+  readonly release_statement: { readonly digest: Sha256Digest; readonly url: string };
+  readonly artifact_url: string;
+  readonly local_approval: boolean;
+  readonly max_outage_seconds: number;
+};
+
+/** suderra.os-update.v1 (DEC-2.9, DEC-23): one RAUC bundle by digest and size. */
+export type OsUpdateStatement = {
+  readonly _type: typeof STATEMENT.osUpdate;
+  readonly tenant_id: string;
+  readonly device_id: string;
+  readonly device_binding: DeviceBinding;
+  readonly version: string;
+  readonly compatible: string;
+  readonly min_current_version: string;
+  readonly rollback_floor: string;
+  /** `MIN-MAX`, the agent ABI range of the new OS. */
+  readonly supported_agent_abi: string;
+  readonly update_seq: number;
+  readonly not_before: string;
+  readonly expires_at: string;
+  readonly bundle: {
+    readonly url: string;
+    readonly digest: Sha256Digest;
+    readonly size_bytes: number;
+  };
+  readonly local_approval: boolean;
+  readonly max_outage_seconds: number;
+};
+
+export type NetRole = 'wan' | 'ot';
+
+/** An interface role: matched by MAC address or by PCI path, never both. */
+export type InterfaceRole =
+  | { readonly role: NetRole; readonly mac: string }
+  | { readonly role: NetRole; readonly pci_path: string };
+
+export type OtRule = {
+  readonly id: string;
+  readonly proto: 'tcp' | 'udp';
+  /** CIDR with no host bits; a prefix shorter than /16 carries `wide: true`, a longer one never does. */
+  readonly dst: string;
+  readonly ports: readonly { readonly from: number; readonly to: number }[];
+  readonly wide?: true;
+};
+
+/** A site NTP server: plain NTP only with the explicit unauthenticated mark (DEC-7.1). */
+export type TimeSource =
+  | { readonly id: string; readonly host: string; readonly nts: true }
+  | {
+      readonly id: string;
+      readonly host: string;
+      readonly nts: false;
+      readonly unauthenticated: true;
+    };
+
+/** suderra.site-netpolicy.v1 (DEC-11.7): the site's OT allowlist, interface roles and NTP servers. */
+export type SiteNetpolicyStatement = {
+  readonly _type: typeof STATEMENT.siteNetpolicy;
+  readonly tenant_id: string;
+  readonly device_id: string;
+  readonly device_binding: DeviceBinding;
+  readonly update_seq: number;
+  readonly not_before: string;
+  readonly expires_at: string;
+  readonly interfaces: readonly InterfaceRole[];
+  readonly ot_rules: readonly OtRule[];
+  readonly time_sources: readonly TimeSource[];
 };
 
 /**
@@ -324,6 +426,9 @@ export interface StatementBodies {
   [STATEMENT.siteConfig]: SiteConfigStatement;
   [STATEMENT.rbacManifest]: RbacManifestStatement;
   [STATEMENT.deviceLifecycle]: DeviceLifecycleStatement;
+  [STATEMENT.edgeUpdate]: EdgeUpdateStatement;
+  [STATEMENT.osUpdate]: OsUpdateStatement;
+  [STATEMENT.siteNetpolicy]: SiteNetpolicyStatement;
 }
 
 // ------------------------------------------------------------------------- DSSE

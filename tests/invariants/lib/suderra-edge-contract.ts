@@ -337,6 +337,7 @@ export const namingFile = readJson(join(CONTRACT, 'artifact-naming.json'));
 export const unitFile = readJson(join(CONTRACT, 'unit-directives.json'));
 export const mutableFile = readJson(join(CONTRACT, 'mutable-state.json'));
 export const deliveryFile = readJson(join(CONTRACT, 'delivery.json'));
+export const channelsFile = readJson(join(CONTRACT, 'channels.json'));
 export const lifecycleFile = readJson(join(CONTRACT, 'lifecycle.json'));
 export const keyringFile = readJson(join(CONTRACT, 'test-keys', 'keyring.json'));
 export const indexFile = readJson(join(FIXTURES, 'index.json'));
@@ -367,6 +368,9 @@ export const ST_TA = 'suderra.trust-anchors.v1';
 export const ST_LIFE = 'suderra.device-lifecycle.v1';
 export const ST_SITE = 'suderra.site-config.v1';
 export const ST_RBAC = 'suderra.rbac-manifest.v1';
+export const ST_EDGE_UPDATE = 'suderra.edge-update.v1';
+export const ST_OS_UPDATE = 'suderra.os-update.v1';
+export const ST_NETPOL = 'suderra.site-netpolicy.v1';
 
 export function spec(type: string): JsonObject {
   return asObject(STATEMENTS[type], type);
@@ -424,11 +428,72 @@ export function validator(schemaRel: string): ValidateFunction {
   return fn;
 }
 
+/** MAJOR.MINOR.PATCH as an integer tuple; the OS versions of the contract have no other form. */
+export function versionTuple(text: string): [number, number, number] {
+  const [major, minor, patch] = text.split('.').map(Number);
+  return [major ?? 0, minor ?? 0, patch ?? 0];
+}
+
+/** Negative, zero or positive as a is below, equal to or above b. */
+export function compareVersions(a: string, b: string): number {
+  const left = versionTuple(a);
+  const right = versionTuple(b);
+  for (let i = 0; i < 3; i += 1) {
+    const difference = (left[i] ?? 0) - (right[i] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
+/** True when the CIDR's host bits are zero; a CIDR that does not parse has none to check. */
+export function cidrHostBitsZero(cidr: string): boolean {
+  const [address, length] = cidr.split('/');
+  const octets = (address ?? '').split('.').map(Number);
+  const prefix = Number(length);
+  if (octets.length !== 4 || !Number.isInteger(prefix)) return true;
+  const value = octets.reduce((acc, octet) => acc * 256 + octet, 0);
+  const hostBits = 32 - prefix;
+  return value % 2 ** hostBits === 0;
+}
+
+function allDistinct(values: readonly string[]): boolean {
+  return new Set(values).size === values.length;
+}
+
 /**
  * Constraints JSON Schema cannot state, which a verifier reports as
- * schema-invalid (rbac-manifest.schema.json register_range).
+ * schema-invalid (rbac-manifest.schema.json register_range,
+ * os-update.schema.json rollback_floor, site-netpolicy.schema.json host bits,
+ * port ranges and uniqueness).
  */
 export function extraSchemaValid(type: string, payload: JsonObject): boolean {
+  if (type === ST_OS_UPDATE) {
+    return (
+      compareVersions(
+        asString(payload['rollback_floor'], 'rollback_floor'),
+        asString(payload['version'], 'version'),
+      ) <= 0
+    );
+  }
+  if (type === ST_NETPOL) {
+    const rules = objects(payload['ot_rules'], 'ot_rules');
+    if (!allDistinct(rules.map((rule) => asString(rule['id'], 'id')))) return false;
+    for (const rule of rules) {
+      if (!cidrHostBitsZero(asString(rule['dst'], 'dst'))) return false;
+      for (const range of objects(rule['ports'], 'ports')) {
+        if (asNumber(range['from'], 'from') > asNumber(range['to'], 'to')) return false;
+      }
+    }
+    const matches = objects(payload['interfaces'], 'interfaces').map((entry) =>
+      asString(entry['mac'] ?? entry['pci_path'], 'interface match'),
+    );
+    const sources = objects(payload['time_sources'], 'time_sources');
+    return (
+      allDistinct(matches) &&
+      allDistinct(sources.map((source) => asString(source['id'], 'id'))) &&
+      allDistinct(sources.map((source) => asString(source['host'], 'host')))
+    );
+  }
   if (type !== ST_RBAC) return true;
   for (const role of objects(payload['roles'], 'roles')) {
     for (const permission of asArray(role['permissions'], 'permissions')) {
@@ -851,6 +916,71 @@ export function verifyStatement(
     }
     case ST_LIFE:
       break;
+    case ST_EDGE_UPDATE: {
+      check(() => {
+        boardCheck(payload['board'], payload['arch']);
+        if (
+          ctx !== null &&
+          asNumber(payload['security_version'], 'sv') <
+            asNumber(ctx['security_version_floor'], 'floor')
+        ) {
+          fail('rollback-below-floor');
+        }
+      });
+      const release = nested(inputs.release, ST_RELEASE, 'release statement');
+      check(() => {
+        if (
+          digestOf(asObject(payload['release_statement'], 'rs')['digest']) !==
+          sha256(decodedPayload(inputs.release ?? Buffer.from('')))
+        ) {
+          fail('release-digest-mismatch');
+        }
+        const r = release.payload;
+        if (
+          r !== undefined &&
+          (payload['version'] !== r['version'] ||
+            payload['board'] !== r['board_profile'] ||
+            payload['arch'] !== r['arch'] ||
+            payload['security_version'] !== r['security_version'] ||
+            payload['agent_profile'] !== r['agent_profile'])
+        ) {
+          fail('release-mismatch');
+        }
+      });
+      break;
+    }
+    case ST_OS_UPDATE: {
+      check(() => {
+        if (ctx === null) return;
+        const osRelease = asObject(ctx['os_release'], 'os_release');
+        if (payload['compatible'] !== ctx['os_compatible']) fail('compatible-mismatch');
+        if (
+          compareVersions(
+            asString(osRelease['VERSION_ID'], 'VERSION_ID'),
+            asString(payload['min_current_version'], 'min_current_version'),
+          ) < 0
+        ) {
+          fail('os-version-too-old');
+        }
+        if (
+          compareVersions(
+            asString(payload['version'], 'version'),
+            asString(ctx['os_rollback_floor'], 'os_rollback_floor'),
+          ) < 0
+        ) {
+          fail('rollback-below-floor');
+        }
+        const installed = ctx['installed_agent_abi'];
+        if (installed !== null && installed !== undefined) {
+          const [min, max] = asString(payload['supported_agent_abi'], 'abi').split('-').map(Number);
+          const abi = asNumber(installed, 'installed_agent_abi');
+          if (abi < (min ?? 0) || abi > (max ?? -1)) fail('agent-abi-unsupported');
+        }
+      });
+      break;
+    }
+    case ST_NETPOL:
+      break;
     case ST_SITE: {
       check(() => {
         const named = asObject(payload['files'], 'files');
@@ -917,20 +1047,35 @@ export function inputsOf(value: Json | undefined): Inputs {
       ? undefined
       : readFileSync(join(FIXTURES, asString(inputs[name], name)));
   const files = inputs['site_files'];
+  // A site bundle (update channel) stands in for the RBAC manifest and the site files.
+  const bundle =
+    inputs['site_bundle'] === undefined
+      ? undefined
+      : readJson(join(FIXTURES, asString(inputs['site_bundle'], 'site_bundle')));
   return {
     release: file('release_statement'),
     trustAnchors: file('trust_anchors'),
     siteConfig: file('site_config'),
-    rbac: file('rbac_manifest'),
+    rbac:
+      bundle === undefined
+        ? file('rbac_manifest')
+        : Buffer.from(JSON.stringify(bundle['rbac_manifest']), 'utf8'),
     siteFiles:
-      files === undefined
-        ? undefined
-        : new Map(
-            Object.entries(asObject(files, 'site_files')).map(([path, rel]) => [
+      bundle !== undefined
+        ? new Map(
+            Object.entries(asObject(bundle['site_files'], 'site_files')).map(([path, b64]) => [
               path,
-              readFileSync(join(FIXTURES, asString(rel, path))),
+              Buffer.from(asString(b64, path), 'base64'),
             ]),
-          ),
+          )
+        : files === undefined
+          ? undefined
+          : new Map(
+              Object.entries(asObject(files, 'site_files')).map(([path, rel]) => [
+                path,
+                readFileSync(join(FIXTURES, asString(rel, path))),
+              ]),
+            ),
     requestNonce:
       inputs['request_nonce'] === undefined
         ? undefined

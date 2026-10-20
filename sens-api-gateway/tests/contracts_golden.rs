@@ -180,7 +180,19 @@ fn agent_context(index: &Value, name: &str) -> Option<AgentContext> {
     })
 }
 
+/// The site bundle input (update channel): it stands in for the RBAC manifest
+/// and the site files the site config names.
+fn site_bundle(inputs: &Value) -> Option<Value> {
+    inputs["site_bundle"]
+        .as_str()
+        .map(|rel| serde_json::from_slice(&fixture(rel)).unwrap())
+}
+
 fn envelope(inputs: &Value, name: &str) -> Envelope {
+    if let (Some(bundle), "rbac_manifest") = (site_bundle(inputs), name) {
+        return Envelope::parse(bundle["rbac_manifest"].to_string().as_bytes())
+            .unwrap_or_else(|r| panic!("site bundle rbac_manifest: {r}"));
+    }
     let rel = inputs[name]
         .as_str()
         .unwrap_or_else(|| panic!("fixture needs input {name}"));
@@ -188,6 +200,19 @@ fn envelope(inputs: &Value, name: &str) -> Envelope {
 }
 
 fn site_files(inputs: &Value) -> SiteFiles {
+    if let Some(bundle) = site_bundle(inputs) {
+        return bundle["site_files"]
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(path, bytes)| {
+                (
+                    SitePath::parse(path).unwrap(),
+                    decode_canonical_base64(bytes.as_str().unwrap()).unwrap(),
+                )
+            })
+            .collect();
+    }
     inputs["site_files"]
         .as_object()
         .map(|files| {
@@ -457,6 +482,48 @@ fn signature_vectors_pin_verify_strict() {
     ] {
         assert!(ids.contains(required), "vector {required} missing");
     }
+}
+
+#[test]
+fn a_non_canonical_point_encoding_never_verifies_as_a_key_or_a_commitment() {
+    // fixtures/dsse/point-vectors.json: encodings with y >= p of points that are
+    // not small-order. The signature vectors cannot test this rule, because no
+    // signature exists under such a point.
+    let v = load("fixtures/dsse/point-vectors.json");
+    let pins = os_pins();
+    let real_key = pins
+        .get(
+            &Envelope::parse(&fixture(
+                "edge-release/valid/revpi-connect4-aarch64-1.6.0.dsse.json",
+            ))
+            .unwrap()
+            .keyid,
+        )
+        .cloned()
+        .expect("pinned signer")
+        .raw;
+    let message = b"suderra-edge-contract point vector";
+    let mut refused = 0;
+    for vector in v["vectors"].as_array().unwrap() {
+        if vector["canonical"].as_bool().unwrap() || vector["small_order"].as_bool().unwrap() {
+            continue;
+        }
+        let id = vector["id"].as_str().unwrap();
+        let point: [u8; 32] = unhex(vector["encoding_hex"].as_str().unwrap())
+            .try_into()
+            .unwrap();
+        let mut signature = [7u8; 64];
+        assert!(!verify_strict(&point, message, &signature), "{id} as a key");
+        signature[..32].copy_from_slice(&point);
+        signature[32..].fill(0);
+        signature[32] = 1;
+        assert!(
+            !verify_strict(&real_key, message, &signature),
+            "{id} as a commitment"
+        );
+        refused += 1;
+    }
+    assert!(refused > 10, "only {refused} point vectors ran");
 }
 
 // -------------------------------------------------------------- drift gates

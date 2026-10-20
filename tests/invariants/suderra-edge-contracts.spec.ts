@@ -21,7 +21,13 @@
  *   4. Every TEST-ONLY key is re-derived from its published seed label, and no
  *      key material of it appears anywhere in this repository outside the
  *      contract directory (no signer config, no pinned key).
- *   5. A reference verifier (DSSE PAE, Ed25519 with verify_strict semantics,
+ *   5. The runtime documents and channels (channels.json, the run-time
+ *      documents of mutable-state.json) are consistent with the registry, the
+ *      mutable-state table and the agent's hand-over bounds, and their
+ *      fixtures and vectors (identity, time state, health view, site bundle,
+ *      activation, hand-over responses, update spool, USB medium layout,
+ *      point decoding) reach the verdict they are labelled with.
+ *   6. A reference verifier (DSSE PAE, Ed25519 with verify_strict semantics,
  *      strict JSON, schema, statement checks, nested statements, sequences,
  *      re-verification, per-verifier check sets) reaches exactly the verdict and
  *      the reason each fixture is labelled with, also when it evaluates every
@@ -72,6 +78,7 @@ import {
   unitFile,
   mutableFile,
   deliveryFile,
+  channelsFile,
   lifecycleFile,
   keyringFile,
   indexFile,
@@ -85,6 +92,8 @@ import {
   BOARD_BY_PROFILE,
   CONTEXTS,
   ST_RELEASE,
+  isCanonicalPoint,
+  isSmallOrder,
   spec,
   allowedReasons,
   SCHEMA_FILES,
@@ -376,6 +385,7 @@ describe('suderra-edge contract v1 — integrity', () => {
       ['schemas/unit-directives.schema.json', unitFile],
       ['schemas/mutable-state.schema.json', mutableFile],
       ['schemas/delivery.schema.json', deliveryFile],
+      ['schemas/channels.schema.json', channelsFile],
       ['schemas/lifecycle.schema.json', lifecycleFile],
       ['schemas/keyring.schema.json', keyringFile],
       ['schemas/fixture-index.schema.json', indexFile],
@@ -677,6 +687,385 @@ describe('suderra-edge contract v1 — one vocabulary', () => {
   });
 });
 
+// ------------------------------------------------------- channels, documents, vectors
+
+const UPDATE_CHANNEL = asObject(channelsFile['update_channel'], 'update_channel');
+const SPOOL = asObject(UPDATE_CHANNEL['spool'], 'spool');
+const CARRIED = asObject(UPDATE_CHANNEL['carried_statements'], 'carried_statements');
+const HANDOFF = asObject(channelsFile['handoff'], 'handoff');
+const HANDOFF_COMMANDS = asObject(HANDOFF['commands'], 'commands');
+const RESULT_DOCUMENT = asObject(
+  asObject(statementsFile['unsigned_documents'], 'unsigned_documents')['suderra.result.v1'],
+  'result',
+);
+const MUTABLE_ENTRIES = objects(mutableFile['entries'], 'entries');
+
+function mutableEntry(path: string): JsonObject {
+  const found = MUTABLE_ENTRIES.find((entry) => entry['path'] === path);
+  if (found === undefined) throw new Error(`mutable-state.json has no ${path}`);
+  return found;
+}
+
+/** The value of a Rust integer constant written as N or N * M (underscores allowed). */
+function rustConstant(file: string, name: string): number {
+  const source = readFileSync(join(REPO_ROOT, file), 'utf8');
+  const match = new RegExp(`\\b${name}\\b[^=;]*=\\s*([0-9_*\\s]+);`).exec(source);
+  if (match === null) throw new Error(`${name} is not an integer constant of ${file}`);
+  return (match[1] ?? '')
+    .split('*')
+    .map((factor) => Number(factor.replace(/_/g, '').trim()))
+    .reduce((product, factor) => product * factor, 1);
+}
+
+interface SpoolEntry {
+  name: string;
+  type: string;
+  size: number;
+}
+
+/** What root's request worker does with one spool directory entry (channels.json update_channel.spool). */
+function classifySpoolEntry(entry: SpoolEntry): { expect: string; reason?: string } {
+  if (!new RegExp(asString(SPOOL['name_pattern'], 'name_pattern')).test(entry.name))
+    return { expect: 'ignore' };
+  if (entry.type !== 'file') return { expect: 'refuse', reason: 'request-not-regular-file' };
+  if (entry.size > asNumber(SPOOL['max_entry_bytes'], 'max_entry_bytes'))
+    return { expect: 'refuse', reason: 'request-too-large' };
+  return { expect: 'consume' };
+}
+
+/** Whether the agent writes a request into a directory holding `pending` (the bound of update_channel.spool). */
+function agentWritesRequest(
+  pending: Array<{ name: string; size: number }>,
+  request: { name: string; size: number },
+): boolean {
+  const temporary = new RegExp(asString(SPOOL['temporary_name_pattern'], 'temporary_name_pattern'));
+  const others = pending.filter(
+    (entry) => entry.name !== request.name && !temporary.test(entry.name),
+  );
+  const bytes = others.reduce((sum, entry) => sum + entry.size, 0);
+  return (
+    others.length < asNumber(SPOOL['max_pending_entries'], 'max_pending_entries') &&
+    bytes + request.size <= asNumber(SPOOL['max_pending_bytes'], 'max_pending_bytes')
+  );
+}
+
+interface UsbEntry {
+  path: string;
+  type: string;
+  size: number;
+}
+
+/** Whether a USB medium's listing satisfies delivery.json usb.ingress.layout and limits. */
+function usbLayoutAccepted(entries: UsbEntry[]): boolean {
+  const ingress = asObject(asObject(deliveryFile['usb'], 'usb')['ingress'], 'ingress');
+  const layout = asObject(ingress['layout'], 'layout');
+  const limits = asObject(ingress['limits'], 'limits');
+  const top = asString(layout['top_directory'], 'top_directory');
+  const artifact = new RegExp(asString(layout['artifact_name_pattern'], 'artifact_name_pattern'));
+  const deviceCode = /^[A-Za-z0-9_-]{1,50}$/;
+  const below = entries.filter((entry) => entry.path.startsWith(`${top}/`));
+  const directories = new Map<string, UsbEntry[]>();
+  for (const entry of below) {
+    const parts = entry.path.slice(top.length + 1).split('/');
+    const [code] = parts;
+    if (parts.length === 1) {
+      if (entry.type !== 'dir' || !deviceCode.test(entry.path.slice(top.length + 1))) return false;
+      directories.set(code ?? '', directories.get(code ?? '') ?? []);
+    } else if (parts.length === 2) {
+      directories.set(code ?? '', [...(directories.get(code ?? '') ?? []), entry]);
+    } else {
+      return false;
+    }
+  }
+  if (directories.size > asNumber(limits['max_directories'], 'max_directories')) return false;
+  for (const files of directories.values()) {
+    if (files.length > asNumber(limits['max_files_per_directory'], 'max_files')) return false;
+    if (!files.some((file) => file.path.endsWith('/delivery.json'))) return false;
+    for (const file of files) {
+      const base = file.path.split('/').pop() ?? '';
+      const isDelivery = base === 'delivery.json';
+      if (file.type !== 'file' || (!isDelivery && !artifact.test(base))) return false;
+      const cap = limits[isDelivery ? 'max_delivery_bytes' : 'max_artifact_bytes'];
+      if (file.size > asNumber(cap, 'size limit')) return false;
+    }
+  }
+  return true;
+}
+
+describe('suderra-edge contract v1 — channels and run-time documents', () => {
+  it('channels.json names only registered statements, result kinds and mutable-state paths', () => {
+    const carried = Object.keys(CARRIED);
+    for (const [command, value] of Object.entries(HANDOFF_COMMANDS)) {
+      const types = strings(asObject(value, command)['statement_types'], 'statement_types');
+      expect({ command, unknown: types.filter((type) => STATEMENTS[type] === undefined) }).toEqual({
+        command,
+        unknown: [],
+      });
+    }
+    expect(
+      sorted(
+        strings(
+          asObject(HANDOFF_COMMANDS['request_update'], 'request_update')['statement_types'],
+          'statement_types',
+        ),
+      ),
+    ).toEqual(sorted(carried));
+    const byKind = asObject(RESULT_DOCUMENT['reasons_by_kind'], 'reasons_by_kind');
+    for (const type of carried) {
+      const entry = asObject(CARRIED[type], type);
+      const kind = asString(entry['result_kind'], 'result_kind');
+      expect(strings(asObject(byKind[kind], kind)['statements'], 'statements')).toContain(type);
+      expect(entry['sequence_file']).toBe(`/data/suderra/os/seq/${kind}`);
+      expect(spec(type)['sequence']).not.toBeNull();
+    }
+    const spoolEntry = mutableEntry(asString(SPOOL['directory'], 'directory'));
+    expect({ writer: spoolEntry['writer'], access: spoolEntry['agent_access'] }).toEqual({
+      writer: 'agent',
+      access: 'read-write',
+    });
+    const stateDir = asString(mutableEntry('/var/lib/suderra/state')['path'], 'path');
+    for (const command of ['activation_receipt', 'lifecycle_request']) {
+      const writes = asString(asObject(HANDOFF_COMMANDS[command], command)['writes'], 'writes');
+      expect(writes.startsWith(`${stateDir}/`)).toBe(true);
+    }
+    const statement = asObject(HANDOFF['statement_param'], 'statement_param');
+    expect(SPOOL['max_entry_bytes']).toBe(statement['max_bytes']);
+    expect(asNumber(SPOOL['max_pending_bytes'], 'bytes')).toBe(
+      asNumber(SPOOL['max_pending_entries'], 'entries') *
+        asNumber(SPOOL['max_entry_bytes'], 'entry bytes'),
+    );
+    const digest = 'a'.repeat(64);
+    const name = new RegExp(asString(SPOOL['name_pattern'], 'name_pattern'));
+    const temporary = new RegExp(
+      asString(SPOOL['temporary_name_pattern'], 'temporary_name_pattern'),
+    );
+    expect([name.test(`${digest}.dsse`), name.test(`.${digest}.dsse.tmp-1`)]).toEqual([
+      true,
+      false,
+    ]);
+    expect([temporary.test(`${digest}.dsse`), temporary.test(`.${digest}.dsse.tmp-1`)]).toEqual([
+      false,
+      true,
+    ]);
+    const results = asObject(channelsFile['result_telemetry'], 'result_telemetry');
+    const resultName = new RegExp(asString(results['file_name_pattern'], 'file_name_pattern'));
+    expect([
+      resultName.test('0000000000000042-edge-update.json'),
+      resultName.test('volatile-0000000000000042-os-update.json'),
+      resultName.test('42-edge-update.json'),
+    ]).toEqual([true, true, false]);
+    for (const site of strings(
+      asObject(
+        asObject(readJson(join(CONTRACT, 'schemas', 'common.schema.json'))['$defs'], '$defs')[
+          'site_path'
+        ],
+        'site_path',
+      )['enum'],
+      'enum',
+    )) {
+      expect(strings(mutableEntry('/var/lib/suderra-site')['contents'], 'contents')).toContain(
+        site,
+      );
+    }
+  });
+
+  it('every cloud producer channels.json names exists, unless it is marked new in P1', () => {
+    const text = JSON.stringify(HANDOFF_COMMANDS);
+    const files = [...text.matchAll(/([a-z-]+\.service\.ts)( \(new in P1)?/g)];
+    expect(files.length).toBeGreaterThan(0);
+    const missing = files
+      .filter((match) => match[2] === undefined)
+      .map((match) => match[1] ?? '')
+      .filter((file) => !existsSync(join(REPO_ROOT, 'apps/sensor-service/src/edge-device', file)));
+    expect(missing).toEqual([]);
+  });
+
+  it("the agent's hand-over bounds are the contract's", () => {
+    const statement = asObject(HANDOFF['statement_param'], 'statement_param');
+    expect(rustConstant('sens-api-gateway/src/commands/root_handoff.rs', 'MAX_HANDOFF_BYTES')).toBe(
+      statement['max_bytes'],
+    );
+    expect(
+      rustConstant(
+        'sens-api-gateway/src/commands/request_update.rs',
+        'MAX_PENDING_UPDATE_REQUESTS',
+      ),
+    ).toBe(SPOOL['max_pending_entries']);
+  });
+
+  it('planned successors name registered statements and define no second version', () => {
+    for (const [type, value] of Object.entries(
+      asObject(statementsFile['planned_successors'], 'planned_successors'),
+    )) {
+      const successor = asString(asObject(value, type)['successor'], 'successor');
+      expect(STATEMENTS[type]).toBeDefined();
+      expect(STATEMENTS[successor]).toBeUndefined();
+    }
+    const updateSchema = readJson(join(CONTRACT, 'schemas', 'edge-update.schema.json'));
+    expect(Object.keys(asObject(updateSchema['properties'], 'properties'))).not.toContain(
+      'approvals',
+    );
+  });
+
+  it('run-time documents validate or fail exactly as labelled, and every type has both outcomes', () => {
+    const outcomes = new Map<string, Set<string>>();
+    for (const entry of objects(indexFile['runtime_documents'], 'runtime_documents')) {
+      const path = asString(entry['path'], 'path');
+      const type = asString(entry['document_type'], 'document_type');
+      const schema = `schemas/${type.replace(/^suderra\./, '').replace(/\.v[0-9]+$/, '')}.schema.json`;
+      let reasons: string[] = [];
+      try {
+        const document = asObject(
+          parseStrictJson(UTF8.decode(readFileSync(join(FIXTURES, path)))),
+          path,
+        );
+        if (!validator(schema)(document)) reasons = ['schema-invalid'];
+      } catch {
+        reasons = ['payload-json-invalid'];
+      }
+      const expected = entry['expect'] === 'accept' ? [] : [asString(entry['reason'], 'reason')];
+      expect({ path, reasons }).toEqual({ path, reasons: expected });
+      outcomes.set(
+        type,
+        (outcomes.get(type) ?? new Set<string>()).add(asString(entry['expect'], 'e')),
+      );
+    }
+    expect(Object.fromEntries([...outcomes].map(([type, set]) => [type, sorted(set)]))).toEqual(
+      Object.fromEntries(
+        [
+          'suderra.agent-health.v1',
+          'suderra.command-handoff-response.v1',
+          'suderra.edge-activation-request.v1',
+          'suderra.edge-activation-response.v1',
+          'suderra.identity.v1',
+          'suderra.site-bundle.v1',
+          'suderra.time-state.v1',
+        ].map((type) => [type, ['accept', 'reject']]),
+      ),
+    );
+  });
+
+  it('every site bundle the statement fixtures use carries exactly the files and RBAC manifest its site config names', () => {
+    const bundles = statementEntries
+      .map((entry) => asObject(entry['inputs'], 'inputs')['site_bundle'])
+      .filter((path): path is string => typeof path === 'string');
+    expect(bundles.length).toBeGreaterThan(0);
+    for (const path of bundles) {
+      const bundle = readJson(join(FIXTURES, path));
+      expect(validator('schemas/site-bundle.schema.json')(bundle)).toBe(true);
+    }
+  });
+
+  it("the update spool vectors give root's classification, the carried statements and the agent's backlog rule", () => {
+    const file = readJson(join(FIXTURES, asString(indexFile['spool_vectors'], 'spool_vectors')));
+    expect(file['limits']).toEqual({
+      max_entry_bytes: SPOOL['max_entry_bytes'],
+      max_pending_entries: SPOOL['max_pending_entries'],
+      max_pending_bytes: SPOOL['max_pending_bytes'],
+    });
+    expect(file['name_pattern']).toBe(SPOOL['name_pattern']);
+    expect(file['temporary_name_pattern']).toBe(SPOOL['temporary_name_pattern']);
+    const results = new Set<string>();
+    for (const vector of objects(file['directory_entries'], 'directory_entries')) {
+      const got = classifySpoolEntry({
+        name: asString(vector['name'], 'name'),
+        type: asString(vector['type'], 'type'),
+        size: asNumber(vector['size_bytes'], 'size_bytes'),
+      });
+      expect({ id: vector['id'], ...got }).toEqual({
+        id: vector['id'],
+        expect: vector['expect'],
+        ...(vector['reason'] === undefined ? {} : { reason: vector['reason'] }),
+      });
+      results.add(got.expect);
+      if (vector['reason'] !== undefined)
+        expect(Object.keys(asObject(RESULT_DOCUMENT['operational_reasons'], 'o'))).toContain(
+          vector['reason'],
+        );
+    }
+    expect(sorted(results)).toEqual(['consume', 'ignore', 'refuse']);
+    const carriedTypes = Object.keys(CARRIED).map((type) =>
+      asString(spec(type)['payload_type'], 'pt'),
+    );
+    for (const vector of objects(file['content_entries'], 'content_entries')) {
+      const path = join(FIXTURES, asString(vector['fixture'], 'fixture'));
+      const envelope = asObject(JSON.parse(readFileSync(path, 'utf8')) as Json, 'envelope');
+      const carried = carriedTypes.includes(asString(envelope['payloadType'], 'payloadType'));
+      expect({ id: vector['id'], expect: carried ? 'consume' : 'refuse' }).toEqual({
+        id: vector['id'],
+        expect: vector['expect'],
+      });
+      expect(vector['name']).toBe(
+        `${sha256(Buffer.from(asString(envelope['payload'], 'payload'), 'base64'))}.dsse`,
+      );
+      if (!carried) expect(vector['reason']).toBe('request-unsupported');
+    }
+    for (const vector of objects(file['backlog'], 'backlog')) {
+      const sized = (item: Json | undefined): { name: string; size: number } => {
+        const object = asObject(item, 'entry');
+        return {
+          name: asString(object['name'], 'name'),
+          size: asNumber(object['size_bytes'], 'size_bytes'),
+        };
+      };
+      const writes = agentWritesRequest(
+        asArray(vector['pending'], 'pending').map(sized),
+        sized(vector['request']),
+      );
+      expect({ id: vector['id'], expect: writes ? 'write' : 'refuse' }).toEqual({
+        id: vector['id'],
+        expect: vector['expect'],
+      });
+    }
+  });
+
+  it('the USB layout vectors give the verdict delivery.json usb.ingress states', () => {
+    const file = readJson(
+      join(FIXTURES, asString(indexFile['usb_layout_vectors'], 'usb_layout_vectors')),
+    );
+    const ingress = asObject(asObject(deliveryFile['usb'], 'usb')['ingress'], 'ingress');
+    expect(file['limits']).toEqual(ingress['limits']);
+    const outcomes = new Set<string>();
+    for (const vector of objects(file['vectors'], 'vectors')) {
+      const entries = objects(vector['entries'], 'entries').map((entry) => ({
+        path: asString(entry['path'], 'path'),
+        type: asString(entry['type'], 'type'),
+        size: asNumber(entry['size_bytes'], 'size_bytes'),
+      }));
+      const accepted = usbLayoutAccepted(entries);
+      expect({ id: vector['id'], expect: accepted ? 'accept' : 'reject' }).toEqual({
+        id: vector['id'],
+        expect: vector['expect'],
+      });
+      if (!accepted) expect(vector['reason']).toBe('usb-layout-invalid');
+      outcomes.add(accepted ? 'accept' : 'reject');
+    }
+    expect(sorted(outcomes)).toEqual(['accept', 'reject']);
+  });
+
+  it('point vectors: a non-canonical encoding is never a canonical point, and no signature verifies under one', () => {
+    const file = readJson(join(FIXTURES, asString(indexFile['point_vectors'], 'point_vectors')));
+    let nonCanonicalFullOrder = 0;
+    for (const vector of objects(file['vectors'], 'vectors')) {
+      const point = Buffer.from(asString(vector['encoding_hex'], 'encoding_hex'), 'hex');
+      expect({
+        id: vector['id'],
+        canonical: isCanonicalPoint(point),
+        smallOrder: isSmallOrder(point),
+      }).toEqual({
+        id: vector['id'],
+        canonical: vector['canonical'],
+        smallOrder: vector['canonical'] === true ? vector['small_order'] : isSmallOrder(point),
+      });
+      if (vector['canonical'] === false && vector['small_order'] === false) {
+        nonCanonicalFullOrder += 1;
+        expect(verifyStrict(point, Buffer.from('message'), Buffer.alloc(64, 7))).toBe(false);
+      }
+    }
+    expect(nonCanonicalFullOrder).toBeGreaterThan(10);
+  });
+});
+
 describe('suderra-edge contract v1 — TEST-ONLY keys', () => {
   const allKeys = [
     ...objects(keyringFile['keys'], 'keys'),
@@ -767,6 +1156,9 @@ describe('suderra-edge contract v1 — golden fixtures', () => {
       'index.json',
       asString(indexFile['pae_vectors'], 'pae_vectors'),
       asString(indexFile['signature_vectors'], 'signature_vectors'),
+      asString(indexFile['point_vectors'], 'point_vectors'),
+      asString(indexFile['spool_vectors'], 'spool_vectors'),
+      asString(indexFile['usb_layout_vectors'], 'usb_layout_vectors'),
     ]);
     for (const entry of statementEntries) {
       referenced.add(asString(entry['path'], 'path'));
@@ -782,6 +1174,8 @@ describe('suderra-edge contract v1 — golden fixtures', () => {
       referenced.add(asString(entry['request'], 'request'));
     }
     for (const entry of objects(indexFile['documents'], 'documents'))
+      referenced.add(asString(entry['path'], 'path'));
+    for (const entry of objects(indexFile['runtime_documents'], 'runtime_documents'))
       referenced.add(asString(entry['path'], 'path'));
     for (const unit of objects(indexFile['units'], 'units')) {
       referenced.add(asString(unit['unit'], 'unit'));

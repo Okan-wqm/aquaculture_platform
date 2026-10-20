@@ -154,6 +154,35 @@ pub fn decode_base64_array<const N: usize>(s: &str) -> Option<[u8; N]> {
     decode_canonical_base64(s)?.try_into().ok()
 }
 
+/// `https_url`: an https URL of at most 2048 characters with a host, an
+/// optional port and an optional path of the schema's character set.
+pub fn is_https_url(s: &str) -> bool {
+    if s.len() > 2048 {
+        return false;
+    }
+    let Some(rest) = s.strip_prefix("https://") else {
+        return false;
+    };
+    let (authority, path) = match rest.find('/') {
+        Some(i) => (rest.get(..i).unwrap_or(""), rest.get(i..)),
+        None => (rest, None),
+    };
+    let (host, port) = match authority.split_once(':') {
+        Some((host, port)) => (host, Some(port)),
+        None => (authority, None),
+    };
+    !host.is_empty()
+        && all_bytes(host, |b| {
+            b.is_ascii_alphanumeric() || b == b'.' || b == b'-'
+        })
+        && port.is_none_or(|p| (1..=5).contains(&p.len()) && all_bytes(p, |b| b.is_ascii_digit()))
+        && path.is_none_or(|p| {
+            all_bytes(p, |b| {
+                b.is_ascii_alphanumeric() || b"._~%!$&'()*+,;=:@/-".contains(&b)
+            })
+        })
+}
+
 /// `ed25519_public_key`: canonical base64 of a raw 32-byte key.
 pub fn is_ed25519_public_key(s: &str) -> bool {
     s.len() == 44 && decode_base64_array::<32>(s).is_some()
@@ -284,5 +313,31 @@ mod tests {
             sha256_hex(b""),
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         );
+    }
+
+    #[test]
+    fn https_urls_follow_the_schema() {
+        for ok in [
+            "https://edge-releases.example.com/site/7e570000-0000-4000-8000-0000000000d1/3/site-bundle.json",
+            "https://10.0.2.2:8443",
+            "https://example.com/a%20b?not-a-query-char-is-refused-below",
+        ] {
+            // The third is refused: '?' is outside the schema's path character set.
+            assert_eq!(is_https_url(ok), !ok.contains('?'), "{ok}");
+        }
+        for bad in [
+            "http://example.com/x",
+            "https://",
+            "https://a b",
+            "https://x:123456/",
+            "https://x/<",
+            "ftp://example.com",
+        ] {
+            assert!(!is_https_url(bad), "{bad}");
+        }
+        assert!(!is_https_url(&format!(
+            "https://example.com/{}",
+            "a".repeat(2048)
+        )));
     }
 }

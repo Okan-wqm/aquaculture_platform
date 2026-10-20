@@ -133,6 +133,21 @@ pub(super) fn try_parse_and_verify(
     mode: SignatureMode,
     rbac_store: &RbacManifestStore,
 ) -> AdapterOutcome {
+    let now_unix_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    try_parse_and_verify_at(payload, expected_tenant, mode, rbac_store, now_unix_secs)
+}
+
+/// [`try_parse_and_verify`] at an explicit time (envelope freshness Gate 4).
+pub(super) fn try_parse_and_verify_at(
+    payload: &[u8],
+    expected_tenant: [u8; 16],
+    mode: SignatureMode,
+    rbac_store: &RbacManifestStore,
+    now_unix_secs: i64,
+) -> AdapterOutcome {
     let env: CommandEnvelope = match serde_json::from_slice(payload) {
         Ok(e) => e,
         Err(_) => {
@@ -192,11 +207,6 @@ pub(super) fn try_parse_and_verify(
         let sig = ed25519_dalek::Signature::from_bytes(sig_bytes);
         pk.verify_strict(canonical, &sig).is_ok()
     };
-
-    let now_unix_secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
 
     match crate::command_envelope::verify_envelope(
         &env,
@@ -284,6 +294,16 @@ pub(super) async fn authorize_adapted(
     tenant_bytes: [u8; 16],
     rbac_store: Arc<RbacManifestStore>,
 ) -> Result<(), String> {
+    authorize_adapted_at(adapted, tenant_bytes, rbac_store, SystemTime::now()).await
+}
+
+/// [`authorize_adapted`] at an explicit time (manifest and role windows).
+pub(super) async fn authorize_adapted_at(
+    adapted: &AdaptedCommand,
+    tenant_bytes: [u8; 16],
+    rbac_store: Arc<RbacManifestStore>,
+    now: SystemTime,
+) -> Result<(), String> {
     // Anonymous commands carry no permission → no role check.
     let required = match super::catalog::permission_for_command(&adapted.command, &adapted.params) {
         Some(p) => p,
@@ -303,13 +323,8 @@ pub(super) async fn authorize_adapted(
 
     let actor = ActorIdentity::Operator(OperatorId::new_from_verified(adapted.actor));
     let tenant = TenantId::new_from_verified(tenant_bytes);
-    let mut request = AuthorizationRequest::new(
-        actor,
-        required,
-        tenant,
-        adapted.claimed_policy_version,
-        SystemTime::now(),
-    );
+    let mut request =
+        AuthorizationRequest::new(actor, required, tenant, adapted.claimed_policy_version, now);
     if let (Some(ca_actor), Some(ca_sig)) = (
         adapted.co_approver_actor,
         adapted.co_approver_signature.clone(),
@@ -495,7 +510,9 @@ mod tests {
     #[cfg(feature = "suderra-os")]
     #[tokio::test]
     async fn two_person_commands_are_refused_even_with_a_co_approver() {
-        use crate::authz::manifest::{CustomRole, Ed25519PublicKeyBytes, OperatorBinding, RbacManifest};
+        use crate::authz::manifest::{
+            CustomRole, Ed25519PublicKeyBytes, OperatorBinding, RbacManifest,
+        };
         use crate::authz::permission::Permission;
         use crate::authz::policy::Ed25519SignatureBytes;
 
@@ -532,12 +549,16 @@ mod tests {
             roles: vec![role],
         });
         let mut refused = 0;
-        for cmd in super::super::catalog::COMMAND_CATALOG.iter().map(|e| e.wire_name) {
+        for cmd in super::super::catalog::COMMAND_CATALOG
+            .iter()
+            .map(|e| e.wire_name)
+        {
             let mut adapted = make_adapted(cmd);
             adapted.claimed_policy_version = 1;
             adapted.co_approver_actor = Some([0x08u8; 16]);
             adapted.co_approver_signature = Some(Ed25519SignatureBytes::from_array([0u8; 64]));
-            let Some(permission) = super::super::catalog::permission_for_command(cmd, &adapted.params)
+            let Some(permission) =
+                super::super::catalog::permission_for_command(cmd, &adapted.params)
             else {
                 continue;
             };
@@ -551,7 +572,10 @@ mod tests {
                 "{cmd} must be refused, got {res:?}"
             );
         }
-        assert!(refused >= 4, "only {refused} two-person commands in the catalog");
+        assert!(
+            refused >= 4,
+            "only {refused} two-person commands in the catalog"
+        );
         // A granted ordinary permission still authorizes, so the refusal is
         // the TPI gate and not an empty manifest.
         let mut read = make_adapted("get_config");
@@ -732,5 +756,200 @@ mod tests {
             format!("{}", EnvelopeVerifyError::CoApproverSelfSignature),
             "co_approver_self_signature"
         );
+    }
+}
+
+/// ADR-048 P0 exit criterion: the Suderra OS command path end to end
+/// against the contract's golden trust root and platform-actor RBAC
+/// manifest. An envelope signed with the TEST-ONLY `command` key (the
+/// bundle anchor the platform actor maps to) for a permitted ordinary
+/// command is accepted; the same envelope unsigned, signed by another key,
+/// or for a two-person-integrity command is refused, and so is an unsigned
+/// envelope for each root hand-off command.
+#[cfg(all(test, feature = "suderra-os"))]
+mod contract_envelope_tests {
+    #![allow(clippy::expect_used, clippy::unwrap_used, clippy::indexing_slicing)]
+
+    use std::time::{Duration, UNIX_EPOCH};
+
+    use ed25519_dalek::{Signer, SigningKey};
+    use sha2::{Digest, Sha256};
+
+    use super::*;
+    use crate::command_envelope::envelope::envelope_canonical_bytes;
+    use crate::command_envelope::{CmdHash, canonical_params};
+    use crate::commands::catalog::{COMMAND_CATALOG, permission_for_command};
+    use crate::trust_anchors::test_support::{FIXTURE_NOW, fixture, fixture_trust};
+
+    const BUNDLE: &str = "trust-anchors/valid/bundle-seq-1.dsse.json";
+    const POLICY_1: &str = "rbac-manifest/valid/platform-actor-policy-1.dsse.json";
+    /// The fixtures' tenant and platform actor (contract fixtures/index.json
+    /// and the platform-actor manifests).
+    const TENANT: &str = "7e570000-0000-4000-8000-000000000001";
+    const PLATFORM_ACTOR: &str = "7e570000-0000-4000-8000-0000000000c1";
+
+    /// A TEST-ONLY contract key (keyring.json `derivation`).
+    fn test_key(purpose: &str, epoch: u32) -> SigningKey {
+        let seed: [u8; 32] = Sha256::digest(format!(
+            "suderra-edge-contract:v1:TEST-ONLY:{purpose}:{epoch}"
+        ))
+        .into();
+        SigningKey::from_bytes(&seed)
+    }
+
+    fn uuid(text: &str) -> [u8; 16] {
+        *uuid::Uuid::parse_str(text).unwrap().as_bytes()
+    }
+
+    fn now_secs() -> i64 {
+        chrono::NaiveDateTime::parse_from_str(FIXTURE_NOW, "%Y-%m-%dT%H:%M:%SZ")
+            .unwrap()
+            .and_utc()
+            .timestamp()
+    }
+
+    fn now() -> SystemTime {
+        UNIX_EPOCH + Duration::from_secs(u64::try_from(now_secs()).unwrap())
+    }
+
+    /// The store as boot loads it on the fixture device.
+    fn loaded_store() -> (tempfile::TempDir, Arc<RbacManifestStore>) {
+        let (root, trust) = fixture_trust(BUNDLE);
+        let path = root.path().join("rbac-manifest.dsse");
+        std::fs::write(&path, fixture(POLICY_1)).unwrap();
+        let store = Arc::new(RbacManifestStore::new());
+        store
+            .load_contract_statement(&trust, &path, &root.path().join("gate.json"), FIXTURE_NOW)
+            .unwrap();
+        (root, store)
+    }
+
+    fn envelope(cmd: &str, signer: Option<&SigningKey>) -> Vec<u8> {
+        let params = serde_json::json!({});
+        let cmd_hash: [u8; 32] = Sha256::digest(canonical_params(cmd, &params).unwrap()).into();
+        let mut env = CommandEnvelope {
+            cmd: cmd.to_owned(),
+            params,
+            actor: uuid(PLATFORM_ACTOR),
+            tenant_id: uuid(TENANT),
+            iat_unix_secs: now_secs() - 5,
+            exp_unix_secs: now_secs() + 55,
+            co_approver_actor: None,
+            co_approver_signature: None,
+            claimed_policy_version: 1,
+            jti: format!("e2e-{cmd}"),
+            nonce: "e2e-nonce".to_owned(),
+            cmd_hash: CmdHash::from_bytes(cmd_hash),
+            signature: None,
+        };
+        if let Some(key) = signer {
+            let sig = key.sign(&envelope_canonical_bytes(&env).unwrap());
+            env.signature = Some(Ed25519SignatureBytes::from_array(sig.to_bytes()));
+        }
+        serde_json::to_vec(&env).unwrap()
+    }
+
+    fn verify(payload: &[u8], store: &RbacManifestStore) -> AdapterOutcome {
+        try_parse_and_verify_at(
+            payload,
+            uuid(TENANT),
+            SignatureMode::Enforcing,
+            store,
+            now_secs(),
+        )
+    }
+
+    async fn accepted(cmd: &str, signer: Option<&SigningKey>) -> Result<(), String> {
+        let (_root, store) = loaded_store();
+        match verify(&envelope(cmd, signer), &store) {
+            AdapterOutcome::Verified(adapted) => {
+                authorize_adapted_at(&adapted, uuid(TENANT), store, now()).await
+            }
+            AdapterOutcome::VerifyFailed(e) => Err(format!("verify: {e:?}")),
+            AdapterOutcome::NotEnvelopeFormat => Err("not an envelope".to_owned()),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_permitted_command_signed_by_the_platform_actor_is_accepted() {
+        assert_eq!(
+            permission_for_command("get_config", &serde_json::json!({})),
+            Some(crate::authz::permission::Permission::ReadTag)
+        );
+        assert_eq!(
+            accepted("get_config", Some(&test_key("command", 1))).await,
+            Ok(())
+        );
+    }
+
+    #[tokio::test]
+    async fn the_same_command_unsigned_or_signed_by_another_key_is_refused() {
+        assert_eq!(
+            accepted("get_config", None).await,
+            Err(format!(
+                "verify: {:?}",
+                EnvelopeVerifyError::SignatureRequiredInEnforcingMode
+            ))
+        );
+        for other in [test_key("rbac-manifest", 1), test_key("command", 2)] {
+            assert_eq!(
+                accepted("get_config", Some(&other)).await,
+                Err(format!(
+                    "verify: {:?}",
+                    EnvelopeVerifyError::SignatureInvalid
+                ))
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_two_person_command_signed_by_the_platform_actor_is_refused() {
+        let tpi: Vec<_> = COMMAND_CATALOG
+            .iter()
+            .filter(|e| e.handler_name.is_some())
+            .map(|e| e.wire_name)
+            .filter(|cmd| {
+                permission_for_command(cmd, &serde_json::json!({}))
+                    .is_some_and(|p| p.requires_two_person_integrity())
+            })
+            .collect();
+        assert!(
+            !tpi.is_empty(),
+            "the catalog dispatches two-person commands"
+        );
+        for cmd in tpi {
+            let res = accepted(cmd, Some(&test_key("command", 1))).await;
+            assert!(
+                matches!(&res, Err(reason) if reason.contains("two-person-integrity")),
+                "{cmd}: {res:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn hand_off_commands_need_the_platform_signature() {
+        for cmd in ["activation_receipt", "lifecycle_request", "request_update"] {
+            assert_eq!(
+                accepted(cmd, None).await,
+                Err(format!(
+                    "verify: {:?}",
+                    EnvelopeVerifyError::SignatureRequiredInEnforcingMode
+                )),
+                "{cmd}"
+            );
+            assert_eq!(
+                accepted(cmd, Some(&test_key("rbac-manifest", 1))).await,
+                Err(format!(
+                    "verify: {:?}",
+                    EnvelopeVerifyError::SignatureInvalid
+                )),
+                "{cmd}"
+            );
+            assert_eq!(
+                accepted(cmd, Some(&test_key("command", 1))).await,
+                Ok(()),
+                "{cmd}"
+            );
+        }
     }
 }

@@ -27,9 +27,13 @@
 //! object instead would silently repair an envelope root must refuse (a
 //! duplicate member, for one) and would change the bytes the cloud recorded.
 //!
-//! Both commands are catalog-anonymous: the statement carries its own
-//! signature, and on Suderra OS every command still arrives in an envelope
-//! signed by the platform's command key (DEC-9.1).
+//! Both commands need no RBAC role (catalog permission Anonymous: the
+//! statement carries its own signature), but they are not probes: the
+//! catalog marks them `DenyUnsignedInEnforcing`, so envelope Gate 7 refuses
+//! an envelope that carries no signature, and the signature must verify
+//! against an RBAC-manifest actor key, which on Suderra OS is the bundle's
+//! platform `command` key (DEC-9.1). Publishing to the command topic alone
+//! writes nothing for root.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -66,6 +70,21 @@ pub(crate) enum HandoffError {
     /// The agent has no verified trust anchors to check the statement with.
     #[error("no verified trust-anchors bundle is installed")]
     NoTrustRoot,
+    /// Root has not consumed the requests already pending: the request
+    /// directory is full (count or bytes), so nothing more is written until
+    /// it drains.
+    #[error(
+        "{pending} update requests ({bytes} bytes) are pending for root; the agent keeps at \
+         most {max_files} ({max_bytes} bytes)",
+        max_files = crate::commands::request_update::MAX_PENDING_UPDATE_REQUESTS,
+        max_bytes = crate::commands::request_update::MAX_PENDING_UPDATE_REQUEST_BYTES
+    )]
+    Backlog {
+        /// Entries already in the directory.
+        pending: usize,
+        /// Their total size.
+        bytes: u64,
+    },
     /// The file could not be written.
     #[error("cannot write {path}: {reason}")]
     Write {
@@ -84,6 +103,7 @@ impl HandoffError {
             Self::MissingStatement => vec!["statement-missing"],
             Self::TooLarge(_) => vec!["statement-too-large"],
             Self::NoTrustRoot => vec!["trust-anchors-unavailable"],
+            Self::Backlog { .. } => vec!["update-requests-backlog"],
             Self::Write { .. } => vec!["io-error"],
         }
     }
@@ -112,7 +132,10 @@ pub(super) fn envelope_of(
         return Err(HandoffError::TooLarge(statement.len()));
     }
     let env = Envelope::parse(statement).map_err(rejected)?;
-    if !expected.iter().any(|t| env.payload_type == t.payload_type()) {
+    if !expected
+        .iter()
+        .any(|t| env.payload_type == t.payload_type())
+    {
         return Err(rejected(Reason::PayloadTypeMismatch));
     }
     Ok(env)

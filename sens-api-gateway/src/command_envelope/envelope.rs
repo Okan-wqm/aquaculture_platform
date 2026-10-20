@@ -47,7 +47,7 @@ use serde::{Deserialize, Serialize};
 use super::canonical::{CanonicalParamsError, CmdHash, canonical_params};
 use super::jti::{InvalidJti, Jti};
 use crate::authz::policy::Ed25519SignatureBytes;
-use crate::commands::required_permission::permission_for_command;
+use crate::commands::catalog::unsigned_envelope_permitted;
 
 /// Tier-1 parse-level bound on command name length (BATCH-007-FU-03 closure).
 /// `MUTATING_COMMANDS` entries are ≤ 22 chars; 128 gives ample headroom for
@@ -434,17 +434,22 @@ pub fn verify_envelope(
         return Err(EnvelopeVerifyError::CmdHashMismatch);
     }
 
-    // Gate 7 — signature presence per mode + catalog permission.
-    let requires_signature = permission_for_command(&env.cmd, &env.params).is_some();
+    // Gate 7 — signature presence per mode + catalog signature policy.
+    // Only the catalog's probe commands (ping/get_info) run unsigned in
+    // Enforcing. A command that needs no RBAC role (Anonymous permission)
+    // is not thereby unsigned: ADR-048 DEC-9.1 — the root hand-off
+    // commands write files root acts on, so their envelope must verify
+    // against an RBAC-manifest actor key like every other command.
+    let requires_signature = !unsigned_envelope_permitted(&env.cmd);
     match (mode, env.signature.as_ref(), requires_signature) {
         // Disabled — any envelope passes; no signature verify.
         #[cfg(not(feature = "suderra-os"))]
         (SignatureMode::Disabled, _, _) => {}
-        // Enforcing + permissioned command + no signature → reject.
+        // Enforcing + signed-only command + no signature → reject.
         (SignatureMode::Enforcing, None, true) => {
             return Err(EnvelopeVerifyError::SignatureRequiredInEnforcingMode);
         }
-        // Enforcing + anonymous command + no signature → accept.
+        // Enforcing + probe command + no signature → accept.
         (SignatureMode::Enforcing, None, false) => {}
         // Permissive + no signature → accept (audit at sink-side).
         #[cfg(not(feature = "suderra-os"))]
@@ -609,6 +614,7 @@ pub(crate) fn envelope_canonical_bytes(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commands::required_permission::permission_for_command;
     use serde_json::json;
 
     fn make_env(cmd: &str, iat: i64, exp: i64) -> CommandEnvelope {
@@ -722,6 +728,47 @@ mod tests {
             |_, _| true,
         )
         .expect("read-only accepted");
+    }
+
+    /// WHY: ADR-048 DEC-9.1 — the root hand-off commands need no RBAC role
+    /// (Anonymous permission) but are not probes: an unsigned envelope for
+    /// any of them is refused in Enforcing, so publishing to the command
+    /// topic alone cannot write a file for root.
+    #[cfg(feature = "suderra-os")]
+    #[test]
+    fn enforcing_mode_rejects_unsigned_hand_off_commands() {
+        for cmd in ["activation_receipt", "lifecycle_request", "request_update"] {
+            assert!(permission_for_command(cmd, &json!({})).is_none(), "{cmd}");
+            let err = verify_envelope(
+                &make_env(cmd, 1_000, 9_000),
+                &[0x42u8; 16],
+                5_000,
+                SignatureMode::Enforcing,
+                mock_hash,
+                |_, _| true,
+            )
+            .expect_err(cmd);
+            assert_eq!(
+                err,
+                EnvelopeVerifyError::SignatureRequiredInEnforcingMode,
+                "{cmd}"
+            );
+        }
+    }
+
+    /// WHY: an unknown command is never a probe.
+    #[test]
+    fn enforcing_mode_rejects_unsigned_unknown_command() {
+        let err = verify_envelope(
+            &make_env("no_such_command", 1_000, 9_000),
+            &[0x42u8; 16],
+            5_000,
+            SignatureMode::Enforcing,
+            mock_hash,
+            |_, _| true,
+        )
+        .expect_err("unknown");
+        assert_eq!(err, EnvelopeVerifyError::SignatureRequiredInEnforcingMode);
     }
 
     /// WHY: Permissive mode + unsigned mutating → accept (legacy rollout).

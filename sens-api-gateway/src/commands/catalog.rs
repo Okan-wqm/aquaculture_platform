@@ -217,16 +217,20 @@ pub(crate) const COMMAND_CATALOG: &[CommandCatalogEntry] = &[
         AuditAction::CommandRejected
     ),
     // ADR-048 DEC-5.8 / DEC-5.14 (Suderra OS profile only): cloud-signed
-    // statements the agent hands to root. Catalog-anonymous because the
-    // statement carries its own signature (the receipt is verified against
-    // the trust root before it is written; root verifies both); the command
-    // envelope is still signed, as every command on Suderra OS is.
+    // statements the agent hands to root. They need no RBAC role (the
+    // statement carries its own signature: the receipt is verified against
+    // the trust root before it is written, and root verifies both), so the
+    // permission is Anonymous. They are not probes, though: the envelope
+    // must carry a signature that verifies against an RBAC-manifest actor
+    // key (DenyUnsignedInEnforcing, enforced by envelope Gate 7 through
+    // `unsigned_envelope_permitted`), so nobody who can merely publish to
+    // the command topic can write a file for root.
     #[cfg(feature = "suderra-os")]
     entry!(
         "activation_receipt",
         "cmd_activation_receipt",
         PermissionResolver::Anonymous,
-        LegacyPolicy::AllowUnsignedInEnforcing,
+        LegacyPolicy::DenyUnsignedInEnforcing,
         true,
         AuditAction::TenantProvisioned,
         AuditAction::CommandRejected
@@ -236,7 +240,7 @@ pub(crate) const COMMAND_CATALOG: &[CommandCatalogEntry] = &[
         "lifecycle_request",
         "cmd_lifecycle_request",
         PermissionResolver::Anonymous,
-        LegacyPolicy::AllowUnsignedInEnforcing,
+        LegacyPolicy::DenyUnsignedInEnforcing,
         false,
         AuditAction::CommandExecuted,
         AuditAction::CommandRejected
@@ -244,13 +248,14 @@ pub(crate) const COMMAND_CATALOG: &[CommandCatalogEntry] = &[
     // ADR-048 DEC-2.3: the agent's only update path on Suderra OS hands a
     // cloud-signed update statement to root's request worker, which trusts
     // no agent decision and verifies it against the OS-pinned keys and
-    // floors (DEC-2.4). Anonymous for the same reason as the two above.
+    // floors (DEC-2.4). Anonymous but signed, for the same reason as the
+    // two above.
     #[cfg(feature = "suderra-os")]
     entry!(
         "request_update",
         "cmd_request_update",
         PermissionResolver::Anonymous,
-        LegacyPolicy::AllowUnsignedInEnforcing,
+        LegacyPolicy::DenyUnsignedInEnforcing,
         false,
         AuditAction::FirmwareDeployRequested,
         AuditAction::CommandRejected
@@ -1027,6 +1032,17 @@ pub(crate) fn permission_for_command(cmd: &str, params: &Value) -> Option<Permis
         .unwrap_or(Some(Permission::SafeStateTrigger))
 }
 
+/// Whether a command envelope for `cmd` may execute WITHOUT a signature in
+/// `SignatureMode::Enforcing` (envelope Gate 7). Only the catalog's probe
+/// commands (`AllowUnsignedInEnforcing`, which the catalog invariant ties
+/// to an Anonymous permission) may; every other command, unknown ones
+/// included, needs a signature that verifies against an RBAC-manifest actor
+/// key, whether or not it needs an RBAC role.
+pub(crate) fn unsigned_envelope_permitted(cmd: &str) -> bool {
+    entry_for_command(cmd)
+        .is_some_and(|entry| entry.legacy_policy == LegacyPolicy::AllowUnsignedInEnforcing)
+}
+
 pub(crate) fn is_mutating_command(cmd: &str) -> bool {
     entry_for_command(cmd)
         .map(|entry| entry.is_mutating())
@@ -1186,14 +1202,47 @@ mod tests {
                     entry.wire_name
                 );
             }
-            if matches!(entry.permission, PermissionResolver::Anonymous) {
-                assert_eq!(
-                    entry.legacy_policy,
-                    LegacyPolicy::AllowUnsignedInEnforcing,
-                    "{} is anonymous but legacy policy is not explicit",
-                    entry.wire_name
-                );
-            }
+        }
+        // The unsigned probes are exactly ping and get_info: an Anonymous
+        // permission alone (no RBAC role) never makes a command unsigned.
+        let unsigned: Vec<_> = COMMAND_CATALOG
+            .iter()
+            .filter(|e| e.legacy_policy == LegacyPolicy::AllowUnsignedInEnforcing)
+            .map(|e| e.wire_name)
+            .collect();
+        assert_eq!(unsigned, ["ping", "get_info"]);
+    }
+
+    #[test]
+    fn only_the_probes_run_from_an_unsigned_envelope() {
+        for entry in COMMAND_CATALOG {
+            assert_eq!(
+                unsigned_envelope_permitted(entry.wire_name),
+                matches!(entry.wire_name, "ping" | "get_info"),
+                "{}",
+                entry.wire_name
+            );
+        }
+        assert!(!unsigned_envelope_permitted("no_such_command"));
+    }
+
+    /// ADR-048 DEC-5.8 / DEC-2.3: the hand-off commands need no RBAC role
+    /// but are never unsigned.
+    #[cfg(feature = "suderra-os")]
+    #[test]
+    fn hand_off_commands_are_anonymous_but_signed() {
+        for cmd in ["activation_receipt", "lifecycle_request", "request_update"] {
+            let entry = entry_for_command(cmd).unwrap_or_else(|| panic!("{cmd} missing"));
+            assert!(
+                matches!(entry.permission, PermissionResolver::Anonymous),
+                "{cmd}"
+            );
+            assert_eq!(
+                entry.legacy_policy,
+                LegacyPolicy::DenyUnsignedInEnforcing,
+                "{cmd}"
+            );
+            assert!(!unsigned_envelope_permitted(cmd), "{cmd}");
         }
     }
 

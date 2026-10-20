@@ -3475,3 +3475,269 @@ doctor run, no `unreadable` on scan/opener/action/CLI), 10 + 5 subtests green af
 ledger.ledger_read_faults() is the one declaration of what a ledger reader may treat as a store
 fault. BREAKING CHANGE carried in the lane commit: scan_signals returns SignalScan and
 open_self_improvement_missions returns MissionOpening, every caller updated in that commit.
+
+## WP-P provider continuity — recorded (2026-10-19; branch fix/aria-wp-p, not landed)
+
+Wave C FAST is on main (#2031). The waves after it — WP-P, WP-J and the SLOW clusters — are
+recorded here from their branches; **none has a PR, none has run the 10-shard suite plus the
+five required CI gates, so per the landing-wave hardening (below) none counts as trusted**.
+Per-finding truth for all of them is this registry plus git, never a session's claims.
+
+WP-P is six commits on `fix/aria-wp-p` (head `5c812c794`, base origin/main), one capability
+built red-first at the real night harness:
+
+- `a0d0201fe` — `tests/_helpers/single_provider_host.py`: the one shared definition of a host
+  that presents exactly one provider to the production lanes (the three lanes each carried a
+  private PATH/credential copy before), probed by the model fleet.
+- `65afbb7bf` — the role × provider matrix as a generated, pinned artifact
+  (`test_role_provider_matrix_ssot.py` on the JUDGE-DIGEST pattern, pins under
+  `tests/fixtures/role_provider_matrix_pins.json`).
+- `dbddccec3` — an only-Claude night completes every phase and charges only Claude; the
+  completed-night contract (the pinned ledgers a held night freezes must MOVE, a real runtime
+  attempt names the surviving provider) — the check ARIA-HIGH-579 already proved insufficient.
+- `792c2b776` — the operator's single-provider rule in the anchor law: the anchor gate counts
+  distinct judge SEATS (`ANCHOR_MIN_JUDGE_COUNT`; one seat thrice is one observation), the
+  enforce quorum asks two calibrated seats (`CALIBRATED_QUORUM_MIN_MODELS` removed), and every
+  consensus row that can name its observers is stamped `provider_span` via
+  `model_fleet.dispatching_provider_for_model`. Red first, four pins against `a488a36f2`:
+  three distinct seats all dispatched glm-5.3 were refused at the old model gate, one seat
+  voting thrice while naming three models passed it, and `provider_span` did not exist. After:
+  `test_jj1_anchor_consensus` 30 passed; the feedback_store symbols 1051 passed, 0 failing.
+- `d260825d1` — the only-Codex night (fake CLI; Codex is not installed on this host).
+- `5c812c794` — the night's fake Claude reports the model id the real CLI reports, so the
+  only-Claude night books a priced model instead of `cost_pricing_unknown_model`.
+
+Registered here from WP-P: ARIA-HIGH-672 (the anchor gate itself — the fix/aria-wp-p branch
+had allocated its own ARIA-HIGH-661 for the same finding in its off-main registry; the
+cross-worktree id-allocation guard refused to re-issue 661, so this row takes a fresh id and
+the WP-P landing must append at most one of the two and rechain), ARIA-HIGH-718/719 (the
+j-b-method-anchor design pair: the model-only diversity legs and the missing mint-first method
+stamp, both closed by this wave's implementation), and ARIA-MEDIUM-673 — the residual that the
+three night classes (~4m14s for 28 tests measured 2026-10-19) landed without a
+`suite_shard_weights.json` refresh, which must come from a green run's shard reports before
+WP-P merges.
+
+Not fixed by WP-P, on the record: the single-provider nights cannot be dispatched at all while
+ARIA's workflows stay disabled (the WK-2 gate) — the nights are code-proven, not live-proven.
+
+## WP-J expert panel — recorded (2026-10-19; branches fix/aria-wp-j and fix/aria-wp-j-fix2, not landed)
+
+The panel program landed as 30 commits on `fix/aria-wp-j` (head `cbaad3b83`) plus a parallel
+fix round as 28 commits on `fix/aria-wp-j-fix2` (head `3e559bf6b`); the two branches share
+their lineage up to `3c5760048` and then carry their own implementations of the same nine
+review fixes — the WP-J landing must pick one line, not merge both.
+
+What was built (slice → commits; every fix red-first at the real entry point, the proof lines
+quoted in each commit body):
+
+- **A, evidence protocol + tier-0** — one verbatim-quote law for both judgment paths
+  (`94c18b6ea`, `tests/test_quote_law.py` red on main); the rule contract's predicted
+  `observable` or the named refusal `claim_not_falsifiable` (`32fba0b8e`); the closed
+  evidence-class vocabulary R0..R4 with quotes on load-bearing rows and reproduction bound to
+  `{recipe_id, expected}` (`5fbc01cf3`); and tier-0 itself — `aria_kernel/tier0.py`, zero LLM,
+  refs resolve at the target SHA, quotes byte-match, fingerprint dedup, excerpt-skip named
+  (`7f45f829b`; the law pinned by `3d465916c`, 11 red ways pre-fix).
+- **C, the funnel** — `judgment_funnel.py` as the one routing owner at the `cycle.py:1950`
+  seam (`b65e731da`); the per-night envelope budget sized to the measured drain, holding
+  through the admission door, `assert_within_budget` banned on mint paths (`2f4406c1a`);
+  severity-routed tiers, tier 2 one seat, tier 4 quota-bound (`5f91179ce`, five tier tests red
+  pre-fix); the verdict cache keyed `(finding_fingerprint, code_hash)`, unknown blob state a
+  miss (`8a22d5ddf`); per-decision cost joined on `judgment_group_id` (`946eca283`).
+- **B, the panel** — four method seats (bug_hunt, reproduction_test, impact_assessment,
+  architecture) join every E14 table and the panel mints whole or not at all (`0a87da08c`);
+  the arbiter weighs evidence with a bounded rebuttal round and a panel diversity guard
+  (`194d7faf3`); method diversity as the single-provider anchor/quorum leg (`0fab74f54`,
+  shared with WP-P).
+- **D, measurement** — the stability lane: one blind re-ask, one flip table, two consumers
+  (the judge-weight temper and the promotion bar; `118bb215e` + `b22688550`); outcome truth:
+  a judged defect's mechanical outcome becomes scoring feedback (`05d99ba06` +
+  `9b904b3a1`); mutation canaries: labels by construction in a hermetic sandbox, scored only
+  as calibration truth (`07cdaa6d0`).
+
+The package's own review rounds (wpj-inceleme-1 probes, then the wpj-onarim fix rounds) found
+and fixed defects inside the package; their rows are registered here so the record survives
+the landing: ARIA-HIGH-685/686/687 and ARIA-MEDIUM-688 (zero-evidence anchors, the false
+'evidence=quote-verified' label, shape-only R4 rows, the dropped admission producers — 12
+tests red at `194d7faf3`), ARIA-MEDIUM-684 and ARIA-MEDIUM-691 (the expiry-ownership table
+drops), ARIA-HIGH-689 (the uncertainty-vocabulary pin), ARIA-MEDIUM-690 (the scoring pin),
+ARIA-HIGH-692 (the canary self-exam was not blind — the envelope named the plant), ARIA-HIGH-693
+(the undeclared flip-table ledger), ARIA-LOW-694 (an unreadable drain silently swallowed the
+routing). All nine were fixed on both branches (the `cbaad3b83`-line and the `3e559bf6b`-line);
+none is reachable on origin/main, where the WP-J modules do not exist. The slice-C findings
+ARIA-HIGH-678..683 and slice-A ARIA-HIGH-674..677 register the gaps as they stood on main.
+
+Registered with the package: ARIA-HIGH-695/696/697 (the three §1.8-1.10 operator asks —
+stability, outcome truth, canaries — as gaps on main), ARIA-MEDIUM-720 and ARIA-HIGH-721 (the
+j-b panel design pair), and the s2-mimari scan set ARIA-HIGH-708/709 and ARIA-MEDIUM-710/711
+(the role-registration contract, the test-execution owner, the independence-pair loader
+invariant, and the intake-refusal owner — all answered by the slices above, kept as rows
+because the scans measured the gaps on main).
+
+Not fixed by WP-J, on the record: the full 10-shard suite plus the five gates has not run on
+any PR (there is no PR); the nights and the canary cadence hold while the drain is dead and
+ARIA is paused; the package commits' `Closes: stubs/<name>.json` trailers do not match the
+registry's trailer law, so at landing the rows need a Closes-carrying closing commit or an
+alias entry (finding-closure-reconcile will not match a stub path to an id).
+
+## SLOW queue — recorded (2026-10-20; nine cluster branches, not landed)
+
+Per cluster: branch, commits, what closed, what stays open. All branches are local, none has
+a PR, and the same no-trust rule applies.
+
+- **misc-slow** (`fix/aria-kc-misc-slow`, 3 commits) — ARIA-LOW-605: the debt lifecycle is a
+  kernel-enforced state machine (`f2a438658`, red at the real debt entries; the handoff
+  consumer's status/current_status defect registered as ARIA-LOW-701); ARIA-LOW-517: every
+  sha256 producer, validator and token hasher goes through digest.py (`f00f52d4e`, the
+  single-owner invariant red first; the ~20 prefix-only gates registered as ARIA-LOW-700);
+  ARIA-HIGH-138: every kernel seam proved by a real process, not a mock of it (`b7ba78082`).
+  Residual: seeding the 6 production debts needs an aria/state write after unpause.
+- **genesis-router** (`fix/aria-kc-genesis-router`, 1 commit) — ARIA-MEDIUM-612: seed or
+  refuse by name every skill-genesis request the router emits (`04e233c1f`, red at
+  capability_gap.\_gap and the learning router branch). Residuals registered as ARIA-MEDIUM-704
+  (agent_gap still parks unconsumed; legacy rows suppress panel re-asks) and ARIA-LOW-705 (a
+  corpus-less convergent request still rides the proxy; operator CLI surface).
+- **ci-topology** (`fix/aria-kc-ci-topology`, 4 commits) — ARIA-HIGH-602: traced kernel jobs
+  fail on a tracked read outside the surface (`5ff665f96`, red at the real install refusal);
+  ARIA-MEDIUM-277: one lane one group, a host workspace lock, cadence gaps reported
+  (`3ad9716e6`, both halves red-first); plus the hermetic/live suite partition and the
+  always-run workspace job (`56f7db560`, `ec575865d`). Residuals: 602's acceptance is the
+  implementing PR's own CI first FULL traced run; 277's second self-hosted runner
+  registration is an operator capacity action.
+- **adapters-schema-slow** (`fix/aria-kc-adapters-schema-slow`, 2 commits) — ARIA-MEDIUM-588:
+  MODULE_SCHEMAS spread entries resolved in the registry reader (`35f54c759`, the parity
+  invariant red first) and the tenant-aware qualified-DDL guard projected through the
+  migration-safety adapter (`7440952af`). Residual registered as ARIA-LOW-703: the kernel
+  integration test still carries an inline copy of the manifest's read surface.
+- **approvals-slow** (`fix/aria-kc-approvals-slow`, 2 commits) — ARIA-HIGH-238: every
+  operator-approval ref proven at its raising surface (`1249cb8b0`, every ref class pinned
+  red first by `8fc39237d`). Residual registered as ARIA-MEDIUM-699: the provenance mint
+  itself still accepts any free-form ref.
+- **identity-slow** (`fix/aria-kc-identity-slow`, 2 commits) — ARIA-MEDIUM-029: execution
+  identity derived from the platform, the cycle produces the session ledger (`0182ff851`,
+  ImportError red first); ARIA-MEDIUM-583: the GitHub App key mints in a lane-side broker,
+  never the cycle process (`cfbe29804`, red on both lanes at base). Residuals: 029's
+  provider_bound producer binds at the 563 gateway integration point; 583's first live night
+  must prove broker persistence between Actions steps.
+- **invocations-slow** (`fix/aria-kc-invocations-slow`, 1 commit) — ARIA-HIGH-614: every
+  envelope gets a citable repository box or is refused by name (`a700d6207`, red at the mint).
+- **learning** (`fix/aria-kc-learning`, 1 commit) — the night's convention lift surfaces in
+  the operator inbox (`70cb9bd87`, KeyError red first). ARIA-HIGH-125 stays OPEN: the gold
+  corpus (≥20 TP/≥10 FP real-ground-truth rows per tool, aria/state shows 0 TP/5 FP) and the
+  operator-run promote_goldset_proposal; ARIA-MEDIUM-129 stays OPEN: negative-lift/decay
+  coupling and the A/B design decision.
+- **self-improve** (`fix/aria-kc-self-improve`, 1 commit) — the kernel-change lane carries an
+  adjudicated self-change to an operator-opened PR (`5183c6cf7`,
+  `self_change_validation_pin_refused` red first). ARIA-HIGH-122 stays OPEN: the operator
+  self-merge-set decision plus the live end-to-end lane exercise.
+
+## Landing-wave hardening (external review, 2026-10-20 — BINDING) and this lane's record
+
+The external closure-confidence audit's four points are accepted and bind the landing wave and
+the reopening (packages/INDEX.md, 'Landing-wave hardening'). What this lane did about each:
+
+1. **Mechanised red-first gate** — registered as ARIA-HIGH-671 from the binding stub
+   `verify-redfirst-ci-gate-1.json`: no CI step runs a fix PR's new/changed tests on the
+   merge-base and requires them to fail there (re-verified on 9ba453af5: neither
+   ci-full.yml nor aria-kernel.yml carries such a job). It is a new feature, so the full
+   new-feature protocol (reading passes with gap-and-duplicate reconciliation, twice-refuted
+   plan) applies before implementation, and it must be reconciled with WP-J slice A's
+   kernel-side repro seam — wire both layers, own each once.
+2. **No branch counts as trusted until the full 10-shard suite plus the five required CI
+   gates pass on its PR.** Recorded above per wave: WP-P, WP-J (both lines) and the nine SLOW
+   branches have no PRs and no such runs; their 65-85% figures are pre-landing estimates
+   only. The landing wave additionally draws a random sample of 3-5 landed closures and
+   re-proves them red on the merge-base, audited by an independent seat (the Claude session
+   on this host, or the WP-X external red-team cadence) — never this program's own verifiers.
+3. **Reopening precondition: one controlled SHADOW night.** ARIA stays PAUSED; its seven
+   workflows stay disabled. It is re-enabled for exactly one shadow night first (existing
+   machinery, `shadow_eval_bridge.py`); canary and calibration numbers are only spoken after
+   that night, never before. This also gates the WK-2 single-provider nights.
+4. **Per-finding truth comes from the registry plus git.** This lane re-verified every pending
+   stub against origin/main `9ba453af5` before registering it:
+   - Registered: 55 rows, ARIA-HIGH-671 through ARIA-LOW-725 (one per stub), via
+     `finding-registry.ts add` only; the chain verifies and main's first 2962 rows are
+     byte-identical to origin/main. Every row's title, evidence and notes carry the
+     re-verification; the id-to-stub map:
+
+   - **ARIA-HIGH-671** — stub `verify-redfirst-ci-gate-1`
+   - **ARIA-HIGH-672** — stub `wpp-anchor-single-provider`
+   - **ARIA-MEDIUM-673** — stub `wpp-2-night-shard-weights`
+   - **ARIA-HIGH-674** — stub `wpj-a-1`
+   - **ARIA-HIGH-675** — stub `wpj-a-2`
+   - **ARIA-HIGH-676** — stub `wpj-a-3`
+   - **ARIA-HIGH-677** — stub `wpj-a-4`
+   - **ARIA-HIGH-678** — stub `wpj-c-1`
+   - **ARIA-HIGH-679** — stub `wpj-c-2`
+   - **ARIA-HIGH-680** — stub `wpj-c-3`
+   - **ARIA-HIGH-681** — stub `wpj-c-4`
+   - **ARIA-MEDIUM-682** — stub `wpj-c-5`
+   - **ARIA-MEDIUM-683** — stub `wpj-c-6`
+   - **ARIA-MEDIUM-684** — stub `wpj-onarim-1-role-ownership`
+   - **ARIA-HIGH-685** — stub `wpj-r-1`
+   - **ARIA-HIGH-686** — stub `wpj-r-2`
+   - **ARIA-HIGH-687** — stub `wpj-r-3`
+   - **ARIA-MEDIUM-688** — stub `wpj-r-4`
+   - **ARIA-HIGH-689** — stub `wpj-r-5`
+   - **ARIA-MEDIUM-690** — stub `wpj-r-6`
+   - **ARIA-MEDIUM-691** — stub `wpj-r-7`
+   - **ARIA-HIGH-692** — stub `wpj-r-8`
+   - **ARIA-HIGH-693** — stub `wpj-r-9`
+   - **ARIA-LOW-694** — stub `wpj-r-10`
+   - **ARIA-HIGH-695** — stub `d-stability-lane-2`
+   - **ARIA-HIGH-696** — stub `d-outcome-truth-1`
+   - **ARIA-HIGH-697** — stub `d-mutation-canary-3`
+   - **ARIA-LOW-698** — stub `slow-ARIA-HIGH-012-1`
+   - **ARIA-MEDIUM-699** — stub `slow-ARIA-HIGH-238-1`
+   - **ARIA-LOW-700** — stub `slow-ARIA-LOW-517-1`
+   - **ARIA-LOW-701** — stub `slow-ARIA-LOW-605-1`
+   - **ARIA-LOW-702** — stub `slow-ARIA-MEDIUM-277-1`
+   - **ARIA-LOW-703** — stub `slow-ARIA-MEDIUM-588-1`
+   - **ARIA-MEDIUM-704** — stub `slow-ARIA-MEDIUM-612-1`
+   - **ARIA-LOW-705** — stub `slow-ARIA-MEDIUM-612-2`
+   - **ARIA-MEDIUM-706** — stub `s2-refuseview-pem-bearer-1`
+   - **ARIA-MEDIUM-707** — stub `scrub-refuse-view-pem-bearer-1`
+   - **ARIA-HIGH-708** — stub `s2-mimari-role-registration-1`
+   - **ARIA-HIGH-709** — stub `s2-mimari-test-execution-2`
+   - **ARIA-MEDIUM-710** — stub `s2-mimari-independence-pairs-3`
+   - **ARIA-MEDIUM-711** — stub `s2-mimari-intake-owner-4`
+   - **ARIA-HIGH-712** — stub `main-fehigh374-orphan-row`
+   - **ARIA-MEDIUM-713** — stub `goldset-replay-never-live`
+   - **ARIA-HIGH-714** — stub `judge-calibration-starved`
+   - **ARIA-HIGH-715** — stub `plan-refutation-1`
+   - **ARIA-MEDIUM-716** — stub `plan-refutation-2`
+   - **ARIA-LOW-717** — stub `plan-refutation-3`
+   - **ARIA-HIGH-718** — stub `j-b-method-anchor-1`
+   - **ARIA-HIGH-719** — stub `j-b-method-anchor-2`
+   - **ARIA-MEDIUM-720** — stub `j-b-panel-debate-1`
+   - **ARIA-HIGH-721** — stub `j-b-panel-seats-1`
+   - **ARIA-LOW-722** — stub `b-kernel-misc-5`
+   - **ARIA-HIGH-723** — stub `jevask-closes-secret-refusal-1`
+   - **ARIA-MEDIUM-724** — stub `pr-create-ambient-gitdir-1`
+   - **ARIA-HIGH-725** — stub `deploy-checkout-bare-resolve-1`
+
+   - Dropped, defect no longer holds on main (each re-verified this session):
+     `s2-messaging-smoke-canonical-1.json` — the ported smoke teaches the renderer
+     `allow_responses`; `npx tsx scripts/nats/messaging-acl-smoke.ts --mode static` passes on
+     9ba453af5 (OK, exit 0; see scripts/nats/messaging-acl-smoke.ts:19).
+     `b-operator-provenance-4.json` — `main_anchor.committed_blob` now resolves through the
+     verified object-chain walk (`_resolve_verified`/`_read_verified`), landed by `69d800e65`
+     (security-fast, #2031). `b-kernel-misc-7.json` — the redact view leaves boolean values
+     intact (`scrub_text` probe over the stub's exact fixture returns the JSON unchanged) and
+     `SpawnEnvironmentTests` passes (1 passed); fixed by the wave-A/B scrub rewrites.
+   - Registered re-scoped, with the fixed half recorded in the row's notes:
+     `main-fehigh374-orphan-row.json` → ARIA-HIGH-712 (the anchor landed in #2034; the open
+     half is that findings:add still accepts a review_file that anchors nothing);
+     `scrub-refuse-view-pem-bearer-1.json` → ARIA-MEDIUM-707 (the PEM/bearer halves were
+     fixed on main by `9c4d1f251` in #2019; the github-token underscore gap remains at
+     secret_scrub.py:300-307). `s2-refuseview-pem-bearer-1.json` → ARIA-MEDIUM-706 registers
+     the fixed PEM/bearer finding itself for traceability: its fixing commit carries no
+     Closes trailer (PROC-LOW-053 interim form, its body names this stub), so the row stays
+     OPEN until a trailer-carrying commit or alias reaches main.
+   - The wpp anchor row (ARIA-HIGH-672) records the id collision with the unmerged branch's
+     own ARIA-HIGH-661 and the resolution rule for the WP-P landing.
+
+The operator items that code cannot close are unchanged: the Claude token mint and the one
+live call in g563-results.json; the eleven open decisions (272 recorded as accepted, 273,
+221, 133, 139, 252, 555, 573, 604, 606, 613); the live-run items CRITICAL-015, 014, 137, 212,
+281; 532 helm (recommendation on record: accept the exclusion); and whether/when to re-enable
+ARIA's seven paused workflows — which the shadow night precedes.

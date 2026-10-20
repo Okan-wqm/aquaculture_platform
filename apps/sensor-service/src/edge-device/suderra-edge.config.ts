@@ -261,7 +261,8 @@ export function loadSuderraEdgeSettings(
       'SUDERRA_EDGE_API_URL must be an https URL without a trailing slash',
     );
   }
-  const ttlText = (get('SUDERRA_EDGE_RESERVATION_TTL_MINUTES') ?? '30').trim();
+  const ttlRaw = (get('SUDERRA_EDGE_RESERVATION_TTL_MINUTES') ?? '').trim();
+  const ttlText = ttlRaw === '' ? '30' : ttlRaw;
   if (!/^[1-9][0-9]{0,2}$/.test(ttlText) || Number(ttlText) > 240) {
     throw new SuderraEdgeConfigError('SUDERRA_EDGE_RESERVATION_TTL_MINUTES must be 1..240');
   }

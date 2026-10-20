@@ -33,10 +33,13 @@ import {
   TenantInstallerScriptVariables,
 } from './dto/provisioning.dto';
 import {
+  EdgeAgentChannel,
   EdgeDevice,
   DeviceLifecycleState,
   DeviceModel,
   isTerminalLifecycleState,
+  provisioningPhaseOf,
+  ProvisioningPhase,
 } from './entities/edge-device.entity';
 import { TenantProvisioningKey } from './entities/tenant-provisioning-key.entity';
 import { DeviceEventType, DeviceEventSeverity } from './entities/device-event.entity';
@@ -45,6 +48,15 @@ import { InstallerScriptService } from './installer-script.service';
 import { TenantKeyService } from './tenant-key.service';
 import { DeviceEventService } from './device-event.service';
 import { DeviceDirectoryService } from './device-directory.service';
+import {
+  EdgeProvisioningManifestService,
+  parseProvisioningRequest,
+  ProvisioningRefusal,
+} from './edge-provisioning-manifest.service';
+import {
+  hashProvisioningToken,
+  ProvisioningReservationService,
+} from './provisioning-reservation.service';
 
 /**
  * Provisioning Service
@@ -67,6 +79,8 @@ export class ProvisioningService {
     private readonly tenantKeyService: TenantKeyService,
     private readonly deviceEventService: DeviceEventService,
     private readonly deviceDirectory: DeviceDirectoryService,
+    private readonly reservations: ProvisioningReservationService,
+    private readonly suderraOsManifests: EdgeProvisioningManifestService,
   ) {
     this.TOKEN_TTL_HOURS = this.configService.get<number>('PROVISIONING_TOKEN_TTL_HOURS', 24);
   }
@@ -90,7 +104,7 @@ export class ProvisioningService {
    * creation/regeneration and never persisted in clear.
    */
   private hashToken(token: string): string {
-    return crypto.createHash('sha256').update(token).digest('hex');
+    return hashProvisioningToken(token);
   }
 
   /**
@@ -167,7 +181,8 @@ export class ProvisioningService {
         this.deviceDirectory.saveNewDevice(device, qr.manager),
       );
     } catch (error: any) {
-      if (error?.code === '23505') { // PostgreSQL unique violation
+      if (error?.code === '23505') {
+        // PostgreSQL unique violation
         throw new ConflictException('Device code conflict, please retry');
       }
       throw error;
@@ -180,10 +195,7 @@ export class ProvisioningService {
   /**
    * Regenerate provisioning token for an existing device
    */
-  async regenerateToken(
-    deviceId: string,
-    tenantId: string,
-  ): Promise<RegenerateTokenResponse> {
+  async regenerateToken(deviceId: string, tenantId: string): Promise<RegenerateTokenResponse> {
     const device = await this.deviceRepository.findOne({
       where: { id: deviceId, tenantId },
     });
@@ -197,23 +209,33 @@ export class ProvisioningService {
       throw new ConflictException('Cannot regenerate token for already activated device');
     }
 
-    // Don't allow regeneration for decommissioned devices
-    if (device.lifecycleState === DeviceLifecycleState.DECOMMISSIONED) {
-      throw new BadRequestException('Cannot regenerate token for decommissioned device');
+    // Don't allow regeneration for a terminal device
+    if (isTerminalLifecycleState(device.lifecycleState)) {
+      throw new BadRequestException(
+        'Cannot regenerate token for a decommissioned or revoked device',
+      );
     }
 
-    // Generate new token
+    // Generate new token. The previous token, any manifest reservation and
+    // any credential issued for an activation that never committed are
+    // void with it (ADR-048 DEC-5.7).
     const provisioningToken = this.generateProvisioningToken();
     const tokenExpiresAt = new Date(Date.now() + this.TOKEN_TTL_HOURS * 60 * 60 * 1000);
 
-    await this.deviceRepository.update(device.id, {
-      provisioningToken: this.hashToken(provisioningToken),
+    const reissued = await this.reservations.reissueToken(device, {
+      tokenHash: this.hashToken(provisioningToken),
       tokenExpiresAt,
+      lifecycleState: device.lifecycleState,
+      revokeCredentials: true,
     });
-    // Keep the in-memory entity consistent with what is persisted (the hash);
-    // the plaintext is surfaced only through the installer URL/command below.
-    device.provisioningToken = this.hashToken(provisioningToken);
-    device.tokenExpiresAt = tokenExpiresAt;
+    if (reissued === null) {
+      throw new BadRequestException(
+        'Cannot regenerate token for a decommissioned or revoked device',
+      );
+    }
+    if (device.mqttClientId && device.credentialsIssuedAt !== null) {
+      await this.mqttAuthService.removeDeviceCredentials(device.mqttClientId);
+    }
     const saved = device;
     this.logger.log(`Regenerated token for device ${device.deviceCode}`);
 
@@ -221,7 +243,13 @@ export class ProvisioningService {
       deviceId: saved.id,
       deviceCode: saved.deviceCode,
       installerUrl: await this.installerScriptService.buildInstallerUrl(saved.deviceCode),
-      installerCommand: await this.installerScriptService.buildInstallerCommand(saved.deviceCode, provisioningToken),
+      installerCommand: await this.installerScriptService.buildInstallerCommand(
+        saved.deviceCode,
+        provisioningToken,
+      ),
+      suderraOsProvisioningCommand: this.installerScriptService.buildSuderraOsProvisioningCommand(
+        saved.deviceCode,
+      ),
       tokenExpiresAt,
     };
   }
@@ -273,62 +301,97 @@ export class ProvisioningService {
       agentVersion: config.agentVersion,
       mqttBroker: config.mqttBroker,
       mqttPort: config.mqttPort,
-      mqttTlsEnabled: config.mqttTlsEnabled ?? (config.mqttPort === 8883),
+      mqttTlsEnabled: config.mqttTlsEnabled ?? config.mqttPort === 8883,
     };
 
     return this.installerScriptService.renderInstallerScript(variables, config);
   }
 
   /**
-   * Generate Suderra OS install manifest for a device.
+   * The Suderra OS provisioning delivery (ADR-048 DEC-5.5–5.7, delivery.json):
+   * the device-bound, signed suderra.edge-provisioning.v1 manifest with the
+   * release statement, trust-anchors bundle, site config, RBAC manifest and
+   * site files it names, issued under a manifest reservation bound to the
+   * device binding the request presents.
    *
-   * This is the OS-appliance path: the tenant panel gives the target a JSON
-   * manifest URL, and the target downloads/verifies the signed Edge artifact.
+   * Every refusal is a {@link ProvisioningRefusal}; the controller answers
+   * them all identically (DEC-22), so the reason is only logged here.
    */
-  async generateSuderraOsInstallManifest(deviceCode: string, provisioningToken: string): Promise<unknown> {
+  async deliverSuderraOsManifest(
+    deviceCode: string,
+    token: string | undefined,
+    query: Readonly<Record<string, unknown>>,
+  ): Promise<string> {
+    const request = parseProvisioningRequest(query);
+    if (request === null || token === undefined || !/^[0-9a-f]{64}$/.test(token)) {
+      throw new ProvisioningRefusal('request-invalid');
+    }
+    if (!/^[A-Za-z0-9_-]{1,50}$/.test(deviceCode)) {
+      throw new ProvisioningRefusal('request-invalid');
+    }
     const device = await this.findDeviceAcrossSchemas('device_code', deviceCode);
-
-    if (!device) {
-      throw new NotFoundException(`Device ${deviceCode} not found`);
+    if (!device) throw new ProvisioningRefusal('device-unknown');
+    if (!this.validateProvisioningToken(device.provisioningToken, token)) {
+      throw new ProvisioningRefusal('token-invalid');
+    }
+    if (isTerminalLifecycleState(device.lifecycleState)) {
+      throw new ProvisioningRefusal('device-terminal');
+    }
+    const now = new Date();
+    const phase = provisioningPhaseOf(device, now);
+    if (phase === ProvisioningPhase.COMMITTED) throw new ProvisioningRefusal('token-spent');
+    if (device.tokenExpiresAt && device.tokenExpiresAt <= now) {
+      throw new ProvisioningRefusal('token-expired');
+    }
+    if (
+      device.deviceBindingSha256 !== null &&
+      (device.deviceBindingSha256 !== request.binding.digest.sha256 ||
+        device.deviceBindingMethod !== request.binding.method)
+    ) {
+      throw new ProvisioningRefusal('binding-differs-from-device');
     }
 
-    if (!device.provisioningToken) {
-      throw new BadRequestException('Device has no provisioning token');
-    }
-
-    if (!this.validateProvisioningToken(device.provisioningToken, provisioningToken)) {
-      throw new UnauthorizedException('Invalid provisioning token');
-    }
-
-    if (device.tokenUsedAt) {
-      throw new ConflictException('Device has already been activated');
-    }
-
-    if (device.tokenExpiresAt && device.tokenExpiresAt < new Date()) {
-      throw new UnauthorizedException('Provisioning token has expired');
-    }
-
-    const config = await this.installerScriptService.getProvisioningConfig();
-    return this.installerScriptService.renderSuderraOsInstallManifest({
+    const release = await this.suderraOsManifests.preflight(request, device.tenantId);
+    const body = await this.reservations.reserve(
+      device,
+      token,
+      request.binding,
+      this.suderraOsManifests.reservationTtlMs,
+      now,
+      (reservation) => {
+        const issued = this.suderraOsManifests.issue(
+          { ...reservation, provisioningToken: token },
+          release,
+          request.nonce,
+        );
+        return { result: issued.body, manifestDigest: issued.manifest.digest };
+      },
+    );
+    if (body === null) throw new ProvisioningRefusal('binding-reserved-elsewhere');
+    this.logger.log({
+      event: 'suderra_os_manifest_issued',
       deviceId: device.id,
-      deviceCode: device.deviceCode,
-      // Stored value is a SHA-256 hash; embed the validated plaintext param so
-      // the OS appliance can present it back to activate.
-      provisioningToken,
-      apiUrl: config.apiBaseUrl,
-      agentVersion: config.agentVersion,
-      mqttBroker: config.mqttBroker,
-      mqttPort: config.mqttPort,
-      mqttTlsEnabled: config.mqttTlsEnabled ?? (config.mqttPort === 8883),
+      tenantId: device.tenantId,
+      board: request.boardProfile,
+      release: release.version,
     });
+    return body;
   }
 
   /**
-   * Activate a device (called by agent)
+   * Activate a device (called by agent).
+   *
+   * ADR-048 DEC-5.7: activation ISSUES the broker credential and leaves the
+   * single-use token unspent (ACTIVATION_PENDING); it may be repeated, each
+   * time replacing the credential. The token is spent only when the device's
+   * own credential authenticates its first broker CONNECT
+   * (MqttAuthService → ProvisioningReservationService.commitFirstSession), so
+   * a device that lost the response — or could not persist it — activates
+   * again instead of being locked out. The guard is one conditional update:
+   * two racing activations each get a credential, and the last one written
+   * is the one that can commit.
    */
-  async activateDevice(
-    request: DeviceActivationRequest,
-  ): Promise<DeviceActivationResponse> {
+  async activateDevice(request: DeviceActivationRequest): Promise<DeviceActivationResponse> {
     const { deviceId, token, fingerprint, agentVersion } = request;
 
     // Find device across all tenant schemas (public endpoint, no tenant context)
@@ -386,51 +449,65 @@ export class ProvisioningService {
     // Generate MQTT credentials
     const { password: mqttPassword, hash: mqttPasswordHash } = await this.generateMqttCredentials();
 
-    // Wrap in transaction to prevent partial activation
-    // Set search_path to the device's tenant schema so TypeORM writes to the correct schema
-    // SENSOR-CRITICAL-143: a public endpoint has no request tenant. Pinning
-    // search_path alone left the RLS tenant GUC unset, so under FORCE RLS this
-    // UPDATE matched zero rows and activation silently did nothing.
-    return await runInTenantTransaction(this.dataSource, SENSOR_SOURCE_SCHEMA, device.tenantId, async (qr) => {
-      const transactionalManager = qr.manager;
+    const issued = await this.reservations.issueCredentials(
+      device,
+      token,
+      { fingerprint, agentVersion, mqttPasswordHash },
+      new Date(),
+    );
+    if (!issued) {
+      // The row changed under us (token spent or regenerated, reservation
+      // lapsed, device revoked) or a Suderra OS device has no manifest
+      // reservation to activate under.
+      this.logger.warn(`Activation refused by the provisioning state of ${device.deviceCode}`);
+      throw new ConflictException({
+        success: false,
+        error: 'Device is not awaiting activation',
+        errorCode: ActivationErrorCode.INVALID_TOKEN,
+      });
+    }
 
-      // Update device
-      device.tokenUsedAt = new Date();
-      device.fingerprint = fingerprint;
-      device.agentVersion = agentVersion;
-      device.mqttPasswordHash = mqttPasswordHash;
-      device.lifecycleState = DeviceLifecycleState.ACTIVE;
-      device.isOnline = false; // Will be set to true when MQTT heartbeat arrives
+    // Add MQTT credentials to password file (for Mosquitto file-auth mode)
+    const mqttClientId = device.mqttClientId ?? '';
+    const mqttResult = await this.mqttAuthService.addDeviceCredentials(
+      mqttClientId,
+      mqttPasswordHash,
+    );
+    if (!mqttResult) {
+      throw new Error('Failed to write MQTT credentials');
+    }
 
-      // Clear the token from database (single-use)
-      // Use null (not undefined) so TypeORM sends SET provisioning_token = NULL
-      device.provisioningToken = null;
+    this.logger.log(`Device ${device.deviceCode} issued activation credentials (pending commit)`);
 
-      await transactionalManager.save(device);
+    // Return snake_case response (v1.1 spec)
+    const broker = await this.brokerEndpointFor(device.agentChannel);
+    return {
+      success: true,
+      mqtt_broker: broker.host,
+      mqtt_port: broker.port,
+      mqtt_username: mqttClientId,
+      mqtt_password: mqttPassword,
+      tenant_id: device.tenantId,
+      device_code: device.deviceCode,
+      mqtt_tls_enabled: broker.tls,
+      config: device.config,
+    };
+  }
 
-      // Add MQTT credentials to password file (for Mosquitto auth)
-      const mqttClientId = device.mqttClientId ?? '';
-      const mqttResult = await this.mqttAuthService.addDeviceCredentials(mqttClientId, mqttPasswordHash);
-      if (!mqttResult) {
-        throw new Error('Failed to write MQTT credentials');
-      }
-
-      this.logger.log(`Device ${device.deviceCode} activated successfully`);
-
-      // Return snake_case response (v1.1 spec)
-      const config = await this.installerScriptService.getProvisioningConfig();
-      return {
-        success: true,
-        mqtt_broker: config.mqttBroker,
-        mqtt_port: config.mqttPort,
-        mqtt_username: mqttClientId,
-        mqtt_password: mqttPassword,
-        tenant_id: device.tenantId,
-        device_code: device.deviceCode,
-        mqtt_tls_enabled: config.mqttPort === 8883,
-        config: device.config,
-      };
-    });
+  /**
+   * The broker an activated device is told about. A Suderra OS agent takes
+   * its broker only from the signed site config (DEC-10.1) — the same
+   * 8883 TLS endpoint named here; a generic agent without one configured
+   * uses this response's.
+   */
+  private async brokerEndpointFor(
+    channel: EdgeAgentChannel,
+  ): Promise<{ host: string; port: number; tls: boolean }> {
+    if (channel === EdgeAgentChannel.SUDERRA_OS) {
+      return this.suderraOsManifests.deviceBroker();
+    }
+    const config = await this.installerScriptService.getProvisioningConfig();
+    return { host: config.mqttBroker, port: config.mqttPort, tls: config.mqttTlsEnabled };
   }
 
   /**
@@ -455,7 +532,13 @@ export class ProvisioningService {
       deviceId: device.id,
       deviceCode: device.deviceCode,
       installerUrl: await this.installerScriptService.buildInstallerUrl(device.deviceCode),
-      installerCommand: await this.installerScriptService.buildInstallerCommand(device.deviceCode, token),
+      installerCommand: await this.installerScriptService.buildInstallerCommand(
+        device.deviceCode,
+        token,
+      ),
+      suderraOsProvisioningCommand: this.installerScriptService.buildSuderraOsProvisioningCommand(
+        device.deviceCode,
+      ),
       tokenExpiresAt: device.tokenExpiresAt ?? new Date(),
       status: device.lifecycleState,
       provisioningToken: token,
@@ -482,15 +565,27 @@ export class ProvisioningService {
     const device = await this.getDeviceByCode(deviceCode);
 
     if (!device) {
-      return { ready: false, reason: 'Device not found', errorCode: ActivationErrorCode.DEVICE_NOT_FOUND };
+      return {
+        ready: false,
+        reason: 'Device not found',
+        errorCode: ActivationErrorCode.DEVICE_NOT_FOUND,
+      };
     }
 
     if (device.lifecycleState === DeviceLifecycleState.DECOMMISSIONED) {
-      return { ready: false, reason: 'Device decommissioned', errorCode: ActivationErrorCode.DEVICE_DECOMMISSIONED };
+      return {
+        ready: false,
+        reason: 'Device decommissioned',
+        errorCode: ActivationErrorCode.DEVICE_DECOMMISSIONED,
+      };
     }
 
     if (device.tokenUsedAt) {
-      return { ready: false, reason: 'Already activated', errorCode: ActivationErrorCode.TOKEN_ALREADY_USED };
+      return {
+        ready: false,
+        reason: 'Already activated',
+        errorCode: ActivationErrorCode.TOKEN_ALREADY_USED,
+      };
     }
 
     if (!device.provisioningToken) {
@@ -498,7 +593,11 @@ export class ProvisioningService {
     }
 
     if (device.tokenExpiresAt && device.tokenExpiresAt < new Date()) {
-      return { ready: false, reason: 'Token expired', errorCode: ActivationErrorCode.TOKEN_EXPIRED };
+      return {
+        ready: false,
+        reason: 'Token expired',
+        errorCode: ActivationErrorCode.TOKEN_EXPIRED,
+      };
     }
 
     return { ready: true };
@@ -537,17 +636,19 @@ export class ProvisioningService {
     const provisioningToken = this.generateProvisioningToken();
     const tokenExpiresAt = new Date(Date.now() + this.TOKEN_TTL_HOURS * 60 * 60 * 1000);
 
-    // Reset activation state
-    await this.deviceRepository.update(device.id, {
-      provisioningToken: this.hashToken(provisioningToken),
+    // Reset activation state: a fresh token in TOKEN_ISSUED, the broker
+    // credential revoked, every reservation and pending activation void.
+    const reissued = await this.reservations.reissueToken(device, {
+      tokenHash: this.hashToken(provisioningToken),
       tokenExpiresAt,
-      tokenUsedAt: null, // TypeORM: sends SET token_used_at = NULL
       lifecycleState: DeviceLifecycleState.REGISTERED,
-      mqttPasswordHash: null,
-      fingerprint: null,
-      agentVersion: null,
-      isOnline: false,
+      revokeCredentials: true,
     });
+    if (reissued === null) {
+      throw new BadRequestException(
+        `Cannot re-provision a device in a terminal state (${device.lifecycleState})`,
+      );
+    }
 
     // Revoke old MQTT credentials
     if (device.mqttClientId) {
@@ -560,7 +661,13 @@ export class ProvisioningService {
       deviceId: device.id,
       deviceCode: device.deviceCode,
       installerUrl: await this.installerScriptService.buildInstallerUrl(device.deviceCode),
-      installerCommand: await this.installerScriptService.buildInstallerCommand(device.deviceCode, provisioningToken),
+      installerCommand: await this.installerScriptService.buildInstallerCommand(
+        device.deviceCode,
+        provisioningToken,
+      ),
+      suderraOsProvisioningCommand: this.installerScriptService.buildSuderraOsProvisioningCommand(
+        device.deviceCode,
+      ),
       tokenExpiresAt,
     };
   }
@@ -628,7 +735,7 @@ export class ProvisioningService {
       apiUrl: config.apiBaseUrl,
       agentVersion: config.agentVersion,
       mqttPort: config.mqttPort,
-      mqttTlsEnabled: config.mqttTlsEnabled ?? (config.mqttPort === 8883),
+      mqttTlsEnabled: config.mqttTlsEnabled ?? config.mqttPort === 8883,
     };
 
     return this.installerScriptService.renderTenantInstallerScript(variables, config);
@@ -646,13 +753,17 @@ export class ProvisioningService {
 
     // Fingerprint duplicate check (with power-loss recovery - Fix 5)
     if (request.fingerprint.machineId) {
-      const existing = await runInTenantRead(this.dataSource, SENSOR_SOURCE_SCHEMA, key.tenantId, async (qr) =>
-        tenantManagerRepo(qr.manager, EdgeDevice, key.tenantId)
-          .createQueryBuilder('d')
-          .andWhere("d.fingerprint->>'machineId' = :machineId", {
-            machineId: request.fingerprint.machineId,
-          })
-          .getOne(),
+      const existing = await runInTenantRead(
+        this.dataSource,
+        SENSOR_SOURCE_SCHEMA,
+        key.tenantId,
+        async (qr) =>
+          tenantManagerRepo(qr.manager, EdgeDevice, key.tenantId)
+            .createQueryBuilder('d')
+            .andWhere("d.fingerprint->>'machineId' = :machineId", {
+              machineId: request.fingerprint.machineId,
+            })
+            .getOne(),
       );
 
       if (existing) {
@@ -665,16 +776,24 @@ export class ProvisioningService {
               `Device ${existing.deviceCode} registration has expired. Contact administrator to re-provision.`,
             );
           }
-          this.logger.log(`Returning existing registration for device ${existing.deviceCode} (power-loss recovery)`);
+          this.logger.log(
+            `Returning existing registration for device ${existing.deviceCode} (power-loss recovery)`,
+          );
           const config = await this.installerScriptService.getProvisioningConfig();
           // Regenerate MQTT credentials for the recovery
           const { password: mqttPassword, hash: mqttPasswordHash } =
             await this.generateMqttCredentials();
           existing.mqttPasswordHash = mqttPasswordHash;
-          await runInTenantTransaction(this.dataSource, SENSOR_SOURCE_SCHEMA, existing.tenantId, (qr) =>
-            qr.manager.save(existing),
+          await runInTenantTransaction(
+            this.dataSource,
+            SENSOR_SOURCE_SCHEMA,
+            existing.tenantId,
+            (qr) => qr.manager.save(existing),
           );
-          const mqttResult = await this.mqttAuthService.addDeviceCredentials(existing.mqttClientId ?? '', mqttPasswordHash);
+          const mqttResult = await this.mqttAuthService.addDeviceCredentials(
+            existing.mqttClientId ?? '',
+            mqttPasswordHash,
+          );
           if (!mqttResult) {
             throw new Error('Failed to write MQTT credentials');
           }
@@ -716,39 +835,47 @@ export class ProvisioningService {
     // If device creation fails, the usedCount rollback happens automatically
     // SENSOR-CRITICAL-143: inside the key's tenant boundary — with search_path
     // alone the INSERT failed the FORCE RLS WITH CHECK (tenant GUC unset).
-    const saved = await runInTenantTransaction(this.dataSource, SENSOR_SOURCE_SCHEMA, key.tenantId, async (qr) => {
-      const transactionalManager = qr.manager;
+    const saved = await runInTenantTransaction(
+      this.dataSource,
+      SENSOR_SOURCE_SCHEMA,
+      key.tenantId,
+      async (qr) => {
+        const transactionalManager = qr.manager;
 
-      // Atomically check and increment used count BEFORE device creation (prevents TOCTOU race + orphans)
-      await this.tenantKeyService.incrementUsedCount(key.id, transactionalManager);
+        // Atomically check and increment used count BEFORE device creation (prevents TOCTOU race + orphans)
+        await this.tenantKeyService.incrementUsedCount(key.id, transactionalManager);
 
-      // Create the device record AFTER the maxDevices check
-      const device = this.deviceRepository.create({
-        tenantId: key.tenantId,
-        deviceCode,
-        deviceName: request.fingerprint.hostname || deviceCode,
-        deviceModel: DeviceModel.CUSTOM,
-        siteId: key.defaultSiteId,
-        lifecycleState,
-        mqttClientId,
-        mqttPasswordHash,
-        fingerprint: request.fingerprint,
-        agentVersion: request.agent_version,
-        isOnline: false,
-        securityLevel: 2,
-      });
+        // Create the device record AFTER the maxDevices check
+        const device = this.deviceRepository.create({
+          tenantId: key.tenantId,
+          deviceCode,
+          deviceName: request.fingerprint.hostname || deviceCode,
+          deviceModel: DeviceModel.CUSTOM,
+          siteId: key.defaultSiteId,
+          lifecycleState,
+          mqttClientId,
+          mqttPasswordHash,
+          fingerprint: request.fingerprint,
+          agentVersion: request.agent_version,
+          isOnline: false,
+          securityLevel: 2,
+        });
 
-      // SENSOR-MEDIUM-004: the device and its directory route commit together.
-      const saved = await this.deviceDirectory.saveNewDevice(device, transactionalManager);
+        // SENSOR-MEDIUM-004: the device and its directory route commit together.
+        const saved = await this.deviceDirectory.saveNewDevice(device, transactionalManager);
 
-      // MQTT credentials INSIDE transaction so rollback on failure
-      const mqttResult = await this.mqttAuthService.addDeviceCredentials(mqttClientId, mqttPasswordHash);
-      if (!mqttResult) {
-        throw new Error('Failed to write MQTT credentials');
-      }
+        // MQTT credentials INSIDE transaction so rollback on failure
+        const mqttResult = await this.mqttAuthService.addDeviceCredentials(
+          mqttClientId,
+          mqttPasswordHash,
+        );
+        if (!mqttResult) {
+          throw new Error('Failed to write MQTT credentials');
+        }
 
-      return saved;
-    });
+        return saved;
+      },
+    );
 
     // Log the event (non-critical - must not fail the registration)
     try {
@@ -819,7 +946,14 @@ export class ProvisioningService {
     message: string,
     metadata?: Record<string, unknown>,
   ): Promise<import('./entities/device-event.entity').DeviceEvent> {
-    return this.deviceEventService.logDeviceEvent(tenantId, deviceId, eventType, severity, message, metadata);
+    return this.deviceEventService.logDeviceEvent(
+      tenantId,
+      deviceId,
+      eventType,
+      severity,
+      message,
+      metadata,
+    );
   }
 
   /**
@@ -832,7 +966,12 @@ export class ProvisioningService {
     eventType?: string,
     page = 1,
     limit = 20,
-  ): Promise<{ items: import('./entities/device-event.entity').DeviceEvent[]; total: number; page: number; limit: number }> {
+  ): Promise<{
+    items: import('./entities/device-event.entity').DeviceEvent[];
+    total: number;
+    page: number;
+    limit: number;
+  }> {
     return this.deviceEventService.getDeviceEvents(tenantId, deviceId, eventType, page, limit);
   }
 
@@ -853,7 +992,10 @@ export class ProvisioningService {
    * @param providedToken - The plaintext token provided by the caller
    * @returns true if tokens match, false otherwise
    */
-  private validateProvisioningToken(storedHash: string | null | undefined, providedToken: string): boolean {
+  private validateProvisioningToken(
+    storedHash: string | null | undefined,
+    providedToken: string,
+  ): boolean {
     if (!storedHash) {
       return false;
     }

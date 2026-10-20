@@ -1,14 +1,8 @@
-import {
-  ObjectType,
-  Field,
-  ID,
-  Int,
-  Float,
-  registerEnumType,
-} from '@nestjs/graphql';
+import { ObjectType, Field, ID, Int, Float, registerEnumType } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-scalars';
 import { DecimalTransformer } from '@aquaculture/backend-common/database';
 import {
+  Check,
   Entity,
   Column,
   PrimaryGeneratedColumn,
@@ -40,10 +34,7 @@ export enum DeviceLifecycleState {
  * re-activated back into service.
  */
 export function isTerminalLifecycleState(state: DeviceLifecycleState): boolean {
-  return (
-    state === DeviceLifecycleState.DECOMMISSIONED ||
-    state === DeviceLifecycleState.REVOKED
-  );
+  return state === DeviceLifecycleState.DECOMMISSIONED || state === DeviceLifecycleState.REVOKED;
 }
 
 /**
@@ -88,9 +79,8 @@ export function mayHoldBrokerSession(state: DeviceLifecycleState): boolean {
 }
 
 /** The states {@link mayHoldBrokerSession} admits, for SQL filters. */
-export const BROKER_SESSION_STATES: readonly DeviceLifecycleState[] = Object.values(
-  DeviceLifecycleState,
-).filter(mayHoldBrokerSession);
+export const BROKER_SESSION_STATES: readonly DeviceLifecycleState[] =
+  Object.values(DeviceLifecycleState).filter(mayHoldBrokerSession);
 
 registerEnumType(DeviceLifecycleState, {
   name: 'DeviceLifecycleState',
@@ -117,6 +107,71 @@ registerEnumType(DeviceModel, {
   name: 'DeviceModel',
   description: 'Hardware model of the edge device',
 });
+
+/**
+ * The release channel the device's agent runs on (ADR-048 DEC-1, DEC-28).
+ * A device is `suderra_os` once it has reserved a Suderra OS provisioning
+ * manifest — it proved the channel by fetching the device-bound manifest.
+ * The channel decides how commands reach it: Suderra OS agents accept only
+ * signed command envelopes (DEC-9.1), so the publisher refuses to publish to
+ * one without the signer; generic-Linux agents keep the legacy path until
+ * DEC-28 P2.
+ */
+export enum EdgeAgentChannel {
+  GENERIC_LINUX = 'generic_linux',
+  SUDERRA_OS = 'suderra_os',
+}
+
+registerEnumType(EdgeAgentChannel, {
+  name: 'EdgeAgentChannel',
+  description: 'Release channel of the edge agent (generic Linux or Suderra OS)',
+});
+
+/**
+ * The two-phase provisioning token (ADR-048 DEC-5.7):
+ * TOKEN_ISSUED → MANIFEST_RESERVED (Suderra OS: bound to the device binding,
+ * re-fetchable by that binding until it expires) → ACTIVATION_PENDING
+ * (credentials issued, re-issuable) → COMMITTED (the device's own credential
+ * authenticated its first broker CONNECT). NO_TOKEN is a device that never
+ * held a per-device token (tenant-key self-registration).
+ *
+ * The phase is DERIVED from the columns that carry it — never stored beside
+ * them — so the row cannot hold a phase that disagrees with its token,
+ * reservation and credential columns. {@link provisioningPhaseOf} is the one
+ * derivation; the atomic transitions in ProvisioningService state their
+ * conditions over the same columns.
+ */
+export enum ProvisioningPhase {
+  NO_TOKEN = 'no_token',
+  TOKEN_ISSUED = 'token_issued',
+  MANIFEST_RESERVED = 'manifest_reserved',
+  ACTIVATION_PENDING = 'activation_pending',
+  COMMITTED = 'committed',
+}
+
+export function provisioningPhaseOf(
+  device: Pick<
+    EdgeDevice,
+    | 'tokenUsedAt'
+    | 'provisioningToken'
+    | 'credentialsIssuedAt'
+    | 'reservedBindingSha256'
+    | 'reservationExpiresAt'
+  >,
+  now: Date,
+): ProvisioningPhase {
+  if (device.tokenUsedAt !== null) return ProvisioningPhase.COMMITTED;
+  if (device.provisioningToken === null) return ProvisioningPhase.NO_TOKEN;
+  if (device.credentialsIssuedAt !== null) return ProvisioningPhase.ACTIVATION_PENDING;
+  if (
+    device.reservedBindingSha256 !== null &&
+    device.reservationExpiresAt !== null &&
+    device.reservationExpiresAt > now
+  ) {
+    return ProvisioningPhase.MANIFEST_RESERVED;
+  }
+  return ProvisioningPhase.TOKEN_ISSUED;
+}
 
 /**
  * Security level enum (IEC 62443)
@@ -157,8 +212,20 @@ export interface DeviceHealthMetrics {
 @Index(['tenantId', 'siteId'])
 @Index(['deviceCode'], { unique: true })
 @Index(['mqttClientId'], { unique: true, where: 'mqtt_client_id IS NOT NULL' })
-@Index('IDX_edge_devices_serial_number', ['serialNumber'], { unique: true, where: 'serial_number IS NOT NULL' })
+@Index('IDX_edge_devices_serial_number', ['serialNumber'], {
+  unique: true,
+  where: 'serial_number IS NOT NULL',
+})
 @Index('IDX_edge_devices_tenant_fingerprint_machineid', { synchronize: false })
+@Check('CHK_edge_devices_agent_channel', `"agent_channel" IN ('generic_linux', 'suderra_os')`)
+@Check(
+  'CHK_edge_devices_reservation_binding',
+  '("reserved_binding_sha256" IS NULL) = ("reserved_binding_method" IS NULL)',
+)
+@Check(
+  'CHK_edge_devices_device_binding',
+  '("device_binding_sha256" IS NULL) = ("device_binding_method" IS NULL)',
+)
 export class EdgeDevice {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
@@ -242,6 +309,68 @@ export class EdgeDevice {
   @Column({ name: 'token_used_at', type: 'timestamptz', nullable: true })
   tokenUsedAt!: Date | null;
 
+  // Two-phase provisioning (ADR-048 DEC-5.7, DEC-5.8). See ProvisioningPhase.
+
+  // varchar + CHECK rather than a Postgres enum type: tenant provisioning
+  // replays this table's migrations into every tenant schema, and a column
+  // needs no schema-level type that a second replay would collide with.
+  @Field(() => EdgeAgentChannel)
+  @Column({
+    name: 'agent_channel',
+    type: 'varchar',
+    length: 16,
+    default: EdgeAgentChannel.GENERIC_LINUX,
+  })
+  agentChannel!: EdgeAgentChannel;
+
+  /** The binding a pending Suderra OS manifest reservation holds. */
+  @Column({ type: 'varchar', name: 'reserved_binding_method', length: 32, nullable: true })
+  reservedBindingMethod!: string | null;
+
+  @Column({ type: 'varchar', name: 'reserved_binding_sha256', length: 64, nullable: true })
+  reservedBindingSha256!: string | null;
+
+  @Column({ name: 'reservation_expires_at', type: 'timestamptz', nullable: true })
+  reservationExpiresAt!: Date | null;
+
+  /** Statement digest of the last manifest issued under the reservation (the receipt names it). */
+  @Column({ type: 'varchar', name: 'issued_manifest_sha256', length: 64, nullable: true })
+  issuedManifestSha256!: string | null;
+
+  /** Credentials were issued for the pending activation; not yet committed. */
+  @Column({ name: 'credentials_issued_at', type: 'timestamptz', nullable: true })
+  credentialsIssuedAt!: Date | null;
+
+  /** The device binding committed at first activation: the device's hardware identity (DEC-3.6). */
+  @Column({ type: 'varchar', name: 'device_binding_method', length: 32, nullable: true })
+  deviceBindingMethod!: string | null;
+
+  @Column({ type: 'varchar', name: 'device_binding_sha256', length: 64, nullable: true })
+  deviceBindingSha256!: string | null;
+
+  /**
+   * Last update_seq the cloud signed for this device. One monotonic counter
+   * serves every device-bound sequence (manifest, site config, lifecycle),
+   * which keeps each kind strictly increasing (statements.json sequences).
+   */
+  @Column({
+    name: 'edge_statement_seq',
+    type: 'bigint',
+    default: 0,
+    transformer: {
+      to: (value: number): number => value,
+      from: (value: string | number): number => Number(value),
+    },
+  })
+  edgeStatementSeq!: number;
+
+  /** The activation receipt envelope awaiting the agent's hand-over to root. */
+  @Column({ name: 'activation_receipt', type: 'text', nullable: true })
+  activationReceipt!: string | null;
+
+  @Column({ name: 'activation_receipt_handed_at', type: 'timestamptz', nullable: true })
+  activationReceiptHandedAt!: Date | null;
+
   // MQTT Credentials (password hash stored, never exposed via GraphQL)
   @Column({ type: 'varchar', name: 'mqtt_password_hash', length: 128, nullable: true })
   mqttPasswordHash!: string | null;
@@ -321,7 +450,14 @@ export class EdgeDevice {
   @Field(() => Float, { nullable: true })
   // DecimalTransformer: device temperature reported by the edge device for health monitoring.
   // Temperature thresholds (overheating alerts) use numeric comparison; string comparison breaks them.
-  @Column({ name: 'temperature_celsius', type: 'decimal', precision: 5, scale: 2, nullable: true, transformer: new DecimalTransformer() })
+  @Column({
+    name: 'temperature_celsius',
+    type: 'decimal',
+    precision: 5,
+    scale: 2,
+    nullable: true,
+    transformer: new DecimalTransformer(),
+  })
   temperatureCelsius?: number;
 
   @Field(() => Int, { nullable: true })

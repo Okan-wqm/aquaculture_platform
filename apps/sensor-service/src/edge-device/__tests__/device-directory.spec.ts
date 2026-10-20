@@ -22,6 +22,7 @@ import type { DataSource, EntityManager } from 'typeorm';
 import { DeviceDirectoryService } from '../device-directory.service';
 import { EdgeDevice } from '../entities/edge-device.entity';
 import { MqttAuthService } from '../mqtt-auth.service';
+import { type ProvisioningReservationService } from '../provisioning-reservation.service';
 
 jest.mock('@aquaculture/backend-common/database', () => {
   const actual = jest.requireActual('@aquaculture/backend-common/database');
@@ -143,7 +144,14 @@ describe('MQTT-auth negative-result cache bounds unknown-username floods (SENSOR
       { findDevice },
       'DeviceDirectoryService',
     );
-    return { auth: new MqttAuthService(new ConfigService({}), directory), findDevice };
+    return {
+      auth: new MqttAuthService(
+        new ConfigService({}),
+        directory,
+        collaborator<ProvisioningReservationService>({}, 'ProvisioningReservationService'),
+      ),
+      findDevice,
+    };
   }
 
   it('resolves a repeated unknown client id once, then serves the negative cache (ACL path)', async () => {

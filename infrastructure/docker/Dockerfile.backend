@@ -50,6 +50,9 @@ COPY apps/ ./apps/
 COPY libs/ ./libs/
 COPY platform/ ./platform/
 COPY tools/ ./tools/
+# The versioned cross-repo contract (ADR-048 DEC-25): sensor-service compiles
+# its board vocabulary and artifact naming from contracts/suderra-edge.
+COPY contracts/ ./contracts/
 
 # Build argument for service name
 ARG SERVICE_NAME

@@ -1,10 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import {
-  InstallerScriptVariables,
-  TenantInstallerScriptVariables,
-} from './dto/provisioning.dto';
+import { InstallerScriptVariables, TenantInstallerScriptVariables } from './dto/provisioning.dto';
 
 export interface ProvisioningConfig {
   apiBaseUrl: string;
@@ -22,16 +19,6 @@ interface RemoteProvisioningConfig {
   mqttBrokerPort?: number;
   agentDefaultVersion?: string;
   mqttTlsEnabled?: boolean;
-}
-
-export interface SuderraOsInstallManifest {
-  version: string;
-  artifact_url: string;
-  sha256: string;
-  signature_url: string;
-  binary_name: string;
-  artifact_format: string;
-  activation_token: string;
 }
 
 /**
@@ -56,18 +43,33 @@ export class InstallerScriptService {
   private readonly CONFIG_CACHE_TTL_MS = 60000; // 1 minute
 
   constructor(private readonly configService: ConfigService) {
-    this.API_BASE_URL = this.configService.get<string>('PROVISIONING_API_BASE_URL', 'http://localhost:3000');
+    this.API_BASE_URL = this.configService.get<string>(
+      'PROVISIONING_API_BASE_URL',
+      'http://localhost:3000',
+    );
     this.AGENT_VERSION = this.configService.get<string>('AGENT_VERSION', '');
     // Public broker host for edge agents (external access). Falls back to MQTT_BROKER_HOST
     // which may be an internal Docker hostname — override with MQTT_PUBLIC_BROKER_HOST in production.
-    const apiBaseUrl = this.configService.get<string>('PROVISIONING_API_BASE_URL', 'http://localhost:3000');
-    const defaultPublicHost = (() => { try { return new URL(apiBaseUrl).hostname; } catch { return 'localhost'; } })();
+    const apiBaseUrl = this.configService.get<string>(
+      'PROVISIONING_API_BASE_URL',
+      'http://localhost:3000',
+    );
+    const defaultPublicHost = (() => {
+      try {
+        return new URL(apiBaseUrl).hostname;
+      } catch {
+        return 'localhost';
+      }
+    })();
     this.MQTT_BROKER = this.configService.get<string>('MQTT_PUBLIC_BROKER_HOST', defaultPublicHost);
     this.MQTT_PORT = Number(this.configService.get('MQTT_BROKER_PORT', 1883));
     this.MQTT_TLS_ENABLED = Number(this.configService.get('MQTT_BROKER_PORT', 1883)) === 8883;
     // Pin the GitHub repo from env var to prevent the admin API from redirecting
     // edge agent downloads to an attacker-controlled repository (MED-07)
-    this.PINNED_GITHUB_REPO = this.configService.get<string>('EDGE_AGENT_GITHUB_REPO', 'Okan-wqm/aquaculture_platform');
+    this.PINNED_GITHUB_REPO = this.configService.get<string>(
+      'EDGE_AGENT_GITHUB_REPO',
+      'Okan-wqm/aquaculture_platform',
+    );
   }
 
   /**
@@ -119,7 +121,9 @@ export class InstallerScriptService {
         return this.cachedConfig;
       }
     } catch (error) {
-      this.logger.warn(`Failed to fetch provisioning config from admin API: ${error instanceof Error ? error.message : 'unknown error'}`);
+      this.logger.warn(
+        `Failed to fetch provisioning config from admin API: ${error instanceof Error ? error.message : 'unknown error'}`,
+      );
     }
 
     // Cache fallback values with shorter TTL to prevent timeout storms
@@ -179,7 +183,9 @@ export class InstallerScriptService {
   private assertExplicitAgentVersion(version: string): string {
     const trimmed = version.trim();
     if (!trimmed || trimmed === 'latest') {
-      throw new Error('AGENT_VERSION cannot be latest; configure an explicit agent-v<exact Cargo semver> release tag.');
+      throw new Error(
+        'AGENT_VERSION cannot be latest; configure an explicit agent-v<exact Cargo semver> release tag.',
+      );
     }
 
     const canonical = trimmed.startsWith('agent-v') ? trimmed : `agent-v${trimmed}`;
@@ -209,61 +215,23 @@ export class InstallerScriptService {
    */
   async buildInstallerCommand(deviceCode: string, token?: string): Promise<string> {
     const url = await this.buildInstallerUrl(deviceCode);
-    const header = token
-      ? `-H "X-Provisioning-Token: ${this.sanitizeForShell(token)}" `
-      : '';
+    const header = token ? `-H "X-Provisioning-Token: ${this.sanitizeForShell(token)}" ` : '';
     return `curl -sSL ${header}"${url}" | sudo bash`;
   }
 
   /**
-   * Build Suderra OS manifest URL for a specific device.
-   * This is consumed by the forced-command provision user on Suderra OS.
-   * SENSOR-MEDIUM-002: token is sent via the X-Provisioning-Token header.
+   * The command a technician runs against a Suderra OS device in its
+   * provisioning window (ADR-048 DEC-5.5; Suderra-OS
+   * rootfs-overlay/usr/sbin/suderra-provision). The device fetches its own
+   * signed delivery from GET /install/<code>/suderra-os; the token is typed
+   * at the prompt and sent by the device's root worker in the
+   * X-Provisioning-Token header. Nothing secret is part of the command.
    */
-  async buildSuderraOsInstallerUrl(deviceCode: string): Promise<string> {
-    const config = await this.getProvisioningConfig();
-    return `${config.apiBaseUrl}/install/${deviceCode}/suderra-os`;
-  }
-
-  /**
-   * Build the command the tenant panel can run against a freshly booted
-   * Suderra OS target. The token is carried in the request header.
-   */
-  async buildSuderraOsInstallerCommand(deviceIp: string, deviceCode: string, token: string): Promise<string> {
-    const url = await this.buildSuderraOsInstallerUrl(deviceCode);
-    const safeDeviceIp = this.sanitizeForShell(deviceIp);
-    const safeToken = this.sanitizeForShell(token);
-    return `ssh provision@${safeDeviceIp} install-manifest-url ${url} X-Provisioning-Token:${safeToken}`;
-  }
-
-  /**
-   * Render a Suderra OS JSON install manifest. Unlike the generic Linux path,
-   * this does not emit a shell script and requires pre-signed Edge artifacts.
-   */
-  renderSuderraOsInstallManifest(variables: InstallerScriptVariables): SuderraOsInstallManifest {
-    const artifactUrl = this.configService.get<string>('SUDERRA_OS_EDGE_ARTIFACT_URL', '');
-    const sha256 = this.configService.get<string>('SUDERRA_OS_EDGE_ARTIFACT_SHA256', '');
-    const signatureUrl = this.configService.get<string>(
-      'SUDERRA_OS_EDGE_SIGNATURE_URL',
-      artifactUrl ? `${artifactUrl}.sig` : '',
-    );
-
-    if (!artifactUrl || !sha256 || !signatureUrl) {
-      throw new Error(
-        'Suderra OS installer manifest requires SUDERRA_OS_EDGE_ARTIFACT_URL, ' +
-          'SUDERRA_OS_EDGE_ARTIFACT_SHA256 and SUDERRA_OS_EDGE_SIGNATURE_URL',
-      );
+  buildSuderraOsProvisioningCommand(deviceCode: string): string {
+    if (!/^[A-Za-z0-9_-]{1,50}$/.test(deviceCode)) {
+      throw new Error('device code is outside the provisioning grammar');
     }
-
-    return {
-      version: variables.agentVersion,
-      artifact_url: artifactUrl,
-      sha256,
-      signature_url: signatureUrl,
-      binary_name: this.configService.get<string>('SUDERRA_OS_EDGE_BINARY_NAME', 'suderra-agent'),
-      artifact_format: this.configService.get<string>('SUDERRA_OS_EDGE_ARTIFACT_FORMAT', 'tar.gz'),
-      activation_token: variables.provisioningToken,
-    };
+    return `ssh provision@<device-address> provision ${deviceCode}`;
   }
 
   /**
@@ -291,10 +259,15 @@ export class InstallerScriptService {
    * Render installer script for a specific device (per-device provisioning)
    */
   renderInstallerScript(variables: InstallerScriptVariables, config?: ProvisioningConfig): string {
-    const GITHUB_REPO = this.sanitizeForShell(config?.githubRepo || this.configService.get<string>('EDGE_AGENT_GITHUB_REPO', 'Okan-wqm/aquaculture_platform'));
+    const GITHUB_REPO = this.sanitizeForShell(
+      config?.githubRepo ||
+        this.configService.get<string>('EDGE_AGENT_GITHUB_REPO', 'Okan-wqm/aquaculture_platform'),
+    );
     const now = new Date().toISOString();
     const safeDeviceCode = this.sanitizeForShell(variables.deviceCode);
-    const safeAgentVersion = this.sanitizeForShell(this.assertExplicitAgentVersion(variables.agentVersion));
+    const safeAgentVersion = this.sanitizeForShell(
+      this.assertExplicitAgentVersion(variables.agentVersion),
+    );
     const safeApiUrl = this.sanitizeForShell(variables.apiUrl);
     const safeDeviceId = this.sanitizeForShell(variables.deviceId);
     const safeProvisioningToken = this.sanitizeForShell(variables.provisioningToken);
@@ -390,10 +363,18 @@ log ""
   /**
    * Render tenant-level installer script (self-registration mode)
    */
-  renderTenantInstallerScript(variables: TenantInstallerScriptVariables, config?: ProvisioningConfig): string {
-    const GITHUB_REPO = this.sanitizeForShell(config?.githubRepo || this.configService.get<string>('EDGE_AGENT_GITHUB_REPO', 'Okan-wqm/aquaculture_platform'));
+  renderTenantInstallerScript(
+    variables: TenantInstallerScriptVariables,
+    config?: ProvisioningConfig,
+  ): string {
+    const GITHUB_REPO = this.sanitizeForShell(
+      config?.githubRepo ||
+        this.configService.get<string>('EDGE_AGENT_GITHUB_REPO', 'Okan-wqm/aquaculture_platform'),
+    );
     const now = new Date().toISOString();
-    const safeAgentVersion = this.sanitizeForShell(this.assertExplicitAgentVersion(variables.agentVersion));
+    const safeAgentVersion = this.sanitizeForShell(
+      this.assertExplicitAgentVersion(variables.agentVersion),
+    );
     const safeApiUrl = this.sanitizeForShell(variables.apiUrl);
     const safeTenantToken = this.sanitizeForShell(variables.tenantToken);
     const safeMqttBroker = this.sanitizeForShell(config?.mqttBroker || this.MQTT_BROKER);
@@ -508,7 +489,9 @@ log ""
   renderUpdateScript(deviceCode?: string): string {
     const safeDeviceCode = deviceCode ? this.sanitizeForShell(deviceCode) : '';
     const GITHUB_REPO = this.sanitizeForShell(this.PINNED_GITHUB_REPO);
-    const safeAgentVersion = this.sanitizeForShell(this.assertExplicitAgentVersion(this.AGENT_VERSION));
+    const safeAgentVersion = this.sanitizeForShell(
+      this.assertExplicitAgentVersion(this.AGENT_VERSION),
+    );
     const now = new Date().toISOString();
 
     return `#!/bin/bash

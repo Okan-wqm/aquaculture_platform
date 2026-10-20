@@ -29,6 +29,8 @@ import { TenantProvisioningKeyDirectory } from '../entities/tenant-provisioning-
 import { TenantProvisioningKey } from '../entities/tenant-provisioning-key.entity';
 import { InstallerScriptService, type ProvisioningConfig } from '../installer-script.service';
 import { MqttAuthService } from '../mqtt-auth.service';
+import { type ProvisioningReservationService } from '../provisioning-reservation.service';
+import { type EdgeProvisioningManifestService } from '../edge-provisioning-manifest.service';
 import { ProvisioningService } from '../provisioning.service';
 import { TenantKeyService } from '../tenant-key.service';
 
@@ -157,11 +159,17 @@ describe('tenant-key self-register under FORCE RLS (SENSOR-HIGH-175)', () => {
       ),
       runtime,
       new ConfigService({}),
-      new MqttAuthService(new ConfigService({ MQTT_AUTH_MODE: 'http' }), directory),
+      new MqttAuthService(
+        new ConfigService({ MQTT_AUTH_MODE: 'http' }),
+        directory,
+        collaborator<ProvisioningReservationService>({}, 'ProvisioningReservationService'),
+      ),
       installer,
       tenantKeys,
       collaborator<DeviceEventService>({ logDeviceEvent: jest.fn() }, 'DeviceEventService'),
       directory,
+      collaborator<ProvisioningReservationService>({}, 'ProvisioningReservationService'),
+      collaborator<EdgeProvisioningManifestService>({}, 'EdgeProvisioningManifestService'),
     );
   });
 

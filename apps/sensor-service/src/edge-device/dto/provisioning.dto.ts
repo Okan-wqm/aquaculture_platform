@@ -75,6 +75,15 @@ export class ProvisionedDeviceResponse {
   @Field()
   installerCommand!: string;
 
+  /**
+   * The technician's Suderra OS provisioning command (ADR-048 DEC-5.5):
+   * `ssh provision@<device-address> provision <device-code>`, after which the
+   * provisioning token is typed at the prompt — it travels on stdin, never in
+   * argv, a URL or a shell history.
+   */
+  @Field()
+  suderraOsProvisioningCommand!: string;
+
   @Field()
   tokenExpiresAt!: Date;
 
@@ -106,6 +115,15 @@ export class RegenerateTokenResponse {
 
   @Field()
   installerCommand!: string;
+
+  /**
+   * The technician's Suderra OS provisioning command (ADR-048 DEC-5.5):
+   * `ssh provision@<device-address> provision <device-code>`, after which the
+   * provisioning token is typed at the prompt — it travels on stdin, never in
+   * argv, a URL or a shell history.
+   */
+  @Field()
+  suderraOsProvisioningCommand!: string;
 
   @Field()
   tokenExpiresAt!: Date;
@@ -229,19 +247,29 @@ export interface InstallerScriptVariables {
  */
 @InputType()
 export class CreateTenantKeyInput {
-  @Field({ nullable: true, description: 'Human-readable name for this key (e.g., "Production Line Installer")' })
+  @Field({
+    nullable: true,
+    description: 'Human-readable name for this key (e.g., "Production Line Installer")',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(200)
   name?: string;
 
-  @Field(() => Int, { nullable: true, description: 'Maximum number of devices that can register with this key (null = unlimited)' })
+  @Field(() => Int, {
+    nullable: true,
+    description: 'Maximum number of devices that can register with this key (null = unlimited)',
+  })
   @IsOptional()
   @IsInt({ message: 'maxDevices must be an integer' })
   @Min(1, { message: 'maxDevices must be at least 1' })
   maxDevices?: number;
 
-  @Field({ nullable: true, defaultValue: false, description: 'If true, devices are automatically set to ACTIVE (no manual approval needed)' })
+  @Field({
+    nullable: true,
+    defaultValue: false,
+    description: 'If true, devices are automatically set to ACTIVE (no manual approval needed)',
+  })
   @IsOptional()
   autoApprove?: boolean;
 
@@ -250,7 +278,10 @@ export class CreateTenantKeyInput {
   @IsUUID()
   defaultSiteId?: string;
 
-  @Field(() => Int, { nullable: true, description: 'Expiry in days from now (null = never expires)' })
+  @Field(() => Int, {
+    nullable: true,
+    description: 'Expiry in days from now (null = never expires)',
+  })
   @IsOptional()
   @IsInt({ message: 'expiresInDays must be an integer' })
   @Min(1, { message: 'expiresInDays must be at least 1' })

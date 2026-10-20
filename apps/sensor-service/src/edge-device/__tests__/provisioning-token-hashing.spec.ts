@@ -14,6 +14,8 @@ import { collaborator, stub, stubMember } from '@aquaculture/testing';
 import type { DataSource, Repository } from 'typeorm';
 
 import { ProvisioningService } from '../provisioning.service';
+import { type EdgeProvisioningManifestService } from '../edge-provisioning-manifest.service';
+import { type ProvisioningReservationService } from '../provisioning-reservation.service';
 
 // Rows and their directory routes commit in one tenant transaction, and keys
 // resolve route → tenant boundary; the boundaries themselves are proven on real
@@ -53,6 +55,9 @@ describe('Provisioning secrets at-rest hashing (SENSOR-MEDIUM-001)', () => {
       const installerScriptService = {
         buildInstallerUrl: jest.fn(async () => 'https://host/install/DEV-1'),
         buildInstallerCommand: jest.fn(async () => 'curl ... | sudo bash'),
+        buildSuderraOsProvisioningCommand: jest.fn(
+          (code: string) => `ssh provision@<device-address> provision ${code}`,
+        ),
       };
       const configService = { get: jest.fn((_k: string, fallback?: unknown) => fallback) };
 
@@ -71,6 +76,8 @@ describe('Provisioning secrets at-rest hashing (SENSOR-MEDIUM-001)', () => {
         {} as never, // tenantKeyService
         {} as never, // deviceEventService
         deviceDirectory as never,
+        collaborator<ProvisioningReservationService>({}, 'ProvisioningReservationService'),
+        collaborator<EdgeProvisioningManifestService>({}, 'EdgeProvisioningManifestService'),
       );
 
       const response = await service.createProvisionedDevice(

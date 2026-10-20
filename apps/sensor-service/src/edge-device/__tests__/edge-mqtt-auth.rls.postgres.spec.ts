@@ -18,6 +18,7 @@ import { DeviceLifecycleState, DeviceModel, EdgeDevice } from '../entities/edge-
 import { DeviceIoConfig } from '../entities/device-io-config.entity';
 import { LoRaDevice } from '../entities/lora-device.entity';
 import { MqttAuthService } from '../mqtt-auth.service';
+import { type ProvisioningReservationService } from '../provisioning-reservation.service';
 
 /**
  * SENSOR-CRITICAL-143 on real Postgres: the broker's HTTP auth hook (MQTT
@@ -111,6 +112,7 @@ describe('edge MQTT auth under FORCE RLS (SENSOR-CRITICAL-143)', () => {
         get: (_key: string, fallback?: unknown) => fallback,
       } as Partial<ConfigService> as ConfigService,
       {} as Partial<DeviceDirectoryService> as DeviceDirectoryService,
+      collaborator<ProvisioningReservationService>({}, 'ProvisioningReservationService'),
     );
 
     stage = await bootSensorRlsHarness({
@@ -156,6 +158,7 @@ describe('edge MQTT auth under FORCE RLS (SENSOR-CRITICAL-143)', () => {
     auth = new MqttAuthService(
       new ConfigService({ NODE_ENV: 'production', MQTT_AUTH_MODE: 'http' }),
       new DeviceDirectoryService(runtime),
+      collaborator<ProvisioningReservationService>({}, 'ProvisioningReservationService'),
     );
   });
 
@@ -245,6 +248,7 @@ describe('edge MQTT auth under FORCE RLS (SENSOR-CRITICAL-143)', () => {
     const fresh = new MqttAuthService(
       new ConfigService({ NODE_ENV: 'production', MQTT_AUTH_MODE: 'http' }),
       new DeviceDirectoryService(runtime!),
+      collaborator<ProvisioningReservationService>({}, 'ProvisioningReservationService'),
     );
     await expect(
       fresh.verifyDeviceCredentials(MISROUTED_CLIENT_ID, PASSWORD_A, clientId),
@@ -386,6 +390,7 @@ describe('edge MQTT auth under FORCE RLS (SENSOR-CRITICAL-143)', () => {
       new MqttAuthService(
         new ConfigService({ NODE_ENV: 'production', MQTT_AUTH_MODE: 'http' }),
         new DeviceDirectoryService(runtime!),
+        collaborator<ProvisioningReservationService>({}, 'ProvisioningReservationService'),
       );
 
     await expect(

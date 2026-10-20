@@ -11,6 +11,7 @@ import { bootMosquittoContainer, type MqttHarness } from '@platform/mqtt-test-ha
 import { DeviceDirectoryService } from '../device-directory.service';
 import { DeviceLifecycleState, EdgeDevice } from '../entities/edge-device.entity';
 import { MqttAuthService } from '../mqtt-auth.service';
+import { type ProvisioningReservationService } from '../provisioning-reservation.service';
 import { SENSOR_SERVICE_SUBSCRIPTION_FILTERS } from '../../ingestion/mqtt-listener.service';
 
 /**
@@ -68,7 +69,11 @@ function makeAuthService(): MqttAuthService {
     directory,
     'DeviceDirectoryService',
   );
-  return new MqttAuthService(cfg, directoryCollaborator);
+  return new MqttAuthService(
+    cfg,
+    directoryCollaborator,
+    collaborator<ProvisioningReservationService>({}, 'ProvisioningReservationService'),
+  );
 }
 
 /** Minimal stand-in for MqttAuthController's three go-auth endpoints. */

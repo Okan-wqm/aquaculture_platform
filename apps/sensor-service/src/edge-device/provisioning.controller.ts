@@ -6,6 +6,7 @@ import {
   Param,
   Headers,
   Res,
+  Query,
   HttpStatus,
   Logger,
   HttpException,
@@ -21,7 +22,11 @@ import {
   SelfRegisterRequest,
   SelfRegisterResponse,
 } from './dto/provisioning.dto';
+import { DELIVERY_CONTENT_TYPE, ProvisioningRefusal } from './edge-provisioning-manifest.service';
 import { ProvisioningService } from './provisioning.service';
+
+/** delivery.json `network.refusal.body`: one body for every refusal (DEC-22). */
+export const PROVISIONING_REFUSAL_BODY = '{"error":"unavailable"}';
 import { SimpleRateLimitGuard, RateLimit } from '../guards/rate-limit.guard';
 import { Public, SkipTenantGuard } from '@aquaculture/backend-common/decorators';
 
@@ -74,13 +79,19 @@ export class ProvisioningController {
   ): Promise<void> {
     // Validate device code format to prevent injection
     if (!/^[A-Z]{2,5}-[0-9A-F]{8}$/.test(deviceCode)) {
-      res.status(HttpStatus.BAD_REQUEST).contentType('text/plain').send('Invalid device code format');
+      res
+        .status(HttpStatus.BAD_REQUEST)
+        .contentType('text/plain')
+        .send('Invalid device code format');
       return;
     }
 
     // Require the provisioning token to be present
     if (!token) {
-      res.status(HttpStatus.UNAUTHORIZED).contentType('text/plain').send('Provisioning token required');
+      res
+        .status(HttpStatus.UNAUTHORIZED)
+        .contentType('text/plain')
+        .send('Provisioning token required');
       return;
     }
 
@@ -127,50 +138,55 @@ export class ProvisioningController {
         ActivationErrorCode.INTERNAL_ERROR,
       );
 
-      res
-        .status(HttpStatus.OK)
-        .contentType('text/x-shellscript')
-        .send(errorScript);
+      res.status(HttpStatus.OK).contentType('text/x-shellscript').send(errorScript);
     }
   }
 
   /**
    * GET /install/:deviceCode/suderra-os   (token in the X-Provisioning-Token header)
    *
-   * Returns a Suderra OS JSON manifest. This is consumed by the forced-command
-   * provision user, not by curl|bash.
+   * The Suderra OS provisioning delivery (contracts/suderra-edge/v1/
+   * delivery.json `network`; ADR-048 DEC-5.5, DEC-5.6, DEC-22). The root
+   * provision worker on the device calls it with `curl -H @file`, so the
+   * token never appears in a URL, argv or log; the query carries the
+   * device's binding, a fresh nonce, its board, OS version and agent ABI.
    *
-   * SECURITY (SENSOR-MEDIUM-002): token is read from a header, never the URL.
+   * Every refusal — unknown or expired code, missing, wrong or spent token,
+   * a binding reserved for another device, no release the device can run, a
+   * channel this deployment does not run — answers the same 404 with the
+   * same body, so the public endpoint is no enumeration oracle; the reason
+   * is logged for the authenticated panel. Rate limiting answers 429.
    */
   @Get('install/:deviceCode/suderra-os')
   @RateLimit({ limit: 5, windowMs: 60000 })
-  async getSuderraOsInstallManifest(
+  async getSuderraOsProvisioningDelivery(
     @Param('deviceCode') deviceCode: string,
     @Headers('x-provisioning-token') token: string | undefined,
+    @Query() query: Record<string, unknown>,
     @Res() res: Response,
   ): Promise<void> {
-    if (!/^[A-Z]{2,5}-[0-9A-F]{8}$/.test(deviceCode)) {
-      res.status(HttpStatus.BAD_REQUEST).contentType('application/json').send({ error: 'Invalid device code format' });
-      return;
-    }
-
-    if (!token) {
-      res.status(HttpStatus.UNAUTHORIZED).contentType('application/json').send({ error: 'Provisioning token required' });
-      return;
-    }
-
     try {
-      const manifest = await this.provisioningService.generateSuderraOsInstallManifest(deviceCode, token);
+      const body = await this.provisioningService.deliverSuderraOsManifest(
+        deviceCode,
+        token,
+        query,
+      );
       res
         .status(HttpStatus.OK)
-        .contentType('application/json')
-        .set('Content-Disposition', `attachment; filename="install-${deviceCode}-suderra-os.json"`)
-        .send(manifest);
+        .set('Cache-Control', 'no-store')
+        .contentType(DELIVERY_CONTENT_TYPE)
+        .send(body);
     } catch (error) {
-      this.logger.error(`Failed to generate Suderra OS manifest for ${deviceCode}:`, error);
-      res.status(HttpStatus.BAD_REQUEST).contentType('application/json').send({
-        error: error instanceof Error ? error.message : 'Internal server error',
-      });
+      const reason = error instanceof ProvisioningRefusal ? error.reason : 'internal-error';
+      if (!(error instanceof ProvisioningRefusal)) {
+        this.logger.error({ event: 'suderra_os_delivery_failed', error: (error as Error).message });
+      }
+      this.logger.warn({ event: 'suderra_os_delivery_refused', reason });
+      res
+        .status(HttpStatus.NOT_FOUND)
+        .set('Cache-Control', 'no-store')
+        .contentType('application/json')
+        .send(PROVISIONING_REFUSAL_BODY);
     }
   }
 
@@ -194,7 +210,10 @@ export class ProvisioningController {
   ): Promise<void> {
     // Validate device code format to prevent injection
     if (!/^[A-Z]{2,5}-[0-9A-F]{8}$/.test(deviceCode)) {
-      res.status(HttpStatus.BAD_REQUEST).contentType('text/plain').send('Invalid device code format');
+      res
+        .status(HttpStatus.BAD_REQUEST)
+        .contentType('text/plain')
+        .send('Invalid device code format');
       return;
     }
 
@@ -238,7 +257,10 @@ export class ProvisioningController {
   ): Promise<void> {
     // Validate device code format to prevent injection
     if (!/^[A-Z]{2,5}-[0-9A-F]{8}$/.test(deviceCode)) {
-      res.status(HttpStatus.BAD_REQUEST).contentType('text/plain').send('Invalid device code format');
+      res
+        .status(HttpStatus.BAD_REQUEST)
+        .contentType('text/plain')
+        .send('Invalid device code format');
       return;
     }
 
@@ -315,9 +337,7 @@ export class ProvisioningController {
    */
   @Get('api/devices/:deviceCode/status')
   @RateLimit({ limit: 3, windowMs: 60000 }) // Tightened from 5 to 3/min to slow enumeration
-  async getDeviceStatus(
-    @Param('deviceCode') deviceCode: string,
-  ): Promise<{
+  async getDeviceStatus(@Param('deviceCode') deviceCode: string): Promise<{
     deviceCode: string;
     ready: boolean;
     status: string;
@@ -393,7 +413,10 @@ export class ProvisioningController {
   ): Promise<void> {
     // Require the token header to be present.
     if (!tenantToken) {
-      res.status(HttpStatus.UNAUTHORIZED).contentType('text/plain').send('Provisioning token required');
+      res
+        .status(HttpStatus.UNAUTHORIZED)
+        .contentType('text/plain')
+        .send('Provisioning token required');
       return;
     }
 
@@ -403,7 +426,9 @@ export class ProvisioningController {
       return;
     }
 
-    this.logger.log(`Tenant installer script requested for token: ${tenantToken.substring(0, 8)}...`);
+    this.logger.log(
+      `Tenant installer script requested for token: ${tenantToken.substring(0, 8)}...`,
+    );
 
     try {
       const script = await this.provisioningService.generateTenantInstallerScript(tenantToken);
@@ -424,10 +449,7 @@ export class ProvisioningController {
         ActivationErrorCode.INTERNAL_ERROR,
       );
 
-      res
-        .status(HttpStatus.OK)
-        .contentType('text/x-shellscript')
-        .send(errorScript);
+      res.status(HttpStatus.OK).contentType('text/x-shellscript').send(errorScript);
     }
   }
 
@@ -450,7 +472,11 @@ export class ProvisioningController {
     // Validate tenant token format
     if (!/^[0-9a-f]{64}$/.test(request.tenant_token)) {
       throw new HttpException(
-        { success: false, error: 'Invalid token format', errorCode: ActivationErrorCode.INVALID_TOKEN },
+        {
+          success: false,
+          error: 'Invalid token format',
+          errorCode: ActivationErrorCode.INVALID_TOKEN,
+        },
         HttpStatus.BAD_REQUEST,
       );
     }

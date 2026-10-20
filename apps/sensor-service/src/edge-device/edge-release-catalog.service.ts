@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 
 import {
   type DsseEnvelope,
@@ -97,9 +97,8 @@ export class EdgeReleaseCatalog {
   constructor(
     private readonly config: SuderraEdgeConfig,
     private readonly bundle: TrustAnchorBundleService,
-    @Optional()
     @Inject(RELEASE_STATEMENT_FETCHER)
-    private readonly fetcher: ReleaseStatementFetcher | null,
+    private readonly fetcher: ReleaseStatementFetcher,
   ) {}
 
   private url(version: string, asset: string): string {
@@ -117,8 +116,12 @@ export class EdgeReleaseCatalog {
 
     const artifact = releaseArtifactName(version, board);
     const statementUrl = this.url(version, releaseStatementName(artifact));
-    const fetcher = this.fetcher ?? fetchReleaseStatement;
-    const release = this.admit(asEnvelope(await fetcher(statementUrl)), board, version, artifact);
+    const release = this.admit(
+      asEnvelope(await this.fetcher(statementUrl)),
+      board,
+      version,
+      artifact,
+    );
     this.admitted.set(cacheKey, release);
     this.logger.log({
       event: 'suderra_edge_release_admitted',

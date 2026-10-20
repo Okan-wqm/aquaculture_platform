@@ -18,6 +18,7 @@ import { collaborator } from '@aquaculture/testing';
 
 import { DeviceDirectoryService } from '../device-directory.service';
 import { MqttAuthService } from '../mqtt-auth.service';
+import { type ProvisioningReservationService } from '../provisioning-reservation.service';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -101,13 +102,18 @@ function createService(
   const directory = {
     findDevice: jest.fn().mockResolvedValue(null),
   };
+  const reservations = {
+    commitFirstSession: jest.fn().mockResolvedValue(null),
+  };
   return {
     service: new MqttAuthService(
       cfg,
       collaborator<DeviceDirectoryService>(directory, 'DeviceDirectoryService'),
+      collaborator<ProvisioningReservationService>(reservations, 'ProvisioningReservationService'),
     ),
     cfg,
     directory,
+    reservations,
   };
 }
 
@@ -140,6 +146,67 @@ describe('MqttAuthService', () => {
 
       const result = await service.verifyDeviceCredentials(MQTT_CLIENT, password, OWN_CLIENT_ID);
       expect(result).toBe(true);
+    });
+
+    describe('first authenticated session commits the activation (ADR-048 DEC-5.7)', () => {
+      const pending = (password: string): EdgeDevice =>
+        makeDevice({
+          mqttPasswordHash: hashPassword(password),
+          tokenUsedAt: null,
+          provisioningToken: 'a'.repeat(64),
+          credentialsIssuedAt: new Date('2026-10-20T11:00:00Z'),
+        });
+
+      it('commits a pending activation when its own credential authenticates', async () => {
+        const password = 'pending-secret';
+        const device = pending(password);
+        const { service, directory, reservations } = createService();
+        stubFindDevice(directory, device);
+
+        await expect(
+          service.verifyDeviceCredentials(MQTT_CLIENT, password, OWN_CLIENT_ID),
+        ).resolves.toBe(true);
+        expect(reservations.commitFirstSession).toHaveBeenCalledWith(device, expect.any(Date));
+      });
+
+      it('never commits on a wrong password', async () => {
+        const { service, directory, reservations } = createService();
+        stubFindDevice(directory, pending('pending-secret'));
+
+        await expect(
+          service.verifyDeviceCredentials(MQTT_CLIENT, 'wrong', OWN_CLIENT_ID),
+        ).resolves.toBe(false);
+        expect(reservations.commitFirstSession).not.toHaveBeenCalled();
+      });
+
+      it('does not commit again once the token is spent', async () => {
+        const password = 'committed-secret';
+        const { service, directory, reservations } = createService();
+        stubFindDevice(
+          directory,
+          makeDevice({
+            mqttPasswordHash: hashPassword(password),
+            tokenUsedAt: new Date('2026-10-20T11:00:00Z'),
+            credentialsIssuedAt: new Date('2026-10-20T10:00:00Z'),
+          }),
+        );
+
+        await expect(
+          service.verifyDeviceCredentials(MQTT_CLIENT, password, OWN_CLIENT_ID),
+        ).resolves.toBe(true);
+        expect(reservations.commitFirstSession).not.toHaveBeenCalled();
+      });
+
+      it('refuses the CONNECT when the commit fails, leaving the token unspent', async () => {
+        const password = 'pending-secret';
+        const { service, directory, reservations } = createService();
+        stubFindDevice(directory, pending(password));
+        reservations.commitFirstSession.mockRejectedValueOnce(new Error('db down'));
+
+        await expect(
+          service.verifyDeviceCredentials(MQTT_CLIENT, password, OWN_CLIENT_ID),
+        ).rejects.toThrow('db down');
+      });
     });
 
     it('accepts the bare username as client ID', async () => {

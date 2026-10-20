@@ -28,13 +28,25 @@ import {
   EdgeProvisioningRecordV2,
   EdgeWitnessV2,
 } from './entities/v2';
+import { ActivationReceiptService } from './activation-receipt.service';
+import { DeviceLifecycleStatementService } from './device-lifecycle-statement.service';
+import { EdgeProvisioningManifestService } from './edge-provisioning-manifest.service';
+import {
+  EdgeReleaseCatalog,
+  fetchReleaseStatement,
+  RELEASE_STATEMENT_FETCHER,
+} from './edge-release-catalog.service';
 import { InstallerScriptService } from './installer-script.service';
 import { MqttAuthController } from './mqtt-auth.controller';
 import { MqttAuthService } from './mqtt-auth.service';
 import { ProvisioningController } from './provisioning.controller';
+import { ProvisioningReservationService } from './provisioning-reservation.service';
 import { ProvisioningService } from './provisioning.service';
+import { RbacManifestService } from './rbac-manifest.service';
+import { SiteConfigManifestService } from './site-config-manifest.service';
+import { SuderraEdgeConfig } from './suderra-edge.config';
 import { TenantKeyService } from './tenant-key.service';
-
+import { TrustAnchorBundleService } from './trust-anchor-bundle.service';
 
 @Module({
   imports: [
@@ -71,7 +83,25 @@ import { TenantKeyService } from './tenant-key.service';
     DeviceDirectoryService,
     MqttAuthService,
     SimpleRateLimitGuard, // Rate limiting for provisioning endpoints
+    // Suderra edge contract (ADR-048): the channel configuration, the
+    // statement producers and the two-phase provisioning token.
+    SuderraEdgeConfig,
+    TrustAnchorBundleService,
+    RbacManifestService,
+    SiteConfigManifestService,
+    DeviceLifecycleStatementService,
+    ActivationReceiptService,
+    EdgeReleaseCatalog,
+    { provide: RELEASE_STATEMENT_FETCHER, useValue: fetchReleaseStatement },
+    EdgeProvisioningManifestService,
+    ProvisioningReservationService,
   ],
-  exports: [EdgeDeviceService, ProvisioningService, MqttAuthService, InstallerScriptService, DeviceDirectoryService],
+  exports: [
+    EdgeDeviceService,
+    ProvisioningService,
+    MqttAuthService,
+    InstallerScriptService,
+    DeviceDirectoryService,
+  ],
 })
 export class EdgeDeviceModule {}

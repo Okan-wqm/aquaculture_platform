@@ -5,28 +5,16 @@
  * as well as config usage in installer script generation and device activation.
  */
 
- 
- 
- 
-
 import { createHash } from 'crypto';
 
-import {
-  NotFoundException,
-  ConflictException,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { NotFoundException, ConflictException, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
 import { DeviceEvent } from '../entities/device-event.entity';
-import {
-  EdgeDevice,
-  DeviceLifecycleState,
-  DeviceModel,
-} from '../entities/edge-device.entity';
+import { EdgeDevice, DeviceLifecycleState, DeviceModel } from '../entities/edge-device.entity';
 import { TenantProvisioningKey } from '../entities/tenant-provisioning-key.entity';
 import { MqttAuthService } from '../mqtt-auth.service';
 import { InstallerScriptService } from '../installer-script.service';
@@ -34,6 +22,8 @@ import { TenantKeyService } from '../tenant-key.service';
 import { DeviceEventService } from '../device-event.service';
 import { DeviceDirectoryService } from '../device-directory.service';
 import { ProvisioningService } from '../provisioning.service';
+import { EdgeProvisioningManifestService } from '../edge-provisioning-manifest.service';
+import { ProvisioningReservationService } from '../provisioning-reservation.service';
 
 // SENSOR-CRITICAL-143: device writes run inside runInTenantTransaction. The
 // boundary itself is proven on real Postgres (edge-mqtt-auth.rls.postgres.spec);
@@ -45,7 +35,9 @@ jest.mock('@aquaculture/backend-common/database', () => {
     ...actual,
     runInTenantTransaction: jest.fn(
       (
-        dataSource: { transaction: (cb: (manager: unknown) => Promise<unknown>) => Promise<unknown> },
+        dataSource: {
+          transaction: (cb: (manager: unknown) => Promise<unknown>) => Promise<unknown>;
+        },
         _schema: string,
         _tenantId: string,
         fn: (qr: { manager: unknown }) => Promise<unknown>,
@@ -71,7 +63,11 @@ const HASHED_TOKEN = createHash('sha256').update(PLAINTEXT_TOKEN).digest('hex');
 // ---------------------------------------------------------------------------
 const createMockRepository = () => ({
   create: jest.fn().mockImplementation((dto) => ({ id: 'generated-uuid', ...dto })),
-  save: jest.fn().mockImplementation((entity) => Promise.resolve({ id: entity.id || 'generated-uuid', ...entity })),
+  save: jest
+    .fn()
+    .mockImplementation((entity) =>
+      Promise.resolve({ id: entity.id || 'generated-uuid', ...entity }),
+    ),
   findOne: jest.fn(),
   find: jest.fn(),
   findAndCount: jest.fn(),
@@ -205,6 +201,11 @@ describe('ProvisioningService - Config Management', () => {
         { provide: ConfigService, useValue: mockConfigService },
         { provide: MqttAuthService, useValue: mockMqttAuthService },
         {
+          provide: ProvisioningReservationService,
+          useValue: { issueCredentials: jest.fn().mockResolvedValue(true) },
+        },
+        { provide: EdgeProvisioningManifestService, useValue: {} },
+        {
           provide: DeviceDirectoryService,
           useValue: {
             // SENSOR-MEDIUM-004: device creation saves through the
@@ -249,7 +250,10 @@ describe('ProvisioningService - Config Management', () => {
       const script = await service.generateInstallerScript(device.deviceCode, PLAINTEXT_TOKEN);
 
       expect(mockFetch).toHaveBeenCalledTimes(1);
-      expect(mockFetch).toHaveBeenCalledWith('http://admin-api:3010/system/settings/provisioning-config', expect.anything());
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://admin-api:3010/system/settings/provisioning-config',
+        expect.anything(),
+      );
       // Script should contain the admin API config values
       expect(script).toContain(adminConfig.provisioningApiUrl);
       expect(script).toContain(adminConfig.agentDefaultVersion);

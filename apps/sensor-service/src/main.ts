@@ -4,6 +4,7 @@ import { BadRequestException, Logger, ValidationPipe } from '@nestjs/common';
 import { ValidationError } from 'class-validator';
 import { bootstrapService } from '@aquaculture/backend-common/bootstrap';
 import { AppModule } from './app.module';
+import { SUDERRA_EDGE_SECRET_ENV } from './edge-device/suderra-edge.config';
 
 // ── Custom Validation Pipe ──
 // Custom exceptionFactory replaces disableErrorMessages so that:
@@ -31,6 +32,9 @@ bootstrapService(AppModule, {
   // ADR-0006: nginx upstream (infrastructure/nginx/droplet.conf). The factory
   // requires TRUST_PROXY in production and mounts the access log on every request.
   serviceVisibility: 'public',
+  // ADR-048 DEC-3.9: the Suderra edge signing keys, one secret per purpose,
+  // as <NAME> or a <NAME>_FILE mount (EDGE-HIGH-119 until the P2 KMS signer).
+  secrets: SUDERRA_EDGE_SECRET_ENV,
   portEnvVar: 'SENSOR_SERVICE_PORT',
   enableTelemetry: true,
   hasGraphQL: true,

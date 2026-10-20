@@ -24,7 +24,7 @@ import {
 import { ManifestSigner } from './manifest-signer';
 import { RbacManifestService } from './rbac-manifest.service';
 import { SiteConfigManifestService } from './site-config-manifest.service';
-import { SuderraEdgeConfig } from './suderra-edge.config';
+import { SUDERRA_EDGE_MQTT_PORT, SuderraEdgeConfig } from './suderra-edge.config';
 import {
   type DeliveredTrustAnchors,
   TrustAnchorBundleService,
@@ -260,6 +260,16 @@ export class EdgeProvisioningManifestService {
     private readonly rbac: RbacManifestService,
     private readonly siteConfigs: SiteConfigManifestService,
   ) {}
+
+  /** How long a manifest reservation and the statements issued under it stay valid. */
+  get reservationTtlMs(): number {
+    return this.config.settings.reservationTtlMs;
+  }
+
+  /** The broker a Suderra OS device is told about: 8883 TLS only (DEC-10.1, DEC-10.2). */
+  deviceBroker(): { host: string; port: number; tls: boolean } {
+    return { host: this.config.settings.mqttHost, port: SUDERRA_EDGE_MQTT_PORT, tls: true };
+  }
 
   /**
    * Checks what can be decided before a reservation is taken: the board is

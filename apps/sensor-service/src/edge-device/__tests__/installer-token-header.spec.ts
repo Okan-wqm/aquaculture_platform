@@ -54,9 +54,9 @@ describe('Installer commands carry the token in a header (SENSOR-MEDIUM-002)', (
     expect(command).not.toContain(`/install/t/${token}`);
   });
 
-  it('suderra-os manifest URL carries no token', async () => {
-    const url = await service.buildSuderraOsInstallerUrl('EDGE-AABB1122');
-    expect(url).toBe('https://edge.example.com/install/EDGE-AABB1122/suderra-os');
-    expect(url).not.toContain('?token=');
+  it('the suderra-os provisioning command carries no token (DEC-5.5: the token is typed on stdin)', () => {
+    const command = service.buildSuderraOsProvisioningCommand('EDGE-AABB1122');
+    expect(command).toBe('ssh provision@<device-address> provision EDGE-AABB1122');
+    expect(() => service.buildSuderraOsProvisioningCommand('EDGE; rm -rf /')).toThrow();
   });
 });

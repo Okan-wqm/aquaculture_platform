@@ -7,6 +7,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { DeviceDirectoryService } from './device-directory.service';
+import { ProvisioningReservationService } from './provisioning-reservation.service';
 import {
   type DeviceLifecycleState,
   type EdgeDevice,
@@ -61,7 +62,11 @@ export class MqttAuthService implements OnModuleInit {
   private readonly serviceAccounts: Map<string, string> = new Map();
 
   // Service accounts with per-topic-pattern grants (no superuser access)
-  private readonly serviceAccountNames = new Set(['backend_service', 'sensor_service', 'alert_service']);
+  private readonly serviceAccountNames = new Set([
+    'backend_service',
+    'sensor_service',
+    'alert_service',
+  ]);
 
   // PBKDF2 iteration counts per auth mode
   // HTTP mode: Mosquitto never parses the hash - our service verifies it, so use OWASP-recommended count
@@ -87,6 +92,7 @@ export class MqttAuthService implements OnModuleInit {
   constructor(
     private readonly configService: ConfigService,
     private readonly deviceDirectory: DeviceDirectoryService,
+    private readonly reservations: ProvisioningReservationService,
   ) {
     // SENSOR-LOW-008: default to the DB-backed HTTP backend. File mode hashes
     // at only 101 PBKDF2 iterations (Mosquitto password_file parser limit),
@@ -185,8 +191,16 @@ export class MqttAuthService implements OnModuleInit {
     const valid = await this.verifyPassword(password, device.mqttPasswordHash);
     if (!valid) {
       this.logAuthDenied('password_mismatch', username, device.lifecycleState);
+      return false;
     }
-    return valid;
+    // ADR-048 DEC-5.7: the first CONNECT authenticated by the device's own
+    // credential commits the activation and spends the single-use token. A
+    // commit that fails (it throws) refuses this CONNECT; the token stays
+    // unspent and the device's reconnect retries the commit.
+    if (device.tokenUsedAt === null && device.credentialsIssuedAt !== null) {
+      await this.reservations.commitFirstSession(device, new Date());
+    }
+    return true;
   }
 
   /** True when `clientId` is the username itself or exactly `${username}-${deviceCode}`. */
@@ -331,7 +345,7 @@ export class MqttAuthService implements OnModuleInit {
       if (!legacyEnabled) {
         this.logger.warn(
           `[DENIED] Legacy edge/ topic ${topic} for ${username} — tenant-unscoped ` +
-          'topics are disabled. Migrate to tenants/{tenantId}/devices/{deviceCode}/...',
+            'topics are disabled. Migrate to tenants/{tenantId}/devices/{deviceCode}/...',
         );
         return false;
       }
@@ -340,7 +354,7 @@ export class MqttAuthService implements OnModuleInit {
       if (allowed) {
         this.logger.warn(
           `[DEPRECATED] ACL granted on legacy topic ${topic} for ${username} during ` +
-          'the migration window. Migrate to tenants/{tenantId}/devices/{deviceCode}/...',
+            'the migration window. Migrate to tenants/{tenantId}/devices/{deviceCode}/...',
         );
       }
       return allowed;
@@ -367,7 +381,11 @@ export class MqttAuthService implements OnModuleInit {
         // Ack/read: device responses on commands topics only
         if (isTenantTopic && acc === 1 && topic.includes('/commands')) return true;
         // Legacy topics during migration (publish only)
-        if (acc === 2 && (topic.startsWith('sensor/') || topic.startsWith('edge/') || topic.startsWith('alerts/'))) return true;
+        if (
+          acc === 2 &&
+          (topic.startsWith('sensor/') || topic.startsWith('edge/') || topic.startsWith('alerts/'))
+        )
+          return true;
         // $SYS read-only for monitoring
         if (topic.startsWith('$SYS/') && acc === 1) return true;
         return false;
@@ -389,7 +407,9 @@ export class MqttAuthService implements OnModuleInit {
         // this grant cannot drift from what the listener subscribes.
         if (
           (acc & 4 || acc === 1 || acc === 3) &&
-          /^tenants\/\+\/devices\/\+\/(telemetry|status|response|responses|io_data|alarms|capabilities|lora_events)$/.test(topic)
+          /^tenants\/\+\/devices\/\+\/(telemetry|status|response|responses|io_data|alarms|capabilities|lora_events)$/.test(
+            topic,
+          )
         ) {
           return true;
         }
@@ -397,7 +417,12 @@ export class MqttAuthService implements OnModuleInit {
           return true;
         }
         // Legacy topics during migration
-        if (topic.startsWith('sensor/') || topic.startsWith('sensors/') || topic.startsWith('edge/')) return true;
+        if (
+          topic.startsWith('sensor/') ||
+          topic.startsWith('sensors/') ||
+          topic.startsWith('edge/')
+        )
+          return true;
         if (topic.startsWith('aquaculture/')) return true;
         // $SYS read-only for monitoring
         if (topic.startsWith('$SYS/') && acc === 1) return true;
@@ -406,7 +431,12 @@ export class MqttAuthService implements OnModuleInit {
       case 'alert_service':
         // alert_service: read sensor/device data, write alerts (tenant-scoped only)
         if (isTenantTopic && topic.includes('/alerts/') && acc === 2) return true;
-        if (isTenantTopic && (topic.includes('/sensors/') || topic.includes('/devices/')) && acc === 1) return true;
+        if (
+          isTenantTopic &&
+          (topic.includes('/sensors/') || topic.includes('/devices/')) &&
+          acc === 1
+        )
+          return true;
         // Legacy topics: restricted to read-only, non-production only
         if (this.configService.get('NODE_ENV') !== 'production') {
           if ((topic.startsWith('sensor/') || topic.startsWith('edge/')) && acc === 1) return true;
@@ -479,9 +509,10 @@ export class MqttAuthService implements OnModuleInit {
    */
   async generateCredentials(): Promise<{ password: string; hash: string }> {
     const password = randomBytes(16).toString('base64');
-    const iterations = this.authMode === 'http'
-      ? MqttAuthService.HTTP_MODE_ITERATIONS
-      : MqttAuthService.FILE_MODE_ITERATIONS;
+    const iterations =
+      this.authMode === 'http'
+        ? MqttAuthService.HTTP_MODE_ITERATIONS
+        : MqttAuthService.FILE_MODE_ITERATIONS;
     const hash = await this.hashPassword(password, iterations);
     return { password, hash };
   }
@@ -630,7 +661,10 @@ export class MqttAuthService implements OnModuleInit {
   // File-based internal methods (legacy)
   // ─────────────────────────────────────────────────────────────────────────
 
-  private async _addDeviceCredentialsFile(username: string, passwordHash: string): Promise<boolean> {
+  private async _addDeviceCredentialsFile(
+    username: string,
+    passwordHash: string,
+  ): Promise<boolean> {
     if (!this.fileAuthEnabled) {
       this.logger.debug('MQTT file auth disabled, skipping credential storage');
       return true;
@@ -662,9 +696,10 @@ export class MqttAuthService implements OnModuleInit {
       for (const [name, hash] of this.serviceAccounts) {
         serviceAccountLines.push(`${name}:${hash}`);
       }
-      const serviceSection = serviceAccountLines.length > 0
-        ? `# Service Accounts\n${serviceAccountLines.join('\n')}\n\n# Edge Device Accounts\n`
-        : '# Edge Device Accounts\n';
+      const serviceSection =
+        serviceAccountLines.length > 0
+          ? `# Service Accounts\n${serviceAccountLines.join('\n')}\n\n# Edge Device Accounts\n`
+          : '# Edge Device Accounts\n';
 
       const deviceEntries: string[] = [];
       for (const [user, hash] of entries) {
@@ -735,7 +770,9 @@ export class MqttAuthService implements OnModuleInit {
       } catch {
         try {
           // Docker fallback: use execFile with explicit args (no shell)
-          await execFileAsync('docker', ['exec', 'mosquitto', 'kill', '-HUP', '1'], { timeout: 5000 });
+          await execFileAsync('docker', ['exec', 'mosquitto', 'kill', '-HUP', '1'], {
+            timeout: 5000,
+          });
           this.logger.log('Mosquitto reload signal sent via Docker');
         } catch {
           this.logger.warn('Could not reload Mosquitto - may need manual restart');
@@ -743,7 +780,9 @@ export class MqttAuthService implements OnModuleInit {
       }
       return true;
     } catch (error) {
-      this.logger.warn(`Mosquitto reload failed: ${error instanceof Error ? error.message : 'unknown'}`);
+      this.logger.warn(
+        `Mosquitto reload failed: ${error instanceof Error ? error.message : 'unknown'}`,
+      );
       return false;
     }
   }

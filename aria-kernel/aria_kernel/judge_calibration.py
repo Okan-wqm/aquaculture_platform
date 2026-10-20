@@ -31,7 +31,12 @@ from pathlib import Path
 from typing import Any
 
 from .calibrated_intelligence import deterministic_seed
-from .feedback_store import append_jsonl, is_ground_truth_row, load_feedback
+from .feedback_store import (
+    GROUND_TRUTH_SOURCE_TYPES,
+    append_jsonl,
+    is_ground_truth_row,
+    load_feedback,
+)
 from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
@@ -57,9 +62,79 @@ BOOTSTRAP_RESAMPLES: int = 1000
 BOOTSTRAP_QUANTILE: float = 0.90
 CALIBRATION_STATUSES: tuple[str, ...] = ("calibrated", "provisional", "uncalibrated", "insufficient_data")
 # Mirrors judge_replay.REPLAY_GROUP_PREFIX (kept local to avoid an import cycle).
-# Organic calibration must exclude gold-set replay verdicts that live under this
-# group, or a judge's everyday precision/recall is corrupted by its replay run.
 _REPLAY_GROUP_PREFIX: str = "replay:"
+# WP-J D — organic calibration excludes verdicts minted by a MEASUREMENT
+# lane, of which the gold-set replay was only the first: a judge's everyday
+# precision/recall must not be moved by rows a lane produced on purpose
+# (a replay run it was seeded for, a stability re-ask of itself, a canary
+# item whose label is by construction). One SET, one member per lane, each
+# member landing in the SAME commit as the lane that first mints under it
+# — a prefix for a lane that does not exist is a rule about nothing.
+# Mirrors are pinned to their owners' constants by test (no import cycle
+# here: stability_reask and mutation_canary import this module's scoring).
+#
+# 'stability:' (WP-J D-1, landing in the SAME commit as the lane that first
+# mints under it — stability_reask) excludes the re-ask verdicts: they are
+# the same judge answering its own question a second time, and folding
+# them into the organic buckets would double-count one opinion per seat.
+_STABILITY_GROUP_PREFIX: str = "stability:"
+# 'canary:' (WP-J D-2, same commit as the canary lane): panel verdicts on
+# planted corpus items are the self-exam, not the everyday work — they are
+# scored under their own prefix and never fold into the organic buckets.
+_CANARY_GROUP_PREFIX: str = "canary:"
+ORGANIC_EXCLUSION_PREFIXES: tuple[str, ...] = (
+    _REPLAY_GROUP_PREFIX, _STABILITY_GROUP_PREFIX, _CANARY_GROUP_PREFIX,
+)
+# WP-J D-1 — the scoring-only truth vocabulary. An ``outcome`` row is a
+# machine-verifiable outcome (red-then-green same-recipe, merged, not
+# reverted — outcome_truth.py), NOT authority: GROUND_TRUTH_SOURCE_TYPES
+# refuses it, so is_ground_truth_row (and every reader that owns a
+# consequence — suppression, goldset admission, promotion readiness) is
+# byte-identical. Only the sibling predicate below admits it, and only
+# where the question is "was this judge right?".
+# WP-J D-2 — 'canary' joins with the mutation-canary corpus: a label BY
+# CONSTRUCTION (the planted mutant is a true positive because it was
+# planted; the false claim is a false positive because nothing is wrong).
+# It scores judges exactly as outcome truth does, and is refused by
+# is_ground_truth_row exactly as outcome truth is. Same commit as the
+# first canary mint.
+CALIBRATION_TRUTH_SOURCE_TYPES: tuple[str, ...] = ("outcome", "canary")
+
+
+def _group_under_excluded_prefix(row: dict[str, Any]) -> bool:
+    group = str(row.get("judgment_group_id") or "")
+    return any(group.startswith(prefix) for prefix in ORGANIC_EXCLUSION_PREFIXES)
+
+
+def is_calibration_truth_row(row: dict[str, Any]) -> bool:
+    """JJ-1, AMENDED ON THE RECORD (WP-J D-1): may this row act as TRUTH FOR
+    SCORING a judge?
+
+    The original one-predicate law (ORPHAN-HIGH-731) said one predicate,
+    five readers, no per-reader re-derivation. It still does — for
+    AUTHORITY. What operator decision 2026-10-18 added is a truth the judge
+    fleet did not produce: the mechanical OUTCOME of the finding it judged
+    (the defect demonstrably ran red, the same recipe verified the fix
+    green, the fix merged and was not reverted). Scoring judges only
+    against verdicts judges produced was the circularity the gold corpus
+    also fights (ARIA-HIGH-125); outcome truth breaks it without minting a
+    single human row.
+
+    So there are exactly two predicates, each with one job, and this one
+    DELEGATES the authority question instead of copying it:
+
+    * ``is_ground_truth_row`` (feedback_store) — unchanged, byte-identical,
+      read by every consequence owner;
+    * this predicate — ``is_ground_truth_row`` for the authority sources,
+      plus CALIBRATION_TRUTH_SOURCE_TYPES for the scoring-only sources.
+
+    A source in neither is truth for nobody (an ai_judge row is a vote,
+    never its own truth).
+    """
+    source_type = row.get("source_type") or "human"
+    if source_type in GROUND_TRUTH_SOURCE_TYPES:
+        return is_ground_truth_row(row)
+    return source_type in CALIBRATION_TRUTH_SOURCE_TYPES
 
 
 def calibration_path(base_dir: str | Path | None = None) -> Path:
@@ -135,20 +210,36 @@ def _build_ground_truth_detail(
     rows: list[dict[str, Any]], *, base_dir: str | Path | None = None,
     unverified: list[dict[str, Any]] | None = None,
 ) -> dict[tuple[str, str, str], tuple[str, str, frozenset[str], float]]:
-    """Best ground-truth ``(verdict, source, observers, weight)`` per finding.
-    human beats ai_consensus; an anchor row remembers who formed it; a
-    human row that is not explicitly human or does not verify is skipped
-    (and listed in ``unverified`` when the caller asks). The ``source`` of a
-    human row carries its label stratum: ``human`` for a random or
-    unstratified label, ``human_escalated`` for one drawn from the
-    escalations (review C3: reported, never the basis of `calibrated`).
-    The ``weight`` is the label's Horvitz-Thompson weight ``1/π``
-    (ARIA-LOW-608): 1 for anchors and unstratified labels, which come from
-    no sampling design."""
+    """Best truth ``(verdict, source, observers, weight)`` per finding.
+
+    Precedence, highest first: a verified human label, the machine OUTCOME
+    of the judged finding, an anchor ai_consensus row. Human beats machine
+    because the operator is the final authority; outcome beats consensus
+    because the whole point of an outcome row is that the judge fleet did
+    NOT produce it (ARIA-HIGH-125's circularity); an anchor row remembers
+    who formed it. A human row that is not explicitly human or does not
+    verify is skipped (and listed in ``unverified`` when the caller asks).
+    The ``source`` of a human row carries its label stratum: ``human`` for
+    a random or unstratified label, ``human_escalated`` for one drawn from
+    the escalations (review C3: reported, never the basis of
+    `calibrated`). The ``weight`` is the label's Horvitz-Thompson weight
+    ``1/π`` (ARIA-LOW-608): 1 for anchors, outcomes and unstratified
+    labels, which come from no sampling design.
+
+    An outcome row contributes NO observers — deliberately. The
+    ARIA-HIGH-173 self-exclusion below exists because an anchor this judge
+    helped form is its own vote wearing a consensus hat; an outcome row is
+    evidence independent of every judge, so EVERY judge of the group is
+    scored against it. That is the property that makes outcome truth worth
+    minting at all.
+    """
+    _precedence = {"human": 0, "human_escalated": 0, "outcome": 1, "ai_consensus": 2}
     truth: dict[tuple[str, str, str], tuple[str, str, frozenset[str], float]] = {}
     for row in rows:
-        # JJ-1 — one predicate, five readers (see feedback_store).
-        if not is_ground_truth_row(row):
+        # JJ-1 as amended (see is_calibration_truth_row): the authority
+        # predicate stays byte-identical in feedback_store; scoring reads
+        # the sibling that also admits outcome truth.
+        if not is_calibration_truth_row(row):
             continue
         source = row.get("source_type") or "human"
         weight = 1.0
@@ -165,14 +256,11 @@ def _build_ground_truth_detail(
         key = _group_key(row)
         existing = truth.get(key)
         observers = _observer_ids(row) if source == "ai_consensus" else frozenset()
-        # Feedback is append-only; an operator can correct an earlier call with a
-        # later row. Last-write-wins within precedence: a later `human` always
-        # overrides, a later `ai_consensus` overrides only when no `human` exists.
-        if existing is None:
-            truth[key] = (verdict, source, observers, weight)
-        elif source.startswith("human"):
-            truth[key] = (verdict, source, observers, weight)
-        elif source == "ai_consensus" and not existing[1].startswith("human"):
+        # Feedback is append-only; an operator can correct an earlier call
+        # with a later row. Last-write-wins within precedence, so a later
+        # row of a strictly higher class replaces, and an equal class
+        # corrects.
+        if existing is None or _precedence[source] <= _precedence[existing[1]]:
             truth[key] = (verdict, source, observers, weight)
     return truth
 
@@ -282,20 +370,33 @@ def calibration_status(
 
 
 def correct_consensus_confidences(rows: list[dict[str, Any]]) -> list[float]:
-    """Confidences of the consensus rows a HUMAN later agreed with — the
-    only rows a conformal floor may be taken over (ARIA-HIGH-173: the floor
-    used to be the 10th percentile of every consensus output, correct or
-    not)."""
-    human: dict[tuple[str, str, str], str] = {}
+    """Confidences of the consensus rows a HUMAN — or, since WP-J D-1, a
+    mechanical OUTCOME — later agreed with. The only rows a conformal floor
+    may be taken over (ARIA-HIGH-173: the floor used to be the 10th
+    percentile of every consensus output, correct or not).
+
+    The window was human-only, and with no operator labels it was empty
+    forever: the floor could never exist, so the conformal abstention gate
+    never fired. An outcome row is agreement the judge fleet did not
+    produce (red-then-green same-recipe, merged, not reverted), which is
+    exactly the evidence ARIA-HIGH-173 wanted a floor to rest on. A human
+    row still outranks an outcome row on the same group.
+    """
+    confirming: dict[tuple[str, str, str], tuple[str, str]] = {}
     for row in rows:
-        if (row.get("source_type") or "human") == "human" and row.get("verdict"):
-            human[_group_key(row)] = str(row["verdict"])
+        source = row.get("source_type") or "human"
+        if source not in ("human", "outcome") or not row.get("verdict"):
+            continue
+        key = _group_key(row)
+        existing = confirming.get(key)
+        if existing is None or (source == "human" and existing[0] != "human"):
+            confirming[key] = (source, str(row["verdict"]))
     out: list[float] = []
     for row in rows:
         if row.get("source_type") != "ai_consensus" or not isinstance(row.get("confidence"), (int, float)):
             continue
-        truth = human.get(_group_key(row))
-        if truth is not None and truth == str(row.get("verdict") or ""):
+        agreed = confirming.get(_group_key(row))
+        if agreed is not None and agreed[1] == str(row.get("verdict") or ""):
             out.append(float(row["confidence"]))
     return out
 
@@ -348,14 +449,13 @@ def score_judges(
             if str(r.get("judgment_group_id") or "").startswith(judgment_group_prefix)
         ]
     else:
-        # Organic calibration excludes gold-set replay verdicts (Plan 025 §C),
-        # which live under the 'replay:' group — folding them into a judge's
-        # everyday buckets corrupts its precision/recall and the degraded signal
-        # that proactive prioritization + the operator report consume.
-        rows = [
-            r for r in rows
-            if not str(r.get("judgment_group_id") or "").startswith(_REPLAY_GROUP_PREFIX)
-        ]
+        # Organic calibration excludes the measurement lanes' verdicts
+        # (Plan 025 §C was the first: gold-set replay) — folding them into a
+        # judge's everyday buckets corrupts its precision/recall and the
+        # degraded signal that proactive prioritization + the operator
+        # report consume. One SET (ORGANIC_EXCLUSION_PREFIXES), one member
+        # per lane, each landing with its lane.
+        rows = [r for r in rows if not _group_under_excluded_prefix(r)]
     unverified_rows: list[dict[str, Any]] = []
     truth = _build_ground_truth_detail(rows, base_dir=base_dir, unverified=unverified_rows)
     if calibration_bins < 1:
@@ -364,7 +464,8 @@ def score_judges(
     def _fresh_bucket() -> dict[str, Any]:
         return {"tp": 0, "fp": 0, "fn": 0, "tn": 0, "n": 0, "correct": 0,
                 "conf_correct": [], "conf_wrong": [], "top_pairs": [], "tp_pairs": [], "decision_pairs": [],
-                "n_human": 0, "n_human_escalated": 0, "n_anchor_external": 0, "n_anchor_self_excluded": 0,
+                "n_human": 0, "n_human_escalated": 0, "n_outcome": 0,
+                "n_anchor_external": 0, "n_anchor_self_excluded": 0,
                 "w_tp": 0.0, "w_fp": 0.0, "w_fn": 0.0}
 
     agg: dict[str, dict[str, Any]] = {}
@@ -386,8 +487,10 @@ def score_judges(
             # vote wearing a consensus hat: counted, never scored.
             bucket["n_anchor_self_excluded"] += 1
             continue
-        bucket["n_human" if truth_source == "human" else "n_human_escalated" if truth_source == "human_escalated"
-               else "n_anchor_external"] += 1
+        bucket[
+            {"human": "n_human", "human_escalated": "n_human_escalated",
+             "outcome": "n_outcome"}.get(truth_source, "n_anchor_external")
+        ] += 1
         source_bucket = by_source.setdefault(
             (judge_id, str(row.get("model") or ""), str(row.get("confidence_source") or "self_reported")),
             _fresh_bucket(),
@@ -492,6 +595,7 @@ def score_judges(
             "mean_confidence_wrong": _mean(b["conf_wrong"]),
             "status": status,
             "ground_truth_strata": {"n_human": b["n_human"], "n_human_escalated": b["n_human_escalated"],
+                                    "n_outcome": b["n_outcome"],
                                     "n_anchor_external": b["n_anchor_external"],
                                     "n_anchor_self_excluded": b["n_anchor_self_excluded"]},
             **_scored(judge_id, b, seed_parts=(judge_id,)),

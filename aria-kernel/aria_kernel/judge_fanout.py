@@ -264,6 +264,13 @@ def dispatch_judges_for_sample(
     target_sha: str | None = None,
     repo_root: str | Path | None = None,
     max_pending_per_role: int | None = None,
+    # WP-J slice C (the roles seam): WHICH seats to mint, as
+    # (role, target_agent) pairs. The ROUTER (judgment_funnel) decides
+    # this — tier assignment lives nowhere in this module. None (every
+    # legacy caller) mints the default JUDGE_FANOUT pair, bit for bit; a
+    # shorter list mints only those seats. Slice B extends the same
+    # parameter for the panel seats (EXPERT_METHODS).
+    roles: tuple[tuple[str, str], ...] | list[tuple[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Mint two judge envelopes per finding in a judgment sample.
 
@@ -279,6 +286,7 @@ def dispatch_judges_for_sample(
     is what makes the packing fire in production rather than only in tests.
     """
     root = ensure_tools_dir(base_dir)
+    seats: tuple[tuple[str, str], ...] = tuple(roles) if roles is not None else JUDGE_FANOUT
     items = sample.get("items") or []
     existing = _existing_judge_dispatches(root)
     # Y2 (ORPHAN-704) — backlog gate: when the executor's drain is behind,
@@ -312,7 +320,7 @@ def dispatch_judges_for_sample(
             skipped.extend(
                 {"judgment_group_id": group, "target_agent": agent,
                  "reason": "rule_contract_undeclared", "tool_id": tool_id, "rule": rule}
-                for _role, agent in JUDGE_FANOUT
+                for _role, agent in seats
             )
             continue
         envelope = judge_request_fields(item, contract)
@@ -320,7 +328,7 @@ def dispatch_judges_for_sample(
             judged[tool_id] = _judged_pairs(root, tool_id)
         finding_key = _finding_key(item)
         admissions: dict[str, Admission] = {}
-        for role, agent in JUDGE_FANOUT:
+        for role, agent in seats:
             if refused:
                 break
             if (group, agent) in existing or (finding_key, agent) in judged[tool_id]:
@@ -335,9 +343,9 @@ def dispatch_judges_for_sample(
         throttled = next(iter(refused.values()), None)
         if throttled is not None:
             skipped.extend({"judgment_group_id": group, "target_agent": agent, "reason": throttled}
-                           for _role, agent in JUDGE_FANOUT)
+                           for _role, agent in seats)
             continue
-        for role, agent in JUDGE_FANOUT:
+        for role, agent in seats:
             if (group, agent) in existing:
                 skipped.append({"judgment_group_id": group, "target_agent": agent, "reason": "already_dispatched"})
                 continue

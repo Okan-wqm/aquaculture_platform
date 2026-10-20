@@ -349,6 +349,180 @@ class Tier0EarlyStopTest(unittest.TestCase):
         self.assertTrue(verdict.get("note"))
 
 
+class TierRoutingTest(unittest.TestCase):
+    """Severity routes the ladder; tier 2 is ONE seat; tier 4 is quota-bound."""
+
+    def setUp(self) -> None:
+        import os as _os
+
+        _os.environ.setdefault("ARIA_CONSENSUS_PROMOTION_ACK", "operator-approved-tests")
+
+    def _run(self, tmp: str, items: list[dict], *, extra_policy: dict | None = None,
+             drained: int = 91):
+        import json
+
+        repo = Path(tmp) / "ws"
+        repo.mkdir(parents=True, exist_ok=True)
+        import subprocess
+
+        def git(*args: str) -> None:
+            subprocess.run(["git", "-C", str(repo), *args], check=True,
+                           capture_output=True, text=True)
+
+        git("init", "-q")
+        git("config", "user.email", "fixture@example.invalid")
+        git("config", "user.name", "fixture")
+        (repo / "src").mkdir(exist_ok=True)
+        for rule_file in ("a.py", "b.py"):
+            (repo / "src" / rule_file).write_text("x = 1\n", encoding="utf-8")
+        policy: dict = {"funnel_enabled": True}
+        policy.update(extra_policy or {})
+        config = repo / "aria-config"
+        config.mkdir(exist_ok=True)
+        (config / "genesis_policy.json").write_text(json.dumps(
+            {"$schema": "aria/genesis-policy/v1", "judgment_pipeline": policy}), encoding="utf-8")
+        git("add", "-A")
+        git("commit", "-q", "-m", "fixture")
+        head = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"],
+                              check=True, capture_output=True, text=True).stdout.strip()
+        ctx = cycle_mod.build_phase_context(
+            cycle_id="cyc-tiers", workspace_root=repo, base_dir=Path(tmp) / "aria-tools",
+        )
+        calls: list[dict] = []
+
+        def fake_dispatch(**kw):
+            calls.append(kw)
+            return {"minted": [], "skipped": []}
+
+        with patch.object(cycle_mod, "list_tools", return_value=[{"tool_id": "adapter-a"}]), \
+             patch("aria_kernel.feedback_store.generate_judgment_sample",
+                   return_value={"sample_id": "S1", "cycle_id": "cyc-tiers", "items": items}), \
+             patch("aria_kernel.judge_fanout.dispatch_judges_for_sample", fake_dispatch), \
+             patch("aria_kernel.feedback_store.generate_ai_consensus",
+                   return_value={"consensus": []}), \
+             patch("aria_kernel.request_drain_capacity._request_ledgers",
+                   return_value=_seed_ledgers(drained=drained, now=datetime(2026, 10, 20, 3, 0, tzinfo=timezone.utc))), \
+             patch("aria_kernel.convergence_drainer._resolve_workspace_head_sha", return_value=head):
+            result = cycle_mod._phase_judgment_pipeline(ctx)
+        return result, calls, ctx
+
+    def _routing_rows(self, ctx) -> list[dict]:
+        from aria_kernel.judgment_funnel import routing_path
+        from aria_kernel.ledger import load_declared_jsonl
+
+        path = routing_path(ctx.base_dir)
+        return load_declared_jsonl(path, expected_surface="judgment_funnel_routing") if path.exists() else []
+
+    def test_severity_routes_and_tier2_mints_one_seat(self) -> None:
+        # Operator tier semantics: T2 = ONE seat for S/M risk, T3 for HIGH,
+        # T4 (full panel, quota-bound) for CRITICAL. The one-seat tier is
+        # expressed through the roles the router hands the fan-out — the
+        # fan-out itself keeps no tier logic.
+        with TemporaryDirectory() as tmp:
+            items = [
+                {"finding_id": "F-LOW", "tool_id": "adapter-a", "run_id": "r", "rule": "rule-a",
+                 "path": "src/a.py", "severity": "LOW"},
+                {"finding_id": "F-MED", "tool_id": "adapter-a", "run_id": "r", "rule": "rule-a",
+                 "path": "src/a.py", "severity": "MEDIUM"},
+                {"finding_id": "F-HIGH", "tool_id": "adapter-a", "run_id": "r", "rule": "rule-a",
+                 "path": "src/a.py", "severity": "HIGH"},
+                {"finding_id": "F-CRIT", "tool_id": "adapter-a", "run_id": "r", "rule": "rule-a",
+                 "path": "src/a.py", "severity": "CRITICAL"},
+            ]
+            _result, calls, ctx = self._run(tmp, items)
+
+            rows = {row["finding_id"]: row for row in self._routing_rows(ctx) if row.get("held") is None}
+            self.assertEqual(rows["F-LOW"]["tier"], 2)
+            self.assertEqual(rows["F-MED"]["tier"], 2)
+            self.assertEqual(rows["F-HIGH"]["tier"], 3)
+            self.assertEqual(rows["F-CRIT"]["tier"], 4)
+            self.assertEqual(rows["F-LOW"]["seats_planned"], 1)
+            self.assertEqual(rows["F-HIGH"]["seats_planned"], 2)
+
+            tier2_leg = next(kw for kw in calls if kw.get("roles") is not None)
+            self.assertEqual(
+                [i["finding_id"] for i in tier2_leg["sample"]["items"]], ["F-LOW", "F-MED"],
+            )
+            self.assertEqual(
+                tier2_leg["roles"],
+                (("evidence_judgment", "aria-evidence-judge"),),
+                "tier 2 mints exactly one seat",
+            )
+            # The default-pair legs carry no roles kwarg at all.
+            pair_legs = [kw for kw in calls if kw.get("roles") is None]
+            self.assertTrue(any(kw["sample"]["items"] for kw in pair_legs))
+
+    def test_tier4_is_quota_bound(self) -> None:
+        # At most funnel_tier4_quota of the night's decisions: 10 CRITICAL
+        # items at quota 0.10 leave exactly one at tier 4; the rest
+        # downgrade to tier 3, on the record.
+        with TemporaryDirectory() as tmp:
+            items = [
+                {"finding_id": f"F-CRIT-{i}", "tool_id": "adapter-a", "run_id": "r",
+                 "rule": "rule-a", "path": "src/a.py", "severity": "CRITICAL"}
+                for i in range(10)
+            ]
+            _result, _calls, ctx = self._run(
+                tmp, items, extra_policy={"funnel_nightly_envelope": 20}, drained=161,
+            )
+            rows = [row for row in self._routing_rows(ctx) if row.get("held") is None]
+            tiers = sorted(row["tier"] for row in rows)
+            self.assertEqual(len(rows), 10, "every item routed: the envelope fits")
+            self.assertEqual(tiers.count(4), 1)
+            self.assertEqual(tiers.count(3), 9)
+
+    def test_the_batch_key_groups_same_rule_findings(self) -> None:
+        # Batching key (tool_id, rule): same-rule findings are minted
+        # adjacently so the drain's sibling fill serves them as one batch.
+        with TemporaryDirectory() as tmp:
+            items = [
+                {"finding_id": "F1", "tool_id": "adapter-a", "run_id": "r", "rule": "rule-b",
+                 "path": "src/b.py", "severity": "MEDIUM"},
+                {"finding_id": "F2", "tool_id": "adapter-a", "run_id": "r", "rule": "rule-a",
+                 "path": "src/a.py", "severity": "MEDIUM"},
+                {"finding_id": "F3", "tool_id": "adapter-a", "run_id": "r", "rule": "rule-b",
+                 "path": "src/b.py", "severity": "MEDIUM"},
+                {"finding_id": "F4", "tool_id": "adapter-a", "run_id": "r", "rule": "rule-a",
+                 "path": "src/a.py", "severity": "MEDIUM"},
+            ]
+            _result, calls, _ctx = self._run(tmp, items)
+            order = [i["finding_id"] for kw in calls for i in kw["sample"]["items"]]
+            self.assertEqual(order.index("F2") < order.index("F3"), True)
+            self.assertEqual(
+                [i["rule"] for kw in calls for i in kw["sample"]["items"]],
+                ["rule-a", "rule-a", "rule-b", "rule-b"],
+                "same-rule findings must be minted adjacently (the batch key)",
+            )
+
+    def test_calibration_sampling_routes_low_to_the_full_tier(self) -> None:
+        # LOW findings sampled to the full tier purely for calibration
+        # (funnel_calibration_sample_per_cycle), marked on the routing row.
+        with TemporaryDirectory() as tmp:
+            items = [
+                {"finding_id": "F-LOW", "tool_id": "adapter-a", "run_id": "r",
+                 "rule": "rule-a", "path": "src/a.py", "severity": "LOW"},
+            ]
+            _result, _calls, ctx = self._run(tmp, items)
+            rows = [row for row in self._routing_rows(ctx) if row.get("held") is None]
+            self.assertEqual(rows[0]["tier"], 4)
+            self.assertIs(rows[0].get("calibration"), True)
+
+    def test_tier1_jev_is_shadow_only(self) -> None:
+        # J2 is asked (recorded) and NEVER routed on: with no registry the
+        # outcome is "unavailable" and severity still routes the item.
+        with TemporaryDirectory() as tmp:
+            items = [
+                {"finding_id": "F-MED", "tool_id": "adapter-a", "run_id": "r",
+                 "rule": "rule-a", "path": "src/a.py", "severity": "MEDIUM",
+                 "evidence": ["src/a.py:1"]},
+            ]
+            _result, calls, ctx = self._run(tmp, items)
+            rows = [row for row in self._routing_rows(ctx) if row.get("held") is None]
+            self.assertEqual(rows[0]["tier"], 2, "shadow score must not change the tier")
+            self.assertEqual(rows[0].get("tier1", {}).get("outcome"), "unavailable")
+            self.assertTrue(any(kw["sample"]["items"] for kw in calls))
+
+
 class FunnelPolicyKeysTest(unittest.TestCase):
     def test_the_funnel_keys_are_real_configuration(self) -> None:
         # A key absent from the defaults is dead JSON: judgment_pipeline_policy

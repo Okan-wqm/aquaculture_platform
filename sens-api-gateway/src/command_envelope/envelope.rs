@@ -44,7 +44,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::canonical::{CanonicalParamsError, CmdHash, canonical_params};
+use super::canonical::{canonical_params, CanonicalParamsError, CmdHash};
 use super::jti::{InvalidJti, Jti};
 use crate::authz::policy::Ed25519SignatureBytes;
 use crate::commands::catalog::unsigned_envelope_permitted;
@@ -345,6 +345,16 @@ impl From<InvalidJti> for EnvelopeVerifyError {
 /// Maximum nonce length — same bound as jti per plan §4.10 discipline.
 pub const MAX_NONCE_BYTES: usize = 256;
 
+/// How far a command's `iat` may lie ahead of the device clock (ADR-048
+/// DEC-7.6, the "allowed skew"). The cloud stamps `iat` with its own clock,
+/// and a device clock even a second behind it (an NTP offset, a board
+/// without RTC, a virtual machine's clock) refused every command as not yet
+/// valid: the QEMU edge e2e test saw `NotYetValid { now: 1792503878,
+/// iat: 1792503879 }` for the activation receipt. Only this end of the
+/// window is widened: a command is never accepted after its `exp`, so the
+/// validity the JTI dedup tier must cover stays `exp`.
+pub const MAX_IAT_CLOCK_SKEW_SECS: i64 = 60;
+
 /// Verify an envelope AGAINST the expected tenant + current time + mode.
 /// Returns the validated `Jti` on success (the caller then hands it to the
 /// `JtiDedupTable::check_and_mark`); on failure, returns the structured
@@ -408,8 +418,9 @@ pub fn verify_envelope(
         return Err(EnvelopeVerifyError::InvalidNow);
     }
 
-    // Gate 4 — freshness window covers now (inclusive both ends).
-    if now_unix_secs < env.iat_unix_secs {
+    // Gate 4 — freshness window covers now (inclusive both ends), `iat`
+    // with the allowed clock skew.
+    if now_unix_secs < env.iat_unix_secs.saturating_sub(MAX_IAT_CLOCK_SKEW_SECS) {
         return Err(EnvelopeVerifyError::NotYetValid {
             now_unix_secs,
             iat: env.iat_unix_secs,
@@ -856,6 +867,33 @@ mod tests {
         })
         .expect_err("future");
         assert!(matches!(err, EnvelopeVerifyError::NotYetValid { .. }));
+    }
+
+    /// A device clock up to MAX_IAT_CLOCK_SKEW_SECS behind the signer's
+    /// still accepts the command; one further behind refuses it.
+    #[test]
+    fn accepts_iat_within_the_allowed_clock_skew_only() {
+        let env = make_env("ping", 5_000, 9_000);
+        let at = |now: i64| {
+            verify_envelope(&env, &[0x42u8; 16], now, STRUCTURAL, mock_hash, |_, _| true)
+        };
+        assert!(at(5_000 - 1).is_ok(), "one second behind the signer");
+        assert!(at(5_000 - MAX_IAT_CLOCK_SKEW_SECS).is_ok());
+        assert!(matches!(
+            at(5_000 - MAX_IAT_CLOCK_SKEW_SECS - 1),
+            Err(EnvelopeVerifyError::NotYetValid { .. })
+        ));
+    }
+
+    /// The skew never extends a command past its exp.
+    #[test]
+    fn the_allowed_skew_does_not_extend_exp() {
+        let env = make_env("ping", 1_000, 5_000);
+        let err = verify_envelope(&env, &[0x42u8; 16], 5_001, STRUCTURAL, mock_hash, |_, _| {
+            true
+        })
+        .expect_err("past exp");
+        assert!(matches!(err, EnvelopeVerifyError::Expired { .. }));
     }
 
     #[test]

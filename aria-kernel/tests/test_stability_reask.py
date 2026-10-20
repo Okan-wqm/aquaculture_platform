@@ -34,6 +34,7 @@ from aria_kernel.feedback_store import (
 from aria_kernel.finding import findings_dir
 from aria_kernel.finding_promotion import promote_consensus_findings
 from aria_kernel.judge_calibration import score_judges
+from aria_kernel.ledger import append_declared_jsonl
 from aria_kernel.request_admission import admit_request
 from aria_kernel.stability_reask import (
     STABILITY_GROUP_PREFIX,
@@ -266,11 +267,12 @@ class PromotionBarTests(StabilityBase):
 
     def test_flipped_anchor_gates_promotion_by_name(self) -> None:
         self._consensus_tp()
-        append_jsonl(
+        append_declared_jsonl(
             stability_flips_path(self.tools),
             {"schema_version": 1, "recorded_at": "2026-10-19T00:00:00+00:00",
              "judgment_group_id": _GROUP, "stability_group_id": "stability:x:seat:1",
              "judge_id": "aria-evidence-judge", "flipped": True, "anchor_flip": True},
+            expected_surface="stability_flips",
         )
         result = promote_consensus_findings(repo_root=self.repo, base_dir=self.tools)
         self.assertEqual(result["promoted_count"], 0)

@@ -44,7 +44,8 @@ from typing import Any
 
 from .agent_invocations import create_agent_invocation_request, list_agent_invocation_requests
 from .calibrated_intelligence import deterministic_seed
-from .feedback_store import append_jsonl, load_feedback, load_jsonl
+from .feedback_store import load_feedback, load_jsonl
+from .ledger import append_declared_jsonl, load_declared_jsonl
 from .judge_fanout import JUDGE_FANOUT, _existing_judge_dispatches, anchor_candidate_groups
 from .request_admission import admit_request
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
@@ -312,7 +313,10 @@ def collect_stability_flips(*, base_dir: str | Path | None = None) -> dict[str, 
     flips_path = stability_flips_path(root)
     recorded: set[str] = {
         str(row.get("stability_group_id"))
-        for row in (load_jsonl(flips_path) if flips_path.exists() else [])
+        for row in (
+            load_declared_jsonl(flips_path, expected_surface="stability_flips")
+            if flips_path.exists() else []
+        )
         if row.get("stability_group_id")
     }
     feedback = load_feedback(base_dir=root)
@@ -384,7 +388,12 @@ def collect_stability_flips(*, base_dir: str | Path | None = None) -> dict[str, 
     if fresh:
         flips_path.parent.mkdir(parents=True, exist_ok=True)
         for row in fresh:
-            append_jsonl(flips_path, row)
+            # Declared surface (state_manifest 'stability_flips'): the table
+            # survives job teardown chained like every published ledger —
+            # an unchained append is exactly the row teardown would drop.
+            append_declared_jsonl(
+                flips_path, row, expected_surface="stability_flips",
+            )
     return {
         "schema_version": 1, "recorded_at": utc_now(),
         "examined": len(reask_by_stability), "recorded_count": len(fresh),
@@ -406,7 +415,10 @@ def load_flip_rates(*, base_dir: str | Path | None = None) -> dict[str, float]:
     path = stability_flips_path(root)
     asks: dict[str, int] = {}
     flips: dict[str, int] = {}
-    for row in (load_jsonl(path) if path.exists() else []):
+    for row in (
+        load_declared_jsonl(path, expected_surface="stability_flips")
+        if path.exists() else []
+    ):
         judge_id = str(row.get("judge_id") or "")
         if not judge_id:
             continue
@@ -422,7 +434,10 @@ def unstable_anchor_groups(*, base_dir: str | Path | None = None) -> set[str]:
     path = stability_flips_path(root)
     return {
         str(row.get("judgment_group_id"))
-        for row in (load_jsonl(path) if path.exists() else [])
+        for row in (
+            load_declared_jsonl(path, expected_surface="stability_flips")
+            if path.exists() else []
+        )
         if row.get("anchor_flip") and row.get("judgment_group_id")
     }
 

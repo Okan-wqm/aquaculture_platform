@@ -533,6 +533,12 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     # the cited blobs at the anchor) → the settled verdict's group. A hit
     # mints nothing; a blob change invalidates (judgment_cache).
     StateSurface("judgment_funnel_cache", "judgment-funnel/verdict-cache.jsonl", "ledger", "judgment_funnel", "runtime", True, "append_fsync", True, profile_surface="agent_claim", observe_class="observation"),
+    # WP-J slice D — the ONE flip table: per stability group, the original
+    # vs re-ask verdict, anchor flips flagged. Write-driving: the weight
+    # temper (role_fitness.load_flip_rates) and the anchor-flip promotion
+    # bar (finding promotion) read it back, so losing it would reset the
+    # temper and un-gate every unstable anchor (stability_reask).
+    StateSurface("stability_flips", "stability/stability-flips.jsonl", "ledger", "stability_reask", "runtime", True, "append_fsync", True, profile_surface="agent_claim", observe_class="observation"),
     StateSurface("agent_work_journal", "agent-invocations/work-journal.jsonl", "ledger", "work_journal", "runtime", True, "append_fsync", True, profile_surface="agent_claim", observe_class="action"),
     # Plan 032 Faz 032c — checkpoints (observation), sessions, external-effect intents/receipts and recovery decisions (write-driving).
     StateSurface("checkpoints_index", "checkpoints/index.jsonl", "ledger", "checkpoints", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),

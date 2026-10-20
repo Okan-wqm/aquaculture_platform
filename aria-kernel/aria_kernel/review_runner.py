@@ -56,7 +56,7 @@ import hashlib
 import re
 import time
 from pathlib import Path
-from typing import Any, Literal, Protocol, TypedDict
+from typing import Any, Literal, Mapping, Protocol, TypedDict
 
 from .agent_invocations import (
     accepted_result_for_request,
@@ -242,6 +242,42 @@ def run_review_runner(
     """
     root = ensure_tools_dir(base_dir)
 
+    # ARIA-HIGH-614 — the Gate B judge audits the implementation of THIS
+    # plan, so its citation box is the plan's own record: the started
+    # body's surfaces and admission bound (the implementation worked inside
+    # exactly that bound) plus its evidence refs. ``cycle/<id>`` matches no
+    # repository path, and an envelope scoped only to it can be answered
+    # with nothing the response law admits. A convergence_id whose plan
+    # never started names no subject to audit: the merge stays blocked
+    # under a named gap instead of minting an unanswerable envelope that
+    # polls its full timeout (the same fail-closed shape every other
+    # blocking path here takes).
+    from .plan_convergence import fold_plan_state
+    from .plan_round_scope import plan_round_contract
+
+    review_state = fold_plan_state(plan_id=str(plan_id), base_dir=root)
+    if not isinstance(review_state.get("plan_started"), Mapping):
+        return _empty_review_result(
+            plan_id=plan_id,
+            convergence_id=convergence_id,
+            impl_artifacts_ref=impl_artifacts_ref,
+            verdict="gaps_open",
+            rounds_count=0,
+            gaps_found=[{
+                "id": "adversarial_judge_scope_unanswerable",
+                "severity": "HIGH",
+                "evidence_ref": f"cycle:{cycle_id}",
+                "description": (
+                    f"no started plan record for plan_id "
+                    f"{plan_id!r}; the judge's citation box derives "
+                    f"from the plan it audits, so no envelope can be minted"
+                ),
+            }],
+        )
+    review_contract = plan_round_contract(review_state)
+    review_evidence_refs = list(review_contract.evidence_refs)
+    review_evidence_scope = [*review_contract.allowed_scope, *review_contract.evidence_scope]
+
     # Plan ARIA-V5 §3d v2 R-B3 — artifact-hash mismatch is the only
     # short-circuit path that bypasses judge dispatch. The bound
     # triple (cycle_id, impl_artifacts_ref, worker_artifact_hash)
@@ -298,6 +334,10 @@ def run_review_runner(
             ),
             must_satisfy=must_satisfy,
             allowed_scope=[f"cycle/{cycle_id}"],
+            # ARIA-HIGH-614 — the plan's own record is the judge's box (see
+            # the derivation above the round loop).
+            evidence_refs=review_evidence_refs,
+            evidence_scope=review_evidence_scope,
             # ARIA-MEDIUM-385 — the cycle rides on its field, never as a ref
             # the judge would cite and the submit law refuse.
             cycle_id=cycle_id,

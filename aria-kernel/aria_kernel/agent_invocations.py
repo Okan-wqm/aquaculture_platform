@@ -1381,6 +1381,14 @@ def create_agent_invocation_request(
     # written. The 2026-10-06 store held 606 never-claimed and 836
     # anchor-stale rows minted by eleven producers that never asked.
     admission: Admission,
+    # ARIA-HIGH-614 — the read-only citation box a producer derives from its
+    # own subject (a questioning or Gate B judge carries the plan's surfaces
+    # and evidence; a genesis drafter or judge the evidence pack's). The
+    # planning-round roles keep their mint-derived scope (ARIA-HIGH-357:
+    # derived so no producer can widen or forget it) and are refused if they
+    # try to supply one. Additive + optional: every other role mints with
+    # None and legacy rows read as absent.
+    evidence_scope: list[str] | None = None,
     # ARIA-MEDIUM-385 — the stable name of WHAT the request is about, for a
     # producer whose subject outlives the cycle that asks (a merged PR, one
     # gold-corpus state: ``pr_tracking.change_intelligence_subject_ref``,
@@ -1462,12 +1470,29 @@ def create_agent_invocation_request(
     # an item they DO carry is still held to the shape.
     if must_satisfy:
         must_satisfy = validate_must_satisfy(must_satisfy)
+    # ARIA-HIGH-614 — the supplied read-only evidence scope is held to the
+    # same shape as forbidden_scope; a planning-round envelope refuses one
+    # outright (below).
+    if evidence_scope is not None and (
+        not isinstance(evidence_scope, list)
+        or any(not isinstance(item, str) or not item.strip() for item in evidence_scope)
+    ):
+        raise GovernanceError("create_agent_invocation_request_evidence_scope_must_be_list_of_strings")
     # ARIA-HIGH-345 — a planning-round envelope belongs to the plan it
     # names. The F-007 plan's round-1 cross_review was minted with the scope
     # and key change of another candidate in the same cycle and could only be
     # refused by its reviewer; the drainer no longer has a parameter through
     # which that can happen, and this refuses it for every other producer.
-    evidence_scope: list[str] = []
+    if role in PLANNING_ROUND_ROLES and evidence_scope:
+        # ARIA-HIGH-357 keeps the planning-round evidence scope derived from
+        # the plan's own record; a producer-supplied one here would be the
+        # widening that derivation exists to prevent, so it is refused by
+        # name rather than silently dropped or merged.
+        raise GovernanceError(
+            "create_agent_invocation_request_evidence_scope_derived_for_plan_rounds: "
+            f"role {role!r} envelope scope comes from plan_round_scope.plan_round_contract"
+        )
+    derived_evidence_scope: list[str] = []
     if role in PLANNING_ROUND_ROLES and convergence_id:
         from .plan_convergence import fold_plan_state
 
@@ -1479,7 +1504,8 @@ def create_agent_invocation_request(
         # ARIA-HIGH-357 (ADR-0021 D9) — the read-only evidence scope is the
         # plan's own record, derived here so no producer can widen or forget it.
         if isinstance(round_state.get("plan_started"), Mapping):
-            evidence_scope = list(plan_round_contract(round_state).evidence_scope)
+            derived_evidence_scope = list(plan_round_contract(round_state).evidence_scope)
+    evidence_scope = derived_evidence_scope or list(evidence_scope or [])
     if forbidden_scope is not None and (
         not isinstance(forbidden_scope, list)
         or any(not isinstance(item, str) or not item.strip() for item in forbidden_scope)
@@ -1597,6 +1623,31 @@ def create_agent_invocation_request(
             f"record rides on its own field (cycle_id, convergence_id, round_number, "
             f"subject_ref) or in the prompt as data"
         )
+    # ARIA-HIGH-614 — what the submit law refuses, the mint refuses, for the
+    # box AS A WHOLE: the response law admits a citation only inside
+    # ``allowed_scope ∪ evidence_scope`` or by identity as one of the
+    # request's ``evidence_refs`` (evidence_validator's cross-check), so an
+    # envelope whose union holds only non-repository namespace labels
+    # (``cycle/``, ``plan-convergence/``, ``convergent/``) can buy only a
+    # refused answer — the three paid ``verification`` runs of 2026-10-15/16
+    # were rejected for exactly this. The mint-side twin of that cross-check,
+    # role-independent; a kernel ledger pointer still counts (the law admits
+    # it by identity, which is how the adjudication lane's own subject
+    # travels). Judged for a NEW identity only, as above, and never for the
+    # operator's legacy opt-out lane, whose approved shape predates strict
+    # fields entirely.
+    if not legacy_strict_fields_optional:
+        from .evidence_validator import scope_entry_admits_citable_ref
+
+        box_entries = [*(allowed_scope or []), *(evidence_scope or []), *(evidence_refs or [])]
+        if not any(scope_entry_admits_citable_ref(entry) for entry in box_entries):
+            raise GovernanceError(
+                "agent_request_scope_admits_no_repository_ref: role "
+                f"{role!r} envelope box {box_entries[:6]} holds only non-repository "
+                f"namespaces; the response law would refuse every citation "
+                f"(agent_evidence_outside_allowed_scope). Carry the subject's own "
+                f"repository refs as evidence_refs and its surfaces as evidence_scope"
+            )
     # A sealed request owns its original context and audit. Only a new
     # identity acquires current optional inputs or captures budget costs.
     evidence_excerpts = _evidence_excerpts_for_refs(

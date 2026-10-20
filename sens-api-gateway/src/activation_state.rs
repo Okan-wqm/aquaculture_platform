@@ -163,6 +163,36 @@ impl ActivationState {
             .with_context(|| format!("Failed to persist activation state {}", path.display()))
     }
 
+    /// Suderra OS: the identity this activation result names must be the
+    /// root-recorded one (ADR-048 DEC-3.6, DEC-22). The tenant every signed
+    /// statement and command envelope is bound to comes from the identity
+    /// root recorded at first provisioning, never from an activation
+    /// response; a response that names another tenant or device — a cloud
+    /// defect, or a compromised or intercepted activation API — is refused
+    /// before anything of it is persisted or applied.
+    #[cfg(feature = "suderra-os")]
+    pub fn check_identity(&self, identity: &crate::edge_contract::verify::Identity) -> Result<()> {
+        if self.tenant_id != identity.tenant_id {
+            anyhow::bail!(
+                "activation response names tenant {}, the root-recorded identity is tenant {}; \
+                 the response is refused and nothing of it is kept (ADR-048 DEC-3.6)",
+                self.tenant_id,
+                identity.tenant_id
+            );
+        }
+        if let Some(device_id) = &self.device_id {
+            if *device_id != identity.device_id {
+                anyhow::bail!(
+                    "activation response assigns device {}, the root-recorded identity is device \
+                     {}; the response is refused and nothing of it is kept (ADR-048 DEC-3.6)",
+                    device_id,
+                    identity.device_id
+                );
+            }
+        }
+        Ok(())
+    }
+
     /// Overlay the document on `config` by the module's ownership rule.
     pub fn apply_to(&self, config: &mut AgentConfig) {
         if let Some(device_id) = &self.device_id {
@@ -433,6 +463,36 @@ mod tests {
         assert_eq!(after.mqtt.username.as_deref(), Some("dev-user"));
         assert_eq!(after.tenant_id.as_deref(), Some(TENANT));
         assert!(after.provisioning_token.is_none());
+    }
+
+    /// ADR-048 DEC-3.6: an activation response cannot move the device to
+    /// another tenant or device.
+    #[cfg(feature = "suderra-os")]
+    #[test]
+    fn only_the_root_recorded_identity_is_accepted() {
+        use crate::edge_contract::verify::Identity;
+        let identity = Identity {
+            tenant_id: TENANT.to_string(),
+            device_id: DEVICE.to_string(),
+        };
+        let state = ActivationState::from_result(&config(None), &result());
+        assert!(state.check_identity(&identity).is_ok());
+        let other_tenant = Identity {
+            tenant_id: "7e570000-0000-4000-8000-0000000000ff".to_string(),
+            ..identity.clone()
+        };
+        let err = state
+            .check_identity(&other_tenant)
+            .expect_err("other tenant")
+            .to_string();
+        assert!(err.contains("names tenant"), "{err}");
+        let mut assigned = state.clone();
+        assigned.device_id = Some("7e570000-0000-4000-8000-0000000000ee".to_string());
+        let err = assigned
+            .check_identity(&identity)
+            .expect_err("other device")
+            .to_string();
+        assert!(err.contains("assigns device"), "{err}");
     }
 
     #[test]

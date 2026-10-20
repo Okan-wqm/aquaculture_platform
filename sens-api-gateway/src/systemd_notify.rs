@@ -166,6 +166,20 @@ impl SystemdNotifier {
         self.send(&format!("READY=1\nSTATUS={}\n", one_line(status)))
     }
 
+    /// `EXTEND_TIMEOUT_USEC=` with the status line, while the agent is still
+    /// starting: it waits, with no output touched, for a configuration it may
+    /// act on (ADR-048 DEC-4.10 standby). systemd extends the start timeout by
+    /// `by` from now; the watchdog is not armed before READY, and READY is
+    /// sent only once the outputs are safe (DEC-6.2), so a standby neither
+    /// times out into a restart loop nor claims readiness.
+    pub fn extend_start_timeout(&self, by: Duration, status: &str) -> io::Result<()> {
+        self.send(&format!(
+            "EXTEND_TIMEOUT_USEC={}\nSTATUS={}\n",
+            by.as_micros(),
+            one_line(status)
+        ))
+    }
+
     /// `STATUS=` only.
     pub fn status(&self, status: &str) -> io::Result<()> {
         self.send(&format!("STATUS={}\n", one_line(status)))
@@ -277,6 +291,20 @@ mod tests {
         }
         n.stopping("stopping").expect("stopping");
         assert_eq!(recv(&socket), "STOPPING=1\nSTATUS=stopping\n");
+    }
+
+    #[test]
+    fn standby_extends_the_start_timeout_without_ready() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("notify.sock");
+        let socket = UnixDatagram::bind(&path).expect("bind");
+        let n = SystemdNotifier::for_socket(path, Some(Duration::from_secs(60)));
+        n.extend_start_timeout(Duration::from_secs(90), "standby: config\nREADY=1")
+            .expect("extend");
+        assert_eq!(
+            recv(&socket),
+            "EXTEND_TIMEOUT_USEC=90000000\nSTATUS=standby: config READY=1\n"
+        );
     }
 
     #[test]

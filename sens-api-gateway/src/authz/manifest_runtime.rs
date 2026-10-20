@@ -6,9 +6,10 @@
 //! signature verify path will consume (Sprint 6.1 full wire
 //! Gate 7 swap planned as Batch 68+).
 //!
-//! The store is populated at boot by `load_from_file`:
-//! 1. Reads the JSON file [`boot_manifest_path`] resolves from the
-//!    agent's path SSoT (ADR-048 DEC-4.5).
+//! The store is populated at boot by `load_from_files`:
+//! 1. Reads the JSON files [`boot_manifest_candidates`] resolves from the
+//!    agent's path SSoT (ADR-048 DEC-4.5) and keeps the verified one with
+//!    the highest `policy_version`.
 //! 2. Deserializes as `SignedRbacManifest`.
 //! 3. Calls the Batch 5b pure `verify_manifest` with
 //!    closure-injected ed25519 via `ed25519_dalek`.
@@ -16,7 +17,7 @@
 //!    `self.current`.
 //! 5. On Err, routes per mode (Permissive warn-logs +
 //!    continues with empty store; Enforcing returns Err →
-//!    main.rs exit(1)).
+//!    degraded mode after the boot safe-state).
 //!
 //! Consumers (envelope adapter, command dispatch) call
 //! `lookup_operator_pubkey(operator_id) -> Option<[u8; 32]>`
@@ -46,45 +47,42 @@ use tracing::info;
 #[cfg(not(feature = "suderra-os"))]
 use tracing::warn;
 
-use super::manifest::{OperatorBinding, RbacManifest};
 #[cfg(not(feature = "suderra-os"))]
 use super::manifest::SignedRbacManifest;
+use super::manifest::{OperatorBinding, RbacManifest};
 #[cfg(not(feature = "suderra-os"))]
 use super::manifest_version_store::ManifestVersionStore;
+use super::permission::OperatorId;
 #[cfg(not(feature = "suderra-os"))]
 use super::permission::TenantId;
-use super::permission::OperatorId;
 #[cfg(not(feature = "suderra-os"))]
 use super::verify::manifest_digest;
 #[cfg(not(feature = "suderra-os"))]
 use crate::config::RbacManifestMode;
 
-/// The manifest file the boot loader reads.
+/// The manifest files the generic boot loader considers (ADR-048 DEC-4.5):
+/// the copy a previous `update_policy` persisted under the data root, and
+/// the operator's `rbac_manifest.manifest_path` (else
+/// `/etc/suderra/rbac_manifest.json`). Both channels deliver manifests, so
+/// neither may silently shadow the other: the boot loader verifies every
+/// candidate that exists and keeps the one with the highest
+/// `policy_version` ([`RbacManifestStore::load_from_files`]). Before, the
+/// persisted copy always won once it existed, and a newer manifest rolled
+/// out through configuration management was ignored forever.
 ///
-/// Suderra OS: the statement the root installer delivered into the
-/// read-only site directory, at its compile-time path (ADR-048 DEC-4.12);
-/// the configuration cannot move it (`Config::validate`).
-///
-/// Generic: the copy a previous `update_policy` persisted under the data
-/// root, whenever it exists — it is the newest accepted manifest, and the
-/// version floor already stands at its version, so an older seed file
-/// would be refused as a rollback. Otherwise the operator's
-/// `rbac_manifest.manifest_path`, else `/etc/suderra/rbac_manifest.json`.
-#[cfg(feature = "suderra-os")]
-pub fn boot_manifest_path(paths: &crate::paths::AgentPaths, _configured: Option<&Path>) -> PathBuf {
-    paths.rbac_manifest_file()
-}
-
-/// See the Suderra OS variant.
+/// The Suderra OS manifest is the site statement, verified with the site
+/// (`crate::site_trust`).
 #[cfg(not(feature = "suderra-os"))]
-pub fn boot_manifest_path(paths: &crate::paths::AgentPaths, configured: Option<&Path>) -> PathBuf {
-    let persisted = paths.rbac_manifest_persist_file();
-    if persisted.exists() {
-        return persisted;
-    }
-    configured
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| paths.rbac_manifest_file())
+pub fn boot_manifest_candidates(
+    paths: &crate::paths::AgentPaths,
+    configured: Option<&Path>,
+) -> [PathBuf; 2] {
+    [
+        paths.rbac_manifest_persist_file(),
+        configured
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| paths.rbac_manifest_file()),
+    ]
 }
 
 /// Runtime store for the verified RBAC manifest.
@@ -127,7 +125,8 @@ impl RbacManifestStore {
         self
     }
 
-    /// Load + verify the manifest from disk.
+    /// Load + verify the boot manifest from disk: the verified candidate
+    /// with the highest `policy_version`.
     ///
     /// INPUTS:
     /// - `mode` — operator-configured rollout stage.
@@ -135,7 +134,8 @@ impl RbacManifestStore {
     ///   for signature verify. Required in Permissive/
     ///   Enforcing mode (Batch 66 Rule 12 enforces at config
     ///   load).
-    /// - `path` — the manifest file ([`boot_manifest_path`]).
+    /// - `candidates` — the manifest files ([`boot_manifest_candidates`]);
+    ///   one that does not exist is skipped.
     /// - `expected_tenant` — TenantId from provisioning
     ///   bound to this device.
     ///
@@ -144,13 +144,13 @@ impl RbacManifestStore {
     ///   (log failure + continue), or Enforcing mode with
     ///   successful verify.
     /// - `Err(String)` — Enforcing mode with verify failure;
-    ///   caller exits(1).
+    ///   the caller enters degraded mode after the boot safe-state.
     #[cfg(not(feature = "suderra-os"))]
-    pub fn load_from_file(
+    pub fn load_from_files(
         &self,
         mode: RbacManifestMode,
         signing_pubkey_hex: Option<&str>,
-        path: &Path,
+        candidates: &[&Path],
         expected_tenant: &TenantId,
     ) -> Result<(), String> {
         if matches!(mode, RbacManifestMode::Disabled) {
@@ -159,12 +159,11 @@ impl RbacManifestStore {
         }
 
         info!(
-            "RBAC manifest load: mode={:?} path={}",
-            mode,
-            path.display()
+            "RBAC manifest load: mode={:?} candidates={:?}",
+            mode, candidates
         );
 
-        let outcome = self.load_from_file_inner(signing_pubkey_hex, path, expected_tenant);
+        let outcome = self.load_from_files_inner(signing_pubkey_hex, candidates, expected_tenant);
 
         match (mode, outcome) {
             (RbacManifestMode::Disabled, _) => Ok(()), // unreachable (early return)
@@ -198,29 +197,75 @@ impl RbacManifestStore {
         }
     }
 
-    /// Inner load — reads bytes from `path`, verifies them against the
-    /// floor, then advances the floor. Returns the verified RbacManifest
-    /// or Err(reason).
+    /// Inner load — verifies every candidate that exists against the floor
+    /// ([`LoadKind::Boot`](super::verify::LoadKind)), keeps the verified one
+    /// with the highest `policy_version`, then advances the floor to it.
+    /// Two different verified manifests at that version are ambiguous and
+    /// refused. Returns the chosen RbacManifest or Err(reason).
     #[cfg(not(feature = "suderra-os"))]
-    fn load_from_file_inner(
+    fn load_from_files_inner(
         &self,
         signing_pubkey_hex: Option<&str>,
-        path: &Path,
+        candidates: &[&Path],
         expected_tenant: &TenantId,
     ) -> Result<RbacManifest, String> {
-        let bytes = std::fs::read(path)
-            .map_err(|e| format!("Failed to read RBAC manifest at {}: {}", path.display(), e))?;
-
-        let (verified, digest) = self
-            .verify_against_floor(
+        let mut rejected = Vec::new();
+        let mut verified: Vec<(RbacManifest, String, &Path)> = Vec::new();
+        for path in candidates {
+            let bytes = match std::fs::read(path) {
+                Ok(bytes) => bytes,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(e) => {
+                    rejected.push(format!("{}: read failed: {}", path.display(), e));
+                    continue;
+                }
+            };
+            match self.verify_against_floor(
                 signing_pubkey_hex,
                 &bytes,
                 expected_tenant,
                 super::verify::LoadKind::Boot,
-            )
-            .map_err(|e| format!("{} (source={})", e, path.display()))?;
-        self.advance_floor(verified.policy_version, &digest)?;
-        Ok(verified)
+            ) {
+                Ok((manifest, digest)) => verified.push((manifest, digest, path)),
+                Err(e) => rejected.push(format!("{}: {}", path.display(), e)),
+            }
+        }
+        for reason in &rejected {
+            warn!("RBAC manifest candidate not used: {}", reason);
+        }
+        let Some(top) = verified.iter().map(|(m, _, _)| m.policy_version).max() else {
+            return Err(if rejected.is_empty() {
+                format!("no RBAC manifest at any of {:?}", candidates)
+            } else {
+                rejected.join("; ")
+            });
+        };
+        let mut at_top = verified
+            .into_iter()
+            .filter(|(m, _, _)| m.policy_version == top);
+        let Some((manifest, digest, path)) = at_top.next() else {
+            return Err(format!("no RBAC manifest at policy_version {top}"));
+        };
+        if let Some((_, other_digest, other_path)) = at_top.find(|(_, d, _)| *d != digest) {
+            return Err(format!(
+                "{} and {} are different manifests at policy_version {} (digests {} and {}); \
+                 neither is used",
+                path.display(),
+                other_path.display(),
+                top,
+                digest,
+                other_digest
+            ));
+        }
+        info!(
+            "RBAC manifest boot source: {} (policy_version={}, the highest verified of {} \
+             candidate(s))",
+            path.display(),
+            top,
+            candidates.len()
+        );
+        self.advance_floor(manifest.policy_version, &digest)?;
+        Ok(manifest)
     }
 
     /// Shared verify logic. Called from both the boot-time file loader
@@ -314,7 +359,7 @@ impl RbacManifestStore {
     /// 1. Verify against the current floor (writes nothing).
     /// 2. Persist the bytes durably to `persist_path` (temporary name,
     ///    fsync, rename, directory fsync) — the file the next boot
-    ///    loads ([`boot_manifest_path`]).
+    ///    considers ([`boot_manifest_candidates`]).
     /// 3. Advance the version floor.
     /// 4. Swap the verified manifest into `self.current`.
     ///
@@ -326,7 +371,7 @@ impl RbacManifestStore {
     /// and an Enforcing boot refused it as a rollback — forever.
     ///
     /// On failure: `self.current` is UNCHANGED. This matches
-    /// the fail-closed discipline of `load_from_file`: if the
+    /// the fail-closed discipline of `load_from_files`: if the
     /// new manifest is invalid (bad signature, tenant mismatch,
     /// rollback attempt), the agent keeps operating under the
     /// previously-verified manifest rather than regressing.
@@ -432,7 +477,7 @@ impl RbacManifestStore {
     /// RwLock with a manifest directly, without running the
     /// signature-verify gates. ONLY callable inside the
     /// crate's `#[cfg(test)]` builds — production paths
-    /// (`load_from_file`, `hot_reload_from_bytes`) enforce
+    /// (`load_from_files`, `hot_reload_from_bytes`) enforce
     /// the full verification chain. Exists purely so unit
     /// tests for the InMemoryPolicyEngine + other consumers
     /// can seed deterministic manifest shapes without
@@ -510,70 +555,32 @@ impl RbacGateRecord {
 
 #[cfg(feature = "suderra-os")]
 impl RbacManifestStore {
-    /// Loads the RBAC manifest statement the root installer delivered
-    /// (`suderra.rbac-manifest.v1`, DEC-9.4, DEC-9.9) and makes it the
-    /// store's manifest.
+    /// Makes a verified `suderra.rbac-manifest.v1` statement the store's
+    /// manifest (DEC-9.4, DEC-9.9).
     ///
-    /// The statement is verified as the contract's agent verifier does it,
-    /// against the `rbac-manifest` anchor of the verified trust-anchors
-    /// bundle and the device's tenant, with every actor key required to be
-    /// a `command` anchor of the same bundle. The version gate
-    /// (`gate_path`) admits a higher `policy_version`, and the identical
-    /// manifest it already accepted as a re-verification, so the agent's
-    /// own manifest is accepted again on every boot (EDGE-HIGH-059); any
-    /// other manifest is refused. The gate advances, durably, before the
-    /// manifest is swapped in. On any failure the store is left unchanged:
-    /// with no manifest every permissioned command is refused.
-    pub fn load_contract_statement(
+    /// The statement reaches this point only through
+    /// [`crate::site_trust::SiteTrust::establish`]: verified as the
+    /// contract's agent verifier does it, against the `rbac-manifest` anchor
+    /// of the verified trust-anchors bundle and the device's tenant, every
+    /// actor key a `command` anchor of the same bundle, the manifest the
+    /// verified site config names, and admitted by the agent's RBAC version
+    /// gate, which was advanced durably before this call. On a manifest the
+    /// agent's permission vocabulary cannot represent the store is left
+    /// unchanged: with no manifest every permissioned command is refused.
+    pub fn install_contract(
         &self,
-        trust: &crate::trust_anchors::InstalledTrust,
-        manifest_path: &Path,
-        gate_path: &Path,
-        now: &str,
+        verified: &crate::edge_contract::verify::Verified<
+            crate::edge_contract::statements::RbacManifest,
+        >,
     ) -> Result<u64, String> {
-        use crate::edge_contract::dsse::Envelope;
-        use crate::edge_contract::registry::StatementType;
-        use crate::edge_contract::verify::{Accepted, verify_rbac};
-        use crate::trust_anchors::{MAX_STATEMENT_BYTES, read_bounded, reasons_text};
-
-        let bytes = read_bounded(manifest_path, MAX_STATEMENT_BYTES).map_err(|e| e.to_string())?;
-        let rejected = |reasons: &std::collections::BTreeSet<_>| {
-            format!(
-                "RBAC manifest statement {} rejected: {}",
-                manifest_path.display(),
-                reasons_text(reasons)
-            )
-        };
-        let env = Envelope::parse(&bytes)
-            .map_err(|r| rejected(&std::collections::BTreeSet::from([r])))?;
-        let mut gates = std::collections::BTreeMap::new();
-        if let Some(gate) = RbacGateRecord::read(gate_path)? {
-            gates.insert(
-                StatementType::RbacManifest,
-                Accepted {
-                    seq: gate.policy_version,
-                    statement_digest: gate.statement_digest,
-                },
-            );
-        }
-        let verified = verify_rbac(&env, &trust.scope(&gates, now), trust.bundle_keys())
-            .accepted()
-            .map_err(|reasons| rejected(&reasons))?;
         let manifest = runtime_manifest_from_contract(&verified.statement)?;
         let policy_version = manifest.policy_version;
-        if !verified.reverified {
-            RbacGateRecord {
-                policy_version,
-                statement_digest: verified.digest.clone(),
-            }
-            .write(gate_path)?;
-        }
         match self.current.write() {
             Ok(mut guard) => *guard = Some(manifest),
             Err(_) => return Err("RwLock poisoned on RBAC manifest store write".to_string()),
         }
         info!(
-            "RBAC manifest statement verified: policy_version={} reverified={} digest={}",
+            "RBAC manifest statement installed: policy_version={} reverified={} digest={}",
             policy_version, verified.reverified, verified.digest
         );
         Ok(policy_version)
@@ -869,7 +876,7 @@ mod hot_reload_order_tests {
         );
 
         let boot = RbacManifestStore::new().with_version_store(vs.clone());
-        boot.load_from_file(RbacManifestMode::Enforcing, Some(&hex), &path, &tenant())
+        boot.load_from_files(RbacManifestMode::Enforcing, Some(&hex), &[&path], &tenant())
             .expect("the accepted manifest boots");
         assert_eq!(boot.policy_version(), Some(5));
         let digest = vs
@@ -886,7 +893,7 @@ mod hot_reload_order_tests {
         // Reboot: an identical re-verification.
         RbacManifestStore::new()
             .with_version_store(vs.clone())
-            .load_from_file(RbacManifestMode::Enforcing, Some(&hex), &path, &tenant())
+            .load_from_files(RbacManifestMode::Enforcing, Some(&hex), &[&path], &tenant())
             .expect("reboot");
         // Another manifest at the adopted version is now a replay.
         let sk = SigningKey::from_bytes(&[42u8; SECRET_KEY_LENGTH]);
@@ -899,7 +906,7 @@ mod hot_reload_order_tests {
         let replay = RbacManifestStore::new().with_version_store(vs);
         assert!(
             replay
-                .load_from_file(RbacManifestMode::Enforcing, Some(&hex), &path, &tenant())
+                .load_from_files(RbacManifestMode::Enforcing, Some(&hex), &[&path], &tenant())
                 .is_err()
         );
         assert!(!replay.is_loaded());
@@ -916,11 +923,11 @@ mod hot_reload_order_tests {
         let path = dir.path().join("rbac_manifest.json");
         std::fs::write(&path, &bytes).expect("seed");
         store
-            .load_from_file(RbacManifestMode::Enforcing, Some(&hex), &path, &tenant())
+            .load_from_files(RbacManifestMode::Enforcing, Some(&hex), &[&path], &tenant())
             .expect("first boot");
         let reboot = RbacManifestStore::new().with_version_store(vs.clone());
         reboot
-            .load_from_file(RbacManifestMode::Enforcing, Some(&hex), &path, &tenant())
+            .load_from_files(RbacManifestMode::Enforcing, Some(&hex), &[&path], &tenant())
             .expect("second boot accepts its own manifest");
         assert_eq!(reboot.policy_version(), Some(5));
 
@@ -938,61 +945,103 @@ mod hot_reload_order_tests {
         let replay = RbacManifestStore::new().with_version_store(vs);
         assert!(
             replay
-                .load_from_file(RbacManifestMode::Enforcing, Some(&hex), &path, &tenant())
+                .load_from_files(RbacManifestMode::Enforcing, Some(&hex), &[&path], &tenant())
                 .is_err()
         );
         assert!(!replay.is_loaded());
     }
 
-    /// Generic boot source: the persisted hot-reload copy wins over the
-    /// operator's seed file once it exists.
+    /// m8: the boot loader verifies the persisted hot-reload copy and the
+    /// operator's file and keeps the higher verified `policy_version`, in
+    /// either direction; a stale candidate is skipped, not fatal.
     #[test]
-    fn boot_prefers_the_persisted_copy() {
+    fn boot_keeps_the_higher_of_the_persisted_copy_and_the_operator_file() {
         let dir = tempfile::tempdir().expect("tempdir");
         let paths = crate::paths::AgentPaths::generic(crate::paths::GenericOverrides {
             data_root: Some(dir.path().to_path_buf()),
             ..Default::default()
         });
-        let seed = dir.path().join("seed.json");
-        assert_eq!(boot_manifest_path(&paths, Some(&seed)), seed);
+        let operator = dir.path().join("operator-rbac.json");
+        let [persisted, configured] = boot_manifest_candidates(&paths, Some(&operator));
+        assert_eq!(persisted, paths.rbac_manifest_persist_file());
+        assert_eq!(configured, operator);
         assert_eq!(
-            boot_manifest_path(&paths, None),
+            boot_manifest_candidates(&paths, None)[1],
             Path::new("/etc/suderra/rbac_manifest.json")
         );
-        std::fs::write(paths.rbac_manifest_persist_file(), b"{}").expect("seed persisted");
-        assert_eq!(
-            boot_manifest_path(&paths, Some(&seed)),
-            paths.rbac_manifest_persist_file()
+        let (_, vs) = store_with_floor(dir.path());
+        let (hex, v5) = signed(5);
+        let (_, v6) = signed(6);
+        let boot = |vs: &Arc<ManifestVersionStore>| {
+            let store = RbacManifestStore::new().with_version_store(vs.clone());
+            store
+                .load_from_files(
+                    RbacManifestMode::Enforcing,
+                    Some(&hex),
+                    &[&persisted, &configured],
+                    &tenant(),
+                )
+                .map(|()| store.policy_version())
+        };
+        // update_policy persisted v5; configuration management delivers v6.
+        std::fs::write(&persisted, &v5).expect("persisted");
+        assert_eq!(boot(&vs), Ok(Some(5)), "only the persisted copy exists");
+        std::fs::write(&configured, &v6).expect("operator");
+        assert_eq!(boot(&vs), Ok(Some(6)), "the newer operator file wins");
+        assert_eq!(vs.get_highest_seen().expect("floor"), 6);
+        // The stale persisted copy is skipped on every later boot.
+        assert_eq!(boot(&vs), Ok(Some(6)));
+        // Two different manifests at one version: neither is used.
+        let (_, v7) = signed(7);
+        let mut other: SignedRbacManifest = serde_json::from_slice(&v7).expect("parse");
+        other.manifest.manifest_valid_until_unix_secs += 1;
+        let sk = SigningKey::from_bytes(&[42u8; SECRET_KEY_LENGTH]);
+        let sig = sk.sign(&other.manifest.canonical_bytes().expect("canonical"));
+        other.signature = Ed25519SignatureBytes::from_slice(&sig.to_bytes()).expect("sig");
+        std::fs::write(&persisted, &v7).expect("persisted v7");
+        std::fs::write(&configured, serde_json::to_vec(&other).expect("json")).expect("v7'");
+        let err = boot(&vs).expect_err("ambiguous");
+        assert!(
+            err.contains("different manifests at policy_version 7"),
+            "{err}"
         );
+        assert_eq!(vs.get_highest_seen().expect("floor"), 6, "nothing accepted");
+        // No candidate at all fails closed in Enforcing.
+        std::fs::remove_file(&persisted).expect("rm");
+        std::fs::remove_file(&configured).expect("rm");
+        assert!(boot(&vs).expect_err("none").starts_with("no RBAC manifest"));
     }
 }
 
-/// DEC-9.4 / DEC-9.9 / EDGE-HIGH-059: the Suderra OS loader against the
-/// contract's golden RBAC manifests, bundle and device.
+/// DEC-9.4 / DEC-9.9: installing the contract's golden RBAC manifest
+/// verified against the bundle and device. The version gate and the
+/// statement checks are `crate::site_trust`'s (its tests).
 #[cfg(all(test, feature = "suderra-os"))]
 mod contract_statement_tests {
     #![allow(clippy::expect_used, clippy::unwrap_used, clippy::indexing_slicing)]
 
     use super::*;
     use crate::authz::permission::Permission;
+    use crate::edge_contract::dsse::Envelope;
+    use crate::edge_contract::verify::verify_rbac;
     use crate::trust_anchors::test_support::{FIXTURE_NOW, fixture, fixture_trust};
 
-    fn install(dir: &Path, rel: &str) -> PathBuf {
-        let path = dir.join("rbac-manifest.dsse");
-        std::fs::write(&path, fixture(rel)).unwrap();
-        path
-    }
-
     const POLICY_1: &str = "rbac-manifest/valid/platform-actor-policy-1.dsse.json";
-    const POLICY_2: &str = "rbac-manifest/valid/platform-actor-policy-2.dsse.json";
 
     #[test]
     fn the_platform_actor_maps_to_the_bundle_command_key() {
-        let (root, trust) = fixture_trust("trust-anchors/valid/bundle-seq-1.dsse.json");
-        let gate = root.path().join("policy-cache/rbac-manifest.gate.json");
+        let (_root, trust) = fixture_trust("trust-anchors/valid/bundle-seq-1.dsse.json");
+        let env = Envelope::parse(&fixture(POLICY_1)).unwrap();
+        let no_gates = std::collections::BTreeMap::new();
+        let verified = verify_rbac(
+            &env,
+            &trust.scope(&no_gates, FIXTURE_NOW),
+            trust.bundle_keys(),
+        )
+        .accepted()
+        .unwrap();
         let store = RbacManifestStore::new();
-        let path = install(root.path(), POLICY_1);
-        assert_eq!(store.load_contract_statement(&trust, &path, &gate, FIXTURE_NOW), Ok(1));
+        assert_eq!(store.install_contract(&verified), Ok(1));
         let (keyid, command) = trust
             .bundle_keys()
             .of_purpose(crate::edge_contract::registry::Purpose::Command)
@@ -1003,67 +1052,14 @@ mod contract_statement_tests {
             .with_manifest(|m| m.operator_bindings[0].operator_id.clone())
             .expect("loaded");
         assert_eq!(store.lookup_operator_pubkey(&actor), Some(command.raw));
-        assert!(store.with_manifest(|m| m.roles.iter().all(|r| r
-            .permissions
-            .iter()
-            .all(|p| !p.requires_two_person_integrity())))
-            .unwrap());
-        let record = RbacGateRecord::read(&gate).unwrap().expect("gate written");
-        assert_eq!(record.policy_version, 1);
-    }
-
-    #[test]
-    fn the_accepted_manifest_is_reaccepted_on_every_boot_and_rollback_is_refused() {
-        let (root, trust) = fixture_trust("trust-anchors/valid/bundle-seq-1.dsse.json");
-        let gate = root.path().join("rbac-manifest.gate.json");
-        let path = install(root.path(), POLICY_1);
-        RbacManifestStore::new()
-            .load_contract_statement(&trust, &path, &gate, FIXTURE_NOW)
-            .unwrap();
-        // A reboot long after the window that bounded the first acceptance.
-        let reboot = RbacManifestStore::new();
-        assert_eq!(
-            reboot.load_contract_statement(&trust, &path, &gate, "2099-01-01T00:00:00Z"),
-            Ok(1)
+        assert!(
+            store
+                .with_manifest(|m| m.roles.iter().all(|r| r
+                    .permissions
+                    .iter()
+                    .all(|p| !p.requires_two_person_integrity())))
+                .unwrap()
         );
-        // Another manifest at the accepted version is a replay.
-        let changed = install(
-            root.path(),
-            "rbac-manifest/invalid/same-policy-version-changed.dsse.json",
-        );
-        let err = reboot
-            .load_contract_statement(&trust, &changed, &gate, FIXTURE_NOW)
-            .unwrap_err();
-        assert!(err.ends_with("rejected: sequence-replay"), "{err}");
-        assert_eq!(reboot.policy_version(), Some(1), "store unchanged");
-        // A newer one advances the gate; the older one is then a rollback.
-        let next = install(root.path(), POLICY_2);
-        assert_eq!(reboot.load_contract_statement(&trust, &next, &gate, FIXTURE_NOW), Ok(2));
-        let back = install(root.path(), POLICY_1);
-        assert!(reboot.load_contract_statement(&trust, &back, &gate, FIXTURE_NOW).is_err());
-        assert_eq!(RbacGateRecord::read(&gate).unwrap().unwrap().policy_version, 2);
-    }
-
-    #[test]
-    fn statements_the_contract_refuses_leave_the_store_empty() {
-        let (root, trust) = fixture_trust("trust-anchors/valid/bundle-seq-1.dsse.json");
-        let gate = root.path().join("rbac-manifest.gate.json");
-        for (rel, reason) in [
-            ("rbac-manifest/invalid/tpi-permission.dsse.json", "schema-invalid"),
-            ("rbac-manifest/invalid/actor-key-not-anchored.dsse.json", "actor-key-not-anchored"),
-            ("rbac-manifest/invalid/wrong-purpose-key.dsse.json", "key-purpose-mismatch"),
-            ("rbac-manifest/invalid/wrong-tenant.dsse.json", "tenant-mismatch"),
-            ("rbac-manifest/invalid/expired.dsse.json", "expired"),
-            ("trust-anchors/valid/bundle-seq-1.dsse.json", "payload-type-mismatch"),
-        ] {
-            let store = RbacManifestStore::new();
-            let err = store
-                .load_contract_statement(&trust, &install(root.path(), rel), &gate, FIXTURE_NOW)
-                .unwrap_err();
-            assert!(err.ends_with(&format!("rejected: {reason}")), "{rel}: {err}");
-            assert!(!store.is_loaded(), "{rel}");
-            assert!(!gate.exists(), "{rel}: gate must not move");
-        }
     }
 
     #[test]

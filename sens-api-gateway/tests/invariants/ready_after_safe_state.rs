@@ -18,13 +18,19 @@
 //! * source: in `run_agent`, the boot safe-state comes before the first
 //!   control cycle, which comes before the one READY; activation and MQTT are
 //!   not reached from `run_agent` before READY (they live in
-//!   `run_connectivity`);
+//!   `run_connectivity`); the stores and services of the full operation
+//!   (`init_boot_dependencies`) start after the boot safe-state and before
+//!   the first control cycle, and `async_main` reaches none of them, so no
+//!   store failure can exit ahead of the safe-state (EDGE-MEDIUM-078);
 //! * real binary (generic profile) against a Modbus-TCP slave that timestamps
 //!   every write: every registered output receives its safe value before
 //!   READY arrives; a partial safe-state, or a configured backend without a
 //!   driver, still yields READY — with `STATUS=degraded`, the health view
 //!   `"degraded": true` and continuing watchdog pings — and the process stays
-//!   up until it is stopped.
+//!   up until it is stopped. A store that fails after the safe-state is
+//!   degraded mode with the outputs safe and no connectivity; a
+//!   configuration that fails its integrity check is standby: no output
+//!   touched, no READY, the start timeout extended (ADR-048 DEC-4.10).
 
 #[path = "source_scan_support/mod.rs"]
 mod source_scan_support;
@@ -118,6 +124,85 @@ fn boot_failures_enter_degraded_mode_instead_of_exiting() {
         );
     }
     assert!(before_ready.contains("degraded.enter("));
+}
+
+/// The body of the top-level function `name` in main.rs's production code.
+fn main_fn_body(name: &str) -> String {
+    let main = source_scan_support::scan_src()
+        .into_iter()
+        .find(|f| f.rel == "src/main.rs")
+        .expect("src/main.rs");
+    let start = main
+        .code
+        .find(name)
+        .unwrap_or_else(|| panic!("main.rs has no `{name}`"));
+    let rest = &main.code[start..];
+    let end = rest.find("\n}\n").map_or(rest.len(), |e| e + 2);
+    rest[..end].to_string()
+}
+
+#[test]
+fn stores_start_after_the_boot_safe_state_and_before_ready() {
+    let body = run_agent_body();
+    let safe_state = position(&body, "safe_state_manager");
+    let apply = safe_state + position(&body[safe_state..], ".apply(");
+    let stores = position(&body, "init_boot_dependencies(");
+    let first_cycles = position(&body, "first_cycles(");
+    assert!(
+        apply < stores && stores < first_cycles,
+        "run_agent must start the stores after the boot safe-state and before the first \
+         control cycle (ADR-048 DEC-6.2, EDGE-MEDIUM-078)"
+    );
+    // The stores themselves fail into degraded mode, never out of the process.
+    let deps = main_fn_body("async fn init_boot_dependencies(");
+    assert!(
+        !deps.contains("process::exit("),
+        "init_boot_dependencies exits"
+    );
+    for store in [
+        "init_keystore(",
+        "init_offline_queue(",
+        "init_backup_manager(",
+        "init_user_token_manifest_store(",
+        "init_firmware_signing_pubkey(",
+        "init_audit_sink(",
+        "init_license_cache(",
+    ] {
+        assert!(
+            deps.contains(store),
+            "init_boot_dependencies lost `{store}`"
+        );
+    }
+}
+
+#[test]
+fn async_main_reaches_no_store_before_the_safe_state() {
+    let body = main_fn_body("async fn async_main(");
+    for needle in [
+        "init_keystore(",
+        "init_offline_queue(",
+        "init_backup_manager(",
+        "init_rbac_manifest_store(",
+        "init_user_token_manifest_store(",
+        "init_partition_store(",
+        "init_firmware_signing_pubkey(",
+        "init_audit_sink(",
+        "init_lifecycle_auth_key(",
+        "init_health_server(",
+    ] {
+        assert!(
+            !body.contains(needle),
+            "async_main reaches `{needle}` ahead of the boot safe-state (EDGE-MEDIUM-078)"
+        );
+    }
+    // The one exit left before run_agent is the generic profile's unreadable
+    // configuration: without one nothing is known about the outputs.
+    assert_eq!(
+        body.matches("process::exit(").count(),
+        2,
+        "async_main exits only for an unreadable configuration and after run_agent returned \
+         an error"
+    );
 }
 
 #[cfg(not(feature = "suderra-os"))]
@@ -245,6 +330,116 @@ mod generic {
             .filter(|w| w.at > ready.at)
             .collect();
         assert!(after.is_empty(), "writes in degraded mode: {after:?}");
+        let exit = device.stop().expect("running");
+        assert!(exit.success(), "{exit}\n{}", device.log());
+    }
+
+    /// EDGE-MEDIUM-078: a store that fails (the offline queue, whose
+    /// directory cannot be created) no longer exits ahead of the boot
+    /// safe-state. The outputs are driven safe before READY, READY carries
+    /// the degraded status naming the component, the watchdog keeps pinging,
+    /// no connectivity starts, nothing is written after the safe-state and
+    /// the process stays up.
+    #[test]
+    fn a_failing_store_after_the_safe_state_is_degraded_not_an_exit() {
+        let plc = ModbusServer::start();
+        let mut device = Device::new(&DeviceConfig {
+            activated: true,
+            extra_yaml: format!(
+                "offline_queue:\n  enabled: true\n  db_path_override: \
+                 \"/dev/null/queue/offline_queue.db\"\nmodbus:\n{}",
+                modbus_output_device("plc", plc.port)
+            ),
+        });
+        device.start(WATCHDOG);
+        let ready = device.wait_ready(Duration::from_secs(90));
+
+        let writes = plc.writes();
+        for expected in expected_safe_writes() {
+            assert!(
+                writes
+                    .iter()
+                    .any(|w| w.write == expected && w.at <= ready.at),
+                "output {expected:?} not driven safe before READY: {writes:?}\n{}",
+                device.log()
+            );
+        }
+        let status = ready.status().unwrap_or_default().to_string();
+        assert!(
+            status.starts_with("degraded: ") && status.contains("boot-dependency-failed"),
+            "STATUS: {status}\n{}",
+            device.log()
+        );
+        let health = device.health();
+        assert_eq!(health["degraded"], true, "{health}");
+        assert_eq!(health["control"], "disabled");
+        assert_eq!(health["reasons"][0]["code"], "boot-dependency-failed");
+        assert!(
+            health["reasons"][0]["detail"]
+                .as_str()
+                .unwrap_or_default()
+                .starts_with("offline-queue failed after the boot safe-state"),
+            "{health}"
+        );
+        assert_eq!(health["safe_state"]["applied"], 3);
+        assert!(wait_pings(&device, ready.at, 2) >= 2, "{}", device.log());
+        std::thread::sleep(Duration::from_secs(2));
+        assert!(device.alive(), "degraded agent exited:\n{}", device.log());
+        assert!(
+            device.log().contains("Connectivity NOT started"),
+            "{}",
+            device.log()
+        );
+        let after: Vec<_> = plc
+            .writes()
+            .into_iter()
+            .filter(|w| w.at > ready.at)
+            .collect();
+        assert!(after.is_empty(), "writes in degraded mode: {after:?}");
+        let exit = device.stop().expect("running");
+        assert!(exit.success(), "{exit}\n{}", device.log());
+    }
+
+    /// ADR-048 DEC-4.10 / DEC-6.3: a configuration that fails its
+    /// integrity check (Enforcing, no sidecar) is never acted on. The agent
+    /// stays up in standby: no output touched, no READY, the start timeout
+    /// extended, the reason in STATUS= and the health view; SIGTERM ends it
+    /// cleanly.
+    #[test]
+    fn an_unverified_configuration_is_standby_with_no_output_touched() {
+        let plc = ModbusServer::start();
+        let mut device = Device::new(&DeviceConfig {
+            activated: true,
+            extra_yaml: format!(
+                "config_integrity:\n  mode: enforcing\n  factory_pubkey_hex: \
+                 \"d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a\"\n\
+                 modbus:\n{}",
+                modbus_output_device("plc", plc.port)
+            ),
+        });
+        device.start(WATCHDOG);
+        let standby = device
+            .notify
+            .wait_for(Duration::from_secs(30), |d| {
+                d.text.contains("EXTEND_TIMEOUT_USEC=")
+            })
+            .unwrap_or_else(|| panic!("no standby notification\n{}", device.log()));
+        let status = standby.status().unwrap_or_default().to_string();
+        assert!(
+            status.starts_with("standby: ") && status.contains("config-unverified"),
+            "STATUS: {status}"
+        );
+        let health = device.health();
+        assert_eq!(health["phase"], "standby", "{health}");
+        assert_eq!(health["degraded"], true);
+        assert_eq!(health["reasons"][0]["code"], "config-unverified");
+        std::thread::sleep(Duration::from_secs(3));
+        assert!(device.alive(), "standby agent exited:\n{}", device.log());
+        assert!(
+            !device.notify.all().iter().any(|d| d.is_ready()),
+            "READY in standby"
+        );
+        assert!(plc.writes().is_empty(), "an output was touched in standby");
         let exit = device.stop().expect("running");
         assert!(exit.success(), "{exit}\n{}", device.log());
     }

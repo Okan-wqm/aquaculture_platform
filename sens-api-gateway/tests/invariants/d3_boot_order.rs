@@ -66,26 +66,37 @@
 use std::fs;
 use std::path::PathBuf;
 
-/// Locate the `state_guard.<method>` call for the given
-/// init function. Returns the 1-based line number.
+/// Locate the call of the given init function in the boot-dependency
+/// sequence (`init_boot_dependencies` in main.rs, ADR-048 DEC-6.2: the
+/// stores start there, after the boot safe-state). Returns the 1-based
+/// line number of the call within main.rs. A call is a line whose code
+/// starts with `.<fn_name>(` (a formatted method chain) or contains
+/// `state_guard.<fn_name>(`.
 /// Panics with an architectural-fail message when the
 /// call is missing — that means a previous batch
 /// removed the init entirely, which is its own
 /// correctness signal the test should surface.
 fn find_state_guard_init_line(source: &str, fn_name: &str) -> usize {
-    let needle = format!("state_guard.{}", fn_name);
+    let body_start = source
+        .lines()
+        .position(|l| l.starts_with("async fn init_boot_dependencies("))
+        .expect("init_boot_dependencies in main.rs: the boot order of the stores lives there");
+    let chained = format!(".{}(", fn_name);
+    let direct = format!("state_guard.{}(", fn_name);
     let line = source
         .lines()
         .enumerate()
-        .find(|(_, l)| l.contains(&needle));
+        .skip(body_start)
+        .take_while(|(i, l)| *i == body_start || !l.starts_with('}'))
+        .find(|(_, l)| l.trim_start().starts_with(&chained) || l.contains(&direct));
     match line {
         Some((i, _)) => i + 1, // 1-based
         None => panic!(
             "ORPHAN-D3-BOOT-ORDER-001 invariant: \
-             expected `state_guard.{}` call in main.rs \
-             not found. The init function may have \
-             been renamed or removed; update this \
-             invariant to track the new name OR \
+             expected the `{}` call in main.rs's \
+             init_boot_dependencies not found. The init \
+             function may have been renamed or removed; \
+             update this invariant to track the new name OR \
              investigate whether the SQLCipher \
              consumer was de-wired (which would be \
              a separate architectural concern).",

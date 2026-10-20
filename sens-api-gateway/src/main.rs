@@ -55,6 +55,10 @@ mod generic_env;
 mod edge_contract;
 #[cfg(feature = "suderra-os")]
 mod trust_anchors;
+// ADR-048 DEC-4.10: the site config, its RBAC manifest and the delivered
+// site files verified as one before the agent acts on any of them.
+#[cfg(feature = "suderra-os")]
+mod site_trust;
 
 mod alarms; // v1.2.4: Alarm management (IEC 62682)
 // Batch 2 — ADR-018 §1 + ADR-024 §1 Permission enum + ActuatorClass taxonomy.
@@ -186,6 +190,9 @@ mod updater;
 // main.rs boot sequence below. Sub-types (ConfigMeta,
 // SignedConfigMeta) have real consumers via the sidecar parse
 // path.
+// Generic profile only: its anchor is inside the file it verifies; on
+// Suderra OS the signed site config is the integrity (ADR-048 DEC-4.10).
+#[cfg(not(feature = "suderra-os"))]
 mod config_integrity;
 // Batch 10 — plan D-7/D-14/D-15 runtime safety primitives: ClockAuthority
 // trait (NTS-authenticated wall clock + monotonic anchor), retained-msg
@@ -759,7 +766,7 @@ pub struct AppState {
     /// WHAT: `Option<Arc<PartitionStore>>` — None until
     /// `init_partition_store()` succeeds, then Some.
     /// Initialization is fail-closed in boot (corrupt JSON
-    /// in the partition.json file → exit(1)); first-boot
+    /// in the partition.json file → degraded mode); first-boot
     /// creates file with initial state.
     #[cfg(not(feature = "os-managed-updates"))]
     pub partition_store: Option<std::sync::Arc<crate::updater::PartitionStore>>,
@@ -1030,7 +1037,7 @@ impl AppState {
             rbac_manifest_store: std::sync::Arc::new(
                 crate::authz::manifest_runtime::RbacManifestStore::new(),
             ),
-            // ADR-048 DEC-3.7: loaded by `init_trust_anchors()` at boot.
+            // ADR-048 DEC-3.7: set by `install_site()` from the verified site.
             #[cfg(feature = "suderra-os")]
             trust_anchors: None,
             // Batch #249 Faz 5 A-3c wire: empty store at boot;
@@ -1803,7 +1810,7 @@ impl AppState {
     /// - Permissive: load attempted; failure warn-logged +
     ///   store remains empty (envelope Gate 7 falls to NO-OP).
     /// - Enforcing: load required; failure returns Err →
-    ///   caller exits(1).
+    ///   the boot enters degraded mode after the safe-state.
     ///
     /// ROLLBACK PROTECTION (Batch 71):
     /// - Opens `/var/lib/suderra/rbac_version.sqlite` (or the
@@ -1870,10 +1877,10 @@ impl AppState {
             .rbac_manifest
             .manifest_signing_pubkey_hex
             .as_deref();
-        // ADR-048 DEC-4.5 / DEC-4.12: the manifest path comes from the
-        // agent's path SSoT (the site statement on Suderra OS; the
-        // persisted hot-reload copy, else the operator's file, generic).
-        let manifest_path = authz::manifest_runtime::boot_manifest_path(
+        // ADR-048 DEC-4.5: the manifest sources come from the agent's path
+        // SSoT — the copy a previous `update_policy` persisted and the
+        // operator's file; the boot loader keeps the newer verified one.
+        let candidates = authz::manifest_runtime::boot_manifest_candidates(
             paths::AgentPaths::current(),
             self.config.rbac_manifest.manifest_path.as_deref(),
         );
@@ -1926,70 +1933,46 @@ impl AppState {
             },
         }
 
-        self.rbac_manifest_store
-            .load_from_file(mode, pubkey_hex, &manifest_path, &expected_tenant)
+        let [persisted, configured] = &candidates;
+        self.rbac_manifest_store.load_from_files(
+            mode,
+            pubkey_hex,
+            &[persisted.as_path(), configured.as_path()],
+            &expected_tenant,
+        )
     }
 
-    /// ADR-048 DEC-3.7: establish the trust root from the installed
-    /// trust-anchors bundle, verified against the fleet-root pin of the OS
-    /// image for the root-recorded identity. The identity's tenant is the
-    /// tenant every signed statement and command is bound to (DEC-3.6,
-    /// DEC-22). Failure is logged and leaves no trust root: the command
-    /// plane and the broker connection fail closed, local control goes on.
+    /// ADR-048 DEC-3.6, DEC-3.7, DEC-4.10, DEC-9.9: install a verified site.
+    ///
+    /// The trust root (bundle verified against the OS fleet-root pin for
+    /// the root-recorded identity) becomes the agent's only source of keys
+    /// and broker CAs; the identity's tenant is the tenant every signed
+    /// statement and command envelope is bound to — never one from the
+    /// configuration or an activation response; and the RBAC manifest the
+    /// site config names (its gate already advanced by
+    /// `SiteTrust::establish`) becomes the store's manifest. Called at boot
+    /// and on every verified SIGHUP reload, so a reload cannot leave the
+    /// trust root and the configuration from different sites.
     #[cfg(feature = "suderra-os")]
-    pub fn init_trust_anchors(&mut self) {
-        let paths = paths::AgentPaths::current();
-        match crate::trust_anchors::InstalledTrust::load(
-            paths,
-            &crate::trust_anchors::now_timestamp(),
-        ) {
-            Ok(trust) => {
-                let tenant = trust.device().identity.tenant_id.clone();
-                if let Some(configured) = self.config.tenant_id.as_deref() {
-                    if configured != tenant {
-                        warn!(
-                            "Activation tenant {} differs from the root-recorded tenant {};                              the root-recorded identity binds every statement (ADR-048 DEC-3.6)",
-                            configured, tenant
-                        );
-                    }
-                }
-                info!(
-                    "Trust anchors verified: bundle_seq={} digest={} tenant={}",
-                    trust.bundle_seq(),
-                    trust.digest(),
-                    tenant
-                );
-                self.tenant_id = Some(tenant);
-                self.trust_anchors = Some(std::sync::Arc::new(trust));
-            }
-            Err(e) => {
-                error!(
-                    "Trust anchors unavailable: {}. Every signed command and the broker                      connection are refused until a valid bundle is installed (ADR-048 DEC-3.7)",
-                    e
-                );
-            }
-        }
-    }
-
-    /// ADR-048 DEC-9.4, DEC-9.9: load the RBAC manifest statement the root
-    /// installer delivered, verified against the trust root. Without a trust
-    /// root or a valid manifest the store stays empty and every
-    /// permissioned command is refused; the agent does not exit (DEC-6.3).
-    #[cfg(feature = "suderra-os")]
-    pub fn init_rbac_manifest_store(&mut self) {
-        let Some(trust) = self.trust_anchors.clone() else {
-            error!("RBAC manifest not loaded: no trust root (ADR-048 DEC-9.4)");
-            return;
-        };
-        let paths = paths::AgentPaths::current();
-        if let Err(e) = self.rbac_manifest_store.load_contract_statement(
-            &trust,
-            &paths.rbac_manifest_file(),
-            &paths.rbac_gate_file(),
-            &crate::trust_anchors::now_timestamp(),
-        ) {
+    pub fn install_site(&mut self, site: &crate::site_trust::SiteTrust) {
+        let trust = site.trust().clone();
+        info!(
+            "Site verified: site-config update_seq={} digest={} reverified={}; trust anchors \
+             bundle_seq={} digest={}; tenant={}",
+            site.update_seq(),
+            site.digest(),
+            site.reverified(),
+            trust.bundle_seq(),
+            trust.digest(),
+            trust.device().identity.tenant_id
+        );
+        self.tenant_id = Some(trust.device().identity.tenant_id.clone());
+        self.trust_anchors = Some(trust);
+        if let Err(e) = self.rbac_manifest_store.install_contract(site.rbac()) {
             error!(
-                "{}. Every permissioned command is refused until a valid RBAC manifest                  is installed (ADR-048 DEC-9.9)",
+                "RBAC manifest {} verified but not usable: {}. Every permissioned command is \
+                 refused until a manifest the agent can represent is installed (ADR-048 DEC-9.9)",
+                site.rbac().digest,
                 e
             );
         }
@@ -2300,7 +2283,7 @@ impl AppState {
     ///   the downgrade.
     ///
     /// FAIL-CLOSED: in FileBacked / Auto modes, failure to
-    /// construct the keystore -> exit(1). The keystore is
+    /// construct the keystore -> degraded mode (no store after it). The keystore is
     /// the trust anchor for all downstream key derivation;
     /// there's no "permissive" fallback that silently uses
     /// weaker keys.
@@ -2398,7 +2381,7 @@ impl AppState {
     /// state).
     ///
     /// FAIL-CLOSED: corrupt JSON, unreadable parent dir, or
-    /// any other load failure returns Err → caller exits(1).
+    /// any other load failure returns Err → degraded mode after the boot safe-state.
     /// Without reliable partition state the updater subsystem
     /// cannot operate safely — running without a store would
     /// let an update apply without recording the state
@@ -3442,6 +3425,208 @@ fn main() {
 }
 
 /// Async main function with application logic
+/// A configuration the agent may act on (ADR-048 DEC-4.10): on Suderra OS
+/// parsed from the `config.yaml` bytes the verified site config names,
+/// together with that site; in the generic profile `config.yaml` with its
+/// config-integrity check.
+struct VerifiedConfig {
+    config: AgentConfig,
+    #[cfg(feature = "suderra-os")]
+    site: site_trust::SiteTrust,
+}
+
+/// What a configuration is loaded for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConfigUse {
+    /// Boot or reload: the agent acts on it (Suderra OS: the version gates
+    /// advance; generic: config integrity runs and its floor advances).
+    Act,
+    /// `--preflight`: a diagnostic look that changes nothing.
+    Inspect,
+}
+
+/// Why there is no configuration to act on.
+#[derive(Debug)]
+enum ConfigRejection {
+    /// Generic profile: `config.yaml` cannot be read or parsed, so nothing
+    /// is known about the outputs.
+    #[cfg(not(feature = "suderra-os"))]
+    Unreadable(anyhow::Error),
+    /// The configuration is present but not verified: the agent acts on
+    /// nothing of it and waits in standby.
+    Unverified(String),
+}
+
+impl std::fmt::Display for ConfigRejection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            #[cfg(not(feature = "suderra-os"))]
+            Self::Unreadable(e) => write!(f, "{e:#}"),
+            Self::Unverified(detail) => f.write_str(detail),
+        }
+    }
+}
+
+/// The generic profile's configuration: `config.yaml` (with the activation
+/// result overlaid) and, for a configuration the agent acts on, its
+/// config-integrity check — a failure in Enforcing mode is an unverified
+/// configuration (standby), never an exit.
+#[cfg(not(feature = "suderra-os"))]
+fn load_verified_config(
+    paths: &paths::AgentPaths,
+    purpose: ConfigUse,
+) -> std::result::Result<VerifiedConfig, ConfigRejection> {
+    let config = AgentConfig::load(paths).map_err(ConfigRejection::Unreadable)?;
+    if purpose == ConfigUse::Act {
+        let sidecar = config
+            .config_integrity
+            .sidecar_path
+            .clone()
+            .unwrap_or_else(|| paths.config_integrity_sidecar());
+        crate::config_integrity::verify_at_boot(
+            config.config_integrity.mode,
+            config.config_integrity.factory_pubkey_hex.as_deref(),
+            &sidecar,
+            paths.config_file(),
+            &config.device_id,
+            &paths.config_integrity_floor_dir(),
+        )
+        .map_err(|reason| {
+            ConfigRejection::Unverified(format!(
+                "config-integrity verification of {} failed in Enforcing mode: {}",
+                paths.config_file().display(),
+                reason
+            ))
+        })?;
+    }
+    Ok(VerifiedConfig { config })
+}
+
+/// The Suderra OS configuration: the site verified as a whole
+/// (`site_trust::SiteTrust::establish`) and `config.yaml` parsed from the
+/// bytes it verified (`AgentConfig::from_site`).
+#[cfg(feature = "suderra-os")]
+fn load_verified_config(
+    paths: &paths::AgentPaths,
+    purpose: ConfigUse,
+) -> std::result::Result<VerifiedConfig, ConfigRejection> {
+    let unverified = |cause: String| {
+        ConfigRejection::Unverified(format!(
+            "site configuration {} is not verified: {}",
+            paths.config_file().display(),
+            cause
+        ))
+    };
+    let gates = match purpose {
+        ConfigUse::Act => site_trust::GateUse::Advance,
+        ConfigUse::Inspect => site_trust::GateUse::ReadOnly,
+    };
+    let site = site_trust::SiteTrust::establish(
+        &site_trust::SiteLocations::of(paths),
+        &trust_anchors::now_timestamp(),
+        gates,
+    )
+    .map_err(|e| unverified(e.to_string()))?;
+    let config = AgentConfig::from_site(&site, paths).map_err(|e| unverified(format!("{e:#}")))?;
+    Ok(VerifiedConfig { config, site })
+}
+
+/// First retry delay of the standby.
+const STANDBY_RETRY_INITIAL: Duration = Duration::from_secs(5);
+/// Longest retry delay of the standby.
+const STANDBY_RETRY_MAX: Duration = Duration::from_secs(60);
+/// How much longer than the next retry systemd is asked to wait for READY.
+const STANDBY_TIMEOUT_MARGIN: Duration = Duration::from_secs(60);
+
+/// Retry delay after `failures` failed verifications: 5 s doubling to 60 s.
+fn standby_retry_delay(failures: u32) -> Duration {
+    STANDBY_RETRY_INITIAL
+        .saturating_mul(2u32.saturating_pow(failures.min(8)))
+        .min(STANDBY_RETRY_MAX)
+}
+
+/// ADR-048 DEC-4.10 / DEC-6.3 standby: the configuration is not verified,
+/// so the agent touches no output, opens no network connection and does not
+/// claim READY. It reports the reason (`STATUS=`, the health view), keeps
+/// systemd's start timeout extended, and retries; once the configuration
+/// verifies the boot continues in this process. `None` when the agent is
+/// stopped first (SIGTERM).
+async fn standby_until_verified(
+    notifier: &systemd_notify::SystemdNotifier,
+    paths: &'static paths::AgentPaths,
+    first: String,
+) -> Option<VerifiedConfig> {
+    let degraded = degraded::DegradedMode::new(paths.agent_health_file());
+    standby_until(
+        notifier,
+        &degraded,
+        first,
+        || load_verified_config(paths, ConfigUse::Act).map_err(|e| e.to_string()),
+        terminate_signal(),
+        standby_retry_delay,
+    )
+    .await
+}
+
+/// SIGTERM, for the standby that runs before the shutdown handler exists.
+/// When it cannot be registered SIGTERM keeps its default action, which
+/// ends a process that touched nothing.
+async fn terminate_signal() {
+    #[cfg(unix)]
+    match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+        Ok(mut sigterm) => {
+            sigterm.recv().await;
+            return;
+        }
+        Err(e) => warn!("SIGTERM handler for the standby could not be set: {}", e),
+    }
+    std::future::pending::<()>().await
+}
+
+/// The standby loop (see [`standby_until_verified`]), apart from its I/O.
+async fn standby_until<T>(
+    notifier: &systemd_notify::SystemdNotifier,
+    degraded: &degraded::DegradedMode,
+    first: String,
+    mut attempt: impl FnMut() -> std::result::Result<T, String>,
+    stop: impl std::future::Future<Output = ()>,
+    retry_delay: impl Fn(u32) -> Duration,
+) -> Option<T> {
+    tokio::pin!(stop);
+    let mut detail = first;
+    let mut failures: u32 = 0;
+    loop {
+        degraded.enter_standby(degraded::DegradedReason::ConfigUnverified { detail });
+        let delay = retry_delay(failures);
+        if let Err(e) = notifier.extend_start_timeout(
+            delay.saturating_add(STANDBY_TIMEOUT_MARGIN),
+            &degraded.status_line(),
+        ) {
+            warn!("EXTEND_TIMEOUT_USEC could not be sent: {}", e);
+        }
+        tokio::select! {
+            biased;
+            _ = &mut stop => return None,
+            _ = tokio::time::sleep(delay) => {}
+        }
+        match attempt() {
+            Ok(value) => {
+                degraded.leave_standby();
+                info!(
+                    "Configuration verified after {} rejected attempt(s); leaving standby for \
+                     the boot safe-state",
+                    failures.saturating_add(1)
+                );
+                return Some(value);
+            }
+            Err(next) => {
+                detail = next;
+                failures = failures.saturating_add(1);
+            }
+        }
+    }
+}
+
 async fn async_main(notifier: Arc<systemd_notify::SystemdNotifier>) -> Result<()> {
     // Initialize logging
     init_logging();
@@ -3453,114 +3638,19 @@ async fn async_main(notifier: Arc<systemd_notify::SystemdNotifier>) -> Result<()
         info!("{}", line);
     }
 
-    // Load configuration from the path SSoT (ADR-048 DEC-4.5).
+    // ADR-048 DEC-4.10: the agent acts only on a verified configuration —
+    // on Suderra OS the site config statement verified against the
+    // trust-anchors bundle, with config.yaml parsed from the bytes it
+    // names; in the generic profile config.yaml with its config-integrity
+    // check. An unverified configuration is never acted on: the agent waits
+    // in standby, with no output touched and no network, and retries, so a
+    // statement refused before time sync recovers without a restart.
     let agent_paths = paths::AgentPaths::current();
-    let config = match AgentConfig::load(agent_paths) {
-        Ok(cfg) => {
-            info!(
-                "Configuration loaded successfully from {}",
-                agent_paths.config_file().display()
-            );
-            info!("  Device ID: {}", cfg.device_id);
-            info!("  Device Code: {}", cfg.device_code);
-            info!("  API URL: {}", cfg.api_url);
-            // Batch 27 plan §5 Faz 2 item 7: expose mTLS rollout
-            // stage at boot for operator visibility. Pre-Sprint-
-            // 6.8 this is INFORMATIONAL ONLY — rustls handshake
-            // behavior is unchanged. Once Sprint 6.8 wires the
-            // verify_leaf_cert pure function into the rustls
-            // client builder, the mode will drive:
-            //   Legacy → log mismatches, accept handshake.
-            //   Warn   → audit-emit mismatches, accept handshake.
-            //   Strict → reject handshake on any mismatch.
-            info!(
-                "  mTLS mode: {:?} (fingerprint_pinning={}, min_tls={})",
-                cfg.mtls.mode, cfg.mtls.enforce_fingerprint_pinning, cfg.mtls.min_tls_version
-            );
-            #[cfg(not(feature = "suderra-os"))]
-            if matches!(cfg.mtls.mode, crate::mtls::MtlsMode::Legacy)
-                && cfg.mtls.enforce_fingerprint_pinning
-            {
-                // Non-standard but legitimate combo (operator wants
-                // early-detection value without full Warn/Strict
-                // migration); log it so audit reviewers notice.
-                warn!(
-                    "mTLS rollout: Legacy stage + fingerprint_pinning=true. \
-                     This is an EARLY-DETECTION posture; mismatches will be \
-                     logged but handshakes still accepted. Plan Sprint 6.8 \
-                     migration path documented in config.yaml."
-                );
-            }
-            // Batch 38: boot-time Faz 2 security-posture banner.
-            // Consolidates the runtime-config values operators
-            // most-frequently need to verify on device bring-up.
-            // Pre-Batch-38 operators had to issue cmd_get_config
-            // (which pre-Batch-36 didn't even surface these
-            // fields) OR SSH+cat /etc/suderra/config.yaml. With
-            // this banner the journalctl boot log carries all
-            // tunable security thresholds — no runtime query
-            // needed to verify a config rollout landed correctly.
-            info!("Faz 2 security posture (Batch 31-37 foundations):");
-            info!("  RBAC gate: preview-logging active (Sprint 6.4 wires enforcement)");
-            info!(
-                "  Two-person integrity: preview-logging active for UpdateFirmware/DeployProgram/ForceValue/SafeStateTrigger/Reboot"
-            );
-            info!("  Retained-msg rejection: active on commands + config topics (plan D-14)");
-            info!(
-                "  Shutdown drain: command handler drain-aware; timeout={}s drain_budget={}ms (plan D-15)",
-                cfg.runtime.shutdown_timeout_secs, cfg.runtime.drain_timeout_ms
-            );
-            info!(
-                "  Replay window: max_age={}s max_skew={}s (IEC 62443 SL-2 FR-7)",
-                cfg.runtime.max_command_age_secs, cfg.runtime.max_command_skew_secs
-            );
-            info!(
-                "  Process hardening: prctl(PR_SET_DUMPABLE=0) + panic-abort hook active (Sprint 6.3 partial)"
-            );
-            // Batch 42: config-integrity sidecar mode.
-            info!(
-                "  Config integrity: mode={:?} (verify wires in Sprint 6.6; plan D-13)",
-                cfg.config_integrity.mode
-            );
-            // Batch 45: command-envelope signature mode.
-            info!(
-                "  Signature mode: {:?} (envelope verify + jti dedup wire in Sprint 6.4; plan §2 HC-6)",
-                cfg.signature_mode
-            );
-            // Batch 56: clock authority NTS threshold.
-            info!(
-                "  Clock authority: nts_sync_max_skew_secs={} (ChronyNtsClockAuthority wires in Sprint 6.7; plan D-7)",
-                cfg.clock.nts_sync_max_skew_secs
-            );
-            // Batch 58: envelope dedup (Moka hot-window tier).
-            info!(
-                "  Envelope dedup: moka_capacity={}, moka_ttl_secs={} (SQLCipher tier wires in Sprint 6.4; plan §4.10)",
-                cfg.envelope_dedup.moka_capacity, cfg.envelope_dedup.moka_ttl_secs
-            );
-            // Batch 65: CommandEnvelope parse-and-verify path
-            // active status. After Batches 57-63 Sprint 6.4
-            // is substantially wired; operators watching boot
-            // see which envelope features are live today vs
-            // pending Sprint 6.1 RBAC manifest runtime.
-            info!(
-                "  CommandEnvelope path: parse-and-verify ACTIVE (Batch 63); \
-                 signature-verify NO-OP pending Sprint 6.1 actor-pubkey lookup; \
-                 Moka dedup tier ACTIVE (Batch 57); SQLCipher tier pending Sprint 6.4"
-            );
-            // Batch 66: RBAC manifest mode.
-            #[cfg(not(feature = "suderra-os"))]
-            info!(
-                "  RBAC manifest: mode={:?} (loader runtime wires in Sprint 6.1; plan §3 R-5 / ADR-018)",
-                cfg.rbac_manifest.mode
-            );
-            #[cfg(feature = "suderra-os")]
-            info!(
-                "  RBAC manifest: root-delivered suderra.rbac-manifest.v1, verified against the \
-                 trust-anchors bundle (ADR-048 DEC-9.9)"
-            );
-            cfg
-        }
-        Err(e) => {
+    let verified = match load_verified_config(agent_paths, ConfigUse::Act) {
+        Ok(verified) => verified,
+        // Nothing is known about the outputs without a configuration.
+        #[cfg(not(feature = "suderra-os"))]
+        Err(ConfigRejection::Unreadable(e)) => {
             error!("Failed to load configuration: {:#}", e);
             error!(
                 "Please ensure {} exists and is valid",
@@ -3568,64 +3658,26 @@ async fn async_main(notifier: Arc<systemd_notify::SystemdNotifier>) -> Result<()
             );
             std::process::exit(1);
         }
-    };
-
-    // Batch 54 Sprint 6.6 FULL WIRE: verify config-integrity
-    // sidecar at boot. Called AFTER config load (so we have the
-    // mode + factory_pubkey_hex + device_id) and BEFORE any
-    // network listener binds / tokio runtime spawns — fail-
-    // closed boot in Enforcing mode means exit(1) before any
-    // attacker-observable activity.
-    //
-    // Mode semantics:
-    //   Disabled   — no check (default, HC-1 backward compat).
-    //   Permissive — check attempted; failure WARN-logged but
-    //                boot continues (early-detection posture).
-    //   Enforcing  — check required; failure exits(1). Fail-
-    //                closed is the tier-1 contract.
-    //
-    // Paths (ADR-048 DEC-4.5): the config file the agent just loaded
-    // and its `.sig` sidecar (or config_integrity.sidecar_path), with
-    // the version floor in the path SSoT's floor directory — never a
-    // second hardcoded copy of the config path (EDGE-CRITICAL-046).
-    {
-        let sidecar_path = config
-            .config_integrity
-            .sidecar_path
-            .clone()
-            .unwrap_or_else(|| agent_paths.config_integrity_sidecar());
-        let factory_pubkey_hex = config.config_integrity.factory_pubkey_hex.as_deref();
-        match crate::config_integrity::verify_at_boot(
-            config.config_integrity.mode,
-            factory_pubkey_hex,
-            &sidecar_path,
-            agent_paths.config_file(),
-            &config.device_id,
-            &agent_paths.config_integrity_floor_dir(),
-        ) {
-            Ok(()) => {}
-            Err(reason) => {
-                // Enforcing-mode failure bubbled up from
-                // verify_at_boot. Permissive failures are
-                // consumed internally (warn-logged; returns Ok).
-                // The only path reaching Err here is Enforcing
-                // mode + verify failed. Fail-closed: exit(1)
-                // with operator-visible error.
-                error!(
-                    "Config-integrity verification FAILED in Enforcing mode: {}. Agent cannot boot.",
-                    reason
-                );
-                std::process::exit(1);
+        Err(ConfigRejection::Unverified(detail)) => {
+            match standby_until_verified(&notifier, agent_paths, detail).await {
+                Some(verified) => verified,
+                None => {
+                    info!("Shutdown requested in standby; no output was touched");
+                    return Ok(());
+                }
             }
         }
-    }
+    };
+    log_configuration(&verified.config, agent_paths);
 
     // Initialize OpenTelemetry OTLP export (if configured and feature enabled)
     // This adds distributed tracing support for production observability
-    let _otel_provider = init_opentelemetry(&config);
+    let _otel_provider = init_opentelemetry(&verified.config);
 
     // Create shared state
-    let state = Arc::new(RwLock::new(AppState::new(config.clone())));
+    let state = Arc::new(RwLock::new(AppState::new(verified.config)));
+    #[cfg(feature = "suderra-os")]
+    state.write().await.install_site(&verified.site);
 
     // Initialize script storage (v1.2.0 - async initialization for RwLock)
     {
@@ -3633,17 +3685,163 @@ async fn async_main(notifier: Arc<systemd_notify::SystemdNotifier>) -> Result<()
         state_guard.init_script_storage().await;
     }
 
-    // Initialize FailoverManager (Faz 1 Step 1.2 / ARC-001 / Batch 13).
-    // Returns JoinHandle of the health-check task if the manager is
-    // constructed; None if config.mqtt.failover is disabled OR primary
-    // broker is not configured. The JoinHandle is dropped here — future
-    // work wires it into ShutdownCoordinator (Batch 10) for graceful
-    // cancellation during the Draining phase.
-    let _failover_health_check: Option<tokio::task::JoinHandle<()>> = {
-        let mut state_guard = state.write().await;
-        state_guard.init_failover_manager()
-    };
+    // ADR-048 DEC-6.2 / DEC-6.3 (EDGE-MEDIUM-078): nothing that can fail
+    // runs between the verified configuration and the boot safe-state. The
+    // stores and services of the full operation (`init_boot_dependencies`)
+    // start in run_agent after the outputs are safe, and their failure is
+    // degraded mode, not an exit that restart-loops the outputs.
+    let shutdown = setup_shutdown_handler(state.clone());
 
+    // READY is NOT sent here (ADR-048 DEC-6.2, EDGE-HIGH-051): run_agent
+    // sends it once the outputs are in their safe state and the local
+    // control loop has completed a cycle; network, activation and MQTT run
+    // in the background and never gate it.
+
+    // Use LocalSet to allow non-Send futures (required for Modbus client)
+    let local = tokio::task::LocalSet::new();
+    let result = local.run_until(run_agent(state, shutdown, notifier)).await;
+
+    if let Err(e) = result {
+        error!("Agent error: {:#}", e);
+        std::process::exit(1);
+    }
+
+    info!("Agent shutdown complete");
+    Ok(())
+}
+
+/// The boot banner: what the verified configuration selects.
+fn log_configuration(cfg: &AgentConfig, paths: &paths::AgentPaths) {
+    info!(
+        "Configuration loaded successfully from {}",
+        paths.config_file().display()
+    );
+    info!("  Device ID: {}", cfg.device_id);
+    info!("  Device Code: {}", cfg.device_code);
+    info!("  API URL: {}", cfg.api_url);
+    // Batch 27 plan §5 Faz 2 item 7: expose mTLS rollout
+    // stage at boot for operator visibility. Pre-Sprint-
+    // 6.8 this is INFORMATIONAL ONLY — rustls handshake
+    // behavior is unchanged. Once Sprint 6.8 wires the
+    // verify_leaf_cert pure function into the rustls
+    // client builder, the mode will drive:
+    //   Legacy → log mismatches, accept handshake.
+    //   Warn   → audit-emit mismatches, accept handshake.
+    //   Strict → reject handshake on any mismatch.
+    info!(
+        "  mTLS mode: {:?} (fingerprint_pinning={}, min_tls={})",
+        cfg.mtls.mode, cfg.mtls.enforce_fingerprint_pinning, cfg.mtls.min_tls_version
+    );
+    #[cfg(not(feature = "suderra-os"))]
+    if matches!(cfg.mtls.mode, crate::mtls::MtlsMode::Legacy)
+        && cfg.mtls.enforce_fingerprint_pinning
+    {
+        // Non-standard but legitimate combo (operator wants
+        // early-detection value without full Warn/Strict
+        // migration); log it so audit reviewers notice.
+        warn!(
+            "mTLS rollout: Legacy stage + fingerprint_pinning=true. \
+             This is an EARLY-DETECTION posture; mismatches will be \
+             logged but handshakes still accepted. Plan Sprint 6.8 \
+             migration path documented in config.yaml."
+        );
+    }
+    // Batch 38: boot-time Faz 2 security-posture banner.
+    // Consolidates the runtime-config values operators
+    // most-frequently need to verify on device bring-up.
+    // Pre-Batch-38 operators had to issue cmd_get_config
+    // (which pre-Batch-36 didn't even surface these
+    // fields) OR SSH+cat /etc/suderra/config.yaml. With
+    // this banner the journalctl boot log carries all
+    // tunable security thresholds — no runtime query
+    // needed to verify a config rollout landed correctly.
+    info!("Faz 2 security posture (Batch 31-37 foundations):");
+    info!("  RBAC gate: preview-logging active (Sprint 6.4 wires enforcement)");
+    info!(
+        "  Two-person integrity: preview-logging active for UpdateFirmware/DeployProgram/ForceValue/SafeStateTrigger/Reboot"
+    );
+    info!("  Retained-msg rejection: active on commands + config topics (plan D-14)");
+    info!(
+        "  Shutdown drain: command handler drain-aware; timeout={}s drain_budget={}ms (plan D-15)",
+        cfg.runtime.shutdown_timeout_secs, cfg.runtime.drain_timeout_ms
+    );
+    info!(
+        "  Replay window: max_age={}s max_skew={}s (IEC 62443 SL-2 FR-7)",
+        cfg.runtime.max_command_age_secs, cfg.runtime.max_command_skew_secs
+    );
+    info!(
+        "  Process hardening: prctl(PR_SET_DUMPABLE=0) + panic-abort hook active (Sprint 6.3 partial)"
+    );
+    // Batch 42: config-integrity sidecar mode.
+    #[cfg(not(feature = "suderra-os"))]
+    info!(
+        "  Config integrity: mode={:?} (sidecar verified before boot; plan D-13)",
+        cfg.config_integrity.mode
+    );
+    #[cfg(feature = "suderra-os")]
+    info!(
+        "  Config integrity: signed site config verified against the trust-anchors bundle \
+         (ADR-048 DEC-4.10)"
+    );
+    // Batch 45: command-envelope signature mode.
+    info!(
+        "  Signature mode: {:?} (envelope verify + jti dedup wire in Sprint 6.4; plan §2 HC-6)",
+        cfg.signature_mode
+    );
+    // Batch 56: clock authority NTS threshold.
+    info!(
+        "  Clock authority: nts_sync_max_skew_secs={} (ChronyNtsClockAuthority wires in Sprint 6.7; plan D-7)",
+        cfg.clock.nts_sync_max_skew_secs
+    );
+    // Batch 58: envelope dedup (Moka hot-window tier).
+    info!(
+        "  Envelope dedup: moka_capacity={}, moka_ttl_secs={} (SQLCipher tier wires in Sprint 6.4; plan §4.10)",
+        cfg.envelope_dedup.moka_capacity, cfg.envelope_dedup.moka_ttl_secs
+    );
+    // Batch 65: CommandEnvelope parse-and-verify path
+    // active status. After Batches 57-63 Sprint 6.4
+    // is substantially wired; operators watching boot
+    // see which envelope features are live today vs
+    // pending Sprint 6.1 RBAC manifest runtime.
+    info!(
+        "  CommandEnvelope path: parse-and-verify ACTIVE (Batch 63); \
+         signature-verify NO-OP pending Sprint 6.1 actor-pubkey lookup; \
+         Moka dedup tier ACTIVE (Batch 57); SQLCipher tier pending Sprint 6.4"
+    );
+    // Batch 66: RBAC manifest mode.
+    #[cfg(not(feature = "suderra-os"))]
+    info!(
+        "  RBAC manifest: mode={:?} (loader runtime wires in Sprint 6.1; plan §3 R-5 / ADR-018)",
+        cfg.rbac_manifest.mode
+    );
+    #[cfg(feature = "suderra-os")]
+    info!(
+        "  RBAC manifest: root-delivered suderra.rbac-manifest.v1, verified against the \
+         trust-anchors bundle (ADR-048 DEC-9.9)"
+    );
+}
+
+/// A boot dependency of the full operation failed after the boot
+/// safe-state (ADR-048 DEC-6.3, EDGE-MEDIUM-078).
+fn boot_dependency_failed(component: &'static str, detail: String) -> degraded::DegradedReason {
+    degraded::DegradedReason::BootDependencyFailed { component, detail }
+}
+
+/// The stores and services the full operation needs (ADR-048 DEC-6.2,
+/// DEC-6.3; EDGE-MEDIUM-078). run_agent calls this after the boot
+/// safe-state, never before: each of these used to exit(1) ahead of the
+/// hardware init, so a failing store restart-looped the agent without ever
+/// driving its outputs safe.
+///
+/// Stops at the first failure and initializes nothing after it: the
+/// stores depend on each other (the keystore keys the stores after it; the
+/// audit sink must exist before a command runs), so a partial set is no
+/// posture to accept commands or network traffic on. run_agent then stays
+/// up in degraded mode — outputs safe, control disabled, no connectivity,
+/// command plane or local server — and reports the component.
+async fn init_boot_dependencies(
+    state: &Arc<RwLock<AppState>>,
+) -> std::result::Result<(), degraded::DegradedReason> {
     // Initialize HealthServer (Faz 1 Step 1.4 / ARC-003 / Batch 14).
     //
     // WHY: Orchestrator liveness probes (Docker / k8s / systemd) need the
@@ -3652,21 +3850,19 @@ async fn async_main(notifier: Arc<systemd_notify::SystemdNotifier>) -> Result<()
     // otherwise stays None at zero cost.
     //
     // WHAT: `init_health_server()` returns Err on invalid bind address
-    // (fail-closed boot — misconfig never silently drops the endpoint);
+    // (fail closed: degraded mode — misconfig never silently drops the
+    // endpoint);
     // Ok(None) on disabled config; Ok(Some(handle)) on successful spawn.
-    // The JoinHandle is dropped here — Sprint 6.7 wires it into the
-    // ShutdownPhase::Draining force-cancel list.
+    // The JoinHandle is dropped (the server task keeps running) — Sprint
+    // 6.7 wires it into the ShutdownPhase::Draining force-cancel list.
     #[cfg(feature = "health")]
-    let _health_server_handle: Option<tokio::task::JoinHandle<()>> = {
+    {
         let mut state_guard = state.write().await;
-        match state_guard.init_health_server().await {
-            Ok(h) => h,
-            Err(msg) => {
-                error!("HealthServer init failed (fail-closed boot): {}", msg);
-                std::process::exit(1);
-            }
-        }
-    };
+        state_guard
+            .init_health_server()
+            .await
+            .map_err(|msg| boot_dependency_failed("health-server", msg))?;
+    }
 
     // Initialize clock authority (Batch 90 Sprint 6.7 wire).
     //
@@ -3705,17 +3901,17 @@ async fn async_main(notifier: Arc<systemd_notify::SystemdNotifier>) -> Result<()
     // callsite switches in Batch #18.
     //
     // FAIL-CLOSED: keystore.mode != Disabled + open failure
-    // -> exit(1). The keystore is the trust anchor; weaker
-    // fallback would violate ADR-018 §4 invariants.
+    // -> degraded mode, and no store after it opens. The keystore is the
+    // trust anchor; weaker fallback would violate ADR-018 §4 invariants.
     {
         // Batch #320 D-1b CLOSURE: init_keystore is async
         // since it now reads/initializes the rotation marker
         // via the trustworthy wallclock at boot.
         let mut state_guard = state.write().await;
-        if let Err(msg) = state_guard.init_keystore().await {
-            error!("Keystore init failed (fail-closed boot): {}", msg);
-            std::process::exit(1);
-        }
+        state_guard
+            .init_keystore()
+            .await
+            .map_err(|msg| boot_dependency_failed("keystore", msg))?;
     }
 
     // Initialize OfflineQueue (Faz 1 Step 1.3 / ARC-002 / Batch 15).
@@ -3725,14 +3921,14 @@ async fn async_main(notifier: Arc<systemd_notify::SystemdNotifier>) -> Result<()
     //
     // WHAT: Opens SQLCipher DB at `${SUDERRA_DATA_DIR}/offline_queue.db`
     // (overridable via config) when config.offline_queue.enabled=true.
-    // Fail-closed boot on open error. MQTT publish integration (Sprint
+    // Fail closed (degraded mode) on open error. MQTT publish integration (Sprint
     // 6.2) threads `state.offline_queue.as_ref()` into the publish path.
     {
         let mut state_guard = state.write().await;
-        if let Err(msg) = state_guard.init_offline_queue().await {
-            error!("OfflineQueue init failed (fail-closed boot): {}", msg);
-            std::process::exit(1);
-        }
+        state_guard
+            .init_offline_queue()
+            .await
+            .map_err(|msg| boot_dependency_failed("offline-queue", msg))?;
     }
 
     // Initialize BackupManager (Faz 1 Step 8 / ARC-009 / Batch 18).
@@ -3741,15 +3937,14 @@ async fn async_main(notifier: Arc<systemd_notify::SystemdNotifier>) -> Result<()
     // Pre-Batch-18 the module was dead-code.
     //
     // WHAT: Constructs BackupManager + calls init() to mkdir backup_dir
-    // when config.backup.enabled=true. Fail-closed boot on mkdir error
+    // when config.backup.enabled=true. Fail closed (degraded mode) on mkdir error
     // (declared-enabled backup MUST be able to write). HTTP endpoint +
     // CLI subcommand triggers land in Sprint 6.x.
     {
         let mut state_guard = state.write().await;
-        if let Err(msg) = state_guard.init_backup_manager() {
-            error!("BackupManager init failed (fail-closed boot): {}", msg);
-            std::process::exit(1);
-        }
+        state_guard
+            .init_backup_manager()
+            .map_err(|msg| boot_dependency_failed("backup-manager", msg))?;
     }
 
     // Initialize JTI dedup table (Batch 59 Sprint 6.4 foundation).
@@ -3785,29 +3980,21 @@ async fn async_main(notifier: Arc<systemd_notify::SystemdNotifier>) -> Result<()
     // - Permissive: load failure is warn-logged + boot continues
     //   (envelope Gate 7 falls to NO-OP — matches Batch 63
     //   Permissive semantic).
-    // - Enforcing: load failure → exit(1). Operator must fix
+    // - Enforcing: load failure → degraded mode. Operator must fix
     //   manifest or downgrade mode. Matches init_backup_manager +
     //   Faz 2 coherence discipline.
     #[cfg(not(feature = "suderra-os"))]
     {
         let mut state_guard = state.write().await;
-        if let Err(msg) = state_guard.init_rbac_manifest_store() {
-            error!(
-                "RBAC manifest store init failed (fail-closed boot, mode=Enforcing): {}",
-                msg
-            );
-            std::process::exit(1);
-        }
+        state_guard
+            .init_rbac_manifest_store()
+            .map_err(|msg| boot_dependency_failed("rbac-manifest", msg))?;
     }
     // ADR-048 DEC-3.7, DEC-9.9: Suderra OS — the trust root first, then the
     // RBAC manifest verified against it. Failure fails the command plane
     // closed, never the process.
-    #[cfg(feature = "suderra-os")]
-    {
-        let mut state_guard = state.write().await;
-        state_guard.init_trust_anchors();
-        state_guard.init_rbac_manifest_store();
-    }
+    // Suderra OS: the RBAC manifest was verified with the site and installed
+    // before the boot safe-state (`AppState::install_site`, DEC-9.9).
 
     // Initialize user-token manifest store + persistent floor
     // (Batch #250 Faz 5 A-3c boot wire).
@@ -3824,7 +4011,7 @@ async fn async_main(notifier: Arc<systemd_notify::SystemdNotifier>) -> Result<()
     // attaches it via `with_version_store` so the floor
     // persists across reboots.
     //
-    // FAIL-CLOSED DISCIPLINE: open failure exits boot.
+    // FAIL-CLOSED DISCIPLINE: open failure is degraded mode.
     // Unlike RbacManifestStore (which has Disabled / Permissive
     // / Enforcing modes for staged rollout), the user-token
     // manifest has no mode gate — the only legitimate states are
@@ -3834,13 +4021,9 @@ async fn async_main(notifier: Arc<systemd_notify::SystemdNotifier>) -> Result<()
     // open the cross-reboot replay window.
     {
         let mut state_guard = state.write().await;
-        if let Err(msg) = state_guard.init_user_token_manifest_store() {
-            error!(
-                "User-token manifest store init failed (fail-closed boot): {}",
-                msg
-            );
-            std::process::exit(1);
-        }
+        state_guard
+            .init_user_token_manifest_store()
+            .map_err(|msg| boot_dependency_failed("user-token-manifest", msg))?;
     }
 
     // Initialize A/B partition state store (Batch 108 Sprint
@@ -3854,22 +4037,21 @@ async fn async_main(notifier: Arc<systemd_notify::SystemdNotifier>) -> Result<()
     // (audit sink for rotation events, watchdog task for
     // rollback) can rely on it.
     //
-    // FAIL-CLOSED: corrupt partition.json → exit(1).
+    // FAIL-CLOSED: corrupt partition.json → degraded mode.
     // Operator recovery runbook to be added in a follow-up
     // documentation batch.
     #[cfg(not(feature = "os-managed-updates"))]
     {
         let mut state_guard = state.write().await;
-        if let Err(msg) = state_guard.init_partition_store() {
-            error!("{}", msg);
-            std::process::exit(1);
-        }
+        state_guard
+            .init_partition_store()
+            .map_err(|msg| boot_dependency_failed("partition-store", msg))?;
     }
 
     // Batch 114 Sprint 6.5: parse firmware_update.
     // signing_pubkey_hex into a cached VerifyingKey. NO-OP
     // when mode=Disabled; parse-failure is fail-closed
-    // (exit 1) because config Rule 20+21 already validated
+    // (degraded mode) because config Rule 20+21 already validated
     // the hex shape at load time — a parse failure here
     // would be a genuine cryptographic construction error
     // on an otherwise well-formed hex string, which points
@@ -3877,10 +4059,9 @@ async fn async_main(notifier: Arc<systemd_notify::SystemdNotifier>) -> Result<()
     // operator attention before accepting commands.
     {
         let mut state_guard = state.write().await;
-        if let Err(msg) = state_guard.init_firmware_signing_pubkey() {
-            error!("init_firmware_signing_pubkey: {}", msg);
-            std::process::exit(1);
-        }
+        state_guard
+            .init_firmware_signing_pubkey()
+            .map_err(|msg| boot_dependency_failed("firmware-signing-key", msg))?;
     }
 
     // Batch 128 Sprint 6.5: select bootloader backend per
@@ -4006,34 +4187,29 @@ async fn async_main(notifier: Arc<systemd_notify::SystemdNotifier>) -> Result<()
     //
     // FAIL-CLOSED DISCIPLINE:
     // - Disabled: skip open (audit_sink stays None).
-    // - Enabled: open sink; failure → exit(1). IEC 62443 SL-2
+    // - Enabled: open sink; failure → degraded mode with no command
+    //   plane, so no command runs unaudited. IEC 62443 SL-2
     //   FR6 forensic-trail is non-negotiable; there is no
     //   "permissive" fallback.
     {
         let mut state_guard = state.write().await;
-        if let Err(msg) = state_guard.init_audit_sink() {
-            error!(
-                "Audit sink init failed (fail-closed boot, mode=Enabled): {}",
-                msg
-            );
-            std::process::exit(1);
-        }
+        state_guard
+            .init_audit_sink()
+            .map_err(|msg| boot_dependency_failed("audit-sink", msg))?;
     }
 
     // Batch 129 Sprint 6.6: load the lifecycle HMAC auth
     // key from systemd-credentials BEFORE populating the
-    // lifecycle cell. NO-OP in auth_mode=Disabled; fail-
-    // closed exit(1) when auth_mode=HmacToken + the
-    // credential load fails (operator configured auth
-    // but didn't supply the key — safer to refuse boot
-    // than silently degrade).
+    // lifecycle cell. NO-OP in auth_mode=Disabled; fail
+    // closed (degraded mode, no endpoint served without its key) when
+    // auth_mode=HmacToken + the credential load fails (operator
+    // configured auth but didn't supply the key).
     #[cfg(feature = "health")]
     {
         let mut state_guard = state.write().await;
-        if let Err(msg) = state_guard.init_lifecycle_auth_key() {
-            error!("{}", msg);
-            std::process::exit(1);
-        }
+        state_guard
+            .init_lifecycle_auth_key()
+            .map_err(|msg| boot_dependency_failed("lifecycle-auth-key", msg))?;
     }
 
     // Batch 122 Sprint 6.5: populate the lifecycle cell
@@ -4053,29 +4229,7 @@ async fn async_main(notifier: Arc<systemd_notify::SystemdNotifier>) -> Result<()
 
     // Setup graceful shutdown
     // Pass state so SIGHUP can reload config in-place (SEC-010)
-    let shutdown = match setup_shutdown_handler(state.clone()) {
-        Ok(rx) => rx,
-        Err(e) => {
-            error!("Failed to setup shutdown handler: {}", e);
-            std::process::exit(1);
-        }
-    };
 
-    // READY is NOT sent here (ADR-048 DEC-6.2, EDGE-HIGH-051): run_agent
-    // sends it once the outputs are in their safe state and the local
-    // control loop has completed a cycle; network, activation and MQTT run
-    // in the background and never gate it.
-
-    // Use LocalSet to allow non-Send futures (required for Modbus client)
-    let local = tokio::task::LocalSet::new();
-    let result = local.run_until(run_agent(state, shutdown, notifier)).await;
-
-    if let Err(e) = result {
-        error!("Agent error: {:#}", e);
-        std::process::exit(1);
-    }
-
-    info!("Agent shutdown complete");
     Ok(())
 }
 
@@ -4246,7 +4400,8 @@ fn run_migrate_db_subcommand_with_context(sub_argv_owned: Vec<String>) -> i32 {
 
 /// `--preflight`: the boot steps that touch persistent state, without the
 /// network or hardware. Same functions as boot, in boot order:
-/// `AgentConfig::load` (path SSoT + activation overlay), `init_keystore`,
+/// `load_verified_config` (path SSoT + activation overlay; the site's
+/// verification on Suderra OS, with no version gate advanced), `init_keystore`,
 /// `init_offline_queue`. Like boot, the latter creates the device secret
 /// and the queue database when they do not exist yet. Prints one JSON line
 /// on success (exit 0); the error on stderr otherwise (exit 1).
@@ -4265,10 +4420,13 @@ fn run_preflight() -> i32 {
     };
     runtime.block_on(async {
         let agent_paths = paths::AgentPaths::current();
-        let config = match AgentConfig::load(agent_paths) {
-            Ok(c) => c,
+        // The same verification as boot, changing nothing (ADR-048
+        // DEC-4.10): on Suderra OS the site, in the generic profile the
+        // config file.
+        let config = match load_verified_config(agent_paths, ConfigUse::Inspect) {
+            Ok(verified) => verified.config,
             Err(e) => {
-                eprintln!("--preflight: config load failed: {e:#}");
+                eprintln!("--preflight: config load failed: {e}");
                 return 1;
             }
         };
@@ -4588,214 +4746,188 @@ fn init_opentelemetry(_config: &config::AgentConfig) -> Option<()> {
 /// Setup shutdown signal handlers for graceful shutdown
 ///
 /// # Platform Support
-/// - All platforms: Ctrl+C (SIGINT)
-/// - Unix only: SIGTERM
+/// - Unix: SIGTERM and SIGINT (graceful shutdown), SIGHUP (reload)
+/// - Other platforms: Ctrl+C
+///
+/// Never fails: a signal that cannot be registered is logged and the others
+/// keep working. A failure here used to exit(1) ahead of the boot safe-state
+/// (EDGE-MEDIUM-078); systemd stops the agent with SIGTERM, and a missing
+/// SIGINT or SIGHUP handler is no reason to leave the outputs unsafe.
 ///
 /// # SIGHUP — Config Reload (IEC 62443 FR5, SEC-010)
 /// SIGHUP follows Unix daemon convention: it reloads configuration rather than
 /// shutting down.  `systemctl reload suderra-agent` sends SIGHUP; treating it
 /// as shutdown would cause unexpected downtime on production aquaculture equipment.
-///
-/// On SIGHUP the agent re-reads `/etc/suderra/config.yaml` (or `SUDERRA_CONFIG`),
-/// validates the new config, and atomically replaces `AppState.config` under the
-/// write lock.  Security-sensitive fields (MQTT credentials, TLS certs) take
-/// effect on the next connection attempt.
-fn setup_shutdown_handler(
-    state: Arc<RwLock<AppState>>,
-) -> Result<tokio::sync::watch::Receiver<bool>> {
-    // `state` is used only in the Unix SIGHUP config-reload handler
-    #[cfg(not(unix))]
-    let _ = &state;
+/// The reload goes through the same verification as boot
+/// ([`reload_configuration`]).
+fn setup_shutdown_handler(state: Arc<RwLock<AppState>>) -> tokio::sync::watch::Receiver<bool> {
     let (tx, rx) = tokio::sync::watch::channel(false);
 
-    // Clone tx for the ctrlc handler
-    let tx_ctrlc = tx.clone();
-    ctrlc::set_handler(move || {
-        info!("SIGINT (Ctrl+C) received, initiating graceful shutdown...");
-        let _ = tx_ctrlc.send(true);
-    })
-    .map_err(|e| {
-        anyhow::anyhow!(
-            "Failed to set Ctrl-C handler: {}. This may occur if a handler was already set.",
-            e
-        )
-    })?;
+    #[cfg(not(unix))]
+    {
+        let _ = &state;
+        let tx_ctrlc = tx.clone();
+        match ctrlc::set_handler(move || {
+            info!("SIGINT (Ctrl+C) received, initiating graceful shutdown...");
+            let _ = tx_ctrlc.send(true);
+        }) {
+            Ok(()) => info!("Signal handlers registered: SIGINT (Ctrl+C)"),
+            Err(e) => error!(
+                "Ctrl-C handler could not be set: {}. Stop the agent by terminating the process.",
+                e
+            ),
+        }
+    }
 
-    // Setup Unix-specific signal handlers (SIGTERM, SIGHUP)
-    // v1.2.3: Enhanced error handling for signal handler task
     #[cfg(unix)]
     {
-        let tx_term = tx.clone();
+        use tokio::signal::unix::{Signal, SignalKind, signal};
 
-        // Spawn async task to handle Unix signals
+        fn register(kind: SignalKind, name: &str) -> Option<Signal> {
+            match signal(kind) {
+                Ok(s) => Some(s),
+                Err(e) => {
+                    error!("Failed to set up the {} handler: {}", name, e);
+                    None
+                }
+            }
+        }
+
+        /// The next delivery of `signal`; never, when it is not registered.
+        async fn next(signal: &mut Option<Signal>) {
+            if let Some(s) = signal {
+                if s.recv().await.is_some() {
+                    return;
+                }
+            }
+            std::future::pending::<()>().await;
+        }
+
+        let mut sigterm = register(SignalKind::terminate(), "SIGTERM");
+        let mut sigint = register(SignalKind::interrupt(), "SIGINT");
+        let mut sighup = register(SignalKind::hangup(), "SIGHUP");
+
         tokio::spawn(async move {
-            use tokio::signal::unix::{SignalKind, signal};
-
-            let mut sigterm = match signal(SignalKind::terminate()) {
-                Ok(s) => s,
-                Err(e) => {
-                    error!(
-                        "Failed to setup SIGTERM handler: {}. SIGTERM will not trigger graceful shutdown.",
-                        e
-                    );
-                    return;
-                }
-            };
-
-            let mut sighup = match signal(SignalKind::hangup()) {
-                Ok(s) => s,
-                Err(e) => {
-                    error!(
-                        "Failed to setup SIGHUP handler: {}. SIGHUP config reload will be unavailable.",
-                        e
-                    );
-                    return;
-                }
-            };
-
             debug!("Unix signal handler task started successfully");
-
             loop {
                 tokio::select! {
-                    _ = sigterm.recv() => {
+                    _ = next(&mut sigterm) => {
                         info!("SIGTERM received, initiating graceful shutdown...");
-                        if tx_term.send(true).is_err() {
+                        if tx.send(true).is_err() {
                             error!("Failed to send shutdown signal via SIGTERM handler");
                         }
                         return;
                     }
-                    _ = sighup.recv() => {
-                        // SEC-010 (IEC 62443 FR5): SIGHUP triggers config reload, NOT shutdown.
-                        // Treating SIGHUP as shutdown caused unexpected downtime when operators
-                        // ran `systemctl reload suderra-agent` to rotate MQTT credentials.
-                        info!("SIGHUP received — reloading configuration from disk...");
-                        match AgentConfig::load(paths::AgentPaths::current()) {
-                            Ok(new_config) => {
-                                match new_config.validate() {
-                                    Ok(()) => {
-                                        let mut state_guard = state.write().await;
-
-                                        // LoRa config degisikligi kontrol (config atamasindan ONCE)
-                                        #[cfg(feature = "lorawan")]
-                                        let lora_changed = state_guard.config.lorawan != new_config.lorawan;
-
-                                        state_guard.config = new_config.clone();
-
-                                        // LoRa actor yeniden baslatma (config degistiyse)
-                                        #[cfg(feature = "lorawan")]
-                                        {
-                                            if lora_changed {
-                                                info!("LoRa yapilandirmasi degisti — actor yeniden baslatiliyor...");
-                                                // Eski actor handle'ini al ve write lock'u birak
-                                                // (actor icinde state.read() cagrilir, write lock tutulursa deadlock olusur)
-                                                let old_lora_handle = state_guard.lora_handle.take();
-                                                drop(state_guard);
-
-                                                // Lock disinda shutdown yap — actor artik read lock alabilir ve kapanabilir
-                                                if let Some(handle) = old_lora_handle {
-                                                    handle.shutdown().await;
-                                                }
-
-                                                // Yeni config ile yeniden baslat
-                                                if let Some(ref lora_cfg) = new_config.lorawan {
-                                                    if lora_cfg.enabled {
-                                                        let new_handle = crate::lora::LoRaHandle::new(
-                                                            lora_cfg,
-                                                            state.clone(),
-                                                        );
-                                                        match new_handle.init().await {
-                                                            Ok(()) => {
-                                                                let mut state_guard = state.write().await;
-                                                                state_guard.lora_handle = Some(new_handle);
-                                                                info!("LoRa actor yeniden baslatildi (SIGHUP)");
-                                                            }
-                                                            Err(e) => {
-                                                                warn!("LoRa actor yeniden baslatma hatasi: {}", e);
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-
-                                        info!(
-                                            "Configuration reloaded successfully. \
-                                             Security-sensitive fields (MQTT credentials, \
-                                             TLS certificates) take effect on next reconnect."
-                                        );
-
-                                        // Batch 80 Sprint 6.2 Phase 2: audit sink
-                                        // reopen for logrotate compatibility. Standard
-                                        // Unix daemon pattern: SIGHUP = (config reload
-                                        // OR log-file handle refresh). Logrotate's
-                                        // create + rename pattern leaves the agent's
-                                        // fd pointing at the ROTATED file; reopen()
-                                        // closes the rotated fd + opens the new empty
-                                        // file at the same path. Batch 76 primitive
-                                        // preserves in-memory chain state
-                                        // (last_hmac, last_sequence) across the
-                                        // reopen so cross-file linkage holds.
-                                        //
-                                        // Acquires a fresh read-guard (write-guard
-                                        // was dropped above in the lora-reload
-                                        // branch; on non-lora paths we hold it
-                                        // still — use read() path that's
-                                        // idempotent).
-                                        let sink_snap = state
-                                            .read()
-                                            .await
-                                            .audit_sink
-                                            .clone();
-                                        if let Some(sink) = sink_snap {
-                                            match sink.reopen() {
-                                                Ok(()) => {
-                                                    info!(
-                                                        "Audit sink reopened successfully on SIGHUP (logrotate-compatible)"
-                                                    );
-                                                }
-                                                Err(e) => {
-                                                    error!(
-                                                        "Audit sink reopen FAILED on SIGHUP: {}. \
-                                                         Agent continues but subsequent appends may target the rotated file. \
-                                                         Operator should investigate /var/log/suderra/audit.log permissions.",
-                                                        e
-                                                    );
-                                                }
-                                            }
-                                        }
-                                    }
-                                    Err(e) => {
-                                        error!(
-                                            "SIGHUP config reload rejected — new config failed \
-                                             validation, keeping current config: {}",
-                                            e
-                                        );
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                error!(
-                                    "SIGHUP config reload failed — could not read config file, \
-                                     keeping current config: {}",
-                                    e
-                                );
-                            }
+                    _ = next(&mut sigint) => {
+                        info!("SIGINT (Ctrl+C) received, initiating graceful shutdown...");
+                        if tx.send(true).is_err() {
+                            error!("Failed to send shutdown signal via SIGINT handler");
                         }
-                        // Do NOT send shutdown signal — continue loop to handle further signals
+                        return;
                     }
+                    // Do NOT send shutdown signal — continue loop to handle further signals
+                    _ = next(&mut sighup) => reload_configuration(&state).await,
                 }
             }
         });
 
-        info!("Signal handlers registered: SIGINT, SIGTERM, SIGHUP (config reload)");
+        info!("Signal handlers registered: SIGINT, SIGTERM, SIGHUP (verified config reload)");
     }
 
-    #[cfg(not(unix))]
-    {
-        info!("Signal handlers registered: SIGINT (Ctrl+C)");
+    rx
+}
+
+/// SIGHUP: reload the configuration through the same verification as boot
+/// (`load_verified_config`, ADR-048 DEC-4.10). On Suderra OS the site is
+/// verified again and installed with its trust root and RBAC manifest, so the
+/// configuration and the trust root always come from one site; in the
+/// generic profile `config.yaml` is loaded and its integrity checked (before
+/// this a reload bypassed config integrity entirely). A rejected reload keeps
+/// everything as it was. Security-sensitive fields (MQTT credentials, TLS
+/// certificates) take effect on the next connection attempt.
+///
+/// The state lock is released before anything awaits on other locks (the
+/// LoRa actor restart, the audit sink): the previous handler still held its
+/// write guard when it took `state.read()` for the audit sink, so a reload
+/// in a build without LoRaWAN deadlocked every user of the state.
+#[cfg(unix)]
+async fn reload_configuration(state: &Arc<RwLock<AppState>>) {
+    info!("SIGHUP received — reloading configuration from disk...");
+    let verified = match load_verified_config(paths::AgentPaths::current(), ConfigUse::Act) {
+        Ok(verified) => verified,
+        Err(e) => {
+            error!(
+                "SIGHUP config reload rejected, keeping the current configuration: {}",
+                e
+            );
+            return;
+        }
+    };
+    #[cfg(feature = "lorawan")]
+    let new_lora = verified.config.lorawan.clone();
+    #[cfg(feature = "lorawan")]
+    let mut lora_restart: Option<Option<crate::lora::LoRaHandle>> = None;
+    let audit_sink = {
+        let mut state_guard = state.write().await;
+        #[cfg(feature = "suderra-os")]
+        state_guard.install_site(&verified.site);
+        #[cfg(feature = "lorawan")]
+        if state_guard.config.lorawan != new_lora {
+            lora_restart = Some(state_guard.lora_handle.take());
+        }
+        state_guard.config = verified.config;
+        state_guard.audit_sink.clone()
+    };
+
+    #[cfg(feature = "lorawan")]
+    if let Some(old_lora_handle) = lora_restart {
+        info!("LoRa yapilandirmasi degisti — actor yeniden baslatiliyor...");
+        if let Some(handle) = old_lora_handle {
+            handle.shutdown().await;
+        }
+        if let Some(ref lora_cfg) = new_lora {
+            if lora_cfg.enabled {
+                let new_handle = crate::lora::LoRaHandle::new(lora_cfg, state.clone());
+                match new_handle.init().await {
+                    Ok(()) => {
+                        state.write().await.lora_handle = Some(new_handle);
+                        info!("LoRa actor yeniden baslatildi (SIGHUP)");
+                    }
+                    Err(e) => {
+                        warn!("LoRa actor yeniden baslatma hatasi: {}", e);
+                    }
+                }
+            }
+        }
     }
 
-    Ok(rx)
+    info!(
+        "Configuration reloaded successfully. Security-sensitive fields (MQTT credentials, \
+         TLS certificates) take effect on next reconnect."
+    );
+
+    // Batch 80 Sprint 6.2 Phase 2: audit sink reopen for logrotate
+    // compatibility. Standard Unix daemon pattern: SIGHUP = (config reload
+    // OR log-file handle refresh). Logrotate's create + rename pattern
+    // leaves the agent's fd pointing at the ROTATED file; reopen() closes
+    // the rotated fd + opens the new empty file at the same path. Batch 76
+    // primitive preserves in-memory chain state (last_hmac, last_sequence)
+    // across the reopen so cross-file linkage holds.
+    if let Some(sink) = audit_sink {
+        match sink.reopen() {
+            Ok(()) => {
+                info!("Audit sink reopened successfully on SIGHUP (logrotate-compatible)");
+            }
+            Err(e) => {
+                error!(
+                    "Audit sink reopen FAILED on SIGHUP: {}. \
+                     Agent continues but subsequent appends may target the rotated file. \
+                     Operator should investigate /var/log/suderra/audit.log permissions.",
+                    e
+                );
+            }
+        }
+    }
 }
 
 /// Shutdown timeout for graceful task termination.
@@ -4822,13 +4954,63 @@ fn persist_activation(
     state: &mut AppState,
     activation: &activation_state::ActivationState,
 ) -> Result<()> {
+    persist_activation_at(
+        state,
+        activation,
+        &paths::AgentPaths::current().activation_state_file(),
+    )
+}
+
+/// An activation response that names an identity other than the
+/// root-recorded one (ADR-048 DEC-3.6). Nothing of it is kept; activation
+/// is requested again.
+#[cfg(feature = "suderra-os")]
+#[derive(Debug, thiserror::Error)]
+#[error("{0:#}")]
+struct ForeignActivation(anyhow::Error);
+
+/// `true` when `e` is a [`ForeignActivation`].
+#[cfg(feature = "suderra-os")]
+fn is_foreign_activation(e: &anyhow::Error) -> bool {
+    e.is::<ForeignActivation>()
+}
+
+/// The generic profile has no root-recorded identity to compare with.
+#[cfg(not(feature = "suderra-os"))]
+fn is_foreign_activation(_e: &anyhow::Error) -> bool {
+    false
+}
+
+/// [`persist_activation`] to `path`.
+///
+/// Suderra OS: the response must name the root-recorded identity
+/// (`ActivationState::check_identity`), checked before anything is
+/// validated, persisted or applied, and the agent's tenant binding stays the
+/// identity's — it is never taken from a response (ADR-048 DEC-3.6, DEC-22).
+/// Generic profile: the activated tenant becomes the binding.
+fn persist_activation_at(
+    state: &mut AppState,
+    activation: &activation_state::ActivationState,
+    path: &std::path::Path,
+) -> Result<()> {
+    #[cfg(feature = "suderra-os")]
+    {
+        let trust = state.trust_anchors.as_ref().ok_or_else(|| {
+            anyhow::Error::new(ForeignActivation(anyhow::anyhow!(
+                "no trust root: the activation response cannot be checked against the \
+                 root-recorded identity (ADR-048 DEC-3.6)"
+            )))
+        })?;
+        activation
+            .check_identity(&trust.device().identity)
+            .map_err(|e| anyhow::Error::new(ForeignActivation(e)))?;
+    }
     let mut merged = state.config.clone();
     merged.apply_activation_state(activation);
     merged
         .validate()
         .context("Activation response yields an invalid configuration — not persisted")?;
-    let path = paths::AgentPaths::current().activation_state_file();
-    if let Err(e) = activation.persist(&path) {
+    if let Err(e) = activation.persist(path) {
         error!(
             "CRITICAL: failed to persist the activation result to {}: {:#}",
             path.display(),
@@ -4837,6 +5019,10 @@ fn persist_activation(
         return Err(e);
     }
     state.config = merged;
+    #[cfg(not(feature = "suderra-os"))]
+    {
+        state.tenant_id = Some(activation.tenant_id.clone());
+    }
     Ok(())
 }
 
@@ -4887,7 +5073,7 @@ fn needs_activation(config: &AgentConfig) -> bool {
 async fn request_activation(
     state: &Arc<RwLock<AppState>>,
     has_tenant_token: bool,
-) -> Result<(activation_state::ActivationState, String)> {
+) -> Result<activation_state::ActivationState> {
     let provisioning_client =
         ProvisioningClient::new(state.clone()).context("Failed to create provisioning client")?;
     if has_tenant_token {
@@ -4911,7 +5097,7 @@ async fn request_activation(
                 mqtt_password: &response.mqtt_password,
             },
         );
-        Ok((activation, response.tenant_id.clone()))
+        Ok(activation)
     } else {
         let response = provisioning_client.activate().await?;
         info!("Device activated successfully!");
@@ -4931,7 +5117,7 @@ async fn request_activation(
                 mqtt_password: &response.mqtt_password,
             },
         );
-        Ok((activation, response.tenant_id.clone()))
+        Ok(activation)
     }
 }
 
@@ -4954,9 +5140,9 @@ async fn activate(
         info!("Device not activated, starting provisioning...");
     }
     let mut attempt: u32 = 0;
-    let (activation, tenant_id) = loop {
-        match request_activation(state, has_tenant_token).await {
-            Ok(result) => break result,
+    loop {
+        let activation = match request_activation(state, has_tenant_token).await {
+            Ok(activation) => activation,
             Err(e) => {
                 let delay = connectivity_backoff(attempt);
                 error!(
@@ -4970,43 +5156,57 @@ async fn activate(
                     return false;
                 }
                 attempt = attempt.saturating_add(1);
+                continue;
             }
-        }
-    };
-
-    // ADR-048 DEC-4.6: the result goes to the agent's state directory, never
-    // into config.yaml. The cloud has consumed the single-use token, so the
-    // credential must be durable before the agent acts on it: until the
-    // persist succeeds it is held in memory only, unused, and the persist is
-    // retried — the process does not exit.
-    let mut persist_attempt: u32 = 0;
-    loop {
-        let persisted = {
-            let mut state_guard = state.write().await;
-            persist_activation(&mut state_guard, &activation).map(|()| {
-                state_guard.tenant_id = Some(tenant_id.clone());
-                state_guard.is_activated = true;
-            })
         };
-        match persisted {
-            Ok(()) => {
-                info!("Activation result persisted; the provisioning token is no longer held");
-                return true;
-            }
-            Err(e) => {
-                let delay = connectivity_backoff(persist_attempt);
-                error!(
-                    "ALARM activation-persist-failed: {:#} — the credential is not used until it \
-                     is durable; retrying in {}s",
-                    e,
-                    delay.as_secs()
-                );
-                if !wait_or_shutdown(delay, shutdown).await {
-                    return false;
+
+        // ADR-048 DEC-4.6: the result goes to the agent's state directory,
+        // never into config.yaml. The cloud has consumed the single-use
+        // token, so the credential must be durable before the agent acts on
+        // it: until the persist succeeds it is held in memory only, unused,
+        // and the persist is retried — the process does not exit. A response
+        // for another identity (Suderra OS, DEC-3.6) is never kept: it is
+        // dropped and activation is requested again.
+        let mut persist_attempt: u32 = 0;
+        loop {
+            let persisted = {
+                let mut state_guard = state.write().await;
+                persist_activation(&mut state_guard, &activation)
+                    .map(|()| state_guard.is_activated = true)
+            };
+            match persisted {
+                Ok(()) => {
+                    info!("Activation result persisted; the provisioning token is no longer held");
+                    return true;
                 }
-                persist_attempt = persist_attempt.saturating_add(1);
+                Err(e) if is_foreign_activation(&e) => {
+                    error!(
+                        "ALARM activation-identity-mismatch: {:#} — nothing kept; requesting \
+                         activation again",
+                        e
+                    );
+                    break;
+                }
+                Err(e) => {
+                    let delay = connectivity_backoff(persist_attempt);
+                    error!(
+                        "ALARM activation-persist-failed: {:#} — the credential is not used until \
+                         it is durable; retrying in {}s",
+                        e,
+                        delay.as_secs()
+                    );
+                    if !wait_or_shutdown(delay, shutdown).await {
+                        return false;
+                    }
+                    persist_attempt = persist_attempt.saturating_add(1);
+                }
             }
         }
+        let delay = connectivity_backoff(attempt);
+        if !wait_or_shutdown(delay, shutdown).await {
+            return false;
+        }
+        attempt = attempt.saturating_add(1);
     }
 }
 
@@ -5037,15 +5237,13 @@ async fn run_connectivity(
         info!("Device already activated, using stored credentials");
         let mut state_guard = state.write().await;
         state_guard.is_activated = true;
-        // The stored credential's tenant (config.yaml or the activation
-        // document) is the tenant the MQTT topics already use. On Suderra
-        // OS the root-recorded identity, when the trust root established
-        // it, stays authoritative (ADR-048 DEC-3.6).
-        #[cfg(feature = "suderra-os")]
-        let keep_identity = state_guard.trust_anchors.is_some();
+        // Generic: the stored credential's tenant (config.yaml or the
+        // activation document) is the tenant the MQTT topics already use.
+        // Suderra OS: the binding is the root-recorded identity's, set with
+        // the verified site, and the configuration's tenant was checked
+        // against it (`AgentConfig::from_site`, ADR-048 DEC-3.6).
         #[cfg(not(feature = "suderra-os"))]
-        let keep_identity = false;
-        if !keep_identity {
+        {
             state_guard.tenant_id = state_guard.config.tenant_id.clone();
         }
     }
@@ -5288,9 +5486,25 @@ async fn run_agent(
         }
     }
 
+    // ADR-048 DEC-6.2 / DEC-6.3 (EDGE-MEDIUM-078): the stores and services
+    // the full operation needs start only now, with the outputs safe. A
+    // failure is degraded mode: control disabled, and no connectivity,
+    // command plane or local server on a half-initialized posture; the
+    // process stays up and the outputs stay safe.
+    let boot_complete = match init_boot_dependencies(&state).await {
+        Ok(()) => true,
+        Err(reason) => {
+            degraded.enter(reason);
+            false
+        }
+    };
+
     // Step 3: license I/O budget. Without it the inputs may not be polled,
     // and control without inputs is not control: degraded mode (DEC-6.3).
-    let io_polling_allowed = {
+    // After a failed boot dependency the license is not loaded and nothing
+    // reads the inputs (no control, network or HMI): they are not polled,
+    // and the I/O loop only keeps its liveness for the watchdog.
+    let io_polling_allowed = boot_complete && {
         let s = state.read().await;
         match crate::license::check_io_channel_budget(&s.config, &s.license) {
             crate::license::IoChannelBudget::Exceeded { configured, cap } => {
@@ -5722,7 +5936,7 @@ async fn run_agent(
     // owned by the SuderraOpcUaHandle; graceful shutdown
     // awaits that internally once cancel fires.
     #[cfg(feature = "opc-ua-server")]
-    {
+    if boot_complete {
         let (
             opc_ua_cfg,
             pi_for_opcua,
@@ -5970,9 +6184,10 @@ async fn run_agent(
         }
     }
 
-    // Step 6c: Start SCADA display server (v1.6.0, v2.4: full HMI runtime)
+    // Step 6c: Start SCADA display server (v1.6.0, v2.4: full HMI runtime).
+    // Not after a failed boot dependency (degraded mode, no local server).
     #[cfg(feature = "scada-display")]
-    {
+    if boot_complete {
         // Initialize SCADA SQLite database
         let scada_db_path = paths::AgentPaths::current()
             .scada_db()
@@ -6164,12 +6379,14 @@ async fn run_agent(
     // bounds total drain (any command slower than the timeout
     // gets force-aborted via the coordinator's tokio::time::
     // timeout around the JoinHandle).
-    let command_handler = CommandHandler::new(state.clone()).await;
-    let command_shutdown = shutdown_coordinator.subscribe();
-    let command_handle = tokio::spawn(async move {
-        command_handler.run(command_shutdown).await;
-    });
-    shutdown_coordinator.register_task("command", command_handle);
+    if boot_complete {
+        let command_handler = CommandHandler::new(state.clone()).await;
+        let command_shutdown = shutdown_coordinator.subscribe();
+        let command_handle = tokio::spawn(async move {
+            command_handler.run(command_shutdown).await;
+        });
+        shutdown_coordinator.register_task("command", command_handle);
+    }
 
     // Step 8: Read shared RETAIN persistence from
     // AppState. Batch 177 moved the init to
@@ -6234,10 +6451,28 @@ async fn run_agent(
     // On the LocalSet (the main thread), where activation and the MQTT
     // client creation ran before: the runtime's worker threads have 128 KB
     // stacks, which the provisioning HTTP/TLS path overflows.
-    let connectivity_shutdown = shutdown_coordinator.subscribe();
-    let connectivity_handle =
-        tokio::task::spawn_local(run_connectivity(state.clone(), connectivity_shutdown));
-    shutdown_coordinator.register_task("connectivity", connectivity_handle);
+    if boot_complete {
+        // Initialize FailoverManager (Faz 1 Step 1.2 / ARC-001 / Batch 13).
+        // Returns JoinHandle of the health-check task if the manager is
+        // constructed; None if config.mqtt.failover is disabled OR primary
+        // broker is not configured. The JoinHandle is dropped here — future
+        // work wires it into ShutdownCoordinator (Batch 10) for graceful
+        // cancellation during the Draining phase.
+        let _failover_health_check: Option<tokio::task::JoinHandle<()>> = {
+            let mut state_guard = state.write().await;
+            state_guard.init_failover_manager()
+        };
+
+        let connectivity_shutdown = shutdown_coordinator.subscribe();
+        let connectivity_handle =
+            tokio::task::spawn_local(run_connectivity(state.clone(), connectivity_shutdown));
+        shutdown_coordinator.register_task("connectivity", connectivity_handle);
+    } else {
+        warn!(
+            "Connectivity NOT started: a boot dependency failed (degraded mode); no broker, \
+             activation or command plane until the agent restarts with it repaired"
+        );
+    }
 
     info!(
         "Shutdown coordinator initialized with {} tasks",
@@ -6833,5 +7068,199 @@ fn reverse_scale(eng_value: f64, config: &crate::process_image::TagConfig) -> f6
             raw_min + (eng_value - eng_min) * raw_range / eng_range
         }
         _ => eng_value,
+    }
+}
+
+/// ADR-048 DEC-4.10 / DEC-6.3 standby and DEC-3.6 activation identity.
+#[cfg(test)]
+mod boot_tests {
+    #![allow(clippy::expect_used, clippy::unwrap_used, clippy::indexing_slicing)]
+
+    use std::os::unix::net::UnixDatagram;
+
+    use super::*;
+
+    fn notify_socket(dir: &std::path::Path) -> (UnixDatagram, systemd_notify::SystemdNotifier) {
+        let path = dir.join("notify.sock");
+        let socket = UnixDatagram::bind(&path).expect("bind");
+        socket.set_nonblocking(true).expect("nonblocking");
+        let notifier =
+            systemd_notify::SystemdNotifier::for_socket(path, Some(Duration::from_secs(60)));
+        (socket, notifier)
+    }
+
+    fn received(socket: &UnixDatagram) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut buf = [0u8; 1024];
+        while let Ok(n) = socket.recv(&mut buf) {
+            out.push(String::from_utf8_lossy(&buf[..n]).into_owned());
+        }
+        out
+    }
+
+    /// A configuration rejected at first (before time sync, say) is
+    /// accepted by a later attempt in the same process: the standby ends,
+    /// its reason clears, and systemd was only ever asked to wait — never
+    /// told READY.
+    #[tokio::test]
+    async fn the_standby_recovers_in_process_once_the_configuration_verifies() {
+        let dir = tempfile::tempdir().unwrap();
+        let (socket, notifier) = notify_socket(dir.path());
+        let degraded = degraded::DegradedMode::new(dir.path().join("health.json"));
+        let mut attempts = 0;
+        let verified = standby_until(
+            &notifier,
+            &degraded,
+            "site-config rejected: not-yet-valid".to_string(),
+            || {
+                attempts += 1;
+                if attempts < 3 {
+                    Err(format!("not-yet-valid (attempt {attempts})"))
+                } else {
+                    Ok("verified")
+                }
+            },
+            std::future::pending(),
+            |_| Duration::from_millis(1),
+        )
+        .await;
+        assert_eq!(verified, Some("verified"));
+        assert_eq!(attempts, 3);
+        assert!(!degraded.is_degraded(), "the standby reason clears");
+        let messages = received(&socket);
+        assert_eq!(messages.len(), 3, "{messages:?}");
+        for m in &messages {
+            assert!(m.starts_with("EXTEND_TIMEOUT_USEC="), "{m}");
+            assert!(m.contains("STATUS=standby: "), "{m}");
+            assert!(!m.contains("READY=1"), "{m}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_stop_in_standby_ends_without_a_configuration() {
+        let dir = tempfile::tempdir().unwrap();
+        let (socket, notifier) = notify_socket(dir.path());
+        let degraded = degraded::DegradedMode::new(dir.path().join("health.json"));
+        let verified: Option<()> = standby_until(
+            &notifier,
+            &degraded,
+            "config-integrity failed".to_string(),
+            || Err("still failing".to_string()),
+            std::future::ready(()),
+            |_| Duration::from_secs(3600),
+        )
+        .await;
+        assert_eq!(verified, None);
+        assert!(degraded.is_degraded());
+        assert!(received(&socket).iter().all(|m| !m.contains("READY=1")));
+    }
+
+    #[test]
+    fn the_standby_backs_off_to_a_minute() {
+        assert_eq!(standby_retry_delay(0), Duration::from_secs(5));
+        assert_eq!(standby_retry_delay(1), Duration::from_secs(10));
+        assert_eq!(standby_retry_delay(4), Duration::from_secs(60));
+        assert_eq!(standby_retry_delay(u32::MAX), Duration::from_secs(60));
+    }
+
+    /// m10 end to end: the fixture site refused before time sync is
+    /// accepted through the standby once the clock is right, without a
+    /// restart.
+    #[cfg(feature = "suderra-os")]
+    #[tokio::test]
+    async fn a_site_refused_before_time_sync_is_accepted_through_the_standby() {
+        use crate::site_trust::test_support::{SEQ_2, Site};
+        use crate::trust_anchors::test_support::FIXTURE_NOW;
+
+        let site = Site::new(SEQ_2, "site-files/v2/config.yaml");
+        let dir = tempfile::tempdir().unwrap();
+        let (_socket, notifier) = notify_socket(dir.path());
+        let degraded = degraded::DegradedMode::new(dir.path().join("health.json"));
+        let clock = ["2026-10-19T08:00:00Z", "2026-10-19T08:00:05Z", FIXTURE_NOW];
+        let mut tick = 0;
+        let first = site
+            .establish("2026-10-19T07:59:55Z")
+            .unwrap_err()
+            .to_string();
+        assert!(first.contains("not-yet-valid"), "{first}");
+        let trusted = standby_until(
+            &notifier,
+            &degraded,
+            first,
+            || {
+                let now = clock[tick.min(clock.len() - 1)];
+                tick += 1;
+                site.establish(now).map_err(|e| e.to_string())
+            },
+            std::future::pending(),
+            |_| Duration::from_millis(1),
+        )
+        .await
+        .expect("verified");
+        assert_eq!(trusted.update_seq(), 2);
+        assert_eq!(tick, 3);
+        assert!(!degraded.is_degraded());
+    }
+
+    /// DEC-3.6: an activation response naming another tenant changes neither
+    /// the tenant binding nor the configuration, and nothing is persisted;
+    /// the root-recorded identity's own response is persisted and the
+    /// binding stays the identity's.
+    #[cfg(feature = "suderra-os")]
+    #[test]
+    fn a_foreign_activation_changes_neither_binding_nor_state() {
+        use crate::trust_anchors::test_support::fixture_trust;
+
+        let (_root, trust) = fixture_trust("trust-anchors/valid/bundle-seq-1.dsse.json");
+        let identity = trust.device().identity.clone();
+        let config: AgentConfig = serde_yaml::from_str(&format!(
+            "device_id: \"{}\"\ndevice_code: \"EDGE-REVPI-0001\"\napi_url: \
+             \"https://api.example.test\"\nprovisioning_token: \"single-use\"\nmqtt:\n  broker: \
+             \"broker.site.test\"\n  port: 8883\n  tls:\n    enabled: true\n",
+            identity.device_id
+        ))
+        .unwrap();
+        let mut state = AppState::new(config.clone());
+        state.trust_anchors = Some(Arc::new(trust));
+        state.tenant_id = Some(identity.tenant_id.clone());
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("activation.json");
+        let response = |tenant: &str| {
+            activation_state::ActivationState::from_result(
+                &config,
+                &activation_state::ActivationResult {
+                    assigned_device_id: None,
+                    assigned_device_code: None,
+                    tenant_id: tenant,
+                    mqtt_broker: "broker.site.test",
+                    mqtt_port: 8883,
+                    mqtt_tls_enabled: Some(true),
+                    mqtt_username: "device",
+                    mqtt_password: "TEST-ONLY-password",
+                },
+            )
+        };
+
+        let foreign = response("7e570000-0000-4000-8000-0000000000ff");
+        let err = persist_activation_at(&mut state, &foreign, &path).unwrap_err();
+        assert!(is_foreign_activation(&err), "{err:#}");
+        assert_eq!(
+            state.tenant_id.as_deref(),
+            Some(identity.tenant_id.as_str())
+        );
+        assert!(
+            state.config.mqtt.username.is_none(),
+            "configuration unchanged"
+        );
+        assert!(!path.exists(), "nothing persisted");
+
+        let own = response(&identity.tenant_id);
+        persist_activation_at(&mut state, &own, &path).unwrap();
+        assert!(path.exists());
+        assert_eq!(state.config.mqtt.username.as_deref(), Some("device"));
+        assert_eq!(
+            state.tenant_id.as_deref(),
+            Some(identity.tenant_id.as_str())
+        );
     }
 }

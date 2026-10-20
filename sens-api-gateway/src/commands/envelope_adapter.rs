@@ -812,15 +812,21 @@ mod contract_envelope_tests {
         UNIX_EPOCH + Duration::from_secs(u64::try_from(now_secs()).unwrap())
     }
 
-    /// The store as boot loads it on the fixture device.
+    /// The store as boot installs it on the fixture device: the platform
+    /// actor manifest verified against the fixture trust root.
     fn loaded_store() -> (tempfile::TempDir, Arc<RbacManifestStore>) {
         let (root, trust) = fixture_trust(BUNDLE);
-        let path = root.path().join("rbac-manifest.dsse");
-        std::fs::write(&path, fixture(POLICY_1)).unwrap();
+        let env = crate::edge_contract::dsse::Envelope::parse(&fixture(POLICY_1)).unwrap();
+        let no_gates = std::collections::BTreeMap::new();
+        let verified = crate::edge_contract::verify::verify_rbac(
+            &env,
+            &trust.scope(&no_gates, FIXTURE_NOW),
+            trust.bundle_keys(),
+        )
+        .accepted()
+        .unwrap();
         let store = Arc::new(RbacManifestStore::new());
-        store
-            .load_contract_statement(&trust, &path, &root.path().join("gate.json"), FIXTURE_NOW)
-            .unwrap();
+        store.install_contract(&verified).unwrap();
         (root, store)
     }
 

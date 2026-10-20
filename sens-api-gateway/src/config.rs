@@ -12,6 +12,7 @@ use anyhow::{Context, Result};
 use secrecy::{ExposeSecret, Secret};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
+#[cfg(not(feature = "suderra-os"))]
 use std::fs;
 use std::path::Path;
 use std::str::FromStr;
@@ -257,6 +258,13 @@ pub struct AgentConfig {
     /// operator visibility; the actual verify path wires in
     /// Sprint 6.6 once the factory key is bundled in the
     /// firmware image.
+    ///
+    /// Generic profile only. Its trust anchor is self-referential (the key
+    /// is inside the file it verifies), so the Suderra OS profile does not
+    /// compile it: there the signed site config, verified against the
+    /// trust-anchors bundle, is the configuration's integrity (ADR-048
+    /// DEC-4.10, `crate::site_trust`).
+    #[cfg(not(feature = "suderra-os"))]
     #[serde(default)]
     pub config_integrity: ConfigIntegrityConfig,
 
@@ -2425,7 +2433,8 @@ impl Default for ClockConfig {
 // flow against their own keyring before the factory bundle lands.
 
 /// Config-integrity verification mode. 3-stage rollout pattern
-/// identical to MtlsMode.
+/// identical to MtlsMode. Generic profile only (ADR-048 DEC-4.10).
+#[cfg(not(feature = "suderra-os"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ConfigIntegrityMode {
@@ -2440,7 +2449,8 @@ pub enum ConfigIntegrityMode {
     Enforcing,
 }
 
-/// Config-integrity sidecar verification knobs.
+/// Config-integrity sidecar verification knobs. Generic profile only.
+#[cfg(not(feature = "suderra-os"))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfigIntegrityConfig {
     /// Rollout mode: disabled / permissive / enforcing.
@@ -2460,6 +2470,7 @@ pub struct ConfigIntegrityConfig {
     pub sidecar_path: Option<std::path::PathBuf>,
 }
 
+#[cfg(not(feature = "suderra-os"))]
 impl Default for ConfigIntegrityConfig {
     fn default() -> Self {
         Self {
@@ -3368,13 +3379,14 @@ impl AgentConfig {
     }
 
     /// Load the agent configuration from the file the path SSoT names
-    /// (ADR-048 DEC-4.5). Boot, SIGHUP reload and the CLIs all call this,
-    /// so they read the same file: `SUDERRA_CONFIG` or
-    /// `/etc/suderra/config.yaml` in the generic profile, the site's
-    /// `/var/lib/suderra-site/config.yaml` in the Suderra OS profile.
+    /// (ADR-048 DEC-4.5): `SUDERRA_CONFIG` or `/etc/suderra/config.yaml`.
+    /// Boot, SIGHUP reload and the CLIs all call this, so they read the
+    /// same file. Generic profile only: on Suderra OS the only way to a
+    /// configuration is [`Self::from_site`], from verified bytes.
     ///
     /// The activation result in the state directory (DEC-4.6) is overlaid
     /// here, so every caller sees the activated identity and credentials.
+    #[cfg(not(feature = "suderra-os"))]
     pub fn load(paths: &crate::paths::AgentPaths) -> Result<Self> {
         let mut config = Self::load_from(paths.config_file())?;
         if let Some(state) =
@@ -3403,7 +3415,76 @@ impl AgentConfig {
         state.apply_to(self);
     }
 
-    /// Load configuration from the given file.
+    /// Suderra OS: the configuration the agent acts on, parsed from the
+    /// `config.yaml` bytes the site config verified (ADR-048 DEC-4.10) —
+    /// never a second read of the file — with the activation result
+    /// overlaid (DEC-4.6).
+    ///
+    /// The root-recorded identity is the device's identity (DEC-3.6): the
+    /// configuration must name that device, and a tenant it names (itself
+    /// or through the activation result) must be that tenant; the tenant is
+    /// then the identity's. A configuration that sets `config_integrity` is
+    /// refused: that self-referential anchor is not compiled in this
+    /// profile, and a site that names it disagrees with the agent about
+    /// what protects it.
+    #[cfg(feature = "suderra-os")]
+    pub fn from_site(
+        site: &crate::site_trust::SiteTrust,
+        paths: &crate::paths::AgentPaths,
+    ) -> Result<Self> {
+        let origin = paths.config_file();
+        let text = std::str::from_utf8(site.config_yaml())
+            .with_context(|| format!("{} is not UTF-8", origin.display()))?;
+        let raw: serde_yaml::Value = serde_yaml::from_str(text)
+            .with_context(|| format!("Failed to parse config file: {}", origin.display()))?;
+        if raw.get("config_integrity").is_some() {
+            anyhow::bail!(
+                "{} sets config_integrity, which the suderra-os profile does not compile: the \
+                 signed site config, verified against the trust-anchors bundle, is the \
+                 configuration's integrity (ADR-048 DEC-4.10)",
+                origin.display()
+            );
+        }
+        let mut config: AgentConfig = serde_yaml::from_str(text)
+            .with_context(|| format!("Failed to parse config file: {}", origin.display()))?;
+        config.validate()?;
+        if let Some(state) =
+            crate::activation_state::ActivationState::load(&paths.activation_state_file())?
+        {
+            config.apply_activation_state(&state);
+            config.validate().with_context(|| {
+                format!(
+                    "Configuration {} with the activation state {} applied is invalid",
+                    origin.display(),
+                    paths.activation_state_file().display()
+                )
+            })?;
+        }
+        let identity = &site.trust().device().identity;
+        if config.device_id != identity.device_id {
+            anyhow::bail!(
+                "configuration names device {:?}, the root-recorded identity is device {} \
+                 (ADR-048 DEC-3.6)",
+                config.device_id,
+                identity.device_id
+            );
+        }
+        if let Some(tenant) = config.tenant_id.as_deref() {
+            if tenant != identity.tenant_id {
+                anyhow::bail!(
+                    "configuration or activation result names tenant {}, the root-recorded \
+                     identity is tenant {} (ADR-048 DEC-3.6)",
+                    tenant,
+                    identity.tenant_id
+                );
+            }
+        }
+        config.tenant_id = Some(identity.tenant_id.clone());
+        Ok(config)
+    }
+
+    /// Load configuration from the given file (generic profile).
+    #[cfg(not(feature = "suderra-os"))]
     pub fn load_from(path: &Path) -> Result<Self> {
         let content = fs::read_to_string(path)
             .with_context(|| format!("Failed to read config file: {}", path.display()))?;
@@ -3933,11 +4014,7 @@ impl AgentConfig {
     fn validate_suderra_os_paths(&self) -> Result<()> {
         let paths = crate::paths::AgentPaths::current();
 
-        let fixed: [(&str, bool); 4] = [
-            (
-                "config_integrity.sidecar_path",
-                self.config_integrity.sidecar_path.is_some(),
-            ),
+        let fixed: [(&str, bool); 3] = [
             (
                 "keystore.passphrase_path",
                 self.keystore.passphrase_path.is_some(),
@@ -4133,6 +4210,7 @@ impl AgentConfig {
         // bundles the default key, `factory_pubkey_hex = None`
         // will mean "use firmware default" — a rule update
         // lands with that sprint.
+        #[cfg(not(feature = "suderra-os"))]
         if !matches!(self.config_integrity.mode, ConfigIntegrityMode::Disabled)
             && self.config_integrity.factory_pubkey_hex.is_none()
         {
@@ -4150,6 +4228,7 @@ impl AgentConfig {
         // confusing `InvalidSignature` error — catching it
         // at config-load time gives a specific `invalid key
         // format` error.
+        #[cfg(not(feature = "suderra-os"))]
         if let Some(ref hex) = self.config_integrity.factory_pubkey_hex {
             if hex.len() != 64 {
                 anyhow::bail!(

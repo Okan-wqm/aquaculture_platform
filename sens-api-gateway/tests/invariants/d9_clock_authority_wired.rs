@@ -83,9 +83,28 @@ fn d9_init_clock_authority_called_before_init_keystore() {
     //   state_guard.init_keystore().await
     // Plus the init_clock_authority call invoked in the
     // earlier cold-boot block.
-    let init_clock_call_idx = main_rs
-        .find("init_clock_authority();")
-        .or_else(|| main_rs.find("init_clock_authority()"))
+    // Both calls live in `init_boot_dependencies` (ADR-048 DEC-6.2: the
+    // stores start there, after the boot safe-state); its body is searched
+    // with whitespace removed, so a formatted method chain
+    // (`state_guard\n    .init_keystore()\n    .await`) is one call.
+    let body_start = main_rs
+        .find("async fn init_boot_dependencies(")
+        .unwrap_or_else(|| {
+            panic!(
+                "D-9 wire invariant locator: `init_boot_dependencies` not found in \
+                 main.rs — the boot order of the stores lives there; this test \
+                 needs an updated anchor."
+            )
+        });
+    let body: String = main_rs[body_start..]
+        .split("\n}\n")
+        .next()
+        .unwrap_or_default()
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
+    let init_clock_call_idx = body
+        .find("state_guard.init_clock_authority();")
         .unwrap_or_else(|| {
             panic!(
                 "D-9 WIRE INVARIANT VIOLATED: main.rs has no \
@@ -98,33 +117,13 @@ fn d9_init_clock_authority_called_before_init_keystore() {
              + update this invariant."
             )
         });
-    let init_keystore_call_idx = main_rs
-        .find("init_keystore().await")
-        .or_else(|| {
-            // Find the FIRST CALL — must come after the
-            // method definition. Method def is at the same
-            // pattern but inside `pub async fn init_keystore`,
-            // so we skip past the `fn` decl.
-            let fn_decl = main_rs.find("pub async fn init_keystore");
-            if let Some(decl_idx) = fn_decl {
-                // Skip past the fn body — find the next
-                // call-site after the closing `}` of the fn.
-                // Easier: search the whole file for the
-                // .await invocation.
-                let after_decl = &main_rs[decl_idx..];
-                after_decl
-                    .find(".init_keystore()")
-                    .map(|rel| decl_idx + rel)
-            } else {
-                None
-            }
-        })
+    let init_keystore_call_idx = body
+        .find("state_guard.init_keystore().await")
         .unwrap_or_else(|| {
             panic!(
-                "D-9 wire invariant locator: `init_keystore().await` (or \
-             `.init_keystore()` call site) not found in main.rs — the \
-             locator-anchor was renamed; this test needs an updated \
-             anchor."
+                "D-9 wire invariant locator: `init_keystore().await` call site \
+             not found in init_boot_dependencies — the locator-anchor was \
+             renamed; this test needs an updated anchor."
             )
         });
     assert!(

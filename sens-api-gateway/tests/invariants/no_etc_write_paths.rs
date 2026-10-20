@@ -131,10 +131,43 @@ fn allowlist_entries_are_still_needed() {
     }
 }
 
-/// Nothing the agent writes resolves under `/etc`, in either profile.
+/// Agent-written paths that still resolve under `/etc`, each tied to its
+/// tracked finding and to the production code that performs the write:
+/// (path, source file, code evidence, finding). An entry whose evidence is
+/// gone fails the test, so the exception cannot outlive its finding.
+#[cfg(not(feature = "suderra-os"))]
+const KNOWN_ETC_WRITES: &[(&str, &str, &str, &str)] = &[(
+    "/etc/suderra/config.yaml",
+    "src/config.rs",
+    "pub fn save(",
+    "EDGE-HIGH-055: AgentConfig::save (the HC-1 config topic and the Modbus provision / \
+     decommission commands) rewrites the operator's config.yaml in place; under the generic \
+     reference unit (ReadOnlyPaths=/etc/suderra) those commands fail",
+)];
+/// The Suderra OS profile has no exception.
+#[cfg(feature = "suderra-os")]
+const KNOWN_ETC_WRITES: &[(&str, &str, &str, &str)] = &[];
+
+/// Nothing the agent writes resolves under `/etc`, in either profile, except
+/// the tracked [`KNOWN_ETC_WRITES`] — and each of those is still real.
 #[test]
 fn nothing_the_agent_writes_resolves_under_etc() {
+    let files = source_scan_support::scan_src();
+    for (path, file, evidence, finding) in KNOWN_ETC_WRITES {
+        assert!(
+            files
+                .iter()
+                .any(|f| f.rel == *file && f.code.contains(evidence)),
+            "{path}: `{evidence}` is gone from {file} — {finding} is fixed; remove the exception"
+        );
+    }
     for path in written_paths(&profile_paths()) {
+        if KNOWN_ETC_WRITES
+            .iter()
+            .any(|(known, ..)| path == std::path::Path::new(known))
+        {
+            continue;
+        }
         assert!(
             !path.starts_with("/etc"),
             "{} is agent-written and must not live under /etc (DEC-4.1)",
@@ -176,7 +209,6 @@ fn written_paths(p: &paths::AgentPaths) -> Vec<std::path::PathBuf> {
         p.opcua_own_pki_dir().join("cert.der"),
         p.opcua_trusted_certs_dir().join("client.der"),
         p.audit_log_file(),
-        p.config_integrity_floor_dir().join("floor.json"),
     ];
     // ADR-048 DEC-2: the agent's A/B state exists only where the agent
     // updates itself.
@@ -186,12 +218,16 @@ fn written_paths(p: &paths::AgentPaths) -> Vec<std::path::PathBuf> {
     {
         out.push(p.rbac_manifest_persist_file());
         out.push(p.io_config_file());
+        out.push(p.config_integrity_floor_dir().join("floor.json"));
+        // EDGE-HIGH-055 (KNOWN_ETC_WRITES): AgentConfig::save.
+        out.push(p.config_file().to_path_buf());
     }
     #[cfg(feature = "suderra-os")]
     {
         out.push(p.activation_receipt_file());
         out.push(p.lifecycle_request_file());
         out.push(p.rbac_gate_file());
+        out.push(p.site_config_gate_file());
         out.push(p.update_requests_dir().join("request.dsse"));
     }
     out
@@ -309,7 +345,10 @@ fn trust_inputs_are_root_owned_read_only_contract_locations() {
     // identity on root's tmpfs; the agent reads both and writes neither.
     let p = paths::AgentPaths::suderra_os();
     assert!(p.key_pins_dir().starts_with("/etc/suderra"));
-    assert!(p.check_agent_writable(&p.key_pins_dir().join("fleet-root/1.pub")).is_err());
+    assert!(
+        p.check_agent_writable(&p.key_pins_dir().join("fleet-root/1.pub"))
+            .is_err()
+    );
     let identity = p.identity_file();
     assert!(p.check_agent_writable(&identity).is_err());
     let run = entry("/run/suderra");
@@ -323,6 +362,42 @@ fn trust_inputs_are_root_owned_read_only_contract_locations() {
         let name = file.file_name().expect("file name").to_string_lossy();
         assert!(state.contains(name.as_ref()), "{name} is not a state file");
     }
+}
+
+/// DEC-4.10: the site config and every statement the agent verifies with
+/// it are files of the read-only site bind the contract names; the agent's
+/// site-config gate is policy-cache content.
+#[cfg(feature = "suderra-os")]
+#[test]
+fn the_site_config_is_read_only_site_material_and_its_gate_is_in_the_policy_cache() {
+    let p = paths::AgentPaths::suderra_os();
+    assert_eq!(p.site_dir(), Path::new(paths::suderra_os::SITE_DIR));
+    let site = strings(&entry(paths::suderra_os::SITE_DIR)["contents"]);
+    for file in [
+        p.site_config_file(),
+        p.rbac_manifest_file(),
+        p.trust_anchors_file(),
+        p.config_file().to_path_buf(),
+    ] {
+        let name = file
+            .strip_prefix(paths::suderra_os::SITE_DIR)
+            .expect("in the site directory")
+            .to_string_lossy()
+            .into_owned();
+        assert!(site.contains(&name), "{name} is not named site material");
+        assert!(p.check_agent_writable(&file).is_err(), "{name} is writable");
+    }
+    let cache = strings(&entry(paths::suderra_os::POLICY_CACHE_DIR)["contents"]);
+    assert!(
+        cache
+            .iter()
+            .any(|c| c.starts_with("site-config version gate")),
+        "{cache:?}"
+    );
+    assert!(
+        p.site_config_gate_file()
+            .starts_with(paths::suderra_os::POLICY_CACHE_DIR)
+    );
 }
 
 #[cfg(feature = "suderra-os")]

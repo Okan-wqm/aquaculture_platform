@@ -96,6 +96,20 @@ pub enum DegradedReason {
     },
     /// The license forbids polling the configured I/O channels.
     IoBudgetExceeded { configured: usize, cap: usize },
+    /// The configuration is not verified (ADR-048 DEC-4.10: Suderra OS site
+    /// trust; generic profile: config-integrity in Enforcing mode). The agent
+    /// is in standby: it touches no output, opens no network connection and
+    /// retries; this is the one reason that clears, because nothing acted on
+    /// the unverified configuration.
+    ConfigUnverified { detail: String },
+    /// A store or service of the full operation failed after the boot
+    /// safe-state (EDGE-MEDIUM-078): the outputs are safe, and the agent runs
+    /// no network, command plane or local server on a half-initialized
+    /// security posture.
+    BootDependencyFailed {
+        component: &'static str,
+        detail: String,
+    },
 }
 
 impl DegradedReason {
@@ -110,6 +124,8 @@ impl DegradedReason {
             },
             Self::SafeStateIncomplete { .. } => "safe-state-incomplete",
             Self::IoBudgetExceeded { .. } => "io-budget-exceeded",
+            Self::ConfigUnverified { .. } => "config-unverified",
+            Self::BootDependencyFailed { .. } => "boot-dependency-failed",
         }
     }
 
@@ -126,6 +142,11 @@ impl DegradedReason {
             Self::IoBudgetExceeded { configured, cap } => format!(
                 "{configured} configured I/O channels exceed the license cap of {cap}; \
                  inputs are not polled"
+            ),
+            Self::ConfigUnverified { detail } => detail.clone(),
+            Self::BootDependencyFailed { component, detail } => format!(
+                "{component} failed after the boot safe-state: {detail}; no network, command \
+                 plane or local server is started"
             ),
         }
     }
@@ -149,6 +170,9 @@ pub struct SafeStateSummary {
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Phase {
+    /// Before READY, before any output is touched: waiting for a verified
+    /// configuration (`EXTEND_TIMEOUT_USEC`, no READY).
+    Standby,
     /// Before READY: hardware init and boot safe-state.
     Starting,
     /// READY sent: outputs safe, local loop running.
@@ -275,6 +299,50 @@ impl DegradedMode {
         });
     }
 
+    /// Standby: the configuration is not verified, so nothing has acted on
+    /// it — no hardware handle exists and no output was touched. Replaces
+    /// the previous standby reason (a retry may fail differently); the alarm
+    /// line is logged only when the reason changes.
+    pub fn enter_standby(&self, reason: DegradedReason) {
+        self.shared.control_disabled.store(true, Ordering::Release);
+        let mut changed = false;
+        self.update(|v| {
+            v.phase = Phase::Standby;
+            let previous: Vec<DegradedReason> = v
+                .reasons
+                .iter()
+                .filter(|r| matches!(r, DegradedReason::ConfigUnverified { .. }))
+                .cloned()
+                .collect();
+            changed = previous != [reason.clone()];
+            v.reasons
+                .retain(|r| !matches!(r, DegradedReason::ConfigUnverified { .. }));
+            v.reasons.push(reason.clone());
+        });
+        if changed {
+            error!(
+                "ALARM agent-standby [{}]: {} — no output touched, no network; retrying \
+                 (ADR-048 DEC-4.10, DEC-6.3)",
+                reason.code(),
+                reason.detail()
+            );
+        }
+    }
+
+    /// The configuration verified: leave standby for the boot (hardware
+    /// init and safe-state). Only the standby reason clears; control stays
+    /// disabled if any other reason exists.
+    pub fn leave_standby(&self) {
+        self.update(|v| {
+            v.phase = Phase::Starting;
+            v.reasons
+                .retain(|r| !matches!(r, DegradedReason::ConfigUnverified { .. }));
+            self.shared
+                .control_disabled
+                .store(!v.reasons.is_empty(), Ordering::Release);
+        });
+    }
+
     /// `true` once degraded mode was entered.
     pub fn is_degraded(&self) -> bool {
         self.shared.control_disabled.load(Ordering::Acquire)
@@ -363,6 +431,13 @@ fn reason_views(reasons: &[DegradedReason]) -> Vec<ReasonView> {
 }
 
 fn status_line(v: &View, degraded: bool) -> String {
+    if v.phase == Phase::Standby {
+        let codes: Vec<&str> = v.reasons.iter().map(DegradedReason::code).collect();
+        return format!(
+            "standby: waiting for a verified configuration, no output touched ({})",
+            codes.join(", ")
+        );
+    }
     if degraded {
         let codes: Vec<&str> = v.reasons.iter().map(DegradedReason::code).collect();
         return format!(
@@ -371,7 +446,9 @@ fn status_line(v: &View, degraded: bool) -> String {
         );
     }
     match v.phase {
-        Phase::Starting => "starting: hardware init and boot safe-state".to_string(),
+        Phase::Standby | Phase::Starting => {
+            "starting: hardware init and boot safe-state".to_string()
+        }
         Phase::Stopping => "stopping: driving outputs to their safe state".to_string(),
         Phase::Running => match &v.safe_state {
             Some(s) => format!(
@@ -484,6 +561,52 @@ mod tests {
         assert_eq!(d.reasons().len(), 1);
         let report = d.cloud_report();
         assert_eq!(report["degraded"], true);
+    }
+
+    #[test]
+    fn standby_reports_and_clears_without_latching() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("health.json");
+        let d = DegradedMode::new(file.clone());
+        d.enter_standby(DegradedReason::ConfigUnverified {
+            detail: "site-config rejected: not-yet-valid".into(),
+        });
+        assert!(d.is_degraded());
+        assert!(d.control_gate().permit().is_err());
+        let doc = read(&file);
+        assert_eq!(doc["phase"], "standby");
+        assert_eq!(doc["degraded"], true);
+        assert_eq!(doc["reasons"][0]["code"], "config-unverified");
+        assert!(d.status_line().starts_with("standby: "));
+        // A retry that fails differently replaces the reason.
+        d.enter_standby(DegradedReason::ConfigUnverified {
+            detail: "trust anchors missing".into(),
+        });
+        assert_eq!(d.reasons().len(), 1);
+        d.leave_standby();
+        assert!(!d.is_degraded());
+        assert!(d.control_gate().permit().is_ok());
+        assert_eq!(read(&file)["phase"], "starting");
+        // Other reasons stay latched.
+        d.enter(DegradedReason::IoBudgetExceeded {
+            configured: 9,
+            cap: 8,
+        });
+        d.leave_standby();
+        assert!(d.is_degraded());
+    }
+
+    #[test]
+    fn a_boot_dependency_failure_names_its_component() {
+        let r = DegradedReason::BootDependencyFailed {
+            component: "offline-queue",
+            detail: "mkdir failed".into(),
+        };
+        assert_eq!(r.code(), "boot-dependency-failed");
+        assert!(
+            r.detail()
+                .starts_with("offline-queue failed after the boot safe-state")
+        );
     }
 
     #[test]

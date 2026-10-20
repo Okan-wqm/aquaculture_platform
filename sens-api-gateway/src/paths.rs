@@ -2,7 +2,7 @@
 //! DEC-19, DEC-24, DEC-28).
 //!
 //! Every file the agent reads or writes is named here and nowhere else. Boot,
-//! config-integrity verification, SIGHUP reload and the CLIs all resolve their
+//! configuration verification, SIGHUP reload and the CLIs all resolve their
 //! paths through [`AgentPaths::current`], so they cannot disagree about where
 //! the config, the state or the secrets live (EDGE-CRITICAL-046, EDGE-LOW-103).
 //!
@@ -22,11 +22,16 @@
 //!   `SUDERRA_DB_KEY_PATH` are honoured through `crate::generic_env`, read
 //!   once when the process first asks for its paths.
 //!
-//! In both profiles nothing the agent itself writes resolves under `/etc`
-//! (ADR-048 DEC-4.1): the agent-written copies of the RBAC manifest, the I/O
-//! map, the scripts and the device secret live under the data root, and the
-//! generic profile only *reads* the legacy `/etc/suderra` copies an operator or
-//! an older agent left there.
+//! The agent-written copies of the RBAC manifest, the I/O map, the scripts and
+//! the device secret live under the data root in both profiles (ADR-048
+//! DEC-4.1), and the generic profile only *reads* the legacy `/etc/suderra`
+//! copies an operator or an older agent left there. In the Suderra OS profile
+//! nothing the agent writes resolves under `/etc`. The generic profile has one
+//! remaining exception: `AgentConfig::save` (the HC-1 config topic and the
+//! Modbus provision/decommission commands) still rewrites the operator's
+//! `config.yaml` in place — tracked as EDGE-HIGH-055 and listed as the one
+//! known `/etc` write in `tests/invariants/no_etc_write_paths.rs`, which fails
+//! once that save is gone so the exception cannot outlive its finding.
 //!
 //! The module depends on `std` (and, in the generic profile, on
 //! `crate::generic_env`) alone, because the filesystem-contract invariant
@@ -45,6 +50,13 @@ pub mod suderra_os {
     /// `/data/suderra/site` (root:suderra 0750) that only the root installer
     /// writes, from a signed payload (DEC-4.6, DEC-4.10).
     pub const CONFIG_FILE: &str = "/var/lib/suderra-site/config.yaml";
+    /// The read-only site directory the root installer fills from a signed
+    /// payload (DEC-4.6, DEC-4.10): `config.yaml`, the statements and the
+    /// other site files of the site config.
+    pub const SITE_DIR: &str = "/var/lib/suderra-site";
+    /// The site-config statement that names every site file by digest
+    /// (`suderra.site-config.v1`, DEC-4.10, DEC-4.12).
+    pub const SITE_CONFIG_FILE: &str = "/var/lib/suderra-site/site-config.dsse";
     /// The RBAC manifest statement the root installer delivered (DEC-4.12).
     pub const RBAC_MANIFEST_FILE: &str = "/var/lib/suderra-site/rbac-manifest.dsse";
     /// The fleet-root signed trust-anchors bundle the root installer
@@ -127,6 +139,9 @@ const LIFECYCLE_REQUEST_FILENAME: &str = "lifecycle-request.dsse";
 /// The agent's RBAC version gate in the policy cache (DEC-9.9).
 #[cfg(feature = "suderra-os")]
 const RBAC_GATE_FILENAME: &str = "rbac-manifest.gate.json";
+/// The agent's site-config version gate in the policy cache (DEC-4.10).
+#[cfg(feature = "suderra-os")]
+const SITE_CONFIG_GATE_FILENAME: &str = "site-config.gate.json";
 
 /// Resolved paths of one agent process.
 ///
@@ -293,15 +308,40 @@ impl AgentPaths {
     // Configuration and its integrity
     // ------------------------------------------------------------------
 
+    /// The read-only site directory (DEC-4.10).
+    #[cfg(feature = "suderra-os")]
+    pub fn site_dir(&self) -> PathBuf {
+        PathBuf::from(suderra_os::SITE_DIR)
+    }
+
+    /// The site-config statement (DEC-4.10).
+    #[cfg(feature = "suderra-os")]
+    pub fn site_config_file(&self) -> PathBuf {
+        PathBuf::from(suderra_os::SITE_CONFIG_FILE)
+    }
+
+    /// The agent's site-config version gate: `update_seq` and statement
+    /// digest of the site config it accepted (contract mutable-state.json
+    /// policy-cache contents, DEC-4.10).
+    #[cfg(feature = "suderra-os")]
+    pub fn site_config_gate_file(&self) -> PathBuf {
+        self.store_dir("policy-cache")
+            .join(SITE_CONFIG_GATE_FILENAME)
+    }
+
     /// Detached config-integrity sidecar: the config file name plus `.sig`
     /// (the legacy `/etc/suderra/config.yaml.sig` under the default config).
+    /// Generic profile only: on Suderra OS the site config statement is the
+    /// configuration's integrity (DEC-4.10).
+    #[cfg(not(feature = "suderra-os"))]
     pub fn config_integrity_sidecar(&self) -> PathBuf {
         let mut raw = self.config_file.as_os_str().to_os_string();
         raw.push(".sig");
         PathBuf::from(raw)
     }
 
-    /// Directory of the config-integrity version floor.
+    /// Directory of the config-integrity version floor (generic only).
+    #[cfg(not(feature = "suderra-os"))]
     pub fn config_integrity_floor_dir(&self) -> PathBuf {
         self.store_dir("policy-cache")
     }
@@ -523,12 +563,13 @@ impl AgentPaths {
     // Site files (read-only) and generic agent-written copies
     // ------------------------------------------------------------------
 
-    /// The RBAC manifest the agent loads at boot.
+    /// The delivered RBAC manifest.
     ///
     /// Suderra OS: the statement the root installer delivered into the
-    /// read-only site directory (DEC-4.12). Generic: the copy the agent
-    /// persisted after an `update_policy`, when there is one, else the
-    /// operator-delivered `/etc/suderra/rbac_manifest.json`.
+    /// read-only site directory (DEC-4.12). Generic: the operator-delivered
+    /// `/etc/suderra/rbac_manifest.json`; the boot loader also considers the
+    /// copy a previous `update_policy` persisted and keeps the newer
+    /// (`authz::manifest_runtime::boot_manifest_candidates`).
     #[cfg(feature = "suderra-os")]
     pub fn rbac_manifest_file(&self) -> PathBuf {
         PathBuf::from(suderra_os::RBAC_MANIFEST_FILE)
@@ -537,12 +578,7 @@ impl AgentPaths {
     /// See the Suderra OS variant.
     #[cfg(not(feature = "suderra-os"))]
     pub fn rbac_manifest_file(&self) -> PathBuf {
-        let persisted = self.rbac_manifest_persist_file();
-        if persisted.exists() {
-            persisted
-        } else {
-            Path::new(generic::ETC_DIR).join("rbac_manifest.json")
-        }
+        Path::new(generic::ETC_DIR).join("rbac_manifest.json")
     }
 
     /// Where a generic agent persists a hot-reloaded RBAC manifest. The
@@ -643,8 +679,12 @@ mod tests {
             Path::new("/var/lib/suderra/policy-cache/rbac_version.sqlite")
         );
         assert_eq!(
-            p.config_integrity_floor_dir(),
-            Path::new("/var/lib/suderra/policy-cache")
+            p.site_config_gate_file(),
+            Path::new("/var/lib/suderra/policy-cache/site-config.gate.json")
+        );
+        assert_eq!(
+            p.site_config_file(),
+            Path::new("/var/lib/suderra-site/site-config.dsse")
         );
         assert_eq!(p.audit_log_file(), Path::new("/var/log/suderra/audit.log"));
         assert_eq!(
@@ -773,18 +813,23 @@ mod tests {
 
     #[cfg(not(feature = "suderra-os"))]
     #[test]
-    fn generic_rbac_manifest_prefers_the_agent_persisted_copy() {
+    fn generic_rbac_manifest_sources_are_the_operator_file_and_the_persisted_copy() {
         let dir = tempfile::tempdir().expect("tempdir");
         let p = AgentPaths::generic(GenericOverrides {
             data_root: Some(dir.path().to_path_buf()),
             ..GenericOverrides::default()
         });
+        std::fs::write(p.rbac_manifest_persist_file(), b"{}").expect("seed");
+        // A persisted copy does not hide the operator's file: the boot
+        // loader reads both and keeps the newer verified one.
         assert_eq!(
             p.rbac_manifest_file(),
             Path::new("/etc/suderra/rbac_manifest.json")
         );
-        std::fs::write(p.rbac_manifest_persist_file(), b"{}").expect("seed");
-        assert_eq!(p.rbac_manifest_file(), p.rbac_manifest_persist_file());
+        assert_eq!(
+            p.rbac_manifest_persist_file(),
+            dir.path().join("rbac_manifest.json")
+        );
     }
 
     #[test]
@@ -815,7 +860,12 @@ mod tests {
             #[cfg(not(feature = "os-managed-updates"))]
             p.partition_store_file(),
             p.audit_log_file(),
+            #[cfg(not(feature = "suderra-os"))]
             p.config_integrity_floor_dir().join("floor.json"),
+            #[cfg(feature = "suderra-os")]
+            p.site_config_gate_file(),
+            #[cfg(feature = "suderra-os")]
+            p.rbac_gate_file(),
         ];
         for path in written {
             assert!(

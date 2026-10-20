@@ -95,6 +95,20 @@ impl CommandHandler {
             "trust_anchors_bundle_seq": state.trust_anchors.as_ref().map(|t| t.bundle_seq()),
         });
 
+        // Batch 42: config-integrity sidecar mode (generic); on Suderra OS
+        // the signed site config is the configuration's integrity (ADR-048
+        // DEC-4.10).
+        #[cfg(not(feature = "suderra-os"))]
+        let config_integrity = json!({
+            "mode": format!("{:?}", state.config.config_integrity.mode).to_lowercase(),
+            "factory_pubkey_configured": state.config.config_integrity.factory_pubkey_hex.is_some(),
+        });
+        #[cfg(feature = "suderra-os")]
+        let config_integrity = json!({
+            "source": "site-config-statement",
+            "verified_against": "trust-anchors bundle config-integrity anchor",
+        });
+
         // Batch 36: extended to surface Faz 2 security posture
         // fields (mtls rollout stage, replay-protection
         // thresholds, shutdown/drain timeouts). Operators
@@ -123,11 +137,7 @@ impl CommandHandler {
                 "enforce_fingerprint_pinning": state.config.mtls.enforce_fingerprint_pinning,
                 "min_tls_version": state.config.mtls.min_tls_version,
             },
-            // Batch 42: config-integrity sidecar mode.
-            "config_integrity": {
-                "mode": format!("{:?}", state.config.config_integrity.mode).to_lowercase(),
-                "factory_pubkey_configured": state.config.config_integrity.factory_pubkey_hex.is_some(),
-            },
+            "config_integrity": config_integrity,
             // Batch 45: command-envelope signature mode.
             "signature_mode": format!("{:?}", state.config.signature_mode).to_lowercase(),
             // Batch 56: clock authority NTS threshold.

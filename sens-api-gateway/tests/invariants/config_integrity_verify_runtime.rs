@@ -220,18 +220,22 @@ fn d5_verify_at_boot_called_from_main_before_otel_init() {
     );
 }
 
-/// **D-5 wire-status invariant (Batch #319):** main.rs's
-/// verify_at_boot call MUST be wrapped in a fail-closed
-/// `match` arm that calls `std::process::exit(1)` on the
-/// `Err` path.
+/// **D-5 wire-status invariant (Batch #319, ADR-048 DEC-4.10 / DEC-6.3):**
+/// main.rs's verify_at_boot call MUST be fail-closed: its `Err` is a
+/// configuration the agent does not act on.
 ///
 /// **Why this matters architecturally:** the verify_at_boot
-/// function returns `Result<(), String>` where the Err arm
-/// is the structured rejection reason. A caller that
+/// return is the structured rejection reason. A caller that
 /// ignores the Err — `let _ = verify_at_boot(...)` — would
-/// boot the agent regardless of the integrity verdict. This
-/// test pins that the call is gated by a real fail-closed
-/// arm.
+/// boot the agent regardless of the integrity verdict.
+///
+/// **What fail-closed means (DEC-6.3):** not an exit. An exit
+/// before the boot safe-state restart-loops the agent under systemd
+/// (EDGE-MEDIUM-078). The Err becomes `ConfigRejection::Unverified`,
+/// which async_main turns into the standby: no output touched, no
+/// network, no READY, retried until the configuration verifies. The
+/// test pins both halves — the Err is propagated as `Unverified`, and
+/// `Unverified` leads to the standby, never to the boot.
 #[test]
 fn d5_verify_at_boot_err_arm_is_fail_closed() {
     let main_rs = read_main_rs();
@@ -247,30 +251,36 @@ fn d5_verify_at_boot_err_arm_is_fail_closed() {
             )
         });
 
-    // Look at the next ~1500 chars after the call site —
-    // the match arm should be there.
-    let nearby = &main_rs[call_idx..main_rs.len().min(call_idx + 1500)];
-
-    // Two markers MUST appear in this window:
-    // 1. `Err(` — the match arm exists
-    // 2. `process::exit(1)` — the fail-closed action
+    // The Err is mapped to an unverified configuration and propagated.
+    let nearby = &main_rs[call_idx..main_rs.len().min(call_idx + 900)];
     assert!(
-        nearby.contains("Err("),
-        "D-5 WIRE INVARIANT VIOLATED: verify_at_boot call site \
-         lacks an `Err(` match arm within 1500 chars. The Err arm is \
-         the architectural fail-closed path; without it the agent \
-         would boot with a tampered config silently."
+        nearby.contains(".map_err(") && nearby.contains("ConfigRejection::Unverified("),
+        "D-5 WIRE INVARIANT VIOLATED: verify_at_boot's Err must become \
+         `ConfigRejection::Unverified` — the configuration is not acted on."
     );
     assert!(
-        nearby.contains("process::exit(1)"),
-        "D-5 WIRE INVARIANT VIOLATED: verify_at_boot call site \
-         lacks a `process::exit(1)` within the Err arm window. \
-         Fail-closed boot is the only acceptable outcome for an \
-         Enforcing-mode integrity failure — Permissive-mode \
-         failures are consumed inside verify_at_boot itself \
-         (returns Ok with warn-log), so the only Err arm reaching \
-         main MUST exit(1). Removing the exit would silently \
-         downgrade Enforcing to Permissive."
+        nearby.contains("})?;"),
+        "D-5 WIRE INVARIANT VIOLATED: verify_at_boot's mapped Err must be \
+         propagated with `?`, not dropped."
+    );
+
+    // An unverified configuration is the standby, never the boot.
+    let async_main = main_rs
+        .find("async fn async_main(")
+        .expect("async_main in main.rs");
+    let body = &main_rs[async_main..];
+    let arm = body
+        .find("Err(ConfigRejection::Unverified(")
+        .expect("async_main handles an unverified configuration");
+    let standby = body[arm..]
+        .find("standby_until_verified(")
+        .map(|rel| arm + rel)
+        .expect("the unverified arm enters the standby");
+    let next_arm = body[arm + 1..].find("=> ").map(|rel| arm + 1 + rel);
+    assert!(
+        next_arm.is_some_and(|n| standby > n) && standby < arm + 300,
+        "D-5 WIRE INVARIANT VIOLATED: `ConfigRejection::Unverified` must lead \
+         straight to `standby_until_verified` (ADR-048 DEC-4.10, DEC-6.3)."
     );
 }
 

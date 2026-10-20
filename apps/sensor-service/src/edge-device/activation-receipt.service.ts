@@ -45,38 +45,62 @@ export function buildActivationReceipt(input: ActivationReceiptInput): Activatio
   };
 }
 
-/** How long root may accept a receipt after the commit (it never re-derives ACTIVE). */
+/** How long root may accept a receipt after it is signed (it never re-derives ACTIVE). */
 export const ACTIVATION_RECEIPT_VALIDITY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * A delivery re-signs a stored receipt with less than this left of its
+ * window, so a redelivery never carries a receipt root must refuse as
+ * expired (statements.json time_window) and a slow first hand-over does not
+ * strand the device short of ACTIVE.
+ */
+export const ACTIVATION_RECEIPT_RESIGN_MARGIN_MS = 12 * 60 * 60 * 1000;
+
+/** The committed activation a receipt states; a re-signed receipt states the same one. */
+export interface CommittedActivation {
+  readonly tenantId: string;
+  readonly deviceId: string;
+  readonly binding: DeviceBinding;
+  readonly manifestDigest: Sha256Digest;
+  readonly activationId: string;
+  /** Second-precision commit instant. */
+  readonly activatedAt: Date;
+}
+
+export interface IssuedReceipt {
+  readonly statement: SignedStatement<typeof STATEMENT.activationReceipt>;
+  /** The envelope JSON exactly as delivered (the agent hands these bytes to root). */
+  readonly envelope: string;
+  readonly expiresAt: Date;
+}
 
 @Injectable()
 export class ActivationReceiptService {
   constructor(private readonly config: SuderraEdgeConfig) {}
 
-  issue(commit: {
-    readonly tenantId: string;
-    readonly deviceId: string;
-    readonly binding: DeviceBinding;
-    readonly manifestDigest: Sha256Digest;
-    readonly activationId: string;
-    /** Second-precision commit instant. */
-    readonly activatedAt: Date;
-  }): SignedStatement<typeof STATEMENT.activationReceipt> {
-    const activatedAt = contractTimestamp(commit.activatedAt);
+  /**
+   * Signs the receipt of `activation` at `signedAt`: valid from the activation
+   * to ACTIVATION_RECEIPT_VALIDITY_MS after signing. Re-signing at a later
+   * instant states the same activation (id, instant, manifest) under a later
+   * window.
+   */
+  issue(activation: CommittedActivation, signedAt: Date): IssuedReceipt {
+    const expiresAt = new Date(signedAt.getTime() + ACTIVATION_RECEIPT_VALIDITY_MS);
+    const activatedAt = contractTimestamp(activation.activatedAt);
     const signer = new ManifestSigner(this.config.settings.keys.provisioning);
-    return signer.sign(
+    const statement = signer.sign(
       STATEMENT.activationReceipt,
       buildActivationReceipt({
-        tenantId: commit.tenantId,
-        deviceId: commit.deviceId,
-        binding: commit.binding,
-        manifestDigest: commit.manifestDigest,
-        activationId: commit.activationId,
+        tenantId: activation.tenantId,
+        deviceId: activation.deviceId,
+        binding: activation.binding,
+        manifestDigest: activation.manifestDigest,
+        activationId: activation.activationId,
         activatedAt,
         notBefore: activatedAt,
-        expiresAt: contractTimestamp(
-          new Date(commit.activatedAt.getTime() + ACTIVATION_RECEIPT_VALIDITY_MS),
-        ),
+        expiresAt: contractTimestamp(expiresAt),
       }),
     );
+    return { statement, envelope: JSON.stringify(statement.envelope), expiresAt };
   }
 }

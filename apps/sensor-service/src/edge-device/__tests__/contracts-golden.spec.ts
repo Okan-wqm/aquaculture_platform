@@ -517,31 +517,65 @@ describe('contracts golden — what the services issue verifies on the device', 
 
   it('the activation receipt the service issues is accepted by root and by the agent', () => {
     const config = new SuderraEdgeConfig(new ConfigService(channelEnv()));
-    const receipt = new ActivationReceiptService(config).issue({
+    const activatedAt = new Date('2026-10-20T11:45:00Z');
+    const receipt = new ActivationReceiptService(config).issue(
+      {
+        tenantId,
+        deviceId,
+        binding,
+        manifestDigest: statementDigest(payloadOf(PROV_FIRST)),
+        activationId: '7e570000-0000-4000-8000-0000000000a2',
+        activatedAt,
+      },
+      activatedAt,
+    );
+    expect(receipt.envelope).toBe(JSON.stringify(receipt.statement.envelope));
+    expect(receipt.expiresAt).toEqual(new Date('2026-10-21T11:45:00Z'));
+    expect(verifyAs(receipt.statement.envelope, ST_RECEIPT, provisioning, 'os-root')).toEqual([]);
+    expect(
+      verifyAs(receipt.statement.envelope, ST_RECEIPT, provisioning, 'agent', {
+        trustAnchors: fixtureBytes(TA1),
+      }),
+    ).toEqual([]);
+    const other = new ActivationReceiptService(config).issue(
+      {
+        tenantId,
+        deviceId,
+        binding,
+        manifestDigest: statementDigest(payloadOf(REL_160)),
+        activationId: '7e570000-0000-4000-8000-0000000000a3',
+        activatedAt,
+      },
+      activatedAt,
+    );
+    expect(verifyAs(other.statement.envelope, ST_RECEIPT, provisioning, 'os-root')).toEqual([
+      'manifest-digest-mismatch',
+    ]);
+  });
+
+  it('a receipt signed long ago is expired on root; re-signed it states the same activation and is accepted', () => {
+    const config = new SuderraEdgeConfig(new ConfigService(channelEnv()));
+    const activation = {
       tenantId,
       deviceId,
       binding,
       manifestDigest: statementDigest(payloadOf(PROV_FIRST)),
-      activationId: '7e570000-0000-4000-8000-0000000000a2',
-      activatedAt: new Date('2026-10-20T11:45:00Z'),
-    });
-    expect(verifyAs(receipt.envelope, ST_RECEIPT, provisioning, 'os-root')).toEqual([]);
-    expect(
-      verifyAs(receipt.envelope, ST_RECEIPT, provisioning, 'agent', {
-        trustAnchors: fixtureBytes(TA1),
-      }),
-    ).toEqual([]);
-    const other = new ActivationReceiptService(config).issue({
-      tenantId,
-      deviceId,
-      binding,
-      manifestDigest: statementDigest(payloadOf(REL_160)),
-      activationId: '7e570000-0000-4000-8000-0000000000a3',
-      activatedAt: new Date('2026-10-20T11:45:00Z'),
-    });
-    expect(verifyAs(other.envelope, ST_RECEIPT, provisioning, 'os-root')).toEqual([
-      'manifest-digest-mismatch',
+      activationId: '7e570000-0000-4000-8000-0000000000a4',
+      // 30 hours before the fixtures' evaluation instant.
+      activatedAt: new Date('2026-10-19T06:00:00Z'),
+    };
+    const receipts = new ActivationReceiptService(config);
+    const first = receipts.issue(activation, activation.activatedAt);
+    expect(verifyAs(first.statement.envelope, ST_RECEIPT, provisioning, 'os-root')).toEqual([
+      'expired',
     ]);
+    const resigned = receipts.issue(activation, new Date('2026-10-20T11:30:00Z'));
+    expect(verifyAs(resigned.statement.envelope, ST_RECEIPT, provisioning, 'os-root')).toEqual([]);
+    const { not_before: firstFrom, expires_at: firstUntil, ...firstRest } = first.statement.body;
+    const { not_before: from, expires_at: until, ...rest } = resigned.statement.body;
+    expect(rest).toEqual(firstRest);
+    expect([from, firstFrom]).toEqual(['2026-10-19T06:00:00Z', '2026-10-19T06:00:00Z']);
+    expect([firstUntil, until]).toEqual(['2026-10-20T06:00:00Z', '2026-10-21T11:30:00Z']);
   });
 
   it('a platform command the service signs is the RBAC manifest actor, key and policy version', () => {

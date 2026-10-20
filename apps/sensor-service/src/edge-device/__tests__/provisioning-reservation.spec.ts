@@ -124,13 +124,11 @@ function harness(found: EdgeDevice | null): Harness {
     ),
     collaborator<InstallerScriptService>(
       {
-        getProvisioningConfig: jest
-          .fn()
-          .mockResolvedValue(
-            stub<ProvisioningConfig>({
-              deviceBroker: deviceBrokerEndpoint('mqtt.example.com', 'test'),
-            }),
-          ),
+        getProvisioningConfig: jest.fn().mockResolvedValue(
+          stub<ProvisioningConfig>({
+            deviceBroker: deviceBrokerEndpoint('mqtt.example.com', 'test'),
+          }),
+        ),
       },
       'InstallerScriptService',
     ),
@@ -386,14 +384,28 @@ describe('re-provisioning a Suderra OS device goes through root (ADR-048 DEC-5.1
   function reprovisioning(found: EdgeDevice): {
     service: ProvisioningService;
     reissueToken: jest.Mock;
+    beginReprovisioning: jest.Mock;
     removeDeviceCredentials: jest.Mock;
     enterMaintenanceForReprovisioning: jest.Mock;
-    requestLifecycle: jest.Mock;
+    deliverLifecycleRequest: jest.Mock;
   } {
-    const reissueToken = jest.fn().mockResolvedValue({ lifecycleSeq: 5 });
+    const reissueToken = jest.fn().mockResolvedValue(true);
+    const beginReprovisioning = jest.fn(
+      async (
+        _device: unknown,
+        _binding: unknown,
+        _tokenHash: string,
+        window: { notBefore: Date; expiresAt: Date },
+        _now: Date,
+        sign: (seq: number) => unknown,
+      ) => {
+        sign(5);
+        return { lifecycleSeq: 5, windowEndsAt: window.expiresAt };
+      },
+    );
     const removeDeviceCredentials = jest.fn().mockResolvedValue(true);
     const enterMaintenanceForReprovisioning = jest.fn(() => STATEMENT_DOUBLE);
-    const requestLifecycle = jest.fn().mockResolvedValue(undefined);
+    const deliverLifecycleRequest = jest.fn().mockResolvedValue(true);
     const service = new ProvisioningService(
       collaborator<Repository<EdgeDevice>>(
         {
@@ -419,7 +431,11 @@ describe('re-provisioning a Suderra OS device goes through root (ADR-048 DEC-5.1
       collaborator<DeviceEventService>({}, 'DeviceEventService'),
       collaborator<DeviceDirectoryService>({}, 'DeviceDirectoryService'),
       collaborator<ProvisioningReservationService>(
-        { reissueToken: stubMember<ProvisioningReservationService['reissueToken']>(reissueToken) },
+        {
+          reissueToken: stubMember<ProvisioningReservationService['reissueToken']>(reissueToken),
+          beginReprovisioning:
+            stubMember<ProvisioningReservationService['beginReprovisioning']>(beginReprovisioning),
+        },
         'ProvisioningReservationService',
       ),
       collaborator<EdgeProvisioningManifestService>({}, 'EdgeProvisioningManifestService'),
@@ -433,8 +449,8 @@ describe('re-provisioning a Suderra OS device goes through root (ADR-048 DEC-5.1
       ),
       collaborator<EdgeRootHandoffService>(
         {
-          requestLifecycle:
-            stubMember<EdgeRootHandoffService['requestLifecycle']>(requestLifecycle),
+          deliverLifecycleRequest:
+            stubMember<EdgeRootHandoffService['deliverLifecycleRequest']>(deliverLifecycleRequest),
         },
         'EdgeRootHandoffService',
       ),
@@ -442,98 +458,162 @@ describe('re-provisioning a Suderra OS device goes through root (ADR-048 DEC-5.1
     return {
       service,
       reissueToken,
+      beginReprovisioning,
       removeDeviceCredentials,
       enterMaintenanceForReprovisioning,
-      requestLifecycle,
+      deliverLifecycleRequest,
     };
   }
 
-  const activeOsDevice = (): EdgeDevice =>
+  const activeOsDevice = (overrides: Partial<EdgeDevice> = {}): EdgeDevice =>
     device({
       agentChannel: EdgeAgentChannel.SUDERRA_OS,
       lifecycleState: DeviceLifecycleState.ACTIVE,
+      provisioningToken: null,
       tokenUsedAt: new Date('2026-10-01T00:00:00Z'),
       credentialsIssuedAt: new Date('2026-10-01T00:00:00Z'),
       deviceBindingMethod: BINDING.method,
       deviceBindingSha256: BINDING.digest.sha256,
+      activationReceiptHandedAt: new Date('2026-10-01T00:01:00Z'),
+      ...overrides,
     });
 
-  it('reissues the token into MAINTENANCE and hands root a statement for the committed binding', async () => {
+  it('stores the statement with a token that expires with the window, then delivers it', async () => {
     const found = activeOsDevice();
     const h = reprovisioning(found);
     const before = Date.now();
     const response = await h.service.resetForReprovisioning(found.id, TENANT);
 
-    expect(h.reissueToken).toHaveBeenCalledWith(found, {
-      tokenHash: expect.stringMatching(/^[0-9a-f]{64}$/),
-      tokenExpiresAt: response.tokenExpiresAt,
-      lifecycleState: DeviceLifecycleState.MAINTENANCE,
-      revokeCredentials: false,
-    });
-    const [request] = h.enterMaintenanceForReprovisioning.mock.calls[0] as [
-      {
-        tenantId: string;
-        deviceId: string;
-        binding: unknown;
-        updateSeq: number;
-        window: { notBefore: Date; expiresAt: Date };
-      },
+    const [target, binding, tokenHash, window, now] = h.beginReprovisioning.mock.calls[0] as [
+      EdgeDevice,
+      unknown,
+      string,
+      { notBefore: Date; expiresAt: Date },
+      Date,
     ];
-    expect(request).toMatchObject({
+    expect(target).toBe(found);
+    expect(binding).toEqual(BINDING);
+    expect(tokenHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(now.getTime() % 1000).toBe(0);
+    expect(window.expiresAt.getTime() - window.notBefore.getTime()).toBe(
+      2 * 60 * 60 * 1000 + 5 * 60 * 1000,
+    );
+    expect(window.expiresAt.getTime()).toBeGreaterThan(before);
+    // The token the technician carries dies with the window it opens.
+    expect(response.tokenExpiresAt).toEqual(window.expiresAt);
+    expect(h.enterMaintenanceForReprovisioning).toHaveBeenCalledWith({
       tenantId: TENANT,
       deviceId: found.id,
       binding: BINDING,
       updateSeq: 5,
+      window,
     });
-    expect(request.window.notBefore.getTime() % 1000).toBe(0);
-    expect(request.window.expiresAt.getTime() - request.window.notBefore.getTime()).toBe(
-      2 * 60 * 60 * 1000 + 5 * 60 * 1000,
-    );
-    expect(request.window.expiresAt.getTime()).toBeGreaterThan(before);
-    expect(h.requestLifecycle).toHaveBeenCalledWith(found, STATEMENT_DOUBLE);
+    expect(h.deliverLifecycleRequest).toHaveBeenCalledWith(found, now);
     // The running agent keeps its broker credential until the new activation.
     expect(h.removeDeviceCredentials).not.toHaveBeenCalled();
+    expect(h.reissueToken).not.toHaveBeenCalled();
     expect(response.suderraOsProvisioningCommand).toBe(
       `ssh provision@<device-address> provision ${found.deviceCode}`,
     );
   });
 
+  it('an undelivered statement does not fail the request: it is stored and redelivered', async () => {
+    const found = activeOsDevice();
+    const h = reprovisioning(found);
+    h.deliverLifecycleRequest.mockResolvedValueOnce(false);
+    await expect(h.service.resetForReprovisioning(found.id, TENANT)).resolves.toMatchObject({
+      deviceId: found.id,
+    });
+    expect(h.beginReprovisioning).toHaveBeenCalledTimes(1);
+  });
+
+  it.each<[string, 'terminal' | 'not-committed' | 'receipt-not-handed' | 'window-open', number]>([
+    ['a terminal state reached concurrently', 'terminal', 400],
+    ['a window already open', 'window-open', 409],
+    ['a binding that changed meanwhile', 'not-committed', 409],
+  ])('refuses %s without delivering anything', async (_case, refusal, status) => {
+    const found = activeOsDevice();
+    const h = reprovisioning(found);
+    h.beginReprovisioning.mockResolvedValueOnce(refusal);
+    await expect(h.service.resetForReprovisioning(found.id, TENANT)).rejects.toMatchObject({
+      status,
+    });
+    expect(h.deliverLifecycleRequest).not.toHaveBeenCalled();
+    expect(h.removeDeviceCredentials).not.toHaveBeenCalled();
+  });
+
+  it('a Suderra OS activation root never confirmed is re-installed from scratch', async () => {
+    const found = activeOsDevice({ activationReceiptHandedAt: null });
+    const h = reprovisioning(found);
+    await h.service.resetForReprovisioning(found.id, TENANT);
+    expect(h.beginReprovisioning).not.toHaveBeenCalled();
+    expect(h.reissueToken).toHaveBeenCalledWith(
+      found,
+      expect.objectContaining({ lifecycleState: DeviceLifecycleState.REGISTERED }),
+    );
+    expect(h.removeDeviceCredentials).toHaveBeenCalledWith(found.mqttClientId);
+  });
+
   it('a Suderra OS device that never committed a binding is reset like any other device', async () => {
     const found = device({ agentChannel: EdgeAgentChannel.SUDERRA_OS });
     const h = reprovisioning(found);
-    await h.service.resetForReprovisioning(found.id, TENANT);
-    expect(h.reissueToken).toHaveBeenCalledWith(
-      found,
-      expect.objectContaining({
-        lifecycleState: DeviceLifecycleState.REGISTERED,
-        revokeCredentials: true,
-      }),
+    const response = await h.service.resetForReprovisioning(found.id, TENANT);
+    const [, reissue] = h.reissueToken.mock.calls[0] as [
+      EdgeDevice,
+      { tokenIssuedAt: Date; tokenExpiresAt: Date; lifecycleState: DeviceLifecycleState },
+    ];
+    expect(reissue.lifecycleState).toBe(DeviceLifecycleState.REGISTERED);
+    expect(reissue.tokenExpiresAt).toEqual(response.tokenExpiresAt);
+    expect(reissue.tokenExpiresAt.getTime() - reissue.tokenIssuedAt.getTime()).toBe(
+      24 * 60 * 60 * 1000,
     );
     expect(h.enterMaintenanceForReprovisioning).not.toHaveBeenCalled();
-    expect(h.requestLifecycle).not.toHaveBeenCalled();
+    expect(h.deliverLifecycleRequest).not.toHaveBeenCalled();
     expect(h.removeDeviceCredentials).toHaveBeenCalledWith(found.mqttClientId);
   });
 
   it('a generic-Linux device is reset with its broker credential revoked', async () => {
-    const found = device({
-      lifecycleState: DeviceLifecycleState.ACTIVE,
-      deviceBindingMethod: BINDING.method,
-      deviceBindingSha256: BINDING.digest.sha256,
-    });
+    const found = device({ lifecycleState: DeviceLifecycleState.ACTIVE });
     const h = reprovisioning(found);
     await h.service.resetForReprovisioning(found.id, TENANT);
-    expect(h.enterMaintenanceForReprovisioning).not.toHaveBeenCalled();
+    expect(h.beginReprovisioning).not.toHaveBeenCalled();
     expect(h.removeDeviceCredentials).toHaveBeenCalledWith(found.mqttClientId);
   });
 
-  it('signs nothing when the reissue guard refuses (terminal state reached concurrently)', async () => {
-    const found = activeOsDevice();
+  it('regenerating a token refuses a device that committed an activation, re-provisioning or not', async () => {
+    for (const found of [
+      activeOsDevice(),
+      // Mid re-provisioning: the new token is unspent, the identity committed.
+      activeOsDevice({
+        lifecycleState: DeviceLifecycleState.MAINTENANCE,
+        provisioningToken: 'ab'.repeat(32),
+        tokenUsedAt: null,
+        credentialsIssuedAt: null,
+      }),
+      // A window that lapsed with the row still in MAINTENANCE and the token expired.
+      activeOsDevice({
+        lifecycleState: DeviceLifecycleState.MAINTENANCE,
+        provisioningToken: 'ab'.repeat(32),
+        tokenUsedAt: null,
+        credentialsIssuedAt: null,
+        tokenExpiresAt: new Date('2026-10-01T02:00:00Z'),
+      }),
+      device({ tokenUsedAt: new Date('2026-10-01T00:00:00Z') }),
+    ]) {
+      const h = reprovisioning(found);
+      await expect(h.service.regenerateToken(found.id, TENANT)).rejects.toMatchObject({
+        status: 409,
+      });
+      expect(h.reissueToken).not.toHaveBeenCalled();
+      expect(h.removeDeviceCredentials).not.toHaveBeenCalled();
+    }
+  });
+
+  it('regenerating the token of a never-activated device voids its pending credential', async () => {
+    const found = device({ credentialsIssuedAt: new Date() });
     const h = reprovisioning(found);
-    h.reissueToken.mockResolvedValueOnce(null);
-    await expect(h.service.resetForReprovisioning(found.id, TENANT)).rejects.toMatchObject({
-      status: 400,
-    });
-    expect(h.enterMaintenanceForReprovisioning).not.toHaveBeenCalled();
-    expect(h.requestLifecycle).not.toHaveBeenCalled();
+    await h.service.regenerateToken(found.id, TENANT);
+    expect(h.reissueToken).toHaveBeenCalledTimes(1);
+    expect(h.removeDeviceCredentials).toHaveBeenCalledWith(found.mqttClientId);
   });
 });

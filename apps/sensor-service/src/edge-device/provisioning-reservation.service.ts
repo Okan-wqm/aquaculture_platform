@@ -4,17 +4,25 @@ import { runInTenantTransaction, SENSOR_SOURCE_SCHEMA } from '@aquaculture/backe
 import { Injectable, Logger } from '@nestjs/common';
 import { DataSource, type EntityManager } from 'typeorm';
 
-import { ActivationReceiptService } from './activation-receipt.service';
 import {
-  BINDING_METHODS,
+  ACTIVATION_RECEIPT_RESIGN_MARGIN_MS,
+  ActivationReceiptService,
+} from './activation-receipt.service';
+import {
+  type BindingMethod,
   type DeviceBinding,
+  type DsseEnvelope,
   type Sha256Digest,
+  type SignedStatement,
+  STATEMENT,
+  statementDigest,
   wholeSecond,
 } from './edge-contract';
 import { DeviceLifecycleState, EdgeAgentChannel, EdgeDevice } from './entities/edge-device.entity';
 
 /**
- * The two-phase provisioning token's transitions (ADR-048 DEC-5.7, DEC-5.8).
+ * The two-phase provisioning token's transitions (ADR-048 DEC-5.7, DEC-5.8,
+ * DEC-5.14).
  *
  *   TOKEN_ISSUED ──reserve──▶ MANIFEST_RESERVED ──activate──▶ ACTIVATION_PENDING ──commit──▶ COMMITTED
  *        │                    (Suderra OS; bound to the      (credentials issued;           (first CONNECT with
@@ -26,9 +34,24 @@ import { DeviceLifecycleState, EdgeAgentChannel, EdgeDevice } from './entities/e
  * no check-then-act. The single-use token is spent only at the commit — when
  * the device has proved it saved and uses the credential — never at
  * activation, so a device that lost its response can activate again.
+ *
+ * The token columns describe the CURRENT token. The committed activation
+ * (`activation_id`, `activated_at`, the committed binding and the live broker
+ * credential) is a separate record: re-provisioning a Suderra OS device
+ * issues a new token under a signed device-lifecycle statement and keeps that
+ * record until the new commit replaces it, so the cloud never treats a live
+ * device as never-activated.
+ *
+ * The statements a Suderra OS agent hands to root (the receipt, the lifecycle
+ * statement) are stored on the row and delivered by claim: one conditional
+ * UPDATE stamps the delivery instant, so replicas share one pace and any of
+ * them settles the hand-over by the statement digest the agent reports.
  */
 
 const TERMINAL_STATES = [DeviceLifecycleState.REVOKED, DeviceLifecycleState.DECOMMISSIONED];
+
+/** The least time between two deliveries of the same pending statement. */
+export const HANDOFF_REDELIVERY_INTERVAL_MS = 2 * 60 * 1000;
 
 export function hashProvisioningToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
@@ -58,6 +81,25 @@ export interface Commit {
   readonly activationReceipt: string | null;
 }
 
+/** The statement a re-provisioning window opens with, signed under its allocated sequence. */
+export type LifecycleStatementSigner = (
+  updateSeq: number,
+) => SignedStatement<typeof STATEMENT.deviceLifecycle>;
+
+export type ReprovisioningRefusal =
+  | 'not-committed'
+  | 'receipt-not-handed'
+  | 'window-open'
+  | 'terminal';
+
+export interface ReprovisioningStart {
+  readonly lifecycleSeq: number;
+  readonly windowEndsAt: Date;
+}
+
+/** Which root hand-over a settled response answered. */
+export type HandoffKind = 'activation_receipt' | 'lifecycle_request';
+
 /** How far before the issuing instant a statement's window opens. */
 const WINDOW_LEAD_MS = 5 * 60 * 1000;
 
@@ -70,13 +112,31 @@ interface CommittedRow {
   readonly tenant_id: string;
   readonly id: string;
   readonly agent_channel: EdgeAgentChannel;
-  readonly device_binding_method: string | null;
+  readonly device_binding_method: BindingMethod | null;
   readonly device_binding_sha256: string | null;
   readonly issued_manifest_sha256: string | null;
 }
 
-function isBindingMethod(value: string | null): value is DeviceBinding['method'] {
-  return value !== null && (BINDING_METHODS as readonly string[]).includes(value);
+interface ClaimedReceiptRow {
+  readonly tenant_id: string;
+  readonly id: string;
+  readonly activation_receipt: string;
+  readonly activation_receipt_expires_at: Date;
+  readonly activation_id: string | null;
+  readonly activated_at: Date | null;
+  readonly device_binding_method: BindingMethod | null;
+  readonly device_binding_sha256: string | null;
+  readonly issued_manifest_sha256: string | null;
+}
+
+interface SeqRow {
+  readonly edge_statement_seq: string | number;
+}
+
+/** The statement digest of a stored DSSE envelope (statements.json statement_digest). */
+export function storedStatementDigest(envelopeJson: string): Sha256Digest {
+  const envelope = JSON.parse(envelopeJson) as DsseEnvelope;
+  return statementDigest(Buffer.from(envelope.payload, 'base64'));
 }
 
 @Injectable()
@@ -237,15 +297,17 @@ export class ProvisioningReservationService {
   /**
    * ACTIVATION_PENDING → COMMITTED, on the first CONNECT that authenticated
    * with the device's own credential (DEC-5.7). Spends the token, makes the
-   * reserved binding the device's identity and, for a Suderra OS device,
-   * signs the activation receipt naming the manifest root installed. Returns
-   * null when there was nothing to commit (already committed, never pending).
+   * reserved binding the device's identity, records the committed activation
+   * and closes any re-provisioning window; for a Suderra OS device it signs
+   * the activation receipt naming the manifest root installed. Returns null
+   * when there was nothing to commit (already committed, never pending).
    */
   async commitFirstSession(
     device: Pick<EdgeDevice, 'id' | 'tenantId'>,
     now: Date,
   ): Promise<Commit | null> {
     const activatedAt = wholeSecond(now);
+    const activationId = randomUUID();
     return runInTenantTransaction(
       this.dataSource,
       SENSOR_SOURCE_SCHEMA,
@@ -257,11 +319,21 @@ export class ProvisioningReservationService {
           .set({
             tokenUsedAt: activatedAt,
             provisioningToken: null,
+            activationId,
+            activatedAt,
             deviceBindingMethod: () => 'COALESCE(reserved_binding_method, device_binding_method)',
             deviceBindingSha256: () => 'COALESCE(reserved_binding_sha256, device_binding_sha256)',
             reservedBindingMethod: null,
             reservedBindingSha256: null,
             reservationExpiresAt: null,
+            activationReceipt: null,
+            activationReceiptExpiresAt: null,
+            activationReceiptSentAt: null,
+            activationReceiptHandedAt: null,
+            lifecycleRequest: null,
+            lifecycleRequestSentAt: null,
+            lifecycleRequestHandedAt: null,
+            maintenanceExpiresAt: null,
           })
           .where('id = :id AND tenant_id = :tenantId', { id: device.id, tenantId: device.tenantId })
           .andWhere('token_used_at IS NULL AND provisioning_token IS NOT NULL')
@@ -285,34 +357,36 @@ export class ProvisioningReservationService {
             activationReceipt: null,
           };
         }
-        if (
-          !isBindingMethod(row.device_binding_method) ||
-          row.device_binding_sha256 === null ||
-          row.issued_manifest_sha256 === null
-        ) {
+        if (row.device_binding_method === null || row.device_binding_sha256 === null) {
           // The activation guard admits a Suderra OS device only under a
-          // reservation with an issued manifest, so this row cannot exist;
-          // refusing (and rolling back) keeps the token unspent if it ever does.
-          throw new Error(
-            `Suderra OS device ${row.id} committed without a reserved binding and manifest`,
-          );
+          // reservation, so this row cannot exist; refusing (and rolling back)
+          // keeps the token unspent if it ever does.
+          throw new Error(`Suderra OS device ${row.id} committed without a reserved binding`);
         }
-        const receipt = this.receipts.issue({
-          tenantId: row.tenant_id,
-          deviceId: row.id,
-          binding: {
-            method: row.device_binding_method,
-            digest: { sha256: row.device_binding_sha256 },
+        if (row.issued_manifest_sha256 === null) {
+          throw new Error(`Suderra OS device ${row.id} committed without an issued manifest`);
+        }
+        const receipt = this.receipts.issue(
+          {
+            tenantId: row.tenant_id,
+            deviceId: row.id,
+            binding: {
+              method: row.device_binding_method,
+              digest: { sha256: row.device_binding_sha256 },
+            },
+            manifestDigest: { sha256: row.issued_manifest_sha256 },
+            activationId,
+            activatedAt,
           },
-          manifestDigest: { sha256: row.issued_manifest_sha256 },
-          activationId: randomUUID(),
           activatedAt,
-        });
-        const activationReceipt = JSON.stringify(receipt.envelope);
+        );
         await qr.manager
           .createQueryBuilder()
           .update(EdgeDevice)
-          .set({ activationReceipt, activationReceiptHandedAt: null })
+          .set({
+            activationReceipt: receipt.envelope,
+            activationReceiptExpiresAt: receipt.expiresAt,
+          })
           .where('id = :id AND tenant_id = :tenantId', { id: row.id, tenantId: row.tenant_id })
           .execute();
         this.logger.log({
@@ -324,50 +398,356 @@ export class ProvisioningReservationService {
           tenantId: row.tenant_id,
           deviceId: row.id,
           channel: row.agent_channel,
-          activationReceipt,
+          activationReceipt: receipt.envelope,
         };
       },
     );
   }
 
-  /** The agent handed the receipt to root (its `activation_receipt` command succeeded). */
-  async markReceiptHanded(device: Pick<EdgeDevice, 'id' | 'tenantId'>, now: Date): Promise<void> {
-    await runInTenantTransaction(
+  /**
+   * Claims one delivery of the pending activation receipt: stamps the
+   * delivery instant when the receipt is unhanded and no delivery was
+   * claimed within HANDOFF_REDELIVERY_INTERVAL_MS, and returns the envelope
+   * to deliver — re-signed first, under the same activation, when less than
+   * ACTIVATION_RECEIPT_RESIGN_MARGIN_MS of its window is left. Null when
+   * there is nothing to deliver now.
+   */
+  async claimReceiptDelivery(
+    device: Pick<EdgeDevice, 'id' | 'tenantId'>,
+    now: Date,
+  ): Promise<string | null> {
+    const at = wholeSecond(now);
+    return runInTenantTransaction(
       this.dataSource,
       SENSOR_SOURCE_SCHEMA,
       device.tenantId,
       async (qr) => {
+        const claimed = await qr.manager
+          .createQueryBuilder()
+          .update(EdgeDevice)
+          .set({ activationReceiptSentAt: at })
+          .where('id = :id AND tenant_id = :tenantId', {
+            id: device.id,
+            tenantId: device.tenantId,
+            channel: EdgeAgentChannel.SUDERRA_OS,
+            paced: new Date(at.getTime() - HANDOFF_REDELIVERY_INTERVAL_MS),
+          })
+          .andWhere('agent_channel = :channel')
+          .andWhere('activation_receipt IS NOT NULL AND activation_receipt_handed_at IS NULL')
+          .andWhere('(activation_receipt_sent_at IS NULL OR activation_receipt_sent_at <= :paced)')
+          .returning([
+            'tenantId',
+            'id',
+            'activationReceipt',
+            'activationReceiptExpiresAt',
+            'activationId',
+            'activatedAt',
+            'deviceBindingMethod',
+            'deviceBindingSha256',
+            'issuedManifestSha256',
+          ])
+          .execute();
+        const row = (claimed.raw as ClaimedReceiptRow[])[0];
+        if (row === undefined) return null;
+        const remaining = new Date(row.activation_receipt_expires_at).getTime() - at.getTime();
+        if (remaining >= ACTIVATION_RECEIPT_RESIGN_MARGIN_MS) return row.activation_receipt;
+        if (
+          row.activation_id === null ||
+          row.activated_at === null ||
+          row.device_binding_method === null ||
+          row.device_binding_sha256 === null ||
+          row.issued_manifest_sha256 === null
+        ) {
+          // A stored receipt is written only by the commit, together with
+          // every one of these; rolling back keeps the claim unspent.
+          throw new Error(`Device ${row.id} holds a receipt without its committed activation`);
+        }
+        const receipt = this.receipts.issue(
+          {
+            tenantId: row.tenant_id,
+            deviceId: row.id,
+            binding: {
+              method: row.device_binding_method,
+              digest: { sha256: row.device_binding_sha256 },
+            },
+            manifestDigest: { sha256: row.issued_manifest_sha256 },
+            activationId: row.activation_id,
+            activatedAt: new Date(row.activated_at),
+          },
+          at,
+        );
         await qr.manager
           .createQueryBuilder()
           .update(EdgeDevice)
-          .set({ activationReceiptHandedAt: now })
-          .where('id = :id AND tenant_id = :tenantId', { id: device.id, tenantId: device.tenantId })
-          .andWhere('activation_receipt IS NOT NULL AND activation_receipt_handed_at IS NULL')
+          .set({
+            activationReceipt: receipt.envelope,
+            activationReceiptExpiresAt: receipt.expiresAt,
+          })
+          .where('id = :id AND tenant_id = :tenantId', { id: row.id, tenantId: row.tenant_id })
           .execute();
+        this.logger.log({ event: 'activation_receipt_resigned', deviceId: row.id });
+        return receipt.envelope;
       },
     );
   }
 
   /**
-   * A fresh token in TOKEN_ISSUED: no reservation, no pending credentials,
-   * no receipt. The committed binding is kept — the same hardware
-   * re-provisions (DEC-5.14). With `revokeCredentials` the broker credential
-   * goes too (a generic re-install, or a token regenerated before the
-   * commit); without it the running agent keeps its credential until its
-   * next activation replaces it (Suderra OS re-provisioning, where the agent
-   * must stay online to receive the lifecycle statement). Allocates the
-   * update_seq of the lifecycle statement that opens re-provisioning.
-   * Returns null for a terminal device.
+   * Claims one delivery of the pending device-lifecycle statement while its
+   * re-provisioning window is open; same pacing as the receipt. The
+   * statement is never re-signed: its update_seq is single-use on root
+   * (equal_seq reject), and a window that ends undelivered lapses.
+   */
+  async claimLifecycleDelivery(
+    device: Pick<EdgeDevice, 'id' | 'tenantId'>,
+    now: Date,
+  ): Promise<string | null> {
+    return runInTenantTransaction(
+      this.dataSource,
+      SENSOR_SOURCE_SCHEMA,
+      device.tenantId,
+      async (qr) => {
+        const claimed = await qr.manager
+          .createQueryBuilder()
+          .update(EdgeDevice)
+          .set({ lifecycleRequestSentAt: now })
+          .where('id = :id AND tenant_id = :tenantId', {
+            id: device.id,
+            tenantId: device.tenantId,
+            now,
+            paced: new Date(now.getTime() - HANDOFF_REDELIVERY_INTERVAL_MS),
+          })
+          .andWhere('lifecycle_request IS NOT NULL AND lifecycle_request_handed_at IS NULL')
+          .andWhere('maintenance_expires_at > :now')
+          .andWhere('(lifecycle_request_sent_at IS NULL OR lifecycle_request_sent_at <= :paced)')
+          .returning(['lifecycleRequest'])
+          .execute();
+        const row = (claimed.raw as Array<{ lifecycle_request: string }>)[0];
+        return row === undefined ? null : row.lifecycle_request;
+      },
+    );
+  }
+
+  /**
+   * Records that the agent handed the statement whose digest it reported to
+   * root. Only the statement stored on this device's row now is settled —
+   * a digest of an older (re-signed) receipt or of another device's
+   * statement matches nothing. Returns which hand-over it settled.
+   */
+  async settleHandoff(
+    device: Pick<EdgeDevice, 'id' | 'tenantId'>,
+    reported: Sha256Digest,
+    now: Date,
+  ): Promise<HandoffKind | null> {
+    return runInTenantTransaction(
+      this.dataSource,
+      SENSOR_SOURCE_SCHEMA,
+      device.tenantId,
+      async (qr) => {
+        const stored = await qr.manager
+          .createQueryBuilder(EdgeDevice, 'd')
+          .select(['d.id', 'd.activationReceipt', 'd.lifecycleRequest'])
+          .where('d.id = :id AND d.tenantId = :tenantId', {
+            id: device.id,
+            tenantId: device.tenantId,
+          })
+          .setLock('pessimistic_write')
+          .getOne();
+        if (stored === null) return null;
+        const where = { id: device.id, tenantId: device.tenantId };
+        if (
+          stored.activationReceipt !== null &&
+          storedStatementDigest(stored.activationReceipt).sha256 === reported.sha256
+        ) {
+          const settled = await qr.manager
+            .createQueryBuilder()
+            .update(EdgeDevice)
+            .set({ activationReceiptHandedAt: now })
+            .where('id = :id AND tenant_id = :tenantId', where)
+            .andWhere('activation_receipt_handed_at IS NULL')
+            .returning(['id'])
+            .execute();
+          return (settled.raw as unknown[]).length === 1 ? 'activation_receipt' : null;
+        }
+        if (
+          stored.lifecycleRequest !== null &&
+          storedStatementDigest(stored.lifecycleRequest).sha256 === reported.sha256
+        ) {
+          const settled = await qr.manager
+            .createQueryBuilder()
+            .update(EdgeDevice)
+            .set({ lifecycleRequestHandedAt: now })
+            .where('id = :id AND tenant_id = :tenantId', where)
+            .andWhere('lifecycle_request_handed_at IS NULL')
+            .returning(['id'])
+            .execute();
+          return (settled.raw as unknown[]).length === 1 ? 'lifecycle_request' : null;
+        }
+        return null;
+      },
+    );
+  }
+
+  /**
+   * Opens a Suderra OS re-provisioning window (DEC-5.14): allocates the
+   * lifecycle statement's update_seq, signs it, and in the same transaction
+   * stores it with a fresh token that expires with the window. The committed
+   * activation, binding and broker credential stay: the running agent must
+   * stay online to carry the statement to root, and the device keeps its
+   * identity if the window lapses unused. Refused unless the device
+   * committed a binding whose receipt root has been handed (root is ACTIVE;
+   * lifecycle.json admits enter-maintenance only from ACTIVE), and while a
+   * window is still open.
+   */
+  async beginReprovisioning(
+    device: Pick<EdgeDevice, 'id' | 'tenantId'>,
+    binding: DeviceBinding,
+    tokenHash: string,
+    window: { readonly notBefore: Date; readonly expiresAt: Date },
+    now: Date,
+    sign: LifecycleStatementSigner,
+  ): Promise<ReprovisioningStart | ReprovisioningRefusal> {
+    return runInTenantTransaction(
+      this.dataSource,
+      SENSOR_SOURCE_SCHEMA,
+      device.tenantId,
+      async (qr) => {
+        const where = {
+          id: device.id,
+          tenantId: device.tenantId,
+          channel: EdgeAgentChannel.SUDERRA_OS,
+          method: binding.method,
+          digest: binding.digest.sha256,
+          terminal: TERMINAL_STATES,
+          now,
+        };
+        const allocated = await qr.manager
+          .createQueryBuilder()
+          .update(EdgeDevice)
+          .set({ edgeStatementSeq: () => 'edge_statement_seq + 1' })
+          .where('id = :id AND tenant_id = :tenantId', where)
+          .andWhere('agent_channel = :channel AND lifecycle_state NOT IN (:...terminal)')
+          .andWhere('device_binding_method = :method AND device_binding_sha256 = :digest')
+          .andWhere('activation_receipt_handed_at IS NOT NULL')
+          .andWhere('(maintenance_expires_at IS NULL OR maintenance_expires_at <= :now)')
+          .returning(['edgeStatementSeq'])
+          .execute();
+        const row = (allocated.raw as SeqRow[])[0];
+        if (row === undefined) return this.reprovisioningRefusal(qr.manager, device, binding, now);
+        const lifecycleSeq = Number(row.edge_statement_seq);
+        const statement = sign(lifecycleSeq);
+        await qr.manager
+          .createQueryBuilder()
+          .update(EdgeDevice)
+          .set({
+            provisioningToken: tokenHash,
+            tokenIssuedAt: now,
+            tokenExpiresAt: window.expiresAt,
+            tokenUsedAt: null,
+            credentialsIssuedAt: null,
+            reservedBindingMethod: null,
+            reservedBindingSha256: null,
+            reservationExpiresAt: null,
+            lifecycleState: DeviceLifecycleState.MAINTENANCE,
+            lifecycleRequest: JSON.stringify(statement.envelope),
+            lifecycleRequestSentAt: null,
+            lifecycleRequestHandedAt: null,
+            maintenanceExpiresAt: window.expiresAt,
+          })
+          .where('id = :id AND tenant_id = :tenantId', where)
+          .execute();
+        return { lifecycleSeq, windowEndsAt: window.expiresAt };
+      },
+    );
+  }
+
+  /** Why {@link beginReprovisioning}'s guard matched no row. */
+  private async reprovisioningRefusal(
+    manager: EntityManager,
+    device: Pick<EdgeDevice, 'id' | 'tenantId'>,
+    binding: DeviceBinding,
+    now: Date,
+  ): Promise<ReprovisioningRefusal> {
+    const row = await manager
+      .createQueryBuilder(EdgeDevice, 'd')
+      .where('d.id = :id AND d.tenantId = :tenantId', { id: device.id, tenantId: device.tenantId })
+      .getOne();
+    if (row === null || TERMINAL_STATES.includes(row.lifecycleState)) return 'terminal';
+    if (
+      row.agentChannel !== EdgeAgentChannel.SUDERRA_OS ||
+      row.deviceBindingMethod !== binding.method ||
+      row.deviceBindingSha256 !== binding.digest.sha256
+    ) {
+      return 'not-committed';
+    }
+    if (row.activationReceiptHandedAt === null) return 'receipt-not-handed';
+    if (row.maintenanceExpiresAt !== null && row.maintenanceExpiresAt > now) return 'window-open';
+    return 'not-committed';
+  }
+
+  /**
+   * Closes a re-provisioning window that ended unused: no activation was
+   * issued under its token, so root returned the device to ACTIVE with its
+   * current install and config (DEC-5.14, lifecycle.json). The token and the
+   * statement die with the window; the committed activation, binding and
+   * credential were never touched. Returns true when a window was closed.
+   */
+  async settleLapsedMaintenance(
+    device: Pick<EdgeDevice, 'id' | 'tenantId'>,
+    now: Date,
+  ): Promise<boolean> {
+    return runInTenantTransaction(
+      this.dataSource,
+      SENSOR_SOURCE_SCHEMA,
+      device.tenantId,
+      async (qr) => {
+        const settled = await qr.manager
+          .createQueryBuilder()
+          .update(EdgeDevice)
+          .set({
+            lifecycleState: DeviceLifecycleState.ACTIVE,
+            provisioningToken: null,
+            tokenIssuedAt: null,
+            tokenExpiresAt: null,
+            reservedBindingMethod: null,
+            reservedBindingSha256: null,
+            reservationExpiresAt: null,
+            lifecycleRequest: null,
+            lifecycleRequestSentAt: null,
+            lifecycleRequestHandedAt: null,
+            maintenanceExpiresAt: null,
+          })
+          .where('id = :id AND tenant_id = :tenantId', {
+            id: device.id,
+            tenantId: device.tenantId,
+            maintenance: DeviceLifecycleState.MAINTENANCE,
+            now,
+          })
+          .andWhere('lifecycle_state = :maintenance AND maintenance_expires_at <= :now')
+          .andWhere('credentials_issued_at IS NULL AND token_used_at IS NULL')
+          .returning(['id'])
+          .execute();
+        return (settled.raw as unknown[]).length === 1;
+      },
+    );
+  }
+
+  /**
+   * A fresh token in TOKEN_ISSUED for a device the operator re-installs from
+   * scratch (a generic-Linux device, a token regenerated before any commit,
+   * or a Suderra OS activation root never confirmed): no reservation, no
+   * pending credentials, no committed activation, no statements to hand
+   * over, and the broker credential revoked. The committed binding is kept —
+   * the same hardware re-provisions. Returns null for a terminal device.
    */
   async reissueToken(
     device: Pick<EdgeDevice, 'id' | 'tenantId'>,
     reissue: {
       readonly tokenHash: string;
+      readonly tokenIssuedAt: Date;
       readonly tokenExpiresAt: Date;
       readonly lifecycleState: DeviceLifecycleState;
-      readonly revokeCredentials: boolean;
     },
-  ): Promise<{ readonly lifecycleSeq: number } | null> {
+  ): Promise<boolean> {
     return runInTenantTransaction(
       this.dataSource,
       SENSOR_SOURCE_SCHEMA,
@@ -378,6 +758,7 @@ export class ProvisioningReservationService {
           .update(EdgeDevice)
           .set({
             provisioningToken: reissue.tokenHash,
+            tokenIssuedAt: reissue.tokenIssuedAt,
             tokenExpiresAt: reissue.tokenExpiresAt,
             tokenUsedAt: null,
             credentialsIssuedAt: null,
@@ -385,24 +766,38 @@ export class ProvisioningReservationService {
             reservedBindingSha256: null,
             reservationExpiresAt: null,
             issuedManifestSha256: null,
+            activationId: null,
+            activatedAt: null,
             activationReceipt: null,
+            activationReceiptExpiresAt: null,
+            activationReceiptSentAt: null,
             activationReceiptHandedAt: null,
+            lifecycleRequest: null,
+            lifecycleRequestSentAt: null,
+            lifecycleRequestHandedAt: null,
+            maintenanceExpiresAt: null,
             lifecycleState: reissue.lifecycleState,
-            edgeStatementSeq: () => 'edge_statement_seq + 1',
-            ...(reissue.revokeCredentials
-              ? { mqttPasswordHash: null, fingerprint: null, agentVersion: null, isOnline: false }
-              : {}),
+            mqttPasswordHash: null,
+            fingerprint: null,
+            agentVersion: null,
+            isOnline: false,
           })
           .where('id = :id AND tenant_id = :tenantId', {
             id: device.id,
             tenantId: device.tenantId,
             terminal: TERMINAL_STATES,
+            channel: EdgeAgentChannel.SUDERRA_OS,
           })
           .andWhere('lifecycle_state NOT IN (:...terminal)')
-          .returning(['edgeStatementSeq'])
+          // A Suderra OS device whose root recorded its activation is never
+          // revoked by a reissue: it re-provisions in place (beginReprovisioning).
+          .andWhere(
+            'NOT (agent_channel = :channel AND device_binding_sha256 IS NOT NULL' +
+              ' AND activation_receipt_handed_at IS NOT NULL)',
+          )
+          .returning(['id'])
           .execute();
-        const row = (updated.raw as Array<{ edge_statement_seq: string | number }>)[0];
-        return row === undefined ? null : { lifecycleSeq: Number(row.edge_statement_seq) };
+        return (updated.raw as unknown[]).length === 1;
       },
     );
   }

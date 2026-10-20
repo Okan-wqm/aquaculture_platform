@@ -1,212 +1,262 @@
 /**
  * EdgeRootHandoffService — the cloud-signed statements a Suderra OS agent
- * carries to root (ADR-048 DEC-5.8, DEC-5.14): the activation receipt until
- * the agent reports it handed, and the device-lifecycle request.
+ * carries to root (ADR-048 DEC-5.8, DEC-5.14): delivered from the row, paced,
+ * until the agent reports the statement handed; settled from the response by
+ * the digest it names, by whichever replica receives it.
  */
 import { collaborator } from '@aquaculture/testing';
 
-import { buildEnterMaintenance } from '../device-lifecycle-statement.service';
-import { STATEMENT } from '../edge-contract';
+import { type DeviceDirectoryService } from '../device-directory.service';
 import { type EdgeCommandPublisher } from '../edge-command-publisher.service';
 import { EdgeRootHandoffService } from '../edge-root-handoff.service';
-import { EdgeAgentChannel } from '../entities/edge-device.entity';
-import { Ed25519SigningKey, ManifestSigner } from '../manifest-signer';
-import { type ProvisioningReservationService } from '../provisioning-reservation.service';
+import { DeviceLifecycleState, EdgeAgentChannel, EdgeDevice } from '../entities/edge-device.entity';
+import {
+  HANDOFF_REDELIVERY_INTERVAL_MS,
+  type ProvisioningReservationService,
+} from '../provisioning-reservation.service';
 
 const TENANT = '7e570000-0000-4000-8000-000000000001';
 const DEVICE = '7e570000-0000-4000-8000-0000000000d1';
-const RECEIPT = '{"payload":"e30=","payloadType":"application/vnd.suderra.x+json","signatures":[]}';
-
 const DEVICE_CODE = 'RPI-7E57C0DE';
-const FROM_DEVICE = { deviceCode: DEVICE, tenantId: TENANT };
+const NOW = new Date('2026-10-20T12:00:00Z');
+const RECEIPT = '{"payloadType":"application/vnd.suderra.edge-activation-receipt.v1+json"}';
+const LIFECYCLE = '{"payloadType":"application/vnd.suderra.device-lifecycle.v1+json"}';
+const DIGEST = 'ab'.repeat(32);
 
-const pendingDevice = {
+type Holder = Parameters<EdgeRootHandoffService['onHeartbeat']>[0];
+
+const owed: Holder = {
   id: DEVICE,
   tenantId: TENANT,
-  deviceCode: DEVICE_CODE,
   agentChannel: EdgeAgentChannel.SUDERRA_OS,
+  lifecycleState: DeviceLifecycleState.ACTIVE,
   activationReceipt: RECEIPT,
+  activationReceiptSentAt: null,
   activationReceiptHandedAt: null,
+  lifecycleRequest: null,
+  lifecycleRequestSentAt: null,
+  lifecycleRequestHandedAt: null,
+  maintenanceExpiresAt: null,
 };
 
-function harness(publishImpl: () => Promise<void> = async () => undefined): {
+const inWindow: Holder = {
+  ...owed,
+  lifecycleState: DeviceLifecycleState.MAINTENANCE,
+  activationReceipt: null,
+  lifecycleRequest: LIFECYCLE,
+  maintenanceExpiresAt: new Date(NOW.getTime() + 60 * 60 * 1000),
+};
+
+function harness(
+  options: {
+    publish?: () => Promise<void>;
+    receipt?: string | null;
+    lifecycle?: string | null;
+    settled?: 'activation_receipt' | 'lifecycle_request' | null;
+    lapsed?: boolean;
+  } = {},
+): {
   service: EdgeRootHandoffService;
   publish: jest.Mock;
-  markReceiptHanded: jest.Mock;
+  claimReceiptDelivery: jest.Mock;
+  claimLifecycleDelivery: jest.Mock;
+  settleHandoff: jest.Mock;
+  settleLapsedMaintenance: jest.Mock;
+  findDevice: jest.Mock;
 } {
-  const publish = jest.fn(publishImpl);
-  const markReceiptHanded = jest.fn(async (): Promise<void> => undefined);
+  const publish = jest.fn(options.publish ?? (async (): Promise<void> => undefined));
+  const claimReceiptDelivery = jest.fn(async () => options.receipt ?? RECEIPT);
+  const claimLifecycleDelivery = jest.fn(async () => options.lifecycle ?? LIFECYCLE);
+  const settleHandoff = jest.fn(async () => options.settled ?? 'activation_receipt');
+  const settleLapsedMaintenance = jest.fn(async () => options.lapsed ?? true);
+  const findDevice = jest.fn(async (column: string, value: string) =>
+    (column === 'id' && value === DEVICE) || (column === 'device_code' && value === DEVICE_CODE)
+      ? Object.assign(new EdgeDevice(), { id: DEVICE, tenantId: TENANT })
+      : null,
+  );
   const service = new EdgeRootHandoffService(
     collaborator<EdgeCommandPublisher>({ publish }, 'EdgeCommandPublisher'),
     collaborator<ProvisioningReservationService>(
-      { markReceiptHanded },
+      { claimReceiptDelivery, claimLifecycleDelivery, settleHandoff, settleLapsedMaintenance },
       'ProvisioningReservationService',
     ),
+    collaborator<DeviceDirectoryService>({ findDevice }, 'DeviceDirectoryService'),
   );
-  return { service, publish, markReceiptHanded };
+  return {
+    service,
+    publish,
+    claimReceiptDelivery,
+    claimLifecycleDelivery,
+    settleHandoff,
+    settleLapsedMaintenance,
+    findDevice,
+  };
 }
 
-function publishedCommandId(publish: jest.Mock): string {
-  const call = publish.mock.calls[0] as [unknown, { commandId: string }];
-  return call[1].commandId;
-}
+const handed = {
+  commandId: 'c1',
+  success: true,
+  result: { handed_to_root: true, statement_digest: { sha256: DIGEST } },
+};
 
 describe('EdgeRootHandoffService (ADR-048 DEC-5.8, DEC-5.14)', () => {
-  afterEach(() => jest.useRealTimers());
-
-  it('delivers a pending receipt as the statement parameter of activation_receipt', async () => {
-    const { service, publish } = harness();
-    await expect(service.deliverActivationReceipt(pendingDevice)).resolves.toBe(true);
+  it('delivers the claimed receipt as the statement parameter of activation_receipt', async () => {
+    const { service, publish, claimReceiptDelivery } = harness({ receipt: '{"resigned":true}' });
+    await service.deliverPending(owed, NOW);
+    expect(claimReceiptDelivery).toHaveBeenCalledWith(owed, NOW);
     expect(publish).toHaveBeenCalledWith(
       { tenantId: TENANT, deviceId: DEVICE },
       {
         commandId: expect.any(String),
         command: 'activation_receipt',
-        params: { statement: RECEIPT },
+        params: { statement: '{"resigned":true}' },
       },
     );
   });
 
-  it('delivers nothing to a generic device, without a receipt, or once handed', async () => {
-    const { service, publish } = harness();
+  it('claims nothing for a generic device, a handed receipt, or one sent within the pace', async () => {
+    const { service, claimReceiptDelivery, claimLifecycleDelivery, publish } = harness();
     for (const device of [
-      { ...pendingDevice, agentChannel: EdgeAgentChannel.GENERIC_LINUX },
-      { ...pendingDevice, activationReceipt: null },
-      { ...pendingDevice, activationReceiptHandedAt: new Date() },
+      { ...owed, agentChannel: EdgeAgentChannel.GENERIC_LINUX },
+      { ...owed, activationReceipt: null },
+      { ...owed, activationReceiptHandedAt: NOW },
+      {
+        ...owed,
+        activationReceiptSentAt: new Date(NOW.getTime() - HANDOFF_REDELIVERY_INTERVAL_MS + 1),
+      },
     ]) {
-      await expect(service.deliverActivationReceipt(device)).resolves.toBe(false);
+      await service.deliverPending(device, NOW);
     }
+    expect(claimReceiptDelivery).not.toHaveBeenCalled();
+    expect(claimLifecycleDelivery).not.toHaveBeenCalled();
     expect(publish).not.toHaveBeenCalled();
   });
 
-  it('records the hand-over only when the agent reports handed_to_root', async () => {
-    const { service, publish, markReceiptHanded } = harness();
-    await service.deliverActivationReceipt(pendingDevice);
-    const commandId = publishedCommandId(publish);
-    await expect(
-      service.handleResponse(FROM_DEVICE, {
-        commandId,
-        success: true,
-        result: { handed_to_root: true },
-      }),
-    ).resolves.toBe(true);
-    expect(markReceiptHanded).toHaveBeenCalledWith(
-      { id: DEVICE, tenantId: TENANT },
-      expect.any(Date),
-    );
-    // Settled once: a replayed response answers nothing.
-    await expect(
-      service.handleResponse(FROM_DEVICE, {
-        commandId,
-        success: true,
-        result: { handed_to_root: true },
-      }),
-    ).resolves.toBe(false);
-    expect(markReceiptHanded).toHaveBeenCalledTimes(1);
+  it('redelivers once the pace has passed, and publishes nothing when the claim is taken elsewhere', async () => {
+    const lost = {
+      ...owed,
+      activationReceiptSentAt: new Date(NOW.getTime() - HANDOFF_REDELIVERY_INTERVAL_MS),
+    };
+    const first = harness();
+    await first.service.deliverPending(lost, NOW);
+    expect(first.publish).toHaveBeenCalledTimes(1);
+
+    const raced = harness({ receipt: null });
+    raced.claimReceiptDelivery.mockResolvedValue(null);
+    await raced.service.deliverPending(lost, NOW);
+    expect(raced.claimReceiptDelivery).toHaveBeenCalledTimes(1);
+    expect(raced.publish).not.toHaveBeenCalled();
   });
 
-  it('settles only from the device the receipt went to', async () => {
-    const { service, publish, markReceiptHanded } = harness();
-    await service.deliverActivationReceipt(pendingDevice);
-    const commandId = publishedCommandId(publish);
-    const handed = { commandId, success: true, result: { handed_to_root: true } };
-    await expect(
-      service.handleResponse({ deviceCode: '7e570000-0000-4000-8000-0000000000d9' }, handed),
-    ).resolves.toBe(false);
-    await expect(
-      service.handleResponse(
-        { deviceCode: DEVICE, tenantId: '7e570000-0000-4000-8000-000000000002' },
-        handed,
-      ),
-    ).resolves.toBe(false);
-    expect(markReceiptHanded).not.toHaveBeenCalled();
-    // A legacy tenant-less topic naming the device code still settles it.
-    await expect(service.handleResponse({ deviceCode: DEVICE_CODE }, handed)).resolves.toBe(true);
-    expect(markReceiptHanded).toHaveBeenCalledTimes(1);
-  });
-
-  it('leaves the receipt pending when the agent refuses it', async () => {
-    const { service, publish, markReceiptHanded } = harness();
-    await service.deliverActivationReceipt(pendingDevice);
-    const commandId = publishedCommandId(publish);
-    await expect(
-      service.handleResponse(FROM_DEVICE, { commandId, success: false, error: 'receipt refused' }),
-    ).resolves.toBe(true);
-    await service.deliverActivationReceipt(pendingDevice);
-    const retry = publish.mock.calls[1] as [unknown, { commandId: string }];
-    await expect(
-      service.handleResponse(FROM_DEVICE, {
-        commandId: retry[1].commandId,
-        success: true,
-        result: {},
-      }),
-    ).resolves.toBe(true);
-    expect(markReceiptHanded).not.toHaveBeenCalled();
-  });
-
-  it('ignores responses to commands it did not send, and forgets unanswered ones', async () => {
-    jest.useFakeTimers();
-    const { service, publish, markReceiptHanded } = harness();
-    await expect(
-      service.handleResponse(FROM_DEVICE, {
-        commandId: 'other',
-        success: true,
-        result: { handed_to_root: true },
-      }),
-    ).resolves.toBe(false);
-    await expect(service.handleResponse(FROM_DEVICE, { success: true })).resolves.toBe(false);
-    await service.deliverActivationReceipt(pendingDevice);
-    const commandId = publishedCommandId(publish);
-    jest.advanceTimersByTime(60_001);
-    await expect(
-      service.handleResponse(FROM_DEVICE, {
-        commandId,
-        success: true,
-        result: { handed_to_root: true },
-      }),
-    ).resolves.toBe(false);
-    expect(markReceiptHanded).not.toHaveBeenCalled();
-  });
-
-  it('a refused publish leaves nothing pending and reaches the caller', async () => {
-    const refused = new Error('broker down');
-    const { service, publish, markReceiptHanded } = harness(async () => {
-      throw refused;
-    });
-    await expect(service.deliverActivationReceipt(pendingDevice)).rejects.toBe(refused);
-    const commandId = publishedCommandId(publish);
-    await expect(
-      service.handleResponse(FROM_DEVICE, {
-        commandId,
-        success: true,
-        result: { handed_to_root: true },
-      }),
-    ).resolves.toBe(false);
-    expect(markReceiptHanded).not.toHaveBeenCalled();
-  });
-
-  it('hands a lifecycle statement to the agent as the DSSE envelope JSON', async () => {
-    const { service, publish } = harness();
-    const key = Ed25519SigningKey.fromSeed('device-lifecycle', 1, Buffer.alloc(32, 9));
-    const statement = new ManifestSigner(key).sign(
-      STATEMENT.deviceLifecycle,
-      buildEnterMaintenance({
-        tenantId: TENANT,
-        deviceId: DEVICE,
-        binding: { method: 'tpm-ek-sha256', digest: { sha256: 'ab'.repeat(32) } },
-        updateSeq: 3,
-        notBefore: '2026-10-20T11:00:00Z',
-        expiresAt: '2026-10-20T13:00:00Z',
-      }),
-    );
-    await service.requestLifecycle({ id: DEVICE, tenantId: TENANT }, statement);
+  it('delivers the lifecycle statement only while its window is open', async () => {
+    const { service, publish, claimLifecycleDelivery } = harness();
+    await service.deliverPending(inWindow, NOW);
     expect(publish).toHaveBeenCalledWith(
       { tenantId: TENANT, deviceId: DEVICE },
       {
         commandId: expect.any(String),
         command: 'lifecycle_request',
-        params: { statement: JSON.stringify(statement.envelope) },
+        params: { statement: LIFECYCLE },
       },
     );
+    await service.deliverPending({ ...inWindow, maintenanceExpiresAt: NOW }, NOW);
+    await service.deliverPending({ ...inWindow, lifecycleRequestHandedAt: NOW }, NOW);
+    expect(claimLifecycleDelivery).toHaveBeenCalledTimes(1);
+  });
+
+  it('a refused publish never fails the trigger: it is logged and the next paced heartbeat retries', async () => {
+    const { service, publish } = harness({
+      publish: async () => {
+        throw new Error('broker down');
+      },
+    });
+    await expect(service.deliverPending(owed, NOW)).resolves.toBeUndefined();
+    await expect(service.deliverLifecycleRequest(owed, NOW)).resolves.toBe(false);
+    expect(publish).toHaveBeenCalledTimes(2);
+  });
+
+  it('a lapsed re-provisioning window is closed instead of delivering into it', async () => {
+    const lapsed = { ...inWindow, maintenanceExpiresAt: new Date(NOW.getTime() - 1000) };
+    const closed = harness({ lapsed: true });
+    await closed.service.onHeartbeat(lapsed, NOW);
+    expect(closed.settleLapsedMaintenance).toHaveBeenCalledWith(lapsed, NOW);
+    expect(closed.publish).not.toHaveBeenCalled();
+
+    // An activation was issued under the window's token: nothing to close,
+    // and the commit at the device's CONNECT finishes it.
+    const pending = harness({ lapsed: false });
+    await pending.service.onHeartbeat({ ...lapsed, activationReceipt: RECEIPT }, NOW);
+    expect(pending.publish).toHaveBeenCalledTimes(1);
+
+    const open = harness();
+    await open.service.onHeartbeat(inWindow, NOW);
+    expect(open.settleLapsedMaintenance).not.toHaveBeenCalled();
+    expect(open.publish).toHaveBeenCalledTimes(1);
+  });
+
+  it('settles the statement the agent names by digest, on the responding device', async () => {
+    const { service, settleHandoff, findDevice } = harness();
+    await expect(
+      service.handleResponse({ deviceCode: DEVICE, tenantId: TENANT }, handed),
+    ).resolves.toBe(true);
+    expect(findDevice).toHaveBeenCalledWith('id', DEVICE);
+    expect(settleHandoff).toHaveBeenCalledWith(
+      expect.objectContaining({ id: DEVICE, tenantId: TENANT }),
+      { sha256: DIGEST },
+      expect.any(Date),
+    );
+    // A legacy tenant-less topic names the device by its code.
+    await service.handleResponse({ deviceCode: DEVICE_CODE }, handed);
+    expect(findDevice).toHaveBeenLastCalledWith('device_code', DEVICE_CODE);
+    expect(settleHandoff).toHaveBeenCalledTimes(2);
+  });
+
+  it("settles nothing from another tenant's topic or for an unknown device", async () => {
+    const { service, settleHandoff } = harness();
+    await expect(
+      service.handleResponse(
+        { deviceCode: DEVICE, tenantId: '7e570000-0000-4000-8000-000000000002' },
+        handed,
+      ),
+    ).resolves.toBe(true);
+    await service.handleResponse({ deviceCode: '7e570000-0000-4000-8000-0000000000d9' }, handed);
+    expect(settleHandoff).not.toHaveBeenCalled();
+  });
+
+  it('a refusal, a failed command or a missing digest settles nothing', async () => {
+    const { service, settleHandoff, findDevice } = harness();
+    for (const payload of [
+      { commandId: 'c2', success: false, result: { handed_to_root: false, reasons: ['expired'] } },
+      // success=false is a failure whatever the result claims.
+      {
+        commandId: 'c3',
+        success: false,
+        result: { handed_to_root: true, statement_digest: { sha256: DIGEST } },
+      },
+      { commandId: 'c4', success: true, result: { handed_to_root: true } },
+      {
+        commandId: 'c5',
+        success: true,
+        result: { handed_to_root: true, statement_digest: { sha256: 'xyz' } },
+      },
+    ]) {
+      await expect(
+        service.handleResponse({ deviceCode: DEVICE, tenantId: TENANT }, payload),
+      ).resolves.toBe(true);
+    }
+    expect(findDevice).not.toHaveBeenCalled();
+    expect(settleHandoff).not.toHaveBeenCalled();
+  });
+
+  it('answers false for a response that is not a hand-over', async () => {
+    const { service, findDevice } = harness();
+    for (const payload of [
+      { commandId: 'p', success: true, result: { pong: true } },
+      { commandId: 'p', success: true },
+      { success: true, result: [] },
+    ]) {
+      await expect(service.handleResponse({ deviceCode: DEVICE }, payload)).resolves.toBe(false);
+    }
+    expect(findDevice).not.toHaveBeenCalled();
   });
 });

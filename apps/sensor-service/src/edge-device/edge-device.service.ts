@@ -725,7 +725,6 @@ export class EdgeDeviceService implements OnModuleDestroy {
       return null;
     }
 
-    let wentOnline = false;
     const device = await runInTenantTransaction(this.dataSource, SENSOR_SOURCE_SCHEMA, tenantId, async (qr) => {
       const found = await tenantManagerRepo(qr.manager, EdgeDevice).findOne({
         where: isUuid ? { id: heartbeat.deviceCode } : { deviceCode: heartbeat.deviceCode },
@@ -733,9 +732,13 @@ export class EdgeDeviceService implements OnModuleDestroy {
       if (!found) {
         return null;
       }
-      wentOnline = !found.isOnline && heartbeat.isOnline;
+      const readState = found.lifecycleState;
       this.applyHeartbeat(found, heartbeat);
-      // search_path is pinned to the tenant schema by the boundary.
+      // search_path is pinned to the tenant schema by the boundary. The
+      // lifecycle state is written only over the state this heartbeat read:
+      // a transition committed meanwhile (re-provisioning opening MAINTENANCE,
+      // a revocation) is never overwritten by a heartbeat computed from the
+      // older state — that heartbeat's metrics are dropped instead.
       await qr.query(
         `UPDATE edge_devices SET
           last_seen_at = $2, is_online = $3, lifecycle_state = $4,
@@ -744,7 +747,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
           uptime_seconds = COALESCE($9, uptime_seconds), firmware_version = COALESCE($10, firmware_version),
           ip_address = COALESCE($11, ip_address), connection_quality = $12,
           updated_at = NOW()
-        WHERE id = $1`,
+        WHERE id = $1 AND lifecycle_state = $13`,
         [
           found.id,
           found.lastSeenAt,
@@ -758,6 +761,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
           found.firmwareVersion ?? null,
           found.ipAddress ?? null,
           found.connectionQuality,
+          readState,
         ],
       );
       return found;
@@ -765,30 +769,32 @@ export class EdgeDeviceService implements OnModuleDestroy {
 
     if (!device) {
       this.logger.warn(`Heartbeat from unknown device: ${heartbeat.deviceCode}`);
-    } else if (wentOnline) {
-      await this.deliverPendingActivationReceipt(device);
+    } else if (heartbeat.isOnline) {
+      await this.settleRootHandoffs(device);
     }
     return device;
   }
 
   /**
-   * A Suderra OS device that just came online after its activation committed
-   * gets its activation receipt (ADR-048 DEC-5.8). A failed hand-over is
-   * logged and retried at the next reconnect; it never fails the heartbeat.
+   * A Suderra OS device that heartbeats is reachable: it gets every statement
+   * it is owed for root (the activation receipt, a re-provisioning
+   * lifecycle statement; ADR-048 DEC-5.8, DEC-5.14), paced, until its agent
+   * reports each one handed, and a re-provisioning window that lapsed unused
+   * is closed. Never fails the heartbeat.
    */
-  private async deliverPendingActivationReceipt(device: EdgeDevice): Promise<void> {
+  private async settleRootHandoffs(device: EdgeDevice): Promise<void> {
     try {
-      await this.rootHandoff.deliverActivationReceipt(device);
+      await this.rootHandoff.onHeartbeat(device, new Date());
     } catch (error) {
       this.logger.warn({
-        event: 'activation_receipt_delivery_failed',
+        event: 'root_handoff_heartbeat_failed',
         deviceId: device.id,
-        error: (error as Error).message,
+        error: error instanceof Error ? error.message : String(error),
       });
     }
   }
 
-  /** Settles an activation-receipt hand-over from the agent's command response. */
+  /** Settles a root hand-over (receipt, lifecycle statement) from the agent's command response. */
   handleRootHandoffResponse(
     deviceCode: string,
     payload: Record<string, unknown>,

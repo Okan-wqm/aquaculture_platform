@@ -11,6 +11,7 @@ import {
   Index,
 } from 'typeorm';
 import { Auditable } from '../../infrastructure/audit';
+import { BINDING_METHODS, type BindingMethod } from '../edge-contract';
 
 /**
  * Device lifecycle state enum (IEC 62443 compliant)
@@ -201,6 +202,15 @@ export interface DeviceHealthMetrics {
   lastHealthCheck?: Date;
 }
 
+const bindingMethodIn = (column: string): string =>
+  `"${column}" IS NULL OR "${column}" IN (${BINDING_METHODS.map((m) => `'${m}'`).join(', ')})`;
+
+/**
+ * A binding column holds a contract binding method or nothing, so the
+ * columns can be typed {@link BindingMethod} and no reader re-validates them.
+ */
+const BINDING_METHOD_CHECK = `(${bindingMethodIn('device_binding_method')}) AND (${bindingMethodIn('reserved_binding_method')})`;
+
 /**
  * EdgeDevice entity - represents an industrial edge controller
  * (Revolution Pi, Raspberry Pi, Industrial PC)
@@ -225,6 +235,15 @@ export interface DeviceHealthMetrics {
 @Check(
   'CHK_edge_devices_device_binding',
   '("device_binding_sha256" IS NULL) = ("device_binding_method" IS NULL)',
+)
+@Check('CHK_edge_devices_binding_methods', BINDING_METHOD_CHECK)
+@Check(
+  'CHK_edge_devices_activation_receipt',
+  '("activation_receipt" IS NULL) = ("activation_receipt_expires_at" IS NULL)',
+)
+@Check(
+  'CHK_edge_devices_lifecycle_request',
+  '("lifecycle_request" IS NULL) = ("maintenance_expires_at" IS NULL)',
 )
 export class EdgeDevice {
   @Field(() => ID)
@@ -309,6 +328,15 @@ export class EdgeDevice {
   @Column({ name: 'token_used_at', type: 'timestamptz', nullable: true })
   tokenUsedAt!: Date | null;
 
+  /**
+   * When the current provisioning token was issued. A Suderra OS manifest is
+   * issued only under a token younger than SUDERRA_OS_TOKEN_MAX_AGE_MS
+   * (ADR-048 DEC-5.12); a row without the instant (a token issued before it
+   * was recorded) issues none.
+   */
+  @Column({ name: 'token_issued_at', type: 'timestamptz', nullable: true })
+  tokenIssuedAt!: Date | null;
+
   // Two-phase provisioning (ADR-048 DEC-5.7, DEC-5.8). See ProvisioningPhase.
 
   // varchar + CHECK rather than a Postgres enum type: tenant provisioning
@@ -325,7 +353,7 @@ export class EdgeDevice {
 
   /** The binding a pending Suderra OS manifest reservation holds. */
   @Column({ type: 'varchar', name: 'reserved_binding_method', length: 32, nullable: true })
-  reservedBindingMethod!: string | null;
+  reservedBindingMethod!: BindingMethod | null;
 
   @Column({ type: 'varchar', name: 'reserved_binding_sha256', length: 64, nullable: true })
   reservedBindingSha256!: string | null;
@@ -343,7 +371,7 @@ export class EdgeDevice {
 
   /** The device binding committed at first activation: the device's hardware identity (DEC-3.6). */
   @Column({ type: 'varchar', name: 'device_binding_method', length: 32, nullable: true })
-  deviceBindingMethod!: string | null;
+  deviceBindingMethod!: BindingMethod | null;
 
   @Column({ type: 'varchar', name: 'device_binding_sha256', length: 64, nullable: true })
   deviceBindingSha256!: string | null;
@@ -364,12 +392,51 @@ export class EdgeDevice {
   })
   edgeStatementSeq!: number;
 
+  /**
+   * The committed activation (DEC-5.8): set at the commit, kept through a
+   * Suderra OS re-provisioning until the next commit replaces it, so the
+   * cloud never forgets that a live device holds a committed identity. A
+   * re-signed receipt keeps it (and activated_at, the manifest digest).
+   */
+  @Column({ name: 'activation_id', type: 'uuid', nullable: true })
+  activationId!: string | null;
+
+  /** When the committed activation's first session authenticated: the receipt's activated_at. */
+  @Column({ name: 'activated_at', type: 'timestamptz', nullable: true })
+  activatedAt!: Date | null;
+
   /** The activation receipt envelope awaiting the agent's hand-over to root. */
   @Column({ name: 'activation_receipt', type: 'text', nullable: true })
   activationReceipt!: string | null;
 
+  /** The stored receipt's expires_at: a delivery re-signs a receipt close to it. */
+  @Column({ name: 'activation_receipt_expires_at', type: 'timestamptz', nullable: true })
+  activationReceiptExpiresAt!: Date | null;
+
+  /** The last claimed delivery of the pending receipt (paces redelivery across replicas). */
+  @Column({ name: 'activation_receipt_sent_at', type: 'timestamptz', nullable: true })
+  activationReceiptSentAt!: Date | null;
+
   @Column({ name: 'activation_receipt_handed_at', type: 'timestamptz', nullable: true })
   activationReceiptHandedAt!: Date | null;
+
+  /**
+   * The signed device-lifecycle statement that opens a re-provisioning
+   * window (DEC-5.14), stored with the token it was issued with and
+   * delivered until the agent reports it handed to root or the window ends.
+   */
+  @Column({ name: 'lifecycle_request', type: 'text', nullable: true })
+  lifecycleRequest!: string | null;
+
+  @Column({ name: 'lifecycle_request_sent_at', type: 'timestamptz', nullable: true })
+  lifecycleRequestSentAt!: Date | null;
+
+  @Column({ name: 'lifecycle_request_handed_at', type: 'timestamptz', nullable: true })
+  lifecycleRequestHandedAt!: Date | null;
+
+  /** End of the re-provisioning window: the lifecycle statement's expires_at. */
+  @Column({ name: 'maintenance_expires_at', type: 'timestamptz', nullable: true })
+  maintenanceExpiresAt!: Date | null;
 
   // MQTT Credentials (password hash stored, never exposed via GraphQL)
   @Column({ type: 'varchar', name: 'mqtt_password_hash', length: 128, nullable: true })

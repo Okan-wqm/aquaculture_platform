@@ -7,7 +7,13 @@ import {
   bootSensorRlsHarness,
   type SensorRlsHarness,
 } from '../../__tests__/support/sensor-rls-postgres.harness';
-import { ActivationReceiptService, buildActivationReceipt } from '../activation-receipt.service';
+import { buildEnterMaintenance } from '../device-lifecycle-statement.service';
+import {
+  ActivationReceiptService,
+  buildActivationReceipt,
+  type CommittedActivation,
+  type IssuedReceipt,
+} from '../activation-receipt.service';
 import {
   contractTimestamp,
   type DeviceBinding,
@@ -24,9 +30,11 @@ import {
 } from '../entities/edge-device.entity';
 import { Ed25519SigningKey, ManifestSigner } from '../manifest-signer';
 import {
+  HANDOFF_REDELIVERY_INTERVAL_MS,
   hashProvisioningToken,
   ProvisioningReservationService,
   type Reservation,
+  storedStatementDigest,
 } from '../provisioning-reservation.service';
 import { type SuderraEdgeConfig } from '../suderra-edge.config';
 
@@ -56,25 +64,30 @@ class ThrowawayReceipts extends ActivationReceiptService {
     super(collaborator<SuderraEdgeConfig>({}, 'SuderraEdgeConfig'));
   }
 
-  override issue(
-    commit: Parameters<ActivationReceiptService['issue']>[0],
-  ): SignedStatement<typeof STATEMENT.activationReceipt> {
-    const at = contractTimestamp(commit.activatedAt);
-    return this.signer.sign(
+  override issue(activation: CommittedActivation, signedAt: Date): IssuedReceipt {
+    const at = contractTimestamp(activation.activatedAt);
+    const expiresAt = new Date(signedAt.getTime() + 86_400_000);
+    const statement = this.signer.sign(
       STATEMENT.activationReceipt,
       buildActivationReceipt({
-        tenantId: commit.tenantId,
-        deviceId: commit.deviceId,
-        binding: commit.binding,
-        manifestDigest: commit.manifestDigest,
-        activationId: commit.activationId,
+        tenantId: activation.tenantId,
+        deviceId: activation.deviceId,
+        binding: activation.binding,
+        manifestDigest: activation.manifestDigest,
+        activationId: activation.activationId,
         activatedAt: at,
         notBefore: at,
-        expiresAt: contractTimestamp(new Date(commit.activatedAt.getTime() + 86_400_000)),
+        expiresAt: contractTimestamp(expiresAt),
       }),
     );
+    return { statement, envelope: JSON.stringify(statement.envelope), expiresAt };
   }
 }
+
+/** Signs real lifecycle statements with a throwaway key. */
+const lifecycleSigner = new ManifestSigner(
+  Ed25519SigningKey.fromSeed('device-lifecycle', 1, randomBytes(32)),
+);
 
 const CODES = [
   'RES-FIRSTWIN',
@@ -85,7 +98,10 @@ const CODES = [
   'RES-GENERIC',
   'RES-COMMIT',
   'RES-RACE',
-  'RES-REISSUE',
+  'RES-REPROVISION',
+  'RES-LAPSE',
+  'RES-DELIVER',
+  'RES-NOCRED',
   'RES-SPENT',
 ] as const;
 type Code = (typeof CODES)[number];
@@ -148,6 +164,7 @@ describe('two-phase provisioning token on real Postgres (ADR-048 DEC-5.7)', () =
               lifecycleState: DeviceLifecycleState.REGISTERED,
               mqttClientId: `edge-cccccccc-${code.toLowerCase()}`,
               provisioningToken: hashProvisioningToken(token(code)),
+              tokenIssuedAt: new Date('2026-10-20T11:00:00Z'),
               tokenExpiresAt: new Date('2026-10-21T00:00:00Z'),
               isOnline: false,
             }),
@@ -400,12 +417,41 @@ describe('two-phase provisioning token on real Postgres (ADR-048 DEC-5.7)', () =
       deviceBindingMethod: BINDING_A.method,
       deviceBindingSha256: BINDING_A.digest.sha256,
       reservedBindingSha256: null,
+      activationId: body['activation_id'],
+      activatedAt: new Date('2026-10-20T12:05:00Z'),
+      activationReceipt: commit?.activationReceipt,
+      activationReceiptExpiresAt: new Date('2026-10-21T12:05:00Z'),
       activationReceiptHandedAt: null,
     });
     expect(provisioningPhaseOf(persisted, NOW)).toBe(ProvisioningPhase.COMMITTED);
 
-    await reservations.markReceiptHanded(device('RES-COMMIT'), NOW);
+    // Only the digest of the statement stored on the row settles it.
+    expect(
+      await reservations.settleHandoff(device('RES-COMMIT'), { sha256: 'f'.repeat(64) }, NOW),
+    ).toBeNull();
+    expect(
+      await reservations.settleHandoff(
+        device('RES-COMMIT'),
+        storedStatementDigest(commit?.activationReceipt ?? ''),
+        NOW,
+      ),
+    ).toBe('activation_receipt');
     expect((await row('RES-COMMIT')).activationReceiptHandedAt).toEqual(NOW);
+    expect(await reservations.claimReceiptDelivery(device('RES-COMMIT'), NOW)).toBeNull();
+  });
+
+  it('commits nothing for a row that holds no issued credential, and activates nothing on an expired token', async () => {
+    expect(await reservations.commitFirstSession(device('RES-NOCRED'), NOW)).toBeNull();
+    expect((await row('RES-NOCRED')).tokenUsedAt).toBeNull();
+    expect(
+      await reservations.issueCredentials(
+        device('RES-NOCRED'),
+        token('RES-NOCRED'),
+        { fingerprint: null, agentVersion: '1.6.0', mqttPasswordHash: 'late' },
+        new Date('2026-10-21T00:00:00Z'),
+      ),
+    ).toBe(false);
+    expect((await row('RES-NOCRED')).mqttPasswordHash).toBeNull();
   });
 
   it('racing requests cannot both pass a guard: one reservation and one commit win', async () => {
@@ -429,49 +475,270 @@ describe('two-phase provisioning token on real Postgres (ADR-048 DEC-5.7)', () =
     expect((await row('RES-RACE')).deviceBindingSha256).toBe(winner?.binding.digest.sha256);
   });
 
-  it('re-provisioning re-issues the token, keeps the identity and the running credential, and only that binding may reserve', async () => {
+  /** Reserve, activate, commit and hand the receipt to root: an ACTIVE Suderra OS device. */
+  const activeOnRoot = async (code: Code, credential: string): Promise<void> => {
+    await reservations.reserve(device(code), token(code), BINDING_A, TTL_MS, NOW, issue);
+    await reservations.issueCredentials(
+      device(code),
+      token(code),
+      { fingerprint: null, agentVersion: '1.6.0', mqttPasswordHash: credential },
+      NOW,
+    );
+    const commit = await reservations.commitFirstSession(device(code), NOW);
+    if (commit === null || commit.activationReceipt === null) throw new Error(`${code} commit`);
+    await reservations.settleHandoff(
+      device(code),
+      storedStatementDigest(commit.activationReceipt),
+      NOW,
+    );
+  };
+
+  const WINDOW_END = new Date(NOW.getTime() + 2 * 60 * 60 * 1000);
+  const reprovisionWindow = { notBefore: new Date(NOW.getTime() - 300_000), expiresAt: WINDOW_END };
+  const signLifecycle =
+    (code: Code) =>
+    (updateSeq: number): SignedStatement<typeof STATEMENT.deviceLifecycle> =>
+      lifecycleSigner.sign(
+        STATEMENT.deviceLifecycle,
+        buildEnterMaintenance({
+          tenantId: TENANT,
+          deviceId: device(code).id,
+          binding: BINDING_A,
+          updateSeq,
+          notBefore: contractTimestamp(reprovisionWindow.notBefore),
+          expiresAt: contractTimestamp(reprovisionWindow.expiresAt),
+        }),
+      );
+
+  it('re-provisioning keeps the committed activation and credential, stores the statement, and only that binding may reserve', async () => {
+    await activeOnRoot('RES-REPROVISION', 'running');
+    const committed = await row('RES-REPROVISION');
+    const fresh = 'e'.repeat(64);
+    const started = await reservations.beginReprovisioning(
+      device('RES-REPROVISION'),
+      BINDING_A,
+      hashProvisioningToken(fresh),
+      reprovisionWindow,
+      NOW,
+      signLifecycle('RES-REPROVISION'),
+    );
+    expect(started).toEqual({
+      lifecycleSeq: committed.edgeStatementSeq + 1,
+      windowEndsAt: WINDOW_END,
+    });
+    const persisted = await row('RES-REPROVISION');
+    expect(persisted).toMatchObject({
+      lifecycleState: DeviceLifecycleState.MAINTENANCE,
+      mqttPasswordHash: 'running',
+      deviceBindingSha256: BINDING_A.digest.sha256,
+      activationId: committed.activationId,
+      activatedAt: committed.activatedAt,
+      activationReceiptHandedAt: committed.activationReceiptHandedAt,
+      provisioningToken: hashProvisioningToken(fresh),
+      tokenIssuedAt: NOW,
+      tokenExpiresAt: WINDOW_END,
+      tokenUsedAt: null,
+      maintenanceExpiresAt: WINDOW_END,
+      lifecycleRequestHandedAt: null,
+    });
+    expect(provisioningPhaseOf(persisted, NOW)).toBe(ProvisioningPhase.TOKEN_ISSUED);
+
+    // A second window cannot open over this one.
+    expect(
+      await reservations.beginReprovisioning(
+        device('RES-REPROVISION'),
+        BINDING_A,
+        hashProvisioningToken('d'.repeat(64)),
+        reprovisionWindow,
+        NOW,
+        signLifecycle('RES-REPROVISION'),
+      ),
+    ).toBe('window-open');
+    // Nor can a token reissue revoke the committed device.
+    expect(
+      await reservations.reissueToken(device('RES-REPROVISION'), {
+        tokenHash: hashProvisioningToken('c'.repeat(64)),
+        tokenIssuedAt: NOW,
+        tokenExpiresAt: WINDOW_END,
+        lifecycleState: DeviceLifecycleState.REGISTERED,
+      }),
+    ).toBe(false);
+    expect((await row('RES-REPROVISION')).mqttPasswordHash).toBe('running');
+
+    // The statement is delivered, paced, and settled by its digest.
+    const statement = await reservations.claimLifecycleDelivery(device('RES-REPROVISION'), NOW);
+    expect(statement).toBe(persisted.lifecycleRequest);
+    expect(
+      await reservations.claimLifecycleDelivery(
+        device('RES-REPROVISION'),
+        new Date(NOW.getTime() + HANDOFF_REDELIVERY_INTERVAL_MS - 1000),
+      ),
+    ).toBeNull();
+    expect(
+      await reservations.claimLifecycleDelivery(
+        device('RES-REPROVISION'),
+        new Date(NOW.getTime() + HANDOFF_REDELIVERY_INTERVAL_MS),
+      ),
+    ).toBe(statement);
+    expect(
+      await reservations.settleHandoff(
+        device('RES-REPROVISION'),
+        storedStatementDigest(statement ?? ''),
+        NOW,
+      ),
+    ).toBe('lifecycle_request');
+    expect(
+      await reservations.claimLifecycleDelivery(device('RES-REPROVISION'), WINDOW_END),
+    ).toBeNull();
+
+    expect(
+      await reservations.reserve(device('RES-REPROVISION'), fresh, BINDING_B, TTL_MS, NOW, issue),
+    ).toBeNull();
+    expect(
+      await reservations.reserve(device('RES-REPROVISION'), fresh, BINDING_A, TTL_MS, NOW, issue),
+    ).toMatchObject({ manifestSeq: committed.edgeStatementSeq + 2 });
+
+    // The new activation commits: a new activation, the window closed.
+    await reservations.issueCredentials(
+      device('RES-REPROVISION'),
+      fresh,
+      { fingerprint: null, agentVersion: '1.6.1', mqttPasswordHash: 'reinstalled' },
+      NOW,
+    );
+    const recommit = await reservations.commitFirstSession(device('RES-REPROVISION'), NOW);
+    expect(recommit?.activationReceipt).not.toBeNull();
+    const after = await row('RES-REPROVISION');
+    expect(after.activationId).not.toBe(committed.activationId);
+    expect(after).toMatchObject({
+      lifecycleState: DeviceLifecycleState.ACTIVE,
+      mqttPasswordHash: 'reinstalled',
+      lifecycleRequest: null,
+      maintenanceExpiresAt: null,
+      activationReceiptHandedAt: null,
+    });
+  });
+
+  it('an abandoned window lapses back to ACTIVE: the token dies, the activation and credential stay', async () => {
+    await activeOnRoot('RES-LAPSE', 'running');
+    const committed = await row('RES-LAPSE');
+    await reservations.beginReprovisioning(
+      device('RES-LAPSE'),
+      BINDING_A,
+      hashProvisioningToken('9'.repeat(64)),
+      reprovisionWindow,
+      NOW,
+      signLifecycle('RES-LAPSE'),
+    );
+    // Still open: nothing to close.
+    expect(
+      await reservations.settleLapsedMaintenance(
+        device('RES-LAPSE'),
+        new Date(WINDOW_END.getTime() - 1000),
+      ),
+    ).toBe(false);
+    expect(await reservations.settleLapsedMaintenance(device('RES-LAPSE'), WINDOW_END)).toBe(true);
+    const lapsed = await row('RES-LAPSE');
+    expect(lapsed).toMatchObject({
+      lifecycleState: DeviceLifecycleState.ACTIVE,
+      provisioningToken: null,
+      tokenIssuedAt: null,
+      lifecycleRequest: null,
+      maintenanceExpiresAt: null,
+      mqttPasswordHash: 'running',
+      activationId: committed.activationId,
+      deviceBindingSha256: BINDING_A.digest.sha256,
+    });
+    // The regenerate path cannot revoke it, and a fresh window opens again.
+    expect(
+      await reservations.reissueToken(device('RES-LAPSE'), {
+        tokenHash: hashProvisioningToken('8'.repeat(64)),
+        tokenIssuedAt: WINDOW_END,
+        tokenExpiresAt: new Date(WINDOW_END.getTime() + 86_400_000),
+        lifecycleState: lapsed.lifecycleState,
+      }),
+    ).toBe(false);
+    expect((await row('RES-LAPSE')).mqttPasswordHash).toBe('running');
+    expect(
+      await reservations.beginReprovisioning(
+        device('RES-LAPSE'),
+        BINDING_A,
+        hashProvisioningToken('7'.repeat(64)),
+        { notBefore: WINDOW_END, expiresAt: new Date(WINDOW_END.getTime() + 7_200_000) },
+        WINDOW_END,
+        signLifecycle('RES-LAPSE'),
+      ),
+    ).toMatchObject({ lifecycleSeq: committed.edgeStatementSeq + 2 });
+  });
+
+  it('a pending receipt is delivered paced, re-signed under the same activation near its expiry, and settled only by its current digest', async () => {
     await reservations.reserve(
-      device('RES-REISSUE'),
-      token('RES-REISSUE'),
+      device('RES-DELIVER'),
+      token('RES-DELIVER'),
       BINDING_A,
       TTL_MS,
       NOW,
       issue,
     );
     await reservations.issueCredentials(
-      device('RES-REISSUE'),
-      token('RES-REISSUE'),
-      { fingerprint: null, agentVersion: '1.6.0', mqttPasswordHash: 'running' },
+      device('RES-DELIVER'),
+      token('RES-DELIVER'),
+      { fingerprint: null, agentVersion: '1.6.0', mqttPasswordHash: 'hash' },
       NOW,
     );
-    await reservations.commitFirstSession(device('RES-REISSUE'), NOW);
-    const seqBefore = (await row('RES-REISSUE')).edgeStatementSeq;
-
-    const fresh = 'e'.repeat(64);
-    const reissued = await reservations.reissueToken(device('RES-REISSUE'), {
-      tokenHash: hashProvisioningToken(fresh),
-      tokenExpiresAt: new Date('2026-10-21T00:00:00Z'),
-      lifecycleState: DeviceLifecycleState.MAINTENANCE,
-      revokeCredentials: false,
-    });
-    expect(reissued).toEqual({ lifecycleSeq: seqBefore + 1 });
-    const persisted = await row('RES-REISSUE');
-    expect(persisted).toMatchObject({
-      mqttPasswordHash: 'running',
-      deviceBindingSha256: BINDING_A.digest.sha256,
-      activationReceipt: null,
-      lifecycleState: DeviceLifecycleState.MAINTENANCE,
-    });
-    expect(provisioningPhaseOf(persisted, NOW)).toBe(ProvisioningPhase.TOKEN_ISSUED);
-
+    const commit = await reservations.commitFirstSession(device('RES-DELIVER'), NOW);
+    const first = commit?.activationReceipt ?? null;
+    expect(await reservations.claimReceiptDelivery(device('RES-DELIVER'), NOW)).toBe(first);
+    // The first delivery was lost: nothing again within the pace, then the same bytes.
     expect(
-      await reservations.reserve(device('RES-REISSUE'), fresh, BINDING_B, TTL_MS, NOW, issue),
+      await reservations.claimReceiptDelivery(
+        device('RES-DELIVER'),
+        new Date(NOW.getTime() + 60_000),
+      ),
+    ).toBeNull();
+    const later = new Date(NOW.getTime() + HANDOFF_REDELIVERY_INTERVAL_MS);
+    expect(await reservations.claimReceiptDelivery(device('RES-DELIVER'), later)).toBe(first);
+
+    // Thirteen hours on, less than the margin is left: re-signed.
+    const nearExpiry = new Date(NOW.getTime() + 13 * 60 * 60 * 1000);
+    const resigned = await reservations.claimReceiptDelivery(device('RES-DELIVER'), nearExpiry);
+    expect(resigned).not.toBeNull();
+    expect(resigned).not.toBe(first);
+    const bodyOf = (envelope: string | null): Record<string, unknown> =>
+      JSON.parse(
+        Buffer.from(
+          (JSON.parse(envelope ?? 'null') as { payload: string }).payload,
+          'base64',
+        ).toString('utf8'),
+      ) as Record<string, unknown>;
+    const { expires_at: oldUntil, ...oldRest } = bodyOf(first);
+    const { expires_at: newUntil, ...newRest } = bodyOf(resigned);
+    expect(newRest).toEqual(oldRest);
+    expect([oldUntil, newUntil]).toEqual(['2026-10-21T12:00:00Z', '2026-10-22T01:00:00Z']);
+    expect((await row('RES-DELIVER')).activationReceiptExpiresAt).toEqual(
+      new Date('2026-10-22T01:00:00Z'),
+    );
+
+    // The agent reports the superseded receipt: nothing settles; the current one does.
+    expect(
+      await reservations.settleHandoff(
+        device('RES-DELIVER'),
+        storedStatementDigest(first ?? ''),
+        nearExpiry,
+      ),
     ).toBeNull();
     expect(
-      await reservations.reserve(device('RES-REISSUE'), fresh, BINDING_A, TTL_MS, NOW, issue),
-    ).toMatchObject({
-      manifestSeq: seqBefore + 2,
-    });
+      await reservations.settleHandoff(
+        device('RES-DELIVER'),
+        storedStatementDigest(resigned ?? ''),
+        nearExpiry,
+      ),
+    ).toBe('activation_receipt');
+    expect(
+      await reservations.claimReceiptDelivery(
+        device('RES-DELIVER'),
+        new Date(nearExpiry.getTime() + 600_000),
+      ),
+    ).toBeNull();
   });
 
   it('a spent token reserves nothing and activates nothing', async () => {

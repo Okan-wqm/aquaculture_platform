@@ -22,7 +22,8 @@ THE CLASSES, each with one rule checked from the AST:
   ``RECORD_SURFACES``: a decision that grants no authority.
 * LOWERING — narrows authority; a reason on the record is enough.
 * PROVENANCE — the reference is written as context and nothing reads it as
-  authority; each entry says why.
+  authority; each entry says why. Neither LOWERING nor PROVENANCE verifies or
+  calls a RAISING function (``lowering_violations``): one that does raises.
 * INTERNAL — a private helper with no call site outside the named callers.
 * PANEL — the authority is a panel adjudication the kernel resolves itself.
 * INERT — no production call site at all. The first caller fails the pin and
@@ -306,9 +307,11 @@ def _functions(module: Module) -> Iterator[ast.FunctionDef | ast.AsyncFunctionDe
             yield node
 
 
-def _function(key: tuple[str, str]) -> ast.FunctionDef | ast.AsyncFunctionDef:
+def _function(
+    key: tuple[str, str], modules: dict[str, Module] = MODULES,
+) -> ast.FunctionDef | ast.AsyncFunctionDef:
     module, name = key
-    found = [f for f in _functions(MODULES[module]) if f.name == name]
+    found = [f for f in _functions(modules[module]) if f.name == name]
     if len(found) != 1:
         raise AssertionError(f"{module}.{name}: {len(found)} definitions")
     return found[0]
@@ -437,6 +440,26 @@ def raising_write_violations(
     return violations
 
 
+def lowering_violations(
+    modules: dict[str, Module], classification: dict[tuple[str, str], Klass],
+) -> list[str]:
+    """P2 for LOWERING and PROVENANCE: neither calls a RAISING function.
+
+    A call to one raises authority (verified inside the callee), so the class
+    would no longer say what the function does. Callees match by name, which
+    over-approximates (a same-named function elsewhere counts too); the remedy
+    is the same either way: reclassify, or rename.
+    """
+    raising_names = {name for (_module, name), klass in classification.items() if klass.kind in RAISING_KINDS}
+    violations: list[str] = []
+    for key, klass in classification.items():
+        if klass.kind not in {"LOWERING", "PROVENANCE"}:
+            continue
+        called = {_call_name(call) for call in _calls(_function(key, modules))}
+        violations.extend(f"{_qualified(key)} calls RAISING {name}" for name in sorted(called & raising_names))
+    return violations
+
+
 def _production_call_sites(name: str) -> list[str]:
     sites: list[str] = []
     for module in MODULES.values():
@@ -500,6 +523,7 @@ class CallerClassificationTests(unittest.TestCase):
 
     def test_every_other_class_keeps_its_rule(self) -> None:
         """P2 — PASS_THROUGH, RECORD, LOWERING, PROVENANCE, INTERNAL, PANEL."""
+        lowering = lowering_violations(MODULES, APPROVAL_FUNCTIONS)
         for key, klass in APPROVAL_FUNCTIONS.items():
             with self.subTest(function=_qualified(key), kind=klass.kind):
                 function = _function(key)
@@ -514,6 +538,8 @@ class CallerClassificationTests(unittest.TestCase):
                 elif klass.kind in {"LOWERING", "PROVENANCE"}:
                     self.assertEqual(verifiers, {})
                     self.assertTrue(klass.why)
+                    # Main's pin refused the resolver here; any RAISING callee is refused now.
+                    self.assertEqual([v for v in lowering if v.startswith(f"{_qualified(key)} ")], [])
                 elif klass.kind == "INTERNAL":
                     sites = {
                         f"{module.name}.{(_enclosing(module, call) or ['<module>'])[0]}"
@@ -581,6 +607,36 @@ class CallerClassificationTests(unittest.TestCase):
         self.assertEqual(
             raising_write_violations(modules, APPROVAL_FUNCTIONS),
             [f"rogue.quiet_reset writes {BREAKER_RESET_EVENT}", "rogue.quiet_release writes mcp_quarantine:released"],
+        )
+
+    def test_the_lowering_rule_catches_a_lowering_function_that_reaches_a_raising_callee(self) -> None:
+        """P2's LOWERING/PROVENANCE rule, on functions whose class no longer says what they do.
+
+        A freeze that also promotes a tool through the resolver raises; so does a
+        provenance writer that hands its ref to ``transition_tool``. The authority
+        is still verified inside the callee, but the table would call them
+        narrowing, so the pin refuses them until they are reclassified.
+        """
+        source = (
+            "from .tool_registry import resolve_transition_approval, transition_tool\n"
+            "def quiet_freeze(root, operator_approval_ref, reason):\n"
+            "    resolve_transition_approval(root, operator_approval_ref)\n"
+            "def quiet_note(root, operator_approval_ref):\n"
+            "    transition_tool(root, operator_approval_ref=operator_approval_ref)\n"
+            "def honest_freeze(root, operator_approval_ref, reason):\n"
+            "    return reason\n"
+        )
+        modules = {**MODULES, "rogue": parse_module("rogue", source)}
+        classification = {
+            **APPROVAL_FUNCTIONS,
+            ("rogue", "quiet_freeze"): lowering("stops something"),
+            ("rogue", "quiet_note"): provenance("writes context"),
+            ("rogue", "honest_freeze"): lowering("stops something"),
+        }
+        self.assertEqual(
+            lowering_violations(modules, classification),
+            ["rogue.quiet_freeze calls RAISING resolve_transition_approval",
+             "rogue.quiet_note calls RAISING transition_tool"],
         )
 
     def test_the_legacy_verifier_is_gone(self) -> None:

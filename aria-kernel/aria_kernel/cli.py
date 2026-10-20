@@ -4540,6 +4540,15 @@ def _main(argv: list[str] | None = None) -> int:
         refs = args.ref.split(",") if args.list else [args.ref]
         try:
             canonical = [parse_github_approval_ref(ref, surface="operator check-ref").canonical for ref in refs]
+            # The workflow goes on to use the RAW value (`IFS=, read -ra` reads
+            # one line), and the parser strips: an input it accepts only once
+            # stripped is not the bytes that were checked.
+            for raw, form in zip(refs, canonical):
+                if raw != form:
+                    raise OperatorApprovalUnrecorded(
+                        f"operator check-ref: {raw!r} is not in canonical form {form!r} "
+                        "(no surrounding whitespace or line break): the workflow uses the bytes it checked"
+                    )
         except OperatorApprovalUnrecorded as exc:
             print(f"error: {exc}", file=sys.stderr)
             if not args.list and "," in args.ref:

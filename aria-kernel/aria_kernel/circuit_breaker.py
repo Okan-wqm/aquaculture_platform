@@ -502,13 +502,13 @@ def record_attempt_started(
 def trip_scope(base_dir: str | Path | None) -> dict[str, str]:
     """ARIA-HIGH-238 — the trip an operator act about this breaker binds to.
 
-    ``tripped_at`` is the state file's record of the trip. ``record_failure``
-    rewrites it for every failure recorded while tripped, so evidence that
-    arrives after an act was posted asks for a new act. A ledger that trips
-    the breaker with no trip written down (rows damaged before any failure was
-    recorded on them, or a state reset since) binds to
-    ``NO_RECORDED_INSTANCE``. Both the reset and the evidence quarantine bind
-    here: they undo the same trip.
+    ``tripped_at`` is the state file's record of the trip, restamped by
+    ``record_failure`` for every failure recorded while tripped: evidence that
+    arrives after an act was posted asks for a new act while the record tracks
+    the ledger (ARIA-LOW-670: a kill between append and restamp lags it). No
+    trip written down (rows damaged before any failure, or a state reset since)
+    or a stamp that is not one UTC instant binds to ``NO_RECORDED_INSTANCE``.
+    The reset and the evidence quarantine both bind here: one trip, two verbs.
     """
     try:
         state = json.loads(_state_path(tools_dir(base_dir)).read_text(encoding="utf-8"))

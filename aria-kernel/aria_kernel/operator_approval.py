@@ -98,10 +98,14 @@ NO_RECORDED_INSTANCE = "none"
 
 
 def recorded_instance(value: object) -> str:
-    """An instance field's scope value: the stamp the state recorded, or
-    ``NO_RECORDED_INSTANCE`` when it recorded none. The one owner of that rule
+    """An instance field's scope value: the stamp the state recorded when it is
+    one timezone-aware ISO-8601 token, else ``NO_RECORDED_INSTANCE`` (none was
+    recorded, or a damaged one ``canonical_scope`` would refuse on every print
+    and verify, so the stop could never be cleared). The one owner of that rule
     for every scope function of an instance-bound surface."""
-    return value if isinstance(value, str) and value else NO_RECORDED_INSTANCE
+    if isinstance(value, str) and value.split() == [value] and _parse_utc(value) is not None:
+        return value
+    return NO_RECORDED_INSTANCE
 
 
 # Decisions recorded with a reference that widen no authority.
@@ -208,14 +212,20 @@ def parse_github_approval_ref(ref: str | None, *, surface: str) -> GitHubApprova
     )
 
 
-def _canonical_utc(value: str) -> str:
+def _parse_utc(value: object) -> datetime | None:
+    """``value`` as a timezone-aware instant, or None: this module's one stamp reader."""
+    if not isinstance(value, str):
+        return None
     try:
         moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
-        return value
-    if moment.tzinfo is None:
-        return value
-    return moment.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return None
+    return moment if moment.tzinfo is not None else None
+
+
+def _canonical_utc(value: str) -> str:
+    moment = _parse_utc(value)
+    return value if moment is None else moment.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 # Fields with more than one spelling of the same value; both sides of the
@@ -256,16 +266,6 @@ def approval_line(surface: str, scope: Mapping[str, object]) -> str:
     return " ".join(
         [APPROVAL_MARKER, f"surface={surface}", *(f"{key}={value}" for key, value in fields.items())]
     )
-
-
-def _parse_utc(value: object) -> datetime | None:
-    if not isinstance(value, str):
-        return None
-    try:
-        moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return moment if moment.tzinfo is not None else None
 
 
 def _read_act(source: OperatorActReader, parsed: GitHubApprovalRef, *, surface: str) -> dict[str, Any]:

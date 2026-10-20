@@ -36,6 +36,7 @@ from aria_kernel.operator_approval import (
     GITHUB_REF_GRAMMAR,
     NO_RECORDED_INSTANCE,
     approval_line,
+    recorded_instance,
 )
 from aria_kernel.tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
 from tests._helpers.operator_acts import REPOSITORY, github_operator_acts
@@ -122,6 +123,24 @@ class _Store(unittest.TestCase):
                 mc.record_mcp_call(tool_name=f"{server}/search", ok=False, side="server",
                                    error_class="RuntimeError", base_dir=self.root)
         self.assertIn(server, mc.quarantined_servers(self.root))
+
+
+class RecordedInstance(unittest.TestCase):
+    """``recorded_instance`` is the one owner of "the recorded stamp, else none"."""
+
+    def test_only_one_timezone_aware_stamp_is_an_instance(self) -> None:
+        for stamp in (_TRIP_STAMP, _TRIP_CANONICAL, _MCP_AT):
+            with self.subTest(stamp=stamp):
+                self.assertEqual(recorded_instance(stamp), stamp)
+                # The instance it names is a scope field the verifier accepts.
+                approval_line("breaker_reset", {"breaker": "cost", "tripped_at": recorded_instance(stamp)})
+
+    def test_anything_else_records_no_instance(self) -> None:
+        """Every value here made ``canonical_scope`` raise, or named no instant at all."""
+        for value in (None, "", 7, "2026-10-20 10:00:00Z", " 2026-10-20T10:00:00Z", "2026-10-20T10:00:00Z\n",
+                      "2026-10-20T10:00:00", "yesterday", "a=b"):
+            with self.subTest(value=value):
+                self.assertEqual(recorded_instance(value), NO_RECORDED_INSTANCE)
 
 
 class FailureBreakerReset(_Store):
@@ -278,6 +297,29 @@ class BreakerEvidenceQuarantine(_Store):
         result = cb.quarantine_breaker_evidence(base_dir=self.root, operator_approval_ref=ref, reason="truncated row")
         self.assertEqual(result["quarantined"], 1)
 
+    def test_a_malformed_trip_stamp_binds_to_none_and_the_repair_proceeds(self) -> None:
+        """A ``tripped_at`` that decodes but is not one UTC stamp records no trip either.
+
+        ``canonical_scope`` refuses a field that is not one token, so a scope bound
+        to such a stamp made the printed line and every verify raise: the stop could
+        not be cleared through its verb, and the executor's recovery step died at the
+        print under ``set -e``.
+        """
+        self._damage()
+        cb._state_path(self.root).write_text(
+            json.dumps({"state": "tripped", "tripped_at": "2026-10-20 10:00:00Z"}), encoding="utf-8",
+        )
+        self.assertEqual(cb.current_state(self.root), cb.BREAKER_STATE_TRIPPED)
+        scope = cb.trip_scope(self.root)
+        self.assertEqual(scope, {"breaker": "autonomous", "tripped_at": NO_RECORDED_INSTANCE})
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = cli.main(["breaker", "quarantine", "--print-approval-line", "--tools-dir", str(self.root)])
+        self.assertEqual((code, out.getvalue().strip()), (0, approval_line("breaker_evidence_quarantine", scope)))
+        ref = self.github.approve("breaker_evidence_quarantine", scope)
+        result = cb.quarantine_breaker_evidence(base_dir=self.root, operator_approval_ref=ref, reason="truncated row")
+        self.assertEqual(result["quarantined"], 1)
+
     def test_a_no_op_needs_no_act(self) -> None:
         result = cb.quarantine_breaker_evidence(base_dir=self.root, operator_approval_ref="", reason="nothing to do")
         self.assertEqual(result["status"], "no_op")
@@ -420,6 +462,25 @@ class OperatorCommandLine(_Store):
                 code, out, err = self.run_cli("operator", "check-ref", *argv)
                 self.assertEqual((code, out), (2, ""))
                 self.assertIn(GITHUB_REF_GRAMMAR, err)
+
+    def test_check_ref_checks_the_bytes_the_workflow_uses(self) -> None:
+        """A ref that parses only once stripped is refused: the shell uses the raw value.
+
+        ``IFS=, read -ra`` reads one line, so ``a,\\nb`` passed the check as two
+        refs while the workflow split it into one.
+        """
+        good = [f"gh:{REPOSITORY}#1/comment/11", f"gh:{REPOSITORY}#2/review/12"]
+        for argv in (
+            ("--ref", f" {good[0]}"),
+            ("--ref", f"{good[0]}\n"),
+            ("--list", "--ref", f"{good[0]},\n{good[1]}"),
+            ("--list", "--ref", f"{good[0]}, {good[1]}"),
+            ("--list", "--ref", f"{good[0]},{good[1]}\t"),
+        ):
+            with self.subTest(argv=argv):
+                code, out, err = self.run_cli("operator", "check-ref", *argv)
+                self.assertEqual((code, out), (2, ""))
+                self.assertIn("canonical", err)
 
     def test_each_raising_verb_prints_the_line_for_the_instance_it_would_undo(self) -> None:
         self.trip_autonomous()

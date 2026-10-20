@@ -36,6 +36,7 @@ from aria_kernel.autonomy_closure import (
     verify_registry_snapshot,
 )
 from aria_kernel.autonomy_evidence import (
+    _MAX_POLICY_BLOB_BYTES,
     CAPABILITY_SPECS,
     AutonomyEvidenceStatus,
     CapabilityEvidence,
@@ -296,6 +297,26 @@ class ClosureVerdictTests(unittest.TestCase):
         self.assertEqual(failed, {
             "closure_policy_resolved_at_evidence_target": [f"closure_policy_regression_ref_unresolved:{ref}"],
         })
+
+    def test_an_unreadable_policy_at_the_target_is_named_by_its_reader(self) -> None:
+        # The predicate names the target policy reader's own blocker; it has
+        # no fallback blocker of its own to supply.
+        for label, text, blocker in (
+            ("absent", None, "operator_prerequisite_policy_unavailable"),
+            ("not_json", "not json\n", "operator_prerequisite_policy_invalid"),
+            ("too_large", "x" * (_MAX_POLICY_BLOB_BYTES + 1), "operator_prerequisite_policy_too_large"),
+        ):
+            with self.subTest(label=label):
+                if text is None:
+                    (self.history.repo / _POLICY).unlink()
+                else:
+                    self.history.write(_POLICY, text)
+                evidence = self.history.commit(f"policy {label}")
+                self.history.write(CLOSURE_REPORT_PATH, _report_text(_payload(evidence)))
+                report = self.history.commit("closure report")
+                _git(self.history.repo, "update-ref", MAIN_REF, report)
+                failed = self.failed(self.verdict(report=report, evidence=evidence))
+                self.assertEqual(failed["closure_policy_resolved_at_evidence_target"], [blocker])
 
     def test_a_capability_short_of_live_proof_or_blocked_is_named(self) -> None:
         status = _status(self.history.evidence, state="operator_blocked",

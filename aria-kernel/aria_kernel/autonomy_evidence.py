@@ -700,6 +700,11 @@ _EVIDENCE_CHECKPOINT_ROW_TYPE = "evidence_checkpoint"
 # ARIA-HIGH-286 — named on every capability that counts a carried claim the
 # publish's slice (`_evidence_slice_bytes`) could not reach.
 EVIDENCE_REBUILD_BLOCKER = "evidence_checkpoint_rebuild_in_progress"
+# ARIA-HIGH-520 / ARIA-MEDIUM-663 — the target's closure policy pins a
+# regression test its tree does not hold yet: a proof its task still owes.
+# That is engineering work, not an operator action, so it demotes readiness
+# to `declared` and never masks an operator prerequisite.
+CLOSURE_REGRESSION_REFS_UNRESOLVED = "closure_policy_regression_refs_unresolved"
 _MAX_SNAPSHOT_LEDGER_LINE_BYTES = SNAPSHOT_MAX_LEDGER_LINE_BYTES
 _MAX_SNAPSHOT_LEDGER_ROWS = SNAPSHOT_MAX_LEDGER_ROWS
 _MAX_SNAPSHOT_SURFACE_MATCH_CANDIDATES = 100_000
@@ -3888,7 +3893,14 @@ def _stream_unlock_verdict_counts(
 def _policy_at_target(
     repo_root: Path,
     target_sha: str,
-) -> tuple[dict[str, Any] | None, str | None]:
+) -> dict[str, Any] | str:
+    """The closure policy object at the target, or the operator blocker that
+    names why it cannot be read (unavailable, too large, invalid).
+
+    One or the other, never neither: the earlier ``(policy | None, blocker |
+    None)`` pair admitted ``(None, None)``, so both callers carried a
+    fallback blocker of their own for a result no path produced.
+    """
     policy_path = "docs/aria/policy/autonomy-closure-findings.json"
     try:
         entry = _git_tree_entry(repo_root, target_sha, policy_path)
@@ -3902,12 +3914,11 @@ def _policy_at_target(
             unavailable="operator_prerequisite_policy_unavailable",
         )
     except RuntimeError as exc:
-        blocker = (
+        return (
             "operator_prerequisite_policy_too_large"
             if str(exc) == "operator_prerequisite_policy_too_large"
             else "operator_prerequisite_policy_unavailable"
         )
-        return None, blocker
     try:
         text = payload.decode("utf-8")
         from .ledger import json_nesting_within_limit
@@ -3916,22 +3927,37 @@ def _policy_at_target(
             raise ValueError("json_nesting_limit_exceeded")
         policy = json.loads(text)
     except (UnicodeDecodeError, json.JSONDecodeError, RecursionError, ValueError):
-        return None, "operator_prerequisite_policy_invalid"
+        return "operator_prerequisite_policy_invalid"
     if not isinstance(policy, dict):
-        return None, "operator_prerequisite_policy_invalid"
-    return policy, None
+        return "operator_prerequisite_policy_invalid"
+    return policy
 
 
-def _with_capability_blocker(
+def _with_prerequisite_blockers(
     evidence: CapabilityEvidence,
-    blocker: str,
     *,
-    state: EvidenceState | None = None,
+    operator: frozenset[str],
+    engineering: frozenset[str],
 ) -> CapabilityEvidence:
+    """Fold every prerequisite blocker that holds into one evidence state.
+
+    ARIA-MEDIUM-663 — an operator blocker makes the capability
+    ``operator_blocked``; an engineering blocker alone demotes it to
+    ``declared``, the lowest rank, as the derivation's count blockers do, so
+    it fails closed without telling the operator to act; otherwise the
+    derived state stands. The blockers are the sorted union, so no blocker
+    can hide another.
+    """
+    if operator or evidence.state == "operator_blocked":
+        state: EvidenceState = "operator_blocked"
+    elif engineering:
+        state = "declared"
+    else:
+        state = evidence.state
     return CapabilityEvidence(
-        state=state or evidence.state,
+        state=state,
         counts=evidence.counts,
-        blockers=tuple(sorted({*evidence.blockers, blocker})),
+        blockers=tuple(sorted({*evidence.blockers, *operator, *engineering})),
         evidence_refs=evidence.evidence_refs,
         proof_cardinality=evidence.proof_cardinality,
     )
@@ -3967,13 +3993,33 @@ def _mode_a_signed_readiness_live_proven(
     )
 
 
+# One policy validation's ls-tree records at its target, by path: the review
+# anchors, the pinned refs and their ancestors share it, so each path costs
+# one git call however many entries name it.
+_TargetTreeEntries = dict[str, tuple[bytes, str, str, str] | None]
+
+
+def _target_tree_entry(
+    tree_entries: _TargetTreeEntries,
+    *,
+    repo_root: Path,
+    target_sha: str,
+    path: str,
+) -> tuple[bytes, str, str, str] | None:
+    """``_git_tree_entry`` through the validation's cache; a git failure
+    propagates and is never cached."""
+    if path not in tree_entries:
+        tree_entries[path] = _git_tree_entry(repo_root, target_sha, path)
+    return tree_entries[path]
+
+
 def _valid_policy_anchor(
     value: Any,
     *,
     finding_id: str,
     repo_root: Path,
     target_sha: str,
-    entry_cache: dict[str, str | None],
+    tree_entries: _TargetTreeEntries,
     blob_cache: dict[str, str],
 ) -> bool:
     if not isinstance(value, str) or value.count("#") != 1:
@@ -3985,21 +4031,22 @@ def _valid_policy_anchor(
         return False
     if anchor != finding_id or normalized_path != raw_path:
         return False
-    if raw_path not in entry_cache:
-        try:
-            entry = _git_tree_entry(repo_root, target_sha, raw_path)
-        except (RuntimeError, ValueError, UnicodeError, OSError):
-            return False
-        entry_cache[raw_path] = (
-            entry[3]
-            if entry is not None
-            and entry[1] in {"100644", "100755"}
-            and entry[2] == "blob"
-            else None
+    try:
+        entry = _target_tree_entry(
+            tree_entries,
+            repo_root=repo_root,
+            target_sha=target_sha,
+            path=raw_path,
         )
-    object_id = entry_cache[raw_path]
-    if object_id is None:
+    except (RuntimeError, ValueError, UnicodeError, OSError):
         return False
+    if (
+        entry is None
+        or entry[1] not in {"100644", "100755"}
+        or entry[2] != "blob"
+    ):
+        return False
+    object_id = entry[3]
     text = blob_cache.get(object_id)
     if text is None:
         try:
@@ -4025,10 +4072,10 @@ class _OperatorPolicyShape:
     """ARIA-HIGH-520 — the target policy's structure, apart from its refs.
 
     ``valid`` is the structure: schema, keys, anchors, the pinned semantics
-    and references, and every ref that IS in the target tree being a regular
-    blob. ``unresolved_refs`` are the refs the target tree does not hold: a
-    proof test its task still owes, which says nothing about whether the
-    policy's operator metadata can be trusted.
+    and references, and every pinned ref being landed or unlanded, never
+    irregular (``_regression_ref_presence``). ``unresolved_refs`` are the
+    unlanded refs: a proof test its task still owes, which says nothing
+    about whether the policy's operator metadata can be trusted.
     """
 
     valid: bool
@@ -4036,6 +4083,51 @@ class _OperatorPolicyShape:
 
 
 _INVALID_OPERATOR_POLICY = _OperatorPolicyShape(valid=False)
+_RegressionRefPresence = Literal["landed", "unlanded", "irregular"]
+
+
+def _regression_ref_presence(
+    ref: str,
+    *,
+    repo_root: Path,
+    target_sha: str,
+    tree_entries: _TargetTreeEntries,
+) -> _RegressionRefPresence:
+    """Classify one pinned regression ref in the target tree.
+
+    ARIA-MEDIUM-662 — ``landed``: a regular blob (mode 100644/100755).
+    ``unlanded``: absent, and every ancestor that exists is a directory, so a
+    regular file could be added there. ``irregular``: a symlink, tree or
+    gitlink at the path, or a non-directory ancestor the path would resolve
+    through (``ls-tree`` lists nothing below a symlink, so absence alone
+    cannot tell an owed proof from a tampered tree) -- a tampering shape,
+    never backlog. Git failures propagate; the caller fails closed. Every
+    lookup goes through the validation's ``tree_entries``, so an ancestor two
+    refs share, or a ref two entries pin, costs one ls-tree call.
+    """
+    found = _target_tree_entry(
+        tree_entries,
+        repo_root=repo_root,
+        target_sha=target_sha,
+        path=ref,
+    )
+    if found is not None:
+        if found[1] in {"100644", "100755"} and found[2] == "blob":
+            return "landed"
+        return "irregular"
+    parts = ref.split("/")
+    for depth in range(1, len(parts)):
+        ancestor = _target_tree_entry(
+            tree_entries,
+            repo_root=repo_root,
+            target_sha=target_sha,
+            path="/".join(parts[:depth]),
+        )
+        if ancestor is None:
+            return "unlanded"
+        if ancestor[1] != "040000" or ancestor[2] != "tree":
+            return "irregular"
+    return "unlanded"
 
 
 def _operator_policy_shape(
@@ -4060,8 +4152,9 @@ def _valid_operator_policy_structure(
     target_sha: str,
     unresolved: list[str],
 ) -> bool:
-    """The structural half of ``_operator_policy_shape``; appends each ref the
-    target tree does not hold to ``unresolved`` instead of failing on it."""
+    """The structural half of ``_operator_policy_shape``; appends each pinned
+    ref that is unlanded (``_regression_ref_presence``) to ``unresolved``
+    instead of failing on it."""
     if set(policy) != {"$schema", "schema_version", "policy_id", "entries"}:
         return False
     version = policy.get("schema_version")
@@ -4093,7 +4186,7 @@ def _valid_operator_policy_structure(
     }
     task_ids: set[str] = set()
     finding_ids: set[str] = set()
-    anchor_entries: dict[str, str | None] = {}
+    tree_entries: _TargetTreeEntries = {}
     anchor_blobs: dict[str, str] = {}
     for entry in entries:
         if not isinstance(entry, dict):
@@ -4137,7 +4230,7 @@ def _valid_operator_policy_structure(
             finding_id=finding_id,
             repo_root=repo_root,
             target_sha=target_sha,
-            entry_cache=anchor_entries,
+            tree_entries=tree_entries,
             blob_cache=anchor_blobs,
         ):
             return False
@@ -4146,7 +4239,7 @@ def _valid_operator_policy_structure(
             finding_id=finding_id,
             repo_root=repo_root,
             target_sha=target_sha,
-            entry_cache=anchor_entries,
+            tree_entries=tree_entries,
             blob_cache=anchor_blobs,
         ):
             return False
@@ -4170,27 +4263,37 @@ def _valid_operator_policy_structure(
             )
         ):
             return False
+        # ARIA-MEDIUM-662 — the pinned references are compared before any
+        # ref reaches git, so only this module's fixed refs are classified.
+        expected_references = _EXPECTED_CLOSURE_POLICY_REFERENCES.get(finding_id)
+        if (
+            expected_references is None
+            or (
+                entry["review_anchor"],
+                entry.get("narrative_anchor"),
+                tuple(refs),
+            )
+            != expected_references
+            or ("narrative_anchor" in entry) != (expected_references[1] is not None)
+        ):
+            return False
         for ref in refs:
             try:
-                regression_entry = _git_tree_entry(
-                    repo_root,
-                    target_sha,
+                presence = _regression_ref_presence(
                     ref,
+                    repo_root=repo_root,
+                    target_sha=target_sha,
+                    tree_entries=tree_entries,
                 )
             except (RuntimeError, ValueError, UnicodeError, OSError):
                 return False
-            if regression_entry is None:
-                # ARIA-HIGH-520 — absent from the target tree: a proof its
-                # task still owes, named by the caller, never a malformed
-                # policy (that reading hid the Mode-A operator blocker).
-                if ref not in unresolved:
-                    unresolved.append(ref)
-                continue
-            if (
-                regression_entry[1] not in {"100644", "100755"}
-                or regression_entry[2] != "blob"
-            ):
+            if presence == "irregular":
                 return False
+            if presence == "unlanded" and ref not in unresolved:
+                # ARIA-HIGH-520 — a proof its task still owes, named by the
+                # caller, never a malformed policy (that reading hid the
+                # Mode-A operator blocker).
+                unresolved.append(ref)
         historical = entry.get("historical_fix_shas", [])
         if (
             not isinstance(historical, list)
@@ -4201,7 +4304,6 @@ def _valid_operator_policy_structure(
         ):
             return False
         expected_semantic = _EXPECTED_CLOSURE_POLICY_SEMANTICS.get(finding_id)
-        expected_references = _EXPECTED_CLOSURE_POLICY_REFERENCES.get(finding_id)
         actual_semantic: _ClosurePolicySemantic = (
             task_id,
             owner_task,
@@ -4214,14 +4316,6 @@ def _valid_operator_policy_structure(
             expected_semantic is None
             or actual_semantic != expected_semantic
             or ("historical_fix_shas" in entry) != bool(expected_semantic[-1])
-            or expected_references is None
-            or (
-                entry["review_anchor"],
-                entry.get("narrative_anchor"),
-                tuple(refs),
-            )
-            != expected_references
-            or ("narrative_anchor" in entry) != (expected_references[1] is not None)
         ):
             return False
         if entry["closure_mode"] == "historical_main":
@@ -4267,30 +4361,27 @@ def _apply_operator_prerequisites(
     """Apply target-tree operator metadata without consulting registry state.
 
     ARIA-HIGH-520 — every blocker is composed; none returns early. The policy
-    is read and validated at the target (unavailable, too large, invalid);
-    the refs its target tree does not hold yet are named as
-    ``closure_policy_regression_refs_unresolved`` — an engineering blocker,
-    so it leaves the readiness state as its evidence made it; and the Mode-A
-    prerequisite is applied from the readiness evidence on its own: its
-    owner (ORPHAN-MEDIUM-789) and blocker are pinned in this module
-    (``_valid_operator_policy_structure``), so no policy defect can hide the
-    one action only the operator can take. Before this, any policy defect —
-    an absent proof test of any task among them — returned
-    ``operator_prerequisite_policy_invalid`` alone.
+    is read and validated at the target (unavailable, too large, invalid:
+    operator blockers); the pinned refs its target tree does not hold yet are
+    named as ``CLOSURE_REGRESSION_REFS_UNRESOLVED``, an engineering blocker;
+    and the Mode-A prerequisite is applied from the readiness evidence as
+    derived: its owner (ORPHAN-MEDIUM-789) and blocker are pinned in this
+    module (``_valid_operator_policy_structure``), so no policy defect can
+    hide the one action only the operator can take. One fold
+    (``_with_prerequisite_blockers``, ARIA-MEDIUM-663) turns the two sets
+    into the state: an owed proof alone demotes readiness to ``declared``,
+    never leaving it ``live_proven``.
     """
     updated = dict(capabilities)
     evidence = updated.get("enterprise_readiness")
     if evidence is None:
         return updated
-    readiness = evidence
     resolved_repo_root = Path(repo_root).resolve()
-    policy, policy_blocker = _policy_at_target(resolved_repo_root, target_sha)
-    if policy is None:
-        readiness = _with_capability_blocker(
-            readiness,
-            policy_blocker or "operator_prerequisite_policy_unavailable",
-            state="operator_blocked",
-        )
+    operator: set[str] = set()
+    engineering: set[str] = set()
+    policy = _policy_at_target(resolved_repo_root, target_sha)
+    if isinstance(policy, str):
+        operator.add(policy)
     else:
         shape = _operator_policy_shape(
             policy,
@@ -4298,23 +4389,16 @@ def _apply_operator_prerequisites(
             target_sha=target_sha,
         )
         if not shape.valid:
-            readiness = _with_capability_blocker(
-                readiness,
-                "operator_prerequisite_policy_invalid",
-                state="operator_blocked",
-            )
+            operator.add("operator_prerequisite_policy_invalid")
         elif shape.unresolved_refs:
-            readiness = _with_capability_blocker(
-                readiness,
-                "closure_policy_regression_refs_unresolved",
-            )
+            engineering.add(CLOSURE_REGRESSION_REFS_UNRESOLVED)
     if not _mode_a_signed_readiness_live_proven(evidence):
-        readiness = _with_capability_blocker(
-            readiness,
-            "github_app_mode_a_unconfigured",
-            state="operator_blocked",
-        )
-    updated["enterprise_readiness"] = readiness
+        operator.add("github_app_mode_a_unconfigured")
+    updated["enterprise_readiness"] = _with_prerequisite_blockers(
+        evidence,
+        operator=frozenset(operator),
+        engineering=frozenset(engineering),
+    )
     return updated
 
 

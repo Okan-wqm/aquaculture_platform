@@ -1010,7 +1010,10 @@ def _capture_pre_merge_context(
         # merge lane appends its own `observed` row of GitHub's payload before
         # this runs; that row binds nothing, so it can neither unbind the PR
         # nor re-bind it. The live head is the payload's; the opened row names
-        # the head the kernel delivered.
+        # the head the kernel delivered. No lifecycle row has to name the live
+        # head (the claim-time capture appends none): it is judged against the
+        # committed commit below, by the shared lineage verifier when it moved,
+        # and merge_pr_if_ready re-reads it before it merges.
         binding = pr_change_binding(rows["pr_lifecycle"], pr_number=number)
         if (
             binding is None or binding.change_id is None

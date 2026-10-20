@@ -956,7 +956,19 @@ duplicate `lint-changed-files`. The real residual is INFRA-MEDIUM-224.
   `_merge_index`, `_capture_assessment_inputs` and `_reverted_suite` read through it; the copy in
   `auto_merge` is gone. Red first on a488a36f2: `change_for_pr` returned `chg_forged`, an observed row
   credited an unrelated change with the merge; green in `test_pr_change_id_requirement`,
-  `test_change_outcome` and the perimeter tests.
+  `test_change_outcome` and the perimeter tests. The verification round found three more readers:
+  `worker_dispatch.pr_for_assignment` took the assignment bridge (one of `BINDING_FIELDS`) from a
+  row of any event, so a legacy observed or merged row routed `merge_if_green` to its PR (red:
+  778 != 142 in `test_only_the_opened_row_binds_an_assignment_to_its_pr`); it now reads
+  `merge_record.opened_row(rows, assignment_id=...)`. `merge_record.pull_requests_for_change` and
+  `delivery_closure` compare with the owner's `PR_BINDING_EVENT` instead of the literal. The only
+  copies of the rule left are ARIA-LOW-660's. The perimeter also no longer requires the PR's last
+  lifecycle row to name the live head and base (577741a4d): the live head is judged against the
+  committed commit by the delivered-head check and `verify_branch_update_lineage`, the base by the
+  opened row against the live payload, and the merge lane re-reads the head before it merges. The
+  claim-time expert-review capture, which appends no observation, now binds an ARIA-updated head
+  (pinned by `test_a_claim_time_capture_judges_an_updated_head_by_the_lineage_verifier_alone`; main
+  refused it as `pr_change_join_unavailable`).
 
 ### ARIA-LOW-657 — the opened row's delivered head is never compared with the committed commit
 
@@ -969,8 +981,9 @@ duplicate `lint-changed-files`. The real residual is INFRA-MEDIUM-224.
 - **Planned fix:** `pr_change_join_unavailable` when the binding's delivered head is not the
   committed commit. Deadline: 2027-04-17.
 - **Landed (ARIA order chain, `G003-md1-binding`):** the perimeter refuses
-  `pr_change_join_unavailable` when `binding.delivered_head_sha` is not `committed.commit_sha`, and
-  also when the PR's opened rows name more than one change. Red first:
+  `pr_change_join_unavailable` when `binding.delivered_head_sha` is not `committed.commit_sha`. Its
+  refusal of more than one change id, which main applied to every row of the PR, now counts only the
+  PR's opened rows, since no other row binds. Red first:
   `test_an_opened_head_other_than_the_committed_commit_is_refused` got the change id with only
   `implementation_*` gaps; it is green now.
 

@@ -134,8 +134,13 @@ def lifecycle_rows(base_dir: str | Path) -> list[dict[str, Any]]:
 
 
 def opened_row(rows: Sequence[_Row], *, pr_number: int | None = None,
-               change_id: str | None = None) -> _Row | None:
-    """The latest ``opened`` row the kernel wrote for a PR number or a change."""
+               change_id: str | None = None, assignment_id: str | None = None) -> _Row | None:
+    """The latest ``opened`` row the kernel wrote for a PR number, a change or a dispatch assignment.
+
+    Each key is part of the binding the opened row carries (merge-delivery-1):
+    an assignment, like a change, is bound to its PR by the row that opened
+    the PR, never by a later row that happens to name it.
+    """
     found = None
     for row in rows:
         if row.get("event") != PR_BINDING_EVENT:
@@ -143,6 +148,8 @@ def opened_row(rows: Sequence[_Row], *, pr_number: int | None = None,
         if pr_number is not None and row.get("pr_number") != pr_number:
             continue
         if change_id is not None and row.get("change_id") != change_id:
+            continue
+        if assignment_id is not None and row.get("assignment_id") != assignment_id:
             continue
         found = row
     return found
@@ -242,7 +249,7 @@ def pull_requests_for_change(rows: list[dict[str, Any]], *, proposal_id: str,
     """
     opened: dict[int, None] = {}
     for row in rows:
-        if row.get("event") != "opened" or row.get("proposal_id") != proposal_id:
+        if row.get("event") != PR_BINDING_EVENT or row.get("proposal_id") != proposal_id:
             continue
         if change_id is not None and row.get("change_id") != change_id:
             continue

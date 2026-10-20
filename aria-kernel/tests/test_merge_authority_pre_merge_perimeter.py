@@ -536,8 +536,14 @@ class MergeLaneObservationBindingTests(unittest.TestCase):
         self._refused(change, dict(live_pr, change_id="chg_forged"))
         self.assertEqual(change_for_pr(745, base_dir=change.tools), change.planned["change_id"])
 
-    def _updated(self, *, recorded: bool) -> tuple[SimpleNamespace, dict, str, str, object]:
-        """The delivered commit D opened as the PR, main moves, GitHub's update-branch merges main into it (U)."""
+    def _updated(self, *, recorded: bool, observed: bool = True) -> tuple[SimpleNamespace, dict, str, str, object]:
+        """The delivered commit D opened as the PR, main moves, GitHub's update-branch merges main into it (U).
+
+        ``observed`` appends the merge lane's own observation of U before the
+        capture, as ``_merge_if_green_with_executor`` does; the claim-time
+        expert-review request (``request_implementation_expert_review``)
+        captures without one.
+        """
         import aria_kernel.merge_authority as merge_owner
         from aria_kernel.auto_merge import record_pr_lifecycle
         from aria_kernel.pr_branch_update import update_request_id
@@ -572,7 +578,8 @@ class MergeLaneObservationBindingTests(unittest.TestCase):
                            observed={"returncode": 0, "result_head_sha": updated}, status="confirmed",
                            base_dir=change.tools)
         live_pr = _github_projection(_native_github_pr(change, base_sha=live_base, head_sha=updated))
-        record_pr_lifecycle(live_pr, event="observed", base_dir=change.tools)
+        if observed:
+            record_pr_lifecycle(live_pr, event="observed", base_dir=change.tools)
         evidence = merge_owner._capture_pre_merge_context(
             workspace_root=change.repo, base_dir=change.tools, pr=live_pr,
             diff_text=git("diff", live_base + "..." + updated),
@@ -595,6 +602,34 @@ class MergeLaneObservationBindingTests(unittest.TestCase):
         self.assertEqual(evidence.unavailable_reasons, (
             f"pr_change_join_unavailable:unrecorded_commit:{updated[:12]}:no_update_recorded_for_pr",))
         self.assertIsNone(evidence.change_id)
+
+    def test_a_claim_time_capture_judges_an_updated_head_by_the_lineage_verifier_alone(self) -> None:
+        # The claim-time expert-review request captures the perimeter without
+        # appending an observation, so the PR's last lifecycle row is still the
+        # opened row at the delivered head D while GitHub shows ARIA's update U.
+        # 577741a4d also required that last row to name the live head and base;
+        # that check is gone: the live head is judged against the committed
+        # commit by the delivered-head check and the shared lineage verifier
+        # (the same verdict the merge lane reaches after its own observation),
+        # and the base by the opened row against the live payload.
+        from aria_kernel.merge_record import lifecycle_rows
+
+        change, opened, live_base, updated, evidence = self._updated(recorded=True, observed=False)
+        pr_rows = [row for row in lifecycle_rows(change.tools) if row.get("pr_number") == change.pr["number"]]
+        self.assertEqual([(row["event"], row["head_sha"]) for row in pr_rows], [("opened", change.head_sha)])
+        self.assertEqual(evidence.unavailable_reasons, (
+            "implementation_request_unavailable", "implementation_claim_unavailable",
+            "implementation_result_unavailable"))
+        self.assertEqual(evidence.change_id, change.planned["change_id"])
+        self.assertEqual(evidence.pr_row_hash, opened["ledger_hash"])
+        self.assertEqual((evidence.head_sha, evidence.base_sha), (change.head_sha, change.base_sha))
+        self.assertEqual((evidence.merge_head_sha, evidence.live_base_sha), (updated, live_base))
+        # Without an update receipt the same capture is refused by the
+        # verifier's name, never bound by the stale opened row.
+        _change, _opened, _live_base, unrecorded, refused = self._updated(recorded=False, observed=False)
+        self.assertEqual(refused.unavailable_reasons, (
+            f"pr_change_join_unavailable:unrecorded_commit:{unrecorded[:12]}:no_update_recorded_for_pr",))
+        self.assertIsNone(refused.change_id)
 
 
 class NativeImplementationContextTests(unittest.TestCase):

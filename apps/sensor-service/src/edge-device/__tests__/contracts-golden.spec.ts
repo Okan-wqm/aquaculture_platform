@@ -1,0 +1,619 @@
+/**
+ * The cloud's statement producers against the Suderra edge contract v1
+ * (ADR-048 DEC-25; contracts/suderra-edge/v1/).
+ *
+ * Two properties, for every statement the cloud signs (provisioning
+ * manifest, activation receipt, site config, RBAC manifest, device-lifecycle)
+ * and for the provisioning delivery:
+ *
+ *   1. Golden: given the inputs a golden fixture was generated from — and the
+ *      fixtures' TEST-ONLY keys, derived here from keyring.json at run time —
+ *      the producer emits that fixture's envelope: the same payload bytes,
+ *      keyid and signature, so the same statement digest.
+ *   2. Verifies: what the cloud's services issue at run time (fresh nonces,
+ *      windows, sequences, a rendered config.yaml) passes the contract's
+ *      reference verifier for the device state the contract fixtures model.
+ *
+ * The reference verifier is the one the contract's own invariant runs
+ * (tests/invariants/lib/suderra-edge-contract.ts), so this test and the
+ * contract cannot disagree about what a device accepts.
+ */
+import { createHash } from 'crypto';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+
+import { ConfigService } from '@nestjs/config';
+
+import {
+  asObject,
+  asString,
+  contextOf,
+  type Json,
+  FIXTURES,
+  type JsonObject,
+  keyringFile,
+  objects,
+  readJson,
+  ST_LIFE,
+  ST_RBAC,
+  ST_RECEIPT,
+  STATEMENTS,
+  verifyDeliveryDocument,
+  verifyStatement,
+} from '../../../../../tests/invariants/lib/suderra-edge-contract';
+import { ActivationReceiptService, buildActivationReceipt } from '../activation-receipt.service';
+import {
+  buildEnterMaintenance,
+  DeviceLifecycleStatementService,
+} from '../device-lifecycle-statement.service';
+import { boardRow } from '../edge-boards';
+import {
+  BINDING_METHODS,
+  canonicalJsonBytes,
+  CLOUD_SIGNED_STATEMENTS,
+  type CloudSigningPurpose,
+  type ContractJson,
+  type DeviceBinding,
+  type DsseEnvelope,
+  payloadTypeOf,
+  type SitePath,
+  STATEMENT,
+  statementDigest,
+} from '../edge-contract';
+import {
+  buildDelivery,
+  buildProvisioningManifest,
+  EdgeProvisioningManifestService,
+  parseProvisioningRequest,
+  serializeDelivery,
+} from '../edge-provisioning-manifest.service';
+import { EdgeReleaseCatalog } from '../edge-release-catalog.service';
+import { Ed25519SigningKey, ManifestSigner, StatementAdmissionError } from '../manifest-signer';
+import {
+  buildRbacManifest,
+  PLATFORM_ROLE_PERMISSIONS,
+  RbacManifestService,
+} from '../rbac-manifest.service';
+import { buildSiteConfig, SiteConfigManifestService } from '../site-config-manifest.service';
+import {
+  loadSuderraEdgeSettings,
+  SuderraEdgeConfig,
+  SuderraEdgeConfigError,
+} from '../suderra-edge.config';
+import {
+  TenantOutOfBundleScopeError,
+  TrustAnchorBundleService,
+} from '../trust-anchor-bundle.service';
+
+// ------------------------------------------------------------------ fixtures
+
+const REL_160 = 'edge-release/valid/revpi-connect4-aarch64-1.6.0.dsse.json';
+const TA1 = 'trust-anchors/valid/bundle-seq-1.dsse.json';
+const RBAC1 = 'rbac-manifest/valid/platform-actor-policy-1.dsse.json';
+const SITE_FIRST = 'site-config/valid/revpi-connect4-first.dsse.json';
+const PROV_FIRST = 'edge-provisioning/valid/revpi-connect4-first.dsse.json';
+const RECEIPT = 'edge-activation-receipt/valid/revpi-connect4.dsse.json';
+const LIFE = 'device-lifecycle/valid/enter-maintenance-reprovision.dsse.json';
+const DELIVERY_FIRST = 'edge-provisioning-delivery/valid/revpi-connect4-first.json';
+const REQUEST_FIRST = 'edge-provisioning-request/valid/revpi-connect4-first.json';
+const RELEASE_URL_TEMPLATE = 'https://edge-releases.example.com/agent/{version}/{asset}';
+
+const fixtureText = (rel: string): string => readFileSync(join(FIXTURES, rel), 'utf8');
+const fixtureBytes = (rel: string): Buffer => readFileSync(join(FIXTURES, rel));
+const envelopeOf = (rel: string): DsseEnvelope => JSON.parse(fixtureText(rel)) as DsseEnvelope;
+const payloadOf = (rel: string): Buffer => Buffer.from(envelopeOf(rel).payload, 'base64');
+const bodyOf = (rel: string): JsonObject =>
+  JSON.parse(payloadOf(rel).toString('utf8')) as JsonObject;
+const field = (body: JsonObject, name: string): string => asString(body[name], name);
+const intField = (body: JsonObject, name: string): number => {
+  const value = body[name];
+  if (typeof value !== 'number') throw new Error(`${name} is not a number`);
+  return value;
+};
+function parseBinding(value: Json | undefined): DeviceBinding {
+  const binding = asObject(value, 'device_binding');
+  const method = asString(binding['method'], 'method');
+  const known = BINDING_METHODS.find((m) => m === method);
+  if (known === undefined) throw new Error(`unknown binding method ${method}`);
+  return {
+    method: known,
+    digest: { sha256: asString(asObject(binding['digest'], 'digest')['sha256'], 'sha256') },
+  };
+}
+const bindingOf = (body: JsonObject): DeviceBinding => parseBinding(body['device_binding']);
+
+interface TestKeys {
+  readonly provisioning: Ed25519SigningKey<'edge-provisioning'>;
+  readonly configIntegrity: Ed25519SigningKey<'config-integrity'>;
+  readonly rbacManifest: Ed25519SigningKey<'rbac-manifest'>;
+  readonly deviceLifecycle: Ed25519SigningKey<'device-lifecycle'>;
+  readonly command: Ed25519SigningKey<'command'>;
+}
+
+/** TEST-ONLY seed of a keyring entry: SHA-256 of its public seed label. */
+function seedOf(purpose: string, epoch: number): Buffer {
+  const entry = objects(keyringFile['keys'], 'keys').find(
+    (key) => key['purpose'] === purpose && key['epoch'] === epoch,
+  );
+  if (entry === undefined) throw new Error(`keyring has no ${purpose} epoch ${epoch}`);
+  return createHash('sha256').update(asString(entry['seed_label'], 'seed_label'), 'utf8').digest();
+}
+
+function testKey<P extends CloudSigningPurpose>(purpose: P): Ed25519SigningKey<P> {
+  return Ed25519SigningKey.fromSeed(purpose, 1, seedOf(purpose, 1));
+}
+
+const KEYS: TestKeys = {
+  provisioning: testKey('edge-provisioning'),
+  configIntegrity: testKey('config-integrity'),
+  rbacManifest: testKey('rbac-manifest'),
+  deviceLifecycle: testKey('device-lifecycle'),
+  command: testKey('command'),
+};
+
+function fleetRootEnv(): string {
+  const entry = objects(keyringFile['keys'], 'keys').find((k) => k['purpose'] === 'fleet-root');
+  if (entry === undefined) throw new Error('keyring has no fleet-root key');
+  return `${String(entry['epoch'])}:${asString(entry['public_key'], 'public_key')}`;
+}
+
+const secret = (key: Ed25519SigningKey): string =>
+  `ed25519:${key.epoch}:${seedOf(key.purpose, key.epoch).toString('hex')}`;
+
+/** A full channel configuration over the fixtures' TEST-ONLY keys and bundle 1. */
+function channelEnv(overrides: Record<string, string> = {}): Record<string, string> {
+  const rbac = bodyOf(RBAC1);
+  return {
+    SUDERRA_EDGE_PROVISIONING_SIGNING_KEY: secret(KEYS.provisioning),
+    SUDERRA_EDGE_CONFIG_INTEGRITY_SIGNING_KEY: secret(KEYS.configIntegrity),
+    SUDERRA_EDGE_RBAC_MANIFEST_SIGNING_KEY: secret(KEYS.rbacManifest),
+    SUDERRA_EDGE_DEVICE_LIFECYCLE_SIGNING_KEY: secret(KEYS.deviceLifecycle),
+    SUDERRA_EDGE_COMMAND_SIGNING_KEY: secret(KEYS.command),
+    SUDERRA_EDGE_TRUST_ANCHORS: fixtureText(TA1),
+    SUDERRA_EDGE_FLEET_ROOT_KEYS: fleetRootEnv(),
+    SUDERRA_EDGE_PLATFORM_ACTOR_ID: field(
+      asObject((rbac['actors'] as JsonObject[])[0], 'actor'),
+      'actor_id',
+    ),
+    SUDERRA_EDGE_RBAC_POLICY_VERSION: String(intField(rbac, 'policy_version')),
+    SUDERRA_EDGE_RBAC_NOT_BEFORE: field(rbac, 'not_before'),
+    SUDERRA_EDGE_RBAC_EXPIRES_AT: field(rbac, 'expires_at'),
+    SUDERRA_EDGE_RELEASE_URL_TEMPLATE: RELEASE_URL_TEMPLATE,
+    SUDERRA_EDGE_AGENT_VERSION: field(bodyOf(REL_160), 'version'),
+    SUDERRA_EDGE_MQTT_HOST: 'mqtt-devices.example.com',
+    SUDERRA_EDGE_API_URL: 'https://api.example.com',
+    ...overrides,
+  };
+}
+
+function services(env: Record<string, string> = channelEnv()): {
+  config: SuderraEdgeConfig;
+  bundles: TrustAnchorBundleService;
+  catalog: EdgeReleaseCatalog;
+  rbac: RbacManifestService;
+  manifests: EdgeProvisioningManifestService;
+} {
+  const config = new SuderraEdgeConfig(new ConfigService(env));
+  const bundles = new TrustAnchorBundleService(config);
+  const expectedUrl = RELEASE_URL_TEMPLATE.replace('{version}', '1.6.0').replace(
+    '{asset}',
+    'suderra-agent-os-1.6.0-revpi-connect4-aarch64.tar.gz.release.dsse.json',
+  );
+  const catalog = new EdgeReleaseCatalog(config, bundles, async (url) => {
+    if (url !== expectedUrl) throw new Error(`unexpected release URL ${url}`);
+    return fixtureText(REL_160);
+  });
+  const rbac = new RbacManifestService(config);
+  const sites = new SiteConfigManifestService(config);
+  const manifests = new EdgeProvisioningManifestService(config, catalog, bundles, rbac, sites);
+  return { config, bundles, catalog, rbac, manifests };
+}
+
+/** The golden RBAC manifest, produced from its inputs (asserted equal to RBAC1 below). */
+function goldenRbac(): ReturnType<ManifestSigner<'rbac-manifest'>['sign']> {
+  const body = bodyOf(RBAC1);
+  const actor = asObject((body['actors'] as JsonObject[])[0], 'actor');
+  return new ManifestSigner(KEYS.rbacManifest).sign(
+    STATEMENT.rbacManifest,
+    buildRbacManifest({
+      tenantId: field(body, 'tenant_id'),
+      policyVersion: intField(body, 'policy_version'),
+      notBefore: field(body, 'not_before'),
+      expiresAt: field(body, 'expires_at'),
+      actorId: field(actor, 'actor_id'),
+      actorKeyid: KEYS.command.keyid,
+      actorPublicKey: KEYS.command.publicKey,
+      permissions: PLATFORM_ROLE_PERMISSIONS,
+    }),
+  );
+}
+
+// ------------------------------------------------------------- vocabulary
+
+describe('contracts golden — the cloud speaks the contract vocabulary', () => {
+  it('each cloud-held purpose signs exactly the statements statements.json assigns it', () => {
+    const fromContract: Record<string, string[]> = {};
+    for (const [type, spec] of Object.entries(STATEMENTS)) {
+      const purpose = asString(asObject(spec, type)['signing_purpose'], 'signing_purpose');
+      (fromContract[purpose] ??= []).push(type);
+    }
+    for (const [purpose, types] of Object.entries(CLOUD_SIGNED_STATEMENTS)) {
+      expect({ purpose, types: [...types].sort() }).toEqual({
+        purpose,
+        types: (fromContract[purpose] ?? []).sort(),
+      });
+    }
+  });
+
+  it('payload types are the contract payload types', () => {
+    for (const type of Object.values(STATEMENT)) {
+      expect(payloadTypeOf(type)).toBe(
+        asString(asObject(STATEMENTS[type], type)['payload_type'], 'pt'),
+      );
+    }
+  });
+
+  it('the canonical encoder reproduces every canonical fixture payload byte for byte', () => {
+    for (const rel of [REL_160, TA1, RBAC1, SITE_FIRST, PROV_FIRST, RECEIPT, LIFE]) {
+      const payload = payloadOf(rel);
+      expect(
+        canonicalJsonBytes(JSON.parse(payload.toString('utf8')) as ContractJson).equals(payload),
+      ).toBe(true);
+    }
+  });
+
+  it('the encoder refuses what the contract refuses: fractions, unsafe integers, lone surrogates', () => {
+    expect(() => canonicalJsonBytes({ a: 1.5 })).toThrow(/safe integers/);
+    expect(() => canonicalJsonBytes({ a: 2 ** 53 })).toThrow(/safe integers/);
+    expect(() => canonicalJsonBytes({ a: '\ud800' })).toThrow(/surrogate/);
+    expect(canonicalJsonBytes({ b: '😀', a: [] }).toString('utf8')).toBe('{"a":[],"b":"😀"}');
+  });
+
+  it('the board rows the cloud provisions come from boards.json; only open gates provision', () => {
+    expect(boardRow('revpi-connect4')).toMatchObject({
+      arch: 'aarch64',
+      cloudProvisioningAllowed: true,
+    });
+    expect(boardRow('rpi4-cm4')?.cloudProvisioningAllowed).toBe(false);
+    expect(boardRow('x86-ipc-anything')).toBeNull();
+  });
+});
+
+// ------------------------------------------------------------------ golden
+
+describe('contracts golden — byte-for-byte producers', () => {
+  it('RBAC manifest: the platform actor, the command key and the P0 permission set', () => {
+    expect(goldenRbac().envelope).toEqual(envelopeOf(RBAC1));
+  });
+
+  it('site config: device-bound, every site file by digest and size, the RBAC manifest by digest', () => {
+    const body = bodyOf(SITE_FIRST);
+    const files = new Map<SitePath, Buffer>([
+      ['config.yaml', fixtureBytes('site-files/v1/config.yaml')],
+      ['revpi/config.rsc', fixtureBytes('site-files/v1/revpi/config.rsc')],
+    ]);
+    const rbac = goldenRbac();
+    const signed = new ManifestSigner(KEYS.configIntegrity).sign(
+      STATEMENT.siteConfig,
+      buildSiteConfig({
+        tenantId: field(body, 'tenant_id'),
+        deviceId: field(body, 'device_id'),
+        binding: bindingOf(body),
+        updateSeq: intField(body, 'update_seq'),
+        notBefore: field(body, 'not_before'),
+        expiresAt: field(body, 'expires_at'),
+        files,
+        rbac,
+      }),
+    );
+    expect(signed.envelope).toEqual(envelopeOf(SITE_FIRST));
+  });
+
+  it('provisioning manifest: release, bundle and site config by statement digest', () => {
+    const body = bodyOf(PROV_FIRST);
+    const release = bodyOf(REL_160);
+    const signed = new ManifestSigner(KEYS.provisioning).sign(
+      STATEMENT.edgeProvisioning,
+      buildProvisioningManifest({
+        tenantId: field(body, 'tenant_id'),
+        deviceId: field(body, 'device_id'),
+        deviceCode: field(body, 'device_code'),
+        binding: bindingOf(body),
+        nonce: field(body, 'nonce'),
+        keyEpoch: KEYS.provisioning.epoch,
+        updateSeq: intField(body, 'update_seq'),
+        notBefore: field(body, 'not_before'),
+        expiresAt: field(body, 'expires_at'),
+        release: {
+          digest: statementDigest(payloadOf(REL_160)),
+          version: field(release, 'version'),
+          securityVersion: intField(release, 'security_version'),
+          boardProfile: 'revpi-connect4',
+          arch: 'aarch64',
+          artifactUrl: field(body, 'artifact_url'),
+        },
+        siteConfig: {
+          digest: statementDigest(payloadOf(SITE_FIRST)),
+          updateSeq: intField(bodyOf(SITE_FIRST), 'update_seq'),
+        },
+        trustAnchors: {
+          digest: statementDigest(payloadOf(TA1)),
+          bundleSeq: intField(bodyOf(TA1), 'bundle_seq'),
+        },
+      }),
+    );
+    expect(signed.envelope).toEqual(envelopeOf(PROV_FIRST));
+  });
+
+  it('activation receipt: names the installed manifest by statement digest', () => {
+    const body = bodyOf(RECEIPT);
+    const signed = new ManifestSigner(KEYS.provisioning).sign(
+      STATEMENT.activationReceipt,
+      buildActivationReceipt({
+        tenantId: field(body, 'tenant_id'),
+        deviceId: field(body, 'device_id'),
+        binding: bindingOf(body),
+        manifestDigest: statementDigest(payloadOf(PROV_FIRST)),
+        activationId: field(body, 'activation_id'),
+        activatedAt: field(body, 'activated_at'),
+        notBefore: field(body, 'not_before'),
+        expiresAt: field(body, 'expires_at'),
+      }),
+    );
+    expect(signed.envelope).toEqual(envelopeOf(RECEIPT));
+  });
+
+  it('device-lifecycle: enter-maintenance to re-provision', () => {
+    const body = bodyOf(LIFE);
+    const signed = new ManifestSigner(KEYS.deviceLifecycle).sign(
+      STATEMENT.deviceLifecycle,
+      buildEnterMaintenance({
+        tenantId: field(body, 'tenant_id'),
+        deviceId: field(body, 'device_id'),
+        binding: bindingOf(body),
+        updateSeq: intField(body, 'update_seq'),
+        notBefore: field(body, 'not_before'),
+        expiresAt: field(body, 'expires_at'),
+      }),
+    );
+    expect(signed.envelope).toEqual(envelopeOf(LIFE));
+  });
+
+  it('delivery: the response body is the golden delivery document, member for member', () => {
+    const delivery = buildDelivery({
+      manifest: envelopeOf(PROV_FIRST),
+      release: envelopeOf(REL_160),
+      trustAnchors: envelopeOf(TA1),
+      siteConfig: envelopeOf(SITE_FIRST),
+      rbac: envelopeOf(RBAC1),
+      siteFiles: new Map<SitePath, Buffer>([
+        ['revpi/config.rsc', fixtureBytes('site-files/v1/revpi/config.rsc')],
+        ['config.yaml', fixtureBytes('site-files/v1/config.yaml')],
+      ]),
+    });
+    expect(JSON.parse(serializeDelivery(delivery))).toEqual(
+      JSON.parse(fixtureText(DELIVERY_FIRST)),
+    );
+  });
+
+  it('request: the golden request parses; a token in the query and a short nonce do not', () => {
+    const request = readJson(join(FIXTURES, REQUEST_FIRST));
+    expect(parseProvisioningRequest(request)).toMatchObject({ nonce: request['nonce'] });
+    for (const rel of [
+      'edge-provisioning-request/invalid/token-in-query.json',
+      'edge-provisioning-request/invalid/short-nonce.json',
+    ]) {
+      expect(parseProvisioningRequest(readJson(join(FIXTURES, rel)))).toBeNull();
+    }
+  });
+});
+
+// ------------------------------------------------------- run-time issuance
+
+describe('contracts golden — what the services issue verifies on the device', () => {
+  const factory = contextOf('revpi-factory');
+  const provisioning = contextOf('revpi-provisioning');
+  const active = contextOf('revpi-active');
+  if (factory === null || provisioning === null || active === null) throw new Error('contexts');
+  const binding = parseBinding(factory['device_binding']);
+  const tenantId = field(bodyOf(PROV_FIRST), 'tenant_id');
+  const deviceId = field(bodyOf(PROV_FIRST), 'device_id');
+  const window = {
+    notBefore: new Date('2026-10-20T11:00:00Z'),
+    expiresAt: new Date('2026-10-20T13:00:00Z'),
+  };
+  const verifyAs = (
+    envelope: DsseEnvelope,
+    type: string,
+    ctx: JsonObject,
+    verifier: 'os-root' | 'agent',
+    inputs: { trustAnchors?: Buffer } = {},
+  ): string[] =>
+    verifyStatement(Buffer.from(JSON.stringify(envelope), 'utf8'), type, ctx, inputs, {
+      mode: 'accept',
+      verifier,
+      allChecks: true,
+    }).reasons;
+
+  it('a fresh provisioning delivery verifies end to end for a factory-fresh device', async () => {
+    const { manifests } = services();
+    const request = parseProvisioningRequest(readJson(join(FIXTURES, REQUEST_FIRST)));
+    if (request === null) throw new Error('request');
+    const nonce = 'f0'.repeat(24);
+    const release = await manifests.preflight({ ...request, nonce }, tenantId);
+    const issued = manifests.issue(
+      {
+        tenantId,
+        deviceId,
+        deviceCode: 'RPI-7E57C0DE',
+        binding,
+        provisioningToken: 'ab'.repeat(32),
+        manifestSeq: 2,
+        siteConfigSeq: 3,
+        window,
+      },
+      release,
+      nonce,
+    );
+    const document = JSON.parse(issued.body) as JsonObject;
+    expect(verifyDeliveryDocument(document, nonce, factory, true)).toEqual([]);
+    expect(verifyDeliveryDocument(document, 'f1'.repeat(24), factory, true)).toEqual([
+      'nonce-mismatch',
+    ]);
+    const files = asObject(document['site_files'], 'site_files');
+    const tampered = {
+      ...document,
+      site_files: { ...files, 'config.yaml': Buffer.from('device_id: other\n').toString('base64') },
+    };
+    expect(verifyDeliveryDocument(tampered, nonce, factory, true)).toEqual([
+      'site-file-digest-mismatch',
+    ]);
+    const yaml = Buffer.from(asString(files['config.yaml'], 'config.yaml'), 'base64').toString(
+      'utf8',
+    );
+    expect(yaml).toContain('  port: 8883\n');
+    expect(yaml).toContain('    enabled: true\n');
+  });
+
+  it('a manifest for another device binding is refused by the device', async () => {
+    const { manifests } = services();
+    const request = parseProvisioningRequest(readJson(join(FIXTURES, REQUEST_FIRST)));
+    if (request === null) throw new Error('request');
+    const nonce = 'f2'.repeat(24);
+    const release = await manifests.preflight(request, tenantId);
+    const issued = manifests.issue(
+      {
+        tenantId,
+        deviceId,
+        deviceCode: 'RPI-7E57C0DE',
+        binding: { method: 'tpm-ek-sha256', digest: { sha256: '00'.repeat(32) } },
+        provisioningToken: 'ab'.repeat(32),
+        manifestSeq: 2,
+        siteConfigSeq: 3,
+        window,
+      },
+      release,
+      nonce,
+    );
+    expect(
+      verifyDeliveryDocument(JSON.parse(issued.body) as JsonObject, nonce, factory, false),
+    ).toEqual(['device-binding-mismatch']);
+  });
+
+  it('the RBAC manifest the service issues re-presents the installed one (identical-only gate)', () => {
+    const { rbac } = services();
+    const signed = rbac.forTenant(tenantId);
+    expect(signed.envelope).toEqual(envelopeOf(RBAC1));
+    for (const verifier of ['os-root', 'agent'] as const) {
+      expect(
+        verifyAs(signed.envelope, ST_RBAC, active, verifier, { trustAnchors: fixtureBytes(TA1) }),
+      ).toEqual([]);
+    }
+  });
+
+  it('the activation receipt the service issues is accepted by root and by the agent', () => {
+    const config = new SuderraEdgeConfig(new ConfigService(channelEnv()));
+    const receipt = new ActivationReceiptService(config).issue({
+      tenantId,
+      deviceId,
+      binding,
+      manifestDigest: statementDigest(payloadOf(PROV_FIRST)),
+      activationId: '7e570000-0000-4000-8000-0000000000a2',
+      activatedAt: new Date('2026-10-20T11:45:00Z'),
+    });
+    expect(verifyAs(receipt.envelope, ST_RECEIPT, provisioning, 'os-root')).toEqual([]);
+    expect(
+      verifyAs(receipt.envelope, ST_RECEIPT, provisioning, 'agent', {
+        trustAnchors: fixtureBytes(TA1),
+      }),
+    ).toEqual([]);
+    const other = new ActivationReceiptService(config).issue({
+      tenantId,
+      deviceId,
+      binding,
+      manifestDigest: statementDigest(payloadOf(REL_160)),
+      activationId: '7e570000-0000-4000-8000-0000000000a3',
+      activatedAt: new Date('2026-10-20T11:45:00Z'),
+    });
+    expect(verifyAs(other.envelope, ST_RECEIPT, provisioning, 'os-root')).toEqual([
+      'manifest-digest-mismatch',
+    ]);
+  });
+
+  it('the lifecycle statement the service issues moves an ACTIVE device to MAINTENANCE', () => {
+    const config = new SuderraEdgeConfig(new ConfigService(channelEnv()));
+    const service = new DeviceLifecycleStatementService(config);
+    const issue = (updateSeq: number): DsseEnvelope =>
+      service.enterMaintenanceForReprovisioning({ tenantId, deviceId, binding, updateSeq, window })
+        .envelope;
+    expect(verifyAs(issue(3), ST_LIFE, active, 'os-root')).toEqual([]);
+    expect(verifyAs(issue(2), ST_LIFE, active, 'os-root')).toEqual(['sequence-replay']);
+  });
+});
+
+// ------------------------------------------------------------- admission
+
+describe('contracts golden — what the cloud forwards but does not sign', () => {
+  it('the configured bundle must be fleet-root signed and anchor every cloud key', () => {
+    expect(() => services()).not.toThrow();
+    expect(() =>
+      services(
+        channelEnv({
+          SUDERRA_EDGE_TRUST_ANCHORS: fixtureText(
+            'trust-anchors/invalid/wrong-purpose-key.dsse.json',
+          ),
+        }),
+      ),
+    ).toThrow(SuderraEdgeConfigError);
+    const strangerCommandKey = Ed25519SigningKey.fromSeed('command', 1, Buffer.alloc(32, 7));
+    expect(() =>
+      services(
+        channelEnv({
+          SUDERRA_EDGE_COMMAND_SIGNING_KEY: `ed25519:1:${Buffer.alloc(32, 7).toString('hex')}`,
+        }),
+      ),
+    ).toThrow(new RegExp(`does not anchor the cloud's command key ${strangerCommandKey.keyid}`));
+  });
+
+  it('the bundle is delivered only to tenants in its tenant_scope (DEC-22)', () => {
+    const { bundles } = services();
+    expect(bundles.forTenant(field(bodyOf(PROV_FIRST), 'tenant_id')).digest).toEqual(
+      statementDigest(payloadOf(TA1)),
+    );
+    expect(() => bundles.forTenant('7e570000-0000-4000-8000-000000000002')).toThrow(
+      TenantOutOfBundleScopeError,
+    );
+  });
+
+  it('a release statement is admitted only under the bundle edge-release anchor', async () => {
+    const { catalog } = services();
+    const board = boardRow('revpi-connect4');
+    if (board === null) throw new Error('board');
+    const release = await catalog.forBoard(board);
+    expect(release.digest).toEqual(statementDigest(payloadOf(REL_160)));
+    expect(release.artifactUrl).toBe(field(bodyOf(PROV_FIRST), 'artifact_url'));
+
+    const env = channelEnv();
+    const config = new SuderraEdgeConfig(new ConfigService(env));
+    const forged = new EdgeReleaseCatalog(config, new TrustAnchorBundleService(config), async () =>
+      fixtureText('edge-release/invalid/wrong-purpose-key.dsse.json'),
+    );
+    await expect(forged.forBoard(board)).rejects.toThrow(StatementAdmissionError);
+  });
+
+  it('the channel configuration is all or nothing', () => {
+    expect(loadSuderraEdgeSettings(() => undefined)).toBeNull();
+    const partial = channelEnv();
+    expect(() =>
+      loadSuderraEdgeSettings((name) =>
+        name === 'SUDERRA_EDGE_MQTT_HOST' ? undefined : partial[name],
+      ),
+    ).toThrow(/partially configured; missing: SUDERRA_EDGE_MQTT_HOST/);
+    const shared = channelEnv({ SUDERRA_EDGE_COMMAND_SIGNING_KEY: secret(KEYS.rbacManifest) });
+    expect(() => loadSuderraEdgeSettings((name) => shared[name])).toThrow(/share one key/);
+    const fractional = channelEnv({ SUDERRA_EDGE_RBAC_NOT_BEFORE: '2026-10-01T00:00:00.500Z' });
+    expect(() => loadSuderraEdgeSettings((name) => fractional[name])).toThrow(
+      SuderraEdgeConfigError,
+    );
+  });
+});

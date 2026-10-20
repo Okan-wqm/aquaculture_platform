@@ -195,9 +195,10 @@ pub fn parse_identity(path: &Path, bytes: &[u8]) -> Result<AgentDevice, TrustErr
     let device = doc.device.ok_or_else(|| {
         fail("no tenant and device identity: the device is not provisioned".to_owned())
     })?;
-    if !is_uuid(&device.tenant_id) || !is_uuid(&device.device_id) || device.device_code.is_empty()
-    {
-        return Err(fail("tenant_id, device_id or device_code is malformed".to_owned()));
+    if !is_uuid(&device.tenant_id) || !is_uuid(&device.device_id) || device.device_code.is_empty() {
+        return Err(fail(
+            "tenant_id, device_id or device_code is malformed".to_owned(),
+        ));
     }
     Ok(AgentDevice {
         board: doc.board_profile,
@@ -417,14 +418,18 @@ pub(crate) mod test_support {
     /// revpi-connect4 device, laid out as on the device.
     pub(crate) fn device_root() -> tempfile::TempDir {
         let root = tempfile::tempdir().unwrap();
-        let ring: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(contract().join("test-keys/keyring.json")).unwrap())
-                .unwrap();
+        let ring: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(contract().join("test-keys/keyring.json")).unwrap(),
+        )
+        .unwrap();
         for key in ring["keys"].as_array().unwrap() {
             if key["fixture_anchor"] != "os-image" {
                 continue;
             }
-            let dir = root.path().join("keys").join(key["purpose"].as_str().unwrap());
+            let dir = root
+                .path()
+                .join("keys")
+                .join(key["purpose"].as_str().unwrap());
             std::fs::create_dir_all(&dir).unwrap();
             std::fs::copy(
                 contract().join(key["path"].as_str().unwrap()),
@@ -432,10 +437,9 @@ pub(crate) mod test_support {
             )
             .unwrap();
         }
-        let index: serde_json::Value = serde_json::from_slice(
-            &std::fs::read(contract().join("fixtures/index.json")).unwrap(),
-        )
-        .unwrap();
+        let index: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(contract().join("fixtures/index.json")).unwrap())
+                .unwrap();
         let ctx = &index["device_contexts"]["revpi-active"];
         let identity = serde_json::json!({
             "board_profile": ctx["board_profile"],
@@ -493,7 +497,13 @@ mod tests {
         .unwrap();
         assert_eq!(trust.bundle_seq(), 1);
         assert_eq!(trust.bundle_keys().of_purpose(Purpose::Command).count(), 1);
-        assert_eq!(trust.bundle_keys().of_purpose(Purpose::RbacManifest).count(), 1);
+        assert_eq!(
+            trust
+                .bundle_keys()
+                .of_purpose(Purpose::RbacManifest)
+                .count(),
+            1
+        );
         let cas = trust.mqtt_ca_der().unwrap();
         assert!(!cas.is_empty());
         assert!(x509_parser::parse_x509_certificate(&cas[0]).is_ok());
@@ -503,11 +513,26 @@ mod tests {
     fn a_rejected_bundle_names_its_contract_reason() {
         let root = device_root();
         for (fixture, reason) in [
-            ("trust-anchors/invalid/wrong-purpose-key.dsse.json", Reason::KeyPurposeMismatch),
-            ("trust-anchors/invalid/bad-signature.dsse.json", Reason::SignatureInvalid),
-            ("trust-anchors/invalid/tenant-scope-excludes-device.dsse.json", Reason::TenantScopeMismatch),
-            ("trust-anchors/invalid/anchor-not-os-pinned.dsse.json", Reason::AnchorNotOsPinned),
-            ("trust-anchors/invalid/two-signatures.dsse.json", Reason::EnvelopeInvalid),
+            (
+                "trust-anchors/invalid/wrong-purpose-key.dsse.json",
+                Reason::KeyPurposeMismatch,
+            ),
+            (
+                "trust-anchors/invalid/bad-signature.dsse.json",
+                Reason::SignatureInvalid,
+            ),
+            (
+                "trust-anchors/invalid/tenant-scope-excludes-device.dsse.json",
+                Reason::TenantScopeMismatch,
+            ),
+            (
+                "trust-anchors/invalid/anchor-not-os-pinned.dsse.json",
+                Reason::AnchorNotOsPinned,
+            ),
+            (
+                "trust-anchors/invalid/two-signatures.dsse.json",
+                Reason::EnvelopeInvalid,
+            ),
         ] {
             let file = bundle(root.path(), fixture);
             let err = InstalledTrust::load_from(
@@ -558,8 +583,11 @@ mod tests {
             Err(TrustError::Pins { .. })
         ));
         std::fs::remove_file(dir.join("01.pub")).unwrap();
-        std::fs::write(dir.join("2.pub"), "-----BEGIN PUBLIC KEY-----\nAAAA\n-----END PUBLIC KEY-----\n")
-            .unwrap();
+        std::fs::write(
+            dir.join("2.pub"),
+            "-----BEGIN PUBLIC KEY-----\nAAAA\n-----END PUBLIC KEY-----\n",
+        )
+        .unwrap();
         assert!(load_os_pins(&root.path().join("keys")).is_err());
     }
 
@@ -572,5 +600,201 @@ mod tests {
             read_bounded(&path, 1024),
             Err(TrustError::TooLarge { .. })
         ));
+    }
+}
+
+/// Single-defect checks of the agent verifier (`edge_contract::verify`)
+/// that the contract's fixture set does not isolate (agent-track review m6): each test re-signs a golden statement with its
+/// TEST-ONLY key after one change, so exactly one check can reject it.
+#[cfg(test)]
+mod single_defect_tests {
+    #![allow(clippy::expect_used, clippy::unwrap_used, clippy::indexing_slicing)]
+
+    use base64::Engine as _;
+    use base64::engine::general_purpose::STANDARD;
+    use ed25519_dalek::{Signer, SigningKey};
+    use sha2::{Digest, Sha256};
+
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use super::test_support::{FIXTURE_NOW, fixture, fixture_trust};
+    use crate::edge_contract::dsse::{Envelope, pae};
+    use crate::edge_contract::encoding::sha256_hex;
+    use crate::edge_contract::registry::{Purpose, Reason, SitePath, StatementType};
+    use crate::edge_contract::verify::{
+        SiteFiles, verify_rbac, verify_site_config, verify_trust_anchors,
+    };
+
+    const BUNDLE: &str = "trust-anchors/valid/bundle-seq-1.dsse.json";
+    const POLICY_1: &str = "rbac-manifest/valid/platform-actor-policy-1.dsse.json";
+    const SEQ_2: &str = "site-config/valid/revpi-connect4-seq-2.dsse.json";
+
+    /// A TEST-ONLY contract key (keyring.json `derivation`).
+    fn key(purpose: &str, epoch: u32) -> SigningKey {
+        let label = format!("suderra-edge-contract:v1:TEST-ONLY:{purpose}:{epoch}");
+        SigningKey::from_bytes(&Sha256::digest(label).into())
+    }
+
+    fn payload_of(rel: &str) -> serde_json::Value {
+        serde_json::from_slice(&Envelope::parse(&fixture(rel)).unwrap().payload).unwrap()
+    }
+
+    fn signed(t: StatementType, payload: &serde_json::Value, key: &SigningKey) -> Envelope {
+        let bytes = serde_json::to_vec(payload).unwrap();
+        let signature = key.sign(&pae(&t.payload_type(), &bytes)).to_bytes();
+        Envelope {
+            payload_type: t.payload_type(),
+            payload: bytes,
+            keyid: sha256_hex(&key.verifying_key().to_bytes()),
+            signature,
+        }
+    }
+
+    fn site_files(config_yaml: &str) -> SiteFiles {
+        SiteFiles::from([
+            (SitePath::ConfigYaml, fixture(config_yaml)),
+            (
+                SitePath::RevpiConfigRsc,
+                fixture("site-files/v1/revpi/config.rsc"),
+            ),
+        ])
+    }
+
+    /// (a) An actor key the bundle anchors, but not as a `command` key, is
+    /// not a command signer.
+    #[test]
+    fn an_actor_key_anchored_under_another_purpose_is_refused() {
+        let (_root, trust) = fixture_trust(BUNDLE);
+        let rbac_key = key("rbac-manifest", 1);
+        let public = rbac_key.verifying_key().to_bytes();
+        assert_eq!(
+            trust
+                .bundle_keys()
+                .get(&sha256_hex(&public))
+                .map(|k| k.purpose),
+            Some(Purpose::RbacManifest),
+            "the key is anchored, under another purpose"
+        );
+        let mut manifest = payload_of(POLICY_1);
+        manifest["actors"][0]["keyid"] = sha256_hex(&public).into();
+        manifest["actors"][0]["public_key"] = STANDARD.encode(public).into();
+        let env = signed(StatementType::RbacManifest, &manifest, &rbac_key);
+        let gates = BTreeMap::new();
+        let verdict = verify_rbac(&env, &trust.scope(&gates, FIXTURE_NOW), trust.bundle_keys());
+        assert_eq!(
+            verdict.reasons,
+            BTreeSet::from([Reason::ActorKeyNotAnchored])
+        );
+    }
+
+    /// (b) A delivered file whose digest matches but whose size the
+    /// statement states differently is refused.
+    #[test]
+    fn a_size_only_site_file_mismatch_is_refused() {
+        let (_root, trust) = fixture_trust(BUNDLE);
+        let mut site = payload_of(SEQ_2);
+        let size = site["files"]["config.yaml"]["size_bytes"].as_u64().unwrap();
+        site["files"]["config.yaml"]["size_bytes"] = (size + 1).into();
+        let env = signed(
+            StatementType::SiteConfig,
+            &site,
+            &key("config-integrity", 1),
+        );
+        let rbac = Envelope::parse(&fixture(POLICY_1)).unwrap();
+        let gates = BTreeMap::new();
+        let (verdict, _) = verify_site_config(
+            &env,
+            &trust.scope(&gates, FIXTURE_NOW),
+            trust.bundle_keys(),
+            &rbac,
+            &site_files("site-files/v2/config.yaml"),
+        );
+        assert_eq!(
+            verdict.reasons,
+            BTreeSet::from([Reason::SiteFileDigestMismatch])
+        );
+    }
+
+    /// (c) `expires_at` is the first instant the statement is no longer
+    /// valid.
+    #[test]
+    fn a_statement_expires_at_exactly_expires_at() {
+        let (_root, trust) = fixture_trust(BUNDLE);
+        let env = Envelope::parse(&fixture(SEQ_2)).unwrap();
+        let rbac = Envelope::parse(&fixture(POLICY_1)).unwrap();
+        let gates = BTreeMap::new();
+        let files = site_files("site-files/v2/config.yaml");
+        let at = |now: &str| {
+            verify_site_config(
+                &env,
+                &trust.scope(&gates, now),
+                trust.bundle_keys(),
+                &rbac,
+                &files,
+            )
+            .0
+            .reasons
+        };
+        assert_eq!(payload_of(SEQ_2)["expires_at"], "2026-10-21T00:00:00Z");
+        assert_eq!(at("2026-10-20T23:59:59Z"), BTreeSet::new());
+        assert_eq!(
+            at("2026-10-21T00:00:00Z"),
+            BTreeSet::from([Reason::Expired])
+        );
+    }
+
+    /// (d) The site config must name the delivered manifest's
+    /// `policy_version` as well as its digest.
+    #[test]
+    fn a_policy_version_only_rbac_mismatch_is_refused() {
+        let (_root, trust) = fixture_trust(BUNDLE);
+        let mut site = payload_of(SEQ_2);
+        assert_eq!(site["rbac_manifest"]["policy_version"], 1);
+        site["rbac_manifest"]["policy_version"] = 2.into();
+        let env = signed(
+            StatementType::SiteConfig,
+            &site,
+            &key("config-integrity", 1),
+        );
+        let rbac = Envelope::parse(&fixture(POLICY_1)).unwrap();
+        let gates = BTreeMap::new();
+        let (verdict, _) = verify_site_config(
+            &env,
+            &trust.scope(&gates, FIXTURE_NOW),
+            trust.bundle_keys(),
+            &rbac,
+            &site_files("site-files/v2/config.yaml"),
+        );
+        assert_eq!(
+            verdict.reasons,
+            BTreeSet::from([Reason::RbacManifestDigestMismatch])
+        );
+    }
+
+    /// (e) An anchor whose keyid is not SHA-256 of its key is invalid even
+    /// when no other anchor shares the keyid.
+    #[test]
+    fn an_anchor_keyid_that_is_not_its_key_digest_is_invalid() {
+        let (_root, trust) = fixture_trust(BUNDLE);
+        let mut bundle = payload_of(BUNDLE);
+        let anchors = bundle["anchors"].as_array_mut().unwrap();
+        let config_integrity = anchors
+            .iter_mut()
+            .find(|a| a["purpose"] == "config-integrity")
+            .unwrap();
+        let fresh = "00".repeat(32);
+        config_integrity["keyid"] = fresh.clone().into();
+        assert_eq!(
+            anchors
+                .iter()
+                .filter(|a| a["keyid"] == fresh.as_str())
+                .count(),
+            1,
+            "no duplicate keyid"
+        );
+        let env = signed(StatementType::TrustAnchors, &bundle, &key("fleet-root", 1));
+        let gates = BTreeMap::new();
+        let verdict = verify_trust_anchors(&env, &trust.scope(&gates, FIXTURE_NOW));
+        assert_eq!(verdict.reasons, BTreeSet::from([Reason::AnchorInvalid]));
     }
 }

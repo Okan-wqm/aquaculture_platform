@@ -19,6 +19,7 @@ export class CreateTemperatureScenarios1823000000000 implements MigrationInterfa
         "siteId" uuid NOT NULL,
         "name" character varying(120) NOT NULL,
         "source" character varying(20) NOT NULL DEFAULT 'manual',
+        "createdBy" uuid,
         "isDeleted" boolean NOT NULL DEFAULT false,
         "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
         "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now(),

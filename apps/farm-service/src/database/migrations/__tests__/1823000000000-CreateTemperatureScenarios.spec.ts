@@ -35,6 +35,7 @@ describe('CreateTemperatureScenarios1823000000000', () => {
     expect(scenarios).toBeDefined();
     expect(points).toBeDefined();
     expect(scenarios).toContain('"siteId" uuid NOT NULL');
+    expect(scenarios).toContain('"createdBy" uuid');
     expect(scenarios).toContain("'manual'");
     expect(points).toContain('"celsius" real NOT NULL');
 

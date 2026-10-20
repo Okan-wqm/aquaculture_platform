@@ -194,24 +194,12 @@ const MIN_SCAN_CYCLE_MS: u64 = 10;
 /// Maximum allowed scan cycle time (10s)
 const MAX_SCAN_CYCLE_MS: u64 = 10000;
 
-/// Get default program state path
-/// v1.2.6: Creates directory if it doesn't exist
-/// Batch 30: route through crate::data_dir SSoT helper.
+/// Default program state path, from the agent's path SSoT
+/// (ADR-048 DEC-4.5). No directory is created here: on Suderra OS the OS
+/// creates the agent's data subdirectories before the unit starts and the
+/// agent never creates them (DEC-4.11); the generic unit owns the data root.
 fn default_program_state_path() -> PathBuf {
-    let path = crate::data_dir::data_dir();
-
-    // Ensure data directory exists (v1.2.6: early validation)
-    if !path.exists() {
-        if let Err(e) = std::fs::create_dir_all(&path) {
-            tracing::warn!(
-                path = ?path,
-                error = %e,
-                "Failed to create data directory, program state may not persist"
-            );
-        }
-    }
-
-    path.join("program.json")
+    crate::paths::AgentPaths::current().program_state_file()
 }
 
 impl ScriptEngine {

@@ -10,7 +10,7 @@
 //!   - Selectively updates telemetry interval / include flags +
 //!     scripting enabled flag (validated bounds: 5..=3600s for
 //!     interval).
-//!   - Persists to disk via `state.config.save()` if anything
+//!   - Persists to disk via `state.config.save(crate::paths::AgentPaths::current())` if anything
 //!     changed; returns Err on persist failure (the only fatal
 //!     path — caller's `error!` log surfaces it).
 //!
@@ -75,7 +75,7 @@ impl super::CommandHandler {
 
         // Save config to disk if changed
         if config_changed {
-            if let Err(e) = state.config.save() {
+            if let Err(e) = state.config.save(crate::paths::AgentPaths::current()) {
                 error!("Failed to save config after update: {}", e);
                 return Err(anyhow::anyhow!("Failed to persist config changes: {}", e));
             }

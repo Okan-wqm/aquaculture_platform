@@ -422,6 +422,20 @@ rppal = { version = "0.17", optional = true }
 # defaults because not every target has RPi hardware; operators
 # explicitly enable via `--features gpio` in per-deployment build.
 default = ["health"]
+
+# ADR-048 DEC-8 / DEC-28: the Suderra OS agent profile, the `suderra-os` entry
+# of contracts/suderra-edge/v1/boards.json `cargo_features`.
+# WHAT: every path is a compile-time constant of the contract's mutable-state
+#       table (src/paths.rs); no security-relevant environment variable is
+#       read (src/generic_env.rs is not compiled); config.yaml and the other
+#       site files are root-delivered material the agent never rewrites; the
+#       SQLCipher device secret lives in the agent's secrets/ directory and is
+#       never derived from /etc/machine-id (src/machine_id.rs is not compiled).
+# WHY:  the Suderra OS root is a read-only dm-verity mount; a unit file or
+#       drop-in must not be able to move the agent's paths (DEC-4.5, DEC-19).
+# INVARIANT: tests/invariants/no_etc_write_paths.rs,
+#            tests/invariants/no_security_env_in_suderra_os.rs
+suderra-os = []
 gpio = ["rppal"]
 # HTTP health check endpoint (uses axum)
 health = ["axum"]

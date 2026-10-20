@@ -13,7 +13,7 @@ use secrecy::{ExposeSecret, Secret};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 use std::fs;
-use std::path::PathBuf;
+use std::path::Path;
 use std::str::FromStr;
 use tracing::{debug, info, warn};
 
@@ -138,9 +138,6 @@ fn detect_gpio_platform() -> GpioPlatform {
 fn detect_gpio_platform() -> GpioPlatform {
     GpioPlatform::Unknown
 }
-
-/// Default config file path
-const DEFAULT_CONFIG_PATH: &str = "/etc/suderra/config.yaml";
 
 /// Agent configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1480,7 +1477,10 @@ fn default_max_devices() -> usize {
     100
 }
 fn default_session_db_path() -> String {
-    "/var/lib/suderra/lora_sessions.db".to_string()
+    crate::paths::AgentPaths::current()
+        .lora_sessions_db()
+        .to_string_lossy()
+        .into_owned()
 }
 fn default_sf_min() -> u8 {
     7
@@ -2547,8 +2547,14 @@ impl Default for OpcUaServerConfig {
             max_sessions_per_user: 2,
             auth_mode: OpcUaAuthMode::default(),
             security_policy: OpcUaSecurityPolicy::default(),
-            own_pki_dir: "/var/lib/suderra/pki/own".to_string(),
-            trusted_certs_dir: "/var/lib/suderra/pki/trusted/certs".to_string(),
+            own_pki_dir: crate::paths::AgentPaths::current()
+                .opcua_own_pki_dir()
+                .to_string_lossy()
+                .into_owned(),
+            trusted_certs_dir: crate::paths::AgentPaths::current()
+                .opcua_trusted_certs_dir()
+                .to_string_lossy()
+                .into_owned(),
             subscription_polling_interval_ms: 100,
         }
     }
@@ -2941,7 +2947,10 @@ fn default_log_level() -> String {
     "info".to_string()
 }
 fn default_log_file() -> String {
-    "/var/log/suderra-agent.log".to_string()
+    crate::paths::AgentPaths::current()
+        .app_log_file()
+        .to_string_lossy()
+        .into_owned()
 }
 fn default_slave_id() -> u8 {
     1
@@ -3242,16 +3251,18 @@ impl AgentConfig {
         detect_gpio_platform()
     }
 
-    /// Load configuration from file
-    pub fn load() -> Result<Self> {
-        Self::load_from(DEFAULT_CONFIG_PATH)
+    /// Load the agent configuration from the file the path SSoT names
+    /// (ADR-048 DEC-4.5). Boot, SIGHUP reload and the CLIs all call this,
+    /// so they read the same file: `SUDERRA_CONFIG` or
+    /// `/etc/suderra/config.yaml` in the generic profile, the site's
+    /// `/var/lib/suderra-site/config.yaml` in the Suderra OS profile.
+    pub fn load(paths: &crate::paths::AgentPaths) -> Result<Self> {
+        Self::load_from(paths.config_file())
     }
 
-    /// Load configuration from specified path
-    pub fn load_from(path: &str) -> Result<Self> {
-        let path = PathBuf::from(path);
-
-        let content = fs::read_to_string(&path)
+    /// Load configuration from the given file.
+    pub fn load_from(path: &Path) -> Result<Self> {
+        let content = fs::read_to_string(path)
             .with_context(|| format!("Failed to read config file: {}", path.display()))?;
 
         let config: AgentConfig = serde_yaml::from_str(&content)
@@ -3746,7 +3757,137 @@ impl AgentConfig {
         // silently skips it.
         self.validate_faz2_security_coherence()?;
 
+        // ADR-048 DEC-4.5 / DEC-4.11: profile filesystem contract.
+        #[cfg(feature = "suderra-os")]
+        self.validate_suderra_os_paths()?;
+
         debug!("Configuration validation passed");
+        Ok(())
+    }
+
+    /// Suderra OS filesystem contract for configured paths (ADR-048
+    /// DEC-4.5, DEC-4.11, DEC-21).
+    ///
+    /// Every path of the profile is a compile-time constant
+    /// (`crate::paths`). A config may still *name* a store file — several
+    /// stores are switched on by naming one — but only inside a directory
+    /// the agent may write; anything else would be an EROFS on the
+    /// read-only root at run time, or a write into a tree another writer
+    /// owns (DEC-4.3). The read-side anchors the root installer owns — the
+    /// RBAC manifest, the integrity sidecar, keystore material — cannot be
+    /// moved at all: pointing one at an agent-writable file would let the
+    /// agent supply its own trust input. The contract provisions no
+    /// keystore material before the P2 TPM keystore, so the keystore stays
+    /// disabled.
+    #[cfg(feature = "suderra-os")]
+    fn validate_suderra_os_paths(&self) -> Result<()> {
+        let paths = crate::paths::AgentPaths::current();
+
+        let fixed: [(&str, bool); 5] = [
+            (
+                "rbac_manifest.manifest_path",
+                self.rbac_manifest.manifest_path.is_some(),
+            ),
+            (
+                "config_integrity.sidecar_path",
+                self.config_integrity.sidecar_path.is_some(),
+            ),
+            (
+                "keystore.passphrase_path",
+                self.keystore.passphrase_path.is_some(),
+            ),
+            ("keystore.salt_path", self.keystore.salt_path.is_some()),
+            (
+                "keystore.acceptance_path",
+                self.keystore.acceptance_path.is_some(),
+            ),
+        ];
+        for (field, set) in fixed {
+            if set {
+                anyhow::bail!(
+                    "{field} cannot be set in the suderra-os profile: the file is \
+                     site material at a compile-time path the root installer owns \
+                     (ADR-048 DEC-4.5)"
+                );
+            }
+        }
+        if !matches!(self.keystore.mode, KeystoreMode::Disabled) {
+            anyhow::bail!(
+                "keystore.mode={:?} is not available in the suderra-os profile: the \
+                 contract provisions no keystore material before the P2 TPM keystore \
+                 (ADR-048 DEC-21)",
+                self.keystore.mode
+            );
+        }
+
+        fn opt(p: &Option<std::path::PathBuf>) -> Option<&Path> {
+            p.as_deref()
+        }
+        fn named(s: &str) -> Option<&Path> {
+            (!s.is_empty()).then(|| Path::new(s))
+        }
+        let written: [(&str, Option<&Path>); 15] = [
+            (
+                "offline_queue.db_path_override",
+                opt(&self.offline_queue.db_path_override),
+            ),
+            ("backup.backup_dir", opt(&self.backup.backup_dir)),
+            (
+                "scripting.bytecode_store_path",
+                named(&self.scripting.bytecode_store_path),
+            ),
+            (
+                "scripting.force_store_path",
+                named(&self.scripting.force_store_path),
+            ),
+            (
+                "lorawan.session_db_path",
+                self.lorawan
+                    .as_ref()
+                    .and_then(|l| named(&l.session_db_path)),
+            ),
+            (
+                "rbac_manifest.version_store_path",
+                opt(&self.rbac_manifest.version_store_path),
+            ),
+            (
+                "user_token_manifest.version_store_path",
+                opt(&self.user_token_manifest.version_store_path),
+            ),
+            ("audit.log_path", opt(&self.audit.log_path)),
+            (
+                "envelope_dedup.sqlcipher_path",
+                opt(&self.envelope_dedup.sqlcipher_path),
+            ),
+            (
+                "opc_ua_server.own_pki_dir",
+                named(&self.opc_ua_server.own_pki_dir),
+            ),
+            (
+                "opc_ua_server.trusted_certs_dir",
+                named(&self.opc_ua_server.trusted_certs_dir),
+            ),
+            ("logging.file", named(&self.logging.file)),
+            (
+                "firmware_update.tryboot_autoboot_path",
+                opt(&self.firmware_update.tryboot_autoboot_path),
+            ),
+            (
+                "firmware_update.ab_partitions.slot_a_mount",
+                opt(&self.firmware_update.ab_partitions.slot_a_mount),
+            ),
+            (
+                "firmware_update.ab_partitions.slot_b_mount",
+                opt(&self.firmware_update.ab_partitions.slot_b_mount),
+            ),
+        ];
+        for (field, path) in written {
+            if let Some(path) = path {
+                paths
+                    .check_agent_writable(path)
+                    .map_err(|e| anyhow::anyhow!("{field}: {e}"))?;
+            }
+        }
         Ok(())
     }
 
@@ -4235,18 +4376,18 @@ impl AgentConfig {
         Ok(())
     }
 
-    /// Save configuration to file
-    pub fn save(&self) -> Result<()> {
-        self.save_to(DEFAULT_CONFIG_PATH)
+    /// Persist the configuration to the file the path SSoT names.
+    pub fn save(&self, paths: &crate::paths::AgentPaths) -> Result<()> {
+        self.save_to(paths.config_file())
     }
 
-    /// Save configuration to specified path
+    /// Save configuration to the given file.
     ///
     /// # Security
     /// On Unix systems, this sets file permissions to 0600 (owner read/write only)
     /// to protect sensitive credentials stored in the config file.
-    pub fn save_to(&self, path: &str) -> Result<()> {
-        let path = PathBuf::from(path);
+    pub fn save_to(&self, path: &Path) -> Result<()> {
+        let path = path.to_path_buf();
 
         let content = serde_yaml::to_string(self).context("Failed to serialize config")?;
 

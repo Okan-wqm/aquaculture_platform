@@ -155,8 +155,8 @@ impl CommandHandler {
             )
         };
 
-        // Batch 30: route through crate::data_dir SSoT helper.
-        let program_state_path = crate::data_dir::data_dir().join("program.json");
+        // ADR-048 DEC-4.5: the program state file comes from the path SSoT.
+        let program_state_path = crate::paths::AgentPaths::current().program_state_file();
 
         Self {
             state,

@@ -64,20 +64,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::config::{AgentConfig, KeystoreMode};
-use crate::keystore::{
-    AcceptanceToken, Argon2idParams, FileBackedAcceptance, FileBackedKeystore, Keystore,
-    ROTATION_MARKER_FILENAME,
-};
+use crate::keystore::Keystore;
+#[cfg(not(feature = "suderra-os"))]
+use crate::keystore::{AcceptanceToken, Argon2idParams, FileBackedAcceptance, FileBackedKeystore};
 use crate::runtime_safety::ClockAuthority;
-use tracing::{info, warn};
-
-/// Default paths used when the agent config doesn't
-/// override them. Mirror the pre-extraction inline
-/// `unwrap_or_else` literals so byte-for-byte
-/// production behavior is preserved.
-const DEFAULT_PASSPHRASE_PATH: &str = "/etc/suderra/keystore.passphrase";
-const DEFAULT_SALT_PATH: &str = "/etc/suderra/keystore.salt";
-const DEFAULT_ACCEPTANCE_PATH: &str = "/etc/suderra/keystore.acceptance.json";
+use tracing::info;
+#[cfg(not(feature = "suderra-os"))]
+use tracing::warn;
 
 /// Build the production `FileBackedKeystore` from agent
 /// config + caller-provided clock authority. Returns
@@ -97,9 +90,11 @@ const DEFAULT_ACCEPTANCE_PATH: &str = "/etc/suderra/keystore.acceptance.json";
 ///     `SystemClockAuthority` (rotation tracker is
 ///     read-only during the ceremony — no fresh
 ///     wallclock anchor needed).
-///   - `data_dir` — base directory for the rotation
-///     marker file. Caller passes
-///     `data_dir::data_dir()`.
+///   - `rotation_marker_path` — the rotation marker
+///     file. Callers pass
+///     `AgentPaths::current().keystore_rotation_marker(..)`
+///     so boot, the alarm runner and the migration CLI
+///     agree on it (ADR-048 DEC-4.5).
 ///
 /// **Errors:** `String` with operator-readable
 /// context. Mirrors the pre-extraction error messages
@@ -108,13 +103,80 @@ const DEFAULT_ACCEPTANCE_PATH: &str = "/etc/suderra/keystore.acceptance.json";
 pub async fn build_production_keystore_from_config(
     config: &AgentConfig,
     clock_authority: Arc<dyn ClockAuthority>,
-    data_dir: PathBuf,
+    rotation_marker_path: PathBuf,
 ) -> Result<Option<Arc<dyn Keystore>>, String> {
     if matches!(config.keystore.mode, KeystoreMode::Disabled) {
         info!("Keystore init skipped: keystore.mode=Disabled (HC-1 backward compat)");
         return Ok(None);
     }
 
+    // The Suderra OS contract provisions no keystore material: the
+    // read-only site directory and the agent's secrets/ hold no
+    // passphrase, salt or acceptance token (mutable-state.json), and the
+    // TPM keystore arrives in P2 (ADR-048 DEC-21, EDGE-MEDIUM-099).
+    // `AgentConfig::validate` refuses the combination at load; this is
+    // the same refusal for a caller that skipped validation.
+    #[cfg(feature = "suderra-os")]
+    {
+        let _ = (clock_authority, rotation_marker_path);
+        let reason = keystore_material_paths(config).err().unwrap_or_default();
+        Err(format!(
+            "Keystore init: keystore.mode={:?} is not available: {reason}",
+            config.keystore.mode
+        ))
+    }
+
+    #[cfg(not(feature = "suderra-os"))]
+    build_file_backed_keystore(config, clock_authority, rotation_marker_path).await
+}
+
+/// Files of the FileBacked keystore: the configured
+/// `keystore.{passphrase,salt,acceptance}_path` or the path SSoT's
+/// defaults. Shared by the keystore build and `rotate_master`, so both read
+/// the same files.
+///
+/// Suderra OS: there are none — the contract provisions no keystore
+/// material before the P2 TPM keystore (ADR-048 DEC-21), so the answer is an
+/// error naming that.
+#[cfg(not(feature = "suderra-os"))]
+pub fn keystore_material_paths(config: &AgentConfig) -> Result<(PathBuf, PathBuf, PathBuf), String> {
+    let paths = crate::paths::AgentPaths::current();
+    Ok((
+        config
+            .keystore
+            .passphrase_path
+            .clone()
+            .unwrap_or_else(|| paths.keystore_passphrase_file()),
+        config
+            .keystore
+            .salt_path
+            .clone()
+            .unwrap_or_else(|| paths.keystore_salt_file()),
+        config
+            .keystore
+            .acceptance_path
+            .clone()
+            .unwrap_or_else(|| paths.keystore_acceptance_file()),
+    ))
+}
+
+/// See the generic variant.
+#[cfg(feature = "suderra-os")]
+pub fn keystore_material_paths(_config: &AgentConfig) -> Result<(PathBuf, PathBuf, PathBuf), String> {
+    Err("the suderra-os profile provisions no keystore material before the P2 TPM keystore \
+         (ADR-048 DEC-21)"
+        .to_string())
+}
+
+/// The generic profile's FileBacked keystore build (the body of
+/// [`build_production_keystore_from_config`] once the mode is known to be
+/// enabled).
+#[cfg(not(feature = "suderra-os"))]
+async fn build_file_backed_keystore(
+    config: &AgentConfig,
+    clock_authority: Arc<dyn ClockAuthority>,
+    rotation_marker_path: PathBuf,
+) -> Result<Option<Arc<dyn Keystore>>, String> {
     if matches!(config.keystore.mode, KeystoreMode::Auto) {
         warn!(
             "Keystore.mode=Auto: TPM + systemd-creds probes land in Phase 2 / Batches 83a+83b. \
@@ -123,21 +185,7 @@ pub async fn build_production_keystore_from_config(
         );
     }
 
-    let pass_path = config
-        .keystore
-        .passphrase_path
-        .clone()
-        .unwrap_or_else(|| PathBuf::from(DEFAULT_PASSPHRASE_PATH));
-    let salt_path = config
-        .keystore
-        .salt_path
-        .clone()
-        .unwrap_or_else(|| PathBuf::from(DEFAULT_SALT_PATH));
-    let acceptance_path = config
-        .keystore
-        .acceptance_path
-        .clone()
-        .unwrap_or_else(|| PathBuf::from(DEFAULT_ACCEPTANCE_PATH));
+    let (pass_path, salt_path, acceptance_path) = keystore_material_paths(config)?;
 
     // Read + parse acceptance token (operator-signed).
     let acceptance_bytes = std::fs::read(&acceptance_path).map_err(|e| {
@@ -216,7 +264,7 @@ pub async fn build_production_keystore_from_config(
         parallelism: config.keystore.argon2_parallelism,
     };
 
-    let marker_path = data_dir.join(ROTATION_MARKER_FILENAME);
+    let marker_path = rotation_marker_path;
     let ks = FileBackedKeystore::open_with_rotation_tracker(
         &pass_path,
         &salt_path,

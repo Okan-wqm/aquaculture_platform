@@ -37,12 +37,16 @@
 // secrets (Sprint 6.3 keystore master-key mlock) are allocated.
 mod process_hardening;
 
-// Batch 30: SSoT for SUDERRA_DATA_DIR env var resolution + FHS
-// default path. Six sites across main.rs/commands/mod.rs/
-// scripting/engine.rs previously duplicated the `env::var
-// unwrap_or_else` pattern; consolidated here so a future FHS
-// policy change is a single-file edit.
-mod data_dir;
+// ADR-048 DEC-4.5: the agent's one path resolver. In the `suderra-os`
+// profile every path is a compile-time constant of the contract's
+// mutable-state table; in the generic profile the legacy layout with the
+// SUDERRA_CONFIG / SUDERRA_DATA_DIR / SUDERRA_DB_KEY_PATH overrides.
+mod paths;
+// ADR-048 DEC-19: the only reader of security-relevant environment
+// variables. Not compiled in the `suderra-os` profile, so no Suderra OS code
+// path can consult one (tests/invariants/no_security_env_in_suderra_os.rs).
+#[cfg(not(feature = "suderra-os"))]
+mod generic_env;
 
 mod alarms; // v1.2.4: Alarm management (IEC 62682)
 // Batch 2 — ADR-018 §1 + ADR-024 §1 Permission enum + ActuatorClass taxonomy.
@@ -237,34 +241,27 @@ use crate::telemetry::TelemetryCollector;
 
 /// Generate default configuration file (v1.2.1 - issue #35)
 ///
-/// Creates a default config file with documented fields and sensible defaults.
-/// The file is created at /etc/suderra/config.yaml (or SUDERRA_CONFIG env var).
+/// Creates a default config file with documented fields and sensible defaults
+/// at the path SSoT's config file (`SUDERRA_CONFIG` or
+/// `/etc/suderra/config.yaml`). Generic profile only: on Suderra OS the
+/// config is site material the root installer writes from a signed payload,
+/// and the agent never writes it (ADR-048 DEC-4.6).
+#[cfg(not(feature = "suderra-os"))]
 fn generate_default_config() -> Result<()> {
     use std::fs;
-    use std::path::Path;
 
-    // v1.2.3: Log when using default config path
-    let config_path = match std::env::var("SUDERRA_CONFIG") {
-        Ok(path) => {
-            tracing::info!("Using config path from SUDERRA_CONFIG: {}", path);
-            path
-        }
-        Err(_) => {
-            let default_path = "/etc/suderra/config.yaml".to_string();
-            tracing::info!("SUDERRA_CONFIG not set, using default: {}", default_path);
-            default_path
-        }
-    };
+    let config_path_buf = paths::AgentPaths::current().config_file().to_path_buf();
+    let config_path = config_path_buf.display().to_string();
 
     // Check if config already exists
-    if Path::new(&config_path).exists() {
+    if config_path_buf.exists() {
         tracing::warn!("Config file already exists: {}", config_path);
         tracing::warn!("Remove it first or use a different path via SUDERRA_CONFIG");
         return Err(anyhow::anyhow!("Config already exists"));
     }
 
     // Create parent directory
-    if let Some(parent) = Path::new(&config_path).parent() {
+    if let Some(parent) = config_path_buf.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("Failed to create config directory: {:?}", parent))?;
     }
@@ -358,13 +355,13 @@ gpio: []
             .write(true)
             .create_new(true)
             .mode(0o600)
-            .open(&config_path)
+            .open(&config_path_buf)
             .with_context(|| format!("Failed to create config file: {}", config_path))?;
         std::io::Write::write_all(&mut file, content.as_bytes())
             .with_context(|| format!("Failed to write config file: {}", config_path))?;
     }
     #[cfg(not(unix))]
-    fs::write(&config_path, content)
+    fs::write(&config_path_buf, content)
         .with_context(|| format!("Failed to write config file: {}", config_path))?;
 
     println!("Generated default configuration: {}", config_path);
@@ -1412,7 +1409,7 @@ impl AppState {
             .offline_queue
             .db_path_override
             .clone()
-            .unwrap_or_else(|| data_dir::data_dir().join("offline_queue.db"));
+            .unwrap_or_else(|| paths::AgentPaths::current().offline_queue_db());
 
         // Ensure parent directory exists (Batch 4a systemd hardening
         // creates /var/lib/suderra as owned by suderra:suderra; we
@@ -1554,7 +1551,7 @@ impl AppState {
             .backup
             .backup_dir
             .clone()
-            .unwrap_or_else(|| data_dir::data_dir().join("backups"));
+            .unwrap_or_else(|| paths::AgentPaths::current().backup_dir());
 
         // Device ID for cross-device restore rejection. Not a security
         // boundary — just a usability safeguard so a backup from
@@ -1641,7 +1638,7 @@ impl AppState {
                 .envelope_dedup
                 .sqlcipher_path
                 .clone()
-                .unwrap_or_else(|| std::path::PathBuf::from("/var/lib/suderra/jti_dedup.sqlite"));
+                .unwrap_or_else(|| paths::AgentPaths::current().jti_dedup_db());
             match SqlCipherJtiDedupTable::open(&sqlcipher_path) {
                 Ok(sql) => {
                     info!(
@@ -1767,7 +1764,7 @@ impl AppState {
             .rbac_manifest
             .version_store_path
             .clone()
-            .unwrap_or_else(|| std::path::PathBuf::from("/var/lib/suderra/rbac_version.sqlite"));
+            .unwrap_or_else(|| paths::AgentPaths::current().rbac_version_db());
 
         match ManifestVersionStore::open(&version_store_path) {
             Ok(vs) => {
@@ -1905,9 +1902,7 @@ impl AppState {
             .user_token_manifest
             .version_store_path
             .clone()
-            .unwrap_or_else(|| {
-                std::path::PathBuf::from("/var/lib/suderra/user_token_version.sqlite")
-            });
+            .unwrap_or_else(|| paths::AgentPaths::current().user_token_version_db());
 
         match ManifestVersionStore::open_for_stream(&version_store_path, STREAM_ID_USER_TOKEN) {
             Ok(vs) => {
@@ -2019,7 +2014,7 @@ impl AppState {
             .audit
             .log_path
             .clone()
-            .unwrap_or_else(|| std::path::PathBuf::from("/var/log/suderra/audit.log"));
+            .unwrap_or_else(|| paths::AgentPaths::current().audit_log_file());
 
         let hmac_key = AuditHmacKey::from_bytes(key_bytes);
         // Zeroize the local copy after move; AuditHmacKey
@@ -2132,7 +2127,8 @@ impl AppState {
     /// non-breaking.
     ///
     /// Wire chain:
-    /// 1. Derive `marker_path = data_dir::data_dir().join(ROTATION_MARKER_FILENAME)`
+    /// 1. Derive `marker_path` from
+    ///    `AgentPaths::keystore_rotation_marker(ROTATION_MARKER_FILENAME)`
     ///    — same path the alarm runner reads.
     /// 2. Construct `FileBackedKeystore::open_with_rotation_tracker`
     ///    with the marker_path + the AppState's clock_authority.
@@ -2159,7 +2155,8 @@ impl AppState {
         let keystore_opt = crate::keystore::bootstrap::build_production_keystore_from_config(
             &self.config,
             self.clock_authority.clone(),
-            data_dir::data_dir(),
+            paths::AgentPaths::current()
+                .keystore_rotation_marker(crate::keystore::ROTATION_MARKER_FILENAME),
         )
         .await?;
 
@@ -2345,8 +2342,7 @@ impl AppState {
     /// `init_partition_store` (tenant_id available via
     /// config).
     pub async fn init_license_cache(&mut self) {
-        use std::path::PathBuf;
-        let path = PathBuf::from(crate::license_cache::DEFAULT_CACHE_PATH);
+        let path = paths::AgentPaths::current().license_cache_db();
 
         // PR-195 Batch #17 — adopt the manifest-aware
         // constructor (Batch #14). Same shape as
@@ -2693,7 +2689,7 @@ impl AppState {
     /// persistence, matching the pre-Batch-176
     /// behavior.
     pub async fn init_retain_persistence(&mut self) {
-        let db_path = crate::data_dir::data_dir().join("retain.db");
+        let db_path = paths::AgentPaths::current().retain_db();
         let db_path_str = db_path.to_string_lossy().to_string();
 
         // PR-195 Batch #19 (closes
@@ -2827,7 +2823,7 @@ impl AppState {
 
         // RETAIN persistence (program-bound).
         if self.retain_persistence.is_none() {
-            let db_path = crate::data_dir::data_dir().join("retain.db");
+            let db_path = paths::AgentPaths::current().retain_db();
             let db_path_str = db_path.to_string_lossy().to_string();
             match crate::scripting::SqlitePersistence::new_with_keystore_derivation(
                 &db_path,
@@ -2994,6 +2990,7 @@ fn main() {
     // Process first argument only (simple CLI - no loop needed)
     if let Some(arg) = args.get(1) {
         match arg.as_str() {
+            #[cfg(not(feature = "suderra-os"))]
             "--init" => {
                 if let Err(e) = generate_default_config() {
                     // WHY: pre-tracing bootstrap — tracing is not yet initialized at this point
@@ -3001,6 +2998,21 @@ fn main() {
                     std::process::exit(1);
                 }
                 return;
+            }
+            // ADR-048 DEC-4.6: on Suderra OS config.yaml is site material
+            // the root installer writes from a signed payload; the agent
+            // never writes it, so it has no generator to offer.
+            #[cfg(feature = "suderra-os")]
+            "--init" => {
+                #[allow(clippy::print_stderr)]
+                {
+                    eprintln!(
+                        "--init is not available in the suderra-os profile: {} is written \
+                         by the root installer from a signed site payload (ADR-048 DEC-4.6)",
+                        paths::AgentPaths::current().config_file().display()
+                    );
+                }
+                std::process::exit(1);
             }
             "--version" | "-V" => {
                 println!("Suderra Edge Agent v{}", env!("CARGO_PKG_VERSION"));
@@ -3119,8 +3131,17 @@ fn main() {
                 }
                 println!();
                 println!("ENVIRONMENT:");
+                // ADR-048 DEC-4.5 / DEC-19: only the generic profile
+                // lets the environment move the config file.
+                #[cfg(not(feature = "suderra-os"))]
                 println!(
-                    "    SUDERRA_CONFIG              Path to config file (default: /etc/suderra/config.yaml)"
+                    "    SUDERRA_CONFIG              Path to config file (default: {})",
+                    paths::generic::CONFIG_FILE
+                );
+                #[cfg(feature = "suderra-os")]
+                println!(
+                    "    (suderra-os profile: config file {} is fixed at build time)",
+                    paths::suderra_os::CONFIG_FILE
                 );
                 {
                     use std::io::Write as _;
@@ -3185,10 +3206,14 @@ async fn async_main() -> Result<()> {
     info!("  Suderra Edge Agent v{}", env!("CARGO_PKG_VERSION"));
     info!("======================================");
 
-    // Load configuration
-    let config = match AgentConfig::load() {
+    // Load configuration from the path SSoT (ADR-048 DEC-4.5).
+    let agent_paths = paths::AgentPaths::current();
+    let config = match AgentConfig::load(agent_paths) {
         Ok(cfg) => {
-            info!("Configuration loaded successfully");
+            info!(
+                "Configuration loaded successfully from {}",
+                agent_paths.config_file().display()
+            );
             info!("  Device ID: {}", cfg.device_id);
             info!("  Device Code: {}", cfg.device_code);
             info!("  API URL: {}", cfg.api_url);
@@ -3283,7 +3308,10 @@ async fn async_main() -> Result<()> {
         }
         Err(e) => {
             error!("Failed to load configuration: {:#}", e);
-            error!("Please ensure /etc/suderra/config.yaml exists and is valid");
+            error!(
+                "Please ensure {} exists and is valid",
+                agent_paths.config_file().display()
+            );
             std::process::exit(1);
         }
     };
@@ -3302,21 +3330,24 @@ async fn async_main() -> Result<()> {
     //   Enforcing  — check required; failure exits(1). Fail-
     //                closed is the tier-1 contract.
     //
-    // Path: /etc/suderra/config.yaml + /etc/suderra/config.yaml.sig
-    // sidecar (or config_integrity.sidecar_path override).
+    // Paths (ADR-048 DEC-4.5): the config file the agent just loaded
+    // and its `.sig` sidecar (or config_integrity.sidecar_path), with
+    // the version floor in the path SSoT's floor directory — never a
+    // second hardcoded copy of the config path (EDGE-CRITICAL-046).
     {
-        use std::path::PathBuf;
-        let config_yaml_path = PathBuf::from("/etc/suderra/config.yaml");
-        let sidecar_override = config.config_integrity.sidecar_path.as_deref();
+        let sidecar_path = config
+            .config_integrity
+            .sidecar_path
+            .clone()
+            .unwrap_or_else(|| agent_paths.config_integrity_sidecar());
         let factory_pubkey_hex = config.config_integrity.factory_pubkey_hex.as_deref();
-        let data_dir = data_dir::data_dir();
         match crate::config_integrity::verify_at_boot(
             config.config_integrity.mode,
             factory_pubkey_hex,
-            sidecar_override,
-            &config_yaml_path,
+            &sidecar_path,
+            agent_paths.config_file(),
             &config.device_id,
-            &data_dir,
+            &agent_paths.config_integrity_floor_dir(),
         ) {
             Ok(()) => {}
             Err(reason) => {
@@ -3816,8 +3847,9 @@ async fn async_main() -> Result<()> {
 /// (closes ORPHAN-D3-CLI-DISPATCH-001).
 ///
 /// Composes:
-///   1. `AgentConfig::load()` — loads the same config
-///      file the agent's normal boot path reads.
+///   1. `AgentConfig::load(AgentPaths::current())` — loads
+///      the same config file the agent's normal boot path
+///      reads.
 ///   2. `crate::keystore::bootstrap::
 ///      build_production_keystore_from_config(...)` —
 ///      the SSoT helper from Batch #16.
@@ -3869,10 +3901,10 @@ fn run_migrate_db_subcommand_with_context(sub_argv_owned: Vec<String>) -> i32 {
     };
 
     runtime.block_on(async move {
-        // Load the agent config from the canonical
-        // path. Same call shape main()'s normal boot
-        // path uses — single SSoT for config-load.
-        let config = match AgentConfig::load() {
+        // Load the agent config from the path SSoT —
+        // the same file main()'s normal boot path and
+        // SIGHUP reload read (ADR-048 DEC-4.5).
+        let config = match AgentConfig::load(paths::AgentPaths::current()) {
             Ok(c) => c,
             Err(e) => {
                 eprintln!("db-migrate-cli: config load failed: {:#}", e);
@@ -3908,7 +3940,8 @@ fn run_migrate_db_subcommand_with_context(sub_argv_owned: Vec<String>) -> i32 {
         let keystore = match crate::keystore::bootstrap::build_production_keystore_from_config(
             &config,
             clock,
-            data_dir::data_dir(),
+            paths::AgentPaths::current()
+                .keystore_rotation_marker(crate::keystore::ROTATION_MARKER_FILENAME),
         )
         .await
         {
@@ -4364,7 +4397,7 @@ fn setup_shutdown_handler(
                         // Treating SIGHUP as shutdown caused unexpected downtime when operators
                         // ran `systemctl reload suderra-agent` to rotate MQTT credentials.
                         info!("SIGHUP received — reloading configuration from disk...");
-                        match AgentConfig::load() {
+                        match AgentConfig::load(paths::AgentPaths::current()) {
                             Ok(new_config) => {
                                 match new_config.validate() {
                                     Ok(()) => {
@@ -4594,7 +4627,7 @@ async fn run_agent(
                         )?;
 
                         // Save updated config to disk
-                        if let Err(e) = state_guard.config.save() {
+                        if let Err(e) = state_guard.config.save(paths::AgentPaths::current()) {
                             error!(
                                 "CRITICAL: Failed to save config after self-registration: {}. Device may re-register on restart!",
                                 e
@@ -4674,7 +4707,7 @@ async fn run_agent(
                         // If save fails, the provisioning token has been consumed by the cloud
                         // but credentials are not persisted. On next restart the device would be
                         // permanently unrecoverable (token already used, no credentials stored).
-                        state_guard.config.save()
+                        state_guard.config.save(paths::AgentPaths::current())
                             .context("Failed to save config after activation — device may be unrecoverable on restart")?;
 
                         last_error = None;
@@ -5012,7 +5045,8 @@ async fn run_agent(
             let s = state.read().await;
             s.clock_authority.clone()
         };
-        let marker_path = data_dir::data_dir().join(crate::keystore::ROTATION_MARKER_FILENAME);
+        let marker_path = paths::AgentPaths::current()
+            .keystore_rotation_marker(crate::keystore::ROTATION_MARKER_FILENAME);
         let (alarm_watch_tx, alarm_watch_rx) = tokio::sync::watch::channel(false);
         let mut alarm_broadcast_rx = shutdown_coordinator.subscribe();
         tokio::spawn(async move {
@@ -5548,9 +5582,8 @@ async fn run_agent(
     #[cfg(feature = "scada-display")]
     {
         // Initialize SCADA SQLite database
-        let scada_db_path = data_dir::data_dir()
-            .join("scada")
-            .join("scada.db")
+        let scada_db_path = paths::AgentPaths::current()
+            .scada_db()
             .to_string_lossy()
             .to_string();
         // EDGE-CRITICAL-002: the SCADA store's at-rest key is derived via
@@ -5754,18 +5787,11 @@ async fn run_agent(
     // orchestrator share ONE SqlitePersistence handle +
     // key ceremony. Data dir logging is still useful
     // here for operator diagnosis.
-    match std::env::var(data_dir::DATA_DIR_ENV_VAR) {
-        Ok(dir) => info!(
-            "Using data directory from {}: {}",
-            data_dir::DATA_DIR_ENV_VAR,
-            dir
-        ),
-        Err(_) => debug!(
-            "{} not set, using default: {}",
-            data_dir::DATA_DIR_ENV_VAR,
-            data_dir::DEFAULT_DATA_DIR
-        ),
-    }
+    info!(
+        "Using data directory {} (config {})",
+        paths::AgentPaths::current().data_root().display(),
+        paths::AgentPaths::current().config_file().display()
+    );
     let persistence = {
         let s = state.read().await;
         s.retain_persistence.clone()

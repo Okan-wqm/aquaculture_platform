@@ -34,7 +34,7 @@
 //! detect attacker activity OR misconfigured rollout in the
 //! post-hoc audit.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use tracing::{error, info, warn};
 
@@ -43,9 +43,6 @@ use super::verify::verify_config_integrity;
 use crate::authz::permission::DeviceId;
 use crate::config::ConfigIntegrityMode;
 use crate::updater::manifest::Sha256Digest;
-
-/// Canonical sidecar location.
-const DEFAULT_SIDECAR_PATH: &str = "/etc/suderra/config.yaml.sig";
 
 /// Highest-seen-version file name inside `$SUDERRA_DATA_DIR`.
 const HIGHEST_SEEN_VERSION_FILENAME: &str = "config_integrity_highest_version.txt";
@@ -154,11 +151,14 @@ fn save_highest_seen_version(data_dir: &Path, version: u64) {
 /// - `factory_pubkey_hex` — operator-supplied ed25519 pubkey
 ///   hex string (pre-Sprint-6.6). None = fail-closed before
 ///   reach (Batch 42 Rule 4 already prevents this combo).
-/// - `sidecar_path_override` — None = DEFAULT_SIDECAR_PATH.
-/// - `config_yaml_path` — the actual config path used at
-///   boot (honors SUDERRA_CONFIG env).
+/// - `sidecar_path` — the detached sidecar; the caller
+///   resolves `config_integrity.sidecar_path` or the path
+///   SSoT's `config_integrity_sidecar()`.
+/// - `config_yaml_path` — the config file the agent loaded
+///   (`AgentPaths::config_file`, ADR-048 DEC-4.5).
 /// - `device_id_str` — config.device_id UUID string.
-/// - `data_dir` — for highest-seen-version persistence.
+/// - `data_dir` — directory of the highest-seen-version
+///   floor (`AgentPaths::config_integrity_floor_dir`).
 ///
 /// OUTPUT:
 /// - `Ok(())` — verify succeeded OR mode = Disabled (no check).
@@ -170,7 +170,7 @@ fn save_highest_seen_version(data_dir: &Path, version: u64) {
 pub fn verify_at_boot(
     mode: ConfigIntegrityMode,
     factory_pubkey_hex: Option<&str>,
-    sidecar_path_override: Option<&Path>,
+    sidecar_path: &Path,
     config_yaml_path: &Path,
     device_id_str: &str,
     data_dir: &Path,
@@ -185,13 +185,9 @@ pub fn verify_at_boot(
         mode
     );
 
-    let sidecar_path = sidecar_path_override
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from(DEFAULT_SIDECAR_PATH));
-
     let outcome = verify_at_boot_inner(
         factory_pubkey_hex,
-        &sidecar_path,
+        sidecar_path,
         config_yaml_path,
         device_id_str,
         data_dir,

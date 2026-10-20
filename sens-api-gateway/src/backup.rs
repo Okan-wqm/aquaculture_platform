@@ -187,10 +187,15 @@ impl BackupManager {
     ///
     /// EDGE-MEDIUM-006: Reads `BACKUP_AUTH_SECRET` from environment at construction
     /// time so any future HTTP endpoint can validate requests without hardcoding.
+    /// Generic profile only: in the Suderra OS profile no environment variable
+    /// supplies a credential (ADR-048 DEC-19), so no secret is configured.
     pub fn new(backup_dir: impl Into<PathBuf>, device_id: impl Into<String>) -> Self {
         let backup_dir = backup_dir.into();
         // SECURITY: Load auth secret from env — never hardcode (EDGE-MEDIUM-006)
-        let backup_auth_secret = std::env::var("BACKUP_AUTH_SECRET").ok();
+        #[cfg(not(feature = "suderra-os"))]
+        let backup_auth_secret = crate::generic_env::backup_auth_secret();
+        #[cfg(feature = "suderra-os")]
+        let backup_auth_secret: Option<String> = None;
         Self {
             backup_dir,
             max_backups: 10,

@@ -29,7 +29,7 @@
 
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::{
@@ -58,8 +58,11 @@ use crate::scada_types::{
 use crate::theme_tokens;
 use crate::trend_engine::TrendEngine;
 
-/// Directory for persistent SCADA data (process definitions)
-const SCADA_DIR: &str = "/var/lib/suderra/scada";
+/// Directory for persistent SCADA data (process definitions), from the
+/// agent's path SSoT (ADR-048 DEC-4.5).
+fn scada_dir() -> PathBuf {
+    crate::paths::AgentPaths::current().scada_dir()
+}
 
 /// Embedded SCADA viewer HTML page
 const SCADA_HTML: &str = include_str!("../static/scada-edge.html");
@@ -431,8 +434,8 @@ impl ScadaState {
         }
 
         // Persist to disk as well
-        let dir = Path::new(SCADA_DIR);
-        tokio::fs::create_dir_all(dir)
+        let dir = scada_dir();
+        tokio::fs::create_dir_all(&dir)
             .await
             .map_err(|e| format!("Failed to create SCADA directory: {}", e))?;
         let pkg_path = dir.join("package.json");
@@ -529,7 +532,7 @@ impl ScadaState {
     /// downgrade a `rolled_back` ack to `failed` when the restore itself
     /// faults (operator must intervene).
     pub async fn clear_process(&self) -> Result<(), String> {
-        let path = Path::new(SCADA_DIR).join("process.json");
+        let path = scada_dir().join("process.json");
         match tokio::fs::remove_file(&path).await {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -554,7 +557,7 @@ impl ScadaState {
     /// because startup reloads the active package from SQLite and would
     /// otherwise resurrect a cleared package on the next agent restart.
     pub async fn clear_package(&self) -> Result<(), String> {
-        let path = Path::new(SCADA_DIR).join("package.json");
+        let path = scada_dir().join("package.json");
         match tokio::fs::remove_file(&path).await {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -1097,7 +1100,7 @@ async fn scada_ws_handler(
     // SUDERRA_SCADA_AUTH_TOKEN is set, the upgrade additionally requires a
     // matching Bearer token (constant-time compare). Unset ⇒ loopback
     // default posture (Origin check only — the existing defense).
-    if let Ok(expected_token) = std::env::var("SUDERRA_SCADA_AUTH_TOKEN") {
+    if let Some(expected_token) = scada_auth_token() {
         if !expected_token.is_empty() {
             let provided = headers
                 .get(header::AUTHORIZATION)
@@ -2249,6 +2252,53 @@ pub fn build_scada_router(state: ScadaState) -> Router {
         .with_state(state)
 }
 
+/// Default SCADA HMI port.
+const SCADA_DEFAULT_PORT: u16 = 6526;
+
+/// SCADA listener address and port.
+///
+/// SECURITY: the default is loopback (127.0.0.1), never 0.0.0.0: edge devices
+/// with dual NICs (OT + IT) must not expose the HMI to the IT network.
+///
+/// Generic profile: `SUDERRA_SCADA_BIND` / `SUDERRA_SCADA_PORT` may move it
+/// to the OT interface (HC-1). Suderra OS profile: always loopback on the
+/// default port; no environment variable can open the HMI to a network
+/// (ADR-048 DEC-19), and LAN HMI access arrives with TLS and authentication
+/// (DEC-26, P2).
+#[cfg(not(feature = "suderra-os"))]
+fn scada_listen_addr() -> (Ipv4Addr, u16) {
+    let port: u16 = crate::generic_env::scada_port()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(SCADA_DEFAULT_PORT);
+    let bind_addr: Ipv4Addr = crate::generic_env::scada_bind()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(Ipv4Addr::LOCALHOST);
+    (bind_addr, port)
+}
+
+/// See the generic variant.
+#[cfg(feature = "suderra-os")]
+fn scada_listen_addr() -> (Ipv4Addr, u16) {
+    (Ipv4Addr::LOCALHOST, SCADA_DEFAULT_PORT)
+}
+
+/// Bearer token the SCADA WebSocket upgrade requires, if any.
+///
+/// Generic profile: `SUDERRA_SCADA_AUTH_TOKEN` (HC-1 OT-NIC deployments).
+/// Suderra OS profile: none — the listener is loopback-only (see
+/// [`scada_listen_addr`]) and a token from the environment would be a
+/// security setting no signed artifact names (ADR-048 DEC-19).
+#[cfg(not(feature = "suderra-os"))]
+fn scada_auth_token() -> Option<String> {
+    crate::generic_env::scada_auth_token()
+}
+
+/// See the generic variant.
+#[cfg(feature = "suderra-os")]
+fn scada_auth_token() -> Option<String> {
+    None
+}
+
 /// Start the SCADA display HTTP + WebSocket server
 ///
 /// # Security (IEC 62443 FR-2: Network segmentation)
@@ -2256,28 +2306,19 @@ pub fn build_scada_router(state: ScadaState) -> Router {
 /// with multiple NICs (OT + IT network), binding `0.0.0.0` exposes the SCADA
 /// HMI to the IT network where it should not be accessible.
 ///
-/// Use `SUDERRA_SCADA_BIND` to set the OT interface address explicitly:
+/// Generic profile: use `SUDERRA_SCADA_BIND` to set the OT interface address
+/// explicitly:
 ///   SUDERRA_SCADA_BIND=192.168.100.1  (OT network only)
 ///   SUDERRA_SCADA_BIND=127.0.0.1      (loopback, default)
 ///   SUDERRA_SCADA_BIND=0.0.0.0        (all interfaces — NOT recommended for production)
 ///
-/// Port is configurable via `SUDERRA_SCADA_PORT` (default 6526).
+/// Port is configurable via `SUDERRA_SCADA_PORT` (default 6526). The Suderra
+/// OS profile ignores both and listens on loopback (see `scada_listen_addr`).
 pub async fn start_scada_server(state: ScadaState) -> tokio::task::JoinHandle<()> {
     // Load persistent process
     state.load_persistent_process().await;
 
-    let port: u16 = std::env::var("SUDERRA_SCADA_PORT")
-        .ok()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(6526);
-
-    // SECURITY: Default to loopback (127.0.0.1) instead of 0.0.0.0.
-    // Edge devices with dual NICs (OT + IT) must not expose SCADA to IT network.
-    // Operators can override via SUDERRA_SCADA_BIND for the OT interface address.
-    let bind_addr: Ipv4Addr = std::env::var("SUDERRA_SCADA_BIND")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(Ipv4Addr::LOCALHOST);
+    let (bind_addr, port) = scada_listen_addr();
 
     if bind_addr == Ipv4Addr::UNSPECIFIED {
         warn!(
@@ -2369,7 +2410,7 @@ pub async fn build_scada_sensor_data(
 
 /// Load the persistent SCADA process from disk
 async fn load_persistent_process() -> Result<Option<ScadaProcess>, String> {
-    let path = PathBuf::from(SCADA_DIR).join("process.json");
+    let path = scada_dir().join("process.json");
 
     if !path.exists() {
         return Ok(None);
@@ -2387,10 +2428,10 @@ async fn load_persistent_process() -> Result<Option<ScadaProcess>, String> {
 
 /// Save the SCADA process definition to disk
 async fn save_persistent_process(process: &ScadaProcess) -> Result<(), String> {
-    let dir = Path::new(SCADA_DIR);
+    let dir = scada_dir();
 
     // Create directory if it doesn't exist
-    tokio::fs::create_dir_all(dir)
+    tokio::fs::create_dir_all(&dir)
         .await
         .map_err(|e| format!("Failed to create SCADA directory: {}", e))?;
 

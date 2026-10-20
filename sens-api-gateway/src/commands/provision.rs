@@ -108,7 +108,7 @@ impl CommandHandler {
                 Some(existing) => *existing = config.clone(),
                 None => state.config.modbus.push(config.clone()),
             }
-            if let Err(e) = state.config.save() {
+            if let Err(e) = state.config.save(crate::paths::AgentPaths::current()) {
                 state.config.modbus = backup;
                 error!(
                     "Failed to persist provisioned Modbus device '{}': {}",
@@ -198,7 +198,7 @@ impl CommandHandler {
             let backup = state.config.modbus.clone();
             state.config.modbus.retain(|d| d.name != name);
             if state.config.modbus.len() != before {
-                if let Err(e) = state.config.save() {
+                if let Err(e) = state.config.save(crate::paths::AgentPaths::current()) {
                     state.config.modbus = backup;
                     error!("Failed to persist decommission of '{}': {}", name, e);
                     return (

@@ -62,9 +62,9 @@ impl CommandHandler {
     ///
     /// Params (all optional, defaults read from config):
     /// - `passphrase_path: string` — new passphrase file
-    ///   (default `/etc/suderra/keystore.passphrase.new`).
+    ///   (default: the configured passphrase file + `.new`).
     /// - `salt_path: string` — new salt file
-    ///   (default `/etc/suderra/keystore.salt.new`).
+    ///   (default: the configured salt file + `.new`).
     /// - `argon2_memory_kib: u32` — override OWASP default.
     /// - `argon2_iterations: u32` — override default.
     /// - `argon2_parallelism: u32` — override default.
@@ -76,30 +76,20 @@ impl CommandHandler {
         info!("Executing rotate_master command (Sprint 6.3 final orchestration)");
 
         // Snapshot wiring we need from AppState.
-        let (keystore, audit_sink, cfg_pass, cfg_salt, cfg_params) = {
+        let (keystore, audit_sink, material, cfg_params) = {
             let state = self.state.read().await;
             let cfg_params = crate::keystore::Argon2idParams {
                 memory_kib: state.config.keystore.argon2_memory_kib,
                 iterations: state.config.keystore.argon2_iterations,
                 parallelism: state.config.keystore.argon2_parallelism,
             };
-            let cfg_pass = state
-                .config
-                .keystore
-                .passphrase_path
-                .clone()
-                .unwrap_or_else(|| std::path::PathBuf::from("/etc/suderra/keystore.passphrase"));
-            let cfg_salt = state
-                .config
-                .keystore
-                .salt_path
-                .clone()
-                .unwrap_or_else(|| std::path::PathBuf::from("/etc/suderra/keystore.salt"));
+            // The same files the keystore was opened from (path SSoT,
+            // ADR-048 DEC-4.5).
+            let material = crate::keystore::bootstrap::keystore_material_paths(&state.config);
             (
                 state.keystore.clone(),
                 state.audit_sink.clone(),
-                cfg_pass,
-                cfg_salt,
+                material,
                 cfg_params,
             )
         };
@@ -115,6 +105,16 @@ impl CommandHandler {
                          Enable keystore (mode=auto or file_backed) before rotation."
                             .to_string(),
                     ),
+                );
+            }
+        };
+        let (cfg_pass, cfg_salt) = match material {
+            Ok((pass, salt, _acceptance)) => (pass, salt),
+            Err(reason) => {
+                return (
+                    false,
+                    json!(null),
+                    Some(format!("rotate_master rejected: {reason}")),
                 );
             }
         };

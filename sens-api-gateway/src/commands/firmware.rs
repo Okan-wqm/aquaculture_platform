@@ -312,7 +312,7 @@ impl CommandHandler {
                 repo, resolved_tag
             );
 
-            let update_dir = PathBuf::from("/var/lib/suderra/updates");
+            let update_dir = crate::paths::AgentPaths::current().ota_staging_dir();
             if let Err(e) = fs::create_dir_all(&update_dir) {
                 send_failed(format!("Failed to create update directory: {}", e)).await;
                 return;

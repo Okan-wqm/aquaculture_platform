@@ -120,10 +120,19 @@ impl LifecycleAuthKey {
     /// LoadCredential); returns CredentialFileMissing
     /// when the directory is set but the named file
     /// doesn't exist.
+    ///
+    /// Generic profile only reads the variable. The
+    /// Suderra OS unit grants the agent no
+    /// `LoadCredential=` (unit-directives.json), and a
+    /// credential directory named by the environment is
+    /// a security input no signed artifact controls
+    /// (ADR-048 DEC-19), so that profile always reports
+    /// CredentialsDirMissing.
+    #[cfg(not(feature = "suderra-os"))]
     pub fn load_from_credentials_dir(credential_name: &str) -> Result<Self, AuthKeyError> {
-        let dir = std::env::var("CREDENTIALS_DIRECTORY")
-            .map_err(|_| AuthKeyError::CredentialsDirMissing)?;
-        let path = std::path::PathBuf::from(&dir).join(credential_name);
+        let dir = crate::generic_env::credentials_directory()
+            .ok_or(AuthKeyError::CredentialsDirMissing)?;
+        let path = dir.join(credential_name);
         let bytes = std::fs::read(&path).map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
                 AuthKeyError::CredentialFileMissing {
@@ -137,6 +146,13 @@ impl LifecycleAuthKey {
             }
         })?;
         Self::from_bytes(bytes)
+    }
+
+    /// See the generic variant: no credential directory
+    /// exists for the agent in the Suderra OS profile.
+    #[cfg(feature = "suderra-os")]
+    pub fn load_from_credentials_dir(_credential_name: &str) -> Result<Self, AuthKeyError> {
+        Err(AuthKeyError::CredentialsDirMissing)
     }
 
     fn as_bytes(&self) -> &[u8] {

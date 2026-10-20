@@ -75,11 +75,10 @@ use crate::license::SignedLicenseManifest;
 /// accidental multi-row writes.
 const SINGLETON_KEY: &str = "the-one-row";
 
-/// Default on-disk path for the license cache. Separate
-/// SQLCipher file from offline_queue + scada_db + rbac
-/// version store per single-responsibility discipline
-/// (Batch 71 manifest_version_store precedent).
-pub const DEFAULT_CACHE_PATH: &str = "/var/lib/suderra/license_cache.sqlite";
+// The on-disk path is `AgentPaths::license_cache_db` (ADR-048 DEC-4.5): a
+// separate SQLCipher file from offline_queue + scada_db + rbac version store
+// per single-responsibility discipline (Batch 71 manifest_version_store
+// precedent).
 
 /// Persistent SQLCipher-backed license cache + version
 /// floor store.

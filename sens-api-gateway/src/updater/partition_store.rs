@@ -60,9 +60,6 @@ use tracing::{info, warn};
 
 use super::partition::{AbPartition, PartitionRoll, SlotState};
 
-/// Canonical on-disk state-store path.
-const DEFAULT_STORE_PATH: &str = "/var/lib/suderra/partition.json";
-
 /// Cross-process advisory file lock guard (Batch 121
 /// Sprint 6.5). Acquired at start of every apply_roll +
 /// apply_roll_with_version_bump; released on drop.
@@ -304,8 +301,8 @@ impl PartitionStore {
         })
     }
 
-    /// Open the store at `path` (default
-    /// `/var/lib/suderra/partition.json`). Creates with
+    /// Open the store at `path` (default: the path SSoT's
+    /// `partition_store_file()`, ADR-048 DEC-4.5). Creates with
     /// `PartitionState::initial()` on first boot.
     ///
     /// Fails on: unreadable parent dir, corrupt JSON in
@@ -314,7 +311,7 @@ impl PartitionStore {
     pub fn open(path: Option<&Path>) -> Result<Self, PartitionStoreError> {
         let path_buf = match path {
             Some(p) => p.to_path_buf(),
-            None => PathBuf::from(DEFAULT_STORE_PATH),
+            None => crate::paths::AgentPaths::current().partition_store_file(),
         };
 
         if let Some(parent) = path_buf.parent() {

@@ -125,6 +125,7 @@
     "test:tenant-clone": "jest --config e2e/jest.config.ts --runInBand --testPathPatterns tenant-clone-parity",
     "test:tenant-provisioning": "jest --config e2e/jest.config.ts --runInBand --testPathPatterns tenant-provisioning-replay",
     "test:schema-invariants": "jest --config e2e/jest.config.ts --runInBand --testPathPatterns schema-invariants",
+    "test:suderra-edge-fixtures": "PYTHONDONTWRITEBYTECODE=1 python3 -B contracts/suderra-edge/v1/tools/generate.py --check",
     "gates:banned-phrase": "ts-node --project tools/gates/tsconfig.json tools/gates/banned-phrase.ts",
     "gates:apollo-csrf": "node scripts/ci/check-apollo-csrf-prevention.mjs",
     "gates:dependency-policy": "node scripts/ci/check-dependency-policy.mjs",

@@ -26,3 +26,9 @@ docs/reviews/orphan-findings.md merge=union
 # (a deleted or reordered row, the same finding decided differently on both
 # sides, a duplicate id). See tools/gates/finding-registry-merge.ts.
 docs/reviews/_registry/findings.jsonl merge=findings-registry
+
+# The Suderra edge contract (ADR-048 DEC-25) is pinned byte for byte: SHA256SUMS
+# lists every file's digest and Suderra-OS vendors the tree by that digest. A
+# checkout or `git archive` with end-of-line conversion (core.autocrlf, eol)
+# would change bytes and break the pin, so git must never treat it as text.
+contracts/suderra-edge/** -text

@@ -60,6 +60,7 @@ MINT_SITES: dict[tuple[str, str], str] = {
     ("aria-kernel/aria_kernel/expert_review_gate.py", "request_implementation_expert_reviews"):
         "expert_review_gate.implementation",
     ("aria-kernel/aria_kernel/goldset.py", "dispatch_goldset_curation"): "goldset.curation",
+    ("aria-kernel/aria_kernel/judge_fanout.py", "dispatch_rebuttal_for_dissent"): "judge_fanout.rebuttal",
     ("aria-kernel/aria_kernel/human_required_adjudication.py", "open_adjudication"): "human_required_panel.open",
     ("aria-kernel/aria_kernel/human_required_adjudication.py", "_execute_panel_disposition"):
         "human_required_panel.remint",

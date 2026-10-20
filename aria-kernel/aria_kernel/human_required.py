@@ -794,6 +794,10 @@ def sweep_lease_lifecycle_for_human_required(
 # flooding operator triage with sampling-order noise.
 CONSENSUS_UNCERTAINTY_SEVERITY = {
     "judge_disagreement": "HIGH",
+    # WP-J B-2 — the evidence-weighing arbiter could not weigh the
+    # load-bearing assertions: an open question nobody may close by
+    # fatigue. Escalates like a disagreement.
+    "unverifiable": "HIGH",
     "low_confidence": "MEDIUM",
     # Plan 024 §C — a judge citing evidence that does not resolve in the repo is
     # a fabrication signal; the cheap tier must not be rubber-stamped on it.

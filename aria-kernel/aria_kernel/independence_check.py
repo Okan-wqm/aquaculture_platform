@@ -606,6 +606,35 @@ def _diversity_reasons(
     return []
 
 
+def verify_panel_diversity(
+    texts: "Sequence[str | None]",
+    *,
+    ceiling: float = DEFAULT_JACCARD_CEILING,
+) -> tuple[bool, list[str]]:
+    """WP-J B-2 — N-ary pairwise diversity over a panel's answers.
+
+    ONE law, two callers: this reuses ``compute_jaccard_similarity`` and
+    ``DEFAULT_JACCARD_CEILING`` — the exact similarity and the exact ceiling
+    the plan-side ``verify_independence`` applies to its triple — so a panel
+    guard can never drift from the plan guard. Fail-closed on missing text
+    for the same reason ``_diversity_reasons`` is: an answer that cannot be
+    read is not evidence of diversity. Seats are named by index, not role:
+    a panel's composition is the router's decision, and this check is
+    content-only (principal disjointness is the request ledger's question).
+    """
+    reasons: list[str] = []
+    for index, text in enumerate(texts):
+        if text is None or not str(text).strip():
+            reasons.append(f"seat_{index}_text_unavailable")
+    readable = [(index, str(text)) for index, text in enumerate(texts)
+                if text is not None and str(text).strip()]
+    for left, right in ((a, b) for i, a in enumerate(readable) for b in readable[i + 1:]):
+        score = compute_jaccard_similarity(left[1], right[1])
+        if score > ceiling:
+            reasons.append(f"seat_{left[0]}_seat_{right[0]}_jaccard_{score:.3f}_above_ceiling")
+    return (len(reasons) == 0), reasons
+
+
 def verify_independence(
     *,
     primary: RoundDispatch,

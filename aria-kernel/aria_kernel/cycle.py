@@ -2071,6 +2071,22 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
             arbiter_requests += len(anchoring.get("minted") or [])
         except GovernanceError as exc:
             blocked.append({"tool_id": tool_id, "step": "anchoring", "reason": str(exc)[:200]})
+        try:
+            # WP-J B-2 — the bounded rebuttal round: a dissenter whose
+            # verdict a weighted majority outvoted is re-asked ONCE with the
+            # winners' verified refs. Runs AFTER the arbiter arms so a group
+            # arbitrated this tick settles first and its dissent (if any) is
+            # read from the settled row, never guessed from the votes.
+            from .judge_fanout import dispatch_rebuttal_for_dissent
+
+            rebuttal = dispatch_rebuttal_for_dissent(
+                tool_id=tool_id,
+                base_dir=context.base_dir,
+                cycle_id=context.cycle_id,
+            )
+            arbiter_requests += len(rebuttal.get("minted") or [])
+        except GovernanceError as exc:
+            blocked.append({"tool_id": tool_id, "step": "rebuttal", "reason": str(exc)[:200]})
     # D3 (Kapalı Döngü) — accepted consensus becomes a durable finding.
     # Runs AFTER the per-tool consensus loop so any row minted this cycle
     # is promotable immediately; idempotent via the promotions ledger.

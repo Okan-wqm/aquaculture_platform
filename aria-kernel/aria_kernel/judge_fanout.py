@@ -600,6 +600,84 @@ def _render_arbiter_prompt(split: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+# WP-J B-2 — the literal first line of the EVIDENCE WEIGHING brief, the same
+# discipline ANCHOR_MODE_MARKER established: `.claude/agents/
+# aria-consensus-arbiter.md` keys its Evidence Weighing Mode section on this
+# exact string, so the brief and the agent contract cannot drift apart.
+EVIDENCE_WEIGHING_MODE_MARKER: str = "MODE: evidence_weighing"
+
+# The evidence-class rank the weighing brief lists entries in: an executable
+# reproduction outranks a mechanically verified trace (quote-matched refs),
+# which outranks a cited observation, which outranks bare argument. The ORDER
+# is the arbiter's own law (operator protocol step 7); the CLASSES are read
+# off what the seats' rows already carry — the reproduction recipe block and
+# the quote-verified `index` evidence selection — never re-derived here.
+_EVIDENCE_RANK_REPRODUCTION = 0
+_EVIDENCE_RANK_VERIFIED_TRACE = 1
+_EVIDENCE_RANK_CITED_REF = 2
+_EVIDENCE_RANK_ARGUMENT = 3
+
+
+def _seat_evidence_rank(seat: dict[str, Any]) -> int:
+    if isinstance(seat.get("reproduction"), dict) and seat.get("reproduction"):
+        return _EVIDENCE_RANK_REPRODUCTION
+    if seat.get("evidence_selection") == "index":
+        return _EVIDENCE_RANK_VERIFIED_TRACE
+    if [ref for ref in seat.get("evidence_refs") or [] if str(ref).strip()]:
+        return _EVIDENCE_RANK_CITED_REF
+    return _EVIDENCE_RANK_ARGUMENT
+
+
+def render_evidence_weighing_prompt(split: dict[str, Any]) -> str:
+    """The arbiter's EVIDENCE WEIGHING brief.
+
+    Identity-stripped (no seat names travel with the evidence — the arbiter
+    weighs artefacts, not reputations) and class-ranked: reproduction first,
+    then verified trace, then cited observation, then argument. The stated
+    outcome vocabulary includes ``unverifiable``: when the load-bearing
+    assertions cannot be weighed, that is the lawful answer, not a forced
+    verdict.
+    """
+    seats = sorted(
+        split.get("judges") or [],
+        key=lambda seat: (
+            _seat_evidence_rank(seat),
+            -len([r for r in seat.get("evidence_refs") or [] if str(r).strip()]),
+        ),
+    )
+    lines = [
+        EVIDENCE_WEIGHING_MODE_MARKER,
+        "A method panel has answered this adapter finding. Weigh the EVIDENCE,",
+        "not the votes: the seats are unnamed and their assertions are listed",
+        "ranked — an executable reproduction outranks a mechanically verified",
+        "trace, which outranks a cited observation, which outranks argument.",
+        f"tool_id: {split.get('tool_id')}",
+        f"run_id: {split.get('run_id')}",
+        f"finding_id: {split.get('finding_id')}",
+        f"judgment_group_id: {split.get('judgment_group_id')}",
+        "Evidence ledger (identity-stripped, best class first):",
+    ]
+    for index, seat in enumerate(seats, start=1):
+        parts = [f"- seat {index}: verdict={seat.get('verdict')}"]
+        if isinstance(seat.get("reproduction"), dict) and seat.get("reproduction"):
+            parts.append(f"reproduction={json.dumps(seat['reproduction'], sort_keys=True)}")
+        if seat.get("evidence_selection") == "index":
+            parts.append("evidence=quote-verified")
+        parts.append(f"refs={','.join(str(r) for r in seat.get('evidence_refs') or [])}")
+        parts.append(f"rationale={str(seat.get('rationale') or '')[:300]}")
+        lines.append(" ".join(parts))
+    lines.append(
+        "You may read the repository to check a cited observation holds at its "
+        "file:line. Return details.consensus with verdict "
+        "true_positive|false_positive, confidence, and the evidence you "
+        "relied on; when the load-bearing assertions cannot be weighed, OMIT "
+        "verdict and set details.consensus.uncertainty_reason=unverifiable. "
+        "Never count seats: three names agreeing on an unverifiable claim is "
+        "one unverified claim."
+    )
+    return "\n".join(lines)
+
+
 def dispatch_arbiter_for_split_verdicts(
     *,
     tool_id: str,
@@ -633,14 +711,27 @@ def dispatch_arbiter_for_split_verdicts(
             skipped.append({"judgment_group_id": group, "target_agent": CONSENSUS_ARBITER_AGENT,
                             "reason": admission.refusal})
             break
+        # WP-J B-2 — a METHOD panel's split is weighed, not aggregated: its
+        # seats carry method receipts (minted after EXPERT_METHODS landed),
+        # and the evidence-weighing brief ranks what they produced with the
+        # seats stripped. A legacy split (no method receipts anywhere) keeps
+        # the aggregation brief byte for byte.
+        panel_split = any(seat.get("method") for seat in split.get("judges") or [])
         minted.append(_mint_arbiter(
             root,
             tool_id=tool_id,
             group=split,
             admission=admission,
-            prompt=_render_arbiter_prompt(split),
+            prompt=(
+                render_evidence_weighing_prompt(split)
+                if panel_split
+                else _render_arbiter_prompt(split)
+            ),
             criterion=(
-                "Aggregate the supplied judge verdicts and return "
+                "Weigh the ranked evidence and return details.consensus, or "
+                "uncertainty_reason=unverifiable when it cannot be weighed"
+                if panel_split
+                else "Aggregate the supplied judge verdicts and return "
                 "details.consensus, or the uncertainty reason when the "
                 "consensus gate cannot be met"
             ),
@@ -912,3 +1003,174 @@ def pending_arbitration_group_ids(
         if states[request_id] not in TERMINAL_REQUEST_STATES:
             pending.add(group)
     return pending
+
+
+# WP-J B-2 — the rebuttal round (operator protocol step 5: "If refuted with
+# verified evidence, the claimant gets ONE rebuttal with new evidence").
+# When a weighted majority settles over a dissenter, the DISSENTER's own seat
+# is re-minted ONCE with the winner's verified refs in the brief: the dissent
+# gets one bounded chance to answer the evidence that outvoted it, in the
+# same judgment group, under the same role it originally held. Bounded by
+# construction: the mint is idempotent per (group, seat) on the rebuttal
+# marker, and no second round exists.
+REBUTTAL_MARKER: str = "REBUTTAL ROUND 1"
+
+
+def _request_row_for(root: Path, request_id: str) -> dict[str, Any] | None:
+    from .agent_invocations import list_agent_invocation_requests
+
+    for row in list_agent_invocation_requests(base_dir=root):
+        if str(row.get("request_id") or "") == request_id:
+            return row
+    return None
+
+
+def dissent_rebuttal_candidates(
+    *,
+    tool_id: str,
+    base_dir: str | Path | None = None,
+) -> list[dict[str, Any]]:
+    """Settled groups that carry a dissent: one candidate per dissenter.
+
+    The seat's identity comes from the MINT (the dissenting row's
+    ``request_ids`` resolve to the envelope that seat answered — D1
+    doctrine), never from guessing a role off the judge's name.
+    """
+    from .feedback_store import load_feedback
+
+    root = ensure_tools_dir(base_dir)
+    candidates: list[dict[str, Any]] = []
+    for row in load_feedback(tool_id=tool_id, base_dir=root):
+        if row.get("source_type") != "ai_consensus":
+            continue
+        if _row_count(row, "judges_voted") <= _row_count(row, "judge_count"):
+            continue
+        settled_verdict = str(row.get("verdict") or "")
+        winner_refs = [str(r) for r in row.get("evidence_refs") or [] if str(r).strip()]
+        for judge_row in load_feedback(tool_id=tool_id, base_dir=root):
+            if judge_row.get("source_type") != "ai_judge":
+                continue
+            if str(judge_row.get("judgment_group_id") or "") != str(row.get("judgment_group_id") or ""):
+                continue
+            if str(judge_row.get("verdict") or "") == settled_verdict:
+                continue
+            request_ids = [str(r) for r in judge_row.get("request_ids") or [] if str(r).strip()]
+            if not request_ids:
+                continue
+            request = _request_row_for(root, request_ids[0])
+            if request is None:
+                continue
+            candidates.append({
+                "tool_id": tool_id,
+                "run_id": str(row.get("run_id") or ""),
+                "finding_id": str(row.get("finding_id") or ""),
+                "judgment_group_id": str(row.get("judgment_group_id") or ""),
+                "finding_fingerprint": str(row.get("finding_fingerprint") or ""),
+                "settled_verdict": settled_verdict,
+                "winner_evidence_refs": winner_refs,
+                "dissenter_judge_id": str(judge_row.get("judge_id") or ""),
+                "dissenter_request": request,
+            })
+    return candidates
+
+
+def _row_count(row: dict[str, Any], field: str) -> int:
+    """A non-negative integer count off a ledger row, or 0 when unprovable
+    (the feedback_store reader's own law, applied locally so the candidate
+    scan needs no import cycle)."""
+    value = row.get(field)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return 0
+    return value
+
+
+def _rebuttal_already_minted(root: Path) -> set[tuple[str, str]]:
+    """(judgment_group_id, target_agent) pairs that already carry a rebuttal
+    envelope — the bound of the round, read back from the request ledger."""
+    rebuttals: set[tuple[str, str]] = set()
+    try:
+        rows = load_segments(root, "agent_invocation_requests")
+    except Exception:
+        return rebuttals
+    for row in rows:
+        if REBUTTAL_MARKER in str(row.get("suggested_prompt") or ""):
+            group = str(row.get("judgment_group_id") or "")
+            agent = str(row.get("target_agent") or "")
+            if group and agent:
+                rebuttals.add((group, agent))
+    return rebuttals
+
+
+def dispatch_rebuttal_for_dissent(
+    *,
+    tool_id: str,
+    base_dir: str | Path | None = None,
+    cycle_id: str | None = None,
+) -> dict[str, Any]:
+    """Re-mint each dissenter's seat ONCE with the winner's verified refs.
+
+    A refusal holds (the door's own discipline): the dissent stays settled
+    as it is, and the candidate is re-derived next cycle.
+    """
+    root = ensure_tools_dir(base_dir)
+    already = _rebuttal_already_minted(root)
+    minted: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    for candidate in dissent_rebuttal_candidates(tool_id=tool_id, base_dir=root):
+        request = candidate["dissenter_request"]
+        group = candidate["judgment_group_id"]
+        agent = str(request.get("target_agent") or "")
+        role = str(request.get("role") or "")
+        if (group, agent) in already:
+            skipped.append({"judgment_group_id": group, "target_agent": agent,
+                            "reason": "rebuttal_already_minted"})
+            continue
+        # The literal, not the module constant: the admission-door scan
+        # reads the producer a call names, and a Name is invisible to it.
+        admission = admit_request("judge_fanout.rebuttal", role, base_dir=root, cycle_id=cycle_id)
+        if not admission.admitted:
+            skipped.append({"judgment_group_id": group, "target_agent": agent,
+                            "reason": admission.refusal})
+            break
+        winner_refs = candidate["winner_evidence_refs"]
+        prompt = "\n".join([
+            REBUTTAL_MARKER,
+            "Your verdict on this adapter finding was outvoted by a weighted",
+            "majority. This is your ONE rebuttal: answer the evidence that",
+            "outvoted you, with new evidence of your own if you have it.",
+            f"tool_id: {candidate['tool_id']}",
+            f"run_id: {candidate['run_id']}",
+            f"finding_id: {candidate['finding_id']}",
+            f"judgment_group_id: {group}",
+            f"The settled verdict you dissented from: {candidate['settled_verdict']}",
+            "The evidence that backed it (verified refs):",
+            *(f"- {ref}" for ref in winner_refs),
+            "Return your verdict under the same contract as before. Changing",
+            "your verdict after reading the winners' evidence is a correct",
+            "answer; so is standing by your dissent.",
+        ])
+        req = create_agent_invocation_request(
+            target_agent=agent,
+            role=role,
+            suggested_prompt=prompt,
+            must_satisfy=request.get("must_satisfy") or [{"id": "verdict", "description": "your rebutted verdict"}],
+            allowed_scope=request.get("allowed_scope") or ["**"],
+            evidence_refs=(request.get("evidence_refs") or []) + winner_refs or None,
+            finding_id=candidate["finding_id"],
+            finding_fingerprint=candidate["finding_fingerprint"] or None,
+            tool_id=candidate["tool_id"],
+            run_id=candidate["run_id"],
+            judgment_group_id=group,
+            cycle_id=cycle_id,
+            target_sha=request.get("target_sha"),
+            base_dir=root,
+            admission=admission,
+        )
+        minted.append({
+            "request_id": req.get("request_id"),
+            "role": role,
+            "target_agent": agent,
+            "judgment_group_id": group,
+        })
+        already.add((group, agent))
+    return {"schema_version": 1, "minted_count": len(minted), "minted": minted, "skipped": skipped}

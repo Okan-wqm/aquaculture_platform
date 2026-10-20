@@ -129,6 +129,16 @@ PRODUCER_CLASSES: Final[Mapping[str, ProducerClass]] = {
             "bug_hunt", "reproduction_test", "impact_assessment", "architecture",
         ),
         "the finding stays at its settled tier; the next cycle's routing re-offers the panel"),
+    # WP-J B-2 — the rebuttal round: a dissenter's own seat re-minted once
+    # with the winner's verified refs. Any judgment-lane seat can be the
+    # dissenter, the arbiter included.
+    "judge_fanout.rebuttal": ProducerClass(
+        _same(
+            DISCRETIONARY,
+            "evidence_judgment", "adversarial_judgment", "consensus_arbitration",
+            "bug_hunt", "reproduction_test", "impact_assessment", "architecture",
+        ),
+        "the dissent stays settled as it is; the candidate is re-derived next cycle"),
     "judge_replay.goldset": ProducerClass(
         _same(DISCRETIONARY, "evidence_judgment", "adversarial_judgment"),
         "every gold item without its replay judges is re-walked every cycle"),

@@ -68,6 +68,14 @@ CONSENSUS_UNCERTAINTY_REASONS = (
     # anchor-grade group whose observer has no model identity.
     "observer_identity_missing",
     "single_judge",
+    # WP-J B-2 (operator protocol step 7) — the evidence-weighing arbiter's
+    # lawful non-verdict outcome: the load-bearing assertions cannot be
+    # weighed, so the finding escalates rather than being closed by fatigue.
+    # The agent lane emits it from the EVIDENCE_WEIGHING brief
+    # (judge_fanout.render_evidence_weighing_prompt); the deterministic
+    # engine never needs it - a mechanical gate can always say why it
+    # refused.
+    "unverifiable",
 )
 # Typed-judgment plan Phase 6 — how the consensus gate treats calibration.
 # `measure_only`: the legacy confidence gate bit for bit, the row records
@@ -1093,6 +1101,15 @@ def generate_ai_consensus(
     # Re-running with no new judge still appends nothing, and the count is
     # bounded by the number of distinct judges.
     existing_consensus: dict[tuple[str, str, str], int] = {}
+    # WP-J B-2 — and WHEN it settled: a judge who REVOTED after the settle
+    # (the rebuttal round re-asks a dissenter with the winner's verified
+    # refs) is new evidence, not a duplicate. Attendance alone would refuse
+    # to re-settle the group forever and quietly discard the paid rebuttal
+    # answer. The timestamp is the ledger's own recorded_at; a re-settle
+    # writes a newer consensus row, so the pair (votes, settled_at) keeps
+    # the D2 dedup property: re-running with no new judge row appends
+    # nothing, exactly as before.
+    settled_at: dict[tuple[str, str, str], str] = {}
     for row in load_feedback(tool_id=tool_id, base_dir=base_dir):
         if row.get("source_type") != "ai_consensus":
             continue
@@ -1100,6 +1117,9 @@ def generate_ai_consensus(
         existing_consensus[key] = max(
             existing_consensus.get(key, 0), consensus_judges_voted(row),
         )
+        stamped = str(row.get("recorded_at") or "")
+        if stamped and stamped > settled_at.get(key, ""):
+            settled_at[key] = stamped
     grouped: dict[tuple[str, str, str], dict[str, dict[str, Any]]] = {}
     for row in ai_rows:
         run_id = str(row.get("run_id") or "")
@@ -1117,7 +1137,10 @@ def generate_ai_consensus(
     for key, by_judge in sorted(grouped.items()):
         rows = list(by_judge.values())
         run_id, finding_id, group_id = key
-        if key in existing_consensus and existing_consensus[key] >= len(rows):
+        if key in existing_consensus and existing_consensus[key] >= len(rows) and not any(
+            str(row.get("recorded_at") or "") > settled_at.get(key, "")
+            for row in rows
+        ):
             continue
         if len(rows) < 2:
             uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "single_judge"))

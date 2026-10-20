@@ -951,6 +951,31 @@ path = "tests/invariants/opc_ua_subscription_freshness.rs"
 name = "opc_ua_reload_drains_writes"
 path = "tests/invariants/opc_ua_reload_drains_writes.rs"
 
+# ADR-048 DEC-4.1 / DEC-4.2 / DEC-4.5 / DEC-24 — the agent's filesystem
+# contract. In the suderra-os profile every path constant of src/paths.rs is
+# checked against contracts/suderra-edge/v1/{mutable-state,unit-directives}.json;
+# in both profiles production source names no /etc path outside a reasoned
+# allowlist and no agent data path outside the path SSoT.
+[[test]]
+name = "no_etc_write_paths"
+path = "tests/invariants/no_etc_write_paths.rs"
+
+# ADR-048 DEC-19 — no security-relevant environment read in the suderra-os
+# profile: every runtime environment read of src/ lives in
+# src/generic_env.rs (not compiled in that profile) or on a reasoned
+# allowlist that starts with one entry; src/machine_id.rs is not compiled
+# there either (DEC-4.9).
+[[test]]
+name = "no_security_env_in_suderra_os"
+path = "tests/invariants/no_security_env_in_suderra_os.rs"
+
+# PR-195 Batch #17 D-3 boot order: init_keystore runs before every SQLCipher
+# consumer init (ORPHAN-D3-BOOT-ORDER-001). The file existed but was never
+# registered as a test target, so it never ran.
+[[test]]
+name = "d3_boot_order"
+path = "tests/invariants/d3_boot_order.rs"
+
 # =============================================================================
 # RUST-CVE-001: rumqttc 0.25.1 vendored fork (../crates/local-rumqttc)
 # =============================================================================

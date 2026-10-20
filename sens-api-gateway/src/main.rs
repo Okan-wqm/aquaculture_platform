@@ -3041,6 +3041,17 @@ fn main() {
                 println!("Suderra Edge Agent v{}", env!("CARGO_PKG_VERSION"));
                 return;
             }
+            "--preflight" => {
+                // ADR-048 DEC-4 / DEC-28: load the configuration and open the
+                // offline queue exactly the way boot does (path SSoT, the
+                // activation-state overlay, the device secret and its key
+                // derivation), print a one-line JSON summary and exit — no
+                // MQTT, no hardware. The v1.6.0 fixture test
+                // (tests/v1_6_0_fixture_boot.rs) drives the real binary
+                // through it.
+                let code = run_preflight();
+                std::process::exit(code);
+            }
             "--confirm-active" => {
                 // Batch 110 Sprint 6.5 Phase 2: post-boot
                 // confirm CLI. Called by a systemd unit /
@@ -3160,6 +3171,10 @@ fn main() {
                 {
                     use std::io::Write as _;
                     let mut stdout = std::io::stdout().lock();
+                    let _ = writeln!(
+                        stdout,
+                        "    --preflight               Load the config and open the offline queue as boot does, then exit"
+                    );
                     let _ = writeln!(
                         stdout,
                         "    --version                 Print version information"
@@ -4034,6 +4049,77 @@ fn run_migrate_db_subcommand_with_context(sub_argv_owned: Vec<String>) -> i32 {
             s if s.contains("status(0)") => 0,
             _ => 1,
         }
+    })
+}
+
+/// `--preflight`: the boot steps that touch persistent state, without the
+/// network or hardware. Same functions as boot, in boot order:
+/// `AgentConfig::load` (path SSoT + activation overlay), `init_keystore`,
+/// `init_offline_queue`. Like boot, the latter creates the device secret
+/// and the queue database when they do not exist yet. Prints one JSON line
+/// on success (exit 0); the error on stderr otherwise (exit 1).
+#[allow(clippy::print_stdout)]
+#[allow(clippy::print_stderr)]
+fn run_preflight() -> i32 {
+    let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("--preflight: failed to build tokio runtime: {e}");
+            return 1;
+        }
+    };
+    runtime.block_on(async {
+        let agent_paths = paths::AgentPaths::current();
+        let config = match AgentConfig::load(agent_paths) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("--preflight: config load failed: {e:#}");
+                return 1;
+            }
+        };
+        let activated = config.mqtt.username.is_some()
+            && config.mqtt.password.is_some()
+            && config.mqtt.broker.is_some();
+        let summary_config = serde_json::json!({
+            "path": agent_paths.config_file().display().to_string(),
+            "device_id": config.device_id.clone(),
+            "tenant_id": config.tenant_id.clone(),
+            "activated": activated,
+        });
+        let mut state = AppState::new(config);
+        if let Err(e) = state.init_keystore().await {
+            eprintln!("--preflight: keystore init failed: {e}");
+            return 1;
+        }
+        if let Err(e) = state.init_offline_queue().await {
+            eprintln!("--preflight: {e}");
+            return 1;
+        }
+        let queue = state.offline_queue.as_ref().map(|q| {
+            serde_json::json!({
+                "path": state
+                    .config
+                    .offline_queue
+                    .db_path_override
+                    .clone()
+                    .unwrap_or_else(|| agent_paths.offline_queue_db())
+                    .display()
+                    .to_string(),
+                "pending": q.len(),
+            })
+        });
+        println!(
+            "{}",
+            serde_json::json!({
+                "config": summary_config,
+                "offline_queue": queue,
+                "activation_state": agent_paths.activation_state_file().exists(),
+            })
+        );
+        0
     })
 }
 

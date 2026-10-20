@@ -1,0 +1,21 @@
+# TEST-ONLY config of an activated v1.6.0 generic-Linux (HC-1) device, as the
+# v1.6.0 agent left it after a device-first activation: identity, tenant and
+# broker credential all inside config.yaml (ADR-048 DEC-4 consequences,
+# DEC-28, TST-008). Driven by tests/v1_6_0_fixture_boot.rs.
+device_id: "9b2f6c1e-4a7d-4e3b-8c5f-2d1a0e9f7b6c"
+device_code: "RPI-V160FIX"
+api_url: "https://api.example.test"
+tenant_id: "1f3e5d7c-9b2a-4c6e-8f0d-1a3b5c7d9e2f"
+mqtt:
+  broker: "mqtt.example.test"
+  port: 8883
+  username: "device-9b2f6c1e"
+  password: "b64:djE2MC1maXh0dXJlLXBhc3N3b3JkLVRFU1QtT05MWQ=="
+  tls:
+    enabled: true
+  keepalive_secs: 60
+  clean_session: false
+telemetry:
+  interval_seconds: 30
+offline_queue:
+  enabled: true

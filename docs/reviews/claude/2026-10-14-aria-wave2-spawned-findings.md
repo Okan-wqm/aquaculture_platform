@@ -442,6 +442,37 @@ verb can record are listed at the end.
   and composes every blocker; `G003-A19-1-CD` (late) remaps the deleted ref and closes it. Deadline:
   2026-12-14.
 
+### ARIA-MEDIUM-662 — a pinned ref below a symlinked directory reads as an owed proof
+
+- **Raised by:** the ARIA order chain's `G003-A19-1-AB` item, landing the wave-3 bucket after
+  ARIA-HIGH-520 closed on main in another form (02e4c0dc6).
+- **Problem:** `_valid_operator_policy_structure` classifies each regression ref with one
+  `_git_tree_entry` call on the ref (`autonomy_evidence.py:4173`) and collects every miss as
+  unresolved (`:4182`). `ls-tree` finds nothing below a symlink, so a target tree whose
+  `aria-kernel/tests` is a symlink reads as engineering backlog, not an invalid policy; with Mode-A
+  proven, `enterprise_readiness` stays `live_proven`. Before 02e4c0dc6 this shape was
+  `operator_prerequisite_policy_invalid`. The pinned-reference comparison (`:4204`) also runs after
+  every ref, pinned or not, has reached git. `autonomy_closure._closure_policy_resolved` (`:290`)
+  reads the same shape.
+- **Planned fix:** one classification per pinned ref: a regular blob is landed; absent with every
+  existing ancestor a tree is unlanded; anything else is an invalid policy, and a git failure on the
+  ref or an ancestor is invalid. The pinned references are compared before any ref reaches git.
+  Test-first, in this item's fix commit. Owner Okan-wqm, deadline 2027-01-18.
+
+### ARIA-MEDIUM-663 — an owed closure proof leaves readiness live_proven
+
+- **Raised by:** the ARIA order chain's `G003-A19-1-AB` item (design G003 part B, test B).
+- **Problem:** `_apply_operator_prerequisites` adds `closure_policy_regression_refs_unresolved`
+  without changing the state (`autonomy_evidence.py:4306`, `_with_capability_blocker` at `:3932`),
+  so with Mode-A proven a status reports readiness, and the overall state, `live_proven` while a
+  test the closure policy pins is absent. Every other engineering blocker of the derivation demotes
+  its capability to `declared` (`:4439`). The closure predicate refuses on the blocker
+  (`autonomy_closure.py:440`); the status and the CLI do not.
+- **Planned fix:** `_with_prerequisite_blockers` folds the operator and engineering blocker sets into
+  one state (operator: `operator_blocked`; engineering only: `declared`; otherwise the derived state)
+  and replaces `_with_capability_blocker`; Mode-A is still judged on the readiness as derived.
+  Test-first, in this item's fix commit. Owner Okan-wqm, deadline 2027-01-18.
+
 ### ARIA-HIGH-521 — the merge lane's own observed row blocks every perimeter
 
 - **Wave-2 key:** merge-delivery-1 (blind-spot audit).

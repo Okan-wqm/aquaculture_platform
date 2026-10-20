@@ -44,6 +44,18 @@ PRIOR_B = 1.0
 MULTIPLIER_FLOOR = 0.25
 MULTIPLIER_CEIL = 1.25
 
+# WP-J D-1 — the stability temper's cap. The stability lane (stability_reask)
+# re-mints a judge's own envelope blind and records whether the verdict
+# flipped. A flip rate above this cap means `calibrated` was measuring
+# noise: the judge's answer is not reproducible under its own question, so
+# its posterior buys no weight beyond the prior. 0.2, because at the
+# measured judgment drain (~9-13 envelopes a night, dead since 2026-10-01)
+# a stability lane accumulates single-digit re-asks per judge per week: the
+# cap tolerates one noisy flip in five re-asks while refusing a judge that
+# flips on a fifth or more of them. A measured operator decision, not a
+# constant to tune quietly — same discipline as ANCHOR_MIN_DISTINCT_MODELS.
+STABILITY_MAX_FLIP: float = 0.2
+
 
 def beta_posterior(
     tp: int, fp: int, *, prior_a: float = PRIOR_A, prior_b: float = PRIOR_B
@@ -201,6 +213,7 @@ def judge_weights_from_calibration(
     *,
     prior_a: float = PRIOR_A,
     prior_b: float = PRIOR_B,
+    flip_rates: dict[str, float] | None = None,
 ) -> dict[str, float]:
     """Per-judge Beta-posterior precision means from a calibration row.
 
@@ -208,7 +221,21 @@ def judge_weights_from_calibration(
     (judges[] with true_positive/false_positive counts); output maps
     judge_id -> posterior mean. Judges absent from the row weigh at the
     prior mean — a brand-new judge is neither trusted nor muted.
+
+    WP-J D-1 — ``flip_rates`` (judge_id -> flip rate, from the ONE flip
+    table the stability lane owns) tempers a judge's earned edge toward
+    the prior, linearly in how often its verdict flips under a blind
+    re-ask of its own question::
+
+        w = prior + (posterior - prior) * (1 - flip_rate)
+
+    A flip rate above STABILITY_MAX_FLIP blocks `calibrated` standing
+    outright: the judge weighs the prior, exactly like a judge that never
+    earned the status. ``flip_rates=None`` (or a judge absent from it) is
+    bit-for-bit the pre-temper weight — the temper is a no-op until the
+    stability lane has actually measured something.
     """
+    prior_mean = prior_a / (prior_a + prior_b)
     weights: dict[str, float] = {}
     for judge in (calibration_row or {}).get("judges") or []:
         judge_id = str(judge.get("judge_id") or "")
@@ -219,7 +246,7 @@ def judge_weights_from_calibration(
         # from before the status existed (schema 1) keeps its posterior.
         status = judge.get("calibration_status")
         if status is not None and status != "calibrated":
-            weights[judge_id] = prior_a / (prior_a + prior_b)
+            weights[judge_id] = prior_mean
             continue
         post = beta_posterior(
             int(judge.get("true_positive") or 0),
@@ -227,7 +254,13 @@ def judge_weights_from_calibration(
             prior_a=prior_a,
             prior_b=prior_b,
         )
-        weights[judge_id] = post["mean"]
+        flip_rate = flip_rates.get(judge_id) if flip_rates is not None else None
+        if flip_rate is None:
+            weights[judge_id] = post["mean"]
+        elif flip_rate > STABILITY_MAX_FLIP:
+            weights[judge_id] = prior_mean
+        else:
+            weights[judge_id] = prior_mean + (post["mean"] - prior_mean) * (1.0 - flip_rate)
     return weights
 
 
@@ -315,6 +348,7 @@ __all__ = [
     "MULTIPLIER_FLOOR",
     "PRIOR_A",
     "PRIOR_B",
+    "STABILITY_MAX_FLIP",
     "beta_posterior",
     "bradley_terry",
     "calibrate_source_weights",

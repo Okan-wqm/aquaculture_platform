@@ -7,7 +7,10 @@ import type { RecordedActor } from '../../common/recorded-actor';
 import { EdgeDeviceService } from '../../edge-device/edge-device.service';
 import { MqttClientService } from '../../shared-mqtt/mqtt-client.service';
 import { EdgeCommandPublisher } from '../../edge-device/edge-command-publisher.service';
-import { publisherOverBroker } from '../../edge-device/test-helpers/edge-command-publisher';
+import {
+  type BrokerDouble,
+  publisherOverBroker,
+} from '../../edge-device/test-helpers/edge-command-publisher';
 import { AutomationResolver } from '../automation.resolver';
 import { AutomationService } from '../automation.service';
 import {
@@ -113,7 +116,7 @@ describe('deployment actor (command log "deployed by")', () => {
         },
         {
           provide: EdgeCommandPublisher,
-          useFactory: (mqtt: MqttClientService): EdgeCommandPublisher =>
+          useFactory: (mqtt: BrokerDouble): EdgeCommandPublisher =>
             publisherOverBroker(mqtt, [{ id: DEVICE_ID, tenantId: TENANT }]),
           inject: [MqttClientService],
         },

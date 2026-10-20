@@ -6,6 +6,8 @@ import { promisify } from 'util';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { isDeviceCommandTopic } from '../shared-mqtt/device-command-topic';
+
 import { DeviceDirectoryService } from './device-directory.service';
 import { ProvisioningReservationService } from './provisioning-reservation.service';
 import {
@@ -26,9 +28,6 @@ const pbkdf2Async = promisify(pbkdf2);
  * account and no device — not even onto its own topic — writes a command.
  */
 export const COMMAND_PUBLISHER_PRINCIPAL = 'sensor_service';
-
-/** A device command topic, current or legacy, and anything beneath it. */
-const DEVICE_COMMAND_TOPIC = /^(?:tenants\/[^/]+\/devices\/[^/]+|edge\/[^/]+)\/commands(?:\/|$)/;
 
 /** go-auth access bits: 1 read, 2 write (3 = both), 4 subscribe. */
 const ACC_WRITE = 2;
@@ -297,7 +296,7 @@ export class MqttAuthService implements OnModuleInit {
     // whatever a later grant says; the principal still needs its own grant.
     if (
       (acc & ACC_WRITE) !== 0 &&
-      DEVICE_COMMAND_TOPIC.test(topic) &&
+      isDeviceCommandTopic(topic) &&
       username !== COMMAND_PUBLISHER_PRINCIPAL
     ) {
       return false;

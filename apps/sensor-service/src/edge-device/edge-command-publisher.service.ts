@@ -110,7 +110,7 @@ export class EdgeCommandPublisher {
           params: command.params,
           timestamp: new Date().toISOString(),
         };
-    await mqtt.publish(topic, payload);
+    await mqtt.publishDeviceCommand(topic, payload);
     this.logger.debug({
       event: 'edge_command_published',
       deviceId: device.id,

@@ -7,6 +7,8 @@ import client from 'prom-client';
 import { ServiceMetricsService } from '@aquaculture/backend-common/metrics';
 import { emitBootInvariantSignal } from '@aquaculture/backend-common/constants';
 
+import { isDeviceCommandTopic } from './device-command-topic';
+
 /**
  * MQTT subscription callback type
  */
@@ -421,10 +423,6 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
     this.connected.set(0);
   }
 
-  getClient(): MqttClient | null {
-    return this.client;
-  }
-
   /**
    * Subscribe to topics — one SUBSCRIBE packet PER TOPIC.
    *
@@ -507,9 +505,22 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Publish message to topic
+   * Publishes one command to an edge device's command topic — the only
+   * thing this service writes to the broker (ADR-048 DEC-9.2). There is no
+   * general publish and no raw client to borrow: a topic that is not a
+   * device command topic is refused here, and
+   * tests/invariants/edge-command-publish-chokepoint.spec.ts fails the build
+   * when anything but EdgeCommandPublisher, which signs for Suderra OS
+   * devices, names this method.
    */
-  async publish(topic: string, message: string | object, qos: 0 | 1 | 2 = 1): Promise<void> {
+  async publishDeviceCommand(
+    topic: string,
+    message: string | object,
+    qos: 0 | 1 | 2 = 1,
+  ): Promise<void> {
+    if (!isDeviceCommandTopic(topic)) {
+      throw new Error(`Refusing to publish to ${topic}: not an edge device command topic`);
+    }
     if (!this.client || !this.isConnectedToBroker()) {
       throw new Error('Not connected to MQTT broker');
     }

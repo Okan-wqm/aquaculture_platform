@@ -6,7 +6,10 @@ import { ScadaPackageService } from '../scada-package.service';
 import { ScadaDeployLogService } from '../scada-deploy-log.service';
 import { MqttClientService } from '../../../shared-mqtt/mqtt-client.service';
 import { EdgeCommandPublisher } from '../../../edge-device/edge-command-publisher.service';
-import { publisherOverBroker } from '../../../edge-device/test-helpers/edge-command-publisher';
+import {
+  type BrokerDouble,
+  publisherOverBroker,
+} from '../../../edge-device/test-helpers/edge-command-publisher';
 import { EdgeDeviceService } from '../../../edge-device/edge-device.service';
 
 import { createScadaPackageHarness } from './scada-package-harness';
@@ -78,7 +81,7 @@ describe('deleteScadaPackage — undeploy on delete (WF-011)', () => {
         { provide: MqttClientService, useValue: { isConnectedToBroker: () => true, publish } },
         {
           provide: EdgeCommandPublisher,
-          useFactory: (mqtt: MqttClientService): EdgeCommandPublisher =>
+          useFactory: (mqtt: BrokerDouble): EdgeCommandPublisher =>
             publisherOverBroker(mqtt, [
           { id: 'dev-1', tenantId: TENANT },
           { id: 'dev-2', tenantId: TENANT },

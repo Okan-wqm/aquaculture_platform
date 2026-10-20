@@ -4,7 +4,10 @@ import { ScadaPackage, ScadaPackageStatus } from '../../entities/scada-package.e
 import { ScadaPackageService } from '../scada-package.service';
 import { MqttClientService } from '../../../shared-mqtt/mqtt-client.service';
 import { EdgeCommandPublisher } from '../../../edge-device/edge-command-publisher.service';
-import { publisherOverBroker } from '../../../edge-device/test-helpers/edge-command-publisher';
+import {
+  type BrokerDouble,
+  publisherOverBroker,
+} from '../../../edge-device/test-helpers/edge-command-publisher';
 import { EdgeDeviceService } from '../../../edge-device/edge-device.service';
 
 import { createScadaPackageHarness } from './scada-package-harness';
@@ -70,7 +73,7 @@ describe('deploy edge-widget boundary (CONTRACT-H-002)', () => {
         },
         {
           provide: EdgeCommandPublisher,
-          useFactory: (mqtt: MqttClientService): EdgeCommandPublisher =>
+          useFactory: (mqtt: BrokerDouble): EdgeCommandPublisher =>
             publisherOverBroker(mqtt, [{ id: 'dev-1', tenantId: TENANT }]),
           inject: [MqttClientService],
         },

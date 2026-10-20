@@ -232,3 +232,53 @@ describe('MqttClientService per-topic SUBSCRIBE isolation (SENSOR-HIGH-118)', ()
     await expect(service.subscribe(['sensors/#'])).rejects.toThrow('Not connected');
   });
 });
+
+// ADR-048 DEC-9.2: the only thing the service writes is a device command,
+// through EdgeCommandPublisher. There is no general publish and no raw client.
+describe('MqttClientService writes device commands only', () => {
+  beforeEach(() => {
+    mqttMock.connect.mockReset();
+  });
+
+  it('publishes to a device command topic, current or legacy', async () => {
+    const { service, client } = await connectService({
+      MQTT_CLIENT_ID: 'aqua-sensor-service-test',
+    });
+    const publish = jest.fn((_t: string, _p: string, _o: unknown, cb: (e?: Error) => void) =>
+      cb(undefined),
+    );
+    Reflect.set(client, 'publish', publish);
+    await service.publishDeviceCommand('tenants/t1/devices/d1/commands', { command: 'ping' });
+    await service.publishDeviceCommand('edge/RPI-00000001/commands', '{}');
+    expect(publish.mock.calls.map((call) => call[0])).toEqual([
+      'tenants/t1/devices/d1/commands',
+      'edge/RPI-00000001/commands',
+    ]);
+    expect(publish.mock.calls[0]?.[1]).toBe('{"command":"ping"}');
+  });
+
+  it.each([
+    'tenants/t1/devices/d1/telemetry',
+    'tenants/t1/devices/d1/commandsx',
+    'sensors/s1/readings',
+    'tenants/t1/devices/d1',
+  ])('refuses %s before touching the broker', async (topic) => {
+    const { service, client } = await connectService({
+      MQTT_CLIENT_ID: 'aqua-sensor-service-test',
+    });
+    const publish = jest.fn();
+    Reflect.set(client, 'publish', publish);
+    await expect(service.publishDeviceCommand(topic, '{}')).rejects.toThrow(
+      /not an edge device command topic/,
+    );
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it('exposes neither a general publish nor the raw client', () => {
+    const service = new MqttClientService(
+      makeConfig({ MQTT_CLIENT_ID: 'aqua-sensor-service-test' }),
+    );
+    expect(Reflect.get(service, 'publish')).toBeUndefined();
+    expect(Reflect.get(service, 'getClient')).toBeUndefined();
+  });
+});

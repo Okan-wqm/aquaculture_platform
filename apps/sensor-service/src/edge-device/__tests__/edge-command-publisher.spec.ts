@@ -75,7 +75,7 @@ function harness(
     state === 'absent'
       ? null
       : collaborator<MqttClientService>(
-          { publish, isConnectedToBroker: () => state === 'connected' },
+          { publishDeviceCommand: publish, isConnectedToBroker: () => state === 'connected' },
           'MqttClientService',
         );
   const publisher = new EdgeCommandPublisher(

@@ -13,8 +13,14 @@ import { EdgeAgentChannel, EdgeDevice } from '../entities/edge-device.entity';
  * legacy CommandMessage the spec inspects ({commandId, command, params,
  * timestamp}). Signed publishing has its own spec (edge-command-publisher).
  */
+/** What a spec's broker double records: every command published, by topic. */
+export interface BrokerDouble {
+  publish(topic: string, message: string | object): Promise<void>;
+  isConnectedToBroker(): boolean;
+}
+
 export function publisherOverBroker(
-  mqtt: Pick<MqttClientService, 'publish' | 'isConnectedToBroker'>,
+  mqtt: BrokerDouble,
   devices: ReadonlyArray<{ readonly id: string; readonly tenantId: string }>,
 ): EdgeCommandPublisher {
   const directory = collaborator<DeviceDirectoryService>(
@@ -33,7 +39,14 @@ export function publisherOverBroker(
     'DeviceDirectoryService',
   );
   return new EdgeCommandPublisher(
-    collaborator<MqttClientService>(mqtt, 'MqttClientService'),
+    collaborator<MqttClientService>(
+      {
+        publishDeviceCommand: (topic: string, message: string | object) =>
+          mqtt.publish(topic, message),
+        isConnectedToBroker: () => mqtt.isConnectedToBroker(),
+      },
+      'MqttClientService',
+    ),
     directory,
     collaborator<CommandEnvelopeSignerService>({}, 'CommandEnvelopeSignerService'),
   );

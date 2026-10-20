@@ -13,7 +13,7 @@ import { DeleteTemperatureScenarioHandler } from './query-handlers/delete-temper
 import { GetTankGrowthProjectionHandler } from './query-handlers/get-tank-growth-projection.handler';
 import { ProductionPlanResolver } from './resolvers/production-plan.resolver';
 import { FeedingProtocolCoreModule } from '../feeding-protocol/feeding-protocol-core.module';
-import { WaterQualityModule } from '../water-quality/water-quality.module';
+import { WaterTemperatureCoreModule } from '../water-quality/water-temperature-core.module';
 
 export const ProductionPlanQueryHandlers = [
   GetTemperatureScenariosHandler,
@@ -28,7 +28,7 @@ export const ProductionPlanQueryHandlers = [
     // ProtocolRateService comes from FeedingProtocolCoreModule (its provider
     // home) — re-providing it here would split its state across two instances.
     FeedingProtocolCoreModule,
-    WaterQualityModule,
+    WaterTemperatureCoreModule,
   ],
   providers: [...ProductionPlanQueryHandlers, ProductionPlanResolver],
   exports: [ProductionPlanResolver],

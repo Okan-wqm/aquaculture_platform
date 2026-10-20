@@ -37,6 +37,7 @@ import { Equipment } from '../equipment/entities/equipment.entity';
 // Service
 import { WaterQualityService } from './water-quality.service';
 import { WaterTemperatureService } from './services/water-temperature.service';
+import { WaterTemperatureCoreModule } from './water-temperature-core.module';
 import { FeedingProtocolCoreModule } from '../feeding-protocol/feeding-protocol-core.module';
 
 // Resolvers
@@ -108,6 +109,9 @@ const CommandHandlers = [
   imports: [
     // P-31 sıcaklık tetiklemesi — çekirdek modülün TEK örneği (yaprak; döngü yok).
     FeedingProtocolCoreModule,
+    // Aynı desen: sıcaklık servisinin tek örneği (equipment/feeding-protocol/
+    // production-plan yaprak modülü import eder; döngüsüz).
+    WaterTemperatureCoreModule,
     TypeOrmModule.forFeature([
       WaterQualityMeasurement,
       WaterQualityParameterConfig,
@@ -136,7 +140,6 @@ const CommandHandlers = [
   providers: [
     WaterQualityService,
     // Etkin sıcaklık zinciri (sensör→manuel→none) — effectiveUnitTemperatures sorgusu okur.
-    WaterTemperatureService,
     // W8/FARM-MEDIUM-284 — stateless checker (ProtocolRateService emsali):
     // FeedingProtocolModule'ü import etmek modül döngüsü riski taşır.
     FeedingReadinessCheckerService,
@@ -162,10 +165,9 @@ const CommandHandlers = [
   exports: [
     TypeOrmModule,
     WaterQualityService,
-    // Production plan's tank growth projection reads the tank's current
-    // effective temperature through this service (fallback when no
-    // scenario is selected).
-    WaterTemperatureService,
+    // Re-exports the core module so legacy importers of WaterQualityModule
+    // still resolve WaterTemperatureService without a new import site.
+    WaterTemperatureCoreModule,
     ParameterConfigCacheService,
     WaterQualityEvaluationService,
     WaterQualityValidationService,

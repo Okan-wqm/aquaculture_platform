@@ -30,7 +30,6 @@ import { FeedingCronV2Service } from './services/feeding-cron-v2.service';
 import { FeedingClockService } from './services/feeding-clock.service';
 import { FeedingJobRunService } from './services/feeding-job-run.service';
 import { FeedingWindowReadinessListener } from './listeners/feeding-window-readiness.listener';
-import { WaterTemperatureService } from '../water-quality/services/water-temperature.service';
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { BatchModule } from '../batch/batch.module';
@@ -58,9 +57,12 @@ import {
 import { FeedingProtocolV2Resolver } from './resolvers/feeding-protocol-v2.resolver';
 import { MealExecutionResolver } from './resolvers/meal-execution.resolver';
 import { LocalizationModule } from '../localization/localization.module';
+import { WaterTemperatureCoreModule } from '../water-quality/water-temperature-core.module';
 
 @Module({
   imports: [
+    // WaterTemperatureService's provider home — imported, never re-provided.
+    WaterTemperatureCoreModule,
     // Zon hiyerarşisinin tek sahibi (SiteTimeZoneService) + tenant lokalizasyon projeksiyonu.
     LocalizationModule,
     // Band/oran/FCR çözümü ve gün-planı yeniden hesabı: tek örnek, yaprak modül
@@ -107,7 +109,6 @@ import { LocalizationModule } from '../localization/localization.module';
     ProtocolFeedForecastService,
     ForecastRefreshListener,
     // Sıcaklık SSoT — cron toplu okuması (stateless, @InjectDataSource).
-    WaterTemperatureService,
     // Stateless yardımcılar (BatchModule 'stateless pure domain logic' emsali).
     MobileCommandReceiptService,
     SiteAuthorizationService,

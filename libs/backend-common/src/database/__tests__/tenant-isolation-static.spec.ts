@@ -136,7 +136,9 @@ describe('Tenant Isolation Static Analysis', () => {
       // assessment, sync-state, and metric-outcome SSoT. 96 → 97:
       // feeding_record_attribution_quarantine (see the tenantTotal note above).
       // 97 → 98: parameter_quantity_declarations (see the tenantTotal note above).
-      expect(counts['farm']).toBe(98);
+      // 98 → 100: temperature_scenarios + temperature_scenario_points, the
+      // production plan's dated temperature curve (design record 2026-10-19).
+      expect(counts['farm']).toBe(100);
       expect(counts['hr']).toBe(29);
       expect(counts['hydroponics']).toBe(1);
       expect(counts['alert']).toBe(4);

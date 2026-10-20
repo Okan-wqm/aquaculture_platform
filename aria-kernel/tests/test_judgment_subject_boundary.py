@@ -201,9 +201,14 @@ class BeliefVerdictBuysNoAdapterAuthority(unittest.TestCase):
                 # Carries the G-2 receipt so this pin isolates the question
                 # it is actually about: a row missing `judgment_subject`
                 # must still read as a FINDING judgment. Observer diversity
-                # is a separate rule with its own pins.
+                # is a separate rule with its own pins — and since the WP-P
+                # recast (operator decision 2026-10-18) that rule counts
+                # SEATS, a row claiming three agreeing judges must name
+                # three receipts or it fails closed on a different axis
+                # than the one this test isolates.
                 "observers": [
                     {"judge_id": "aria-evidence-judge", "model": "claude-opus-5"},
+                    {"judge_id": "aria-adversarial-judge", "model": "claude-opus-5"},
                     {"judge_id": "aria-consensus-arbiter", "model": "fable"},
                 ],
             })

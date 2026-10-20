@@ -1168,6 +1168,107 @@ duplicate `lint-changed-files`. The real residual is INFRA-MEDIUM-224.
   pre-tokenisation). Test-first: a 1 MB alphanumeric string scrubs within a fixed time budget and
   the credential-shape tests stay green. Owner Okan-wqm, deadline 2026-11-15.
 
+### ARIA-MEDIUM-656 — a pr-lifecycle observation still carries and binds a PR's change
+
+- **Raised by:** the ARIA order chain, landing the wave-3 `G003-md1-binding` bucket (key
+  merge-delivery-1). Main closed ARIA-HIGH-521 in another form (577741a4d): the perimeter now binds
+  from the latest row that carries a `change_id`, so the merge lane's own `observed` row no longer
+  blocks every ARIA PR. The writer and the readers stayed as they were.
+- **Problem:** `auto_merge.record_pr_lifecycle` takes any event string, defaults to `observed`, and
+  copies `change_id`, `proposal_id`, `task_id`, `assignment_id` and `merge_route` from its payload
+  onto every event (`auto_merge.py:574`, `:605-618`). Five readers pick the binding by their own
+  rules: `auto_merge.pr_change_binding` (any row carrying a change id, `:503`, read by
+  `change_for_pr` and the perimeter), `change_outcome._merge_index` (every change any row names,
+  `:468`), `_capture_assessment_inputs` (`:883`), `self_revert._reverted_suite` (the latest
+  proposal, `:1189`) and `human_merge_decision` (`:534`). Measured on origin/main a488a36f2 with the
+  bucket's tests: an observed row naming `chg_forged` makes `change_for_pr` return it, and an
+  unrelated change named only by an observed row is credited with the PR's merge. The production
+  GitHub adapter carries none of these fields, so the lane's own observation does not re-bind a PR
+  today. A legacy row or any payload-carrying caller does.
+- **Planned fix:** `merge_record.pr_change_binding` owns the binding (the PR's `opened` rows), the
+  writer takes a required event from a closed vocabulary and writes binding fields only on
+  `opened`/`pr_dry_run`, every reader goes through the owner, and the second owner in `auto_merge`
+  is deleted. Deadline: 2027-01-17.
+- **Landed (ARIA order chain, `G003-md1-binding`):** `merge_record.pr_change_binding` returns a
+  `PrChangeBinding` from the PR's latest `opened` row (`None` for a non-int PR key), and
+  `record_pr_lifecycle` refuses an event outside `PR_LIFECYCLE_EVENTS` and writes the binding fields
+  null on every non-binding event. `change_for_pr`, the perimeter, `human_merge_decision`,
+  `_merge_index`, `_capture_assessment_inputs` and `_reverted_suite` read through it; the copy in
+  `auto_merge` is gone. Red first on a488a36f2: `change_for_pr` returned `chg_forged`, an observed row
+  credited an unrelated change with the merge; green in `test_pr_change_id_requirement`,
+  `test_change_outcome` and the perimeter tests. The verification round found three more readers:
+  `worker_dispatch.pr_for_assignment` took the assignment bridge (one of `BINDING_FIELDS`) from a
+  row of any event, so a legacy observed or merged row routed `merge_if_green` to its PR (red:
+  778 != 142 in `test_only_the_opened_row_binds_an_assignment_to_its_pr`); it now reads
+  `merge_record.opened_row(rows, assignment_id=...)`. `merge_record.pull_requests_for_change` and
+  `delivery_closure` compare with the owner's `PR_BINDING_EVENT` instead of the literal. The only
+  copies of the rule left are ARIA-LOW-660's. The perimeter also no longer requires the PR's last
+  lifecycle row to name the live head and base (577741a4d): the live head is judged against the
+  committed commit by the delivered-head check and `verify_branch_update_lineage`, the base by the
+  opened row against the live payload, and the merge lane re-reads the head before it merges. The
+  claim-time expert-review capture, which appends no observation, now binds an ARIA-updated head
+  (pinned by `test_a_claim_time_capture_judges_an_updated_head_by_the_lineage_verifier_alone`; main
+  refused it as `pr_change_join_unavailable`).
+
+### ARIA-LOW-657 — the opened row's delivered head is never compared with the committed commit
+
+- **Raised by:** the wave-3 `G003-md1-binding` fix round (review item 2), re-measured on origin/main
+  a488a36f2.
+- **Problem:** the perimeter compares only the live head with `committed.commit_sha`
+  (`merge_authority.py:1032`). An opened row recorded for another commit passes when the live head
+  is the committed commit, and `pr_row_hash` (`:1152`) then names a delivery that is not the merged
+  change. No producer on main writes that shape today.
+- **Planned fix:** `pr_change_join_unavailable` when the binding's delivered head is not the
+  committed commit. Deadline: 2027-04-17.
+- **Landed (ARIA order chain, `G003-md1-binding`):** the perimeter refuses
+  `pr_change_join_unavailable` when `binding.delivered_head_sha` is not `committed.commit_sha`. Its
+  refusal of more than one change id, which main applied to every row of the PR, now counts only the
+  PR's opened rows, since no other row binds. Red first:
+  `test_an_opened_head_other_than_the_committed_commit_is_refused` got the change id with only
+  `implementation_*` gaps; it is green now.
+
+### ARIA-LOW-658 — the pre-merge capture drops the lineage verifier's refusal name
+
+- **Raised by:** the wave-3 `G003-md1-binding` implementation (design D4), re-measured on
+  origin/main a488a36f2.
+- **Problem:** the updated-head branch raises `GovernanceError(f"{reason}:{exc.reason}")`
+  (`merge_authority.py:1043`), but the capture's handler records `(reason,)` (`:1163`), so an
+  unrecorded update is evidenced as plain `pr_change_join_unavailable`. The merge stays refused; the
+  operator cannot tell an unrecorded commit from an unbound PR.
+- **Planned fix:** the capture's reason takes the verifier's suffix before the raise. Deadline:
+  2027-04-17.
+- **Landed (ARIA order chain, `G003-md1-binding`):** the updated-head branch sets `reason` to
+  `pr_change_join_unavailable:<verifier reason>` before it raises, so the evidence carries the
+  verifier's name. Red first: `test_an_unrecorded_update_is_refused_by_the_verifiers_name` recorded
+  the bare reason; it is green now, beside
+  `test_an_updated_head_binds_through_the_shared_lineage_verifier`.
+
+### ARIA-LOW-659 — updated-head evidence does not capture the update receipts it relied on
+
+- **Raised by:** the wave-3 `G003-md1-binding` security review (fix notes, item A); re-read on
+  origin/main a488a36f2, unchanged.
+- **Problem:** the capture's sources hold no `tools/recovery/external-effects.jsonl`
+  (`merge_authority.py:940`, `:946`). The updated-head branch calls `verify_branch_update_lineage`
+  (`:1038`), which reads that ledger from disk (`branch_update_lineage.py:179`), and the second
+  transaction re-checks only the captured sources (`:1114`). Not a weakening: the ledger is
+  append-only and kernel-written. An updated-head evidence row cannot be replayed from its prefixes.
+- **Planned fix:** capture the ledger, pass its rows to the verifier and bind the receipts' hashes
+  into the evidence, in the next change that owns `branch_update_lineage.py` and
+  `merge_authority.py`. Deadline: 2026-10-31 (dated by that review round).
+
+### ARIA-LOW-660 — two more copies of the PR binding owner's opened-row rule
+
+- **Raised by:** the wave-3 `G003-md1-binding` architecture review (fix notes, item B); re-read on
+  origin/main a488a36f2, which also has the `implementation_reconciler` copy.
+- **Problem:** `own_pr_delivery.aria_opened_prs` (`own_pr_delivery.py:34`) and
+  `implementation_reconciler.py:178` select the latest `opened` row themselves;
+  `human_merge_surface` (`:128`, `:153`, `:203`, `:219`) and `pr_branch_update.py:340` read a PR's
+  change from that copy. They select the same row as the owner today, so a change to the owner's
+  rule would not reach them.
+- **Planned fix:** both built on `merge_record.pr_change_binding`, in the next change that owns
+  `own_pr_delivery.py` and `human_merge_surface.py`. Deadline: 2026-10-31 (dated by that review
+  round).
+
 ## Registry amendments recorded at the L1 registry step
 
 - **ARIA-HIGH-281** (wave-2 key R7-008): reopened by `finding-registry reopen`, which rejects

@@ -55,7 +55,7 @@ use super::manifest_version_store::ManifestVersionStore;
 use super::permission::TenantId;
 use super::permission::OperatorId;
 #[cfg(not(feature = "suderra-os"))]
-use super::verify::{manifest_digest, verify_manifest};
+use super::verify::manifest_digest;
 #[cfg(not(feature = "suderra-os"))]
 use crate::config::RbacManifestMode;
 
@@ -212,7 +212,12 @@ impl RbacManifestStore {
             .map_err(|e| format!("Failed to read RBAC manifest at {}: {}", path.display(), e))?;
 
         let (verified, digest) = self
-            .verify_against_floor(signing_pubkey_hex, &bytes, expected_tenant)
+            .verify_against_floor(
+                signing_pubkey_hex,
+                &bytes,
+                expected_tenant,
+                super::verify::LoadKind::Boot,
+            )
             .map_err(|e| format!("{} (source={})", e, path.display()))?;
         self.advance_floor(verified.policy_version, &digest)?;
         Ok(verified)
@@ -237,6 +242,7 @@ impl RbacManifestStore {
         signing_pubkey_hex: Option<&str>,
         bytes: &[u8],
         expected_tenant: &TenantId,
+        kind: super::verify::LoadKind,
     ) -> Result<(RbacManifest, String), String> {
         let hex = signing_pubkey_hex.ok_or_else(|| {
             "manifest_signing_pubkey_hex is None — Batch 66 Rule 12 should have caught this"
@@ -267,10 +273,11 @@ impl RbacManifestStore {
             pubkey.verify_strict(canonical, &sig).is_ok()
         };
 
-        let verified = verify_manifest(
+        let verified = super::verify::verify_manifest(
             &signed,
             expected_tenant,
             &accepted,
+            kind,
             std::time::SystemTime::now(),
             verify_fn,
         )
@@ -331,8 +338,12 @@ impl RbacManifestStore {
         expected_tenant: &TenantId,
         persist_path: &Path,
     ) -> Result<u64, String> {
-        let (verified, digest) =
-            self.verify_against_floor(signing_pubkey_hex, bytes, expected_tenant)?;
+        let (verified, digest) = self.verify_against_floor(
+            signing_pubkey_hex,
+            bytes,
+            expected_tenant,
+            super::verify::LoadKind::Update,
+        )?;
         let new_version = verified.policy_version;
 
         persist_manifest_bytes(persist_path, bytes).map_err(|e| {
@@ -831,6 +842,67 @@ mod hot_reload_order_tests {
         assert_eq!(std::fs::read(&path).expect("persisted"), bytes);
         assert_eq!(vs.get_highest_seen().expect("floor"), 5);
         assert_eq!(store.policy_version(), Some(5));
+    }
+
+    /// EDGE-HIGH-059 migration: a device upgraded from an agent whose hot
+    /// reload advanced the floor without recording a digest boots in
+    /// Enforcing on the manifest it accepted, and the adoption records the
+    /// digest, so a different manifest at that version is refused from then
+    /// on and a hot reload at it never adopts.
+    #[test]
+    fn an_enforcing_boot_adopts_the_manifest_at_a_legacy_floor_once() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (_, vs) = store_with_floor(dir.path());
+        // What a pre-EDGE-HIGH-059 hot reload left: floor 5, no digest.
+        assert_eq!(vs.record_accepted(5).expect("legacy floor"), 5);
+        assert_eq!(vs.get_accepted().expect("read").digest, None);
+        let (hex, bytes) = signed(5);
+        let path = dir.path().join("rbac_manifest.json");
+        std::fs::write(&path, &bytes).expect("seed");
+
+        // A hot reload at the legacy floor is still a replay.
+        let reload = RbacManifestStore::new().with_version_store(vs.clone());
+        assert!(
+            reload
+                .hot_reload_from_bytes(Some(&hex), &bytes, &tenant(), &dir.path().join("p.json"))
+                .is_err()
+        );
+
+        let boot = RbacManifestStore::new().with_version_store(vs.clone());
+        boot.load_from_file(RbacManifestMode::Enforcing, Some(&hex), &path, &tenant())
+            .expect("the accepted manifest boots");
+        assert_eq!(boot.policy_version(), Some(5));
+        let digest = vs
+            .get_accepted()
+            .expect("read")
+            .digest
+            .expect("digest recorded");
+        let signed_manifest: SignedRbacManifest = serde_json::from_slice(&bytes).expect("parse");
+        assert_eq!(
+            Ok(digest),
+            manifest_digest(&signed_manifest.manifest).map_err(|e| format!("{e:?}"))
+        );
+
+        // Reboot: an identical re-verification.
+        RbacManifestStore::new()
+            .with_version_store(vs.clone())
+            .load_from_file(RbacManifestMode::Enforcing, Some(&hex), &path, &tenant())
+            .expect("reboot");
+        // Another manifest at the adopted version is now a replay.
+        let sk = SigningKey::from_bytes(&[42u8; SECRET_KEY_LENGTH]);
+        let mut other = signed_manifest;
+        other.manifest.policy_version = 5;
+        other.manifest.manifest_valid_until_unix_secs += 1;
+        let sig = sk.sign(&other.manifest.canonical_bytes().expect("canonical"));
+        other.signature = Ed25519SignatureBytes::from_slice(&sig.to_bytes()).expect("sig");
+        std::fs::write(&path, serde_json::to_vec(&other).expect("json")).expect("swap");
+        let replay = RbacManifestStore::new().with_version_store(vs);
+        assert!(
+            replay
+                .load_from_file(RbacManifestMode::Enforcing, Some(&hex), &path, &tenant())
+                .is_err()
+        );
+        assert!(!replay.is_loaded());
     }
 
     /// EDGE-HIGH-059: a reboot reloads the manifest the floor already

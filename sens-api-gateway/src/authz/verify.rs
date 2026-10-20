@@ -178,6 +178,15 @@ impl From<ManifestStructuralError> for ManifestVerifyError {
     }
 }
 
+/// Where a manifest presentation comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoadKind {
+    /// The boot load of the manifest the device keeps on disk.
+    Boot,
+    /// A new manifest delivered at run time (hot reload).
+    Update,
+}
+
 /// Verify a signed manifest. Returns the validated [`RbacManifest`] on
 /// success; fail-closed with a structured [`ManifestVerifyError`] on any
 /// gate rejection.
@@ -189,7 +198,8 @@ impl From<ManifestStructuralError> for ManifestVerifyError {
 /// 2. `now` >= UNIX_EPOCH (clock sanity)
 /// 3. Tenant match (`manifest.tenant_id == expected_tenant`)
 /// 4. Policy version monotonicity (`policy_version > highest_seen`, or the
-///    identical manifest accepted at `highest_seen`)
+///    identical manifest accepted at `highest_seen`, or — at boot only — a
+///    manifest at a legacy floor that has no recorded digest)
 /// 5. `now` within `[valid_from, valid_until]`
 /// 6. Canonical bytes serialization (structural well-formedness)
 /// 7. Signature verify (inject closure; Sprint 6.1 wires `ed25519_dalek`)
@@ -197,21 +207,31 @@ impl From<ManifestStructuralError> for ManifestVerifyError {
 /// **Fail-closed discipline:** any `Err` return leaves the caller's
 /// manifest store unchanged. Caller MUST NOT proceed to atomic manifest
 /// swap on error.
+///
+/// The presentation's `kind` decides one case: at boot, a floor with no recorded digest (written by an agent from
+/// before EDGE-HIGH-059, whose hot reload advanced the floor without
+/// recording the manifest) admits a manifest at exactly that version once,
+/// with the validity window still applied ([`Presentation::AdoptLegacyFloor`]);
+/// the caller records its digest, after which only the identical manifest
+/// passes at the floor. Without this a device upgraded from such an agent
+/// refused the very manifest it had accepted, on every Enforcing boot.
 pub fn verify_manifest(
     signed: &SignedRbacManifest,
     expected_tenant: &TenantId,
     accepted: &AcceptedVersion,
+    kind: LoadKind,
     now: SystemTime,
     verify_signature: impl FnOnce(&[u8], &[u8; 64]) -> bool,
 ) -> Result<RbacManifest, ManifestVerifyError> {
     // The manifest accepted at the floor comes back on every boot; it is a
     // re-verification, not a replay (EDGE-HIGH-059, DEC-9.9).
+    let at_floor = signed.manifest.policy_version == accepted.highest_seen;
     let presentation = match &accepted.digest {
-        Some(digest)
-            if signed.manifest.policy_version == accepted.highest_seen
-                && manifest_digest(&signed.manifest)? == *digest =>
-        {
+        Some(digest) if at_floor && manifest_digest(&signed.manifest)? == *digest => {
             Presentation::IdenticalToAccepted
+        }
+        None if at_floor && accepted.highest_seen > 0 && kind == LoadKind::Boot => {
+            Presentation::AdoptLegacyFloor
         }
         _ => Presentation::New,
     };
@@ -302,8 +322,15 @@ mod tests {
     fn accepts_valid_manifest() {
         let m = canned_manifest(10, 1_000, 9_000);
         let signed = signed(m.clone());
-        let verified =
-            verify_manifest(&signed, &tenant(), &AcceptedVersion::floor(5), now_at(5_000), |_, _| true).expect("valid");
+        let verified = verify_manifest(
+            &signed,
+            &tenant(),
+            &AcceptedVersion::floor(5),
+            LoadKind::Update,
+            now_at(5_000),
+            |_, _| true,
+        )
+        .expect("valid");
         assert_eq!(verified, m);
     }
 
@@ -313,8 +340,15 @@ mod tests {
     fn rejects_tenant_mismatch() {
         let m = canned_manifest(10, 1_000, 9_000);
         let signed = signed(m);
-        let err = verify_manifest(&signed, &other_tenant(), &AcceptedVersion::floor(5), now_at(5_000), |_, _| true)
-            .expect_err("tenant mismatch");
+        let err = verify_manifest(
+            &signed,
+            &other_tenant(),
+            &AcceptedVersion::floor(5),
+            LoadKind::Update,
+            now_at(5_000),
+            |_, _| true,
+        )
+        .expect_err("tenant mismatch");
         assert_eq!(err, ManifestVerifyError::TenantMismatch);
     }
 
@@ -323,8 +357,15 @@ mod tests {
     fn rejects_equal_policy_version() {
         let m = canned_manifest(10, 1_000, 9_000);
         let signed = signed(m);
-        let err = verify_manifest(&signed, &tenant(), &AcceptedVersion::floor(10), now_at(5_000), |_, _| true)
-            .expect_err("stale: equal version");
+        let err = verify_manifest(
+            &signed,
+            &tenant(),
+            &AcceptedVersion::floor(10),
+            LoadKind::Update,
+            now_at(5_000),
+            |_, _| true,
+        )
+        .expect_err("stale: equal version");
         assert_eq!(
             err,
             ManifestVerifyError::StalePolicyVersion {
@@ -346,17 +387,38 @@ mod tests {
             digest: manifest_digest(&m).ok(),
         };
         assert_eq!(
-            verify_manifest(&signed(m.clone()), &tenant(), &accepted, now_at(9_500), |_, _| true),
+            verify_manifest(
+                &signed(m.clone()),
+                &tenant(),
+                &accepted,
+                LoadKind::Update,
+                now_at(9_500),
+                |_, _| true
+            ),
             Ok(m.clone())
         );
         assert_eq!(
-            verify_manifest(&signed(m.clone()), &tenant(), &accepted, now_at(5_000), |_, _| false),
+            verify_manifest(
+                &signed(m.clone()),
+                &tenant(),
+                &accepted,
+                LoadKind::Update,
+                now_at(5_000),
+                |_, _| false
+            ),
             Err(ManifestVerifyError::InvalidSignature)
         );
         let mut changed = m;
         changed.roles.clear();
         assert_eq!(
-            verify_manifest(&signed(changed), &tenant(), &accepted, now_at(5_000), |_, _| true),
+            verify_manifest(
+                &signed(changed),
+                &tenant(),
+                &accepted,
+                LoadKind::Update,
+                now_at(5_000),
+                |_, _| true
+            ),
             Err(ManifestVerifyError::StalePolicyVersion {
                 claimed: 10,
                 highest_seen: 10
@@ -364,12 +426,108 @@ mod tests {
         );
     }
 
+    /// WHY: EDGE-HIGH-059 migration — a floor written by an agent from
+    ///      before the acceptance digest existed carries no digest. At boot
+    ///      the manifest at exactly that version is adopted once (window
+    ///      applied); a hot reload at that version and anything below stay
+    ///      replays.
+    #[test]
+    fn a_legacy_floor_without_digest_adopts_its_version_at_boot_only() {
+        let m = canned_manifest(10, 1_000, 9_000);
+        let legacy = AcceptedVersion::floor(10);
+        assert_eq!(
+            verify_manifest(
+                &signed(m.clone()),
+                &tenant(),
+                &legacy,
+                LoadKind::Boot,
+                now_at(5_000),
+                |_, _| true
+            ),
+            Ok(m.clone())
+        );
+        assert_eq!(
+            verify_manifest(
+                &signed(m.clone()),
+                &tenant(),
+                &legacy,
+                LoadKind::Boot,
+                now_at(5_000),
+                |_, _| false
+            ),
+            Err(ManifestVerifyError::InvalidSignature)
+        );
+        assert!(matches!(
+            verify_manifest(
+                &signed(m.clone()),
+                &tenant(),
+                &legacy,
+                LoadKind::Boot,
+                now_at(9_500),
+                |_, _| true
+            ),
+            Err(ManifestVerifyError::Expired { .. })
+        ));
+        assert!(matches!(
+            verify_manifest(
+                &signed(m.clone()),
+                &other_tenant(),
+                &legacy,
+                LoadKind::Boot,
+                now_at(5_000),
+                |_, _| true
+            ),
+            Err(ManifestVerifyError::TenantMismatch)
+        ));
+        assert!(matches!(
+            verify_manifest(
+                &signed(m.clone()),
+                &tenant(),
+                &legacy,
+                LoadKind::Update,
+                now_at(5_000),
+                |_, _| true
+            ),
+            Err(ManifestVerifyError::StalePolicyVersion { .. })
+        ));
+        assert!(matches!(
+            verify_manifest(
+                &signed(canned_manifest(9, 1_000, 9_000)),
+                &tenant(),
+                &legacy,
+                LoadKind::Boot,
+                now_at(5_000),
+                |_, _| true
+            ),
+            Err(ManifestVerifyError::StalePolicyVersion { .. })
+        ));
+        // A floor of 0 is no acceptance record: nothing to adopt.
+        assert!(matches!(
+            verify_manifest(
+                &signed(canned_manifest(0, 1_000, 9_000)),
+                &tenant(),
+                &AcceptedVersion::floor(0),
+                LoadKind::Boot,
+                now_at(5_000),
+                |_, _| true
+            ),
+            Err(ManifestVerifyError::StalePolicyVersion { .. })
+        ));
+    }
+
     #[test]
     fn rejects_lower_policy_version() {
         let m = canned_manifest(10, 1_000, 9_000);
         let signed = signed(m);
-        let err = verify_manifest(&signed, &tenant(), &AcceptedVersion::floor(15), now_at(5_000), |_, _| true)
-            .expect_err("stale: lower version");
+        let err = verify_manifest(
+            &signed,
+            &tenant(),
+            &AcceptedVersion::floor(15),
+            LoadKind::Update,
+            now_at(5_000),
+            |_, _| true,
+        )
+        .expect_err("stale: lower version");
         assert_eq!(
             err,
             ManifestVerifyError::StalePolicyVersion {
@@ -384,8 +542,15 @@ mod tests {
     fn rejects_not_yet_valid() {
         let m = canned_manifest(10, 5_000, 9_000);
         let signed = signed(m);
-        let err =
-            verify_manifest(&signed, &tenant(), &AcceptedVersion::floor(0), now_at(1_000), |_, _| true).expect_err("future");
+        let err = verify_manifest(
+            &signed,
+            &tenant(),
+            &AcceptedVersion::floor(0),
+            LoadKind::Update,
+            now_at(1_000),
+            |_, _| true,
+        )
+        .expect_err("future");
         assert_eq!(
             err,
             ManifestVerifyError::NotYetValid {
@@ -399,8 +564,15 @@ mod tests {
     fn rejects_expired() {
         let m = canned_manifest(10, 1_000, 5_000);
         let signed = signed(m);
-        let err = verify_manifest(&signed, &tenant(), &AcceptedVersion::floor(0), now_at(9_000), |_, _| true)
-            .expect_err("expired");
+        let err = verify_manifest(
+            &signed,
+            &tenant(),
+            &AcceptedVersion::floor(0),
+            LoadKind::Update,
+            now_at(9_000),
+            |_, _| true,
+        )
+        .expect_err("expired");
         assert_eq!(
             err,
             ManifestVerifyError::Expired {
@@ -416,8 +588,15 @@ mod tests {
     fn rejects_inverted_validity_window() {
         let m = canned_manifest(10, 9_000, 1_000);
         let signed = signed(m);
-        let err = verify_manifest(&signed, &tenant(), &AcceptedVersion::floor(0), now_at(5_000), |_, _| true)
-            .expect_err("inverted");
+        let err = verify_manifest(
+            &signed,
+            &tenant(),
+            &AcceptedVersion::floor(0),
+            LoadKind::Update,
+            now_at(5_000),
+            |_, _| true,
+        )
+        .expect_err("inverted");
         assert_eq!(
             err,
             ManifestVerifyError::InvalidValidityWindow {
@@ -432,8 +611,15 @@ mod tests {
     fn rejects_invalid_signature() {
         let m = canned_manifest(10, 1_000, 9_000);
         let signed = signed(m);
-        let err = verify_manifest(&signed, &tenant(), &AcceptedVersion::floor(0), now_at(5_000), |_, _| false)
-            .expect_err("bad sig");
+        let err = verify_manifest(
+            &signed,
+            &tenant(),
+            &AcceptedVersion::floor(0),
+            LoadKind::Update,
+            now_at(5_000),
+            |_, _| false,
+        )
+        .expect_err("bad sig");
         assert_eq!(err, ManifestVerifyError::InvalidSignature);
     }
 
@@ -445,11 +631,18 @@ mod tests {
         let signed = signed(m);
         let mut received_len = 0usize;
         let mut received_sig_len = 0usize;
-        let _ = verify_manifest(&signed, &tenant(), &AcceptedVersion::floor(0), now_at(5_000), |canonical, sig| {
-            received_len = canonical.len();
-            received_sig_len = sig.len();
-            true
-        });
+        let _ = verify_manifest(
+            &signed,
+            &tenant(),
+            &AcceptedVersion::floor(0),
+            LoadKind::Update,
+            now_at(5_000),
+            |canonical, sig| {
+                received_len = canonical.len();
+                received_sig_len = sig.len();
+                true
+            },
+        );
         assert!(
             received_len > 32,
             "canonical bytes must have substantial content"
@@ -548,8 +741,15 @@ mod tests {
         let m = canned_manifest(10, 1_000, 9_000);
         let signed = signed(m);
         let pre_epoch = SystemTime::UNIX_EPOCH - Duration::from_secs(1);
-        let err = verify_manifest(&signed, &tenant(), &AcceptedVersion::floor(0), pre_epoch, |_, _| true)
-            .expect_err("pre-epoch now");
+        let err = verify_manifest(
+            &signed,
+            &tenant(),
+            &AcceptedVersion::floor(0),
+            LoadKind::Update,
+            pre_epoch,
+            |_, _| true,
+        )
+        .expect_err("pre-epoch now");
         assert_eq!(err, ManifestVerifyError::InvalidNow);
     }
 
@@ -563,8 +763,15 @@ mod tests {
     fn accepts_now_exactly_at_valid_from() {
         let m = canned_manifest(10, 5_000, 9_000);
         let signed = signed(m.clone());
-        verify_manifest(&signed, &tenant(), &AcceptedVersion::floor(0), now_at(5_000), |_, _| true)
-            .expect("inclusive lower bound: now == valid_from must pass");
+        verify_manifest(
+            &signed,
+            &tenant(),
+            &AcceptedVersion::floor(0),
+            LoadKind::Update,
+            now_at(5_000),
+            |_, _| true,
+        )
+        .expect("inclusive lower bound: now == valid_from must pass");
     }
 
     /// WHY (EDGE-LOW-002 closure — inclusive upper bound pin): `now ==
@@ -574,7 +781,14 @@ mod tests {
     fn accepts_now_exactly_at_valid_until() {
         let m = canned_manifest(10, 1_000, 5_000);
         let signed = signed(m.clone());
-        verify_manifest(&signed, &tenant(), &AcceptedVersion::floor(0), now_at(5_000), |_, _| true)
-            .expect("inclusive upper bound: now == valid_until must pass");
+        verify_manifest(
+            &signed,
+            &tenant(),
+            &AcceptedVersion::floor(0),
+            LoadKind::Update,
+            now_at(5_000),
+            |_, _| true,
+        )
+        .expect("inclusive upper bound: now == valid_until must pass");
     }
 }

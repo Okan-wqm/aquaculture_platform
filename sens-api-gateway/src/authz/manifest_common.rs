@@ -148,6 +148,15 @@ pub enum Presentation {
     /// EDGE-HIGH-059; contract statements.json `sequences`, identical-only).
     /// The engine still refuses commands outside the manifest's window.
     IdenticalToAccepted,
+    /// A manifest at exactly a floor that carries no acceptance digest: an
+    /// agent from before EDGE-HIGH-059 advanced the floor (hot reload)
+    /// without recording which manifest it accepted there. The boot loader
+    /// adopts the manifest at that version once — the version gate admits
+    /// the equal version, but the validity window (gate 5) still applies,
+    /// as for a new manifest — and the caller then records its digest, so
+    /// from that boot on only the identical manifest passes at the floor.
+    /// Never used for a hot reload: there a manifest must exceed the floor.
+    AdoptLegacyFloor,
 }
 
 /// [`run_envelope_gates`] for a manifest whose relation to the acceptance
@@ -188,8 +197,11 @@ pub fn run_envelope_gates_for(
         return Ok(now_unix_secs);
     }
 
-    // Gate 4: policy version monotonicity. Strictly greater.
-    if policy_version <= highest_seen {
+    // Gate 4: policy version monotonicity. Strictly greater, except that a
+    // legacy floor without an acceptance digest admits its own version once
+    // (window still checked below).
+    let adopt = presentation == Presentation::AdoptLegacyFloor && policy_version == highest_seen;
+    if policy_version <= highest_seen && !adopt {
         return Err(ManifestStructuralError::StalePolicyVersion {
             claimed: policy_version,
             highest_seen,
@@ -283,6 +295,36 @@ mod tests {
             ),
             Err(ManifestStructuralError::TenantMismatch)
         );
+    }
+
+    #[test]
+    fn a_legacy_floor_adopts_its_own_version_inside_the_window_only() {
+        let gates = |version, presentation, now| {
+            run_envelope_gates_for(
+                &tenant(0xAA),
+                &tenant(0xAA),
+                1_700_000_000,
+                1_800_000_000,
+                version,
+                42,
+                presentation,
+                now_at(now),
+            )
+        };
+        assert_eq!(
+            gates(42, Presentation::AdoptLegacyFloor, 1_750_000_000),
+            Ok(1_750_000_000)
+        );
+        // The window is not skipped: adoption is a first acceptance.
+        assert!(matches!(
+            gates(42, Presentation::AdoptLegacyFloor, 1_900_000_000),
+            Err(ManifestStructuralError::Expired { .. })
+        ));
+        // Below the floor stays a replay.
+        assert!(matches!(
+            gates(41, Presentation::AdoptLegacyFloor, 1_750_000_000),
+            Err(ManifestStructuralError::StalePolicyVersion { .. })
+        ));
     }
 
     #[test]

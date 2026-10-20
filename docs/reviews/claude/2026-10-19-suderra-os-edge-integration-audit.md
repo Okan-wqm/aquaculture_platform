@@ -20,7 +20,7 @@ P3 2027-03-31. Yan bulgular, uygulama paketine alınana kadar önemine göre P1 
 
 | Domain | CRITICAL | HIGH | MEDIUM | LOW | Toplam |
 |---|---|---|---|---|---|
-| EDGE | 4 | 23 | 31 | 13 | 71 |
+| EDGE | 4 | 23 | 32 | 13 | 72 |
 | INFRA | 1 | 1 | 14 | 2 | 18 |
 | SENSOR | 4 | 13 | 16 | 3 | 36 |
 
@@ -99,6 +99,7 @@ P3 2027-03-31. Yan bulgular, uygulama paketine alınana kadar önemine göre P1 
 | [EDGE-LOW-114](#EDGE-LOW-114) | LOW | P2 | memfd_secret primitive is unused, and mlockall failure is non-fatal and in practice silent |
 | [EDGE-LOW-115](#EDGE-LOW-115) | LOW | P2 | Backup format is unencrypted and unsigned, embeds the raw config, and create/restore have no callers |
 | [EDGE-HIGH-128](#EDGE-HIGH-128) | HIGH | P0 | The agent crate does not compile without its health feature, so every Suderra OS release builds the boards.json features plus health and signs a suderra.edge-release.v1 statement whose cargo_features misstate the build |
+| [EDGE-MEDIUM-130](#EDGE-MEDIUM-130) | MEDIUM | P0 | The suderra-os agent profile still builds tenant-token self-registration, which ADR-048 DEC-5.12 closes for Suderra OS, and the cloud cannot tell an agent's profile when it self-registers |
 | [INFRA-CRITICAL-236](#INFRA-CRITICAL-236) | CRITICAL | P0 | Release and OS builds ship without the gpio feature, so GPIO writes and safe-state only simulate while reporting success |
 | [INFRA-HIGH-237](#INFRA-HIGH-237) | HIGH | P0 | Edge CI suppresses every denied clippy lint, never compiles gpio, and release ships untested, unlocked builds |
 | [INFRA-MEDIUM-238](#INFRA-MEDIUM-238) | MEDIUM | P0 | apply_signed_manifest streams base64 files from the MQTT command into agent-owned slot dirs (impossible above 1 MiB, never executed), and the anti-rollback floor lives in a plaintext, agent-writable partition.json that resets when deleted |
@@ -1449,6 +1450,7 @@ P3 2027-03-31. Yan bulgular, uygulama paketine alınana kadar önemine göre P1 
 - **Kök neden:** The cloud and the OS share no versioned, machine-checked provisioning contract. The cloud renderer was written against the OS script's outdated usage text, while the real verifier was hardened separately into a signed Ed25519 contract. The cloud has no provisioning-manifest signing key or service, and the manifest comes from global env vars rather than per-device, per-board release data.
 - **Mimari düzeltme yönü:** Define suderra.edge-provisioning.v1 once, as a JSON Schema plus canonicalization rules in a shared contract artifact. Generate the TypeScript type and the Rust serde struct from that one schema, so a missing field fails to compile on either side. Add a cloud ProvisioningManifestService that builds the manifest per device from a signed release registry keyed by board and arch (EdgeFirmwareReleaseV2). It must include not_before/expires_at, rollback_floor, key_epoch and a config payload (agent config YAML with device_id/code/tenant/api_url/mqtts broker/activation secret) with its sha256, and be signed with Ed25519 by a KMS-held key whose epoch the OS pins. Change the release pipeline to also emit an Ed25519 artifact signature from the same key hierarchy.
 - **Doğrulama:** Cross-repo golden-fixture CI job: the cloud generates a manifest with a test key, then the Rust `suderra-installer edge-manifest plan` and `verify-artifact` must accept it. Negative cases: a tampered field, an expired window, a low key_epoch and a missing config each have to be rejected. Add a jest schema-validation test on the renderer's output.
+- **Durum notu (2026-10-20):** Advanced, not closed; the `Closes:` trailer of 6067b91a is withdrawn. The cloud side is done: the manifest is the signed, device-bound suderra.edge-provisioning.v1 delivery, and the golden tests verify it with the contract's reference verifier. Open: the Ed25519 release statement from the release pipeline (SENSOR-CRITICAL-202). Until an official release is signed, the endpoint can answer only release-unavailable.
 - **Not:** Any one of the missing fields, the missing signature, or the missing config payload is enough to break provisioning on its own. The renderer's 'version' value (agentVersion) is also never validated and is empty in the droplet (AGENT_VERSION unset). Adversarial re-check rated HIGH (verifier CRITICAL): Confirmed. renderSuderraOsInstallManifest returns a flat, unsigned 7-field object. contracts.rs needs schema_version, kind, device_id, device_code, tenant_id, board, arch, artifact{url,sha256,size_bytes,signature,binary_name,format}, not_before, expires_at, rollback_floor, key_epoch and signature, and none of these fields has a serde default. serde_json::from_slice therefore fails before the Ed25519 check is reached. suderra-edge-install also refuses any manifest without a config payload (exit 2), and the release workflow produces only cosign keyless signatures, never an Ed25519 one. No code anywhere signs or reshapes the manifest on its way to the device. I found no counter-evidence. I lower the severity from CRITICAL because the failure is closed: the OS rejects the manifest. The cloud already received the activation token in the request header, so returning it exposes nothing new, and the generic curl|bash provisioning path does not depend on this one. This is a complete functional break of Suderra OS provisioning, not a security hole.
 
 <a id="SENSOR-HIGH-205"></a>
@@ -1469,6 +1471,7 @@ P3 2027-03-31. Yan bulgular, uygulama paketine alınana kadar önemine göre P1 
 - **Kök neden:** SENSOR-MEDIUM-002 moved the token from the URL into a header on the cloud side only. The OS forced-command grammar and fetcher were never updated, and no shared spec or test covers the provisioning transport between the two repos.
 - **Mimari düzeltme yönü:** Define one transport contract that keeps the secret out of the OS fetch. Preferred: the cloud or tenant panel pushes the signed manifest over `install-manifest-json` on stdin, and the activation secret travels inside the signed, digest-bound config payload. If device-side pull stays, put an explicit `install-manifest-url URL` grammar plus token-on-stdin in one spec, have curl send it with `--header @file` from a 0600 tmpfs file, and generate both the cloud command builder and the OS parser from or against that spec.
 - **Doğrulama:** Integration test running suderra-provision and suderra-provision-worker in a container against a mock HTTPS endpoint that requires the header, asserting status=ok. Cloud unit test that parses the builder's output with the OS forced-command grammar fixture. A negative test confirms a missing token still returns 401.
+- **Durum notu (2026-10-20):** Advanced, not closed; the `Closes:` trailer of 6067b91a is withdrawn. Cloud side done: the endpoint reads the token from X-Provisioning-Token only and refuses one in the query, and the command builder emits `ssh provision@<ip> provision <device-code>` with no token in argv. Open: the OS twin EI-016, which is still Refs in Suderra-OS, and this finding's container integration test and builder-versus-OS-grammar fixture test.
 - **Not:** Putting the token in SSH argv (the current builder) would also expose it in SSH_ORIGINAL_COMMAND and process listings. Adversarial re-check rated HIGH (verifier CRITICAL): Confirmed. The controller returns 401 when the x-provisioning-token header is missing. suderra-provision keeps only $2 for install-manifest-url, so the cloud builder's third argument 'X-Provisioning-Token:TOKEN' is dropped. The worker passes only the URL, and fetch_https runs curl with no -H. The QEMU target has no .curlrc that could add a header, and neither edge-install.env nor the script feeds any header into curl. The documented OS flow (token in the URL path) does not match any cloud route. This is an independent blocker of the same flow as T114. The failure is closed, but the builder also puts the token in SSH argv (SSH_ORIGINAL_COMMAND).
 
 <a id="SENSOR-HIGH-206"></a>
@@ -1685,6 +1688,7 @@ P3 2027-03-31. Yan bulgular, uygulama paketine alınana kadar önemine göre P1 
 - **Kök neden:** Artifact selection is modeled as per-process env config instead of release data, and config is only validated lazily when a request arrives, not at boot. The deploy SSoT has no list of required keys, so the gap ships silently.
 - **Mimari düzeltme yönü:** Remove env-sourced artifact config. Resolve the artifact from the signed release registry by device board and arch (EdgeFirmwareReleaseV2 plus a board map). For the few true config keys, use a typed, schema-validated ConfigModule that refuses to boot in production when the Suderra OS provisioning feature lacks its signing key or registry. Add a deploy-SSoT invariant that every ConfigService key the provisioning path reads has a value in docker-compose.droplet.yml.
 - **Doğrulama:** Boot test with the droplet env: the service must fail fast, or the registry must resolve an artifact per board. Unit test that two devices with different boards get different artifact URLs. The invariant spec parses the compose env against the config schema.
+- **Durum notu (2026-10-20):** Advanced, not closed; the `Closes:` trailer of 6067b91a is withdrawn. Done: the artifact comes from the signed per-board release statement, the channel configuration is all-or-nothing (SUDERRA_EDGE_*), and every key is present in docker-compose.droplet.yml. Open: every value is empty there, so production refuses every request (now 404). The droplet-env boot test and the compose-against-config-schema invariant named above are not written yet.
 - **Not:** Even with these vars set, the output would still be rejected by the OS verifier (T114). Adversarial re-check rated MEDIUM (verifier CRITICAL): Confirmed. The sensor-service environment in docker-compose.droplet.yml has no SUDERRA_OS_EDGE_* keys, no env_file, and no mounted .env. ConfigModule loads '.env'/.env.local relative to the container, and the image contains neither. No compose, infrastructure or .env.example file defines these keys. One correction: the 400 that names the env vars is reached only after the device lookup and token validation succeed, so callers without a valid token get 401 or 404 and the leak is minimal. Unauthenticated OS fetches get 401 first (T115). I rate it MEDIUM because T114 already blocks the flow and the T114 fix direction removes this env-sourced config entirely. Setting the vars alone would still yield a manifest the OS rejects.
 
 <a id="SENSOR-MEDIUM-218"></a>
@@ -2003,6 +2007,13 @@ P3 2027-03-31. Yan bulgular, uygulama paketine alınana kadar önemine göre P1 
 - **Kök neden:** Each endpoint does its own validation and error mapping instead of sharing one guard and error policy.
 - **Mimari düzeltme yönü:** Use one provisioning guard (format, then token, then terminal lifecycle state via isTerminalLifecycleState) and one exception filter returning uniform 401/404/409 codes with generic bodies.
 - **Not:** Incidental finding (merged from 2 raw report(s)); area=cloud.
+- **Durum notu (2026-10-20):** ADR-048 DEC-22 puts uniform public errors and rate limits in P0. This finding tracks the remainder until its deadline (owner @Okan-wqm, 2026-12-31). Done:
+  - GET /install/{code}/suderra-os answers every refusal with delivery.json's uniform 404 body;
+  - the nginx zones in front of /install/ and /api/devices/ answer a rate limit with 429 (delivery.json `rate_limited_status`, pinned by tests/invariants/suderra-edge-contracts.spec.ts).
+
+  Open:
+  - the generic GET /install/{code} and POST /api/devices/activate, which Suderra OS agents also call, still answer distinct 404/400/409/401 codes. The agent maps those codes to its own errors (sens-api-gateway/src/provisioning.rs), so making them uniform needs the agent side in the same change;
+  - the gateway-api rate limits DEC-22 names (`apps/gateway-api/src/config/rate-limit.config.ts`).
 
 <a id="SENSOR-LOW-235"></a>
 
@@ -2360,6 +2371,25 @@ ADR-048 P0 yayın hattının (release track) bağımsız incelemesinde kaydedild
 - **Kök neden:** The board contract describes what the agent needs from the OS (kernel config) but not what the OS image provides to a dynamically linked agent.
 - **Mimari düzeltme yönü:** Suderra-OS publishes, per board image, the provided sonames and glibc version (a contract v2 boards.json field, or an OS-side runtime manifest at the vendored contract digest). edge_release.py checks NEEDED and VERNEED against it instead of edge-release.toml.
 - **Doğrulama:** A spec case where the OS-published glibc is lower than the binary's needed version fails the plan; the edge-release.toml runtime copy is gone.
+
+## Bulut hattı incelemesi bulguları (2026-10-20)
+
+ADR-048 P0 bulut hattının (cloud track) bağımsız incelemesinde kaydedildi.
+
+<a id="EDGE-MEDIUM-130"></a>
+
+### EDGE-MEDIUM-130 — The suderra-os agent profile still builds tenant-token self-registration, which ADR-048 DEC-5.12 closes for Suderra OS, and the cloud cannot tell an agent's profile when it self-registers
+
+- **Önem:** MEDIUM · **Faz:** P0 · **Son tarih:** 2026-11-02 · **Sahip:** @Okan-wqm · **Durum:** OPEN
+- **Bileşen:** sens-api-gateway self-registration (suderra-os profile) / sensor-service POST api/devices/self-register
+- **Köken:** bulut hattı incelemesi (2026-10-20)
+- **Kanıt (dosya:satır):** `sens-api-gateway/src/config.rs:172`, `sens-api-gateway/src/main.rs:5136`, `sens-api-gateway/src/provisioning.rs:401`, `apps/sensor-service/src/edge-device/provisioning.controller.ts:470`, `apps/sensor-service/src/edge-device/provisioning.service.ts:867`
+- **Kanıt (ayrıntı):**
+  - Every agent profile compiles AgentConfig.tenant_token, the startup self-registration branch and its /api/devices/self-register client. A Suderra OS agent given a tenant token therefore registers itself outside the signed manifest chain: no device binding, no signed site config, no activation receipt.
+  - The self-register request names no agent profile, so the cloud cannot refuse it by channel. What the cloud does enforce is structural: a self-registered device holds no provisioning token, so it can never reserve a Suderra OS manifest, and it stays on the generic channel.
+- **Kök neden:** The profile split of DEC-1/DEC-28 left the tenant-token path in the shared code instead of compiling it out of the suderra-os feature.
+- **Mimari düzeltme yönü:** Compile tenant_token, self-registration and its client out of the suderra-os feature, and pin that with a sens-api-gateway invariant that the suderra-os build has no tenant_token field. Optionally, a contract v2 request field naming the agent profile would let the cloud refuse a suderra-os self-registration as well.
+- **Doğrulama:** `cargo check --features suderra-os` fails to compile a reference to tenant_token. The invariant test fails if the self-register client is reachable in the suderra-os build.
 
 ## ADR-048 kalıntı riskleri
 

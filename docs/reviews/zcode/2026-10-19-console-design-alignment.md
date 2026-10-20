@@ -132,3 +132,11 @@ value "ACTIVE"?` — the PR #2026 chip row shipped `active/monitoring/resolved`
   by `build-status` as a test failure. Budgets re-derived with the
   measurement: step 35→50, job 45→55, preserving ci-timeout-budget-ssot's
   orderings (step < job ≤ unfiltered 60).
+
+  Round-11 follow-ups in the same file set: the aquamobil workspace's own
+  lockfile carried vite 7.3.5 (two more launch-editor advisories,
+  GHSA-r825-w8mm-5pxw/GHSA-587h-7wmj-h5pm, joined GHSA-698v mid-round) —
+  bumped to ^7.3.7 with its root-lockfile workspace snapshot; and the
+  Cargo.lock edits required regenerating
+  tools/quality/rust-toolchain-manifest.json (its cargo_lock_sha256 pin),
+  which every Rust-workspace-setup job verifies.

@@ -1250,6 +1250,16 @@ describe('suderra-edge contract v1 — integrity', () => {
     ).toEqual(['unset', 'unset']);
   });
 
+  it('no contract file matches a .gitignore rule, so every file SHA256SUMS lists is committed', () => {
+    const files = listFiles(CONTRACT).map((path) => `${CONTRACT_REL}/v1/${contractRel(path)}`);
+    const result = spawnSync('git', ['-C', REPO_ROOT, 'check-ignore', '--no-index', '--stdin'], {
+      input: files.join('\n'),
+      encoding: 'utf8',
+    });
+    expect(result.status === 0 || result.status === 1).toBe(true);
+    expect(result.stdout.split('\n').filter(Boolean)).toEqual([]);
+  });
+
   it('VERSION is semver and its major matches the v1 directory', () => {
     const version = readFileSync(join(CONTRACT, 'VERSION'), 'utf8');
     expect(version).toMatch(/^1\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\n$/);
@@ -1600,9 +1610,13 @@ describe('suderra-edge contract v1 — TEST-ONLY keys', () => {
     }
     const onDisk = listFiles(join(CONTRACT, 'test-keys')).map(contractRel);
     expect(onDisk.sort()).toEqual([...keyFiles, 'test-keys/keyring.json'].sort());
-    expect(onDisk.filter((rel) => /\/[0-9]+\.pub$/.test(rel) || rel.split('/').length > 2)).toEqual(
-      [],
+    // Flat TEST-ONLY names, never the OS pin layout <purpose>/<epoch>.pub.
+    const unmarked = onDisk.filter(
+      (rel) =>
+        rel !== 'test-keys/keyring.json' &&
+        !/^test-keys\/[a-z0-9-]+-[0-9]+\.TEST-ONLY\.pub$/.test(rel),
     );
+    expect(unmarked).toEqual([]);
 
     for (const ca of objects(keyringFile['mqtt_ca'], 'mqtt_ca')) {
       const pem = asString(ca['certificate'], 'certificate');
@@ -1823,6 +1837,6 @@ describe('suderra-edge contract v1 — golden fixtures', () => {
     const envelope = readJson(join(FIXTURES, 'edge-provisioning/invalid/unknown-keyid.dsse.json'));
     const signature = asObject(asArray(envelope['signatures'], 'signatures')[0], 'signature');
     expect(signature['keyid']).toBe(unpinned);
-    expect(existsSync(join(CONTRACT, 'test-keys', 'unpinned-1.TEST-ONLY.pem'))).toBe(false);
+    expect(existsSync(join(CONTRACT, 'test-keys', 'unpinned-1.TEST-ONLY.pub'))).toBe(false);
   });
 });

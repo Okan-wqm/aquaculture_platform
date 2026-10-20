@@ -48,7 +48,7 @@
           "path": {
             "description": "A flat name that cannot be mistaken for the OS pin layout /etc/suderra/keys/<purpose>/<epoch>.pub.",
             "type": "string",
-            "pattern": "^test-keys/[a-z0-9-]+-[0-9]+\\.TEST-ONLY\\.pem$"
+            "pattern": "^test-keys/[a-z0-9-]+-[0-9]+\\.TEST-ONLY\\.pub$"
           },
           "fixture_anchor": {
             "description": "Where the fixtures' simulated device anchors the key; no real image pins it.",

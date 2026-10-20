@@ -483,7 +483,7 @@ class Generator:
         entries = []
         for purpose, epoch, anchor in KEY_SPECS:
             k = key(purpose, epoch)
-            rel = f"test-keys/{purpose}-{epoch}.TEST-ONLY.pem"
+            rel = f"test-keys/{purpose}-{epoch}.TEST-ONLY.pub"
             self.put(rel, key_pem_file(k))
             entries.append(
                 {

@@ -3791,7 +3791,7 @@ async fn async_main(notifier: Arc<systemd_notify::SystemdNotifier>) -> Result<()
     // WHY: Plan §5 Faz 2 item 6 + ADR-019 §2 mandate
     // persistent A/B partition state. The store MUST be
     // opened BEFORE the update orchestrator command handler
-    // runs so cmd_update_firmware has a live state to
+    // runs so cmd_apply_signed_manifest has a live state to
     // mutate. Runs EARLY in boot so downstream subsystems
     // (audit sink for rotation events, watchdog task for
     // rollback) can rely on it.

@@ -2036,11 +2036,10 @@ impl Default for KeystoreConfig {
 //
 // Rollout mode follows the 3-stage pattern shared with mtls/config_integrity/
 // signature_mode/rbac_manifest:
-// - Disabled: legacy tarball path only (Batch 20k cmd_update_firmware).
-//   HC-1 backward compat default.
-// - Permissive: signed manifests accepted + preferred; unsigned tarball
-//   fallback warn-logged but still works.
-// - Enforcing: unsigned tarball rejected; only SignedFirmwareManifest flow.
+// - Disabled: no signed-manifest verification and no firmware update path
+//   (the legacy tarball OTA is removed, ADR-048 DEC-28). HC-1 default.
+// - Permissive / Enforcing: SignedFirmwareManifest flow with the
+//   configured signing pubkey.
 //
 // ## Signing pubkey source
 //
@@ -2056,17 +2055,16 @@ impl Default for KeystoreConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FirmwareUpdateMode {
-    /// No signed-manifest verification. Legacy tarball OTA
-    /// (Batch 20k `cmd_update_firmware`) remains the sole
-    /// update path. HC-1 backward compat default.
+    /// No signed-manifest verification and no signing
+    /// pubkey; the agent has no firmware update path (the
+    /// legacy tarball OTA is removed, ADR-048 DEC-28).
+    /// HC-1 backward compat default.
     #[default]
     Disabled,
-    /// Signed-manifest path accepted + preferred. Legacy
-    /// tarball OTA still works but warn-logs on invocation.
-    /// Operator migration posture.
+    /// Signed-manifest path with the configured pubkey;
+    /// operator migration posture.
     Permissive,
-    /// Signed-manifest path required. Legacy tarball OTA
-    /// rejected at command dispatch.
+    /// Signed-manifest path with the configured pubkey.
     Enforcing,
 }
 

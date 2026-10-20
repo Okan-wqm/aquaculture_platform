@@ -42,7 +42,6 @@ mod deploy_bytecode_program;
 mod diagnostic;
 mod envelope_adapter;
 mod failover;
-mod firmware;
 mod helpers;
 mod ide_deploy;
 mod io_config;
@@ -285,7 +284,7 @@ impl CommandHandler {
     // domain submodules declared near the top of this file
     // (diagnostic.rs / failover.rs / script.rs / read.rs /
     // write.rs / system.rs / io_config.rs / lora.rs /
-    // firmware.rs / program.rs / plc.rs / ide_deploy.rs /
+    // program.rs / plc.rs / ide_deploy.rs /
     // rbac.rs / user_token.rs / rotate_master.rs /
     // confirm_slot.rs / verify_signed_manifest.rs /
     // apply_signed_manifest.rs / refresh_license.rs /

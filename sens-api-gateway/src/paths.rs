@@ -494,11 +494,6 @@ impl AgentPaths {
         }
     }
 
-    /// Download staging directory of the legacy tarball OTA.
-    pub fn ota_staging_dir(&self) -> PathBuf {
-        self.store_dir("state").join("updates")
-    }
-
     /// A/B partition state of the agent-owned updater.
     pub fn partition_store_file(&self) -> PathBuf {
         self.store_dir("state").join("partition.json")
@@ -757,7 +752,6 @@ mod tests {
             p.scada_db(),
             p.lora_sessions_db(),
             p.partition_store_file(),
-            p.ota_staging_dir(),
             p.activation_state_file(),
             p.db_key_file(),
             p.scripts_dir(),
@@ -815,7 +809,6 @@ mod tests {
             p.opcua_own_pki_dir().join("cert.der"),
             p.opcua_trusted_certs_dir().join("client.der"),
             p.partition_store_file(),
-            p.ota_staging_dir().join("update.tar"),
             p.audit_log_file(),
             p.config_integrity_floor_dir().join("floor.json"),
         ];

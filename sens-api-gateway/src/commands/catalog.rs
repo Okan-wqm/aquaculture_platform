@@ -662,12 +662,15 @@ pub(crate) const COMMAND_CATALOG: &[CommandCatalogEntry] = &[
         AuditAction::CommandExecuted,
         AuditAction::CommandRejected
     ),
+    // ADR-048 DEC-28 (SENSOR-MEDIUM-223): the legacy tarball OTA is removed
+    // in every profile. It downloaded `suderra-agent-<arch>-unknown-linux-
+    // gnu.tar.gz`, a name the release workflow never publishes, so it could
+    // not install any release. The name stays cataloged as denied so a probe
+    // is still classified as a firmware request and audited.
     entry!(
         "update_firmware",
-        "cmd_update_firmware",
+        denied,
         PermissionResolver::Static(StaticPermission::UpdateFirmware),
-        LegacyPolicy::DenyUnsignedInEnforcing,
-        false,
         AuditAction::FirmwareDeployApplied,
         AuditAction::FirmwareDeployRequested
     ),

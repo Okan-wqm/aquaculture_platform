@@ -150,7 +150,7 @@ impl PartitionLockGuard {
 }
 
 /// Persistent A/B partition state — the single source of
-/// truth for `cmd_update_firmware` handler + the post-boot
+/// truth for `cmd_apply_signed_manifest` + the post-boot
 /// confirmation task.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PartitionState {

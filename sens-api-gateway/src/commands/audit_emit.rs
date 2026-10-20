@@ -60,11 +60,11 @@ pub(super) fn action_for_command(cmd: &str, outcome: AuditOutcome) -> AuditActio
             }
         },
 
-        // Firmware lifecycle — legacy tarball OTA path.
-        // Batch 119 gates this at mode=Enforcing; failure
-        // outcomes under that mode still flow here + map to
+        // Firmware lifecycle — the legacy tarball OTA name.
+        // The handler is removed (ADR-048 DEC-28) and the
+        // catalog denies the command; a probe still maps to
         // FirmwareDeployRequested so the audit chain carries
-        // the classification regardless of gate decision.
+        // the firmware classification.
         "update_firmware" => match outcome {
             AuditOutcome::Success => AuditAction::FirmwareDeployApplied,
             _ => AuditAction::FirmwareDeployRequested,

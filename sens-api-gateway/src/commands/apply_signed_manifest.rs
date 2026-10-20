@@ -61,9 +61,8 @@
 //! ## Authorization
 //!
 //! Gated by `Permission::UpdateFirmware` via
-//! required_permission — same class as cmd_update_firmware
-//! (legacy tarball), cmd_confirm_slot (Batch 109),
-//! cmd_verify_signed_manifest (Batch 115).
+//! required_permission — same class as cmd_confirm_slot
+//! (Batch 109) and cmd_verify_signed_manifest (Batch 115).
 
 use serde_json::{Value, json};
 use std::time::SystemTime;

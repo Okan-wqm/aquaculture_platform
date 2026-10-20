@@ -224,7 +224,6 @@ fn d6_fallback_webpki_constructed_in_configure_tls() {
 fn https_clients_use_suderra_config() {
     for path in [
         "src/provisioning.rs",
-        "src/commands/firmware.rs",
         "src/scripting/engine.rs",
     ] {
         let src = read_source(path);
@@ -413,7 +412,6 @@ fn no_install_default_in_non_test_code() {
         "src/mqtt.rs",
         "src/main.rs",
         "src/provisioning.rs",
-        "src/commands/firmware.rs",
         "src/scripting/engine.rs",
         "src/mtls/crypto_provider.rs",
         "src/mtls/https_client_config.rs",
@@ -682,8 +680,9 @@ fn bridge_window_validator_and_constructor_present() {
 /// regression that adds a SECOND `reqwest::Client::builder()` call to
 /// the same file WITHOUT the suderra_tls wire would pass that earlier
 /// invariant (the original site still has it). The pre-Phase-1.1.5
-/// state of `commands/firmware.rs::download_file` was exactly this
-/// shape: `fetch_latest_agent_tag` carried `use_preconfigured_tls`,
+/// state of the (since removed, ADR-048 DEC-28) legacy OTA's
+/// `commands/firmware.rs::download_file` was exactly this shape:
+/// `fetch_latest_agent_tag` carried `use_preconfigured_tls`,
 /// `download_file` did not — both lived in the same file, the earlier
 /// invariant was green, but firmware OTA tarball + checksum downloads
 /// were silently bypassing the cipher allowlist.
@@ -704,7 +703,6 @@ fn bridge_window_validator_and_constructor_present() {
 fn every_reqwest_client_builder_uses_preconfigured_tls() {
     let surfaces = [
         "src/provisioning.rs",
-        "src/commands/firmware.rs",
         "src/scripting/engine.rs",
     ];
     for path in surfaces {

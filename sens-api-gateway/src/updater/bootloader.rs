@@ -101,7 +101,7 @@ impl std::error::Error for BootloaderError {}
 /// CLI --confirm-active).
 pub trait BootloaderHandle: Send + Sync + 'static {
     /// Tell the bootloader to boot `slot` on next reboot.
-    /// Called by `cmd_update_firmware` after a successful
+    /// Called by `cmd_apply_signed_manifest` after a successful
     /// `apply_roll(SwapToPending)`.
     ///
     /// Contract: this is a SOFT tryboot flag — if the boot

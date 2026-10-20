@@ -297,7 +297,6 @@ impl super::CommandHandler {
             // System commands
             "reboot" => self.cmd_reboot(&command.params).await,
             "restart_agent" => self.cmd_restart_agent().await,
-            "update_firmware" => self.cmd_update_firmware(command).await,
             "set_log_level" => self.cmd_set_log_level(&command.params).await,
             // Failover commands (v1.3.4)
             "failover_status" => self.cmd_failover_status().await,

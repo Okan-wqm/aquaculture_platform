@@ -100,7 +100,7 @@ Legend:
 |---|---|---|---|---|---|---|---|
 | `reboot` | `cmd_reboot` | 433 | `Reboot` | open | AUDIT | NO | MANDATORY |
 | `restart_agent` | `cmd_restart_agent` | 434 | `Reboot` | open | AUDIT | NO | MANDATORY |
-| `update_firmware` | `cmd_update_firmware` | 435 | `UpdateFirmware` | open | AUDIT | NO | MANDATORY |
+| `update_firmware` | — (legacy tarball OTA removed, ADR-048 DEC-28) | — | `UpdateFirmware` | denied | AUDIT | — | MANDATORY |
 | `set_log_level` | `cmd_set_log_level` | 436 | `ManagePolicy` | open | NONE | CID | — |
 
 ### Failover (v1.3.4)

@@ -183,109 +183,11 @@ Agent servisini yeniden başlat.
 ```
 
 #### `update_firmware`
-Uzaktan firmware güncelleme komutu (OTA). GitHub Releases'den belirtilen sürümü indirir, SHA256 doğrular, yedek alır, kurar ve agent'ı yeniden başlatır.
-
-**Request:**
-```json
-{
-  "command_id": "cmd_ota_001",
-  "command": "update_firmware",
-  "params": {
-    "target_version": "latest",
-    "repo": "Okan-wqm/aquaculture_platform"
-  },
-  "timestamp": "2026-03-04T12:00:00Z"
-}
-```
-
-| Parametre | Zorunlu | Açıklama | Örnek |
-|-----------|---------|----------|-------|
-| `target_version` | Evet | Hedef sürüm | `"latest"`, `"agent-v1.5.3"`, `"1.5.2"` |
-| `repo` | Hayır | GitHub repo (owner/repo) | `"Okan-wqm/aquaculture_platform"` (varsayılan: `"suderra/edge-agent"`) |
-
-`target_version` formatları:
-- `"latest"` — GitHub API'den en son `agent-v*` release tag'i çözümlenir
-- `"agent-v1.5.3"` — Tam tag ismi olarak kullanılır
-- `"1.5.2"` — Otomatik olarak `agent-v1.5.2` olarak prefix'lenir
-
-**Immediate ACK Response:**
-```json
-{
-  "command_id": "cmd_ota_001",
-  "device_id": "device-uuid",
-  "success": true,
-  "result": {
-    "accepted": true,
-    "target_version": "latest",
-    "current_version": "1.5.2",
-    "note": "Firmware update accepted. Progress will be reported via MQTT."
-  },
-  "timestamp": "2026-03-04T12:00:01Z",
-  "error": null
-}
-```
-
-Komut kabul edildikten sonra güncelleme asenkron olarak çalışır ve ilerleme MQTT üzerinden `responses` topic'ine yayınlanır.
-
-**Progress Stages:**
-
-| Stage | Açıklama |
-|-------|----------|
-| `resolving` | Hedef sürüm GitHub API'den çözümleniyor |
-| `already_installed` | Hedef sürüm zaten yüklü, güncelleme atlanıyor |
-| `downloading` | Tarball ve checksum dosyası indiriliyor |
-| `verifying` | SHA256 checksum doğrulanıyor |
-| `installing` | Binary yedekleniyor ve yeni sürüm kuruluyor |
-| `restarting` | Agent systemd ile yeniden başlatılıyor |
-| `failed` | Herhangi bir aşamada hata oluştu |
-
-**Progress Response Format:**
-```json
-{
-  "command_id": "cmd_ota_001",
-  "device_id": "device-uuid",
-  "success": true,
-  "result": {
-    "stage": "downloading",
-    "detail": {
-      "from_version": "1.5.2",
-      "to_version": "1.5.3",
-      "tag": "agent-v1.5.3"
-    }
-  },
-  "timestamp": "2026-03-04T12:00:05Z",
-  "error": null
-}
-```
-
-**Failed Response Format:**
-```json
-{
-  "command_id": "cmd_ota_001",
-  "device_id": "device-uuid",
-  "success": false,
-  "result": { "stage": "failed" },
-  "timestamp": "2026-03-04T12:00:10Z",
-  "error": "Checksum mismatch: expected=abc123..., computed=def456..."
-}
-```
-
-**Mimari Desteği:**
-
-| `std::env::consts::ARCH` | Tarball İsmi |
-|---------------------------|-------------|
-| `x86_64` | `suderra-agent-x86_64-unknown-linux-gnu.tar.gz` |
-| `aarch64` | `suderra-agent-aarch64-unknown-linux-gnu.tar.gz` |
-| `arm` (armv7) | `suderra-agent-armv7-unknown-linux-gnu.tar.gz` |
-
-**Rollback & Güvenlik:**
-- Mevcut binary güncelleme öncesi `/opt/suderra/edge-agent.bak` olarak yedeklenir
-- Kurulum başarısız olursa `.bak` dosyasından otomatik rollback yapılır
-- systemd `Restart=on-failure` ile yeni sürüm çökerse otomatik yeniden başlatılır
-- Repo format validasyonu: sadece `owner/repo` formatında, alfanumerik, tire, alt çizgi ve nokta karakterleri kabul edilir
-- Version string validasyonu: max 64 karakter, güvenli karakterler
-- SHA256 checksum doğrulaması: indirilen tarball'ın hash'i `.sha256` dosyasıyla eşleştirilir
-- Atomic binary replacement: staging path'e kopyalama + rename (aynı filesystem'de atomik)
+Kaldırıldı (ADR-048 DEC-28, SENSOR-MEDIUM-223). Legacy tarball OTA, release workflow'unun yayımlamadığı
+`suderra-agent-<arch>-unknown-linux-gnu.tar.gz` adını indirdiği için hiçbir sürümü kuramıyordu. Komut adı
+katalogda reddedilen bir komut olarak kalır (`UpdateFirmware` izni, `FirmwareDeploy*` audit sınıfı); her
+çağrı reddedilir. Generic kanalda agent güncellemesi bulutun installer betiğiyle, Suderra OS'te root
+installer'ın istek kanalıyla yapılır (DEC-2).
 
 #### `set_log_level`
 Log seviyesi değiştir.

@@ -176,7 +176,6 @@ fn written_paths(p: &paths::AgentPaths) -> Vec<std::path::PathBuf> {
         p.opcua_own_pki_dir().join("cert.der"),
         p.opcua_trusted_certs_dir().join("client.der"),
         p.partition_store_file(),
-        p.ota_staging_dir().join("update.tar"),
         p.audit_log_file(),
         p.config_integrity_floor_dir().join("floor.json"),
     ];

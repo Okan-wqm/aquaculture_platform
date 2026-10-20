@@ -16,7 +16,8 @@
 //! | GPIO output pin      | `false` (LOW)        | Pin driven LOW                 |
 //!
 //! # Timeout
-//! Each device gets up to `PER_DEVICE_TIMEOUT` to acknowledge the write.
+//! Each output gets up to `PER_DEVICE_TIMEOUT` (longer than the Modbus
+//! layer's own in-flight bound) to acknowledge the write.
 //! If it fails or times out the error is logged and the next device is tried.
 //! A stuck device must never block the rest of the shutdown sequence.
 //!
@@ -121,9 +122,23 @@ impl OutputTag {
     }
 }
 
-/// Maximum time to wait for a single device to accept a safe-state write.
-/// LIFE-SAFETY: 2 s per device is generous; if the bus is dead we move on.
-const PER_DEVICE_TIMEOUT: Duration = Duration::from_secs(2);
+/// Maximum time to wait for one output's safe-state write.
+///
+/// LIFE-SAFETY: derived from the slowest backend's own bound — a Modbus
+/// write and its read-back ([`crate::modbus::WRITE_IN_FLIGHT_BOUND`]) — plus
+/// a second, so a write is never counted as failed while it can still land.
+/// The earlier fixed 2 s was shorter than the 5 s Modbus request timeout: on
+/// a slow bus the agent reported an output unsafe (and went degraded) while
+/// the write then reached the device. A dead bus still fails fast: a
+/// request on an unconnected channel is refused at once.
+const PER_DEVICE_TIMEOUT: Duration =
+    Duration::from_secs(crate::modbus::WRITE_IN_FLIGHT_BOUND.as_secs() + 1);
+
+// Make it impossible to shorten the bound below an in-flight write again.
+const _: () = assert!(
+    PER_DEVICE_TIMEOUT.as_secs() > crate::modbus::WRITE_IN_FLIGHT_BOUND.as_secs(),
+    "the safe-state bound must exceed the Modbus layer's in-flight bound"
+);
 
 // ============================================================================
 // Output Tag Descriptor

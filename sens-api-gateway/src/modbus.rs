@@ -41,8 +41,16 @@ use tracing::{debug, error, info, warn};
 use crate::config::{ByteOrder, ModbusDeviceConfig, ModbusRegisterConfig, ModbusSecurityConfig};
 use crate::resilience::{CircuitBreaker, RateLimiter, with_timeout};
 
+/// Default timeout for Modbus operations, in seconds.
+const MODBUS_TIMEOUT_SECS: u64 = 5;
 /// Default timeout for Modbus operations
-const MODBUS_TIMEOUT: Duration = Duration::from_secs(5);
+const MODBUS_TIMEOUT: Duration = Duration::from_secs(MODBUS_TIMEOUT_SECS);
+/// The longest one write can stay in flight in this layer: the write
+/// request and, with `verify_write_readback`, the read-back request, each
+/// bounded by [`MODBUS_TIMEOUT`]. The safe-state writer waits at least this
+/// long (`safe_state::PER_DEVICE_TIMEOUT`), so it never counts a write as
+/// failed that can still reach the device.
+pub const WRITE_IN_FLIGHT_BOUND: Duration = Duration::from_secs(2 * MODBUS_TIMEOUT_SECS);
 /// Default connection timeout
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Circuit breaker failure threshold

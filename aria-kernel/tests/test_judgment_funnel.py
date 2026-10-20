@@ -17,6 +17,7 @@ funnel row anywhere — the mechanical proof of wire-don't-rewrite.
 from __future__ import annotations
 
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -33,19 +34,34 @@ def _context(base: str):
     )
 
 
-def _run_phase(tmp: str, *, sample_items: list[dict] | None = None):
+def _run_phase(tmp: str, *, sample_items: list[dict] | None = None, enable_funnel: bool = False,
+               drained: int = 0):
     """Run the real phase entry point with the sampler/dispatch recorded.
 
     Production-shaped: nothing mocks the process under test — the phase, the
-    policy accessor and the ledgers all run for real; only the two organs the
-    funnel sits BETWEEN are recorded (the sampler's output is the funnel's
-    real input, the dispatch's recorded kwargs are the funnel's real output).
+    policy accessor, the drain measurement and the ledgers all run for real;
+    only the two organs the funnel sits BETWEEN are recorded (the sampler's
+    output is the funnel's real input, the dispatch's recorded kwargs are the
+    funnel's real output), plus the request ledgers that feed the drain
+    measurement (the suite's established seeding shape,
+    test_request_admission._ledgers).
     """
     ctx = _context(tmp)
     calls: dict[str, list] = {"dispatch": []}
     items = sample_items if sample_items is not None else [
         {"finding_id": "F1", "tool_id": "adapter-a", "run_id": "run-1", "rule": "rule-x"},
     ]
+    if enable_funnel:
+        # The operator's production activation: the policy override file the
+        # accessor merges over the shipped defaults.
+        import json
+
+        override = Path(tmp) / "aria-config" / "genesis_policy.json"
+        override.parent.mkdir(parents=True, exist_ok=True)
+        override.write_text(json.dumps({
+            "$schema": "aria/genesis-policy/v1",
+            "judgment_pipeline": {"funnel_enabled": True},
+        }), encoding="utf-8")
 
     def fake_sample(**kw):
         return {"sample_id": "S1", "cycle_id": kw.get("cycle_id"), "items": [dict(i) for i in items]}
@@ -54,14 +70,36 @@ def _run_phase(tmp: str, *, sample_items: list[dict] | None = None):
         calls["dispatch"].append(kw)
         return {"minted": [], "skipped": []}
 
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime(2026, 10, 20, 3, 0, tzinfo=timezone.utc)
+    ledgers = _seed_ledgers(drained=drained, now=now)
+
     with patch.object(cycle_mod, "list_tools", return_value=[{"tool_id": "adapter-a"}]), \
          patch("aria_kernel.feedback_store.generate_judgment_sample", fake_sample), \
          patch("aria_kernel.judge_fanout.dispatch_judges_for_sample", fake_dispatch), \
          patch("aria_kernel.feedback_store.generate_ai_consensus",
                return_value={"consensus": []}), \
+         patch("aria_kernel.request_drain_capacity._request_ledgers", return_value=ledgers), \
          patch("aria_kernel.convergence_drainer._resolve_workspace_head_sha", return_value="a" * 40):
         result = cycle_mod._phase_judgment_pipeline(ctx)
     return result, calls, ctx
+
+
+def _seed_ledgers(*, drained: int, now) -> tuple[list[dict], list[dict], list[dict]]:
+    """Request/result/claim ledgers with ``drained`` results inside the
+    7-day window (drain_per_day = drained/7) and no claimable backlog."""
+    from datetime import timedelta
+
+    iso = lambda dt: dt.isoformat().replace("+00:00", "Z")  # noqa: E731
+
+    requests, results = [], []
+    for i in range(drained):
+        requests.append({"request_id": f"d-{i}", "role": "evidence_judgment",
+                         "state": "pending", "created_at": iso(now - timedelta(days=1, hours=1))})
+        results.append({"request_id": f"d-{i}", "status": "rejected",
+                        "submitted_at": iso(now - timedelta(days=1))})
+    return requests, results, []
 
 
 def _governance_kinds(base_dir: Path) -> list[str]:
@@ -126,6 +164,189 @@ class PolicyOffGoldenTest(unittest.TestCase):
             for key in ("sampled_findings", "judge_requests_minted", "mint_skipped_backlog",
                         "consensus_rows", "arbiter_requests_minted", "target_sha", "blocked"):
                 self.assertIn(key, result)
+
+
+class EnvelopeBudgetHoldsTest(unittest.TestCase):
+    """Caps HOLD (579 discipline): refusal, never a raise, never lost work."""
+
+    def setUp(self) -> None:
+        import os as _os
+
+        _os.environ.setdefault("ARIA_CONSENSUS_PROMOTION_ACK", "operator-approved-tests")
+
+    def test_a_dead_drain_holds_the_night_mints_nothing_and_the_phase_completes(self) -> None:
+        # The measured drain is 0 (the design-time verdict: last judgment
+        # mint 2026-10-01) → tonight's envelope allowance is 0 → the funnel
+        # plans no seat, dispatch is never handed an item, the phase returns
+        # completed and ONE governance row names the held work.
+        with TemporaryDirectory() as tmp:
+            result, calls, ctx = _run_phase(
+                tmp, enable_funnel=True, drained=0,
+                sample_items=[
+                    {"finding_id": "F1", "tool_id": "adapter-a", "run_id": "run-1", "rule": "rule-x"},
+                    {"finding_id": "F2", "tool_id": "adapter-a", "run_id": "run-1", "rule": "rule-x"},
+                ],
+            )
+
+            self.assertEqual(result["status"], "completed")
+            self.assertEqual(result["judge_requests_minted"], 0)
+            for kw in calls["dispatch"]:
+                self.assertEqual(kw["sample"]["items"], [],
+                                 "a held night must not hand the fan-out any item")
+            kinds = _governance_kinds(ctx.base_dir)
+            self.assertEqual(kinds.count("judgment_funnel_budget_held"), 1)
+            # HOLD, not fail: no blocked entry, no GovernanceError, nothing
+            # that reads as a fault.
+            self.assertEqual(result["blocked"], [])
+            # 579 discipline: the findings stay sampleable — the funnel wrote
+            # no feedback row that would exclude them from the next sample.
+            feedback = ctx.base_dir / "feedback.jsonl"
+            self.assertFalse(feedback.exists())
+
+    def test_a_live_drain_grants_a_drain_sized_allowance(self) -> None:
+        # 91 results in the 7-day window = 13/day → allowance = min(cap 13,
+        # ceil(13)) = 13 envelopes; the item's pair (2 seats) fits.
+        with TemporaryDirectory() as tmp:
+            result, calls, _ctx = _run_phase(
+                tmp, enable_funnel=True, drained=91,
+                sample_items=[{"finding_id": "F1", "tool_id": "adapter-a",
+                               "run_id": "run-1", "rule": "rule-x"}],
+            )
+            self.assertEqual(result["status"], "completed")
+            self.assertTrue(any(kw["sample"]["items"] for kw in calls["dispatch"]),
+                            "a live drain must route the sampled item")
+
+    def test_the_mint_path_never_calls_the_raising_budget_gate(self) -> None:
+        # assert_within_budget raises GovernanceError and trips the breaker:
+        # banned from every mint path. The module's own source is the proof
+        # surface — a call would have to be spelled here.
+        import aria_kernel.judgment_funnel as funnel_mod
+        import inspect
+
+        source = inspect.getsource(funnel_mod)
+        self.assertNotIn("assert_within_budget", source)
+        self.assertNotIn("from .cost_budget", source)
+
+    def test_the_funnel_is_admitted_through_the_request_admission_door(self) -> None:
+        # The envelope hold is expressed THROUGH the door: a per-tier
+        # producer classified in PRODUCER_CLASSES, so a refusal is named,
+        # recorded by the door, and the finding is re-offered next cycle.
+        from aria_kernel.request_admission import PRODUCER_CLASSES
+
+        spec = PRODUCER_CLASSES.get("judgment_funnel.tiers")
+        self.assertIsNotNone(spec, "the funnel's mint must be classified at the door")
+        self.assertEqual(
+            spec.roles,
+            {"evidence_judgment": "discretionary", "adversarial_judgment": "discretionary"},
+        )
+
+
+class Tier0EarlyStopTest(unittest.TestCase):
+    """Tier-0 mechanical checks run before any mint; a reject is an early stop."""
+
+    def setUp(self) -> None:
+        import os as _os
+
+        _os.environ.setdefault("ARIA_CONSENSUS_PROMOTION_ACK", "operator-approved-tests")
+
+    def _repo(self, tmp: str) -> str:
+        """A real hermetic git repo (the suite applies hermetic_git_env on
+        import) with one committed file, returning its HEAD sha."""
+        import subprocess
+
+        repo = Path(tmp) / "ws"
+        repo.mkdir()
+
+        def git(*args: str) -> None:
+            subprocess.run(["git", "-C", str(repo), *args], check=True,
+                           capture_output=True, text=True)
+
+        git("init", "-q")
+        git("config", "user.email", "fixture@example.invalid")
+        git("config", "user.name", "fixture")
+        (repo / "src").mkdir()
+        (repo / "src" / "real.py").write_text("print('hello')\n", encoding="utf-8")
+        # The operator's production activation, inside the workspace the
+        # policy accessor reads.
+        config = repo / "aria-config"
+        config.mkdir()
+        (config / "genesis_policy.json").write_text(
+            '{"$schema": "aria/genesis-policy/v1", "judgment_pipeline": {"funnel_enabled": true}}',
+            encoding="utf-8",
+        )
+        git("add", "-A")
+        git("commit", "-q", "-m", "fixture")
+        return subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"],
+                              check=True, capture_output=True, text=True).stdout.strip()
+
+    def _run_funnel(self, tmp: str, *, items: list[dict]) -> tuple[dict, list[dict], Path]:
+        head = self._repo(tmp)
+        ctx = cycle_mod.build_phase_context(
+            cycle_id="cyc-tier0",
+            workspace_root=Path(tmp) / "ws",
+            base_dir=Path(tmp) / "aria-tools",
+        )
+        calls: list[dict] = []
+
+        def fake_dispatch(**kw):
+            calls.append(kw)
+            return {"minted": [], "skipped": []}
+
+        with patch.object(cycle_mod, "list_tools", return_value=[{"tool_id": "adapter-a"}]), \
+             patch("aria_kernel.feedback_store.generate_judgment_sample",
+                   return_value={"sample_id": "S1", "cycle_id": "cyc-tier0", "items": items}), \
+             patch("aria_kernel.judge_fanout.dispatch_judges_for_sample", fake_dispatch), \
+             patch("aria_kernel.feedback_store.generate_ai_consensus",
+                   return_value={"consensus": []}), \
+             patch("aria_kernel.request_drain_capacity._request_ledgers",
+                   return_value=_seed_ledgers(drained=91, now=datetime(2026, 10, 20, 3, 0, tzinfo=timezone.utc))), \
+             patch("aria_kernel.convergence_drainer._resolve_workspace_head_sha", return_value=head):
+            result = cycle_mod._phase_judgment_pipeline(ctx)
+        return result, calls, ctx
+
+    def test_an_unresolved_ref_is_rejected_before_any_mint(self) -> None:
+        # The operator's funnel law, step 2: refs resolve at the SHA, and a
+        # failure here is rejected with NO LLM call. The item cites a path
+        # that does not exist in the tree at HEAD — the funnel must not hand
+        # it to the fan-out, must name the refusal, and the phase completes.
+        with TemporaryDirectory() as tmp:
+            result, calls, ctx = self._run_funnel(
+                tmp,
+                items=[{"finding_id": "F1", "tool_id": "adapter-a", "run_id": "run-1",
+                        "rule": "rule-x", "path": "src/missing.py", "severity": "medium"}],
+            )
+
+            self.assertEqual(result["status"], "completed")
+            self.assertEqual(result["judge_requests_minted"], 0)
+            for kw in calls:
+                self.assertEqual(kw["sample"]["items"], [],
+                                 "a tier-0 reject must never be dispatched")
+            kinds = _governance_kinds(ctx.base_dir)
+            self.assertIn("judgment_funnel_tier0_rejected", kinds)
+            # Not a fault and not a hold: a REFUSAL with its own name.
+            self.assertNotIn("judgment_funnel_budget_held", kinds)
+            self.assertEqual(result["blocked"], [])
+            # The finding stays sampleable: no feedback row excludes it.
+            self.assertFalse((ctx.base_dir / "feedback.jsonl").exists())
+
+    def test_a_resolving_ref_passes_through_to_the_fanout(self) -> None:
+        with TemporaryDirectory() as tmp:
+            _result, calls, _ctx = self._run_funnel(
+                tmp,
+                items=[{"finding_id": "F1", "tool_id": "adapter-a", "run_id": "run-1",
+                        "rule": "rule-x", "path": "src/real.py", "severity": "medium"}],
+            )
+            self.assertTrue(any(kw["sample"]["items"] for kw in calls),
+                            "a resolving ref must reach the fan-out")
+
+    def test_the_tier0_module_is_a_pure_named_gate(self) -> None:
+        # No anchor to verify against is NOT a verdict (the tri-state law):
+        # the item passes with a note, never rejected on missing data.
+        from aria_kernel.tier0 import tier0_gate
+
+        verdict = tier0_gate({"path": "src/real.py"}, None, repo_root=None, target_sha=None)
+        self.assertEqual(verdict["status"], "pass")
+        self.assertTrue(verdict.get("note"))
 
 
 class FunnelPolicyKeysTest(unittest.TestCase):

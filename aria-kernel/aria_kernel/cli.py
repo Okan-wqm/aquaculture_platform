@@ -1026,6 +1026,30 @@ def build_parser() -> argparse.ArgumentParser:
                                 help="Write snapshot.json here; omit to print only.")
     state_snapshot.add_argument("--previous", default=None,
                                 help="Path to the predecessor snapshot.json (chains the manifest).")
+    # ARIA-LOW-605 — the debt lifecycle verbs. Every status change after
+    # emission goes through `debt transition` (a hash-chained
+    # debt_status_changed event), never a hand edit of a committed JSON;
+    # `debt import-committed` adopts the hand-edited committed corpus into
+    # the ledger idempotently.
+    debt_parser = add_subparser(
+        sub,
+        "debt",
+        help="CONTRACTS §6.6 architectural-debt lifecycle (kernel-enforced).",
+    )
+    debt_sub = debt_parser.add_subparsers(dest="debt_command", required=True)
+    debt_transition = add_subparser(debt_sub, "transition")
+    debt_transition.add_argument("--repo-root", required=True)
+    debt_transition.add_argument("--debt", required=True)
+    debt_transition.add_argument("--to", required=True, dest="to_status")
+    debt_transition.add_argument("--by", required=True,
+                                 help="manual:operator | operator:<name> | commit:<40-hex>")
+    debt_transition.add_argument("--note", default=None)
+    debt_transition.add_argument("--fix-merge-sha", default=None,
+                                 help="Required for RESOLVED: the merge that shipped the permanent fix.")
+    debt_transition.add_argument("--withdrawn-reason", default=None,
+                                 help="Required for WITHDRAWN; passes the banned-phrase gate.")
+    debt_import = add_subparser(debt_sub, "import-committed")
+    debt_import.add_argument("--repo-root", required=True)
     state_snapshot.add_argument("--sign-with", default=None,
                                 help="Private key path; requires --out-dir. Refuses if ssh-keygen is absent.")
     state_snapshot.add_argument("--parent-commit", default=None)
@@ -5731,6 +5755,28 @@ def _main(argv: list[str] | None = None) -> int:
             print(json.dumps(rows, indent=2, sort_keys=True))
             return 0
         parser.error("unknown review command")
+
+    if args.command == "debt":
+        from aria_kernel.debt import import_committed_debts, transition_debt
+
+        if args.debt_command == "transition":
+            row = transition_debt(
+                repo_root=args.repo_root,
+                debt_id=args.debt,
+                to_status=args.to_status,
+                by=args.by,
+                base_dir=args.tools_dir,
+                note=args.note,
+                fix_merge_sha=args.fix_merge_sha,
+                withdrawn_reason=args.withdrawn_reason,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.debt_command == "import-committed":
+            row = import_committed_debts(repo_root=args.repo_root, base_dir=args.tools_dir)
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        parser.error("unknown debt command")
 
     if args.command == "architecture":
         from aria_kernel.architecture import (

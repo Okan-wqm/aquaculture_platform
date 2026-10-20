@@ -295,7 +295,9 @@ impl super::CommandHandler {
             "deploy_auto" => self.cmd_deploy_auto(&command.params).await,
             "validate_st" => self.cmd_validate_st(&command.params).await,
             // System commands
+            #[cfg(not(feature = "os-managed-updates"))]
             "reboot" => self.cmd_reboot(&command.params).await,
+            #[cfg(not(feature = "os-managed-updates"))]
             "restart_agent" => self.cmd_restart_agent().await,
             "set_log_level" => self.cmd_set_log_level(&command.params).await,
             // Failover commands (v1.3.4)
@@ -343,10 +345,13 @@ impl super::CommandHandler {
             // Master-key rotation orchestrator (Batch 100 Sprint 6.3)
             "rotate_master" => self.cmd_rotate_master(&command.params).await,
             // Firmware A/B slot confirmation (Batch 109 Sprint 6.5)
+            #[cfg(not(feature = "os-managed-updates"))]
             "confirm_slot" => self.cmd_confirm_slot(&command.params).await,
             // Signed firmware manifest verification preview (Batch 115 Sprint 6.5)
+            #[cfg(not(feature = "os-managed-updates"))]
             "verify_signed_manifest" => self.cmd_verify_signed_manifest(&command.params).await,
             // Signed firmware manifest apply orchestrator (Batch 116 Sprint 6.5)
+            #[cfg(not(feature = "os-managed-updates"))]
             "apply_signed_manifest" => self.cmd_apply_signed_manifest(&command.params).await,
             // Cloud-signed statements handed to root (ADR-048 DEC-5.8,
             // DEC-5.14; Suderra OS profile only)
@@ -354,6 +359,9 @@ impl super::CommandHandler {
             "activation_receipt" => self.cmd_activation_receipt(&command.params).await,
             #[cfg(feature = "suderra-os")]
             "lifecycle_request" => self.cmd_lifecycle_request(&command.params).await,
+            // The one update path when the OS manages updates (ADR-048 DEC-2.3)
+            #[cfg(feature = "suderra-os")]
+            "request_update" => self.cmd_request_update(&command.params).await,
             // License tier refresh (Batch 143 Faz 7)
             "refresh_license" => self.cmd_refresh_license(&command.params).await,
             // ST bytecode program deploy (Batch 167 Faz 3)

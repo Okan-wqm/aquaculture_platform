@@ -1,5 +1,13 @@
 # ADR-019: Edge Firmware Signing + A/B Partition + Dedicated Rescue Slot + Sealed Provisioning + Master Key Hierarchy
 
+> **Partly superseded by [ADR-048](048-suderra-os-edge-agent-integration-contract.md) DEC-2 (2026-10-20).**
+> On Suderra OS the OS owns every update: RAUC/suderra-ota updates the OS image and the root
+> installer updates the agent binary. The agent's A/B partition store, tryboot `autoboot.txt`
+> writer, cold-boot watchdog, `apply_signed_manifest` / `confirm_slot` / `verify_signed_manifest`
+> commands and `--confirm-active` path are not compiled there (cargo feature `os-managed-updates`,
+> implied by `suderra-os`; invariant `sens-api-gateway/tests/invariants/os_managed_updates_no_updater.rs`).
+> The generic Linux channel stays under this ADR until ADR-048 DEC-28's P2 work.
+
 **Status:** Proposed (opened 2026-04-19; revised post-audit 2026-04-19 — 4 CRITICAL + 5 HIGH + 4 MEDIUM + 3 LOW closed in §10 closure table; target Accepted 2026-05-03 after ADR-021 (DEC-008) reaches Proposed minimum)
 **Date:** 2026-04-19
 **Deciders:** Okan (platform owner) + edge-expert + security-auditor + edge-industrial-auditor

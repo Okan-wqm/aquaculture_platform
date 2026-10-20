@@ -1120,7 +1120,7 @@ use axum::Extension;
 /// orchestrators MUST be able to hit anonymously — they are gated. The
 /// gate reuses the health-server HMAC mechanism: the same
 /// systemd-credential-delivered key the lifecycle control endpoint uses,
-/// carried on the shared `LifecycleHandlesCell`. No new key, no new config
+/// carried on the shared `HealthAuthCell`. No new key, no new config
 /// surface — one auth SSoT for the whole health server.
 ///
 /// Trust boundary:
@@ -1137,7 +1137,7 @@ use axum::Extension;
 #[cfg(feature = "health")]
 #[derive(Clone)]
 struct ObservabilityAuth {
-    lifecycle_cell: Option<crate::lifecycle::LifecycleHandlesCell>,
+    auth_cell: Option<crate::lifecycle_auth::HealthAuthCell>,
     bind_is_loopback: bool,
 }
 
@@ -1180,28 +1180,13 @@ impl ObservabilityAuth {
     ) -> Result<(), ObservabilityAuthRejection> {
         use crate::lifecycle_auth::{HEADER_HMAC, HEADER_TIMESTAMP, verify_request};
 
-        let handles = self.lifecycle_cell.as_ref().and_then(|c| c.get());
-        let auth_key = handles.and_then(|h| h.auth_key.as_ref());
+        let auth = self.auth_cell.as_ref().and_then(|c| c.get());
 
-        match auth_key {
-            Some(key) => {
+        match auth.and_then(|a| a.auth_key.as_ref().map(|key| (key, &a.clock_authority))) {
+            Some((key, clock)) => {
                 let hmac_header = headers.get(HEADER_HMAC).and_then(|v| v.to_str().ok());
                 let ts_header = headers.get(HEADER_TIMESTAMP).and_then(|v| v.to_str().ok());
-
-                // Prefer the wired clock authority (fail-closed on NTS-stale);
-                // fall back to a fresh SystemClockAuthority only when the cell
-                // predates clock wiring — same posture as the lifecycle handler.
-                let clock_owned;
-                let clock_ref: &dyn crate::runtime_safety::ClockAuthority =
-                    match handles.and_then(|h| h.clock_authority.as_ref()) {
-                        Some(c) => &**c,
-                        None => {
-                            clock_owned = crate::runtime_safety::SystemClockAuthority::new();
-                            &clock_owned
-                        }
-                    };
-
-                verify_request(key, "GET", path, hmac_header, ts_header, clock_ref)
+                verify_request(key, "GET", path, hmac_header, ts_header, &**clock)
                     .await
                     .map_err(|e| ObservabilityAuthRejection::Hmac(e.to_string()))
             }
@@ -1220,12 +1205,12 @@ impl ObservabilityAuth {
 pub async fn start_health_server(
     addr: SocketAddr,
     state: HealthState,
-    lifecycle_cell: Option<crate::lifecycle::LifecycleHandlesCell>,
+    auth_cell: crate::lifecycle_auth::HealthAuthCell,
+    #[cfg(not(feature = "os-managed-updates"))] lifecycle_cell: Option<
+        crate::lifecycle::LifecycleHandlesCell,
+    >,
 ) -> tokio::task::JoinHandle<()> {
-    use axum::{
-        Extension, Router,
-        routing::{get, post},
-    };
+    use axum::{Extension, Router, routing::get};
 
     // Build the router. The lifecycle cell is layered in
     // as Extension so the confirm-active handler can read
@@ -1239,10 +1224,11 @@ pub async fn start_health_server(
     // fail closed on a non-loopback bind without a key. /health and /ready
     // stay anonymous for orchestrator probes.
     let obs_auth = ObservabilityAuth {
-        lifecycle_cell: lifecycle_cell.clone(),
+        auth_cell: Some(auth_cell),
         bind_is_loopback: addr.ip().is_loopback(),
     };
 
+    #[cfg_attr(feature = "os-managed-updates", allow(unused_mut))]
     let mut app = Router::new()
         .route("/health", get(health_handler))
         .route("/ready", get(ready_handler))
@@ -1257,11 +1243,14 @@ pub async fn start_health_server(
     // init succeeds), the route is live; otherwise the
     // route is NOT registered so there is no half-wired
     // 503-always state.
+    //
+    // ADR-048 DEC-2: not compiled when the OS manages updates.
+    #[cfg(not(feature = "os-managed-updates"))]
     if let Some(cell) = lifecycle_cell {
         app = app
             .route(
                 "/lifecycle/confirm-active",
-                post(crate::lifecycle::confirm_active_handler),
+                axum::routing::post(crate::lifecycle::confirm_active_handler),
             )
             .layer(Extension(cell))
             // PR935-HIGH-005: give the confirm-active POST the same
@@ -1844,7 +1833,7 @@ mod tests {
     #[tokio::test]
     async fn observability_gate_allows_loopback_without_key() {
         let auth = ObservabilityAuth {
-            lifecycle_cell: None,
+            auth_cell: None,
             bind_is_loopback: true,
         };
         let headers = axum::http::HeaderMap::new();
@@ -1858,7 +1847,7 @@ mod tests {
     #[tokio::test]
     async fn observability_gate_refuses_external_bind_without_key() {
         let auth = ObservabilityAuth {
-            lifecycle_cell: None,
+            auth_cell: None,
             bind_is_loopback: false,
         };
         let headers = axum::http::HeaderMap::new();

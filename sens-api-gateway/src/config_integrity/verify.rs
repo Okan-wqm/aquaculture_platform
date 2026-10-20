@@ -7,7 +7,7 @@
 use super::error::ConfigIntegrityError;
 use super::manifest::{ConfigMeta, SignedConfigMeta};
 use crate::authz::permission::DeviceId;
-use crate::updater::manifest::Sha256Digest;
+use crate::digest::Sha256Digest;
 
 /// Verify the config-integrity sidecar.
 ///

@@ -94,6 +94,25 @@ pub const DEFAULT_CREDENTIAL_NAME: &str = "lifecycle-hmac-key";
 /// than this are rejected at load time.
 pub const MIN_KEY_LEN_BYTES: usize = 32;
 
+/// The health server's request-authentication material: the HMAC key
+/// (None when `lifecycle_endpoint.auth_mode = Disabled`) and the clock the
+/// timestamp window is checked against. One key authenticates every
+/// sensitive health-server endpoint (EDGE-HIGH-020), whether or not the
+/// profile serves the confirm-active endpoint (ADR-048 DEC-2).
+pub struct HealthAuth {
+    pub auth_key: Option<std::sync::Arc<LifecycleAuthKey>>,
+    pub clock_authority: std::sync::Arc<dyn crate::runtime_safety::ClockAuthority>,
+}
+
+/// Set-once cell for [`HealthAuth`]: the health server starts before the
+/// key is loaded, so it holds the cell and reads it per request.
+pub type HealthAuthCell = std::sync::Arc<std::sync::OnceLock<HealthAuth>>;
+
+/// An empty [`HealthAuthCell`].
+pub fn new_health_auth_cell() -> HealthAuthCell {
+    std::sync::Arc::new(std::sync::OnceLock::new())
+}
+
 /// Lifecycle HMAC key. Zeroizes on drop so key material
 /// doesn't linger in memory after the agent shuts down.
 pub struct LifecycleAuthKey {

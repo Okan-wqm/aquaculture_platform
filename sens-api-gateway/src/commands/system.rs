@@ -45,7 +45,9 @@ use tracing::{error, info, warn};
 
 use crate::mqtt::CommandMessage;
 
-use super::{CommandHandler, DEFAULT_REBOOT_DELAY_SECS, DEFAULT_RESTART_DELAY_SECS};
+use super::CommandHandler;
+#[cfg(not(feature = "os-managed-updates"))]
+use super::{DEFAULT_REBOOT_DELAY_SECS, DEFAULT_RESTART_DELAY_SECS};
 
 /// `undeploy_scada_package` params (WF-011) — wire contract pinned by
 /// `libs/sensor-contracts/src/schemas/undeploy-scada-package.schema.ts`
@@ -84,6 +86,11 @@ impl CommandHandler {
     ///    (awaiting the task would deadlock — the task kills the
     ///    process).
     /// 3. Any panic is logged within the task itself.
+    ///
+    /// Not compiled when the OS manages updates (ADR-048 DEC-2.1): the
+    /// agent manages no service and cannot reboot the device; a restart
+    /// comes from root's request channel.
+    #[cfg(not(feature = "os-managed-updates"))]
     pub(super) async fn cmd_reboot(&self, params: &Value) -> (bool, Value, Option<String>) {
         info!("Executing reboot command");
 
@@ -151,6 +158,9 @@ impl CommandHandler {
     ///    shutdown needed.
     /// 2. We must return the response before the restart occurs.
     /// 3. Any panic is logged within the task itself.
+    ///
+    /// Not compiled when the OS manages updates (ADR-048 DEC-2.1).
+    #[cfg(not(feature = "os-managed-updates"))]
     pub(super) async fn cmd_restart_agent(&self) -> (bool, Value, Option<String>) {
         info!("Executing restart_agent command");
 

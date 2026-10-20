@@ -42,7 +42,7 @@ use super::manifest::SignedConfigMeta;
 use super::verify::verify_config_integrity;
 use crate::authz::permission::DeviceId;
 use crate::config::ConfigIntegrityMode;
-use crate::updater::manifest::Sha256Digest;
+use crate::digest::Sha256Digest;
 
 /// Highest-seen-version file name inside `$SUDERRA_DATA_DIR`.
 const HIGHEST_SEEN_VERSION_FILENAME: &str = "config_integrity_highest_version.txt";

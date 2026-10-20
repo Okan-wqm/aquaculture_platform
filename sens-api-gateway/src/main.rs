@@ -84,7 +84,9 @@ mod interning;
 mod io_poll;
 mod license; // Batch 140 Faz 7: edge license tier enforcement (plan R-10)
 mod license_cache; // Batch 144 Faz 7: SQLCipher persistence + monotonic floor
-#[cfg(feature = "health")]
+// ADR-048 DEC-2: confirm-active confirms the agent's own A/B slot, so it is
+// not compiled when the OS manages updates.
+#[cfg(all(feature = "health", not(feature = "os-managed-updates")))]
 mod lifecycle; // Batch 122 Sprint 6.5: HTTP lifecycle endpoint (confirm-active)
 #[cfg(feature = "health")]
 mod lifecycle_auth; // Batch 129 Sprint 6.6: HMAC auth for lifecycle endpoint
@@ -160,11 +162,18 @@ mod audit;
 // Faz 2 Sprint 6.4.
 #[allow(dead_code)] // Faz 2 Sprint 6.4 wires consumers; types pre-staged.
 mod command_envelope;
+mod digest; // SHA-256 digest newtype shared by config integrity, pinning and the updater
 // Batch 8 — ADR-019 firmware A/B partition + signed manifest verification.
 // Types + verify_firmware_manifest pure function with closure-injected
 // ed25519 verify. Runtime wiring (tryboot overlay write, bootloader flag
 // flip, per-file SHA-256 stream + TOCTOU re-verify, cold-boot confirmation)
 // lands in Faz 2 Sprint 6.5.
+//
+// ADR-048 DEC-2: not compiled when the OS manages updates (`os-managed-
+// updates`, implied by `suderra-os`): RAUC owns the OS slots and the root
+// installer owns the agent binary, so the agent has no A/B state, no
+// bootloader flag and no cold-boot watchdog of its own.
+#[cfg(not(feature = "os-managed-updates"))]
 #[allow(dead_code)] // Faz 2 Sprint 6.5 wires consumers; types pre-staged.
 mod updater;
 // Batch 9 — plan D-13 config.yaml.sig factory-signed integrity. Types +
@@ -752,6 +761,7 @@ pub struct AppState {
     /// Initialization is fail-closed in boot (corrupt JSON
     /// in the partition.json file → exit(1)); first-boot
     /// creates file with initial state.
+    #[cfg(not(feature = "os-managed-updates"))]
     pub partition_store: Option<std::sync::Arc<crate::updater::PartitionStore>>,
 
     /// Lifecycle HMAC auth key (Batch 129 Sprint 6.6).
@@ -783,8 +793,15 @@ pub struct AppState {
     /// `config.health.enabled = false`. Some(empty cell)
     /// during boot window; Some(populated cell) once
     /// prerequisites init.
-    #[cfg(feature = "health")]
+    #[cfg(all(feature = "health", not(feature = "os-managed-updates")))]
     pub lifecycle_cell: Option<crate::lifecycle::LifecycleHandlesCell>,
+
+    /// The health server's HMAC key and clock, shared by the sensitive
+    /// observability endpoints (and, in the generic profile, the
+    /// confirm-active endpoint). Allocated before the server starts and
+    /// set once boot has loaded the key (`init_health_auth_cell`).
+    #[cfg(feature = "health")]
+    pub health_auth_cell: Option<crate::lifecycle_auth::HealthAuthCell>,
 
     /// Bootloader-coordination handle (Batch 112 Sprint 6.5
     /// wire). Layer-2 partner of `partition_store` (layer 1
@@ -807,6 +824,7 @@ pub struct AppState {
     /// deployments). TrybootBootloaderHandle real-RPi impl
     /// lands in a follow-up batch that requires hardware for
     /// signed autoboot.txt verification.
+    #[cfg(not(feature = "os-managed-updates"))]
     pub bootloader: std::sync::Arc<dyn crate::updater::BootloaderHandle>,
 
     /// SQLCipher-backed license cache + monotonic floor
@@ -1057,6 +1075,7 @@ impl AppState {
             // init_partition_store() opens the state file
             // (default /var/lib/suderra/partition.json);
             // fail-closed on corrupt JSON.
+            #[cfg(not(feature = "os-managed-updates"))]
             partition_store: None,
             // Batch 112 Sprint 6.5 wire: Noop default.
             // Non-RPi deployments use this as the zero-cost
@@ -1065,6 +1084,7 @@ impl AppState {
             // init_bootloader() call after the real-RPi impl
             // lands (needs hardware for signed autoboot.txt
             // verification).
+            #[cfg(not(feature = "os-managed-updates"))]
             bootloader: std::sync::Arc::new(crate::updater::NoopBootloaderHandle),
             // Batch 145 Faz 7 wire: None until
             // init_license_cache() succeeds. Boot-time
@@ -1099,8 +1119,10 @@ impl AppState {
             // init_lifecycle_cell() populates it after
             // partition_store + bootloader + audit_sink
             // init land.
-            #[cfg(feature = "health")]
+            #[cfg(all(feature = "health", not(feature = "os-managed-updates")))]
             lifecycle_cell: None,
+            #[cfg(feature = "health")]
+            health_auth_cell: None,
             // Batch 167 Faz 3 wire: empty registry at
             // AppState::new. cmd_deploy_program (future
             // batch) inserts verified programs; the
@@ -1279,21 +1301,36 @@ impl AppState {
             health_state.set_tenant_id(tenant);
         }
 
+        // The auth cell is empty here; init_health_auth_cell() sets it
+        // once the HMAC key is loaded. Until then a sensitive endpoint
+        // is served only on a loopback bind.
+        let auth_cell = crate::lifecycle_auth::new_health_auth_cell();
+        self.health_auth_cell = Some(auth_cell.clone());
+
         // Batch 122 Sprint 6.5: allocate the lifecycle
         // cell pre-server-start. The cell is empty here;
         // init_lifecycle_cell() populates it AFTER
         // partition_store + audit_sink init. Pre-
         // population the confirm-active handler returns
         // 503 Service Unavailable.
-        let lifecycle_cell = crate::lifecycle::new_cell();
-        self.lifecycle_cell = Some(lifecycle_cell.clone());
+        #[cfg(not(feature = "os-managed-updates"))]
+        let lifecycle_cell = {
+            let cell = crate::lifecycle::new_cell();
+            self.lifecycle_cell = Some(cell.clone());
+            cell
+        };
 
         // Clone for the server task; keep the original on AppState so
         // downstream subsystems can push counter updates to the SAME
         // Arc<HealthStateInner> (HealthState::Clone is Arc-cheap).
-        let server_handle =
-            crate::health::start_health_server(addr, health_state.clone(), Some(lifecycle_cell))
-                .await;
+        let server_handle = crate::health::start_health_server(
+            addr,
+            health_state.clone(),
+            auth_cell,
+            #[cfg(not(feature = "os-managed-updates"))]
+            Some(lifecycle_cell),
+        )
+        .await;
         self.health_state = Some(health_state);
 
         info!("HealthServer wired: bind={}", addr);
@@ -1352,6 +1389,23 @@ impl AppState {
         Ok(())
     }
 
+    /// Sets the health server's auth cell from the loaded HMAC key and the
+    /// clock authority, after `init_lifecycle_auth_key`. NO-OP when the
+    /// health server is disabled.
+    #[cfg(feature = "health")]
+    pub fn init_health_auth_cell(&self) {
+        let Some(cell) = self.health_auth_cell.as_ref() else {
+            return;
+        };
+        let auth = crate::lifecycle_auth::HealthAuth {
+            auth_key: self.lifecycle_auth_key.clone(),
+            clock_authority: self.clock_authority.clone(),
+        };
+        if cell.set(auth).is_err() {
+            warn!("init_health_auth_cell: the auth cell was already set; keeping the first value");
+        }
+    }
+
     /// Populate the lifecycle cell with PartitionStore +
     /// bootloader + audit_sink references (Batch 122 Sprint
     /// 6.5 wire).
@@ -1366,7 +1420,7 @@ impl AppState {
     /// or when `partition_store` is None (fail-closed boot
     /// would have already exited; guard is defense-in-
     /// depth).
-    #[cfg(feature = "health")]
+    #[cfg(all(feature = "health", not(feature = "os-managed-updates")))]
     pub fn init_lifecycle_cell(&self) {
         let Some(cell) = self.lifecycle_cell.as_ref() else {
             info!("init_lifecycle_cell: cell is None (health disabled) — skipping");
@@ -2349,6 +2403,7 @@ impl AppState {
     /// cannot operate safely — running without a store would
     /// let an update apply without recording the state
     /// transition, breaking rollback semantics.
+    #[cfg(not(feature = "os-managed-updates"))]
     pub fn init_partition_store(&mut self) -> Result<(), String> {
         let store = crate::updater::PartitionStore::open(None).map_err(|e| {
             format!(
@@ -3015,6 +3070,7 @@ impl AppState {
         }
     }
 
+    #[cfg(not(feature = "os-managed-updates"))]
     pub fn init_bootloader_backend(&mut self) {
         use crate::config::BootloaderBackend;
         match self.config.firmware_update.bootloader_backend {
@@ -3171,6 +3227,7 @@ fn main() {
                 let code = run_preflight();
                 std::process::exit(code);
             }
+            #[cfg(not(feature = "os-managed-updates"))]
             "--confirm-active" => {
                 // Batch 110 Sprint 6.5 Phase 2: post-boot
                 // confirm CLI. Called by a systemd unit /
@@ -3271,6 +3328,7 @@ fn main() {
                 println!("OPTIONS:");
                 println!("    --init                    Generate default configuration file");
                 println!("    --audit-verify <path>     Verify NDJSON audit log chain (Batch 77)");
+                #[cfg(not(feature = "os-managed-updates"))]
                 {
                     use std::io::Write as _;
                     let mut stdout = std::io::stdout().lock();
@@ -3799,6 +3857,7 @@ async fn async_main(notifier: Arc<systemd_notify::SystemdNotifier>) -> Result<()
     // FAIL-CLOSED: corrupt partition.json → exit(1).
     // Operator recovery runbook to be added in a follow-up
     // documentation batch.
+    #[cfg(not(feature = "os-managed-updates"))]
     {
         let mut state_guard = state.write().await;
         if let Err(msg) = state_guard.init_partition_store() {
@@ -3829,6 +3888,7 @@ async fn async_main(notifier: Arc<systemd_notify::SystemdNotifier>) -> Result<()
     // firmware_signing_pubkey but BEFORE init_lifecycle_cell
     // so the HTTP endpoint + watchdog see the correct
     // backend.
+    #[cfg(not(feature = "os-managed-updates"))]
     {
         let mut state_guard = state.write().await;
         state_guard.init_bootloader_backend();
@@ -3986,6 +4046,8 @@ async fn async_main(notifier: Arc<systemd_notify::SystemdNotifier>) -> Result<()
     #[cfg(feature = "health")]
     {
         let state_guard = state.read().await;
+        state_guard.init_health_auth_cell();
+        #[cfg(not(feature = "os-managed-updates"))]
         state_guard.init_lifecycle_cell();
     }
 
@@ -4034,18 +4096,6 @@ async fn async_main(notifier: Arc<systemd_notify::SystemdNotifier>) -> Result<()
 /// pattern in the --init and --help branches.
 #[allow(clippy::print_stdout)]
 #[allow(clippy::print_stderr)]
-/// Post-boot A/B slot confirm CLI entry point (Batch 110
-/// Sprint 6.5 Phase 2).
-///
-/// Invoked by `suderra-agent --confirm-active`. Called from
-/// a systemd unit / timer (`suderra-agent-confirm.timer`)
-/// that runs N seconds AFTER agent start when a
-/// PendingConfirm slot is waiting for operator health-
-/// check to promote it.
-///
-/// Flow:
-/// 1. Open PartitionStore at default path.
-/// 2. Snapshot; resolve active slot.
 /// PR-195 Batch #18 — `--migrate-db` subcommand entry
 /// (closes ORPHAN-D3-CLI-DISPATCH-001).
 ///
@@ -4265,12 +4315,28 @@ fn run_preflight() -> i32 {
     })
 }
 
+/// Post-boot A/B slot confirm CLI entry point (Batch 110
+/// Sprint 6.5 Phase 2).
+///
+/// Invoked by `suderra-agent --confirm-active`. Called from
+/// a systemd unit / timer (`suderra-agent-confirm.timer`)
+/// that runs N seconds AFTER agent start when a
+/// PendingConfirm slot is waiting for operator health-
+/// check to promote it.
+///
+/// Flow:
+/// 1. Open PartitionStore at default path.
+/// 2. Snapshot; resolve active slot.
 /// 3. Apply `PartitionRoll::Confirm { slot: active }`.
 /// 4. Exit 0 on success (new state Active) + pretty-print
 ///    the transition; exit 1 on any error.
 ///
 /// Pre-tracing: same println/eprintln pattern as --init,
 /// --audit-verify per the existing CLI convention.
+///
+/// Not compiled when the OS manages updates (ADR-048 DEC-2): RAUC's
+/// mark-good is the only slot confirmation there.
+#[cfg(not(feature = "os-managed-updates"))]
 #[allow(clippy::print_stdout)]
 #[allow(clippy::print_stderr)]
 fn run_confirm_active() -> i32 {
@@ -5769,6 +5835,10 @@ async fn run_agent(
     //
     // SKIPPED when partition_store is None (init failure would
     // have exit(1)'d already; guard is defense-in-depth).
+    //
+    // Not compiled when the OS manages updates (ADR-048 DEC-2): the
+    // health gate and RAUC/the root installer own rollback there.
+    #[cfg(not(feature = "os-managed-updates"))]
     {
         let partition_store = {
             let s = state.read().await;

@@ -494,7 +494,9 @@ impl AgentPaths {
         }
     }
 
-    /// A/B partition state of the agent-owned updater.
+    /// A/B partition state of the agent-owned updater (not compiled when
+    /// the OS manages updates, ADR-048 DEC-2).
+    #[cfg(not(feature = "os-managed-updates"))]
     pub fn partition_store_file(&self) -> PathBuf {
         self.store_dir("state").join("partition.json")
     }
@@ -712,6 +714,7 @@ mod tests {
             Path::new("/var/lib/suderra/user_token_version.sqlite")
         );
         assert_eq!(p.scada_db(), Path::new("/var/lib/suderra/scada/scada.db"));
+        #[cfg(not(feature = "os-managed-updates"))]
         assert_eq!(
             p.partition_store_file(),
             Path::new("/var/lib/suderra/partition.json")
@@ -751,6 +754,7 @@ mod tests {
             p.user_token_version_db(),
             p.scada_db(),
             p.lora_sessions_db(),
+            #[cfg(not(feature = "os-managed-updates"))]
             p.partition_store_file(),
             p.activation_state_file(),
             p.db_key_file(),
@@ -808,6 +812,7 @@ mod tests {
             p.lora_sessions_db(),
             p.opcua_own_pki_dir().join("cert.der"),
             p.opcua_trusted_certs_dir().join("client.der"),
+            #[cfg(not(feature = "os-managed-updates"))]
             p.partition_store_file(),
             p.audit_log_file(),
             p.config_integrity_floor_dir().join("floor.json"),

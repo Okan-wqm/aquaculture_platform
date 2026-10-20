@@ -26,6 +26,10 @@
 //
 // Per-domain handler submodules (each adds an
 // `impl CommandHandler { ... cmd_X ... }` block):
+// ADR-048 DEC-2: the agent's own A/B updater commands are not compiled when
+// the OS manages updates (feature `os-managed-updates`, implied by
+// `suderra-os`); `request_update` hands an update to root instead.
+#[cfg(not(feature = "os-managed-updates"))]
 mod apply_signed_manifest;
 mod audit_emit;
 // Faz 5 two-phase release-bundle apply (verify → staged ack →
@@ -37,6 +41,7 @@ pub(crate) mod bundle_deploy;
 pub(crate) mod catalog;
 mod cert_pinning;
 mod command_acceptance;
+#[cfg(not(feature = "os-managed-updates"))]
 mod confirm_slot;
 mod deploy_bytecode_program;
 mod diagnostic;
@@ -63,6 +68,8 @@ mod read;
 mod refresh_license;
 pub(crate) mod required_permission;
 #[cfg(feature = "suderra-os")]
+mod request_update;
+#[cfg(feature = "suderra-os")]
 mod root_handoff;
 mod rotate_master;
 mod script;
@@ -70,6 +77,7 @@ mod script;
 mod site_material;
 mod system;
 mod user_token;
+#[cfg(not(feature = "os-managed-updates"))]
 mod verify_signed_manifest;
 mod write;
 // Batch #299 ORPHAN-HIGH-020 closure: cmd_deploy_st_source —
@@ -118,9 +126,11 @@ use self::helpers::{
 };
 
 /// Default delay before system reboot (seconds) - v1.2.6
+#[cfg(not(feature = "os-managed-updates"))]
 const DEFAULT_REBOOT_DELAY_SECS: u64 = 5;
 
 /// Default delay before agent restart (seconds) - v1.2.6
+#[cfg(not(feature = "os-managed-updates"))]
 const DEFAULT_RESTART_DELAY_SECS: u64 = 2;
 
 // ============================================================================

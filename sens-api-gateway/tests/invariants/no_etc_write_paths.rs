@@ -175,10 +175,13 @@ fn written_paths(p: &paths::AgentPaths) -> Vec<std::path::PathBuf> {
         p.lora_sessions_db(),
         p.opcua_own_pki_dir().join("cert.der"),
         p.opcua_trusted_certs_dir().join("client.der"),
-        p.partition_store_file(),
         p.audit_log_file(),
         p.config_integrity_floor_dir().join("floor.json"),
     ];
+    // ADR-048 DEC-2: the agent's A/B state exists only where the agent
+    // updates itself.
+    #[cfg(not(feature = "os-managed-updates"))]
+    out.push(p.partition_store_file());
     #[cfg(not(feature = "suderra-os"))]
     {
         out.push(p.rbac_manifest_persist_file());

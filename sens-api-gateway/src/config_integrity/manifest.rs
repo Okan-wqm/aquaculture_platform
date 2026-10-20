@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use super::error::ConfigMetaCanonicalBytesError;
 use crate::authz::permission::DeviceId;
 use crate::authz::policy::Ed25519SignatureBytes;
-use crate::updater::manifest::Sha256Digest;
+use crate::digest::Sha256Digest;
 
 /// Bound on release_tag — 256 chars accommodates semver + build metadata
 /// (`"v2.0.0-rc3+build.456"`) without unbounded growth.

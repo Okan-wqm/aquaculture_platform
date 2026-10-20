@@ -103,19 +103,28 @@ fn rejected(reason: Reason) -> HandoffError {
 }
 
 /// The envelope of `statement` if it is within root's size limit, a
-/// well-formed DSSE envelope and of payloadType `expected`.
-fn envelope_of(statement: &[u8], expected: StatementType) -> Result<Envelope, HandoffError> {
+/// well-formed DSSE envelope and of one of the payloadTypes of `expected`.
+pub(super) fn envelope_of(
+    statement: &[u8],
+    expected: &[StatementType],
+) -> Result<Envelope, HandoffError> {
     if statement.len() > MAX_HANDOFF_BYTES {
         return Err(HandoffError::TooLarge(statement.len()));
     }
     let env = Envelope::parse(statement).map_err(rejected)?;
-    if env.payload_type != expected.payload_type() {
+    if !expected.iter().any(|t| env.payload_type == t.payload_type()) {
         return Err(rejected(Reason::PayloadTypeMismatch));
     }
     Ok(env)
 }
 
-fn write_for_root(target: &Path, statement: &[u8], digest: String) -> Result<Handed, HandoffError> {
+/// Writes `statement` verbatim and owner-only to `target` (temporary name in
+/// the same directory, then rename).
+pub(super) fn write_for_root(
+    target: &Path,
+    statement: &[u8],
+    digest: String,
+) -> Result<Handed, HandoffError> {
     write_atomic_bytes_owner_only(target, statement).map_err(|e| HandoffError::Write {
         path: target.to_path_buf(),
         reason: e.to_string(),
@@ -134,7 +143,7 @@ pub(crate) fn hand_over_activation_receipt(
     target: &Path,
     now: &str,
 ) -> Result<Handed, HandoffError> {
-    let env = envelope_of(statement, StatementType::EdgeActivationReceipt)?;
+    let env = envelope_of(statement, &[StatementType::EdgeActivationReceipt])?;
     let no_gates = BTreeMap::new();
     let receipt = verify_receipt(&env, &trust.scope(&no_gates, now))
         .accepted()
@@ -148,7 +157,7 @@ pub(crate) fn hand_over_lifecycle_request(
     statement: &[u8],
     target: &Path,
 ) -> Result<Handed, HandoffError> {
-    let env = envelope_of(statement, StatementType::DeviceLifecycle)?;
+    let env = envelope_of(statement, &[StatementType::DeviceLifecycle])?;
     write_for_root(target, statement, env.statement_digest())
 }
 

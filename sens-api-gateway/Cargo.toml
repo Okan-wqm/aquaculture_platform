@@ -437,7 +437,20 @@ default = ["health"]
 #       drop-in must not be able to move the agent's paths (DEC-4.5, DEC-19).
 # INVARIANT: tests/invariants/no_etc_write_paths.rs,
 #            tests/invariants/no_security_env_in_suderra_os.rs
-suderra-os = []
+suderra-os = ["os-managed-updates"]
+# ADR-048 DEC-2: the OS owns every update. RAUC/suderra-ota updates the OS
+# image and the root installer updates the agent binary; the agent writes no
+# binary, boot config or bootloader flag and manages no service.
+# WHAT: src/updater/ (A/B partition store, tryboot autoboot.txt writer,
+#       cold-boot watchdog), the apply_signed_manifest / confirm_slot /
+#       verify_signed_manifest commands, the confirm-active HTTP endpoint and
+#       CLI, and the reboot / restart_agent commands are not compiled; an
+#       update reaches root only through the narrow request channel
+#       (src/commands/request_update.rs).
+# WHY:  two A/B selectors on one boot partition can brick a device, and an
+#       unprivileged agent cannot reboot or restart services anyway.
+# INVARIANT: tests/invariants/os_managed_updates_no_updater.rs
+os-managed-updates = []
 gpio = ["rppal"]
 # HTTP health check endpoint (uses axum)
 health = ["axum"]
@@ -1019,6 +1032,12 @@ path = "tests/invariants/tpi_commands_rejected_without_co_approver.rs"
 [[test]]
 name = "mtls_ca_anchored"
 path = "tests/invariants/mtls_ca_anchored.rs"
+
+# ADR-048 DEC-2 — no agent updater, tryboot, slot confirmation or service
+# control when the OS manages updates; checked on the built binary.
+[[test]]
+name = "os_managed_updates_no_updater"
+path = "tests/invariants/os_managed_updates_no_updater.rs"
 
 # =============================================================================
 # RUST-CVE-001: rumqttc 0.25.1 vendored fork (../crates/local-rumqttc)

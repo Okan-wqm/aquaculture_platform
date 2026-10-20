@@ -20,7 +20,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::super::updater::manifest::Sha256Digest;
+use crate::digest::Sha256Digest;
 
 /// SHA-256 fingerprint of a leaf cert's DER bytes. Newtype wraps
 /// `Sha256Digest` for call-site grepability — a `LeafCertFingerprint`

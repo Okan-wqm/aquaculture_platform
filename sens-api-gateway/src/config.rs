@@ -2179,6 +2179,46 @@ pub struct FirmwareUpdateConfig {
     pub ab_partitions: AbPartitionMountConfig,
 }
 
+impl FirmwareUpdateConfig {
+    /// ADR-048 DEC-2: with `os-managed-updates` the agent's A/B updater,
+    /// tryboot handle and slot mounts are not compiled, so a configured
+    /// bootloader backend, autoboot path or slot mount would be a setting
+    /// nothing reads. It is refused at load instead of silently ignored.
+    #[cfg(feature = "os-managed-updates")]
+    pub fn refuse_agent_updater_settings(&self) -> Result<()> {
+        let set = [
+            (
+                "bootloader_backend",
+                !matches!(self.bootloader_backend, BootloaderBackend::Noop),
+            ),
+            ("tryboot_autoboot_path", self.tryboot_autoboot_path.is_some()),
+            (
+                "ab_partitions.slot_a_mount",
+                self.ab_partitions.slot_a_mount.is_some(),
+            ),
+            (
+                "ab_partitions.slot_b_mount",
+                self.ab_partitions.slot_b_mount.is_some(),
+            ),
+        ];
+        let named: Vec<&str> = set
+            .iter()
+            .filter(|(_, on)| *on)
+            .map(|(name, _)| *name)
+            .collect();
+        if named.is_empty() {
+            Ok(())
+        } else {
+            anyhow::bail!(
+                "Config coherence: firmware_update.{} configures the agent's own A/B \
+                 updater, which this profile does not have: the OS manages updates \
+                 (ADR-048 DEC-2)",
+                named.join(", firmware_update.")
+            )
+        }
+    }
+}
+
 impl Default for FirmwareUpdateConfig {
     fn default() -> Self {
         Self {
@@ -4447,6 +4487,11 @@ impl AgentConfig {
             }
         }
 
+        // ADR-048 DEC-2: when the OS manages updates the agent has no
+        // A/B updater and no bootloader handle to configure.
+        #[cfg(feature = "os-managed-updates")]
+        self.firmware_update.refuse_agent_updater_settings()?;
+
         // Rule 24 (Batch 137): mtls.mode=Strict REQUIRES at
         // least one pinned leaf fingerprint. Plan §3 R-6 +
         // ADR-021 §10: Strict mode is "reject handshake on
@@ -5058,6 +5103,37 @@ mode: disabled
     }
 
     // ========================================================================
+    #[cfg(feature = "os-managed-updates")]
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn the_os_managed_profile_refuses_agent_updater_settings() {
+        assert!(
+            FirmwareUpdateConfig::default()
+                .refuse_agent_updater_settings()
+                .is_ok()
+        );
+        let tryboot: FirmwareUpdateConfig =
+            serde_yaml::from_str("bootloader_backend: tryboot").expect("yaml");
+        let autoboot: FirmwareUpdateConfig =
+            serde_yaml::from_str("tryboot_autoboot_path: /boot/firmware/autoboot.txt")
+                .expect("yaml");
+        let mounts: FirmwareUpdateConfig = serde_yaml::from_str(
+            "ab_partitions:\n  slot_a_mount: /mnt/a\n  slot_b_mount: /mnt/b",
+        )
+        .expect("yaml");
+        for (config, field) in [
+            (tryboot, "firmware_update.bootloader_backend"),
+            (autoboot, "firmware_update.tryboot_autoboot_path"),
+            (mounts, "firmware_update.ab_partitions.slot_b_mount"),
+        ] {
+            let err = config
+                .refuse_agent_updater_settings()
+                .expect_err(field)
+                .to_string();
+            assert!(err.contains(field) && err.contains("ADR-048 DEC-2"), "{err}");
+        }
+    }
+
     // BootloaderBackend tests (Batch 128 Sprint 6.5)
     // ========================================================================
 

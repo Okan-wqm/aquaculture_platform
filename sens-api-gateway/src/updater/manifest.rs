@@ -77,32 +77,10 @@ impl TargetArch {
     }
 }
 
-/// SHA-256 digest — 32 bytes wrapped in a newtype for type-level
-/// discipline (same pattern as `CmdHash` in Batch 7). `#[serde(transparent)]`
-/// preserves JSON array shape.
-///
-/// **Domain separation (EDGE-LOW-003 documentation closure):** this type is
-/// DELIBERATELY distinct from the other 32-byte wrappers in the codebase:
-/// [`crate::audit::PrevHmac`] / [`crate::audit::CurrentHmac`] (audit-log
-/// HMAC chain outputs) and [`crate::command_envelope::CmdHash`] (SHA-256
-/// of command-envelope canonical params). Collapsing them into a shared
-/// `Digest32` would collapse the tier-1 make-it-impossible guarantee that
-/// a consumer cannot accidentally pass an audit HMAC where a firmware
-/// digest is expected, or vice versa. Each wrapper carries its domain in
-/// the TYPE, not just the value.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct Sha256Digest([u8; 32]);
-
-impl Sha256Digest {
-    pub fn from_bytes(bytes: [u8; 32]) -> Self {
-        Self(bytes)
-    }
-
-    pub fn as_bytes(&self) -> &[u8; 32] {
-        &self.0
-    }
-}
+/// The file digest type, shared with config integrity and certificate
+/// pinning (`crate::digest`), which are compiled in every profile while this
+/// module is not (ADR-048 DEC-2).
+pub use crate::digest::Sha256Digest;
 
 /// File digest + size + mode triple — the per-file contract.
 ///
@@ -517,15 +495,6 @@ mod tests {
             serde_json::to_string(&TargetArch::Aarch64UnknownLinuxGnu).expect("ok"),
             r#""aarch64_unknown_linux_gnu""#
         );
-    }
-
-    #[test]
-    fn sha256_digest_serde_transparent() {
-        let d = Sha256Digest::from_bytes([0xabu8; 32]);
-        let json = serde_json::to_string(&d).expect("ok");
-        assert!(json.starts_with("[171,171,171"));
-        let back: Sha256Digest = serde_json::from_str(&json).expect("ok");
-        assert_eq!(back, d);
     }
 
     #[test]

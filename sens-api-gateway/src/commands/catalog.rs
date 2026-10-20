@@ -241,6 +241,20 @@ pub(crate) const COMMAND_CATALOG: &[CommandCatalogEntry] = &[
         AuditAction::CommandExecuted,
         AuditAction::CommandRejected
     ),
+    // ADR-048 DEC-2.3: the agent's only update path on Suderra OS hands a
+    // cloud-signed update statement to root's request worker, which trusts
+    // no agent decision and verifies it against the OS-pinned keys and
+    // floors (DEC-2.4). Anonymous for the same reason as the two above.
+    #[cfg(feature = "suderra-os")]
+    entry!(
+        "request_update",
+        "cmd_request_update",
+        PermissionResolver::Anonymous,
+        LegacyPolicy::AllowUnsignedInEnforcing,
+        false,
+        AuditAction::FirmwareDeployRequested,
+        AuditAction::CommandRejected
+    ),
     entry!(
         "get_config",
         "cmd_get_config",
@@ -644,6 +658,7 @@ pub(crate) const COMMAND_CATALOG: &[CommandCatalogEntry] = &[
         AuditAction::ProgramDeployRollback,
         AuditAction::CommandRejected
     ),
+    #[cfg(not(feature = "os-managed-updates"))]
     entry!(
         "reboot",
         "cmd_reboot",
@@ -653,12 +668,33 @@ pub(crate) const COMMAND_CATALOG: &[CommandCatalogEntry] = &[
         AuditAction::CommandExecuted,
         AuditAction::CommandRejected
     ),
+    // ADR-048 DEC-2: when the OS manages updates the agent neither reboots,
+    // restarts its service nor runs its own A/B updater; these names stay
+    // cataloged as denied so a probe keeps its permission class and audit
+    // taxonomy.
+    #[cfg(feature = "os-managed-updates")]
+    entry!(
+        "reboot",
+        denied,
+        PermissionResolver::Static(StaticPermission::Reboot),
+        AuditAction::CommandExecuted,
+        AuditAction::CommandRejected
+    ),
+    #[cfg(not(feature = "os-managed-updates"))]
     entry!(
         "restart_agent",
         "cmd_restart_agent",
         PermissionResolver::Static(StaticPermission::Reboot),
         LegacyPolicy::DenyUnsignedInEnforcing,
         false,
+        AuditAction::CommandExecuted,
+        AuditAction::CommandRejected
+    ),
+    #[cfg(feature = "os-managed-updates")]
+    entry!(
+        "restart_agent",
+        denied,
+        PermissionResolver::Static(StaticPermission::Reboot),
         AuditAction::CommandExecuted,
         AuditAction::CommandRejected
     ),
@@ -674,6 +710,7 @@ pub(crate) const COMMAND_CATALOG: &[CommandCatalogEntry] = &[
         AuditAction::FirmwareDeployApplied,
         AuditAction::FirmwareDeployRequested
     ),
+    #[cfg(not(feature = "os-managed-updates"))]
     entry!(
         "confirm_slot",
         "cmd_confirm_slot",
@@ -683,6 +720,15 @@ pub(crate) const COMMAND_CATALOG: &[CommandCatalogEntry] = &[
         AuditAction::FirmwareDeployApplied,
         AuditAction::FirmwareDeployRequested
     ),
+    #[cfg(feature = "os-managed-updates")]
+    entry!(
+        "confirm_slot",
+        denied,
+        PermissionResolver::Static(StaticPermission::UpdateFirmware),
+        AuditAction::FirmwareDeployApplied,
+        AuditAction::FirmwareDeployRequested
+    ),
+    #[cfg(not(feature = "os-managed-updates"))]
     entry!(
         "verify_signed_manifest",
         "cmd_verify_signed_manifest",
@@ -692,12 +738,29 @@ pub(crate) const COMMAND_CATALOG: &[CommandCatalogEntry] = &[
         AuditAction::FirmwareDeployRequested,
         AuditAction::FirmwareDeployRequested
     ),
+    #[cfg(feature = "os-managed-updates")]
+    entry!(
+        "verify_signed_manifest",
+        denied,
+        PermissionResolver::Static(StaticPermission::UpdateFirmware),
+        AuditAction::FirmwareDeployRequested,
+        AuditAction::FirmwareDeployRequested
+    ),
+    #[cfg(not(feature = "os-managed-updates"))]
     entry!(
         "apply_signed_manifest",
         "cmd_apply_signed_manifest",
         PermissionResolver::Static(StaticPermission::UpdateFirmware),
         LegacyPolicy::DenyUnsignedInEnforcing,
         false,
+        AuditAction::FirmwareDeployApplied,
+        AuditAction::FirmwareDeployRequested
+    ),
+    #[cfg(feature = "os-managed-updates")]
+    entry!(
+        "apply_signed_manifest",
+        denied,
+        PermissionResolver::Static(StaticPermission::UpdateFirmware),
         AuditAction::FirmwareDeployApplied,
         AuditAction::FirmwareDeployRequested
     ),
@@ -1085,6 +1148,32 @@ mod tests {
         assert!(entry.handler_name.is_none());
         assert_eq!(entry.legacy_policy, LegacyPolicy::DenyAlways);
         assert!(entry.is_mutating());
+    }
+
+    #[test]
+    fn commands_of_an_updater_the_profile_lacks_are_denied() {
+        // ADR-048 DEC-28: the legacy tarball OTA is gone everywhere.
+        // DEC-2: with os-managed-updates the agent neither reboots,
+        // restarts its service nor runs its own A/B updater.
+        let always = ["update_firmware"];
+        let os_managed = [
+            "reboot",
+            "restart_agent",
+            "confirm_slot",
+            "verify_signed_manifest",
+            "apply_signed_manifest",
+        ];
+        for cmd in always.iter().chain(os_managed.iter()) {
+            let entry = entry_for_command(cmd).unwrap_or_else(|| panic!("{cmd} missing"));
+            let denied = always.contains(cmd) || cfg!(feature = "os-managed-updates");
+            assert_eq!(entry.handler_name.is_none(), denied, "{cmd}");
+            assert_eq!(
+                entry.legacy_policy == LegacyPolicy::DenyAlways,
+                denied,
+                "{cmd}"
+            );
+            assert!(entry.is_mutating(), "{cmd} keeps its permission class");
+        }
     }
 
     #[test]

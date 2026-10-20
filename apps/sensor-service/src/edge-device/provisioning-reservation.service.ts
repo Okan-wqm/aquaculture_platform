@@ -53,6 +53,16 @@ const TERMINAL_STATES = [DeviceLifecycleState.REVOKED, DeviceLifecycleState.DECO
 /** The least time between two deliveries of the same pending statement. */
 export const HANDOFF_REDELIVERY_INTERVAL_MS = 2 * 60 * 1000;
 
+/**
+ * The oldest token a Suderra OS manifest is issued under (ADR-048 DEC-5.12:
+ * the manifest-issuing token's life drops from a day to hours). Binding is
+ * first-come — whoever presents the token first binds the manifest — so the
+ * window in which a leaked token can bind someone else's hardware is short.
+ * The generic channel keeps PROVISIONING_TOKEN_TTL_HOURS; a token issued for
+ * a Suderra OS re-provisioning already expires with its 2 h window.
+ */
+export const SUDERRA_OS_TOKEN_MAX_AGE_MS = 4 * 60 * 60 * 1000;
+
 export function hashProvisioningToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
@@ -183,6 +193,7 @@ export class ProvisioningReservationService {
           method: binding.method,
           digest: binding.digest.sha256,
           now: issuedAt,
+          oldestToken: new Date(issuedAt.getTime() - SUDERRA_OS_TOKEN_MAX_AGE_MS),
           expiresAt,
           terminal: TERMINAL_STATES,
         };
@@ -199,6 +210,9 @@ export class ProvisioningReservationService {
           .where('id = :id AND tenant_id = :tenantId', params)
           .andWhere('provisioning_token = :tokenHash AND token_used_at IS NULL')
           .andWhere('token_expires_at > :now AND lifecycle_state NOT IN (:...terminal)')
+          // DEC-5.12: only a young token issues a manifest; a token whose
+          // issue instant was never recorded issues none.
+          .andWhere('token_issued_at > :oldestToken')
           // The device's committed hardware identity, once it has one, is final.
           .andWhere(
             '(device_binding_sha256 IS NULL OR (device_binding_method = :method AND device_binding_sha256 = :digest))',

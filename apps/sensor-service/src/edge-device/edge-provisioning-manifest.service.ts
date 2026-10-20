@@ -16,6 +16,7 @@ import {
   STATEMENT,
 } from './edge-contract';
 import { boardRow } from './edge-boards';
+import { type EdgeDevice, suderraOsBoardOf } from './entities/edge-device.entity';
 import {
   abiSupported,
   type AdmittedRelease,
@@ -274,16 +275,28 @@ export class EdgeProvisioningManifestService {
 
   /**
    * Checks what can be decided before a reservation is taken: the board is
-   * provisionable, a release for it exists and the device's OS can run it,
-   * and the bundle serves the tenant. Refusing here keeps a reservation from
-   * binding a device the cloud cannot serve.
+   * provisionable, it is the board the device is registered as (boards.json
+   * `cloud_device_models`, DEC-8.4) and the request binds the way that board
+   * binds, a release for it exists and the device's OS can run it, and the
+   * bundle serves the tenant. Refusing here keeps a reservation from binding
+   * a device the cloud cannot serve.
    */
-  async preflight(request: ProvisioningRequest, tenantId: string): Promise<AdmittedRelease> {
+  async preflight(
+    request: ProvisioningRequest,
+    device: Pick<EdgeDevice, 'tenantId' | 'deviceModel'>,
+  ): Promise<AdmittedRelease> {
     if (!this.config.enabled) throw new ProvisioningRefusal('channel-unconfigured');
     const board = boardRow(request.boardProfile);
     if (board === null || !board.cloudProvisioningAllowed) {
       throw new ProvisioningRefusal('board-not-provisionable');
     }
+    if (
+      suderraOsBoardOf(device.deviceModel) !== board.boardProfile ||
+      request.binding.method !== board.deviceBindingMethod
+    ) {
+      throw new ProvisioningRefusal('board-mismatch');
+    }
+    const tenantId = device.tenantId;
     let release: AdmittedRelease;
     try {
       release = await this.releases.forBoard(board);

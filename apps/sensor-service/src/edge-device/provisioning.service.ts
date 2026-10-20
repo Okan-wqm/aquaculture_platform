@@ -61,6 +61,7 @@ import {
   hashProvisioningToken,
   ProvisioningReservationService,
   type ReprovisioningRefusal,
+  SUDERRA_OS_TOKEN_MAX_AGE_MS,
 } from './provisioning-reservation.service';
 
 /** How long a Suderra OS device stays in MAINTENANCE for re-provisioning (DEC-5.14). */
@@ -382,7 +383,12 @@ export class ProvisioningService {
     const now = new Date();
     const phase = provisioningPhaseOf(device, now);
     if (phase === ProvisioningPhase.COMMITTED) throw new ProvisioningRefusal('token-spent');
-    if (device.tokenExpiresAt && device.tokenExpiresAt <= now) {
+    if (
+      (device.tokenExpiresAt && device.tokenExpiresAt <= now) ||
+      device.tokenIssuedAt === null ||
+      device.tokenIssuedAt.getTime() <= now.getTime() - SUDERRA_OS_TOKEN_MAX_AGE_MS
+    ) {
+      // DEC-5.12: a Suderra OS manifest needs a token hours old at most.
       throw new ProvisioningRefusal('token-expired');
     }
     if (
@@ -393,7 +399,7 @@ export class ProvisioningService {
       throw new ProvisioningRefusal('binding-differs-from-device');
     }
 
-    const release = await this.suderraOsManifests.preflight(request, device.tenantId);
+    const release = await this.suderraOsManifests.preflight(request, device);
     const body = await this.reservations.reserve(
       device,
       token,

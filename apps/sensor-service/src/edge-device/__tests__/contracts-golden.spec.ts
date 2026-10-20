@@ -50,7 +50,7 @@ import {
   buildEnterMaintenance,
   DeviceLifecycleStatementService,
 } from '../device-lifecycle-statement.service';
-import { boardRow } from '../edge-boards';
+import { type BoardRow, boardRow } from '../edge-boards';
 import {
   BINDING_METHODS,
   canonicalJsonBytes,
@@ -69,9 +69,12 @@ import {
   buildProvisioningManifest,
   EdgeProvisioningManifestService,
   parseProvisioningRequest,
+  type ProvisioningRequest,
+  ProvisioningRefusal,
   serializeDelivery,
 } from '../edge-provisioning-manifest.service';
 import { EdgeReleaseCatalog } from '../edge-release-catalog.service';
+import { DeviceModel, suderraOsBoardOf } from '../entities/edge-device.entity';
 import { Ed25519SigningKey, ManifestSigner, StatementAdmissionError } from '../manifest-signer';
 import {
   buildRbacManifest,
@@ -422,6 +425,7 @@ describe('contracts golden — what the services issue verifies on the device', 
   const binding = parseBinding(factory['device_binding']);
   const tenantId = field(bodyOf(PROV_FIRST), 'tenant_id');
   const deviceId = field(bodyOf(PROV_FIRST), 'device_id');
+  const revpiDevice = { tenantId, deviceModel: DeviceModel.REVOLUTION_PI_CONNECT_4 };
   const window = {
     notBefore: new Date('2026-10-20T11:00:00Z'),
     expiresAt: new Date('2026-10-20T13:00:00Z'),
@@ -444,7 +448,7 @@ describe('contracts golden — what the services issue verifies on the device', 
     const request = parseProvisioningRequest(readJson(join(FIXTURES, REQUEST_FIRST)));
     if (request === null) throw new Error('request');
     const nonce = 'f0'.repeat(24);
-    const release = await manifests.preflight({ ...request, nonce }, tenantId);
+    const release = await manifests.preflight({ ...request, nonce }, revpiDevice);
     const issued = manifests.issue(
       {
         tenantId,
@@ -475,8 +479,25 @@ describe('contracts golden — what the services issue verifies on the device', 
     const yaml = Buffer.from(asString(files['config.yaml'], 'config.yaml'), 'base64').toString(
       'utf8',
     );
-    expect(yaml).toContain('  port: 8883\n');
-    expect(yaml).toContain('    enabled: true\n');
+    // The whole document: the agent's identity, endpoints and the token it
+    // presents once; the broker is the 8883 TLS endpoint and nothing else.
+    expect(yaml).toBe(
+      [
+        '# Suderra edge agent configuration, delivered in a signed site config (ADR-048 DEC-4.12).',
+        `device_id: "${deviceId}"`,
+        'device_code: "RPI-7E57C0DE"',
+        `tenant_id: "${tenantId}"`,
+        'api_url: "https://api.example.com"',
+        `provisioning_token: "${'ab'.repeat(32)}"`,
+        'mqtt:',
+        '  broker: "mqtt-devices.example.com"',
+        '  port: 8883',
+        '  tls:',
+        '    enabled: true',
+        '    verify_hostname: true',
+        '',
+      ].join('\n'),
+    );
   });
 
   it('a manifest for another device binding is refused by the device', async () => {
@@ -484,7 +505,7 @@ describe('contracts golden — what the services issue verifies on the device', 
     const request = parseProvisioningRequest(readJson(join(FIXTURES, REQUEST_FIRST)));
     if (request === null) throw new Error('request');
     const nonce = 'f2'.repeat(24);
-    const release = await manifests.preflight(request, tenantId);
+    const release = await manifests.preflight(request, revpiDevice);
     const issued = manifests.issue(
       {
         tenantId,
@@ -692,5 +713,188 @@ describe('contracts golden — what the cloud forwards but does not sign', () =>
     expect(() => loadSuderraEdgeSettings((name) => fractional[name])).toThrow(
       SuderraEdgeConfigError,
     );
+  });
+});
+
+// ------------------------------------------------------------- refusals
+
+/** The envelope with its signature's S replaced by S + L: same point, non-canonical S. */
+function withMalleableS(text: string): string {
+  const envelope = JSON.parse(text) as DsseEnvelope;
+  const [signature] = envelope.signatures;
+  const sig = Buffer.from(signature.sig, 'base64');
+  let s = 0n;
+  for (const byte of [...sig.subarray(32, 64)].reverse()) s = (s << 8n) | BigInt(byte);
+  let lifted = s + 2n ** 252n + 27742317777372353535851937790883648493n;
+  for (let i = 32; i < 64; i += 1) {
+    sig[i] = Number(lifted & 0xffn);
+    lifted >>= 8n;
+  }
+  return JSON.stringify({
+    ...envelope,
+    signatures: [{ keyid: signature.keyid, sig: sig.toString('base64') }],
+  });
+}
+
+describe('contracts golden — what the cloud refuses to forward or issue', () => {
+  const tenantId = field(bodyOf(PROV_FIRST), 'tenant_id');
+  const revpiDevice = { tenantId, deviceModel: DeviceModel.REVOLUTION_PI_CONNECT_4 };
+  const requestOf = (overrides: Record<string, string>): ProvisioningRequest => {
+    const request = parseProvisioningRequest({
+      ...(readJson(join(FIXTURES, REQUEST_FIRST)) as Record<string, string>),
+      ...overrides,
+    });
+    if (request === null) throw new Error('request');
+    return request;
+  };
+  const refusalOf = async (promise: Promise<unknown>): Promise<string> => {
+    try {
+      await promise;
+    } catch (error) {
+      if (error instanceof ProvisioningRefusal) return error.reason;
+      throw error;
+    }
+    throw new Error('expected a refusal');
+  };
+  const catalogServing = (text: string): EdgeReleaseCatalog => {
+    const config = new SuderraEdgeConfig(new ConfigService(channelEnv()));
+    return new EdgeReleaseCatalog(config, new TrustAnchorBundleService(config), async () => text);
+  };
+  const revpi = (): BoardRow => {
+    const board = boardRow('revpi-connect4');
+    if (board === null) throw new Error('board');
+    return board;
+  };
+
+  it('refuses a trust-anchors bundle whose fleet-root signature does not verify, or whose S is not canonical', () => {
+    expect(() =>
+      services(
+        channelEnv({
+          SUDERRA_EDGE_TRUST_ANCHORS: fixtureText('trust-anchors/invalid/bad-signature.dsse.json'),
+        }),
+      ),
+    ).toThrow(/signature does not verify/);
+    expect(() =>
+      services(channelEnv({ SUDERRA_EDGE_TRUST_ANCHORS: withMalleableS(fixtureText(TA1)) })),
+    ).toThrow(/malleable \(S >= L\)/);
+  });
+
+  it('refuses a release statement whose signature does not verify, or whose S is not canonical', async () => {
+    await expect(
+      catalogServing(fixtureText('edge-release/invalid/bad-signature.dsse.json')).forBoard(revpi()),
+    ).rejects.toThrow(/signature does not verify/);
+    await expect(
+      catalogServing(withMalleableS(fixtureText(REL_160))).forBoard(revpi()),
+    ).rejects.toThrow(/malleable \(S >= L\)/);
+  });
+
+  it('refuses a validly signed release for another board or another version', async () => {
+    await expect(
+      catalogServing(fixtureText('edge-release/valid/rpi4-cm4-aarch64-1.6.0.dsse.json')).forBoard(
+        revpi(),
+      ),
+    ).rejects.toThrow(/does not describe this board, version and name/);
+    await expect(
+      catalogServing(
+        fixtureText('edge-release/valid/revpi-connect4-aarch64-1.4.0.dsse.json'),
+      ).forBoard(revpi()),
+    ).rejects.toThrow(/does not describe this board, version and name/);
+  });
+
+  it('refuses the boards whose cloud gate is closed: rpi4-cm4 (EDGE-MEDIUM-120) and the CI-only qemu-x86_64', async () => {
+    const { manifests } = services();
+    expect(
+      await refusalOf(
+        manifests.preflight(
+          requestOf({ board_profile: 'rpi4-cm4', binding_method: 'bcm2711-serial-otp-sha256' }),
+          { tenantId, deviceModel: DeviceModel.RASPBERRY_PI_4 },
+        ),
+      ),
+    ).toBe('board-not-provisionable');
+    expect(
+      await refusalOf(
+        manifests.preflight(requestOf({ board_profile: 'qemu-x86_64' }), revpiDevice),
+      ),
+    ).toBe('board-not-provisionable');
+  });
+
+  it('refuses a board the device is not registered as, or a binding method the board does not use', async () => {
+    const { manifests } = services();
+    for (const deviceModel of [
+      DeviceModel.RASPBERRY_PI_4,
+      DeviceModel.REVOLUTION_PI_COMPACT,
+      DeviceModel.INDUSTRIAL_PC,
+      DeviceModel.CUSTOM,
+    ]) {
+      expect(await refusalOf(manifests.preflight(requestOf({}), { tenantId, deviceModel }))).toBe(
+        'board-mismatch',
+      );
+    }
+    for (const binding_method of ['dmi-product-uuid-sha256', 'bcm2711-serial-otp-sha256']) {
+      expect(await refusalOf(manifests.preflight(requestOf({ binding_method }), revpiDevice))).toBe(
+        'board-mismatch',
+      );
+    }
+  });
+
+  it('refuses an OS older than the release needs, or an agent ABI range the release is outside', async () => {
+    const { manifests } = services();
+    expect(
+      await refusalOf(manifests.preflight(requestOf({ os_version: '0.9.9' }), revpiDevice)),
+    ).toBe('release-incompatible');
+    expect(await refusalOf(manifests.preflight(requestOf({ agent_abi: '2-3' }), revpiDevice))).toBe(
+      'release-incompatible',
+    );
+    await expect(
+      manifests.preflight(requestOf({ os_version: '1.0.0', agent_abi: '0-1' }), revpiDevice),
+    ).resolves.toMatchObject({ version: '1.6.0' });
+  });
+
+  it('a release the catalog cannot admit is release-unavailable, before any reservation', async () => {
+    const config = new SuderraEdgeConfig(new ConfigService(channelEnv()));
+    const bundles = new TrustAnchorBundleService(config);
+    const manifests = new EdgeProvisioningManifestService(
+      config,
+      new EdgeReleaseCatalog(config, bundles, async () =>
+        fixtureText('edge-release/valid/rpi4-cm4-aarch64-1.6.0.dsse.json'),
+      ),
+      bundles,
+      new RbacManifestService(config),
+      new SiteConfigManifestService(config),
+    );
+    expect(await refusalOf(manifests.preflight(requestOf({}), revpiDevice))).toBe(
+      'release-unavailable',
+    );
+  });
+});
+
+describe('the DeviceModel to board mapping is boards.json (ADR-048 DEC-8.4)', () => {
+  it('maps every DeviceModel exactly as boards.json does, and leaves the rest on the generic channel', () => {
+    const boards = readJson(join(FIXTURES, '..', 'boards.json')) as JsonObject;
+    const mapped = new Map<string, string>();
+    for (const row of objects(boards['boards'], 'boards')) {
+      for (const model of row['cloud_device_models'] as string[]) {
+        mapped.set(model, field(row, 'board_profile'));
+      }
+    }
+    const unmapped = new Set(
+      objects(boards['unmapped_device_models'], 'unmapped_device_models').map((row) =>
+        field(row, 'device_model'),
+      ),
+    );
+    const pending = new Set(
+      objects(boards['pending_board_families'], 'pending_board_families').flatMap(
+        (row) => row['cloud_device_models'] as string[],
+      ),
+    );
+    for (const model of Object.values(DeviceModel)) {
+      // Every model is accounted for by the contract, exactly once.
+      expect([mapped.has(model), unmapped.has(model), pending.has(model)].filter(Boolean)).toEqual([
+        true,
+      ]);
+      expect(suderraOsBoardOf(model)).toBe(mapped.get(model) ?? null);
+    }
+    expect(suderraOsBoardOf(DeviceModel.REVOLUTION_PI_CONNECT_4)).toBe('revpi-connect4');
+    expect(suderraOsBoardOf(DeviceModel.INDUSTRIAL_PC)).toBeNull();
   });
 });

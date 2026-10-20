@@ -11,7 +11,8 @@ import {
   Index,
 } from 'typeorm';
 import { Auditable } from '../../infrastructure/audit';
-import { BINDING_METHODS, type BindingMethod } from '../edge-contract';
+import { boardForDeviceModel } from '../edge-boards';
+import { BINDING_METHODS, type BindingMethod, type BoardProfile } from '../edge-contract';
 
 /**
  * Device lifecycle state enum (IEC 62443 compliant)
@@ -108,6 +109,19 @@ registerEnumType(DeviceModel, {
   name: 'DeviceModel',
   description: 'Hardware model of the edge device',
 });
+
+/**
+ * The Suderra OS board a hardware model is provisioned as (ADR-048 DEC-8.4):
+ * derived from boards.json `cloud_device_models`, the one board vocabulary,
+ * never kept here as a second copy. Null for a model the contract leaves on
+ * the generic-Linux channel (`unmapped_device_models`) or maps only to a
+ * pending board family (industrial_pc, SG-3): the cloud issues no Suderra OS
+ * manifest for it.
+ */
+export function suderraOsBoardOf(model: DeviceModel): BoardProfile | null {
+  const board = boardForDeviceModel(model);
+  return board === null ? null : board.boardProfile;
+}
 
 /**
  * The release channel the device's agent runs on (ADR-048 DEC-1, DEC-28).

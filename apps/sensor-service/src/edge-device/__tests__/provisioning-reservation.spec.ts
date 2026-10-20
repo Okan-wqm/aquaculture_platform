@@ -34,9 +34,10 @@ import {
 import type { InstallerScriptService, ProvisioningConfig } from '../installer-script.service';
 import type { MqttAuthService } from '../mqtt-auth.service';
 import { PROVISIONING_REFUSAL_BODY, ProvisioningController } from '../provisioning.controller';
-import type {
-  ProvisioningReservationService,
-  Reservation,
+import {
+  type ProvisioningReservationService,
+  type Reservation,
+  SUDERRA_OS_TOKEN_MAX_AGE_MS,
 } from '../provisioning-reservation.service';
 import { ProvisioningService } from '../provisioning.service';
 import type { TenantKeyService } from '../tenant-key.service';
@@ -60,6 +61,7 @@ function device(overrides: Partial<EdgeDevice> = {}): EdgeDevice {
     deviceCode: 'RPI-0E0E0E0E',
     lifecycleState: DeviceLifecycleState.REGISTERED,
     provisioningToken: createHash('sha256').update(TOKEN).digest('hex'),
+    tokenIssuedAt: new Date(Date.now() - 60_000),
     tokenExpiresAt: new Date(Date.now() + 3_600_000),
     tokenUsedAt: null,
     credentialsIssuedAt: null,
@@ -185,6 +187,14 @@ describe('Suderra OS provisioning delivery (ADR-048 DEC-5.5–5.7)', () => {
       expect.any(Date),
       expect.any(Function),
     );
+    // The board is judged against the model the device is registered as.
+    expect(h.preflight).toHaveBeenCalledWith(
+      expect.objectContaining({ boardProfile: 'revpi-connect4', nonce: QUERY.nonce }),
+      expect.objectContaining({
+        tenantId: TENANT,
+        deviceModel: DeviceModel.REVOLUTION_PI_CONNECT_4,
+      }),
+    );
     expect(h.issue).toHaveBeenCalledWith(
       expect.objectContaining({ manifestSeq: 7, siteConfigSeq: 8, provisioningToken: TOKEN }),
       RELEASE,
@@ -217,6 +227,21 @@ describe('Suderra OS provisioning delivery (ADR-048 DEC-5.5–5.7)', () => {
     [
       'an expired token',
       { tokenExpiresAt: new Date(Date.now() - 1000) },
+      QUERY,
+      TOKEN,
+      'token-expired',
+    ],
+    [
+      // DEC-5.12: a Suderra OS manifest needs a token hours old at most.
+      'a token older than the Suderra OS limit',
+      { tokenIssuedAt: new Date(Date.now() - SUDERRA_OS_TOKEN_MAX_AGE_MS - 1000) },
+      QUERY,
+      TOKEN,
+      'token-expired',
+    ],
+    [
+      'a token whose issue instant was never recorded',
+      { tokenIssuedAt: null },
       QUERY,
       TOKEN,
       'token-expired',

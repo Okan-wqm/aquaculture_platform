@@ -172,6 +172,12 @@ jobs:
           # aria-auto-cycle.yml carries the full account.
           fetch-depth: 0
       - uses: ./.github/actions/setup-aria-kernel
+      # ARIA-HIGH-602 (S3) — trace every file this job's Python reads; the
+      # last step fails the job on a tracked read outside the kernel surface.
+      # The trace dir sits under $RUNNER_TEMP, outside the checkout, so the
+      # clean-worktree check below is unaffected.
+      - name: Install the kernel read tracer
+        run: python3 scripts/ci/aria_read_trace.py install --trace-dir "$RUNNER_TEMP/aria-reads"
       # ARIA-MEDIUM-134 — the suite proves the REAL sandbox: the managed
       # Claude/Codex lanes, the provider-admission lanes and the implementer
       # identity/containment pins each spawn through wrap_bash_in_sandbox and
@@ -223,6 +229,11 @@ jobs:
             printf '%s\n' "$status"
             exit 1
           fi
+      - name: Verify every tracked read is on the kernel surface
+        # ARIA-HIGH-602 (S3) — `python3 -I` so the verifier does not trace
+        # itself; `!cancelled()` so a red run still reports what it read.
+        if: ${{ !cancelled() }}
+        run: python3 -I scripts/ci/aria_read_trace.py verify --trace-dir "$RUNNER_TEMP/aria-reads" --manifest .github/manifests/aria-kernel-surface.json
 
   lane:
     needs: changes
@@ -242,6 +253,10 @@ jobs:
           # A kernel workspace is a whole clone (see `suite`).
           fetch-depth: 0
       - uses: ./.github/actions/setup-aria-kernel
+      # ARIA-HIGH-602 (S3) — as in `suite`: the last step fails this job on a
+      # tracked read outside the kernel surface.
+      - name: Install the kernel read tracer
+        run: python3 scripts/ci/aria_read_trace.py install --trace-dir "$RUNNER_TEMP/aria-reads"
       - uses: ./.github/actions/ensure-sandbox-backend
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -372,6 +387,9 @@ jobs:
             printf '%s\n' "$status"
             exit 1
           fi
+      - name: Verify every tracked read is on the kernel surface
+        if: ${{ !cancelled() }}
+        run: python3 -I scripts/ci/aria_read_trace.py verify --trace-dir "$RUNNER_TEMP/aria-reads" --manifest .github/manifests/aria-kernel-surface.json
 
   state:
     # ARIA-HIGH-240 — no pre-merge lane ran the maintenance path on real
@@ -404,6 +422,12 @@ jobs:
           # A kernel workspace is a whole clone (see `suite`).
           fetch-depth: 0
       - uses: ./.github/actions/setup-aria-kernel
+      # ARIA-HIGH-602 (S3) — as in `suite`: the last step fails this job on a
+      # tracked read outside the kernel surface. The restore's own reads are of
+      # the aria/state tip (outside the checkout or untracked), never inputs a
+      # PR controls.
+      - name: Install the kernel read tracer
+        run: python3 scripts/ci/aria_read_trace.py install --trace-dir "$RUNNER_TEMP/aria-reads"
       # Read-only: the job token is `contents: read`, no bootstrap-ack is
       # passed (a missing branch is refused, never created), and nothing
       # below publishes or pushes.
@@ -454,6 +478,9 @@ jobs:
           set -euo pipefail
           echo "::error::this change's kernel compacted the live aria/state tip into a tree its own integrity verify refuses; the next aria-state-maintenance run on main would publish nothing (see the step summary)"
           exit 1
+      - name: Verify every tracked read is on the kernel surface
+        if: ${{ !cancelled() }}
+        run: python3 -I scripts/ci/aria_read_trace.py verify --trace-dir "$RUNNER_TEMP/aria-reads" --manifest .github/manifests/aria-kernel-surface.json
 
   workspace:
     # ARIA-HIGH-602 — the whole-checkout checks leave the jobs the surface

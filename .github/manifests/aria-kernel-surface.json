@@ -28,6 +28,10 @@
       "readers": "the selector's import graph; the lane's `npm run aria:docs:ssot` (aria-doc-runtime-ssot.spec.ts) drives the selector, which runs it"
     },
     {
+      "glob": "scripts/ci/aria_read_trace.py",
+      "readers": "the read tracer the suite, lane and state jobs install (ARIA-HIGH-602 S3)"
+    },
+    {
       "glob": "scripts/aria/**",
       "readers": "suite: test_t2_boundary_probe, test_doctor, test_runner_env_not_expression_context"
     },
@@ -110,6 +114,14 @@
     {
       "glob": ".npmrc",
       "readers": "`npm ci` in the suite and lane jobs"
+    },
+    {
+      "glob": "tools/__init__.py",
+      "readers": "suite: test_jev_runtime's naming invariant scans the tools tree (nothing but system_one names the transport)"
+    },
+    {
+      "glob": "tools/runtime-signals/**",
+      "readers": "suite: test_jev_runtime's naming invariant scans the tools tree (nothing but system_one names the transport)"
     }
   ]
 }

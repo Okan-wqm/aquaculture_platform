@@ -24,12 +24,16 @@ git decides coverage, exactly as the `changes` job does: the paths go into a
 throwaway index and `git ls-files` applies the manifest's `:(glob)`
 pathspecs. No second glob matcher exists to drift from git's.
 
-What this module does not see, by construction: reads made at run time by the
-programs the steps start (Python and node file reads, the bodies of inline
-heredoc programs), and whole-checkout reads (a `.` argument such as
+What this module does not see by itself: reads made at run time by the
+programs the steps start (Python file reads, the bodies of inline heredoc
+programs), and whole-checkout reads (a `.` argument such as
 `--workspace-root .`), whose inputs are every tracked file rather than a
-surface. Those are a runtime-tracing and a live-checkout question, named in the
-ARIA-HIGH-530 commit as not done here.
+surface. ARIA-HIGH-602 closes both: `scripts/ci/aria_read_trace.py` traces
+every read the skippable jobs' Python makes and fails them on a tracked read
+outside the surface (pinned below), and the whole-checkout checks live in the
+always-run `workspace` job (pinned above). What still is not seen, named:
+node reads (`npm ci`, jest, ts-node) and interpreters started with `-I`/`-s`,
+which never load the user site the hook rides on.
 """
 
 from __future__ import annotations
@@ -39,6 +43,7 @@ import os
 import re
 import shlex
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -51,6 +56,7 @@ from tests._helpers.witness_sources import witness_tool_paths
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _KERNEL_WORKFLOW = ".github/workflows/aria-kernel.yml"
+_TRACER = _REPO_ROOT / "scripts/ci/aria_read_trace.py"
 _GATED_IF = "needs.changes.outputs.kernel == 'true'"
 _NPM_CI_INPUTS = ("package.json", "package-lock.json", ".npmrc")
 # Import roots, not reads: the modules they make importable are read through
@@ -449,6 +455,202 @@ class WorkspaceJobTest(unittest.TestCase):
                 "workspace", context["requires_jobs"],
                 f"the {context['context']} contract's requires_jobs does not name `workspace`",
             )
+
+
+class ReadTracerTest(unittest.TestCase):
+    """S3 (ARIA-HIGH-602) — a tracked read outside the kernel surface fails the PR that adds it.
+
+    The tracer is driven end to end, the way the workflow drives it: `install`
+    writes the audit hook's usercustomize into a temp user site, a child
+    interpreter (which loads that site the moment it exists) does the reading,
+    and `verify` — run isolated, `python3 -I`, so it does not trace itself —
+    computes tracked reads minus the manifest's coverage. Nothing of the
+    process under test is mocked.
+    """
+
+    _SURFACE = {
+        "schema_version": 1,
+        "surface": [
+            {"glob": "aria-kernel/**", "readers": "the kernel and its suite"},
+            {"glob": ".github/**", "readers": "workflow definitions"},
+        ],
+    }
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory(prefix="aria-read-trace-")
+        self.addCleanup(self._tmp.cleanup)
+        self.tmp = Path(self._tmp.name)
+        self.repo = self.tmp / "repo"
+        (self.repo / "aria-kernel" / "tests").mkdir(parents=True)
+        (self.repo / "apps").mkdir(parents=True)
+        (self.repo / ".github" / "manifests").mkdir(parents=True)
+        (self.repo / "aria-kernel" / "tests" / "test_x.py").write_text("import unittest\n", encoding="utf-8")
+        (self.repo / "apps" / "x.ts").write_text("export {}\n", encoding="utf-8")
+        self.manifest = self.repo / ".github" / "manifests" / "aria-kernel-surface.json"
+        self.manifest.write_text(json.dumps(self._SURFACE, indent=2) + "\n", encoding="utf-8")
+        git = {
+            **{key: value for key, value in os.environ.items() if not key.startswith(("GIT_", "PYTEST"))},
+            "GIT_CONFIG_GLOBAL": "/dev/null",
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_AUTHOR_NAME": "tracer",
+            "GIT_AUTHOR_EMAIL": "tracer@example.invalid",
+            "GIT_COMMITTER_NAME": "tracer",
+            "GIT_COMMITTER_EMAIL": "tracer@example.invalid",
+        }
+        for args in (("init", "--quiet", "--initial-branch", "main"), ("add", "-A"),
+                     ("commit", "--quiet", "-m", "fixture")):
+            subprocess.run(["git", *args], cwd=self.repo, env=git, check=True, capture_output=True)
+        self.trace = self.tmp / "trace"
+        # PYTHONUSERBASE points the interpreter's user site at the fixture, so
+        # install writes there and every child interpreter loads the hook.
+        self.env = {
+            **git,
+            "PYTHONUSERBASE": str(self.tmp / "userbase"),
+            "GITHUB_WORKSPACE": str(self.repo),
+            "ARIA_READ_TRACE_DIR": str(self.trace),
+        }
+
+    def _install(self) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(_TRACER), "install", "--trace-dir", str(self.trace)],
+            env=self.env, capture_output=True, text=True, timeout=120, check=False,
+        )
+
+    def _child(self, code: str, *interpreter_args: str) -> subprocess.CompletedProcess[str]:
+        script = self.tmp / "child.py"
+        script.write_text(code, encoding="utf-8")
+        return subprocess.run(
+            [sys.executable, *interpreter_args, str(script)],
+            env=self.env, cwd=self.repo, capture_output=True, text=True, timeout=120, check=False,
+        )
+
+    def _verify(self) -> subprocess.CompletedProcess[str]:
+        env = {key: value for key, value in os.environ.items()
+               if not key.startswith(("GIT_", "PYTEST", "PYTHON", "ARIA_READ"))}
+        env["GIT_CONFIG_GLOBAL"] = "/dev/null"
+        env["GIT_CONFIG_NOSYSTEM"] = "1"
+        return subprocess.run(
+            [sys.executable, "-I", str(_TRACER), "verify",
+             "--trace-dir", str(self.trace), "--manifest", str(self.manifest)],
+            cwd=self.repo, env=env, capture_output=True, text=True, timeout=120, check=False,
+        )
+
+    def test_a_traced_read_outside_the_surface_fails_the_verify(self) -> None:
+        self.assertEqual(self._install().returncode, 0)
+        child = self._child("open('apps/x.ts').read()\n")
+        self.assertEqual(child.returncode, 0, child.stderr)
+        verify = self._verify()
+        self.assertNotEqual(verify.returncode, 0, verify.stdout + verify.stderr)
+        self.assertIn("apps/x.ts", verify.stdout + verify.stderr)
+
+    def test_a_traced_read_under_the_kernel_surface_passes(self) -> None:
+        self.assertEqual(self._install().returncode, 0)
+        child = self._child("open('aria-kernel/tests/test_x.py').read()\n")
+        self.assertEqual(child.returncode, 0, child.stderr)
+        verify = self._verify()
+        self.assertEqual(verify.returncode, 0, verify.stdout + verify.stderr)
+
+    def test_an_untracked_read_does_not_gate(self) -> None:
+        (self.repo / "untracked.txt").write_text("local scratch\n", encoding="utf-8")
+        self.assertEqual(self._install().returncode, 0)
+        child = self._child("open('untracked.txt').read()\n")
+        self.assertEqual(child.returncode, 0, child.stderr)
+        self.assertEqual(self._verify().returncode, 0)
+
+    def test_a_git_show_read_is_traced_like_a_file_read(self) -> None:
+        self.assertEqual(self._install().returncode, 0)
+        child = self._child(
+            "import subprocess, sys\n"
+            "raise SystemExit(subprocess.run(['git', 'show', 'HEAD:apps/x.ts'],\n"
+            "                                capture_output=True).returncode)\n",
+        )
+        self.assertEqual(child.returncode, 0, child.stderr)
+        verify = self._verify()
+        self.assertNotEqual(verify.returncode, 0, verify.stdout + verify.stderr)
+        self.assertIn("apps/x.ts", verify.stdout + verify.stderr)
+
+    def test_a_directory_listing_is_reported_but_does_not_gate(self) -> None:
+        self.assertEqual(self._install().returncode, 0)
+        child = self._child("import os\nos.listdir('apps')\n")
+        self.assertEqual(child.returncode, 0, child.stderr)
+        verify = self._verify()
+        self.assertEqual(verify.returncode, 0, verify.stdout + verify.stderr)
+        self.assertIn("apps", verify.stdout, "the listing is reported, not silent")
+
+    def test_a_corrupt_trace_line_fails_the_verify(self) -> None:
+        self.assertEqual(self._install().returncode, 0)
+        child = self._child("open('aria-kernel/tests/test_x.py').read()\n")
+        self.assertEqual(child.returncode, 0, child.stderr)
+        trace_files = sorted(self.trace.glob("trace-*.tsv"))
+        self.assertTrue(trace_files, "the child wrote no trace")
+        trace_files[0].write_text("not a trace line\n", encoding="utf-8")
+        verify = self._verify()
+        self.assertNotEqual(verify.returncode, 0, verify.stdout + verify.stderr)
+        self.assertIn("not a trace line", verify.stdout + verify.stderr)
+
+    def test_isolated_python_is_not_traced(self) -> None:
+        # `python3 -I` never loads the user site, so the hook cannot ride on
+        # it: the named residual of the user-site install choice.
+        self.assertEqual(self._install().returncode, 0)
+        child = self._child("open('apps/x.ts').read()\n", "-I")
+        self.assertEqual(child.returncode, 0, child.stderr)
+        self.assertEqual(self._verify().returncode, 0, "an -I read must not reach the trace")
+
+    def test_install_refuses_a_foreign_usercustomize(self) -> None:
+        # The user site is the fixture's (PYTHONUSERBASE), not this test
+        # process's: ask the same interpreter install uses.
+        probe = subprocess.run(
+            [sys.executable, "-c", "import site; print(site.getusersitepackages())"],
+            env=self.env, capture_output=True, text=True, timeout=60, check=True,
+        )
+        user_site = Path(probe.stdout.strip())
+        user_site.mkdir(parents=True, exist_ok=True)
+        (user_site / "usercustomize.py").write_text("# someone else's hook\n", encoding="utf-8")
+        self.assertNotEqual(self._install().returncode, 0)
+
+
+class TracerWiringTest(unittest.TestCase):
+    """S3 wiring — the skippable jobs trace their reads; the workspace job does not."""
+
+    def setUp(self) -> None:
+        self.workflow = _load_yaml(_KERNEL_WORKFLOW)
+
+    def _install_step(self, job: dict[str, Any]) -> dict[str, Any]:
+        steps = job.get("steps", [])
+        setup = [index for index, step in enumerate(steps)
+                 if step.get("uses") == "./.github/actions/setup-aria-kernel"]
+        self.assertEqual(len(setup), 1)
+        self.assertLess(setup[0] + 1, len(steps))
+        return steps[setup[0] + 1]
+
+    def test_the_skippable_jobs_install_the_tracer_right_after_setup(self) -> None:
+        for name in ("suite", "lane", "state"):
+            with self.subTest(job=name):
+                step = self._install_step(self.workflow["jobs"][name])
+                self.assertEqual(step.get("name"), "Install the kernel read tracer")
+                run = step.get("run", "")
+                self.assertIn("scripts/ci/aria_read_trace.py install", run)
+                self.assertIn("RUNNER_TEMP", run)
+
+    def test_the_skippable_jobs_verify_their_reads_last(self) -> None:
+        for name in ("suite", "lane", "state"):
+            with self.subTest(job=name):
+                steps = self.workflow["jobs"][name]["steps"]
+                verify = steps[-1]
+                self.assertEqual(verify.get("name"), "Verify every tracked read is on the kernel surface")
+                self.assertEqual(verify.get("if"), "${{ !cancelled() }}")
+                self.assertIn("python3 -I scripts/ci/aria_read_trace.py verify", verify.get("run", ""))
+
+    def test_the_workspace_job_carries_neither_tracer_step(self) -> None:
+        # Its inputs are the whole checkout by declaration, and it runs on
+        # every PR: a tracer there would only ever fail on its own rule.
+        names = [step.get("name") for step in self.workflow["jobs"]["workspace"].get("steps", [])]
+        self.assertNotIn("Install the kernel read tracer", names)
+        self.assertNotIn("Verify every tracked read is on the kernel surface", names)
+
+    def test_the_tracer_is_on_the_kernel_surface(self) -> None:
+        # A PR that changes the tracer is a PR the traced lane must run on.
+        self.assertEqual(uncovered(["scripts/ci/aria_read_trace.py"], kernel_lane_surface()), [])
 
 
 if __name__ == "__main__":

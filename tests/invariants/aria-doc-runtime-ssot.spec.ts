@@ -111,6 +111,7 @@ type PullRequestWorkflow = {
     string,
     {
       'timeout-minutes'?: number;
+      'runs-on'?: string;
       needs?: string | string[];
       if?: string;
       strategy?: { 'fail-fast'?: boolean; matrix?: { shard?: number[] } };

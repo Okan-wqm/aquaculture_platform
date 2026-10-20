@@ -17,6 +17,7 @@ already dispatched is skipped.
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -27,7 +28,7 @@ from .must_satisfy import must_satisfy_item, product_defect_obligation, rule_pre
 from .request_admission import Admission, admit_request
 from .rule_contract import RuleContract, resolve_rule_contract
 from .system_one_points import shadow_judge_fanout
-from .tool_registry import ensure_tools_dir
+from .tool_registry import GovernanceError, ensure_tools_dir
 
 
 # Two distinct judge roles → two distinct judge_ids on the same finding. The
@@ -297,6 +298,57 @@ def pending_judge_counts(
     return counts
 
 
+PANEL_WRITE_SEAT_DOWNGRADE_KIND: str = "judge_panel_write_seat_downgrade"
+
+
+def _drop_write_seats_without_a_live_rung(
+    root: Path, seats: tuple[tuple[str, str], ...],
+) -> tuple[tuple[tuple[str, str], ...], list[str]]:
+    """(the write-free panel, the write-scope seat roles dropped and why).
+
+    ONE liveness question per seat: does the seat's routing ladder name a
+    provider this host can run that is not cooled right now? Presence is
+    ``provider_outage.host_providers`` (the same cheap signals every gate
+    that decides a mint reads); cooldowns are the outage ledger's own
+    active set. An unreadable cooldown ledger does not decide presence —
+    presence alone answers the Codex-only night. The routing table itself
+    refuses a write-scope role on a ladder naming a non-writing vendor, so
+    a live rung IS a live WRITE rung.
+    """
+    from .provider_outage import cooled_providers, host_providers
+    from .runtime_profiles import WRITE_SCOPE_ROLES, load_provider_routing
+
+    live = set(host_providers())
+    try:
+        cooled = {str(provider) for provider in (cooled_providers(root, now=datetime.now(timezone.utc)) or {})}
+    except Exception:  # noqa: BLE001 — cooldowns are a refinement, presence decides
+        cooled = set()
+    routing = load_provider_routing()
+    kept: list[tuple[str, str]] = []
+    dropped: list[tuple[str, str]] = []
+    for role, agent in seats:
+        if role in WRITE_SCOPE_ROLES:
+            try:
+                rungs = routing.ladder_for(role, agent)
+            except GovernanceError:
+                rungs = ()
+            if rungs and not any(provider in live and provider not in cooled for provider in rungs):
+                dropped.append((role, agent))
+                continue
+        kept.append((role, agent))
+    if dropped:
+        from .tool_registry import append_tools_governance
+
+        append_tools_governance(root, PANEL_WRITE_SEAT_DOWNGRADE_KIND, {
+            "downgraded_seats": [role for role, _agent in dropped],
+            "live_providers": sorted(live),
+            "reason": "panel_write_seat_no_live_rung",
+            "note": "the item routes a write-free panel; the write-scope "
+                    "seat rejoins when a write-admitting provider returns",
+        })
+    return tuple(kept), dropped
+
+
 def dispatch_judges_for_sample(
     *,
     sample: dict[str, Any],
@@ -336,6 +388,20 @@ def dispatch_judges_for_sample(
     seats: tuple[tuple[str, str], ...] = tuple(roles) if roles is not None else JUDGE_FANOUT
     panel_lane = roles is not None
     items = sample.get("items") or []
+    # WP-J review — the panel's single-provider degradation law. A write-
+    # scope seat (the reproduction seat, whose ladder names only
+    # write-admitting vendors) with NO live rung would mint an envelope
+    # that can never execute, in a group that can therefore never settle —
+    # a CRITICAL item left with no verdict on a Codex-only night. The
+    # operator's continuity rule is the opposite: with any single provider
+    # alive, every role runs. The item routes a WRITE-FREE panel (the other
+    # seats settle it) and the downgrade is recorded by name — per finding
+    # in ``skipped`` and once per call in governance — never silently, and
+    # never as a hold: the whole-or-not law below stays for caps and door
+    # refusals, which are capacity, not liveness.
+    downgraded_seats: list[tuple[str, str]] = []
+    if panel_lane:
+        seats, downgraded_seats = _drop_write_seats_without_a_live_rung(root, seats)
     existing = _existing_judge_dispatches(root)
     # Y2 (ORPHAN-704) — backlog gate: when the executor's drain is behind,
     # minting more envelopes only manufactures anchor-stale corpses. The
@@ -355,6 +421,13 @@ def dispatch_judges_for_sample(
         if not isinstance(item, dict):
             continue
         group = _group_id(item)
+        # The degradation's per-finding trace: each dropped seat is named on
+        # the finding it was dropped from, exactly like the cap skips.
+        skipped.extend(
+            {"judgment_group_id": group, "target_agent": agent,
+             "reason": "seat_write_rung_unavailable"}
+            for _role, agent in downgraded_seats
+        )
         refs = _evidence_refs(item)
         tool_id = str(item.get("tool_id") or "")
         rule = str(item.get("rule") or "")

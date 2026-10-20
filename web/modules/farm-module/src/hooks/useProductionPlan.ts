@@ -2,10 +2,11 @@
  * Production-plan hooks — temperature scenarios + tank growth projection
  * (the farm module's Üretim Planı backing, PR design 2026-10-19).
  */
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   graphqlClient,
   useAuth,
+  useFeedbackMutation,
   createTenantQueryKey,
   createTenantInvalidationKey,
 } from '@aquaculture/shared-ui';
@@ -144,7 +145,11 @@ export function useTankGrowthProjection(input: {
 export function useCreateTemperatureScenario() {
   const { token, tenantId } = useAuth();
   const queryClient = useQueryClient();
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: {
+      success: 'Temperature scenario saved',
+      error: 'Temperature scenario change failed',
+    },
     mutationFn: async (input: {
       siteId: string;
       name: string;
@@ -182,7 +187,8 @@ export function useCreateTemperatureScenario() {
 export function useDeleteTemperatureScenario() {
   const { token, tenantId } = useAuth();
   const queryClient = useQueryClient();
-  return useMutation({
+  return useFeedbackMutation({
+    feedback: { success: null, error: 'Temperature scenario delete failed' },
     mutationFn: async (id: string) => {
       if (!token) throw new Error('Authentication required');
       if (!tenantId) throw new Error('Tenant context required');

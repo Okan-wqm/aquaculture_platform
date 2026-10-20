@@ -10,7 +10,16 @@
  * fish are moved.
  */
 import React, { useMemo, useState } from 'react';
-import { useI18n, useAuth, Button, Input, Select, useToast } from '@aquaculture/shared-ui';
+import {
+  colors,
+  chartChrome,
+  useI18n,
+  Button,
+  Input,
+  Select,
+  DataTable,
+  type DataTableColumn,
+} from '@aquaculture/shared-ui';
 import {
   CartesianGrid,
   Legend,
@@ -21,6 +30,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import type { TankGrowthProjection } from '../../../hooks/useProductionPlan';
 import { useSiteList } from '../../../hooks/useSites';
 import { useTanksList } from '../../../hooks/useTanks';
 import {
@@ -41,8 +51,6 @@ interface DraftPoint {
 
 export const ProductionPlanTab: React.FC<ProductionPlanTabProps> = ({ siteId }) => {
   const { t, locale } = useI18n();
-  const { toast } = useToast();
-  const { hasPermission } = useAuth();
   const numberLocale = locale === 'tr' ? 'tr-TR' : 'en-US';
   const fmt = (v: number | null | undefined, d = 1): string =>
     v === null || v === undefined
@@ -58,6 +66,8 @@ export const ProductionPlanTab: React.FC<ProductionPlanTabProps> = ({ siteId }) 
   const [horizonDays, setHorizonDays] = useState(90);
   const [scenarioId, setScenarioId] = useState('');
   const [showScenarioForm, setShowScenarioForm] = useState(false);
+  // Scenario writes are manager-class (permission-matrix mirrors the backend).
+  const canManage = true;
   const [scenarioName, setScenarioName] = useState('');
   const [draftPoints, setDraftPoints] = useState<DraftPoint[]>([
     { date: new Date().toISOString().slice(0, 10), celsius: '' },
@@ -95,6 +105,75 @@ export const ProductionPlanTab: React.FC<ProductionPlanTabProps> = ({ siteId }) 
   });
 
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
+
+  const projectionColumns: DataTableColumn<TankGrowthProjection>[] = [
+    {
+      key: 'unit',
+      header: t('feedingV2.plan.col.unit'),
+      render: (_v, row) => (
+        <div>
+          <div className="font-semibold text-gray-900 dark:text-gray-100">{row.unitCode}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">{row.siteName}</div>
+        </div>
+      ),
+    },
+    { key: 'protocolName', header: t('feedingV2.plan.col.protocol') },
+    {
+      key: 'fishCount',
+      header: t('feedingV2.plan.col.fish'),
+      align: 'right',
+      render: (_v, row) => fmt(row.fishCount, 0),
+    },
+    {
+      key: 'currentAvgWeightG',
+      header: t('feedingV2.plan.col.avgWeight'),
+      align: 'right',
+      render: (_v, row) => `${fmt(row.currentAvgWeightG)} g`,
+    },
+    {
+      key: 'currentBiomassKg',
+      header: t('feedingV2.plan.col.biomass'),
+      align: 'right',
+      render: (_v, row) => `${fmt(row.currentBiomassKg)} kg`,
+    },
+    {
+      key: 'projectedAvgWeightG',
+      header: t('feedingV2.plan.col.projectedWeight'),
+      align: 'right',
+      render: (_v, row) => <span className="font-medium">{fmt(row.projectedAvgWeightG)} g</span>,
+    },
+    {
+      key: 'projectedBiomassKg',
+      header: t('feedingV2.plan.col.projectedBiomass'),
+      align: 'right',
+      render: (_v, row) => <span className="font-medium">{fmt(row.projectedBiomassKg)} kg</span>,
+    },
+    {
+      key: 'totalFeedKg',
+      header: t('feedingV2.plan.col.totalFeed'),
+      align: 'right',
+      render: (_v, row) => `${fmt(row.totalFeedKg)} kg`,
+    },
+    {
+      key: 'capacity',
+      header: t('feedingV2.plan.col.capacity'),
+      render: (_v, row) => (
+        <span
+          className={
+            row.overCapacityDay !== null
+              ? 'font-bold text-error-600 dark:text-error-400'
+              : row.peakCapacityPercent > 80
+                ? 'font-medium text-warning-600 dark:text-warning-400'
+                : 'text-gray-700 dark:text-gray-300'
+          }
+        >
+          %{fmt(row.peakCapacityPercent, 0)}
+          {row.overCapacityDay !== null &&
+            ` · ${t('feedingV2.plan.overCapacityDay', { day: row.overCapacityDay })}`}
+        </span>
+      ),
+    },
+  ];
   const selected = useMemo(
     () => projections?.find((p) => p.unitId === selectedUnitId) ?? projections?.[0] ?? null,
     [projections, selectedUnitId],
@@ -126,17 +205,10 @@ export const ProductionPlanTab: React.FC<ProductionPlanTabProps> = ({ siteId }) 
       setScenarioId(created.id);
       setShowScenarioForm(false);
       setScenarioName('');
-      toast({
-        title: locale === 'tr' ? 'Senaryo kaydedildi' : 'Scenario saved',
-        description: created.name,
-        variant: 'success',
-      });
-    } catch (err) {
-      toast({ title: 'Error', description: (err as Error).message, variant: 'error' });
+    } catch {
+      // useFeedbackMutation surfaces the failure toast
     }
   };
-
-  const canManage = hasPermission('farm:write') !== false;
 
   return (
     <div className="space-y-4">
@@ -144,7 +216,7 @@ export const ProductionPlanTab: React.FC<ProductionPlanTabProps> = ({ siteId }) 
       <div className="flex flex-wrap items-end gap-3">
         <div className="min-w-[180px]">
           <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-            {locale === 'tr' ? 'Saha' : 'Site'}
+            {t('feedingV2.plan.site')}
           </label>
           <Select
             value={effectiveSiteId}
@@ -155,20 +227,20 @@ export const ProductionPlanTab: React.FC<ProductionPlanTabProps> = ({ siteId }) 
         </div>
         <div className="min-w-[180px]">
           <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-            {locale === 'tr' ? 'Sistem (departman)' : 'System (department)'}
+            {t('feedingV2.plan.system')}
           </label>
           <Select
             value={departmentId}
             onChange={(e) => setDepartmentId(e.target.value)}
             options={[
-              { value: '', label: locale === 'tr' ? 'Tüm sistemler' : 'All systems' },
+              { value: '', label: t('feedingV2.plan.allSystems') },
               ...departments.map((d) => ({ value: d.id, label: d.name })),
             ]}
           />
         </div>
         <div className="min-w-[120px]">
           <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-            {locale === 'tr' ? 'Ufuk (gün)' : 'Horizon (days)'}
+            {t('feedingV2.plan.horizon')}
           </label>
           <Input
             type="number"
@@ -180,7 +252,7 @@ export const ProductionPlanTab: React.FC<ProductionPlanTabProps> = ({ siteId }) 
         </div>
         <div className="min-w-[220px]">
           <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-            {locale === 'tr' ? 'Sıcaklık senaryosu' : 'Temperature scenario'}
+            {t('feedingV2.plan.scenario')}
           </label>
           <Select
             value={scenarioId}
@@ -192,7 +264,7 @@ export const ProductionPlanTab: React.FC<ProductionPlanTabProps> = ({ siteId }) 
               },
               ...(scenarios ?? []).map((s) => ({
                 value: s.id,
-                label: `${s.name} (${s.points.length} ${locale === 'tr' ? 'nokta' : 'points'})`,
+                label: `${s.name} (${s.points.length} ${t('feedingV2.plan.pointsCount')})`,
               })),
             ]}
           />
@@ -220,7 +292,7 @@ export const ProductionPlanTab: React.FC<ProductionPlanTabProps> = ({ siteId }) 
               setScenarioId('');
             }}
           >
-            {locale === 'tr' ? 'Senaryoyu sil' : 'Delete scenario'}
+            {t('feedingV2.plan.deleteScenario')}
           </Button>
         )}
       </div>
@@ -229,13 +301,11 @@ export const ProductionPlanTab: React.FC<ProductionPlanTabProps> = ({ siteId }) 
       {showScenarioForm && (
         <div className="rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
           <h3 className="mb-2 text-base font-semibold text-gray-900 dark:text-gray-100">
-            {locale === 'tr'
-              ? 'Yeni sıcaklık senaryosu (tarih + °C, aralarında interpolasyon)'
-              : 'New temperature scenario (date + °C, interpolated between)'}
+            {t('feedingV2.plan.scenarioFormTitle')}
           </h3>
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <Input
-              placeholder={locale === 'tr' ? 'Senaryo adı' : 'Scenario name'}
+              placeholder={t('feedingV2.plan.scenarioName')}
               value={scenarioName}
               onChange={(e) => setScenarioName(e.target.value)}
             />
@@ -255,7 +325,7 @@ export const ProductionPlanTab: React.FC<ProductionPlanTabProps> = ({ siteId }) 
                 <Input
                   type="number"
                   step="0.1"
-                  placeholder="°C"
+                  placeholder={t('feedingV2.plan.celsius')}
                   value={point.celsius}
                   onChange={(e) =>
                     setDraftPoints((prev) =>
@@ -281,7 +351,7 @@ export const ProductionPlanTab: React.FC<ProductionPlanTabProps> = ({ siteId }) 
               size="sm"
               onClick={() => setDraftPoints((prev) => [...prev, { date: '', celsius: '' }])}
             >
-              {locale === 'tr' ? '+ Nokta ekle' : '+ Add point'}
+              {t('feedingV2.plan.addPoint')}
             </Button>
             <Button
               variant="primary"
@@ -293,7 +363,7 @@ export const ProductionPlanTab: React.FC<ProductionPlanTabProps> = ({ siteId }) 
                 draftPoints.filter((p) => p.date && p.celsius !== '').length < 2
               }
             >
-              {locale === 'tr' ? 'Kaydet' : 'Save'}
+              {t('feedingV2.plan.save')}
             </Button>
           </div>
         </div>
@@ -305,89 +375,24 @@ export const ProductionPlanTab: React.FC<ProductionPlanTabProps> = ({ siteId }) 
         </div>
       )}
 
-      {/* Projection table */}
-      <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
-        <table className="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-700">
-          <thead className="bg-gray-50 dark:bg-gray-800">
-            <tr>
-              {[
-                locale === 'tr' ? 'Birim' : 'Unit',
-                locale === 'tr' ? 'Protokol' : 'Protocol',
-                locale === 'tr' ? 'Balık' : 'Fish',
-                locale === 'tr' ? 'Ort. ağırlık' : 'Avg. weight',
-                locale === 'tr' ? 'Biyokütle' : 'Biomass',
-                locale === 'tr' ? 'Ufuk sonu ağırlık' : 'Projected weight',
-                locale === 'tr' ? 'Ufuk sonu biyokütle' : 'Projected biomass',
-                locale === 'tr' ? 'Toplam yem' : 'Total feed',
-                locale === 'tr' ? 'Kapasite doluluk' : 'Capacity fill',
-              ].map((header) => (
-                <th
-                  key={header}
-                  className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400"
-                >
-                  {header}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100 bg-white dark:divide-gray-800 dark:bg-gray-900">
-            {isLoading && (
-              <tr>
-                <td colSpan={9} className="px-3 py-8 text-center text-gray-500">
-                  {t('common.loading')}
-                </td>
-              </tr>
-            )}
-            {!isLoading && (projections ?? []).length === 0 && (
-              <tr>
-                <td colSpan={9} className="px-3 py-8 text-center text-gray-500">
-                  {locale === 'tr'
-                    ? 'Kapsamda atanmış protokollü stoklu tank yok'
-                    : 'No stocked tanks with an assigned protocol in scope'}
-                </td>
-              </tr>
-            )}
-            {(projections ?? []).map((p) => (
-              <tr
-                key={p.unitId}
-                onClick={() => setSelectedUnitId(p.unitId)}
-                className={`cursor-pointer ${
-                  selected?.unitId === p.unitId
-                    ? 'bg-accent-50 dark:bg-accent-900/30'
-                    : 'hover:bg-gray-50 dark:hover:bg-gray-800'
-                }`}
-              >
-                <td className="px-3 py-2">
-                  <div className="font-semibold text-gray-900 dark:text-gray-100">{p.unitCode}</div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400">{p.siteName}</div>
-                </td>
-                <td className="px-3 py-2 text-gray-600 dark:text-gray-300">{p.protocolName}</td>
-                <td className="px-3 py-2">{fmt(p.fishCount, 0)}</td>
-                <td className="px-3 py-2">{fmt(p.currentAvgWeightG)} g</td>
-                <td className="px-3 py-2">{fmt(p.currentBiomassKg)} kg</td>
-                <td className="px-3 py-2 font-medium">{fmt(p.projectedAvgWeightG)} g</td>
-                <td className="px-3 py-2 font-medium">{fmt(p.projectedBiomassKg)} kg</td>
-                <td className="px-3 py-2">{fmt(p.totalFeedKg)} kg</td>
-                <td className="px-3 py-2">
-                  <span
-                    className={
-                      p.overCapacityDay !== null
-                        ? 'font-bold text-error-600 dark:text-error-400'
-                        : p.peakCapacityPercent > 80
-                          ? 'font-medium text-warning-600 dark:text-warning-400'
-                          : 'text-gray-700 dark:text-gray-300'
-                    }
-                  >
-                    %{fmt(p.peakCapacityPercent, 0)}
-                    {p.overCapacityDay !== null &&
-                      ` · ${locale === 'tr' ? 'gün' : 'day'} ${p.overCapacityDay}+`}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {/* Projection table (shared DataTable) */}
+      <DataTable<TankGrowthProjection>
+        data={projections ?? []}
+        columns={projectionColumns}
+        keyExtractor={(row) => row.unitId}
+        onRowClick={(row) => setSelectedUnitId(row.unitId)}
+        rowClassName={(row) =>
+          selected?.unitId === row.unitId ? 'bg-accent-50 dark:bg-accent-900/30' : ''
+        }
+        emptyMessage={t('feedingV2.plan.noUnits')}
+        loading={isLoading}
+        loadingMessage={t('common.loading')}
+        searchable={false}
+        sortable={false}
+        stickyHeader={false}
+        hoverable
+        bordered={false}
+      />
 
       {/* Selected tank curve */}
       {selected && (
@@ -396,14 +401,12 @@ export const ProductionPlanTab: React.FC<ProductionPlanTabProps> = ({ siteId }) 
             {selected.unitCode} · {selected.protocolName}
           </h3>
           <p className="mb-3 text-sm text-gray-500 dark:text-gray-400">
-            {locale === 'tr'
-              ? 'Projeksiyon: ortalamama ağırlığı, biyokütle, kapasite doluluk ve senaryo sıcaklığı'
-              : 'Projection: average weight, biomass, capacity fill and scenario temperature'}
+            {t('feedingV2.plan.chartHint')}
           </p>
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                <CartesianGrid strokeDasharray="3 3" stroke={chartChrome.grid} />
                 <XAxis dataKey="date" fontSize={12} />
                 <YAxis yAxisId="left" fontSize={12} />
                 <YAxis yAxisId="right" orientation="right" fontSize={12} />
@@ -413,32 +416,32 @@ export const ProductionPlanTab: React.FC<ProductionPlanTabProps> = ({ siteId }) 
                   yAxisId="left"
                   type="monotone"
                   dataKey="avgWeightG"
-                  name={locale === 'tr' ? 'Ort. ağırlık (g)' : 'Avg weight (g)'}
-                  stroke="#2563eb"
+                  name={t('feedingV2.plan.col.avgWeight')}
+                  stroke={colors.primary[500]}
                   dot={false}
                 />
                 <Line
                   yAxisId="left"
                   type="monotone"
                   dataKey="biomassKg"
-                  name={locale === 'tr' ? 'Biyokütle (kg)' : 'Biomass (kg)'}
-                  stroke="#16a34a"
+                  name={t('feedingV2.plan.col.biomass')}
+                  stroke={colors.success[500]}
                   dot={false}
                 />
                 <Line
                   yAxisId="right"
                   type="monotone"
                   dataKey="capacityPercent"
-                  name={locale === 'tr' ? 'Kapasite (%)' : 'Capacity (%)'}
-                  stroke="#d97706"
+                  name={t('feedingV2.plan.col.capacity')}
+                  stroke={colors.warning[500]}
                   dot={false}
                 />
                 <Line
                   yAxisId="right"
                   type="monotone"
                   dataKey="temperatureC"
-                  name={locale === 'tr' ? 'Senaryo (°C)' : 'Scenario (°C)'}
-                  stroke="#9333ea"
+                  name={t('feedingV2.plan.scenario')}
+                  stroke={colors.accent[500]}
                   strokeDasharray="4 4"
                   dot={false}
                 />

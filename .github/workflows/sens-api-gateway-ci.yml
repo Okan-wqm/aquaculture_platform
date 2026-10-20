@@ -9,6 +9,7 @@ on:
     branches: [main, develop, agentic]
     paths:
       - "sens-api-gateway/**"
+      - "contracts/suderra-edge/**"
       - ".github/workflows/sens-api-gateway-ci.yml"
       - ".github/workflows/edge-agent-release.yml"
       - ".github/workflows/ci-edge.yml"
@@ -18,6 +19,7 @@ on:
     branches: [main, develop, agentic]
     paths:
       - "sens-api-gateway/**"
+      - "contracts/suderra-edge/**"
       - ".github/workflows/sens-api-gateway-ci.yml"
       - ".github/workflows/edge-agent-release.yml"
       - ".github/workflows/ci-edge.yml"
@@ -283,6 +285,34 @@ jobs:
       - name: Run gateway CI feature tests
         working-directory: ${{ env.SENS_API_GATEWAY_DIR }}
         run: cargo test --locked --all-targets --features "$SENS_API_GATEWAY_CI_FEATURES" --no-fail-fast -- --test-threads=1
+
+  # ADR-048 DEC-8 / DEC-28: the Suderra OS agent profile. Its filesystem and
+  # environment invariants (tests/invariants/no_etc_write_paths.rs,
+  # no_security_env_in_suderra_os.rs) and the contract checks of its path
+  # constants compile only with `suderra-os`; without this job they would
+  # never run. scada-display is the profile's release tier.
+  test-suderra-os-profile:
+    name: cargo test --all-targets --features suderra-os,scada-display
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # stable
+        with:
+          toolchain: 1.88.0
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: sens-api-gateway -> target
+          shared-key: sens-api-gateway-test-suderra-os
+          save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/agentic' }}
+
+      - name: Run gateway tests (suderra-os profile)
+        working-directory: ${{ env.SENS_API_GATEWAY_DIR }}
+        run: cargo test --locked --all-targets --features suderra-os,scada-display --no-fail-fast -- --test-threads=1
 
   sx1302-vendor-hal-contract:
     name: sx1302-vendor-hal contract

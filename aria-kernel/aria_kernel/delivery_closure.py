@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from .ledger import load_declared_jsonl, load_segments
+from .merge_record import PR_BINDING_EVENT
 from .recovery import (
     EXTERNAL_EFFECTS_RELPATH,
     EXTERNAL_EFFECTS_SURFACE,
@@ -226,13 +227,14 @@ def compute_delivery_closure(*, base_dir: str | Path | None = None) -> DeliveryC
     for rid, intents in intents_by_request.items():
         records[rid].unresolved_intents = sum(1 for i in intents.values() if not i.get("_receipted"))
 
-    # Secondary PR link: lifecycle rows carry proposal_id, never request_id.
+    # Secondary PR link: lifecycle rows carry proposal_id, never request_id,
+    # and only the row that binds a PR (merge_record's binding event) names it.
     by_proposal: dict[str, list[str]] = {}
     for rec in records.values():
         for proposal in rec.proposal_ids:
             by_proposal.setdefault(proposal, []).append(rec.request_id)
     for row in _rows(root, *_PR_LIFECYCLE):
-        if str(row.get("event") or "") != "opened":
+        if row.get("event") != PR_BINDING_EVENT:
             continue
         number = row.get("pr_number")
         proposal = str(row.get("proposal_id") or "")

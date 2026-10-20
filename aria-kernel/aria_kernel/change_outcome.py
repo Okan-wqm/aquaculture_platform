@@ -71,7 +71,7 @@ from .change_ledger import (
     _ledger_dir,
 )
 from .ledger import append_declared_jsonl, load_declared_jsonl
-from .merge_record import fold_merged_rows, merged_row_instant, merged_row_is_arias
+from .merge_record import fold_merged_rows, merged_row_instant, merged_row_is_arias, pr_change_binding
 from .state_manifest import iter_surfaces
 from .tool_registry import (
     GovernanceError,
@@ -448,8 +448,10 @@ def _merge_index(tools_root: Path) -> dict[str, dict[str, Any]]:
     """change_id → its latest ``merged`` row, from ``pr-lifecycle.jsonl``.
 
     The ``merged`` row carries the PR number; the ``change_id`` anchor
-    lands on the row the PR OPEN wrote (pr_manager §D.3). So the join is
-    change → pr_number → merged row, which is the same ledger
+    lands on the row the PR OPEN wrote (pr_manager §D.3), read through the
+    one binding owner (``merge_record.pr_change_binding``, merge-delivery-1):
+    every change an ``opened`` row of the PR named, and no other row's. So the
+    join is change → pr_number → merged row, which is the same ledger
     ``auto_merge.change_for_pr`` reads in the opposite direction.
 
     Built as an INDEX in one pass because the nightly selection asks the
@@ -460,16 +462,21 @@ def _merge_index(tools_root: Path) -> dict[str, dict[str, Any]]:
     if not path.exists():
         return {}
     rows = load_declared_jsonl(path, expected_surface="pr_lifecycle")
-    changes_by_pr: dict[Any, set[str]] = {}
+    # One pass partitions the ledger by PR, so each PR's binding is read from
+    # its own rows; which row binds stays the owner's rule.
+    rows_by_pr: dict[int, list[dict[str, Any]]] = {}
     for row in rows:
-        change_id = row.get("change_id")
-        pr_number = row.get("pr_number")
-        if isinstance(change_id, str) and change_id and pr_number is not None:
-            changes_by_pr.setdefault(pr_number, set()).add(change_id)
+        if type(row.get("pr_number")) is int:
+            rows_by_pr.setdefault(row["pr_number"], []).append(row)
+    bound_changes: dict[int, tuple[str, ...]] = {}
+    for pr_number, pr_rows in rows_by_pr.items():
+        binding = pr_change_binding(pr_rows, pr_number=pr_number)
+        if binding is not None:
+            bound_changes[pr_number] = binding.bound_change_ids
     index: dict[str, dict[str, Any]] = {}
     # ARIA-HIGH-409 — each merged row with its lineage attestation folded.
     for row in fold_merged_rows(rows):
-        for change_id in changes_by_pr.get(row.get("pr_number"), set()):
+        for change_id in bound_changes.get(row.get("pr_number"), ()):
             index[change_id] = row  # later merged row wins
     return index
 
@@ -880,7 +887,8 @@ def _capture_assessment_inputs(
     # The immutable first outcome selects its own merge, not a later merge row.
     pr_number = original.get("merged_pr_number")
     pr_rows = source_rows["pr_lifecycle"]
-    openings = [row for row in pr_rows if row.get("pr_number") == pr_number and row.get("change_id") == change_id]
+    binding = pr_change_binding(pr_rows, pr_number=pr_number)
+    openings = [binding.row] if binding is not None and change_id in binding.bound_change_ids else []
     merged_at = _parse_instant(str(original.get("merged_at") or ""))
     merges = [row for row in pr_rows if row.get("event") == "merged"
               and row.get("pr_number") == pr_number

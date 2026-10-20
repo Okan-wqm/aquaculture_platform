@@ -164,6 +164,7 @@ from typing import Any, Callable, Mapping, Sequence
 from .change_paths import name_status_args, parse_name_status_z
 from .git_containment import KERNEL_GIT_NO_HOOKS_ARGS, without_ambient_git_config
 from .ledger import append_declared_jsonl, load_declared_jsonl
+from .merge_record import lifecycle_rows, pr_change_binding
 from .pr_manager import ARIA_PR_BASE, REVERT_BRANCH_PREFIX
 from .self_merge_freeze import (
     FreezeNoticeWriter,
@@ -1182,14 +1183,11 @@ def _reverted_suite(reverted: dict[str, Any], *, pr_number: int, base_dir: str |
         if command and command not in commands:
             commands.append(command)
     timeout_ms = CANONICAL_VALIDATION_TIMEOUT_MS
-    lifecycle = ensure_tools_dir(base_dir) / "pr-lifecycle.jsonl"
-    proposal_id = ""
-    if lifecycle.exists():
-        for row in load_declared_jsonl(lifecycle, expected_surface="pr_lifecycle"):
-            if row.get("pr_number") == pr_number and row.get("proposal_id"):
-                proposal_id = str(row["proposal_id"])
-    if proposal_id:
-        _commands, timeout_ms = _staged_suite(proposal_id=proposal_id, base_dir=base_dir)
+    # merge-delivery-1 — the proposal the PR was opened for, from its one
+    # binding owner (the PR's opened row), never a later row's.
+    binding = pr_change_binding(lifecycle_rows(base_dir), pr_number=pr_number)
+    if binding is not None and binding.proposal_id is not None:
+        _commands, timeout_ms = _staged_suite(proposal_id=binding.proposal_id, base_dir=base_dir)
     return commands, timeout_ms
 
 

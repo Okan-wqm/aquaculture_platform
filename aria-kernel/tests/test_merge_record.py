@@ -42,6 +42,7 @@ from aria_kernel.merge_record import (
     closed_recheck_due,
     lifecycle_rows,
     merged_row_is_arias,
+    pr_change_binding,
     record_merge,
     verify_merge_after_rejection,
 )
@@ -124,7 +125,10 @@ class APersonsMergeOfARecordedPlan(unittest.TestCase):
         merged = _merged_rows(self.tools)
         self.assertEqual([(row["pr_number"], row["head_sha"], row["delivered_head_sha"], row["change_id"],
                            row["merge_sha"], row["merged_at"], row["head_lineage"]) for row in merged],
-                         [(PR, TIP, TIP, "chg-r", MERGE_SHA, "2026-10-09T12:00:00Z", LINEAGE_DELIVERED)])
+                         [(PR, TIP, TIP, None, MERGE_SHA, "2026-10-09T12:00:00Z", LINEAGE_DELIVERED)])
+        # merge-delivery-1 — the binding has one copy, the opened row; the
+        # merged row records the merge, never a second binding of the PR.
+        self.assertEqual(pr_change_binding(lifecycle_rows(self.tools), pr_number=PR).change_id, "chg-r")
         # The finding closure and the convention promotion ran for it.
         self.assertEqual([row["plan_id"] for row in result["finding_closures"]], ["plan-r"])
         self.assertEqual([row["plan_id"] for row in result["promotions"]], ["plan-r"])

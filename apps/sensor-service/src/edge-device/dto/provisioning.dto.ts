@@ -14,6 +14,7 @@ import {
 import { Type } from 'class-transformer';
 import { GraphQLJSON } from 'graphql-scalars';
 
+import { type DeviceBrokerEndpoint } from '../device-broker';
 import { DeviceModel } from '../entities/edge-device.entity';
 
 // ============================================
@@ -232,9 +233,7 @@ export interface InstallerScriptVariables {
   provisioningToken: string;
   apiUrl: string;
   agentVersion: string;
-  mqttBroker: string;
-  mqttPort: number;
-  mqttTlsEnabled: boolean;
+  broker: DeviceBrokerEndpoint;
 }
 
 // ============================================
@@ -366,8 +365,7 @@ export interface TenantInstallerScriptVariables {
   tenantToken: string;
   apiUrl: string;
   agentVersion: string;
-  mqttPort: number;
-  mqttTlsEnabled: boolean;
+  broker: DeviceBrokerEndpoint;
 }
 
 /**

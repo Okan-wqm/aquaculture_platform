@@ -1066,8 +1066,9 @@ services:
       MQTT_CLIENT_ID: aqua-sensor-service
       # SEC-C02: No hardcoded default — credential encryption key must be provided externally
       CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:?CREDENTIAL_ENCRYPTION_KEY is required}
-      MQTT_BROKER_HOST: app.suderra.com
-      MQTT_BROKER_PORT: 8883
+      # The broker host generic-Linux devices are told about; they always
+      # connect on 8883 TLS (ADR-048 DEC-10.1; no port or TLS knob exists).
+      MQTT_PUBLIC_BROKER_HOST: app.suderra.com
       MQTT_BROKER_URL: mqtt://mosquitto:1883
       EDGE_AGENT_GITHUB_REPO: Okan-wqm/aquaculture_platform
       PROVISIONING_API_BASE_URL: ${PROVISIONING_API_BASE_URL:-https://app.suderra.com}

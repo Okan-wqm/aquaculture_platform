@@ -21,6 +21,7 @@ import { InstallerScriptService } from '../installer-script.service';
 import { TenantKeyService } from '../tenant-key.service';
 import { DeviceEventService } from '../device-event.service';
 import { DeviceDirectoryService } from '../device-directory.service';
+import { DeviceBrokerConfigError } from '../device-broker';
 import { ProvisioningService } from '../provisioning.service';
 import { DeviceLifecycleStatementService } from '../device-lifecycle-statement.service';
 import { EdgeProvisioningManifestService } from '../edge-provisioning-manifest.service';
@@ -90,8 +91,7 @@ const ENV_DEFAULTS: Record<string, string | number | boolean> = {
   PROVISIONING_TOKEN_TTL_HOURS: 24,
   PROVISIONING_API_BASE_URL: 'http://env-api.example.com',
   AGENT_VERSION: '2.0.0',
-  MQTT_BROKER_HOST: 'env-mqtt.example.com',
-  MQTT_BROKER_PORT: 8883,
+  MQTT_PUBLIC_BROKER_HOST: 'env-mqtt.example.com',
   ADMIN_API_URL: 'http://admin-api:3010',
   EDGE_AGENT_GITHUB_REPO: 'TestOrg/test-repo',
   MQTT_AUTH_ENABLED: false,
@@ -386,6 +386,30 @@ describe('ProvisioningService - Config Management', () => {
       expect(script).toContain(PLAINTEXT_TOKEN);
     });
 
+    it('writes the pinned broker on 8883 with TLS, never the admin API host or port (SENSOR-MEDIUM-220)', async () => {
+      const device = buildMockDevice();
+      deviceRepo.findOne.mockResolvedValueOnce(device);
+
+      const script = await service.generateInstallerScript(device.deviceCode, PLAINTEXT_TOKEN);
+
+      expect(script).toContain(
+        'mqtt:\n  broker: "env-mqtt.example.com"\n  port: 8883\n  tls:\n    enabled: true\n',
+      );
+      expect(script).not.toContain('mqtt.test.com');
+      expect(script).not.toContain('1883');
+    });
+
+    it('refuses to start with a device broker that is not a bare host name', () => {
+      for (const host of ['mqtt://env-mqtt.example.com:1883', 'env-mqtt.example.com:1883', '']) {
+        expect(
+          () =>
+            new InstallerScriptService(
+              new ConfigService({ ...ENV_DEFAULTS, MQTT_PUBLIC_BROKER_HOST: host }),
+            ),
+        ).toThrow(DeviceBrokerConfigError);
+      }
+    });
+
     it('should include SHA256 checksum verification in script', async () => {
       const device = buildMockDevice();
       deviceRepo.findOne.mockResolvedValueOnce(device);
@@ -503,7 +527,7 @@ describe('ProvisioningService - Config Management', () => {
   // activateDevice
   // =========================================================================
   describe('activateDevice', () => {
-    it('should use config for MQTT broker in response', async () => {
+    it('names the pinned 8883 TLS broker, never one the admin API sends (SENSOR-MEDIUM-220)', async () => {
       const adminConfig = {
         provisioningApiUrl: 'https://api.example.com',
         mqttBrokerHost: 'mqtt.production.example.com',
@@ -529,8 +553,9 @@ describe('ProvisioningService - Config Management', () => {
       });
 
       expect(result.success).toBe(true);
-      expect(result.mqtt_broker).toBe('mqtt.production.example.com');
+      expect(result.mqtt_broker).toBe('env-mqtt.example.com');
       expect(result.mqtt_port).toBe(8883);
+      expect(result.mqtt_tls_enabled).toBe(true);
       expect(result.mqtt_password).toBe('mqtt-plain-password');
       expect(result.device_code).toBe(device.deviceCode);
       expect(result.tenant_id).toBe(device.tenantId);

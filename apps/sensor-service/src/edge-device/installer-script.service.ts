@@ -1,24 +1,28 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { type DeviceBrokerEndpoint, deviceBrokerEndpoint } from './device-broker';
 import { InstallerScriptVariables, TenantInstallerScriptVariables } from './dto/provisioning.dto';
 
 export interface ProvisioningConfig {
   apiBaseUrl: string;
-  mqttBroker: string;
-  mqttPort: number;
+  /** The broker a generic-Linux device connects to: 8883 TLS only (ADR-048 DEC-10.1). */
+  deviceBroker: DeviceBrokerEndpoint;
   agentVersion: string;
   githubRepo: string;
   githubReleaseUrl: string;
-  mqttTlsEnabled: boolean;
 }
 
+/**
+ * What the admin API may set. The device broker is not among it: like the
+ * GitHub repo (MED-07) it is pinned from this service's environment, because
+ * the broker is where every device sends its credential, and a remote value
+ * was a second source that could name a plaintext or foreign broker
+ * (SENSOR-MEDIUM-220).
+ */
 interface RemoteProvisioningConfig {
   provisioningApiUrl?: string;
-  mqttBrokerHost?: string;
-  mqttBrokerPort?: number;
   agentDefaultVersion?: string;
-  mqttTlsEnabled?: boolean;
 }
 
 /**
@@ -32,9 +36,7 @@ export class InstallerScriptService {
 
   private readonly API_BASE_URL: string;
   private readonly AGENT_VERSION: string;
-  private readonly MQTT_BROKER: string;
-  private readonly MQTT_PORT: number;
-  private readonly MQTT_TLS_ENABLED: boolean;
+  private readonly DEVICE_BROKER: DeviceBrokerEndpoint;
   /** Pinned GitHub repo — never overridden by remote config to prevent supply-chain attacks */
   private readonly PINNED_GITHUB_REPO: string;
 
@@ -48,8 +50,9 @@ export class InstallerScriptService {
       'http://localhost:3000',
     );
     this.AGENT_VERSION = this.configService.get<string>('AGENT_VERSION', '');
-    // Public broker host for edge agents (external access). Falls back to MQTT_BROKER_HOST
-    // which may be an internal Docker hostname — override with MQTT_PUBLIC_BROKER_HOST in production.
+    // Public broker host for edge agents (external access), on 8883 TLS. Falls
+    // back to the provisioning API's host name; a host that is not a bare name
+    // (a URL, a port, a path) stops the service at boot.
     const apiBaseUrl = this.configService.get<string>(
       'PROVISIONING_API_BASE_URL',
       'http://localhost:3000',
@@ -61,9 +64,10 @@ export class InstallerScriptService {
         return 'localhost';
       }
     })();
-    this.MQTT_BROKER = this.configService.get<string>('MQTT_PUBLIC_BROKER_HOST', defaultPublicHost);
-    this.MQTT_PORT = Number(this.configService.get('MQTT_BROKER_PORT', 1883));
-    this.MQTT_TLS_ENABLED = Number(this.configService.get('MQTT_BROKER_PORT', 1883)) === 8883;
+    this.DEVICE_BROKER = deviceBrokerEndpoint(
+      this.configService.get<string>('MQTT_PUBLIC_BROKER_HOST', defaultPublicHost),
+      'MQTT_PUBLIC_BROKER_HOST',
+    );
     // Pin the GitHub repo from env var to prevent the admin API from redirecting
     // edge agent downloads to an attacker-controlled repository (MED-07)
     this.PINNED_GITHUB_REPO = this.configService.get<string>(
@@ -109,13 +113,12 @@ export class InstallerScriptService {
         const config = this.parseRemoteProvisioningConfig(configRaw);
         this.cachedConfig = {
           apiBaseUrl: config.provisioningApiUrl ?? this.API_BASE_URL,
-          mqttBroker: config.mqttBrokerHost ?? this.MQTT_BROKER,
-          mqttPort: config.mqttBrokerPort ?? this.MQTT_PORT,
+          // Pinned like the repo: never taken from the remote config.
+          deviceBroker: this.DEVICE_BROKER,
           agentVersion: config.agentDefaultVersion ?? this.AGENT_VERSION,
           // Always use the pinned value — never trust the remote config for the repo URL
           githubRepo: this.PINNED_GITHUB_REPO,
           githubReleaseUrl: `https://github.com/${this.PINNED_GITHUB_REPO}/releases`,
-          mqttTlsEnabled: config.mqttTlsEnabled ?? this.MQTT_TLS_ENABLED,
         };
         this.configCacheExpiry = new Date(Date.now() + this.CONFIG_CACHE_TTL_MS);
         return this.cachedConfig;
@@ -129,13 +132,11 @@ export class InstallerScriptService {
     // Cache fallback values with shorter TTL to prevent timeout storms
     const fallbackConfig: ProvisioningConfig = {
       apiBaseUrl: this.API_BASE_URL,
-      mqttBroker: this.MQTT_BROKER,
-      mqttPort: this.MQTT_PORT,
+      deviceBroker: this.DEVICE_BROKER,
       agentVersion: this.AGENT_VERSION,
       // Always use the pinned repo, even in fallback path
       githubRepo: this.PINNED_GITHUB_REPO,
       githubReleaseUrl: `https://github.com/${this.PINNED_GITHUB_REPO}/releases`,
-      mqttTlsEnabled: this.MQTT_TLS_ENABLED,
     };
     this.cachedConfig = fallbackConfig;
     this.configCacheExpiry = new Date(Date.now() + 15000); // 15s TTL for fallback
@@ -161,23 +162,12 @@ export class InstallerScriptService {
     const record = value as Record<string, unknown>;
     return {
       provisioningApiUrl: this.stringOrUndefined(record.provisioningApiUrl),
-      mqttBrokerHost: this.stringOrUndefined(record.mqttBrokerHost),
-      mqttBrokerPort: this.numberOrUndefined(record.mqttBrokerPort),
       agentDefaultVersion: this.stringOrUndefined(record.agentDefaultVersion),
-      mqttTlsEnabled: this.booleanOrUndefined(record.mqttTlsEnabled),
     };
   }
 
   private stringOrUndefined(value: unknown): string | undefined {
     return typeof value === 'string' ? value : undefined;
-  }
-
-  private numberOrUndefined(value: unknown): number | undefined {
-    return typeof value === 'number' ? value : undefined;
-  }
-
-  private booleanOrUndefined(value: unknown): boolean | undefined {
-    return typeof value === 'boolean' ? value : undefined;
   }
 
   private assertExplicitAgentVersion(version: string): string {
@@ -271,9 +261,9 @@ export class InstallerScriptService {
     const safeApiUrl = this.sanitizeForShell(variables.apiUrl);
     const safeDeviceId = this.sanitizeForShell(variables.deviceId);
     const safeProvisioningToken = this.sanitizeForShell(variables.provisioningToken);
-    const safeMqttBroker = this.sanitizeForShell(String(variables.mqttBroker ?? ''));
-    const safeMqttPort = this.sanitizeForShell(String(variables.mqttPort));
-    const mqttTlsEnabled = variables.mqttTlsEnabled ? 'true' : 'false';
+    const safeMqttBroker = this.sanitizeForShell(variables.broker.host);
+    const safeMqttPort = String(variables.broker.port);
+    const mqttTlsEnabled = String(variables.broker.tls);
 
     const header = `#!/bin/bash
 set -euo pipefail
@@ -377,9 +367,9 @@ log ""
     );
     const safeApiUrl = this.sanitizeForShell(variables.apiUrl);
     const safeTenantToken = this.sanitizeForShell(variables.tenantToken);
-    const safeMqttBroker = this.sanitizeForShell(config?.mqttBroker || this.MQTT_BROKER);
-    const safeMqttPort = this.sanitizeForShell(String(variables.mqttPort));
-    const mqttTlsEnabled = variables.mqttTlsEnabled ? 'true' : 'false';
+    const safeMqttBroker = this.sanitizeForShell(variables.broker.host);
+    const safeMqttPort = String(variables.broker.port);
+    const mqttTlsEnabled = String(variables.broker.tls);
 
     const header = `#!/bin/bash
 set -euo pipefail

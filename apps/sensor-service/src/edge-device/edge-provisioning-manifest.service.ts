@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 
+import { type DeviceBrokerEndpoint } from './device-broker';
 import {
   BINDING_METHODS,
   BOARD_PROFILES,
@@ -24,7 +25,7 @@ import {
 import { ManifestSigner } from './manifest-signer';
 import { RbacManifestService } from './rbac-manifest.service';
 import { SiteConfigManifestService } from './site-config-manifest.service';
-import { SUDERRA_EDGE_MQTT_PORT, SuderraEdgeConfig } from './suderra-edge.config';
+import { SuderraEdgeConfig } from './suderra-edge.config';
 import {
   type DeliveredTrustAnchors,
   TrustAnchorBundleService,
@@ -267,8 +268,8 @@ export class EdgeProvisioningManifestService {
   }
 
   /** The broker a Suderra OS device is told about: 8883 TLS only (DEC-10.1, DEC-10.2). */
-  deviceBroker(): { host: string; port: number; tls: boolean } {
-    return { host: this.config.settings.mqttHost, port: SUDERRA_EDGE_MQTT_PORT, tls: true };
+  deviceBroker(): DeviceBrokerEndpoint {
+    return this.config.settings.deviceBroker;
   }
 
   /**

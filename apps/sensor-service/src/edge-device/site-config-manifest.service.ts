@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 
+import { type DeviceBrokerEndpoint } from './device-broker';
 import {
   contractTimestamp,
   type DeviceBinding,
@@ -10,7 +11,7 @@ import {
   STATEMENT,
 } from './edge-contract';
 import { ManifestSigner } from './manifest-signer';
-import { SUDERRA_EDGE_MQTT_PORT, SuderraEdgeConfig } from './suderra-edge.config';
+import { SuderraEdgeConfig } from './suderra-edge.config';
 
 /**
  * The signed site config (ADR-048 DEC-4.10, DEC-4.12): device-bound,
@@ -73,7 +74,7 @@ export interface AgentConfigInput {
   readonly tenantId: string;
   readonly apiUrl: string;
   readonly provisioningToken: string;
-  readonly mqttHost: string;
+  readonly broker: DeviceBrokerEndpoint;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -102,10 +103,10 @@ export function renderSuderraOsAgentConfig(input: AgentConfigInput): Buffer {
     `api_url: ${q(input.apiUrl)}`,
     `provisioning_token: ${q(input.provisioningToken)}`,
     'mqtt:',
-    `  broker: ${q(input.mqttHost)}`,
-    `  port: ${SUDERRA_EDGE_MQTT_PORT}`,
+    `  broker: ${q(input.broker.host)}`,
+    `  port: ${input.broker.port}`,
     '  tls:',
-    '    enabled: true',
+    `    enabled: ${input.broker.tls}`,
     '    verify_hostname: true',
     '',
   ];
@@ -143,7 +144,7 @@ export class SiteConfigManifestService {
           tenantId: request.tenantId,
           apiUrl: settings.apiUrl,
           provisioningToken: request.provisioningToken,
-          mqttHost: settings.mqttHost,
+          broker: settings.deviceBroker,
         }),
       ],
     ]);

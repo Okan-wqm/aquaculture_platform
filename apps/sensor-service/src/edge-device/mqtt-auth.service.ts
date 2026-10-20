@@ -19,6 +19,20 @@ const execFileAsync = promisify(execFile);
 // request in the process for each CONNECT. The async form runs on libuv's pool.
 const pbkdf2Async = promisify(pbkdf2);
 
+/**
+ * The one principal that may publish an edge device's commands (ADR-048
+ * DEC-9.3): sensor-service, whose only command path is EdgeCommandPublisher
+ * (tests/invariants/edge-command-publish-chokepoint.spec.ts). No other service
+ * account and no device — not even onto its own topic — writes a command.
+ */
+export const COMMAND_PUBLISHER_PRINCIPAL = 'sensor_service';
+
+/** A device command topic, current or legacy, and anything beneath it. */
+const DEVICE_COMMAND_TOPIC = /^(?:tenants\/[^/]+\/devices\/[^/]+|edge\/[^/]+)\/commands(?:\/|$)/;
+
+/** go-auth access bits: 1 read, 2 write (3 = both), 4 subscribe. */
+const ACC_WRITE = 2;
+
 /** Why a device CONNECT was refused — logged, never returned to the broker. */
 type DeviceAuthDenial =
   | 'device_not_found'
@@ -279,6 +293,16 @@ export class MqttAuthService implements OnModuleInit {
    * @param acc - Access type: 1=read, 2=write/publish, 4=subscribe (MOSQ_ACL_SUBSCRIBE)
    */
   async checkTopicAccess(username: string, topic: string, acc: number): Promise<boolean> {
+    // ADR-048 DEC-9.3: nobody but the command principal writes a command,
+    // whatever a later grant says; the principal still needs its own grant.
+    if (
+      (acc & ACC_WRITE) !== 0 &&
+      DEVICE_COMMAND_TOPIC.test(topic) &&
+      username !== COMMAND_PUBLISHER_PRINCIPAL
+    ) {
+      return false;
+    }
+
     // Service accounts: per-topic-pattern grants scoped to tenants. Handled
     // first so their intentional wildcard subscribe patterns still work.
     if (this.serviceAccountNames.has(username)) {
@@ -304,9 +328,12 @@ export class MqttAuthService implements OnModuleInit {
     }
 
     // Tenant-scoped topics: tenants/{tenant_id}/devices/{device_identifier}/...
-    // device_identifier can be either mqttClientId (e.g. "edge-c2447348-pi-a36c09d4")
-    // or device UUID (e.g. "0cfb7dad-9d5d-4309-82b0-fe7c378caa8d").
-    // The edge agent uses device UUID in topic paths while authenticating with mqttClientId.
+    // device_identifier is one of the device's own identities: its mqttClientId
+    // (e.g. "edge-c2447348-pi-a36c09d4"), its UUID (e.g.
+    // "0cfb7dad-9d5d-4309-82b0-fe7c378caa8d") or its device code (e.g.
+    // "PI-A36C09D4", unique per tenant schema). The edge agent authenticates
+    // with mqttClientId, names most topics by UUID and the HMI watch stream by
+    // device code (SENSOR-MEDIUM-221).
     const tenantTopicMatch = topic.match(/^tenants\/([a-f0-9-]+)\/devices\/([^/]+)\//);
     if (tenantTopicMatch && tenantTopicMatch[1] && tenantTopicMatch[2]) {
       const topicTenantId = tenantTopicMatch[1];
@@ -320,9 +347,13 @@ export class MqttAuthService implements OnModuleInit {
         return false;
       }
 
-      // Device can only access its own device namespace, named by its
-      // mqttClientId (username) or its UUID.
-      if (topicDeviceId !== username && topicDeviceId !== device.id) {
+      // Device can only access its own device namespace, named by one of
+      // its own identities.
+      if (
+        topicDeviceId !== username &&
+        topicDeviceId !== device.id &&
+        topicDeviceId !== device.deviceCode
+      ) {
         return false;
       }
 
@@ -374,9 +405,10 @@ export class MqttAuthService implements OnModuleInit {
 
     switch (username) {
       case 'backend_service':
-        // backend_service: publish on tenant-scoped topics (cloud→edge
-        // COMMANDS). SEC-MEDIUM-130 (2026-08-23 scan №75): the wildcard
-        // tenants/# read grant (subscribe ALL tenant telemetry) is removed.
+        // backend_service: publish on tenant-scoped topics, never a device's
+        // commands (ADR-048 DEC-9.3; refused above). SEC-MEDIUM-130
+        // (2026-08-23 scan №75): the wildcard tenants/# read grant (subscribe
+        // ALL tenant telemetry) is removed.
         if (isTenantTopic && (acc === 2 || acc === 3)) return true;
         // Ack/read: device responses on commands topics only
         if (isTenantTopic && acc === 1 && topic.includes('/commands')) return true;

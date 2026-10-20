@@ -13,6 +13,7 @@ import { ConfigService } from '@nestjs/config';
 import type { Response } from 'express';
 import type { DataSource, Repository } from 'typeorm';
 
+import { deviceBrokerEndpoint } from '../device-broker';
 import { DeviceDirectoryService } from '../device-directory.service';
 import type { DeviceLifecycleStatementService } from '../device-lifecycle-statement.service';
 import type { EdgeRootHandoffService } from '../edge-root-handoff.service';
@@ -30,7 +31,7 @@ import {
   EdgeAgentChannel,
   EdgeDevice,
 } from '../entities/edge-device.entity';
-import type { InstallerScriptService } from '../installer-script.service';
+import type { InstallerScriptService, ProvisioningConfig } from '../installer-script.service';
 import type { MqttAuthService } from '../mqtt-auth.service';
 import { PROVISIONING_REFUSAL_BODY, ProvisioningController } from '../provisioning.controller';
 import type {
@@ -123,11 +124,13 @@ function harness(found: EdgeDevice | null): Harness {
     ),
     collaborator<InstallerScriptService>(
       {
-        getProvisioningConfig: jest.fn().mockResolvedValue({
-          mqttBroker: 'mqtt.example.com',
-          mqttPort: 8883,
-          mqttTlsEnabled: true,
-        }),
+        getProvisioningConfig: jest
+          .fn()
+          .mockResolvedValue(
+            stub<ProvisioningConfig>({
+              deviceBroker: deviceBrokerEndpoint('mqtt.example.com', 'test'),
+            }),
+          ),
       },
       'InstallerScriptService',
     ),

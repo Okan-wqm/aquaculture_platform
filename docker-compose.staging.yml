@@ -170,7 +170,8 @@ services:
       # Staging uses its own MQTT broker endpoint — sensor-service calls
       # external (staging-app) host, not production. Keeps edge-device
       # staging traffic isolated from prod MQTT topic namespace.
-      MQTT_BROKER_HOST: ${MQTT_BROKER_HOST:-staging.suderra.com}
+      # Devices connect to it on 8883 TLS (ADR-048 DEC-10.1).
+      MQTT_PUBLIC_BROKER_HOST: ${MQTT_PUBLIC_BROKER_HOST:-staging.suderra.com}
       # Provisioning base URL is used by device-enrolment flows — must
       # point at staging so enrolled devices hit the staging API.
       PROVISIONING_API_BASE_URL: ${PROVISIONING_API_BASE_URL:-https://staging.suderra.com}

@@ -17,7 +17,7 @@ import { EdgeDevice, DeviceLifecycleState } from '../entities/edge-device.entity
 import { collaborator } from '@aquaculture/testing';
 
 import { DeviceDirectoryService } from '../device-directory.service';
-import { MqttAuthService } from '../mqtt-auth.service';
+import { COMMAND_PUBLISHER_PRINCIPAL, MqttAuthService } from '../mqtt-auth.service';
 import { type ProvisioningReservationService } from '../provisioning-reservation.service';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -485,6 +485,82 @@ describe('MqttAuthService', () => {
       // arbitrary/cross-tenant filter must be denied (was `true` before).
       const result = await service.checkTopicAccess(MQTT_CLIENT, 'any/topic', 4);
       expect(result).toBe(false);
+    });
+  });
+
+  // ─── checkTopicAccess: command topics (ADR-048 DEC-9.3) ─────────────────
+
+  describe('checkTopicAccess (command topics, ADR-048 DEC-9.3)', () => {
+    const commands = `tenants/${TENANT_A}/devices/${DEVICE_UUID}/commands`;
+
+    it('only the command principal publishes a device command', async () => {
+      const { service } = createService();
+      expect(COMMAND_PUBLISHER_PRINCIPAL).toBe('sensor_service');
+      await expect(service.checkTopicAccess('sensor_service', commands, 2)).resolves.toBe(true);
+      for (const account of ['backend_service', 'alert_service']) {
+        for (const acc of [2, 3]) {
+          await expect(service.checkTopicAccess(account, commands, acc)).resolves.toBe(false);
+          await expect(service.checkTopicAccess(account, `${commands}/x`, acc)).resolves.toBe(
+            false,
+          );
+        }
+      }
+      // Reading device responses on the command topic stays with backend_service.
+      await expect(service.checkTopicAccess('backend_service', commands, 1)).resolves.toBe(true);
+    });
+
+    it('a device reads and subscribes its own commands but never publishes one', async () => {
+      const { service, directory } = createService();
+      stubFindDeviceRepeated(directory, makeDevice());
+      for (const id of [DEVICE_UUID, MQTT_CLIENT, DEVICE_CODE]) {
+        const own = `tenants/${TENANT_A}/devices/${id}/commands`;
+        await expect(service.checkTopicAccess(MQTT_CLIENT, own, 1)).resolves.toBe(true);
+        await expect(service.checkTopicAccess(MQTT_CLIENT, own, 4)).resolves.toBe(true);
+        await expect(service.checkTopicAccess(MQTT_CLIENT, own, 2)).resolves.toBe(false);
+        await expect(service.checkTopicAccess(MQTT_CLIENT, own, 3)).resolves.toBe(false);
+      }
+    });
+
+    it('a legacy edge/ command topic is never writable by a device, even in the migration window', async () => {
+      const { service, directory } = createService({
+        configOverrides: { NODE_ENV: 'development', MQTT_LEGACY_EDGE_TOPICS_ENABLED: 'true' },
+      });
+      stubFindDeviceRepeated(directory, makeDevice());
+      await expect(
+        service.checkTopicAccess(MQTT_CLIENT, `edge/${MQTT_CLIENT}/commands`, 2),
+      ).resolves.toBe(false);
+      await expect(
+        service.checkTopicAccess(MQTT_CLIENT, `edge/${MQTT_CLIENT}/telemetry`, 2),
+      ).resolves.toBe(true);
+    });
+  });
+
+  describe('checkTopicAccess (the agent publishes under its own device code, SENSOR-MEDIUM-221)', () => {
+    it('allows the HMI watch stream the agent keys by device code', async () => {
+      const { service, directory } = createService();
+      stubFindDeviceRepeated(directory, makeDevice());
+      await expect(
+        service.checkTopicAccess(
+          MQTT_CLIENT,
+          `tenants/${TENANT_A}/devices/${DEVICE_CODE}/watch/session-1`,
+          2,
+        ),
+      ).resolves.toBe(true);
+    });
+
+    it("denies another device's code and its own code under another tenant", async () => {
+      const { service, directory } = createService();
+      stubFindDeviceRepeated(directory, makeDevice());
+      await expect(
+        service.checkTopicAccess(MQTT_CLIENT, `tenants/${TENANT_A}/devices/PI-0000FFFF/watch/s`, 2),
+      ).resolves.toBe(false);
+      await expect(
+        service.checkTopicAccess(
+          MQTT_CLIENT,
+          `tenants/${TENANT_B}/devices/${DEVICE_CODE}/watch/s`,
+          2,
+        ),
+      ).resolves.toBe(false);
     });
   });
 

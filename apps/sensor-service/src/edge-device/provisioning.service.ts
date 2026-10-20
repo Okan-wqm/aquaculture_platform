@@ -47,6 +47,7 @@ import { MqttAuthService } from './mqtt-auth.service';
 import { InstallerScriptService } from './installer-script.service';
 import { TenantKeyService } from './tenant-key.service';
 import { DeviceEventService } from './device-event.service';
+import { type DeviceBrokerEndpoint } from './device-broker';
 import { DeviceDirectoryService } from './device-directory.service';
 import { DeviceLifecycleStatementService } from './device-lifecycle-statement.service';
 import { BINDING_METHODS, type DeviceBinding, wholeSecond } from './edge-contract';
@@ -307,9 +308,7 @@ export class ProvisioningService {
       provisioningToken,
       apiUrl: config.apiBaseUrl,
       agentVersion: config.agentVersion,
-      mqttBroker: config.mqttBroker,
-      mqttPort: config.mqttPort,
-      mqttTlsEnabled: config.mqttTlsEnabled ?? config.mqttPort === 8883,
+      broker: config.deviceBroker,
     };
 
     return this.installerScriptService.renderInstallerScript(variables, config);
@@ -508,14 +507,11 @@ export class ProvisioningService {
    * 8883 TLS endpoint named here; a generic agent without one configured
    * uses this response's.
    */
-  private async brokerEndpointFor(
-    channel: EdgeAgentChannel,
-  ): Promise<{ host: string; port: number; tls: boolean }> {
+  private async brokerEndpointFor(channel: EdgeAgentChannel): Promise<DeviceBrokerEndpoint> {
     if (channel === EdgeAgentChannel.SUDERRA_OS) {
       return this.suderraOsManifests.deviceBroker();
     }
-    const config = await this.installerScriptService.getProvisioningConfig();
-    return { host: config.mqttBroker, port: config.mqttPort, tls: config.mqttTlsEnabled };
+    return (await this.installerScriptService.getProvisioningConfig()).deviceBroker;
   }
 
   /**
@@ -813,8 +809,7 @@ export class ProvisioningService {
       tenantToken,
       apiUrl: config.apiBaseUrl,
       agentVersion: config.agentVersion,
-      mqttPort: config.mqttPort,
-      mqttTlsEnabled: config.mqttTlsEnabled ?? config.mqttPort === 8883,
+      broker: config.deviceBroker,
     };
 
     return this.installerScriptService.renderTenantInstallerScript(variables, config);
@@ -858,7 +853,7 @@ export class ProvisioningService {
           this.logger.log(
             `Returning existing registration for device ${existing.deviceCode} (power-loss recovery)`,
           );
-          const config = await this.installerScriptService.getProvisioningConfig();
+          const broker = await this.brokerEndpointFor(EdgeAgentChannel.GENERIC_LINUX);
           // Regenerate MQTT credentials for the recovery
           const { password: mqttPassword, hash: mqttPasswordHash } =
             await this.generateMqttCredentials();
@@ -881,11 +876,12 @@ export class ProvisioningService {
             success: true,
             device_id: existing.id,
             device_code: existing.deviceCode,
-            mqtt_broker: config.mqttBroker,
-            mqtt_port: config.mqttPort,
+            mqtt_broker: broker.host,
+            mqtt_port: broker.port,
             mqtt_username: existing.mqttClientId ?? '',
             mqtt_password: mqttPassword,
             tenant_id: existing.tenantId,
+            mqtt_tls_enabled: broker.tls,
           };
         }
         throw new ConflictException(
@@ -979,17 +975,18 @@ export class ProvisioningService {
       `Device ${deviceCode} self-registered for tenant ${key.tenantId} (state: ${lifecycleState})`,
     );
 
-    const config = await this.installerScriptService.getProvisioningConfig();
+    // Self-registration is the generic-Linux installer's path.
+    const broker = await this.brokerEndpointFor(EdgeAgentChannel.GENERIC_LINUX);
     return {
       success: true,
       device_id: saved.id,
       device_code: saved.deviceCode,
-      mqtt_broker: config.mqttBroker,
-      mqtt_port: config.mqttPort,
+      mqtt_broker: broker.host,
+      mqtt_port: broker.port,
       mqtt_username: mqttClientId,
       mqtt_password: mqttPassword,
       tenant_id: key.tenantId,
-      mqtt_tls_enabled: config.mqttPort === 8883,
+      mqtt_tls_enabled: broker.tls,
     };
   }
 

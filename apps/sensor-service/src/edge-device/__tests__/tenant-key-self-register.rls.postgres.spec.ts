@@ -28,6 +28,7 @@ import { EdgeDevice } from '../entities/edge-device.entity';
 import { TenantProvisioningKeyDirectory } from '../entities/tenant-provisioning-key-directory.entity';
 import { TenantProvisioningKey } from '../entities/tenant-provisioning-key.entity';
 import { InstallerScriptService, type ProvisioningConfig } from '../installer-script.service';
+import { deviceBrokerEndpoint } from '../device-broker';
 import { MqttAuthService } from '../mqtt-auth.service';
 import { type ProvisioningReservationService } from '../provisioning-reservation.service';
 import { type DeviceLifecycleStatementService } from '../device-lifecycle-statement.service';
@@ -131,7 +132,7 @@ describe('tenant-key self-register under FORCE RLS (SENSOR-HIGH-175)', () => {
         buildTenantInstallerUrl: jest.fn(async () => 'https://host/install/tenant'),
         buildTenantInstallerCommand: jest.fn(async () => 'curl tenant | sudo bash'),
         getProvisioningConfig: jest.fn(async () =>
-          stub<ProvisioningConfig>({ mqttBroker: 'mqtt.example', mqttPort: 8883 }),
+          stub<ProvisioningConfig>({ deviceBroker: deviceBrokerEndpoint('mqtt.example', 'test') }),
         ),
       },
       'InstallerScriptService',

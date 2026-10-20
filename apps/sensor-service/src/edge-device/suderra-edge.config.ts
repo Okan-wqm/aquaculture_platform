@@ -1,6 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import {
+  type DeviceBrokerEndpoint,
+  deviceBrokerEndpoint,
+  isDeviceBrokerHost,
+} from './device-broker';
 import { contractTimestamp, type DsseEnvelope } from './edge-contract';
 import { Ed25519SigningKey, keyidOf, type VerificationKey } from './manifest-signer';
 
@@ -42,14 +47,9 @@ const REQUIRED_ENV = [
   'SUDERRA_EDGE_API_URL',
 ] as const;
 
-/** Devices reach the broker on 8883 TLS only (DEC-10.1, DEC-10.2). */
-export const SUDERRA_EDGE_MQTT_PORT = 8883;
-
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const SEMVER =
   /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$/;
-const HOSTNAME =
-  /^(?=.{1,253}$)[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/;
 const HTTPS_URL = /^https:\/\/[A-Za-z0-9.-]+(:[0-9]{1,5})?(\/[A-Za-z0-9._~%!$&'()*+,;=:@/-]*)?$/;
 
 export interface SuderraEdgeSettings {
@@ -74,7 +74,8 @@ export interface SuderraEdgeSettings {
     readonly urlTemplate: string;
     readonly agentVersion: string;
   };
-  readonly mqttHost: string;
+  /** The broker a Suderra OS device connects to: 8883 TLS only (DEC-10.1). */
+  readonly deviceBroker: DeviceBrokerEndpoint;
   /** The api_url the agent activates against (HTTPS). */
   readonly apiUrl: string;
   /** How long a manifest reservation and its statements stay valid. */
@@ -252,7 +253,7 @@ export function loadSuderraEdgeSettings(
     throw new SuderraEdgeConfigError('SUDERRA_EDGE_AGENT_VERSION must be a path-safe semver');
   }
   const mqttHost = value('SUDERRA_EDGE_MQTT_HOST');
-  if (!HOSTNAME.test(mqttHost)) {
+  if (!isDeviceBrokerHost(mqttHost)) {
     throw new SuderraEdgeConfigError('SUDERRA_EDGE_MQTT_HOST must be a DNS host name');
   }
   const apiUrl = value('SUDERRA_EDGE_API_URL');
@@ -274,7 +275,7 @@ export function loadSuderraEdgeSettings(
     platformActorId,
     rbac: { policyVersion, notBefore, expiresAt },
     release: { urlTemplate, agentVersion },
-    mqttHost,
+    deviceBroker: deviceBrokerEndpoint(mqttHost, 'SUDERRA_EDGE_MQTT_HOST'),
     apiUrl,
     reservationTtlMs: Number(ttlText) * 60_000,
   };

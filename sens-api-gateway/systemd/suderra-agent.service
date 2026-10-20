@@ -1,5 +1,12 @@
 # Suderra Edge Agent — systemd unit (IEC 62443 SL-2 adversarial baseline)
 #
+# Generic-Linux reference unit (ADR-048 DEC-1.9, DEC-28): the v1.6.0 HC-1
+# fleet's unit, from which the cloud renders the fleet unit. Every
+# security-relevant directive is fixed by the `generic` profile of
+# contracts/suderra-edge/v1/unit-directives.json and checked as a set, not as
+# text, by tests/invariants/systemd_unit_directive_contract.rs. The Suderra OS
+# unit lives in the OS image (DEC-1.8) and is checked against the same file.
+#
 # Hardened per ADR-018 §7 (master-key in-process defense) + ADR-020 §6 (audit
 # log append-only durability) + Faz 0 item 5 of the consolidation plan
 # (/root/.claude/plans/unutma-mevcut-s-stem-le-lexical-puzzle.md §5 Faz 0).
@@ -25,18 +32,26 @@
 #   systemctl show suderra-agent -p LimitCORE     # expect LimitCORE=0
 #   systemctl show suderra-agent -p SystemCallFilter
 
+# Ordering only (DEC-6.2, DEC-7.4, DEC-11.2): safe state and local control
+# never wait for the network, and a firewall or time-sync failure never stops
+# the agent, so there is no Requires=, no BindsTo= and no network-online.target.
+# The start limit stops a crash loop from cycling the outputs (DEC-6.5).
 [Unit]
-Description=Suderra Edge Agent (IEC 62443 SL-2 hardened)
-Documentation=https://github.com/suderra/edge-agent
-After=network-online.target time-sync.target
-Wants=network-online.target
-Requires=time-sync.target
+Description=Suderra edge agent
+Documentation=https://github.com/Okan-wqm/aquaculture_platform/tree/main/sens-api-gateway
+After=nftables.service time-sync.target
+Wants=time-sync.target
+StartLimitIntervalSec=600
+StartLimitBurst=5
 
 [Service]
 Type=notify
+NotifyAccess=main
 ExecStart=/usr/local/bin/suderra-agent
+ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=5s
+TimeoutStartSec=300s
 TimeoutStopSec=90s
 
 # -----------------------------------------------------------------------------
@@ -47,11 +62,10 @@ Group=suderra
 UMask=0077
 
 # -----------------------------------------------------------------------------
-# Watchdog — systemd restarts the agent if no WATCHDOG=1 notify in 60s
-# WatchdogSec=60 balances detection latency vs false positives under
-# ARM CPU stalls during flash GC. Matches ADR-019 §6 cold-boot budget of 90s
-# (WatchdogSec < cold_boot_budget_secs so watchdog kills before bootloader
-# marks the partition good).
+# Watchdog — systemd restarts the agent if no WATCHDOG=1 notify in 60s. The
+# agent pings only while its control loops make progress (DEC-6.4). This is
+# the service watchdog of systemd; the hardware watchdog (/dev/watchdog)
+# belongs to PID1 alone and is never granted to the agent (DEC-6.6).
 # -----------------------------------------------------------------------------
 WatchdogSec=60s
 
@@ -68,21 +82,17 @@ CPUQuota=75%
 TasksMax=64
 
 # -----------------------------------------------------------------------------
-# Capabilities — strip everything except CAP_NET_BIND_SERVICE (for optional
-# privileged port bind; edge agent does not bind below 1024 by default but
-# the hook is retained for future operator-facing listeners on 443/8883).
-# CapabilityBoundingSet is the UPPER bound; AmbientCapabilities is the
-# INITIAL set; the intersection of both plus file caps defines runtime caps.
+# Capabilities — none (DEC-1.8). The empty CapabilityBoundingSet= is the empty
+# bounding set, and there is no AmbientCapabilities=: the agent binds nothing
+# below 1024.
 # -----------------------------------------------------------------------------
-CapabilityBoundingSet=CAP_NET_BIND_SERVICE
-AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=
 NoNewPrivileges=true
 
 # -----------------------------------------------------------------------------
 # Filesystem — strict read-only root plus narrow writable paths
 # /var/lib/suderra — SQLCipher offline_queue + scada state + keystore file
-#                    backend + firmware update staging (ADR-019 A/B partition
-#                    writes go through this path during migration)
+#                    backend + agent state (activation, policy floors)
 # /var/log/suderra — append-only audit log (ADR-020 HMAC chain sink)
 # /etc/suderra    — READ-ONLY for the agent. Config is operator-owned and
 #                   factory-signed (D-13). Configuration changes go through
@@ -91,8 +101,8 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-ReadWritePaths=/var/lib/suderra /var/log/suderra
 ReadOnlyPaths=/etc/suderra
+ReadWritePaths=/var/lib/suderra /var/log/suderra
 
 # -----------------------------------------------------------------------------
 # Kernel surface reduction (FR3)
@@ -147,11 +157,11 @@ SystemCallErrorNumber=EPERM
 #   /dev/spidev0.1 SPI chip select 1 (reserved for dual-sensor topology)
 #   /dev/ttyAMA0   PL011 UART for Modbus-RTU on RPi
 #   /dev/ttyUSB0   USB-serial adapter for Modbus-RTU (FTDI/Prolific)
-#   /dev/watchdog  Hardware watchdog character device (FR7 resilience)
-#   /dev/tpm0      TCG TPM 2.0 char dev (when ADR-018 §4 tpm feature on)
-#   /dev/tpmrm0    TCG TPM 2.0 resource manager (preferred over /dev/tpm0)
 #   char-rtc       RTC (CLOCK_BOOTTIME reference; no settime granted)
 # /dev/{null,zero,random,urandom} auto-allowed by systemd's default minimal set.
+# Never granted: /dev/watchdog (PID1 owns the hardware watchdog, DEC-6.6) and
+# /dev/tpm0 or /dev/tpmrm0 (no TPM device in contract 1.x: a compromised agent
+# could clear an unowned TPM or trip its lockout, DEC-21).
 # -----------------------------------------------------------------------------
 DevicePolicy=closed
 DeviceAllow=/dev/gpiomem rw
@@ -160,9 +170,6 @@ DeviceAllow=/dev/spidev0.0 rw
 DeviceAllow=/dev/spidev0.1 rw
 DeviceAllow=/dev/ttyAMA0 rw
 DeviceAllow=/dev/ttyUSB0 rw
-DeviceAllow=/dev/watchdog rw
-DeviceAllow=/dev/tpm0 rw
-DeviceAllow=/dev/tpmrm0 rw
 DeviceAllow=char-rtc r
 
 # -----------------------------------------------------------------------------

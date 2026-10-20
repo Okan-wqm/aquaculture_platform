@@ -992,6 +992,13 @@ path = "tests/invariants/ready_after_safe_state.rs"
 name = "d3_boot_order"
 path = "tests/invariants/d3_boot_order.rs"
 
+# ADR-048 DEC-1.9 / DEC-21 / EI-042 — the generic reference unit satisfies the
+# `generic` profile of contracts/suderra-edge/v1/unit-directives.json, checked
+# as a set by a checker that first reproduces every golden unit verdict.
+[[test]]
+name = "systemd_unit_directive_contract"
+path = "tests/invariants/systemd_unit_directive_contract.rs"
+
 # =============================================================================
 # RUST-CVE-001: rumqttc 0.25.1 vendored fork (../crates/local-rumqttc)
 # =============================================================================

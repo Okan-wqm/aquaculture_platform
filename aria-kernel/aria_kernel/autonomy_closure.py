@@ -280,9 +280,9 @@ def _closure_policy_resolved(
     name = "closure_policy_resolved_at_evidence_target"
     if not evidence_ok:
         return ClosurePredicate(name, False, ("evidence_target_unavailable",)), None
-    policy, blocker = _policy_at_target(repo, evidence)
-    if policy is None:
-        return ClosurePredicate(name, False, (blocker or "operator_prerequisite_policy_unavailable",)), None
+    policy = _policy_at_target(repo, evidence)
+    if isinstance(policy, str):
+        return ClosurePredicate(name, False, (policy,)), None
     shape = _operator_policy_shape(policy, repo_root=repo, target_sha=evidence)
     if not shape.valid:
         return ClosurePredicate(name, False, ("operator_prerequisite_policy_invalid",)), None

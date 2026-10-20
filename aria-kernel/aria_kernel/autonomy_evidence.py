@@ -3893,7 +3893,14 @@ def _stream_unlock_verdict_counts(
 def _policy_at_target(
     repo_root: Path,
     target_sha: str,
-) -> tuple[dict[str, Any] | None, str | None]:
+) -> dict[str, Any] | str:
+    """The closure policy object at the target, or the operator blocker that
+    names why it cannot be read (unavailable, too large, invalid).
+
+    One or the other, never neither: the earlier ``(policy | None, blocker |
+    None)`` pair admitted ``(None, None)``, so both callers carried a
+    fallback blocker of their own for a result no path produced.
+    """
     policy_path = "docs/aria/policy/autonomy-closure-findings.json"
     try:
         entry = _git_tree_entry(repo_root, target_sha, policy_path)
@@ -3907,12 +3914,11 @@ def _policy_at_target(
             unavailable="operator_prerequisite_policy_unavailable",
         )
     except RuntimeError as exc:
-        blocker = (
+        return (
             "operator_prerequisite_policy_too_large"
             if str(exc) == "operator_prerequisite_policy_too_large"
             else "operator_prerequisite_policy_unavailable"
         )
-        return None, blocker
     try:
         text = payload.decode("utf-8")
         from .ledger import json_nesting_within_limit
@@ -3921,10 +3927,10 @@ def _policy_at_target(
             raise ValueError("json_nesting_limit_exceeded")
         policy = json.loads(text)
     except (UnicodeDecodeError, json.JSONDecodeError, RecursionError, ValueError):
-        return None, "operator_prerequisite_policy_invalid"
+        return "operator_prerequisite_policy_invalid"
     if not isinstance(policy, dict):
-        return None, "operator_prerequisite_policy_invalid"
-    return policy, None
+        return "operator_prerequisite_policy_invalid"
+    return policy
 
 
 def _with_prerequisite_blockers(
@@ -3987,13 +3993,33 @@ def _mode_a_signed_readiness_live_proven(
     )
 
 
+# One policy validation's ls-tree records at its target, by path: the review
+# anchors, the pinned refs and their ancestors share it, so each path costs
+# one git call however many entries name it.
+_TargetTreeEntries = dict[str, tuple[bytes, str, str, str] | None]
+
+
+def _target_tree_entry(
+    tree_entries: _TargetTreeEntries,
+    *,
+    repo_root: Path,
+    target_sha: str,
+    path: str,
+) -> tuple[bytes, str, str, str] | None:
+    """``_git_tree_entry`` through the validation's cache; a git failure
+    propagates and is never cached."""
+    if path not in tree_entries:
+        tree_entries[path] = _git_tree_entry(repo_root, target_sha, path)
+    return tree_entries[path]
+
+
 def _valid_policy_anchor(
     value: Any,
     *,
     finding_id: str,
     repo_root: Path,
     target_sha: str,
-    entry_cache: dict[str, str | None],
+    tree_entries: _TargetTreeEntries,
     blob_cache: dict[str, str],
 ) -> bool:
     if not isinstance(value, str) or value.count("#") != 1:
@@ -4005,21 +4031,22 @@ def _valid_policy_anchor(
         return False
     if anchor != finding_id or normalized_path != raw_path:
         return False
-    if raw_path not in entry_cache:
-        try:
-            entry = _git_tree_entry(repo_root, target_sha, raw_path)
-        except (RuntimeError, ValueError, UnicodeError, OSError):
-            return False
-        entry_cache[raw_path] = (
-            entry[3]
-            if entry is not None
-            and entry[1] in {"100644", "100755"}
-            and entry[2] == "blob"
-            else None
+    try:
+        entry = _target_tree_entry(
+            tree_entries,
+            repo_root=repo_root,
+            target_sha=target_sha,
+            path=raw_path,
         )
-    object_id = entry_cache[raw_path]
-    if object_id is None:
+    except (RuntimeError, ValueError, UnicodeError, OSError):
         return False
+    if (
+        entry is None
+        or entry[1] not in {"100644", "100755"}
+        or entry[2] != "blob"
+    ):
+        return False
+    object_id = entry[3]
     text = blob_cache.get(object_id)
     if text is None:
         try:
@@ -4064,6 +4091,7 @@ def _regression_ref_presence(
     *,
     repo_root: Path,
     target_sha: str,
+    tree_entries: _TargetTreeEntries,
 ) -> _RegressionRefPresence:
     """Classify one pinned regression ref in the target tree.
 
@@ -4073,16 +4101,28 @@ def _regression_ref_presence(
     gitlink at the path, or a non-directory ancestor the path would resolve
     through (``ls-tree`` lists nothing below a symlink, so absence alone
     cannot tell an owed proof from a tampered tree) -- a tampering shape,
-    never backlog. Git failures propagate; the caller fails closed.
+    never backlog. Git failures propagate; the caller fails closed. Every
+    lookup goes through the validation's ``tree_entries``, so an ancestor two
+    refs share, or a ref two entries pin, costs one ls-tree call.
     """
-    found = _git_tree_entry(repo_root, target_sha, ref)
+    found = _target_tree_entry(
+        tree_entries,
+        repo_root=repo_root,
+        target_sha=target_sha,
+        path=ref,
+    )
     if found is not None:
         if found[1] in {"100644", "100755"} and found[2] == "blob":
             return "landed"
         return "irregular"
     parts = ref.split("/")
     for depth in range(1, len(parts)):
-        ancestor = _git_tree_entry(repo_root, target_sha, "/".join(parts[:depth]))
+        ancestor = _target_tree_entry(
+            tree_entries,
+            repo_root=repo_root,
+            target_sha=target_sha,
+            path="/".join(parts[:depth]),
+        )
         if ancestor is None:
             return "unlanded"
         if ancestor[1] != "040000" or ancestor[2] != "tree":
@@ -4146,7 +4186,7 @@ def _valid_operator_policy_structure(
     }
     task_ids: set[str] = set()
     finding_ids: set[str] = set()
-    anchor_entries: dict[str, str | None] = {}
+    tree_entries: _TargetTreeEntries = {}
     anchor_blobs: dict[str, str] = {}
     for entry in entries:
         if not isinstance(entry, dict):
@@ -4190,7 +4230,7 @@ def _valid_operator_policy_structure(
             finding_id=finding_id,
             repo_root=repo_root,
             target_sha=target_sha,
-            entry_cache=anchor_entries,
+            tree_entries=tree_entries,
             blob_cache=anchor_blobs,
         ):
             return False
@@ -4199,7 +4239,7 @@ def _valid_operator_policy_structure(
             finding_id=finding_id,
             repo_root=repo_root,
             target_sha=target_sha,
-            entry_cache=anchor_entries,
+            tree_entries=tree_entries,
             blob_cache=anchor_blobs,
         ):
             return False
@@ -4243,6 +4283,7 @@ def _valid_operator_policy_structure(
                     ref,
                     repo_root=repo_root,
                     target_sha=target_sha,
+                    tree_entries=tree_entries,
                 )
             except (RuntimeError, ValueError, UnicodeError, OSError):
                 return False
@@ -4338,9 +4379,9 @@ def _apply_operator_prerequisites(
     resolved_repo_root = Path(repo_root).resolve()
     operator: set[str] = set()
     engineering: set[str] = set()
-    policy, policy_blocker = _policy_at_target(resolved_repo_root, target_sha)
-    if policy is None:
-        operator.add(policy_blocker or "operator_prerequisite_policy_unavailable")
+    policy = _policy_at_target(resolved_repo_root, target_sha)
+    if isinstance(policy, str):
+        operator.add(policy)
     else:
         shape = _operator_policy_shape(
             policy,

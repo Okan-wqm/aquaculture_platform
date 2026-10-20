@@ -84,6 +84,48 @@
       "finding_id": "SUPPLY-MEDIUM-020",
       "packages": ["tailwindcss"],
       "scopes": ["root-full", "aquamobil-full"]
+    },
+    "GHSA-q3jh-wrc6-jgq8": {
+      "owner": "claude",
+      "reason": "Newly published Nx advisory (path traversal in dev-server/generators) reached only through dev and build tooling. Every production leg is clean and runtime images install with --omit=dev. The only fix is the Nx 23 major \u2014 planned as tracked work under SUPPLY-HIGH-024, not a hotfix on this branch.",
+      "expires_on": "2026-12-01",
+      "finding_id": "SUPPLY-HIGH-024",
+      "packages": [
+        "@nx/eslint",
+        "@nx/eslint-plugin",
+        "@nx/jest",
+        "@nx/js",
+        "@nx/module-federation",
+        "@nx/nest",
+        "@nx/node",
+        "@nx/react",
+        "@nx/rollup",
+        "@nx/vite",
+        "@nx/vitest",
+        "@nx/web",
+        "@nx/workspace"
+      ]
+    },
+    "GHSA-8r9p-f939-6h3c": {
+      "owner": "claude",
+      "reason": "Newly published Nx advisory (path traversal in dev-server/generators) reached only through dev and build tooling. Every production leg is clean and runtime images install with --omit=dev. The only fix is the Nx 23 major \u2014 planned as tracked work under SUPPLY-HIGH-024, not a hotfix on this branch.",
+      "expires_on": "2026-12-01",
+      "finding_id": "SUPPLY-HIGH-024",
+      "packages": [
+        "@nx/eslint",
+        "@nx/eslint-plugin",
+        "@nx/jest",
+        "@nx/js",
+        "@nx/module-federation",
+        "@nx/nest",
+        "@nx/node",
+        "@nx/react",
+        "@nx/rollup",
+        "@nx/vite",
+        "@nx/vitest",
+        "@nx/web",
+        "@nx/workspace"
+      ]
     }
   }
 }

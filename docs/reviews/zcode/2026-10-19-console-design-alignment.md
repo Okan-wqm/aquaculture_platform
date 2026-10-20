@@ -88,3 +88,13 @@ value "ACTIVE"?` — the PR #2026 chip row shipped `active/monitoring/resolved`
   distribution from sampling CV, class→tank allocation with capacity and
   harvest-timing constraints, same-size batch merge suggestions, plan→
   recordGrading bridge.
+
+## SUPPLY-HIGH-024 — newly published @nx advisories (dev scope, breaking-only fix)
+
+- **Evidence:** npm-audit gate red between CI rounds with zero dependency
+  changes on the branch — GHSA-q3jh-wrc6-jgq8 and GHSA-8r9p-f939-6h3c hit
+  every dev-scope @nx package; fixes are the Nx 23 major (breaking).
+- **Disposition:** dated exception (expiry 2026-12-01) on both GHSAs for the
+  13 dev packages; production legs clean (sanitize-html moderate had a
+  non-breaking fix and was bumped to ^2.18.1 instead). Nx 23 major bump is
+  the tracked closure.

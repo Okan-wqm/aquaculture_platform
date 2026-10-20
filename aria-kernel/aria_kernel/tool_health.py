@@ -18,8 +18,8 @@ from .feedback_store import (
     record_findings_for_run,
     record_raw_findings_for_run,
 )
-from .ledger import append_declared_jsonl, append_jsonl as append_chained_jsonl
-from .ledger import load_jsonl as load_chained_jsonl
+from .ledger import append_declared_jsonl, append_jsonl as append_chained_jsonl, load_jsonl as load_chained_jsonl
+from .ledger_inline import sample_inline_list, spill_evidence_validation
 from .quarantine import quarantine_tool
 from .runs_reader import READ_PATHS_REF_FIELD, read_paths_reference, read_runs_rows, run_read_paths
 from .runtime_artifacts import (
@@ -99,6 +99,21 @@ DEFAULT_FORBIDDEN_READ_GLOBS = HARD_FORBIDDEN_READ_GLOBS + DEFAULT_DENY_READ_GLO
 SELF_OUTPUT_MARKERS = SELF_OUTPUT_PREFIXES
 
 
+# ARIA-HIGH-017 — what a runs.jsonl reader is told about a parsed-output field
+# the row bounded: where its whole value is recovered (ledger_inline's digest
+# stubs and sample markers name it).
+RUNS_ROW_RECOVERY = "the full value persists in this run's runtime artifact (parsed_output)"
+# ARIA-HIGH-617 — what the bounded evidence_validation tells its reader. It is
+# bounded before the artifact is written from it, so the artifact holds the
+# same bounded object, and v1 or a failed write leaves no artifact at all: the
+# whole value is rebuilt from the output, never read back.
+EVIDENCE_VALIDATION_RECOVERY = (
+    "rebuild with evidence_validator.validate_tool_output_evidence over the run "
+    "artifact's payload.parsed_output at payload.repo_snapshot when artifact_status "
+    "is present; otherwise only the total and digest survive"
+)
+
+
 def runs_path(base_dir: str | Path | None = None) -> Path:
     return ensure_tools_dir(base_dir) / "runs.jsonl"
 
@@ -146,6 +161,14 @@ def record_run(
         envelope["scope_violations"] = scope_violations
     if envelope["status"] == "ok" and envelope["evidence_validation"].get("valid") is False:
         envelope["status"] = "evidence_error"
+    # ARIA-HIGH-617 — scrubbed, then bounded, once, before the artifact and
+    # the row are written from it: evidence_validation echoes the adapter's
+    # own entries (reported paths, finding and belief ids, evidence sources),
+    # and the scrub's marker is longer than the shortest credential shapes, so
+    # a bound taken before the scrub did not hold on the row.
+    envelope["evidence_validation"] = spill_evidence_validation(
+        scrub_json(envelope["evidence_validation"]), recovery=EVIDENCE_VALIDATION_RECOVERY,
+    )
 
     raw_findings = envelope.pop("raw_findings", None)
     artifact_payload = envelope.pop("_runtime_artifact_payload", None)
@@ -333,21 +356,66 @@ def can_emit_operator_facing(
     return get_tool(tool_id, base_dir)["status"] == "ACTIVE"
 
 
+# ARIA-HIGH-617 — how many scope violations a runs row carries inline when its
+# artifact holds the whole list (``payload.scope_violations``).
+_SCOPE_VIOLATIONS_ROW_SAMPLE = 20
+SCOPE_VIOLATIONS_POINTER = "/payload/scope_violations"
+
+
 def _ledger_row_fields(envelope: dict[str, Any]) -> dict[str, Any]:
-    """The run as runs.jsonl stores it: the read set by reference once the artifact holds it.
+    """The run as runs.jsonl stores it: its read-set lists bounded by bytes in every format.
 
     ARIA-HIGH-523 — the read set is the one repository-sized field of a run
     row, and the artifact written above already holds it
     (``_runtime_artifact_payload`` → ``payload.read_paths``, stored scrubbed,
     so the address is taken over the scrubbed list). Only a present artifact
-    can stand in for the list: a v1 run writes none and a failed write left
-    nothing else holding it, so those rows keep the list inline, as before.
-    The envelope itself keeps the list: the health check below judges it in
-    memory, before any reader could resolve the artifact.
+    can stand in for a list by reference. The envelope itself keeps the list:
+    the health check below judges it in memory, before any reader could
+    resolve the artifact.
+
+    ARIA-HIGH-617 — ``read_paths`` is the adapter's own report (bounded only
+    by the 12 MiB stdout cap) and ``scope_violations`` is derived from it, so
+    an unbounded inline list made the row too large to append (1 MiB cap).
+    The append comes before ``evaluate_health``, so the run went unrecorded
+    and its tool was never quarantined. Both lists now pass through
+    ``ledger_inline.sample_inline_list``, bounded by bytes whatever the
+    adapter reported, taken over the scrubbed lists as the artifact stores
+    them:
+
+    * a present artifact: ``read_paths_ref`` names the read set, and the row
+      keeps the first violations with a marker pointing at
+      ``payload.scope_violations``;
+    * no artifact (v1 writes none; a failed write, which the adapter itself
+      can cause, left none): each list stays whole up to the per-field inline
+      budget, as before, and beyond it the row keeps the entries that fit, in
+      order, plus a ``digest_only`` marker, since nothing else holds the list.
+      Such a run is ``integrity_failed`` (a failed write) or carries
+      ``legacy_inline_or_sample_only`` (v1), which declares samples.
+
+    ``evidence_validation`` names the same adapter-reported entries again
+    (``read_path_outside_snapshot`` errors carry each path); ``record_run``
+    has already scrubbed and then bounded it, the order every list here takes.
     """
     fields = dict(envelope)
+    read_paths = scrub_json(fields.pop("read_paths"))
+    violations = fields.pop("scope_violations", None)
     if fields.get("artifact_status") == "present" and isinstance(fields.get("artifact_ref"), dict):
-        fields[READ_PATHS_REF_FIELD] = read_paths_reference(scrub_json(fields.pop("read_paths")))
+        fields[READ_PATHS_REF_FIELD] = read_paths_reference(read_paths)
+        if isinstance(violations, list):
+            fields.update(sample_inline_list(
+                "scope_violations", scrub_json(violations), limit=_SCOPE_VIOLATIONS_ROW_SAMPLE,
+                json_pointer=SCOPE_VIOLATIONS_POINTER, recovery="the run artifact holds the whole list at json_pointer",
+            ))
+        return fields
+    unrecoverable = (
+        f"no artifact holds the whole list (artifact_status={fields.get('artifact_status')}); "
+        "only its total and digest survive"
+    )
+    fields.update(sample_inline_list("read_paths", read_paths, limit=None, json_pointer=None, recovery=unrecoverable))
+    if isinstance(violations, list):
+        fields.update(sample_inline_list(
+            "scope_violations", scrub_json(violations), limit=None, json_pointer=None, recovery=unrecoverable,
+        ))
     return fields
 
 
@@ -370,6 +438,8 @@ def _runtime_artifact_payload(
         "raw_observations": payload.get("raw_observations"),
         "raw_findings": raw_findings if isinstance(raw_findings, list) else [],
         "read_paths": envelope.get("read_paths", []),
+        # The whole list the runs row samples, at SCOPE_VIOLATIONS_POINTER (ARIA-HIGH-617).
+        "scope_violations": envelope.get("scope_violations", []),
         "evidence_validation": envelope.get("evidence_validation"),
         "runner": envelope.get("runner"),
         "repo_snapshot": envelope.get("repo_snapshot"),
@@ -704,7 +774,15 @@ def find_scope_violations(tool: dict[str, Any], read_paths: list[Any]) -> list[s
     5. **Legacy** — empty allow list keeps the pre-fix permissive default
        so existing tools without a declared scope are unaffected; declaring
        any allow pattern opts the tool into strict mode.
+
+    The forbidden reads (tiers 1 and 2) lead the returned list; every other
+    violation follows, both in reported order. ARIA-HIGH-617: a runs row
+    keeps a sample of this list, so a ``.env`` read reported after twenty
+    generated-tree reads would otherwise be visible only in the run
+    artifact. The order is decided here, by the tiers that define
+    "forbidden", so no second copy of the forbidden glob set exists.
     """
+    forbidden: list[str] = []
     violations: list[str] = []
     allowed = tool.get("allowed_read_globs", [])
     tool_forbidden = list(tool.get("forbidden_read_globs", []))
@@ -712,11 +790,11 @@ def find_scope_violations(tool: dict[str, Any], read_paths: list[Any]) -> list[s
         normalized = lexical_repo_path(raw_path)
         # 1. Hard-forbidden never overridable
         if any(matches_repo_glob(normalized, pattern) for pattern in HARD_FORBIDDEN_READ_GLOBS):
-            violations.append(normalized)
+            forbidden.append(normalized)
             continue
         # 2. Per-tool forbidden (operator opt-in deny wins over allow)
         if any(matches_repo_glob(normalized, pattern) for pattern in tool_forbidden):
-            violations.append(normalized)
+            forbidden.append(normalized)
             continue
         # 3. Explicit allow lifts default-deny
         if any(matches_repo_glob(normalized, pattern) for pattern in allowed):
@@ -729,7 +807,7 @@ def find_scope_violations(tool: dict[str, Any], read_paths: list[Any]) -> list[s
         if not allowed:
             continue
         violations.append(normalized)
-    return violations
+    return [*forbidden, *violations]
 
 
 def has_self_output_evidence(run: dict[str, Any]) -> bool:

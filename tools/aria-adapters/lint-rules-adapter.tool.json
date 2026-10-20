@@ -53,7 +53,10 @@
       "premises": [
         "The cited line has the behaviour the named rule's message describes, in code that runs (not a test fixture, generated file or dead branch).",
         "The behaviour is a defect in this context: a correct program would not keep it, rather than a style preference the codebase allows."
-      ]
+      ],
+      "observable": {
+        "kind": "cited_line_bytes_at_sha"
+      }
     }
   },
   "owner": "platform",

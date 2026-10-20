@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { EdgeDeviceModule } from '../edge-device/edge-device.module';
+
 import { VfdCommandAuditLog } from './entities/vfd-command-audit-log.entity';
 import { VfdDevice } from './entities/vfd-device.entity';
 import { VfdReading } from './entities/vfd-reading.entity';
@@ -31,6 +33,8 @@ import { VfdRegisterMappingService } from './services/vfd-register-mapping.servi
 @Module({
   imports: [
     TypeOrmModule.forFeature([VfdDevice, VfdRegisterMapping, VfdReading, VfdCommandAuditLog]),
+    // EdgeCommandPublisher: the single command publish path (ADR-048 DEC-9.2).
+    EdgeDeviceModule,
   ],
   providers: [
     // Resolvers

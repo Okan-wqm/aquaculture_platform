@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { DeployArtifact } from '../deploy-artifact/entities/deploy-artifact.entity';
+import { EdgeDeviceModule } from '../edge-device/edge-device.module';
 
 import { DeployBundleDispatcherService } from './deploy-bundle-dispatcher.service';
 import { ReleaseBundle } from './entities/release-bundle.entity';
@@ -14,7 +15,11 @@ import { ReleaseBundleService } from './release-bundle.service';
  * IngestionModule (edge ack transitions).
  */
 @Module({
-  imports: [TypeOrmModule.forFeature([ReleaseBundle, DeployArtifact])],
+  imports: [
+    TypeOrmModule.forFeature([ReleaseBundle, DeployArtifact]),
+    // EdgeCommandPublisher: the single command publish path (ADR-048 DEC-9.2).
+    EdgeDeviceModule,
+  ],
   providers: [ReleaseBundleService, DeployBundleDispatcherService],
   exports: [ReleaseBundleService],
 })

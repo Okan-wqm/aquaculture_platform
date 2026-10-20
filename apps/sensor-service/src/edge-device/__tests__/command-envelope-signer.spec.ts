@@ -1,19 +1,13 @@
-import { createHash } from 'crypto';
+import { createPublicKey, verify } from 'crypto';
 
 import {
-  CommandEnvelopeSignerService,
+  CommandEnvelopeSigner,
   canonicalParamsBytes,
   envelopeCanonicalBytes,
 } from '../command-envelope-signer.service';
+import { Ed25519SigningKey } from '../manifest-signer';
 
-describe('CommandEnvelopeSignerService (SEC-MEDIUM-105 — 2026-08-23 scan №50)', () => {
-  // 32-byte all-zero seed: deterministic for tests, never used in production
-  const TEST_SEED = '0'.repeat(64);
-  const config = { get: (_k: string, d?: string) => d ?? '' };
-
-  const makeSigner = (seed: string): CommandEnvelopeSignerService =>
-    new CommandEnvelopeSignerService({ get: (_k: string, _d?: string) => seed });
-
+describe('command envelope signer (SEC-MEDIUM-105; ADR-048 DEC-9.2)', () => {
   describe('canonicalParamsBytes', () => {
     it('is deterministic regardless of key insertion order', () => {
       const a = canonicalParamsBytes('ping', { zeta: 1, alpha: 2, mid: 'x' });
@@ -62,69 +56,67 @@ describe('CommandEnvelopeSignerService (SEC-MEDIUM-105 — 2026-08-23 scan №50
     });
   });
 
-  describe('sign', () => {
-    it('produces a deterministic wire envelope with 64-byte signature', () => {
-      const signer = makeSigner(TEST_SEED);
-      const envelope = signer.sign({
-        cmd: 'write_modbus',
-        params: { register: 40001, value: 1234 },
-        actorUuid: '01234567-89ab-4def-8abc-0123456789ab',
-        tenantUuid: 'fedcba98-7654-3210-fedc-ba9876543210',
-        validitySecs: 60,
-      });
+  describe('CommandEnvelopeSigner.sign', () => {
+    // 32-byte all-zero seed: deterministic for tests, never used in production
+    const key = Ed25519SigningKey.fromSeed('command', 1, Buffer.alloc(32));
+    const signer = new CommandEnvelopeSigner(key);
+    const input = {
+      cmd: 'write_modbus',
+      params: { register: 40001, value: 1234 },
+      actorUuid: '01234567-89ab-4def-8abc-0123456789ab',
+      tenantUuid: 'fedcba98-7654-3210-fedc-ba9876543210',
+      claimedPolicyVersion: 3,
+      jti: '0f0f0f0f-0f0f-4f0f-8f0f-0f0f0f0f0f0f',
+      validitySecs: 60,
+      now: new Date('2026-10-20T12:00:00Z'),
+    };
 
-      expect(envelope).not.toBeNull();
-      expect(envelope!.signature).toHaveLength(64);
-      expect(envelope!.cmd_hash).toHaveLength(32);
-      expect(envelope!.actor).toHaveLength(16);
-      expect(envelope!.tenant_id).toHaveLength(16);
-      expect(envelope!.exp_unix_secs - envelope!.iat_unix_secs).toBe(60);
-      expect(envelope!.co_approver_actor).toBeNull();
-      expect(envelope!.co_approver_signature).toBeNull();
+    it("signs the v3 transcript with the command key, under the caller's jti", () => {
+      const envelope = signer.sign(input);
+      expect(envelope.jti).toBe(input.jti);
+      expect(envelope.claimed_policy_version).toBe(3);
+      expect(envelope.iat_unix_secs).toBe(1792497600);
+      expect(envelope.exp_unix_secs - envelope.iat_unix_secs).toBe(60);
+      expect(envelope.cmd_hash).toHaveLength(32);
+      expect(envelope.signature).toHaveLength(64);
+
+      const transcript = envelopeCanonicalBytes({
+        cmd: envelope.cmd,
+        params: envelope.params,
+        actor: Buffer.from(envelope.actor),
+        tenantId: Buffer.from(envelope.tenant_id),
+        iat: envelope.iat_unix_secs,
+        exp: envelope.exp_unix_secs,
+        claimedPolicyVersion: envelope.claimed_policy_version,
+        coApproverActor: null,
+        jti: envelope.jti,
+        nonce: envelope.nonce,
+        cmdHash: Buffer.from(envelope.cmd_hash),
+      });
+      const publicKey = createPublicKey({
+        key: Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), key.publicKey]),
+        format: 'der',
+        type: 'spki',
+      });
+      expect(verify(null, transcript, publicKey, Buffer.from(envelope.signature))).toBe(true);
     });
 
-    it('returns null when no seed is configured (unsigned deploy)', () => {
-      const signer = new CommandEnvelopeSignerService(config);
-      expect(
-        signer.sign({
-          cmd: 'ping',
-          params: {},
-          actorUuid: '01234567-89ab-4def-8abc-0123456789ab',
-          tenantUuid: 'fedcba98-7654-3210-fedc-ba9876543210',
-        }),
-      ).toBeNull();
-      expect(signer.isSigningEnabled).toBe(false);
+    it('never produces a co-approver: one platform key cannot be two persons (DEC-9.4)', () => {
+      const envelope = signer.sign(input);
+      expect(envelope.co_approver_actor).toBeNull();
+      expect(envelope.co_approver_signature).toBeNull();
     });
 
-    it('co-approver presence byte = 1 when provided', () => {
-      const signer = makeSigner(TEST_SEED);
-      const envelope = signer.sign({
-        cmd: 'force_value',
-        params: { tag: 'pump_1', value: 42 },
-        actorUuid: '01234567-89ab-4def-8abc-0123456789ab',
-        tenantUuid: 'fedcba98-7654-3210-fedc-ba9876543210',
-        coApproverActorUuid: 'ffffffff-ffff-ffff-ffff-ffffffffffff',
-      });
-      expect(envelope!.co_approver_actor).toHaveLength(16);
-      expect(envelope!.co_approver_actor![0]).toBe(255);
+    it('uses a fresh nonce for every envelope', () => {
+      expect(signer.sign(input).nonce).not.toBe(signer.sign(input).nonce);
     });
 
     it('throws on malformed UUID', () => {
-      const signer = makeSigner(TEST_SEED);
-      expect(() =>
-        signer.sign({
-          cmd: 'ping',
-          params: {},
-          actorUuid: 'not-a-uuid',
-          tenantUuid: 'fedcba98-7654-3210-fedc-ba9876543210',
-        }),
-      ).toThrow(/Invalid UUID/);
+      expect(() => signer.sign({ ...input, actorUuid: 'not-a-uuid' })).toThrow(/Invalid UUID/);
     });
 
-    it('rejects bad seed format', () => {
-      expect(() => new CommandEnvelopeSignerService({ get: () => 'xyz' })).toThrow(
-        /64 lowercase hex/,
-      );
+    it('refuses nested params (the v3 canonical form cannot carry them; SENSOR-HIGH-209)', () => {
+      expect(() => signer.sign({ ...input, params: { meta: { a: 1 } } })).toThrow(/Nested objects/);
     });
   });
 });

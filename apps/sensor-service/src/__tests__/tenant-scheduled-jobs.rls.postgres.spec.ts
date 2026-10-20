@@ -10,6 +10,8 @@ import { AutomationProgram, ProgramStatus } from '../automation/entities/automat
 import { DeploymentLog, DeploymentStatus } from '../automation/entities/deployment-log.entity';
 import { DeploymentLogService } from '../automation/services/deployment-log.service';
 import { DeviceDirectoryService } from '../edge-device/device-directory.service';
+import { type EdgeCommandPublisher } from '../edge-device/edge-command-publisher.service';
+import { type EdgeRootHandoffService } from '../edge-device/edge-root-handoff.service';
 import { EdgeDeviceService } from '../edge-device/edge-device.service';
 import { DeviceIoConfig } from '../edge-device/entities/device-io-config.entity';
 import {
@@ -112,11 +114,12 @@ describe('sensor-service scheduled jobs under FORCE RLS (SENSOR-MEDIUM-136)', ()
       unusedRepository<LoRaDevice>(),
       runtime!,
       scheduledJobs,
-      null,
+      collaborator<EdgeCommandPublisher>({}, 'EdgeCommandPublisher'),
       {} as Partial<InstallerScriptService> as InstallerScriptService,
       { get: () => undefined } as Partial<ConfigService> as ConfigService,
       // Only device creation writes routes; the stale sweep never touches it.
       collaborator<DeviceDirectoryService>({}, 'DeviceDirectoryService'),
+      collaborator<EdgeRootHandoffService>({}, 'EdgeRootHandoffService'),
     );
 
     await expect(service.markStaleDevicesOffline(5)).resolves.toBe(2);
@@ -139,7 +142,7 @@ describe('sensor-service scheduled jobs under FORCE RLS (SENSOR-MEDIUM-136)', ()
       runtime!,
       scheduledJobs,
       {} as Partial<EdgeDeviceService> as EdgeDeviceService,
-      {} as Partial<MqttClientService> as MqttClientService,
+      {} as Partial<EdgeCommandPublisher> as EdgeCommandPublisher,
       {} as Partial<DeploymentLogService> as DeploymentLogService,
       {} as Partial<AutomationEventsPublisher> as AutomationEventsPublisher,
       {} as Partial<ArtifactService> as ArtifactService,

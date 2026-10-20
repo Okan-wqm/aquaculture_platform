@@ -171,6 +171,7 @@ function createMockEdgeDeviceService(): jest.Mocked<EdgeDeviceService> {
     handlePingResponse: jest.fn(),
     handleScanHardwareResponse: jest.fn(),
     handleIoConfigAckResponse: jest.fn().mockReturnValue({ matched: false }),
+    handleRootHandoffResponse: jest.fn().mockResolvedValue(false),
     updateLoRaDeviceStatus: jest.fn().mockResolvedValue(undefined),
   } as unknown as jest.Mocked<EdgeDeviceService>;
 }
@@ -945,6 +946,13 @@ describe('MqttListenerService', () => {
         expect(edgeDeviceService!.handlePingResponse).toHaveBeenCalledWith(
           DEVICE_CODE,
           expect.objectContaining({ commandId: 'cmd-1', success: true }),
+        );
+        // ADR-048 DEC-5.8: an activation-receipt hand-over is settled by the
+        // device the response topic names.
+        expect(edgeDeviceService!.handleRootHandoffResponse).toHaveBeenCalledWith(
+          DEVICE_CODE,
+          expect.objectContaining({ commandId: 'cmd-1', success: true }),
+          TENANT_ID,
         );
         expect(eventBus.publish).toHaveBeenCalledWith(
           expect.objectContaining({ eventType: 'EdgeDeviceResponse' }),

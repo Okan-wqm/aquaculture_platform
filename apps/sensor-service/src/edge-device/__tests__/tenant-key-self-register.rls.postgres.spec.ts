@@ -30,7 +30,9 @@ import { TenantProvisioningKey } from '../entities/tenant-provisioning-key.entit
 import { InstallerScriptService, type ProvisioningConfig } from '../installer-script.service';
 import { MqttAuthService } from '../mqtt-auth.service';
 import { type ProvisioningReservationService } from '../provisioning-reservation.service';
+import { type DeviceLifecycleStatementService } from '../device-lifecycle-statement.service';
 import { type EdgeProvisioningManifestService } from '../edge-provisioning-manifest.service';
+import { type EdgeRootHandoffService } from '../edge-root-handoff.service';
 import { ProvisioningService } from '../provisioning.service';
 import { TenantKeyService } from '../tenant-key.service';
 
@@ -170,6 +172,8 @@ describe('tenant-key self-register under FORCE RLS (SENSOR-HIGH-175)', () => {
       directory,
       collaborator<ProvisioningReservationService>({}, 'ProvisioningReservationService'),
       collaborator<EdgeProvisioningManifestService>({}, 'EdgeProvisioningManifestService'),
+      collaborator<DeviceLifecycleStatementService>({}, 'DeviceLifecycleStatementService'),
+      collaborator<EdgeRootHandoffService>({}, 'EdgeRootHandoffService'),
     );
   });
 

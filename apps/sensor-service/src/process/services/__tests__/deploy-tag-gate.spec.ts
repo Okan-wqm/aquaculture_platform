@@ -7,6 +7,8 @@ import { Process, ProcessStatus } from '../../entities/process.entity';
 import { ProcessService } from '../process.service';
 import { TagResolutionService } from '../tag-resolution.service';
 import { MqttClientService } from '../../../shared-mqtt/mqtt-client.service';
+import { EdgeCommandPublisher } from '../../../edge-device/edge-command-publisher.service';
+import { publisherOverBroker } from '../../../edge-device/test-helpers/edge-command-publisher';
 import { EdgeDeviceService } from '../../../edge-device/edge-device.service';
 
 /**
@@ -73,6 +75,12 @@ describe('deploy tag-gate (SENSOR-HIGH-051)', () => {
         {
           provide: MqttClientService,
           useValue: { isConnectedToBroker: () => true, publish },
+        },
+        {
+          provide: EdgeCommandPublisher,
+          useFactory: (mqtt: MqttClientService): EdgeCommandPublisher =>
+            publisherOverBroker(mqtt, [{ id: 'dev-1', tenantId: TENANT }]),
+          inject: [MqttClientService],
         },
         {
           provide: EdgeDeviceService,

@@ -9,6 +9,7 @@
 import { BadRequestException } from '@nestjs/common';
 
 import { VfdEdgeReadService } from '../vfd-edge-read.service';
+import { publisherOverBroker } from '../../../edge-device/test-helpers/edge-command-publisher';
 import { VfdDevice } from '../../entities/vfd-device.entity';
 import { VfdBrand, VfdDeviceStatus, VfdProtocol } from '../../entities/vfd.enums';
 
@@ -35,7 +36,9 @@ function makeService(connected = true) {
     isConnectedToBroker: jest.fn().mockReturnValue(connected),
     publish: jest.fn().mockResolvedValue(undefined),
   };
-  const svc = new VfdEdgeReadService(mqtt as never);
+  const svc = new VfdEdgeReadService(
+    publisherOverBroker(mqtt, [{ id: 'edge-1', tenantId: 'tenant-1' }]),
+  );
   return { svc, mqtt };
 }
 

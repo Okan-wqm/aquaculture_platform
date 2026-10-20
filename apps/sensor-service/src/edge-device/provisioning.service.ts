@@ -48,6 +48,9 @@ import { InstallerScriptService } from './installer-script.service';
 import { TenantKeyService } from './tenant-key.service';
 import { DeviceEventService } from './device-event.service';
 import { DeviceDirectoryService } from './device-directory.service';
+import { DeviceLifecycleStatementService } from './device-lifecycle-statement.service';
+import { BINDING_METHODS, type DeviceBinding, wholeSecond } from './edge-contract';
+import { EdgeRootHandoffService } from './edge-root-handoff.service';
 import {
   EdgeProvisioningManifestService,
   parseProvisioningRequest,
@@ -57,6 +60,9 @@ import {
   hashProvisioningToken,
   ProvisioningReservationService,
 } from './provisioning-reservation.service';
+
+/** How long a Suderra OS device stays in MAINTENANCE for re-provisioning (DEC-5.14). */
+const REPROVISIONING_WINDOW_MS = 2 * 60 * 60 * 1000;
 
 /**
  * Provisioning Service
@@ -81,6 +87,8 @@ export class ProvisioningService {
     private readonly deviceDirectory: DeviceDirectoryService,
     private readonly reservations: ProvisioningReservationService,
     private readonly suderraOsManifests: EdgeProvisioningManifestService,
+    private readonly lifecycleStatements: DeviceLifecycleStatementService,
+    private readonly rootHandoff: EdgeRootHandoffService,
   ) {
     this.TOKEN_TTL_HOURS = this.configService.get<number>('PROVISIONING_TOKEN_TTL_HOURS', 24);
   }
@@ -636,6 +644,11 @@ export class ProvisioningService {
     const provisioningToken = this.generateProvisioningToken();
     const tokenExpiresAt = new Date(Date.now() + this.TOKEN_TTL_HOURS * 60 * 60 * 1000);
 
+    const binding = this.committedBinding(device);
+    if (device.agentChannel === EdgeAgentChannel.SUDERRA_OS && binding !== null) {
+      return this.beginSuderraOsReprovisioning(device, binding, provisioningToken, tokenExpiresAt);
+    }
+
     // Reset activation state: a fresh token in TOKEN_ISSUED, the broker
     // credential revoked, every reservation and pending activation void.
     const reissued = await this.reservations.reissueToken(device, {
@@ -657,6 +670,72 @@ export class ProvisioningService {
 
     this.logger.log(`Device ${device.deviceCode} reset for re-provisioning by tenant ${tenantId}`);
 
+    return {
+      deviceId: device.id,
+      deviceCode: device.deviceCode,
+      installerUrl: await this.installerScriptService.buildInstallerUrl(device.deviceCode),
+      installerCommand: await this.installerScriptService.buildInstallerCommand(
+        device.deviceCode,
+        provisioningToken,
+      ),
+      suderraOsProvisioningCommand: this.installerScriptService.buildSuderraOsProvisioningCommand(
+        device.deviceCode,
+      ),
+      tokenExpiresAt,
+    };
+  }
+
+  /** The hardware identity the device committed at its first activation, if any. */
+  private committedBinding(device: EdgeDevice): DeviceBinding | null {
+    const method = BINDING_METHODS.find((m) => m === device.deviceBindingMethod);
+    return method === undefined || device.deviceBindingSha256 === null
+      ? null
+      : { method, digest: { sha256: device.deviceBindingSha256 } };
+  }
+
+  /**
+   * Re-provisioning a Suderra OS device (ADR-048 DEC-5.14, DEC-12): a fresh
+   * token, and a device-lifecycle statement — signed by the separate
+   * device-lifecycle key, bound to the device's committed hardware identity —
+   * that moves the device to MAINTENANCE for a bounded window, so its
+   * provisioning surface opens for the technician. The running agent keeps
+   * its broker credential until the new activation replaces it; it carries
+   * the statement to root (lifecycle_request).
+   */
+  private async beginSuderraOsReprovisioning(
+    device: EdgeDevice,
+    binding: DeviceBinding,
+    provisioningToken: string,
+    tokenExpiresAt: Date,
+  ): Promise<RegenerateTokenResponse> {
+    const reissued = await this.reservations.reissueToken(device, {
+      tokenHash: this.hashToken(provisioningToken),
+      tokenExpiresAt,
+      lifecycleState: DeviceLifecycleState.MAINTENANCE,
+      revokeCredentials: false,
+    });
+    if (reissued === null) {
+      throw new BadRequestException(
+        `Cannot re-provision a device in a terminal state (${device.lifecycleState})`,
+      );
+    }
+    const now = wholeSecond(new Date());
+    const statement = this.lifecycleStatements.enterMaintenanceForReprovisioning({
+      tenantId: device.tenantId,
+      deviceId: device.id,
+      binding,
+      updateSeq: reissued.lifecycleSeq,
+      window: {
+        notBefore: new Date(now.getTime() - 5 * 60 * 1000),
+        expiresAt: new Date(now.getTime() + REPROVISIONING_WINDOW_MS),
+      },
+    });
+    await this.rootHandoff.requestLifecycle(device, statement);
+    this.logger.log({
+      event: 'suderra_os_reprovisioning_requested',
+      deviceId: device.id,
+      lifecycleSeq: reissued.lifecycleSeq,
+    });
     return {
       deviceId: device.id,
       deviceCode: device.deviceCode,

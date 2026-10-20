@@ -20,7 +20,7 @@ import {
 
 import { canonicalJsonStringify } from '../deploy-artifact/artifact.service';
 import { DeployArtifact } from '../deploy-artifact/entities/deploy-artifact.entity';
-import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
+import { EdgeCommandPublisher } from '../edge-device/edge-command-publisher.service';
 
 import { ReleaseBundle, ReleaseBundleStatus } from './entities/release-bundle.entity';
 import { ReleaseBundleService } from './release-bundle.service';
@@ -60,9 +60,10 @@ export class DeployBundleDispatcherService
     @InjectRepository(DeployArtifact)
     private readonly artifactRepository: Repository<DeployArtifact>,
     private readonly releaseBundleService: ReleaseBundleService,
+    // The single command publish path (ADR-048 DEC-9.2).
     @Optional()
-    @Inject(MqttClientService)
-    private readonly mqttClient: MqttClientService | null,
+    @Inject(EdgeCommandPublisher)
+    private readonly commands: EdgeCommandPublisher | null,
     @Optional()
     @Inject('EVENT_BUS')
     private readonly eventBus: IEventBus | null,
@@ -178,14 +179,16 @@ export class DeployBundleDispatcherService
       return;
     }
 
-    const topic = `tenants/${bundle.tenantId}/devices/${bundle.deviceId}/commands`;
     const delays = DeployBundleDispatcherService.PUBLISH_RETRY_DELAYS_MS;
     for (let attempt = 0; attempt <= delays.length; attempt += 1) {
       try {
-        if (!this.mqttClient) {
+        if (!this.commands) {
           throw new Error('MQTT service not available');
         }
-        await this.mqttClient.publish(topic, payload);
+        await this.commands.publish(
+          { tenantId: bundle.tenantId, deviceId: bundle.deviceId },
+          { commandId: payload.commandId, command: payload.command, params: payload.params },
+        );
         this.logger.log(
           `deploy_bundle ${bundle.id} dispatched to device ${bundle.deviceId} (command ${bundle.commandId}, ${bundle.manifest.artifacts.length} artifact(s))`,
         );

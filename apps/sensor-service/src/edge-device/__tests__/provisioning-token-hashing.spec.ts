@@ -14,7 +14,9 @@ import { collaborator, stub, stubMember } from '@aquaculture/testing';
 import type { DataSource, Repository } from 'typeorm';
 
 import { ProvisioningService } from '../provisioning.service';
+import { type DeviceLifecycleStatementService } from '../device-lifecycle-statement.service';
 import { type EdgeProvisioningManifestService } from '../edge-provisioning-manifest.service';
+import { type EdgeRootHandoffService } from '../edge-root-handoff.service';
 import { type ProvisioningReservationService } from '../provisioning-reservation.service';
 
 // Rows and their directory routes commit in one tenant transaction, and keys
@@ -78,6 +80,8 @@ describe('Provisioning secrets at-rest hashing (SENSOR-MEDIUM-001)', () => {
         deviceDirectory as never,
         collaborator<ProvisioningReservationService>({}, 'ProvisioningReservationService'),
         collaborator<EdgeProvisioningManifestService>({}, 'EdgeProvisioningManifestService'),
+        collaborator<DeviceLifecycleStatementService>({}, 'DeviceLifecycleStatementService'),
+        collaborator<EdgeRootHandoffService>({}, 'EdgeRootHandoffService'),
       );
 
       const response = await service.createProvisionedDevice(

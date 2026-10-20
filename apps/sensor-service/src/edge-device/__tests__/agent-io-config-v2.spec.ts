@@ -1,7 +1,11 @@
+import { BadRequestException } from '@nestjs/common';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
 import { collaborator } from '@aquaculture/testing';
+import { publisherOverBroker } from '../test-helpers/edge-command-publisher';
+import { type EdgeCommandPublisher } from '../edge-command-publisher.service';
+import { type EdgeRootHandoffService } from '../edge-root-handoff.service';
 
 import { DeviceDirectoryService } from '../device-directory.service';
 import { EdgeDeviceService } from '../edge-device.service';
@@ -47,11 +51,14 @@ function makeService(overrides: {
     loraDeviceRepository as never,
     {} as never,
     scheduledJobs.executor,
-    (overrides.mqttClient === undefined ? null : overrides.mqttClient) as never,
+    overrides.mqttClient === undefined || overrides.mqttClient === null
+      ? collaborator<EdgeCommandPublisher>({ isAvailable: () => false, assertAvailable: () => { throw new BadRequestException('MQTT service not available'); } }, 'EdgeCommandPublisher')
+      : publisherOverBroker(overrides.mqttClient, [{ id: DEVICE_ID, tenantId: TENANT_ID }]),
     {} as never,
     { get: jest.fn() } as never,
     // registerDevice is not on this path; any call names the missing member.
     collaborator<DeviceDirectoryService>({}, 'DeviceDirectoryService'),
+    collaborator<EdgeRootHandoffService>({}, 'EdgeRootHandoffService'),
   );
 }
 
@@ -240,10 +247,11 @@ describe('pushIoConfigToDevice ack correlation (SENSOR-HIGH-064)', () => {
       loraDeviceRepository as never,
       {} as never,
       scheduledJobs.executor,
-      mqttClient as never,
+      publisherOverBroker(mqttClient, [{ id: DEVICE_ID, tenantId: TENANT_ID }]),
       {} as never,
       { get: jest.fn() } as never,
       collaborator<DeviceDirectoryService>({}, 'DeviceDirectoryService'),
+      collaborator<EdgeRootHandoffService>({}, 'EdgeRootHandoffService'),
     );
     return { service, deviceRepository, mqttClient };
   }

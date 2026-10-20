@@ -2,6 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 
 import { VfdDevice } from '../../entities/vfd-device.entity';
 import { VfdEdgeWriteService } from '../vfd-edge-write.service';
+import { publisherOverBroker } from '../../../edge-device/test-helpers/edge-command-publisher';
 
 /**
  * SENSOR-CRITICAL-007 — the edge-delegated write primitive must never report
@@ -27,7 +28,9 @@ describe('VfdEdgeWriteService (SENSOR-CRITICAL-007)', () => {
   beforeEach(() => {
     publishMock = jest.fn().mockResolvedValue(undefined);
     mqtt = { isConnectedToBroker: jest.fn().mockReturnValue(true), publish: publishMock };
-    service = new VfdEdgeWriteService(mqtt as never);
+    service = new VfdEdgeWriteService(
+      publisherOverBroker(mqtt, [{ id: 'edge-1', tenantId: 'tenant-1' }]),
+    );
   });
 
   afterEach(() => {

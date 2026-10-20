@@ -30,7 +30,8 @@ import {
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, FindOptionsWhere, ILike, In } from 'typeorm';
 
-import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
+import { EdgeCommandPublisher } from './edge-command-publisher.service';
+import { EdgeRootHandoffService } from './edge-root-handoff.service';
 
 import { DeviceDirectoryService } from './device-directory.service';
 import { DeviceIoConfig, IoType, IoDataType } from './entities/device-io-config.entity';
@@ -333,12 +334,11 @@ export class EdgeDeviceService implements OnModuleDestroy {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
-    @Optional()
-    @Inject(MqttClientService)
-    private readonly mqttClient: MqttClientService | null,
+    private readonly commands: EdgeCommandPublisher,
     private readonly installerScriptService: InstallerScriptService,
     private readonly configService: ConfigService,
     private readonly deviceDirectory: DeviceDirectoryService,
+    private readonly rootHandoff: EdgeRootHandoffService,
   ) {
     // Start periodic cleanup of stale pending pings
     this.startPendingPingsCleanup();
@@ -725,6 +725,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
       return null;
     }
 
+    let wentOnline = false;
     const device = await runInTenantTransaction(this.dataSource, SENSOR_SOURCE_SCHEMA, tenantId, async (qr) => {
       const found = await tenantManagerRepo(qr.manager, EdgeDevice).findOne({
         where: isUuid ? { id: heartbeat.deviceCode } : { deviceCode: heartbeat.deviceCode },
@@ -732,6 +733,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
       if (!found) {
         return null;
       }
+      wentOnline = !found.isOnline && heartbeat.isOnline;
       this.applyHeartbeat(found, heartbeat);
       // search_path is pinned to the tenant schema by the boundary.
       await qr.query(
@@ -763,8 +765,36 @@ export class EdgeDeviceService implements OnModuleDestroy {
 
     if (!device) {
       this.logger.warn(`Heartbeat from unknown device: ${heartbeat.deviceCode}`);
+    } else if (wentOnline) {
+      await this.deliverPendingActivationReceipt(device);
     }
     return device;
+  }
+
+  /**
+   * A Suderra OS device that just came online after its activation committed
+   * gets its activation receipt (ADR-048 DEC-5.8). A failed hand-over is
+   * logged and retried at the next reconnect; it never fails the heartbeat.
+   */
+  private async deliverPendingActivationReceipt(device: EdgeDevice): Promise<void> {
+    try {
+      await this.rootHandoff.deliverActivationReceipt(device);
+    } catch (error) {
+      this.logger.warn({
+        event: 'activation_receipt_delivery_failed',
+        deviceId: device.id,
+        error: (error as Error).message,
+      });
+    }
+  }
+
+  /** Settles an activation-receipt hand-over from the agent's command response. */
+  handleRootHandoffResponse(
+    deviceCode: string,
+    payload: Record<string, unknown>,
+    tenantId?: string,
+  ): Promise<boolean> {
+    return this.rootHandoff.handleResponse({ deviceCode, tenantId }, payload);
   }
 
   /** Fold a heartbeat's health metrics and reported status into the device. */
@@ -1138,14 +1168,8 @@ export class EdgeDeviceService implements OnModuleDestroy {
    * Check if MQTT is available for commands
    * Returns the MQTT client if available, throws otherwise
    */
-  private ensureMqttAvailable(): MqttClientService {
-    if (!this.mqttClient) {
-      throw new BadRequestException('MQTT service not available');
-    }
-    if (!this.mqttClient.isConnectedToBroker()) {
-      throw new BadRequestException('Not connected to MQTT broker');
-    }
-    return this.mqttClient;
+  private ensureMqttAvailable(): void {
+    this.commands.assertAvailable();
   }
 
   /**
@@ -1154,7 +1178,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
    */
   async pingDevice(id: string, tenantId: string): Promise<PingResult> {
     const device = await this.findByIdOrFail(id, tenantId);
-    const mqtt = this.ensureMqttAvailable();
+    this.ensureMqttAvailable();
 
     const commandId = randomUUID();
     const startTime = Date.now();
@@ -1184,11 +1208,14 @@ export class EdgeDeviceService implements OnModuleDestroy {
 
     // Publish ping command using tenant-scoped topic for proper ACL enforcement
     try {
-      await mqtt.publish(`tenants/${device.tenantId}/devices/${device.id}/commands`, {
-        commandId,
-        command: 'ping',
-        timestamp: new Date(),
-      });
+      await this.commands.publish(
+        { tenantId: device.tenantId, deviceId: device.id },
+        {
+          commandId,
+          command: 'ping',
+          params: {},
+        },
+      );
       this.logger.debug(`Ping sent to ${device.deviceCode} (${commandId})`);
     } catch (error) {
       // Clean up pending ping if publish fails
@@ -1247,7 +1274,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
    */
   async rebootDevice(id: string, tenantId: string, reason?: string): Promise<boolean> {
     const device = await this.findByIdOrFail(id, tenantId);
-    const mqtt = this.ensureMqttAvailable();
+    this.ensureMqttAvailable();
 
     // Only allow reboot for active/maintenance devices
     if (device.lifecycleState === DeviceLifecycleState.DECOMMISSIONED) {
@@ -1260,12 +1287,14 @@ export class EdgeDeviceService implements OnModuleDestroy {
         .replace(/[^a-zA-Z0-9 ._-]/g, '')
         .substring(0, 200);
       // Publish using tenant-scoped topic for proper ACL enforcement
-      await mqtt.publish(`tenants/${device.tenantId}/devices/${device.id}/commands`, {
-        commandId: randomUUID(),
-        command: 'reboot',
-        reason: safeReason,
-        timestamp: new Date(),
-      });
+      await this.commands.publish(
+        { tenantId: device.tenantId, deviceId: device.id },
+        {
+          commandId: randomUUID(),
+          command: 'reboot',
+          params: { reason: safeReason },
+        },
+      );
 
       this.logger.log(`Reboot command sent to ${device.deviceCode}`);
       return true;
@@ -1565,7 +1594,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
    */
   async pushIoConfigToDevice(deviceId: string, tenantId: string): Promise<IoConfigPushResult> {
     const device = await this.findByIdOrFail(deviceId, tenantId);
-    const mqtt = this.ensureMqttAvailable();
+    this.ensureMqttAvailable();
 
     // Refuse to push config to an offline device — the MQTT message
     // would be queued (QoS 1) but the device may come back with stale
@@ -1624,22 +1653,25 @@ export class EdgeDeviceService implements OnModuleDestroy {
     try {
       // Publish to the tenant-scoped command topic.
       // Uses device.id (UUID) — the edge agent resolves topics via device_id.
-      await mqtt.publish(`tenants/${device.tenantId}/devices/${device.id}/commands`, {
-        commandId,
-        command: 'update_io_config',
-        params: agentConfig,
-        timestamp: new Date(),
-      });
+      await this.commands.publish(
+        { tenantId: device.tenantId, deviceId: device.id },
+        {
+          commandId,
+          command: 'update_io_config',
+          params: { ...agentConfig },
+        },
+      );
 
       // LoRa config push (ayrı komut) — agent LoRa cihaz listesini bağımsız olarak günceller
       if (agentConfig.lorawan && agentConfig.lorawan.devices.length > 0) {
-        const loraCommand = {
-          commandId: randomUUID(),
-          command: 'update_lora_devices',
-          params: { devices: agentConfig.lorawan.devices },
-          timestamp: new Date(),
-        };
-        await mqtt.publish(`tenants/${device.tenantId}/devices/${device.id}/commands`, loraCommand);
+        await this.commands.publish(
+          { tenantId: device.tenantId, deviceId: device.id },
+          {
+            commandId: randomUUID(),
+            command: 'update_lora_devices',
+            params: { devices: agentConfig.lorawan.devices },
+          },
+        );
       }
     } catch (error) {
       // Publish failed — cancel the pending push and report honestly.
@@ -1771,7 +1803,7 @@ export class EdgeDeviceService implements OnModuleDestroy {
     config: Record<string, unknown>,
   ): Promise<boolean> {
     const device = await this.findByIdOrFail(id, tenantId);
-    const mqtt = this.ensureMqttAvailable();
+    this.ensureMqttAvailable();
 
     // Validate config payload size (16 KB limit)
     const configStr = JSON.stringify(config);
@@ -1796,12 +1828,14 @@ export class EdgeDeviceService implements OnModuleDestroy {
 
     try {
       // Publish using tenant-scoped topic for proper ACL enforcement
-      await mqtt.publish(`tenants/${device.tenantId}/devices/${device.id}/commands`, {
-        commandId: randomUUID(),
-        command: 'config',
-        config,
-        timestamp: new Date(),
-      });
+      await this.commands.publish(
+        { tenantId: device.tenantId, deviceId: device.id },
+        {
+          commandId: randomUUID(),
+          command: 'config',
+          params: { config },
+        },
+      );
 
       this.logger.log(`Config update sent to ${device.deviceCode}`);
       return true;
@@ -1872,9 +1906,8 @@ export class EdgeDeviceService implements OnModuleDestroy {
     // 5. MQTT bağlantısını kontrol et — diğer mutation'larla tutarlı soft-fail pattern
     //    ensureMqttAvailable() BadRequestException fırlatır, burada yakalayıp
     //    { success: false } döndürüyoruz ki frontend tutarlı hata yönetimi yapabilsin.
-    let mqtt: MqttClientService;
     try {
-      mqtt = this.ensureMqttAvailable();
+      this.ensureMqttAvailable();
     } catch {
       return { success: false, error: 'MQTT service not available — cannot send command' };
     }
@@ -1885,24 +1918,32 @@ export class EdgeDeviceService implements OnModuleDestroy {
       // 6. Edge agent'a set_output komutu gönder
       // Topic: tenants/{tenantId}/devices/{device.id}/commands
       // Agent bu komutu alıp GPIO/Modbus üzerinden fiziksel çıkışı değiştirir
-      await mqtt.publish(`tenants/${device.tenantId}/devices/${device.id}/commands`, {
-        commandId,
-        command: 'set_output',
-        params: {
-          tag_name: ioConfig.tagName,
-          value,
-          // Agent'ın hangi pini/register'ı kullanacağını bilmesi için
-          gpio_pin: ioConfig.gpioPin,
-          modbus_register: ioConfig.modbusRegister,
-          modbus_slave_id: ioConfig.modbusSlaveId,
-          io_type: ioConfig.ioType,
-          // invertValue: I/O config'de ters çevrilme ayarı varsa agent bunu uygular
-          // Ör: NO (Normally Open) röle durumlarında fiziksel çıkışı ters çevirmek gerekir
-          invert_value: ioConfig.invertValue ?? false,
+      await this.commands.publish(
+        { tenantId: device.tenantId, deviceId: device.id },
+        {
+          commandId,
+          command: 'set_output',
+          params: {
+            tag_name: ioConfig.tagName,
+            value,
+            // Agent'ın hangi pini/register'ı kullanacağını bilmesi için
+            gpio_pin: ioConfig.gpioPin,
+            modbus_register: ioConfig.modbusRegister,
+            modbus_slave_id: ioConfig.modbusSlaveId,
+            io_type: ioConfig.ioType,
+            // invertValue: I/O config'de ters çevrilme ayarı varsa agent bunu uygular
+            // Ör: NO (Normally Open) röle durumlarında fiziksel çıkışı ters çevirmek gerekir
+            invert_value: ioConfig.invertValue ?? false,
+          },
         },
-        timestamp: new Date(),
-        // Audit trail — hangi kullanıcı bu komutu tetikledi
-        ...(userId ? { triggeredBy: userId } : {}),
+      );
+      // Audit trail — hangi kullanıcı bu komutu tetikledi (bulut tarafında; ajan
+      // bu alanı hiçbir zaman okumadı)
+      this.logger.log({
+        event: 'set_output_requested',
+        commandId,
+        deviceId: device.id,
+        triggeredBy: userId ?? null,
       });
 
       this.logger.log(
@@ -1964,9 +2005,8 @@ export class EdgeDeviceService implements OnModuleDestroy {
     }
 
     // Soft-fail MQTT check
-    let mqtt: MqttClientService;
     try {
-      mqtt = this.ensureMqttAvailable();
+      this.ensureMqttAvailable();
     } catch {
       return {
         success: false,
@@ -2005,11 +2045,14 @@ export class EdgeDeviceService implements OnModuleDestroy {
 
     // Send scan_hardware command via tenant-scoped topic
     try {
-      await mqtt.publish(`tenants/${device.tenantId}/devices/${device.id}/commands`, {
-        commandId,
-        command: 'scan_hardware',
-        timestamp: new Date(),
-      });
+      await this.commands.publish(
+        { tenantId: device.tenantId, deviceId: device.id },
+        {
+          commandId,
+          command: 'scan_hardware',
+          params: {},
+        },
+      );
       this.logger.log(`scan_hardware command sent to ${device.deviceCode} (${commandId})`);
     } catch (error) {
       const pending = this.pendingScans.get(commandId);
@@ -2397,10 +2440,8 @@ export class EdgeDeviceService implements OnModuleDestroy {
       );
       return;
     }
-
-    let mqtt: MqttClientService;
     try {
-      mqtt = this.ensureMqttAvailable();
+      this.ensureMqttAvailable();
     } catch {
       this.logger.warn('MQTT not available — skipping LoRa config push');
       return;
@@ -2412,12 +2453,14 @@ export class EdgeDeviceService implements OnModuleDestroy {
     const devices = loraConfig?.devices ?? [];
 
     try {
-      await mqtt.publish(`tenants/${edgeDevice.tenantId}/devices/${edgeDevice.id}/commands`, {
-        commandId: randomUUID(),
-        command: 'update_lora_devices',
-        params: { devices },
-        timestamp: new Date(),
-      });
+      await this.commands.publish(
+        { tenantId: edgeDevice.tenantId, deviceId: edgeDevice.id },
+        {
+          commandId: randomUUID(),
+          command: 'update_lora_devices',
+          params: { devices },
+        },
+      );
       this.logger.log(`Pushed LoRa config to ${edgeDevice.deviceCode}: ${devices.length} devices`);
     } catch (error) {
       this.logger.error(
@@ -2477,10 +2520,8 @@ export class EdgeDeviceService implements OnModuleDestroy {
     if (!edgeDevice.isOnline) {
       return { success: false, error: 'Edge device is offline' };
     }
-
-    let mqtt: MqttClientService;
     try {
-      mqtt = this.ensureMqttAvailable();
+      this.ensureMqttAvailable();
     } catch {
       return { success: false, error: 'MQTT service not available' };
     }
@@ -2488,17 +2529,19 @@ export class EdgeDeviceService implements OnModuleDestroy {
     const commandId = randomUUID();
 
     try {
-      await mqtt.publish(`tenants/${edgeDevice.tenantId}/devices/${edgeDevice.id}/commands`, {
-        commandId,
-        command: 'lora_downlink',
-        params: {
-          dev_addr: loraDevice.devAddr, // dev_eui DEĞİL — LoRa downlink devAddr üzerinden çalışır
-          payload, // hex string olarak (frontend'ten gelen hex doğrudan iletilir)
-          f_port: fPort,
-          confirmed,
+      await this.commands.publish(
+        { tenantId: edgeDevice.tenantId, deviceId: edgeDevice.id },
+        {
+          commandId,
+          command: 'lora_downlink',
+          params: {
+            dev_addr: loraDevice.devAddr, // dev_eui DEĞİL — LoRa downlink devAddr üzerinden çalışır
+            payload, // hex string olarak (frontend'ten gelen hex doğrudan iletilir)
+            f_port: fPort,
+            confirmed,
+          },
         },
-        timestamp: new Date(),
-      });
+      );
 
       this.logger.log(
         `LoRa downlink sent to ${loraDevice.name} (DevAddr: ${loraDevice.devAddr}) ` +
@@ -2562,16 +2605,18 @@ export class EdgeDeviceService implements OnModuleDestroy {
     // Send MQTT command first — only persist targetFirmwareVersion if
     // the command was successfully published. This prevents the DB from
     // recording a pending update that was never actually sent.
-    const mqtt = this.ensureMqttAvailable();
+    this.ensureMqttAvailable();
 
-    await mqtt.publish(`tenants/${device.tenantId}/devices/${device.id}/commands`, {
-      commandId: randomUUID(),
-      command: 'update_firmware',
-      params: {
-        target_version: targetVersion,
+    await this.commands.publish(
+      { tenantId: device.tenantId, deviceId: device.id },
+      {
+        commandId: randomUUID(),
+        command: 'update_firmware',
+        params: {
+          target_version: targetVersion,
+        },
       },
-      timestamp: new Date(),
-    });
+    );
 
     // Persist after successful MQTT publish
     device.targetFirmwareVersion = targetVersion;

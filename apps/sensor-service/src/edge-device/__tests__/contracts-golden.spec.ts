@@ -18,7 +18,7 @@
  * (tests/invariants/lib/suderra-edge-contract.ts), so this test and the
  * contract cannot disagree about what a device accepts.
  */
-import { createHash } from 'crypto';
+import { createHash, createPublicKey, verify } from 'crypto';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -42,6 +42,10 @@ import {
   verifyStatement,
 } from '../../../../../tests/invariants/lib/suderra-edge-contract';
 import { ActivationReceiptService, buildActivationReceipt } from '../activation-receipt.service';
+import {
+  CommandEnvelopeSignerService,
+  envelopeCanonicalBytes,
+} from '../command-envelope-signer.service';
 import {
   buildEnterMaintenance,
   DeviceLifecycleStatementService,
@@ -538,6 +542,45 @@ describe('contracts golden — what the services issue verifies on the device', 
     expect(verifyAs(other.envelope, ST_RECEIPT, provisioning, 'os-root')).toEqual([
       'manifest-digest-mismatch',
     ]);
+  });
+
+  it('a platform command the service signs is the RBAC manifest actor, key and policy version', () => {
+    const { config, rbac } = services();
+    const manifest = bodyOf(RBAC1);
+    const actor = asObject((manifest['actors'] as JsonObject[])[0], 'actor');
+    const actorKey = Buffer.from(field(actor, 'public_key'), 'base64');
+    const uuidBytes = (uuid: string): number[] =>
+      Array.from(Buffer.from(uuid.replace(/-/g, ''), 'hex'));
+    const envelope = new CommandEnvelopeSignerService(config, rbac).signPlatformCommand({
+      cmd: 'read_tag',
+      params: { tag: 'pump_1.state' },
+      tenantId,
+      jti: '7e570000-0000-4000-8000-0000000000e1',
+    });
+    expect(createHash('sha256').update(actorKey).digest('hex')).toBe(field(actor, 'keyid'));
+    expect(envelope.actor).toEqual(uuidBytes(field(actor, 'actor_id')));
+    expect(envelope.tenant_id).toEqual(uuidBytes(field(manifest, 'tenant_id')));
+    expect(envelope.claimed_policy_version).toBe(intField(manifest, 'policy_version'));
+    expect(envelope.jti).toBe('7e570000-0000-4000-8000-0000000000e1');
+    const transcript = envelopeCanonicalBytes({
+      cmd: envelope.cmd,
+      params: envelope.params,
+      actor: Buffer.from(envelope.actor),
+      tenantId: Buffer.from(envelope.tenant_id),
+      iat: envelope.iat_unix_secs,
+      exp: envelope.exp_unix_secs,
+      claimedPolicyVersion: envelope.claimed_policy_version,
+      coApproverActor: null,
+      jti: envelope.jti,
+      nonce: envelope.nonce,
+      cmdHash: Buffer.from(envelope.cmd_hash),
+    });
+    const publicKey = createPublicKey({
+      key: Buffer.concat([Buffer.from('302a300506032b6570032100', 'hex'), actorKey]),
+      format: 'der',
+      type: 'spki',
+    });
+    expect(verify(null, transcript, publicKey, Buffer.from(envelope.signature))).toBe(true);
   });
 
   it('the lifecycle statement the service issues moves an ACTIVE device to MAINTENANCE', () => {

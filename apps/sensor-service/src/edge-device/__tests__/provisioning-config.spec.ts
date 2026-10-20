@@ -22,7 +22,9 @@ import { TenantKeyService } from '../tenant-key.service';
 import { DeviceEventService } from '../device-event.service';
 import { DeviceDirectoryService } from '../device-directory.service';
 import { ProvisioningService } from '../provisioning.service';
+import { DeviceLifecycleStatementService } from '../device-lifecycle-statement.service';
 import { EdgeProvisioningManifestService } from '../edge-provisioning-manifest.service';
+import { EdgeRootHandoffService } from '../edge-root-handoff.service';
 import { ProvisioningReservationService } from '../provisioning-reservation.service';
 
 // SENSOR-CRITICAL-143: device writes run inside runInTenantTransaction. The
@@ -205,6 +207,8 @@ describe('ProvisioningService - Config Management', () => {
           useValue: { issueCredentials: jest.fn().mockResolvedValue(true) },
         },
         { provide: EdgeProvisioningManifestService, useValue: {} },
+        { provide: DeviceLifecycleStatementService, useValue: {} },
+        { provide: EdgeRootHandoffService, useValue: {} },
         {
           provide: DeviceDirectoryService,
           useValue: {

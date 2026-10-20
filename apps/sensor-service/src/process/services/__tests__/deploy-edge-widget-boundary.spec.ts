@@ -3,6 +3,8 @@ import { BadRequestException } from '@nestjs/common';
 import { ScadaPackage, ScadaPackageStatus } from '../../entities/scada-package.entity';
 import { ScadaPackageService } from '../scada-package.service';
 import { MqttClientService } from '../../../shared-mqtt/mqtt-client.service';
+import { EdgeCommandPublisher } from '../../../edge-device/edge-command-publisher.service';
+import { publisherOverBroker } from '../../../edge-device/test-helpers/edge-command-publisher';
 import { EdgeDeviceService } from '../../../edge-device/edge-device.service';
 
 import { createScadaPackageHarness } from './scada-package-harness';
@@ -65,6 +67,12 @@ describe('deploy edge-widget boundary (CONTRACT-H-002)', () => {
         {
           provide: MqttClientService,
           useValue: { isConnectedToBroker: () => true, publish },
+        },
+        {
+          provide: EdgeCommandPublisher,
+          useFactory: (mqtt: MqttClientService): EdgeCommandPublisher =>
+            publisherOverBroker(mqtt, [{ id: 'dev-1', tenantId: TENANT }]),
+          inject: [MqttClientService],
         },
         {
           provide: EdgeDeviceService,

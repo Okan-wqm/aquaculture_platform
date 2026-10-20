@@ -16,6 +16,8 @@ import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/sche
 import { type DataSource, In, type Repository } from 'typeorm';
 
 import { DeviceDirectoryService } from '../device-directory.service';
+import { type EdgeCommandPublisher } from '../edge-command-publisher.service';
+import { type EdgeRootHandoffService } from '../edge-root-handoff.service';
 import { EdgeDeviceService } from '../edge-device.service';
 import { InstallerScriptService } from '../installer-script.service';
 import { DeviceIoConfig } from '../entities/device-io-config.entity';
@@ -43,10 +45,11 @@ describe('EdgeDeviceService.findAll — inService', () => {
       collaborator<Repository<LoRaDevice>>({}, 'LoRaDeviceRepository'),
       collaborator<DataSource>({}, 'DataSource'),
       createScheduledJobTestExecutor().executor,
-      null,
+      collaborator<EdgeCommandPublisher>({}, 'EdgeCommandPublisher'),
       collaborator<InstallerScriptService>({}, 'InstallerScriptService'),
       collaborator<ConfigService>({ get: jest.fn() }, 'ConfigService'),
       collaborator<DeviceDirectoryService>({}, 'DeviceDirectoryService'),
+      collaborator<EdgeRootHandoffService>({}, 'EdgeRootHandoffService'),
     );
   });
 

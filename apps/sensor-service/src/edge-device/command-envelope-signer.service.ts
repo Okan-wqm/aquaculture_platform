@@ -1,4 +1,10 @@
-import { createHash, createPrivateKey, sign as cryptoSign, randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
+
+import { Injectable } from '@nestjs/common';
+
+import { type StatementSigningKey } from './manifest-signer';
+import { RbacManifestService } from './rbac-manifest.service';
+import { SuderraEdgeConfig } from './suderra-edge.config';
 
 /**
  * Cloud-side ed25519 command-envelope signer (SEC-MEDIUM-105 — 2026-08-23
@@ -20,28 +26,29 @@ import { createHash, createPrivateKey, sign as cryptoSign, randomUUID } from 'cr
  *             + u32 jti_len + jti + u32 nonce_len + nonce
  *             + 32 cmd_hash + "command-envelope-sig-v3"
  *
- * Key material: `SENSOR_COMMAND_SIGNING_KEY_SEED_HEX` (32-byte ed25519 seed,
- * hex). Unset ⇒ signCommandEnvelope returns the envelope unsigned (edge
- * warns under Permissive; Enforcing rejects — the operator's rollout
- * discipline per plan §2 HC-6).
+ * Key material: the Suderra edge channel's `command` key
+ * (SUDERRA_EDGE_COMMAND_SIGNING_KEY, ADR-048 DEC-3.3), anchored for the
+ * device in the trust-anchors bundle and named by the RBAC manifest as the
+ * platform actor's key. Nothing here publishes unsigned: a device that
+ * needs a signature gets one or no command (EdgeCommandPublisher).
  */
 
 const DOMAIN_TAG_PARAMS = Buffer.from('command-envelope-v1', 'ascii');
 const DOMAIN_TAG_ENVELOPE = Buffer.from('command-envelope-sig-v3', 'ascii');
-
-const ED25519_PKCS8_SEED_PREFIX = Buffer.from('302e020100300506032b657004220420', 'hex');
-const SEED_HEX_PATTERN = /^[0-9a-f]{64}$/;
 
 export interface EnvelopeCommandParams {
   cmd: string;
   params: Record<string, unknown>;
   actorUuid: string;
   tenantUuid: string;
+  /** Monotonic policy version the envelope claims. */
+  claimedPolicyVersion: number;
+  /** The command's correlation id; the agent reports its result under it. */
+  jti: string;
   /** Seconds from now until expiry (default 300). */
   validitySecs?: number;
-  /** Monotonic policy version the envelope claims (default 1). */
-  claimedPolicyVersion?: number;
-  coApproverActorUuid?: string | null;
+  /** Signing instant (default: now). */
+  now?: Date;
 }
 
 export interface SignedCommandEnvelope {
@@ -55,9 +62,11 @@ export interface SignedCommandEnvelope {
   jti: string;
   nonce: string;
   cmd_hash: number[];
-  signature: number[] | null;
-  co_approver_actor: number[] | null;
-  co_approver_signature: number[] | null;
+  /** The cloud signs every envelope it produces. */
+  signature: number[];
+  /** Never present: one platform key cannot be two persons (DEC-9.4). */
+  co_approver_actor: null;
+  co_approver_signature: null;
 }
 
 function uuidTo16Bytes(uuid: string): Buffer {
@@ -164,46 +173,23 @@ export function envelopeCanonicalBytes(env: {
   ]);
 }
 
-export interface CommandSignerConfig {
-  get(key: string, defaultValue?: string): string | undefined;
-}
+/**
+ * Signs command envelopes with one key of the `command` purpose. Pure: the
+ * key, the actor and the policy version are its inputs; the clock is read
+ * once per envelope. There is no co-approver input: until operator keys and
+ * two-person co-signing arrive (DEC-9.4 P2, EDGE-MEDIUM-121) a second
+ * signature from the same platform key would only imitate two-person
+ * integrity, so the device keeps refusing that command class fail-closed.
+ */
+export class CommandEnvelopeSigner {
+  constructor(private readonly key: StatementSigningKey<'command'>) {}
 
-export class CommandEnvelopeSignerService {
-  private seed: Buffer | null = null;
-
-  constructor(config: CommandSignerConfig) {
-    const seedHex = config.get('SENSOR_COMMAND_SIGNING_KEY_SEED_HEX', '');
-    if (seedHex && SEED_HEX_PATTERN.test(seedHex)) {
-      this.seed = Buffer.from(seedHex, 'hex');
-    } else if (seedHex) {
-      throw new Error(
-        'SENSOR_COMMAND_SIGNING_KEY_SEED_HEX must be 64 lowercase hex chars (32-byte ed25519 seed)',
-      );
-    }
-  }
-
-  get isSigningEnabled(): boolean {
-    return this.seed !== null;
-  }
-
-  /**
-   * Build + sign a v3 CommandEnvelope. Returns null when signing is not
-   * configured (the caller publishes unsigned — the edge's rollout mode
-   * decides acceptance).
-   */
-  sign(input: EnvelopeCommandParams): SignedCommandEnvelope | null {
-    if (!this.seed) {
-      return null;
-    }
-
+  sign(input: EnvelopeCommandParams): SignedCommandEnvelope {
     const actor = uuidTo16Bytes(input.actorUuid);
     const tenantId = uuidTo16Bytes(input.tenantUuid);
-    const coApprover = input.coApproverActorUuid ? uuidTo16Bytes(input.coApproverActorUuid) : null;
 
-    const iat = Math.floor(Date.now() / 1000);
+    const iat = Math.floor((input.now ?? new Date()).getTime() / 1000);
     const exp = iat + (input.validitySecs ?? 300);
-    const claimedPolicyVersion = input.claimedPolicyVersion ?? 1;
-    const jti = randomUUID();
     const nonce = randomUUID().replace(/-/g, '');
 
     const cmdHash = createHash('sha256')
@@ -217,21 +203,13 @@ export class CommandEnvelopeSignerService {
       tenantId,
       iat,
       exp,
-      claimedPolicyVersion,
-      coApproverActor: coApprover,
-      jti,
+      claimedPolicyVersion: input.claimedPolicyVersion,
+      coApproverActor: null,
+      jti: input.jti,
       nonce,
       cmdHash,
     });
-
-    // ed25519 seed → PKCS8 DER → sign (same wrapping as DeploySigningService)
-    const pkcs8Der = Buffer.concat([ED25519_PKCS8_SEED_PREFIX, this.seed]);
-    const privateKey = createPrivateKey({
-      key: pkcs8Der,
-      format: 'der',
-      type: 'pkcs8',
-    });
-    const signature = cryptoSign(null, canonicalBytes, privateKey);
+    const signature = this.key.sign(canonicalBytes);
 
     return {
       cmd: input.cmd,
@@ -240,13 +218,49 @@ export class CommandEnvelopeSignerService {
       tenant_id: Array.from(tenantId),
       iat_unix_secs: iat,
       exp_unix_secs: exp,
-      claimed_policy_version: claimedPolicyVersion,
-      jti,
+      claimed_policy_version: input.claimedPolicyVersion,
+      jti: input.jti,
       nonce,
       cmd_hash: Array.from(cmdHash),
       signature: Array.from(signature),
-      co_approver_actor: coApprover ? Array.from(coApprover) : null,
+      co_approver_actor: null,
       co_approver_signature: null,
     };
+  }
+}
+
+/**
+ * The cloud's platform-actor command signer (ADR-048 DEC-9.2, DEC-9.4): the
+ * key is the channel's `command` key, the actor the RBAC manifest's platform
+ * actor and the claimed policy_version the manifest's (the agent refuses a
+ * claim below the installed manifest). Used only through
+ * EdgeCommandPublisher, the single command publish path.
+ */
+@Injectable()
+export class CommandEnvelopeSignerService {
+  constructor(
+    private readonly config: SuderraEdgeConfig,
+    private readonly rbac: RbacManifestService,
+  ) {}
+
+  /** True when this deployment holds the channel's command key. */
+  get enabled(): boolean {
+    return this.config.enabled;
+  }
+
+  signPlatformCommand(command: {
+    readonly cmd: string;
+    readonly params: Record<string, unknown>;
+    readonly tenantId: string;
+    readonly jti: string;
+  }): SignedCommandEnvelope {
+    return new CommandEnvelopeSigner(this.config.settings.keys.command).sign({
+      cmd: command.cmd,
+      params: command.params,
+      actorUuid: this.rbac.platformActorId,
+      tenantUuid: command.tenantId,
+      claimedPolicyVersion: this.rbac.policyVersion,
+      jti: command.jti,
+    });
   }
 }

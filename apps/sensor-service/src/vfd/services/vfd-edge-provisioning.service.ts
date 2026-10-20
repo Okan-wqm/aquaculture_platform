@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'crypto';
 import { Repository } from 'typeorm';
@@ -8,7 +8,7 @@ import {
   formatValidationErrors,
 } from '@platform/sensor-contracts/validators';
 
-import { MqttClientService } from '../../shared-mqtt/mqtt-client.service';
+import { EdgeCommandPublisher } from '../../edge-device/edge-command-publisher.service';
 import {
   ModbusRtuConfiguration,
   ModbusTcpConfiguration,
@@ -98,9 +98,8 @@ const WRITE_FUNCTION_CODES = new Set([5, 6, 16]);
  * from the WRITABLE registers only — deny-by-default write authority). Non-Modbus
  * VFDs (PROFIBUS, PROFINET, …) cannot be pushed as Modbus devices and are skipped.
  *
- * Auth: like every cloud→edge command the envelope is UNSIGNED — the broker's
- * per-tenant mTLS ACL is the authority (see VfdEdgeWriteService for the note on
- * the latent ed25519 signing capability).
+ * Auth: every command goes out through EdgeCommandPublisher, the one command
+ * publish path (ADR-048 DEC-9.2; see VfdEdgeWriteService).
  */
 @Injectable()
 export class VfdEdgeProvisioningService {
@@ -109,9 +108,9 @@ export class VfdEdgeProvisioningService {
   private readonly pending = new Map<string, PendingProvision>();
 
   constructor(
-    @Optional()
-    @Inject(MqttClientService)
-    private readonly mqttClient: MqttClientService | null,
+    // The single command publish path (ADR-048 DEC-9.2): it signs for a
+    // Suderra OS gateway and fails closed when the broker is unavailable.
+    private readonly commands: EdgeCommandPublisher,
     private readonly registerMappingService: VfdRegisterMappingService,
     @InjectRepository(VfdDevice)
     private readonly vfdDeviceRepository: Repository<VfdDevice>,
@@ -393,8 +392,7 @@ export class VfdEdgeProvisioningService {
     edgeDeviceId: string,
     cmd: { command: string; params: Record<string, unknown>; intent: string },
   ): Promise<EdgeProvisionResult> {
-    const mqtt = this.mqttClient;
-    if (!mqtt || !mqtt.isConnectedToBroker()) {
+    if (!this.commands.isAvailable()) {
       return {
         success: false,
         error: 'not connected to MQTT broker for edge provisioning command',
@@ -435,7 +433,10 @@ export class VfdEdgeProvisioningService {
     });
 
     try {
-      await mqtt.publish(`tenants/${tenantId}/devices/${edgeDeviceId}/commands`, envelope);
+      await this.commands.publish(
+        { tenantId, deviceId: edgeDeviceId },
+        { commandId: envelope.commandId, command: envelope.command, params: envelope.params },
+      );
       this.logger.debug(
         `Edge command (${cmd.intent}) published to gateway ${edgeDeviceId} (command ${commandId})`,
       );

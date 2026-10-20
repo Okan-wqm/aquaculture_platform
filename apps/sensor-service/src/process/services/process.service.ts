@@ -7,7 +7,7 @@ import { Repository, FindOptionsWhere, ILike } from 'typeorm';
 import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
 import { EdgeDeviceService } from '../../edge-device/edge-device.service';
-import { MqttClientService } from '../../shared-mqtt/mqtt-client.service';
+import { EdgeCommandPublisher } from '../../edge-device/edge-command-publisher.service';
 
 import {
   CreateProcessInput,
@@ -48,9 +48,10 @@ export class ProcessService {
   constructor(
     @InjectRepository(Process)
     private readonly processRepository: Repository<Process>,
+    // The single command publish path (ADR-048 DEC-9.2).
     @Optional()
-    @Inject(MqttClientService)
-    private readonly mqttClient: MqttClientService | null,
+    @Inject(EdgeCommandPublisher)
+    private readonly commands: EdgeCommandPublisher | null,
     @Optional()
     @Inject(EdgeDeviceService)
     private readonly edgeDeviceService: EdgeDeviceService | null,
@@ -364,10 +365,10 @@ export class ProcessService {
     }
 
     // 3. MQTT kontrolü
-    if (!this.mqttClient) {
+    if (!this.commands) {
       throw new BadRequestException('MQTT service not available');
     }
-    if (!this.mqttClient.isConnectedToBroker()) {
+    if (!this.commands.isAvailable()) {
       throw new BadRequestException('Not connected to MQTT broker');
     }
 
@@ -462,7 +463,6 @@ export class ProcessService {
     };
 
     const commandId = randomUUID();
-    const topic = `tenants/${tenantId}/devices/${device.id}/commands`;
     const payload = {
       commandId,
       command: 'deploy_process',
@@ -502,7 +502,11 @@ export class ProcessService {
     }
 
     try {
-      await this.mqttClient.publish(topic, payload);
+      await this.commands.publish({ tenantId, deviceId: device.id }, {
+        commandId: payload.commandId,
+        command: payload.command,
+        params: payload.params,
+      });
       this.logger.log(
         `Process "${process.name}" v${version} deployed to device ${device.deviceCode} (process: ${processId}, command: ${commandId}, user: ${userId || 'system'})`,
       );

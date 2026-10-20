@@ -749,6 +749,12 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         deviceCode,
         payload as Record<string, unknown>,
       );
+      // ADR-048 DEC-5.8: the agent reports an activation receipt handed to root.
+      await this.edgeDeviceService.handleRootHandoffResponse(
+        deviceCode,
+        payload as Record<string, unknown>,
+        tenantId,
+      );
     }
 
     // SENSOR-CRITICAL-007 — resolve a pending edge-delegated VFD write. No-op
@@ -2288,15 +2294,5 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
    */
   isConnectedToBroker(): boolean {
     return this.mqttClient?.isConnectedToBroker() ?? false;
-  }
-
-  /**
-   * Publish message to topic (for testing)
-   */
-  async publish(topic: string, message: string | object): Promise<void> {
-    if (!this.mqttClient) {
-      throw new Error('MQTT client not available');
-    }
-    await this.mqttClient.publish(topic, message);
   }
 }

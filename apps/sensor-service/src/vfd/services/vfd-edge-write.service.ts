@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 
 import {
@@ -6,7 +6,7 @@ import {
   formatValidationErrors,
 } from '@platform/sensor-contracts/validators';
 
-import { MqttClientService } from '../../shared-mqtt/mqtt-client.service';
+import { EdgeCommandPublisher } from '../../edge-device/edge-command-publisher.service';
 import { VfdDevice } from '../entities/vfd-device.entity';
 
 /**
@@ -46,12 +46,12 @@ const U16_MAX = 0xffff;
  * `write_register` returned Ok — the drive echoed the Modbus write — not that a
  * cloud adapter *claimed* to have written.
  *
- * Authentication note: like every existing cloud command (deploy, io-config,
- * automation writes, ping) the envelope is published UNSIGNED — the broker's
- * per-tenant mTLS ACL is the authority. Optional ed25519 envelope signing is a
- * latent edge capability (`SignatureMode::Enforcing`) that NO cloud command
- * path currently produces; wiring a cloud command-envelope signer is a
- * platform-wide security item, not part of this drive-specific fake-write fix.
+ * Authentication: the command goes out through EdgeCommandPublisher, the one
+ * command publish path (ADR-048 DEC-9.2). A Suderra OS gateway receives it as
+ * a platform-actor envelope signed with the command key — and, until SG-1
+ * opens, refuses it, because the platform role grants no Modbus write
+ * (DEC-9.4, DEC-13); a generic-Linux gateway receives the legacy unsigned
+ * message until DEC-28 P2.
  */
 @Injectable()
 export class VfdEdgeWriteService {
@@ -60,12 +60,9 @@ export class VfdEdgeWriteService {
   private readonly pendingWrites = new Map<string, PendingWrite>();
 
   constructor(
-    // @Global SharedMqttModule provides this; @Optional keeps `new`-based test
-    // harnesses and MQTT-less boots working (ensureMqtt fails closed at call
-    // time rather than at construction).
-    @Optional()
-    @Inject(MqttClientService)
-    private readonly mqttClient: MqttClientService | null,
+    // The single command publish path (ADR-048 DEC-9.2): it signs for a
+    // Suderra OS gateway and fails closed when the broker is unavailable.
+    private readonly commands: EdgeCommandPublisher,
   ) {}
 
   /**
@@ -95,7 +92,7 @@ export class VfdEdgeWriteService {
     this.assertU16('register address', address);
     this.assertU16('register value', value);
 
-    const mqtt = this.ensureMqtt();
+    this.ensureMqtt();
     const commandId = randomUUID();
     const startTime = Date.now();
 
@@ -130,7 +127,10 @@ export class VfdEdgeWriteService {
     }
 
     try {
-      await mqtt.publish(`tenants/${device.tenantId}/devices/${edgeDeviceId}/commands`, envelope);
+      await this.commands.publish(
+        { tenantId: device.tenantId, deviceId: edgeDeviceId },
+        { commandId: envelope.commandId, command: envelope.command, params: envelope.params },
+      );
       this.logger.debug(
         `Edge write (${intent}) published to gateway ${edgeDeviceId} → ${edgeModbusDeviceName}[${address}]=${value} (command ${commandId})`,
       );
@@ -174,14 +174,10 @@ export class VfdEdgeWriteService {
     });
   }
 
-  private ensureMqtt(): MqttClientService {
-    if (!this.mqttClient) {
-      throw new BadRequestException('MQTT service not available for edge-delegated VFD write');
-    }
-    if (!this.mqttClient.isConnectedToBroker()) {
+  private ensureMqtt(): void {
+    if (!this.commands.isAvailable()) {
       throw new BadRequestException('Not connected to MQTT broker for edge-delegated VFD write');
     }
-    return this.mqttClient;
   }
 
   private assertU16(label: string, n: number): void {

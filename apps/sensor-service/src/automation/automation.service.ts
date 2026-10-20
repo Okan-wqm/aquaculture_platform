@@ -36,7 +36,7 @@ import { ArtifactService } from '../deploy-artifact/artifact.service';
 import { DeployArtifactType } from '../deploy-artifact/entities/deploy-artifact.entity';
 import { EdgeDeviceService } from '../edge-device/edge-device.service';
 import { DeviceIoConfig } from '../edge-device/entities/device-io-config.entity';
-import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
+import { EdgeCommandPublisher } from '../edge-device/edge-command-publisher.service';
 
 import { AutomationEventsPublisher } from './events/automation-events.publisher';
 import { DeploymentLogService } from './services/deployment-log.service';
@@ -115,8 +115,9 @@ export class AutomationService {
     @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
     @Optional()
     private readonly edgeDeviceService: EdgeDeviceService,
+    // The single command publish path (ADR-048 DEC-9.2).
     @Optional()
-    private readonly mqttClient: MqttClientService,
+    private readonly commands: EdgeCommandPublisher,
     @Optional()
     private readonly deploymentLogService: DeploymentLogService,
     @Optional()
@@ -1238,18 +1239,18 @@ export class AutomationService {
    * Ensure MqttClientService is available and connected
    * Throws if @Optional service is not injected or not connected
    */
-  private ensureMqttAvailable(): MqttClientService {
-    if (!this.mqttClient) {
+  private ensureMqttAvailable(): EdgeCommandPublisher {
+    if (!this.commands) {
       throw new BadRequestException(
         'MQTT functionality is not available. MqttClientService is not configured.',
       );
     }
-    if (!this.mqttClient.isConnectedToBroker()) {
+    if (!this.commands.isAvailable()) {
       throw new BadRequestException(
         'MQTT broker is not connected. Please try again later.',
       );
     }
-    return this.mqttClient;
+    return this.commands;
   }
 
   /**
@@ -1276,7 +1277,7 @@ export class AutomationService {
     const deployedBy = actor.userId;
     // Ensure required services are available
     const edgeService = this.ensureEdgeDeviceServiceAvailable();
-    const mqtt = this.ensureMqttAvailable();
+    const commands = this.ensureMqttAvailable();
 
     // 1. Get and validate program
     const program = await this.findByIdOrFail(programId, tenantId);
@@ -1443,10 +1444,15 @@ export class AutomationService {
     }
 
     // 6. Publish via MQTT
-    const commandTopic = `tenants/${tenantId}/devices/${device.id}/commands`;
-
     try {
-      await mqtt.publish(commandTopic, deployCommand);
+      await commands.publish(
+        { tenantId, deviceId: device.id },
+        {
+          commandId,
+          command: String(deployCommand['command']),
+          params: deployCommand['params'] as Record<string, unknown>,
+        },
+      );
       this.logger.log(
         `Deploy command sent to ${device.deviceCode}: ${commandId}`,
       );
@@ -2573,7 +2579,7 @@ export class AutomationService {
     const rolledBackBy = actor.userId;
     // Ensure required services are available
     const edgeService = this.ensureEdgeDeviceServiceAvailable();
-    const mqtt = this.ensureMqttAvailable();
+    const commands = this.ensureMqttAvailable();
 
     const device = await edgeService.findByIdOrFail(deviceId, tenantId);
 
@@ -2613,10 +2619,15 @@ export class AutomationService {
       params: {},
     };
 
-    const commandTopic = `tenants/${tenantId}/devices/${device.id}/commands`;
-
     try {
-      await mqtt.publish(commandTopic, rollbackCommand);
+      await commands.publish(
+        { tenantId, deviceId: device.id },
+        {
+          commandId: rollbackCommand.commandId,
+          command: rollbackCommand.command,
+          params: rollbackCommand.params,
+        },
+      );
       this.logger.log(
         `Rollback command sent to ${device.deviceCode}: ${commandId}`,
       );

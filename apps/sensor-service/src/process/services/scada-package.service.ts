@@ -42,7 +42,7 @@ import {
   ReleaseBundleManifest,
 } from '../../release-bundle/entities/release-bundle.entity';
 import { ReleaseBundleService } from '../../release-bundle/release-bundle.service';
-import { MqttClientService } from '../../shared-mqtt/mqtt-client.service';
+import { EdgeCommandPublisher } from '../../edge-device/edge-command-publisher.service';
 
 import {
   CreateScadaPackageInput,
@@ -240,9 +240,10 @@ export class ScadaPackageService {
     private readonly scadaPackageRepository: Repository<ScadaPackage>,
     @InjectRepository(Process)
     private readonly processRepository: Repository<Process>,
+    // The single command publish path (ADR-048 DEC-9.2).
     @Optional()
-    @Inject(MqttClientService)
-    private readonly mqttClient: MqttClientService | null,
+    @Inject(EdgeCommandPublisher)
+    private readonly commands: EdgeCommandPublisher | null,
     @Optional()
     @Inject(EdgeDeviceService)
     private readonly edgeDeviceService: EdgeDeviceService | null,
@@ -767,7 +768,7 @@ export class ScadaPackageService {
     tenantId: string,
     userId?: string,
   ): Promise<UndeployDeviceResult> {
-    if (!this.edgeDeviceService || !this.mqttClient) {
+    if (!this.edgeDeviceService || !this.commands) {
       return {
         deviceId,
         sent: false,
@@ -788,7 +789,7 @@ export class ScadaPackageService {
         message: `${device.deviceCode} çevrimdışı — undeploy gönderilemedi`,
       };
     }
-    if (!this.mqttClient.isConnectedToBroker()) {
+    if (!this.commands.isAvailable()) {
       return { deviceId: device.id, sent: false, message: 'MQTT broker bağlantısı yok' };
     }
 
@@ -832,7 +833,11 @@ export class ScadaPackageService {
     }
 
     try {
-      await this.mqttClient.publish(`tenants/${tenantId}/devices/${device.id}/commands`, payload);
+      await this.commands.publish({ tenantId, deviceId: device.id }, {
+        commandId: payload.commandId,
+        command: payload.command,
+        params: payload.params,
+      });
       this.logger.log(
         `undeploy_scada_package sent for package ${pkg.id} to device ${device.deviceCode} (command: ${commandId})`,
       );
@@ -938,10 +943,10 @@ export class ScadaPackageService {
       return { success: false, message: 'Device is offline — cannot deploy SCADA package' };
     }
 
-    if (!this.mqttClient) {
+    if (!this.commands) {
       throw new BadRequestException('MQTT service not available');
     }
-    if (!this.mqttClient.isConnectedToBroker()) {
+    if (!this.commands.isAvailable()) {
       throw new BadRequestException('Not connected to MQTT broker');
     }
 
@@ -1032,7 +1037,6 @@ export class ScadaPackageService {
       },
     };
 
-    const topic = `tenants/${tenantId}/devices/${device.id}/commands`;
     // Server-controlled envelope — spread packagePayload into params only,
     // so client packageData cannot override commandId/command/timestamp
     const payload = {
@@ -1075,7 +1079,11 @@ export class ScadaPackageService {
     }
 
     try {
-      await this.mqttClient.publish(topic, payload);
+      await this.commands.publish({ tenantId, deviceId: device.id }, {
+        commandId: payload.commandId,
+        command: payload.command,
+        params: payload.params,
+      });
       pkg.status = ScadaPackageStatus.PUBLISHED;
       await this.scadaPackageRepository.save(pkg);
       this.emitPackageLifecycle(SCADA_PACKAGE_PUBLISHED, pkg.tenantId, pkg.id);
@@ -1125,10 +1133,10 @@ export class ScadaPackageService {
     if (!device.isOnline) {
       return { success: false, message: 'Device is offline — cannot roll back' };
     }
-    if (!this.mqttClient) {
+    if (!this.commands) {
       throw new BadRequestException('MQTT service not available');
     }
-    if (!this.mqttClient.isConnectedToBroker()) {
+    if (!this.commands.isAvailable()) {
       throw new BadRequestException('Not connected to MQTT broker');
     }
 
@@ -1190,10 +1198,11 @@ export class ScadaPackageService {
     }
 
     try {
-      await this.mqttClient.publish(
-        `tenants/${tenantId}/devices/${device.id}/commands`,
-        payload,
-      );
+      await this.commands.publish({ tenantId, deviceId: device.id }, {
+        commandId: payload.commandId,
+        command: payload.command,
+        params: payload.params,
+      });
       this.logger.log(
         `Rolled back device ${device.deviceCode} to SCADA artifact ${artifact.id} (v${version}, command: ${commandId})`,
       );

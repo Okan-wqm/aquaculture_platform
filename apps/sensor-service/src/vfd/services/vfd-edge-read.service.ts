@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 
 import {
@@ -6,7 +6,7 @@ import {
   formatValidationErrors,
 } from '@platform/sensor-contracts/validators';
 
-import { MqttClientService } from '../../shared-mqtt/mqtt-client.service';
+import { EdgeCommandPublisher } from '../../edge-device/edge-command-publisher.service';
 import { VfdDevice } from '../entities/vfd-device.entity';
 
 /**
@@ -87,8 +87,8 @@ const U16_MAX = 0xffff;
  * A `found:false` result means the edge answered but the register is not in the
  * drive's provisioned register map — the caller MUST treat that as "unknown",
  * never as zero (a fail-open motor-state read is exactly the SENSOR-HIGH-074
- * hazard). Authentication mirrors VfdEdgeWriteService: the envelope is unsigned;
- * the broker's per-tenant mTLS ACL is the authority.
+ * hazard). Authentication mirrors VfdEdgeWriteService: one publish path,
+ * EdgeCommandPublisher, which signs for a Suderra OS gateway (ADR-048 DEC-9.2).
  */
 @Injectable()
 export class VfdEdgeReadService {
@@ -97,9 +97,9 @@ export class VfdEdgeReadService {
   private readonly pendingReads = new Map<string, PendingRead>();
 
   constructor(
-    @Optional()
-    @Inject(MqttClientService)
-    private readonly mqttClient: MqttClientService | null,
+    // The single command publish path (ADR-048 DEC-9.2): it signs for a
+    // Suderra OS gateway and fails closed when the broker is unavailable.
+    private readonly commands: EdgeCommandPublisher,
   ) {}
 
   /**
@@ -127,7 +127,7 @@ export class VfdEdgeReadService {
     }
     this.assertU16('register address', address);
 
-    const mqtt = this.ensureMqtt();
+    this.ensureMqtt();
     const commandId = randomUUID();
     const startTime = Date.now();
 
@@ -171,7 +171,10 @@ export class VfdEdgeReadService {
     }
 
     try {
-      await mqtt.publish(`tenants/${device.tenantId}/devices/${edgeDeviceId}/commands`, envelope);
+      await this.commands.publish(
+        { tenantId: device.tenantId, deviceId: edgeDeviceId },
+        { commandId: envelope.commandId, command: envelope.command, params: envelope.params },
+      );
       this.logger.debug(
         `Edge read (${intent}) published to gateway ${edgeDeviceId} → ${edgeModbusDeviceName}[${address}] (command ${commandId})`,
       );
@@ -274,7 +277,7 @@ export class VfdEdgeReadService {
       );
     }
 
-    const mqtt = this.ensureMqtt();
+    this.ensureMqtt();
     const commandId = randomUUID();
     const startTime = Date.now();
 
@@ -317,7 +320,10 @@ export class VfdEdgeReadService {
     }
 
     try {
-      await mqtt.publish(`tenants/${device.tenantId}/devices/${edgeDeviceId}/commands`, envelope);
+      await this.commands.publish(
+        { tenantId: device.tenantId, deviceId: edgeDeviceId },
+        { commandId: envelope.commandId, command: envelope.command, params: envelope.params },
+      );
       this.logger.debug(
         `Edge read-all (${intent}) published to gateway ${edgeDeviceId} → ${edgeModbusDeviceName} (command ${commandId})`,
       );
@@ -407,14 +413,10 @@ export class VfdEdgeReadService {
     return out;
   }
 
-  private ensureMqtt(): MqttClientService {
-    if (!this.mqttClient) {
-      throw new BadRequestException('MQTT service not available for edge-delegated VFD read');
-    }
-    if (!this.mqttClient.isConnectedToBroker()) {
+  private ensureMqtt(): void {
+    if (!this.commands.isAvailable()) {
       throw new BadRequestException('Not connected to MQTT broker for edge-delegated VFD read');
     }
-    return this.mqttClient;
   }
 
   private assertU16(label: string, n: number): void {

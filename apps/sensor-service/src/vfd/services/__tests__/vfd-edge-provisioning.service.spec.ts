@@ -8,6 +8,7 @@
  *     non-Modbus / unbound drive is skipped, never silently "provisioned".
  */
 import { VfdEdgeProvisioningService } from '../vfd-edge-provisioning.service';
+import { publisherOverBroker } from '../../../edge-device/test-helpers/edge-command-publisher';
 import { VfdDevice } from '../../entities/vfd-device.entity';
 import { VfdRegisterMapping } from '../../entities/vfd-register-mapping.entity';
 import { VfdBrand, VfdDataType, VfdDeviceStatus, VfdProtocol } from '../../entities/vfd.enums';
@@ -56,7 +57,7 @@ function makeService(opts: { writable?: VfdRegisterMapping[]; connected?: boolea
     publish: jest.fn().mockResolvedValue(undefined),
   };
   const svc = new VfdEdgeProvisioningService(
-    mqtt as never,
+    publisherOverBroker(mqtt, [{ id: 'edge-1', tenantId: 'tenant-1' }]),
     registerMapping as never,
     repo as never,
   );

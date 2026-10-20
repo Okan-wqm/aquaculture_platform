@@ -11,6 +11,8 @@ import {
   type SensorRlsHarness,
 } from '../../__tests__/support/sensor-rls-postgres.harness';
 import { DeviceDirectoryService } from '../device-directory.service';
+import { type EdgeCommandPublisher } from '../edge-command-publisher.service';
+import { type EdgeRootHandoffService } from '../edge-root-handoff.service';
 import { EdgeDeviceService } from '../edge-device.service';
 import { InstallerScriptService } from '../installer-script.service';
 import { EdgeDeviceDirectory } from '../entities/edge-device-directory.entity';
@@ -287,17 +289,23 @@ describe('edge MQTT auth under FORCE RLS (SENSOR-CRITICAL-143)', () => {
   });
 
   /** EdgeDeviceService over the runtime role; only the tenant-boundary paths are live. */
-  function edgeDevices(): EdgeDeviceService {
+  function edgeDevices(
+    rootHandoff: EdgeRootHandoffService = collaborator<EdgeRootHandoffService>(
+      {},
+      'EdgeRootHandoffService',
+    ),
+  ): EdgeDeviceService {
     const service = new EdgeDeviceService(
       collaborator<Repository<EdgeDevice>>({}, 'EdgeDeviceRepository'),
       collaborator<Repository<DeviceIoConfig>>({}, 'DeviceIoConfigRepository'),
       collaborator<Repository<LoRaDevice>>({}, 'LoRaDeviceRepository'),
       runtime!,
       createScheduledJobTestExecutor().executor,
-      null,
+      collaborator<EdgeCommandPublisher>({}, 'EdgeCommandPublisher'),
       collaborator<InstallerScriptService>({}, 'InstallerScriptService'),
       new ConfigService({}),
       new DeviceDirectoryService(runtime!),
+      rootHandoff,
     );
     edgeServices.push(service);
     return service;
@@ -352,6 +360,49 @@ describe('edge MQTT auth under FORCE RLS (SENSOR-CRITICAL-143)', () => {
       service.updateHeartbeat({ deviceCode: idA, isOnline: true, cpuUsage: 7 }),
     ).resolves.toMatchObject({ id: idA, tenantId: TENANT_A });
     expect(await deviceRow(TENANT_A, CLIENT_ID_A)).toMatchObject({ is_online: true, cpu_usage: 7 });
+  });
+
+  it('hands a committed Suderra OS device its activation receipt when it comes online (DEC-5.8)', async () => {
+    const receipt = '{"payloadType":"application/vnd.suderra.edge-activation-receipt.v1+json"}';
+    await admin!.query(
+      `UPDATE "${getTenantSchemaName(TENANT_B)}".edge_devices
+          SET agent_channel = 'suderra_os', activation_receipt = $2, is_online = false
+        WHERE mqtt_client_id = $1`,
+      [CLIENT_ID, receipt],
+    );
+    const deliverActivationReceipt = jest.fn(async (): Promise<boolean> => true);
+    const service = edgeDevices(
+      collaborator<EdgeRootHandoffService>({ deliverActivationReceipt }, 'EdgeRootHandoffService'),
+    );
+    const idB = deviceIds.get(CLIENT_ID)!;
+    const heartbeat = { deviceCode: idB, tenantId: TENANT_B, isOnline: true };
+
+    await service.updateHeartbeat(heartbeat);
+    expect(deliverActivationReceipt).toHaveBeenCalledTimes(1);
+    expect(deliverActivationReceipt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: idB,
+        tenantId: TENANT_B,
+        agentChannel: 'suderra_os',
+        activationReceipt: receipt,
+        activationReceiptHandedAt: null,
+      }),
+    );
+
+    // Still online: no second hand-over until the next reconnect.
+    await service.updateHeartbeat(heartbeat);
+    expect(deliverActivationReceipt).toHaveBeenCalledTimes(1);
+
+    // A failed hand-over is retried at the next reconnect; it never fails the heartbeat.
+    await admin!.query(
+      `UPDATE "${getTenantSchemaName(TENANT_B)}".edge_devices SET is_online = false
+        WHERE mqtt_client_id = $1`,
+      [CLIENT_ID],
+    );
+    deliverActivationReceipt.mockRejectedValueOnce(new Error('Not connected to MQTT broker'));
+    await expect(service.updateHeartbeat(heartbeat)).resolves.toMatchObject({ id: idB });
+    expect(deliverActivationReceipt).toHaveBeenCalledTimes(2);
+    expect(await deviceRow(TENANT_B, CLIENT_ID)).toMatchObject({ is_online: true });
   });
 
   it('marks stale in-service devices offline in every tenant, and leaves a revoked one revoked', async () => {

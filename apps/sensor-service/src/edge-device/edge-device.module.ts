@@ -29,7 +29,10 @@ import {
   EdgeWitnessV2,
 } from './entities/v2';
 import { ActivationReceiptService } from './activation-receipt.service';
+import { CommandEnvelopeSignerService } from './command-envelope-signer.service';
 import { DeviceLifecycleStatementService } from './device-lifecycle-statement.service';
+import { EdgeCommandPublisher } from './edge-command-publisher.service';
+import { EdgeRootHandoffService } from './edge-root-handoff.service';
 import { EdgeProvisioningManifestService } from './edge-provisioning-manifest.service';
 import {
   EdgeReleaseCatalog,
@@ -95,6 +98,10 @@ import { TrustAnchorBundleService } from './trust-anchor-bundle.service';
     { provide: RELEASE_STATEMENT_FETCHER, useValue: fetchReleaseStatement },
     EdgeProvisioningManifestService,
     ProvisioningReservationService,
+    // The single command publish path (ADR-048 DEC-9.2) and its signer.
+    CommandEnvelopeSignerService,
+    EdgeCommandPublisher,
+    EdgeRootHandoffService,
   ],
   exports: [
     EdgeDeviceService,
@@ -102,6 +109,7 @@ import { TrustAnchorBundleService } from './trust-anchor-bundle.service';
     MqttAuthService,
     InstallerScriptService,
     DeviceDirectoryService,
+    EdgeCommandPublisher,
   ],
 })
 export class EdgeDeviceModule {}

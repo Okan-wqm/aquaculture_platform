@@ -89,12 +89,19 @@ value "ACTIVE"?` — the PR #2026 chip row shipped `active/monitoring/resolved`
   harvest-timing constraints, same-size batch merge suggestions, plan→
   recordGrading bridge.
 
-## SUPPLY-HIGH-024 — newly published @nx advisories (dev scope, breaking-only fix)
+## SUPPLY-HIGH-024 — follow-redirects advisories masked as an @nx toolchain break
 
 - **Evidence:** npm-audit gate red between CI rounds with zero dependency
   changes on the branch — GHSA-q3jh-wrc6-jgq8 and GHSA-8r9p-f939-6h3c hit
-  every dev-scope @nx package; fixes are the Nx 23 major (breaking).
-- **Disposition:** dated exception (expiry 2026-12-01) on both GHSAs for the
-  13 dev packages; production legs clean (sanitize-html moderate had a
-  non-breaking fix and was bumped to ^2.18.1 instead). Nx 23 major bump is
-  the tracked closure.
+  every dev-scope @nx package; npm's only suggestion was the Nx 23 major
+  (breaking).
+- **Root cause:** both advisories are `follow-redirects` 1.16.0 advisories
+  (patched 1.16.1), and `nx` pins `follow-redirects` exactly at 1.16.0, so
+  no in-range update could reach the patch and npm's fix graph could only
+  offer nx@23.3.0.
+- **Disposition:** RESOLVED on the branch — a `follow-redirects: ^1.16.1`
+  override (same mechanism as the existing hono override) moves the whole
+  toolchain to the patched release; the two dated exceptions registered for
+  the breaking-only reading were removed (ratchet stays at 5). While here,
+  vite ^7.3.5 → ^7.3.7 takes the same-day GHSA-698v-4r3x-3vcv patch
+  (launch-editor argument escaping) rather than an exception.

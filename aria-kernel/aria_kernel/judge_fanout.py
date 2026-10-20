@@ -16,6 +16,7 @@ already dispatched is skipped.
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -35,6 +36,27 @@ JUDGE_FANOUT: tuple[tuple[str, str], ...] = (
     ("evidence_judgment", "aria-evidence-judge"),
     ("adversarial_judgment", "aria-adversarial-judge"),
 )
+
+# WP-J B-2 — the producers this module mints under. The default lane keeps
+# ``judge_fanout.sample``; an explicit panel (the ``roles`` parameter, the
+# funnel's tier-3/4 lane) mints under ``judge_fanout.panel``, whose door
+# contract is whole-panel-or-nothing; the rebuttal lane (a dissenter
+# re-asked once with the winner's verified refs) mints under
+# ``judge_fanout.rebuttal``.
+SAMPLE_PRODUCER: str = "judge_fanout.sample"
+PANEL_PRODUCER: str = "judge_fanout.panel"
+REBUTTAL_PRODUCER: str = "judge_fanout.rebuttal"
+
+
+def _lane_producer(panel_lane: bool) -> str:
+    """The door producer for the lane being minted (its own function so the
+    admission-door AST scan can see which producer a mint names — the same
+    sanctioned selector pattern convergence_drainer's `_seed_producer`
+    established; the scan reads CONSTANTS, so the literals live here and the
+    named constants above remain the vocabulary importers read)."""
+    if panel_lane:
+        return "judge_fanout.panel"
+    return "judge_fanout.sample"
 
 # E14 — the arbiter that the `consensus_arbitration` role always named and
 # nothing ever minted. The fan-out above guarantees two judges; when those two
@@ -123,13 +145,31 @@ def _judge_obligations(contract: RuleContract) -> list[dict[str, Any]]:
     return obligations
 
 
-def judge_request_fields(item: dict[str, Any], contract: RuleContract) -> dict[str, Any]:
+def judge_request_fields(
+    item: dict[str, Any], contract: RuleContract, *, role: str | None = None,
+) -> dict[str, Any]:
     """The contract-bound part of a judge envelope for one finding: prompt,
     obligations and scopes. The live fan-out and the gold-set replay
     (judge_replay) both mint through it, so replay recall measures the same
-    question live judges answer."""
+    question live judges answer.
+
+    WP-J B-2 — ``role`` renders the seat's METHOD artifact requirement into
+    the prompt (``agent_surface.METHOD_REQUIRED_EVIDENCE``): the ask and the
+    bridge's refusal state one law. ``None`` (every legacy caller and the
+    default lane) renders the legacy prompt byte for byte.
+    """
+    from .agent_surface import EXPERT_METHODS, METHOD_REQUIRED_EVIDENCE
+
+    prompt = _render_prompt(item, contract)
+    method = EXPERT_METHODS.get(role or "")
+    required = METHOD_REQUIRED_EVIDENCE.get(method or "")
+    if required is not None:
+        prompt += (
+            f"\nYour seat's method is {method}; its required artifact is the verdict-block "
+            f"field `{required}`. An answer without it is refused before it can fold."
+        )
     return {
-        "suggested_prompt": _render_prompt(item, contract),
+        "suggested_prompt": prompt,
         "must_satisfy": _judge_obligations(contract),
         # A false_positive may cite anything that refutes a premise, the
         # detector's own source included; what a true_positive may stand on
@@ -272,7 +312,7 @@ def dispatch_judges_for_sample(
     # parameter for the panel seats (EXPERT_METHODS).
     roles: tuple[tuple[str, str], ...] | list[tuple[str, str]] | None = None,
 ) -> dict[str, Any]:
-    """Mint two judge envelopes per finding in a judgment sample.
+    """Mint judge envelopes per finding in a judgment sample.
 
     Returns a summary; the envelopes are picked up asynchronously by the
     executor drain (``ci_executor_drain``), so the resulting ai_judge rows — and
@@ -284,9 +324,17 @@ def dispatch_judges_for_sample(
     never attach on the one lane that dispatches two judges per finding. The
     caller already resolves this workspace for ``target_sha``; passing it here
     is what makes the packing fire in production rather than only in tests.
+
+    WP-J B-2 — an explicit ``roles`` set mints a PANEL, and a panel is minted
+    WHOLE OR NOT AT ALL: one seat a cap or the door refuses refuses the whole
+    finding (it stays at its settled tier; the next cycle's routing re-offers
+    it), because a 3-of-4 panel is a finding that can never settle at the tier
+    it was routed to. The default lane keeps the legacy per-seat semantics
+    bit for bit.
     """
     root = ensure_tools_dir(base_dir)
     seats: tuple[tuple[str, str], ...] = tuple(roles) if roles is not None else JUDGE_FANOUT
+    panel_lane = roles is not None
     items = sample.get("items") or []
     existing = _existing_judge_dispatches(root)
     # Y2 (ORPHAN-704) — backlog gate: when the executor's drain is behind,
@@ -323,43 +371,60 @@ def dispatch_judges_for_sample(
                 for _role, agent in seats
             )
             continue
-        envelope = judge_request_fields(item, contract)
         if tool_id not in judged:
             judged[tool_id] = _judged_pairs(root, tool_id)
         finding_key = _finding_key(item)
-        admissions: dict[str, Admission] = {}
-        for role, agent in seats:
-            if refused:
-                break
-            if (group, agent) in existing or (finding_key, agent) in judged[tool_id]:
-                continue
-            if max_pending_per_role is not None and pending.get(role, 0) >= max_pending_per_role:
-                continue
-            admission = admit_request("judge_fanout.sample", role, base_dir=root, cycle_id=sample.get("cycle_id"))
-            if not admission.admitted:
-                refused[role] = admission.refusal
-                break
-            admissions[role] = admission
-        throttled = next(iter(refused.values()), None)
-        if throttled is not None:
-            skipped.extend({"judgment_group_id": group, "target_agent": agent, "reason": throttled}
-                           for _role, agent in seats)
-            continue
+        # WP-J B-2 — one seat plan per finding: idempotent (the seat already
+        # exists in the ledger) leaves the panel complete, but a seat the cap
+        # or the door refuses voids the PANEL on the panel lane. Refusals are
+        # named once per finding, for the whole panel.
+        plan: list[tuple[str, str, Admission | None, str | None]] = []
+        panel_refusal: str | None = None
         for role, agent in seats:
             if (group, agent) in existing:
-                skipped.append({"judgment_group_id": group, "target_agent": agent, "reason": "already_dispatched"})
+                plan.append((role, agent, None, "already_dispatched"))
                 continue
             if (finding_key, agent) in judged[tool_id]:
-                skipped.append({"judgment_group_id": group, "target_agent": agent, "reason": "already_judged"})
+                plan.append((role, agent, None, "already_judged"))
                 continue
             if max_pending_per_role is not None and pending.get(role, 0) >= max_pending_per_role:
-                skipped.append({
-                    "judgment_group_id": group, "target_agent": agent,
-                    "reason": "mint_skipped_backlog",
-                    "pending": pending.get(role, 0),
-                    "max_pending_per_role": max_pending_per_role,
-                })
+                if panel_lane:
+                    panel_refusal = "mint_skipped_backlog"
+                    break
+                plan.append((role, agent, None, "mint_skipped_backlog"))
                 continue
+            if role in refused:
+                panel_refusal = refused[role]
+                break
+            admission = admit_request(_lane_producer(panel_lane), role, base_dir=root, cycle_id=sample.get("cycle_id"))
+            if not admission.admitted:
+                refused[role] = admission.refusal
+                panel_refusal = admission.refusal
+                break
+            admissions_role = admission
+            plan.append((role, agent, admissions_role, None))
+        if panel_refusal is not None:
+            skipped.append({
+                "judgment_group_id": group,
+                "reason": panel_refusal,
+                "whole_panel": True,
+                "seats": [agent for _role, agent in seats],
+            })
+            continue
+        for role, agent, admission, idempotent_reason in plan:
+            if idempotent_reason is not None:
+                entry: dict[str, Any] = {
+                    "judgment_group_id": group, "target_agent": agent,
+                    "reason": idempotent_reason,
+                }
+                if idempotent_reason == "mint_skipped_backlog" and max_pending_per_role is not None:
+                    # Y2 disclosure: what the cap was and what it read.
+                    entry["pending"] = pending.get(role, 0)
+                    entry["max_pending_per_role"] = max_pending_per_role
+                skipped.append(entry)
+                continue
+            assert admission is not None  # a mintable seat always carries one
+            envelope = judge_request_fields(item, contract, role=role)
             req = create_agent_invocation_request(
                 target_agent=agent,
                 role=role,
@@ -377,7 +442,7 @@ def dispatch_judges_for_sample(
                 target_sha=target_sha,
                 base_dir=root,
                 context_repo_root=repo_root,
-                admission=admissions[role],
+                admission=admission,
             )
             minted.append({
                 "request_id": req.get("request_id"),
@@ -451,6 +516,30 @@ def _group_fingerprint(by_judge: dict[str, dict[str, Any]]) -> str:
     )
 
 
+def _seat_payload(judge_id: str, row: dict[str, Any]) -> dict[str, Any]:
+    """One seat's answer as the arbiter lanes hand it around: the verdict
+    and its evidence, plus (WP-J B-2) the fields the evidence-weighing rank
+    reads — the quote-verified selection and the reproduction recipe —
+    carried only when the row has them."""
+    payload = {
+        "judge_id": judge_id,
+        "verdict": row.get("verdict"),
+        "confidence": row.get("confidence"),
+        "rationale": row.get("rationale") or row.get("note"),
+        "evidence_refs": [
+            ref for ref in (row.get("evidence_refs") or [])
+            if isinstance(ref, str) and ref.strip()
+        ],
+    }
+    if row.get("evidence_selection"):
+        payload["evidence_selection"] = row.get("evidence_selection")
+    if isinstance(row.get("reproduction"), dict) and row.get("reproduction"):
+        payload["reproduction"] = row.get("reproduction")
+    if row.get("method"):
+        payload["method"] = row.get("method")
+    return payload
+
+
 def split_verdict_groups(
     *,
     tool_id: str,
@@ -479,16 +568,7 @@ def split_verdict_groups(
             "judgment_group_id": group_id,
             "finding_fingerprint": _group_fingerprint(by_judge),
             "judges": [
-                {
-                    "judge_id": judge_id,
-                    "verdict": row.get("verdict"),
-                    "confidence": row.get("confidence"),
-                    "rationale": row.get("rationale") or row.get("note"),
-                    "evidence_refs": [
-                        ref for ref in (row.get("evidence_refs") or [])
-                        if isinstance(ref, str) and ref.strip()
-                    ],
-                }
+                _seat_payload(judge_id, row)
                 for judge_id, row in sorted(by_judge.items())
             ],
         })
@@ -727,16 +807,7 @@ def anchor_candidate_groups(
             "finding_fingerprint": _group_fingerprint(by_judge),
             "verdict": verdict,
             "judges": [
-                {
-                    "judge_id": judge_id,
-                    "verdict": row.get("verdict"),
-                    "confidence": row.get("confidence"),
-                    "rationale": row.get("rationale") or row.get("note"),
-                    "evidence_refs": [
-                        ref for ref in (row.get("evidence_refs") or [])
-                        if isinstance(ref, str) and ref.strip()
-                    ],
-                }
+                _seat_payload(judge_id, row)
                 for judge_id, row in sorted(by_judge.items())
             ],
         })

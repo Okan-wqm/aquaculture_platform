@@ -81,6 +81,9 @@ MINT_SITES: dict[tuple[str, str], str] = {
 # Every string that function can return must be a classified producer.
 PRODUCER_SELECTORS: frozenset[tuple[str, str]] = frozenset({
     ("aria-kernel/aria_kernel/convergence_drainer.py", "_seed_producer"),
+    # WP-J B-2 — the fan-out's lane producer (sample vs panel), the same
+    # sanctioned one-function-one-producer pattern as the entries above.
+    ("aria-kernel/aria_kernel/judge_fanout.py", "_lane_producer"),
     ("aria-kernel/aria_kernel/human_required_adjudication.py", "_remint_producer"),
     ("aria-kernel/aria_kernel/human_required_adjudication.py", "_panel_producer"),
     ("aria-kernel/aria_kernel/anchor_stale_effects.py", "_anchor_remint_producer"),

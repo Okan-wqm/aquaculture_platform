@@ -117,24 +117,21 @@ PRODUCER_CLASSES: Final[Mapping[str, ProducerClass]] = {
     "judge_fanout.arbitration": ProducerClass(
         _same(DISCRETIONARY, "consensus_arbitration"),
         "split and anchor groups are re-derived from the feedback ledger every cycle"),
+    # WP-J B-2 — the method panel. A tier-3/4 panel is minted through the
+    # judgment lane (judge_fanout's roles parameter) as ONE unit: the door
+    # is asked for every seat before any envelope, and a refusal means the
+    # finding is not panelled at all (never a partial panel), re-offered by
+    # the next cycle's routing.
+    "judge_fanout.panel": ProducerClass(
+        _same(
+            DISCRETIONARY,
+            "evidence_judgment", "adversarial_judgment",
+            "bug_hunt", "reproduction_test", "impact_assessment", "architecture",
+        ),
+        "the finding stays at its settled tier; the next cycle's routing re-offers the panel"),
     "judge_replay.goldset": ProducerClass(
         _same(DISCRETIONARY, "evidence_judgment", "adversarial_judgment"),
         "every gold item without its replay judges is re-walked every cycle"),
-    # WP-J D-1 — the stability re-ask re-mints a judge's own envelope
-    # under a 'stability:' group. Discretionary and cadence-bounded by the
-    # measured judgment drain (stability_reask.stability_budget): a refused
-    # or held re-ask loses nothing — the seat is simply not re-asked this
-    # cycle, and candidates are re-derived from the ledgers next cycle.
-    "stability_reask.lane": ProducerClass(
-        _same(DISCRETIONARY, "evidence_judgment", "adversarial_judgment"),
-        "the seat is re-derived from the ledgers every cycle until re-asked"),
-    # WP-J D-2 — the mutation canary sits the panel in front of planted
-    # corpus items. Discretionary and cadence-bounded by the measured
-    # judgment drain like the stability lane; an unasked item is walked
-    # again next cycle from the registered corpus.
-    "mutation_canary.panel": ProducerClass(
-        _same(DISCRETIONARY, "evidence_judgment", "adversarial_judgment"),
-        "the corpus item is re-derived from the registered corpus every cycle"),
     "human_required_panel.open": ProducerClass(
         _same(DISCRETIONARY, "human_required_adjudication"),
         "an escalation with no panel row is listed again by the next sweep"),

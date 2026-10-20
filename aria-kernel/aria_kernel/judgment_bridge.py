@@ -28,7 +28,12 @@ from pathlib import Path
 from typing import Any
 
 from .agent_invocations import request_anchor_sha
-from .agent_surface import EXPERT_METHODS, JUDGE_ROLES, SUPPORTING_ROLES
+from .agent_surface import (
+    EXPERT_METHODS,
+    JUDGE_ROLES,
+    METHOD_REQUIRED_EVIDENCE,
+    SUPPORTING_ROLES,
+)
 from .confidence import confidence_in_unit_interval
 from .feedback_store import (
     CONFIDENCE_SOURCES,
@@ -253,6 +258,17 @@ def validate_judge_response(
     method = folded_judge_method(request, details, verdict_block)
     if method is not None and str(method) not in EXPERT_METHODS.values():
         errors.append(f"judge_verdict.method:invalid:{method!r}")
+    # WP-J B-2 — a seat whose method names a required artifact must carry
+    # it: the method's whole point is that its answer is checkable as the
+    # product of that method (a bug hunt that names no failing input, a
+    # reproduction that names no recipe). Without the artifact the verdict
+    # is an opinion wearing a method's badge, and the arbiter's evidence
+    # ranking would have nothing to rank.
+    required = METHOD_REQUIRED_EVIDENCE.get(str(method)) if method is not None else None
+    if required is not None:
+        artifact = verdict_block.get(required)
+        if artifact is None or (isinstance(artifact, str) and not artifact.strip()):
+            errors.append(f"judge_verdict.method_evidence_missing:{required}")
     _source, source_error = stamped_confidence_source(details)
     if source_error:
         errors.append(source_error)

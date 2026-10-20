@@ -1093,6 +1093,10 @@ mod tests {
         assert_eq!(format!("{exit:?}"), "ExitCode(unix_exit_status(0))");
     }
 
+    // Drives the ceremony through the SUDERRA_MACHINE_ID_PATH /
+    // SUDERRA_DB_KEY_PATH overrides, which exist only in the generic
+    // profile (ADR-048 DEC-19; the suderra-os profile reads no environment).
+    #[cfg(not(feature = "suderra-os"))]
     #[test]
     fn with_context_execute_path_with_v1_db_migrates_and_returns_success() {
         let _guard = CLI_ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
@@ -1137,6 +1141,10 @@ mod tests {
         );
     }
 
+    // Drives the ceremony through the SUDERRA_MACHINE_ID_PATH /
+    // SUDERRA_DB_KEY_PATH overrides, which exist only in the generic
+    // profile (ADR-048 DEC-19; the suderra-os profile reads no environment).
+    #[cfg(not(feature = "suderra-os"))]
     #[test]
     fn with_context_execute_path_bootstrap_failure_returns_failure_exit() {
         let _guard = CLI_ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());

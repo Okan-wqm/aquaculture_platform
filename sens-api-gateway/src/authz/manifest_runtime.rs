@@ -7,8 +7,8 @@
 //! Gate 7 swap planned as Batch 68+).
 //!
 //! The store is populated at boot by `load_from_file`:
-//! 1. Reads JSON file at `rbac_manifest.manifest_path` (or
-//!    default `/etc/suderra/rbac_manifest.json`).
+//! 1. Reads the JSON file [`boot_manifest_path`] resolves from the
+//!    agent's path SSoT (ADR-048 DEC-4.5).
 //! 2. Deserializes as `SignedRbacManifest`.
 //! 3. Calls the Batch 5b pure `verify_manifest` with
 //!    closure-injected ed25519 via `ed25519_dalek`.
@@ -37,7 +37,7 @@
 //!   the Batch 63 NO-OP closure to call
 //!   lookup_operator_pubkey + ed25519_dalek::verify_strict.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 use tracing::{info, warn};
@@ -48,8 +48,33 @@ use super::permission::{OperatorId, TenantId};
 use super::verify::verify_manifest;
 use crate::config::RbacManifestMode;
 
-/// Canonical manifest file path.
-const DEFAULT_MANIFEST_PATH: &str = "/etc/suderra/rbac_manifest.json";
+/// The manifest file the boot loader reads.
+///
+/// Suderra OS: the statement the root installer delivered into the
+/// read-only site directory, at its compile-time path (ADR-048 DEC-4.12);
+/// the configuration cannot move it (`Config::validate`).
+///
+/// Generic: the copy a previous `update_policy` persisted under the data
+/// root, whenever it exists — it is the newest accepted manifest, and the
+/// version floor already stands at its version, so an older seed file
+/// would be refused as a rollback. Otherwise the operator's
+/// `rbac_manifest.manifest_path`, else `/etc/suderra/rbac_manifest.json`.
+#[cfg(feature = "suderra-os")]
+pub fn boot_manifest_path(paths: &crate::paths::AgentPaths, _configured: Option<&Path>) -> PathBuf {
+    paths.rbac_manifest_file()
+}
+
+/// See the Suderra OS variant.
+#[cfg(not(feature = "suderra-os"))]
+pub fn boot_manifest_path(paths: &crate::paths::AgentPaths, configured: Option<&Path>) -> PathBuf {
+    let persisted = paths.rbac_manifest_persist_file();
+    if persisted.exists() {
+        return persisted;
+    }
+    configured
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| paths.rbac_manifest_file())
+}
 
 /// Runtime store for the verified RBAC manifest.
 ///
@@ -96,7 +121,7 @@ impl RbacManifestStore {
     ///   for signature verify. Required in Permissive/
     ///   Enforcing mode (Batch 66 Rule 12 enforces at config
     ///   load).
-    /// - `manifest_path_override` — None = default path.
+    /// - `path` — the manifest file ([`boot_manifest_path`]).
     /// - `expected_tenant` — TenantId from provisioning
     ///   bound to this device.
     ///
@@ -110,7 +135,7 @@ impl RbacManifestStore {
         &self,
         mode: RbacManifestMode,
         signing_pubkey_hex: Option<&str>,
-        manifest_path_override: Option<&Path>,
+        path: &Path,
         expected_tenant: &TenantId,
     ) -> Result<(), String> {
         if matches!(mode, RbacManifestMode::Disabled) {
@@ -118,17 +143,13 @@ impl RbacManifestStore {
             return Ok(());
         }
 
-        let path = manifest_path_override
-            .map(Path::to_path_buf)
-            .unwrap_or_else(|| std::path::PathBuf::from(DEFAULT_MANIFEST_PATH));
-
         info!(
             "RBAC manifest load: mode={:?} path={}",
             mode,
             path.display()
         );
 
-        let outcome = self.load_from_file_inner(signing_pubkey_hex, &path, expected_tenant);
+        let outcome = self.load_from_file_inner(signing_pubkey_hex, path, expected_tenant);
 
         match (mode, outcome) {
             (RbacManifestMode::Disabled, _) => Ok(()), // unreachable (early return)
@@ -162,8 +183,8 @@ impl RbacManifestStore {
         }
     }
 
-    /// Inner load — reads bytes from `path`, then delegates to
-    /// `verify_and_floor`. Returns the verified RbacManifest
+    /// Inner load — reads bytes from `path`, verifies them against the
+    /// floor, then advances the floor. Returns the verified RbacManifest
     /// or Err(reason).
     fn load_from_file_inner(
         &self,
@@ -174,13 +195,18 @@ impl RbacManifestStore {
         let bytes = std::fs::read(path)
             .map_err(|e| format!("Failed to read RBAC manifest at {}: {}", path.display(), e))?;
 
-        self.verify_and_floor(signing_pubkey_hex, &bytes, expected_tenant)
-            .map_err(|e| format!("{} (source={})", e, path.display()))
+        let verified = self
+            .verify_against_floor(signing_pubkey_hex, &bytes, expected_tenant)
+            .map_err(|e| format!("{} (source={})", e, path.display()))?;
+        self.advance_floor(verified.policy_version)?;
+        Ok(verified)
     }
 
-    /// Shared verify + version-floor logic. Called from both the
-    /// boot-time file loader AND the Batch 72 MQTT hot-reload
-    /// handler — SSoT for manifest acceptance.
+    /// Shared verify logic. Called from both the boot-time file loader
+    /// AND the Batch 72 MQTT hot-reload handler — SSoT for manifest
+    /// acceptance. It writes nothing: the caller advances the floor with
+    /// [`Self::advance_floor`] once the manifest it accepted is durable
+    /// where the next boot reads it (EDGE-HIGH-050).
     ///
     /// Steps:
     /// 1. Parse `bytes` as SignedRbacManifest JSON.
@@ -189,14 +215,7 @@ impl RbacManifestStore {
     ///    (fail-closed on store-read error).
     /// 4. Call pure `verify_manifest` with a verify closure
     ///    wrapping `ed25519_dalek::VerifyingKey::verify_strict`.
-    /// 5. On success, UPSERT the new version into the persistent
-    ///    floor (`MAX(existing, incoming)` — one-way ratchet).
-    ///
-    /// Returns the verified manifest — callers own the atomic
-    /// in-memory swap via `self.current.write()` + any disk-
-    /// persistence responsibility (file loader has no write;
-    /// MQTT hot-reload persists to disk for post-restart continuity).
-    fn verify_and_floor(
+    fn verify_against_floor(
         &self,
         signing_pubkey_hex: Option<&str>,
         bytes: &[u8],
@@ -237,64 +256,73 @@ impl RbacManifestStore {
         )
         .map_err(|e| format!("{:?}", e))?;
 
-        // Batch 71 rollback-protection write: only after a
-        // successful verify do we advance the persisted floor.
-        // UPSERT keeps MAX(existing, verified.policy_version)
-        // — idempotent on re-load of the same manifest across
-        // a process restart.
+        Ok(verified)
+    }
+
+    /// Batch 71 rollback-protection write: advance the persisted floor to
+    /// an accepted manifest's version. UPSERT keeps
+    /// MAX(existing, policy_version) — idempotent on re-load of the same
+    /// manifest across a process restart.
+    fn advance_floor(&self, policy_version: u64) -> Result<(), String> {
         if let Some(vs) = &self.version_store {
-            let new_floor = vs.record_accepted(verified.policy_version)?;
+            let new_floor = vs.record_accepted(policy_version)?;
             info!(
                 "RBAC manifest floor advanced: policy_version={} persisted_floor={}",
-                verified.policy_version, new_floor
+                policy_version, new_floor
             );
         }
-
-        Ok(verified)
+        Ok(())
     }
 
     /// Hot-reload the manifest from operator-supplied bytes
     /// (Batch 72 Sprint 6.1 follow-up MQTT `update_policy`
-    /// handler path).
+    /// handler path). Generic profile only: on Suderra OS the manifest
+    /// is signed site material the root installer delivers (ADR-048
+    /// DEC-4.12) and `update_policy` is refused.
     ///
-    /// On success:
-    /// 1. Verified manifest is swapped into `self.current`
-    ///    under RwLock write-guard (atomic — readers observe
-    ///    either old or new, never partial).
-    /// 2. Bytes are persisted to `manifest_path_override` (or
-    ///    the default `/etc/suderra/rbac_manifest.json`) via
-    ///    atomic tempfile + rename, so a subsequent agent
-    ///    reboot loads the new manifest from disk.
-    /// 3. Returns the new policy_version.
+    /// Order (EDGE-HIGH-050), each step only after the previous one
+    /// succeeded:
+    /// 1. Verify against the current floor (writes nothing).
+    /// 2. Persist the bytes durably to `persist_path` (temporary name,
+    ///    fsync, rename, directory fsync) — the file the next boot
+    ///    loads ([`boot_manifest_path`]).
+    /// 3. Advance the version floor.
+    /// 4. Swap the verified manifest into `self.current`.
+    ///
+    /// The floor therefore never runs ahead of the manifest on disk: a
+    /// failed persist leaves floor, disk and memory exactly as they
+    /// were, and the next boot loads a manifest the floor accepts.
+    /// Before this order the floor advanced first, so a failed write
+    /// (EROFS under `/etc`) left the on-disk manifest below the floor
+    /// and an Enforcing boot refused it as a rollback — forever.
     ///
     /// On failure: `self.current` is UNCHANGED. This matches
     /// the fail-closed discipline of `load_from_file`: if the
     /// new manifest is invalid (bad signature, tenant mismatch,
     /// rollback attempt), the agent keeps operating under the
     /// previously-verified manifest rather than regressing.
-    ///
-    /// WHY atomic file persist: an agent restart must load the
-    /// SAME manifest that's currently in memory. A write-failure
-    /// mid-persistence could leave a partial file that next-boot
-    /// fails to parse — the tempfile+rename pattern ensures the
-    /// file is either the OLD content or the COMPLETE NEW content.
+    #[cfg(not(feature = "suderra-os"))]
     pub fn hot_reload_from_bytes(
         &self,
         signing_pubkey_hex: Option<&str>,
         bytes: &[u8],
         expected_tenant: &TenantId,
-        manifest_path_override: Option<&Path>,
+        persist_path: &Path,
     ) -> Result<u64, String> {
-        let verified = self.verify_and_floor(signing_pubkey_hex, bytes, expected_tenant)?;
+        let verified = self.verify_against_floor(signing_pubkey_hex, bytes, expected_tenant)?;
         let new_version = verified.policy_version;
 
-        // In-memory atomic swap. Must happen BEFORE disk write
-        // because the RwLock write-guard is the authoritative
-        // SSoT — if disk write fails after in-memory swap, the
-        // agent keeps serving the new manifest and logs the
-        // persistence failure. The alternative (disk-first)
-        // creates a window where a crash between disk-write and
-        // memory-swap leaves disk ahead of memory.
+        persist_manifest_bytes(persist_path, bytes).map_err(|e| {
+            format!(
+                "Hot-reload disk persist to {} failed: {} (nothing applied, policy_version={} not accepted)",
+                persist_path.display(),
+                e,
+                new_version
+            )
+        })?;
+
+        self.advance_floor(new_version)?;
+
         match self.current.write() {
             Ok(mut guard) => {
                 *guard = Some(verified);
@@ -304,49 +332,10 @@ impl RbacManifestStore {
             }
         }
 
-        // Atomic disk persist: tempfile in same dir + rename.
-        // Same-dir requirement ensures rename() is within the
-        // filesystem boundary (cross-fs rename is not atomic).
-        let path = manifest_path_override
-            .map(Path::to_path_buf)
-            .unwrap_or_else(|| std::path::PathBuf::from(DEFAULT_MANIFEST_PATH));
-
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| {
-                format!(
-                    "Hot-reload disk persist: mkdir {} failed: {} (in-memory swap succeeded, policy_version={})",
-                    parent.display(),
-                    e,
-                    new_version
-                )
-            })?;
-        }
-
-        let tmp_path = path.with_extension("json.tmp");
-        std::fs::write(&tmp_path, bytes).map_err(|e| {
-            format!(
-                "Hot-reload disk persist: tempfile write to {} failed: {} (in-memory swap succeeded, policy_version={})",
-                tmp_path.display(),
-                e,
-                new_version
-            )
-        })?;
-        std::fs::rename(&tmp_path, &path).map_err(|e| {
-            // Rename failed — attempt to clean up tempfile.
-            let _ = std::fs::remove_file(&tmp_path);
-            format!(
-                "Hot-reload disk persist: rename {} → {} failed: {} (in-memory swap succeeded, policy_version={})",
-                tmp_path.display(),
-                path.display(),
-                e,
-                new_version
-            )
-        })?;
-
         info!(
             "RBAC manifest hot-reloaded: policy_version={} persisted={}",
             new_version,
-            path.display()
+            persist_path.display()
         );
         Ok(new_version)
     }
@@ -450,6 +439,39 @@ impl Default for RbacManifestStore {
     }
 }
 
+/// Durably replace `path` with `bytes`: temporary name in the same
+/// directory, fsync, rename, directory fsync — the next boot sees the old
+/// file or the complete new one, never a torn one.
+#[cfg(not(feature = "suderra-os"))]
+fn persist_manifest_bytes(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write as _;
+    let parent = path
+        .parent()
+        .ok_or_else(|| format!("{} has no parent directory", path.display()))?;
+    std::fs::create_dir_all(parent).map_err(|e| format!("mkdir {}: {}", parent.display(), e))?;
+    let tmp = parent.join(format!(".rbac_manifest.json.tmp-{}", std::process::id()));
+    let written = std::fs::File::create(&tmp).and_then(|mut f| {
+        f.write_all(bytes)?;
+        f.sync_all()
+    });
+    if let Err(e) = written {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(format!("write {}: {}", tmp.display(), e));
+    }
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(format!(
+            "rename {} -> {}: {}",
+            tmp.display(),
+            path.display(),
+            e
+        ));
+    }
+    std::fs::File::open(parent)
+        .and_then(|d| d.sync_all())
+        .map_err(|e| format!("fsync {}: {}", parent.display(), e))
+}
+
 /// Parse a 64-char hex ed25519 pubkey into VerifyingKey — RBAC
 /// caller-side shim around the shared
 /// [`super::signing_key_util::parse_ed25519_pubkey_hex`] (Batch #249a
@@ -499,5 +521,121 @@ mod tests {
     #[test]
     fn parse_ed25519_pubkey_rejects_non_hex() {
         assert!(parse_ed25519_pubkey_hex(&"z".repeat(64)).is_err());
+    }
+}
+
+/// EDGE-HIGH-050: the hot-reload order — persist, then floor, then swap —
+/// against a real signed manifest and a real SQLCipher floor store.
+#[cfg(all(test, not(feature = "suderra-os")))]
+mod hot_reload_order_tests {
+    use super::*;
+    use crate::authz::policy::Ed25519SignatureBytes;
+    use ed25519_dalek::{SECRET_KEY_LENGTH, Signer, SigningKey};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn tenant() -> TenantId {
+        TenantId::new_from_verified([0x42u8; 16])
+    }
+
+    fn signed(policy_version: u64) -> (String, Vec<u8>) {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_secs() as i64;
+        let manifest = RbacManifest {
+            policy_version,
+            tenant_id: tenant(),
+            manifest_valid_from_unix_secs: now - 3600,
+            manifest_valid_until_unix_secs: now + 3600,
+            operator_bindings: Vec::new(),
+            roles: Vec::new(),
+        };
+        let sk = SigningKey::from_bytes(&[42u8; SECRET_KEY_LENGTH]);
+        let hex: String = sk
+            .verifying_key()
+            .to_bytes()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        let sig = sk.sign(&manifest.canonical_bytes().expect("canonical"));
+        let signed = SignedRbacManifest {
+            manifest,
+            signature: Ed25519SignatureBytes::from_slice(&sig.to_bytes()).expect("sig"),
+        };
+        (hex, serde_json::to_vec(&signed).expect("json"))
+    }
+
+    fn store_with_floor(dir: &Path) -> (RbacManifestStore, Arc<ManifestVersionStore>) {
+        crate::offline_queue::test_support::ensure_key_sandbox();
+        let vs = Arc::new(
+            ManifestVersionStore::open(&dir.join("rbac_version.sqlite")).expect("open floor store"),
+        );
+        (RbacManifestStore::new().with_version_store(vs.clone()), vs)
+    }
+
+    /// A persist that cannot happen (EROFS under /etc in the field; here a
+    /// parent that is a regular file) leaves floor, memory and disk as
+    /// they were, so the next Enforcing boot still accepts its manifest.
+    #[test]
+    fn failed_persist_leaves_floor_and_memory_unchanged() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (store, vs) = store_with_floor(dir.path());
+        let (hex, bytes) = signed(5);
+        let blocker = dir.path().join("not-a-dir");
+        std::fs::write(&blocker, b"x").expect("seed blocker");
+
+        let err = store
+            .hot_reload_from_bytes(
+                Some(&hex),
+                &bytes,
+                &tenant(),
+                &blocker.join("rbac_manifest.json"),
+            )
+            .expect_err("persist must fail");
+        assert!(err.contains("nothing applied"), "{err}");
+        assert_eq!(
+            vs.get_highest_seen().expect("floor"),
+            0,
+            "floor must not move"
+        );
+        assert!(!store.is_loaded(), "memory must not change");
+    }
+
+    #[test]
+    fn successful_reload_persists_advances_the_floor_and_swaps() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (store, vs) = store_with_floor(dir.path());
+        let (hex, bytes) = signed(5);
+        let path = dir.path().join("data").join("rbac_manifest.json");
+
+        let version = store
+            .hot_reload_from_bytes(Some(&hex), &bytes, &tenant(), &path)
+            .expect("reload");
+        assert_eq!(version, 5);
+        assert_eq!(std::fs::read(&path).expect("persisted"), bytes);
+        assert_eq!(vs.get_highest_seen().expect("floor"), 5);
+        assert_eq!(store.policy_version(), Some(5));
+    }
+
+    /// Generic boot source: the persisted hot-reload copy wins over the
+    /// operator's seed file once it exists.
+    #[test]
+    fn boot_prefers_the_persisted_copy() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let paths = crate::paths::AgentPaths::generic(crate::paths::GenericOverrides {
+            data_root: Some(dir.path().to_path_buf()),
+            ..Default::default()
+        });
+        let seed = dir.path().join("seed.json");
+        assert_eq!(boot_manifest_path(&paths, Some(&seed)), seed);
+        assert_eq!(
+            boot_manifest_path(&paths, None),
+            Path::new("/etc/suderra/rbac_manifest.json")
+        );
+        std::fs::write(paths.rbac_manifest_persist_file(), b"{}").expect("seed persisted");
+        assert_eq!(
+            boot_manifest_path(&paths, Some(&seed)),
+            paths.rbac_manifest_persist_file()
+        );
     }
 }

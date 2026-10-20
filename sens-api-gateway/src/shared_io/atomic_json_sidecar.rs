@@ -177,6 +177,27 @@ pub fn write_atomic_json<T: Serialize>(
     path: &Path,
     payload: &T,
 ) -> Result<(), AtomicJsonWriteError> {
+    write_atomic_json_with_mode(path, payload, None)
+}
+
+/// [`write_atomic_json`] for a document that carries credentials: the file
+/// is created with mode 0600 (owner read/write only) on Unix, independent
+/// of the process umask, so it is never readable by anyone else even for
+/// an instant (ADR-048 DEC-4.6: state documents are 0600).
+pub fn write_atomic_json_owner_only<T: Serialize>(
+    path: &Path,
+    payload: &T,
+) -> Result<(), AtomicJsonWriteError> {
+    write_atomic_json_with_mode(path, payload, Some(0o600))
+}
+
+/// The shared six-step write; `mode` is the temp file's creation mode
+/// (Unix only; `None` leaves it to the umask).
+fn write_atomic_json_with_mode<T: Serialize>(
+    path: &Path,
+    payload: &T,
+    mode: Option<u32>,
+) -> Result<(), AtomicJsonWriteError> {
     // Step 1: ensure parent directory exists.
     let parent = path
         .parent()
@@ -210,10 +231,16 @@ pub fn write_atomic_json<T: Serialize>(
     let _ = fs::remove_file(&temp_path);
 
     {
-        let mut f = fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
+        let mut options = fs::OpenOptions::new();
+        options.create(true).write(true).truncate(true);
+        #[cfg(unix)]
+        if let Some(mode) = mode {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(mode);
+        }
+        #[cfg(not(unix))]
+        let _ = mode;
+        let mut f = options
             .open(&temp_path)
             .map_err(|e| AtomicJsonWriteError::TempIo {
                 temp_path: temp_path.clone(),

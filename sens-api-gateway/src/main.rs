@@ -134,6 +134,10 @@ mod machine_id;
 // retain_persistence + bytecode_retain consumers now share this single read
 // path without duplicating env-override + permissions-mode discipline.
 mod db_secret;
+// ADR-048 DEC-4.6 — the activation result (broker credential, tenant,
+// assigned identity) lives in the agent's state directory, never in
+// config.yaml; AgentConfig::load overlays it (SENSOR-CRITICAL-200).
+mod activation_state;
 // Batch 6 — ADR-020 audit log AuditEntry + HMAC chain. Pure types + closure-
 // injected HMAC append function; runtime sink + cloud relay + audit-verify CLI
 // land in Faz 2 Sprint 6.2.
@@ -903,7 +907,13 @@ impl AppState {
     pub fn new(config: AgentConfig) -> Self {
         // Create shared script storage (v2.2 singleton pattern)
         // v1.2.0: ScriptStorage now has internal RwLock, no external lock needed
-        let script_storage = ScriptStorage::new(None);
+        // ADR-048 DEC-4.1 / DEC-4.5: scripts persist under the agent's data
+        // root; the generic profile imports an older agent's
+        // /etc/suderra/scripts once (read-only).
+        let script_storage = ScriptStorage::new(paths::AgentPaths::current().scripts_dir());
+        #[cfg(not(feature = "suderra-os"))]
+        let script_storage = script_storage
+            .with_legacy_import_dir(paths::AgentPaths::current().legacy_scripts_dir());
 
         Self {
             config,
@@ -1756,7 +1766,13 @@ impl AppState {
             .rbac_manifest
             .manifest_signing_pubkey_hex
             .as_deref();
-        let path_override = self.config.rbac_manifest.manifest_path.as_deref();
+        // ADR-048 DEC-4.5 / DEC-4.12: the manifest path comes from the
+        // agent's path SSoT (the site statement on Suderra OS; the
+        // persisted hot-reload copy, else the operator's file, generic).
+        let manifest_path = authz::manifest_runtime::boot_manifest_path(
+            paths::AgentPaths::current(),
+            self.config.rbac_manifest.manifest_path.as_deref(),
+        );
 
         // Batch 71: open persistent version-floor store BEFORE
         // the manifest load, then rebuild the RbacManifestStore
@@ -1807,7 +1823,7 @@ impl AppState {
         }
 
         self.rbac_manifest_store
-            .load_from_file(mode, pubkey_hex, path_override, &expected_tenant)
+            .load_from_file(mode, pubkey_hex, &manifest_path, &expected_tenant)
     }
 
     /// Initialize the broker-aware outbound publisher + spawn
@@ -2222,8 +2238,9 @@ impl AppState {
         let store = crate::updater::PartitionStore::open(None).map_err(|e| {
             format!(
                 "PartitionStore init failed (fail-closed boot): {}. \
-                 Inspect /var/lib/suderra/partition.json for corruption; manual recovery via removing the file will reinitialize to first-boot state but may lose active slot tracking.",
-                e
+                 Inspect {} for corruption; manual recovery via removing the file will reinitialize to first-boot state but may lose active slot tracking.",
+                e,
+                paths::AgentPaths::current().partition_store_file().display()
             )
         })?;
 
@@ -2366,9 +2383,10 @@ impl AppState {
                 Ok(s) => std::sync::Arc::new(s),
                 Err(e) => {
                     error!(
-                        "License cache (manifest-aware) open failed at {}: {}. Agent boots under conservative() STARTER fallback; operator must investigate SQLCipher permissions + /etc/suderra/db.key + manifest sidecar.",
+                        "License cache (manifest-aware) open failed at {}: {}. Agent boots under conservative() STARTER fallback; operator must investigate SQLCipher permissions + {} + manifest sidecar.",
                         path.display(),
-                        e
+                        e,
+                        crate::db_secret::secret_key_path().display()
                     );
                     return;
                 }
@@ -2378,9 +2396,10 @@ impl AppState {
                 Ok(s) => std::sync::Arc::new(s),
                 Err(e) => {
                     error!(
-                        "License cache (legacy v1, keystore disabled) open failed at {}: {}. Agent boots under conservative() STARTER fallback; operator must investigate SQLCipher permissions + /etc/suderra/db.key.",
+                        "License cache (legacy v1, keystore disabled) open failed at {}: {}. Agent boots under conservative() STARTER fallback; operator must investigate SQLCipher permissions + {}.",
                         path.display(),
-                        e
+                        e,
+                        crate::db_secret::secret_key_path().display()
                     );
                     return;
                 }
@@ -3037,6 +3056,23 @@ fn main() {
                 let code = run_confirm_active();
                 std::process::exit(code);
             }
+            // ADR-048 DEC-4.8 / DEC-21: the v1 -> v2 rekey is a migration of
+            // the generic-Linux fleet; the Suderra OS profile has no keystore
+            // before the P2 TPM keystore, and its stores never used the
+            // machine-id key, so there is nothing for the ceremony to do.
+            #[cfg(feature = "suderra-os")]
+            "--migrate-db" => {
+                #[allow(clippy::print_stderr)]
+                {
+                    eprintln!(
+                        "--migrate-db is not available in the suderra-os profile: the v1->v2 \
+                         rekey is a generic-Linux migration and this profile has no keystore \
+                         before the P2 TPM keystore (ADR-048 DEC-4.8, DEC-21)"
+                    );
+                }
+                std::process::exit(1);
+            }
+            #[cfg(not(feature = "suderra-os"))]
             "--migrate-db" => {
                 // PR-195 Batch #6: D-3 SQLCipher v1->v2
                 // migration ceremony subcommand. The
@@ -3897,6 +3933,7 @@ async fn async_main() -> Result<()> {
 /// as `--init` / `--audit-verify` / `--confirm-active`
 /// per the existing CLI convention. The dispatch arm
 /// runs BEFORE `init_logging`.
+#[cfg(not(feature = "suderra-os"))]
 #[allow(clippy::print_stderr)]
 fn run_migrate_db_subcommand_with_context(sub_argv_owned: Vec<String>) -> i32 {
     let runtime = match tokio::runtime::Builder::new_current_thread()
@@ -4549,6 +4586,35 @@ fn setup_shutdown_handler(
 #[allow(dead_code)] // fallback constant; active value from config.runtime.shutdown_timeout_secs.
 const SHUTDOWN_TIMEOUT_SECS_FALLBACK: u64 = 30;
 
+/// Make an activation result durable, then apply it to the live
+/// configuration (ADR-048 DEC-4.6).
+///
+/// The merged configuration is validated on a copy first (MED-33: the
+/// server-assigned device id must be a UUID), then the document is written
+/// to the state directory, and only then is the live configuration
+/// changed — a failure at any step leaves the running agent as it was.
+fn persist_activation(
+    state: &mut AppState,
+    activation: &activation_state::ActivationState,
+) -> Result<()> {
+    let mut merged = state.config.clone();
+    merged.apply_activation_state(activation);
+    merged
+        .validate()
+        .context("Activation response yields an invalid configuration — not persisted")?;
+    let path = paths::AgentPaths::current().activation_state_file();
+    if let Err(e) = activation.persist(&path) {
+        error!(
+            "CRITICAL: failed to persist the activation result to {}: {:#}",
+            path.display(),
+            e
+        );
+        return Err(e);
+    }
+    state.config = merged;
+    Ok(())
+}
+
 /// Main agent loop
 async fn run_agent(
     state: Arc<RwLock<AppState>>,
@@ -4612,41 +4678,27 @@ async fn run_agent(
                         info!("  MQTT Broker: {}", response.mqtt_broker);
                         info!("  Tenant ID: {}", response.tenant_id);
 
-                        // Update state with self-registration response
+                        // ADR-048 DEC-4.6: the result goes to the agent's
+                        // state directory, never into config.yaml.
                         let mut state_guard = state.write().await;
-                        state_guard.config.device_id = response.device_id;
-                        state_guard.config.device_code = response.device_code;
-                        state_guard.config.mqtt.broker = Some(response.mqtt_broker);
-                        state_guard.config.mqtt.port = response.mqtt_port;
-                        state_guard.config.mqtt.username = Some(response.mqtt_username);
-                        state_guard.config.mqtt.password =
-                            Some(secrecy::Secret::new(response.mqtt_password));
+                        let activation = activation_state::ActivationState::from_result(
+                            &state_guard.config,
+                            &activation_state::ActivationResult {
+                                assigned_device_id: Some(&response.device_id),
+                                assigned_device_code: Some(&response.device_code),
+                                tenant_id: &response.tenant_id,
+                                mqtt_broker: &response.mqtt_broker,
+                                mqtt_port: response.mqtt_port,
+                                mqtt_tls_enabled: None,
+                                mqtt_username: &response.mqtt_username,
+                                mqtt_password: &response.mqtt_password,
+                            },
+                        );
+                        persist_activation(&mut state_guard, &activation)
+                            .context("Failed to persist self-registration result")?;
                         state_guard.tenant_id = Some(response.tenant_id.clone());
-                        state_guard.config.tenant_id = Some(response.tenant_id);
                         state_guard.is_activated = true;
-
-                        // SECURITY: Clear tenant token after successful registration
-                        state_guard.config.tenant_token = None;
-                        state_guard.config.provisioning_token = None;
                         info!("Tenant token cleared from memory");
-
-                        // Validate that the device_id received from the server is a valid UUID
-                        // before saving to disk (MED-33).
-                        state_guard.config.validate().context(
-                            "Self-registration response contained invalid config — aborting save",
-                        )?;
-
-                        // Save updated config to disk
-                        if let Err(e) = state_guard.config.save(paths::AgentPaths::current()) {
-                            error!(
-                                "CRITICAL: Failed to save config after self-registration: {}. Device may re-register on restart!",
-                                e
-                            );
-                            return Err(anyhow::anyhow!(
-                                "Failed to persist self-registration config: {}",
-                                e
-                            ));
-                        }
 
                         last_error = None;
                         break;
@@ -4691,34 +4743,31 @@ async fn run_agent(
                         info!("  MQTT Broker: {}", response.mqtt_broker);
                         info!("  Tenant ID: {}", response.tenant_id);
 
-                        // Update state with activation response
+                        // ADR-048 DEC-4.6: the result goes to the agent's
+                        // state directory, never into config.yaml. A
+                        // persist failure is fatal: the cloud has consumed
+                        // the single-use token, so the credential must be
+                        // durable before the agent acts on it.
                         let mut state_guard = state.write().await;
-                        state_guard.config.mqtt.broker = Some(response.mqtt_broker);
-                        state_guard.config.mqtt.port = response.mqtt_port;
-                        state_guard.config.mqtt.username = Some(response.mqtt_username);
-                        state_guard.config.mqtt.password =
-                            Some(secrecy::Secret::new(response.mqtt_password));
-                        // Enable TLS if the server indicated it (port 8883)
-                        if response
-                            .mqtt_tls_enabled
-                            .unwrap_or(response.mqtt_port == 8883)
-                        {
-                            state_guard.config.mqtt.tls.enabled = true;
-                        }
+                        let activation = activation_state::ActivationState::from_result(
+                            &state_guard.config,
+                            &activation_state::ActivationResult {
+                                assigned_device_id: None,
+                                assigned_device_code: None,
+                                tenant_id: &response.tenant_id,
+                                mqtt_broker: &response.mqtt_broker,
+                                mqtt_port: response.mqtt_port,
+                                mqtt_tls_enabled: response.mqtt_tls_enabled,
+                                mqtt_username: &response.mqtt_username,
+                                mqtt_password: &response.mqtt_password,
+                            },
+                        );
+                        persist_activation(&mut state_guard, &activation).context(
+                            "Failed to persist activation result — device may be unrecoverable on restart",
+                        )?;
                         state_guard.tenant_id = Some(response.tenant_id.clone());
-                        state_guard.config.tenant_id = Some(response.tenant_id);
                         state_guard.is_activated = true;
-
-                        // SECURITY: Clear provisioning token from memory
-                        state_guard.config.provisioning_token = None;
                         info!("Provisioning token cleared from memory");
-
-                        // Save updated config to disk — failure is fatal.
-                        // If save fails, the provisioning token has been consumed by the cloud
-                        // but credentials are not persisted. On next restart the device would be
-                        // permanently unrecoverable (token already used, no credentials stored).
-                        state_guard.config.save(paths::AgentPaths::current())
-                            .context("Failed to save config after activation — device may be unrecoverable on restart")?;
 
                         last_error = None;
                         break;
@@ -4888,6 +4937,30 @@ async fn run_agent(
             "LIFE-SAFETY: boot safe-state applied ({} outputs driven to fail-safe before runtime start)",
             safe_count
         );
+    }
+
+    // Step 4c: restore the I/O map a previous `update_io_config` persisted
+    // under the data root, before the I/O poll loop reads the process image
+    // (ADR-048 DEC-4.1, EDGE-HIGH-050). Generic profile only: on Suderra OS
+    // the I/O map is signed site material (DEC-4.12).
+    #[cfg(not(feature = "suderra-os"))]
+    {
+        let path = paths::AgentPaths::current().io_config_file();
+        let state_guard = state.read().await;
+        match commands::restore_persisted_io_config(&state_guard, &path).await {
+            Ok(Some(tags)) => info!(
+                "Restored the persisted I/O map from {} ({} tags)",
+                path.display(),
+                tags
+            ),
+            Ok(None) => {}
+            Err(e) => error!(
+                "Persisted I/O map {} could not be restored: {:#}. Running on the static \
+                 configuration's tags until the I/O map is redeployed.",
+                path.display(),
+                e
+            ),
+        }
     }
 
     // Step 5: Create shutdown coordinator for graceful termination

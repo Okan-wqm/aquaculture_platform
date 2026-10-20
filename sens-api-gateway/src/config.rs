@@ -15,7 +15,9 @@ use std::fmt;
 use std::fs;
 use std::path::Path;
 use std::str::FromStr;
-use tracing::{debug, info, warn};
+#[cfg(not(feature = "suderra-os"))]
+use tracing::info;
+use tracing::{debug, warn};
 
 use crate::i2c::I2cDeviceConfig;
 use crate::plc_programming::PlcProgrammingConfig;
@@ -209,6 +211,13 @@ pub struct AgentConfig {
     /// Tenant ID (set after activation)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tenant_id: Option<String>,
+
+    /// The overlaid fields as `config.yaml` had them, once an activation
+    /// state is applied (ADR-048 DEC-4.6). Never serialized; `save_to`
+    /// writes these values back so no state field lands in the file.
+    #[cfg(not(feature = "suderra-os"))]
+    #[serde(skip)]
+    before_activation_overlay: Option<crate::activation_state::FieldsBeforeOverlay>,
 
     /// Modbus configuration
     #[serde(default)]
@@ -3256,8 +3265,35 @@ impl AgentConfig {
     /// so they read the same file: `SUDERRA_CONFIG` or
     /// `/etc/suderra/config.yaml` in the generic profile, the site's
     /// `/var/lib/suderra-site/config.yaml` in the Suderra OS profile.
+    ///
+    /// The activation result in the state directory (DEC-4.6) is overlaid
+    /// here, so every caller sees the activated identity and credentials.
     pub fn load(paths: &crate::paths::AgentPaths) -> Result<Self> {
-        Self::load_from(paths.config_file())
+        let mut config = Self::load_from(paths.config_file())?;
+        if let Some(state) =
+            crate::activation_state::ActivationState::load(&paths.activation_state_file())?
+        {
+            config.apply_activation_state(&state);
+            config.validate().with_context(|| {
+                format!(
+                    "Configuration {} with the activation state {} applied is invalid",
+                    paths.config_file().display(),
+                    paths.activation_state_file().display()
+                )
+            })?;
+        }
+        Ok(config)
+    }
+
+    /// Overlay an activation result (see `crate::activation_state` for
+    /// which file owns which field).
+    pub fn apply_activation_state(&mut self, state: &crate::activation_state::ActivationState) {
+        #[cfg(not(feature = "suderra-os"))]
+        if self.before_activation_overlay.is_none() {
+            self.before_activation_overlay =
+                Some(crate::activation_state::FieldsBeforeOverlay::capture(self));
+        }
+        state.apply_to(self);
     }
 
     /// Load configuration from the given file.
@@ -4140,7 +4176,7 @@ impl AgentConfig {
             if path.as_os_str().is_empty() {
                 anyhow::bail!(
                     "Config coherence: rbac_manifest.version_store_path is set to an empty path. \
-                     Either omit the field (defaults to /var/lib/suderra/rbac_version.sqlite) or \
+                     Either omit the field (defaults to rbac_version.sqlite under the agent data root) or \
                      provide a valid filesystem path."
                 );
             }
@@ -4151,7 +4187,7 @@ impl AgentConfig {
             {
                 anyhow::bail!(
                     "Config coherence: rbac_manifest.version_store_path={} has no parent directory. \
-                     Provide an absolute path with a parent dir (e.g. /var/lib/suderra/rbac_version.sqlite).",
+                     Provide an absolute path with a parent dir inside the agent data root.",
                     path.display()
                 );
             }
@@ -4377,19 +4413,37 @@ impl AgentConfig {
     }
 
     /// Persist the configuration to the file the path SSoT names.
+    ///
+    /// Generic profile only (HC-1 config-topic and Modbus-provisioning
+    /// paths): on Suderra OS `config.yaml` is site material the root
+    /// installer writes from a signed payload, and the agent has no way to
+    /// rewrite it (ADR-048 DEC-4.6, DEC-4.12).
+    #[cfg(not(feature = "suderra-os"))]
     pub fn save(&self, paths: &crate::paths::AgentPaths) -> Result<()> {
         self.save_to(paths.config_file())
     }
 
     /// Save configuration to the given file.
     ///
+    /// Fields an applied activation state owns are written back as the
+    /// file had them, never with the activated values (DEC-4.6).
+    ///
     /// # Security
     /// On Unix systems, this sets file permissions to 0600 (owner read/write only)
     /// to protect sensitive credentials stored in the config file.
+    #[cfg(not(feature = "suderra-os"))]
     pub fn save_to(&self, path: &Path) -> Result<()> {
         let path = path.to_path_buf();
 
-        let content = serde_yaml::to_string(self).context("Failed to serialize config")?;
+        let content = match &self.before_activation_overlay {
+            Some(before) => {
+                let mut on_disk = self.clone();
+                before.restore_into(&mut on_disk);
+                serde_yaml::to_string(&on_disk)
+            }
+            None => serde_yaml::to_string(self),
+        }
+        .context("Failed to serialize config")?;
 
         // Atomic write: write to .tmp file then rename, preventing partial writes
         // and ensuring restrictive permissions from the start (no TOCTOU race).

@@ -537,13 +537,19 @@ mod tests {
     #[test]
     fn suderra_os_paths_are_the_contract_constants() {
         let p = AgentPaths::suderra_os();
-        assert_eq!(p.config_file(), Path::new("/var/lib/suderra-site/config.yaml"));
+        assert_eq!(
+            p.config_file(),
+            Path::new("/var/lib/suderra-site/config.yaml")
+        );
         assert_eq!(p.data_root(), Path::new("/var/lib/suderra"));
         assert_eq!(
             p.activation_state_file(),
             Path::new("/var/lib/suderra/state/activation.json")
         );
-        assert_eq!(p.db_key_file(), Path::new("/var/lib/suderra/secrets/db.key"));
+        assert_eq!(
+            p.db_key_file(),
+            Path::new("/var/lib/suderra/secrets/db.key")
+        );
         assert_eq!(
             p.offline_queue_db(),
             Path::new("/var/lib/suderra/queue/offline_queue.db")

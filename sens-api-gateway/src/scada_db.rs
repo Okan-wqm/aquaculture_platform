@@ -873,10 +873,12 @@ mod tests {
                 .unwrap();
         }
         let err = ScadaDb::open_with_key_or_migrate(&path, &"dd".repeat(32))
-            .err()
-            .expect("a foreign key must fail closed");
+            .expect_err("a foreign key must fail closed");
         assert!(err.contains("failing closed without deletion"), "{err}");
-        assert!(std::path::Path::new(&path).exists(), "the store must be kept");
+        assert!(
+            std::path::Path::new(&path).exists(),
+            "the store must be kept"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 

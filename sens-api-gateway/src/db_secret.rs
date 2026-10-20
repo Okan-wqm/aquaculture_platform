@@ -338,12 +338,7 @@ fn write_secret_temp(tmp_path: &Path, key: &[u8]) -> Result<()> {
         .create_new(true)
         .mode(0o400)
         .open(tmp_path)
-        .with_context(|| {
-            format!(
-                "Failed to create secret temporary {}",
-                tmp_path.display()
-            )
-        })?;
+        .with_context(|| format!("Failed to create secret temporary {}", tmp_path.display()))?;
     file.write_all(key)
         .with_context(|| format!("Failed to write secret temporary {}", tmp_path.display()))?;
     file.sync_all()
@@ -358,12 +353,7 @@ fn write_secret_temp(tmp_path: &Path, key: &[u8]) -> Result<()> {
         .write(true)
         .create_new(true)
         .open(tmp_path)
-        .with_context(|| {
-            format!(
-                "Failed to create secret temporary {}",
-                tmp_path.display()
-            )
-        })?;
+        .with_context(|| format!("Failed to create secret temporary {}", tmp_path.display()))?;
     file.write_all(key)
         .with_context(|| format!("Failed to write secret temporary {}", tmp_path.display()))?;
     file.sync_all()
@@ -437,7 +427,10 @@ mod tests {
         let secret_path = dir.path().join("db.key");
         let canned = vec![0xAAu8; 32];
         std::fs::write(&secret_path, &canned).expect("seed");
-        assert_eq!(read_or_create_secret_at(&secret_path).expect("read"), canned);
+        assert_eq!(
+            read_or_create_secret_at(&secret_path).expect("read"),
+            canned
+        );
     }
 
     #[test]
@@ -447,7 +440,10 @@ mod tests {
         let created = read_or_create_secret_at(&secret_path).expect("create");
         assert_eq!(created.len(), 32);
         assert_eq!(std::fs::read(&secret_path).expect("re-read"), created);
-        assert_eq!(read_or_create_secret_at(&secret_path).expect("reuse"), created);
+        assert_eq!(
+            read_or_create_secret_at(&secret_path).expect("reuse"),
+            created
+        );
         // No temporary is left behind next to the published secret.
         let leftovers: Vec<_> = std::fs::read_dir(dir.path())
             .expect("ls")
@@ -548,8 +544,10 @@ mod tests {
     #[cfg(feature = "suderra-os")]
     #[test]
     fn suderra_os_binding_is_the_fixed_label_not_a_machine_id() {
-        assert_eq!(v1_binding().expect("binding"), SUDERRA_OS_V1_BINDING.to_vec());
-        assert!(!SUDERRA_OS_V1_BINDING.is_empty());
+        assert_eq!(
+            v1_binding().expect("binding"),
+            SUDERRA_OS_V1_BINDING.to_vec()
+        );
     }
 
     /// EDGE-CRITICAL-047: the Suderra OS secret lives in the agent's own

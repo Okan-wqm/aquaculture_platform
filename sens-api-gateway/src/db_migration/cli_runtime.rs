@@ -573,6 +573,10 @@ mod tests {
         assert!(matches!(err, BootstrapError::DeviceIdEmpty));
     }
 
+    // Drives the ceremony through the SUDERRA_MACHINE_ID_PATH /
+    // SUDERRA_DB_KEY_PATH overrides, which exist only in the generic
+    // profile (ADR-048 DEC-19; the suderra-os profile reads no environment).
+    #[cfg(not(feature = "suderra-os"))]
     #[test]
     fn from_runtime_sources_missing_secret_returns_secret_key_missing() {
         let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
@@ -606,6 +610,10 @@ mod tests {
         }
     }
 
+    // Drives the ceremony through the SUDERRA_MACHINE_ID_PATH /
+    // SUDERRA_DB_KEY_PATH overrides, which exist only in the generic
+    // profile (ADR-048 DEC-19; the suderra-os profile reads no environment).
+    #[cfg(not(feature = "suderra-os"))]
     #[test]
     fn from_runtime_sources_too_short_secret_returns_too_short() {
         let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
@@ -640,6 +648,10 @@ mod tests {
         }
     }
 
+    // Drives the ceremony through the SUDERRA_MACHINE_ID_PATH /
+    // SUDERRA_DB_KEY_PATH overrides, which exist only in the generic
+    // profile (ADR-048 DEC-19; the suderra-os profile reads no environment).
+    #[cfg(not(feature = "suderra-os"))]
     #[tokio::test]
     async fn from_runtime_sources_happy_path_constructs_runtime() {
         let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
@@ -804,6 +816,10 @@ mod tests {
         .expect("seed");
     }
 
+    // Drives the ceremony through the SUDERRA_MACHINE_ID_PATH /
+    // SUDERRA_DB_KEY_PATH overrides, which exist only in the generic
+    // profile (ADR-048 DEC-19; the suderra-os profile reads no environment).
+    #[cfg(not(feature = "suderra-os"))]
     #[tokio::test]
     async fn execute_migration_ceremony_happy_path_migrates_v1_db_to_v2() {
         let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
@@ -869,6 +885,10 @@ mod tests {
         );
     }
 
+    // Drives the ceremony through the SUDERRA_MACHINE_ID_PATH /
+    // SUDERRA_DB_KEY_PATH overrides, which exist only in the generic
+    // profile (ADR-048 DEC-19; the suderra-os profile reads no environment).
+    #[cfg(not(feature = "suderra-os"))]
     #[tokio::test]
     async fn execute_migration_ceremony_bootstrap_failure_surfaces_as_bootstrap_error() {
         let _guard = ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());

@@ -22,8 +22,11 @@ use tracing::{info, warn};
 
 use super::ScriptDefinition;
 
-/// Default scripts directory
-const DEFAULT_SCRIPTS_DIR: &str = "/etc/suderra/scripts";
+/// Marker an import of the legacy scripts directory leaves behind, so the
+/// import runs once and a script deleted later is not resurrected from the
+/// read-only legacy copy.
+#[cfg(not(feature = "suderra-os"))]
+const LEGACY_IMPORT_MARKER: &str = ".legacy-scripts-imported";
 
 /// Maximum allowed script ID length
 const MAX_SCRIPT_ID_LENGTH: usize = 64;
@@ -174,7 +177,12 @@ pub enum ScriptStatus {
 /// the full script map on each call, an `Arc<Vec<Script>>` cache is kept and rebuilt
 /// only when `active_dirty` is set by write operations.
 pub struct ScriptStorage {
+    /// Where scripts persist: `AgentPaths::scripts_dir` (ADR-048 DEC-4.5).
     scripts_dir: PathBuf,
+    /// Generic profile: the `/etc/suderra/scripts` directory an older
+    /// agent wrote, imported once into `scripts_dir` (ADR-048 DEC-4.1).
+    #[cfg(not(feature = "suderra-os"))]
+    legacy_import_dir: Option<PathBuf>,
     /// Thread-safe script map protected by RwLock
     scripts: RwLock<HashMap<String, Script>>,
     /// Maximum number of scripts allowed (memory protection)
@@ -188,23 +196,33 @@ pub struct ScriptStorage {
 }
 
 impl ScriptStorage {
-    /// Create a new script storage with default capacity
-    pub fn new(scripts_dir: Option<&str>) -> Self {
+    /// Create a new script storage with default capacity, persisting into
+    /// `scripts_dir` (the caller passes `AgentPaths::scripts_dir`).
+    pub fn new(scripts_dir: PathBuf) -> Self {
         Self::with_capacity(scripts_dir, DEFAULT_MAX_SCRIPTS)
     }
 
     /// Create a new script storage with specified maximum capacity
-    pub fn with_capacity(scripts_dir: Option<&str>, max_scripts: usize) -> Self {
-        let dir = scripts_dir.unwrap_or(DEFAULT_SCRIPTS_DIR);
+    pub fn with_capacity(scripts_dir: PathBuf, max_scripts: usize) -> Self {
         let (dirty_tx, dirty_rx) = watch::channel(true); // start dirty so first call rebuilds
         Self {
-            scripts_dir: PathBuf::from(dir),
+            scripts_dir,
+            #[cfg(not(feature = "suderra-os"))]
+            legacy_import_dir: None,
             scripts: RwLock::new(HashMap::with_capacity(max_scripts.min(100))),
             max_scripts,
             active_cache: RwLock::new(None),
             dirty_tx,
             dirty_rx,
         }
+    }
+
+    /// Generic profile: import the scripts an older agent kept in
+    /// `legacy_dir` (read-only to this agent) on the first `init`.
+    #[cfg(not(feature = "suderra-os"))]
+    pub fn with_legacy_import_dir(mut self, legacy_dir: PathBuf) -> Self {
+        self.legacy_import_dir = Some(legacy_dir);
+        self
     }
 
     /// Invalidate the active-script cache after any write operation.
@@ -226,13 +244,9 @@ impl ScriptStorage {
 
     /// Initialize storage and load existing scripts
     pub async fn init(&self) -> Result<()> {
-        // Create scripts directory if it doesn't exist
-        if !self.scripts_dir.exists() {
-            fs::create_dir_all(&self.scripts_dir).with_context(|| {
-                format!("Failed to create scripts directory: {:?}", self.scripts_dir)
-            })?;
-            info!("Created scripts directory: {:?}", self.scripts_dir);
-        }
+        self.ensure_scripts_dir()?;
+        #[cfg(not(feature = "suderra-os"))]
+        self.import_legacy_scripts()?;
 
         // Load existing scripts
         self.load_all().await?;
@@ -243,6 +257,78 @@ impl ScriptStorage {
         };
 
         info!("Script storage initialized with {} scripts", count);
+        Ok(())
+    }
+
+    /// Suderra OS: the OS creates the agent's `scripts/` directory before
+    /// the unit starts and the agent never creates a contract directory
+    /// (ADR-048 DEC-4.3, DEC-4.11); a missing one is reported.
+    #[cfg(feature = "suderra-os")]
+    fn ensure_scripts_dir(&self) -> Result<()> {
+        if self.scripts_dir.is_dir() {
+            Ok(())
+        } else {
+            Err(anyhow!(
+                "scripts directory {:?} does not exist; the OS creates it before the agent \
+                 starts (ADR-048 DEC-4.3, DEC-4.11)",
+                self.scripts_dir
+            ))
+        }
+    }
+
+    /// Generic: create the scripts directory under the data root.
+    #[cfg(not(feature = "suderra-os"))]
+    fn ensure_scripts_dir(&self) -> Result<()> {
+        if !self.scripts_dir.exists() {
+            fs::create_dir_all(&self.scripts_dir).with_context(|| {
+                format!("Failed to create scripts directory: {:?}", self.scripts_dir)
+            })?;
+            info!("Created scripts directory: {:?}", self.scripts_dir);
+        }
+        Ok(())
+    }
+
+    /// Copy the legacy directory's script files that `scripts_dir` does not
+    /// already hold, once: the marker file makes a later boot skip it, so a
+    /// script deleted afterwards stays deleted. The legacy directory is only
+    /// read (the generic unit mounts `/etc/suderra` read-only).
+    #[cfg(not(feature = "suderra-os"))]
+    fn import_legacy_scripts(&self) -> Result<()> {
+        let Some(legacy) = &self.legacy_import_dir else {
+            return Ok(());
+        };
+        let marker = self.scripts_dir.join(LEGACY_IMPORT_MARKER);
+        if marker.exists() || !legacy.is_dir() {
+            return Ok(());
+        }
+        let entries = fs::read_dir(legacy)
+            .with_context(|| format!("Failed to read legacy scripts directory: {legacy:?}"))?;
+        let mut imported = 0usize;
+        for entry in entries {
+            let path = entry?.path();
+            let is_script = path
+                .extension()
+                .map(|e| e == "json" || e == "yaml")
+                .unwrap_or(false);
+            let Some(name) = path.file_name() else {
+                continue;
+            };
+            let target = self.scripts_dir.join(name);
+            if !is_script || target.exists() {
+                continue;
+            }
+            let content = fs::read(&path)
+                .with_context(|| format!("Failed to read legacy script {path:?}"))?;
+            fs::write(&target, content)
+                .with_context(|| format!("Failed to import legacy script into {target:?}"))?;
+            imported += 1;
+        }
+        fs::write(&marker, b"")
+            .with_context(|| format!("Failed to write import marker {marker:?}"))?;
+        info!(
+            "Imported {} script(s) from the legacy directory {:?} into {:?}",
+            imported, legacy, self.scripts_dir
+        );
         Ok(())
     }
 
@@ -620,6 +706,51 @@ mod tests {
             serde_json::to_string(&ScriptStatus::Paused).unwrap(),
             "\"paused\""
         );
+    }
+
+    /// ADR-048 DEC-4.1: an older generic agent's scripts are imported once
+    /// from the read-only legacy directory, and a script deleted after the
+    /// import is not resurrected on the next boot.
+    #[cfg(not(feature = "suderra-os"))]
+    #[tokio::test]
+    async fn legacy_scripts_are_imported_once() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let legacy = root.path().join("etc-scripts");
+        let current = root.path().join("data").join("scripts");
+        fs::create_dir_all(&legacy).expect("mkdir legacy");
+        fs::write(legacy.join("pump.json"), b"{}").expect("seed legacy");
+        fs::write(legacy.join("notes.txt"), b"not a script").expect("seed other");
+
+        let storage = ScriptStorage::new(current.clone()).with_legacy_import_dir(legacy.clone());
+        storage.init().await.expect("init");
+        assert!(current.join("pump.json").exists(), "script imported");
+        assert!(!current.join("notes.txt").exists(), "only script files");
+        assert_eq!(
+            fs::read(legacy.join("pump.json")).expect("legacy kept"),
+            b"{}"
+        );
+
+        fs::remove_file(current.join("pump.json")).expect("delete");
+        let again = ScriptStorage::new(current.clone()).with_legacy_import_dir(legacy);
+        again.init().await.expect("re-init");
+        assert!(
+            !current.join("pump.json").exists(),
+            "a deleted script stays deleted"
+        );
+    }
+
+    /// Suderra OS: the agent never creates its contract directories.
+    #[cfg(feature = "suderra-os")]
+    #[tokio::test]
+    async fn suderra_os_does_not_create_a_missing_scripts_dir() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let missing = root.path().join("scripts");
+        let err = ScriptStorage::new(missing.clone())
+            .init()
+            .await
+            .expect_err("must refuse");
+        assert!(format!("{err:#}").contains("does not exist"), "{err:#}");
+        assert!(!missing.exists());
     }
 
     #[test]

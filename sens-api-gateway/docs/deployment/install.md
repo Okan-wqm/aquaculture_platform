@@ -157,7 +157,7 @@ Expected: `Overall exposure level for suderra-agent.service: <X>` with the row-b
 
 **Do:**
 ```bash
-sudo install -m 0600 -o root -g suderra /dev/null /etc/suderra/config.yaml
+sudo install -m 0640 -o root -g suderra /dev/null /etc/suderra/config.yaml
 cat <<'EOF' | sudo tee /etc/suderra/config.yaml > /dev/null
 device_id: ""
 device_code: ""
@@ -172,19 +172,19 @@ mqtt:
     verify_hostname: true
   topics: {}
 EOF
-sudo chmod 0600 /etc/suderra/config.yaml
+sudo chmod 0640 /etc/suderra/config.yaml
 sudo chown root:suderra /etc/suderra/config.yaml
 ```
 
-**Expect:** a minimal config that is not yet activated. Provisioning will populate `device_id`, MQTT credentials, and `tenant_id`. The file is mode 0600 because it eventually holds the `mqtt_password` today (see `src/config.rs:277-283` — `Secret<String>` zeroize-on-drop + `b64:` prefix). On-disk 0600 is the last line of defence; the agent already encodes the field and zeroises in memory.
+**Expect:** a minimal config that is not yet activated. The file is operator material: root owns it, the `suderra` group may read it (mode 0640, so the agent running as `suderra` can load it), and the agent never rewrites it — the unit mounts `/etc/suderra` read-only (ADR-048 DEC-4.6). Activation does not touch it either: the broker credential, `tenant_id` and any server-assigned `device_id` go to `/var/lib/suderra/state/activation.json` (mode 0600, owned by `suderra`), which the agent overlays on every load.
 
 **Verify:**
 ```bash
 stat -c '%U:%G %a %n' /etc/suderra/config.yaml
-# root:suderra 600 /etc/suderra/config.yaml
+# root:suderra 640 /etc/suderra/config.yaml
 ```
 
-**On failure:** mode drift → `chmod 0600 /etc/suderra/config.yaml && chown root:suderra /etc/suderra/config.yaml`. The validation happens inside the agent on `load()` (`src/config.rs:141`) and on the Unix private-key permission helper (`src/security`, MED-23).
+**On failure:** mode drift → `chmod 0640 /etc/suderra/config.yaml && chown root:suderra /etc/suderra/config.yaml`. The validation happens inside the agent on `load()` (`src/config.rs:141`) and on the Unix private-key permission helper (`src/security`, MED-23).
 
 ---
 
@@ -245,7 +245,7 @@ systemctl is-enabled serial-getty@ttyS0.service 2>/dev/null || echo "disabled or
 - `suderra` user + `/etc/suderra`, `/var/lib/suderra`, `/var/log/suderra` directory tree exists with canonical modes.
 - `suderra-agent.service` is enabled, active, and the `systemd-analyze security` result is SAFE or tighter.
 - Chrony is active; the wall clock is trusted.
-- `/etc/suderra/config.yaml` exists mode 0600, holding a minimal unactivated stub.
+- `/etc/suderra/config.yaml` exists mode 0640 (root:suderra), holding a minimal unactivated stub.
 - The device is ready for `provisioning.md`.
 
 ## Rollback

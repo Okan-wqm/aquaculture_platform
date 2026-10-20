@@ -13,9 +13,9 @@
 //! WHAT: `impl CommandHandler` block with 2 handlers + 2 private
 //! helpers:
 //! - `cmd_update_io_config` — deploy a new IO config.
-//!   Parses params → `Vec<TagConfig>` → updates ProcessImage →
-//!   registers HH/H/L/LL alarms per configured tag → persists to
-//!   /etc/suderra/io_config.yaml (best-effort; warn on failure).
+//!   Parses params → `Vec<TagConfig>` → persists the params to the
+//!   agent's data root (`AgentPaths::io_config_file`, generic profile)
+//!   → updates ProcessImage → registers HH/H/L/LL alarms per tag.
 //! - `cmd_set_output` — write a single value to any configured
 //!   output tag. Looks up the tag's protocol_config in the
 //!   ProcessImage and dispatches to the appropriate handle
@@ -26,34 +26,56 @@
 //!   v2 `tags[]` payloads plus legacy grouped arrays. Both
 //!   camelCase (tagName, ioType) and snake_case (tag_name,
 //!   io_type) are supported.
-//! - `persist_io_config` helper — writes the raw params JSON to
-//!   /etc/suderra/io_config.yaml as YAML; creates the directory
-//!   if absent.
+//! - `persist_io_config` helper — writes the raw params as YAML to
+//!   `AgentPaths::io_config_file` (temporary name, fsync, rename,
+//!   directory fsync).
+//! - `restore_persisted_io_config` — the boot-time reader of that
+//!   file, so a deployed I/O map survives a restart.
 //!
-//! WHY BEST-EFFORT PERSIST: `cmd_update_io_config` succeeds the
-//! command even if `persist_io_config` fails (warn-log only).
-//! Rationale: the in-memory ProcessImage update is the
-//! authoritative state; a persist failure means the config won't
-//! survive restart, but the current session still benefits. The
-//! Sprint 6.x hardening target is fail-closed persist, gated by
-//! an operator ack that they accept the non-persistent session.
+//! ## Persist first (ADR-048 DEC-4.1, EDGE-HIGH-050)
+//!
+//! The map used to be written best-effort to `/etc/suderra`, which
+//! the agent's unit mounts read-only, and nothing ever read it back:
+//! every deploy reported success and vanished at the next restart.
+//! It is now persisted under the agent's data root BEFORE it is
+//! applied, a persist failure fails the command with nothing
+//! applied, and boot restores it.
+//!
+//! ## Profiles (ADR-048 DEC-4.12)
+//!
+//! On Suderra OS the I/O map is part of the signed site-config
+//! statement; `update_io_config` is refused as unsupported
+//! (`commands::site_material`) and the agent persists nothing.
 
 use serde_json::{Value, json};
-use std::fs;
-use tracing::{info, warn};
+use tracing::info;
+#[cfg(not(feature = "suderra-os"))]
+use tracing::warn;
 
+#[cfg(not(feature = "suderra-os"))]
 use crate::alarms::{AlarmDefinition, AlarmPriority};
-use crate::process_image::{
-    AtlasEzoType, I2cDriverType, IoType, ProtocolConfig, TagConfig, TagQuality, TagSource,
-};
+#[cfg(not(feature = "suderra-os"))]
+use crate::process_image::{AtlasEzoType, I2cDriverType, IoType, TagConfig, TagSource};
+use crate::process_image::{ProtocolConfig, TagQuality};
 
 use super::CommandHandler;
 
 impl CommandHandler {
+    /// Suderra OS: the I/O map is signed site material (ADR-048
+    /// DEC-4.12).
+    #[cfg(feature = "suderra-os")]
+    pub(super) async fn cmd_update_io_config(
+        &mut self,
+        _params: &Value,
+    ) -> (bool, Value, Option<String>) {
+        super::site_material::unsupported("update_io_config", "the I/O map")
+    }
+
     /// Update the active I/O config (modbus + gpio + i2c arrays
-    /// with alarm thresholds + engineering units). Registers
-    /// HH/H/L/LL alarms as each tag's thresholds are declared.
-    /// Persists to /etc/suderra/io_config.yaml (best-effort).
+    /// with alarm thresholds + engineering units). Persists it to the
+    /// agent's data root first, then registers HH/H/L/LL alarms as
+    /// each tag's thresholds are declared.
+    #[cfg(not(feature = "suderra-os"))]
     pub(super) async fn cmd_update_io_config(
         &mut self,
         params: &Value,
@@ -71,57 +93,21 @@ impl CommandHandler {
             }
         };
 
+        let path = crate::paths::AgentPaths::current().io_config_file();
+        if let Err(e) = persist_io_config(&path, params) {
+            warn!("Failed to persist io_config to {}: {:#}", path.display(), e);
+            return (
+                false,
+                json!(null),
+                Some(format!(
+                    "Failed to persist io_config to {} (nothing applied): {e:#}",
+                    path.display()
+                )),
+            );
+        }
+
         let state = self.state.read().await;
-
-        state.process_image.set_configs(tag_configs.clone()).await;
-
-        {
-            let mut alarm_mgr = state.alarm_manager.write().await;
-            for cfg in &tag_configs {
-                if let Some(hh) = cfg.alarm_hh {
-                    let def = AlarmDefinition::high_limit(
-                        &format!("{}_HH", cfg.tag_name),
-                        &cfg.tag_name,
-                        hh,
-                    )
-                    .with_priority(AlarmPriority::Critical);
-                    alarm_mgr.register(def);
-                }
-                if let Some(h) = cfg.alarm_h {
-                    let def = AlarmDefinition::high_limit(
-                        &format!("{}_H", cfg.tag_name),
-                        &cfg.tag_name,
-                        h,
-                    )
-                    .with_priority(AlarmPriority::High);
-                    alarm_mgr.register(def);
-                }
-                if let Some(l) = cfg.alarm_l {
-                    let def = AlarmDefinition::low_limit(
-                        &format!("{}_L", cfg.tag_name),
-                        &cfg.tag_name,
-                        l,
-                    )
-                    .with_priority(AlarmPriority::High);
-                    alarm_mgr.register(def);
-                }
-                if let Some(ll) = cfg.alarm_ll {
-                    let def = AlarmDefinition::low_limit(
-                        &format!("{}_LL", cfg.tag_name),
-                        &cfg.tag_name,
-                        ll,
-                    )
-                    .with_priority(AlarmPriority::Critical);
-                    alarm_mgr.register(def);
-                }
-            }
-        }
-
-        if let Err(e) = self.persist_io_config(params) {
-            warn!("Failed to persist io_config: {}", e);
-        }
-
-        let tag_count = tag_configs.len();
+        let tag_count = apply_io_config(&state, tag_configs).await;
         info!("Updated I/O config: {} tags", tag_count);
         (true, json!({ "tags_configured": tag_count }), None)
     }
@@ -244,7 +230,12 @@ impl CommandHandler {
             Err(e) => (false, json!(null), Some(e)),
         }
     }
+}
 
+/// The I/O map parser — generic profile only (on Suderra OS the I/O map is
+/// site material the agent never receives over the command channel).
+#[cfg(not(feature = "suderra-os"))]
+impl CommandHandler {
     fn json_field<'a>(item: &'a Value, camel: &str, snake: &str) -> Option<&'a Value> {
         item.get(camel).or_else(|| item.get(snake))
     }
@@ -786,24 +777,103 @@ impl CommandHandler {
 
         Ok(tags)
     }
-
-    /// Persist the I/O config to disk as YAML at
-    /// /etc/suderra/io_config.yaml. Creates the directory if
-    /// absent. Called from cmd_update_io_config as best-effort.
-    fn persist_io_config(&self, config: &Value) -> anyhow::Result<()> {
-        let config_dir = std::path::Path::new("/etc/suderra");
-        if !config_dir.exists() {
-            fs::create_dir_all(config_dir)?;
-        }
-        let config_path = config_dir.join("io_config.yaml");
-        let yaml = serde_yaml::to_string(config)?;
-        fs::write(&config_path, yaml)?;
-        info!("I/O config persisted to {}", config_path.display());
-        Ok(())
-    }
 }
 
-#[cfg(test)]
+/// Make `tag_configs` the live I/O map: the process image's tag set and
+/// the HH/H/L/LL alarms their thresholds declare. Returns the tag count.
+#[cfg(not(feature = "suderra-os"))]
+async fn apply_io_config(state: &crate::AppState, tag_configs: Vec<TagConfig>) -> usize {
+    let tag_count = tag_configs.len();
+    state.process_image.set_configs(tag_configs.clone()).await;
+    {
+        let mut alarm_mgr = state.alarm_manager.write().await;
+        for cfg in &tag_configs {
+            if let Some(hh) = cfg.alarm_hh {
+                let def =
+                    AlarmDefinition::high_limit(format!("{}_HH", cfg.tag_name), &cfg.tag_name, hh)
+                        .with_priority(AlarmPriority::Critical);
+                alarm_mgr.register(def);
+            }
+            if let Some(h) = cfg.alarm_h {
+                let def =
+                    AlarmDefinition::high_limit(format!("{}_H", cfg.tag_name), &cfg.tag_name, h)
+                        .with_priority(AlarmPriority::High);
+                alarm_mgr.register(def);
+            }
+            if let Some(l) = cfg.alarm_l {
+                let def =
+                    AlarmDefinition::low_limit(format!("{}_L", cfg.tag_name), &cfg.tag_name, l)
+                        .with_priority(AlarmPriority::High);
+                alarm_mgr.register(def);
+            }
+            if let Some(ll) = cfg.alarm_ll {
+                let def =
+                    AlarmDefinition::low_limit(format!("{}_LL", cfg.tag_name), &cfg.tag_name, ll)
+                        .with_priority(AlarmPriority::Critical);
+                alarm_mgr.register(def);
+            }
+        }
+    }
+    tag_count
+}
+
+/// Boot: restore the I/O map a previous `update_io_config` persisted
+/// (generic profile). `Ok(None)` when none was ever deployed. A file that
+/// exists but does not parse is an error — the caller decides how loud.
+#[cfg(not(feature = "suderra-os"))]
+pub(crate) async fn restore_persisted_io_config(
+    state: &crate::AppState,
+    path: &std::path::Path,
+) -> anyhow::Result<Option<usize>> {
+    use anyhow::Context as _;
+    let yaml = match std::fs::read_to_string(path) {
+        Ok(yaml) => yaml,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => {
+            return Err(e).with_context(|| format!("Failed to read {}", path.display()));
+        }
+    };
+    let params: Value = serde_yaml::from_str(&yaml)
+        .with_context(|| format!("Failed to parse {}", path.display()))?;
+    let tag_configs = CommandHandler::parse_io_config_to_tags(&params)
+        .with_context(|| format!("Invalid I/O map in {}", path.display()))?;
+    Ok(Some(apply_io_config(state, tag_configs).await))
+}
+
+/// Persist the I/O config params as YAML at `path`: temporary name,
+/// fsync, rename, directory fsync, so a crash leaves the old map or the
+/// new one, never a torn file.
+#[cfg(not(feature = "suderra-os"))]
+fn persist_io_config(path: &std::path::Path, config: &Value) -> anyhow::Result<()> {
+    use anyhow::Context as _;
+    use std::io::Write as _;
+    let yaml = serde_yaml::to_string(config)?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("{} has no parent directory", path.display()))?;
+    std::fs::create_dir_all(parent)
+        .with_context(|| format!("Failed to create {}", parent.display()))?;
+    let tmp = parent.join(format!(".io_config.yaml.tmp-{}", std::process::id()));
+    {
+        let mut file = std::fs::File::create(&tmp)
+            .with_context(|| format!("Failed to create {}", tmp.display()))?;
+        file.write_all(yaml.as_bytes())
+            .with_context(|| format!("Failed to write {}", tmp.display()))?;
+        file.sync_all()
+            .with_context(|| format!("Failed to fsync {}", tmp.display()))?;
+    }
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e).with_context(|| format!("Failed to rename onto {}", path.display()));
+    }
+    std::fs::File::open(parent)
+        .and_then(|d| d.sync_all())
+        .with_context(|| format!("Failed to fsync {}", parent.display()))?;
+    info!("I/O config persisted to {}", path.display());
+    Ok(())
+}
+
+#[cfg(all(test, not(feature = "suderra-os")))]
 mod tests {
     use super::*;
     use serde_json::json;

@@ -123,15 +123,15 @@ pub(crate) fn derive_db_encryption_key() -> Result<String> {
     // profile (HC-1 key compatibility), a fixed label in the
     // suderra-os profile, where machine-id is transient
     // (EDGE-CRITICAL-048) and never read.
-    let binding = crate::db_secret::v1_binding().context("Cannot derive database encryption key")?;
+    let binding =
+        crate::db_secret::v1_binding().context("Cannot derive database encryption key")?;
 
     let secret_key = load_or_create_db_secret()?;
 
     // Single-source-of-truth delegation. The HMAC algorithm
     // + hex format live in `db_migration::v1_legacy_key`;
     // this function is the IO-cached wrapper.
-    let key_bytes =
-        crate::db_migration::v1_legacy_key::derive_v1_legacy_key(&binding, &secret_key);
+    let key_bytes = crate::db_migration::v1_legacy_key::derive_v1_legacy_key(&binding, &secret_key);
     let hex = crate::db_migration::v1_legacy_key::format_sqlcipher_pragma_key_hex(&key_bytes);
 
     // Store via OnceLock::get_or_init to handle the race

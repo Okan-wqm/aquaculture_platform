@@ -17,6 +17,12 @@
 //! - `cmd_decommission_modbus_device` — the inverse: removes it live + from the
 //!   persisted config.
 //!
+//! ## Profiles (ADR-048 DEC-4.12)
+//!
+//! Generic profile only. On Suderra OS the fieldbus inventory is part of the
+//! signed site-config statement, so both commands are refused as unsupported
+//! (`commands::site_material`).
+//!
 //! ## Durability
 //!
 //! Persisting into `config.modbus` makes the binding reboot-durable: at boot,
@@ -37,12 +43,36 @@
 //! authority on its own — this check fails the operation early with an
 //! actionable error rather than silently accepting an unsafe device.
 
-use serde_json::{Value, json};
+use serde_json::Value;
+#[cfg(not(feature = "suderra-os"))]
+use serde_json::json;
+#[cfg(not(feature = "suderra-os"))]
 use tracing::{error, info, warn};
 
 use super::CommandHandler;
+#[cfg(not(feature = "suderra-os"))]
 use crate::config::ModbusDeviceConfig;
 
+/// Suderra OS: the fieldbus inventory is signed site material (ADR-048
+/// DEC-4.12); neither command can change it.
+#[cfg(feature = "suderra-os")]
+impl CommandHandler {
+    pub(super) async fn cmd_provision_modbus_device(
+        &self,
+        _params: &Value,
+    ) -> (bool, Value, Option<String>) {
+        super::site_material::unsupported("provision_modbus_device", "the fieldbus inventory")
+    }
+
+    pub(super) async fn cmd_decommission_modbus_device(
+        &self,
+        _params: &Value,
+    ) -> (bool, Value, Option<String>) {
+        super::site_material::unsupported("decommission_modbus_device", "the fieldbus inventory")
+    }
+}
+
+#[cfg(not(feature = "suderra-os"))]
 impl CommandHandler {
     /// Provision (add or replace) a Modbus device at runtime.
     ///
@@ -229,6 +259,7 @@ impl CommandHandler {
 /// in `Config::validate` so a runtime path cannot bypass deny-by-default.
 ///
 /// Returns `Some(error)` when the device is rejected, `None` when it is safe.
+#[cfg(not(feature = "suderra-os"))]
 fn validate_provision_write_authz(config: &ModbusDeviceConfig) -> Option<String> {
     let sec = &config.security;
     if !sec.enabled || !sec.allow_writes {
@@ -253,7 +284,7 @@ fn validate_provision_write_authz(config: &ModbusDeviceConfig) -> Option<String>
     None
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "suderra-os")))]
 mod tests {
     use super::*;
     use crate::config::ModbusSecurityConfig;

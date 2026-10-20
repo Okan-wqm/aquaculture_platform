@@ -38,15 +38,28 @@
 //!   `required_permission::permission_for_command` table —
 //!   enforced before this handler runs.
 
-use serde_json::{Value, json};
+use serde_json::Value;
+#[cfg(not(feature = "suderra-os"))]
+use serde_json::json;
+#[cfg(not(feature = "suderra-os"))]
 use tracing::{info, warn};
 
 use super::CommandHandler;
+#[cfg(not(feature = "suderra-os"))]
 use crate::authz::permission::TenantId;
+#[cfg(not(feature = "suderra-os"))]
 use crate::config::RbacManifestMode;
+#[cfg(not(feature = "suderra-os"))]
 use crate::security::sanitize_for_log;
 
 impl CommandHandler {
+    /// Suderra OS: the RBAC manifest is signed site material the root
+    /// installer delivers (ADR-048 DEC-4.12); the agent cannot replace it.
+    #[cfg(feature = "suderra-os")]
+    pub(super) async fn cmd_update_policy(&self, _params: &Value) -> (bool, Value, Option<String>) {
+        super::site_material::unsupported("update_policy", "the RBAC manifest")
+    }
+
     /// `update_policy` — hot-reload RBAC manifest.
     ///
     /// Params (required):
@@ -57,6 +70,7 @@ impl CommandHandler {
     /// - On success: `{"policy_version": N, "operator_count": M,
     ///   "role_count": K}`.
     /// - On failure: structured error with `reason` field.
+    #[cfg(not(feature = "suderra-os"))]
     pub(super) async fn cmd_update_policy(&self, params: &Value) -> (bool, Value, Option<String>) {
         info!("Executing update_policy command (Sprint 6.1 hot-reload)");
 
@@ -96,7 +110,7 @@ impl CommandHandler {
         // read-guard, then drop the guard before the blocking
         // verify/disk work runs. Avoids holding the state
         // read-lock across filesystem IO.
-        let (mode, pubkey_hex, manifest_path_override, tenant_id_str, rbac_store) = {
+        let (mode, pubkey_hex, tenant_id_str, rbac_store) = {
             let state = self.state.read().await;
             (
                 state.config.rbac_manifest.mode,
@@ -105,7 +119,6 @@ impl CommandHandler {
                     .rbac_manifest
                     .manifest_signing_pubkey_hex
                     .clone(),
-                state.config.rbac_manifest.manifest_path.clone(),
                 state.tenant_id.clone(),
                 state.rbac_manifest_store.clone(),
             )
@@ -157,11 +170,15 @@ impl CommandHandler {
         };
         let expected_tenant = TenantId::new_from_verified(*uuid.as_bytes());
 
+        // ADR-048 DEC-4.1: the accepted manifest is persisted under the
+        // agent's data root, where the next boot loads it from — never
+        // into the read-only operator directory.
+        let persist_path = crate::paths::AgentPaths::current().rbac_manifest_persist_file();
         match rbac_store.hot_reload_from_bytes(
             pubkey_hex.as_deref(),
             &bytes,
             &expected_tenant,
-            manifest_path_override.as_deref(),
+            &persist_path,
         ) {
             Ok(new_version) => {
                 // Re-read the swapped manifest to surface

@@ -46,6 +46,10 @@ mod firmware;
 mod helpers;
 mod ide_deploy;
 mod io_config;
+// Boot restore of the I/O map `update_io_config` persisted (generic profile;
+// ADR-048 DEC-4.1, EDGE-HIGH-050).
+#[cfg(not(feature = "suderra-os"))]
+pub(crate) use io_config::restore_persisted_io_config;
 #[cfg(feature = "lorawan")]
 mod lora;
 pub mod ping_handler;
@@ -61,6 +65,8 @@ mod refresh_license;
 pub(crate) mod required_permission;
 mod rotate_master;
 mod script;
+#[cfg(feature = "suderra-os")]
+mod site_material;
 mod system;
 mod user_token;
 mod verify_signed_manifest;

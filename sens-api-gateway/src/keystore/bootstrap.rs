@@ -139,7 +139,9 @@ pub async fn build_production_keystore_from_config(
 /// material before the P2 TPM keystore (ADR-048 DEC-21), so the answer is an
 /// error naming that.
 #[cfg(not(feature = "suderra-os"))]
-pub fn keystore_material_paths(config: &AgentConfig) -> Result<(PathBuf, PathBuf, PathBuf), String> {
+pub fn keystore_material_paths(
+    config: &AgentConfig,
+) -> Result<(PathBuf, PathBuf, PathBuf), String> {
     let paths = crate::paths::AgentPaths::current();
     Ok((
         config
@@ -162,10 +164,14 @@ pub fn keystore_material_paths(config: &AgentConfig) -> Result<(PathBuf, PathBuf
 
 /// See the generic variant.
 #[cfg(feature = "suderra-os")]
-pub fn keystore_material_paths(_config: &AgentConfig) -> Result<(PathBuf, PathBuf, PathBuf), String> {
-    Err("the suderra-os profile provisions no keystore material before the P2 TPM keystore \
+pub fn keystore_material_paths(
+    _config: &AgentConfig,
+) -> Result<(PathBuf, PathBuf, PathBuf), String> {
+    Err(
+        "the suderra-os profile provisions no keystore material before the P2 TPM keystore \
          (ADR-048 DEC-21)"
-        .to_string())
+            .to_string(),
+    )
 }
 
 /// The generic profile's FileBacked keystore build (the body of

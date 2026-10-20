@@ -33,8 +33,9 @@ fn hot_reload_requires_manage_policy_permission() {
 #[test]
 fn hot_reload_shares_verify_chain_with_boot_loader() {
     // CONTRACT: RbacManifestStore::hot_reload_from_bytes +
-    // load_from_file BOTH delegate to `verify_and_floor`.
-    // The verify+floor logic is the SSoT; divergence would
+    // load_from_file BOTH delegate to `verify_against_floor`
+    // (verify only, no write) and `advance_floor` (the floor
+    // write). The verify logic is the SSoT; divergence would
     // create a path where MQTT-loaded manifests bypass a
     // gate that disk-loaded manifests enforce (or vice
     // versa).
@@ -42,24 +43,30 @@ fn hot_reload_shares_verify_chain_with_boot_loader() {
     // Any change that duplicates verify logic across the
     // two entry points is a REGRESSION against this
     // invariant.
-    let contract = "hot_reload_from_bytes + load_from_file_inner both call verify_and_floor — single verify+floor SSoT";
-    assert!(contract.contains("verify_and_floor"));
+    let contract = "hot_reload_from_bytes + load_from_file_inner both call verify_against_floor + advance_floor — single verify SSoT";
+    assert!(contract.contains("verify_against_floor"));
 }
 
 #[test]
-fn hot_reload_memory_swap_precedes_disk_persist() {
-    // CONTRACT: in hot_reload_from_bytes:
-    //   Step 1: RwLock write-guard atomic swap
-    //   Step 2: tempfile write + atomic rename
+fn hot_reload_persists_before_floor_and_swap() {
+    // CONTRACT (ADR-048 DEC-4.1, EDGE-HIGH-050): in
+    // hot_reload_from_bytes, each step only after the
+    // previous one succeeded:
+    //   Step 1: verify against the floor (no write)
+    //   Step 2: durable persist to the data root (tempfile,
+    //           fsync, rename, directory fsync)
+    //   Step 3: advance the version floor
+    //   Step 4: RwLock write-guard atomic swap
     //
-    // WHY in this order: a crash between memory-swap and
-    // disk-write leaves disk=OLD while memory=NEW. Next
-    // boot reads disk (OLD) which is the SAFE-DEGRADATION
-    // path. The reverse (disk-first) would leave disk=NEW
-    // while memory=OLD on crash — agent serves OLD
-    // permissions while persistence claims NEW. That
-    // disagreement is an observability + audit trap.
-    let contract = "hot_reload: memory-swap BEFORE disk-persist (safe degradation on mid-op crash)";
+    // WHY in this order: the floor must never run ahead of
+    // the manifest the next boot loads. The previous order
+    // (floor, swap, then persist) left the on-disk manifest
+    // below the floor whenever the persist failed (EROFS
+    // under /etc), so every Enforcing boot refused it as a
+    // rollback. Runtime evidence:
+    // `authz::manifest_runtime::hot_reload_order_tests`.
+    let contract =
+        "hot_reload: persist BEFORE floor advance BEFORE memory swap (floor never ahead of disk)";
     assert!(contract.contains("BEFORE"));
 }
 
@@ -104,7 +111,7 @@ fn hot_reload_rejects_before_provisioning() {
 
 #[test]
 fn hot_reload_preserves_manifest_on_verify_failure() {
-    // CONTRACT: fail-closed — if verify_and_floor returns
+    // CONTRACT: fail-closed — if verify_against_floor returns
     // Err (signature / tenant / monotonicity failure),
     // `self.current` is UNCHANGED. Agent keeps running on
     // the previously-verified manifest rather than

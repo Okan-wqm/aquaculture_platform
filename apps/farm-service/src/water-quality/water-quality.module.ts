@@ -162,6 +162,10 @@ const CommandHandlers = [
   exports: [
     TypeOrmModule,
     WaterQualityService,
+    // Production plan's tank growth projection reads the tank's current
+    // effective temperature through this service (fallback when no
+    // scenario is selected).
+    WaterTemperatureService,
     ParameterConfigCacheService,
     WaterQualityEvaluationService,
     WaterQualityValidationService,

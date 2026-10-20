@@ -7,11 +7,9 @@
  * an ephemeral schema via `withHarnessSchema` (which wraps withEphemeralSchema
  * and asserts the harness context booted first).
  */
-import {
-  bootPostgresContainer,
-  shutdownHarness,
-  type HarnessContext,
-} from '../index';
+import { randomBytes } from 'crypto';
+
+import { bootPostgresContainer, shutdownHarness, type HarnessContext } from '../index';
 
 import {
   expectDefined,
@@ -32,6 +30,32 @@ describe('migration-harness setup — integration', () => {
     await shutdownHarness(ctx);
   }, 30_000);
 
+  it("stopping one boot drops the roles it granted and leaves another boot's roles alone", async () => {
+    const a = expectHarnessContext(ctx);
+    const b = await bootPostgresContainer();
+    const suffix = randomBytes(4).toString('hex');
+    const roleA = `harness_role_a_${suffix}`;
+    const roleB = `harness_role_b_${suffix}`;
+    try {
+      // Each role is created and granted on its own boot's database, the way a
+      // suite's runtime role is; on an external server both are cluster-wide.
+      for (const [boot, role] of [
+        [a, roleA],
+        [b, roleB],
+      ] as const) {
+        await boot.dataSource.query(`CREATE ROLE ${role} NOLOGIN`);
+        await boot.dataSource.query(`CREATE SCHEMA ${role}_schema`);
+        await boot.dataSource.query(`GRANT USAGE ON SCHEMA ${role}_schema TO ${role}`);
+      }
+    } finally {
+      await shutdownHarness(b);
+    }
+    const roles = async (name: string): Promise<unknown[]> =>
+      a.dataSource.query('SELECT rolname FROM pg_roles WHERE rolname = $1', [name]);
+    expect(await roles(roleA)).toHaveLength(1);
+    expect(await roles(roleB)).toHaveLength(0);
+  }, 90_000);
+
   it('bootPostgresContainer returns a usable DataSource', async () => {
     const harness = expectHarnessContext(ctx);
     expect(harness.dataSource.isInitialized).toBe(true);
@@ -39,10 +63,7 @@ describe('migration-harness setup — integration', () => {
 
     const qr = harness.dataSource.createQueryRunner();
     try {
-      const row = await queryRequiredRow<{ db: string }>(
-        qr,
-        'SELECT current_database() AS db',
-      );
+      const row = await queryRequiredRow<{ db: string }>(qr, 'SELECT current_database() AS db');
       expect(row.db).toBe('harness');
     } finally {
       await qr.release();
@@ -61,10 +82,7 @@ describe('migration-harness setup — integration', () => {
       expect(exists).toHaveLength(1);
 
       // search_path is pinned to our schema.
-      const searchPath = await queryRequiredRow<{ search_path: string }>(
-        qr,
-        `SHOW search_path`,
-      );
+      const searchPath = await queryRequiredRow<{ search_path: string }>(qr, `SHOW search_path`);
       expect(searchPath.search_path).toContain(schema);
 
       // We can create + query a table within the ephemeral schema.

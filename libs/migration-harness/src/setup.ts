@@ -188,6 +188,35 @@ async function listRoles(maintenance: {
 }
 
 /**
+ * The roles that hold an object or a privilege in `database` (pg_shdepend):
+ * the roles a suite on that database created and granted. Read before the
+ * database is dropped, which removes those dependency rows with it.
+ */
+async function rolesDependingOn(
+  maintenance: { query(sql: string, parameters?: unknown[]): Promise<unknown> },
+  database: string,
+): Promise<Set<string>> {
+  const rows = await maintenance.query(
+    `SELECT DISTINCT r.rolname
+       FROM pg_shdepend d
+       JOIN pg_roles r ON r.oid = d.refobjid
+      WHERE d.refclassid = 'pg_authid'::regclass
+        AND d.dbid = (SELECT oid FROM pg_database WHERE datname = $1)`,
+    [database],
+  );
+  const names = new Set<string>();
+  if (Array.isArray(rows)) {
+    for (const row of rows) {
+      if (typeof row === 'object' && row !== null && 'rolname' in row) {
+        const { rolname } = row as { rolname: unknown };
+        if (typeof rolname === 'string') names.add(rolname);
+      }
+    }
+  }
+  return names;
+}
+
+/**
  * The external-server boot: one fresh database per call, dropped on stop().
  * Mirrors the container path's shape exactly so callers see no difference.
  */
@@ -211,8 +240,12 @@ async function bootExternalPostgres(target: ExternalPostgresTarget): Promise<Har
   // Databases are per boot, but roles are cluster-global: a suite that
   // CREATE ROLEs (farm-service's grant tests do) would collide with the next
   // boot on the same server, where a fresh container never could. Snapshot
-  // the roles now and drop the ones this boot added on stop(), so the
-  // external server offers the same isolation a container does.
+  // the roles now; on stop(), drop the roles that are new since then AND
+  // hold an object or a privilege in this boot's database. Suites in other
+  // jest workers create roles on the same server at the same time, and
+  // "new since this boot" alone would drop theirs mid-run (the
+  // `role "…" does not exist` flake); a role this boot's suite created and
+  // granted depends on this boot's database, another worker's does not.
   let rolesBefore: ReadonlySet<string>;
   try {
     await maintenance.query(`CREATE DATABASE "${database}"`);
@@ -247,13 +280,14 @@ async function bootExternalPostgres(target: ExternalPostgresTarget): Promise<Har
         if (dataSource.isInitialized) await dataSource.destroy();
       } finally {
         try {
+          const ownRoles = [...(await rolesDependingOn(maintenance, database))].filter(
+            (role) => !rolesBefore.has(role),
+          );
           // FORCE: a suite's own DataSource may still hold a session; the
           // database is this boot's and nothing else may keep it alive.
           await maintenance.query(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`);
-          for (const role of await listRoles(maintenance)) {
-            if (!rolesBefore.has(role)) {
-              await maintenance.query(`DROP ROLE "${role}"`);
-            }
+          for (const role of ownRoles) {
+            await maintenance.query(`DROP ROLE IF EXISTS "${role}"`);
           }
         } finally {
           await maintenance.destroy();

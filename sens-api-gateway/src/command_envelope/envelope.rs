@@ -824,14 +824,9 @@ mod tests {
     #[test]
     fn rejects_tenant_mismatch() {
         let env = make_env("ping", 1_000, 9_000);
-        let err = verify_envelope(
-            &env,
-            &[0x99u8; 16],
-            5_000,
-            STRUCTURAL,
-            mock_hash,
-            |_, _| true,
-        )
+        let err = verify_envelope(&env, &[0x99u8; 16], 5_000, STRUCTURAL, mock_hash, |_, _| {
+            true
+        })
         .expect_err("tenant");
         assert_eq!(err, EnvelopeVerifyError::TenantMismatch);
     }
@@ -840,14 +835,9 @@ mod tests {
     #[test]
     fn rejects_inverted_freshness_window() {
         let env = make_env("ping", 9_000, 1_000);
-        let err = verify_envelope(
-            &env,
-            &[0x42u8; 16],
-            5_000,
-            STRUCTURAL,
-            mock_hash,
-            |_, _| true,
-        )
+        let err = verify_envelope(&env, &[0x42u8; 16], 5_000, STRUCTURAL, mock_hash, |_, _| {
+            true
+        })
         .expect_err("inverted");
         assert_eq!(
             err,
@@ -861,14 +851,9 @@ mod tests {
     #[test]
     fn rejects_not_yet_valid() {
         let env = make_env("ping", 5_000, 9_000);
-        let err = verify_envelope(
-            &env,
-            &[0x42u8; 16],
-            1_000,
-            STRUCTURAL,
-            mock_hash,
-            |_, _| true,
-        )
+        let err = verify_envelope(&env, &[0x42u8; 16], 1_000, STRUCTURAL, mock_hash, |_, _| {
+            true
+        })
         .expect_err("future");
         assert!(matches!(err, EnvelopeVerifyError::NotYetValid { .. }));
     }
@@ -876,14 +861,9 @@ mod tests {
     #[test]
     fn rejects_expired() {
         let env = make_env("ping", 1_000, 5_000);
-        let err = verify_envelope(
-            &env,
-            &[0x42u8; 16],
-            9_000,
-            STRUCTURAL,
-            mock_hash,
-            |_, _| true,
-        )
+        let err = verify_envelope(&env, &[0x42u8; 16], 9_000, STRUCTURAL, mock_hash, |_, _| {
+            true
+        })
         .expect_err("expired");
         assert!(matches!(err, EnvelopeVerifyError::Expired { .. }));
     }
@@ -892,43 +872,26 @@ mod tests {
     #[test]
     fn accepts_now_exactly_at_iat() {
         let env = make_env("ping", 5_000, 9_000);
-        verify_envelope(
-            &env,
-            &[0x42u8; 16],
-            5_000,
-            STRUCTURAL,
-            mock_hash,
-            |_, _| true,
-        )
+        verify_envelope(&env, &[0x42u8; 16], 5_000, STRUCTURAL, mock_hash, |_, _| {
+            true
+        })
         .expect("now == iat must pass");
     }
 
     #[test]
     fn accepts_now_exactly_at_exp() {
         let env = make_env("ping", 1_000, 5_000);
-        verify_envelope(
-            &env,
-            &[0x42u8; 16],
-            5_000,
-            STRUCTURAL,
-            mock_hash,
-            |_, _| true,
-        )
+        verify_envelope(&env, &[0x42u8; 16], 5_000, STRUCTURAL, mock_hash, |_, _| {
+            true
+        })
         .expect("now == exp must pass");
     }
 
     #[test]
     fn rejects_negative_now() {
         let env = make_env("ping", 1_000, 9_000);
-        let err = verify_envelope(
-            &env,
-            &[0x42u8; 16],
-            -1,
-            STRUCTURAL,
-            mock_hash,
-            |_, _| true,
-        )
-        .expect_err("negative now");
+        let err = verify_envelope(&env, &[0x42u8; 16], -1, STRUCTURAL, mock_hash, |_, _| true)
+            .expect_err("negative now");
         assert_eq!(err, EnvelopeVerifyError::InvalidNow);
     }
 
@@ -940,14 +903,9 @@ mod tests {
         let mut bad_bytes = *env.cmd_hash.as_bytes();
         bad_bytes[0] ^= 0xff;
         env.cmd_hash = CmdHash::from_bytes(bad_bytes);
-        let err = verify_envelope(
-            &env,
-            &[0x42u8; 16],
-            5_000,
-            STRUCTURAL,
-            mock_hash,
-            |_, _| true,
-        )
+        let err = verify_envelope(&env, &[0x42u8; 16], 5_000, STRUCTURAL, mock_hash, |_, _| {
+            true
+        })
         .expect_err("cmd_hash mismatch");
         assert_eq!(err, EnvelopeVerifyError::CmdHashMismatch);
     }
@@ -957,14 +915,9 @@ mod tests {
     fn rejects_empty_cmd() {
         let mut env = make_env("ping", 1_000, 9_000);
         env.cmd = String::new();
-        let err = verify_envelope(
-            &env,
-            &[0x42u8; 16],
-            5_000,
-            STRUCTURAL,
-            mock_hash,
-            |_, _| true,
-        )
+        let err = verify_envelope(&env, &[0x42u8; 16], 5_000, STRUCTURAL, mock_hash, |_, _| {
+            true
+        })
         .expect_err("empty");
         assert_eq!(err, EnvelopeVerifyError::EmptyCmd);
     }
@@ -974,14 +927,9 @@ mod tests {
     fn rejects_invalid_jti() {
         let mut env = make_env("ping", 1_000, 9_000);
         env.jti = String::new();
-        let err = verify_envelope(
-            &env,
-            &[0x42u8; 16],
-            5_000,
-            STRUCTURAL,
-            mock_hash,
-            |_, _| true,
-        )
+        let err = verify_envelope(&env, &[0x42u8; 16], 5_000, STRUCTURAL, mock_hash, |_, _| {
+            true
+        })
         .expect_err("empty jti");
         assert!(matches!(err, EnvelopeVerifyError::InvalidJti(_)));
     }
@@ -991,14 +939,9 @@ mod tests {
     fn rejects_oversized_nonce() {
         let mut env = make_env("ping", 1_000, 9_000);
         env.nonce = "x".repeat(MAX_NONCE_BYTES + 1);
-        let err = verify_envelope(
-            &env,
-            &[0x42u8; 16],
-            5_000,
-            STRUCTURAL,
-            mock_hash,
-            |_, _| true,
-        )
+        let err = verify_envelope(&env, &[0x42u8; 16], 5_000, STRUCTURAL, mock_hash, |_, _| {
+            true
+        })
         .expect_err("nonce too long");
         assert_eq!(err, EnvelopeVerifyError::NonceTooLong(MAX_NONCE_BYTES + 1));
     }
@@ -1151,14 +1094,9 @@ mod tests {
             hash[i] = *b ^ 0x55;
         }
         env.cmd_hash = CmdHash::from_bytes(hash);
-        let err = verify_envelope(
-            &env,
-            &[0x42u8; 16],
-            5_000,
-            STRUCTURAL,
-            mock_hash,
-            |_, _| true,
-        )
+        let err = verify_envelope(&env, &[0x42u8; 16], 5_000, STRUCTURAL, mock_hash, |_, _| {
+            true
+        })
         .expect_err("oversized cmd");
         assert_eq!(
             err,
@@ -1179,14 +1117,9 @@ mod tests {
         // Signed (closure accepts), so the bound is exercised past Gate 7 in
         // every mode the profile compiles.
         env.signature = Some(Ed25519SignatureBytes::from_array([0u8; 64]));
-        verify_envelope(
-            &env,
-            &[0x42u8; 16],
-            5_000,
-            STRUCTURAL,
-            mock_hash,
-            |_, _| true,
-        )
+        verify_envelope(&env, &[0x42u8; 16], 5_000, STRUCTURAL, mock_hash, |_, _| {
+            true
+        })
         .expect("at bound must accept");
     }
 

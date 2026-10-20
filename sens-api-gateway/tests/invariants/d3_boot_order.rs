@@ -1,4 +1,9 @@
-#![allow(clippy::expect_used, clippy::indexing_slicing, clippy::print_stdout, clippy::unwrap_used)]
+#![allow(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::print_stdout,
+    clippy::unwrap_used
+)]
 
 //! PR-195 Batch #17 D-3 wire-status invariant — pins
 //! the architectural prerequisite that
@@ -106,8 +111,8 @@ fn find_state_guard_init_line(source: &str, fn_name: &str) -> usize {
 }
 
 fn read_main_rs() -> String {
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
-        .expect("CARGO_MANIFEST_DIR is set by `cargo test`");
+    let manifest_dir =
+        std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR is set by `cargo test`");
     let path = PathBuf::from(manifest_dir).join("src").join("main.rs");
     fs::read_to_string(&path).unwrap_or_else(|e| {
         panic!(
@@ -121,10 +126,8 @@ fn read_main_rs() -> String {
 #[test]
 fn init_keystore_runs_before_init_offline_queue() {
     let source = read_main_rs();
-    let keystore_line =
-        find_state_guard_init_line(&source, "init_keystore");
-    let offline_queue_line =
-        find_state_guard_init_line(&source, "init_offline_queue");
+    let keystore_line = find_state_guard_init_line(&source, "init_keystore");
+    let offline_queue_line = find_state_guard_init_line(&source, "init_offline_queue");
     assert!(
         keystore_line < offline_queue_line,
         "ORPHAN-D3-BOOT-ORDER-001 (PR-195 Batch #17 invariant): \
@@ -143,10 +146,8 @@ fn init_keystore_runs_before_init_offline_queue() {
 #[test]
 fn init_keystore_runs_before_init_license_cache() {
     let source = read_main_rs();
-    let keystore_line =
-        find_state_guard_init_line(&source, "init_keystore");
-    let license_cache_line =
-        find_state_guard_init_line(&source, "init_license_cache");
+    let keystore_line = find_state_guard_init_line(&source, "init_keystore");
+    let license_cache_line = find_state_guard_init_line(&source, "init_license_cache");
     assert!(
         keystore_line < license_cache_line,
         "ORPHAN-D3-BOOT-ORDER-001 (PR-195 Batch #17 invariant): \
@@ -162,10 +163,8 @@ fn init_keystore_runs_before_init_license_cache() {
 #[test]
 fn init_keystore_runs_before_init_bytecode_registry_store() {
     let source = read_main_rs();
-    let keystore_line =
-        find_state_guard_init_line(&source, "init_keystore");
-    let bytecode_line =
-        find_state_guard_init_line(&source, "init_bytecode_registry_store");
+    let keystore_line = find_state_guard_init_line(&source, "init_keystore");
+    let bytecode_line = find_state_guard_init_line(&source, "init_bytecode_registry_store");
     assert!(
         keystore_line < bytecode_line,
         "ORPHAN-D3-BOOT-ORDER-001 (PR-195 Batch #17 invariant): \
@@ -182,10 +181,8 @@ fn init_keystore_runs_before_init_bytecode_registry_store() {
 #[test]
 fn init_keystore_runs_before_init_retain_persistence() {
     let source = read_main_rs();
-    let keystore_line =
-        find_state_guard_init_line(&source, "init_keystore");
-    let retain_line =
-        find_state_guard_init_line(&source, "init_retain_persistence");
+    let keystore_line = find_state_guard_init_line(&source, "init_keystore");
+    let retain_line = find_state_guard_init_line(&source, "init_retain_persistence");
     assert!(
         keystore_line < retain_line,
         "ORPHAN-D3-BOOT-ORDER-001 (PR-195 Batch #17 invariant): \

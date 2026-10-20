@@ -2199,7 +2199,10 @@ impl FirmwareUpdateConfig {
                 "bootloader_backend",
                 !matches!(self.bootloader_backend, BootloaderBackend::Noop),
             ),
-            ("tryboot_autoboot_path", self.tryboot_autoboot_path.is_some()),
+            (
+                "tryboot_autoboot_path",
+                self.tryboot_autoboot_path.is_some(),
+            ),
             (
                 "ab_partitions.slot_a_mount",
                 self.ab_partitions.slot_a_mount.is_some(),
@@ -5196,10 +5199,9 @@ mode: disabled
         let autoboot: FirmwareUpdateConfig =
             serde_yaml::from_str("tryboot_autoboot_path: /boot/firmware/autoboot.txt")
                 .expect("yaml");
-        let mounts: FirmwareUpdateConfig = serde_yaml::from_str(
-            "ab_partitions:\n  slot_a_mount: /mnt/a\n  slot_b_mount: /mnt/b",
-        )
-        .expect("yaml");
+        let mounts: FirmwareUpdateConfig =
+            serde_yaml::from_str("ab_partitions:\n  slot_a_mount: /mnt/a\n  slot_b_mount: /mnt/b")
+                .expect("yaml");
         for (config, field) in [
             (tryboot, "firmware_update.bootloader_backend"),
             (autoboot, "firmware_update.tryboot_autoboot_path"),
@@ -5209,7 +5211,10 @@ mode: disabled
                 .refuse_agent_updater_settings()
                 .expect_err(field)
                 .to_string();
-            assert!(err.contains(field) && err.contains("ADR-048 DEC-2"), "{err}");
+            assert!(
+                err.contains(field) && err.contains("ADR-048 DEC-2"),
+                "{err}"
+            );
         }
     }
 

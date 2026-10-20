@@ -1107,7 +1107,9 @@ impl MqttClient {
         for der in broker_ca {
             root_store
                 .add(rustls::pki_types::CertificateDer::from(der.clone()))
-                .map_err(|e| anyhow::anyhow!("trust-anchors mqtt-ca certificate rejected: {e:?}"))?;
+                .map_err(|e| {
+                    anyhow::anyhow!("trust-anchors mqtt-ca certificate rejected: {e:?}")
+                })?;
         }
         if root_store.is_empty() {
             return Err(anyhow::anyhow!(

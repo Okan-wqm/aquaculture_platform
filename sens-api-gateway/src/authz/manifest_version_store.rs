@@ -402,16 +402,25 @@ mod tests {
         crate::offline_queue::test_support::ensure_key_sandbox();
         let path = tmp_db_path();
         let s = ManifestVersionStore::open(&path).expect("open version store");
-        assert_eq!(s.get_accepted().expect("get"), crate::authz::verify::AcceptedVersion::floor(0));
+        assert_eq!(
+            s.get_accepted().expect("get"),
+            crate::authz::verify::AcceptedVersion::floor(0)
+        );
         assert_eq!(s.record_accepted_with_digest(3, "aa").expect("record"), 3);
         let accepted = s.get_accepted().expect("get");
-        assert_eq!((accepted.highest_seen, accepted.digest.as_deref()), (3, Some("aa")));
+        assert_eq!(
+            (accepted.highest_seen, accepted.digest.as_deref()),
+            (3, Some("aa"))
+        );
         // An older version never replaces the floor or its digest.
         assert_eq!(s.record_accepted_with_digest(2, "bb").expect("record"), 3);
         assert_eq!(s.get_accepted().expect("get").digest.as_deref(), Some("aa"));
         // A floor advanced without a digest no longer matches the old one.
         assert_eq!(s.record_accepted(4).expect("record"), 4);
-        assert_eq!(s.get_accepted().expect("get"), crate::authz::verify::AcceptedVersion::floor(4));
+        assert_eq!(
+            s.get_accepted().expect("get"),
+            crate::authz::verify::AcceptedVersion::floor(4)
+        );
     }
 
     #[test]

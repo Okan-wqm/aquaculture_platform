@@ -77,11 +77,11 @@ pub use crypto_provider::{
 };
 pub use error::MtlsVerifyError;
 pub use https_client_config::build_suderra_https_client_config;
+pub use mode::{MAX_LEAF_CERT_AGE_DAYS_CA_ANCHORED, MtlsMode};
 #[cfg(not(feature = "suderra-os"))]
 pub use mode::{
     MAX_LEAF_CERT_AGE_DAYS_LEGACY, MAX_LEAF_CERT_AGE_DAYS_STRICT, MAX_LEAF_CERT_AGE_DAYS_WARN,
 };
-pub use mode::{MAX_LEAF_CERT_AGE_DAYS_CA_ANCHORED, MtlsMode};
 pub use pinning::{
     BridgeWindowError, CertRotationStage, LeafCertFingerprint, MIN_BRIDGE_WINDOW_SECS,
     PinnedLeafCert, PinnedLeafCertSet, validate_bridge_window,

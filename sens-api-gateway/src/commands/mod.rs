@@ -66,9 +66,9 @@ mod provision;
 mod rbac;
 mod read;
 mod refresh_license;
-pub(crate) mod required_permission;
 #[cfg(feature = "suderra-os")]
 mod request_update;
+pub(crate) mod required_permission;
 #[cfg(feature = "suderra-os")]
 mod root_handoff;
 mod rotate_master;

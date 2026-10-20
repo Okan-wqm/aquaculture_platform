@@ -212,7 +212,10 @@ fn write_atomic_json_with_mode<T: Serialize>(
 /// re-serializing would change the bytes the signature covers). Mode 0600.
 /// Only the Suderra OS profile hands statements to root.
 #[cfg_attr(not(feature = "suderra-os"), allow(dead_code))]
-pub fn write_atomic_bytes_owner_only(path: &Path, bytes: &[u8]) -> Result<(), AtomicJsonWriteError> {
+pub fn write_atomic_bytes_owner_only(
+    path: &Path,
+    bytes: &[u8],
+) -> Result<(), AtomicJsonWriteError> {
     write_atomic_bytes_with_mode(path, bytes, Some(0o600))
 }
 

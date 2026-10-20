@@ -896,8 +896,8 @@ mod ca_anchored_handshake_tests {
     #![allow(clippy::expect_used, clippy::unwrap_used)]
 
     use super::*;
-    use rustls::crypto::ring::default_provider;
     use rustls::RootCertStore;
+    use rustls::crypto::ring::default_provider;
 
     struct Pki {
         ca_der: CertificateDer<'static>,
@@ -962,27 +962,44 @@ mod ca_anchored_handshake_tests {
     #[test]
     fn a_leaf_of_the_pinned_ca_for_the_broker_host_is_accepted_without_a_leaf_pin() {
         let pki = pki("mqtt-devices.example.test");
-        assert!(verify(&verifier(&[&pki.ca_der]), &pki.leaf_der, "mqtt-devices.example.test"));
+        assert!(verify(
+            &verifier(&[&pki.ca_der]),
+            &pki.leaf_der,
+            "mqtt-devices.example.test"
+        ));
     }
 
     #[test]
     fn hostname_verification_cannot_be_bypassed() {
         let pki = pki("mqtt-devices.example.test");
-        assert!(!verify(&verifier(&[&pki.ca_der]), &pki.leaf_der, "other.example.test"));
+        assert!(!verify(
+            &verifier(&[&pki.ca_der]),
+            &pki.leaf_der,
+            "other.example.test"
+        ));
     }
 
     #[test]
     fn a_leaf_from_any_ca_outside_the_pinned_set_is_refused() {
         let pinned = pki("mqtt-devices.example.test");
         let other = pki("mqtt-devices.example.test");
-        assert!(!verify(&verifier(&[&pinned.ca_der]), &other.leaf_der, "mqtt-devices.example.test"));
+        assert!(!verify(
+            &verifier(&[&pinned.ca_der]),
+            &other.leaf_der,
+            "mqtt-devices.example.test"
+        ));
     }
 
     #[test]
     fn an_empty_ca_set_builds_no_verifier_and_pins_are_refused() {
         let algs = default_provider().signature_verification_algorithms;
         assert!(matches!(
-            build_suderra_verifier(MtlsMode::CaAnchored, algs, &[], Arc::new(RootCertStore::empty())),
+            build_suderra_verifier(
+                MtlsMode::CaAnchored,
+                algs,
+                &[],
+                Arc::new(RootCertStore::empty())
+            ),
             Err(SuderraVerifierBuildError::WebPkiBuildFailed(_))
         ));
         let pki = pki("broker.example.test");
@@ -1009,9 +1026,23 @@ mod ca_anchored_handshake_tests {
         };
         let now = UnixTime::now().as_secs() as i64;
         // No pin is consulted.
-        assert!(verify_cert_at_handshake(pki.leaf_der.as_ref(), 1, MtlsMode::CaAnchored, &stage, now, |_| [1; 32]).is_ok());
+        assert!(
+            verify_cert_at_handshake(
+                pki.leaf_der.as_ref(),
+                1,
+                MtlsMode::CaAnchored,
+                &stage,
+                now,
+                |_| [1; 32]
+            )
+            .is_ok()
+        );
         assert!(matches!(
-            v.apply_policy_gates(&pki.leaf_der, super::super::verify::MAX_CHAIN_DEPTH + 1, now),
+            v.apply_policy_gates(
+                &pki.leaf_der,
+                super::super::verify::MAX_CHAIN_DEPTH + 1,
+                now
+            ),
             Err(MtlsVerifyError::ChainTooLong { .. })
         ));
         assert!(matches!(

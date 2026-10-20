@@ -222,10 +222,7 @@ fn d6_fallback_webpki_constructed_in_configure_tls() {
 /// vulnerable to TLS 1.2 cipher-suite-downgrade again.
 #[test]
 fn https_clients_use_suderra_config() {
-    for path in [
-        "src/provisioning.rs",
-        "src/scripting/engine.rs",
-    ] {
+    for path in ["src/provisioning.rs", "src/scripting/engine.rs"] {
         let src = read_source(path);
         assert!(
             src.contains("build_suderra_https_client_config"),
@@ -701,10 +698,7 @@ fn bridge_window_validator_and_constructor_present() {
 /// look like an expression, not prose.
 #[test]
 fn every_reqwest_client_builder_uses_preconfigured_tls() {
-    let surfaces = [
-        "src/provisioning.rs",
-        "src/scripting/engine.rs",
-    ];
+    let surfaces = ["src/provisioning.rs", "src/scripting/engine.rs"];
     for path in surfaces {
         let src = read_source(path);
         let builder_count = src.matches("reqwest::Client::builder()").count();

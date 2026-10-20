@@ -586,7 +586,12 @@ mod ca_anchored_tests {
         }
     }
 
-    fn verify(not_before: i64, not_after: i64, depth: usize, now: i64) -> Result<LeafCertFingerprint, MtlsVerifyError> {
+    fn verify(
+        not_before: i64,
+        not_after: i64,
+        depth: usize,
+        now: i64,
+    ) -> Result<LeafCertFingerprint, MtlsVerifyError> {
         verify_leaf_cert(
             b"leaf",
             not_before,
@@ -614,7 +619,8 @@ mod ca_anchored_tests {
             verify(1_000, 9_000, 2, 10_000),
             Err(MtlsVerifyError::CertExpired { .. })
         ));
-        let too_old = 1_000 + i64::from(super::super::mode::MAX_LEAF_CERT_AGE_DAYS_CA_ANCHORED + 1) * 86_400;
+        let too_old =
+            1_000 + i64::from(super::super::mode::MAX_LEAF_CERT_AGE_DAYS_CA_ANCHORED + 1) * 86_400;
         assert!(matches!(
             verify(1_000, i64::MAX / 2, 2, too_old),
             Err(MtlsVerifyError::CertAgeExceedsModeLimit { .. })

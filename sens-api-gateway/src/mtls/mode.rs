@@ -212,7 +212,10 @@ mod tests {
     fn ca_anchored_policy() {
         let m = MtlsMode::CaAnchored;
         assert_eq!(m.wire_tag(), 3);
-        assert_eq!(m.max_leaf_cert_age_days(), Some(MAX_LEAF_CERT_AGE_DAYS_CA_ANCHORED));
+        assert_eq!(
+            m.max_leaf_cert_age_days(),
+            Some(MAX_LEAF_CERT_AGE_DAYS_CA_ANCHORED)
+        );
         assert!(!m.uses_leaf_pins());
         assert!(m.rejects_policy_violation());
         assert!(!m.pinning_enforced());

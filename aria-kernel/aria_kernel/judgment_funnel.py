@@ -233,11 +233,28 @@ def _tonight_allowance(
     """
     from .request_drain_capacity import measure_drain_capacity, request_admission_policy
 
-    capacity = measure_drain_capacity(root, now=now, policy=request_admission_policy(root))
-    drain_per_day = float(capacity.drain_per_day or 0.0)
     cap = int(policy.get("funnel_nightly_envelope") or 0)
-    granted = max(0, min(cap, math.ceil(drain_per_day))) if cap > 0 else 0
     spent = _seats_routed_since(root, _today_start(now))
+    try:
+        capacity = measure_drain_capacity(
+            root, now=now, policy=request_admission_policy(root),
+        )
+    except Exception:  # noqa: BLE001 — a drain read never breaks the hold
+        # WP-J review — the measurement is a derivation read like the ones
+        # below it: a corrupt or unreadable drain ledger must produce the
+        # SAME one-row hold as a dead drain, under its own name, never an
+        # exception that skips the whole night's routing unnamed.
+        return 0, {
+            "envelope_cap": cap,
+            "drain_per_day": None,
+            "drain_unreadable": True,
+            "granted_tonight": 0,
+            "seats_routed_tonight": spent,
+            "pending_judge_counts": _pending_judge_counts(root),
+            "judgment_lane_usd_today": _judgment_lane_usd_since(root, _today_start(now)),
+        }
+    drain_per_day = float(capacity.drain_per_day or 0.0)
+    granted = max(0, min(cap, math.ceil(drain_per_day))) if cap > 0 else 0
     derivation: dict[str, Any] = {
         "envelope_cap": cap,
         "drain_per_day": drain_per_day,
@@ -400,7 +417,13 @@ def route_judgment_sample(
             calibration_budget -= 1
             t4 += 1
     if remaining <= 0:
-        hold_reason = "envelope_allowance_exhausted"
+        # An unreadable drain holds under its own name so the governance row
+        # tells the operator WHAT to fix; a healthy drain with a spent
+        # envelope keeps the generic exhaustion name.
+        hold_reason = (
+            "drain_unreadable" if derivation.get("drain_unreadable")
+            else "envelope_allowance_exhausted"
+        )
     else:
         # The door: the funnel's tiered seats are discretionary work that
         # starts something. A refusal holds the night (the door records its

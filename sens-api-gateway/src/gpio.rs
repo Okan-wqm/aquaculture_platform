@@ -8,10 +8,11 @@
 //! The channel buffer is configurable and defaults to 64 messages.
 //! Send operations include retry logic with exponential backoff.
 
-#[cfg(feature = "gpio")]
+#[cfg(all(target_os = "linux", feature = "gpio"))]
 use anyhow::Context;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+#[cfg(all(target_os = "linux", feature = "gpio"))]
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::sync::mpsc::{self, error::TrySendError};
@@ -19,7 +20,11 @@ use tokio::sync::oneshot;
 use tracing::{debug, info, warn};
 
 use crate::config::GpioConfig;
+use crate::degraded::ControlGate;
+#[cfg(not(all(target_os = "linux", feature = "gpio")))]
+use crate::degraded::{Backend, BackendNotCompiled};
 use crate::resilience::with_timeout;
+use crate::safe_state::SafeStateWrite;
 
 // ============================================================================
 // Channel Configuration Constants (v1.2.0)
@@ -120,6 +125,8 @@ pub struct GpioHandle {
     timeout: Duration,
     /// Channel buffer size (for monitoring, v1.2.0)
     channel_size: usize,
+    /// Refuses actuator writes while the agent is degraded (DEC-6.3).
+    gate: ControlGate,
 }
 
 impl GpioHandle {
@@ -127,8 +134,8 @@ impl GpioHandle {
     ///
     /// Must be called within a LocalSet context on Linux
     /// `timeout_secs` configures the operation timeout (default: 5 seconds)
-    pub fn new(configs: Vec<GpioConfig>, timeout_secs: u64) -> Self {
-        Self::with_channel_size(configs, timeout_secs, DEFAULT_GPIO_CHANNEL_SIZE)
+    pub fn new(configs: Vec<GpioConfig>, timeout_secs: u64, gate: ControlGate) -> Self {
+        Self::with_channel_size(configs, timeout_secs, DEFAULT_GPIO_CHANNEL_SIZE, gate)
     }
 
     /// Create a new handle with custom channel buffer size (v1.2.0)
@@ -137,10 +144,12 @@ impl GpioHandle {
     /// * `configs` - GPIO pin configurations
     /// * `timeout_secs` - Operation timeout in seconds
     /// * `channel_size` - Channel buffer size (minimum 16, default 64)
+    /// * `gate` - the agent's control gate (degraded mode refuses writes)
     pub fn with_channel_size(
         configs: Vec<GpioConfig>,
         timeout_secs: u64,
         channel_size: usize,
+        gate: ControlGate,
     ) -> Self {
         // Ensure minimum buffer size
         let effective_size = channel_size.max(16);
@@ -160,6 +169,7 @@ impl GpioHandle {
             sender,
             timeout: Duration::from_secs(timeout_secs),
             channel_size: effective_size,
+            gate,
         }
     }
 
@@ -290,8 +300,19 @@ impl GpioHandle {
             .map_err(|_| anyhow::anyhow!("GPIO actor response error"))?
     }
 
-    /// Write to an output pin
+    /// Write to an output pin. Refused while the agent is degraded.
     pub async fn write_pin(&self, pin: u8, value: bool) -> Result<()> {
+        self.gate.permit()?;
+        self.send_write(pin, value).await
+    }
+
+    /// Drive an output pin to its fail-safe logical level; allowed while
+    /// control is disabled, for the safe-state writer only.
+    pub async fn drive_safe_level(&self, pin: u8, level: bool, _: &SafeStateWrite) -> Result<()> {
+        self.send_write(pin, level).await
+    }
+
+    async fn send_write(&self, pin: u8, value: bool) -> Result<()> {
         let (tx, rx) = oneshot::channel();
         self.sender
             .send(GpioCommand::WritePin {
@@ -356,12 +377,15 @@ impl GpioHandle {
 // GPIO Actor Implementation
 // ============================================================================
 
-/// GPIO actor that owns the non-Send rppal types
+/// GPIO actor that owns the non-Send rppal types.
+///
+/// ADR-048 DEC-6.3 / INFRA-CRITICAL-236: there is no simulation backend. A
+/// build without the Linux `gpio` driver answers every hardware request with
+/// [`BackendNotCompiled`], so a configured GPIO fails closed (degraded mode)
+/// instead of reporting simulated success.
 struct GpioActor {
     configs: Vec<GpioConfig>,
     receiver: mpsc::Receiver<GpioCommand>,
-    /// Simulated pin states for non-Linux platforms or testing
-    simulated_states: HashMap<u8, PinState>,
     #[cfg(all(target_os = "linux", feature = "gpio"))]
     gpio: Option<rppal::gpio::Gpio>,
     #[cfg(all(target_os = "linux", feature = "gpio"))]
@@ -372,15 +396,9 @@ struct GpioActor {
 
 impl GpioActor {
     fn new(configs: Vec<GpioConfig>, receiver: mpsc::Receiver<GpioCommand>) -> Self {
-        let mut simulated_states = HashMap::new();
-        for config in &configs {
-            simulated_states.insert(config.pin, PinState::Low);
-        }
-
         Self {
             configs,
             receiver,
-            simulated_states,
             #[cfg(all(target_os = "linux", feature = "gpio"))]
             gpio: None,
             #[cfg(all(target_os = "linux", feature = "gpio"))]
@@ -448,9 +466,17 @@ impl GpioActor {
         info!("GPIO actor stopped");
     }
 
-    // Linux implementation with rppal
+    /// Acquire every configured pin, or none.
+    ///
+    /// EDGE-MEDIUM-075: an output pin is switched to output mode already at
+    /// its fail-safe level (`into_output_low` / `into_output_high`), so there
+    /// is no instant in which it drives the stale latch value. The pins are
+    /// acquired into local maps first and committed only when all of them
+    /// were acquired; a failure releases the ones already taken and returns
+    /// the error, which puts the agent in degraded mode.
     #[cfg(all(target_os = "linux", feature = "gpio"))]
     fn init_gpio(&mut self) -> Result<()> {
+        use crate::config::GpioDirection;
         use rppal::gpio::Gpio;
 
         info!(
@@ -459,41 +485,56 @@ impl GpioActor {
         );
 
         let gpio = Gpio::new().context("Failed to initialize GPIO")?;
+        let mut input_pins = HashMap::new();
+        let mut output_pins = HashMap::new();
 
-        for config in &self.configs.clone() {
-            info!(
-                "Configuring GPIO pin {} ({}) as {}",
-                config.pin, config.name, config.direction
-            );
-
+        for config in &self.configs {
             let pin = gpio
                 .get(config.pin)
                 .with_context(|| format!("Failed to get GPIO pin {}", config.pin))?;
 
-            match config.direction.as_str() {
-                "input" => {
-                    let mut input_pin = pin.into_input();
-                    match config.pull.as_str() {
-                        "up" => input_pin.set_pullupdown(rppal::gpio::PullUpDown::PullUp),
-                        "down" => input_pin.set_pullupdown(rppal::gpio::PullUpDown::PullDown),
-                        _ => input_pin.set_pullupdown(rppal::gpio::PullUpDown::Off),
-                    }
-                    self.input_pins.insert(config.pin, input_pin);
-                }
-                "output" => {
-                    let output_pin = pin.into_output();
-                    self.output_pins.insert(config.pin, output_pin);
-                }
-                other => {
-                    warn!(
-                        "Unknown direction '{}' for pin {}, skipping",
-                        other, config.pin
+            match config.direction_kind() {
+                Some(GpioDirection::Input) => {
+                    info!(
+                        "Configuring GPIO pin {} ({}) as input",
+                        config.pin, config.name
                     );
-                    continue;
+                    // rppal 0.17 sets the bias together with the mode.
+                    let input_pin = match config.pull.as_str() {
+                        "up" => pin.into_input_pullup(),
+                        "down" => pin.into_input_pulldown(),
+                        _ => pin.into_input(),
+                    };
+                    input_pins.insert(config.pin, input_pin);
+                }
+                Some(GpioDirection::Output) => {
+                    let high = config.safe_physical_level();
+                    info!(
+                        "Configuring GPIO pin {} ({}) as output at its safe level {}",
+                        config.pin,
+                        config.name,
+                        if high { "HIGH" } else { "LOW" }
+                    );
+                    let output_pin = if high {
+                        pin.into_output_high()
+                    } else {
+                        pin.into_output_low()
+                    };
+                    output_pins.insert(config.pin, output_pin);
+                }
+                None => {
+                    anyhow::bail!(
+                        "GPIO pin {} ({}) has an invalid direction '{}'",
+                        config.pin,
+                        config.name,
+                        config.direction
+                    );
                 }
             }
         }
 
+        self.input_pins = input_pins;
+        self.output_pins = output_pins;
         self.gpio = Some(gpio);
         info!("GPIO initialized successfully");
         Ok(())
@@ -501,14 +542,12 @@ impl GpioActor {
 
     #[cfg(not(all(target_os = "linux", feature = "gpio")))]
     fn init_gpio(&mut self) -> Result<()> {
-        if !self.configs.is_empty() {
-            warn!("GPIO configured but not available on this platform (simulation mode)");
-        }
-        Ok(())
+        Err(anyhow::Error::new(BackendNotCompiled(Backend::Gpio)))
     }
 
     #[cfg(all(target_os = "linux", feature = "gpio"))]
     fn read_all_pins(&self) -> GpioReadResult {
+        use crate::config::GpioDirection;
         let mut result = GpioReadResult::default();
 
         // PERF-003: Generate one RFC 3339 timestamp for the entire GPIO read cycle
@@ -518,7 +557,7 @@ impl GpioActor {
         let cycle_timestamp = chrono::Utc::now().to_rfc3339();
 
         for config in &self.configs {
-            if config.direction != "input" {
+            if config.direction_kind() != Some(GpioDirection::Input) {
                 continue;
             }
 
@@ -556,43 +595,17 @@ impl GpioActor {
 
     #[cfg(not(all(target_os = "linux", feature = "gpio")))]
     fn read_all_pins(&self) -> GpioReadResult {
+        use crate::config::GpioDirection;
         let mut result = GpioReadResult::default();
-
-        // PERF-003: Generate one RFC 3339 timestamp for the entire GPIO read cycle
-        // rather than calling Utc::now().to_rfc3339() for each pin.  All pins are
-        // read in the same logical snapshot, so a shared cycle timestamp is correct
-        // and eliminates N String heap allocations per telemetry cycle.
-        let cycle_timestamp = chrono::Utc::now().to_rfc3339();
-
         for config in &self.configs {
-            if config.direction != "input" {
-                continue;
+            if config.direction_kind() == Some(GpioDirection::Input) {
+                result.errors.push(format!(
+                    "{}: {}",
+                    config.name,
+                    BackendNotCompiled(Backend::Gpio)
+                ));
             }
-
-            let raw_state = self
-                .simulated_states
-                .get(&config.pin)
-                .copied()
-                .unwrap_or(PinState::Low);
-
-            let final_state = if config.invert {
-                match raw_state {
-                    PinState::High => PinState::Low,
-                    PinState::Low => PinState::High,
-                }
-            } else {
-                raw_state
-            };
-
-            result.values.push(GpioPinValue {
-                name: config.name.clone(),
-                pin: config.pin,
-                direction: config.direction.clone(),
-                state: final_state,
-                timestamp: cycle_timestamp.clone(),
-            });
         }
-
         result
     }
 
@@ -611,11 +624,8 @@ impl GpioActor {
     }
 
     #[cfg(not(all(target_os = "linux", feature = "gpio")))]
-    fn read_single_pin(&self, pin: u8) -> Result<PinState> {
-        self.simulated_states
-            .get(&pin)
-            .copied()
-            .ok_or_else(|| anyhow::anyhow!("Pin {} not configured", pin))
+    fn read_single_pin(&self, _pin: u8) -> Result<PinState> {
+        Err(anyhow::Error::new(BackendNotCompiled(Backend::Gpio)))
     }
 
     #[cfg(all(target_os = "linux", feature = "gpio"))]
@@ -636,7 +646,7 @@ impl GpioActor {
             }
             // v1.2.6: Enhanced GPIO logging for observability
             info!(
-                "📍 GPIO WRITE: pin={}, value={} (actual={}, invert={:?})",
+                "GPIO WRITE: pin={}, value={} (actual={}, invert={:?})",
                 pin,
                 value,
                 actual_value,
@@ -649,29 +659,8 @@ impl GpioActor {
     }
 
     #[cfg(not(all(target_os = "linux", feature = "gpio")))]
-    fn write_single_pin(&mut self, pin: u8, value: bool) -> Result<()> {
-        if let Some(config) = self
-            .configs
-            .iter()
-            .find(|c| c.pin == pin && c.direction == "output")
-        {
-            // Apply invert logic to write path (v2.1.1 - issue #26 fix)
-            let actual_value = if config.invert { !value } else { value };
-            let state = if actual_value {
-                PinState::High
-            } else {
-                PinState::Low
-            };
-            self.simulated_states.insert(pin, state);
-            // v1.2.6: Enhanced GPIO logging for observability
-            info!(
-                "📍 GPIO WRITE [SIM]: pin={}, value={}, state={:?}, invert={}",
-                pin, value, state, config.invert
-            );
-            Ok(())
-        } else {
-            Err(anyhow::anyhow!("Pin {} not configured as output", pin))
-        }
+    fn write_single_pin(&mut self, _pin: u8, _value: bool) -> Result<()> {
+        Err(anyhow::Error::new(BackendNotCompiled(Backend::Gpio)))
     }
 
     fn is_gpio_available(&self) -> bool {
@@ -696,19 +685,13 @@ impl GpioActor {
             self.gpio = None;
         }
 
-        self.simulated_states.clear();
         self.configs = new_configs;
-
-        // Reinitialize
-        for config in &self.configs {
-            self.simulated_states.insert(config.pin, PinState::Low);
-        }
-
         self.init_gpio()
     }
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -732,6 +715,102 @@ mod tests {
         // Verify default channel size constant
         assert_eq!(DEFAULT_GPIO_CHANNEL_SIZE, 64);
         assert!(DEFAULT_GPIO_CHANNEL_SIZE > 32); // Must be larger than old value
+    }
+
+    fn pins() -> Vec<GpioConfig> {
+        vec![
+            GpioConfig {
+                name: "pump".into(),
+                pin: 17,
+                direction: "output".into(),
+                pull: "none".into(),
+                invert: false,
+                debounce_ms: None,
+                safe_state_level: Some(true),
+            },
+            GpioConfig {
+                name: "float_switch".into(),
+                pin: 22,
+                direction: "input".into(),
+                pull: "up".into(),
+                invert: false,
+                debounce_ms: None,
+                safe_state_level: None,
+            },
+        ]
+    }
+
+    /// INFRA-CRITICAL-236 / DEC-6.3: a build without the GPIO driver has no
+    /// simulation to fall back to. Init, reads and writes all fail with
+    /// `BackendNotCompiled`, so the boot enters degraded mode instead of
+    /// counting simulated writes as safe outputs.
+    #[cfg(not(all(target_os = "linux", feature = "gpio")))]
+    #[test]
+    fn without_the_driver_gpio_fails_closed() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        let local = tokio::task::LocalSet::new();
+        local.block_on(&rt, async {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let degraded = crate::degraded::DegradedMode::new(dir.path().join("h.json"));
+            let handle = GpioHandle::new(pins(), 1, degraded.control_gate());
+            let err = handle.init().await.expect_err("init must fail closed");
+            assert!(
+                err.downcast_ref::<BackendNotCompiled>().is_some(),
+                "{err:#}"
+            );
+            assert!(!handle.is_available().await);
+            let err = handle
+                .write_pin(17, false)
+                .await
+                .expect_err("no simulated write");
+            assert!(
+                err.downcast_ref::<BackendNotCompiled>().is_some(),
+                "{err:#}"
+            );
+            let read = handle.read_all().await;
+            assert!(read.values.is_empty());
+            assert_eq!(read.errors.len(), 1);
+            assert!(handle.read_pin(22).await.is_err());
+        });
+    }
+
+    /// DEC-6.3: while degraded, an actuator write is refused before it
+    /// reaches the actor.
+    #[test]
+    fn degraded_mode_refuses_writes() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        let local = tokio::task::LocalSet::new();
+        local.block_on(&rt, async {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let degraded = crate::degraded::DegradedMode::new(dir.path().join("h.json"));
+            let handle = GpioHandle::new(pins(), 1, degraded.control_gate());
+            degraded.enter(crate::degraded::DegradedReason::IoBudgetExceeded {
+                configured: 2,
+                cap: 1,
+            });
+            let err = handle.write_pin(17, true).await.expect_err("refused");
+            assert!(
+                err.downcast_ref::<crate::degraded::ControlDisabled>()
+                    .is_some(),
+                "{err:#}"
+            );
+        });
+    }
+
+    #[test]
+    fn safe_physical_level_follows_invert() {
+        let mut p = pins().remove(0);
+        assert!(p.safe_physical_level());
+        p.invert = true;
+        assert!(!p.safe_physical_level());
+        p.safe_state_level = None;
+        assert!(p.safe_physical_level());
     }
 
     #[test]

@@ -129,8 +129,10 @@ rusqlite = { version = "0.34", features = ["bundled-sqlcipher-vendored-openssl"]
 moka = { version = "0.12", features = ["sync"] }
 # Note: moka 0.12 is the last version with sync feature, newer versions use different API
 
-# Systemd integration (watchdog, ready notification)
-sd-notify = "0.4"
+# Systemd integration (READY, STATUS, WATCHDOG): src/systemd_notify.rs speaks
+# the sd_notify(3) datagram protocol itself. The sd-notify crate was removed
+# (ADR-048 DEC-6.1, EDGE-CRITICAL-049): its `unset_env` flag let the first
+# READY delete NOTIFY_SOCKET, silencing every later WATCHDOG=1.
 
 # String interning for memory efficiency (device IDs, topic names)
 lasso = { version = "0.7", features = ["multi-threaded"] }
@@ -968,6 +970,20 @@ path = "tests/invariants/no_etc_write_paths.rs"
 [[test]]
 name = "no_security_env_in_suderra_os"
 path = "tests/invariants/no_security_env_in_suderra_os.rs"
+
+# ADR-048 DEC-6.1 / EDGE-CRITICAL-049 — READY keeps the notify socket: no
+# notify(true / env mutation in src/, and the real binary sends READY then
+# repeated WATCHDOG=1 to a real datagram socket.
+[[test]]
+name = "sd_notify_no_unset_env"
+path = "tests/invariants/sd_notify_no_unset_env.rs"
+
+# ADR-048 DEC-6.2 / DEC-6.3 — READY only after the boot safe-state and the
+# first control cycle; partial safe-state or a missing backend is degraded
+# mode (READY, STATUS=degraded, health view), never an exit.
+[[test]]
+name = "ready_after_safe_state"
+path = "tests/invariants/ready_after_safe_state.rs"
 
 # PR-195 Batch #17 D-3 boot order: init_keystore runs before every SQLCipher
 # consumer init (ORPHAN-D3-BOOT-ORDER-001). The file existed but was never

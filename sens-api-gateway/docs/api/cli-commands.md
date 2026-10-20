@@ -55,19 +55,29 @@ Evidence: `src/shutdown.rs` + `src/main.rs` SIGHUP handler.
 
 ## systemd integration
 
-Evidence: `Cargo.toml:100-101` (`sd-notify = "0.4"`) + `src/main.rs` watchdog calls.
+Evidence: `src/systemd_notify.rs` (the notification channel, captured once at
+start), `src/liveness.rs` (watchdog), `src/degraded.rs` (degraded mode),
+`run_agent` in `src/main.rs` (ADR-048 DEC-6).
 
 The agent sends `sd_notify` messages at the following lifecycle events:
-- `READY=1` after config loaded + provisioning verified (systemd Type=notify)
-- `WATCHDOG=1` periodically — integrates with `WatchdogSec=` in the unit file to trigger restart if the main loop stalls
-- `STOPPING=1` on SIGTERM receipt
+- `READY=1` + `STATUS=` once the outputs are in their safe state and the local
+  control loop has completed a cycle (systemd Type=notify). Activation, MQTT and
+  the network run in the background and never delay or prevent READY.
+- `WATCHDOG=1` only while every control loop (I/O loop; script engine when
+  control is enabled) ticked within `WatchdogSec/2`; a stalled loop stops the
+  pings and systemd restarts the agent.
+- `STATUS=degraded: …` when a configured I/O backend is missing or fails init,
+  the boot safe-state is incomplete, or the license forbids polling: the agent
+  stays up with control disabled and outputs held safe (also in the health view
+  `AgentPaths::agent_health_file`, `"degraded": true`).
+- `STOPPING=1` on SIGTERM receipt.
 
 ## Exit codes
 
 | Code | Meaning |
 |---|---|
 | 0 | Clean shutdown (SIGTERM received, ShutdownCoordinator completed) |
-| 1 | Fatal init error (config load, provisioning, MQTT bootstrap failure) |
+| 1 | Fatal init error before hardware init (config load or a store that fails closed); activation and MQTT failures are retried in the background, never fatal |
 | 1 | Unknown CLI argument (`src/main.rs:461-466`) |
 
 ## Differences vs conventional CLI tools

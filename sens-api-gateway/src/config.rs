@@ -2927,6 +2927,38 @@ pub struct GpioConfig {
     pub safe_state_level: Option<bool>,
 }
 
+/// Direction of a GPIO pin, parsed one way for every consumer (validation,
+/// GPIO init, safe-state registry, read/write paths).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GpioDirection {
+    Input,
+    Output,
+}
+
+impl GpioConfig {
+    /// The pin direction. `direction` accepts `input`/`in` and `output`/`out`
+    /// in any case (the validator's set); `None` for anything else.
+    pub fn direction_kind(&self) -> Option<GpioDirection> {
+        match self.direction.to_ascii_lowercase().as_str() {
+            "input" | "in" => Some(GpioDirection::Input),
+            "output" | "out" => Some(GpioDirection::Output),
+            _ => None,
+        }
+    }
+
+    /// `true` for an output pin.
+    pub fn is_output(&self) -> bool {
+        self.direction_kind() == Some(GpioDirection::Output)
+    }
+
+    /// The electrical level of the pin's fail-safe state: the configured
+    /// logical `safe_state_level` (default LOW, EDGE-HIGH-012) through the
+    /// pin's `invert`, exactly as a logical write is.
+    pub fn safe_physical_level(&self) -> bool {
+        self.safe_state_level.unwrap_or(false) != self.invert
+    }
+}
+
 // Default value functions
 fn default_mqtt_port() -> u16 {
     8883
@@ -3436,8 +3468,7 @@ impl AgentConfig {
             }
 
             // Validate direction
-            let valid_directions = ["input", "output", "in", "out"];
-            if !valid_directions.contains(&gpio.direction.to_lowercase().as_str()) {
+            if gpio.direction_kind().is_none() {
                 anyhow::bail!(
                     "Invalid GPIO direction '{}' for pin {}: must be 'input' or 'output'",
                     gpio.direction,

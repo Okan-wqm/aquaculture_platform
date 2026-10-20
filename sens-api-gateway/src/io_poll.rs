@@ -38,61 +38,59 @@ pub struct IoTagData {
 }
 
 /// Main I/O polling loop
-pub async fn io_poll_loop(state: Arc<RwLock<AppState>>) {
-    // Batch 147 Faz 7: license IO channel budget gate.
-    // Plan R-10 + Faz 7 discipline: if configured
-    // channels exceed license.max_io_channels, the task
-    // does NOT start + CRITICAL log fires. Agent
-    // degrades observably (zero telemetry from this
-    // path) so operator sees the license-contract
-    // violation immediately on device bring-up.
-    //
-    // No fail-closed process exit: the CRITICAL log is
-    // the operator signal; the AGENT stays alive so
-    // refresh_license + signature_mode + other
-    // non-IO-polling paths remain operable while the
-    // operator resolves the budget.
+///
+/// ADR-048 DEC-6.2 / DEC-6.4: this is the agent's local control-loop input
+/// side. It runs from boot whether or not the cloud is reachable (the MQTT
+/// publishes inside a cycle are no-ops until a client exists), and it ticks
+/// `heartbeat` at every idle point — the systemd watchdog is pinged only
+/// while it does, so a cycle stuck in an I/O call stops the pings.
+///
+/// `polling_allowed` is false when the license I/O budget is exceeded
+/// (Batch 147 Faz 7). The boot sequence has then already put the agent in
+/// degraded mode; the loop stays alive for liveness but reads nothing.
+pub async fn io_poll_loop(
+    state: Arc<RwLock<AppState>>,
+    heartbeat: crate::liveness::Heartbeat,
+    polling_allowed: bool,
+) {
     let interval_ms = {
         let s = state.read().await;
-        let budget = crate::license::check_io_channel_budget(&s.config, &s.license);
-        match budget {
-            crate::license::IoChannelBudget::Exceeded { configured, cap } => {
-                error!(
-                    "CRITICAL LICENSE BUDGET EXCEEDED: configured {} IO channels > license cap {} (tier={}). I/O polling task REFUSES TO START. Operator must either (a) reduce modbus/gpio/i2c channel count in config.yaml to <= {} OR (b) refresh_license to a higher tier. Agent remains operable for license refresh + other paths.",
-                    configured,
-                    cap,
-                    s.license.tier.as_str(),
-                    cap
-                );
-                return;
-            }
-            crate::license::IoChannelBudget::WithinBudget { configured, cap } => {
-                info!(
-                    "License IO budget: {} configured / {} cap (tier={})",
-                    configured,
-                    cap,
-                    s.license.tier.as_str()
-                );
-            }
-        }
         s.config.telemetry.io_data_interval_ms
     };
 
-    info!("Starting I/O poll loop (interval: {}ms)", interval_ms);
+    if polling_allowed {
+        info!("Starting I/O poll loop (interval: {}ms)", interval_ms);
+    } else {
+        error!(
+            "CRITICAL LICENSE BUDGET EXCEEDED: I/O polling disabled (degraded mode). Operator \
+             must either reduce the modbus/gpio/i2c channel count or refresh_license to a \
+             higher tier."
+        );
+    }
 
     let mut interval = time::interval(time::Duration::from_millis(interval_ms));
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
     loop {
-        interval.tick().await;
+        crate::liveness::tick_while_waiting(&heartbeat, interval.tick()).await;
 
-        if let Err(e) = poll_cycle(&state).await {
-            warn!("I/O poll cycle error: {}", e);
+        if polling_allowed {
+            if let Err(e) = poll_cycle(&state, &heartbeat).await {
+                warn!("I/O poll cycle error: {}", e);
+            }
         }
+        // The cycle completed: nothing is in flight.
+        heartbeat.tick();
     }
 }
 
-async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
+/// One I/O cycle. `heartbeat.progress()` follows every blocking read, so
+/// the watchdog's freshness window bounds one read, not the whole cycle
+/// (ADR-048 DEC-6.4 tick budget).
+async fn poll_cycle(
+    state: &Arc<RwLock<AppState>>,
+    heartbeat: &crate::liveness::Heartbeat,
+) -> anyhow::Result<()> {
     // 2026-04-29 enterprise polling concurrency hardening:
     // snapshot cloneable handles/config under the AppState lock, then drop the
     // guard before any fieldbus await.
@@ -101,7 +99,6 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
     // AppState read lock and block config reload, shutdown mutation, or other
     // state writers.
     let (
-        is_ready,
         process_image,
         force_registry,
         gpio_handle,
@@ -112,7 +109,6 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
     ) = {
         let s = state.read().await;
         (
-            s.is_activated && s.mqtt_client.is_some(),
             s.process_image.clone(),
             s.force_registry.clone(),
             s.gpio_handle.clone(),
@@ -128,10 +124,9 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
         s.scada_state.clone()
     };
 
-    // Skip if not activated or no MQTT
-    if !is_ready {
-        return Ok(());
-    }
+    // ADR-048 DEC-6.2: the inputs are read and the process image is updated
+    // whether or not the cloud is reachable — local control depends on them.
+    // The publishes below do nothing until an MQTT client exists.
 
     // Batch 199 Faz 6 wire: force-registry bypass.
     // Every update_tag call in this poll cycle passes
@@ -150,6 +145,7 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
     // --- GPIO reads ---
     if let Some(ref gpio) = gpio_handle {
         let result = gpio.read_all().await;
+        heartbeat.progress();
         for pin_value in &result.values {
             // Find matching tag config for this GPIO pin
             for cfg in &configs {
@@ -178,6 +174,7 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
     // --- Modbus reads (parallel per device) ---
     if let Some(ref modbus) = modbus_handle {
         let results = modbus.read_all_parallel().await;
+        heartbeat.progress();
         // Batch 103 observability: count successful + failed
         // device reads for fleet dashboards. Each
         // ModbusReadResult represents ONE DEVICE round-trip;
@@ -226,6 +223,8 @@ async fn poll_cycle(state: &Arc<RwLock<AppState>>) -> anyhow::Result<()> {
         let ezo_driver = AtlasEzoDriver::new(i2c.clone());
 
         for cfg in &configs {
+            // The previous tag's read returned (DEC-6.4 per-call budget).
+            heartbeat.progress();
             if let ProtocolConfig::I2c { driver_type, .. } = &cfg.protocol_config {
                 match driver_type {
                     I2cDriverType::AtlasEzo { sensor_type } => {

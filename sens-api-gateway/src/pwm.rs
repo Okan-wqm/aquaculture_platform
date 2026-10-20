@@ -49,12 +49,19 @@
 // inventory per ARC-009 WHITELIST-PENDING-INVENTORY above.
 #![allow(dead_code)]
 
+#[cfg(all(target_os = "linux", feature = "gpio"))]
+use anyhow::Context;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
-use tracing::{debug, info, warn};
+use tracing::info;
+#[cfg(all(target_os = "linux", feature = "gpio"))]
+use tracing::{debug, warn};
+
+#[cfg(not(all(target_os = "linux", feature = "gpio")))]
+use crate::degraded::{Backend, BackendNotCompiled};
 
 // ============================================================================
 // Configuration
@@ -443,26 +450,12 @@ impl PwmActor {
         })
     }
 
+    /// ADR-048 DEC-6.3 / INFRA-CRITICAL-236: no simulation backend; a
+    /// configured PWM channel without the driver fails closed and no channel
+    /// is created.
     #[cfg(not(all(target_os = "linux", feature = "gpio")))]
     fn init_channels(&mut self) -> Result<()> {
-        for config in &self.configs {
-            warn!(
-                "PWM '{}' on pin {} configured but running in simulation mode",
-                config.name, config.pin
-            );
-
-            self.channels.insert(
-                config.name.clone(),
-                PwmChannelInternal {
-                    config: config.clone(),
-                    duty_cycle: config.initial_duty_cycle,
-                    frequency_hz: config.frequency_hz,
-                    enabled: true,
-                },
-            );
-        }
-
-        Ok(())
+        Err(anyhow::Error::new(BackendNotCompiled(Backend::Pwm)))
     }
 
     #[cfg(all(target_os = "linux", feature = "gpio"))]
@@ -489,19 +482,8 @@ impl PwmActor {
     }
 
     #[cfg(not(all(target_os = "linux", feature = "gpio")))]
-    fn set_duty_cycle(&mut self, channel: &str, duty_cycle: f64) -> Result<()> {
-        let ch = self
-            .channels
-            .get_mut(channel)
-            .ok_or_else(|| anyhow::anyhow!("PWM channel '{}' not found", channel))?;
-
-        ch.duty_cycle = duty_cycle;
-        debug!(
-            "PWM '{}' duty cycle set to {:.2}% (simulated)",
-            channel,
-            duty_cycle * 100.0
-        );
-        Ok(())
+    fn set_duty_cycle(&mut self, _channel: &str, _duty_cycle: f64) -> Result<()> {
+        Err(anyhow::Error::new(BackendNotCompiled(Backend::Pwm)))
     }
 
     #[cfg(all(target_os = "linux", feature = "gpio"))]
@@ -524,18 +506,8 @@ impl PwmActor {
     }
 
     #[cfg(not(all(target_os = "linux", feature = "gpio")))]
-    fn set_frequency(&mut self, channel: &str, frequency_hz: f64) -> Result<()> {
-        let ch = self
-            .channels
-            .get_mut(channel)
-            .ok_or_else(|| anyhow::anyhow!("PWM channel '{}' not found", channel))?;
-
-        ch.frequency_hz = frequency_hz;
-        debug!(
-            "PWM '{}' frequency set to {}Hz (simulated)",
-            channel, frequency_hz
-        );
-        Ok(())
+    fn set_frequency(&mut self, _channel: &str, _frequency_hz: f64) -> Result<()> {
+        Err(anyhow::Error::new(BackendNotCompiled(Backend::Pwm)))
     }
 
     fn set_servo_position(&mut self, channel: &str, position: f64) -> Result<()> {
@@ -577,19 +549,8 @@ impl PwmActor {
     }
 
     #[cfg(not(all(target_os = "linux", feature = "gpio")))]
-    fn set_enabled(&mut self, channel: &str, enabled: bool) -> Result<()> {
-        let ch = self
-            .channels
-            .get_mut(channel)
-            .ok_or_else(|| anyhow::anyhow!("PWM channel '{}' not found", channel))?;
-
-        ch.enabled = enabled;
-        debug!(
-            "PWM '{}' {} (simulated)",
-            channel,
-            if enabled { "enabled" } else { "disabled" }
-        );
-        Ok(())
+    fn set_enabled(&mut self, _channel: &str, _enabled: bool) -> Result<()> {
+        Err(anyhow::Error::new(BackendNotCompiled(Backend::Pwm)))
     }
 
     fn get_states(&self) -> Vec<PwmChannelState> {
@@ -636,6 +597,7 @@ impl PwmActor {
 // ============================================================================
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used, clippy::indexing_slicing)]
 mod tests {
     use super::*;
 
@@ -690,13 +652,23 @@ mod tests {
 
         let handle = PwmHandle::new(configs);
 
-        // Initialize should work (simulation mode)
-        let result = handle.init().await;
-        assert!(result.is_ok());
-
-        // Get states should return the channel
-        let states = handle.get_states().await;
-        assert_eq!(states.len(), 1);
-        assert_eq!(states[0].name, "test_pwm");
+        // ADR-048 DEC-6.3 / INFRA-CRITICAL-236: without the driver there is
+        // no simulation — init fails closed, no channel exists and every
+        // output change is refused.
+        #[cfg(not(all(target_os = "linux", feature = "gpio")))]
+        {
+            let err = handle.init().await.expect_err("init must fail closed");
+            assert!(
+                err.downcast_ref::<BackendNotCompiled>().is_some(),
+                "{err:#}"
+            );
+            assert!(handle.get_states().await.is_empty());
+            assert!(handle.set_duty_cycle("test_pwm", 0.5).await.is_err());
+            assert!(handle.set_frequency("test_pwm", 50.0).await.is_err());
+            assert!(handle.set_servo_position("test_pwm", 0.5).await.is_err());
+            assert!(handle.set_enabled("test_pwm", true).await.is_err());
+        }
+        #[cfg(all(target_os = "linux", feature = "gpio"))]
+        drop(handle);
     }
 }

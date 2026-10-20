@@ -32,7 +32,7 @@ impl AtlasEzoDriver {
         sensor_type: &AtlasEzoType,
     ) -> (f64, TagQuality) {
         // Step 1: Send "R" command
-        let write_result = self.i2c.write_direct(device_name, b"R").await;
+        let write_result = self.i2c.send_sensor_command(device_name, b"R").await;
         if let Err(e) = write_result {
             warn!("EZO write failed for '{}': {}", device_name, e);
             return (0.0, TagQuality::CommFailure);
@@ -137,7 +137,7 @@ impl AtlasEzoDriver {
     pub async fn calibrate(&self, device_name: &str, command: &str) -> Result<String> {
         // Send calibration command
         self.i2c
-            .write_direct(device_name, command.as_bytes())
+            .send_sensor_command(device_name, command.as_bytes())
             .await?;
 
         // Calibration needs more time

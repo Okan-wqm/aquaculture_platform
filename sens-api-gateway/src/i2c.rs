@@ -24,7 +24,14 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
-use tracing::{debug, info, warn};
+#[cfg(all(target_os = "linux", feature = "gpio"))]
+use tracing::{debug, error};
+use tracing::{info, warn};
+
+use crate::degraded::ControlGate;
+#[cfg(not(all(target_os = "linux", feature = "gpio")))]
+use crate::degraded::{Backend, BackendNotCompiled};
+use crate::safe_state::SafeStateWrite;
 
 // ============================================================================
 // Configuration
@@ -159,11 +166,13 @@ pub enum I2cCommand {
 #[derive(Clone)]
 pub struct I2cHandle {
     sender: mpsc::Sender<I2cCommand>,
+    /// Refuses actuator writes while the agent is degraded (DEC-6.3).
+    gate: ControlGate,
 }
 
 impl I2cHandle {
     /// Create a new handle and spawn the actor
-    pub fn new(devices: Vec<I2cDeviceConfig>) -> Self {
+    pub fn new(devices: Vec<I2cDeviceConfig>, gate: ControlGate) -> Self {
         let (sender, receiver) = mpsc::channel(DEFAULT_I2C_CHANNEL_SIZE);
 
         // Spawn the actor
@@ -172,7 +181,7 @@ impl I2cHandle {
             actor.run().await;
         });
 
-        Self { sender }
+        Self { sender, gate }
     }
 
     /// Initialize I2C bus
@@ -217,8 +226,26 @@ impl I2cHandle {
         })
     }
 
-    /// Write bytes to a device register
+    /// Write bytes to a device register (a DAC or relay output). Refused
+    /// while the agent is degraded.
     pub async fn write_register(&self, device: &str, register: u8, data: &[u8]) -> Result<()> {
+        self.gate.permit()?;
+        self.send_register_write(device, register, data).await
+    }
+
+    /// Write an output register's fail-safe payload; allowed while control is
+    /// disabled, for the safe-state writer only.
+    pub async fn write_register_safe_state(
+        &self,
+        device: &str,
+        register: u8,
+        data: &[u8],
+        _: &SafeStateWrite,
+    ) -> Result<()> {
+        self.send_register_write(device, register, data).await
+    }
+
+    async fn send_register_write(&self, device: &str, register: u8, data: &[u8]) -> Result<()> {
         let (tx, rx) = oneshot::channel();
         self.send_command(I2cCommand::WriteRegister {
             device: device.to_string(),
@@ -264,8 +291,21 @@ impl I2cHandle {
         })
     }
 
-    /// Write bytes directly to device (no register address)
+    /// Write bytes directly to a device as an output value (no register
+    /// address). Refused while the agent is degraded.
     pub async fn write_direct(&self, device: &str, data: &[u8]) -> Result<()> {
+        self.gate.permit()?;
+        self.send_direct(device, data).await
+    }
+
+    /// Send a sensor protocol command (Atlas EZO `R`, calibration). It is a
+    /// request to a sensor, not an actuator write, so degraded mode — which
+    /// keeps monitoring — does not refuse it.
+    pub async fn send_sensor_command(&self, device: &str, data: &[u8]) -> Result<()> {
+        self.send_direct(device, data).await
+    }
+
+    async fn send_direct(&self, device: &str, data: &[u8]) -> Result<()> {
         let (tx, rx) = oneshot::channel();
         self.send_command(I2cCommand::WriteDirect {
             device: device.to_string(),
@@ -446,10 +486,24 @@ impl I2cActor {
         Ok(())
     }
 
+    /// ADR-048 DEC-6.3 / INFRA-CRITICAL-236: no simulation backend; a
+    /// configured I2C without the driver fails closed.
     #[cfg(not(all(target_os = "linux", feature = "gpio")))]
     fn init_buses(&mut self) -> Result<()> {
-        warn!("I2C running in simulation mode");
-        Ok(())
+        Err(anyhow::Error::new(BackendNotCompiled(Backend::I2c)))
+    }
+
+    #[cfg(not(all(target_os = "linux", feature = "gpio")))]
+    fn unavailable_read(&self, device: &str, register: u8) -> I2cReadResult {
+        I2cReadResult {
+            device: device.to_string(),
+            address: self.device_map.get(device).map(|c| c.address).unwrap_or(0),
+            register,
+            data: vec![],
+            success: false,
+            error: Some(BackendNotCompiled(Backend::I2c).to_string()),
+            simulated: false,
+        }
     }
 
     #[cfg(all(target_os = "linux", feature = "gpio"))]
@@ -464,6 +518,7 @@ impl I2cActor {
                     data: vec![],
                     success: false,
                     error: Some(format!("Device '{}' not found", device)),
+                    simulated: false,
                 };
             }
         };
@@ -478,6 +533,7 @@ impl I2cActor {
                     data: vec![],
                     success: false,
                     error: Some(format!("I2C bus {} not initialized", config.bus)),
+                    simulated: false,
                 };
             }
         };
@@ -491,6 +547,7 @@ impl I2cActor {
                 data: vec![],
                 success: false,
                 error: Some(format!("Failed to set address: {}", e)),
+                simulated: false,
             };
         }
 
@@ -518,31 +575,14 @@ impl I2cActor {
                 data: vec![],
                 success: false,
                 error: Some(format!("Read failed: {}", e)),
+                simulated: false,
             },
         }
     }
 
     #[cfg(not(all(target_os = "linux", feature = "gpio")))]
-    fn read_register(&mut self, device: &str, register: u8, length: usize) -> I2cReadResult {
-        let config = self.device_map.get(device);
-        let address = config.map(|c| c.address).unwrap_or(0);
-
-        debug!(
-            "I2C read from '{}' reg 0x{:02X} length {} (simulated)",
-            device, register, length
-        );
-
-        // ARC-006: mark as simulated so io_poll routes to
-        // TagQuality::Simulated + MQTT payload gets the marker.
-        I2cReadResult {
-            device: device.to_string(),
-            address,
-            register,
-            data: vec![0u8; length],
-            success: true,
-            error: None,
-            simulated: true,
-        }
+    fn read_register(&mut self, device: &str, register: u8, _length: usize) -> I2cReadResult {
+        self.unavailable_read(device, register)
     }
 
     #[cfg(all(target_os = "linux", feature = "gpio"))]
@@ -569,12 +609,8 @@ impl I2cActor {
     }
 
     #[cfg(not(all(target_os = "linux", feature = "gpio")))]
-    fn write_register(&mut self, device: &str, register: u8, data: &[u8]) -> Result<()> {
-        debug!(
-            "I2C write to '{}' reg 0x{:02X}: {:02X?} (simulated)",
-            device, register, data
-        );
-        Ok(())
+    fn write_register(&mut self, _device: &str, _register: u8, _data: &[u8]) -> Result<()> {
+        Err(anyhow::Error::new(BackendNotCompiled(Backend::I2c)))
     }
 
     #[cfg(all(target_os = "linux", feature = "gpio"))]
@@ -589,6 +625,7 @@ impl I2cActor {
                     data: vec![],
                     success: false,
                     error: Some(format!("Device '{}' not found", device)),
+                    simulated: false,
                 };
             }
         };
@@ -603,6 +640,7 @@ impl I2cActor {
                     data: vec![],
                     success: false,
                     error: Some(format!("I2C bus {} not initialized", config.bus)),
+                    simulated: false,
                 };
             }
         };
@@ -615,6 +653,7 @@ impl I2cActor {
                 data: vec![],
                 success: false,
                 error: Some(format!("Failed to set address: {}", e)),
+                simulated: false,
             };
         }
 
@@ -636,27 +675,14 @@ impl I2cActor {
                 data: vec![],
                 success: false,
                 error: Some(format!("Read failed: {}", e)),
+                simulated: false,
             },
         }
     }
 
     #[cfg(not(all(target_os = "linux", feature = "gpio")))]
-    fn read_direct(&mut self, device: &str, length: usize) -> I2cReadResult {
-        let config = self.device_map.get(device);
-        let address = config.map(|c| c.address).unwrap_or(0);
-
-        // ARC-006: mark as simulated so downstream tag quality
-        // surfaces as TagQuality::Simulated + MQTT publish
-        // attaches `"simulated": true`.
-        I2cReadResult {
-            device: device.to_string(),
-            address,
-            register: 0,
-            data: vec![0u8; length],
-            success: true,
-            error: None,
-            simulated: true,
-        }
+    fn read_direct(&mut self, device: &str, _length: usize) -> I2cReadResult {
+        self.unavailable_read(device, 0)
     }
 
     #[cfg(all(target_os = "linux", feature = "gpio"))]
@@ -680,7 +706,7 @@ impl I2cActor {
 
     #[cfg(not(all(target_os = "linux", feature = "gpio")))]
     fn write_direct(&mut self, _device: &str, _data: &[u8]) -> Result<()> {
-        Ok(())
+        Err(anyhow::Error::new(BackendNotCompiled(Backend::I2c)))
     }
 
     #[cfg(all(target_os = "linux", feature = "gpio"))]
@@ -713,7 +739,11 @@ impl I2cActor {
 
     #[cfg(not(all(target_os = "linux", feature = "gpio")))]
     fn scan_bus(&mut self, bus: u8) -> I2cScanResult {
-        warn!("I2C scan on bus {} (simulated)", bus);
+        warn!(
+            "I2C scan on bus {} found nothing: {}",
+            bus,
+            BackendNotCompiled(Backend::I2c)
+        );
         I2cScanResult {
             bus,
             devices: vec![],
@@ -731,6 +761,7 @@ impl I2cActor {
 // ============================================================================
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -768,16 +799,52 @@ mod tests {
             ..Default::default()
         }];
 
-        let handle = I2cHandle::new(devices);
+        let dir = tempfile::tempdir().expect("tempdir");
+        let degraded = crate::degraded::DegradedMode::new(dir.path().join("h.json"));
+        let handle = I2cHandle::new(devices, degraded.control_gate());
 
-        // Initialize should work (simulation mode)
-        let result = handle.init().await;
-        assert!(result.is_ok());
+        // ADR-048 DEC-6.3 / INFRA-CRITICAL-236: without the driver there is
+        // no simulation. Init fails closed, reads report the missing backend
+        // instead of zero-filled "successful" data, and writes are refused.
+        #[cfg(not(all(target_os = "linux", feature = "gpio")))]
+        {
+            let err = handle.init().await.expect_err("init must fail closed");
+            assert!(
+                err.downcast_ref::<crate::degraded::BackendNotCompiled>()
+                    .is_some(),
+                "{err:#}"
+            );
+            let read_result = handle.read_register("test_sensor", 0x00, 2).await;
+            assert!(!read_result.success);
+            assert!(!read_result.simulated);
+            assert!(read_result.data.is_empty());
+            assert!(read_result.error.is_some());
+            assert!(
+                handle
+                    .write_register("test_sensor", 0x01, &[1])
+                    .await
+                    .is_err()
+            );
+            assert!(handle.write_direct("test_sensor", &[1]).await.is_err());
+            assert!(!handle.read_direct("test_sensor", 4).await.success);
+        }
 
-        // Read should return simulated data
-        let read_result = handle.read_register("test_sensor", 0x00, 2).await;
-        assert!(read_result.success);
-        assert_eq!(read_result.data.len(), 2);
+        // Degraded mode refuses actuator writes before they reach the bus.
+        degraded.enter(crate::degraded::DegradedReason::IoBudgetExceeded {
+            configured: 1,
+            cap: 0,
+        });
+        for err in [
+            handle.write_register("test_sensor", 0x01, &[1]).await,
+            handle.write_direct("test_sensor", &[1]).await,
+        ] {
+            let err = err.expect_err("refused while degraded");
+            assert!(
+                err.downcast_ref::<crate::degraded::ControlDisabled>()
+                    .is_some(),
+                "{err:#}"
+            );
+        }
     }
 
     #[test]

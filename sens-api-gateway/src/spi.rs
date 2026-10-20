@@ -59,7 +59,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
-use tracing::{debug, info, warn};
+use tracing::info;
+#[cfg(all(target_os = "linux", feature = "gpio"))]
+use tracing::{debug, error};
+
+#[cfg(not(all(target_os = "linux", feature = "gpio")))]
+use crate::degraded::{Backend, BackendNotCompiled};
 
 // ============================================================================
 // Configuration
@@ -468,10 +473,22 @@ impl SpiActor {
         Ok(())
     }
 
+    /// ADR-048 DEC-6.3 / INFRA-CRITICAL-236: no simulation backend; a
+    /// configured SPI without the driver fails closed.
     #[cfg(not(all(target_os = "linux", feature = "gpio")))]
     fn init_devices(&mut self) -> Result<()> {
-        warn!("SPI running in simulation mode");
-        Ok(())
+        Err(anyhow::Error::new(BackendNotCompiled(Backend::Spi)))
+    }
+
+    #[cfg(not(all(target_os = "linux", feature = "gpio")))]
+    fn unavailable(device: &str, tx_data: &[u8]) -> SpiTransferResult {
+        SpiTransferResult {
+            device: device.to_string(),
+            tx_data: tx_data.to_vec(),
+            rx_data: vec![],
+            success: false,
+            error: Some(BackendNotCompiled(Backend::Spi).to_string()),
+        }
     }
 
     #[cfg(all(target_os = "linux", feature = "gpio"))]
@@ -529,14 +546,7 @@ impl SpiActor {
 
     #[cfg(not(all(target_os = "linux", feature = "gpio")))]
     fn transfer(&mut self, device: &str, tx_data: &[u8]) -> SpiTransferResult {
-        debug!("SPI '{}' transfer: TX {:02X?} (simulated)", device, tx_data);
-        SpiTransferResult {
-            device: device.to_string(),
-            tx_data: tx_data.to_vec(),
-            rx_data: vec![0u8; tx_data.len()],
-            success: true,
-            error: None,
-        }
+        Self::unavailable(device, tx_data)
     }
 
     #[cfg(all(target_os = "linux", feature = "gpio"))]
@@ -557,9 +567,8 @@ impl SpiActor {
     }
 
     #[cfg(not(all(target_os = "linux", feature = "gpio")))]
-    fn write(&mut self, device: &str, data: &[u8]) -> Result<()> {
-        debug!("SPI '{}' write: {:02X?} (simulated)", device, data);
-        Ok(())
+    fn write(&mut self, _device: &str, _data: &[u8]) -> Result<()> {
+        Err(anyhow::Error::new(BackendNotCompiled(Backend::Spi)))
     }
 
     #[cfg(all(target_os = "linux", feature = "gpio"))]
@@ -571,13 +580,7 @@ impl SpiActor {
 
     #[cfg(not(all(target_os = "linux", feature = "gpio")))]
     fn read(&mut self, device: &str, length: usize) -> SpiTransferResult {
-        SpiTransferResult {
-            device: device.to_string(),
-            tx_data: vec![0u8; length],
-            rx_data: vec![0u8; length],
-            success: true,
-            error: None,
-        }
+        Self::unavailable(device, &vec![0u8; length])
     }
 
     #[cfg(all(target_os = "linux", feature = "gpio"))]
@@ -600,15 +603,8 @@ impl SpiActor {
     }
 
     #[cfg(not(all(target_os = "linux", feature = "gpio")))]
-    fn set_clock_speed(&mut self, device: &str, clock_speed_hz: u32) -> Result<()> {
-        if let Some(internal) = self.device_map.get_mut(device) {
-            internal.config.clock_speed_hz = clock_speed_hz;
-        }
-        debug!(
-            "SPI '{}' clock speed set to {}Hz (simulated)",
-            device, clock_speed_hz
-        );
-        Ok(())
+    fn set_clock_speed(&mut self, _device: &str, _clock_speed_hz: u32) -> Result<()> {
+        Err(anyhow::Error::new(BackendNotCompiled(Backend::Spi)))
     }
 }
 
@@ -617,6 +613,7 @@ impl SpiActor {
 // ============================================================================
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -667,14 +664,26 @@ mod tests {
 
         let handle = SpiHandle::new(devices);
 
-        // Initialize should work (simulation mode)
-        let result = handle.init().await;
-        assert!(result.is_ok());
-
-        // Transfer should return simulated data
-        let transfer_result = handle.transfer("test_adc", &[0x01, 0x80, 0x00]).await;
-        assert!(transfer_result.success);
-        assert_eq!(transfer_result.rx_data.len(), 3);
+        // ADR-048 DEC-6.3 / INFRA-CRITICAL-236: without the driver there is
+        // no simulation — init fails closed and a transfer reports the
+        // missing backend instead of zero-filled "successful" data.
+        #[cfg(not(all(target_os = "linux", feature = "gpio")))]
+        {
+            let err = handle.init().await.expect_err("init must fail closed");
+            assert!(
+                err.downcast_ref::<BackendNotCompiled>().is_some(),
+                "{err:#}"
+            );
+            let transfer_result = handle.transfer("test_adc", &[0x01, 0x80, 0x00]).await;
+            assert!(!transfer_result.success);
+            assert!(transfer_result.rx_data.is_empty());
+            assert!(transfer_result.error.is_some());
+            assert!(handle.write("test_adc", &[1]).await.is_err());
+            assert!(!handle.read("test_adc", 2).await.success);
+            assert!(handle.set_clock_speed("test_adc", 500_000).await.is_err());
+        }
+        #[cfg(all(target_os = "linux", feature = "gpio"))]
+        drop(handle);
     }
 
     #[test]

@@ -126,11 +126,13 @@ pub enum ModbusCommand {
 #[derive(Clone)]
 pub struct ModbusHandle {
     sender: mpsc::Sender<ModbusCommand>,
+    /// Refuses actuator writes while the agent is degraded (ADR-048 DEC-6.3).
+    gate: crate::degraded::ControlGate,
 }
 
 impl ModbusHandle {
     /// Create a new handle and spawn the actor
-    pub fn new(configs: Vec<ModbusDeviceConfig>) -> Self {
+    pub fn new(configs: Vec<ModbusDeviceConfig>, gate: crate::degraded::ControlGate) -> Self {
         let (sender, receiver) = mpsc::channel(32);
 
         // Spawn the actor in a local task (will be run via LocalSet)
@@ -143,7 +145,7 @@ impl ModbusHandle {
             tracing::warn!("Modbus actor terminated unexpectedly");
         });
 
-        Self { sender }
+        Self { sender, gate }
     }
 
     /// Connect to all devices
@@ -191,7 +193,32 @@ impl ModbusHandle {
     }
 
     /// Write a register value and return protocol/readback evidence.
+    /// Refused while the agent is degraded.
     pub async fn write_register_checked(
+        &self,
+        device_name: &str,
+        address: u16,
+        value: u16,
+    ) -> Result<ModbusWriteReceipt> {
+        self.gate.permit()?;
+        self.send_register_write(device_name, address, value).await
+    }
+
+    /// Write a holding register's fail-safe value; allowed while control is
+    /// disabled, for the safe-state writer only.
+    pub async fn write_register_safe_state(
+        &self,
+        device_name: &str,
+        address: u16,
+        value: u16,
+        _: &crate::safe_state::SafeStateWrite,
+    ) -> Result<()> {
+        self.send_register_write(device_name, address, value)
+            .await
+            .map(|_| ())
+    }
+
+    async fn send_register_write(
         &self,
         device_name: &str,
         address: u16,
@@ -218,8 +245,25 @@ impl ModbusHandle {
             .map(|_| ())
     }
 
-    /// Write a coil value
+    /// Write a coil value. Refused while the agent is degraded.
     pub async fn write_coil(&self, device_name: &str, address: u16, value: bool) -> Result<()> {
+        self.gate.permit()?;
+        self.send_coil_write(device_name, address, value).await
+    }
+
+    /// Write a coil's fail-safe value; allowed while control is disabled, for
+    /// the safe-state writer only.
+    pub async fn write_coil_safe_state(
+        &self,
+        device_name: &str,
+        address: u16,
+        value: bool,
+        _: &crate::safe_state::SafeStateWrite,
+    ) -> Result<()> {
+        self.send_coil_write(device_name, address, value).await
+    }
+
+    async fn send_coil_write(&self, device_name: &str, address: u16, value: bool) -> Result<()> {
         let (tx, rx) = oneshot::channel();
         let _ = self
             .sender
@@ -1684,6 +1728,49 @@ impl ModbusManager {
 mod tests {
     use super::*;
     use crate::config::ModbusTlsConfig;
+
+    /// ADR-048 DEC-6.3: while degraded, coil and register writes are refused
+    /// at the handle, before they reach the actor or the bus.
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn degraded_mode_refuses_modbus_writes() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        let local = tokio::task::LocalSet::new();
+        local.block_on(&rt, async {
+            let dir = tempfile::tempdir().expect("tempdir");
+            let degraded = crate::degraded::DegradedMode::new(dir.path().join("h.json"));
+            let handle = ModbusHandle::new(Vec::new(), degraded.control_gate());
+            // Control enabled: the write reaches the actor (which knows no
+            // such device).
+            let err = handle
+                .write_coil("plc", 1, true)
+                .await
+                .expect_err("no device");
+            assert!(
+                err.downcast_ref::<crate::degraded::ControlDisabled>()
+                    .is_none()
+            );
+            degraded.enter(crate::degraded::DegradedReason::IoBudgetExceeded {
+                configured: 1,
+                cap: 0,
+            });
+            for err in [
+                handle.write_coil("plc", 1, true).await,
+                handle.write_register("plc", 2, 7).await,
+            ] {
+                let err = err.expect_err("refused");
+                assert!(
+                    err.downcast_ref::<crate::degraded::ControlDisabled>()
+                        .is_some(),
+                    "{err:#}"
+                );
+            }
+            assert!(handle.write_register_checked("plc", 2, 7).await.is_err());
+        });
+    }
 
     /// Build a minimal plaintext-TCP device config for manager-level tests.
     /// rodbus establishes the TCP channel lazily (background retry), so

@@ -926,7 +926,7 @@ impl HardwareScanner {
     fn probe_i2c_bus(&self, bus: u8) -> Vec<I2cDeviceInfo> {
         let mut devices = Vec::new();
 
-        let i2c = match rppal::i2c::I2c::with_bus(bus) {
+        let mut i2c = match rppal::i2c::I2c::with_bus(bus) {
             Ok(i2c) => i2c,
             Err(e) => {
                 warn!("Failed to open I2C bus {}: {}", bus, e);

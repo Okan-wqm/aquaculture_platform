@@ -65,6 +65,7 @@ mod config;
 // [[bin]]-only — external tests can't import internal types.
 #[cfg(test)]
 mod contract_fixtures_tests;
+mod degraded; // ADR-048 DEC-6.3: degraded mode — fail closed without exiting
 mod deploy_orchestrator; // v2.2: Unified deploy orchestrator (Rust/Codesys/Setpoint)
 mod error;
 mod gpio;
@@ -79,6 +80,7 @@ mod license_cache; // Batch 144 Faz 7: SQLCipher persistence + monotonic floor
 mod lifecycle; // Batch 122 Sprint 6.5: HTTP lifecycle endpoint (confirm-active)
 #[cfg(feature = "health")]
 mod lifecycle_auth; // Batch 129 Sprint 6.6: HMAC auth for lifecycle endpoint
+mod liveness; // ADR-048 DEC-6.4: control-loop liveness drives the systemd watchdog
 mod modbus;
 mod mqtt;
 mod mqtt_failover; // v1.3.4: MQTT broker failover for high availability
@@ -221,6 +223,7 @@ mod scada_server; // v1.6.0: SCADA display server for local HMI
 mod scada_types;
 mod shutdown;
 mod spi;
+mod systemd_notify; // ADR-048 DEC-6.1: one sd_notify channel, captured at start
 mod telemetry; // v1.2.4: SPI support for high-speed peripherals
 #[cfg(feature = "scada-display")]
 mod theme_tokens; // Design tokens, generated from the shared palette (FE-MEDIUM-093)
@@ -438,6 +441,17 @@ pub struct AppState {
 
     /// Alarm manager for I/O alarm evaluation
     pub alarm_manager: Arc<RwLock<AlarmManager>>,
+
+    /// Degraded mode (ADR-048 DEC-6.3). Its control gate is cloned into
+    /// every hardware handle at construction, so while the agent is degraded
+    /// no actuator write path reaches the hardware except the safe-state
+    /// writer.
+    pub degraded: crate::degraded::DegradedMode,
+
+    /// Control-loop liveness registry (ADR-048 DEC-6.4): the I/O loop and
+    /// the script engine tick it; the liveness supervisor pings the systemd
+    /// watchdog only while they do.
+    pub liveness: crate::liveness::Liveness,
 
     /// Shared script storage (v2.2 - singleton for CommandHandler and ScriptEngine)
     /// This ensures both components see the same script state
@@ -924,6 +938,10 @@ impl AppState {
             i2c_handle: None,
             process_image: ProcessImage::new(),
             alarm_manager: Arc::new(RwLock::new(AlarmManager::new())),
+            degraded: crate::degraded::DegradedMode::new(
+                paths::AgentPaths::current().agent_health_file(),
+            ),
+            liveness: crate::liveness::Liveness::new(),
             script_storage: Arc::new(script_storage),
             #[cfg(feature = "lorawan")]
             lora_handle: None,
@@ -2941,7 +2959,10 @@ impl AppState {
         // `config.modbus` being non-empty, so no read/write/telemetry surface
         // changes for a Modbus-less edge. "Modbus configured" is derived from
         // `config.modbus`, never from the handle's presence.
-        self.modbus_handle = Some(ModbusHandle::new(self.config.modbus.clone()));
+        self.modbus_handle = Some(ModbusHandle::new(
+            self.config.modbus.clone(),
+            self.degraded.control_gate(),
+        ));
         info!(
             "Modbus actor initialized with {} devices",
             self.config.modbus.len()
@@ -2952,6 +2973,7 @@ impl AppState {
             self.gpio_handle = Some(GpioHandle::new(
                 self.config.gpio.clone(),
                 self.config.runtime.gpio_timeout_secs,
+                self.degraded.control_gate(),
             ));
             info!(
                 "GPIO actor initialized with {} pins",
@@ -2961,7 +2983,7 @@ impl AppState {
 
         // Initialize I2C actor
         if !self.config.i2c.is_empty() {
-            let handle = I2cHandle::new(self.config.i2c.clone());
+            let handle = I2cHandle::new(self.config.i2c.clone(), self.degraded.control_gate());
             self.i2c_handle = Some(handle);
             info!(
                 "I2C actor initialized with {} devices",
@@ -3226,6 +3248,12 @@ fn main() {
         }
     }
 
+    // ADR-048 DEC-6.1 (EDGE-CRITICAL-049): capture the systemd notification
+    // channel once, here, before any thread exists. Nothing later reads or
+    // changes NOTIFY_SOCKET, so READY cannot lose the socket the watchdog
+    // pings need.
+    let notifier = Arc::new(systemd_notify::SystemdNotifier::from_env());
+
     // Build optimized runtime for edge devices
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2) // Edge devices typically have 2 cores
@@ -3246,7 +3274,7 @@ fn main() {
     };
 
     // Run async main within the custom runtime
-    if let Err(e) = runtime.block_on(async_main()) {
+    if let Err(e) = runtime.block_on(async_main(notifier)) {
         // WHY: pre-tracing bootstrap — tracing may have failed to initialize in async_main,
         // or we reached a fatal error before tracing was ready. eprintln! is the only
         // reliable output channel at this point.
@@ -3259,13 +3287,16 @@ fn main() {
 }
 
 /// Async main function with application logic
-async fn async_main() -> Result<()> {
+async fn async_main(notifier: Arc<systemd_notify::SystemdNotifier>) -> Result<()> {
     // Initialize logging
     init_logging();
 
     info!("======================================");
     info!("  Suderra Edge Agent v{}", env!("CARGO_PKG_VERSION"));
     info!("======================================");
+    for line in notifier.describe() {
+        info!("{}", line);
+    }
 
     // Load configuration from the path SSoT (ADR-048 DEC-4.5).
     let agent_paths = paths::AgentPaths::current();
@@ -3854,17 +3885,14 @@ async fn async_main() -> Result<()> {
         }
     };
 
-    // Notify systemd that we're ready (IEC 62443 SL2 FR6: Timely Response)
-    #[cfg(target_os = "linux")]
-    {
-        if let Err(e) = notify_systemd_ready() {
-            warn!("Failed to notify systemd ready: {}", e);
-        }
-    }
+    // READY is NOT sent here (ADR-048 DEC-6.2, EDGE-HIGH-051): run_agent
+    // sends it once the outputs are in their safe state and the local
+    // control loop has completed a cycle; network, activation and MQTT run
+    // in the background and never gate it.
 
     // Use LocalSet to allow non-Send futures (required for Modbus client)
     let local = tokio::task::LocalSet::new();
-    let result = local.run_until(run_agent(state, shutdown)).await;
+    let result = local.run_until(run_agent(state, shutdown, notifier)).await;
 
     if let Err(e) = result {
         error!("Agent error: {:#}", e);
@@ -4377,75 +4405,6 @@ fn init_opentelemetry(_config: &config::AgentConfig) -> Option<()> {
     None
 }
 
-/// Notify systemd that the service is ready (IEC 62443 SL2 FR6)
-///
-/// This function:
-/// - Sends READY=1 to systemd when initialization is complete
-/// - Starts a watchdog heartbeat task if WatchdogSec is configured
-/// - Allows systemd to monitor service health and restart on failure
-#[cfg(target_os = "linux")]
-fn notify_systemd_ready() -> Result<()> {
-    use sd_notify::NotifyState;
-
-    // Notify systemd that we're ready
-    sd_notify::notify(true, &[NotifyState::Ready])
-        .context("Failed to send READY notification to systemd")?;
-    info!("Notified systemd: service ready");
-
-    // Check if watchdog is enabled and start heartbeat task
-    let mut watchdog_usec: u64 = 0;
-    if sd_notify::watchdog_enabled(false, &mut watchdog_usec) && watchdog_usec > 0 {
-        // Ping at half the timeout interval
-        let interval_usec = watchdog_usec / 2;
-        let interval = Duration::from_micros(interval_usec);
-        info!(
-            "Systemd watchdog enabled (timeout: {}ms, heartbeat: {}ms)",
-            watchdog_usec / 1000,
-            interval_usec / 1000
-        );
-
-        // EDGE-MEDIUM-007: Store the watchdog JoinHandle and check for panics.
-        // Previously the handle was discarded — if the watchdog panicked, the main
-        // loop never learned and systemd would eventually kill the process after
-        // WatchdogSec timeout, with no diagnostic information in the logs.
-        let watchdog_handle = tokio::spawn(async move {
-            loop {
-                tokio::time::sleep(interval).await;
-                if let Err(e) = sd_notify::notify(false, &[NotifyState::Watchdog]) {
-                    warn!("Failed to send watchdog heartbeat: {}", e);
-                } else {
-                    debug!("Watchdog heartbeat sent");
-                }
-            }
-        });
-
-        // Spawn a supervisor task that monitors the watchdog handle.
-        // If the watchdog task panics, log the error for diagnostics.
-        // systemd will restart the agent after WatchdogSec timeout.
-        tokio::spawn(async move {
-            match watchdog_handle.await {
-                Ok(_) => {
-                    // Infinite loop exited normally — should never happen
-                    error!(
-                        "LIFE-SAFETY: Watchdog heartbeat task exited unexpectedly. \
-                            systemd will restart the agent after WatchdogSec timeout."
-                    );
-                }
-                Err(join_err) => {
-                    // Task panicked — log the panic info for diagnostics
-                    error!(
-                        "LIFE-SAFETY: Watchdog heartbeat task panicked: {}. \
-                         systemd will restart the agent after WatchdogSec timeout.",
-                        join_err
-                    );
-                }
-            }
-        });
-    }
-
-    Ok(())
-}
-
 /// Setup shutdown signal handlers for graceful shutdown
 ///
 /// # Platform Support
@@ -4701,278 +4660,396 @@ fn persist_activation(
     Ok(())
 }
 
-/// Main agent loop
-async fn run_agent(
-    state: Arc<RwLock<AppState>>,
-    mut shutdown: tokio::sync::watch::Receiver<bool>,
-) -> Result<()> {
-    // Step 1: Check if already activated (MQTT credentials in config)
-    // v1.3.3: Validate ALL required MQTT fields, not just username
-    let needs_activation = {
-        let state_guard = state.read().await;
-        let mqtt = &state_guard.config.mqtt;
+/// First retry delay of the background activation / MQTT setup.
+const CONNECTIVITY_BACKOFF_INITIAL: Duration = Duration::from_secs(10);
+/// Longest retry delay of the background activation / MQTT setup.
+const CONNECTIVITY_BACKOFF_MAX: Duration = Duration::from_secs(300);
 
-        // All required fields must be present for a valid activation
-        let missing_username = mqtt.username.is_none();
-        let missing_password = mqtt.password.is_none();
-        let missing_broker = mqtt.broker.is_none();
+/// Retry delay after `attempt` failed attempts: 10 s doubling to 5 min.
+fn connectivity_backoff(attempt: u32) -> Duration {
+    CONNECTIVITY_BACKOFF_INITIAL
+        .saturating_mul(2u32.saturating_pow(attempt.min(16)))
+        .min(CONNECTIVITY_BACKOFF_MAX)
+}
 
-        if !missing_username && (missing_password || missing_broker) {
-            // Partial configuration detected - this is an invalid state
-            warn!(
-                "MQTT config incomplete: username={}, password={}, broker={}. Treating as not activated.",
-                !missing_username, !missing_password, !missing_broker
-            );
+/// Sleep `delay`; `false` when the shutdown signal (or a closed channel)
+/// arrived first.
+async fn wait_or_shutdown(
+    delay: Duration,
+    shutdown: &mut tokio::sync::broadcast::Receiver<()>,
+) -> bool {
+    tokio::select! {
+        _ = tokio::time::sleep(delay) => true,
+        _ = shutdown.recv() => false,
+    }
+}
+
+/// `true` when the broker credential is incomplete, so the device must
+/// activate first (v1.3.3: every required MQTT field, not only username).
+fn needs_activation(config: &AgentConfig) -> bool {
+    let mqtt = &config.mqtt;
+    let missing_username = mqtt.username.is_none();
+    let missing_password = mqtt.password.is_none();
+    let missing_broker = mqtt.broker.is_none();
+    if !missing_username && (missing_password || missing_broker) {
+        // Partial configuration detected - this is an invalid state
+        warn!(
+            "MQTT config incomplete: username={}, password={}, broker={}. Treating as not activated.",
+            !missing_username, !missing_password, !missing_broker
+        );
+    }
+    missing_username || missing_password || missing_broker
+}
+
+/// One activation request (tenant-first self-registration when a tenant
+/// token is configured, device-first activation otherwise). Returns the
+/// result to persist and the tenant it names.
+async fn request_activation(
+    state: &Arc<RwLock<AppState>>,
+    has_tenant_token: bool,
+) -> Result<(activation_state::ActivationState, String)> {
+    let provisioning_client =
+        ProvisioningClient::new(state.clone()).context("Failed to create provisioning client")?;
+    if has_tenant_token {
+        let response = provisioning_client.self_register().await?;
+        info!("Self-registration successful!");
+        info!("  Device ID: {}", response.device_id);
+        info!("  Device Code: {}", response.device_code);
+        info!("  MQTT Broker: {}", response.mqtt_broker);
+        info!("  Tenant ID: {}", response.tenant_id);
+        let s = state.read().await;
+        let activation = activation_state::ActivationState::from_result(
+            &s.config,
+            &activation_state::ActivationResult {
+                assigned_device_id: Some(&response.device_id),
+                assigned_device_code: Some(&response.device_code),
+                tenant_id: &response.tenant_id,
+                mqtt_broker: &response.mqtt_broker,
+                mqtt_port: response.mqtt_port,
+                mqtt_tls_enabled: None,
+                mqtt_username: &response.mqtt_username,
+                mqtt_password: &response.mqtt_password,
+            },
+        );
+        Ok((activation, response.tenant_id.clone()))
+    } else {
+        let response = provisioning_client.activate().await?;
+        info!("Device activated successfully!");
+        info!("  MQTT Broker: {}", response.mqtt_broker);
+        info!("  Tenant ID: {}", response.tenant_id);
+        let s = state.read().await;
+        let activation = activation_state::ActivationState::from_result(
+            &s.config,
+            &activation_state::ActivationResult {
+                assigned_device_id: None,
+                assigned_device_code: None,
+                tenant_id: &response.tenant_id,
+                mqtt_broker: &response.mqtt_broker,
+                mqtt_port: response.mqtt_port,
+                mqtt_tls_enabled: response.mqtt_tls_enabled,
+                mqtt_username: &response.mqtt_username,
+                mqtt_password: &response.mqtt_password,
+            },
+        );
+        Ok((activation, response.tenant_id.clone()))
+    }
+}
+
+/// Activate, retrying with backoff until it succeeds and the result is
+/// durable. `false` when shutdown interrupted it.
+///
+/// Before ADR-048 DEC-6.2 five failed attempts ended the process ("will
+/// retry on next restart"), and the exit came before hardware init, so an
+/// unactivated device restart-looped without ever driving its outputs safe
+/// (EDGE-MEDIUM-078). Now the outputs are safe and the local loop runs long
+/// before this; activation just keeps trying.
+async fn activate(
+    state: &Arc<RwLock<AppState>>,
+    shutdown: &mut tokio::sync::broadcast::Receiver<()>,
+) -> bool {
+    let has_tenant_token = state.read().await.config.tenant_token.is_some();
+    if has_tenant_token {
+        info!("Tenant token found, starting self-registration...");
+    } else {
+        info!("Device not activated, starting provisioning...");
+    }
+    let mut attempt: u32 = 0;
+    let (activation, tenant_id) = loop {
+        match request_activation(state, has_tenant_token).await {
+            Ok(result) => break result,
+            Err(e) => {
+                let delay = connectivity_backoff(attempt);
+                error!(
+                    "Activation attempt {} failed: {:#} — retrying in {}s; local control keeps \
+                     running",
+                    attempt + 1,
+                    e,
+                    delay.as_secs()
+                );
+                if !wait_or_shutdown(delay, shutdown).await {
+                    return false;
+                }
+                attempt = attempt.saturating_add(1);
+            }
         }
-
-        missing_username || missing_password || missing_broker
     };
 
-    if needs_activation {
-        // Check if this is a tenant-first self-registration or legacy device-first activation
-        let has_tenant_token = {
-            let state_guard = state.read().await;
-            state_guard.config.tenant_token.is_some()
+    // ADR-048 DEC-4.6: the result goes to the agent's state directory, never
+    // into config.yaml. The cloud has consumed the single-use token, so the
+    // credential must be durable before the agent acts on it: until the
+    // persist succeeds it is held in memory only, unused, and the persist is
+    // retried — the process does not exit.
+    let mut persist_attempt: u32 = 0;
+    loop {
+        let persisted = {
+            let mut state_guard = state.write().await;
+            persist_activation(&mut state_guard, &activation).map(|()| {
+                state_guard.tenant_id = Some(tenant_id.clone());
+                state_guard.is_activated = true;
+            })
         };
-
-        const MAX_RETRIES: u32 = 5;
-        const INITIAL_BACKOFF_SECS: u64 = 10;
-
-        let provisioning_client = ProvisioningClient::new(state.clone())
-            .context("Failed to create provisioning client")?;
-
-        if has_tenant_token {
-            // v2.0: Tenant-first self-registration flow
-            info!("Tenant token found, starting self-registration...");
-
-            let mut last_error = None;
-            for attempt in 0..MAX_RETRIES {
-                if attempt > 0 {
-                    let backoff_secs = INITIAL_BACKOFF_SECS * (1 << (attempt - 1));
-                    warn!(
-                        "Self-register attempt {}/{} failed, retrying in {}s...",
-                        attempt, MAX_RETRIES, backoff_secs
-                    );
-                    tokio::time::sleep(Duration::from_secs(backoff_secs)).await;
-                }
-
-                match provisioning_client.self_register().await {
-                    Ok(response) => {
-                        info!("Self-registration successful!");
-                        info!("  Device ID: {}", response.device_id);
-                        info!("  Device Code: {}", response.device_code);
-                        info!("  MQTT Broker: {}", response.mqtt_broker);
-                        info!("  Tenant ID: {}", response.tenant_id);
-
-                        // ADR-048 DEC-4.6: the result goes to the agent's
-                        // state directory, never into config.yaml.
-                        let mut state_guard = state.write().await;
-                        let activation = activation_state::ActivationState::from_result(
-                            &state_guard.config,
-                            &activation_state::ActivationResult {
-                                assigned_device_id: Some(&response.device_id),
-                                assigned_device_code: Some(&response.device_code),
-                                tenant_id: &response.tenant_id,
-                                mqtt_broker: &response.mqtt_broker,
-                                mqtt_port: response.mqtt_port,
-                                mqtt_tls_enabled: None,
-                                mqtt_username: &response.mqtt_username,
-                                mqtt_password: &response.mqtt_password,
-                            },
-                        );
-                        persist_activation(&mut state_guard, &activation)
-                            .context("Failed to persist self-registration result")?;
-                        state_guard.tenant_id = Some(response.tenant_id.clone());
-                        state_guard.is_activated = true;
-                        info!("Tenant token cleared from memory");
-
-                        last_error = None;
-                        break;
-                    }
-                    Err(e) => {
-                        error!(
-                            "Self-register attempt {}/{} failed: {}",
-                            attempt + 1,
-                            MAX_RETRIES,
-                            e
-                        );
-                        last_error = Some(e);
-                    }
-                }
+        match persisted {
+            Ok(()) => {
+                info!("Activation result persisted; the provisioning token is no longer held");
+                return true;
             }
-
-            if let Some(e) = last_error {
+            Err(e) => {
+                let delay = connectivity_backoff(persist_attempt);
                 error!(
-                    "Self-registration failed after {} attempts. Will retry on next restart.",
-                    MAX_RETRIES
+                    "ALARM activation-persist-failed: {:#} — the credential is not used until it \
+                     is durable; retrying in {}s",
+                    e,
+                    delay.as_secs()
                 );
-                return Err(e);
-            }
-        } else {
-            // Legacy device-first activation flow
-            info!("Device not activated, starting provisioning...");
-
-            let mut last_error = None;
-            for attempt in 0..MAX_RETRIES {
-                if attempt > 0 {
-                    let backoff_secs = INITIAL_BACKOFF_SECS * (1 << (attempt - 1));
-                    warn!(
-                        "Activation attempt {}/{} failed, retrying in {}s...",
-                        attempt, MAX_RETRIES, backoff_secs
-                    );
-                    tokio::time::sleep(Duration::from_secs(backoff_secs)).await;
+                if !wait_or_shutdown(delay, shutdown).await {
+                    return false;
                 }
-
-                match provisioning_client.activate().await {
-                    Ok(response) => {
-                        info!("Device activated successfully!");
-                        info!("  MQTT Broker: {}", response.mqtt_broker);
-                        info!("  Tenant ID: {}", response.tenant_id);
-
-                        // ADR-048 DEC-4.6: the result goes to the agent's
-                        // state directory, never into config.yaml. A
-                        // persist failure is fatal: the cloud has consumed
-                        // the single-use token, so the credential must be
-                        // durable before the agent acts on it.
-                        let mut state_guard = state.write().await;
-                        let activation = activation_state::ActivationState::from_result(
-                            &state_guard.config,
-                            &activation_state::ActivationResult {
-                                assigned_device_id: None,
-                                assigned_device_code: None,
-                                tenant_id: &response.tenant_id,
-                                mqtt_broker: &response.mqtt_broker,
-                                mqtt_port: response.mqtt_port,
-                                mqtt_tls_enabled: response.mqtt_tls_enabled,
-                                mqtt_username: &response.mqtt_username,
-                                mqtt_password: &response.mqtt_password,
-                            },
-                        );
-                        persist_activation(&mut state_guard, &activation).context(
-                            "Failed to persist activation result — device may be unrecoverable on restart",
-                        )?;
-                        state_guard.tenant_id = Some(response.tenant_id.clone());
-                        state_guard.is_activated = true;
-                        info!("Provisioning token cleared from memory");
-
-                        last_error = None;
-                        break;
-                    }
-                    Err(e) => {
-                        error!(
-                            "Activation attempt {}/{} failed: {}",
-                            attempt + 1,
-                            MAX_RETRIES,
-                            e
-                        );
-                        last_error = Some(e);
-                    }
-                }
+                persist_attempt = persist_attempt.saturating_add(1);
             }
+        }
+    }
+}
 
-            if let Some(e) = last_error {
-                error!(
-                    "Activation failed after {} attempts. Will retry on next restart.",
-                    MAX_RETRIES
-                );
-                return Err(e);
-            }
+/// The agent's network side, as one background task (ADR-048 DEC-6.2):
+/// activation, the MQTT client, the outbound publisher, the Online (or
+/// degraded) status, the capabilities report and the watch-session
+/// publisher.
+///
+/// Nothing here is fatal and nothing here gates READY: every failure is
+/// logged and retried with backoff while the outputs stay safe and the local
+/// loop keeps running. The command handler and the publishers already treat
+/// a missing MQTT client as "not connected yet".
+async fn run_connectivity(
+    state: Arc<RwLock<AppState>>,
+    mut shutdown: tokio::sync::broadcast::Receiver<()>,
+) {
+    // Step 1: activation (or the stored credential).
+    let activation_needed = {
+        let s = state.read().await;
+        needs_activation(&s.config)
+    };
+    if activation_needed {
+        if !activate(&state, &mut shutdown).await {
+            info!("Connectivity task stopped during activation (shutdown)");
+            return;
         }
     } else {
         info!("Device already activated, using stored credentials");
         let mut state_guard = state.write().await;
         state_guard.is_activated = true;
+        // The stored credential's tenant (config.yaml or the activation
+        // document) is the tenant the MQTT topics already use.
+        state_guard.tenant_id = state_guard.config.tenant_id.clone();
     }
 
-    // Step 3: Connect to MQTT
-    info!("Connecting to MQTT broker...");
-    let mqtt_client = {
-        let state_guard = state.read().await;
-        // Batch 102: pass HealthState so MqttClient wires
-        // publish/receive/connect/disconnect observability
-        // counters. health_state is Some from
-        // init_health_server (boot step earlier).
-        // HealthState is Arc<HealthStateInner> internally;
-        // plain .clone() is Arc-bump (O(1)). MqttClient
-        // stores it directly (no outer Arc wrapping needed).
-        let health_for_mqtt = state_guard.health_state.clone();
-        MqttClient::new(&state_guard.config, health_for_mqtt)
-            .await
-            .context("Failed to connect to MQTT broker")?
+    // Step 2: the MQTT client. It connects and reconnects in the background
+    // (its event loop backs off on its own); creating it fails only on a
+    // configuration problem, which is retried here.
+    info!("Starting MQTT client...");
+    let mut attempt: u32 = 0;
+    let mqtt_client = loop {
+        let created = {
+            let state_guard = state.read().await;
+            // Batch 102: HealthState wires the publish/receive/connect
+            // observability counters (Arc-bump clone).
+            let health_for_mqtt = state_guard.health_state.clone();
+            MqttClient::new(&state_guard.config, health_for_mqtt).await
+        };
+        match created {
+            Ok(client) => break client,
+            Err(e) => {
+                let delay = connectivity_backoff(attempt);
+                error!(
+                    "MQTT client could not be started (attempt {}): {} — retrying in {}s; local \
+                     control keeps running",
+                    attempt + 1,
+                    e,
+                    delay.as_secs()
+                );
+                if !wait_or_shutdown(delay, &mut shutdown).await {
+                    info!("Connectivity task stopped before MQTT started (shutdown)");
+                    return;
+                }
+                attempt = attempt.saturating_add(1);
+            }
+        }
     };
-
     {
         let mut state_guard = state.write().await;
         state_guard.mqtt_client = Some(mqtt_client);
     }
-    info!("MQTT connected successfully");
+    info!("MQTT client started");
 
-    // Initialize the broker-aware outbound publisher + spawn the
-    // queue-drain background task (Batch #253 ARC-002 wire).
-    //
-    // MUST run AFTER mqtt_client init (provides
-    // MqttPublishAdapter), AFTER health_state init (provides
-    // connectivity flag), AFTER offline_queue init (provides the
-    // persistent queue Arc). All three prerequisites complete
-    // before this point in the boot sequence.
-    //
-    // FAIL-CLOSED: prerequisite missing → exit(1). Operating
-    // without a publisher would silently lose messages on broker
-    // outage — no degraded mode.
+    // Step 3: the broker-aware outbound publisher + queue drain (Batch #253
+    // ARC-002). Its prerequisites are the MQTT client, the health state's
+    // connectivity flag and the offline queue. Without them publishes go
+    // direct to the broker (the v1.6.0 path) — that loses messages during an
+    // outage, which is reported, but it is no reason to stop the agent
+    // (DEC-6.2; this used to exit(1) whenever the health server or the
+    // offline queue was disabled).
     {
         let mut state_guard = state.write().await;
         if let Err(msg) = state_guard.init_outbound_publisher() {
-            error!("OutboundPublisher init failed (fail-closed boot): {}", msg);
-            std::process::exit(1);
+            if state_guard.config.offline_queue.enabled {
+                error!(
+                    "Outbound publisher not started: {} — publishes go direct to the broker and \
+                     are not queued during an outage",
+                    msg
+                );
+            } else {
+                info!(
+                    "Outbound publisher not started ({}); offline queue disabled, publishes go \
+                     direct to the broker",
+                    msg
+                );
+            }
         }
     }
 
-    // Initial Online status publish — Batch #268 closure of
-    // ORPHAN-MEDIUM-022.
-    //
-    // Pre-Batch-268, MqttClient::new() did `mqtt_client.
-    // publish_status(DeviceStatus::Online, 0).await?` directly
-    // on the bare client at the end of connect — bypassing the
-    // OutboundPublisher dispatcher because MqttClient internal
-    // methods don't have AppState reference. A transient broker
-    // outage during the connect→publish window would lose the
-    // Online status transition silently.
-    //
-    // Now: connect happens in MqttClient::new (still); the
-    // Online status publish moves HERE, post-init_outbound_
-    // publisher, so the publish routes through the queue-aware
-    // dispatcher. If the broker drops between connect + this
-    // helper call, the status transition queues to disk + drains
-    // on reconnect. Operator-actionable visibility of "device
-    // just came online" preserved across broker flap.
-    //
-    // Payload shape mirrors the legacy MqttClient::publish_status
-    // envelope (device_id, device_code, status, timestamp,
-    // agent_version, uptime_seconds=0 since we just connected)
-    // — no cloud-side schema break.
+    // Step 4: initial status (Batch #268, ORPHAN-MEDIUM-022) through the
+    // queue-aware dispatcher, carrying the degraded-mode report (DEC-6.3
+    // alarm to the cloud), then the hardware capabilities report.
     {
         let state_guard = state.read().await;
         if let Some(ref mqtt) = state_guard.mqtt_client {
-            let payload = serde_json::json!({
+            let degraded = state_guard.degraded.is_degraded();
+            let mut payload = serde_json::json!({
                 "device_id": mqtt.device_id(),
                 "device_code": mqtt.device_code(),
-                "status": crate::mqtt::DeviceStatus::Online,
+                "status": if degraded {
+                    crate::mqtt::DeviceStatus::Error
+                } else {
+                    crate::mqtt::DeviceStatus::Online
+                },
                 "timestamp": chrono::Utc::now().to_rfc3339(),
                 "agent_version": env!("CARGO_PKG_VERSION"),
                 "uptime_seconds": 0,
             });
+            if let (Some(fields), serde_json::Value::Object(report)) =
+                (payload.as_object_mut(), state_guard.degraded.cloud_report())
+            {
+                fields.extend(report);
+            }
             crate::publish_helpers::publish_status(&state_guard, &payload).await;
             info!(
-                "Initial Online status published via OutboundPublisher (Batch #268 wire — ORPHAN-MEDIUM-022 closure)"
+                "Initial status published via OutboundPublisher (degraded={})",
+                degraded
             );
         }
+        publish_capabilities(&state_guard).await;
     }
 
-    // Step 4: Initialize hardware interfaces
-    info!("Initializing hardware interfaces...");
-    init_hardware(&state).await;
+    // Step 5: the watch-session publisher (Batch 206 Faz 6 + Batch 225 E-1),
+    // only with a resolved tenant: publishing to `tenants/unknown/...` would
+    // pollute the operator's MQTT namespace, route HMI live-watch payloads
+    // through an unauthorised path under most broker ACLs, and blur the audit
+    // chain. It reads sessions_to_publish every 100 ms (plan R-9 floor), which
+    // also drops expired sessions. It runs here until shutdown.
+    let (watch_sessions, process_image, tenant_str_opt, device_code) = {
+        let s = state.read().await;
+        (
+            s.watch_sessions.clone(),
+            s.process_image.clone(),
+            s.tenant_id.clone(),
+            s.config.device_code.clone(),
+        )
+    };
+    match tenant_str_opt {
+        Some(tenant_str) => {
+            let topic_base = format!("tenants/{tenant_str}/devices/{device_code}/watch");
+            let sink: std::sync::Arc<dyn crate::scripting::watch_sessions::WatchPublishSink> =
+                std::sync::Arc::new(
+                    crate::scripting::watch_publisher_wire::MqttWatchPublishSink::new(
+                        state.clone(),
+                    ),
+                );
+            let (watch_tx, watch_rx) = tokio::sync::watch::channel(false);
+            info!("Watch-session publisher running (cadence=100ms, tenant=resolved)");
+            let publisher = crate::scripting::watch_sessions::run_watch_publisher_task(
+                watch_sessions,
+                process_image,
+                sink,
+                topic_base,
+                100,
+                watch_rx,
+            );
+            tokio::pin!(publisher);
+            let summary = tokio::select! {
+                summary = &mut publisher => summary,
+                _ = shutdown.recv() => {
+                    let _ = watch_tx.send(true);
+                    publisher.await
+                }
+            };
+            info!(
+                "watch_publisher exit: ticks={} published={} errors={}",
+                summary.ticks_executed, summary.sessions_published, summary.publish_errors,
+            );
+        }
+        None => {
+            info!("Watch-session publisher NOT started: tenant_id unresolved");
+            let _ = shutdown.recv().await;
+        }
+    }
+}
 
-    // Step 4b: Build safe-state manager from config (LIFE-SAFETY)
+/// Main agent loop
+///
+/// ADR-048 DEC-6.2 boot order: configuration (loaded by `async_main`) →
+/// hardware init → boot safe-state → local control loop → READY. Network,
+/// activation and MQTT are a background task ([`run_connectivity`]) that is
+/// never fatal and never gates READY: an offline or unactivated device still
+/// drives its outputs safe and runs its local loop (EDGE-HIGH-051,
+/// EDGE-MEDIUM-078). A failure that used to "fail closed" by exiting now
+/// enters degraded mode (DEC-6.3): the process stays up, control is
+/// disabled, the outputs stay in their safe state, an alarm is raised, and
+/// READY is still sent so systemd does not restart-loop the outputs.
+async fn run_agent(
+    state: Arc<RwLock<AppState>>,
+    mut shutdown: tokio::sync::watch::Receiver<bool>,
+    notifier: Arc<systemd_notify::SystemdNotifier>,
+) -> Result<()> {
+    use crate::degraded::{DegradedReason, Phase};
+    use crate::liveness::LoopId;
+
+    let (degraded, liveness) = {
+        let s = state.read().await;
+        (s.degraded.clone(), s.liveness.clone())
+    };
+    degraded.set_phase(Phase::Starting);
+    if let Err(e) = notifier.status(&degraded.status_line()) {
+        warn!("STATUS= could not be sent: {}", e);
+    }
+
+    // Step 1: Initialize hardware interfaces. A configured backend that is
+    // not compiled in, not present or fails init puts the agent in degraded
+    // mode (DEC-6.3, INFRA-CRITICAL-236) — no simulation, no exit.
+    info!("Initializing hardware interfaces...");
+    for reason in init_hardware(&state).await {
+        degraded.enter(reason);
+    }
+
+    // Step 2: Build safe-state manager from config (LIFE-SAFETY)
     // This must happen after hardware init so we know which outputs exist.
     let safe_state_manager = {
         let state_guard = state.read().await;
@@ -4980,50 +5057,58 @@ async fn run_agent(
     };
 
     // ── LIFE-SAFETY: Apply safe-state BEFORE any control runtime starts ──
-    // CRITICAL-001: The previous boot sequence started the script engine, command
-    // handlers, telemetry, and I/O loops before driving actuator outputs to a
-    // known fail-safe state. On an industrial aquaculture edge node, this meant
-    // pumps, valves, and relays could remain in their prior energized state during
-    // boot — a life-safety violation.
+    // CRITICAL-001: driving actuator outputs to a known fail-safe state comes
+    // before the script engine, command handlers, telemetry and I/O loops.
     //
-    // safe_state_manager.apply() MUST execute here, after hardware init but before
-    // ANY runtime actor or script engine starts. If any output cannot be driven to
-    // safe-state, the agent enters degraded mode and surfaces a hard fault.
+    // EDGE-HIGH-061 / EDGE-MEDIUM-075: the pass returns a typed report. A
+    // node with no writable outputs is complete (registered 0) and boots
+    // normally; if any registered output did not reach its safe value the
+    // agent enters degraded mode — partial success never proceeds to normal
+    // control. The safe-state writes use the SafeStateWrite capability, so
+    // they work even after a backend failure already disabled control.
     {
         let state_guard = state.read().await;
         let modbus_ref = state_guard.modbus_handle.as_ref();
         let gpio_ref = state_guard.gpio_handle.as_ref();
         let i2c_ref = state_guard.i2c_handle.as_ref();
 
-        let safe_count = safe_state_manager
+        let report = safe_state_manager
             .apply(modbus_ref, gpio_ref, i2c_ref)
             .await;
-
-        if safe_count == 0
-            && (!state_guard.config.gpio.is_empty()
-                || !state_guard.config.modbus.is_empty()
-                || !state_guard.config.i2c.is_empty())
-        {
-            // LIFE-SAFETY: Hardware is configured but no outputs reached safe-state.
-            // Enter degraded mode — do NOT proceed to normal runtime.
-            error!(
-                "LIFE-SAFETY: safe-state application failed — 0 of {} configured outputs \
-                 reached safe-state. Entering degraded/disabled mode. \
-                 Manual intervention required.",
-                state_guard.config.gpio.len()
-                    + state_guard.config.modbus.len()
-                    + state_guard.config.i2c.len()
-            );
-            return Err(anyhow::anyhow!(
-                "LIFE-SAFETY: Boot aborted — safe-state could not be applied to any actuator output"
-            ));
+        degraded.record_safe_state(report.summary());
+        match report.degraded_reason() {
+            Some(reason) => degraded.enter(reason),
+            None => info!(
+                "LIFE-SAFETY: boot safe-state complete ({} of {} registered outputs driven to \
+                 fail-safe before runtime start)",
+                report.applied, report.registered
+            ),
         }
-
-        info!(
-            "LIFE-SAFETY: boot safe-state applied ({} outputs driven to fail-safe before runtime start)",
-            safe_count
-        );
     }
+
+    // Step 3: license I/O budget. Without it the inputs may not be polled,
+    // and control without inputs is not control: degraded mode (DEC-6.3).
+    let io_polling_allowed = {
+        let s = state.read().await;
+        match crate::license::check_io_channel_budget(&s.config, &s.license) {
+            crate::license::IoChannelBudget::Exceeded { configured, cap } => {
+                degraded.enter(DegradedReason::IoBudgetExceeded { configured, cap });
+                false
+            }
+            crate::license::IoChannelBudget::WithinBudget { configured, cap } => {
+                info!(
+                    "License IO budget: {} configured / {} cap (tier={})",
+                    configured,
+                    cap,
+                    s.license.tier.as_str()
+                );
+                true
+            }
+        }
+    };
+    // Decided once, before any control runtime starts; degraded mode is
+    // latched for the run.
+    let control_enabled = !degraded.is_degraded();
 
     // Step 4c: restore the I/O map a previous `update_io_config` persisted
     // under the data root, before the I/O poll loop reads the process image
@@ -5064,89 +5149,17 @@ async fn run_agent(
     // coordinated so the always-on sensor/actuator poll loop stops
     // BEFORE the safe-state phase instead of racing it, and releases
     // its Arc<AppState> so the graph can Drop deterministically).
+    //
+    // ADR-048 DEC-6.4: the loop ticks the I/O heartbeat at every idle point;
+    // it is the liveness the systemd watchdog follows, in normal and in
+    // degraded mode. It runs whether or not the cloud is reachable.
+    let io_heartbeat = liveness.register(LoopId::IoPoll);
     let io_poll_shutdown = shutdown_coordinator.subscribe();
     let io_poll_handle = tokio::spawn(shutdown::run_until_shutdown(
-        io_poll::io_poll_loop(state.clone()),
+        io_poll::io_poll_loop(state.clone(), io_heartbeat, io_polling_allowed),
         io_poll_shutdown,
     ));
     shutdown_coordinator.register_task("io_poll", io_poll_handle);
-
-    // Batch 206 Faz 6 wire + Batch 225 E-1 closure: spawn
-    // the watch publisher task ONLY when the agent has a
-    // resolved tenant_id. Pre-provisioning boot has
-    // tenant_id=None — publishing to `tenants/unknown/...`
-    // would (a) pollute the operator's MQTT namespace with
-    // a phantom tenant, (b) route HMI live-watch payloads
-    // through an unauthorized path under most broker ACLs,
-    // (c) surface forensic ambiguity in the audit chain.
-    // Correct behavior: defer spawn until tenant resolves.
-    // Self-registration flow re-triggers AppState init;
-    // post-registration boot picks tenant_id Some and this
-    // block spawns normally.
-    //
-    // Reads sessions_to_publish every 100 ms (cadence
-    // tuned under plan R-9 WATCH_MIN_INTERVAL_MS floor
-    // of 100 ms). Side-effect of sessions_to_publish
-    // drops expired sessions automatically, so a
-    // dedicated sweep task isn't needed — the publisher
-    // IS the sweep mechanism for the watch-session path.
-    {
-        let (watch_sessions, process_image, tenant_str_opt, device_code) = {
-            let s = state.read().await;
-            (
-                s.watch_sessions.clone(),
-                s.process_image.clone(),
-                s.tenant_id.clone(),
-                s.config.device_code.clone(),
-            )
-        };
-        match tenant_str_opt {
-            Some(tenant_str) => {
-                let topic_base = format!("tenants/{}/devices/{}/watch", tenant_str, device_code);
-                let sink: std::sync::Arc<dyn crate::scripting::watch_sessions::WatchPublishSink> =
-                    std::sync::Arc::new(
-                        crate::scripting::watch_publisher_wire::MqttWatchPublishSink::new(
-                            state.clone(),
-                        ),
-                    );
-
-                let (watch_watch_tx, watch_watch_rx) = tokio::sync::watch::channel(false);
-                let mut watch_broadcast_rx = shutdown_coordinator.subscribe();
-                tokio::spawn(async move {
-                    let _ = watch_broadcast_rx.recv().await;
-                    let _ = watch_watch_tx.send(true);
-                });
-
-                let publisher_handle = tokio::spawn(async move {
-                    let summary = crate::scripting::watch_sessions::run_watch_publisher_task(
-                        watch_sessions,
-                        process_image,
-                        sink,
-                        topic_base,
-                        100,
-                        watch_watch_rx,
-                    )
-                    .await;
-                    info!(
-                        "watch_publisher exit: ticks={} published={} errors={}",
-                        summary.ticks_executed, summary.sessions_published, summary.publish_errors,
-                    );
-                });
-                shutdown_coordinator.register_task("watch_publisher", publisher_handle);
-                info!("Watch-session publisher task spawned (cadence=100ms, tenant=resolved)");
-            }
-            None => {
-                // Pre-provisioning boot — tenant not yet
-                // assigned. Watch publisher stays down;
-                // self-registration flow will re-init
-                // AppState + re-enter this block with a
-                // resolved tenant_id.
-                info!(
-                    "Watch-session publisher NOT spawned: tenant_id unresolved (pre-provisioning boot). Will start after successful self-registration."
-                );
-            }
-        }
-    }
 
     // Batch 198 Faz 6 wire: spawn the 1-Hz force-
     // registry sweep task. Always spawned regardless
@@ -5320,7 +5333,9 @@ async fn run_agent(
             }
         };
 
-        if scripting_enabled {
+        // ADR-048 DEC-6.3: in degraded mode control is disabled — the
+        // bytecode scan cycle and the scheduler are not started.
+        if scripting_enabled && control_enabled {
             // Batch 172 wire: build declared-types catalog
             // from the ProcessImage tag configs so Bool /
             // Int tags round-trip through the VM with
@@ -5486,6 +5501,8 @@ async fn run_agent(
                     }
                 }
             }
+        } else if !control_enabled {
+            warn!("Bytecode scan-cycle driver NOT spawned: degraded mode, control disabled");
         } else {
             info!("Bytecode scan-cycle driver NOT spawned: config.scripting.enabled=false");
         }
@@ -5968,40 +5985,105 @@ async fn run_agent(
 
     // Step 9: Start script engine (with persistence if available)
     // v2.2: ScriptEngine constructors are now async to get shared storage from AppState
-    info!("Starting script engine...");
-    let mut script_engine = match &persistence {
-        Some(p) => ScriptEngine::with_persistence(state.clone(), p.clone()).await,
-        None => ScriptEngine::new(state.clone()).await,
-    };
+    //
+    // ADR-048 DEC-6.3: not started in degraded mode (control disabled).
+    // DEC-6.4: it ticks the script-engine heartbeat every cycle.
+    let mut control_loops = vec![LoopId::IoPoll];
+    if control_enabled {
+        info!("Starting script engine...");
+        let mut script_engine = match &persistence {
+            Some(p) => ScriptEngine::with_persistence(state.clone(), p.clone()).await,
+            None => ScriptEngine::new(state.clone()).await,
+        };
 
-    if let Err(e) = script_engine.init().await {
-        warn!("Script engine initialization failed: {}", e);
+        if let Err(e) = script_engine.init().await {
+            warn!("Script engine initialization failed: {}", e);
+        } else {
+            info!(
+                "Script engine initialized with {} scripts",
+                script_engine.script_count().await
+            );
+        }
+
+        // Start script engine with shutdown awareness
+        let script_heartbeat = liveness.register(LoopId::ScriptEngine);
+        let script_shutdown = shutdown_coordinator.subscribe();
+        let script_handle = tokio::spawn(async move {
+            shutdown::run_until_shutdown(script_engine.run(script_heartbeat), script_shutdown)
+                .await;
+        });
+        shutdown_coordinator.register_task("script_engine", script_handle);
+        control_loops.push(LoopId::ScriptEngine);
     } else {
-        info!(
-            "Script engine initialized with {} scripts",
-            script_engine.script_count().await
-        );
+        warn!("Script engine NOT started: degraded mode, control disabled");
     }
 
     // Keep reference for graceful shutdown persistence stats
     let script_persistence = persistence.clone();
 
-    // Start script engine with shutdown awareness
-    let script_shutdown = shutdown_coordinator.subscribe();
-    let script_handle = tokio::spawn(async move {
-        shutdown::run_until_shutdown(script_engine.run(), script_shutdown).await;
-    });
-    shutdown_coordinator.register_task("script_engine", script_handle);
+    // Step 9b: the network side — activation, MQTT, outbound publisher,
+    // cloud reports — in the background (ADR-048 DEC-6.2). It never ends
+    // the process and never gates READY.
+    //
+    // On the LocalSet (the main thread), where activation and the MQTT
+    // client creation ran before: the runtime's worker threads have 128 KB
+    // stacks, which the provisioning HTTP/TLS path overflows.
+    let connectivity_shutdown = shutdown_coordinator.subscribe();
+    let connectivity_handle =
+        tokio::task::spawn_local(run_connectivity(state.clone(), connectivity_shutdown));
+    shutdown_coordinator.register_task("connectivity", connectivity_handle);
 
     info!(
         "Shutdown coordinator initialized with {} tasks",
         shutdown_coordinator.task_count()
     );
 
-    // Step 10: Main loop - wait for shutdown signal
+    // Step 10: READY (ADR-048 DEC-6.2, EDGE-HIGH-051). The outputs are in
+    // their safe state (Step 2) and every started control loop has completed
+    // a cycle. Degraded mode sends READY too, with its STATUS=, so systemd
+    // does not restart-loop the outputs (DEC-6.3). If a loop ends before its
+    // first cycle, READY is withheld and the unit's TimeoutStartSec stops
+    // the agent through the graceful (safe-state) shutdown below.
+    let first_cycles = tokio::select! {
+        biased;
+        _ = shutdown.changed() => None,
+        r = liveness.first_cycles(&control_loops) => Some(r),
+    };
+    match first_cycles {
+        Some(Ok(())) => {
+            degraded.set_phase(Phase::Running);
+            let status = degraded.status_line();
+            match notifier.ready(&status) {
+                Ok(()) => info!("Notified systemd: READY ({})", status),
+                Err(e) => warn!("READY could not be sent: {}", e),
+            }
+            // DEC-6.4: the watchdog follows the control loops' ticks.
+            let supervisor_handle = tokio::spawn(liveness::run_supervisor(
+                notifier.clone(),
+                liveness.clone(),
+                degraded.clone(),
+                shutdown_coordinator.subscribe(),
+            ));
+            shutdown_coordinator.register_task("liveness_supervisor", supervisor_handle);
+        }
+        Some(Err(id)) => error!(
+            "LIFE-SAFETY: control loop {} ended before completing its first cycle — READY \
+             withheld; systemd stops the agent at TimeoutStartSec through the safe-state \
+             shutdown",
+            id.name()
+        ),
+        None => info!("Shutdown requested before the first control cycle completed"),
+    }
+
+    // Step 11: Main loop - wait for shutdown signal
     info!("Agent running. Press Ctrl+C to stop.");
 
     loop {
+        // The READY wait above may already have consumed the change.
+        if *shutdown.borrow() {
+            info!("Shutdown signal received");
+            break;
+        }
         tokio::select! {
             // v1.2.4: biased; ensures shutdown signal is always checked first
             biased;
@@ -6062,6 +6144,13 @@ async fn run_agent(
         shutdown_timeout_secs,
         drain_timeout_ms
     );
+
+    // ADR-048 DEC-6: tell systemd and the health view that the agent is
+    // stopping (the watchdog supervisor stops with the other tasks).
+    degraded.set_phase(Phase::Stopping);
+    if let Err(e) = notifier.stopping(&degraded.status_line()) {
+        warn!("STOPPING=1 could not be sent: {}", e);
+    }
 
     // Batch #258 C-7 fix — flip the shutdown-race gate BEFORE
     // signaling tasks. Every command-dispatch path checks
@@ -6152,14 +6241,21 @@ async fn run_agent(
         let gpio_ref = state_guard.gpio_handle.as_ref();
         let i2c_ref = state_guard.i2c_handle.as_ref();
 
-        let safe_count = safe_state_manager
+        let report = safe_state_manager
             .apply(modbus_ref, gpio_ref, i2c_ref)
             .await;
 
-        info!(
-            "LIFE-SAFETY: safe-state phase complete ({} outputs processed)",
-            safe_count
-        );
+        if report.is_complete() {
+            info!(
+                "LIFE-SAFETY: safe-state phase complete ({} of {} outputs)",
+                report.applied, report.registered
+            );
+        } else {
+            error!(
+                "LIFE-SAFETY: shutdown safe-state incomplete ({} of {} outputs): {:?}",
+                report.applied, report.registered, report.failures
+            );
+        }
     }
 
     info!(
@@ -6293,8 +6389,17 @@ async fn run_agent(
 
 /// Initialize hardware interfaces (Modbus, GPIO) v2.0
 ///
-/// Uses actor pattern for both Modbus and GPIO
-async fn init_hardware(state: &Arc<RwLock<AppState>>) {
+/// Uses actor pattern for both Modbus and GPIO.
+///
+/// Returns the degraded-mode reasons it found (ADR-048 DEC-6.3): a configured
+/// GPIO or I2C backend that is not compiled in, not present or fails init.
+/// There is no simulation fallback, so "initialized" here always means real
+/// hardware (INFRA-CRITICAL-236). Modbus devices that do not answer are not a
+/// backend failure: their outputs fail the boot safe-state instead.
+async fn init_hardware(state: &Arc<RwLock<AppState>>) -> Vec<crate::degraded::DegradedReason> {
+    use crate::degraded::{Backend, DegradedReason};
+    let mut degraded_reasons = Vec::new();
+
     // Initialize hardware actors (must be done in LocalSet context)
     {
         let mut state_guard = state.write().await;
@@ -6313,15 +6418,15 @@ async fn init_hardware(state: &Arc<RwLock<AppState>>) {
 
         match handle.init().await {
             Ok(()) => {
-                info!("GPIO initialized successfully");
-                if handle.is_available().await {
-                    info!("  GPIO hardware is available");
-                } else {
-                    info!("  GPIO running in simulation mode");
-                }
+                info!(
+                    "GPIO initialized successfully (all pins acquired, outputs at their safe level)"
+                );
             }
             Err(e) => {
-                warn!("GPIO initialization failed: {}", e);
+                degraded_reasons.push(DegradedReason::BackendUnavailable {
+                    backend: Backend::Gpio,
+                    detail: format!("GPIO initialization failed: {e:#}"),
+                });
             }
         }
     } else {
@@ -6340,7 +6445,10 @@ async fn init_hardware(state: &Arc<RwLock<AppState>>) {
                 info!("I2C devices initialized successfully");
             }
             Err(e) => {
-                warn!("I2C initialization failed: {}", e);
+                degraded_reasons.push(DegradedReason::BackendUnavailable {
+                    backend: Backend::I2c,
+                    detail: format!("I2C initialization failed: {e:#}"),
+                });
             }
         }
     } else {
@@ -6409,7 +6517,7 @@ async fn init_hardware(state: &Arc<RwLock<AppState>>) {
                     error!(
                         "LoRaWAN init skipped: config disappeared between readiness check and handle creation"
                     );
-                    return;
+                    return degraded_reasons;
                 };
                 crate::lora::LoRaHandle::new(lora_cfg, state.clone())
             };
@@ -6439,10 +6547,10 @@ async fn init_hardware(state: &Arc<RwLock<AppState>>) {
         gpio_count, modbus_count
     );
 
-    // v2.3: Publish hardware capabilities report at boot.
-    // This informs the platform about what I/O hardware is available
-    // for auto-detection. Sent once — not periodic.
-    publish_capabilities(&state_guard).await;
+    // v2.3: the hardware capabilities report is published by the
+    // connectivity task once MQTT is up (ADR-048 DEC-6.2: hardware init
+    // never waits for the network).
+    degraded_reasons
 }
 
 /// Publish hardware capabilities to MQTT at boot time.

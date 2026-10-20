@@ -29,13 +29,36 @@ mod source_scan_support;
 
 /// Runtime environment reads allowed outside `src/generic_env.rs`:
 /// (file, variable, reason).
-const ENV_READ_ALLOWLIST: &[(&str, &str, &str)] = &[(
-    "src/main.rs",
-    "SUDERRA_AUDIT_KEY_HEX",
-    "input of the offline `--audit-verify <log>` CLI, which an auditor runs on a copy of \
-     the log; it selects no path, listener, credential or mode of the running agent, and \
-     an argv key would leak through /proc/<pid>/cmdline",
-)];
+const ENV_READ_ALLOWLIST: &[(&str, &str, &str)] = &[
+    (
+        "src/main.rs",
+        "SUDERRA_AUDIT_KEY_HEX",
+        "input of the offline `--audit-verify <log>` CLI, which an auditor runs on a copy of \
+         the log; it selects no path, listener, credential or mode of the running agent, and \
+         an argv key would leak through /proc/<pid>/cmdline",
+    ),
+    (
+        "src/systemd_notify.rs",
+        "NOTIFY_SOCKET",
+        "systemd's sd_notify(3) protocol variable for a Type=notify unit (DEC-6.1), read once \
+         before any thread exists; it selects only where readiness/watchdog datagrams go — \
+         pointing it elsewhere makes systemd fail the unit (start timeout, watchdog), never \
+         weakens a security decision",
+    ),
+    (
+        "src/systemd_notify.rs",
+        "WATCHDOG_USEC",
+        "systemd's sd_watchdog_enabled(3) timeout (DEC-6.4); it only sets how often the agent \
+         proves its control loops live — a wrong value makes systemd restart the agent, never \
+         weakens a security decision",
+    ),
+    (
+        "src/systemd_notify.rs",
+        "WATCHDOG_PID",
+        "systemd's sd_watchdog_enabled(3) target pid; a mismatch disarms the agent's pings, \
+         after which systemd restarts it",
+    ),
+];
 
 /// Code shapes that read the process environment at run time.
 const ENV_READ_PATTERNS: &[&str] = &[

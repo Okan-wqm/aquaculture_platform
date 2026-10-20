@@ -103,6 +103,9 @@ pub mod generic {
 const ACTIVATION_STATE_FILENAME: &str = "activation.json";
 /// Name of the device secret inside the secrets directory.
 const DB_KEY_FILENAME: &str = "db.key";
+/// Name of the agent health view (contract mutable-state.json,
+/// `/run/suderra/agent-health` contents).
+const AGENT_HEALTH_FILENAME: &str = "health.json";
 
 /// Resolved paths of one agent process.
 ///
@@ -290,6 +293,22 @@ impl AgentPaths {
     /// (DEC-4.6). The agent never writes them into `config.yaml`.
     pub fn activation_state_file(&self) -> PathBuf {
         self.state_dir().join(ACTIVATION_STATE_FILENAME)
+    }
+
+    /// The agent health view (ADR-048 DEC-6.3, DEC-6.8): degraded mode and
+    /// control-loop liveness. Suderra OS: `health.json` in the contract's
+    /// tmpfs `/run/suderra/agent-health`, which the root health check reads.
+    /// Generic: under the state directory (the generic unit grants no
+    /// runtime directory); it is rewritten only when its content changes.
+    #[cfg(feature = "suderra-os")]
+    pub fn agent_health_file(&self) -> PathBuf {
+        Path::new(suderra_os::AGENT_HEALTH_DIR).join(AGENT_HEALTH_FILENAME)
+    }
+
+    /// See the Suderra OS variant.
+    #[cfg(not(feature = "suderra-os"))]
+    pub fn agent_health_file(&self) -> PathBuf {
+        self.state_dir().join(AGENT_HEALTH_FILENAME)
     }
 
     /// Where the agent creates its device secret when none exists.
@@ -564,6 +583,11 @@ mod tests {
             Path::new("/var/lib/suderra/policy-cache")
         );
         assert_eq!(p.audit_log_file(), Path::new("/var/log/suderra/audit.log"));
+        assert_eq!(
+            p.agent_health_file(),
+            Path::new("/run/suderra/agent-health/health.json")
+        );
+        assert!(p.check_agent_writable(&p.agent_health_file()).is_ok());
         assert_eq!(AgentPaths::current(), &p);
     }
 

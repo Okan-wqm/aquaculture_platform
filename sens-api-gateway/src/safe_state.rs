@@ -28,9 +28,98 @@ use std::time::Duration;
 use tracing::{error, info, warn};
 
 use crate::config::{AgentConfig, GpioConfig, ModbusDeviceConfig};
+use crate::degraded::{DegradedReason, SafeStateSummary};
 use crate::gpio::GpioHandle;
 use crate::i2c::I2cHandle;
 use crate::modbus::ModbusHandle;
+
+/// Capability to drive an output to its safe value while control is
+/// disabled (ADR-048 DEC-6.3).
+///
+/// The hardware handles refuse every actuator write while the agent is
+/// degraded (`degraded::ControlGate`); their `*_safe_state` methods take this
+/// token instead. Its field is private to this module, so only
+/// [`SafeStateManager::apply`] can construct one: no other code path can use
+/// the bypass, and the safe-state writer is the only actuator writer in
+/// degraded mode (tier 1).
+pub struct SafeStateWrite(());
+
+/// One output the safe-state pass could not drive.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SafeStateFailure {
+    /// Which output (`modbus coil PLC-1/100`, `gpio pin 17`, ...).
+    pub output: String,
+    /// Why (handle missing, write error, timeout).
+    pub error: String,
+}
+
+/// Outcome of one safe-state pass (EDGE-HIGH-061, EDGE-MEDIUM-075).
+///
+/// "No outputs registered" and "every output failed" were both a bare `0`
+/// before; the report keeps them apart, so a sensor-only node boots
+/// (registered 0, complete) and a partial failure is visible as one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SafeStateReport {
+    pub registered: usize,
+    pub applied: usize,
+    pub failures: Vec<SafeStateFailure>,
+}
+
+impl SafeStateReport {
+    /// Every registered output reached its safe value.
+    pub fn is_complete(&self) -> bool {
+        self.failures.is_empty() && self.applied == self.registered
+    }
+
+    /// The reported summary.
+    pub fn summary(&self) -> SafeStateSummary {
+        SafeStateSummary {
+            registered: self.registered,
+            applied: self.applied,
+            failed: self.failures.len(),
+        }
+    }
+
+    /// The degraded-mode reason when the pass was incomplete.
+    pub fn degraded_reason(&self) -> Option<DegradedReason> {
+        if self.is_complete() {
+            None
+        } else {
+            Some(DegradedReason::SafeStateIncomplete {
+                registered: self.registered,
+                failed: self
+                    .failures
+                    .iter()
+                    .map(|f| format!("{}: {}", f.output, f.error))
+                    .collect(),
+            })
+        }
+    }
+}
+
+impl OutputTag {
+    /// Short description for logs and reports.
+    pub fn describe(&self) -> String {
+        match self {
+            Self::ModbusCoil {
+                device_name,
+                address,
+                ..
+            } => format!("modbus coil {device_name}/{address}"),
+            Self::ModbusRegister {
+                device_name,
+                address,
+                ..
+            } => format!("modbus register {device_name}/{address}"),
+            Self::GpioPin { pin, .. } => format!("gpio pin {pin}"),
+            Self::I2cOutput {
+                device_name,
+                register,
+                ..
+            } => format!("i2c {device_name}/0x{register:02X}"),
+        }
+    }
+}
 
 /// Maximum time to wait for a single device to accept a safe-state write.
 /// LIFE-SAFETY: 2 s per device is generous; if the bus is dead we move on.
@@ -127,17 +216,25 @@ impl SafeStateManager {
     /// # LIFE-SAFETY
     /// - Errors on individual devices are logged but do NOT abort the loop.
     /// - Each write is bounded by `PER_DEVICE_TIMEOUT`.
-    /// - Returns the number of outputs that were successfully set.
+    /// - Works while control is disabled: the writes use the
+    ///   [`SafeStateWrite`] capability, not the gated actuator path.
+    /// - Returns a report; the boot sequence enters degraded mode unless it
+    ///   is complete.
     pub async fn apply(
         &self,
         modbus: Option<&ModbusHandle>,
         gpio: Option<&GpioHandle>,
         i2c: Option<&I2cHandle>,
-    ) -> usize {
+    ) -> SafeStateReport {
         if self.outputs.is_empty() {
             info!("SafeStateManager: no output tags registered — nothing to safe-state");
-            return 0;
+            return SafeStateReport {
+                registered: 0,
+                applied: 0,
+                failures: Vec::new(),
+            };
         }
+        let token = SafeStateWrite(());
 
         info!(
             // LIFE-SAFETY: loud marker so log analysis tools can find this event
@@ -146,11 +243,12 @@ impl SafeStateManager {
         );
 
         let mut success_count: usize = 0;
+        let mut failures = Vec::new();
 
         for tag in &self.outputs {
             let result = tokio::time::timeout(
                 PER_DEVICE_TIMEOUT,
-                Self::apply_single(tag, modbus, gpio, i2c),
+                Self::apply_single(tag, modbus, gpio, i2c, &token),
             )
             .await;
 
@@ -161,6 +259,10 @@ impl SafeStateManager {
                 Ok(Err(e)) => {
                     // LIFE-SAFETY: log at error level so alerting picks it up
                     error!("LIFE-SAFETY: failed to safe-state {:?}: {}", tag, e);
+                    failures.push(SafeStateFailure {
+                        output: tag.describe(),
+                        error: format!("{e:#}"),
+                    });
                 }
                 Err(_elapsed) => {
                     error!(
@@ -168,6 +270,10 @@ impl SafeStateManager {
                         tag,
                         PER_DEVICE_TIMEOUT.as_secs()
                     );
+                    failures.push(SafeStateFailure {
+                        output: tag.describe(),
+                        error: format!("timeout after {}s", PER_DEVICE_TIMEOUT.as_secs()),
+                    });
                 }
             }
         }
@@ -186,7 +292,11 @@ impl SafeStateManager {
             );
         }
 
-        success_count
+        SafeStateReport {
+            registered: self.outputs.len(),
+            applied: success_count,
+            failures,
+        }
     }
 
     /// Return the total number of registered output tags.
@@ -241,8 +351,7 @@ impl SafeStateManager {
 
     /// Collect GPIO output pin tags.
     fn collect_gpio_outputs(gpio: &GpioConfig, outputs: &mut Vec<OutputTag>) {
-        let dir = gpio.direction.to_lowercase();
-        if dir == "output" || dir == "out" {
+        if gpio.is_output() {
             // EDGE-HIGH-012: safe_state_level = fail-safe level; default LOW.
             outputs.push(OutputTag::GpioPin {
                 pin: gpio.pin,
@@ -257,6 +366,7 @@ impl SafeStateManager {
         modbus: Option<&ModbusHandle>,
         gpio: Option<&GpioHandle>,
         i2c: Option<&I2cHandle>,
+        token: &SafeStateWrite,
     ) -> anyhow::Result<()> {
         match tag {
             OutputTag::ModbusCoil {
@@ -269,7 +379,9 @@ impl SafeStateManager {
                 })?;
                 // LIFE-SAFETY: per-actuator fail-safe level (EDGE-HIGH-012);
                 // default false (de-energise) when unclassified.
-                handle.write_coil(device_name, *address, *safe_value).await
+                handle
+                    .write_coil_safe_state(device_name, *address, *safe_value, token)
+                    .await
             }
             OutputTag::ModbusRegister {
                 device_name,
@@ -282,7 +394,7 @@ impl SafeStateManager {
                 // LIFE-SAFETY: per-actuator fail-safe value (EDGE-HIGH-012);
                 // default 0 when unclassified.
                 handle
-                    .write_register(device_name, *address, *safe_value)
+                    .write_register_safe_state(device_name, *address, *safe_value, token)
                     .await
             }
             OutputTag::GpioPin { pin, safe_level } => {
@@ -290,7 +402,7 @@ impl SafeStateManager {
                     .ok_or_else(|| anyhow::anyhow!("GPIO handle unavailable for pin safe-state"))?;
                 // LIFE-SAFETY: per-actuator fail-safe level (EDGE-HIGH-012);
                 // default false (LOW) when unclassified.
-                handle.write_pin(*pin, *safe_level).await
+                handle.drive_safe_level(*pin, *safe_level, token).await
             }
             OutputTag::I2cOutput {
                 device_name,
@@ -301,7 +413,7 @@ impl SafeStateManager {
                     .ok_or_else(|| anyhow::anyhow!("I2C handle unavailable for DAC safe-state"))?;
                 // LIFE-SAFETY: write the pre-configured zero-value payload
                 handle
-                    .write_register(device_name, *register, safe_value)
+                    .write_register_safe_state(device_name, *register, safe_value, token)
                     .await
             }
         }
@@ -309,6 +421,7 @@ impl SafeStateManager {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic, clippy::indexing_slicing)]
 mod tests {
     use super::*;
     use crate::config::{AgentConfig, GpioConfig, ModbusDeviceConfig};
@@ -526,12 +639,65 @@ registers:
         assert_eq!(mgr.output_count(), 0);
     }
 
+    /// EDGE-HIGH-061: a node with no writable outputs (sensor-only Modbus,
+    /// input-only GPIO) has nothing to drive, and that is complete — not a
+    /// failure that aborts the boot.
     #[tokio::test]
-    async fn test_apply_with_no_outputs_returns_zero() {
-        let config = test_config(vec![], vec![]);
+    async fn no_registered_outputs_is_a_complete_pass() {
+        let mut ro = modbus_device_with_outputs("SENSORS");
+        ro.security.allow_writes = false;
+        let config = test_config(vec![ro], vec![gpio_input(22)]);
         let mgr = SafeStateManager::from_config(&config);
 
-        let count = mgr.apply(None, None, None).await;
-        assert_eq!(count, 0);
+        let report = mgr.apply(None, None, None).await;
+        assert_eq!(report.registered, 0);
+        assert_eq!(report.applied, 0);
+        assert!(report.is_complete());
+        assert!(report.degraded_reason().is_none());
+    }
+
+    /// EDGE-MEDIUM-075: when only some outputs reach safe-state the report
+    /// says which did not, and that is a degraded-mode reason.
+    #[tokio::test]
+    async fn a_missing_handle_fails_its_outputs_and_names_them() {
+        let config = test_config(
+            vec![modbus_device_with_outputs("PLC-001")],
+            vec![gpio_output(17)],
+        );
+        let mgr = SafeStateManager::from_config(&config);
+
+        // No handle at all: all three outputs fail, each by name.
+        let report = mgr.apply(None, None, None).await;
+        assert_eq!(report.registered, 3);
+        assert_eq!(report.applied, 0);
+        assert!(!report.is_complete());
+        let names: Vec<&str> = report.failures.iter().map(|f| f.output.as_str()).collect();
+        assert_eq!(
+            names,
+            vec![
+                "modbus coil PLC-001/100",
+                "modbus register PLC-001/200",
+                "gpio pin 17"
+            ]
+        );
+        match report.degraded_reason() {
+            Some(DegradedReason::SafeStateIncomplete { registered, failed }) => {
+                assert_eq!(registered, 3);
+                assert_eq!(failed.len(), 3);
+            }
+            other => panic!("expected SafeStateIncomplete, got {other:?}"),
+        }
+        assert_eq!(report.summary().failed, 3);
+    }
+
+    /// Direction parsing is shared with config validation: an `OUT` pin is
+    /// an output for the registry exactly as it is for the validator and the
+    /// GPIO init.
+    #[test]
+    fn upper_case_out_is_an_output() {
+        let mut pin = gpio_output(5);
+        pin.direction = "OUT".to_string();
+        let config = test_config(vec![], vec![pin]);
+        assert_eq!(SafeStateManager::from_config(&config).output_count(), 1);
     }
 }

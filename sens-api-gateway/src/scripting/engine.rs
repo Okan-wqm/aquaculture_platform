@@ -625,14 +625,18 @@ impl ScriptEngine {
     }
 
     /// Main loop - dispatches to appropriate execution mode
-    pub async fn run(&mut self) {
+    ///
+    /// ADR-048 DEC-6.4: `heartbeat` is ticked after every completed cycle
+    /// (and while idle between cycles); the systemd watchdog is pinged only
+    /// while it is. It is dropped when the loop ends, which stops the pings.
+    pub async fn run(&mut self, heartbeat: crate::liveness::Heartbeat) {
         match self.execution_mode {
             ExecutionMode::EventDriven => {
                 info!(
                     mode = "event_driven",
                     "Script engine started in event-driven mode"
                 );
-                self.run_event_driven().await;
+                self.run_event_driven(&heartbeat).await;
             }
             ExecutionMode::ScanCycle => {
                 info!(
@@ -641,19 +645,19 @@ impl ScriptEngine {
                     fb_count = self.fb_registry.count(),
                     "Script engine started in scan cycle mode"
                 );
-                self.run_scan_cycle().await;
+                self.run_scan_cycle(&heartbeat).await;
             }
         }
     }
 
     /// Event-driven execution loop (v2.0 - original behavior)
     /// Scripts run when triggers fire, checked every 1 second
-    async fn run_event_driven(&mut self) {
+    async fn run_event_driven(&mut self, heartbeat: &crate::liveness::Heartbeat) {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(1));
         let mut reload_counter = 0u32;
 
         loop {
-            interval.tick().await;
+            crate::liveness::tick_while_waiting(heartbeat, interval.tick()).await;
 
             // Reload scripts every 30 seconds to pick up changes from commands
             reload_counter += 1;
@@ -671,6 +675,8 @@ impl ScriptEngine {
             // Update context with current data
             if let Err(e) = self.update_context().await {
                 warn!("Failed to update context: {}", e);
+                // The cycle ended (without running scripts): nothing in flight.
+                heartbeat.tick();
                 continue;
             }
 
@@ -690,10 +696,15 @@ impl ScriptEngine {
                 if let Err(e) = self.execute_script(&script_id).await {
                     error!("Script {} execution failed: {}", script_id, e);
                 }
+                // DEC-6.4 per-call budget: one script returned.
+                heartbeat.progress();
             }
 
             // Sync script outputs to ProcessImage for SCADA HMI visibility
             self.sync_to_process_image().await;
+
+            // The cycle completed: nothing is in flight.
+            heartbeat.tick();
         }
     }
 
@@ -707,7 +718,7 @@ impl ScriptEngine {
     /// 5. Evaluate scripts/conditions
     /// 6. Write all outputs (Modbus, GPIO)
     /// 7. Wait for next cycle
-    async fn run_scan_cycle(&mut self) {
+    async fn run_scan_cycle(&mut self, heartbeat: &crate::liveness::Heartbeat) {
         let scan_interval = Duration::from_millis(self.scan_cycle_ms);
         let mut reload_counter = 0u64;
         // v1.2.6: ceiling division for accurate reload timing.
@@ -755,6 +766,8 @@ impl ScriptEngine {
                 if let Err(e) = self.execute_script(&script_id).await {
                     error!(script_id = %script_id, error = %e, "Script execution failed");
                 }
+                // DEC-6.4 per-call budget: one script returned.
+                heartbeat.progress();
             }
 
             // ========== PHASE 5b: SYNC TO PROCESS IMAGE ==========
@@ -783,9 +796,11 @@ impl ScriptEngine {
             let cycle_duration = cycle_start.elapsed();
             self.scan_stats.update(cycle_duration, self.scan_cycle_ms);
 
+            // The cycle completed: nothing is in flight.
+            heartbeat.tick();
             if cycle_duration < scan_interval {
                 let sleep_time = scan_interval - cycle_duration;
-                tokio::time::sleep(sleep_time).await;
+                crate::liveness::idle(heartbeat, sleep_time).await;
             }
             // If overrun, no sleep - immediately start next cycle
         }

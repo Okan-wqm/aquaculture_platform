@@ -8,7 +8,11 @@ import { stub } from '@aquaculture/testing';
 describe('CreateTemperatureScenarios1823000000000', () => {
   it('creates both tables with the lookup indexes and the cascade FK', async () => {
     const queries: string[] = [];
-    const mockQueryRunner = stub<QueryRunner>({ query: queries.push.bind(queries) });
+    const mockQueryRunner = stub<QueryRunner>({
+      query: async (sql: string) => {
+        queries.push(sql);
+      },
+    });
 
     await new CreateTemperatureScenarios1823000000000().up(mockQueryRunner);
 
@@ -38,7 +42,11 @@ describe('CreateTemperatureScenarios1823000000000', () => {
 
   it('drops points before scenarios on down (FK order)', async () => {
     const order: string[] = [];
-    const mockQueryRunner = stub<QueryRunner>({ query: order.push.bind(order) });
+    const mockQueryRunner = stub<QueryRunner>({
+      query: async (sql: string) => {
+        order.push(sql);
+      },
+    });
 
     await new CreateTemperatureScenarios1823000000000().down(mockQueryRunner);
     expect(order[0]).toContain('temperature_scenario_points');

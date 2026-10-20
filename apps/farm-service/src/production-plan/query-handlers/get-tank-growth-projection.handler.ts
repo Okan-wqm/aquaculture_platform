@@ -30,6 +30,7 @@ import { ProtocolAssignment } from '../../feeding-protocol/entities/protocol-ass
 import { FeedingProtocolV2 } from '../../feeding-protocol/entities/feeding-protocol-v2.entity';
 import type { FcrOverride } from '../../feeding-protocol/entities/protocol-assignment.entity';
 import { ProtocolRateService } from '../../feeding-protocol/services/protocol-rate.service';
+import { simulateProtocolDay } from '../../feeding-protocol/services/protocol-day-step.util';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { Equipment } from '../../equipment/entities/equipment.entity';
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
@@ -197,29 +198,26 @@ export class GetTankGrowthProjectionHandler implements IQueryHandler<GetTankGrow
 
           const resolvedBand = this.rateService.bandFor(protocol.bands, avgWeightG);
           if (!resolvedBand) break;
-          const multiplier = this.rateService.temperatureMultiplier(
-            protocol.temperatureAdjustments,
-            temperatureC,
-          );
-          const ratePercent =
-            resolvedBand.band.feedingRatePercent *
-            multiplier *
-            (1 + Number(overrides.rateAdjustmentPercent ?? 0) / 100);
-          const feedKg = (biomassKg * ratePercent) / 100;
 
-          const fcr = this.rateService.resolveExpectedFcr({
+          // Per-day physics lives in the shared simulation core (SSoT — the
+          // feed forecast runs the same step; this also brings the min/max
+          // rate clamps and the feed-product FCR matrix the inline version
+          // had drifted away from).
+          const step = simulateProtocolDay(this.rateService, {
+            protocol,
             band: resolvedBand.band,
-            fcrSource: protocol.settings?.fcrSource ?? 'band',
             avgWeightG,
+            biomassKg,
+            fishCount,
             temperatureC,
-            protocolFcrMatrix: protocol.fcrMatrix,
+            rateAdjustmentPercent: overrides.rateAdjustmentPercent,
             fcrOverrides,
           });
-          const growthKg = fcr.value > 0 ? feedKg / fcr.value : 0;
+          const growthKg = step.growthKg;
 
-          biomassKg += growthKg;
-          totalFeedKg += feedKg;
-          avgWeightG = (biomassKg * 1000) / fishCount;
+          biomassKg = step.nextBiomassKg;
+          totalFeedKg += step.feedKg;
+          avgWeightG = step.nextAvgWeightG;
 
           const capacityPercent = capacityKg ? (biomassKg / capacityKg) * 100 : 0;
           if (capacityPercent > peakCapacityPercent) peakCapacityPercent = capacityPercent;
@@ -231,7 +229,7 @@ export class GetTankGrowthProjectionHandler implements IQueryHandler<GetTankGrow
             temperatureC: temperatureC ?? 0,
             avgWeightG: Math.round(avgWeightG * 100) / 100,
             biomassKg: Math.round(biomassKg * 1000) / 1000,
-            feedKg: Math.round(feedKg * 1000) / 1000,
+            feedKg: Math.round(step.feedKg * 1000) / 1000,
             capacityPercent: Math.round(capacityPercent * 10) / 10,
           });
         }

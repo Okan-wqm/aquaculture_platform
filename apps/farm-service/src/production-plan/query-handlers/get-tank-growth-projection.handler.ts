@@ -27,10 +27,8 @@ import {
   TemperatureScenarioSource,
 } from '../entities/temperature-scenario.entity';
 import { ProtocolAssignment } from '../../feeding-protocol/entities/protocol-assignment.entity';
-import {
-  FeedingProtocolV2,
-  type FcrOverride,
-} from '../../feeding-protocol/entities/feeding-protocol-v2.entity';
+import { FeedingProtocolV2 } from '../../feeding-protocol/entities/feeding-protocol-v2.entity';
+import type { FcrOverride } from '../../feeding-protocol/entities/protocol-assignment.entity';
 import { ProtocolRateService } from '../../feeding-protocol/services/protocol-rate.service';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { Equipment } from '../../equipment/entities/equipment.entity';

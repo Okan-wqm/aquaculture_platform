@@ -38,7 +38,9 @@ def _verdict(
         finding_id="finding-heal",
         verdict="true_positive",
         severity="high",
-        note="heal fixture",
+        # WP-J fix round — independent seats write independent prose: the
+        # settle path's diversity leg refuses a panel that echoes.
+        note=f"{judge_id} independent reading of the healed group",
         source_type="ai_judge",
         judge_id=judge_id,
         model="test",

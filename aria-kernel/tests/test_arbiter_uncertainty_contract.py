@@ -136,6 +136,8 @@ class ArbiterUncertaintyIsAValidOutcome(unittest.TestCase):
                 # WP-J fix round — an anchor-grade closing set whose evidence
                 # union is empty escalates under this name, never anchors.
                 "anchor_evidence_empty",
+                # WP-J fix round — a panel whose seats echo each other.
+                "panel_echo",
             },
         )
 

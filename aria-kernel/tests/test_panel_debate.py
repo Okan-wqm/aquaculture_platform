@@ -348,6 +348,66 @@ class BoundedRebuttalTests(_PanelCase):
         self.assertEqual(result["minted_count"], 0)
 
 
+class PanelDiversitySettleTests(_PanelCase):
+    """WP-J review — the shipped guard RUNS at the settle path.
+
+    verify_panel_diversity existed with zero production callers: no panel
+    was ever diversity-checked at runtime, so a panel whose seats echo each
+    other settled with no objection and could anchor. The settle path — the
+    same place the anchor legs read the seats' answers — now asks the one
+    law; an echo panel escalates under its own name and never anchors.
+    """
+
+    ECHO = "the tenant predicate is skipped for batch requests in the handler"
+    DISTINCT = (
+        "the tenant predicate is skipped for batch requests in the handler",
+        "an unrelated rationale about the same handler and its guard clause",
+        "a third reading focusing on the missing scope check entirely",
+    )
+
+    def _seat(
+        self, judge_id: str, method: str, rationale: str, *, note: str = "seat verdict",
+    ) -> None:
+        from aria_kernel.feedback_store import record_operator_feedback
+
+        record_operator_feedback(
+            tool_id="tool-x", run_id="run-1", finding_id="F-1",
+            verdict="true_positive", severity="high", note=note,
+            source_type="ai_judge", judge_id=judge_id,
+            model="glm-5.3", method=method, confidence=0.95,
+            evidence_refs=["src/f1.py:1"], rationale=rationale,
+            judgment_group_id="judge:tool-x:F-1", finding_fingerprint="fp1",
+            base_dir=self.tools,
+        )
+
+    def _seats(self, rationales: tuple[str, ...]) -> None:
+        methods = ("static_trace", "devils_advocate", "evidence_weighing")
+        for index, (judge_id, method) in enumerate((
+            ("aria-evidence-judge", methods[0]),
+            ("aria-adversarial-judgment-seat", methods[1]),
+            ("aria-consensus-arbiter", methods[2]),
+        )):
+            self._seat(judge_id, method, rationales[index])
+
+    def test_an_echo_panel_never_settles_as_truth(self) -> None:
+        self._seats((self.ECHO, self.ECHO, self.ECHO))
+        result = generate_ai_consensus(tool_id="tool-x", base_dir=self.tools)
+        self.assertEqual(result["consensus_count"], 0, result.get("consensus"))
+        self.assertIn(
+            "panel_echo",
+            [str(u.get("reason")) for u in result.get("uncertainties") or []],
+            result.get("uncertainties"),
+        )
+
+    def test_a_panel_of_distinct_readings_still_anchors(self) -> None:
+        from aria_kernel.feedback_store import is_ground_truth_row
+
+        self._seats(self.DISTINCT)
+        result = generate_ai_consensus(tool_id="tool-x", base_dir=self.tools)
+        self.assertEqual(result["consensus_count"], 1, result.get("uncertainties"))
+        self.assertTrue(is_ground_truth_row(result["consensus"][0]))
+
+
 class PanelDiversityGuardTests(unittest.TestCase):
     """One Jaccard law, two callers: the plan triple and an N-ary panel."""
 

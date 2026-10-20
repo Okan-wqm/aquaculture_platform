@@ -55,6 +55,11 @@ CONSENSUS_UNCERTAINTY_REASONS = (
     # "a falsifiable claim carrying file:line"); the group escalates
     # instead of anchoring.
     "anchor_evidence_empty",
+    # WP-J fix round — a panel whose seats ECHO each other: the shipped
+    # verify_panel_diversity had zero production callers, so N seats
+    # answering in the same words settled as N observations. One law, two
+    # callers (independence_check): the settle path asks it too.
+    "panel_echo",
     "conformal_abstain",
     # ARIA-HIGH-325 — a true_positive whose agreeing judges cite evidence the
     # producing tool's scope does not admit (ARIA's detector source outside
@@ -1330,6 +1335,27 @@ def generate_ai_consensus(
                 ),
             )
             continue
+        # WP-J fix round — the DIVERSITY leg, wired at last: the guard slice
+        # B shipped (verify_panel_diversity) had zero production callers, so
+        # no panel was ever diversity-checked at runtime. The settle path —
+        # here, where the anchor legs read the seats' answers — now asks the
+        # one law the plan side asks (same similarity, same ceiling,
+        # fail-closed on unreadable answers): an anchor-grade closing set
+        # whose seats echo each other is one observation wearing N receipts.
+        if len(closing) >= ANCHOR_MIN_JUDGE_COUNT:
+            from .independence_check import verify_panel_diversity
+
+            diverse, _echo_reasons = verify_panel_diversity(
+                [str(row.get("rationale") or row.get("note") or "") for row in closing],
+            )
+            if not diverse:
+                uncertainties.append(
+                    _consensus_uncertainty(
+                        tool_id, run_id, finding_id, group_id,
+                        "panel_echo",
+                    ),
+                )
+                continue
         consensus_rows.append(
             record_operator_feedback(
                 tool_id=tool_id,

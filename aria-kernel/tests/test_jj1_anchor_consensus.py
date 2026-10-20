@@ -221,7 +221,9 @@ class _LedgerCase(unittest.TestCase):
             finding_id=finding,
             verdict=verdict,
             severity="high",
-            note="judge",
+            # WP-J fix round — independent seats write independent prose:
+            # the settle path's diversity leg refuses a panel that echoes.
+            note=f"{judge_id} independent reading of the finding",
             source_type="ai_judge",
             judge_id=judge_id,
             # G-2 — the fleet as it actually runs: the two routine judges are

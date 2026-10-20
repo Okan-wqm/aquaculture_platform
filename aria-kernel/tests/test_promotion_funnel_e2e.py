@@ -178,6 +178,14 @@ class _Funnel:
             {"id": item["id"], "verdict": "satisfied", "evidence_refs": [f"{SUBJECT}:1"]}
             for item in request.get("must_satisfy") or [] if isinstance(item, dict)
         ]
+        # WP-J fix round — independent seats write independent prose (the
+        # settle path's diversity leg refuses a panel that echoes), so each
+        # seat answers in its own words about the same cited line.
+        _rationales = {
+            "aria-evidence-judge": "the cited line performs the operation on the tenant context",
+            "aria-adversarial-judge": "reading the same line from the guard's side confirms the claim",
+            "aria-consensus-arbiter": "an independent pass over the call site agrees with the pair",
+        }
         record_judge_verdict_from_response(
             request=request,
             response={
@@ -189,7 +197,11 @@ class _Funnel:
                     "agent_dispatch_model": JUDGE_MODELS[request["target_agent"]],
                     "verdict": {
                         "verdict": verdict, "confidence": 0.95, "severity": "high",
-                        "rationale": "the cited line performs the operation", "evidence_refs": [f"{SUBJECT}:1"],
+                        "rationale": _rationales.get(
+                            request["target_agent"],
+                            "the cited line performs the operation",
+                        ),
+                        "evidence_refs": [f"{SUBJECT}:1"],
                     },
                 },
             },

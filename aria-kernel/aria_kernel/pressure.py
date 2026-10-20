@@ -8,7 +8,7 @@ from typing import Any
 
 from .ledger import append_declared_jsonl, load_declared_jsonl, sha256_of_canonical_json
 from .pressure_evidence import require_citable_evidence, split_citable_refs
-from .runs_reader import read_runs_rows, run_read_paths
+from .runs_reader import read_runs_rows, run_path_citations
 from .state_manifest import surface_for_path
 from .tool_health import runs_path
 from .tool_registry import GovernanceError, ensure_tools_dir, list_tools, utc_now
@@ -555,7 +555,7 @@ def run_pressure(
                     pressure_type="CONTRADICTION",
                     severity="high",
                     reason=f"tool health violation: {run.get('tool_id')} {status}",
-                    **_citable(run_read_paths(run, base_dir=root)),
+                    **_citable(run_path_citations(run, base_dir=root)),
                     occurrence_count=1,
                     candidate_tools=[str(run.get("tool_id"))],
                     recommended_action="inspect quarantine reason before next run",
@@ -576,7 +576,7 @@ def run_pressure(
                     pressure_type="REPETITION",
                     severity="medium",
                     reason=f"raw SHADOW findings increased for {run.get('tool_id')}: +{delta}",
-                    **_citable(_array_of_strings(run_read_paths(run, base_dir=root))[:20]),
+                    **_citable(run_path_citations(run, base_dir=root)),
                     occurrence_count=delta,
                     candidate_tools=[str(run.get("tool_id"))],
                     recommended_action="sample and judge increased SHADOW findings before calibration",

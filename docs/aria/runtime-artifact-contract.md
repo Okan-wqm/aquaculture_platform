@@ -6,7 +6,41 @@ payload, but audit evidence must remain complete and hash-verifiable.
 ## Contract
 
 - `ARIA_RUN_LEDGER_FORMAT=v1|v2-shadow|v2` controls rollout.
-- Default `v2-shadow` preserves legacy run fields while writing v2 artifact refs.
+- Default `v2-shadow` preserves legacy run fields while writing v2 artifact refs, except the lists
+  that grow with an adapter's own report, which its artifact holds whole:
+  - `read_paths` is stored as `read_paths_ref` (count, sha256, `json_pointer`
+    `/payload/read_paths`; ARIA-HIGH-523);
+  - `scope_violations` keeps at most 20 entries within the per-field inline budget, forbidden reads
+    first, plus `scope_violations_spilled` (reason code, total, sampled, sha256, verification status
+    `artifact_backed`, `json_pointer` `/payload/scope_violations`; ARIA-HIGH-617).
+- A `v1` row, and a row whose artifact write failed, has no artifact to point at: `read_paths` and
+  `scope_violations` stay whole up to the per-field inline budget
+  (`ledger_inline.INLINE_ROW_FIELD_MAX_BYTES`, counted in the row's own encoding). Beyond it the row
+  keeps the entries that fit, in order (an entry is never cut; one too long for the budget left is
+  skipped), plus a `<key>_spilled` marker with verification status `digest_only`: the total and
+  digest survive, the rest of the list does not (ARIA-HIGH-617). A failed write is already
+  `integrity_failed`; `v1` declares `legacy_inline_or_sample_only`.
+- The lists the writer samples (`read_paths`, `scope_violations`, and `evidence_validation`'s
+  `evidence_sources` and `errors`, each scrubbed first and then bounded) have one shape,
+  `ledger_inline.sample_inline_list`, and one digest spelling,
+  `ledger.sha256_digest_of_canonical_json`. Other lists on a row do not have that shape:
+  - `runner.raw_findings_sample` (the first 50 raw findings) and `memory_candidates` stay inline
+    with no byte bound and no marker until ARIA-HIGH-618 lands; a `v1` row also keeps
+    `emitted_observations` and `emitted_findings` whole (ARIA-MEDIUM-647);
+  - runs compaction slims a row that its writer kept whole (no `read_paths_spilled`) to
+    `read_paths_count` plus its first five paths; the whole row is in the compaction archive, and
+    the slimmed row carries no digest of its own.
+- Adapter output the parser cannot store is a `schema_error` run, recorded and quarantined:
+  output nested past `tool_runner.TOOL_OUTPUT_NESTING_MAX_DEPTH` (the stored-line bound less the
+  levels a row and a contention replay add around a parsed value), a value the decoder refuses
+  to build (`output_value_not_decodable`), and a findings entry past
+  `tool_runner.TOOL_OUTPUT_FINDING_MAX_BYTES` (`output_finding_too_large`): each finding gets
+  raw-findings, findings and seeding rows of its own, appended before the run's health is decided.
+  Output that is not UTF-8 still fails before the parser (ARIA-HIGH-654).
+- `evidence_validation` is bounded before the artifact is written from it, so its sampled lists
+  are `digest_only`; the whole value is rebuilt with `validate_tool_output_evidence` over the
+  artifact's `payload.parsed_output`, and a `v1` or failed-write row keeps only the total and
+  digest.
 - `v2` run rows are thin and must resolve to a full artifact.
 - `runs_reader` is the only supported consumer surface for `runs.jsonl`.
 - Missing artifact, hash mismatch, path escape, write failure, or failed restore is `integrity_failed`.

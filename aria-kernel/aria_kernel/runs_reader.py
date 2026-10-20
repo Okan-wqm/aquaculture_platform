@@ -25,11 +25,11 @@ the silent-skip pattern on runs.jsonl fail at build time.
 """
 from __future__ import annotations
 
-import hashlib
-import json
 from pathlib import Path
 from typing import Any, Iterator
 
+from .ledger import sha256_digest_of_canonical_json
+from .ledger_inline import bounded_sample
 from .runtime_artifacts import resolve_artifact_payload
 from .strict_jsonl_reader import read_strict_jsonl
 from .tool_registry import GovernanceError
@@ -120,9 +120,13 @@ READ_PATHS_POINTER = "/payload/read_paths"
 
 
 def read_set_digest(paths: list[Any]) -> str:
-    """The content address of a read set: sha256 of its canonical JSON."""
-    encoded = json.dumps(paths, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-    return "sha256:" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    """The content address of a read set: the kernel's one canonical-JSON digest.
+
+    ``ledger.sha256_digest_of_canonical_json``, the spelling every
+    ``ledger_inline`` sample marker names its whole list with (ARIA-HIGH-617),
+    so the stand-ins on one row verify the same way.
+    """
+    return sha256_digest_of_canonical_json(paths)
 
 
 def read_paths_reference(paths: list[Any]) -> dict[str, Any]:
@@ -136,7 +140,13 @@ def run_read_paths(row: dict[str, Any], *, base_dir: str | Path | None) -> list[
     A row written before ARIA-HIGH-523, a v1 row (no artifact), a row whose
     artifact write failed and the writer's in-memory envelope carry the list
     inline, and it is returned as stored: a compacted pre-fix row still reads
-    its five-path sample, as every reader read it before. A row with a
+    its five-path sample, as every reader read it before. A v1 or failed-write
+    row whose read set did not fit its inline budget (ARIA-HIGH-617) reads the
+    sample its writer kept; ``read_paths_spilled`` beside it names the total
+    and digest of the reported set, which nothing else holds. The stored-row
+    callers cite the paths as evidence (pressure, capability gap), which the
+    kept sample serves; the scope verdict was judged on the writer's in-memory
+    envelope, whose set is whole, and is recorded in the row's status. A row with a
     ``read_paths_ref`` is resolved from its artifact and checked against the
     count and digest the row recorded. A set that cannot be read back is
     refused by name, never read as empty: the row says the set exists.
@@ -160,7 +170,41 @@ def run_read_paths(row: dict[str, Any], *, base_dir: str | Path | None) -> list[
     return paths
 
 
+# ARIA-HIGH-617 — what a per-cycle row cites of one tool run: at most this many
+# of its paths, within this many bytes of the row's encoding.
+RUN_PATH_CITATION_LIMIT = 20
+RUN_PATH_CITATION_MAX_BYTES = 4 * 1024
+
+
+def run_path_citations(row: dict[str, Any], *, base_dir: str | Path | None) -> list[str]:
+    """The paths a per-cycle row cites of a tool run: a bounded sample, whatever the adapter reported.
+
+    ARIA-HIGH-617 — a run's paths are the adapter's own report (``read_paths``,
+    and ``scope_violations`` derived from it), bounded only by the 12 MiB
+    stdout cap, and the cycle's readers append what they cite as ONE ledger
+    row under the 1 MiB row cap (``pressure.run_pressure``'s pressure-log row,
+    ``capability_gap``'s gaps row). Citing a run's whole read set made the
+    pressure-log row too large for a 20,000-path report, and the refused
+    append failed the cycle after the run itself was recorded and its tool
+    quarantined. Every citation of a run is therefore this one:
+    ``ledger_inline.bounded_sample`` of its string entries, at most
+    RUN_PATH_CITATION_LIMIT within RUN_PATH_CITATION_MAX_BYTES (an entry is
+    never cut; one too long for the budget left is skipped). A scope violation
+    cites the violations its row keeps, the forbidden reads first
+    (``tool_health.find_scope_violations``): they are the evidence of the
+    violation. Every other run cites its read set (``run_read_paths``).
+    """
+    violations = row.get("scope_violations")
+    if row.get("status") == "scope_violation" and isinstance(violations, list):
+        paths = violations
+    else:
+        paths = run_read_paths(row, base_dir=base_dir)
+    cited = [path for path in paths if isinstance(path, str) and path.strip()]
+    return bounded_sample(cited, limit=RUN_PATH_CITATION_LIMIT, max_bytes=RUN_PATH_CITATION_MAX_BYTES)
+
+
 __all__ = [
     "read_runs_rows", "latest_run_for_tool", "upcast_run_row", "raw_findings_count", "raw_observations_count",
     "READ_PATHS_REF_FIELD", "READ_PATHS_POINTER", "read_set_digest", "read_paths_reference", "run_read_paths",
+    "RUN_PATH_CITATION_LIMIT", "RUN_PATH_CITATION_MAX_BYTES", "run_path_citations",
 ]

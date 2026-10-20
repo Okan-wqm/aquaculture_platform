@@ -1025,10 +1025,22 @@ const CHECKS: Record<string, () => CheckResult> = {
       /"get_config"[\s\S]{0,180}LegacyPolicy::AllowUnsignedInEnforcing/.test(catalog) ||
       /"read_modbus"[\s\S]{0,180}LegacyPolicy::AllowUnsignedInEnforcing/.test(catalog) ||
       /"watch_subscribe"[\s\S]{0,180}LegacyPolicy::AllowUnsignedInEnforcing/.test(catalog);
+    // Gate 7 asks the catalog whether an envelope may run unsigned; the
+    // catalog answers yes only for an `AllowUnsignedInEnforcing` entry
+    // (ping/get_info), so an unknown command or a role-free hand-off
+    // command still needs a signature (ADR-048 DEC-9.1, commit 4f146821).
+    const catalogPredicateIsAllowListed =
+      /pub\(crate\) fn unsigned_envelope_permitted\(cmd: &str\) -> bool \{\s*entry_for_command\(cmd\)\s*\.is_some_and\(\|entry\| entry\.legacy_policy == LegacyPolicy::AllowUnsignedInEnforcing\)\s*\}/.test(
+        catalog,
+      );
     const ok =
       !readCommandAllowsUnsigned &&
+      catalogPredicateIsAllowListed &&
       catalog.includes('fn only_anonymous_commands_allow_unsigned_legacy_in_enforcing') &&
-      envelope.includes('permission_for_command(&env.cmd, &env.params).is_some()') &&
+      catalog.includes('fn only_the_probes_run_from_an_unsigned_envelope') &&
+      envelope.includes('use crate::commands::catalog::unsigned_envelope_permitted;') &&
+      envelope.includes('let requires_signature = !unsigned_envelope_permitted(&env.cmd);') &&
+      envelope.includes('(SignatureMode::Enforcing, None, true) => {\n            return Err(EnvelopeVerifyError::SignatureRequiredInEnforcingMode);') &&
       envelope.includes('fn enforcing_mode_rejects_unsigned_read_permission_command');
     return check(
       'anonymous_only_unsigned_enforcing',
@@ -1039,8 +1051,10 @@ const CHECKS: Record<string, () => CheckResult> = {
         : 'non-anonymous read commands can still be unsigned or the executable regression test is missing',
       [CATALOG, 'sens-api-gateway/src/command_envelope/envelope.rs'],
       [
-        lineRef(CATALOG, 'only_anonymous_commands_allow_unsigned_legacy_in_enforcing'),
+        lineRef(CATALOG, 'fn unsigned_envelope_permitted'),
+        lineRef(CATALOG, 'only_the_probes_run_from_an_unsigned_envelope'),
         lineRef('sens-api-gateway/src/command_envelope/envelope.rs', 'requires_signature'),
+        lineRef('sens-api-gateway/src/command_envelope/envelope.rs', 'enforcing_mode_rejects_unsigned_read_permission_command'),
       ],
     );
   },
@@ -1752,16 +1766,44 @@ function runGate(options: RunOptions): { exitCode: number; artifactDir: string |
     return { exitCode: 1, artifactDir, claims };
   }
 
-  const blockedReleaseClaims = blockedClaims;
-
-  if (options.releaseMode && blockedReleaseClaims.length > 0) {
-    for (const claim of blockedReleaseClaims) {
-      writeStderr(`BLOCKED release claim ${claim.id}: ${claim.blocker ?? 'no blocker detail'}`);
+  if (options.releaseMode) {
+    if (releaseProfile === null) {
+      writeStderr('release mode needs a release profile');
+      return { exitCode: 1, artifactDir, claims };
     }
-    return { exitCode: 1, artifactDir, claims };
+    const { blocking, deferred } = classifyBlockedReleaseClaims(blockedClaims, releaseProfile);
+    for (const claim of deferred) {
+      writeStdout(
+        `DEFERRED claim ${claim.id} (non-blocking for release profile ${releaseProfile.id}): ${claim.blocker ?? 'no blocker detail'}`,
+      );
+    }
+    if (blocking.length > 0) {
+      for (const claim of blocking) {
+        writeStderr(`BLOCKED release claim ${claim.id}: ${claim.blocker ?? 'no blocker detail'}`);
+      }
+      return { exitCode: 1, artifactDir, claims };
+    }
   }
 
   return { exitCode: 0, artifactDir, claims };
+}
+
+/**
+ * A blocked claim stops a release unless the release profile classifies it
+ * non-blocking (with the profile's recorded rationale). The loader makes every
+ * release_blocker claim either blocking or non-blocking for every profile, so
+ * a blocked claim the profile does not name as non-blocking is blocking: an
+ * unclassified claim fails closed.
+ */
+function classifyBlockedReleaseClaims(
+  blockedClaims: EvaluatedClaim[],
+  profile: ReleaseProfile,
+): { blocking: EvaluatedClaim[]; deferred: EvaluatedClaim[] } {
+  const nonBlocking = new Set(profile.non_blocking_claims);
+  return {
+    blocking: blockedClaims.filter((claim) => !nonBlocking.has(claim.id)),
+    deferred: blockedClaims.filter((claim) => nonBlocking.has(claim.id)),
+  };
 }
 
 function runSelfTest(): void {
@@ -1864,6 +1906,36 @@ function runSelfTest(): void {
   const evaluated = manifest.claims.map((claim) => evaluateClaim(claim, checks, 'self-test'));
   assert.equal(evaluated[0]?.evaluated_status, 'pass');
   assert.equal(evaluated[1]?.evaluated_status, 'blocked');
+
+  // Release mode: a blocked claim the profile names non-blocking is deferred;
+  // a blocked claim the profile names blocking, or does not name, stops the
+  // release.
+  const [profile] = manifest.release_profiles;
+  assert.ok(profile);
+  const blockedEvaluated = evaluated.filter((claim) => claim.evaluated_status === 'blocked');
+  const deferredOnly = classifyBlockedReleaseClaims(blockedEvaluated, profile);
+  assert.deepEqual(
+    deferredOnly.deferred.map((claim) => claim.id),
+    ['blocked-claim'],
+  );
+  assert.deepEqual(deferredOnly.blocking, []);
+  const asBlocking = classifyBlockedReleaseClaims(blockedEvaluated, {
+    ...profile,
+    blocking_claims: [...profile.blocking_claims, 'blocked-claim'],
+    non_blocking_claims: [],
+  });
+  assert.deepEqual(
+    asBlocking.blocking.map((claim) => claim.id),
+    ['blocked-claim'],
+  );
+  const unclassified = classifyBlockedReleaseClaims(blockedEvaluated, {
+    ...profile,
+    non_blocking_claims: [],
+  });
+  assert.deepEqual(
+    unclassified.blocking.map((claim) => claim.id),
+    ['blocked-claim'],
+  );
   writeStdout('sens-enterprise-validation self-test: ok');
 }
 

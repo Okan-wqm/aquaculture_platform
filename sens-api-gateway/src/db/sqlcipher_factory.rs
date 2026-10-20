@@ -152,12 +152,14 @@ pub async fn open_resolved(
     keystore: &dyn Keystore,
     profile: PragmaProfile,
 ) -> Result<OpenedDb> {
-    let machine_id = crate::machine_id::read()
-        .context("sqlcipher_factory(open_resolved): machine_id read failed")?;
+    // ADR-048 DEC-4.8: the v1 message input is the profile's binding
+    // (machine-id in the generic profile, a fixed label on Suderra OS).
+    let binding = crate::db_secret::v1_binding()
+        .context("sqlcipher_factory(open_resolved): v1 binding read failed")?;
     let secret_key = crate::db_secret::read_or_create_v1_secret()
         .context("sqlcipher_factory(open_resolved): device secret load failed")?;
     let v1_inputs = V1Inputs {
-        machine_id: machine_id.into_bytes(),
+        machine_id: binding,
         secret_key,
     };
 

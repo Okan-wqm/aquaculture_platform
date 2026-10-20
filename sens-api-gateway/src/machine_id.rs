@@ -58,13 +58,18 @@
 //! wrapper for the IO read, then feed the bytes into
 //! the kernel.
 
+//!
+//! ## Profile
+//!
+//! Generic profile only (ADR-048 DEC-4.9, DEC-19): `main.rs` does not
+//! compile this module in the `suderra-os` profile, and the override is
+//! read through `crate::generic_env`.
+
 use anyhow::{Context, Result};
 
-/// Env var name. Mirrors `SUDERRA_DB_KEY_PATH` naming
-/// convention — both are CI-sandbox + test-isolation
-/// inputs, both follow `SUDERRA_<UPPER_SNAKE>_PATH`
-/// shape.
-const MACHINE_ID_OVERRIDE_ENV: &str = "SUDERRA_MACHINE_ID_PATH";
+/// Env var name (read through `crate::generic_env`); the tests below set it.
+#[cfg(test)]
+const MACHINE_ID_OVERRIDE_ENV: &str = crate::generic_env::MACHINE_ID_PATH_VAR;
 
 /// Read the machine identifier with env-override
 /// sandboxing.
@@ -86,8 +91,7 @@ const MACHINE_ID_OVERRIDE_ENV: &str = "SUDERRA_MACHINE_ID_PATH";
 /// message that fleet operators have learned to grep
 /// for.
 pub(crate) fn read() -> Result<String> {
-    if let Some(override_path) = std::env::var_os(MACHINE_ID_OVERRIDE_ENV) {
-        let path = std::path::PathBuf::from(override_path);
+    if let Some(path) = crate::generic_env::machine_id_path() {
         let raw = std::fs::read_to_string(&path).with_context(|| {
             format!("machine-id env-override path {} unreadable", path.display())
         })?;

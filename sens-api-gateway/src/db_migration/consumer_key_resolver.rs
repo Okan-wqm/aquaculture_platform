@@ -114,10 +114,16 @@ use crate::keystore::purpose::KeyPurpose;
 
 /// V1-path inputs that the resolver needs in addition
 /// to the v2 path's keystore + context. Caller plumbs
-/// these from the agent's runtime sources (machine-id
-/// reader + secret-key file reader).
+/// these from the agent's runtime sources
+/// (`db_secret::v1_binding` + secret-key file reader).
 #[derive(Debug, Clone)]
 pub struct V1Inputs {
+    /// The HMAC message input: the machine-id in the
+    /// generic profile, the fixed suderra-os label in the
+    /// Suderra OS profile (ADR-048 DEC-4.8,
+    /// `db_secret::v1_binding`). The field keeps its v1
+    /// name because the on-disk schema label
+    /// (`v1-machine-id-derived`) names the same slot.
     pub machine_id: Vec<u8>,
     pub secret_key: Vec<u8>,
 }

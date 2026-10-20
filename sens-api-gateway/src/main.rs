@@ -123,7 +123,11 @@ mod shared_io;
 // Batch #344 — machine-id read with env-override sandboxing (closes
 // ORPHAN-MEDIUM-033). Mirrors the SUDERRA_DB_KEY_PATH pattern; tests +
 // CI sandboxes can now inject machine-id alongside the secret-key path.
-// offline_queue's derive_db_encryption_key delegates to this wrapper.
+// db_secret::v1_binding delegates to this wrapper in the generic profile.
+// ADR-048 DEC-4.9: not compiled in the suderra-os profile — on the
+// read-only root machine-id is transient, nothing persistent may derive
+// from it, and agent identity comes from the OS identity file instead.
+#[cfg(not(feature = "suderra-os"))]
 mod machine_id;
 // PR-195 Batch #14 — v1 SQLCipher secret-key SSoT extraction. Pre-extraction
 // the read-or-create logic lived inside offline_queue.rs; license_cache +
@@ -3133,16 +3137,22 @@ fn main() {
                 println!("ENVIRONMENT:");
                 // ADR-048 DEC-4.5 / DEC-19: only the generic profile
                 // lets the environment move the config file.
-                #[cfg(not(feature = "suderra-os"))]
-                println!(
-                    "    SUDERRA_CONFIG              Path to config file (default: {})",
-                    paths::generic::CONFIG_FILE
-                );
-                #[cfg(feature = "suderra-os")]
-                println!(
-                    "    (suderra-os profile: config file {} is fixed at build time)",
-                    paths::suderra_os::CONFIG_FILE
-                );
+                {
+                    use std::io::Write as _;
+                    let mut stdout = std::io::stdout().lock();
+                    #[cfg(not(feature = "suderra-os"))]
+                    let _ = writeln!(
+                        stdout,
+                        "    SUDERRA_CONFIG              Path to config file (default: {})",
+                        paths::generic::CONFIG_FILE
+                    );
+                    #[cfg(feature = "suderra-os")]
+                    let _ = writeln!(
+                        stdout,
+                        "    (suderra-os profile: config file {} is fixed at build time)",
+                        paths::suderra_os::CONFIG_FILE
+                    );
+                }
                 {
                     use std::io::Write as _;
                     let mut stdout = std::io::stdout().lock();

@@ -78,6 +78,11 @@ pub struct AuditEntry {
 /// SQLCipher passphrase. Retained SOLELY to open an existing `scada.db`
 /// so it can be rekeyed to the hardened key — never used to create or
 /// protect a database going forward.
+///
+/// Generic profile only (ADR-048 DEC-4.9): a Suderra OS device never ran an
+/// agent that wrote a machine-id-keyed store, and that profile reads no
+/// machine-id at all.
+#[cfg(not(feature = "suderra-os"))]
 fn legacy_machine_id_passphrase() -> String {
     let machine_id = machine_uid::get().unwrap_or_else(|_| "default-machine-id".to_string());
     use sha2::{Digest, Sha256};
@@ -103,9 +108,9 @@ impl ScadaDb {
     ///   the keystore (TPM-sealed where available), matching
     ///   `OfflineQueue::with_keystore_derivation`.
     /// - `keystore: None` (keystore disabled) → the device-secret legacy
-    ///   derivation `HMAC-SHA256(machine_id, /etc/suderra/db.key)` — the
+    ///   derivation `HMAC-SHA256(db.key, binding)` (`db_secret`) — the
     ///   same fallback the offline queue uses: device-bound, fail-closed
-    ///   on machine-id read error, and with NO universal constant.
+    ///   on a binding read error, and with NO universal constant.
     ///
     /// An existing `scada.db` still under the deprecated machine-id key is
     /// transparently rekeyed to the hardened key (data preserved); a file
@@ -121,12 +126,14 @@ impl ScadaDb {
 
         let new_key: zeroize::Zeroizing<String> = match keystore {
             Some(ks) => {
-                let machine_id = crate::machine_id::read()
-                    .map_err(|e| format!("ScadaDb: machine_id read failed (fail-closed): {e}"))?;
+                // ADR-048 DEC-4.8: the profile's v1 binding (machine-id in
+                // the generic profile, the fixed label on Suderra OS).
+                let binding = crate::db_secret::v1_binding()
+                    .map_err(|e| format!("ScadaDb: v1 binding read failed (fail-closed): {e}"))?;
                 let secret_key = crate::db_secret::read_or_create_v1_secret()
                     .map_err(|e| format!("ScadaDb: db_secret load failed: {e}"))?;
                 let v1_inputs = crate::db_migration::consumer_key_resolver::V1Inputs {
-                    machine_id: machine_id.into_bytes(),
+                    machine_id: binding,
                     secret_key,
                 };
                 let ctx = crate::db_migration::consumer_context::ConsumerContext {
@@ -178,8 +185,9 @@ impl ScadaDb {
     /// Open `path` under `new_key_hex` (SQLCipher raw-key form). A fresh
     /// or already-hardened DB opens directly; an existing DB still under
     /// the deprecated machine-id passphrase is rekeyed in place to the
-    /// hardened key (EDGE-CRITICAL-002 one-shot migration). A file that
-    /// opens with neither key fails closed — it is never deleted.
+    /// hardened key (EDGE-CRITICAL-002 one-shot migration, generic profile
+    /// only). A file that opens with neither key fails closed — it is
+    /// never deleted.
     fn open_with_key_or_migrate(
         path: &str,
         new_key_hex: &str,
@@ -196,10 +204,31 @@ impl ScadaDb {
         {
             return Ok(conn);
         }
-
-        // Existing DB under the deprecated machine-id key — open with it
-        // and rekey to the hardened key, preserving trends/alarms/audit.
         drop(conn);
+        Self::migrate_legacy_machine_id_store(path, new_key_hex)
+    }
+
+    /// Suderra OS has no machine-id-keyed store to migrate (ADR-048
+    /// DEC-4.9): a file the hardened key does not open is corrupt or
+    /// foreign, and fails closed without deletion.
+    #[cfg(feature = "suderra-os")]
+    fn migrate_legacy_machine_id_store(
+        path: &str,
+        _new_key_hex: &str,
+    ) -> Result<rusqlite::Connection, String> {
+        Err(format!(
+            "ScadaDb: existing database {path} does not open with the hardened key \
+             (corrupt or foreign) — failing closed without deletion"
+        ))
+    }
+
+    /// Existing DB under the deprecated machine-id key — open with it and
+    /// rekey to the hardened key, preserving trends/alarms/audit.
+    #[cfg(not(feature = "suderra-os"))]
+    fn migrate_legacy_machine_id_store(
+        path: &str,
+        new_key_hex: &str,
+    ) -> Result<rusqlite::Connection, String> {
         let conn = rusqlite::Connection::open(path).map_err(|e| format!("DB reopen: {}", e))?;
         let legacy = legacy_machine_id_passphrase();
         conn.pragma_update(None, "key", &legacy)
@@ -788,6 +817,7 @@ mod tests {
     /// EDGE-CRITICAL-002: an existing scada.db under the deprecated
     /// machine-id passphrase is rekeyed to the hardened key in place,
     /// preserving its rows; afterwards only the hardened key opens it.
+    #[cfg(not(feature = "suderra-os"))]
     #[test]
     fn migrates_legacy_machine_id_db_to_hardened_key() {
         let (dir, path) = temp_db("mig");
@@ -826,6 +856,27 @@ mod tests {
             "deprecated machine-id key must no longer open the rekeyed store"
         );
 
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// ADR-048 DEC-4.9: on Suderra OS a store the hardened key does not
+    /// open fails closed and is left in place — no machine-id fallback.
+    #[cfg(feature = "suderra-os")]
+    #[test]
+    fn suderra_os_store_under_a_foreign_key_fails_closed_without_deletion() {
+        let (dir, path) = temp_db("foreign");
+        {
+            let conn = rusqlite::Connection::open(&path).unwrap();
+            conn.execute_batch(&format!("PRAGMA key = \"x'{}'\";", "cc".repeat(32)))
+                .unwrap();
+            conn.execute_batch("CREATE TABLE t (v INTEGER); INSERT INTO t VALUES (1);")
+                .unwrap();
+        }
+        let err = ScadaDb::open_with_key_or_migrate(&path, &"dd".repeat(32))
+            .err()
+            .expect("a foreign key must fail closed");
+        assert!(err.contains("failing closed without deletion"), "{err}");
+        assert!(std::path::Path::new(&path).exists(), "the store must be kept");
         std::fs::remove_dir_all(&dir).ok();
     }
 

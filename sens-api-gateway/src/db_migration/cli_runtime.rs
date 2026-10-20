@@ -208,15 +208,18 @@ impl BootstrappedCeremonyRuntime {
             return Err(BootstrapError::DeviceIdEmpty);
         }
 
+        // ADR-048 DEC-4.8: the profile's v1 binding (machine-id in the
+        // generic profile, the fixed label on Suderra OS) — the same input
+        // the consumers derived their keys from.
         let machine_id =
-            crate::machine_id::read().map_err(|e| BootstrapError::MachineIdUnreadable {
+            crate::db_secret::v1_binding().map_err(|e| BootstrapError::MachineIdUnreadable {
                 reason: format!("{e}"),
             })?;
 
         let secret_key = read_secret_key_for_migration()?;
 
         Ok(Self {
-            machine_id: machine_id.into_bytes(),
+            machine_id,
             secret_key,
             deployment_uuid: device_id.into_bytes(),
             program_artifact_sha256,

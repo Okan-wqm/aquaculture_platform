@@ -499,7 +499,17 @@ impl ProvisioningClient {
         }
     }
 
+    /// CPU serial — not reported in the Suderra OS profile (ADR-048
+    /// DEC-4.9, EDGE-LOW-112): the device's hardware identity there is the
+    /// OS-owned binding of DEC-3.6, which on a TPM-less RPi4/CM4 is a hash
+    /// over this very serial, and the raw value must not leave the device.
+    #[cfg(feature = "suderra-os")]
+    fn get_cpu_serial() -> Option<String> {
+        None
+    }
+
     /// Get CPU serial number (Raspberry Pi specific)
+    #[cfg(not(feature = "suderra-os"))]
     fn get_cpu_serial() -> Option<String> {
         #[cfg(target_os = "linux")]
         {
@@ -553,21 +563,19 @@ impl ProvisioningClient {
         hashes
     }
 
-    /// Get machine ID from /etc/machine-id
+    /// Machine ID (generic profile): the same reader the v1 key derivation
+    /// uses (`crate::machine_id`), which already covers `/etc/machine-id`
+    /// and `/var/lib/dbus/machine-id`.
+    #[cfg(not(feature = "suderra-os"))]
     fn get_machine_id() -> Option<String> {
-        // Try machine-uid crate first
-        if let Ok(uid) = machine_uid::get() {
-            return Some(uid);
-        }
+        crate::machine_id::read().ok()
+    }
 
-        // Fallback to reading /etc/machine-id directly
-        #[cfg(target_os = "linux")]
-        {
-            if let Ok(id) = std::fs::read_to_string("/etc/machine-id") {
-                return Some(id.trim().to_string());
-            }
-        }
-
+    /// Machine ID — never read in the Suderra OS profile (ADR-048 DEC-4.9):
+    /// it is transient on the read-only root, so it identifies nothing, and
+    /// the agent sends no raw machine-id to the cloud (EDGE-LOW-112).
+    #[cfg(feature = "suderra-os")]
+    fn get_machine_id() -> Option<String> {
         None
     }
 

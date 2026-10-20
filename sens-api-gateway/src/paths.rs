@@ -698,11 +698,13 @@ mod tests {
         let p = AgentPaths::suderra_os();
         #[cfg(not(feature = "suderra-os"))]
         let p = AgentPaths::generic(GenericOverrides::default());
+        // Directories the agent writes files into are checked through a
+        // child: the writable roots themselves are the OS's (DEC-4.3).
         let written = [
             p.activation_state_file(),
             p.db_key_file(),
             p.offline_queue_db(),
-            p.scripts_dir(),
+            p.scripts_dir().join("script.json"),
             p.retain_db(),
             p.program_state_file(),
             p.license_cache_db(),
@@ -710,15 +712,15 @@ mod tests {
             p.rbac_version_db(),
             p.user_token_version_db(),
             p.keystore_rotation_marker("keystore_rotation_marker.json"),
-            p.backup_dir(),
-            p.scada_dir(),
+            p.backup_dir().join("backup.tar"),
+            p.scada_dir().join("process.json"),
             p.lora_sessions_db(),
-            p.opcua_own_pki_dir(),
-            p.opcua_trusted_certs_dir(),
+            p.opcua_own_pki_dir().join("cert.der"),
+            p.opcua_trusted_certs_dir().join("client.der"),
             p.partition_store_file(),
-            p.ota_staging_dir(),
+            p.ota_staging_dir().join("update.tar"),
             p.audit_log_file(),
-            p.config_integrity_floor_dir(),
+            p.config_integrity_floor_dir().join("floor.json"),
         ];
         for path in written {
             assert!(

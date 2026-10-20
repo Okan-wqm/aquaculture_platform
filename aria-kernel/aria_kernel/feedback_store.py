@@ -93,7 +93,13 @@ FEEDBACK_SEVERITIES = ("low", "medium", "high", "critical")
 # goldset admission and promotion readiness never read an outcome row as
 # authority — JJ-1's one-predicate law keeps its ground-truth leg
 # byte-identical (the scoring-only sibling lives in judge_calibration).
-FEEDBACK_SOURCE_TYPES = ("human", "ai_judge", "ai_consensus", "outcome")
+# WP-J D-2 — 'canary' (a mutation-canary label, BY CONSTRUCTION: the
+# planted mutant is a real defect, the planted false claim is not;
+# mutation_canary.py) follows the same law and the same discipline: it
+# lands in the same commit as the first canary mint and is refused by
+# GROUND_TRUTH_SOURCE_TYPES, so a constructed label can score a judge but
+# can never suppress a finding or promote an adapter.
+FEEDBACK_SOURCE_TYPES = ("human", "ai_judge", "ai_consensus", "outcome", "canary")
 # Typed-judgment plan (ARIA-HIGH-167) — where a judge's confidence came
 # from. The ROUTE stamps it on the envelope (``self_reported``: the model's
 # own number, every CLI and chat completion in the fleet;

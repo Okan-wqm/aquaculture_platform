@@ -348,6 +348,27 @@ def _unmet_true_positive_premises(request: dict[str, Any], response: dict[str, A
     ]
 
 
+def _evidence_selection_of(typed_answer) -> str:
+    """WP-J review — the stamp states only verifications the kernel performed.
+
+    ``index`` means the typed parse verified EVERY citation's quote against
+    the request's pinned excerpt bytes. A typed answer whose citations were
+    unpinned (nothing was pinned at the mint, or every excerpt was skipped —
+    ``typed_judgment`` carries those citations with ``verified=False``: the
+    quote is the judge's word) and an untyped legacy block are both ``ref``:
+    the ledger the arbiter's evidence rank reads must never advertise a
+    mechanical verification that did not happen.
+    """
+    if typed_answer is None:
+        return "ref"
+    return (
+        "index"
+        if typed_answer.evidence
+        and all(citation.verified for citation in typed_answer.evidence)
+        else "ref"
+    )
+
+
 def record_judge_verdict_from_response(
     *,
     request: dict[str, Any],
@@ -523,7 +544,7 @@ def record_judge_verdict_from_response(
         # key — and promote_consensus_findings silently skipped it forever.
         finding_fingerprint=request.get("finding_fingerprint") or verdict_block.get("finding_fingerprint"),
         confidence_source=confidence_source if confidence is not None else None,
-        evidence_selection="index" if typed_answer is not None else "ref",
+        evidence_selection=_evidence_selection_of(typed_answer),
         # ARIA-HIGH-004 — the learning funnel joins a judgment to the request
         # it answers and to the commit that request was minted at, both from
         # the MINT (the same D1 doctrine as the group id and fingerprint

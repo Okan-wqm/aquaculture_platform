@@ -20,8 +20,8 @@ P3 2027-03-31. Yan bulgular, uygulama paketine alınana kadar önemine göre P1 
 
 | Domain | CRITICAL | HIGH | MEDIUM | LOW | Toplam |
 |---|---|---|---|---|---|
-| EDGE | 4 | 22 | 31 | 13 | 70 |
-| INFRA | 1 | 1 | 13 | 2 | 17 |
+| EDGE | 4 | 23 | 31 | 13 | 71 |
+| INFRA | 1 | 1 | 14 | 2 | 18 |
 | SENSOR | 4 | 13 | 16 | 3 | 36 |
 
 ## Dizin
@@ -98,6 +98,7 @@ P3 2027-03-31. Yan bulgular, uygulama paketine alınana kadar önemine göre P1 
 | [EDGE-LOW-113](#EDGE-LOW-113) | LOW | P2 | SQLCipher hex key cached as a plain String for the process lifetime; keystore passphrase and salt buffers not zeroized |
 | [EDGE-LOW-114](#EDGE-LOW-114) | LOW | P2 | memfd_secret primitive is unused, and mlockall failure is non-fatal and in practice silent |
 | [EDGE-LOW-115](#EDGE-LOW-115) | LOW | P2 | Backup format is unencrypted and unsigned, embeds the raw config, and create/restore have no callers |
+| [EDGE-HIGH-128](#EDGE-HIGH-128) | HIGH | P0 | The agent crate does not compile without its health feature, so every Suderra OS release builds the boards.json features plus health and signs a suderra.edge-release.v1 statement whose cargo_features misstate the build |
 | [INFRA-CRITICAL-236](#INFRA-CRITICAL-236) | CRITICAL | P0 | Release and OS builds ship without the gpio feature, so GPIO writes and safe-state only simulate while reporting success |
 | [INFRA-HIGH-237](#INFRA-HIGH-237) | HIGH | P0 | Edge CI suppresses every denied clippy lint, never compiles gpio, and release ships untested, unlocked builds |
 | [INFRA-MEDIUM-238](#INFRA-MEDIUM-238) | MEDIUM | P0 | apply_signed_manifest streams base64 files from the MQTT command into agent-owned slot dirs (impossible above 1 MiB, never executed), and the anti-rollback floor lives in a plaintext, agent-writable partition.json that resets when deleted |
@@ -115,6 +116,7 @@ P3 2027-03-31. Yan bulgular, uygulama paketine alınana kadar önemine göre P1 
 | [INFRA-MEDIUM-250](#INFRA-MEDIUM-250) | MEDIUM | P2 | Release builds wrap integer overflow silently, and panic=abort kills the whole agent with no software safe-state |
 | [INFRA-LOW-251](#INFRA-LOW-251) | LOW | P2 | Load-bearing agent comments and config docs contradict the code (FirmwareUpdateMode::Disabled "sole update path", safe-state degraded-mode claim, "default build must include gpio", Strict leaf max-age "unbounded" vs 398 days, panic=abort rationale, dead log_file setting, release trigger) |
 | [INFRA-LOW-252](#INFRA-LOW-252) | LOW | P2 | WASM decoder compilation is unbounded and decoder modules are unsigned |
+| [INFRA-MEDIUM-253](#INFRA-MEDIUM-253) | MEDIUM | P1 | The release checks a binary's NEEDED libraries and glibc symbol versions against hand-maintained release facts, not against a sysroot manifest the Suderra OS image publishes |
 | [SENSOR-CRITICAL-200](#SENSOR-CRITICAL-200) | CRITICAL | P0 | Activation credentials are persisted by rewriting the whole config.yaml via save(); secrets are only base64-encoded, and on Suderra OS the save fails after the cloud has already consumed the single-use token |
 | [SENSOR-CRITICAL-201](#SENSOR-CRITICAL-201) | CRITICAL | P0 | Production can only run Permissive or Disabled, where unsigned legacy commands drive outputs and I/O config with no RBAC |
 | [SENSOR-CRITICAL-202](#SENSOR-CRITICAL-202) | CRITICAL | P0 | Releases are signed only with cosign keyless; Suderra OS accepts only Ed25519-signed artifacts, so no official release can be installed. An unused armv7 build can also block releases |
@@ -2060,6 +2062,7 @@ P3 2027-03-31. Yan bulgular, uygulama paketine alınana kadar önemine göre P1 
 - **Kök neden:** The lint backlog was silenced on the CI command line instead of being fixed or ratcheted down. gpio was excluded because of a stale rppal-is-Linux-only argument. The release pipeline was designed as packaging-only and assumes main is green, with no SHA-bound CI evidence. The cross invocation never adopted the --locked discipline the CI jobs use. The nested workflows are left over from the pre-monorepo standalone edge-agent repo and were never removed.
 - **Mimari düzeltme yönü:** Keep one CI source of truth. Delete sens-api-gateway/.github entirely. Make sens-api-gateway-ci a reusable workflow (workflow_call) and have edge-agent-release `needs` it on the exact tag SHA, so a release without green tests, clippy and deny on that SHA cannot happen. Extend the enterprise-validation gate to reject any cargo/cross build|test|check invocation in edge workflows that lacks --locked. Replace the -A flags with a ratchet: put #[expect(clippy::...)] at the existing sites or keep a committed per-lint count baseline that can only go down, so new unwrap/indexing fails CI. Derive the CI feature set from Cargo.toml [features] minus an explicit hardware-only exclusion list checked by a test, and add gpio. Add an aarch64 cross check with release features plus gpio.
 - **Doğrulama:** Add gate unit tests that (a) fail if any edge workflow cargo/cross command lacks --locked, (b) fail if the clippy step allows any lint listed as deny in [lints.clippy], (c) fail if the CI features plus the documented exclusions differ from the Cargo.toml features, (d) fail if any .github directory exists below the repo root, and (e) fail if the release job graph does not include the test jobs. Negative checks: add an unwrap() in src and confirm the clippy job goes red; tag a commit with a failing test and confirm the release is blocked.
+- **Durum notu (2026-10-20):** Advanced, not closed. Done: the nested sens-api-gateway/.github workflows are deleted; the release calls sens-api-gateway-ci.yml and ci-edge.yml on the tag's commit; every cargo/cross command carries --locked (pinned by tests/invariants/edge-release-pipeline.spec.ts); ci-edge.yml tests and, in profile-clippy, lints every planned release feature set, including suderra-os and the rpi4-cm4 gpio set that the gateway clippy job's curated CI feature set never covered (not yet run in CI). Open: the 14 `-A clippy::…` suppressions (9 of them lints that Cargo.toml [lints.clippy] denies) in both clippy jobs still need the ratchet described above.
 
 <a id="INFRA-MEDIUM-238"></a>
 
@@ -2323,6 +2326,40 @@ P3 2027-03-31. Yan bulgular, uygulama paketine alınana kadar önemine göre P1 
 - **Kök neden:** Decoders were treated as having the same trust level as the local config, so the sandbox focused only on runtime bounds.
 - **Mimari düzeltme yönü:** Reuse the signed bytecode-registry pattern: an ed25519-signed manifest over sha256(module), a maximum module size, and compilation in spawn_blocking with a timeout before registration.
 - **Doğrulama:** Unit tests: an oversized module is rejected, an unsigned or mis-signed module is rejected, and a valid signed module loads.
+
+## Yayın hattı incelemesi bulguları (2026-10-20)
+
+ADR-048 P0 yayın hattının (release track) bağımsız incelemesinde kaydedildi.
+
+<a id="EDGE-HIGH-128"></a>
+
+### EDGE-HIGH-128 — The agent crate does not compile without its health feature, so every Suderra OS release builds the boards.json features plus health and signs a suderra.edge-release.v1 statement whose cargo_features misstate the build
+
+- **Önem:** HIGH · **Faz:** P0 · **Son tarih:** 2026-11-02 · **Sahip:** @Okan-wqm · **Durum:** OPEN
+- **Bileşen:** sens-api-gateway feature graph / edge release statement
+- **Köken:** yayın hattı incelemesi (2026-10-20)
+- **Kanıt (dosya:satır):** `sens-api-gateway/src/main.rs:1599`, `sens-api-gateway/src/main.rs:2011`, `sens-api-gateway/src/main.rs:5261`, `sens-api-gateway/src/io_poll.rs:118`, `sens-api-gateway/src/scripting/engine.rs:1161`, `sens-api-gateway/src/health.rs:1401`, `sens-api-gateway/release/edge-release.toml` (`crate_required_features`)
+- **Kanıt (ayrıntı):**
+  - `cargo check --no-default-features --features <a boards.json set>` fails with 16 errors at the lines above: HealthState, which the MQTT client, the outbound publisher, io_poll and the scripting engine take at init, is compiled only with `health`.
+  - Contract v1's `cargo_feature` vocabulary (common.schema.json) has no `health`, and edge-release.schema.json defines `cargo_features` as the exact cargo feature set of the build. The release therefore builds each Suderra OS row with the board's features plus `crate_required_features = ["health"]` (edge-release.toml) and signs a statement that lists only the board's features. The provenance (`features=...health...`) and the statement disagree.
+- **Kök neden:** The health HTTP server's feature also gates the observability state other modules depend on, against sens-api-gateway/CLAUDE.md (keep the build compile-clean when a feature is disabled).
+- **Mimari düzeltme yönü:** Compile HealthState and its producers unconditionally and gate only the axum health server on `health`, then empty `crate_required_features`. Alternatively, add `health` to contract v1's cargo_feature vocabulary and to every boards.json entry in a reviewed contract version. Until one lands, every P0 Suderra OS release statement misstates its build's feature set.
+- **Doğrulama:** `edge_release.py plan` refuses a non-empty `crate_required_features` without `crate_required_features_tracked_by` (tests/invariants/edge-release-pipeline.spec.ts). Closure test: ci-edge.yml profile-test passes with exactly the boards.json sets and `crate_required_features = []`.
+
+<a id="INFRA-MEDIUM-253"></a>
+
+### INFRA-MEDIUM-253 — The release checks a binary's NEEDED libraries and glibc symbol versions against hand-maintained release facts, not against a sysroot manifest the Suderra OS image publishes
+
+- **Önem:** MEDIUM · **Faz:** P1 · **Son tarih:** 2026-11-30 · **Sahip:** @Okan-wqm · **Durum:** OPEN
+- **Bileşen:** scripts/edge/edge_release.py ELF check / contracts/suderra-edge boards.json
+- **Köken:** yayın hattı incelemesi (2026-10-20)
+- **Kanıt (dosya:satır):** `sens-api-gateway/release/edge-release.toml` (`[runtime.*]`, `max_glibc`), `scripts/edge/edge_release.py` (`check_binary`)
+- **Kanıt (ayrıntı):**
+  - ADR-048 DEC-8.5 checks a release binary's ELF NEEDED against the OS sysroot. Contract v1 records no runtime per board, so the agent keeps a copy: allowed sonames per arch, and the newest GLIBC_x.y symbol version per channel (2.41 for Suderra OS, from Suderra-OS Buildroot 2025.05.3 glibc 2.41; 2.23 for the generic channel's cross images).
+  - A Buildroot glibc downgrade or a package removed on the OS side is not seen by the release; a binary that passes the release could still fail to load on a device.
+- **Kök neden:** The board contract describes what the agent needs from the OS (kernel config) but not what the OS image provides to a dynamically linked agent.
+- **Mimari düzeltme yönü:** Suderra-OS publishes, per board image, the provided sonames and glibc version (a contract v2 boards.json field, or an OS-side runtime manifest at the vendored contract digest). edge_release.py checks NEEDED and VERNEED against it instead of edge-release.toml.
+- **Doğrulama:** A spec case where the OS-published glibc is lower than the binary's needed version fails the plan; the edge-release.toml runtime copy is gone.
 
 ## ADR-048 kalıntı riskleri
 

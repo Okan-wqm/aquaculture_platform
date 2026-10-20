@@ -14,7 +14,10 @@
 //! inside. Three producers and consumers must agree with it:
 //!
 //! * the release workflow (`.github/workflows/edge-agent-release.yml`)
-//!   builds exactly those targets and packs exactly that name;
+//!   builds exactly those targets and packs exactly that name: it builds
+//!   only the rows `scripts/edge/edge_release.py plan` derives from the
+//!   contract, which `tests/invariants/edge-release-pipeline.spec.ts`
+//!   holds to the contract;
 //! * the cloud's generic installer and update scripts
 //!   (`apps/sensor-service/src/edge-device/installer-script.service.ts`)
 //!   map `uname -m` onto exactly those slugs and fetch exactly that name;
@@ -64,56 +67,7 @@ fn artifact_template() -> String {
     generic_channel()["artifact"].as_str().unwrap().to_owned()
 }
 
-const WORKFLOW: &str = ".github/workflows/edge-agent-release.yml";
 const INSTALLER: &str = "apps/sensor-service/src/edge-device/installer-script.service.ts";
-
-#[test]
-fn the_release_workflow_builds_and_names_exactly_the_contract_artifacts() {
-    let text = read(WORKFLOW);
-    let workflow: serde_yaml::Value = serde_yaml::from_str(&text).unwrap();
-
-    // The build matrix: target_slug → target.
-    let mut built = BTreeMap::new();
-    for (_, job) in workflow["jobs"].as_mapping().unwrap() {
-        let Some(include) = job["strategy"]["matrix"]["include"].as_sequence() else {
-            continue;
-        };
-        for row in include {
-            if let (Some(slug), Some(target)) =
-                (row["target_slug"].as_str(), row["target"].as_str())
-            {
-                built.insert(slug.to_owned(), target.to_owned());
-            }
-        }
-    }
-    assert_eq!(built, contract_slugs(), "{WORKFLOW} build matrix");
-
-    // The packed binary and the archive name.
-    let env = &workflow["env"];
-    assert_eq!(
-        env["ARCHIVE_BINARY_NAME"].as_str(),
-        generic_channel()["binary_name"].as_str(),
-        "the binary inside the archive"
-    );
-    let binary_name = env["BINARY_NAME"].as_str().unwrap();
-    let base = text
-        .lines()
-        .map(str::trim)
-        .find_map(|l| l.strip_prefix("ARCHIVE_BASE="))
-        .expect("ARCHIVE_BASE assignment")
-        .trim_matches('"');
-    let archive = format!("{base}.tar.gz")
-        .replace("${BINARY_NAME}", binary_name)
-        .replace("${RELEASE_VERSION}", "{version}")
-        .replace("${TARGET_SLUG}", "{slug}");
-    assert_eq!(archive, artifact_template());
-    assert!(
-        text.contains(
-            r#"tar -czf "${ARCHIVE_BASE}.tar.gz" -C "${STAGING_DIR}" "${ARCHIVE_BINARY_NAME}""#
-        ),
-        "the archive holds the binary under ARCHIVE_BINARY_NAME"
-    );
-}
 
 #[test]
 fn the_cloud_generic_installer_fetches_exactly_the_contract_artifacts() {

@@ -609,24 +609,9 @@ describe('suderra-edge contract v1 — one vocabulary', () => {
     }
   });
 
-  it('the frozen generic-Linux release slugs and inner binary name are still published (DEC-28)', () => {
-    const workflow = readFileSync(
-      join(REPO_ROOT, '.github/workflows/edge-agent-release.yml'),
-      'utf8',
-    );
-    const generic = asObject(namingFile['generic_channel'], 'generic_channel');
-    const published = new Set(
-      [...workflow.matchAll(/-\s*target:\s*(\S+)\s*\n\s*target_slug:\s*(\S+)/g)].map(
-        (m) => `${m[1]} ${m[2]}`,
-      ),
-    );
-    for (const slug of objects(generic['slugs'], 'slugs')) {
-      expect(published).toContain(
-        `${asString(slug['rust_target'], 'rust_target')} ${asString(slug['slug'], 'slug')}`,
-      );
-    }
-    expect(/ARCHIVE_BINARY_NAME:\s*(\S+)/.exec(workflow)?.[1]).toBe(generic['binary_name']);
-  });
+  // The release workflow's builds, generic channel included, are planned from
+  // this contract by scripts/edge/edge_release.py and held to it by
+  // tests/invariants/edge-release-pipeline.spec.ts.
 
   it('the agent unit writes exactly the agent-owned rows of the mutable-state table', () => {
     const entries = objects(mutableFile['entries'], 'entries');

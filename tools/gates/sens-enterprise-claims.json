@@ -64,10 +64,12 @@
       "evidence_refs": [
         ".github/workflows/edge-agent-release.yml",
         ".github/workflows/sens-api-gateway-ci.yml",
+        ".github/workflows/ci-edge.yml",
+        "scripts/edge/edge_release.py",
+        "sens-api-gateway/release/edge-release.toml",
         "rust-toolchain.toml",
         "apps/sensor-service/src/edge-device/installer-script.service.ts",
         "apps/sensor-service/src/edge-device/edge-device.service.ts",
-        "sens-api-gateway/src/commands/firmware.rs",
         "sens-api-gateway/src/commands/apply_signed_manifest.rs",
         "docs/architecture/edge-release-provisioning-ota.md"
       ],

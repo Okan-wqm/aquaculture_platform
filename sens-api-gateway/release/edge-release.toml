@@ -1,0 +1,100 @@
+# Release facts of the edge agent (ADR-048 DEC-8.5, DEC-20, DEC-23, DEC-28).
+#
+# The cross-repo contract (contracts/suderra-edge/v1) fixes the boards, their
+# cargo features and every artifact name. What it leaves to the agent source is
+# here: the rollback and compatibility fields of the release statement, the
+# boards this source cannot build yet, the frozen generic channel's feature
+# set and the runtime the binary may link against.
+#
+# scripts/edge/edge_release.py reads this file together with the contract. The
+# release workflow (.github/workflows/edge-agent-release.yml) and the profile
+# CI (.github/workflows/ci-edge.yml) take every build row from that script, so
+# no workflow names a board, target, feature or artifact of its own.
+
+[suderra_os]
+# DEC-2.5: the monotonic integer root compares with the device's rollback
+# floor. Raise it with every release a device must not roll back past (a
+# security fix); never lower it.
+security_version = 1
+# DEC-23: the agent ABI this source speaks. Every Suderra OS image it targets
+# publishes the range it supports as SUDERRA_AGENT_ABI in /etc/os-release
+# (Suderra-OS board/suderra/common/post-build.sh, today 1-1).
+agent_abi = 1
+# DEC-23: the oldest Suderra OS VERSION_ID this agent runs on. The OS images
+# built today report 0.1.0 (Suderra-OS SUDERRA_VERSION v0.1.0-alpha).
+min_os_version = "0.1.0"
+# Cargo features every build of this crate carries on top of the board's
+# boards.json set. The crate does not compile without `health`: its
+# HealthState is the observability hub the MQTT client and the outbound
+# publisher take at init (src/main.rs init_outbound_publisher), not only the
+# health HTTP server, and --no-default-features fails in main.rs, io_poll.rs
+# and scripting/engine.rs. Contract v1's cargo_feature vocabulary has no
+# `health`, so the release statement lists the boards.json set and the build
+# adds this list; the contract change that removes the gap is reported with
+# ADR-048 P0 (release pipeline).
+crate_required_features = ["health"]
+
+# DEC-23: kernel config symbols the agent needs on each board. Root refuses a
+# release whose symbol has no =y or =m line in the image's
+# /etc/suderra/kernel-config. Every board of boards.json has an entry.
+# SECCOMP_FILTER backs the agent unit's SystemCallFilter=; I2C_CHARDEV and
+# SPI_SPIDEV back the rpi4-cm4 drop-in's /dev/i2c-1 and /dev/spidev0.* that the
+# gpio feature's rppal I2C and SPI drivers open.
+[suderra_os.required_kernel_config]
+qemu-x86_64 = ["CONFIG_SECCOMP_FILTER"]
+revpi-connect4 = ["CONFIG_SECCOMP_FILTER"]
+rpi4-cm4 = ["CONFIG_I2C_CHARDEV", "CONFIG_SECCOMP_FILTER", "CONFIG_SPI_SPIDEV"]
+
+# A boards.json board whose cargo features this source does not define yet.
+# The plan builds no release for it, and fails as soon as every feature the
+# board needs exists, so an entry cannot outlive its reason.
+[suderra_os.unbuildable.revpi-connect4]
+blocked_by = "EI-032"
+reason = "The revpi-io piControl backend (ADR-048 DEC-8.8) arrives with the KUNBUS kernel at P1; a revpi-connect4 build without it would have no I/O backend."
+
+[generic_channel]
+# DEC-28: the frozen generic-Linux channel ships the v1.6.0 fleet's tier, the
+# crate's default feature (health) plus scada-display, exactly as before the
+# Suderra OS channel existed.
+cargo_features = ["health", "scada-display"]
+
+# DEC-8.5: the shared libraries (ELF NEEDED) and program interpreter a release
+# binary may require. Every Suderra OS image ships them (Buildroot glibc and
+# the gcc runtime), and so does every glibc distribution of the generic
+# channel. A dependency that links anything else fails the release until it is
+# confirmed on the OS and added here.
+[runtime.x86_64]
+interpreter = "/lib64/ld-linux-x86-64.so.2"
+needed = [
+  "ld-linux-x86-64.so.2",
+  "libc.so.6",
+  "libdl.so.2",
+  "libgcc_s.so.1",
+  "libm.so.6",
+  "libpthread.so.0",
+  "librt.so.1",
+]
+
+[runtime.aarch64]
+interpreter = "/lib/ld-linux-aarch64.so.1"
+needed = [
+  "ld-linux-aarch64.so.1",
+  "libc.so.6",
+  "libdl.so.2",
+  "libgcc_s.so.1",
+  "libm.so.6",
+  "libpthread.so.0",
+  "librt.so.1",
+]
+
+[runtime.armv7]
+interpreter = "/lib/ld-linux-armhf.so.3"
+needed = [
+  "ld-linux-armhf.so.3",
+  "libc.so.6",
+  "libdl.so.2",
+  "libgcc_s.so.1",
+  "libm.so.6",
+  "libpthread.so.0",
+  "librt.so.1",
+]

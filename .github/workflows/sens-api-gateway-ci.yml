@@ -10,6 +10,7 @@ on:
     paths:
       - "sens-api-gateway/**"
       - "contracts/suderra-edge/**"
+      - "scripts/edge/**"
       - ".github/workflows/sens-api-gateway-ci.yml"
       - ".github/workflows/edge-agent-release.yml"
       # The cloud's generic installer is checked against the frozen
@@ -23,6 +24,7 @@ on:
     paths:
       - "sens-api-gateway/**"
       - "contracts/suderra-edge/**"
+      - "scripts/edge/**"
       - ".github/workflows/sens-api-gateway-ci.yml"
       - ".github/workflows/edge-agent-release.yml"
       # The cloud's generic installer is checked against the frozen
@@ -32,6 +34,9 @@ on:
       - "rust-toolchain.toml"
       - "rustfmt.toml"
   workflow_dispatch: {}
+  # The release workflow runs this whole CI on the tag's commit before it
+  # builds (ADR-048 DEC-20, INFRA-HIGH-237).
+  workflow_call: {}
 
 concurrency:
   group: sens-api-gateway-ci-${{ github.ref }}
@@ -66,7 +71,9 @@ jobs:
             echo "edge-agent-release.yml must not allow arbitrary manual release dispatch"
             exit 1
           fi
-          grep -q "EDGE_RELEASE_FEATURES: scada-display" .github/workflows/edge-agent-release.yml
+          # ADR-048: every release row comes from the contract and the release
+          # facts; the plan fails when they and the crate's features disagree.
+          python3 -I scripts/edge/edge_release.py plan > /dev/null
           grep -q "Release ref contract" .github/workflows/edge-agent-release.yml
           grep -q 'refs/tags/' .github/workflows/edge-agent-release.yml
           grep -q "cargo-metadata.sbom.json" .github/workflows/edge-agent-release.yml
@@ -434,6 +441,7 @@ jobs:
       - clippy
       - test
       - test-ci-features
+      - test-suderra-os-profile
       - deny
       - audit
       - doc
@@ -452,6 +460,7 @@ jobs:
             "${{ needs.clippy.result }}" \
             "${{ needs.test.result }}" \
             "${{ needs.test-ci-features.result }}" \
+            "${{ needs.test-suderra-os-profile.result }}" \
             "${{ needs.deny.result }}" \
             "${{ needs.audit.result }}" \
             "${{ needs.doc.result }}"; do

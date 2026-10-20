@@ -1,53 +1,29 @@
 name: CI - Edge Agent (sens-api-gateway)
 
-# Batch 70: PR-time CI gate for the Rust edge agent.
+# ADR-048 DEC-8.5 / DEC-20 / DEC-28 — every release build of the edge agent,
+# compiled and tested at PR time with exactly its release feature set.
 #
-# WHY this exists:
-#   Until Batch 70, the ONLY workflow referencing `sens-api-gateway/**`
-#   was `edge-agent-release.yml`, triggered ONLY on `agent-v*` tags or
-#   manual workflow_dispatch. Every PR touching the edge agent landed
-#   WITHOUT automated compile / test-compile validation.
+# `scripts/edge/edge_release.py plan` derives the rows from
+# contracts/suderra-edge/v1 (boards.json, artifact-naming.json) and
+# sens-api-gateway/release/edge-release.toml — the same plan the release
+# workflow builds from. For every distinct feature set (gpio for rpi4-cm4,
+# suderra-os, the generic channel's tier) the host runs the whole test suite;
+# every row is cross-built with that feature set and packaged through the same
+# ELF machine/interpreter/NEEDED check the release runs. A feature set or
+# target that does not build and test here cannot be released, because the
+# release workflow calls this workflow on the tag's commit (workflow_call)
+# before it builds (INFRA-HIGH-237, INFRA-CRITICAL-236).
 #
-#   ORPHAN-HIGH-012 surfaced this gap — test-code drift (18 errors
-#   across 6 modules) existed on HEAD for an unknown window because
-#   no PR-time gate ran `cargo check --features health --tests`.
-#
-# WHAT this workflow enforces:
-#   1. `cargo check --features health` — production compile (deny
-#      lints from Cargo.toml [lints.clippy] apply at this stage:
-#      unwrap_used, expect_used, indexing_slicing, todo,
-#      unimplemented, dbg_macro, print_stdout, print_stderr,
-#      large_stack_arrays, unsafe_op_in_unsafe_fn).
-#   2. `cargo check --features health --tests` — TEST CRATE
-#      compile gate (the root-cause fix for ORPHAN-HIGH-012).
-#      Catches production-type→test-code drift at PR time.
-#
-# WHAT this workflow DOES NOT enforce (yet):
-#   - `cargo clippy -- -D warnings` — the 153-warning baseline is
-#     intentionally allowed; elevating all warnings to errors would
-#     require a parallel baseline-cleanup batch.
-#   - `cargo fmt --check` — no prior fmt baseline asserted; adding
-#     the check without baseline verification risks red CI from
-#     legacy formatting.
-#   - Cross-arch build — `cross build` is slow (~12 min) and stays
-#     scoped to the release workflow. Host-native checks catch the
-#     vast majority of drift in seconds.
-#
-# Batch 86 upgrade: `cargo test --features health --bin suderra-agent`
-# now runs as a gate. ORPHAN-HIGH-013 closure in Batch 85 brought the
-# suite to 855/855 green (was 849/855). Any future PR that regresses
-# even one test is now blocked at merge.
-#
-# WHY only on path changes:
-#   Edge agent is ~35K LoC Rust; running on every PR (including
-#   TypeScript-only changes) burns CI minutes + slot contention.
-#   Path-filter matches `edge-agent-release.yml`'s scope exactly.
+# Lints run in sens-api-gateway-ci.yml (cargo clippy); cargo check does not
+# run clippy lints, so this workflow claims compilation and tests only.
 
 on:
   push:
     branches: [main, develop, agentic, 'feature/*', 'hotfix/*']
     paths:
       - 'sens-api-gateway/**'
+      - 'contracts/suderra-edge/**'
+      - 'scripts/edge/**'
       - '.github/workflows/ci-edge.yml'
       - '.github/workflows/edge-agent-release.yml'
       - '.github/workflows/sens-api-gateway-ci.yml'
@@ -55,82 +31,149 @@ on:
     branches: [main, develop, agentic]
     paths:
       - 'sens-api-gateway/**'
+      - 'contracts/suderra-edge/**'
+      - 'scripts/edge/**'
       - '.github/workflows/ci-edge.yml'
       - '.github/workflows/edge-agent-release.yml'
       - '.github/workflows/sens-api-gateway-ci.yml'
   workflow_dispatch:
+  workflow_call:
 
 # SEC-CI-021: minimum token permissions.
 permissions:
   contents: read
 
-# Cancel in-progress runs on the same branch — saves CI minutes.
+# Not `${{ github.workflow }}-…`: called from the release workflow, the
+# caller's name would make this group equal the caller's own and the call
+# would wait on, or cancel, its caller.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ci-edge-${{ github.ref }}
   cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_TOOLCHAIN: stable
+  RUST_TOOLCHAIN: '1.88.0'
+  CROSS_VERSION: '0.2.5'
 
 jobs:
-  check:
-    name: compile + test-compile gate
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
+  plan:
+    name: Release profiles (contracts/suderra-edge/v1)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      build_matrix: ${{ steps.plan.outputs.build_matrix }}
+      test_matrix: ${{ steps.plan.outputs.test_matrix }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Plan every release row from the contract
+        id: plan
+        run: python3 -I scripts/edge/edge_release.py plan --github-output "${GITHUB_OUTPUT}"
+
+  profile-test:
+    name: cargo test (${{ matrix.used_by }})
+    needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.test_matrix) }}
+    env:
+      FEATURES: ${{ matrix.features }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # stable
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
 
-      - name: Cache cargo registry + target
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            sens-api-gateway/target/
-          key: ${{ runner.os }}-cargo-edge-${{ hashFiles('sens-api-gateway/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-edge-
+          workspaces: sens-api-gateway -> target
+          shared-key: ci-edge-test-${{ matrix.features }}
+          save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/agentic' }}
 
-      - name: cargo check (production, features=health)
+      - name: Run the suite with exactly the release feature set
         working-directory: sens-api-gateway
-        # Production compile gate. Cargo.toml [lints.clippy/rust] deny
-        # entries apply at this stage — any use of unwrap()/expect()/
-        # indexing, any todo!/unimplemented!/dbg!, any print_stdout/
-        # print_stderr, any unsafe_op_in_unsafe_fn will hard-fail here.
-        # 153-warning baseline is INTENTIONALLY not asserted as a count
-        # gate (follow-up batch); this step fails only on hard errors.
-        run: cargo check --features health
+        run: cargo test --locked --all-targets --no-default-features --features "$FEATURES" --no-fail-fast -- --test-threads=1
 
-      - name: cargo check --tests (ORPHAN-HIGH-012 closure)
-        working-directory: sens-api-gateway
-        # TEST CRATE compile gate. Closes ORPHAN-HIGH-012 root cause:
-        # test-code drift out of sync with current production API
-        # types (Permission::ReadTag tuple→unit, WriteTag tuple→struct,
-        # FileBackedAcceptance missing Debug) MUST be caught at PR
-        # time, not discovered N batches later in a manual verify run.
-        # Pre-Batch-69 this produced 18 errors on HEAD; Batch 69 fixed
-        # them and this step now gates against recurrence.
-        run: cargo check --features health --tests
+  profile-build:
+    name: cross build (${{ matrix.artifact }})
+    needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.build_matrix) }}
+    env:
+      CHANNEL: ${{ matrix.channel }}
+      BUILD_ID: ${{ matrix.id }}
+      RUST_TARGET: ${{ matrix.rust_target }}
+      FEATURES: ${{ matrix.features }}
+      CARGO_BIN: ${{ matrix.cargo_bin }}
+      CARGO_TARGET_DIR: ${{ github.workspace }}/sens-api-gateway/target
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - name: cargo test (ORPHAN-HIGH-013 closure gate)
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: ${{ matrix.rust_target }}
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: sens-api-gateway -> target
+          shared-key: ci-edge-cross-${{ matrix.rust_target }}-${{ matrix.features }}
+          save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/agentic' }}
+
+      - name: Install cross
+        run: cargo install cross --version "${CROSS_VERSION}" --locked
+
+      - name: Cross-build the release binary
         working-directory: sens-api-gateway
-        # Batch 86: full unit-test gate, unblocked by Batch 85's
-        # ORPHAN-HIGH-013 closure. Pre-Batch-85 the suite had 6
-        # pre-existing failing tests (audit chain tamper, sorted
-        # mutating commands, CommandResponse serde, i2c enumeration,
-        # monotonic clock flake, ST CASE parser). Batch 85 brought
-        # the suite to 855/855 green; this gate now blocks any PR
-        # that regresses even one test.
-        #
-        # Scoped to --bin suderra-agent (main production binary) +
-        # the registered [[test]] invariant harnesses. Integration
-        # tests behind --ignored stay out of PR gate (those are
-        # slow; release workflow runs them).
-        run: cargo test --features health --bin suderra-agent
+        # Cross.toml's pre-build installs LLVM 12 for aws-lc-sys's bindgen;
+        # cross passes LIBCLANG_PATH into the container.
+        env:
+          LIBCLANG_PATH: /usr/lib/llvm-12/lib
+        run: cross build --locked --release --target-dir "$CARGO_TARGET_DIR" --target "$RUST_TARGET" --no-default-features --features "$FEATURES"
+
+      - name: Package through the release ELF and archive checks
+        run: |
+          set -euo pipefail
+          SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          export SOURCE_DATE_EPOCH
+          python3 -I scripts/edge/edge_release.py package \
+            --channel "$CHANNEL" --id "$BUILD_ID" \
+            --binary "${CARGO_TARGET_DIR}/${RUST_TARGET}/release/${CARGO_BIN}" \
+            --out-dir "${RUNNER_TEMP}/dist"
+
+  ci-edge-summary:
+    name: CI - Edge Agent summary
+    needs:
+      - plan
+      - profile-test
+      - profile-build
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Fail on skipped, cancelled or failed profile jobs
+        env:
+          RESULTS: ${{ needs.plan.result }} ${{ needs.profile-test.result }} ${{ needs.profile-build.result }}
+        run: |
+          for result in ${RESULTS}; do
+            if [ "$result" != "success" ]; then
+              echo "An edge release profile job did not succeed: $result"
+              exit 1
+            fi
+          done

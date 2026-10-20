@@ -107,6 +107,10 @@ const MANIFEST_PATH = 'tools/gates/sens-enterprise-claims.json';
 const DEFAULT_RELEASE_PROFILE = 'edge-agent-scada-display';
 const WORKFLOW_CI = '.github/workflows/ci-affected.yml';
 const WORKFLOW_SENS = '.github/workflows/sens-api-gateway-ci.yml';
+const WORKFLOW_CI_EDGE = '.github/workflows/ci-edge.yml';
+// ADR-048: every release row is planned from the contract and these facts.
+const EDGE_RELEASE_FACTS = 'sens-api-gateway/release/edge-release.toml';
+const EDGE_RELEASE_TOOL = 'scripts/edge/edge_release.py';
 const WORKFLOW_RELEASE = '.github/workflows/edge-agent-release.yml';
 const REQUIRED_STATUS_CHECKS_MANIFEST = '.github/manifests/main-required-status-checks.json';
 const DEPLOYMENT_SCOPE_SELECTOR = 'scripts/ci/select-deployment-scope.ts';
@@ -144,6 +148,7 @@ const SENS_GATEWAY_SUMMARY_JOBS = [
   'clippy',
   'test',
   'test-ci-features',
+  'test-suderra-os-profile',
   'deny',
   'audit',
   'doc',
@@ -407,6 +412,22 @@ function check(
   };
 }
 
+/**
+ * The release calls the gateway CI and the profile CI as reusable workflows
+ * on the tag's commit, and its build job needs both (INFRA-HIGH-237).
+ */
+function releaseRunsGatewayCiBeforeBuild(release: string): boolean {
+  const buildJob = workflowJobBlock(release, 'build');
+  return (
+    hasExecutableText(workflowJobBlock(release, 'gateway-ci'), `uses: ./${WORKFLOW_SENS}`) &&
+    hasExecutableText(workflowJobBlock(release, 'profile-ci'), `uses: ./${WORKFLOW_CI_EDGE}`) &&
+    hasExecutableText(buildJob, '- gateway-ci') &&
+    hasExecutableText(buildJob, '- profile-ci') &&
+    hasExecutableText(readFile(WORKFLOW_SENS), 'workflow_call:') &&
+    hasExecutableText(readFile(WORKFLOW_CI_EDGE), 'workflow_call:')
+  );
+}
+
 function workflowCommandsOnly(src: string): string {
   return stripCommentOnlyLines(src)
     .split(/\r?\n/)
@@ -652,13 +673,23 @@ const CHECKS: Record<string, () => CheckResult> = {
   },
 
   edge_release_tiered_binary_feature_contract: () => {
+    // ADR-048 DEC-8.5 / DEC-28: every release row comes from the plan of
+    // scripts/edge/edge_release.py, built with exactly its feature set; the
+    // generic channel's tier (default `health` + scada-display) lives in the
+    // release facts, distinct from the curated CI feature gate.
     const release = readFile(WORKFLOW_RELEASE);
     const sensCi = readFile(WORKFLOW_SENS);
+    const facts = readFile(EDGE_RELEASE_FACTS);
     const buildJob = workflowJobBlock(release, 'build');
     const ok =
-      hasExecutableText(release, 'EDGE_RELEASE_FEATURES: scada-display') &&
+      hasExecutableText(buildJob, 'matrix: ${{ fromJSON(needs.plan.outputs.build_matrix) }}') &&
+      hasExecutableText(release, `python3 -I ${EDGE_RELEASE_TOOL} plan --expect-version`) &&
       hasExecutableText(release, 'CARGO_TARGET_DIR: ${{ github.workspace }}/sens-api-gateway/target') &&
-      hasExecutableText(buildJob, 'cross build --target-dir "$CARGO_TARGET_DIR" --release --target ${{ matrix.target }} --features "$EDGE_RELEASE_FEATURES"') &&
+      hasExecutableText(
+        buildJob,
+        'cross build --locked --release --target-dir "$CARGO_TARGET_DIR" --target "$RUST_TARGET" --no-default-features --features "$FEATURES"',
+      ) &&
+      hasExecutableText(facts, 'cargo_features = ["health", "scada-display"]') &&
       hasExecutableText(sensCi, `SENS_API_GATEWAY_CI_FEATURES: ${CI_AFFECTED_SENS_FEATURES}`) &&
       !hasExecutableText(buildJob, '--features scada-display');
     return check(
@@ -666,10 +697,10 @@ const CHECKS: Record<string, () => CheckResult> = {
       'edge release binary feature tier is explicit and distinct from curated CI/HIL feature gates',
       ok,
       ok
-        ? 'release tarball tier is explicitly scada-display; CI curated feature coverage remains separate'
-        : 'release feature tier is implicit or drifted from the curated CI feature contract',
-      [WORKFLOW_RELEASE, WORKFLOW_SENS],
-      [lineRef(WORKFLOW_RELEASE, 'EDGE_RELEASE_FEATURES'), lineRef(WORKFLOW_SENS, 'SENS_API_GATEWAY_CI_FEATURES')],
+        ? 'release rows are planned from the contract; the generic tier is health + scada-display in the release facts; CI curated feature coverage remains separate'
+        : 'release feature tier is implicit or drifted from the planned rows, the release facts or the curated CI feature contract',
+      [WORKFLOW_RELEASE, WORKFLOW_SENS, EDGE_RELEASE_FACTS],
+      [lineRef(WORKFLOW_RELEASE, 'build_matrix'), lineRef(EDGE_RELEASE_FACTS, 'cargo_features'), lineRef(WORKFLOW_SENS, 'SENS_API_GATEWAY_CI_FEATURES')],
     );
   },
 
@@ -709,26 +740,34 @@ const CHECKS: Record<string, () => CheckResult> = {
   },
 
   edge_release_signed_manifest_contract: () => {
+    // The manifest indexes every planned row; Suderra OS rows add their
+    // Ed25519 release statement, which the publish job verifies first.
     const release = readFile(WORKFLOW_RELEASE);
+    const tool = readFile(EDGE_RELEASE_TOOL);
     const required = [
+      'Verify every release statement',
+      `python3 -I ${EDGE_RELEASE_TOOL} verify`,
       'Create release manifest',
+      `python3 -I ${EDGE_RELEASE_TOOL} manifest`,
       'Sign release manifest with cosign',
-      'edge-release-manifest.json',
-      "kind: 'suderra.edge.release.manifest'",
-      "targets = ['x86_64-linux', 'aarch64-linux', 'armv7-linux']",
-      'signature: requireFile(`${base}.tar.gz.sig`)',
-      'certificate: requireFile(`${base}.tar.gz.pem`)',
       'artifacts/edge-release-manifest.json.sig',
       'artifacts/edge-release-manifest.json.pem',
       'artifacts/edge-release-manifest.json',
+      'artifacts/*.release.dsse.json',
     ];
-    const missing = hasAll(release, required);
+    const toolRequired = [
+      '"kind": "suderra.edge.release.manifest"',
+      'for row in release.rows():',
+      'archive = _signed(directory, row.artifact)',
+      'entry["release_statement"] = _signed(directory, row.statement)',
+    ];
+    const missing = [...hasAll(release, required), ...hasAll(tool, toolRequired)];
     return check(
       'edge_release_signed_manifest_contract',
       'edge release publishes a signed machine-readable manifest for all target artifacts',
       missing.length === 0,
       missing.length ? `missing signed manifest markers: ${missing.join(', ')}` : 'signed manifest contract present',
-      [WORKFLOW_RELEASE],
+      [WORKFLOW_RELEASE, EDGE_RELEASE_TOOL],
       [lineRef(WORKFLOW_RELEASE, 'Create release manifest'), lineRef(WORKFLOW_RELEASE, 'Sign release manifest with cosign')],
     );
   },
@@ -737,7 +776,10 @@ const CHECKS: Record<string, () => CheckResult> = {
     const installer = readFile(INSTALLER_SCRIPT);
     const service = readFile(EDGE_DEVICE_SERVICE);
     const resolver = readFile(EDGE_DEVICE_RESOLVER);
-    const firmware = readFile(RUST_FIRMWARE);
+    // SENSOR-MEDIUM-223 (ADR-048 DEC-28): the legacy tarball OTA module is
+    // removed in every profile, so it can neither resolve `latest` nor fetch
+    // a GitHub release; its return fails this check.
+    const legacyOtaRemoved = !fs.existsSync(path.join(REPO_ROOT, RUST_FIRMWARE));
     const applyManifest = readFile(RUST_APPLY_SIGNED_MANIFEST);
     const required = [
       [installer, 'assertExplicitAgentVersion'],
@@ -746,19 +788,18 @@ const CHECKS: Record<string, () => CheckResult> = {
       [service, 'EDGE_LEGACY_OTA_ALLOWED'],
       [service, 'Legacy update_firmware is disabled'],
       [resolver, 'explicit-version-required'],
-      [firmware, 'FirmwareUpdateMode::Disabled => LegacyTarballGateDecision::Reject'],
       [applyManifest, 'gate: "ab_partitions_required"'],
     ] as const;
-    const missing = required
-      .filter(([src, needle]) => !hasExecutableText(src, needle))
-      .map(([, needle]) => needle);
+    const missing = [
+      ...required.filter(([src, needle]) => !hasExecutableText(src, needle)).map(([, needle]) => needle),
+      ...(legacyOtaRemoved ? [] : [`${RUST_FIRMWARE} (legacy tarball OTA) still exists`]),
+    ];
     const forbidden = [
       [installer, "AGENT_VERSION', 'latest'"],
       [installer, 'releases?per_page=20'],
       [installer, "grep 'agent-v' | head -1"],
       [service, "targetVersion || 'latest'"],
       [service, 'github_repo'],
-      [firmware, 'if target == "latest"'],
       [applyManifest, 'HC-1 backward-compat'],
     ] as const;
     const offenders = forbidden
@@ -770,11 +811,10 @@ const CHECKS: Record<string, () => CheckResult> = {
       'tenant provisioning and edge OTA consumers cannot resolve live latest or legacy GitHub tarball updates by default',
       details.length === 0,
       details.length ? `runtime consumer contract drift: ${details.join(', ')}` : 'runtime consumers require explicit signed release paths',
-      [INSTALLER_SCRIPT, EDGE_DEVICE_SERVICE, EDGE_DEVICE_RESOLVER, RUST_FIRMWARE, RUST_APPLY_SIGNED_MANIFEST],
+      [INSTALLER_SCRIPT, EDGE_DEVICE_SERVICE, EDGE_DEVICE_RESOLVER, RUST_APPLY_SIGNED_MANIFEST],
       [
         lineRef(INSTALLER_SCRIPT, 'assertExplicitAgentVersion'),
         lineRef(EDGE_DEVICE_SERVICE, 'EDGE_LEGACY_OTA_ALLOWED'),
-        lineRef(RUST_FIRMWARE, 'FirmwareUpdateMode::Disabled'),
         lineRef(RUST_APPLY_SIGNED_MANIFEST, 'ab_partitions_required'),
       ],
     );
@@ -808,31 +848,37 @@ const CHECKS: Record<string, () => CheckResult> = {
   },
 
   edge_release_cargo_deny_not_warning_only: () => {
-    const src = readFile(WORKFLOW_RELEASE);
-    const commands = workflowCommandsOnly(src);
+    // INFRA-HIGH-237: the release runs the whole gateway CI on the tag's
+    // commit (workflow_call) and builds only after it; cargo deny is that
+    // CI's hard gate.
+    const release = readFile(WORKFLOW_RELEASE);
+    const commands = workflowCommandsOnly(readFile(WORKFLOW_SENS));
     const warningPattern = /cargo\s+deny[\s\S]{0,160}(::warning::|\|\|\s*echo)/m;
-    const ok = !warningPattern.test(commands) && commands.includes('cargo deny check advisories bans licenses sources');
+    const ok =
+      releaseRunsGatewayCiBeforeBuild(release) &&
+      !warningPattern.test(commands) &&
+      commands.includes('cargo deny check advisories bans licenses sources');
     return check(
       'edge_release_cargo_deny_not_warning_only',
       'edge release cargo deny fails hard',
       ok,
-      ok ? 'cargo deny has no warning-only fallback' : 'cargo deny is missing full hard check or still has warning-only fallback',
-      [WORKFLOW_RELEASE],
-      [lineRef(WORKFLOW_RELEASE, 'cargo deny')],
+      ok ? 'the release builds after the gateway CI, whose cargo deny has no warning-only fallback' : 'the release does not build after a hard cargo deny of its commit',
+      [WORKFLOW_RELEASE, WORKFLOW_SENS],
+      [lineRef(WORKFLOW_RELEASE, 'gateway-ci'), lineRef(WORKFLOW_SENS, 'cargo deny')],
     );
   },
 
   edge_release_cargo_audit_denies_warnings: () => {
-    const src = readFile(WORKFLOW_RELEASE);
-    const commands = workflowCommandsOnly(src);
-    const ok = /cargo\s+audit\s+--deny\s+warnings/.test(commands);
+    const release = readFile(WORKFLOW_RELEASE);
+    const commands = workflowCommandsOnly(readFile(WORKFLOW_SENS));
+    const ok = releaseRunsGatewayCiBeforeBuild(release) && /cargo\s+audit\s+--deny\s+warnings/.test(commands);
     return check(
       'edge_release_cargo_audit_denies_warnings',
       'edge release cargo audit denies warnings',
       ok,
-      ok ? 'cargo audit --deny warnings present' : 'cargo audit --deny warnings missing',
-      [WORKFLOW_RELEASE],
-      [lineRef(WORKFLOW_RELEASE, 'cargo audit')],
+      ok ? 'the release builds after the gateway CI, whose cargo audit denies warnings' : 'the release does not build after cargo audit --deny warnings on its commit',
+      [WORKFLOW_RELEASE, WORKFLOW_SENS],
+      [lineRef(WORKFLOW_RELEASE, 'gateway-ci'), lineRef(WORKFLOW_SENS, 'cargo audit')],
     );
   },
 

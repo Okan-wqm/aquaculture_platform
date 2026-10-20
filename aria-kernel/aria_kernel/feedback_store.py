@@ -76,7 +76,15 @@ CALIBRATION_GATES = ("measure_only", "enforce")
 CALIBRATED_QUORUM_MIN_JUDGES = 2
 CALIBRATED_QUORUM_MIN_MODELS = 2
 FEEDBACK_SEVERITIES = ("low", "medium", "high", "critical")
-FEEDBACK_SOURCE_TYPES = ("human", "ai_judge", "ai_consensus")
+# WP-J D-1 — 'outcome' (the machine-verifiable outcome of a judged finding:
+# red-then-green same-recipe, merged, not reverted; outcome_truth.py) was
+# admitted in the SAME commit as its first mint, so the vocabulary never
+# names a source nothing writes. It widens CALIBRATION only:
+# GROUND_TRUTH_SOURCE_TYPES below deliberately refuses it, so suppression,
+# goldset admission and promotion readiness never read an outcome row as
+# authority — JJ-1's one-predicate law keeps its ground-truth leg
+# byte-identical (the scoring-only sibling lives in judge_calibration).
+FEEDBACK_SOURCE_TYPES = ("human", "ai_judge", "ai_consensus", "outcome")
 # Typed-judgment plan (ARIA-HIGH-167) — where a judge's confidence came
 # from. The ROUTE stamps it on the envelope (``self_reported``: the model's
 # own number, every CLI and chat completion in the fleet;

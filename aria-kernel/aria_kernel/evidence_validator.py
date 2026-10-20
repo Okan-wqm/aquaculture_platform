@@ -4,7 +4,7 @@ import re
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Iterable
 
 from .evidence_probe import GitProbeSession
 from .evidence_trust import (
@@ -698,31 +698,11 @@ def _judge_agent_ref(
     errors: list[dict[str, Any]],
     checked: list[str],
     evidence_envelopes: list[dict[str, Any]],
-    quote: str | None = None,
-    pinned_excerpts: Sequence[Mapping[str, Any]] | None = None,
 ) -> None:
     """THE rule for one agent evidence ref: grammar, repo path, line, committed at ``target_sha``.
 
     ORPHAN-HIGH-519 — the submit path and plan synthesis ask this one function,
     so a plan the kernel mints cites only refs its challenger can cite back.
-
-    WP-J slice A — when the assertion carrying ``ref`` also quotes the bytes it
-    read (``quote``), the quote is re-graded here against the excerpts the
-    mint pinned for that ref (``pinned_excerpts``, the request's
-    ``evidence_excerpts`` rows). ``evidence_trust.quote_matches_at`` is the
-    law; this function adds the untyped path's named refusals around it:
-
-    * ``agent_evidence_quote_stale`` — the mint pinned a structural skip for
-      this ref (it could not read the bytes then), so no quote can be checked
-      against them now;
-    * ``agent_evidence_quote_unpinned`` — the mint pinned excerpts, but none
-      for this ref, so the quote verifies nothing the kernel handed the agent;
-    * ``agent_evidence_quote_mismatch`` — the pinned bytes do not contain the
-      quote verbatim.
-
-    ``pinned_excerpts is None`` (a request with no excerpt block at all, the
-    legacy wire) keeps a quote unverifiable-but-accepted, exactly as the typed
-    parse carries an unpinned quote unverified.
     """
     _check_agent_ref(
         ref, root=root, errors=errors, checked=checked,
@@ -750,56 +730,6 @@ def _judge_agent_ref(
             "code": _unverified_evidence_code("agent", envelope.trust_grade),
             "ref": ref,
             "reason": str(exc),
-        })
-    if quote is not None:
-        _judge_agent_quote(ref, quote=quote, pinned_excerpts=pinned_excerpts, errors=errors)
-
-
-def _judge_agent_quote(
-    ref: str,
-    *,
-    quote: str,
-    pinned_excerpts: Sequence[Mapping[str, Any]] | None,
-    errors: list[dict[str, Any]],
-) -> None:
-    """The quote half of the agent evidence law, against the pinned excerpts.
-
-    Row matching is the typed path's rule (``typed_judgment._excerpts_by_ref_
-    index``): an excerpt row belongs to a ref when its ``path`` equals the ref
-    or the ref's path part. A skip entry for the ref is a named stale
-    rejection, never a silent pass — the mint's own skip vocabulary is the
-    whole truth about why a ref carries no bytes.
-    """
-    from .evidence_trust import quote_matches_at
-
-    path_part = (_parse_agent_ref(ref) or (str(ref), None))[0]
-    rows = [entry for entry in (pinned_excerpts or ()) if str(entry.get("path") or "") == path_part]
-    if pinned_excerpts is None:
-        return  # legacy request: no excerpt block was ever pinned
-    if not rows:
-        errors.append({
-            "code": "agent_evidence_quote_unpinned",
-            "ref": ref,
-            "reason": "the request pinned excerpts, but none for this ref",
-        })
-        return
-    skipped = [str(entry.get("skipped")) for entry in rows if entry.get("skipped")]
-    if skipped:
-        errors.append({
-            "code": "agent_evidence_quote_stale",
-            "ref": ref,
-            "reason": f"pinned excerpt skipped at mint: {', '.join(sorted(set(skipped)))}",
-        })
-        return
-    verified = any(
-        quote_matches_at(quote, excerpt_content=str(entry.get("content") or "")) is True
-        for entry in rows
-    )
-    if not verified:
-        errors.append({
-            "code": "agent_evidence_quote_mismatch",
-            "ref": ref,
-            "reason": "the quote is not inside the bytes pinned for this ref",
         })
 
 
@@ -897,22 +827,12 @@ def validate_agent_response_evidence(
     # compared against an anchor the submitter did not cite.
     probe_session = probe_session if probe_session is not None else GitProbeSession()
     target_sha = _request_target_sha(request)
-    # WP-J slice A — the excerpts the mint pinned for this request, when it
-    # pinned any (``agent_invocations`` writes ``evidence_excerpts`` beside
-    # the refs). Matrix assertions that quote the bytes they read are
-    # re-graded against these; a request without the block (legacy wire)
-    # keeps quotes unverifiable-but-accepted.
-    pinned_excerpts_raw = (request or {}).get("evidence_excerpts")
-    pinned_excerpts: Sequence[Mapping[str, Any]] | None = None
-    if isinstance(pinned_excerpts_raw, list):
-        pinned_excerpts = [row for row in pinned_excerpts_raw if isinstance(row, Mapping)]
 
-    def judge(ref: str, quote: str | None = None) -> None:
+    def judge(ref: str) -> None:
         _judge_agent_ref(
             ref, root=root, target_sha=target_sha, probe_session=probe_session,
             allow_kernel_artifacts=allow_kernel_artifacts, errors=errors,
             checked=checked, evidence_envelopes=evidence_envelopes,
-            quote=quote, pinned_excerpts=pinned_excerpts,
         )
 
     response_refs = response.get("evidence_refs") or []
@@ -945,23 +865,13 @@ def validate_agent_response_evidence(
             if not isinstance(entry_refs, list):
                 errors.append({"code": "agent_matrix_evidence_refs_not_list", "id": entry.get("id")})
                 continue
-            # WP-J slice A — the assertion row's quotes, aligned by index with
-            # its evidence_refs (the shape agent_contract validates; a
-            # misaligned quotes list is refused there). A ref with no quote at
-            # its index is judged as before; the quote laws apply only where
-            # the agent claimed verbatim bytes.
-            entry_quotes = entry.get("quotes")
-            quotes_aligned: list[Any] = (
-                list(entry_quotes) if isinstance(entry_quotes, list) else []
-            )
-            for position, ref in enumerate(entry_refs):
+            for ref in entry_refs:
                 if not isinstance(ref, str) or not ref.strip():
                     errors.append(
                         {"code": "agent_matrix_evidence_ref_not_string", "id": entry.get("id")}
                     )
                     continue
-                quote = quotes_aligned[position] if position < len(quotes_aligned) else None
-                judge(ref, quote if isinstance(quote, str) and quote.strip() else None)
+                judge(ref)
 
     # Cross-check: when a request is provided, every ref the agent
     # claims must either live inside `allowed_scope` OR be one of the

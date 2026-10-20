@@ -382,41 +382,6 @@ def classify_evidence_ref(
     )
 
 
-def quote_matches_at(quote: Any, *, excerpt_content: Any) -> bool | None:
-    """THE verbatim-quote law: is ``quote`` copied byte-for-byte from the
-    pinned ``excerpt_content``?
-
-    One law, every caller (the ARIA-HIGH-195 lesson: two copies of a grammar
-    drifted and a synthesized plan's own evidence was graded missing). The
-    typed judgment parse (``typed_judgment._quote_verified``) and the untyped
-    submit re-grade (``evidence_validator._judge_agent_ref``) both ask this
-    function, so a judge's quote is checked against the bytes the mint pinned
-    under one name everywhere. Tri-state on purpose:
-
-    * ``None`` — nothing was pinned for the ref (``excerpt_content`` is not
-      a string): the quote is the judge's word and is carried unverified,
-      never graded as a match (mirrors ``_git_blob_matches``: no probe, no
-      verdict);
-    * ``False`` — the quote is not a string, is empty/whitespace, is longer
-      than ``QUOTE_MAX_CHARS``, or the pinned bytes do not contain it;
-    * ``True`` — the pinned bytes contain the quote verbatim.
-
-    ``QUOTE_MAX_CHARS`` is imported lazily: its owner is the typed-judgment
-    response contract, which imports this module for this law — a module-level
-    import would be a cycle, and the lazy form is the established pattern
-    here (``validate_rule_contracts`` does the same for ``BANNED_PHRASES``).
-    """
-    from .typed_judgment import QUOTE_MAX_CHARS
-
-    if not isinstance(quote, str) or not quote.strip():
-        return False
-    if len(quote) > QUOTE_MAX_CHARS:
-        return False
-    if not isinstance(excerpt_content, str):
-        return None
-    return quote in excerpt_content
-
-
 # ARIA-HIGH-195 — THE evidence-ref grammar: ``path`` or ``path:line``. It
 # lived twice: evidence_validator admitted a ``path:line:<excerpt>`` triplet
 # (V8.6, for plan_synthesizer's snippets) while this module split on the LAST
@@ -629,5 +594,4 @@ __all__ = [
     "classify_evidence_ref",
     "tool_evidence_refusal",
     "forbidden_detector_scope",
-    "quote_matches_at",
 ]

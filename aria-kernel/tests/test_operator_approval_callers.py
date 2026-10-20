@@ -77,8 +77,64 @@ ENTRY_POINTS: dict[tuple[str, str], str] = {
 }
 
 
+# Internal plumbing: the function hands the ref to the layer that owns its
+# proof and never decides anything on the string itself. PASS_THROUGH is not
+# an honour class — every entry names the layer that holds the rule.
+PASS_THROUGH: dict[tuple[str, str], str] = {}
+
+
+# ARIA-HIGH-238 — the shrink-to-zero queue. Every kernel function that takes
+# an ``*approval_ref`` parameter must be classified above (or here while its
+# fix is in flight). An entry leaves this table only with its production fix
+# in the same commit; the completing commit empties it.
+PENDING_CLASSIFICATION: frozenset[tuple[str, str]] = frozenset({
+    ("ack_ledger", "init_ack_ledger"),
+    ("ack_ledger", "rotate_key"),
+    ("agent_eval", "run_agent_eval"),
+    ("agent_genesis", "approve_agent_pr"),
+    ("agent_genesis", "draft_agent_from_gap"),
+    ("agent_genesis", "record_draft_lifecycle_chain"),
+    ("agent_invocations", "_submit_legacy_invocation_result_internal"),
+    ("autonomous_host_lease", "release_lease"),
+    ("circuit_breaker", "quarantine_breaker_evidence"),
+    ("circuit_breaker", "reset_breaker"),
+    ("cost_budget", "reset_breaker"),
+    ("genesis_lifecycle", "record_transition"),
+    ("instinct_candidate", "promote_candidate"),
+    ("pressure", "record_weight_override"),
+    ("promotion_veto", "record_pending_promotion"),
+    ("promotion_veto", "resolve_panel_approval"),
+    ("proposal", "_write_approval"),
+    ("proposal", "approve_proposal"),
+    ("runtime_artifacts", "restore_artifact"),
+    ("runtime_artifacts", "retention_apply"),
+    ("runtime_artifacts", "rollback_retention"),
+    ("runtime_profile", "_transition_merge_lane_grant"),
+    ("security.grant", "new_claims"),
+    ("self_modification", "request_kernel_change"),
+    ("shadow_eval_bridge", "bridge_shadow_eval_from_invocation"),
+    ("skill_curator", "decide_curation"),
+    ("skill_curator", "rollback_skill_materialization"),
+    ("skill_genesis", "approve_skill_pr"),
+    ("skill_genesis", "sandbox_skill"),
+    ("tool_registry", "update_tool"),
+})
+
+
 def _functions(tree: ast.AST) -> list[ast.FunctionDef]:
     return [node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)]
+
+
+def _approval_ref_parameters() -> set[tuple[str, str]]:
+    """Every (module, function) whose signature takes an ``*approval_ref``."""
+    found: set[tuple[str, str]] = set()
+    for path in sorted(KERNEL.rglob("*.py")):
+        module = path.relative_to(KERNEL).with_suffix("").as_posix().replace("/", ".")
+        for function in _functions(ast.parse(path.read_text(encoding="utf-8"))):
+            arguments = function.args.args + function.args.kwonlyargs
+            if any(arg.arg.endswith("approval_ref") for arg in arguments):
+                found.add((module, function.name))
+    return found
 
 
 def _called_names(node: ast.AST) -> set[str]:
@@ -123,6 +179,31 @@ def _verifier_calls() -> dict[tuple[str, str], tuple[str, frozenset[str]]]:
 class CallerClassificationTests(unittest.TestCase):
     def test_every_verifier_call_site_is_classified(self) -> None:
         self.assertEqual(_verifier_calls(), VERIFIER_CALL_SITES)
+
+    def test_every_approval_ref_parameter_is_classified(self) -> None:
+        """ARIA-HIGH-238 — the parameter list is the whole caller population.
+
+        A function that takes an ``*approval_ref`` parameter claims operator
+        authority somewhere. Every such (module, function) must be classified:
+        an entry point in ``ENTRY_POINTS``/``VERIFIER_CALL_SITES``, internal
+        plumbing in ``PASS_THROUGH`` (naming the layer that owns the proof),
+        or queued in ``PENDING_CLASSIFICATION`` — which shrinks to zero and
+        must be empty when the finding closes.
+        """
+        classified = set(ENTRY_POINTS) | set(VERIFIER_CALL_SITES) | set(PASS_THROUGH)
+        pending = set(PENDING_CLASSIFICATION)
+        self.assertEqual(pending & classified, set(), "a PENDING row was fixed but not removed")
+        unclassified = _approval_ref_parameters() - classified
+        self.assertEqual(
+            sorted(unclassified - pending),
+            [],
+            "kernel functions taking an *approval_ref parameter with no class",
+        )
+        self.assertEqual(
+            sorted(pending - _approval_ref_parameters()),
+            [],
+            "PENDING rows that no longer take an approval-ref parameter",
+        )
 
     def test_the_surface_sets_are_exactly_the_classified_surfaces(self) -> None:
         raising = set().union(*(s for v, s in VERIFIER_CALL_SITES.values() if v == GITHUB_VERIFIER))

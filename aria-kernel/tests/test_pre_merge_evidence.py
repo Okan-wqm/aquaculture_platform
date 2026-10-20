@@ -113,7 +113,7 @@ class _NativeCapture:
         }
         record_pr_lifecycle(opener, event="opened", base_dir=self.tools)
         self.pr = {key: value for key, value in opener.items() if key != "change_id"}
-        record_pr_lifecycle(self.pr, base_dir=self.tools)
+        record_pr_lifecycle(self.pr, event="observed", base_dir=self.tools)
         self.change_id = planned["change_id"]
 
     def git(self, *argv: str) -> str:
@@ -198,7 +198,7 @@ class CaptureRecheckTests(unittest.TestCase):
             joined = real_join(**kwargs)
             # Another lane records what it saw of the PR while the capture
             # is between its first read and its re-check.
-            row = record_pr_lifecycle(dict(fixture.pr), base_dir=fixture.tools)
+            row = record_pr_lifecycle(dict(fixture.pr), event="observed", base_dir=fixture.tools)
             writes.append(row["ledger_hash"])
             return joined
 

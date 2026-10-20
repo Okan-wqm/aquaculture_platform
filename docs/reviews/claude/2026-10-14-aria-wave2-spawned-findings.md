@@ -949,6 +949,14 @@ duplicate `lint-changed-files`. The real residual is INFRA-MEDIUM-224.
   writer takes a required event from a closed vocabulary and writes binding fields only on
   `opened`/`pr_dry_run`, every reader goes through the owner, and the second owner in `auto_merge`
   is deleted. Deadline: 2027-01-17.
+- **Landed (ARIA order chain, `G003-md1-binding`):** `merge_record.pr_change_binding` returns a
+  `PrChangeBinding` from the PR's latest `opened` row (`None` for a non-int PR key), and
+  `record_pr_lifecycle` refuses an event outside `PR_LIFECYCLE_EVENTS` and writes the binding fields
+  null on every non-binding event. `change_for_pr`, the perimeter, `human_merge_decision`,
+  `_merge_index`, `_capture_assessment_inputs` and `_reverted_suite` read through it; the copy in
+  `auto_merge` is gone. Red first on a488a36f2: `change_for_pr` returned `chg_forged`, an observed row
+  credited an unrelated change with the merge; green in `test_pr_change_id_requirement`,
+  `test_change_outcome` and the perimeter tests.
 
 ### ARIA-LOW-657 — the opened row's delivered head is never compared with the committed commit
 
@@ -960,6 +968,11 @@ duplicate `lint-changed-files`. The real residual is INFRA-MEDIUM-224.
   change. No producer on main writes that shape today.
 - **Planned fix:** `pr_change_join_unavailable` when the binding's delivered head is not the
   committed commit. Deadline: 2027-04-17.
+- **Landed (ARIA order chain, `G003-md1-binding`):** the perimeter refuses
+  `pr_change_join_unavailable` when `binding.delivered_head_sha` is not `committed.commit_sha`, and
+  also when the PR's opened rows name more than one change. Red first:
+  `test_an_opened_head_other_than_the_committed_commit_is_refused` got the change id with only
+  `implementation_*` gaps; it is green now.
 
 ### ARIA-LOW-658 — the pre-merge capture drops the lineage verifier's refusal name
 
@@ -971,6 +984,11 @@ duplicate `lint-changed-files`. The real residual is INFRA-MEDIUM-224.
   operator cannot tell an unrecorded commit from an unbound PR.
 - **Planned fix:** the capture's reason takes the verifier's suffix before the raise. Deadline:
   2027-04-17.
+- **Landed (ARIA order chain, `G003-md1-binding`):** the updated-head branch sets `reason` to
+  `pr_change_join_unavailable:<verifier reason>` before it raises, so the evidence carries the
+  verifier's name. Red first: `test_an_unrecorded_update_is_refused_by_the_verifiers_name` recorded
+  the bare reason; it is green now, beside
+  `test_an_updated_head_binds_through_the_shared_lineage_verifier`.
 
 ### ARIA-LOW-659 — updated-head evidence does not capture the update receipts it relied on
 

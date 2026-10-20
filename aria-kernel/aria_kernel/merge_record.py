@@ -63,9 +63,12 @@ retried for :data:`MAX_LINEAGE_CHECKS` cycles like any other merge.
 from __future__ import annotations
 
 import subprocess
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence, TypeVar
+
+_Row = TypeVar("_Row", bound=Mapping[str, Any])
 
 MERGED_BY_MERGE_LANE = "aria_merge_lane"
 MERGED_BY_OBSERVED = "observed_on_github"
@@ -130,12 +133,12 @@ def lifecycle_rows(base_dir: str | Path) -> list[dict[str, Any]]:
     return load_declared_jsonl(path, expected_surface="pr_lifecycle") if path.is_file() else []
 
 
-def opened_row(rows: list[dict[str, Any]], *, pr_number: int | None = None,
-               change_id: str | None = None) -> dict[str, Any] | None:
+def opened_row(rows: Sequence[_Row], *, pr_number: int | None = None,
+               change_id: str | None = None) -> _Row | None:
     """The latest ``opened`` row the kernel wrote for a PR number or a change."""
     found = None
     for row in rows:
-        if row.get("event") != "opened":
+        if row.get("event") != PR_BINDING_EVENT:
             continue
         if pr_number is not None and row.get("pr_number") != pr_number:
             continue
@@ -143,6 +146,72 @@ def opened_row(rows: list[dict[str, Any]], *, pr_number: int | None = None,
             continue
         found = row
     return found
+
+
+# merge-delivery-1 (ARIA-HIGH-521) — WHO BINDS A PR TO ARIA'S CHANGE.
+#
+# THE MEASURED GAP. ``auto_merge.record_pr_lifecycle`` copied the binding
+# fields from whatever payload it was handed, for every event, and the merge
+# lane appends ``event="observed"`` from GitHub's payload (no ``change_id``)
+# on every evaluation. The pre-merge perimeter bound the change from the PR's
+# LAST row, so the lane's own observation made every ARIA PR
+# ``pr_change_join_unavailable`` on every run, and an observation whose
+# payload did carry a ``change_id`` re-bound the triple gate.
+#
+# THE RULE. The row that names a PR as ARIA's is the ``opened`` row the one
+# ``gh pr create`` writes (``pr_manager._create_pull_request``, the
+# self-revert adoption): :func:`pr_change_binding` reads the binding from it
+# and nothing else, for every reader. The writer makes the rule structural:
+# only :data:`BINDING_FIELD_EVENTS` rows carry :data:`BINDING_FIELDS`; every
+# other event writes them null, so an observation or a terminal row cannot
+# carry, change or re-bind a PR's change.
+PR_BINDING_EVENT = "opened"
+BINDING_FIELD_EVENTS = frozenset({PR_BINDING_EVENT, "pr_dry_run"})
+BINDING_FIELDS = ("task_id", "proposal_id", "assignment_id", "change_id")
+
+
+@dataclass(frozen=True, slots=True)
+class PrChangeBinding:
+    """A PR's binding to ARIA's change: its latest ``opened`` row and what that row names.
+
+    ``bound_change_ids`` are the distinct change ids every ``opened`` row of
+    the PR ever named, sorted: more than one means the PR was re-bound (a
+    revert PR adopted under a new change), which a reader that needs one
+    unambiguous change refuses.
+    """
+
+    row: Mapping[str, Any]
+    change_id: str | None
+    proposal_id: str | None
+    delivered_head_sha: str | None
+    base_branch: str | None
+    bound_change_ids: tuple[str, ...]
+
+
+def pr_change_binding(rows: Sequence[Mapping[str, Any]], *, pr_number: int) -> PrChangeBinding | None:
+    """The PR's binding to ARIA's change (the module comment above), or None when the kernel never opened it.
+
+    A ``pr_number`` that is not an int names no PR, so nothing is bound to it:
+    ``opened_row`` reads ``None`` as "any PR", and a reader handed an unread
+    payload field must not get another PR's change.
+    """
+    if type(pr_number) is not int:
+        return None
+    bound = opened_row(rows, pr_number=pr_number)
+    if bound is None:
+        return None
+    bound_change_ids = tuple(sorted({
+        str(row["change_id"]) for row in rows
+        if row.get("event") == PR_BINDING_EVENT and row.get("pr_number") == pr_number and row.get("change_id")
+    }))
+    return PrChangeBinding(
+        row=bound,
+        change_id=str(bound["change_id"]) if bound.get("change_id") else None,
+        proposal_id=str(bound["proposal_id"]) if bound.get("proposal_id") else None,
+        delivered_head_sha=str(bound["head_sha"]) if bound.get("head_sha") else None,
+        base_branch=str(bound["base_branch"]) if bound.get("base_branch") else None,
+        bound_change_ids=bound_change_ids,
+    )
 
 
 # ARIA-HIGH-408 — where one kernel PR's lifecycle stands, read from this
@@ -596,6 +665,10 @@ def attest_merge_lineage(
 
 __all__ = [
     "ARIAS_LINEAGES",
+    "BINDING_FIELDS",
+    "BINDING_FIELD_EVENTS",
+    "PR_BINDING_EVENT",
+    "PrChangeBinding",
     "CLOSED_RECHECK_INTERVAL_SECONDS",
     "ATTESTABLE_LINEAGES",
     "EVENT_CLOSED_UNMERGED",
@@ -632,6 +705,7 @@ __all__ = [
     "merged_row_is_arias",
     "observed_merge",
     "opened_row",
+    "pr_change_binding",
     "pull_requests_for_change",
     "record_merge",
     "record_pr_unmergeable",

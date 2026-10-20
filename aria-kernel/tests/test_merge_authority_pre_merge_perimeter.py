@@ -72,9 +72,31 @@ class _Adapter:
         return {"readable": True, "issues": []}
 
 
-def _gate_patches(head_sha: str = _SHA):
-    """Every gate before the perimeter passes; the perimeter is the test."""
+def _gate_patches(head_sha: str = _SHA, *, real_merge_lane_evaluation: bool = False):
+    """Every gate before the perimeter passes; the perimeter is the test.
+
+    merge-delivery-1 — with ``real_merge_lane_evaluation`` the merge lane's own
+    evaluation (``_merge_if_green_with_executor``) runs for real, so it appends
+    the ``observed`` row GitHub's payload makes before the perimeter reads the
+    lifecycle; only its verdict collaborators are fixture controls.
+    """
+    if real_merge_lane_evaluation:
+        lane = [
+            patch("aria_kernel.auto_merge.collect_github_snapshot", return_value={}),
+            patch(
+                "aria_kernel.auto_merge.evaluate_auto_merge",
+                return_value={"decision": "proceed", "eligible": True, "head_sha": head_sha},
+            ),
+        ]
+    else:
+        lane = [
+            patch(
+                "aria_kernel.merge_authority._merge_if_green_with_executor",
+                return_value={"decision": "proceed", "eligible": True, "head_sha": head_sha},
+            ),
+        ]
     return [
+        *lane,
         # The runner derives dry-run from the authority recorded in the tools
         # dir (an autonomous profile or a merge-lane grant, ARIA-HIGH-205) —
         # the same predicate the authority asserts (ARIA-MEDIUM-226), not the
@@ -126,10 +148,6 @@ def _gate_patches(head_sha: str = _SHA):
         patch(
             "aria_kernel.merge_authority.ensure_pre_merge_incident_row",
             return_value={"ledger_hash": "x"},
-        ),
-        patch(
-            "aria_kernel.merge_authority._merge_if_green_with_executor",
-            return_value={"decision": "proceed", "eligible": True, "head_sha": head_sha},
         ),
         patch(
             "aria_kernel.merge_authority._evaluate_triple_gate",
@@ -215,80 +233,125 @@ class PreMergePerimeterTests(unittest.TestCase):
         self.assertEqual(adapter.merged, [77])
 
 
+def _native_change(test: unittest.TestCase, *, pr_number: int = 731) -> SimpleNamespace:
+    """A converged plan, its staged change and the delivered commit, in a real repository and store.
+
+    The implementation has no request or claim (``implementation_*`` gaps), so
+    the capture's change join is what a test reads. ``pr`` is the payload the
+    kernel's opener records; nothing is written to ``pr-lifecycle`` here.
+    """
+    import os
+    import subprocess
+
+    from aria_kernel.change_ledger import emit_change_committed, emit_change_planned
+    from aria_kernel.tool_registry import ensure_tools_binding
+    from tests._helpers.git_fixtures import make_repo_with_initial_commit
+    from tests._helpers.production_shaped import production_converged_plan
+
+    fixture_directory = tempfile.TemporaryDirectory(prefix="aria-pre-merge-context-")
+    test.addCleanup(fixture_directory.cleanup)
+    root = Path(fixture_directory.name)
+    environment = patch.dict(os.environ, {
+        "ARIA_REPO_STATE_ROOT": str(root / "repo-state"),
+        "ARIA_STATE_STORE_ROOT": str(root / "state-store"),
+        "ARIA_WORKSPACE_BASE": str(root / "workspaces"),
+        "ARIA_TOOLS_DIR": str(root / "store" / "tools"),
+    })
+    environment.start()
+    test.addCleanup(environment.stop)
+    source_path = "apps/farm-service/src/sample-interval.ts"
+    repo = make_repo_with_initial_commit(root, {
+        source_path: "export const sampleIntervalMs = 30000;\n",
+    })
+    tools = root / "store" / "tools"
+    operator_set_profile("strict", base_dir=tools)
+    ensure_tools_binding(tools, workspace_root=repo)
+    plan = production_converged_plan(
+        tools_dir=tools, workspace_root=repo,
+        plan_id="plan-native-pre-merge-context", affected_paths=[source_path],
+        evidence_refs=[source_path],
+    )
+
+    def git(*argv: str) -> str:
+        return subprocess.check_output(["git", *argv], cwd=repo, text=True).strip()
+
+    git("add", ".claude/agents/farm-expert.md")
+    git("commit", "-q", "-m", "fixture: commit the real plan reviewer")
+    git("branch", "-M", "main")
+    base_sha = git("rev-parse", "HEAD")
+    planned = emit_change_planned(
+        plan_id=plan.plan_id, finding_id="F-native-pre-merge-context",
+        intended_affected_files=[source_path], intended_validation_refs=[],
+        architectural_tier=1, base_dir=tools,
+    )
+    branch = "aria/native-pre-merge-context"
+    git("checkout", "-q", "-b", branch)
+    (repo / source_path).write_text(
+        "export const sampleIntervalMs = 15000;\n", encoding="utf-8",
+    )
+    git("add", source_path)
+    git("commit", "-q", "-m", "fixture: change the declared sample interval")
+    head_sha = git("rev-parse", "HEAD")
+    committed = emit_change_committed(
+        change_id=planned["change_id"], commit_sha=head_sha,
+        actual_affected_files=[source_path], base_dir=tools,
+    )
+    pr = {
+        "number": pr_number, "base_branch": "main", "base_sha": base_sha,
+        "head_ref": branch, "head_sha": head_sha,
+        "changed_files": [source_path], "change_id": planned["change_id"],
+        "body": "Apply the converged sample-interval change.",
+    }
+    return SimpleNamespace(repo=repo, tools=tools, plan=plan, git=git, source_path=source_path, branch=branch,
+                           base_sha=base_sha, head_sha=head_sha, planned=planned, committed=committed, pr=pr)
+
+
+def _github_projection(native_pr: dict) -> dict:
+    """GitHub's payload for a PR as the merge lane's production adapter projects it.
+
+    merge-delivery-1 — ``GhCliGitHubAdapter.get_pr`` is what the merge lane
+    observes and records (``event="observed"``): GitHub knows nothing of
+    ARIA's change, so the projection carries no ``change_id``/``proposal_id``.
+    """
+    from aria_kernel.auto_merge import GhCliGitHubAdapter
+
+    def transport(args):
+        if args == ["repo", "view", "--json", "owner,name"]:
+            return {"owner": {"login": "fixture-owner"}, "name": "fixture-repo"}
+        return {name: native_pr.get(name) for name in args[4].split(",")}
+
+    with patch.object(GhCliGitHubAdapter, "_gh_json", side_effect=transport):
+        return GhCliGitHubAdapter(cwd=Path(__file__).resolve().parents[2]).get_pr(native_pr["number"])
+
+
+def _native_github_pr(change: SimpleNamespace, *, base_sha: str, head_sha: str) -> dict:
+    return {
+        "number": change.pr["number"], "state": "OPEN", "baseRefName": "main", "baseRefOid": base_sha,
+        "headRefName": change.branch, "headRefOid": head_sha, "body": change.pr["body"],
+        "url": f"https://github.com/fixture-owner/fixture-repo/pull/{change.pr['number']}",
+        "files": [{"path": change.source_path}], "changedFiles": 1, "labels": [], "reviews": [],
+        "reviewDecision": None, "mergeCommit": None,
+    }
+
+
 class NativePreMergeContextTests(unittest.TestCase):
     def test_native_change_without_request_keeps_verified_context_and_explicit_gap(self) -> None:
-        import os
-        import subprocess
-
         import aria_kernel.merge_authority as merge_owner
         from aria_kernel.auto_merge import change_for_pr, record_pr_lifecycle
-        from aria_kernel.change_ledger import emit_change_committed, emit_change_planned
         from aria_kernel.plan_convergence import plan_status
         from aria_kernel.snapshot import build_repo_snapshot
-        from aria_kernel.tool_registry import ensure_tools_binding
         from aria_kernel.workspace import canonical_identity
-        from tests._helpers.git_fixtures import make_repo_with_initial_commit
-        from tests._helpers.production_shaped import production_converged_plan
 
-        fixture_directory = tempfile.TemporaryDirectory(prefix="aria-pre-merge-context-")
-        self.addCleanup(fixture_directory.cleanup)
-        root = Path(fixture_directory.name)
-        environment = patch.dict(os.environ, {
-            "ARIA_REPO_STATE_ROOT": str(root / "repo-state"),
-            "ARIA_STATE_STORE_ROOT": str(root / "state-store"),
-            "ARIA_WORKSPACE_BASE": str(root / "workspaces"),
-            "ARIA_TOOLS_DIR": str(root / "store" / "tools"),
-        })
-        environment.start()
-        self.addCleanup(environment.stop)
-        source_path = "apps/farm-service/src/sample-interval.ts"
-        repo = make_repo_with_initial_commit(root, {
-            source_path: "export const sampleIntervalMs = 30000;\n",
-        })
-        tools = root / "store" / "tools"
-        operator_set_profile("strict", base_dir=tools)
-        ensure_tools_binding(tools, workspace_root=repo)
-        plan = production_converged_plan(
-            tools_dir=tools, workspace_root=repo,
-            plan_id="plan-native-pre-merge-context", affected_paths=[source_path],
-            evidence_refs=[source_path],
-        )
-
-        def git(*argv: str) -> str:
-            return subprocess.check_output(["git", *argv], cwd=repo, text=True).strip()
-
-        git("add", ".claude/agents/farm-expert.md")
-        git("commit", "-q", "-m", "fixture: commit the real plan reviewer")
-        git("branch", "-M", "main")
-        base_sha = git("rev-parse", "HEAD")
-        planned = emit_change_planned(
-            plan_id=plan.plan_id, finding_id="F-native-pre-merge-context",
-            intended_affected_files=[source_path], intended_validation_refs=[],
-            architectural_tier=1, base_dir=tools,
-        )
-        git("checkout", "-q", "-b", "aria/native-pre-merge-context")
-        (repo / source_path).write_text(
-            "export const sampleIntervalMs = 15000;\n", encoding="utf-8",
-        )
-        git("add", source_path)
-        git("commit", "-q", "-m", "fixture: change the declared sample interval")
-        head_sha = git("rev-parse", "HEAD")
-        committed = emit_change_committed(
-            change_id=planned["change_id"], commit_sha=head_sha,
-            actual_affected_files=[source_path], base_dir=tools,
-        )
-        opener_pr = {
-            "number": 731, "base_branch": "main", "base_sha": base_sha,
-            "head_ref": "aria/native-pre-merge-context", "head_sha": head_sha,
-            "changed_files": [source_path], "change_id": planned["change_id"],
-            "body": "Apply the converged sample-interval change.",
-        }
+        change = _native_change(self)
+        repo, tools, plan, git, source_path = change.repo, change.tools, change.plan, change.git, change.source_path
+        base_sha, head_sha, planned, committed, opener_pr = (
+            change.base_sha, change.head_sha, change.planned, change.committed, change.pr)
         # ARIA-HIGH-521 — production shape: the opener's row binds the PR to
         # its change; the merge lane then records what GitHub reports, and
         # GitHub knows no change_id, so the LAST row carries none.
         opened = record_pr_lifecycle(opener_pr, event="opened", base_dir=tools)
         pr = {key: value for key, value in opener_pr.items() if key != "change_id"}
-        observed = record_pr_lifecycle(pr, base_dir=tools)
+        observed = record_pr_lifecycle(pr, event="observed", base_dir=tools)
         self.assertIsNone(observed["change_id"])
         snapshot = build_repo_snapshot(workspace_root=repo, mode="committed")
         self.assertEqual(change_for_pr(731, base_dir=tools), planned["change_id"])
@@ -368,6 +431,170 @@ class NativePreMergeContextTests(unittest.TestCase):
         for field in ("change_id", "pr_row_hash", "planned_row_hash", "committed_row_hash",
                       "plan_content_hash", "head_sha", "snapshot_hash"):
             self.assertEqual(getattr(moved_evidence, field), getattr(evidence, field), field)
+
+
+class MergeLaneObservationBindingTests(unittest.TestCase):
+    """merge-delivery-1 (ARIA-HIGH-521) — the merge lane's own observation never unbinds the PR it evaluates.
+
+    ``merge_pr_if_ready`` runs ``_merge_if_green_with_executor``, which appends
+    ``record_pr_lifecycle(github_pr, event="observed")`` before the perimeter
+    runs. The capture used to bind the change from the PR's LAST lifecycle row,
+    so that row (GitHub's payload: no change_id) made every ARIA PR
+    ``pr_change_join_unavailable`` on every run. The binding is the PR's
+    ``opened`` row (``merge_record.pr_change_binding``); the live head is
+    GitHub's, judged against the delivered commit by the shared lineage
+    verifier (ARIA-HIGH-374).
+    """
+
+    def test_the_merge_lanes_own_observation_keeps_the_pr_bound(self) -> None:
+        import aria_kernel.merge_authority as merge_owner
+        from aria_kernel.auto_merge import change_for_pr, record_pr_lifecycle
+
+        change = _native_change(self, pr_number=741)
+        opened = record_pr_lifecycle(change.pr, event="opened", base_dir=change.tools)
+        live_pr = _github_projection(_native_github_pr(change, base_sha=change.base_sha, head_sha=change.head_sha))
+        self.assertNotIn("change_id", live_pr)
+        self.assertNotIn("proposal_id", live_pr)
+        diff_text = change.git("diff", change.base_sha, change.head_sha)
+
+        def capture():
+            return merge_owner._capture_pre_merge_context(
+                workspace_root=change.repo, base_dir=change.tools, pr=live_pr, diff_text=diff_text,
+            ).pre_merge_evidence
+
+        before = capture()
+        self.assertEqual(before.change_id, change.planned["change_id"])
+        self.assertEqual(before.unavailable_reasons, (
+            "implementation_request_unavailable", "implementation_claim_unavailable",
+            "implementation_result_unavailable"))
+        # Exactly the row the merge lane appends before its perimeter runs
+        # (auto_merge._merge_if_green_with_executor), twice: once per run.
+        for _run in range(2):
+            record_pr_lifecycle(live_pr, event="observed", base_dir=change.tools)
+            after = capture()
+            self.assertEqual((after.unavailable_reasons, after.change_id),
+                             (before.unavailable_reasons, before.change_id))
+            self.assertEqual(after.pr_row_hash, opened["ledger_hash"])
+            self.assertEqual(after.head_sha, change.head_sha)
+            self.assertEqual(change_for_pr(741, base_dir=change.tools), change.planned["change_id"])
+        # A second, real change bound to the same PR (planned and committed at
+        # the same head, as the self-revert adoption re-opens a PR under a new
+        # change) is ambiguous: the PR stays refused, never bound to the latest.
+        from aria_kernel.change_ledger import emit_change_committed, emit_change_planned
+
+        second = emit_change_planned(
+            plan_id=change.plan.plan_id, finding_id="F-native-pre-merge-second-change",
+            intended_affected_files=[change.source_path], intended_validation_refs=[],
+            architectural_tier=1, base_dir=change.tools,
+        )
+        self.assertNotEqual(second["change_id"], change.planned["change_id"])
+        emit_change_committed(change_id=second["change_id"], commit_sha=change.head_sha,
+                              actual_affected_files=[change.source_path], base_dir=change.tools)
+        record_pr_lifecycle(dict(change.pr, change_id=second["change_id"]), event="opened", base_dir=change.tools)
+        self.assertEqual(change_for_pr(741, base_dir=change.tools), second["change_id"])
+        rebound = capture()
+        self.assertEqual((rebound.unavailable_reasons, rebound.change_id), (("pr_change_join_unavailable",), None))
+
+    def _refused(self, change: SimpleNamespace, live_pr: dict) -> None:
+        """The capture refuses ``live_pr`` at the change join, after the lane's own observation of it."""
+        import aria_kernel.merge_authority as merge_owner
+        from aria_kernel.auto_merge import record_pr_lifecycle
+
+        record_pr_lifecycle(live_pr, event="observed", base_dir=change.tools)
+        evidence = merge_owner._capture_pre_merge_context(
+            workspace_root=change.repo, base_dir=change.tools, pr=live_pr,
+            diff_text=change.git("diff", change.base_sha, change.head_sha),
+        ).pre_merge_evidence
+        self.assertEqual((evidence.unavailable_reasons, evidence.change_id), (("pr_change_join_unavailable",), None))
+
+    def test_an_opened_head_other_than_the_committed_commit_is_refused(self) -> None:
+        # The opened row names the head the kernel delivered; GitHub shows the
+        # change's committed commit. A PR opened for another commit is not the
+        # delivery of this change, whatever its live head.
+        from aria_kernel.auto_merge import record_pr_lifecycle
+
+        change = _native_change(self, pr_number=743)
+        record_pr_lifecycle(dict(change.pr, head_sha=change.base_sha), event="opened", base_dir=change.tools)
+        self._refused(change, _github_projection(
+            _native_github_pr(change, base_sha=change.base_sha, head_sha=change.head_sha)))
+
+    def test_a_pr_retargeted_off_the_opened_base_is_refused(self) -> None:
+        from aria_kernel.auto_merge import record_pr_lifecycle
+
+        change = _native_change(self, pr_number=744)
+        record_pr_lifecycle(change.pr, event="opened", base_dir=change.tools)
+        retargeted = dict(_native_github_pr(change, base_sha=change.base_sha, head_sha=change.head_sha),
+                          baseRefName="release")
+        self._refused(change, _github_projection(retargeted))
+
+    def test_a_payload_naming_another_change_is_refused_and_does_not_rebind(self) -> None:
+        from aria_kernel.auto_merge import change_for_pr, record_pr_lifecycle
+
+        change = _native_change(self, pr_number=745)
+        record_pr_lifecycle(change.pr, event="opened", base_dir=change.tools)
+        live_pr = _github_projection(_native_github_pr(change, base_sha=change.base_sha, head_sha=change.head_sha))
+        self._refused(change, dict(live_pr, change_id="chg_forged"))
+        self.assertEqual(change_for_pr(745, base_dir=change.tools), change.planned["change_id"])
+
+    def _updated(self, *, recorded: bool) -> tuple[SimpleNamespace, dict, str, str, object]:
+        """The delivered commit D opened as the PR, main moves, GitHub's update-branch merges main into it (U)."""
+        import aria_kernel.merge_authority as merge_owner
+        from aria_kernel.auto_merge import record_pr_lifecycle
+        from aria_kernel.pr_branch_update import update_request_id
+        from aria_kernel.recovery import record_intent, record_receipt
+
+        change = _native_change(self, pr_number=742)
+        opened = record_pr_lifecycle(change.pr, event="opened", base_dir=change.tools)
+        git, number = change.git, change.pr["number"]
+        git("checkout", "-q", "main")
+        # The CI quarantine policy the lineage verifier reads on the live base
+        # (GSEC-MEDIUM-003); it quarantines no project.
+        policy = change.repo / "scripts" / "ci" / "affected-target-policy.json"
+        policy.parent.mkdir(parents=True, exist_ok=True)
+        policy.write_text('{"targets": {}}\n', encoding="utf-8")
+        (change.repo / "docs").mkdir(exist_ok=True)
+        (change.repo / "docs" / "moved-on.md").write_text("main moved on\n", encoding="utf-8")
+        git("add", "scripts/ci/affected-target-policy.json", "docs/moved-on.md")
+        git("commit", "-q", "-m", "fixture: main moves ahead of the implementation base")
+        live_base = git("rev-parse", "HEAD")
+        git("checkout", "-q", change.branch)
+        git("merge", "-q", "--no-ff", "-m", f"Merge branch 'main' into {change.branch}", "main")
+        updated = git("rev-parse", "HEAD")
+        if recorded:
+            # ARIA's own pr_branch_update: the intent and GitHub's read-back result.
+            intent = record_intent(
+                request_id=update_request_id(number), effect_kind="gh_api_write", target=f"pr#{number}",
+                intended_postcondition={"pr_number": number, "expected_head_sha": change.head_sha,
+                                        "base_sha": live_base},
+                base_dir=change.tools,
+            )
+            record_receipt(operation_id=str(intent["operation_id"]), request_id=update_request_id(number),
+                           observed={"returncode": 0, "result_head_sha": updated}, status="confirmed",
+                           base_dir=change.tools)
+        live_pr = _github_projection(_native_github_pr(change, base_sha=live_base, head_sha=updated))
+        record_pr_lifecycle(live_pr, event="observed", base_dir=change.tools)
+        evidence = merge_owner._capture_pre_merge_context(
+            workspace_root=change.repo, base_dir=change.tools, pr=live_pr,
+            diff_text=git("diff", live_base + "..." + updated),
+        ).pre_merge_evidence
+        return change, opened, live_base, updated, evidence
+
+    def test_an_updated_head_binds_through_the_shared_lineage_verifier(self) -> None:
+        change, opened, live_base, updated, evidence = self._updated(recorded=True)
+        self.assertEqual(evidence.unavailable_reasons, (
+            "implementation_request_unavailable", "implementation_claim_unavailable",
+            "implementation_result_unavailable"))
+        self.assertEqual(evidence.change_id, change.planned["change_id"])
+        self.assertEqual(evidence.pr_row_hash, opened["ledger_hash"])
+        # The evidence binds the delivered pair; GitHub merges the live pair.
+        self.assertEqual((evidence.head_sha, evidence.base_sha), (change.head_sha, change.base_sha))
+        self.assertEqual((evidence.merge_head_sha, evidence.live_base_sha), (updated, live_base))
+
+    def test_an_unrecorded_update_is_refused_by_the_verifiers_name(self) -> None:
+        _change, _opened, _live_base, updated, evidence = self._updated(recorded=False)
+        self.assertEqual(evidence.unavailable_reasons, (
+            f"pr_change_join_unavailable:unrecorded_commit:{updated[:12]}:no_update_recorded_for_pr",))
+        self.assertIsNone(evidence.change_id)
 
 
 class NativeImplementationContextTests(unittest.TestCase):
@@ -659,9 +886,12 @@ class NativeImplementationContextTests(unittest.TestCase):
             "changed_files": [source_path], "change_id": staged["change_id"],
             "proposal_id": staged["proposal_id"], "url": pr_url}
         opened = record_pr_lifecycle(opener_pr, event="opened", base_dir=tools)
+        # merge-delivery-1 — what the merge lane observes is GitHub's payload,
+        # which knows nothing of ARIA's change: no change_id, no proposal_id.
+        # The runner below records that observation itself, before its
+        # perimeter reads the lifecycle.
         pr = {key: value for key, value in opener_pr.items() if key not in {"change_id", "proposal_id"}}
-        observed = record_pr_lifecycle(pr, base_dir=tools)
-        self.assertIsNone(observed["change_id"])
+        live_pr = pr
         with patch("aria_kernel.tool_registry.update_tools_index", wraps=actual_index_writer) as public_writer:
             public_binding = verify_invocation_context_binding(
                 request_id=request["request_id"], context_hash=request["context_hash"],
@@ -721,7 +951,7 @@ class NativeImplementationContextTests(unittest.TestCase):
         from aria_kernel.auto_merge import SnapshotGitHubAdapter
         from aria_kernel.auto_merge_runners import RealAutoMergeRunner
 
-        adapter = SnapshotGitHubAdapter({"pr": pr, "github": {"pr_diff": diff_text}})
+        adapter = SnapshotGitHubAdapter({"pr": live_pr, "github": {"pr_diff": diff_text}})
         runner = RealAutoMergeRunner(
             profile="autonomous", executes_merges=True, adapter_factory=lambda: adapter,
             pr_enumerator=lambda selected: [pr["number"]],
@@ -737,7 +967,7 @@ class NativeImplementationContextTests(unittest.TestCase):
         from tests._helpers.actions_oidc import merge_lane_job
 
         with ExitStack() as stack:
-            for gate_patch in _gate_patches(head_sha):
+            for gate_patch in _gate_patches(head_sha, real_merge_lane_evaluation=True):
                 stack.enter_context(gate_patch)
             # The runner asks the same route before it resolves a claim.
             stack.enter_context(patch("aria_kernel.auto_merge.human_merge_decision", return_value=None))
@@ -756,9 +986,15 @@ class NativeImplementationContextTests(unittest.TestCase):
             ))
             runner_result = runner(base_dir=tools, workspace_root=repo)
         capture_call.assert_called_once()
+        # The lane recorded its own observation of GitHub's payload, unbound,
+        # before the perimeter read the lifecycle: the PR stays bound by the
+        # row that opened it.
+        self.assertEqual([(row["event"], row["change_id"]) for row in load_declared_jsonl(
+            tools / "pr-lifecycle.jsonl", expected_surface="pr_lifecycle") if row["pr_number"] == pr["number"]],
+            [("opened", staged["change_id"]), ("observed", None)])
         self.assertEqual(capture_call.call_args.kwargs["workspace_root"], repo)
         self.assertEqual(capture_call.call_args.kwargs["base_dir"], tools)
-        self.assertEqual(capture_call.call_args.kwargs["pr"], pr)
+        self.assertEqual(capture_call.call_args.kwargs["pr"], live_pr)
         self.assertEqual(capture_call.call_args.kwargs["diff_text"], diff_text)
         self.assertEqual(len(observed_reports), 1)
         called_context, called_report = observed_reports[0]
@@ -838,7 +1074,7 @@ class NativeImplementationContextTests(unittest.TestCase):
             ))
         expert_request_bytes = segmented_ledger_bytes(tools, "agent_invocation_requests")
 
-        def invoke_current_runner(*, selected_root, pr_observation=pr, expected_expert=False,
+        def invoke_current_runner(*, selected_root, pr_observation=live_pr, expected_expert=False,
                                   expected_budget=True):
             selected_adapter = SnapshotGitHubAdapter({
                 "pr": pr_observation, "github": {"pr_diff": diff_text},
@@ -850,7 +1086,7 @@ class NativeImplementationContextTests(unittest.TestCase):
             )
             observed_reports.clear()
             with ExitStack() as stack:
-                for gate_patch in _gate_patches(head_sha):
+                for gate_patch in _gate_patches(head_sha, real_merge_lane_evaluation=True):
                     stack.enter_context(gate_patch)
                 stack.enter_context(merge_lane_job())
                 stack.enter_context(patch(
@@ -897,7 +1133,7 @@ class NativeImplementationContextTests(unittest.TestCase):
             self.assertFalse(missing_checks["per_file_mutual_exclusion"].passed)
 
         with self.subTest(ordinary_case="partial_live_pr_observation"):
-            partial_pr = dict(pr)
+            partial_pr = dict(live_pr)
             partial_pr.pop("base_sha")
             partial_context, partial_checks = invoke_current_runner(
                 selected_root=repo, pr_observation=partial_pr, expected_budget=False,
@@ -1114,7 +1350,7 @@ class NativeImplementationContextTests(unittest.TestCase):
             self.assertTrue(stale_checks["content_hash_recheck"].passed)
 
         with self.subTest(ordinary_case="live_pr_revision_moves_beyond_expert_panel"):
-            advanced_pr = dict(pr, head_sha=later_head)
+            advanced_pr = dict(live_pr, head_sha=later_head)
             advanced_context, advanced_checks = invoke_current_runner(
                 selected_root=repo, pr_observation=advanced_pr, expected_budget=False,
             )

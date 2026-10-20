@@ -2,7 +2,11 @@ import { BadRequestException, Inject, Injectable, Logger, Optional } from '@nest
 
 import { MqttClientService } from '../shared-mqtt/mqtt-client.service';
 
-import { CommandEnvelopeSignerService } from './command-envelope-signer.service';
+import {
+  CommandEnvelopeSignerService,
+  CommandParamsEncodingError,
+  type SignedCommandEnvelope,
+} from './command-envelope-signer.service';
 import { DeviceDirectoryService } from './device-directory.service';
 import { EdgeAgentChannel } from './entities/edge-device.entity';
 
@@ -99,12 +103,7 @@ export class EdgeCommandPublisher {
       );
     }
     const payload = signed
-      ? this.signer.signPlatformCommand({
-          cmd: command.command,
-          params: command.params,
-          tenantId: device.tenantId,
-          jti: command.commandId,
-        })
+      ? this.signedEnvelope(command, device.tenantId)
       : {
           commandId: command.commandId,
           command: command.command,
@@ -119,5 +118,27 @@ export class EdgeCommandPublisher {
       commandId: command.commandId,
       signed,
     });
+  }
+
+  /**
+   * The platform-actor envelope for a Suderra OS device. Parameters the
+   * agent would canonicalize differently (a nested object, a number it
+   * writes in another form) are the caller's request error, refused before
+   * anything is signed — never a server error.
+   */
+  private signedEnvelope(command: EdgeCommand, tenantId: string): SignedCommandEnvelope {
+    try {
+      return this.signer.signPlatformCommand({
+        cmd: command.command,
+        params: command.params,
+        tenantId,
+        jti: command.commandId,
+      });
+    } catch (error) {
+      if (error instanceof CommandParamsEncodingError) {
+        throw new EdgeCommandRefusedError(error.message);
+      }
+      throw error;
+    }
   }
 }

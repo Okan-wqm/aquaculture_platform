@@ -11,6 +11,7 @@ import { collaborator } from '@aquaculture/testing';
 import { type MqttClientService } from '../../shared-mqtt/mqtt-client.service';
 import {
   type CommandEnvelopeSignerService,
+  CommandParamsEncodingError,
   type SignedCommandEnvelope,
 } from '../command-envelope-signer.service';
 import { type DeviceDirectoryService } from '../device-directory.service';
@@ -122,6 +123,20 @@ describe('EdgeCommandPublisher (ADR-048 DEC-9.2)', () => {
       publisher.publish({ tenantId: TENANT, deviceId: OS_DEVICE }, COMMAND),
     ).rejects.toThrow(EdgeCommandRefusedError);
     expect(signPlatformCommand).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it('refuses params the agent cannot canonicalize as a request error, publishing nothing', async () => {
+    const { publisher, publish, signPlatformCommand } = harness();
+    signPlatformCommand.mockImplementationOnce(() => {
+      throw new CommandParamsEncodingError('Nested objects are not supported (key: meta)');
+    });
+    const refused = publisher.publish(
+      { tenantId: TENANT, deviceId: OS_DEVICE },
+      { ...COMMAND, params: { meta: { a: 1 } } },
+    );
+    await expect(refused).rejects.toThrow(EdgeCommandRefusedError);
+    await expect(refused).rejects.toMatchObject({ status: 400 });
     expect(publish).not.toHaveBeenCalled();
   });
 

@@ -12,10 +12,16 @@ import { SuderraEdgeConfig } from './suderra-edge.config';
  *
  * Produces wire-compatible CommandEnvelope v3 payloads for the Rust edge
  * agent's `SignatureMode::Enforcing` verification path. The canonical-bytes
- * transcript is BYTE-IDENTICAL to `envelope_canonical_bytes` +
- * `canonical_params` in `sens-api-gateway/src/command_envelope/` — the
- * cross-language test vector in `__tests__/command-envelope-signer.spec.ts`
- * pins that equivalence with a shared seed + fixed inputs.
+ * transcript must be byte-identical to `envelope_canonical_bytes` +
+ * `canonical_params` in `sens-api-gateway/src/command_envelope/`. One fixed
+ * vector pins that across the two languages:
+ * `sens-api-gateway/tests/fixtures/command-envelope-v3/platform-command.json`
+ * (seed, inputs, canonical params, cmd_hash, transcript, signature and the
+ * wire JSON), produced by `scripts/edge/command_envelope_vector.py` from the
+ * Rust layout. `__tests__/command-envelope-signer.spec.ts` asserts this
+ * signer reproduces it byte for byte; the agent's
+ * `command_envelope/cloud_signer_vector.rs` parses the wire JSON, recomputes
+ * every byte and verifies the signature as Enforcing mode does.
  *
  * Wire format (all integers big-endian):
  *   canonical_params: u32 cmd_len + cmd + sorted-JSON(params) + "command-envelope-v1"
@@ -49,6 +55,8 @@ export interface EnvelopeCommandParams {
   validitySecs?: number;
   /** Signing instant (default: now). */
   now?: Date;
+  /** Operator-visible correlator (default: a fresh random value per envelope). */
+  nonce?: string;
 }
 
 export interface SignedCommandEnvelope {
@@ -78,23 +86,105 @@ function uuidTo16Bytes(uuid: string): Buffer {
 }
 
 /**
- * Deterministic JSON serialization matching serde_json::to_vec on a
- * BTreeMap<String, Value>: lexicographically-sorted keys, no spaces,
- * standard JSON value encoding. Nested objects are rejected (matching the
- * Rust canonical_params gate).
+ * A command parameter the agent would canonicalize differently from the
+ * cloud, so its cmd_hash would never match: refused before anything is
+ * signed or published.
  */
-function canonicalJsonParams(params: Record<string, unknown>): Buffer {
-  const sorted: Record<string, unknown> = {};
-  for (const key of Object.keys(params).sort()) {
-    const value = params[key];
-    if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-      throw new Error(
-        `Nested objects are not supported in command params (key: ${key}) — the canonical format rejects them for determinism`,
+export class CommandParamsEncodingError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CommandParamsEncodingError';
+  }
+}
+
+/**
+ * The smallest magnitude of a non-integer whose shortest round-trip form is
+ * the same plain decimal in JavaScript and in the agent's serde_json: below
+ * it serde_json writes an exponent (`5e-6`) where JavaScript still writes
+ * `0.000005`. Every non-integer is below 2^53, where both write plain
+ * decimals again.
+ */
+const MIN_PLAIN_DECIMAL = 1e-5;
+
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+function isPlainObject(value: unknown): value is Readonly<Record<string, unknown>> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const prototype: unknown = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+/** Orders keys as Rust's BTreeMap<String, _> does: by UTF-8 bytes, i.e. by code point. */
+function byCodePoint(a: string, b: string): number {
+  return Buffer.compare(Buffer.from(a, 'utf8'), Buffer.from(b, 'utf8'));
+}
+
+function encodeString(text: string, where: string): string {
+  if (LONE_SURROGATE.test(text)) {
+    throw new CommandParamsEncodingError(`${where} holds an unpaired UTF-16 surrogate`);
+  }
+  // JSON.stringify escapes exactly what serde_json escapes: `"`, `\`, the
+  // short forms \b \t \n \f \r and every other control character as a
+  // lowercase \u00XX; everything else, non-ASCII included, is raw UTF-8.
+  return JSON.stringify(text);
+}
+
+/**
+ * One value as serde_json writes the agent's parse of it. serde_json's map
+ * is a BTreeMap (the crate does not enable `preserve_order`), so an object
+ * at any depth is written with its keys in code-point order.
+ */
+function encodeParamValue(value: unknown, where: string): string {
+  if (value === null || typeof value === 'boolean') return JSON.stringify(value);
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) {
+      throw new CommandParamsEncodingError(`${where} is ${value}, which JSON cannot carry`);
+    }
+    if (
+      Number.isInteger(value) ? !Number.isSafeInteger(value) : Math.abs(value) < MIN_PLAIN_DECIMAL
+    ) {
+      throw new CommandParamsEncodingError(
+        `${where} is ${value}; the agent would write it in another form than the cloud signs`,
       );
     }
-    sorted[key] = value;
+    return JSON.stringify(value);
   }
-  return Buffer.from(JSON.stringify(sorted), 'utf8');
+  if (typeof value === 'string') return encodeString(value, where);
+  if (Array.isArray(value)) {
+    return `[${value.map((item, index) => encodeParamValue(item, `${where}[${index}]`)).join(',')}]`;
+  }
+  if (isPlainObject(value)) {
+    const members = Object.keys(value)
+      .sort(byCodePoint)
+      .map(
+        (key) =>
+          `${encodeString(key, `${where} key`)}:${encodeParamValue(value[key], `${where}.${key}`)}`,
+      );
+    return `{${members.join(',')}}`;
+  }
+  throw new CommandParamsEncodingError(`${where} is a ${typeof value}, which JSON cannot carry`);
+}
+
+/**
+ * Deterministic JSON serialization matching serde_json::to_vec on the
+ * agent's BTreeMap<String, Value> of the params it received: keys in
+ * code-point order at every depth, no spaces, and only values both sides
+ * write identically. A nested object as a top-level value is rejected,
+ * matching the Rust canonical_params gate (SENSOR-HIGH-209).
+ */
+function canonicalJsonParams(params: Readonly<Record<string, unknown>>): Buffer {
+  const members = Object.keys(params)
+    .sort(byCodePoint)
+    .map((key) => {
+      const value = params[key];
+      if (isPlainObject(value)) {
+        throw new CommandParamsEncodingError(
+          `Nested objects are not supported in command params (key: ${key}) — the canonical format rejects them for determinism`,
+        );
+      }
+      return `${encodeString(key, 'params key')}:${encodeParamValue(value, `params.${key}`)}`;
+    });
+  return Buffer.from(`{${members.join(',')}}`, 'utf8');
 }
 
 /**
@@ -102,7 +192,7 @@ function canonicalJsonParams(params: Record<string, unknown>): Buffer {
  */
 export function canonicalParamsBytes(cmd: string, params: Record<string, unknown>): Buffer {
   if (!cmd) {
-    throw new Error('cmd must be non-empty');
+    throw new CommandParamsEncodingError('cmd must be non-empty');
   }
   const cmdBytes = Buffer.from(cmd, 'utf8');
   const paramsBytes = canonicalJsonParams(params);
@@ -190,7 +280,7 @@ export class CommandEnvelopeSigner {
 
     const iat = Math.floor((input.now ?? new Date()).getTime() / 1000);
     const exp = iat + (input.validitySecs ?? 300);
-    const nonce = randomUUID().replace(/-/g, '');
+    const nonce = input.nonce ?? randomUUID().replace(/-/g, '');
 
     const cmdHash = createHash('sha256')
       .update(canonicalParamsBytes(input.cmd, input.params))

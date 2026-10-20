@@ -55,6 +55,10 @@
 //! - Batch 5b `verify_manifest` closure-injection precedent
 
 pub mod canonical;
+// ADR-048 DEC-9.2: the cloud signer's envelope vector, verified as Enforcing
+// mode verifies a command (tests/fixtures/command-envelope-v3/).
+#[cfg(test)]
+mod cloud_signer_vector;
 pub mod dispatcher;
 pub mod envelope;
 pub mod handler;

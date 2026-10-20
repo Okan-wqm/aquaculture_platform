@@ -1,11 +1,100 @@
 import { createPublicKey, verify } from 'crypto';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 
 import {
   CommandEnvelopeSigner,
+  CommandParamsEncodingError,
   canonicalParamsBytes,
   envelopeCanonicalBytes,
 } from '../command-envelope-signer.service';
 import { Ed25519SigningKey } from '../manifest-signer';
+
+/**
+ * The cross-language vector (ADR-048 DEC-9.2): written from the Rust layout by
+ * scripts/edge/command_envelope_vector.py, verified by the agent in
+ * sens-api-gateway/src/command_envelope/cloud_signer_vector.rs. The cloud
+ * signer must reproduce every byte of it.
+ */
+interface CommandEnvelopeVector {
+  readonly seed_hex: string;
+  readonly public_key_hex: string;
+  readonly inputs: {
+    readonly cmd: string;
+    readonly params: Record<string, unknown>;
+    readonly actor: string;
+    readonly tenant: string;
+    readonly iat_unix_secs: number;
+    readonly exp_unix_secs: number;
+    readonly claimed_policy_version: number;
+    readonly jti: string;
+    readonly nonce: string;
+  };
+  readonly canonical_params_hex: string;
+  readonly cmd_hash_hex: string;
+  readonly envelope_canonical_bytes_hex: string;
+  readonly signature_hex: string;
+  readonly wire: string;
+}
+
+const VECTOR = JSON.parse(
+  readFileSync(
+    join(
+      __dirname,
+      '../../../../../sens-api-gateway/tests/fixtures/command-envelope-v3/platform-command.json',
+    ),
+    'utf8',
+  ),
+) as CommandEnvelopeVector;
+
+describe('the cloud signer reproduces the cross-language CommandEnvelope v3 vector', () => {
+  const key = Ed25519SigningKey.fromSeed('command', 1, Buffer.from(VECTOR.seed_hex, 'hex'));
+  const { inputs } = VECTOR;
+  const envelope = new CommandEnvelopeSigner(key).sign({
+    cmd: inputs.cmd,
+    params: inputs.params,
+    actorUuid: inputs.actor,
+    tenantUuid: inputs.tenant,
+    claimedPolicyVersion: inputs.claimed_policy_version,
+    jti: inputs.jti,
+    nonce: inputs.nonce,
+    now: new Date(inputs.iat_unix_secs * 1000),
+    validitySecs: inputs.exp_unix_secs - inputs.iat_unix_secs,
+  });
+
+  it('derives the same key from the TEST-ONLY seed', () => {
+    expect(key.publicKey.toString('hex')).toBe(VECTOR.public_key_hex);
+  });
+
+  it('writes the canonical params, cmd_hash and transcript byte for byte', () => {
+    expect(canonicalParamsBytes(inputs.cmd, inputs.params).toString('hex')).toBe(
+      VECTOR.canonical_params_hex,
+    );
+    expect(Buffer.from(envelope.cmd_hash).toString('hex')).toBe(VECTOR.cmd_hash_hex);
+    const transcript = envelopeCanonicalBytes({
+      cmd: envelope.cmd,
+      params: envelope.params,
+      actor: Buffer.from(envelope.actor),
+      tenantId: Buffer.from(envelope.tenant_id),
+      iat: envelope.iat_unix_secs,
+      exp: envelope.exp_unix_secs,
+      claimedPolicyVersion: envelope.claimed_policy_version,
+      coApproverActor: null,
+      jti: envelope.jti,
+      nonce: envelope.nonce,
+      cmdHash: Buffer.from(envelope.cmd_hash),
+    });
+    expect(transcript.toString('hex')).toBe(VECTOR.envelope_canonical_bytes_hex);
+  });
+
+  it('signs it with the same deterministic Ed25519 signature', () => {
+    expect(Buffer.from(envelope.signature).toString('hex')).toBe(VECTOR.signature_hex);
+  });
+
+  it('publishes the wire envelope the agent parses: the same members, shapes and values', () => {
+    expect(JSON.parse(JSON.stringify(envelope))).toEqual(JSON.parse(VECTOR.wire));
+  });
+});
 
 describe('command envelope signer (SEC-MEDIUM-105; ADR-048 DEC-9.2)', () => {
   describe('canonicalParamsBytes', () => {
@@ -34,6 +123,29 @@ describe('command envelope signer (SEC-MEDIUM-105; ADR-048 DEC-9.2)', () => {
 
     it('rejects empty cmd', () => {
       expect(() => canonicalParamsBytes('', {})).toThrow(/non-empty/);
+    });
+
+    it('orders keys by code point at every depth, as the agent BTreeMap does', () => {
+      const bytes = canonicalParamsBytes('ping', {
+        b: [{ z: 1, A: 2, a: [{ y: 0, x: 0 }] }],
+        '\u{1F41F}': 1,
+        '\uFFFF': 2,
+        B: 3,
+      });
+      const json = bytes.subarray(8, bytes.length - 19).toString('utf8');
+      expect(json).toBe('{"B":3,"b":[{"A":2,"a":[{"x":0,"y":0}],"z":1}],"\uFFFF":2,"\u{1F41F}":1}');
+    });
+
+    it.each<[string, unknown]>([
+      ['a non-integer the agent writes with an exponent', 0.000005],
+      ['an integer beyond 2^53', 2 ** 60],
+      ['a non-finite number', Number.NaN],
+      ['an unpaired surrogate', 'broken \uD800 text'],
+      ['a value JSON cannot carry', undefined],
+      ['an object that is not plain JSON', new Date(0)],
+      ['a nested value the agent would write differently', [{ deep: [1e-7] }]],
+    ])('refuses %s before signing', (_case, value) => {
+      expect(() => canonicalParamsBytes('ping', { value })).toThrow(CommandParamsEncodingError);
     });
   });
 

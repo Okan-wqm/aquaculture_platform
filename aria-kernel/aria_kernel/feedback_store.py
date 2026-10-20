@@ -48,6 +48,13 @@ SAMPLE_RECENCY_HOURS = 168
 # tuple, so the deterministic engine and the agent lane cannot drift
 # apart on what counts as a legitimate non-verdict outcome.
 CONSENSUS_UNCERTAINTY_REASONS = (
+    # WP-J fix round — an anchor-grade closing set whose evidence UNION is
+    # empty: votes, confidence and diversity were all present, but not one
+    # agreeing judge cited code, so the truth is unfalsifiable. Truth
+    # without evidence is not mintable (the operator's protocol starts at
+    # "a falsifiable claim carrying file:line"); the group escalates
+    # instead of anchoring.
+    "anchor_evidence_empty",
     "conformal_abstain",
     # ARIA-HIGH-325 — a true_positive whose agreeing judges cite evidence the
     # producing tool's scope does not admit (ARIA's detector source outside
@@ -283,10 +290,20 @@ def is_ground_truth_row(row: dict[str, Any]) -> bool:
     # entries) is not ground truth: unknown is never green.
     leg, span = observation_span(consensus_observers(row))
     if leg == "methods":
-        return span >= ANCHOR_MIN_DISTINCT_METHODS
-    if leg == "models":
-        return span >= ANCHOR_MIN_DISTINCT_MODELS
-    return False
+        if span < ANCHOR_MIN_DISTINCT_METHODS:
+            return False
+    elif leg == "models":
+        if span < ANCHOR_MIN_DISTINCT_MODELS:
+            return False
+    else:
+        return False
+    # WP-J fix round — the evidence leg, beside the observation-span legs:
+    # an anchor must stand on a non-empty evidence union. The mint refuses
+    # an anchor-grade closing set whose union is empty under
+    # `anchor_evidence_empty`; this read leg keeps any row not written
+    # through that gate (older writers, hand-made rows) from acting as
+    # ground truth either — one law, both ends, like observation_span.
+    return bool(_optional_string_list(row.get("evidence_refs")))
 
 
 def observation_span(receipts: tuple[dict[str, str], ...]) -> tuple[str, int]:
@@ -1286,6 +1303,30 @@ def generate_ai_consensus(
                 _consensus_uncertainty(
                     tool_id, run_id, finding_id, group_id,
                     "observer_identity_missing",
+                ),
+            )
+            continue
+        # WP-J fix round — the anchor's evidence leg, mint side. A group
+        # that would settle at ANCHOR grade (>= ANCHOR_MIN_JUDGE_COUNT
+        # agreeing, nobody dissenting) must carry a non-empty evidence
+        # UNION across its closing rows: the union is exactly what the
+        # consensus row publishes as its evidence_refs and what every
+        # downstream falsification reads. Argument-only agreement (zero
+        # refs, any confidence, any diversity) escalates under
+        # `anchor_evidence_empty` instead of becoming repository truth —
+        # the mechanical `_has_unverifiable_evidence` gate above already
+        # catches refs that do not resolve; this one catches the vacuum.
+        # Sub-anchor groups (a dissent, a single judge) keep minting for
+        # the adapter-precision lane: they were never truth candidates.
+        if (
+            len(closing) >= ANCHOR_MIN_JUDGE_COUNT
+            and dissenting == 0
+            and not any(_optional_string_list(row.get("evidence_refs")) for row in closing)
+        ):
+            uncertainties.append(
+                _consensus_uncertainty(
+                    tool_id, run_id, finding_id, group_id,
+                    "anchor_evidence_empty",
                 ),
             )
             continue

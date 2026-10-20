@@ -67,6 +67,7 @@ class _LedgerCase(unittest.TestCase):
         method: str | None = None,
         model: str | None = _ONE_PROVIDER_MODEL,
         verdict: str = "true_positive",
+        evidence_refs: list[str] | None = None,
     ) -> None:
         record_operator_feedback(
             tool_id="tool-a",
@@ -80,6 +81,7 @@ class _LedgerCase(unittest.TestCase):
             model=model,
             method=method,
             confidence=0.95,
+            evidence_refs=evidence_refs,
             judgment_group_id="judge:tool-a:F-1",
             finding_fingerprint="fp-F-1",
             base_dir=self.tools,
@@ -93,7 +95,7 @@ class SingleProviderAnchorTests(_LedgerCase):
 
     def test_three_unanimous_judges_on_one_model_spanning_methods_anchor(self) -> None:
         for judge_id, method in _METHOD_SEATS.items():
-            self._judge(judge_id, method=method)
+            self._judge(judge_id, method=method, evidence_refs=["src/app.ts:10"])
         result = generate_ai_consensus(tool_id="tool-a", base_dir=self.tools)
         self.assertEqual(result["consensus_count"], 1)
         row = result["consensus"][0]
@@ -105,7 +107,7 @@ class SingleProviderAnchorTests(_LedgerCase):
 
     def test_the_observers_receipt_carries_the_method_beside_the_model(self) -> None:
         for judge_id, method in _METHOD_SEATS.items():
-            self._judge(judge_id, method=method)
+            self._judge(judge_id, method=method, evidence_refs=["src/app.ts:10"])
         row = generate_ai_consensus(tool_id="tool-a", base_dir=self.tools)["consensus"][0]
         self.assertEqual(
             sorted((o["judge_id"], o["method"]) for o in row["observers"]),
@@ -116,7 +118,8 @@ class SingleProviderAnchorTests(_LedgerCase):
         """Method diversity is not a spelling trick: three seats of ONE
         method on one model remain one observation with two receipts."""
         for index, judge_id in enumerate(_METHOD_SEATS):
-            self._judge(f"{judge_id}-{index}", method="static_trace")
+            self._judge(f"{judge_id}-{index}", method="static_trace",
+                        evidence_refs=["src/app.ts:10"])
         row = generate_ai_consensus(tool_id="tool-a", base_dir=self.tools)["consensus"][0]
         self.assertFalse(is_ground_truth_row(row))
 
@@ -134,6 +137,7 @@ class HybridLegPredicateTests(unittest.TestCase):
                 "source_type": "ai_consensus",
                 "judge_count": ANCHOR_MIN_JUDGE_COUNT,
                 "judges_voted": ANCHOR_MIN_JUDGE_COUNT,
+                "evidence_refs": ["src/app.ts:10"],
                 "observers": [
                     {"judge_id": "a", "model": "glm-5.3", "method": "static_trace"},
                     {"judge_id": "b", "model": "glm-5.3", "method": "bug_hunt"},
@@ -189,6 +193,62 @@ class HybridLegPredicateTests(unittest.TestCase):
             )
 
 
+class AnchorEvidenceLegTests(_LedgerCase):
+    """WP-J fix round — truth without code evidence is not mintable.
+
+    The anchor law counted votes, confidence and observer diversity but
+    never EVIDENCE: three method-diverse seats agreeing on argument alone
+    (zero evidence_refs, confidence 0.95) minted an ai_consensus row with
+    ``is_ground_truth_row() == True`` — unfalsifiable repository truth. The
+    operator's protocol starts at "a falsifiable claim carrying file:line";
+    an anchor-grade closing set whose evidence UNION is empty argued the
+    verdict and cited nothing, so the mint refuses it under
+    ``anchor_evidence_empty`` (a closed-vocabulary uncertainty that
+    escalates) and the read leg fails closed on any row that slipped past
+    the mint.
+    """
+
+    def test_argument_only_unanimous_panel_never_mints_an_anchor(self) -> None:
+        for judge_id, method in _METHOD_SEATS.items():
+            self._judge(judge_id, method=method)
+        result = generate_ai_consensus(tool_id="tool-a", base_dir=self.tools)
+        self.assertEqual(result["consensus_count"], 0, "argument alone must not mint")
+        self.assertIn(
+            "anchor_evidence_empty",
+            [u["reason"] for u in result["uncertainties"]],
+        )
+
+    def test_one_citing_seat_rescues_the_anchor(self) -> None:
+        """The law is the closing set's UNION, not per-seat attendance: one
+        of three agreeing judges citing the code is an evidence-bearing
+        anchor (the arbiter read exactly that union)."""
+        seats = iter(_METHOD_SEATS.items())
+        judge_id, method = next(seats)
+        self._judge(judge_id, method=method, evidence_refs=["apps/hr-service/x.ts:10"])
+        for judge_id, method in seats:
+            self._judge(judge_id, method=method)
+        result = generate_ai_consensus(tool_id="tool-a", base_dir=self.tools)
+        self.assertEqual(result["consensus_count"], 1)
+        self.assertEqual(
+            result["consensus"][0]["evidence_refs"], ["apps/hr-service/x.ts:10"],
+        )
+        self.assertTrue(is_ground_truth_row(result["consensus"][0]))
+
+    def test_a_row_without_an_evidence_union_is_not_ground_truth(self) -> None:
+        row = {
+            "source_type": "ai_consensus",
+            "judge_count": ANCHOR_MIN_JUDGE_COUNT,
+            "judges_voted": ANCHOR_MIN_JUDGE_COUNT,
+            "observers": [
+                {"judge_id": "a", "model": "glm-5.3", "method": "static_trace"},
+                {"judge_id": "b", "model": "glm-5.3", "method": "bug_hunt"},
+                {"judge_id": "c", "model": "glm-5.3", "method": "reproduction_test"},
+            ],
+            "evidence_refs": [],
+        }
+        self.assertFalse(is_ground_truth_row(row))
+
+
 class CalibratedQuorumMethodLegTests(_LedgerCase):
     """The closing authority's twin swap: under ``enforce`` the calibrated
     quorum is two calibrated judges of distinct METHODS (the model leg
@@ -204,7 +264,7 @@ class CalibratedQuorumMethodLegTests(_LedgerCase):
 
     def test_enforce_closes_on_distinct_methods_on_one_model(self) -> None:
         for judge_id, method in _METHOD_SEATS.items():
-            self._judge(judge_id, method=method)
+            self._judge(judge_id, method=method, evidence_refs=["src/app.ts:10"])
         result = generate_ai_consensus(
             tool_id="tool-a",
             base_dir=self.tools,

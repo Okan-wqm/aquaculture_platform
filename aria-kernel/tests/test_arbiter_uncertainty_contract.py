@@ -133,6 +133,9 @@ class ArbiterUncertaintyIsAValidOutcome(unittest.TestCase):
                 # .render_evidence_weighing_prompt). Slice B added the member
                 # without this pin, so the closed-set test went red at the tip.
                 "unverifiable",
+                # WP-J fix round — an anchor-grade closing set whose evidence
+                # union is empty escalates under this name, never anchors.
+                "anchor_evidence_empty",
             },
         )
 

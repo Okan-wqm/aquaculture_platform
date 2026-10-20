@@ -88,6 +88,7 @@ class GroundTruthPredicateTests(unittest.TestCase):
                 "source_type": "ai_consensus",
                 "judge_count": ANCHOR_MIN_JUDGE_COUNT,
                 "judges_voted": ANCHOR_MIN_JUDGE_COUNT,
+                "evidence_refs": ["src/a.ts:1"],
                 "observers": [
                     {"judge_id": "aria-evidence-judge", "model": "claude-opus-5"},
                     {"judge_id": "aria-adversarial-judge", "model": "claude-opus-5"},
@@ -230,6 +231,9 @@ class _LedgerCase(unittest.TestCase):
             # named no model were asserting an anchor nobody could attribute.
             model=model or _FLEET_MODELS.get(judge_id, "claude-opus-5"),
             confidence=confidence,
+            # WP-J review — an anchor stands on code evidence: the anchor
+            # pins cite one ref so the rows they anchor are evidence-bearing.
+            evidence_refs=[f"src/{finding.lower()}.ts:10"],
             judgment_group_id=f"judge:{tool_id}:{finding}",
             finding_fingerprint=f"fp-{finding}",
             base_dir=self.tools,

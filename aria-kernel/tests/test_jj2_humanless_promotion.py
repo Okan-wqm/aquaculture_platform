@@ -186,6 +186,9 @@ class AnchorPrecisionBlockerTests(unittest.TestCase):
             # G-2 — anchor-grade rows must name the models that agreed.
             # Shaped like the live fleet: two opus judges plus the fable
             # arbiter, so three agreeing judges span two distinct models.
+            # WP-J review — and cite the code they judged (the evidence leg
+            # every anchor carries; the live anchors all have refs).
+            evidence_refs=[f"src/f{index}.ts:3"],
             observers=(
                 [
                     {"judge_id": "aria-evidence-judge", "model": "claude-opus-5"},

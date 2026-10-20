@@ -176,6 +176,9 @@ class FlipTableTests(StabilityBase):
             severity="high", note="AI consensus from 3 independent judges",
             source_type="ai_consensus", judge_id="aria-consensus-arbiter",
             confidence=0.9, judgment_group_id=_GROUP, judge_count=3, judges_voted=3,
+            # WP-J fix round — an anchor stands on code evidence; the flip
+            # table's anchor fixture cites the code it judged.
+            evidence_refs=["apps/target.ts:1"],
             observers=[
                 {"judge_id": "aria-evidence-judge", "model": "m1"},
                 {"judge_id": "aria-adversarial-judge", "model": "m2"},

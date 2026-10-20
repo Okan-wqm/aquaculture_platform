@@ -43,6 +43,9 @@ def _verdict(
         judge_id=judge_id,
         model="test",
         confidence=confidence,
+        # WP-J review — the healed third verdict is anchor-grade evidence;
+        # it cites the code it judged like every anchor must.
+        evidence_refs=["src/heal.ts:7"],
         judgment_group_id=_GROUP,
         finding_fingerprint=fingerprint,
         base_dir=tools,

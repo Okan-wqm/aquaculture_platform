@@ -5792,6 +5792,9 @@ def judge_claim_submission(
         workspace_root=workspace_root,
         request=strict_request,
         probe_session=probes,
+        # WP-J review — the R4 byte law reads the recorded experiment
+        # observations; the submit always knows its tools root.
+        base_dir=root,
     )
     if not revalidation["valid"]:
         for error in revalidation["errors"]:

@@ -854,12 +854,41 @@ def admissible_agent_evidence_refs(
     return AgentEvidenceAdmission(tuple(admitted), tuple(refused))
 
 
+def _recorded_reproduction_run_status(
+    recipe_id: str, *, base_dir: str | Path
+) -> str | None:
+    """The recorded run status behind a recipe, or None when no recorded
+    observation proves it.
+
+    ONE binding, the same one ``finding.record_finding_reproduction``
+    applies at the outcome fold: the experiment-observation ledger (written
+    by ``experiment.run_experiment``) carries ``recipe_ref`` and
+    ``run_status`` per recorded run, and only an observation that MATCHED
+    its contract proves anything. Latest first — a re-recorded run
+    supersedes, exactly as the finding-side resolver reads it back.
+    """
+    from .experiment import list_experiment_observations
+
+    try:
+        observations = list_experiment_observations(base_dir=base_dir)
+    except GovernanceError:
+        return None
+    for observation in reversed(observations):
+        if str(observation.get("recipe_ref") or "") != recipe_id:
+            continue
+        if observation.get("matched") is not True:
+            continue
+        return str(observation.get("run_status") or "") or None
+    return None
+
+
 def validate_agent_response_evidence(
     *,
     response: dict[str, Any],
     workspace_root: str | Path,
     request: dict[str, Any] | None = None,
     probe_session: GitProbeSession | None = None,
+    base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """Re-fetch every evidence ref claimed by an agent response and verify it exists in the repo.
 
@@ -962,6 +991,40 @@ def validate_agent_response_evidence(
                     continue
                 quote = quotes_aligned[position] if position < len(quotes_aligned) else None
                 judge(ref, quote if isinstance(quote, str) and quote.strip() else None)
+
+    # WP-J review — the R4 byte law. agent_contract grades the
+    # reproduction block for shape only ("the submit re-grade checks the
+    # bytes"); these are the bytes: a reproduction row resolves through the
+    # recorded experiment observations — the same binding
+    # finding.record_finding_reproduction reads at the outcome fold, applied
+    # BEFORE the verdict votes — and its expected red/green must agree with
+    # the recorded run's status. A recipe that exists nowhere and was never
+    # run is refused by name, never ranked as the top evidence class.
+    for entry in matrix if isinstance(matrix, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        reproduction = entry.get("reproduction")
+        if not isinstance(reproduction, dict):
+            continue
+        recipe_id = str(reproduction.get("recipe_id") or "")
+        expected = str(reproduction.get("expected") or "")
+        if not recipe_id or expected not in ("red", "green"):
+            continue  # the shape layer refuses malformed blocks by name
+        where = {"id": entry.get("id"), "recipe_id": recipe_id, "expected": expected}
+        if base_dir is None:
+            errors.append({"code": "agent_matrix_reproduction_ledger_required", **where})
+            continue
+        run_status = _recorded_reproduction_run_status(recipe_id, base_dir=base_dir)
+        if run_status is None:
+            errors.append({"code": "agent_matrix_reproduction_unrecorded", **where})
+            continue
+        recorded_red = run_status == "failed"
+        if (expected == "red") != recorded_red:
+            errors.append({
+                "code": "agent_matrix_reproduction_status_mismatch",
+                "run_status": run_status,
+                **where,
+            })
 
     # Cross-check: when a request is provided, every ref the agent
     # claims must either live inside `allowed_scope` OR be one of the

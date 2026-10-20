@@ -30,6 +30,7 @@ import { ProtocolBuilderTab } from './components/ProtocolBuilderTab';
 import { AssignmentsTab } from './components/AssignmentsTab';
 import { MealBoardTab } from './components/MealBoardTab';
 import { ForecastTab } from './components/ForecastTab';
+import { ProductionPlanTab } from './components/ProductionPlanTab';
 import { useProtocolFeedForecast } from '../../hooks/useProtocolFeeding';
 import {
   AlignLeft,
@@ -60,7 +61,8 @@ type TabId =
   | 'fcr'
   | 'protocols-v2'
   | 'assignments'
-  | 'sampling';
+  | 'sampling'
+  | 'production-plan';
 
 interface Tab {
   id: TabId;
@@ -147,6 +149,12 @@ const tabs: Tab[] = [
     id: 'sampling',
     name: 'Sampling',
     icon: <FlaskConical className="w-5 h-5" aria-hidden="true" />,
+  },
+  {
+    id: 'production-plan',
+    name: 'Production Plan',
+    i18nKey: 'feedingV2.tab.productionPlan',
+    icon: <TrendingUp className="w-5 h-5" aria-hidden="true" />,
   },
 ];
 
@@ -423,6 +431,10 @@ const FeedingPage: React.FC = () => {
         {activeTab === 'assignments' && <AssignmentsTab siteId={selectedSiteId || undefined} />}
         {/* BUG-023: Sampling tab had no dedicated component — was incorrectly rendering GrowthTab.
             Replaced with a placeholder until a SamplingTab component is implemented. */}
+        {activeTab === 'production-plan' && (
+          <ProductionPlanTab siteId={selectedSiteId || undefined} />
+        )}
+
         {activeTab === 'sampling' && (
           <div className="bg-white dark:bg-gray-900 rounded-lg shadow-(--shadow-sd-sm) p-12 text-center">
             <FlaskConical

@@ -71,3 +71,20 @@ value "ACTIVE"?` — the PR #2026 chip row shipped `active/monitoring/resolved`
   page behind "Error loading health events. Please try again."
 - **Fix:** chip values to `ACTIVE/MONITORING/RESOLVED` (same wire-key rule the
   page's own label maps and FARM-CRITICAL-409 already follow).
+
+## FE-HIGH-377 — production planning surface (Üretim Planı)
+
+- **Gap:** tanks carry protocol assignments and realized growth, but nothing
+  projected a tank's growth curve forward — grading dates (2 g, 100–120 g
+  operator thresholds) and capacity overfill were invisible until they
+  happened.
+- **First slice (this PR):** `temperature_scenarios` + dated points (tenant
+  migration 1823000000000; source manual, Copernicus later),
+  `tankGrowthProjection` day-by-day simulation (protocol band by weight →
+  rate × temperature multiplier → feed ÷ expected FCR → next biomass; capacity
+  fill % and over-capacity day), and the Üretim Planı tab (scope site/system,
+  horizon, scenario editor with the operator's interpolation rule).
+- **Next phase (tracked, not here):** the grading puzzle planner — class
+  distribution from sampling CV, class→tank allocation with capacity and
+  harvest-timing constraints, same-size batch merge suggestions, plan→
+  recordGrading bridge.

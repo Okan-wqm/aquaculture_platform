@@ -146,6 +146,7 @@ export const en = {
   // ── Feeding Protocol v2 (farm-module ProtocolBuilderTab / AssignmentsTab) ──
   'feedingV2.tab.builder': 'Protocols v2',
   'feedingV2.tab.assignments': 'Assignments',
+  'feedingV2.tab.productionPlan': 'Production plan',
   'feedingV2.tab.records': 'Records',
   'feedingV2.tab.summary': 'Summary',
   'feedingV2.tab.growth': 'Growth',

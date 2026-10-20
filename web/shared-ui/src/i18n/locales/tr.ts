@@ -146,6 +146,7 @@ export const tr: Record<MessageKey, string> = {
   // ── Feeding Protocol v2 (farm-module ProtocolBuilderTab / AssignmentsTab) ──
   'feedingV2.tab.builder': 'Protokoller v2',
   'feedingV2.tab.assignments': 'Atamalar',
+  'feedingV2.tab.productionPlan': 'Üretim planı',
   'feedingV2.tab.records': 'Kayıtlar',
   'feedingV2.tab.summary': 'Özet',
   'feedingV2.tab.growth': 'Büyüme',

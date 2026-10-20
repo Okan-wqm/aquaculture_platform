@@ -116,6 +116,7 @@ import { RestoreFeedingAttributionQuarantineTemplate1810400000000 } from './1810
 import { RestoreFeedingClockLedgersInSource1810500000000 } from './1810500000000-RestoreFeedingClockLedgersInSource';
 import { ExtendParamEquipmentToChannelSources1822000000000 } from './1822000000000-ExtendParamEquipmentToChannelSources';
 import { BackfillTankBatchPrimaryAndShareStamps1822100000000 } from './1822100000000-BackfillTankBatchPrimaryAndShareStamps';
+import { CreateTemperatureScenarios1823000000000 } from './1823000000000-CreateTemperatureScenarios';
 
 /**
  * Canonical farm-service migration class list.
@@ -224,4 +225,5 @@ export const FARM_MIGRATIONS = [
   RestoreFeedingClockLedgersInSource1810500000000,
   ExtendParamEquipmentToChannelSources1822000000000,
   BackfillTankBatchPrimaryAndShareStamps1822100000000,
+  CreateTemperatureScenarios1823000000000,
 ] as const;

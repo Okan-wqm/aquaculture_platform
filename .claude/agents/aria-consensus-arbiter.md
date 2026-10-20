@@ -47,9 +47,9 @@ IDENTITY-STRIPPED ledger: assertions ranked by evidence class, no seat names. In
 - You may read the repository to check a cited observation at its `file:line`.
 - Emit `details.consensus` (`verdict` `true_positive`|`false_positive`, `confidence`, the
   evidence you relied on) — OR, when the load-bearing assertions are not mechanically checkable,
-  OMIT `verdict` and set `uncertainty_reason` to `unverifiable` (lawful; never launder an
-  unweighable answer into a verdict).
-- Never count seats: three names agreeing on an unverifiable claim is one unverified claim.
+  OMIT `verdict` and set `uncertainty_reason` per the **Judge verdict contract**
+  (lawful; never launder an unweighable answer into a verdict).
+- Never count seats: three names agreeing on an unweighable claim is one unverified claim.
 
 ## Consensus Gate (aggregation mode)
 

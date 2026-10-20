@@ -25,20 +25,29 @@ CAPS HOLD, NEVER FAIL (the 579 discipline). The funnel expresses every cap
 as a hold: the affected findings are simply not dispatched this cycle —
 they stay sampleable, because the sampler draws from raw findings, not from
 funnel rows — and one ``judgment_funnel_budget_held`` governance row names
-the held work. ``cost_budget.assert_within_budget`` raises
-``GovernanceError`` and trips the breaker; it is therefore banned from
-every mint path this module owns.
+the held work with its derivation. The raising, breaker-tripping gate in
+``cost_budget`` is banned from every mint path this module owns (pinned by
+``test_judgment_funnel.EnvelopeBudgetHoldsTest``); the envelope is
+ENVELOPE-denominated — judge seats this night may mint in total across all
+lanes — and is an explicit function of the measured drain:
+``allowance = min(funnel_nightly_envelope, ceil(drain_per_day))`` minus the
+seats the funnel already routed tonight, with the judgment lane's
+pending-envelope count and USD spend for today recorded on the row as the
+derivation, never as a second ledger.
 """
 from __future__ import annotations
 
+import math
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from .tool_registry import append_tools_governance, ensure_tools_dir
 
 # The funnel's durable routing rows: one per sampled finding per cycle,
-# recording the tier decision, the seats planned and (from slice C-2) the
-# cache verdict. The tier-2 completion pass re-reads them: a group left at
+# recording the tier decision, the seats planned, and the hold reason when
+# the item was NOT dispatched. The envelope budget counts tonight's seats
+# from them, and the tier-2 completion pass re-reads them: a group left at
 # one seat whose verdict needs the second seat is re-offered, and the
 # (judgment_group_id, target_agent) idempotency in the fan-out mints only
 # the missing seat.
@@ -47,9 +56,106 @@ ROUTING_RELPATH: tuple[str, ...] = ("judgment-funnel", "routing.jsonl")
 
 BUDGET_HELD_KIND: str = "judgment_funnel_budget_held"
 
+# The funnel's producer at the request-admission door: the tiered judge
+# seats it plans to mint. Classified exactly like ``judge_fanout.sample``
+# (the work starts something new; a refusal leaves the finding unjudged and
+# re-offered by the next cycle's sample), so the envelope hold is expressed
+# THROUGH the door, never beside it.
+FUNNEL_TIERS_PRODUCER: str = "judgment_funnel.tiers"
+
+# Seats per routed item while the severity ladder (slice C-2) has not
+# landed: the legacy pair. The routing row's ``seats_planned`` is the
+# number the envelope budget counts.
+_LEGACY_SEATS: int = 2
+
 
 def routing_path(base_dir: str | Path) -> Path:
     return ensure_tools_dir(base_dir).joinpath(*ROUTING_RELPATH)
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _today_start(now: datetime) -> str:
+    return f"{now.astimezone(timezone.utc).date():%Y-%m-%d}T00:00:00Z"
+
+
+def _tonight_allowance(
+    root: Path, policy: dict[str, Any], *, now: datetime,
+) -> tuple[int, dict[str, Any]]:
+    """(remaining seats tonight, the derivation recorded on the hold row).
+
+    ONE per-night envelope across ALL judgment lanes, ENVELOPE-denominated
+    and an explicit function of the measured drain: the cap the operator
+    sized to the measured ~9-13/night, cut to ``ceil(drain_per_day)`` when
+    the drain is slower, minus the seats the funnel already routed tonight.
+    A dead drain (the design-time verdict: last judgment-lane mint
+    2026-10-01) therefore holds the whole judgment night while every other
+    lane keeps running — the demand-reduction move the 462-vs-~9 week
+    demanded.
+    """
+    from .request_drain_capacity import measure_drain_capacity, request_admission_policy
+
+    capacity = measure_drain_capacity(root, now=now, policy=request_admission_policy(root))
+    drain_per_day = float(capacity.drain_per_day or 0.0)
+    cap = int(policy.get("funnel_nightly_envelope") or 0)
+    granted = max(0, min(cap, math.ceil(drain_per_day))) if cap > 0 else 0
+    spent = _seats_routed_since(root, _today_start(now))
+    derivation: dict[str, Any] = {
+        "envelope_cap": cap,
+        "drain_per_day": drain_per_day,
+        "drained_in_window": capacity.drained_in_window,
+        "drain_window_days": capacity.drain_window_days,
+        "granted_tonight": granted,
+        "seats_routed_tonight": spent,
+        "pending_judge_counts": _pending_judge_counts(root),
+        "judgment_lane_usd_today": _judgment_lane_usd_since(root, _today_start(now)),
+    }
+    return max(0, granted - spent), derivation
+
+
+def _seats_routed_since(root: Path, since_iso: str) -> int:
+    """Seats the funnel planned (and did not hold) since an instant."""
+    from .ledger import load_declared_jsonl
+
+    path = routing_path(root)
+    if not path.exists():
+        return 0
+    seats = 0
+    for row in load_declared_jsonl(path, expected_surface=ROUTING_SURFACE):
+        if row.get("held") is not None:
+            continue
+        if str(row.get("routed_at") or "") < since_iso:
+            continue
+        planned = row.get("seats_planned")
+        seats += planned if isinstance(planned, int) and not isinstance(planned, bool) else 0
+    return seats
+
+
+def _pending_judge_counts(root: Path) -> dict[str, int]:
+    """The live per-role envelope backlog, from its one owner."""
+    from .judge_fanout import pending_judge_counts
+
+    try:
+        return pending_judge_counts(base_dir=root)
+    except Exception:  # noqa: BLE001 — a derivation field never breaks the hold
+        return {}
+
+
+def _judgment_lane_usd_since(root: Path, since_iso: str) -> float:
+    """What the judgment lane spent since an instant (derivation only)."""
+    from .agent_surface import JUDGE_ROLES
+    from .budget import read_cost_attribution
+
+    try:
+        rows = read_cost_attribution(since_iso=since_iso, base_dir=root)
+    except Exception:  # noqa: BLE001 — a derivation field never breaks the hold
+        return 0.0
+    return round(sum(
+        float(row.get("estimated_usd") or 0.0)
+        for row in rows if row.get("agent_role") in JUDGE_ROLES
+    ), 6)
 
 
 def route_judgment_sample(
@@ -72,10 +178,10 @@ def route_judgment_sample(
       sampler's OWN sample object with ``roles=None``. The phase then calls
       ``dispatch_judges_for_sample`` with the exact legacy kwargs — no
       reordering, no filtering, no extra argument — and nothing is written.
-    * ``active=True``: the legs carry filtered per-tier samples and the
-      seats each tier mints; ``roles=None`` means the fan-out's default
-      pair. Every hold is expressed by leaving items OUT of a leg (they
-      stay sampleable) plus one governance row naming the held work.
+    * ``active=True``: every hold is expressed by leaving items OUT of the
+      legs (they stay sampleable) plus one governance row naming the held
+      work and its derivation; the door (``request_admission``) is asked
+      through this module's own producer before anything is planned.
     """
     root = ensure_tools_dir(base_dir)
     if policy is None:
@@ -91,58 +197,121 @@ def route_judgment_sample(
             "summary": {"funnel": "off", "items_in": len(sample.get("items") or [])},
         }
     items = [item for item in sample.get("items") or [] if isinstance(item, dict)]
-    # Slice C-1: the funnel takes ownership of routing; its first routing
-    # decision is the legacy depth for everything, on the record. Slices
-    # C-2..C-4 land the real ladder (envelope budget hold, tier-0 early
-    # stop, severity tiers, one-seat tier 2, the verdict cache) here.
-    _append_routing_rows(root, sample, items, tier=3, seats="pair", target_sha=target_sha)
+    now = _now()
+    remaining, derivation = _tonight_allowance(root, policy, now=now)
+    held: list[dict[str, Any]] = []
+    routed: list[dict[str, Any]] = []
+    hold_reason: str | None = None
+    if remaining <= 0:
+        hold_reason = "envelope_allowance_exhausted"
+    else:
+        # The door: the funnel's tiered seats are discretionary work that
+        # starts something. A refusal holds the night (the door records its
+        # own rows); it never fails it.
+        from .request_admission import admit_request
+
+        for role in ("evidence_judgment", "adversarial_judgment"):
+            admission = admit_request(
+                FUNNEL_TIERS_PRODUCER, role, base_dir=root,
+                cycle_id=str(sample.get("cycle_id") or "") or None,
+                count=len(items) * _LEGACY_SEATS,
+            )
+            if not admission.admitted:
+                hold_reason = admission.refusal
+                break
+    if hold_reason is None:
+        for item in items:
+            if remaining < _LEGACY_SEATS:
+                hold_reason = "envelope_allowance_exhausted"
+                held.append({"item": item, "reason": hold_reason})
+                continue
+            routed.append(item)
+            remaining -= _LEGACY_SEATS
+    else:
+        held.extend({"item": item, "reason": hold_reason} for item in items)
+    _append_routing_rows(
+        root, sample, routed, held, target_sha=target_sha, now=now,
+    )
+    if held:
+        append_tools_governance(root, BUDGET_HELD_KIND, {
+            "cycle_key": str(sample.get("cycle_id") or ""),
+            "held_items": len(held),
+            "held_seats": len(held) * _LEGACY_SEATS,
+            "reason": hold_reason,
+            "derivation": derivation,
+        })
+    plan: list[dict[str, Any]] = []
+    if routed:
+        # Slice C-1: the funnel takes ownership of routing; its first
+        # routing decision is the legacy depth for everything, on the
+        # record. Slices C-2..C-4 land the real ladder (tier-0 early stop,
+        # severity tiers, one-seat tier 2, the verdict cache) here.
+        plan.append({
+            "tier": None,
+            "sample": {**sample, "items": routed},
+            "roles": None,
+        })
     return {
         "active": True,
-        "plan": [{"tier": None, "sample": sample, "roles": None}],
-        "routed": items,
-        "held": [],
-        "summary": {"funnel": "on", "items_in": len(items), "items_routed": len(items)},
+        "plan": plan,
+        "routed": routed,
+        "held": held,
+        "summary": {
+            "funnel": "on",
+            "items_in": len(items),
+            "items_routed": len(routed),
+            "items_held": len(held),
+            "derivation": derivation,
+        },
     }
 
 
 def _append_routing_rows(
     root: Path,
     sample: dict[str, Any],
-    items: list[dict[str, Any]],
+    routed: list[dict[str, Any]],
+    held: list[dict[str, Any]],
     *,
-    tier: int,
-    seats: str,
     target_sha: str | None,
+    now: datetime,
 ) -> None:
     from .judge_fanout import _group_id
     from .ledger import append_declared_jsonl
 
-    for item in items:
+    def _row(item: dict[str, Any], *, hold: str | None) -> dict[str, Any]:
+        return {
+            "schema_version": 1,
+            "row_type": "routing",
+            "routed_at": now.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+            "cycle_id": sample.get("cycle_id"),
+            "sample_id": sample.get("sample_id"),
+            "tool_id": str(item.get("tool_id") or ""),
+            "rule": str(item.get("rule") or ""),
+            "finding_id": str(item.get("finding_id") or ""),
+            "finding_fingerprint": str(item.get("finding_fingerprint") or ""),
+            # The group id is judge_fanout's law (one derivation), read
+            # from the owner — never a second spelling here.
+            "judgment_group_id": _group_id(item),
+            # Slice C-1: legacy depth for everything routed; the severity
+            # ladder replaces this constant per item in slice C-2.
+            "tier": 3,
+            "seats_planned": 0 if hold is not None else _LEGACY_SEATS,
+            "target_sha": target_sha,
+            "held": hold,
+        }
+
+    for item in routed:
+        append_declared_jsonl(routing_path(root), _row(item, hold=None),
+                              expected_surface=ROUTING_SURFACE)
+    for entry in held:
         append_declared_jsonl(
-            routing_path(root),
-            {
-                "schema_version": 1,
-                "row_type": "routing",
-                "cycle_id": sample.get("cycle_id"),
-                "sample_id": sample.get("sample_id"),
-                "tool_id": str(item.get("tool_id") or ""),
-                "rule": str(item.get("rule") or ""),
-                "finding_id": str(item.get("finding_id") or ""),
-                "finding_fingerprint": str(item.get("finding_fingerprint") or ""),
-                # The group id is judge_fanout's law (one derivation), read
-                # from the owner — never a second spelling here.
-                "judgment_group_id": _group_id(item),
-                "tier": tier,
-                "seats": seats,
-                "target_sha": target_sha,
-                "held": None,
-            },
-            expected_surface=ROUTING_SURFACE,
-        )
+            routing_path(root), _row(entry["item"], hold=str(entry.get("reason") or "held")),
+            expected_surface=ROUTING_SURFACE)
 
 
 __all__ = [
     "BUDGET_HELD_KIND",
+    "FUNNEL_TIERS_PRODUCER",
     "ROUTING_RELPATH",
     "ROUTING_SURFACE",
     "route_judgment_sample",

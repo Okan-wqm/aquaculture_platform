@@ -1039,6 +1039,12 @@ path = "tests/invariants/mtls_ca_anchored.rs"
 name = "os_managed_updates_no_updater"
 path = "tests/invariants/os_managed_updates_no_updater.rs"
 
+# ADR-048 DEC-28 — the frozen generic-Linux release names: release workflow,
+# cloud installer and contract agree, and the agent consumes none of them.
+[[test]]
+name = "generic_channel_contract"
+path = "tests/invariants/generic_channel_contract.rs"
+
 # =============================================================================
 # RUST-CVE-001: rumqttc 0.25.1 vendored fork (../crates/local-rumqttc)
 # =============================================================================

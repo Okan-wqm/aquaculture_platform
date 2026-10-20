@@ -12,6 +12,9 @@ on:
       - "contracts/suderra-edge/**"
       - ".github/workflows/sens-api-gateway-ci.yml"
       - ".github/workflows/edge-agent-release.yml"
+      # The cloud's generic installer is checked against the frozen
+      # generic-channel names (tests/invariants/generic_channel_contract.rs).
+      - "apps/sensor-service/src/edge-device/installer-script.service.ts"
       - ".github/workflows/ci-edge.yml"
       - "rust-toolchain.toml"
       - "rustfmt.toml"
@@ -22,6 +25,9 @@ on:
       - "contracts/suderra-edge/**"
       - ".github/workflows/sens-api-gateway-ci.yml"
       - ".github/workflows/edge-agent-release.yml"
+      # The cloud's generic installer is checked against the frozen
+      # generic-channel names (tests/invariants/generic_channel_contract.rs).
+      - "apps/sensor-service/src/edge-device/installer-script.service.ts"
       - ".github/workflows/ci-edge.yml"
       - "rust-toolchain.toml"
       - "rustfmt.toml"

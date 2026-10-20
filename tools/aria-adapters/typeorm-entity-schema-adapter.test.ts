@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
+import { readModuleSchemasSource } from './module-schemas-source';
 import { analyzeTypeOrmEntities } from './typeorm-entity-schema-adapter';
+
+const REPO_ROOT = resolve(__dirname, '..', '..');
 
 const workspace = mkdtempSync(join(tmpdir(), 'aria-typeorm-adapter-'));
 const root = join(workspace, 'apps/farm-service/src');
@@ -13,9 +16,12 @@ mkdirSync(join(root, 'tenant'), { recursive: true });
 mkdirSync(join(root, 'infra'), { recursive: true });
 mkdirSync(join(workspace, 'apps/billing-service/src'), { recursive: true });
 mkdirSync(join(workspace, 'libs/backend-common/src/database'), { recursive: true });
-mkdirSync(join(workspace, 'apps/farm-service/src/database/migrations/.archive/2026-01-01T00-00-00-000Z'), {
-  recursive: true,
-});
+mkdirSync(
+  join(workspace, 'apps/farm-service/src/database/migrations/.archive/2026-01-01T00-00-00-000Z'),
+  {
+    recursive: true,
+  },
+);
 
 writeFileSync(
   join(root, 'ok/schema.entity.ts'),
@@ -95,7 +101,10 @@ writeFileSync(
   'utf8',
 );
 writeFileSync(
-  join(root, 'database/migrations/.archive/2026-01-01T00-00-00-000Z/1600000000000-RetiredMigration.ts'),
+  join(
+    root,
+    'database/migrations/.archive/2026-01-01T00-00-00-000Z/1600000000000-RetiredMigration.ts',
+  ),
   `export class RetiredMigration1600000000000 {}`,
   'utf8',
 );
@@ -153,30 +162,31 @@ writeFileSync(
   'utf8',
 );
 writeFileSync(
-  join(workspace, 'apps/farm-service/src/database/migrations/1782000000000-UnregisteredMigration.ts'),
+  join(
+    workspace,
+    'apps/farm-service/src/database/migrations/1782000000000-UnregisteredMigration.ts',
+  ),
   `export class UnregisteredMigration1782000000000 {}`,
   'utf8',
 );
 writeFileSync(
   join(workspace, 'snapshot.json'),
-  JSON.stringify(
-    {
-      schema: 'farm',
-      tables: [
-        {
-          schema: 'farm',
-          name: 'schema_entities',
-          columns: [
-            { name: 'id', dataType: 'uuid', isNullable: 'NO' },
-            { name: 'tenantId', dataType: 'text', isNullable: 'YES' },
-            { name: 'display_name', dataType: 'text', isNullable: 'YES' },
-            { name: 'legacy_column', dataType: 'text', isNullable: 'YES' },
-          ],
-        },
-        { schema: 'farm', name: 'missing_schema_entities', columns: [] },
-      ],
-    },
-  ),
+  JSON.stringify({
+    schema: 'farm',
+    tables: [
+      {
+        schema: 'farm',
+        name: 'schema_entities',
+        columns: [
+          { name: 'id', dataType: 'uuid', isNullable: 'NO' },
+          { name: 'tenantId', dataType: 'text', isNullable: 'YES' },
+          { name: 'display_name', dataType: 'text', isNullable: 'YES' },
+          { name: 'legacy_column', dataType: 'text', isNullable: 'YES' },
+        ],
+      },
+      { schema: 'farm', name: 'missing_schema_entities', columns: [] },
+    ],
+  }),
   'utf8',
 );
 
@@ -217,7 +227,7 @@ const infraFinding = output.findings.find(
     finding.rule === 'typeorm_entity_schema_required' &&
     finding.path === 'apps/farm-service/src/infra/outbox-event.entity.ts',
 );
-assert.ok(infraFinding?.message.includes("infrastructureTables"), infraFinding?.message);
+assert.ok(infraFinding?.message.includes('infrastructureTables'), infraFinding?.message);
 // The SSoT MODULE_SCHEMAS entry is cited as evidence for infra-table findings.
 assert.equal(
   infraFinding?.evidence.some(
@@ -275,12 +285,12 @@ assert.ok(output.read_paths.includes('apps/farm-service/src/ok/schema.entity.ts'
 assert.ok(output.read_paths.includes('libs/backend-common/src/database/schema-manager.service.ts'));
 assert.ok(output.read_paths.includes('apps/farm-service/src/app.module.ts'));
 assert.ok(output.read_paths.includes('snapshot.json'));
-assert.equal(output.findings.every((finding) => Array.isArray(finding.evidence)), true);
-assert.equal(output.belief_candidates.length, 1);
 assert.equal(
-  output.belief_candidates[0]?.belief_id,
-  'typeorm:farm-service:entity-schema-surface',
+  output.findings.every((finding) => Array.isArray(finding.evidence)),
+  true,
 );
+assert.equal(output.belief_candidates.length, 1);
+assert.equal(output.belief_candidates[0]?.belief_id, 'typeorm:farm-service:entity-schema-surface');
 assert.ok(output.belief_candidates[0]?.evidence_refs.includes('apps/farm-service/src/**/*.ts'));
 
 // Deliberate-break control 1: a platform-level service (billing is NOT in
@@ -327,5 +337,39 @@ assert.deepEqual(
   failClosedOutput.findings.map((finding) => finding.rule),
   ['typeorm_entity_schema_required'],
 );
+
+// ARIA-MEDIUM-588 — the adapter-side MODULE_SCHEMAS reading must carry every
+// element the runtime value declares, including the ones expressed as
+// `...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES` (a local const whose element
+// is itself the imported `TENANT_ERASURE_TARGET_PROOF_LEDGER_TABLE`). The
+// repository's own SSoT is the production-shaped fixture: this repository
+// declares the spread in every tenant-aware module entry, so a reader that
+// drops spread elements undercounts infrastructure by exactly one table here.
+{
+  const source = readModuleSchemasSource(REPO_ROOT);
+  assert.deepEqual(
+    source.errors,
+    [],
+    'the real SSoT resolves every element; an unresolvable one is a named error',
+  );
+  const sensor = source.modules.find((module) => module.moduleName === 'sensor');
+  assert.ok(sensor, 'the reader finds the sensor module on the real repo');
+  assert.equal(
+    sensor.infrastructureTables.includes('tenant_erasure_target_proofs'),
+    true,
+    `sensor infrastructureTables must carry the spread-resolved table: ${JSON.stringify(
+      sensor.infrastructureTables,
+    )}`,
+  );
+  const repoOutput = analyzeTypeOrmEntities(
+    { root: 'apps/sensor-service/src', serviceName: 'sensor', checks: ['module_schema'] },
+    REPO_ROOT,
+  );
+  const observation = repoOutput.observations.find((item) => item.id === 'module-schema:sensor');
+  assert.ok(observation, 'the sensor module_schema observation is emitted on the real repo');
+  // The count the adapter observes must equal the count the reader yields for
+  // the same SSoT — the reader is the adapter's own reading path.
+  assert.equal(observation.details?.infrastructureTables, sensor.infrastructureTables.length);
+}
 
 process.stdout.write('typeorm-entity-schema-adapter tests passed\n');

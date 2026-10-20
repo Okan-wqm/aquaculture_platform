@@ -62,15 +62,24 @@ from typing import Any
 
 from .hmac_keyring import utc_now_stamp
 from .ledger import atomic_write_json
+from .operator_approval import OperatorApprovalUnrecorded, recorded_instance, verify_operator_approval
 from .tool_registry import (
     GovernanceError,
     append_tools_governance,
     ensure_tools_dir,
+    tools_dir,
 )
 
 _BREAKER_DIR_RELATIVE = ("breakers",)
 _FAILURES_FILENAME = "autonomous-failures.jsonl"
 _STATE_FILENAME = "autonomous-state.json"
+
+# ARIA-HIGH-238 — the breaker's name in an operator approval line, and the
+# governance kinds that record an operator clearing or repairing it (pinned by
+# tests/test_operator_approval_callers.py as authority-raising writes).
+AUTONOMOUS_BREAKER = "autonomous"
+BREAKER_RESET_EVENT = "circuit_breaker_reset"
+BREAKER_EVIDENCE_QUARANTINED_EVENT = "circuit_breaker_evidence_quarantined"
 
 # Plan ARIA-V3 §2j — closed failure taxonomy. Any caller passing an
 # unknown kind raises GovernanceError; this prevents typo-class kinds
@@ -490,6 +499,31 @@ def record_attempt_started(
     return {"status": "recorded", "materialize_event_id": materialize_event_id}
 
 
+def trip_scope(base_dir: str | Path | None) -> dict[str, str]:
+    """ARIA-HIGH-238 — the trip an operator act about this breaker binds to.
+
+    ``tripped_at`` is the state file's record of the trip. ``record_failure``
+    rewrites it for every failure recorded while tripped, so evidence that
+    arrives after an act was posted asks for a new act. A ledger that trips
+    the breaker with no trip written down (rows damaged before any failure was
+    recorded on them, or a state reset since) binds to
+    ``NO_RECORDED_INSTANCE``. Both the reset and the evidence quarantine bind
+    here: they undo the same trip.
+    """
+    try:
+        state = json.loads(_state_path(tools_dir(base_dir)).read_text(encoding="utf-8"))
+    except (FileNotFoundError, ValueError):
+        # The state file is the trip's RECORD (the verdict derives from the
+        # ledger): an absent or undecodable one records no trip. ValueError
+        # covers both ways bytes fail to decode: not UTF-8
+        # (UnicodeDecodeError) and not JSON (JSONDecodeError).
+        state = {}
+    return {
+        "breaker": AUTONOMOUS_BREAKER,
+        "tripped_at": recorded_instance(state.get("tripped_at") if isinstance(state, dict) else None),
+    }
+
+
 def reset_breaker(
     *,
     base_dir: str | Path,
@@ -500,21 +534,36 @@ def reset_breaker(
     truncates ``failures.jsonl`` (the 24h sliding window starts
     fresh). The truncate-on-reset semantic is the operator's
     "investigated + resolved + want clean slate" signal.
+
+    ARIA-HIGH-238 — that signal is proven by an operator's GitHub act
+    approving ``surface=breaker_reset`` for THIS trip (:func:`trip_scope`;
+    ``aria-kernel breaker reset --print-approval-line`` prints the line). It
+    took any non-empty string before, which ARIA could write for itself.
     """
-    if not (operator_approval_ref or "").strip():
-        raise GovernanceError("circuit_breaker_reset_requires_approval_ref")
     if not (reason or "").strip():
         raise GovernanceError("circuit_breaker_reset_requires_reason")
     root = ensure_tools_dir(base_dir)
+    # The audit row below is refused under a frozen profile; refusing first
+    # keeps the act unspent and the ledger uncut.
+    from .runtime_profile import enforce_profile_for_write
+
+    enforce_profile_for_write("tool_governance", base_dir=root)
+    try:
+        approval = verify_operator_approval(
+            operator_approval_ref, surface="breaker_reset", scope=trip_scope(root), base_dir=root,
+        )
+    except OperatorApprovalUnrecorded as exc:
+        raise GovernanceError(f"breaker_reset_approval_unrecorded:{exc}") from exc
     atomic_write_json(_state_path(root), {"state": "ok"})
     failures_path = _failures_path(root)
     if failures_path.exists():
         failures_path.write_text("", encoding="utf-8")
     append_tools_governance(
         root,
-        "circuit_breaker_reset",
+        BREAKER_RESET_EVENT,
         {
             "operator_approval_ref": operator_approval_ref,
+            "operator_approval": approval,
             "reason": reason,
         },
     )
@@ -567,9 +616,12 @@ def quarantine_breaker_evidence(
     different definition than the evaluator uses — two sites disagreeing about
     one file, which is the defect class this branch exists to close. The
     disagreement is reported with both counts instead.
+
+    ARIA-HIGH-238 — moving rows aside can turn a tripped breaker evaluable
+    and then ok, so it is proven like a reset: an operator's GitHub act
+    approving ``surface=breaker_evidence_quarantine`` for THIS trip
+    (:func:`trip_scope`), asked for only when there is something to move.
     """
-    if not (operator_approval_ref or "").strip():
-        raise GovernanceError("circuit_breaker_quarantine_requires_approval_ref")
     if not (reason or "").strip():
         raise GovernanceError("circuit_breaker_quarantine_requires_reason")
 
@@ -619,6 +671,16 @@ def quarantine_breaker_evidence(
             "against a different definition of decodable than the evaluator uses."
         )
 
+    from .runtime_profile import enforce_profile_for_write
+
+    enforce_profile_for_write("tool_governance", base_dir=root)
+    try:
+        approval = verify_operator_approval(
+            operator_approval_ref, surface="breaker_evidence_quarantine", scope=trip_scope(root), base_dir=root,
+        )
+    except OperatorApprovalUnrecorded as exc:
+        raise GovernanceError(f"breaker_evidence_quarantine_approval_unrecorded:{exc}") from exc
+
     stamped = utc_now_stamp()
     quarantine_path = _quarantine_path(root)
     with quarantine_path.open("a", encoding="utf-8") as sidecar:
@@ -628,6 +690,7 @@ def quarantine_breaker_evidence(
                     "schema_version": 1,
                     "quarantined_at": stamped,
                     "operator_approval_ref": operator_approval_ref,
+                    "operator_approval": approval,
                     "reason": reason,
                     "damaged_row_count": len(damaged),
                     "surviving_row_count": len(kept),
@@ -648,9 +711,10 @@ def quarantine_breaker_evidence(
 
     append_tools_governance(
         root,
-        "circuit_breaker_evidence_quarantined",
+        BREAKER_EVIDENCE_QUARANTINED_EVENT,
         {
             "operator_approval_ref": operator_approval_ref,
+            "operator_approval": approval,
             "reason": reason,
             "damaged_row_count": len(damaged),
             "surviving_row_count": len(kept),
@@ -686,10 +750,13 @@ def quarantine_breaker_evidence(
 
 
 __all__ = [
+    "AUTONOMOUS_BREAKER",
+    "BREAKER_EVIDENCE_QUARANTINED_EVENT",
     "BREAKER_REASON_EVIDENCE_INCOMPLETE",
     "BREAKER_REASON_EVIDENCE_UNREADABLE",
     "BREAKER_REASON_THRESHOLD_EXCEEDED",
     "BREAKER_REASON_WITHIN_THRESHOLD",
+    "BREAKER_RESET_EVENT",
     "BREAKER_STATE_OK",
     "BREAKER_STATE_TRIPPED",
     "BreakerEvidence",
@@ -701,4 +768,5 @@ __all__ = [
     "record_failure",
     "quarantine_breaker_evidence",
     "reset_breaker",
+    "trip_scope",
 ]

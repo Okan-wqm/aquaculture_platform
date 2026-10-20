@@ -19,9 +19,10 @@ Invariants:
                 telemetry; quarantine (ARIA-MEDIUM-609) is derived only from the
                 kernel's own side=server rows over the real broker — ≥10 witnessed
                 faults with error rate ≥ 0.5 quarantine the server (governance row),
-                minus the caller-caused classes; release needs an operator ref. The
-                registry refuses a stdio/http server no kernel-side witness can
-                vouch for (kernel_socket carries it by construction).
+                minus the caller-caused classes; release needs an operator's GitHub
+                act approving THIS quarantine (ARIA-HIGH-238). The registry refuses
+                a stdio/http server no kernel-side witness can vouch for
+                (kernel_socket carries it by construction).
   I-V12-MCP-04  `aria-kernel mcp serve` speaks newline JSON-RPC (initialize,
                 tools/list, tools/call, ping, unknown method → -32601); read tools
                 answer from the store; write tools are absent without --allow-writes
@@ -52,6 +53,7 @@ from aria_kernel import hooks, mcp_client as mc
 from aria_kernel.mcp_server import READ_TOOLS, WRITE_TOOLS, AriaMcpServer
 from aria_kernel.runtime_profiles import load_runtime_profiles, profile_by_id
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from tests._helpers.operator_acts import github_operator_acts
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _POC = _REPO_ROOT / "tools" / "aria-poc"
@@ -212,7 +214,11 @@ class CallsAreLedgeredAndQuarantined(_Store):
         self.assertEqual(mc.mcp_config_for_profile(profile_by_id("implementer"), base_dir=self.tools), {"mcpServers": {}}, "quarantined servers drop out of every spawn")
         with self.assertRaises(ValueError):
             mc.release_quarantine("aria", base_dir=self.tools, operator_ref="")
-        mc.release_quarantine("aria", base_dir=self.tools, operator_ref="op-1")
+        with github_operator_acts() as github:
+            with self.assertRaises(ValueError):
+                mc.release_quarantine("aria", base_dir=self.tools, operator_ref="op-1")
+            ref = github.approve("mcp_unquarantine", mc.unquarantine_scope("aria", base_dir=self.tools))
+            mc.release_quarantine("aria", base_dir=self.tools, operator_ref=ref)
         self.assertFalse(mc.evaluate_mcp_health("aria", base_dir=self.tools)["quarantined"])
         self.assertEqual(mc.split_mcp_tool("Bash"), None)
         self.assertEqual(mc.split_mcp_tool("mcp__aria"), ("aria", "*"))

@@ -183,6 +183,20 @@ def promote_consensus_findings(
             continue
         if fingerprint in already:
             continue
+        # WP-J D-1 — the promotion bar. An ANCHOR whose verdict FLIPPED
+        # under the stability lane's blind re-ask (stability_reask, the ONE
+        # flip table) is recorded as anchor instability, and a finding that
+        # stood on that anchor promotes never — not until the flip record
+        # changes. The reader is imported, never re-derived: one flip
+        # table, one reader per consumer.
+        from .stability_reask import unstable_anchor_groups
+
+        if str(row.get("judgment_group_id") or "") in unstable_anchor_groups(base_dir=root):
+            skipped.append({
+                "finding_fingerprint": fingerprint, "reason": "anchor_instability",
+                "judgment_group_id": row.get("judgment_group_id"),
+            })
+            continue
         subject = subjects.get(fingerprint)
         if subject is None:
             skipped.append({"finding_fingerprint": fingerprint, "reason": "adapter_finding_unresolved"})

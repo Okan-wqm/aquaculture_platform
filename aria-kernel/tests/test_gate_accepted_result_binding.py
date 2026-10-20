@@ -104,7 +104,32 @@ def _escalate_to_human_required(tools: Path, request_id: str) -> None:
         )
 
 
+def _seed_reviewed_plan(tools: Path, plan_id: str) -> None:
+    """ARIA-HIGH-614 — both gates derive their envelopes' citation box from
+    the plan they audit; production always reviews a plan the store holds,
+    so the fixture starts one under the convergence_id the runners name."""
+    from aria_kernel.plan_convergence import start_plan
+
+    start_plan(
+        plan_id=plan_id,
+        initial_revision_id=f"rev-{plan_id}-0",
+        plan_content={
+            "schema_version": 1,
+            "title": f"Plan {plan_id}",
+            "summary": "Gate envelope fixture.",
+            "key_changes": [{"id": "kc-1", "description": "fix the drift",
+                             "paths": ["aria-kernel/aria_kernel/cycle.py"]}],
+            "evidence_refs": ["aria-kernel/aria_kernel/cycle.py:10"],
+            "validation_commands": [{"cmd": "nx affected --target=test"}],
+            "affected_surfaces": [{"paths": ["aria-kernel/aria_kernel/cycle.py"]}],
+            "architectural_tier": 2,
+        },
+        base_dir=tools,
+    )
+
+
 def _run_review(tools: Path, **overrides: object) -> ReviewResult:
+    _seed_reviewed_plan(tools, "plan-gate-001")
     kwargs: dict = {
         "cycle_id": "cyc-gate-001",
         "base_dir": tools,
@@ -312,6 +337,7 @@ class SpecialistGateEvidenceBinding(unittest.TestCase):
         self._tmp.cleanup()
 
     def _run(self, **overrides: object) -> SpecialistReviewResult:
+        _seed_reviewed_plan(self.tools, "plan-spec-001")
         kwargs: dict = {
             "cycle_id": "cyc-spec-001",
             "base_dir": self.tools,

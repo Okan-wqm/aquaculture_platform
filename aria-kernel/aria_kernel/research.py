@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import re
 import urllib.request
 from urllib.parse import urlparse
@@ -9,6 +8,7 @@ from typing import Any
 
 from .ledger import append_declared_jsonl, load_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
+from .digest import sha256_digest
 
 
 SOURCE_TIERS = ("official", "standards", "security_advisory", "vendor", "oss_repo", "other")
@@ -242,4 +242,4 @@ def _extract_claims(text: str) -> list[str]:
 
 
 def _sha256(payload: bytes) -> str:
-    return "sha256:" + hashlib.sha256(payload).hexdigest()
+    return sha256_digest(payload)

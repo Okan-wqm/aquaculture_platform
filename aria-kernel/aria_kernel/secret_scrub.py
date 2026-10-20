@@ -73,6 +73,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from typing import Callable, Final, Literal, get_args
+from .digest import sha256_digest_from_hex
 
 CredentialView = Literal["redact", "refuse", "dlp", "harness", "system_one", "habitat", "vault"]
 ShapeKind = Literal["credential", "pii"]
@@ -549,7 +550,7 @@ REFERENCE_SHAPES: Final[tuple[str, ...]] = (
     "apps/x.ts:12",
     "aria-kernel/aria_kernel/cost_budget" + ".py:263-267",
     "0123456789abcdef" * 4,
-    "sha256:" + "0123456789abcdef" * 4,
+    sha256_digest_from_hex("0123456789abcdef" * 4),
     "SHA256:" + "U3ludGhldGljRmluZ2VycHJpbnRGb3JBVGVzdE9ubHkx"[:43],
     "commit 99689e46b8f1d3c1e4a5b6c7d8e9f0a1b2c3d4e5",
     "integrity sha512-" + "U3ludGhldGljSW50ZWdyaXR5" * 3 + "==",

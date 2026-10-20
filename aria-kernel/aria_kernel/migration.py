@@ -15,6 +15,7 @@ from .feedback import normalize_feedback_event, pressure_evidence_fingerprint, s
 from .ledger import append_jsonl, atomic_write_json, read_jsonl, rewrite_jsonl, stamp_row_format, verify_jsonl, write_index
 from .tool_registry import GovernanceError, SCHEMA_VERSION as TOOLS_SCHEMA_VERSION, append_tools_governance, covered_tool_ledgers, sync_tools_contract, tools_contract_version, update_tools_index
 from .workspace import WorkspacePaths, canonical_identity, canonical_identity_source, default_actor, governance_event, record_workspace_governance, repo_hash, workspace_paths
+from .digest import sha256_digest_from_hex
 
 
 MIGRATION_PHASES = ("started", "copied", "validated", "finalized")
@@ -405,8 +406,8 @@ def migrate_tools_v2_to_v3(
         "tools_root_schema_stripped",
         {
             "migration_event_id": migration_event_id,
-            "pre_strip_content_hash": f"sha256:{pre_strip_hash}",
-            "post_strip_content_hash": f"sha256:{post_strip_hash}",
+            "pre_strip_content_hash": sha256_digest_from_hex(pre_strip_hash),
+            "post_strip_content_hash": sha256_digest_from_hex(post_strip_hash),
             "reason": reason,
             "acknowledged_by": actor,
         },

@@ -51,7 +51,6 @@ i.e. maximally diverse.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -74,6 +73,7 @@ from .model_fleet import dispatching_provider_for_model
 # with the checks it names, so both readers import one spelling.
 CROSS_REVIEW_SELF_AGREEMENT_REASON = "cross_review_self_agreement"
 from .tool_registry import GovernanceError
+from .digest import sha256_digest
 
 
 # Per code-reviewer #3 — 0.85 ceiling is the bright-line operator
@@ -354,7 +354,7 @@ def _sealed_response(root: Path, accepted: Mapping[str, Any]) -> dict[str, Any] 
         )
     except OSError:
         return None
-    if "sha256:" + hashlib.sha256(content).hexdigest() != accepted.get("output_hash"):
+    if sha256_digest(content) != accepted.get("output_hash"):
         return None
     try:
         envelope = json.loads(content)

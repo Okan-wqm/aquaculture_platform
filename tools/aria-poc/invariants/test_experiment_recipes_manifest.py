@@ -22,7 +22,6 @@ experiment at a recipe id that is not declared and
 """
 from __future__ import annotations
 
-import hashlib
 import io
 import json
 import os
@@ -46,6 +45,7 @@ from aria_kernel.experiment import (  # noqa: E402
     run_experiment,
 )
 from aria_kernel.change_ledger import emit_change_committed, emit_change_planned  # noqa: E402
+from aria_kernel.digest import sha256_digest  # noqa: E402
 from aria_kernel.runtime_profile import set_profile  # noqa: E402
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_binding  # noqa: E402
 from aria_kernel.validation import parse_allowed_command  # noqa: E402
@@ -158,7 +158,7 @@ class ExperimentRecipeManifestTests(unittest.TestCase):
         self.assertEqual((row["cmd"], row["exit_code"], row["timed_out"]), (self.command, 0, False))
         self.assertEqual((row["commit_sha"], row["change_id"]), (self.commit_sha, self.change_id))
         log_bytes = Path(row["log_path"]).read_bytes()
-        self.assertEqual(row["log_hash"], "sha256:" + hashlib.sha256(log_bytes).hexdigest())
+        self.assertEqual(row["log_hash"], sha256_digest(log_bytes))
         log = log_bytes.decode()
         self.assertIn(self.selector, log)
         self.assertIn("Ran 1 test", log)
@@ -189,7 +189,7 @@ class ExperimentRecipeManifestTests(unittest.TestCase):
         self.assertEqual(environment["stable"]["modules"]["path_helper"]["executed_content_binding"],
                          {"status": "unknown", "reason": "loaded_bytes_not_observed"})
         canonical = json.dumps(environment["stable"], sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
-        self.assertEqual(row["input_binding"]["runner_environment_digest"], "sha256:" + hashlib.sha256(canonical).hexdigest())
+        self.assertEqual(row["input_binding"]["runner_environment_digest"], sha256_digest(canonical))
         for dimension in ("runner_environment", "dependency", "configuration_closure", "selection_closure"):
             self.assertEqual(row["input_binding"]["availability"][dimension]["status"], "unknown")
         self.assertEqual(manifest_path.read_bytes(), manifest_bytes)
@@ -266,7 +266,7 @@ class ExperimentRecipeManifestTests(unittest.TestCase):
         self.assertEqual((row["cmd"], row["exit_code"], row["timed_out"]), (self.command, 0, False))
         self.assertEqual((row["change_id"], row["commit_sha"]), (self.change_id, self.commit_sha))
         log_bytes = Path(row["log_path"]).read_bytes()
-        self.assertEqual(row["log_hash"], "sha256:" + hashlib.sha256(log_bytes).hexdigest())
+        self.assertEqual(row["log_hash"], sha256_digest(log_bytes))
         log = log_bytes.decode()
         self.assertIn(self.selector, log)
         self.assertIn("Ran 1 test", log)

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import shlex
 import subprocess
 from datetime import datetime, timezone
@@ -16,13 +15,7 @@ from .ledger import (
 from .implementation_safety import verify_bash_command_allowed
 from .runtime_profile import enforce_profile_for_write
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, update_tools_index, utc_now
-
-
-def _hash_lease_token(token: str) -> str:
-    """Plan 026R §G.3 — mirror of worker_dispatch._hash_lease_token /
-    agent_invocations._hash_lease_token. Token never leaves the
-    hashed form once recorded on the claim row."""
-    return "sha256:" + hashlib.sha256(token.encode("utf-8")).hexdigest()
+from .digest import secret_matches_sha256_digest, sha256_digest, sha256_digest_file, sha256_digest_text
 
 
 def _resolve_active_claim_for_submit(
@@ -70,9 +63,9 @@ def _resolve_active_claim_for_submit(
             # Check if this claim_id's token matches the submit token.
             # If yes, return a specific reason (already released/stale).
             if (
-                latest.get("lease_token_hash") == _hash_lease_token(lease_token)
+                secret_matches_sha256_digest(lease_token, latest.get("lease_token_hash"))
                 or any(
-                    e.get("lease_token_hash") == _hash_lease_token(lease_token)
+                    secret_matches_sha256_digest(lease_token, e.get("lease_token_hash"))
                     for e in events_sorted
                 )
             ):
@@ -82,7 +75,7 @@ def _resolve_active_claim_for_submit(
     if not active_claims:
         return "submit_worker_result_no_active_claim"
     active = active_claims[0]
-    if active.get("lease_token_hash") != _hash_lease_token(lease_token):
+    if not secret_matches_sha256_digest(lease_token, active.get("lease_token_hash")):
         return "submit_worker_result_lease_token_mismatch"
     # Lease-expiry check — mirror agent_invocations, but fail closed
     # for malformed/missing dispatch leases on the worker path.
@@ -311,7 +304,7 @@ def verify_worker_result(
 
 
 def _sha256_text(value: str) -> str:
-    return "sha256:" + hashlib.sha256(value.encode("utf-8")).hexdigest()
+    return sha256_digest_text(value)
 
 
 def _safe_segment(value: str) -> str:
@@ -337,7 +330,7 @@ def _write_diff_artifact(root: Path, assignment_id: str, diff: str, diff_hash: s
     return {
         "schema_version": 1,
         "path": path.relative_to(root).as_posix(),
-        "sha256": "sha256:" + hashlib.sha256(raw).hexdigest(),
+        "sha256": sha256_digest(raw),
         "size_bytes": len(raw),
     }
 
@@ -356,7 +349,7 @@ def _verify_diff_artifact_ref(root: Path, ref: Any) -> str | None:
         return "worker_diff_artifact_path_escape"
     if not path.exists() or not path.is_file():
         return "worker_diff_artifact_missing"
-    actual_hash = "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+    actual_hash = sha256_digest_file(path)
     if actual_hash != expected_hash:
         return "worker_diff_artifact_hash_mismatch"
     return None

@@ -54,6 +54,7 @@ from .jev_runtime import post_systemone as _transport
 from .ledger import append_declared_jsonl
 from .secret_scrub import pii_shape_names, scrub_text_with_count, view_alternation
 from .tool_registry import bound_workspace_root, ensure_tools_dir, utc_now
+from .digest import sha256_digest_text
 
 REGISTRY_RELPATH = ("aria-config", "system-one-questions.json")
 REGISTRY_SCHEMA = "aria/system-one-questions/v1"
@@ -566,7 +567,7 @@ def _ask_built(
     except Exception as exc:  # noqa: BLE001 — a reference that breaks the builder is refused, by class
         return Unavailable(question.id, "refused", f"reference_unbuildable:{type(exc).__name__}")
     text = json.dumps(state, ensure_ascii=False)
-    row["state_sha256"] = "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+    row["state_sha256"] = sha256_digest_text(text)
     payload = {"model": registry.model, "state": text, "questions": {question.id: _spec(question, row["state_sha256"])}}
     if (refusal := _egress_refusal(payload, state)) is not None:
         return Unavailable(question.id, "refused", refusal)

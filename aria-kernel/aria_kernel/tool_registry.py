@@ -24,6 +24,7 @@ from .ledger import (
 from .workspace import canonical_identity, canonical_identity_source, canonical_repo_root, governance_event, repo_hash
 from .implementation_safety import KERNEL_CHECKOUT_ROOT, verify_bash_command_allowed
 from .write_root_owner import refuse_foreign_owned_root
+from .digest import sha256_digest_text
 
 
 # Plan ARIA-V2 §3.2 — contract v3 introduces canonical-identity-bound
@@ -911,7 +912,7 @@ def parse_window_signature(declaration: dict[str, Any]) -> str:
         "forbidden_read_globs": sorted(declaration.get("forbidden_read_globs", []) or []),
     }
     canonical = json.dumps(fields, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return sha256_digest_text(canonical)
 
 
 def effective_freshness_window_hours(tool: dict[str, Any]) -> float:

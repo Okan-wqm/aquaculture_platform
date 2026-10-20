@@ -10,7 +10,6 @@ blocked proof with the reasons named — not a soft warning.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -18,6 +17,7 @@ from typing import Any
 
 from . import assurance as A
 from . import reproduction as R
+from ..digest import sha256_digest_text
 
 # controls that must ALWAYS be covered regardless of what the PR touched
 ZERO_TOLERANCE_CONTROLS = ("multi_tenant/rls_coverage", "multi_tenant/tenant_isolation", "api/public_write_guard", "api/authz")
@@ -73,7 +73,7 @@ class SecurityReadinessProof:
         payload = {"head_sha": self.head_sha, "required_controls": list(self.required_controls),
                    "coverage": self.coverage, "closures": [c.__dict__ for c in self.closures],
                    "open_critical_or_high": self.open_critical_or_high, "ready": self.ready}
-        return "sha256:" + hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+        return sha256_digest_text(json.dumps(payload, sort_keys=True))
 
     def to_row(self) -> dict[str, Any]:
         return {"head_sha": self.head_sha, "required_controls": list(self.required_controls),

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import sys
@@ -395,6 +394,7 @@ def _parse_days(value: str) -> int:
 # auditable error message rather than reaching the audit row.
 _REASON_MIN_NON_WHITESPACE_CHARS = 10
 import re as _aria_re
+from .digest import sha256_digest
 _REASON_PII_PATTERNS = (
     # email
     _aria_re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+"),
@@ -5373,7 +5373,7 @@ def _main(argv: list[str] | None = None) -> int:
             review_path = Path(args.review_file)
             review_bytes = review_path.read_bytes()
             review_payload = json.loads(review_bytes.decode("utf-8"))
-            file_hash = "sha256:" + hashlib.sha256(review_bytes).hexdigest()
+            file_hash = sha256_digest(review_bytes)
             explicit_hash = review_payload.get("review_content_hash")
             if explicit_hash and explicit_hash != file_hash:
                 # Operator passed an explicit review_content_hash that disagrees

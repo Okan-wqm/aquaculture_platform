@@ -21,6 +21,7 @@ from .ledger import (
 from .runtime_profile import enforce_profile_for_write
 from .strict_jsonl_reader import read_strict_jsonl
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
+from .digest import sha256_digest_text
 
 
 # Plan ARIA-V3 §A3 — skill grammar contract (required sections in
@@ -683,7 +684,7 @@ def sandbox_skill(
         raw_markdown = path.read_text(encoding="utf-8")
         checklist_results = parse_fixture_blocks(raw_markdown)
         source_path = path.resolve()
-        source_sha256 = "sha256:" + hashlib.sha256(raw_markdown.encode("utf-8")).hexdigest()
+        source_sha256 = sha256_digest_text(raw_markdown)
     if checklist_results is None:
         raise GovernanceError("skill sandbox requires markdown_path or checklist_results")
     if markdown_path is None and not synthetic_test_mode:

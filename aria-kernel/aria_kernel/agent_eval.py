@@ -61,7 +61,6 @@ from .ledger import (
     LedgerIntegrityError,
     append_declared_jsonl,
     atomic_write_json,
-    is_sha256_digest,
     load_declared_jsonl,
 )
 from .ledger_refs import find_row_by_source_ledger_ref
@@ -75,6 +74,7 @@ from .tool_registry import (
     ensure_tools_dir_readonly,
     utc_now,
 )
+from .digest import is_sha256_digest, sha256_digest, sha256_digest_file
 
 EVAL_RUNS_PATH = ("agent-evals", "runs.jsonl")
 EVAL_FIXTURES_LEDGER_PATH = ("agent-evals", "fixtures.jsonl")
@@ -570,7 +570,7 @@ def _require_transcript_artifact_hash(
         path = Path(artifact)
         if not path.is_file():
             raise GovernanceError("transcript_artifact_path_missing")
-        observed = "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+        observed = sha256_digest_file(path)
         if observed != transcript_hash:
             raise GovernanceError("transcript_artifact_hash_mismatch")
         return
@@ -899,7 +899,7 @@ def _episode(
     from .attribution_void import void_for
 
     canonical = json.dumps([role, plan_id, source], sort_keys=True).encode("utf-8")
-    episode_id = "sha256:" + hashlib.sha256(canonical).hexdigest()
+    episode_id = sha256_digest(canonical)
     # Review of #1829 (HIGH-2) — an attribution whose cause a kernel fix has
     # since removed is recorded unattributed, naming the fix.
     void = void_for(attribution.failure_mode, attribution.role, occurred_at) if attribution is not None else None
@@ -1031,8 +1031,8 @@ def _unrecorded_episodes(root: Path) -> list[dict[str, Any]]:
         # gets a fresh row each time instead of colliding with the B already
         # recorded and sticking on A.
         transition = [lineage, str(current["episode_id"]), *_judgement(episode)]
-        digest = hashlib.sha256(json.dumps(transition).encode("utf-8")).hexdigest()
-        rejudged = {**episode, "episode_id": "sha256:" + digest, "row_id": "sha256:" + digest,
+        digest = sha256_digest(json.dumps(transition).encode("utf-8"))
+        rejudged = {**episode, "episode_id": digest, "row_id": digest,
                     "lineage_id": lineage, "supersedes": str(current["episode_id"])}
         if rejudged["episode_id"] not in recorded:
             pending.append(rejudged)

@@ -7,7 +7,6 @@ This script deliberately avoids importing aria_kernel's aggregate package.
 from __future__ import annotations
 
 import datetime
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -16,6 +15,20 @@ import stat
 import struct
 import sys
 import time
+
+# ARIA-LOW-517: the sha256: label has one owner, digest.py — and this child is
+# spawned as a SCRIPT (validation.py hands its path to argv), so a package
+# relative import cannot resolve, while importing the aria_kernel aggregate
+# would violate this module's contract (it observes the validation child's
+# explicitly named modules and must stay stdlib-only). Load the owner's own
+# file directly: one owner, no aggregate, no second spelling.
+import importlib.util as _importlib_util
+
+_digest_spec = _importlib_util.spec_from_file_location(
+    "_aria_validation_child_digest", Path(__file__).with_name("digest.py"))
+_digest_module = _importlib_util.module_from_spec(_digest_spec)
+_digest_spec.loader.exec_module(_digest_module)
+sha256_digest = _digest_module.sha256_digest
 
 
 class _ObservationWork:
@@ -57,7 +70,7 @@ class _ObservationWork:
                         result["reason"] = "changed_during_read"
                     else:
                         result = {"status": "available", "phase": "post_run", "size_bytes": len(data),
-                                  "content_hash": "sha256:" + hashlib.sha256(data).hexdigest()}
+                                  "content_hash": sha256_digest(data)}
         except FileNotFoundError:
             result["reason"] = "input_missing"
         except (OSError, ValueError, RuntimeError):

@@ -31,10 +31,9 @@
  * reaches the filesystem.
  */
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
 import { join, posix } from 'node:path';
 
-import { isWorkspaceRelativePath } from './adapter-fs';
+import { isWorkspaceRelativePath, workspacePathExists } from './adapter-fs';
 
 // ---------------------------------------------------------------------------
 // paths and bounds
@@ -75,10 +74,17 @@ export function isCargoManifest(path: string): boolean {
 /**
  * `collectFiles` `skipDir`: cargo's default build directory is `target/` beside
  * a `Cargo.toml` (.gitignore ignores a `target/` at any depth); a `target/`
- * dir with no manifest beside it is ordinary source.
+ * dir with no manifest beside it is ordinary source. The manifest's
+ * existence is asked through containment (ARIA-LOW-593): a symlinked
+ * `Cargo.toml` is not a manifest, so the `target` beside a link is walked as
+ * source instead of vanishing from the scan.
  */
-export function cargoTargetDirSkip(name: string, parentPath: string): boolean {
-  return name === 'target' && existsSync(join(parentPath, CARGO_MANIFEST));
+export function cargoTargetDirSkip(
+  name: string,
+  parentPath: string,
+  workspaceRoot: string,
+): boolean {
+  return name === 'target' && workspacePathExists(workspaceRoot, join(parentPath, CARGO_MANIFEST));
 }
 
 // ---------------------------------------------------------------------------

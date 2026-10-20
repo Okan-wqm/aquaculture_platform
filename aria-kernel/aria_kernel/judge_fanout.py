@@ -435,6 +435,14 @@ def _judge_rows_by_group(
     return grouped, settled
 
 
+def _group_fingerprint(by_judge: dict[str, dict[str, Any]]) -> str:
+    """The finding fingerprint the group's judges were minted with."""
+    return next(
+        (str(row["finding_fingerprint"]) for _judge, row in sorted(by_judge.items()) if row.get("finding_fingerprint")),
+        "",
+    )
+
+
 def split_verdict_groups(
     *,
     tool_id: str,
@@ -461,6 +469,7 @@ def split_verdict_groups(
             "run_id": run_id,
             "finding_id": finding_id,
             "judgment_group_id": group_id,
+            "finding_fingerprint": _group_fingerprint(by_judge),
             "judges": [
                 {
                     "judge_id": judge_id,
@@ -591,6 +600,11 @@ def _mint_arbiter(
         allowed_scope=["**"],
         evidence_refs=refs or None,
         finding_id=str(group.get("finding_id") or ""),
+        # ARIA-HIGH-004 — the arbiter's verdict joins the learning funnel by
+        # the same fingerprint the two judges it re-examines were minted
+        # with (ORPHAN-HIGH-765's mint-first doctrine, which the fan-out
+        # mint follows and this mint did not).
+        finding_fingerprint=str(group.get("finding_fingerprint") or ""),
         tool_id=tool_id,
         run_id=str(group.get("run_id") or ""),
         judgment_group_id=group_id,
@@ -702,6 +716,7 @@ def anchor_candidate_groups(
             "run_id": run_id,
             "finding_id": finding_id,
             "judgment_group_id": group_id,
+            "finding_fingerprint": _group_fingerprint(by_judge),
             "verdict": verdict,
             "judges": [
                 {

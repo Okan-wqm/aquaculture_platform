@@ -101,12 +101,19 @@ class TestV9OrphanScanner(unittest.TestCase):
         )
         self.assertEqual(results[1]["evidence"], ["apps/auth-service/src/a.ts:820"])
 
-    def test_an_orphan_registered_in_another_review_file_is_not_this_sources(self):
-        # The plan's `Closes:` trailer names the register (plan_origin), so a
-        # finding registered against another review is not planned from it.
+    def test_an_orphan_registered_in_another_review_file_is_still_this_sources(self):
+        # ARIA-LOW-607 — the review_file filter WAS the defect: 31 OPEN ORPHAN
+        # rows are filed against review documents other than the register and
+        # were reachable by no plan source. The candidate carries the row's own
+        # review_file (the commit trailer's owner), and the register's heading
+        # is not its anchor.
         with tempfile.TemporaryDirectory() as tmp:
             _orphan_repo(tmp, [_orphan_row("ORPHAN-HIGH-811", review_file="docs/reviews/other.md")], self.REGISTER)
-            self.assertEqual(_ps.scan_orphan_findings(tmp), [])
+            [candidate] = _ps.scan_orphan_findings(tmp)
+
+        self.assertEqual(candidate["candidate_id"], "ORPHAN-HIGH-811")
+        self.assertEqual(candidate["review_file"], "docs/reviews/other.md")
+        self.assertNotIn("heading_line", candidate)
 
     def test_scan_severity_ordering(self):
         with tempfile.TemporaryDirectory() as tmp:

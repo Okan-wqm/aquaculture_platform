@@ -115,6 +115,23 @@ class ATypedVerdictValidatesAndFolds(unittest.TestCase):
         with self.assertRaisesRegex(GovernanceError, "evidence_quote_mismatch"):
             record_judge_verdict_from_response(request=_request(), response=response, base_dir=self.tools)
 
+    def test_a_typed_contract_refusal_is_typed_refused_not_transient(self) -> None:
+        """ARIA-MEDIUM-172 — the typed parser's ParseFailure is a deterministic
+        refusal (a pure function of the request's pinned excerpt and the
+        response's typed block), so its exception must carry the type the
+        replay lane ends retries by."""
+        from aria_kernel.bridge_exceptions import BridgeContractRefused
+
+        for block in (
+            _typed_block(evidence=[{"index": 0, "quote": "rateLimit()"}]),
+            _typed_block(value="maybe", probabilities=None),
+        ):
+            with self.subTest(block=block.get("value") or block["evidence"]):
+                with self.assertRaises(BridgeContractRefused):
+                    record_judge_verdict_from_response(
+                        request=_request(), response=_response(block), base_dir=self.tools,
+                    )
+
     def test_a_typed_value_outside_the_verdict_vocabulary_is_refused_by_name(self) -> None:
         response = _response(_typed_block(value="maybe", probabilities=None))
         self.assertIn("judge_verdict.typed:value_not_in_options",

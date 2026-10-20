@@ -22,6 +22,7 @@ import unittest
 from pathlib import Path
 from typing import Any
 
+from aria_kernel.sandbox_pin_skip import is_sandbox_pin_skip
 from tests._helpers import suite_shards as shards
 
 _SCRIPT = Path(shards.__file__)
@@ -375,7 +376,7 @@ class SandboxPinSkipSpellingTests(unittest.TestCase):
 
         with self.assertRaises(unittest.SkipTest) as raised:
             sandbox_pins.skip_sandbox_pin("detail")
-        self.assertTrue(str(raised.exception).startswith(shards.SANDBOX_SKIP_MARKER))
+        self.assertTrue(is_sandbox_pin_skip(str(raised.exception)))
 
 
 if __name__ == "__main__":

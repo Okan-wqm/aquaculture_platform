@@ -91,6 +91,7 @@ _PROFILE_SURFACE_BY_NAME: dict[str, str] = {
     "fitness_reports": "observation",
     "fitness_recommendation_candidates": "observation",
     "fitness_agent": "observation",
+    "training_set_exports": "observation",
     "heartbeat_ticks": "observation",
     "heartbeat_cycle_batches": "observation",
     "ci_workflow_inventory": "ci",
@@ -766,6 +767,8 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("fitness_reports", "fitness/fitness-reports.jsonl", "ledger", "fitness", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation", memory=True),
     StateSurface("fitness_recommendation_candidates", "fitness/recommendation-candidates.jsonl", "ledger", "fitness", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation"),
     StateSurface("fitness_agent", "fitness/agent-fitness.jsonl", "ledger", "fitness", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation", memory=True),
+    # ARIA-HIGH-125 — the signed gold corpus + replay verdicts (training_set).
+    StateSurface("training_set_exports", "fitness/training-sets.jsonl", "ledger", "fitness", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation", memory=True),
     StateSurface("heartbeat_ticks", "heartbeat/ticks.jsonl", "ledger", "heartbeat", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation"),
     StateSurface("heartbeat_cycle_batches", "heartbeat/cycle-batches.jsonl", "ledger", "heartbeat", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation"),
     StateSurface("ci_workflow_inventory", "ci/workflow-inventory.jsonl", "ledger", "ci", "runtime", True, "append_fsync", True, profile_surface="ci", observe_class="action"),

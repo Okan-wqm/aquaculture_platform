@@ -16,7 +16,11 @@ from .agent_surface import (
     INVOCATION_ROLES,
     allowed_targets_for_role,
 )
-from .bridge_exceptions import BridgeContractViolation
+from .bridge_exceptions import (
+    DETERMINISTIC_BRIDGE_FAILURES,
+    BridgeContractRefused,
+    BridgeContractViolation,
+)
 from .checkout_root import is_git_worktree_marker as _is_git_worktree_marker
 from .genesis_lifecycle import verify_shadow_eval_proof
 from .must_satisfy import MUST_SATISFY_ID_FIELD, MUST_SATISFY_TEXT_FIELD, must_satisfy_text, validate_must_satisfy
@@ -4598,17 +4602,46 @@ def _invoke_bridges_for_result(
     re-invokes EXACTLY the code the accepted path runs — a replay that
     drifts from the original invocation is a second bridge implementation.
 
-    Error contract (unchanged from the inline original):
+    Error contract:
 
     * ``GovernanceError`` from any single bridge is recorded in
       ``bridged["bridge_errors"]`` + an ``agent_bridge_warning``
       governance event; the other bridges still run.
+    * ARIA-MEDIUM-172 — a failure that is a
+      ``DETERMINISTIC_BRIDGE_FAILURES`` member is ALSO recorded in
+      ``bridged["bridge_refusals"]`` (a subset of ``bridge_errors`` by
+      construction) and its warning carries
+      ``error_class="<bridge>:contract_refused"``, the categorical key the
+      watchdog prefers. The retry lane reads the refusal subset and ends
+      by name instead of spending the budget on an input that is refused
+      identically on every replay.
     * ``BridgeContractViolation`` PROPAGATES (Plan ARIA-V8 v2 §4 Phase
       8.2 B-V2-03) — a structural contract breach is operator-visible
       at the call site, never swallowed into a warning.
     * ``ImportError`` on the bridge modules is recorded, not raised.
     """
-    bridged: dict[str, Any] = {"judge_feedback": None, "supporting_payload": None, "bridge_errors": []}
+    bridged: dict[str, Any] = {
+        "judge_feedback": None,
+        "supporting_payload": None,
+        "bridge_errors": [],
+        "bridge_refusals": [],
+    }
+
+    def _record_bridge_failure(name: str, exc: GovernanceError) -> None:
+        """The ONE writer of a bridge failure (ARIA-MEDIUM-172)."""
+        detail = f"{name}: {exc}"
+        bridged["bridge_errors"].append(detail)
+        warning: dict[str, Any] = {
+            "claim_id": claim_id,
+            "request_id": request_id,
+            "kind": name,
+            "error": str(exc),
+        }
+        if isinstance(exc, DETERMINISTIC_BRIDGE_FAILURES):
+            bridged["bridge_refusals"].append(detail)
+            warning["error_class"] = f"{name}:contract_refused"
+        append_tools_governance(root, "agent_bridge_warning", warning)
+
     try:
         from .judgment_bridge import persist_supporting_payload, record_judge_verdict_from_response
 
@@ -4616,24 +4649,18 @@ def _invoke_bridges_for_result(
             bridged["judge_feedback"] = record_judge_verdict_from_response(
                 request=request, response=envelope, base_dir=base_dir
             )
+        except BridgeContractViolation:
+            raise
         except GovernanceError as exc:
-            bridged["bridge_errors"].append(f"judge_bridge: {exc}")
-            append_tools_governance(
-                root,
-                "agent_bridge_warning",
-                {"claim_id": claim_id, "request_id": request_id, "kind": "judge_bridge", "error": str(exc)},
-            )
+            _record_bridge_failure("judge_bridge", exc)
         try:
             bridged["supporting_payload"] = persist_supporting_payload(
                 request=request, response=envelope, base_dir=base_dir
             )
+        except BridgeContractViolation:
+            raise
         except GovernanceError as exc:
-            bridged["bridge_errors"].append(f"supporting_bridge: {exc}")
-            append_tools_governance(
-                root,
-                "agent_bridge_warning",
-                {"claim_id": claim_id, "request_id": request_id, "kind": "supporting_bridge", "error": str(exc)},
-            )
+            _record_bridge_failure("supporting_bridge", exc)
         # Plan 026R §C.1 — planner-role auto-bridge. Pre-§C.1 planner
         # roles (primary_plan / challenger_plan / cross_review) fell
         # through every bridge silently; convergent-planning state
@@ -4657,12 +4684,7 @@ def _invoke_bridges_for_result(
             # agent_bridge_warning.
             raise
         except GovernanceError as exc:
-            bridged["bridge_errors"].append(f"plan_convergence_bridge: {exc}")
-            append_tools_governance(
-                root,
-                "agent_bridge_warning",
-                {"claim_id": claim_id, "request_id": request_id, "kind": "plan_convergence_bridge", "error": str(exc)},
-            )
+            _record_bridge_failure("plan_convergence_bridge", exc)
         # B6 — the self-change bridge dispatches on the CONTRACT the request
         # declared (self_change_bridge.is_self_change_request), not on the
         # role: the self_improvement lane shares maintenance_utility with the
@@ -4676,14 +4698,11 @@ def _invoke_bridges_for_result(
             bridged["self_change"] = record_self_change_result(
                 request=request, response=envelope, base_dir=base_dir,
             )
+        except BridgeContractViolation:
+            raise
         except GovernanceError as exc:
             bridged["self_change"] = None
-            bridged["bridge_errors"].append(f"self_change_bridge: {exc}")
-            append_tools_governance(
-                root,
-                "agent_bridge_warning",
-                {"claim_id": claim_id, "request_id": request_id, "kind": "self_change_bridge", "error": str(exc)},
-            )
+            _record_bridge_failure("self_change_bridge", exc)
     except ImportError as exc:  # pragma: no cover — judgment_bridge is in tree
         bridged["bridge_errors"].append(f"bridge_import: {exc}")
     return bridged
@@ -6665,7 +6684,9 @@ def submit_claim_result(
     # results.jsonl stays IMMUTABLE (no patch); transitions land here.
     from .bridge_status_ledger import (
         BRIDGE_REQUIRED_ROLES,
+        BridgeOutcome,
         append_bridge_status,
+        bridge_transition,
     )
     envelope_role = envelope.get("role")
     result_row_ledger_hash = str(persisted.get("ledger_hash") or "")
@@ -6682,17 +6703,24 @@ def submit_claim_result(
             attempt_number=0,
         )
     elif bridged["bridge_errors"]:
-        # Bridge failed — record a ``pending_retry`` transition with
-        # attempt_number=1 (first attempt). F.1 orchestrator drains
-        # pending bridges on subsequent cycles.
+        # Bridge failed — record what the ONE transition owner decides
+        # (ARIA-MEDIUM-168/172). A deterministic refusal is
+        # ``permanent_fail``/``refused`` at attempt 1: the same sealed
+        # envelope is refused identically on every replay, so a retry
+        # would burn the budget to relearn it. Only a transient error
+        # schedules ``pending_retry`` for the F.1 orchestrator to drain
+        # on subsequent cycles.
+        outcome = BridgeOutcome.from_bridged(bridged)
+        transition, terminal_reason = bridge_transition(outcome, attempt=1)
         append_bridge_status(
             base_dir=root,
             result_row_ledger_hash=result_row_ledger_hash,
             envelope_evidence_hash=submitted_hash,
             role=envelope_role,
-            transition="pending_retry",
+            transition=transition,
             attempt_number=1,
-            error_detail="; ".join(bridged["bridge_errors"])[:500],
+            error_detail=outcome.detail() or None,
+            terminal_reason=terminal_reason,
         )
     else:
         # Bridge succeeded — record ``ok`` transition.

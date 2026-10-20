@@ -275,7 +275,7 @@ class TheBridgeCallsProposeSelfChange(_Store):
         self.assertEqual(outcome["proposal"]["kind"], "self_change")
         self.assertEqual(outcome["human_required"]["reason"], "self_change_adjudication")
         self.assertIn(SELF_CHANGE_PROPOSED_EVENT, self.governance_kinds())
-        self.assertEqual([row["reason"] for row in list_human_required(base_dir=self.tools)], ["self_change_adjudication"])
+        self.assertEqual([row["reason"] for row in list_human_required(base_dir=self.tools).rows], ["self_change_adjudication"])
         mission = fold_mission(mission_id=mission_id, base_dir=self.tools)
         self.assertEqual(mission["state"], "HUMAN_REQUIRED", "the loop closes through a person; the scheduler must not re-select it")
         self.assertIn(outcome["proposal"]["proposal_id"], mission["next_action"])
@@ -290,7 +290,7 @@ class TheBridgeCallsProposeSelfChange(_Store):
         kinds = self.governance_kinds()
         self.assertIn(SELF_CHANGE_REFUSED_EVENT, kinds)
         self.assertNotIn(SELF_CHANGE_PROPOSED_EVENT, kinds)
-        self.assertEqual(list_human_required(base_dir=self.tools), [])
+        self.assertEqual(list_human_required(base_dir=self.tools).rows, [])
         self.assertEqual(fold_mission(mission_id=mission_id, base_dir=self.tools)["state"], "DISCOVERED")
 
     def test_a_malformed_answer_is_named_field_by_field(self) -> None:
@@ -312,7 +312,7 @@ class TheBridgeCallsProposeSelfChange(_Store):
             propose_self_change(mission_id=mission_id, base_dir=self.tools, workspace_root=self.ws,
                                 evidence_paths=["aria-kernel/aria_kernel/doctor.py"], problem="p", proposed_change="c")
         self.assertIn("self_change_mission_terminal", str(refused.exception))
-        self.assertEqual(list_human_required(base_dir=self.tools), [])
+        self.assertEqual(list_human_required(base_dir=self.tools).rows, [])
         self.assertNotIn(SELF_CHANGE_PROPOSED_EVENT, self.governance_kinds())
         self.assertEqual(self.mission_refusals(), ["self_change_mission_terminal"])
 
@@ -343,7 +343,7 @@ class TheBridgeCallsProposeSelfChange(_Store):
         self.assertIn(f"self_change_mission_moved_on:{mission_id}:", bridged["bridge_errors"][0])
         after = fold_mission(mission_id=mission_id, base_dir=self.tools)
         self.assertEqual((after["state"], after["next_action"]), ("PLANNING", operator_sentence), "the operator's sentence stands")
-        self.assertEqual(len(list_human_required(base_dir=self.tools)), 1, "exactly one adjudication")
+        self.assertEqual(len(list_human_required(base_dir=self.tools).rows), 1, "exactly one adjudication")
         self.assertEqual(len(list_proposals(base_dir=self.tools, kind="self_change")), 1, "exactly one proposal")
         self.assertEqual(self.governance_kinds().count(SELF_CHANGE_PROPOSED_EVENT), 1)
         self.assertEqual(self.mission_refusals(), ["self_change_mission_moved_on"])
@@ -358,7 +358,7 @@ class TheBridgeCallsProposeSelfChange(_Store):
         after = fold_mission(mission_id=mission_id, base_dir=self.tools)
         self.assertEqual((after["state"], after["next_action"], after["wake_condition"]),
                          (parked["state"], parked["next_action"], parked["wake_condition"]), "the park is untouched")
-        self.assertEqual(len(list_human_required(base_dir=self.tools)), 1)
+        self.assertEqual(len(list_human_required(base_dir=self.tools).rows), 1)
         self.assertEqual(len(list_proposals(base_dir=self.tools, kind="self_change")), 1)
         self.assertEqual(self.mission_refusals(), ["self_change_mission_operator_held"])
 
@@ -369,7 +369,7 @@ class TheBridgeCallsProposeSelfChange(_Store):
         # once that adjudication is resolved — the guard is about what
         # stands, not about history.
         mission_id, _first, second = self._two_in_flight()
-        adjudication = list_human_required(base_dir=self.tools)[0]
+        adjudication = list_human_required(base_dir=self.tools).rows[0]
         transition_mission(mission_id=mission_id, to_state="PLANNING", reason_code="operator_re_ask", step_id="op-1",
                            next_action=SELF_CHANGE_NEXT_ACTION, wake_condition={"kind": "evidence", "key": "re-ask"}, base_dir=self.tools)
 

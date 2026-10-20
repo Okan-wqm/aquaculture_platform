@@ -49,19 +49,19 @@ Optional flags:
 
 ## Outputs (in `.aria-poc/`, gitignored)
 
-| File | Content |
-|---|---|
-| `aria-poc-report.md` | The decision-gate report |
-| `REPO_FINGERPRINT.json` | Mechanical repo summary |
-| `CLAUDE_MD_PRIORS.md` | CLAUDE.md heading extraction |
-| `ADR_PRIORS.md` | Per-ADR title + status |
-| `AGENT_PRIORS.md` | Per-agent description |
-| `BUILD_GRAPH.json` | Nx project graph (if available) |
-| `MECHANICAL_DRIFTS.json` | Value sets, SQL enums, annotated UI option groups, drift candidates, evidence summary |
-| `FATES.json` | Per-file fate ledger (Coverage Invariant proof: `read_deeply` / `read_skimmed` / `skipped_with_reason`) |
-| `SKIMMED_FILES.md` | Every `read_skimmed` file, enumerated |
-| `GIT_RECONCILIATION.json` | Explains the git ↔ filesystem gap |
-| `INDEX.json` | Artifact manifest with a sha256 checksum per generated file |
+| File                      | Content                                                                                                 |
+| ------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `aria-poc-report.md`      | The decision-gate report                                                                                |
+| `REPO_FINGERPRINT.json`   | Mechanical repo summary                                                                                 |
+| `CLAUDE_MD_PRIORS.md`     | CLAUDE.md heading extraction                                                                            |
+| `ADR_PRIORS.md`           | Per-ADR title + status                                                                                  |
+| `AGENT_PRIORS.md`         | Per-agent description                                                                                   |
+| `BUILD_GRAPH.json`        | Nx project graph (if available)                                                                         |
+| `MECHANICAL_DRIFTS.json`  | Value sets, SQL enums, annotated UI option groups, drift candidates, evidence summary                   |
+| `FATES.json`              | Per-file fate ledger (Coverage Invariant proof: `read_deeply` / `read_skimmed` / `skipped_with_reason`) |
+| `SKIMMED_FILES.md`        | Every `read_skimmed` file, enumerated                                                                   |
+| `GIT_RECONCILIATION.json` | Explains the git ↔ filesystem gap                                                                      |
+| `INDEX.json`              | Artifact manifest with a sha256 checksum per generated file                                             |
 
 ## Decision gate (per CONTRACTS §13)
 
@@ -97,45 +97,45 @@ These modules grew beside the PoC. None of the PoC's "no LLM, no API, no network
 
 ARIA executor runtime:
 
-| Module | Role |
-|---|---|
-| `ci_executor.py` | **LLM/network.** The ARIA CI executor: one next-pending → claim → invoke Claude Code CLI → submit-result cycle per GitHub Actions run (`.github/workflows/aria-agent-executor.yml`). |
-| `ci_executor_drain.py` | **LLM/network.** Batch (drain) mode for the scheduled executor lane. It decides what runs next and dispatches each request through `ci_executor.py`'s single-request argv. |
-| `ci_executor_judge_batch.py` | **LLM/network.** The batch judge child: K read-only judge requests answered in one model call. |
-| `ci_executor_lease.py` | Hands the executor's hold on a claim back to the kernel on every exit of the executor body. |
-| `worker_executor.py` | **LLM/network.** The per-assignment counterpart to `ci_executor.py` (Plan 025 §E): reads a dispatch assignment, runs the work in its worktree through the Claude Code CLI, and submits the worker result. |
-| `claude_runtime.py` | **LLM/network.** The executor-side SSoT for ARIA's live LLM runtime: agents run through the Claude Code CLI. |
-| `codex_runtime.py` | **LLM/network.** Codex CLI runtime bridge: bounded `codex exec` spawns mapped onto the shared typed-failure vocabulary. |
-| `zai_runtime.py` | **LLM/network.** Z.ai (GLM) runtime: a distinct HTTP transport to the Z.ai subscription API, never a redirected managed CLI. |
-| `zai_tool_loop.py` | **LLM/network.** The Z.ai write runtime (ARIA-HIGH-434): a kernel-owned tool loop that speaks Z.ai's function calling from outside every sandbox and runs each tool call under the Claude writer's gate and room. |
-| `zai_room_child.py` | The file tools of the Z.ai write runtime (Read, Write, Edit, Glob, Grep), run by `zai_tool_loop.py` inside the room, one call per room, under `python -I`. |
-| `hook_probe.py` | **LLM/network.** Plan 032b-2 probe: one bounded `claude -p` turn on the live runner that proves the execution envelope's deny rule and PreToolUse hook bind. |
-| `dispatch_failure.py` | The typed executor failure contract. Both executors call it to classify a failed dispatch into a closed vocabulary. |
-| `status_answers.py` | Classifies a vendor CLI's login-status answer before its exit code. |
-| `kernel_cli.py` | The one spelling of a kernel CLI subprocess an ARIA executor runs. |
+| Module                       | Role                                                                                                                                                                                                              |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ci_executor.py`             | **LLM/network.** The ARIA CI executor: one next-pending → claim → invoke Claude Code CLI → submit-result cycle per GitHub Actions run (`.github/workflows/aria-agent-executor.yml`).                              |
+| `ci_executor_drain.py`       | **LLM/network.** Batch (drain) mode for the scheduled executor lane. It decides what runs next and dispatches each request through `ci_executor.py`'s single-request argv.                                        |
+| `ci_executor_judge_batch.py` | **LLM/network.** The batch judge child: K read-only judge requests answered in one model call.                                                                                                                    |
+| `ci_executor_lease.py`       | Hands the executor's hold on a claim back to the kernel on every exit of the executor body.                                                                                                                       |
+| `worker_executor.py`         | **LLM/network.** The per-assignment counterpart to `ci_executor.py` (Plan 025 §E): reads a dispatch assignment, runs the work in its worktree through the Claude Code CLI, and submits the worker result.         |
+| `claude_runtime.py`          | **LLM/network.** The executor-side SSoT for ARIA's live LLM runtime: agents run through the Claude Code CLI.                                                                                                      |
+| `codex_runtime.py`           | **LLM/network.** Codex CLI runtime bridge: bounded `codex exec` spawns mapped onto the shared typed-failure vocabulary.                                                                                           |
+| `zai_runtime.py`             | **LLM/network.** Z.ai (GLM) runtime: a distinct HTTP transport to the Z.ai subscription API, never a redirected managed CLI.                                                                                      |
+| `zai_tool_loop.py`           | **LLM/network.** The Z.ai write runtime (ARIA-HIGH-434): a kernel-owned tool loop that speaks Z.ai's function calling from outside every sandbox and runs each tool call under the Claude writer's gate and room. |
+| `zai_room_child.py`          | The file tools of the Z.ai write runtime (Read, Write, Edit, Glob, Grep), run by `zai_tool_loop.py` inside the room, one call per room, under `python -I`.                                                        |
+| `hook_probe.py`              | **LLM/network.** Plan 032b-2 probe: one bounded `claude -p` turn on the live runner that proves the execution envelope's deny rule and PreToolUse hook bind.                                                      |
+| `dispatch_failure.py`        | The typed executor failure contract. Both executors call it to classify a failed dispatch into a closed vocabulary.                                                                                               |
+| `status_answers.py`          | Classifies a vendor CLI's login-status answer before its exit code.                                                                                                                                               |
+| `kernel_cli.py`              | The one spelling of a kernel CLI subprocess an ARIA executor runs.                                                                                                                                                |
 
 Adapters, which the kernel runs as tools:
 
-| Module | Role |
-|---|---|
-| `agent_harness_security_adapter.py` | Plan 020 Phase 10 agent-harness security adapter: seven detection rules over agent prompts, workflows, ARIA tooling and the kernel. |
-| `banned_phrase_adapter.py` | Wraps the `tools/gates/banned-phrase.ts` Node CLI and emits its result in the kernel runner's observation/finding shape. |
-| `cqrs_adapter.py` | Plan 020 Phase 14.B: flags a controller that skips the command/query bus or injects a repository directly. |
-| `dual_alias_adapter.py` | Checks that every module-resolution surface maps both `@aquaculture/backend-common` and `@platform/backend-common` to the same entrypoint. |
-| `outbox_adapter.py` | Flags a domain event published around the transactional outbox (a dual write). |
-| `shadow_runner.py` | Minimal SHADOW-phase adapter shim for end-to-end smoke runs. It emits zero findings. |
-| `genesis_adapter_launcher.py` | The kernel launcher every skill-genesis drafted adapter runs under (ARIA-HIGH-414): it checks the bytes against their digest, loads exactly the import allowlist, and installs the audit hook before the adapter compiles. |
+| Module                              | Role                                                                                                                                                                                                                       |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agent_harness_security_adapter.py` | Plan 020 Phase 10 agent-harness security adapter: six detection rules over agent prompts, workflows, ARIA tooling and the kernel (workflow token scope is workflow-shell-safety-adapter's, ARIA-LOW-592).                  |
+| `banned_phrase_adapter.py`          | Wraps the `tools/gates/banned-phrase.ts` Node CLI and emits its result in the kernel runner's observation/finding shape.                                                                                                   |
+| `cqrs_adapter.py`                   | Plan 020 Phase 14.B: flags a controller that skips the command/query bus or injects a repository directly.                                                                                                                 |
+| `dual_alias_adapter.py`             | Checks that every module-resolution surface maps both `@aquaculture/backend-common` and `@platform/backend-common` to the same entrypoint.                                                                                 |
+| `outbox_adapter.py`                 | Flags a domain event published around the transactional outbox (a dual write).                                                                                                                                             |
+| `shadow_runner.py`                  | Minimal SHADOW-phase adapter shim for end-to-end smoke runs. It emits zero findings.                                                                                                                                       |
+| `genesis_adapter_launcher.py`       | The kernel launcher every skill-genesis drafted adapter runs under (ARIA-HIGH-414): it checks the bytes against their digest, loads exactly the import allowlist, and installs the audit hook before the adapter compiles. |
 
 Drift-scan support and one-off tools:
 
-| Module | Role |
-|---|---|
-| `drift_wire.py` | Wire semantics for the mechanical drift scan, imported by `poc.py`. |
-| `fetch_supergraph.py` | **Network.** Downloads the composed supergraph (`supergraph-sdl` artifact) that the nightly drift scan judges wire values against. It accepts only the artifact that is exact for the cycle's commit. |
-| `seed_drift_findings.py` | Seeds ARIA findings from a fresh PoC mechanical drift scan at HEAD. |
-| `seed_experiment_recipes.py` | Registers this repository's experiment recipes (`experiment-recipes.json`) on the kernel's bench. |
-| `measure_watchdog_fp_rate.py` | V10.5 watchdog soak harness: computes the watchdog's false-positive rate from the finding-event fold. |
-| `backfill_validated_chains.py` | Plan 020 Phase 9.A backfill: emits `change_validated` rows for Plan 019 committed chains that lack one. |
+| Module                         | Role                                                                                                                                                                                                  |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `drift_wire.py`                | Wire semantics for the mechanical drift scan, imported by `poc.py`.                                                                                                                                   |
+| `fetch_supergraph.py`          | **Network.** Downloads the composed supergraph (`supergraph-sdl` artifact) that the nightly drift scan judges wire values against. It accepts only the artifact that is exact for the cycle's commit. |
+| `seed_drift_findings.py`       | Seeds ARIA findings from a fresh PoC mechanical drift scan at HEAD.                                                                                                                                   |
+| `seed_experiment_recipes.py`   | Registers this repository's experiment recipes (`experiment-recipes.json`) on the kernel's bench.                                                                                                     |
+| `measure_watchdog_fp_rate.py`  | V10.5 watchdog soak harness: computes the watchdog's false-positive rate from the finding-event fold.                                                                                                 |
+| `backfill_validated_chains.py` | Plan 020 Phase 9.A backfill: emits `change_validated` rows for Plan 019 committed chains that lack one.                                                                                               |
 
 Other files: `ci_executor_contract_proven.md` (the Claude Code CLI invocation contract the executors follow), `experiment-recipes.json` (the recipe data `seed_experiment_recipes.py` registers), `migrations/` (one-off ledger migration scripts), and `invariants/` (tests for the PoC and these modules, run by `.github/workflows/aria-kernel.yml`).
 

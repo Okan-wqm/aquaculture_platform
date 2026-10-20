@@ -238,5 +238,124 @@ class TheRecorderIsInProcessTests(unittest.TestCase):
         self.assertIn('reason=f"human_required_record_unavailable:{escalation_reason}"', source)
 
 
+class TheModelRefusalGovernanceRowIsReportedTests(unittest.TestCase):
+    """ARIA-LOW-584 — a governance row the executor could not write is
+    reported by name, never dropped.
+
+    The model-refusal exit appended ``model_refusal_unresolved`` inside
+    ``try/except Exception: pass``: a failed append — a full disk, which
+    ``state_transaction`` names ``environment_failure:disk_full`` since
+    ARIA-MEDIUM-111 — left no trace. Five sibling appends in the executor
+    swallowed the same way. Every governance row the executor writes now
+    goes through one reporter (``_append_governance_reported``): a row the
+    store refuses is a ``::error::`` line naming the kind, the request and
+    the cause, and anything else raises.
+    """
+
+    def setUp(self) -> None:
+        import os
+
+        self.tmp = tempfile.TemporaryDirectory(prefix="aria-584-refusal-")
+        self.addCleanup(self.tmp.cleanup)
+        root = Path(self.tmp.name)
+        self.repo = root / "workspace"
+        (self.repo / "aria-config").mkdir(parents=True)
+        (self.repo / "aria-config" / "genesis_policy.json").write_text(
+            '{"cost_caps_usd": {"daily": 1000.0, "monthly": 10000.0, "per_run": 1000.0}}\n', encoding="utf-8")
+        self.tools = ensure_tools_dir(self.repo / "aria-tools")
+        self.prompt = root / "prompt.md"
+        self.prompt.write_text("# request\n", encoding="utf-8")
+        runner_temp = root / "runner-temp"
+        runner_temp.mkdir()
+        environment = mock.patch.dict(os.environ, {"RUNNER_TEMP": str(runner_temp)})
+        environment.start()
+        self.addCleanup(environment.stop)
+        os.environ.pop("GITHUB_OUTPUT", None)
+        for name, value in (("_REPO_ROOT", self.repo), ("_MOCK_MODE_AT_ENTRY", False)):
+            patcher = mock.patch.object(ci_executor, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def _refuse(self, append_fault: BaseException) -> tuple[BaseException, str]:
+        """Drive the real ``invoke_claude_cli`` through a model refusal, with
+        the store refusing only the ``model_refusal_unresolved`` row."""
+        from claude_runtime import ClaudeRunResult
+
+        from aria_kernel import tool_registry
+
+        real_append = tool_registry.append_tools_governance
+
+        def append(base_dir, kind, details, **kwargs):  # noqa: ANN001, ANN003, ANN202
+            if kind == "model_refusal_unresolved":
+                raise append_fault
+            return real_append(base_dir, kind, details, **kwargs)
+
+        refused = ClaudeRunResult(returncode=0, stdout="", stderr="", final_message="", usage=None, events=(),
+                                  refusal={"category": "cyber"}, model="opus")
+
+        def ladder(*, run, model, failover, effort, write_capable, on_credit):  # noqa: ANN001, ANN202, ARG001
+            return refused
+
+        with mock.patch.object(tool_registry, "append_tools_governance", side_effect=append), \
+                mock.patch.object(ci_executor, "run_with_model_fallback", side_effect=ladder), \
+                mock.patch.object(sys, "stderr") as stderr:
+            try:
+                ci_executor.invoke_claude_cli(
+                    request_id="AIR-584", subagent_type="aria-evidence-judge", prompt_file=self.prompt,
+                    output_path=self.tools / "agent-invocations" / "outputs" / "AIR-584.json", timeout_seconds=60,
+                    claim_id="CL-584", agent_id="ci-executor:gha-test", role="evidence_judgment", must_satisfy=[],
+                    request_envelope={"role": "evidence_judgment", "target_agent": "aria-evidence-judge"},
+                    tools_dir=self.tools,
+                )
+            except BaseException as exc:  # noqa: BLE001 — the test reads what escaped
+                raised = exc
+            else:
+                self.fail("a model refusal must not return")
+        return raised, "".join(str(call.args[0]) for call in stderr.write.call_args_list)
+
+    def test_a_refused_row_is_a_named_job_error_and_the_escalation_still_lands(self) -> None:
+        from aria_kernel.tool_registry import GovernanceError
+
+        raised, written = self._refuse(GovernanceError(
+            "environment_failure:disk_full: a state transaction write hit ENOSPC ([Errno 28] No space left on device)"))
+        self.assertIsInstance(raised, ci_executor.ClaudeCliUnavailable)
+        self.assertIn("model_safety_refusal_unresolved", str(raised))
+        self.assertIn("::error::aria executor could not record model_refusal_unresolved for request AIR-584: "
+                      "environment_failure:disk_full", written)
+        record = open_human_required_record(base_dir=self.tools, request_id="AIR-584")
+        self.assertIsNotNone(record, "the HUMAN_REQUIRED escalation is still written")
+
+    def test_a_programming_error_in_the_append_is_raised_not_swallowed(self) -> None:
+        raised, _written = self._refuse(TypeError("append_tools_governance() got an unexpected keyword"))
+        self.assertIsInstance(raised, TypeError)
+
+    def test_no_governance_append_in_the_executor_is_swallowed(self) -> None:
+        # Read from the executor's AST: no `try` whose body appends a
+        # governance row has a catch-all handler that only passes.
+        tree = ast.parse(Path(ci_executor.__file__).read_text(encoding="utf-8"))
+        governance_names = {"append_tools_governance"}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module == "aria_kernel.tool_registry":
+                governance_names.update(alias.asname for alias in node.names
+                                        if alias.name == "append_tools_governance" and alias.asname)
+        swallowed: list[int] = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Try):
+                continue
+            appends = any(
+                isinstance(call, ast.Call) and isinstance(call.func, ast.Name) and call.func.id in governance_names
+                for statement in node.body for call in ast.walk(statement)
+            )
+            catch_all_pass = any(
+                (handler.type is None or (isinstance(handler.type, ast.Name)
+                                          and handler.type.id in {"Exception", "BaseException"}))
+                and all(isinstance(statement, ast.Pass) for statement in handler.body)
+                for handler in node.handlers
+            )
+            if appends and catch_all_pass:
+                swallowed.append(node.lineno)
+        self.assertEqual(swallowed, [], f"governance appends swallowed at lines {swallowed}")
+
+
 if __name__ == "__main__":
     unittest.main()

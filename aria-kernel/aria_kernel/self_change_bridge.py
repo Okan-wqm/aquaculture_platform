@@ -39,6 +39,7 @@ from .self_improvement import (
     SELF_CHANGE_ALLOWED_PREFIXES,
     SELF_CHANGE_NEXT_ACTION,
 )
+from .bridge_exceptions import BridgeContractRefused
 from .tool_registry import GovernanceError, ensure_tools_dir
 
 SELF_CHANGE_REQUEST_SCHEMA = "aria/self-change-request/v1"
@@ -152,10 +153,12 @@ def record_self_change_result(*, request: dict[str, Any], response: dict[str, An
     root = ensure_tools_dir(base_dir)
     mission_id = mission_id_of(request)
     if mission_id is None:
-        raise GovernanceError(f"self_change_bridge_missing_mission_id:{request.get('request_id')}")
+        # ARIA-MEDIUM-172 — a deterministic content refusal: the mission id
+        # is a pure function of the request/response pair.
+        raise BridgeContractRefused(f"self_change_bridge_missing_mission_id:{request.get('request_id')}")
     errors = validate_self_change_response(request=request, response=response)
     if errors:
-        raise GovernanceError("self_change_response_contract:" + ",".join(errors))
+        raise BridgeContractRefused("self_change_response_contract:" + ",".join(errors))
     details = response["details"]
     from .mission import transition_mission
     from .self_improvement import propose_self_change

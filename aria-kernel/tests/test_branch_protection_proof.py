@@ -174,10 +174,6 @@ class BranchProtectionProofTests(unittest.TestCase):
         self.assertNotIn("subprocess.run", source)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class ReviewRequirementsAreMeasuredTests(unittest.TestCase):
     """ARIA-HIGH-201 — the proof records the review block's own fields and
     the claim verifier requires code-owner review plus a measured count."""
@@ -951,3 +947,7 @@ class ReadinessClaimAssemblyTests(unittest.TestCase):
                 rules_probe=_rules(),
                 mint=lambda **kw: self._Lease(),
             )
+
+
+if __name__ == "__main__":
+    unittest.main()

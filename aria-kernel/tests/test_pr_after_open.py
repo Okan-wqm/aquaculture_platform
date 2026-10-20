@@ -266,7 +266,7 @@ class BranchUpdateRecoveryTests(_UpdateHarness):
 
 class HumanMergeSurfaceTests(_Store):
     def _records(self, *, include_resolved: bool = False) -> list[dict[str, Any]]:
-        return [row for row in list_human_required(base_dir=self.tools, include_resolved=include_resolved)
+        return [row for row in list_human_required(base_dir=self.tools, include_resolved=include_resolved).rows
                 if row["request_id"] == human_merge_request_id(7)]
 
     def test_an_l2_pr_is_one_item_with_url_ci_and_why_refreshed_then_resolved_on_merge(self) -> None:
@@ -332,7 +332,7 @@ class ReviewLowTests(_Store):
         surface_human_merge_prs(cycle_id="a", base_dir=self.tools, reader=FakeReader(_live()))
         surface_human_merge_prs(cycle_id="b", base_dir=self.tools, reader=FakeReader(_live(state="CLOSED")))
         surface_human_merge_prs(cycle_id="c", base_dir=self.tools, reader=FakeReader(_live()))
-        open_items = [row["request_id"] for row in list_human_required(base_dir=self.tools)]
+        open_items = [row["request_id"] for row in list_human_required(base_dir=self.tools).rows]
         self.assertEqual(open_items, ["human-merge-pr-7-2"])
 
 

@@ -94,8 +94,11 @@ class TestWrapperReRaise(unittest.TestCase):
         from aria_kernel import agent_invocations
         src = inspect.getsource(agent_invocations)
         self.assertIn("except BridgeContractViolation:", src)
-        # And the import must be at module level
-        self.assertIn("from .bridge_exceptions import BridgeContractViolation", src)
+        # And the import must be at module level (ARIA-MEDIUM-172 widened the
+        # module-level import to the DETERMINISTIC_BRIDGE_FAILURES tuple; the
+        # pin still demands the name itself arrive at module scope).
+        self.assertIn("from .bridge_exceptions import (", src)
+        self.assertIn("    BridgeContractViolation,\n", src)
 
 
 class TestReplayIdempotency(unittest.TestCase):

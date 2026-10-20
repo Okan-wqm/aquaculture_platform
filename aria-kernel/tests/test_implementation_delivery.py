@@ -1217,10 +1217,6 @@ class ReleaseReasonTests(unittest.TestCase):
         self.assertEqual(IMPLEMENTATION_DELIVERY_REFUSED_PREFIX, "implementation_delivery_refused:")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class CredentialIsMintedWhereItIsConsumedTests(unittest.TestCase):
     """ARIA-HIGH-124 (round 6) — the delivery credential's life is the push
     and the PR, not the request.
@@ -1684,3 +1680,7 @@ class CredentialIsMintedWhereItIsConsumedTests(unittest.TestCase):
         self.assertEqual(self._log(self.push_log)[0]["credential_names"], ["GH_TOKEN"])
         self.assertEqual(self._log(self.gh_log)[0]["credential_names"], ["GH_TOKEN"])
         self.assertEqual(self._governance("delivery_credential_issued"), [])
+
+
+if __name__ == "__main__":
+    unittest.main()

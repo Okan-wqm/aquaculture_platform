@@ -90,7 +90,9 @@ class _Store(unittest.TestCase):
 class ARunsFindingsAreOneBatch(_Store):
     def test_the_chain_is_verified_once_per_run_not_once_per_finding(self) -> None:
         record_raw_findings_for_run(_run("run-0"), _findings(5, prefix="seed"), base_dir=self.tools)
-        with mock.patch.object(ledger, "verify_jsonl", wraps=ledger.verify_jsonl) as verify, \
+        # The chain walk itself (ARIA-LOW-611: the append verifies the text it
+        # read once, not through a second whole-file read).
+        with mock.patch.object(ledger, "_verify_jsonl_from_text", wraps=ledger._verify_jsonl_from_text) as verify, \
                 mock.patch.object(ledger, "_append_rows_locked_body", wraps=ledger._append_rows_locked_body) as body:
             record_raw_findings_for_run(_run("run-1"), _findings(40), base_dir=self.tools)
         self.assertEqual(verify.call_count, 1)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -284,7 +285,14 @@ class IncrementalLearningTests(unittest.TestCase):
                 base_dir=self.tools_dir,
             )
 
-        report = generate_adapter_calibration_report(tool_ids=["learning-adapter"], cycle_id="cal-zero", base_dir=self.tools_dir)
+        # ARIA-HIGH-004 — the report names the commit the cycle measured (the
+        # workspace HEAD), which the ACTIVE transition binds.
+        head = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=self.root, check=True, capture_output=True, text=True,
+        ).stdout.strip()
+        report = generate_adapter_calibration_report(
+            tool_ids=["learning-adapter"], cycle_id="cal-zero", base_dir=self.tools_dir, target_sha=head,
+        )
         self.assertEqual(report["reports"][0]["precision_status"], "no_findings_to_judge")
         # JJ-2a (ORPHAN-HIGH-732) — the blocker this asserts the absence of
         # was renamed with its meaning ("has a person judged it?" became
@@ -307,6 +315,8 @@ class IncrementalLearningTests(unittest.TestCase):
                 base_dir=self.tools_dir,
             )
         self.assertEqual(promoted["status"], "ACTIVE")
+        self.assertEqual(promoted["last_transition"]["active_evidence"]["calibration_report_ref"], report["report_id"])
+        self.assertEqual(promoted["last_transition"]["active_evidence"]["target_sha"], head)
 
     def test_noisy_adapter_readiness_uses_stable_runs_not_zero_raw_findings(self):
         fixture_root = self.tools_dir / "fixtures/learning-adapter/cases"

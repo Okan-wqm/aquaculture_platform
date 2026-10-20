@@ -218,6 +218,15 @@ async function smokeService(
 }
 
 async function main(): Promise<number> {
+  // The harness's certificate minting asks this tool for the identity roster
+  // (scripts/nats/boot-path-acl-smoke-harness.sh): it used to parse
+  // services.yaml with an embedded `node -e` snippet — a private reader beside
+  // the shared one (ARIA-LOW-603).
+  if (process.argv.includes('--print-identities')) {
+    for (const service of loadNatsServices()) process.stdout.write(`${service.name}\n`);
+    return 0;
+  }
+
   const env = {
     url: requireEnv('NATS_URL'),
     ca: requireEnv('NATS_TLS_CA'),

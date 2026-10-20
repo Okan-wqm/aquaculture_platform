@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+import { makeFixtureTree } from '../gates/fixture-tree';
 
 import { analyzeEventContracts } from './event-contracts-adapter';
 
-const workspace = mkdtempSync(join(tmpdir(), 'aria-event-contracts-adapter-'));
+const workspace = makeFixtureTree('aria-event-contracts-adapter-');
 const root = join(workspace, 'libs/event-contracts/src');
 mkdirSync(join(root, 'schemas'), { recursive: true });
 
@@ -97,18 +98,37 @@ const output = analyzeEventContracts({ root: 'libs/event-contracts/src' }, works
 
 assert.equal(output.metadata.adapter, 'event-contracts-adapter');
 assert.equal(output.findings.length, 0);
-assert.equal(output.observations.some((item) => item.type === 'event_contract_base'), true);
-assert.equal(output.observations.some((item) => item.type === 'event_interface' && item.eventType === 'BatchCreated'), true);
-assert.equal(output.observations.some((item) => item.type === 'event_interface' && item.eventType === 'AliasCreated'), true);
+assert.equal(
+  output.observations.some((item) => item.type === 'event_contract_base'),
+  true,
+);
 assert.equal(
   output.observations.some(
-    (item) => item.type === 'event_schema_catalog' && item.name === 'FARM_EVENT_SCHEMAS' && item.eventCount === 1,
+    (item) => item.type === 'event_interface' && item.eventType === 'BatchCreated',
   ),
   true,
 );
 assert.equal(
   output.observations.some(
-    (item) => item.type === 'event_schema_catalog' && item.name === 'SENSOR_EVENT_SCHEMAS' && item.eventCount === 1,
+    (item) => item.type === 'event_interface' && item.eventType === 'AliasCreated',
+  ),
+  true,
+);
+assert.equal(
+  output.observations.some(
+    (item) =>
+      item.type === 'event_schema_catalog' &&
+      item.name === 'FARM_EVENT_SCHEMAS' &&
+      item.eventCount === 1,
+  ),
+  true,
+);
+assert.equal(
+  output.observations.some(
+    (item) =>
+      item.type === 'event_schema_catalog' &&
+      item.name === 'SENSOR_EVENT_SCHEMAS' &&
+      item.eventCount === 1,
   ),
   true,
 );
@@ -122,7 +142,10 @@ assert.equal(
   ),
   true,
 );
-assert.equal(output.observations.some((item) => item.type === 'event_validator_dispatch'), true);
+assert.equal(
+  output.observations.some((item) => item.type === 'event_validator_dispatch'),
+  true,
+);
 assert.ok(output.read_paths.includes('libs/event-contracts/src/base-event.ts'));
 assert.equal(output.belief_candidates.length, 1);
 assert.equal(
@@ -163,7 +186,8 @@ writeFileSync(
 const emptyCatalogOutput = analyzeEventContracts({ root: 'libs/event-contracts/src' }, workspace);
 assert.equal(
   emptyCatalogOutput.findings.some(
-    (finding) => finding.rule === 'schema_catalog_empty' && finding.details?.catalog === 'EMPTY_EVENT_SCHEMAS',
+    (finding) =>
+      finding.rule === 'schema_catalog_empty' && finding.details?.catalog === 'EMPTY_EVENT_SCHEMAS',
   ),
   true,
 );

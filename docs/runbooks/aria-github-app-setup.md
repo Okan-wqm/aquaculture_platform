@@ -89,8 +89,8 @@ opens never reaches the merge chain. Fix the App, its installation or the secret
 
 The merge gate's proofs expect this shape. Classic protection on `main`:
 
-- the 4 required checks `sens-enterprise-summary`, `merge-gate`, `aria-merge-authority` and
-  `build-status`, each pinned to the GitHub Actions app (SSoT:
+- the 5 required checks `sens-enterprise-summary`, `merge-gate`, `aria-merge-authority`,
+  `build-status` and `aria-kernel`, each pinned to the GitHub Actions app (SSoT:
   `.github/manifests/main-required-status-checks.json`);
 - signed commits required;
 - pull request required with 0 approvals and Code Owners review required;
@@ -107,11 +107,14 @@ readiness claim refuse a `main` without one (`merge_queue_required`,
 
 "Require branches to be up to date" (`strict`) is not what makes a merge safe here: an ARIA PR's
 evidence is bound to its head, and updating the branch would move that head. The queue tests the
-change on top of current `main` in a merge group instead, and both workflows that produce the
-required checks run on `merge_group`. The kernel neither requires nor refuses `strict`; it records
-it (`strict_up_to_date_required`). The manifest above still pins `strict: true`, as its own gate
-(`tools/gates/required-status-checks.ts`) and `postgres-dr-bootstrap-candidate.yml` check; that pin
-is outside the merge lane.
+change on top of current `main` in a merge group instead. Three workflows produce the required
+checks: `ci-affected.yml` (`sens-enterprise-summary`, `merge-gate`, `build-status`),
+`aria-merge-authority.yml` (`aria-merge-authority`) and `aria-kernel.yml` (`aria-kernel`, which
+runs unfiltered on every pull request, INFRA-HIGH-215). The first two also run on `merge_group`,
+so the queue re-runs them on the group. The kernel neither requires nor refuses `strict`; it
+records it (`strict_up_to_date_required`). The manifest above still pins `strict: true`, as its
+own gate (`tools/gates/required-status-checks.ts`) and `postgres-dr-bootstrap-candidate.yml`
+check; that pin is outside the merge lane.
 
 The merge lane's `gh pr merge --squash --match-head-commit` therefore usually **enqueues** the PR.
 The lane records `enqueued`. On its next run it settles the entry: into `merged` when the queue

@@ -1,7 +1,7 @@
 """Plan 020 Phase 10 — agent harness security adapter + 5th invariant tests.
 
 What this suite pins:
-- 7 detection rules each have a positive case in fixture data.
+- 6 detection rules each have a positive case in fixture data.
 - workflow_run/pull_request_target untrusted checkout fires only on
   the refined trigger surface (NOT on standalone actions/checkout).
 - Spine gate INVARIANT_KINDS contains harness_security.
@@ -76,19 +76,18 @@ class DetectionRuleTests(unittest.TestCase):
         # declared in `read_paths`. The previous form of this test pinned
         # `evidence_sources == [".github/workflows/perm.yml:2"]` — the exact
         # shape the validator rejected on trial eleven.
-        _write(self.repo, ".github/workflows/perm.yml",
-               "name: x\npermissions: write-all\njobs:\n  build:\n    runs-on: ubuntu-latest\n")
+        _write(self.repo, ".github/workflows/leak.yml",
+               "name: x\nenv:\n  KEY: AKIAABCDEFGHIJKLMNOP\n")
         result = scan(self.repo)
         self.assertTrue(result["findings"])
         finding = result["findings"][0]
-        self.assertEqual(finding["path"], ".github/workflows/perm.yml")
-        self.assertEqual(finding["line"], 2)
-        self.assertEqual(finding["evidence"], [{"path": ".github/workflows/perm.yml", "line": 2}])
-        self.assertEqual(finding["id"], "broad_shell_permission:.github/workflows/perm.yml:2")
+        self.assertEqual(finding["path"], ".github/workflows/leak.yml")
+        self.assertEqual(finding["evidence"], [{"path": ".github/workflows/leak.yml", "line": 3}])
+        self.assertEqual(finding["id"], "secret_leak_in_yaml_or_md:.github/workflows/leak.yml:3")
         self.assertTrue(finding["message"])
         self.assertNotIn("ref", finding)
-        self.assertEqual(result["evidence_sources"], [".github/workflows/perm.yml"])
-        self.assertIn(".github/workflows/perm.yml", result["read_paths"])
+        self.assertEqual(result["evidence_sources"], [".github/workflows/leak.yml"])
+        self.assertIn(".github/workflows/leak.yml", result["read_paths"])
 
     def test_scan_output_passes_the_kernel_evidence_validator(self) -> None:
         # The validator the runner applies to every production run
@@ -98,8 +97,8 @@ class DetectionRuleTests(unittest.TestCase):
         # eleven, and the reason its 48 findings were `finding_evidence_missing`.
         from aria_kernel.evidence_validator import validate_tool_output_evidence
 
-        _write(self.repo, ".github/workflows/perm.yml",
-               "name: x\npermissions: write-all\njobs:\n  build:\n    runs-on: ubuntu-latest\n")
+        _write(self.repo, ".github/workflows/leak.yml",
+               "name: x\nenv:\n  KEY: AKIAABCDEFGHIJKLMNOP\n")
         _write(self.repo, ".claude/agents/edit-agent.md",
                "---\nname: x\ntools: [Edit, Write, Bash]\n---\nbody\n")
         _write(self.repo, "tools/aria-poc/leak.py",
@@ -141,11 +140,22 @@ jobs:
         findings = self._findings_for("workflow_run_or_pr_target_untrusted_checkout")
         self.assertTrue(findings)
 
-    def test_broad_shell_permission(self) -> None:
+    def test_workflow_token_scope_is_not_a_harness_verdict(self) -> None:
+        # ARIA-LOW-592 — workflow token scope has ONE owner:
+        # workflow-shell-safety-adapter's overbroad_write_token (write-all,
+        # a governed job's uncontracted write scope, an ungoverned job's
+        # scoped write). The harness's broad_shell_permission read the same
+        # lines under a second rule name, so a single `permissions:
+        # write-all` workflow produced two SHADOW findings. The harness
+        # observes nothing about token scope.
         _write(self.repo, ".github/workflows/perm.yml",
                "name: x\npermissions: write-all\njobs:\n  build:\n    runs-on: ubuntu-latest\n")
-        findings = self._findings_for("broad_shell_permission")
-        self.assertTrue(findings)
+        result = scan(self.repo)
+        self.assertEqual(
+            [f for f in result["findings"] if f["path"] == ".github/workflows/perm.yml"],
+            [],
+            "the harness emits no token-scope verdict for a write-all workflow",
+        )
 
     def test_prompt_injection_surface(self) -> None:
         # Agent .md WITHOUT tools: line in frontmatter.

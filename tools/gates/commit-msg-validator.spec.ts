@@ -79,18 +79,14 @@ const FIXTURE_DEBTS_DIR = resolve(REPO_ROOT, 'aria-debts/.test-fixtures');
 // ---------------------------------------------------------
 
 void test('CLOSES_TRAILER_REGEX matches ULTRA-HIGH-NNN trailer', () => {
-  const m = CLOSES_TRAILER_REGEX.exec(
-    'Closes: docs/reviews/orphan-findings.md#ULTRA-HIGH-091',
-  );
+  const m = CLOSES_TRAILER_REGEX.exec('Closes: docs/reviews/orphan-findings.md#ULTRA-HIGH-091');
   assert.notStrictEqual(m, null);
   assert.strictEqual(m?.[1], 'docs/reviews/orphan-findings.md');
   assert.strictEqual(m?.[2], 'ULTRA-HIGH-091');
 });
 
 void test('CLOSES_TRAILER_REGEX matches ORPHAN-MEDIUM-NNN trailer', () => {
-  const m = CLOSES_TRAILER_REGEX.exec(
-    'Closes: docs/reviews/orphan-findings.md#ORPHAN-MEDIUM-031',
-  );
+  const m = CLOSES_TRAILER_REGEX.exec('Closes: docs/reviews/orphan-findings.md#ORPHAN-MEDIUM-031');
   assert.notStrictEqual(m, null);
   assert.strictEqual(m?.[2], 'ORPHAN-MEDIUM-031');
 });
@@ -98,23 +94,17 @@ void test('CLOSES_TRAILER_REGEX matches ORPHAN-MEDIUM-NNN trailer', () => {
 void test('CLOSES_TRAILER_REGEX rejects malformed ID (no severity)', () => {
   // Severity must be one of CRITICAL/HIGH/MEDIUM/LOW per
   // the regex contract.
-  const m = CLOSES_TRAILER_REGEX.exec(
-    'Closes: docs/reviews/orphan-findings.md#ORPHAN-XYZ-001',
-  );
+  const m = CLOSES_TRAILER_REGEX.exec('Closes: docs/reviews/orphan-findings.md#ORPHAN-XYZ-001');
   assert.strictEqual(m, null);
 });
 
 void test('CLOSES_TRAILER_REGEX rejects 2-digit ID (must be 3-digit)', () => {
-  const m = CLOSES_TRAILER_REGEX.exec(
-    'Closes: docs/reviews/orphan-findings.md#ULTRA-HIGH-91',
-  );
+  const m = CLOSES_TRAILER_REGEX.exec('Closes: docs/reviews/orphan-findings.md#ULTRA-HIGH-91');
   assert.strictEqual(m, null);
 });
 
 void test('CLOSES_TRAILER_REGEX rejects line without Closes: prefix', () => {
-  const m = CLOSES_TRAILER_REGEX.exec(
-    'See: docs/reviews/orphan-findings.md#ULTRA-HIGH-091',
-  );
+  const m = CLOSES_TRAILER_REGEX.exec('See: docs/reviews/orphan-findings.md#ULTRA-HIGH-091');
   assert.strictEqual(m, null);
 });
 
@@ -146,14 +136,8 @@ void test('ORPHAN_HEADING_REGEX rejects non-orphan prefixes', () => {
 });
 
 void test('ORPHAN_HEADING_REGEX rejects H1 / H3 headings (only H2)', () => {
-  assert.strictEqual(
-    ORPHAN_HEADING_REGEX.exec('# ORPHAN-MEDIUM-031 — title'),
-    null,
-  );
-  assert.strictEqual(
-    ORPHAN_HEADING_REGEX.exec('### ORPHAN-MEDIUM-031 — title'),
-    null,
-  );
+  assert.strictEqual(ORPHAN_HEADING_REGEX.exec('# ORPHAN-MEDIUM-031 — title'), null);
+  assert.strictEqual(ORPHAN_HEADING_REGEX.exec('### ORPHAN-MEDIUM-031 — title'), null);
 });
 
 void test('ORPHAN_HEADING_REGEX matches the forms the narrow pattern skipped', () => {
@@ -192,10 +176,7 @@ void test('REQUIRE_CLOSES_TYPES matches gated commit types', () => {
     'feat(tooling): new gate',
     'refactor(agentic,phase-6): cleanup',
   ]) {
-    assert.ok(
-      REQUIRE_CLOSES_TYPES.test(subject),
-      `expected '${subject}' to require Closes`,
-    );
+    assert.ok(REQUIRE_CLOSES_TYPES.test(subject), `expected '${subject}' to require Closes`);
   }
 });
 
@@ -206,10 +187,7 @@ void test('REQUIRE_CLOSES_TYPES does not match free types', () => {
     'test(invariants): add coverage',
     'build(deps): bump version',
   ]) {
-    assert.ok(
-      !REQUIRE_CLOSES_TYPES.test(subject),
-      `expected '${subject}' to NOT require Closes`,
-    );
+    assert.ok(!REQUIRE_CLOSES_TYPES.test(subject), `expected '${subject}' to NOT require Closes`);
   }
 });
 
@@ -276,12 +254,7 @@ void test('validateCommit: feat commit without Closes fails', () => {
     subject: 'feat(test): no closes',
     body: 'body text without trailers',
   };
-  const violations = validateCommit(
-    commit,
-    registry(),
-    new Set(),
-    NEVER_PRE_GATE,
-  );
+  const violations = validateCommit(commit, registry(), new Set(), NEVER_PRE_GATE);
   assert.strictEqual(violations.length, 1);
   assert.match(violations[0]?.reason ?? '', /missing Closes: trailer/);
 });
@@ -295,12 +268,7 @@ void test('validateCommit: chore commit without Closes passes', () => {
     subject: 'chore(registry): cleanup',
     body: 'body without trailers',
   };
-  const violations = validateCommit(
-    commit,
-    registry(),
-    new Set(),
-    NEVER_PRE_GATE,
-  );
+  const violations = validateCommit(commit, registry(), new Set(), NEVER_PRE_GATE);
   assert.strictEqual(violations.length, 0);
 });
 
@@ -318,19 +286,11 @@ void test('validateCommit: ORPHAN-* trailer routes to orphan-IDs (passes when pr
     body: 'body\n\nCloses: docs/reviews/nonexistent.md#ORPHAN-MEDIUM-099',
   };
   const orphanIds = new Set(['ORPHAN-MEDIUM-099']);
-  const violations = validateCommit(
-    commit,
-    registry(),
-    orphanIds,
-    NEVER_PRE_GATE,
-  );
+  const violations = validateCommit(commit, registry(), orphanIds, NEVER_PRE_GATE);
   // Only the missing-review-file violation; the ID is
   // valid in the orphan set.
   assert.strictEqual(violations.length, 1);
-  assert.match(
-    violations[0]?.reason ?? '',
-    /missing review file/,
-  );
+  assert.match(violations[0]?.reason ?? '', /missing review file/);
 });
 
 void test('validateCommit: ORPHAN-* trailer resolves against the REGISTRY too', () => {
@@ -358,6 +318,45 @@ void test('validateCommit: ORPHAN-* trailer resolves against the REGISTRY too', 
   );
 });
 
+void test("validateCommit: registry-held ORPHAN trailer must cite the row's own review file", () => {
+  // ARIA-LOW-607 — admission must agree with the closure derivation
+  // (`commitMessageClosesFindingExactly`): 31 OPEN ORPHAN rows are filed
+  // against review documents other than the register, and a trailer citing
+  // the register for one of them is a trailer `reconcile` can never honour.
+  // The ORPHAN lane used to check only that the id is known — the exact
+  // admission-looser-than-derivation asymmetry the registry lane closed.
+  const own = 'docs/reviews/2026-07-26-aria-codex-audit-verification.md';
+  const target: FindingTrailerTarget = {
+    id: 'ORPHAN-CRITICAL-333',
+    review_file: own,
+  };
+  const citingTheRegister: Commit = {
+    sha: 'abc123',
+    shortSha: 'abc123',
+    subject: 'fix(gates): close a registry-held orphan finding',
+    body: 'body\n\nCloses: docs/reviews/orphan-findings.md#ORPHAN-CRITICAL-333',
+  };
+  const violations = validateCommit(
+    citingTheRegister,
+    new Map([[target.id, target]]),
+    new Set(),
+    NEVER_PRE_GATE,
+  );
+  assert.strictEqual(violations.length, 1);
+  assert.match(violations[0]?.reason ?? '', /can never close it/);
+
+  // The same id cited through its own review file closes cleanly.
+  const citingItsOwnFile: Commit = {
+    ...citingTheRegister,
+    body: `body\n\nCloses: ${own}#ORPHAN-CRITICAL-333`,
+  };
+  assert.strictEqual(
+    validateCommit(citingItsOwnFile, new Map([[target.id, target]]), new Set(), NEVER_PRE_GATE)
+      .length,
+    0,
+  );
+});
+
 void test('validateCommit: ORPHAN-* trailer with unknown ID fails with orphan-routed reason', () => {
   const commit: Commit = {
     sha: 'abc123',
@@ -374,14 +373,9 @@ void test('validateCommit: ORPHAN-* trailer with unknown ID fails with orphan-ro
   // Two violations: missing review file + unknown orphan ID.
   // Pin the orphan-routed reason format (mentions
   // `## ORPHAN-LOW-998` heading + orphan-findings.md).
-  const orphanReason = violations.find((v) =>
-    v.reason.includes('unknown ORPHAN'),
-  );
+  const orphanReason = violations.find((v) => v.reason.includes('unknown ORPHAN'));
   assert.notStrictEqual(orphanReason, undefined);
-  assert.match(
-    orphanReason?.reason ?? '',
-    /no matching "## ORPHAN-LOW-998" heading/,
-  );
+  assert.match(orphanReason?.reason ?? '', /no matching "## ORPHAN-LOW-998" heading/);
 });
 
 void test('validateCommit: non-ORPHAN trailer routes to registry-IDs', () => {
@@ -393,12 +387,7 @@ void test('validateCommit: non-ORPHAN trailer routes to registry-IDs', () => {
     subject: 'feat(tooling): registry close',
     body: 'body\n\nCloses: docs/reviews/nonexistent.md#ULTRA-HIGH-091',
   };
-  const violations = validateCommit(
-    commit,
-    registry('ULTRA-HIGH-091'),
-    new Set(),
-    NEVER_PRE_GATE,
-  );
+  const violations = validateCommit(commit, registry('ULTRA-HIGH-091'), new Set(), NEVER_PRE_GATE);
   assert.strictEqual(violations.length, 1);
   assert.match(violations[0]?.reason ?? '', /missing review file/);
 });
@@ -410,12 +399,7 @@ void test('validateCommit: non-ORPHAN trailer with unknown ID fails with registr
     subject: 'feat(tooling): bogus uh',
     body: 'body\n\nCloses: docs/reviews/nonexistent.md#ULTRA-HIGH-998',
   };
-  const violations = validateCommit(
-    commit,
-    registry('ULTRA-HIGH-091'),
-    new Set(),
-    NEVER_PRE_GATE,
-  );
+  const violations = validateCommit(commit, registry('ULTRA-HIGH-091'), new Set(), NEVER_PRE_GATE);
   const registryReason = violations.find((v) =>
     v.reason.includes('not in docs/reviews/_registry/findings.jsonl'),
   );
@@ -450,11 +434,7 @@ void test('validateCommit: multi-Closes (UH valid + ORPHAN valid) both route cor
   // NO unknown-ID violations because both IDs are in
   // their respective sets.
   for (const v of violations) {
-    assert.match(
-      v.reason,
-      /missing review file/,
-      `unexpected violation: ${v.reason}`,
-    );
+    assert.match(v.reason, /missing review file/, `unexpected violation: ${v.reason}`);
   }
   assert.strictEqual(violations.length, 2);
 });
@@ -726,16 +706,15 @@ void test('readAriaArtifactId returns finding_id for aria-findings/ path', () =>
 // OPEN with no closer.
 // ---------------------------------------------------------
 
-const boundRegistry = (
-  id: string,
-  reviewFile: string,
-): Map<string, FindingTrailerTarget> => new Map([[id, { id, review_file: reviewFile }]]);
+const boundRegistry = (id: string, reviewFile: string): Map<string, FindingTrailerTarget> =>
+  new Map([[id, { id, review_file: reviewFile }]]);
 
 void test('validateCommit: trailer citing another finding’s review file is refused', () => {
   const commit: Commit = {
     sha: '793dbfd3',
     shortSha: '793dbfd3',
-    subject: 'refactor(auth-service): resolve every emailed link segment through ActionTokenResolver',
+    subject:
+      'refactor(auth-service): resolve every emailed link segment through ActionTokenResolver',
     body:
       'body\n\n' +
       'Closes: docs/reviews/orchestrator/2026-09-05-production-readiness-gaps.md#SEC-HIGH-056\n',

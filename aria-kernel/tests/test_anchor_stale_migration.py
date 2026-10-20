@@ -75,7 +75,7 @@ class OpenRecordsAreMigrated(_Panels):
         # The dead panel envelopes are the panel's own: no record of their own.
         for request_id in panel:
             self.assertFalse(self.record_path(request_id).exists())
-        self.assertEqual(list_human_required(base_dir=self.tools), [])
+        self.assertEqual(list_human_required(base_dir=self.tools).rows, [])
         after = hra.sweep_human_required_adjudications(base_dir=self.tools)
         self.assertEqual((after["folded"], after["reopened"], after["opened"]), ([], [], []))
         self.assertEqual(len(self.panel_rows()), 1)

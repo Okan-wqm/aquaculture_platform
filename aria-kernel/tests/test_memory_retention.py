@@ -77,6 +77,7 @@ SELF_LEARNING_MEMORY = {
     "agent_eval_fixtures",
     "fitness_reports",
     "fitness_agent",
+    "training_set_exports",
     "skill_genesis_requests",
     "skill_genesis_drafts",
     "skill_genesis_sandbox",

@@ -47,7 +47,6 @@ def _write_policy(base_dir: Path, caps: dict[str, float]) -> None:
     )
 
 
-
 def _burn(base: Path, usd: float, *, cycle_id: str = "cyc-burn") -> None:
     """ORPHAN-HIGH-466 — spend real money the way the system actually does.
 
@@ -216,10 +215,6 @@ class PhaseB0CostBudget(unittest.TestCase):
             self.assertEqual(current_state(base), "ok")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class CostCounterDerivationTests(unittest.TestCase):
     """ORPHAN-HIGH-466 — the B0 gate reads the ledger the system writes.
 
@@ -291,3 +286,7 @@ class CostCounterDerivationTests(unittest.TestCase):
                     (budget_dir / stale).exists(),
                     f"{stale} is back; the gate can diverge from real spend again",
                 )
+
+
+if __name__ == "__main__":
+    unittest.main()

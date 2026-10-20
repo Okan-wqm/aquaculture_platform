@@ -184,16 +184,24 @@ def _record_ids(root: Path) -> set[str]:
     return {path.stem for path in directory.glob("*.json")} if directory.exists() else set()
 
 
-def _open_records(root: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Open anchor_stale records: (never decided, handed to the operator by ownership).
+def _open_records(root: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[Any]]:
+    """Open anchor_stale records: (never decided, handed to the operator by
+    ownership, unreadable).
 
     The first are the pre-ARIA-HIGH-360 panel questions. The second carry an
     ``owner_of`` verdict (``expiry_ownership.is_ownership_verdict``); the
-    sweep re-reads one only once ``owner_of`` names another owner.
+    sweep re-reads one only once ``owner_of`` names another owner. The third
+    (ARIA-LOW-597) are the record files the lister could not read: they are
+    named, never dispositioned (a disposition needs a readable record).
     """
     undecided: list[dict[str, Any]] = []
     handed: list[dict[str, Any]] = []
-    for record in list_human_required(base_dir=root):
+    # ARIA-LOW-597 - the records the lister could not read are carried beside
+    # the rows: they are never dispositioned (a disposition needs a readable
+    # record) and the sweep's summary names them.
+    listing = list_human_required(base_dir=root)
+    unreadable = list(listing.unreadable)
+    for record in listing.rows:
         if (record.get("context") or {}).get("kind") != ANCHOR_STALE_KIND or not record.get("request_id"):
             continue
         disposition = record.get("kernel_disposition")
@@ -202,7 +210,7 @@ def _open_records(root: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]
         elif disposition.get("disposition") == DISPOSITION_OPERATOR and is_ownership_verdict(
                 str(disposition.get("reason") or "")):
             handed.append(record)
-    return undecided, handed
+    return undecided, handed, unreadable
 
 
 def _notify_operator(root: Path, handed: list[str], now: datetime) -> None:
@@ -244,7 +252,7 @@ def dispose_anchor_stale_requests(
     by_id = {str(r["request_id"]): r for r in requests if r.get("request_id")}
     order = {rid: position for position, rid in enumerate(by_id)}
     successor_of = {str(r["remint_of"]): str(r["request_id"]) for r in requests if r.get("remint_of") and r.get("request_id")}
-    undecided, handed = _open_records(root)
+    undecided, handed, unreadable_records = _open_records(root)
     recorded = _record_ids(root)
     stale = [r for r in reversed(requests) if r.get("request_id") and states.get(str(r["request_id"])) == "ANCHOR_STALE"
              and str(r["request_id"]) not in recorded]
@@ -287,7 +295,9 @@ def dispose_anchor_stale_requests(
     candidates = [item for item in work if item[0] not in waiting_ids]
     summary: dict[str, Any] = {"disposed": [], "waiting_judge_backlog_full": len(waiting),
                                "waiting_sample": waiting[:20], "bound": ANCHOR_STALE_DISPOSITIONS_PER_SWEEP,
-                               "reread_ownership": len(reread)}
+                               "reread_ownership": len(reread),
+                               "unreadable_records": [f"{record.record_id}:{record.reason}"
+                                                      for record in unreadable_records]}
     if not candidates:
         return summary
     causes = expiry_causes(claims)

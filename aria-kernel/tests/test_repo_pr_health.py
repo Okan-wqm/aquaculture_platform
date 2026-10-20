@@ -121,10 +121,6 @@ class RepoPrHealthTests(unittest.TestCase):
         self.assertIn("E23", block)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class PressureSourceRegistration(unittest.TestCase):
     """ORPHAN-CRITICAL-733 — the observer's pressure source must be a
     REGISTERED member of both closed vocabularies.
@@ -171,3 +167,7 @@ class PressureSourceRegistration(unittest.TestCase):
             )
         self.assertIn("unregistered_pressure_source", str(ctx.exception))
         self.assertIn("not_registered_anywhere", str(ctx.exception))
+
+
+if __name__ == "__main__":
+    unittest.main()

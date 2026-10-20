@@ -88,7 +88,7 @@ class ReopenTests(unittest.TestCase):
             exhausted = sweep_human_required_adjudications(base_dir=self.tools)
             later = [sweep_human_required_adjudications(base_dir=self.tools) for _ in range(2)]
         self.assertEqual(exhausted["reopen_exhausted"], ["req-dead-001"])
-        record = list_human_required(base_dir=self.tools)[0]
+        record = list_human_required(base_dir=self.tools).rows[0]
         self.assertEqual(
             (record["status"], record["severity"], record["panel_disposition"], record["panel_escalation_reason"]),
             ("open", "CRITICAL", DISPOSITION_ESCALATE_OPERATOR, "panel_reopen_exhausted"),

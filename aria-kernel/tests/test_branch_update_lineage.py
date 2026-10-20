@@ -27,6 +27,7 @@ from aria_kernel.tool_registry import ensure_tools_dir
 from tests._helpers.declared_fixtures import append_declared_fixture
 from tests._helpers.git_fixtures import make_local_git_repo
 from tests._helpers.installation_credential import LANE_CREDENTIAL_ENV
+from tests._helpers.pre_merge_evidence import fixture_pre_merge_evidence
 
 PR = 7
 
@@ -264,7 +265,7 @@ class TripleGateTests(_Branch):
 
 class BranchTipLockTests(unittest.TestCase):
     def test_the_lock_reads_the_merged_pair_when_the_capture_names_one(self) -> None:
-        from aria_kernel.implementation_safety import HardFailContext, _check_branch_tip_lock_and_recheck, _PreMergeEvidence
+        from aria_kernel.implementation_safety import HardFailContext, _check_branch_tip_lock_and_recheck
 
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -279,7 +280,7 @@ class BranchTipLockTests(unittest.TestCase):
         bound = {name: "h" for name in ("repo_identity", "snapshot_hash", "pr_row_hash", "planned_row_hash",
                                         "committed_row_hash", "request_id", "claim_id", "request_row_hash",
                                         "claim_row_hash", "result_row_hash", "implementation_event_hash")}
-        evidence = _PreMergeEvidence((), **bound, branch="aria-impl-0a1b2c3d", base_sha="a" * 40, head_sha="b" * 40,
+        evidence = fixture_pre_merge_evidence((), **bound, branch="aria-impl-0a1b2c3d", base_sha="a" * 40, head_sha="b" * 40,
                                      implementation_base_sha="a" * 40, implementation_head_sha="b" * 40,
                                      merge_base_sha=base, merge_head_sha=head)
         context = HardFailContext(workspace_root=repo, base_branch="main", pre_merge_evidence=evidence)

@@ -1,10 +1,11 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
-import yaml from 'js-yaml';
+
 import {
   FARM_AI_QUERY_NAMESPACE,
   FARM_AI_QUERY_SUBJECTS,
 } from '../../libs/event-contracts/src/farm-ai-queries';
+import { loadNatsServices } from '../../tools/gates/nats-services';
 
 /**
  * Platform-wide invariant — FARM-MEDIUM-328 (farm AI read contract SSoT).
@@ -52,10 +53,6 @@ function listSourceFiles(path: string): string[] {
   return files;
 }
 
-interface ServicesManifest {
-  services: Array<{ name: string; publish?: string[]; subscribe?: string[] }>;
-}
-
 const SUBJECT_ENTRIES = Object.entries(FARM_AI_QUERY_SUBJECTS) as Array<[string, string]>;
 const FARM_SOURCES = listSourceFiles('apps/farm-service/src');
 const AI_FARM_TOOL_SOURCES = listSourceFiles('apps/ai-service/src/tools/farm');
@@ -65,9 +62,15 @@ const CONTRACT_SOURCES = [
 ];
 
 describe('INVARIANT (FARM-MEDIUM-328): farm AI read contract SSoT', () => {
-  const manifest = yaml.load(readRepoFile('infrastructure/nats/services.yaml')) as ServicesManifest;
-  const farmGrants = manifest.services.find((s) => s.name === 'farm_service')?.subscribe ?? [];
-  const aiGrants = manifest.services.find((s) => s.name === 'ai_service')?.publish ?? [];
+  // ARIA-LOW-603 — read through the one shared reader (tools/gates/nats-services.ts).
+  const services = loadNatsServices();
+  const grantsOf = (name: string, kind: 'publish' | 'subscribe'): readonly string[] => {
+    const service = services.find((candidate) => candidate.name === name);
+    if (service === undefined) throw new Error(`services.yaml has no service ${name}`);
+    return service[kind];
+  };
+  const farmGrants = grantsOf('farm_service', 'subscribe');
+  const aiGrants = grantsOf('ai_service', 'publish');
 
   it('every subject is in the request.farm.ai. namespace with unique keys and values', () => {
     const values = SUBJECT_ENTRIES.map(([, v]) => v);

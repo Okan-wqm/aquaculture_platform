@@ -58,7 +58,7 @@ class OneParkingOneItem(unittest.TestCase):
     def items(self, *, include_resolved: bool = False) -> dict[str, dict]:
         return {
             row["request_id"]: row
-            for row in list_human_required(base_dir=self.tools, include_resolved=include_resolved)
+            for row in list_human_required(base_dir=self.tools, include_resolved=include_resolved).rows
             if (row.get("context") or {}).get("plan_id") == PLAN
         }
 

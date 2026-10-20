@@ -368,7 +368,7 @@ class FullCycleTests(unittest.TestCase):
             consecutive_degraded_cycles("crashing-tool", base_dir=self.tools_dir),
             list(reversed(cycle_ids[:-1])),
         )
-        self.assertEqual(list_human_required(base_dir=self.tools_dir), [])
+        self.assertEqual(list_human_required(base_dir=self.tools_dir).rows, [])
         result = self._cycle(cycle_ids[-1])
         self.assertEqual(result["runtime_status"], "degraded")
         recorded = result["tool_degradation"]["recorded"][0]
@@ -377,7 +377,7 @@ class FullCycleTests(unittest.TestCase):
         escalated = result["tool_degradation"]["escalated"]
         self.assertEqual(escalated[0]["tool_id"], "crashing-tool")
         self.assertEqual(escalated[0]["degradation_class"], "crash")
-        open_records = list_human_required(base_dir=self.tools_dir)
+        open_records = list_human_required(base_dir=self.tools_dir).rows
         self.assertEqual(len(open_records), 1)
         record = open_records[0]
         self.assertEqual(record["request_id"], f"tool-degraded:crashing-tool:{cycle_ids[0]}")
@@ -401,7 +401,7 @@ class FullCycleTests(unittest.TestCase):
             degraded=degraded_tool_records([{"tool_id": "crashing-tool", "run_id": "r", "status": "crash", "artifact_status": "present"}]),
         )
         self.assertEqual(again["escalated"][0]["consecutive_cycles"], TOOL_DEGRADATION_HUMAN_REQUIRED_STREAK + 1)
-        self.assertEqual(len(list_human_required(base_dir=self.tools_dir)), 1)
+        self.assertEqual(len(list_human_required(base_dir=self.tools_dir).rows), 1)
         # ORPHAN-MEDIUM-839 — this test used to end by retiring the tool
         # through ARCHIVED, an exit no kernel command ever took; the status
         # left the lifecycle. The quarantine case below ends its streak by
@@ -449,7 +449,7 @@ class FullCycleTests(unittest.TestCase):
         self.assertIn("self-output evidence", recorded[0]["quarantine_reason"])
         self.assertEqual(second["tool_degradation"]["escalated"], [])
         self.assertEqual(consecutive_degraded_cycles("self-output-tool", base_dir=self.tools_dir), ["cyc-098-q2", "cyc-098-q1"])
-        self.assertEqual(list_human_required(base_dir=self.tools_dir), [])
+        self.assertEqual(list_human_required(base_dir=self.tools_dir).rows, [])
         check = _check_tools(self.tools_dir)
         self.assertEqual(check.status, "warn")
         self.assertIn(f"self-output-tool={QUARANTINED_CLASS}x2", check.reason)
@@ -463,7 +463,7 @@ class FullCycleTests(unittest.TestCase):
             [(e["tool_id"], e["degradation_class"], e["consecutive_cycles"]) for e in escalated],
             [("self-output-tool", QUARANTINED_CLASS, 3)],
         )
-        records = list_human_required(base_dir=self.tools_dir)
+        records = list_human_required(base_dir=self.tools_dir).rows
         self.assertEqual(len(records), 1)
         record = records[0]
         # Keyed on the quarantining cycle: the streak began the night the tool
@@ -499,7 +499,7 @@ class FullCycleTests(unittest.TestCase):
         self.assertEqual((recorded["degradation_class"], recorded["consecutive_cycles"]), ("evidence_error", 1))
         self.assertEqual(fourth["tool_degradation"]["escalated"], [])
         self.assertEqual(consecutive_degraded_cycles("self-output-tool", base_dir=self.tools_dir), ["cyc-098-q4"])
-        self.assertEqual(len(list_human_required(base_dir=self.tools_dir)), 1)
+        self.assertEqual(len(list_human_required(base_dir=self.tools_dir).rows), 1)
         self.assertEqual(_check_tools(self.tools_dir).status, "warn")
 
         # Released again with a fix that takes: back in the roster, answering

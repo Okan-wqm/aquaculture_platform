@@ -12,6 +12,7 @@ import {
   resolveInsideWorkspace as resolveAdapterPath,
   workspacePathExists,
 } from './adapter-fs';
+import { createContainedProgram } from './adapter-ts';
 
 type FindingRule =
   | 'tenant_repository_unscoped_read'
@@ -126,7 +127,12 @@ export function analyzeTenantScoping(
     .filter((root) => workspacePathExists(workspaceRoot, root))
     .flatMap((root) => collectTypeScriptFiles(workspaceRoot, root));
   const snapshotFiles = filterFilesBySnapshot(files, workspaceRoot, input);
-  const program = createAnalysisProgram(snapshotFiles);
+  // ARIA-LOW-593 — the program is built on the containment owner's host, so
+  // a symlinked import inside the workspace resolves to nothing and no row
+  // can carry content from beyond it.
+  const program = createContainedProgram(workspaceRoot, snapshotFiles, {
+    experimentalDecorators: true,
+  });
   const units = snapshotFiles.map((file) => readSourceUnit(file, workspaceRoot, program));
   const tenantEntities = collectTenantEntities(units);
   const context: AnalysisContext = {
@@ -600,19 +606,6 @@ function firstLineMatching(unit: SourceUnit, pattern: RegExp): number {
   const lines = unit.text.split(/\r?\n/);
   const index = lines.findIndex((line) => pattern.test(line));
   return index >= 0 ? index + 1 : 1;
-}
-
-function createAnalysisProgram(files: readonly string[]): ts.Program {
-  return ts.createProgram([...files], {
-    target: ts.ScriptTarget.ES2022,
-    module: ts.ModuleKind.CommonJS,
-    moduleResolution: ts.ModuleResolutionKind.NodeJs,
-    esModuleInterop: true,
-    experimentalDecorators: true,
-    skipLibCheck: true,
-    strict: false,
-    noEmit: true,
-  });
 }
 
 function readSourceUnit(path: string, workspaceRoot: string, program: ts.Program): SourceUnit {

@@ -35,6 +35,7 @@ __all__ = [
     "LEDGER_ROW_MAX_BYTES",
     "LEDGER_ROW_NESTING_MAX_DEPTH",
     "REPLAY_TRANSPORT_NESTING_LEVELS",
+    "ledger_read_faults",
     "REPLAY_TRANSPORT_SCHEMA_PREFIX",
     "ROW_FORMAT_VERSION",
     "STATE_LOCK_LIVENESS_SECONDS",
@@ -88,6 +89,24 @@ class LedgerReadLimitError(RuntimeError):
     """An immutable ledger exceeded an explicit evidence-read budget."""
 
     pass
+
+
+def ledger_read_faults() -> tuple[type[BaseException], ...]:
+    """The closed set a reader of this module's ledgers may treat as a fault
+    of the STORE rather than of the code (ARIA-LOW-514, ARIA-LOW-587).
+
+    ``LedgerIntegrityError`` — a row that is not JSON, a broken hash chain, a
+    segment chain that does not link (what a corrupt or tampered store raises
+    through ``read_jsonl``, ``load_jsonl_verified``, ``load_declared_jsonl``
+    and ``load_segments``); ``LedgerReadLimitError`` — a ledger past the
+    reader's evidence budget; ``OSError`` — the file system. ``TypeError``,
+    ``KeyError``, ``ValueError`` and ``AttributeError`` are defects in the
+    reader and are deliberately absent: a caller that absorbs them turns a
+    kernel bug into a ledger nobody could open. A reader built on these
+    primitives declares its own ``*_reader_faults()`` from this set, next to
+    the reader, so a reader that grows a new fault widens its own declaration.
+    """
+    return (LedgerIntegrityError, LedgerReadLimitError, OSError)
 
 
 # ARIA-HIGH-034 — the ONE row-size cap, owned by the append primitive.
@@ -1343,10 +1362,11 @@ def _record_hash(record: dict[str, Any], previous_hash: str | None = None) -> st
 def heal_torn_tail(path: Path) -> int:
     """Physically remove an incomplete trailing record. Returns bytes removed.
 
-    ORPHAN-CRITICAL-561. Tolerating a torn tail on READ is not enough: the
-    append path calls `read_jsonl`, which refuses unparseable content, and the
-    chain would stay broken for every future writer. The tail has to go, once,
-    under the lock the appender already holds.
+    ORPHAN-CRITICAL-561. Tolerating a torn tail on READ is not enough: a
+    reader that parses every row refuses unparseable content, and the chain
+    would stay broken for every future writer. The tail has to go, once, under
+    the lock the appender already holds (the append body truncates it from
+    the one text it reads, ``_tail_hash_for_append``).
 
     Truncation rather than rewrite: the verified prefix is left byte-identical,
     so no hash is recomputed and no row is touched. `torn_tail_length` is the
@@ -1357,7 +1377,16 @@ def heal_torn_tail(path: Path) -> int:
     if not path.exists():
         return 0
     content = path.read_text(encoding="utf-8")
-    torn_bytes = torn_tail_length(content)
+    return _truncate_torn_tail(path, content, torn_tail_length(content))
+
+
+def _truncate_torn_tail(path: Path, content: str, torn_bytes: int) -> int:
+    """Cut the ``torn_bytes`` trailing characters of ``content`` off ``path``.
+
+    ``content`` is the text this caller read from ``path`` under the lock it
+    holds, so the file still IS that text; truncating to the byte length of
+    its untorn prefix leaves that prefix byte-identical.
+    """
     if not torn_bytes:
         return 0
     fd = os.open(str(path), os.O_WRONLY)
@@ -1404,17 +1433,7 @@ def _append_rows_locked_body(
     _assert_segment_append_allowed(path, records)
     stamped = [_stamped_for_surface(path, record) for record in records]
     path.parent.mkdir(parents=True, exist_ok=True)
-    _verify_existing_declared_chain_before_append(path)
-    # After the verifier accepted the file, heal what it accepted AROUND: the
-    # verifier reads past a torn tail, `read_jsonl` below does not, and a
-    # writer that appended after one would chain onto a row that is not there.
-    heal_torn_tail(path)
-    rows = _read_jsonl_stored(path)
-    previous_hash = (
-        str(rows[-1].get("ledger_hash"))
-        if rows and rows[-1].get("ledger_hash")
-        else None
-    )
+    previous_hash = _tail_hash_for_append(path)
     stored_rows: list[dict[str, Any]] = []
     lines: list[bytes] = []
     for record in stamped:
@@ -1796,22 +1815,60 @@ def _assert_declared_surface(
     return surface, _base_dir
 
 
-def _verify_existing_declared_chain_before_append(path: Path) -> None:
+def _tail_hash_for_append(path: Path) -> str | None:
+    """The hash the next row chains onto, from ONE read of ``path`` under the held lock.
+
+    ARIA-LOW-611. The body used to read the whole file three times here: the
+    strict verification, the torn-tail check, and a second full parse of every
+    row only to take the last ``ledger_hash`` — which the verification had
+    just computed from the same bytes under the same lock. Now the text is
+    read once and every step judges that text:
+
+    * a strict surface (``enterprise_required`` and ``strict_read``) verifies
+      its whole chain (ARIA-HIGH-237: one verification per batch) and refuses
+      a corrupt one BEFORE anything is healed or written; an I/O failure on
+      the read refuses the same way, as the verifier always reported it;
+    * a torn tail — the verifier reads past it — is truncated off the file,
+      so no writer chains onto a row that is not there (ORPHAN-CRITICAL-561);
+    * a non-strict surface keeps its one full parse: it is that surface's only
+      malformed-row check.
+    """
     match = surface_for_path(path)
-    if match is None:
-        return
-    surface, _base_dir = match
-    if not surface.enterprise_required or not surface.strict_read:
-        return
-    if not path.exists() or path.stat().st_size == 0:
-        return
-    result = verify_jsonl(path)
-    if not result.get("valid", False):
-        raise LedgerIntegrityError(
-            f"declared_jsonl_refuses_append_to_corrupt_chain: "
-            f"surface={surface.name!r} path={path.resolve().as_posix()} "
-            f"reason={result.get('reason')} line={result.get('line')}"
-        )
+    strict = (
+        match[0]
+        if match is not None and match[0].enterprise_required and match[0].strict_read
+        else None
+    )
+    try:
+        content = path.read_text(encoding="utf-8") if path.exists() else ""
+    except OSError as exc:
+        if strict is None:
+            raise
+        _refuse_append_to_corrupt_chain(path, strict.name, {"reason": str(exc)})
+    torn_bytes = torn_tail_length(content)
+    if strict is not None:
+        if not content:
+            return None
+        verdict, _rows = _verify_jsonl_from_text(path, content)
+        if not verdict.get("valid", False):
+            _refuse_append_to_corrupt_chain(path, strict.name, verdict)
+        _truncate_torn_tail(path, content, torn_bytes)
+        return verdict["last_hash"]
+    _truncate_torn_tail(path, content, torn_bytes)
+    rows = _parse_jsonl_stored_text(path, content[: len(content) - torn_bytes])
+    return (
+        str(rows[-1].get("ledger_hash"))
+        if rows and rows[-1].get("ledger_hash")
+        else None
+    )
+
+
+def _refuse_append_to_corrupt_chain(path: Path, surface: str, verdict: dict[str, Any]) -> NoReturn:
+    raise LedgerIntegrityError(
+        f"declared_jsonl_refuses_append_to_corrupt_chain: "
+        f"surface={surface!r} path={path.resolve().as_posix()} "
+        f"reason={verdict.get('reason')} line={verdict.get('line')}"
+    )
 
 
 def rewrite_jsonl(
@@ -2138,7 +2195,7 @@ def _verify_file_or_raise(
 
     The one verify-and-raise body of the file loaders. Unlike the text loaders
     it does not refuse a torn tail: a live file may carry one that the next
-    append heals (``heal_torn_tail``), and the verdict already excludes it.
+    append heals (``_tail_hash_for_append``), and the verdict already excludes it.
     """
     try:
         result, rows = _verify_jsonl_from_text(

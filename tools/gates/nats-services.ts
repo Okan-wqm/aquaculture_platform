@@ -14,7 +14,9 @@
  * What this module owns:
  *   - the read: `yaml.parse`, then the shape the SSoT's own schema declares
  *     (infrastructure/nats/services.schema.json, draft-07). No hand-written shape check; a document
- *     the schema refuses throws NatsServicesInvalid.
+ *     the schema refuses throws NatsServicesInvalid. Beyond the schema, the integrity draft-07
+ *     cannot say: one entry per identity and per application, no repeated grant, every grant a
+ *     NATS subject (ARIA-LOW-603).
  *   - NATS subject semantics: `subjectMatches` (one filter against one concrete subject) and
  *     `filtersOverlap` (do two filters share a subject). `*` is exactly one whole token, `>` is the
  *     last token and matches one or more, every other token is literal, and an empty token matches
@@ -78,7 +80,60 @@ function isValidDocument(document: unknown): document is ValidDocument {
   return schemaValidator()(document) === true;
 }
 
-/** Parse services.yaml text; a document its schema refuses throws NatsServicesInvalid. */
+/**
+ * Why `subject` is not a NATS subject the broker accepts, or null. The schema's character class
+ * admits an empty token (`a..b`), a partial wildcard (`foo*bar`) and an inner `>`. Exported for
+ * readers of the GENERATED nats.conf (the messaging ACL smoke), so the grammar has one owner.
+ */
+export function natsSubjectGrammarError(subject: string): string | null {
+  const tokens = subject.split('.');
+  if (tokens.some((token) => token === '')) return `has an empty NATS subject token: ${subject}`;
+  for (const [index, token] of tokens.entries()) {
+    if ((token.includes('*') && token !== '*') || (token.includes('>') && token !== '>')) {
+      return `has a partial NATS subject wildcard token: ${subject}`;
+    }
+    if (token === '>' && index !== tokens.length - 1) {
+      return `has a NATS subject wildcard before the final token: ${subject}`;
+    }
+  }
+  return null;
+}
+
+function repeated(values: readonly string[]): string[] {
+  return [...new Set(values.filter((value, index) => values.indexOf(value) !== index))];
+}
+
+/**
+ * What a valid document holds beyond what draft-07 can say (ARIA-LOW-603): one entry per
+ * certificate identity and per application, no grant listed twice in one permission, and every
+ * grant a NATS subject. The messaging ACL smoke checked these on a private parse; here every
+ * consumer gets them.
+ */
+function integrityErrors(services: readonly NatsServiceEntry[]): string[] {
+  const errors = [
+    ...repeated(services.map((service) => service.name)).map((name) => `duplicate service ${name}`),
+    ...repeated(services.map((service) => service.application)).map(
+      (application) => `duplicate application ${application}`,
+    ),
+  ];
+  for (const service of services) {
+    for (const permission of ['publish', 'subscribe'] as const) {
+      for (const grant of repeated(service[permission])) {
+        errors.push(`${service.name}.${permission} repeats ${grant}`);
+      }
+      for (const grant of service[permission]) {
+        const grammar = natsSubjectGrammarError(grant);
+        if (grammar !== null) errors.push(`${service.name}.${permission} ${grammar}`);
+      }
+    }
+  }
+  return errors;
+}
+
+/**
+ * Parse services.yaml text; a document its schema refuses, or one that breaks the integrity rules
+ * above, throws NatsServicesInvalid.
+ */
 export function parseNatsServices(source: string): readonly NatsServiceEntry[] {
   let document: unknown;
   try {
@@ -94,6 +149,8 @@ export function parseNatsServices(source: string): readonly NatsServiceEntry[] {
       .join('; ');
     throw new NatsServicesInvalid(`does not match ${NATS_SERVICES_SCHEMA}: ${errors}`);
   }
+  const integrity = integrityErrors(document.services);
+  if (integrity.length > 0) throw new NatsServicesInvalid(integrity.join('; '));
   return document.services;
 }
 

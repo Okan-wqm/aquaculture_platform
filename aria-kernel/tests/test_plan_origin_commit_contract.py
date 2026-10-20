@@ -203,6 +203,49 @@ class OriginAndContractTests(unittest.TestCase):
         self.assertIn('-m "Closes: docs/reviews/orphan-findings.md#ORPHAN-HIGH-104"`', orphan)
 
 
+class OrphanTrailerNamesTheRowsReviewFileTests(unittest.TestCase):
+    """ARIA-LOW-607 — the trailer names the finding's own review file.
+
+    The registry row's ``review_file`` is the single owner of the binding: the
+    closure derivation (``finding-traceability.ts``) honours a ``Closes:``
+    trailer only when the anchored file is that row's ``review_file``. A
+    trailer hard-built from the register can therefore never close a finding
+    filed in another review document, whatever the gate's ORPHAN lane admits.
+    The plan body carries the row's ``finding_review_file`` (stamped at mint,
+    beside ``finding_id``), and the contract names it.
+    """
+
+    OTHER = "docs/reviews/2026-07-26-aria-codex-audit-verification.md"
+
+    def test_the_trailer_names_the_review_file_the_body_carries(self) -> None:
+        contract = commit_contract_for_plan(
+            {"finding_id": "ORPHAN-HIGH-779", "finding_review_file": self.OTHER}, plan_id="plan-607",
+        )
+        self.assertEqual(contract["origin_kind"], ORIGIN_ORPHAN_FINDING)
+        self.assertEqual(contract["trailer"], f"Closes: {self.OTHER}#ORPHAN-HIGH-779")
+        self.assertIsNotNone(CLOSES_TRAILER_RE.match(contract["trailer"]))
+        validate_commit_contract(contract)
+
+    def test_a_body_without_the_binding_keeps_the_register_trailer(self) -> None:
+        # Every body minted before the binding was carried was minted by a
+        # scanner that selected ONLY register-filed rows, so the register IS
+        # that finding's review file; the fallback is the pre-607 truth, not
+        # a guess. The gate binds a registry-held id to its own review file,
+        # so a trailer that contradicts the row is refused there.
+        contract = commit_contract_for_plan({"finding_id": "ORPHAN-HIGH-104"}, plan_id="plan-1")
+        self.assertEqual(contract["trailer"], "Closes: docs/reviews/orphan-findings.md#ORPHAN-HIGH-104")
+
+    def test_a_binding_that_cannot_form_a_trailer_is_refused_at_the_origin(self) -> None:
+        # CLOSES_TRAILER_RE takes a ``\\S+?#`` path: a review file with
+        # whitespace, or an empty one, can never form a trailer the gate
+        # accepts, so the origin refuses it before a contract is derived.
+        for bad in ("", "   ", "docs/reviews/with space.md", 7):
+            with self.subTest(bad=bad), self.assertRaisesRegex(
+                GovernanceError, "plan_origin_finding_review_file_unusable",
+            ):
+                plan_origin({"finding_id": "ORPHAN-HIGH-779", "finding_review_file": bad})
+
+
 class CommitsAreJudgedTests(unittest.TestCase):
     ORPHAN = commit_contract_for_plan({"finding_id": "ORPHAN-HIGH-104"}, plan_id="plan-1")
     PLAIN = commit_contract_for_plan({}, plan_id="plan-3")

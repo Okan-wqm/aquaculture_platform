@@ -147,6 +147,8 @@ function entryKindAt(path: string): EntryKind {
 export type WorkspaceEntry = 'absent' | 'file' | 'directory' | 'other' | 'refused';
 
 export interface ContainedWorkspace {
+  /** The workspace root's own realpath: the base every relative path spells under. */
+  readonly root: string;
   readonly entry: (path: string) => WorkspaceEntry;
   /** The UTF-8 text of a `file` entry; any other entry is refused with an error. */
   readonly readFile: (path: string) => string;
@@ -180,6 +182,7 @@ export function containedWorkspace(workspaceRoot: string): ContainedWorkspace {
     return 'directory';
   };
   return {
+    root,
     entry,
     readFile: (path) => {
       if (entry(path) !== 'file') throw new Error(`refused workspace read: ${path}`);
@@ -209,14 +212,17 @@ export function collectFiles(
     readonly includeFile?: (name: string, path: string) => boolean;
     readonly includeExcludedDir?: (name: string) => boolean;
     /**
-     * A directory the walk must not enter, decided from its name and the
-     * directory holding it. Language conventions that depend on a sibling
-     * file (cargo's default build dir is `target/` beside a `Cargo.toml`)
-     * cannot be a name in ADAPTER_EXCLUDED_DIRS: a `target/` without that
-     * manifest is ordinary source. Absent for every adapter that has no such
-     * convention, so their walk is unchanged.
+     * A directory the walk must not enter, decided from its name, the
+     * directory holding it, and the workspace root. Language conventions
+     * that depend on a sibling file (cargo's default build dir is `target/`
+     * beside a `Cargo.toml`) cannot be a name in ADAPTER_EXCLUDED_DIRS: a
+     * `target/` without that manifest is ordinary source. The root is passed
+     * so the convention asks its sibling question through containment
+     * (rust-cargo's `cargoTargetDirSkip`), never by a direct fs probe.
+     * Absent for every adapter that has no such convention, so their walk is
+     * unchanged.
      */
-    readonly skipDir?: (name: string, parentPath: string) => boolean;
+    readonly skipDir?: (name: string, parentPath: string, workspaceRoot: string) => boolean;
   },
 ): readonly string[] {
   const rootPath = workspaceRelative(workspaceRoot, root);
@@ -241,7 +247,7 @@ export function collectFiles(
         if (ADAPTER_EXCLUDED_DIRS.has(name) && options.includeExcludedDir?.(name) !== true) {
           continue;
         }
-        if (options.skipDir !== undefined && options.skipDir(name, current)) {
+        if (options.skipDir !== undefined && options.skipDir(name, current, workspaceRoot)) {
           continue;
         }
         stack.push(path);
@@ -333,6 +339,24 @@ export function workspacePathExists(workspaceRoot: string, path: string): boolea
   if (relativePath === '') return true;
   const entry = containedWorkspace(workspaceRoot).entry(relativePath);
   return entry === 'file' || entry === 'directory';
+}
+
+/**
+ * Whether the entry at `path` is a regular file with an execute bit set,
+ * asked with lstat of the path itself, never through a symlink: a symlink is
+ * not walked workspace content, so it is not executable content either
+ * (ARIA-LOW-593 — the two lstatSync calls this replaces lived outside the
+ * containment owner). The mode is read in one lstat of the final entry; the
+ * component walk already happened when `collectFiles` classified the path
+ * the callers pass.
+ */
+export function workspaceIsExecutable(workspaceRoot: string, path: string): boolean {
+  const relativePath = workspaceRelative(workspaceRoot, path);
+  if (relativePath === '' || !isWorkspaceRelativePath(relativePath)) return false;
+  const stat = lstatSync(join(realpathSync(workspaceRoot), relativePath), {
+    throwIfNoEntry: false,
+  });
+  return stat !== undefined && stat.isFile() && (stat.mode & 0o111) !== 0;
 }
 
 export function normalizeWorkspacePath(path: string): string {

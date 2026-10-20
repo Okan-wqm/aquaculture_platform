@@ -52,10 +52,18 @@ def promotion_row(
     finding_id: Any,
     tool_id: Any,
     judgment_group_id: Any,
+    consensus_run_id: Any,
+    request_ids: list[str],
+    target_sha: str | None,
 ) -> dict[str, Any]:
     """The one constructor of a promotions row: the finding_funnel proof row,
     whose meaning its schema_version declares (pinned by producer fixture in
-    test_capability_semantic_equivalence)."""
+    test_capability_semantic_equivalence).
+
+    ARIA-HIGH-004 — the row carries the learning funnel's join identities
+    from the consensus it promotes: the run the consensus settled, the judge
+    requests that closed it and the commit those requests were minted at
+    (None when the consensus names none)."""
     return {
         "schema_version": 1,
         "recorded_at": utc_now(),
@@ -63,6 +71,9 @@ def promotion_row(
         "finding_id": finding_id,
         "tool_id": tool_id,
         "judgment_group_id": judgment_group_id,
+        "consensus_run_id": consensus_run_id,
+        "request_ids": list(request_ids),
+        "target_sha": target_sha,
     }
 
 
@@ -249,6 +260,9 @@ def promote_consensus_findings(
                 finding_id=finding.get("finding_id"),
                 tool_id=row.get("tool_id"),
                 judgment_group_id=row.get("judgment_group_id"),
+                consensus_run_id=row.get("run_id"),
+                request_ids=[str(item) for item in row.get("request_ids") or []],
+                target_sha=row.get("target_sha") or None,
             ),
         )
         promoted.append({

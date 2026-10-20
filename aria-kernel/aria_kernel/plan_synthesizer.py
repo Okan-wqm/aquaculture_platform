@@ -576,12 +576,15 @@ def scan_orphan_findings(workspace_root: str | Path) -> list[dict[str, Any]]:
     finding the registry closed, and the reverse).
 
     A candidate is a registry row whose ``id`` is an ORPHAN id the plan
-    origin accepts (``plan_origin.ORPHAN_FINDING_ID_RE``), whose state is
-    OPEN and whose ``review_file`` is the register: the plan's ``Closes:``
-    trailer names that file (``plan_origin``). Its evidence is the row's
-    ``evidence`` list (ORPHAN-312), and its ``heading_line`` the line of the
-    finding's first heading in the register, the citable anchor
-    (``orphan-findings.md:<line>``, ORPHAN-HIGH-519), when the register holds
+    origin accepts (``plan_origin.ORPHAN_FINDING_ID_RE``) and whose state is
+    OPEN, whatever review document the row is filed against (ARIA-LOW-607:
+    a ``review_file`` filter here made 31 OPEN rows filed against other
+    reviews reachable by no plan source). The candidate carries the row's
+    ``review_file`` — the owner of the plan's ``Closes:`` trailer
+    (``plan_origin``). Its evidence is the row's ``evidence`` list
+    (ORPHAN-312), and its ``heading_line`` the line of the finding's first
+    heading in its OWN review document, the citable anchor
+    (``<review_file>:<line>``, ORPHAN-HIGH-519), when that document holds
     one. No registry in this checkout -> no candidates.
 
     Returns ordered by severity (CRITICAL > HIGH > MEDIUM > LOW) then by id.
@@ -594,13 +597,23 @@ def scan_orphan_findings(workspace_root: str | Path) -> list[dict[str, Any]]:
     if not root.joinpath(*REGISTRY_FINDINGS_RELPATH).is_file():
         return []
     severity_order = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
-    heading_lines: dict[str, int] = {}
-    register = root / ORPHAN_FINDINGS_DOCUMENT
-    if register.is_file():
-        for number, line in enumerate(register.read_text(encoding="utf-8", errors="replace").splitlines(), start=1):
-            heading = _ORPHAN_HEADING_RE.match(line)
-            if heading is not None:
-                heading_lines.setdefault(heading.group(1), number)
+    heading_lines: dict[str, dict[str, int]] = {}
+
+    def _document_headings(document: str) -> dict[str, int]:
+        """First ``## ORPHAN-<id>`` heading line per id in one review document."""
+        if document not in heading_lines:
+            lines: dict[str, int] = {}
+            path = root / document
+            if path.is_file():
+                for number, line in enumerate(
+                    path.read_text(encoding="utf-8", errors="replace").splitlines(), start=1
+                ):
+                    heading = _ORPHAN_HEADING_RE.match(line)
+                    if heading is not None:
+                        lines.setdefault(heading.group(1), number)
+            heading_lines[document] = lines
+        return heading_lines[document]
+
     candidates: list[dict[str, Any]] = []
     # Tolerant mode: a corrupt or refused row is skipped WITH a
     # ledger_row_corrupt diagnostic / malformed record, not silently swallowed.
@@ -610,9 +623,14 @@ def scan_orphan_findings(workspace_root: str | Path) -> list[dict[str, Any]]:
             not isinstance(finding_id, str)
             or ORPHAN_FINDING_ID_RE.match(finding_id) is None
             or row.get("state") != "OPEN"
-            or row.get("review_file") != ORPHAN_FINDINGS_DOCUMENT
         ):
             continue
+        review_file = row.get("review_file")
+        document = (
+            review_file
+            if isinstance(review_file, str) and review_file
+            else ORPHAN_FINDINGS_DOCUMENT
+        )
         _orphan, severity, raw_id = finding_id.split("-", 2)
         candidate: dict[str, Any] = {
             "source_type": PlanCandidateSource.ORPHAN_FINDING.value,
@@ -621,9 +639,11 @@ def scan_orphan_findings(workspace_root: str | Path) -> list[dict[str, Any]]:
             "severity_rank": severity_order[severity],
             "raw_id": raw_id,
             "title_hint": f"Address {finding_id}",
+            "review_file": document,
         }
-        if finding_id in heading_lines:
-            candidate["heading_line"] = heading_lines[finding_id]
+        heading = _document_headings(document).get(finding_id)
+        if heading is not None:
+            candidate["heading_line"] = heading
         evidence = row.get("evidence")
         if isinstance(evidence, list):
             refs = [ref for ref in evidence if isinstance(ref, str)]
@@ -1521,19 +1541,29 @@ def convert_candidate_to_plan_content(
         raw_id = sanitize_untrusted_text(
             candidate.get("raw_id") or "000", max_len=16,
         )
+        # ARIA-LOW-607 — the finding lives in the review document its registry
+        # row is filed against (carried by scan_orphan_findings); the register
+        # is that document only for register-filed rows.
+        review_file = candidate.get("review_file")
+        document = (
+            review_file
+            if isinstance(review_file, str) and review_file
+            else ORPHAN_FINDINGS_DOCUMENT
+        )
         summary = (
             f"Address ORPHAN-{severity}-{raw_id} from "
-            f"{ORPHAN_FINDINGS_DOCUMENT} (architectural root-cause fix)."
+            f"{document} (architectural root-cause fix)."
         )
         # ORPHAN-312 root fix — the registry's real ``evidence`` file list
         # (attached by scan_orphan_findings) points the plan at the code the
-        # finding is about; the finding's heading line in the register is
-        # cited after it, so the challenger can read the finding itself.
+        # finding is about; the finding's heading line in its OWN review
+        # document is cited after it, so the challenger can read the finding
+        # itself.
         registry_evidence = candidate.get("evidence")
         evidence_refs = _finding_refs(registry_evidence if isinstance(registry_evidence, list) else [])
         heading = candidate.get("heading_line")
         if isinstance(heading, int) and not isinstance(heading, bool) and heading > 0:
-            evidence_refs.append(f"{ORPHAN_FINDINGS_DOCUMENT}:{heading}")
+            evidence_refs.append(f"{document}:{heading}")
         affected_surfaces = []
     elif source_type == PlanCandidateSource.GITHUB_ISSUE.value:
         # ARIA-MEDIUM-249 — scanned and never converted: an issue mission is
@@ -1584,11 +1614,11 @@ def convert_candidate_to_plan_content(
         ))
     if source_type == PlanCandidateSource.ORPHAN_FINDING.value:
         # ARIA-HIGH-211 — a surface is the path the fix touches (the line is
-        # not part of it); the register is the surface only when no code ref
-        # of the finding was admitted.
+        # not part of it); the finding's own review document is the surface
+        # only when no code ref of the finding was admitted.
         cited = [parsed[0] for parsed in map(parse_evidence_ref, evidence_refs) if parsed is not None]
-        affected_surfaces = [path for path in dict.fromkeys(cited) if path != ORPHAN_FINDINGS_DOCUMENT]
-        affected_surfaces = affected_surfaces or [ORPHAN_FINDINGS_DOCUMENT]
+        affected_surfaces = [path for path in dict.fromkeys(cited) if path != document]
+        affected_surfaces = affected_surfaces or [document]
 
     content: dict[str, Any] = {
         # schema_version 2 — coverage-gated (see synthesize_plan_content_from_cycle).
@@ -1632,11 +1662,19 @@ def convert_candidate_to_plan_content(
     # request carries the F finding it signed (ADR-0018), the admitted one.
     # The other sources have no finding, so the key is absent rather than
     # invented.
+    #
+    # ARIA-LOW-607 — an ORPHAN body carries the review document its registry
+    # row is filed against beside the id, so the trailer derived from that
+    # body names the finding's own review file; the derivation stays a pure
+    # function of the body (ARIA-HIGH-104: mint, envelope validation and the
+    # PR gate all read this one function over the same hash-verified body).
     if source_type in {
         PlanCandidateSource.ORPHAN_FINDING.value,
         PlanCandidateSource.F_FINDING.value,
     }:
         content["finding_id"] = candidate_id
+        if source_type == PlanCandidateSource.ORPHAN_FINDING.value:
+            content["finding_review_file"] = document
     elif source_type == PlanCandidateSource.OPERATOR_FEEDBACK.value:
         content["finding_id"] = admission.finding_id
         # ARIA-LOW-265 — the grounding the operator signed, which admission

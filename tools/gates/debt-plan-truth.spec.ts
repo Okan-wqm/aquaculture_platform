@@ -265,8 +265,13 @@ function finding(row: Row, overrides: Partial<Finding>): Finding {
 }
 
 void test("the sweep's past-deadline BLOCKED transition passes the debt-plan gate (ARIA-HIGH-534)", () => {
+  // An owned row: the sweep blocks a lapsed row only when it names an
+  // owner_user to sign the override (ARIA-MEDIUM-601).
   const entries = BASE_ROWS.map((row) =>
-    finding(row, row.id === 'INFRA-CRITICAL-001' ? { deadline: '2026-02-01' } : {}),
+    finding(
+      row,
+      row.id === 'INFRA-CRITICAL-001' ? { deadline: '2026-02-01', owner_user: 'Okan-wqm' } : {},
+    ),
   );
   const actions = planSweep(entries, {
     staleAfterDays: 30,

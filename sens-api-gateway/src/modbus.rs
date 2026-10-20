@@ -460,6 +460,20 @@ pub struct ModbusWriteReceipt {
     pub readback_value: Option<u16>,
 }
 
+/// Start a rodbus channel's communication.
+///
+/// rodbus 1.x creates every client channel *disabled*: until `enable()` is
+/// sent the task never connects and fails every request with
+/// `NoConnection`. Without this call no Modbus read or write — the boot
+/// safe-state included — ever reached a device (found while making the boot
+/// safe-state a precondition of READY, ADR-048 DEC-6.2/DEC-6.3).
+async fn enable_channel(name: &str, channel: &Channel) -> Result<()> {
+    channel
+        .enable()
+        .await
+        .map_err(|_| anyhow::anyhow!("Modbus channel task for '{name}' has shut down"))
+}
+
 impl ModbusClient {
     /// Create a new Modbus client (not connected)
     pub fn new(config: ModbusDeviceConfig) -> Self {
@@ -806,6 +820,7 @@ impl ModbusClient {
             }
         };
 
+        enable_channel(&self.config.name, &channel).await?;
         self.channel = Some(channel);
 
         if self.config.tls.enabled {
@@ -859,6 +874,7 @@ impl ModbusClient {
                 None, // listener
             );
 
+            enable_channel(&self.config.name, &channel).await?;
             self.channel = Some(channel);
             info!("Connected to Modbus RTU device '{}'", self.config.name);
 

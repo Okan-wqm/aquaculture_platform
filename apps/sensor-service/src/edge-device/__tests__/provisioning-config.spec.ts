@@ -94,7 +94,6 @@ const ENV_DEFAULTS: Record<string, string | number | boolean> = {
   MQTT_PUBLIC_BROKER_HOST: 'env-mqtt.example.com',
   ADMIN_API_URL: 'http://admin-api:3010',
   EDGE_AGENT_GITHUB_REPO: 'TestOrg/test-repo',
-  MQTT_AUTH_ENABLED: false,
 };
 
 const mockConfigService = {
@@ -111,7 +110,7 @@ const mockMqttAuthService = {
     password: 'mqtt-plain-password',
     hash: '$7$101$fakesalt$fakehash',
   }),
-  addDeviceCredentials: jest.fn().mockResolvedValue(true),
+  noteCredentialsIssued: jest.fn(),
 };
 
 // ---------------------------------------------------------------------------

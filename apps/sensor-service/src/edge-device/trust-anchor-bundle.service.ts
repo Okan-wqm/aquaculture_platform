@@ -83,7 +83,7 @@ export function admitTrustAnchors(
       fleetRootKeys,
     );
   } catch (error) {
-    throw new SuderraEdgeConfigError((error as Error).message);
+    throw new SuderraEdgeConfigError(error instanceof Error ? error.message : String(error));
   }
   const payload = JSON.parse(payloadBytes.toString('utf8')) as Record<string, unknown>;
   if (field(payload, '_type') !== STATEMENT.trustAnchors) {

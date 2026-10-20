@@ -751,7 +751,15 @@ export class ProvisioningReservationService {
    * or a Suderra OS activation root never confirmed): no reservation, no
    * pending credentials, no committed activation, no statements to hand
    * over, and the broker credential revoked. The committed binding is kept —
-   * the same hardware re-provisions. Returns null for a terminal device.
+   * the same hardware re-provisions.
+   *
+   * The channel is kept only where the committed binding proves it: a
+   * device that merely reserved a Suderra OS manifest under the replaced
+   * token returns to the generic-Linux channel, so a token holder who
+   * fetched the Suderra OS endpoint for a generic device cannot leave it on
+   * signed-only commands and reservation-gated activation for good; the next
+   * Suderra OS fetch sets the channel again. Returns false for a terminal
+   * device, and for a Suderra OS device root recorded as ACTIVE.
    */
   async reissueToken(
     device: Pick<EdgeDevice, 'id' | 'tenantId'>,
@@ -791,6 +799,8 @@ export class ProvisioningReservationService {
             lifecycleRequestHandedAt: null,
             maintenanceExpiresAt: null,
             lifecycleState: reissue.lifecycleState,
+            agentChannel: () =>
+              `CASE WHEN device_binding_sha256 IS NULL THEN '${EdgeAgentChannel.GENERIC_LINUX}' ELSE agent_channel END`,
             mqttPasswordHash: null,
             fingerprint: null,
             agentVersion: null,

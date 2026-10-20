@@ -76,8 +76,6 @@ function hashPassword(password: string, iterations = 101): string {
 function createMockConfigService(overrides: Record<string, unknown> = {}): ConfigService {
   const defaults: Record<string, unknown> = {
     MQTT_AUTH_MODE: 'http',
-    MQTT_AUTH_ENABLED: false,
-    MOSQUITTO_PASSWORD_FILE: '/tmp/passwd',
     NODE_ENV: 'production',
     MQTT_BACKEND_SERVICE_HASH: undefined,
     MQTT_SENSOR_SERVICE_HASH: undefined,

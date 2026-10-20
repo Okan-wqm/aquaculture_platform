@@ -48,47 +48,145 @@ export const RELEASE_STATEMENT_FETCHER = Symbol('RELEASE_STATEMENT_FETCHER');
 
 const MAX_STATEMENT_BYTES = 64 * 1024;
 
+/**
+ * Reads at most MAX_STATEMENT_BYTES of the body, refusing the rest as it
+ * streams: a declared or actual larger body is refused without being
+ * buffered, and the body must be UTF-8.
+ */
 export const fetchReleaseStatement: ReleaseStatementFetcher = async (url) => {
+  const what = 'The release statement';
   const response = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(10_000) });
   if (!response.ok) {
-    throw new StatementAdmissionError(
-      'The release statement',
-      `${url} answered ${response.status}`,
-    );
+    throw new StatementAdmissionError(what, `${url} answered ${response.status}`);
   }
-  const text = await response.text();
-  if (Buffer.byteLength(text, 'utf8') > MAX_STATEMENT_BYTES) {
-    throw new StatementAdmissionError('The release statement', 'it exceeds 64 KiB');
+  const declared = Number(response.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > MAX_STATEMENT_BYTES) {
+    if (response.body !== null) await response.body.cancel();
+    throw new StatementAdmissionError(what, 'it exceeds 64 KiB');
   }
-  return text;
+  if (response.body === null) {
+    throw new StatementAdmissionError(what, `${url} answered with no body`);
+  }
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_STATEMENT_BYTES) {
+      await reader.cancel();
+      throw new StatementAdmissionError(what, 'it exceeds 64 KiB');
+    }
+    chunks.push(value);
+  }
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks));
+  } catch {
+    throw new StatementAdmissionError(what, 'it is not UTF-8');
+  }
 };
 
-function asEnvelope(text: string): DsseEnvelope {
-  const parsed = JSON.parse(text) as Partial<{
-    payloadType: unknown;
-    payload: unknown;
-    signatures: unknown;
-  }>;
-  const signatures = parsed.signatures;
+/** suderra.edge-release.v1, the members the cloud reads (edge-release.schema.json). */
+interface ReleaseBody {
+  readonly type: unknown;
+  readonly name: unknown;
+  readonly version: unknown;
+  readonly boardProfile: unknown;
+  readonly arch: unknown;
+  readonly agentProfile: unknown;
+  readonly cargoFeatures: readonly string[];
+  readonly artifact: Readonly<Record<string, unknown>>;
+  readonly securityVersion: number;
+  readonly minOsVersion: string;
+  readonly agentAbi: number;
+}
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** Reads the admitted payload's members, refusing a payload of another shape. */
+function parseReleaseBody(what: string, payloadBytes: Buffer): ReleaseBody {
+  let body: unknown;
+  try {
+    body = JSON.parse(payloadBytes.toString('utf8'));
+  } catch {
+    throw new StatementAdmissionError(what, 'its payload is not JSON');
+  }
+  if (!isRecord(body)) throw new StatementAdmissionError(what, 'its payload is not an object');
+  const features = body['cargo_features'];
+  const artifact = body['artifact'];
+  const securityVersion = body['security_version'];
+  const minOsVersion = body['min_os_version'];
+  const agentAbi = body['agent_abi'];
   if (
-    typeof parsed.payloadType !== 'string' ||
-    typeof parsed.payload !== 'string' ||
+    !Array.isArray(features) ||
+    !features.every((f): f is string => typeof f === 'string') ||
+    !isRecord(artifact) ||
+    typeof securityVersion !== 'number' ||
+    typeof minOsVersion !== 'string' ||
+    typeof agentAbi !== 'number'
+  ) {
+    throw new StatementAdmissionError(what, 'its payload is not a suderra.edge-release.v1 body');
+  }
+  return {
+    type: body['_type'],
+    name: body['name'],
+    version: body['version'],
+    boardProfile: body['board_profile'],
+    arch: body['arch'],
+    agentProfile: body['agent_profile'],
+    cargoFeatures: [...features].sort(),
+    artifact,
+    securityVersion,
+    minOsVersion,
+    agentAbi,
+  };
+}
+
+function asEnvelope(text: string): DsseEnvelope {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new StatementAdmissionError('The release statement', 'it is not JSON');
+  }
+  if (!isRecord(parsed)) {
+    throw new StatementAdmissionError('The release statement', 'it is not a DSSE envelope');
+  }
+  const { payloadType, payload, signatures } = parsed;
+  if (
+    typeof payloadType !== 'string' ||
+    typeof payload !== 'string' ||
     !Array.isArray(signatures) ||
     signatures.length !== 1
   ) {
     throw new StatementAdmissionError('The release statement', 'it is not a DSSE envelope');
   }
-  const [signature] = signatures as Array<{ keyid?: unknown; sig?: unknown }>;
-  if (typeof signature?.keyid !== 'string' || typeof signature.sig !== 'string') {
+  const [signature]: unknown[] = signatures;
+  if (
+    !isRecord(signature) ||
+    typeof signature['keyid'] !== 'string' ||
+    typeof signature['sig'] !== 'string'
+  ) {
     throw new StatementAdmissionError('The release statement', 'its signature is malformed');
   }
   return {
-    payloadType: parsed.payloadType,
-    payload: parsed.payload,
-    signatures: [{ keyid: signature.keyid, sig: signature.sig }],
+    payloadType,
+    payload,
+    signatures: [{ keyid: signature['keyid'], sig: signature['sig'] }],
   };
 }
 
+/**
+ * Admitted releases are kept for the life of the process. A statement names
+ * one version for one board and is never re-signed in place, and everything
+ * admission depends on — the configured version and URL template and the
+ * bundle's edge-release anchors — is fixed when the process starts
+ * (SuderraEdgeConfig, TrustAnchorBundleService). The cache key nevertheless
+ * names all of them, so an entry can never answer for another configuration.
+ */
 @Injectable()
 export class EdgeReleaseCatalog {
   private readonly logger = new Logger(EdgeReleaseCatalog.name);
@@ -109,8 +207,13 @@ export class EdgeReleaseCatalog {
 
   /** The configured release for `board`, fetched once and admitted. */
   async forBoard(board: BoardRow): Promise<AdmittedRelease> {
-    const version = this.config.settings.release.agentVersion;
-    const cacheKey = `${version}/${board.boardProfile}`;
+    const { agentVersion: version, urlTemplate } = this.config.settings.release;
+    const anchors = this.bundle
+      .edgeReleaseKeys()
+      .map((key) => `${key.keyid}@${key.epoch}`)
+      .sort()
+      .join(',');
+    const cacheKey = [urlTemplate, version, board.boardProfile, anchors].join('|');
     const cached = this.admitted.get(cacheKey);
     if (cached !== undefined) return cached;
 
@@ -146,30 +249,18 @@ export class EdgeReleaseCatalog {
       'edge-release',
       this.bundle.edgeReleaseKeys(),
     );
-    const body = JSON.parse(payloadBytes.toString('utf8')) as Record<string, unknown>;
-    const artifactBody = (body['artifact'] ?? {}) as Record<string, unknown>;
-    const features = Array.isArray(body['cargo_features'])
-      ? (body['cargo_features'] as unknown[]).map(String).sort()
-      : [];
-    const mismatch =
-      body['_type'] !== STATEMENT.edgeRelease ||
-      body['name'] !== 'suderra-agent' ||
-      body['version'] !== version ||
-      body['board_profile'] !== board.boardProfile ||
-      body['arch'] !== board.arch ||
-      body['agent_profile'] !== board.agentProfile ||
-      features.join(',') !== board.cargoFeatures.join(',') ||
-      artifactBody['name'] !== artifact ||
-      artifactBody['format'] !== RELEASE_ARTIFACT_FORMAT ||
-      artifactBody['binary_name'] !== RELEASE_BINARY_NAME;
-    const securityVersion = body['security_version'];
-    const minOsVersion = body['min_os_version'];
-    const agentAbi = body['agent_abi'];
+    const body = parseReleaseBody(what, payloadBytes);
     if (
-      mismatch ||
-      typeof securityVersion !== 'number' ||
-      typeof minOsVersion !== 'string' ||
-      typeof agentAbi !== 'number'
+      body.type !== STATEMENT.edgeRelease ||
+      body.name !== 'suderra-agent' ||
+      body.version !== version ||
+      body.boardProfile !== board.boardProfile ||
+      body.arch !== board.arch ||
+      body.agentProfile !== board.agentProfile ||
+      body.cargoFeatures.join(',') !== board.cargoFeatures.join(',') ||
+      body.artifact['name'] !== artifact ||
+      body.artifact['format'] !== RELEASE_ARTIFACT_FORMAT ||
+      body.artifact['binary_name'] !== RELEASE_BINARY_NAME
     ) {
       // release-mismatch / release-profile-mismatch on the device; refusing
       // here keeps the cloud from naming a release no device can install.
@@ -180,11 +271,11 @@ export class EdgeReleaseCatalog {
       payloadBytes,
       digest: statementDigest(payloadBytes),
       version,
-      securityVersion,
+      securityVersion: body.securityVersion,
       boardProfile: board.boardProfile,
       arch: board.arch,
-      minOsVersion,
-      agentAbi,
+      minOsVersion: body.minOsVersion,
+      agentAbi: body.agentAbi,
       artifactUrl: this.url(version, artifact),
     };
   }

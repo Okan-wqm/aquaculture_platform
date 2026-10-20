@@ -120,7 +120,7 @@ function harness(found: EdgeDevice | null): Harness {
     collaborator<MqttAuthService>(
       {
         generateCredentials: jest.fn().mockResolvedValue({ password: 'pw', hash: 'hash' }),
-        addDeviceCredentials: jest.fn().mockResolvedValue(true),
+        noteCredentialsIssued: jest.fn(),
       },
       'MqttAuthService',
     ),
@@ -410,7 +410,6 @@ describe('re-provisioning a Suderra OS device goes through root (ADR-048 DEC-5.1
     service: ProvisioningService;
     reissueToken: jest.Mock;
     beginReprovisioning: jest.Mock;
-    removeDeviceCredentials: jest.Mock;
     enterMaintenanceForReprovisioning: jest.Mock;
     deliverLifecycleRequest: jest.Mock;
   } {
@@ -428,7 +427,6 @@ describe('re-provisioning a Suderra OS device goes through root (ADR-048 DEC-5.1
         return { lifecycleSeq: 5, windowEndsAt: window.expiresAt };
       },
     );
-    const removeDeviceCredentials = jest.fn().mockResolvedValue(true);
     const enterMaintenanceForReprovisioning = jest.fn(() => STATEMENT_DOUBLE);
     const deliverLifecycleRequest = jest.fn().mockResolvedValue(true);
     const service = new ProvisioningService(
@@ -442,7 +440,7 @@ describe('re-provisioning a Suderra OS device goes through root (ADR-048 DEC-5.1
       ),
       stub<DataSource>({}),
       new ConfigService({}),
-      collaborator<MqttAuthService>({ removeDeviceCredentials }, 'MqttAuthService'),
+      collaborator<MqttAuthService>({}, 'MqttAuthService'),
       collaborator<InstallerScriptService>(
         {
           buildInstallerUrl: jest.fn().mockResolvedValue('https://api.example.com/install/x'),
@@ -484,7 +482,6 @@ describe('re-provisioning a Suderra OS device goes through root (ADR-048 DEC-5.1
       service,
       reissueToken,
       beginReprovisioning,
-      removeDeviceCredentials,
       enterMaintenanceForReprovisioning,
       deliverLifecycleRequest,
     };
@@ -534,8 +531,8 @@ describe('re-provisioning a Suderra OS device goes through root (ADR-048 DEC-5.1
       window,
     });
     expect(h.deliverLifecycleRequest).toHaveBeenCalledWith(found, now);
-    // The running agent keeps its broker credential until the new activation.
-    expect(h.removeDeviceCredentials).not.toHaveBeenCalled();
+    // The running agent keeps its broker credential until the new activation:
+    // nothing revokes it (only reissueToken nulls mqtt_password_hash).
     expect(h.reissueToken).not.toHaveBeenCalled();
     expect(response.suderraOsProvisioningCommand).toBe(
       `ssh provision@<device-address> provision ${found.deviceCode}`,
@@ -564,7 +561,7 @@ describe('re-provisioning a Suderra OS device goes through root (ADR-048 DEC-5.1
       status,
     });
     expect(h.deliverLifecycleRequest).not.toHaveBeenCalled();
-    expect(h.removeDeviceCredentials).not.toHaveBeenCalled();
+    expect(h.reissueToken).not.toHaveBeenCalled();
   });
 
   it('a Suderra OS activation root never confirmed is re-installed from scratch', async () => {
@@ -576,7 +573,6 @@ describe('re-provisioning a Suderra OS device goes through root (ADR-048 DEC-5.1
       found,
       expect.objectContaining({ lifecycleState: DeviceLifecycleState.REGISTERED }),
     );
-    expect(h.removeDeviceCredentials).toHaveBeenCalledWith(found.mqttClientId);
   });
 
   it('a Suderra OS device that never committed a binding is reset like any other device', async () => {
@@ -594,7 +590,6 @@ describe('re-provisioning a Suderra OS device goes through root (ADR-048 DEC-5.1
     );
     expect(h.enterMaintenanceForReprovisioning).not.toHaveBeenCalled();
     expect(h.deliverLifecycleRequest).not.toHaveBeenCalled();
-    expect(h.removeDeviceCredentials).toHaveBeenCalledWith(found.mqttClientId);
   });
 
   it('a generic-Linux device is reset with its broker credential revoked', async () => {
@@ -602,7 +597,8 @@ describe('re-provisioning a Suderra OS device goes through root (ADR-048 DEC-5.1
     const h = reprovisioning(found);
     await h.service.resetForReprovisioning(found.id, TENANT);
     expect(h.beginReprovisioning).not.toHaveBeenCalled();
-    expect(h.removeDeviceCredentials).toHaveBeenCalledWith(found.mqttClientId);
+    // The reissue revokes the credential (proven on Postgres in the RLS spec).
+    expect(h.reissueToken).toHaveBeenCalledTimes(1);
   });
 
   it('regenerating a token refuses a device that committed an activation, re-provisioning or not', async () => {
@@ -630,7 +626,6 @@ describe('re-provisioning a Suderra OS device goes through root (ADR-048 DEC-5.1
         status: 409,
       });
       expect(h.reissueToken).not.toHaveBeenCalled();
-      expect(h.removeDeviceCredentials).not.toHaveBeenCalled();
     }
   });
 
@@ -639,6 +634,5 @@ describe('re-provisioning a Suderra OS device goes through root (ADR-048 DEC-5.1
     const h = reprovisioning(found);
     await h.service.regenerateToken(found.id, TENANT);
     expect(h.reissueToken).toHaveBeenCalledTimes(1);
-    expect(h.removeDeviceCredentials).toHaveBeenCalledWith(found.mqttClientId);
   });
 });

@@ -36,7 +36,10 @@ import { ArtifactService } from '../deploy-artifact/artifact.service';
 import { DeployArtifactType } from '../deploy-artifact/entities/deploy-artifact.entity';
 import { EdgeDeviceService } from '../edge-device/edge-device.service';
 import { DeviceIoConfig } from '../edge-device/entities/device-io-config.entity';
-import { EdgeCommandPublisher } from '../edge-device/edge-command-publisher.service';
+import {
+  type EdgeCommand,
+  EdgeCommandPublisher,
+} from '../edge-device/edge-command-publisher.service';
 
 import { AutomationEventsPublisher } from './events/automation-events.publisher';
 import { DeploymentLogService } from './services/deployment-log.service';
@@ -1311,7 +1314,9 @@ export class AutomationService {
 
     // 4. Build deployment command based on deploy target
     const commandId = randomUUID();
-    let deployCommand: Record<string, unknown>;
+    // The command the edge publisher sends (ADR-048 DEC-9.2): typed, so the
+    // publish, the snapshot and the deployment log read the same fields.
+    let deployCommand: EdgeCommand;
 
     switch (program.deployTarget) {
       case DeployTarget.CODESYS_PLC: {
@@ -1342,7 +1347,6 @@ export class AutomationService {
         deployCommand = {
           commandId,
           command: 'deploy_to_codesys',
-          timestamp: new Date().toISOString(),
           params: {
             program_name: program.programName,
             program_id: program.id,
@@ -1366,7 +1370,6 @@ export class AutomationService {
         deployCommand = {
           commandId,
           command: 'deploy_auto',
-          timestamp: new Date().toISOString(),
           params: {
             target: 'plc_setpoint',
             program_name: program.programName,
@@ -1384,12 +1387,7 @@ export class AutomationService {
       default: {
         // Yol A: Existing flow - translate to edge script and deploy to Rust engine
         const edgeScript = await this.translateProgramToEdgeScript(program);
-        deployCommand = {
-          commandId,
-          command: 'deploy_program',
-          timestamp: new Date().toISOString(),
-          params: edgeScript,
-        };
+        deployCommand = { commandId, command: 'deploy_program', params: edgeScript };
         break;
       }
     }
@@ -1397,14 +1395,16 @@ export class AutomationService {
     // 3b. Publish-boundary contract validation (Faz 4): the RUST_ENGINE
     // payload must match the canonical ProgramDefinition schema the agent
     // is parity-tested against (other targets carry raw ST / setpoints).
-    if (deployCommand['command'] === 'deploy_program') {
-      if (!validateDeployProgramParams(deployCommand['params'])) {
+    if (deployCommand.command === 'deploy_program') {
+      if (!validateDeployProgramParams(deployCommand.params)) {
         throw new BadRequestException(
           `deploy_program payload violates the canonical contract: ${formatValidationErrors(validateDeployProgramParams)}`,
         );
       }
     }
-    if (!validateCommandEnvelope(deployCommand)) {
+    // The envelope contract still sees the legacy CommandMessage shape the
+    // generic agent receives (EdgeCommandPublisher adds the timestamp).
+    if (!validateCommandEnvelope({ ...deployCommand, timestamp: new Date().toISOString() })) {
       throw new BadRequestException(
         `Command envelope violates the canonical contract: ${formatValidationErrors(validateCommandEnvelope)}`,
       );
@@ -1416,7 +1416,7 @@ export class AutomationService {
       try {
         artifact = await this.artifactService.snapshot(tenantId, {
           artifactType: DeployArtifactType.AUTOMATION_PROGRAM,
-          content: deployCommand['params'] as Record<string, unknown>,
+          content: deployCommand.params,
           sourceEntityId: programId,
           sourceEntityVersion: program.version,
           createdBy: deployedBy,
@@ -1435,7 +1435,7 @@ export class AutomationService {
         deviceId,
         commandId,
         version: program.version,
-        edgeScript: deployCommand['params'] as Record<string, unknown>,
+        edgeScript: deployCommand.params,
         deployedBy,
         deployedByEmail: actor.email,
         artifactId: artifact?.id,
@@ -1445,14 +1445,7 @@ export class AutomationService {
 
     // 6. Publish via MQTT
     try {
-      await commands.publish(
-        { tenantId, deviceId: device.id },
-        {
-          commandId,
-          command: String(deployCommand['command']),
-          params: deployCommand['params'] as Record<string, unknown>,
-        },
-      );
+      await commands.publish({ tenantId, deviceId: device.id }, deployCommand);
       this.logger.log(
         `Deploy command sent to ${device.deviceCode}: ${commandId}`,
       );

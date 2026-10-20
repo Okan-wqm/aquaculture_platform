@@ -179,7 +179,10 @@ export class ProvisioningController {
     } catch (error) {
       const reason = error instanceof ProvisioningRefusal ? error.reason : 'internal-error';
       if (!(error instanceof ProvisioningRefusal)) {
-        this.logger.error({ event: 'suderra_os_delivery_failed', error: (error as Error).message });
+        this.logger.error({
+          event: 'suderra_os_delivery_failed',
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
       this.logger.warn({ event: 'suderra_os_delivery_refused', reason });
       res

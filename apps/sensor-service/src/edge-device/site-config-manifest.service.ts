@@ -113,6 +113,58 @@ export function renderSuderraOsAgentConfig(input: AgentConfigInput): Buffer {
   return Buffer.from(lines.join('\n'), 'utf8');
 }
 
+/**
+ * Site commissioning gate SG-1 (ADR-048 Implementation, "Saha devreye alma
+ * kapıları"): until P2 exit opens it — HMI authorization and per-tag device
+ * routing, e-stop scope and persistence, DEC-13 per-output policy — sites
+ * are monitoring-only pilots, and the cloud signs no site config that
+ * enables a write to the field. Opening it is a reviewed change of this
+ * constant together with the P2 controls, never configuration.
+ */
+export const SG1_FIELD_WRITES_OPEN = false;
+
+/** Why a site config was not signed. */
+export class SiteGateClosedError extends Error {
+  constructor(reason: string) {
+    super(`SG-1 is closed: the cloud signs monitoring-only site configs; ${reason}`);
+    this.name = 'SiteGateClosedError';
+  }
+}
+
+/**
+ * The agent config.yaml settings that let the agent drive the field
+ * (sens-api-gateway config.rs): a Modbus device with `allow_writes`, a GPIO
+ * pin whose `direction` is an output, and any write-enabling switch of the
+ * other protocol stacks.
+ */
+const FIELD_WRITE_SETTINGS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/^\s*-?\s*allow_writes\s*:\s*["']?(?:true|yes|on)\b/im, 'a Modbus device allows writes'],
+  [/^\s*-?\s*direction\s*:\s*["']?(?:output|out)\b/im, 'a GPIO pin is an output'],
+  [
+    /^\s*-?\s*(?:writable|write_enabled|writes_enabled|allow_write)\s*:\s*["']?(?:true|yes|on)\b/im,
+    'a protocol stack enables writes',
+  ],
+];
+
+/**
+ * Refuses a site file set that would let the agent write to the field while
+ * SG-1 is closed: a write-enabling setting in config.yaml, or a PiCtory
+ * process image (`revpi/config.rsc`), which defines the RevPi's outputs and
+ * which the cloud does not author in P0.
+ */
+export function assertMonitoringOnlySite(files: ReadonlyMap<SitePath, Buffer>): void {
+  if (SG1_FIELD_WRITES_OPEN) return;
+  if (files.has('revpi/config.rsc')) {
+    throw new SiteGateClosedError('revpi/config.rsc defines field outputs');
+  }
+  const config = files.get('config.yaml');
+  if (config === undefined) return;
+  const text = config.toString('utf8');
+  for (const [setting, reason] of FIELD_WRITE_SETTINGS) {
+    if (setting.test(text)) throw new SiteGateClosedError(`config.yaml: ${reason}`);
+  }
+}
+
 export interface DeviceSiteConfigRequest {
   readonly tenantId: string;
   readonly deviceId: string;
@@ -148,6 +200,7 @@ export class SiteConfigManifestService {
         }),
       ],
     ]);
+    assertMonitoringOnlySite(files);
     const signer = new ManifestSigner(settings.keys.configIntegrity);
     const statement = signer.sign(
       STATEMENT.siteConfig,

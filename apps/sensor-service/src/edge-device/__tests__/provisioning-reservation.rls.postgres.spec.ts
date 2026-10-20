@@ -102,6 +102,7 @@ const CODES = [
   'RES-LAPSE',
   'RES-DELIVER',
   'RES-NOCRED',
+  'RES-CHANNEL',
   'RES-SPENT',
 ] as const;
 type Code = (typeof CODES)[number];
@@ -739,6 +740,51 @@ describe('two-phase provisioning token on real Postgres (ADR-048 DEC-5.7)', () =
         new Date(nearExpiry.getTime() + 600_000),
       ),
     ).toBeNull();
+  });
+
+  it('a from-scratch reissue returns an uncommitted device to the generic channel, a committed one stays', async () => {
+    await reservations.reserve(
+      device('RES-CHANNEL'),
+      token('RES-CHANNEL'),
+      BINDING_A,
+      TTL_MS,
+      NOW,
+      issue,
+    );
+    expect((await row('RES-CHANNEL')).agentChannel).toBe(EdgeAgentChannel.SUDERRA_OS);
+    const reissue = (hash: string): Promise<boolean> =>
+      reservations.reissueToken(device('RES-CHANNEL'), {
+        tokenHash: hashProvisioningToken(hash),
+        tokenIssuedAt: NOW,
+        tokenExpiresAt: new Date('2026-10-21T00:00:00Z'),
+        lifecycleState: DeviceLifecycleState.REGISTERED,
+      });
+    expect(await reissue('1'.repeat(64))).toBe(true);
+    expect(await row('RES-CHANNEL')).toMatchObject({
+      agentChannel: EdgeAgentChannel.GENERIC_LINUX,
+      reservedBindingSha256: null,
+      issuedManifestSha256: null,
+    });
+
+    // Committed (binding set), but root never recorded the activation: the
+    // channel stays, because the committed binding proves the hardware.
+    const fresh = '2'.repeat(64);
+    expect(await reissue(fresh)).toBe(true);
+    await reservations.reserve(device('RES-CHANNEL'), fresh, BINDING_A, TTL_MS, NOW, issue);
+    await reservations.issueCredentials(
+      device('RES-CHANNEL'),
+      fresh,
+      { fingerprint: null, agentVersion: '1.6.0', mqttPasswordHash: 'hash' },
+      NOW,
+    );
+    await reservations.commitFirstSession(device('RES-CHANNEL'), NOW);
+    expect(await reissue('3'.repeat(64))).toBe(true);
+    expect(await row('RES-CHANNEL')).toMatchObject({
+      agentChannel: EdgeAgentChannel.SUDERRA_OS,
+      deviceBindingSha256: BINDING_A.digest.sha256,
+      mqttPasswordHash: null,
+      activationId: null,
+    });
   });
 
   it('a spent token reserves nothing and activates nothing', async () => {

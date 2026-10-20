@@ -1,6 +1,4 @@
-import { execFile } from 'child_process';
 import { pbkdf2, randomBytes, timingSafeEqual, createHash } from 'crypto';
-import { promises as fs } from 'fs';
 import { promisify } from 'util';
 
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
@@ -16,7 +14,6 @@ import {
   mayHoldBrokerSession,
 } from './entities/edge-device.entity';
 
-const execFileAsync = promisify(execFile);
 // PBKDF2 at 600k iterations is ~0.5 s of CPU; on the event loop it stalls every
 // request in the process for each CONNECT. The async form runs on libuv's pool.
 const pbkdf2Async = promisify(pbkdf2);
@@ -41,35 +38,27 @@ type DeviceAuthDenial =
   | 'password_mismatch';
 
 /**
- * MQTT Authentication Service
+ * MQTT Authentication Service — the broker's HTTP auth backend.
  *
- * Supports two modes (configured via MQTT_AUTH_MODE env var):
+ * Mosquitto calls /mqtt/auth, /mqtt/acl and /mqtt/superuser; credentials are
+ * verified against edge_devices.mqtt_password_hash and the ACL matches the
+ * device's tenant against the topic. Service accounts (backend_service,
+ * sensor_service, alert_service) are verified against hashes from the
+ * environment.
  *
- * 1. "http" (recommended for production) - DB-backed authentication
- *    Mosquitto calls HTTP endpoints (/mqtt/auth, /mqtt/acl, /mqtt/superuser)
- *    Credentials verified against edge_devices.mqtt_password_hash in database
- *    Cross-tenant ACL enforced by matching device's tenant_id against topic
- *    No file I/O, no locks, credentials participate in DB transactions
- *
- * 2. "file" (legacy) - File-based password_file authentication
- *    Credentials written to Mosquitto password file on disk
- *    Requires atomic writes, file locks, and SIGHUP reload
- *    ACL limited to Mosquitto's built-in pattern matching
- *
- * Service accounts (backend_service, sensor_service, alert_service) are
- * verified via environment variable hashes in both modes.
+ * This is the only backend. The legacy Mosquitto password-file mode
+ * (MQTT_AUTH_MODE=file) is refused at boot in every environment: the
+ * two-phase provisioning token is committed only when a device's own
+ * credential authenticates a CONNECT here (ADR-048 DEC-5.7), and in file mode
+ * Mosquitto never asks, so no activation could ever commit — on either agent
+ * channel — and a live credential would look never-activated.
  */
 @Injectable()
 export class MqttAuthService implements OnModuleInit {
   private readonly logger = new Logger(MqttAuthService.name);
 
-  // Auth mode: "http" (DB-backed) or "file" (legacy file-based)
-  private readonly authMode: 'http' | 'file';
-
-  // File-based mode settings (legacy)
-  private readonly passwordFilePath: string;
-  private readonly fileAuthEnabled: boolean;
-  private writeLock: Promise<void> = Promise.resolve();
+  /** A configured MQTT_AUTH_MODE other than `http`, refused at boot. */
+  private readonly refusedAuthMode: string | null;
 
   // Service account credentials (hashes from env vars)
   private readonly serviceAccounts: Map<string, string> = new Map();
@@ -81,11 +70,9 @@ export class MqttAuthService implements OnModuleInit {
     'alert_service',
   ]);
 
-  // PBKDF2 iteration counts per auth mode
-  // HTTP mode: Mosquitto never parses the hash - our service verifies it, so use OWASP-recommended count
-  // File mode: Mosquitto's password_file parser needs to handle the hash, keep at 101 for compatibility
+  // PBKDF2 iterations: Mosquitto never parses the hash — this service
+  // verifies it — so the OWASP-recommended count (SENSOR-LOW-008).
   private static readonly HTTP_MODE_ITERATIONS = 600_000;
-  private static readonly FILE_MODE_ITERATIONS = 101;
 
   // SENSOR-MEDIUM-004: negative-result cache for device lookups. A lookup that
   // misses the directory is recorded here (keyed `${column}:${value}`) for a
@@ -107,18 +94,8 @@ export class MqttAuthService implements OnModuleInit {
     private readonly deviceDirectory: DeviceDirectoryService,
     private readonly reservations: ProvisioningReservationService,
   ) {
-    // SENSOR-LOW-008: default to the DB-backed HTTP backend. File mode hashes
-    // at only 101 PBKDF2 iterations (Mosquitto password_file parser limit),
-    // orders of magnitude below OWASP guidance; HTTP mode uses 600k. Secure by
-    // default (Tier-2) — legacy file mode must now be opted into explicitly.
-    this.authMode = this.configService.get<string>('MQTT_AUTH_MODE', 'http') as 'http' | 'file';
-
-    // File-based settings
-    this.passwordFilePath = this.configService.get<string>(
-      'MOSQUITTO_PASSWORD_FILE',
-      'infrastructure/simulators/mosquitto/config/passwd',
-    );
-    this.fileAuthEnabled = this.configService.get<boolean>('MQTT_AUTH_ENABLED', false);
+    const mode = this.configService.get<string>('MQTT_AUTH_MODE', 'http');
+    this.refusedAuthMode = mode === 'http' ? null : mode;
 
     // Load service account hashes from env
     const serviceHashes: [string, string | undefined][] = [
@@ -132,32 +109,15 @@ export class MqttAuthService implements OnModuleInit {
   }
 
   async onModuleInit(): Promise<void> {
-    // SENSOR-LOW-008: fail closed on weak legacy file mode in production. The
-    // 101-iteration file-mode hash is unacceptable for a production trust
-    // boundary; starting in it must be an explicit, audited operator decision
-    // (MQTT_ALLOW_LEGACY_FILE_MODE=true) during a migration window, never a
-    // silent default.
-    const isProduction = this.configService.get<string>('NODE_ENV') === 'production';
-    const legacyFileModeAllowed =
-      this.configService.get<string>('MQTT_ALLOW_LEGACY_FILE_MODE') === 'true';
-    if (isProduction && this.authMode === 'file' && !legacyFileModeAllowed) {
+    if (this.refusedAuthMode !== null) {
       throw new Error(
-        'SECURITY: MQTT_AUTH_MODE=file uses 101 PBKDF2 iterations and is refused in ' +
-          'production. Use the DB-backed HTTP backend (MQTT_AUTH_MODE=http), or set ' +
-          'MQTT_ALLOW_LEGACY_FILE_MODE=true to opt into the legacy mode for a migration window.',
+        `MQTT_AUTH_MODE=${this.refusedAuthMode} is not supported: the broker must use the ` +
+          'HTTP auth backend (MQTT_AUTH_MODE=http, mosquitto go-auth calling /mqtt/auth). ' +
+          'A device activation commits only when its credential authenticates a CONNECT there ' +
+          '(ADR-048 DEC-5.7); the legacy password-file mode would never commit one.',
       );
     }
-
-    this.logger.log(`MQTT Authentication Service initialized (mode: ${this.authMode})`);
-
-    if (this.authMode === 'file' && this.fileAuthEnabled) {
-      try {
-        await fs.access(this.passwordFilePath);
-        this.logger.debug('Password file accessible');
-      } catch {
-        this.logger.warn('Password file not found, credentials will not be persisted');
-      }
-    }
+    this.logger.log('MQTT Authentication Service initialized (HTTP auth backend)');
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -531,7 +491,7 @@ export class MqttAuthService implements OnModuleInit {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // Credential Generation & Verification (shared by both modes)
+  // Credential Generation & Verification
   // ═══════════════════════════════════════════════════════════════════════════
 
   /**
@@ -540,11 +500,7 @@ export class MqttAuthService implements OnModuleInit {
    */
   async generateCredentials(): Promise<{ password: string; hash: string }> {
     const password = randomBytes(16).toString('base64');
-    const iterations =
-      this.authMode === 'http'
-        ? MqttAuthService.HTTP_MODE_ITERATIONS
-        : MqttAuthService.FILE_MODE_ITERATIONS;
-    const hash = await this.hashPassword(password, iterations);
+    const hash = await this.hashPassword(password);
     return { password, hash };
   }
 
@@ -552,8 +508,8 @@ export class MqttAuthService implements OnModuleInit {
    * Hash a password using PBKDF2-SHA512 (Mosquitto $7$ format).
    * Format: $7$iterations$base64salt$base64hash
    *
-   * SENSOR-LOW-008: the default is the OWASP-grade HTTP-mode count; the weak
-   * 101-iteration file-mode value must be passed explicitly by the legacy path.
+   * SENSOR-LOW-008: the default is the OWASP-grade count. verifyPassword
+   * reads the count from the hash, so a stored hash of any count verifies.
    */
   async hashPassword(
     password: string,
@@ -606,215 +562,17 @@ export class MqttAuthService implements OnModuleInit {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // File-based Operations (legacy mode - used when MQTT_AUTH_MODE=file)
+  // Credential lifecycle
   // ═══════════════════════════════════════════════════════════════════════════
 
   /**
-   * Add device credentials.
-   * In HTTP mode: no-op (credentials stored in DB only).
-   * In file mode: writes to Mosquitto password file.
+   * A device was just issued a broker credential (stored on its row, which
+   * /mqtt/auth reads). SENSOR-MEDIUM-004: drop any negative lookup entry so
+   * its first CONNECT resolves immediately instead of being refused for the
+   * rest of the negative TTL. Revoking a credential is the row's
+   * mqtt_password_hash becoming NULL; nothing else holds one.
    */
-  async addDeviceCredentials(username: string, passwordHash: string): Promise<boolean> {
-    // SENSOR-MEDIUM-004: a device just gained credentials — drop any negative
-    // lookup entry so its first CONNECT resolves immediately instead of being
-    // rejected for the remainder of the negative TTL.
+  noteCredentialsIssued(username: string): void {
     this.negativeLookupCache.delete(`mqtt_client_id:${username}`);
-
-    if (this.authMode === 'http') {
-      // In HTTP mode, credentials are stored in edge_devices table
-      // Mosquitto verifies via HTTP callbacks to /mqtt/auth
-      this.logger.debug(`MQTT credentials stored in DB for: ${username} (HTTP auth mode)`);
-      return true;
-    }
-
-    // Legacy file-based mode
-    return new Promise<boolean>((resolve, reject) => {
-      this.writeLock = this.writeLock.then(async () => {
-        try {
-          const result = await this._addDeviceCredentialsFile(username, passwordHash);
-          resolve(result);
-        } catch (err) {
-          reject(err instanceof Error ? err : new Error(String(err)));
-        }
-      });
-    });
-  }
-
-  /**
-   * Remove device credentials.
-   * In HTTP mode: no-op (handled by DB state change).
-   * In file mode: removes from Mosquitto password file.
-   */
-  async removeDeviceCredentials(username: string): Promise<boolean> {
-    if (this.authMode === 'http') {
-      this.logger.debug(`MQTT credentials removed from DB for: ${username} (HTTP auth mode)`);
-      return true;
-    }
-
-    return new Promise<boolean>((resolve, reject) => {
-      this.writeLock = this.writeLock.then(async () => {
-        try {
-          const result = await this._removeDeviceCredentialsFile(username);
-          resolve(result);
-        } catch (err) {
-          reject(err instanceof Error ? err : new Error(String(err)));
-        }
-      });
-    });
-  }
-
-  /**
-   * Check if device credentials exist.
-   * In HTTP mode: checks the database.
-   * In file mode: checks the password file.
-   */
-  async hasCredentials(username: string): Promise<boolean> {
-    if (this.authMode === 'http') {
-      const device = await this.findDeviceAcrossSchemas('mqtt_client_id', username);
-      return !!device?.mqttPasswordHash;
-    }
-
-    // Legacy file mode
-    if (!this.fileAuthEnabled) return false;
-    try {
-      const content = await fs.readFile(this.passwordFilePath, 'utf-8');
-      return content.split('\n').some((line) => {
-        if (line.startsWith('#') || !line.trim()) return false;
-        const colonIndex = line.indexOf(':');
-        return colonIndex > 0 && line.substring(0, colonIndex) === username;
-      });
-    } catch {
-      return false;
-    }
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // File-based internal methods (legacy)
-  // ─────────────────────────────────────────────────────────────────────────
-
-  private async _addDeviceCredentialsFile(
-    username: string,
-    passwordHash: string,
-  ): Promise<boolean> {
-    if (!this.fileAuthEnabled) {
-      this.logger.debug('MQTT file auth disabled, skipping credential storage');
-      return true;
-    }
-
-    try {
-      let content = '';
-      try {
-        content = await fs.readFile(this.passwordFilePath, 'utf-8');
-      } catch {
-        content = '';
-      }
-
-      const lines = content.split('\n').filter((line) => line.trim() && !line.startsWith('#'));
-      const entries = new Map<string, string>();
-
-      for (const line of lines) {
-        const colonIndex = line.indexOf(':');
-        if (colonIndex > 0) {
-          entries.set(line.substring(0, colonIndex), line.substring(colonIndex + 1));
-        }
-      }
-
-      entries.set(username, passwordHash);
-
-      const header = `# ============================================\n# Mosquitto Password File\n# ============================================\n# Auto-generated - do not edit manually\n# Edge device credentials managed by sensor-service\n# ============================================\n\n`;
-
-      const serviceAccountLines: string[] = [];
-      for (const [name, hash] of this.serviceAccounts) {
-        serviceAccountLines.push(`${name}:${hash}`);
-      }
-      const serviceSection =
-        serviceAccountLines.length > 0
-          ? `# Service Accounts\n${serviceAccountLines.join('\n')}\n\n# Edge Device Accounts\n`
-          : '# Edge Device Accounts\n';
-
-      const deviceEntries: string[] = [];
-      for (const [user, hash] of entries) {
-        if (!this.serviceAccounts.has(user)) {
-          deviceEntries.push(`${user}:${hash}`);
-        }
-      }
-
-      const newContent = header + serviceSection + deviceEntries.join('\n') + '\n';
-
-      // Atomic write: temp file → fsync → rename (restrictive permissions)
-      const tmpPath = this.passwordFilePath + '.tmp';
-      await fs.writeFile(tmpPath, newContent, { encoding: 'utf-8', mode: 0o600 });
-      const fileHandle = await fs.open(tmpPath, 'r');
-      await fileHandle.datasync();
-      await fileHandle.close();
-      await fs.rename(tmpPath, this.passwordFilePath);
-
-      this.logger.log(`Added MQTT credentials for device: ${username}`);
-      await this.reloadMosquitto();
-      return true;
-    } catch (error) {
-      this.logger.error(`Failed to add MQTT credentials for ${username}:`, error);
-      return false;
-    }
-  }
-
-  private async _removeDeviceCredentialsFile(username: string): Promise<boolean> {
-    if (!this.fileAuthEnabled) return true;
-
-    try {
-      let content = await fs.readFile(this.passwordFilePath, 'utf-8');
-      const lines = content.split('\n');
-
-      const filteredLines = lines.filter((line) => {
-        if (!line.trim() || line.startsWith('#')) return true;
-        const colonIndex = line.indexOf(':');
-        return colonIndex > 0 ? line.substring(0, colonIndex) !== username : true;
-      });
-
-      content = filteredLines.join('\n');
-
-      const tmpPath = this.passwordFilePath + '.tmp';
-      await fs.writeFile(tmpPath, content, { encoding: 'utf-8', mode: 0o600 });
-      const fileHandle = await fs.open(tmpPath, 'r');
-      await fileHandle.datasync();
-      await fileHandle.close();
-      await fs.rename(tmpPath, this.passwordFilePath);
-
-      this.logger.log(`Removed MQTT credentials for device: ${username}`);
-      await this.reloadMosquitto();
-      return true;
-    } catch (error) {
-      this.logger.error(`Failed to remove MQTT credentials for ${username}:`, error);
-      return false;
-    }
-  }
-
-  private async reloadMosquitto(): Promise<boolean> {
-    try {
-      try {
-        // Use execFile with explicit args to avoid shell injection
-        await execFileAsync('mosquitto_pid_reload', [], { timeout: 5000 }).catch(async () => {
-          // Fallback: use pkill to send SIGHUP without shell interpolation
-          await execFileAsync('pkill', ['-HUP', 'mosquitto'], { timeout: 5000 });
-        });
-        this.logger.log('Mosquitto reload signal sent');
-      } catch {
-        try {
-          // Docker fallback: use execFile with explicit args (no shell)
-          await execFileAsync('docker', ['exec', 'mosquitto', 'kill', '-HUP', '1'], {
-            timeout: 5000,
-          });
-          this.logger.log('Mosquitto reload signal sent via Docker');
-        } catch {
-          this.logger.warn('Could not reload Mosquitto - may need manual restart');
-        }
-      }
-      return true;
-    } catch (error) {
-      this.logger.warn(
-        `Mosquitto reload failed: ${error instanceof Error ? error.message : 'unknown'}`,
-      );
-      return false;
-    }
   }
 }

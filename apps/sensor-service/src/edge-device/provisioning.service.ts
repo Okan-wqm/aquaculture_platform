@@ -278,9 +278,7 @@ export class ProvisioningService {
         'Cannot regenerate token for a decommissioned or revoked device',
       );
     }
-    if (device.mqttClientId && device.credentialsIssuedAt !== null) {
-      await this.mqttAuthService.removeDeviceCredentials(device.mqttClientId);
-    }
+    // The reissue revoked the pending credential (mqtt_password_hash is NULL).
     const saved = device;
     this.logger.log(`Regenerated token for device ${device.deviceCode}`);
 
@@ -515,15 +513,8 @@ export class ProvisioningService {
       });
     }
 
-    // Add MQTT credentials to password file (for Mosquitto file-auth mode)
     const mqttClientId = device.mqttClientId ?? '';
-    const mqttResult = await this.mqttAuthService.addDeviceCredentials(
-      mqttClientId,
-      mqttPasswordHash,
-    );
-    if (!mqttResult) {
-      throw new Error('Failed to write MQTT credentials');
-    }
+    this.mqttAuthService.noteCredentialsIssued(mqttClientId);
 
     this.logger.log(`Device ${device.deviceCode} issued activation credentials (pending commit)`);
 
@@ -713,11 +704,7 @@ export class ProvisioningService {
       );
     }
 
-    // Revoke old MQTT credentials
-    if (device.mqttClientId) {
-      await this.mqttAuthService.removeDeviceCredentials(device.mqttClientId);
-    }
-
+    // The reissue revoked the old broker credential (mqtt_password_hash is NULL).
     this.logger.log(`Device ${device.deviceCode} reset for re-provisioning by tenant ${tenantId}`);
 
     return {
@@ -922,13 +909,7 @@ export class ProvisioningService {
             existing.tenantId,
             (qr) => qr.manager.save(existing),
           );
-          const mqttResult = await this.mqttAuthService.addDeviceCredentials(
-            existing.mqttClientId ?? '',
-            mqttPasswordHash,
-          );
-          if (!mqttResult) {
-            throw new Error('Failed to write MQTT credentials');
-          }
+          this.mqttAuthService.noteCredentialsIssued(existing.mqttClientId ?? '');
 
           return {
             success: true,
@@ -997,15 +978,7 @@ export class ProvisioningService {
         // SENSOR-MEDIUM-004: the device and its directory route commit together.
         const saved = await this.deviceDirectory.saveNewDevice(device, transactionalManager);
 
-        // MQTT credentials INSIDE transaction so rollback on failure
-        const mqttResult = await this.mqttAuthService.addDeviceCredentials(
-          mqttClientId,
-          mqttPasswordHash,
-        );
-        if (!mqttResult) {
-          throw new Error('Failed to write MQTT credentials');
-        }
-
+        this.mqttAuthService.noteCredentialsIssued(mqttClientId);
         return saved;
       },
     );

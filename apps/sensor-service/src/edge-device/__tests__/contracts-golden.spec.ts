@@ -81,7 +81,13 @@ import {
   PLATFORM_ROLE_PERMISSIONS,
   RbacManifestService,
 } from '../rbac-manifest.service';
-import { buildSiteConfig, SiteConfigManifestService } from '../site-config-manifest.service';
+import {
+  assertMonitoringOnlySite,
+  buildSiteConfig,
+  SG1_FIELD_WRITES_OPEN,
+  SiteConfigManifestService,
+  SiteGateClosedError,
+} from '../site-config-manifest.service';
 import {
   loadSuderraEdgeSettings,
   SuderraEdgeConfig,
@@ -848,6 +854,35 @@ describe('contracts golden — what the cloud refuses to forward or issue', () =
     await expect(
       manifests.preflight(requestOf({ os_version: '1.0.0', agent_abi: '0-1' }), revpiDevice),
     ).resolves.toMatchObject({ version: '1.6.0' });
+  });
+
+  it('SG-1: no site config the cloud signs lets the agent write to the field', () => {
+    const files = (yaml: string): Map<SitePath, Buffer> =>
+      new Map<SitePath, Buffer>([['config.yaml', Buffer.from(yaml, 'utf8')]]);
+    expect(SG1_FIELD_WRITES_OPEN).toBe(false);
+    // Monitoring-only I/O passes: the fixtures' read-only Modbus device, an input pin.
+    expect(() =>
+      assertMonitoringOnlySite(files(fixtureText('site-files/v2/config.yaml'))),
+    ).not.toThrow();
+    expect(() =>
+      assertMonitoringOnlySite(files('gpio:\n  - name: level\n    direction: input\n')),
+    ).not.toThrow();
+    for (const yaml of [
+      'modbus:\n  - name: pond-1\n    allow_writes: true\n',
+      'gpio:\n  - name: valve\n    pin: 5\n    direction: output\n',
+      'gpio:\n  - pin: 6\n  - direction: "OUT"\n',
+      'opcua:\n  writable: yes\n',
+    ]) {
+      expect(() => assertMonitoringOnlySite(files(yaml))).toThrow(SiteGateClosedError);
+    }
+    expect(() =>
+      assertMonitoringOnlySite(
+        new Map<SitePath, Buffer>([
+          ['config.yaml', Buffer.from('device_id: "x"\n')],
+          ['revpi/config.rsc', fixtureBytes('site-files/v1/revpi/config.rsc')],
+        ]),
+      ),
+    ).toThrow(/revpi\/config\.rsc defines field outputs/);
   });
 
   it('a release the catalog cannot admit is release-unavailable, before any reservation', async () => {

@@ -458,6 +458,10 @@ verb can record are listed at the end.
   existing ancestor a tree is unlanded; anything else is an invalid policy, and a git failure on the
   ref or an ancestor is invalid. The pinned references are compared before any ref reaches git.
   Test-first, in this item's fix commit. Owner Okan-wqm, deadline 2027-01-18.
+- **Landed (L4, `G003-A19-1-AB`):** `_regression_ref_presence` classifies each pinned ref (landed,
+  unlanded, irregular) and `_valid_operator_policy_structure` compares the pinned references before
+  the loop. `OperatorPrerequisiteTests`: a symlinked ancestor, a git failure on an ancestor and an
+  unpinned ref were red on main; symlink, tree and gitlink at the ref stay invalid.
 
 ### ARIA-MEDIUM-663 — an owed closure proof leaves readiness live_proven
 
@@ -472,6 +476,10 @@ verb can record are listed at the end.
   one state (operator: `operator_blocked`; engineering only: `declared`; otherwise the derived state)
   and replaces `_with_capability_blocker`; Mode-A is still judged on the readiness as derived.
   Test-first, in this item's fix commit. Owner Okan-wqm, deadline 2027-01-18.
+- **Landed (L4, `G003-A19-1-AB`):** `_apply_operator_prerequisites` collects the operator and
+  engineering blockers and folds them once through `_with_prerequisite_blockers`.
+  `test_an_owed_proof_demotes_proven_readiness_to_declared` was red on main (`live_proven`); the
+  landed-refs control stays `('live_proven', ())`.
 
 ### ARIA-HIGH-521 — the merge lane's own observed row blocks every perimeter
 

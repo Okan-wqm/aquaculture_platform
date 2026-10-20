@@ -106,6 +106,14 @@ PRODUCER_CLASSES: Final[Mapping[str, ProducerClass]] = {
     "judge_fanout.sample": ProducerClass(
         _same(DISCRETIONARY, "evidence_judgment", "adversarial_judgment"),
         "the finding stays unjudged; the next cycle's sample can draw it again"),
+    # WP-J slice C — the judgment funnel's tiered seats. Classified like
+    # judge_fanout.sample (the work starts something new): the funnel asks
+    # the door for the seats it plans BEFORE any mint, so its per-night
+    # ENVELOPE budget is expressed through this door and a refusal holds
+    # the night (one judgment_funnel_budget_held row), never fails it.
+    "judgment_funnel.tiers": ProducerClass(
+        _same(DISCRETIONARY, "evidence_judgment", "adversarial_judgment"),
+        "the finding stays unjudged; the next cycle's sample can draw it again"),
     "judge_fanout.arbitration": ProducerClass(
         _same(DISCRETIONARY, "consensus_arbitration"),
         "split and anchor groups are re-derived from the feedback ledger every cycle"),

@@ -830,7 +830,14 @@ describe('ARIA live runtime/documentation SSoT', () => {
     expect(kernelSurface()).toContain(ARIA_ADAPTERS_DIR + '/**');
 
     const jobs = workflow.jobs ?? {};
-    expect(Object.keys(jobs)).toEqual(['changes', 'suite', 'lane', 'state', 'aria-kernel']);
+    expect(Object.keys(jobs)).toEqual([
+      'changes',
+      'suite',
+      'lane',
+      'state',
+      'workspace',
+      'aria-kernel',
+    ]);
     for (const job of ['suite', 'lane', 'state']) {
       expect(jobs[job]?.needs).toBe('changes');
       expect(jobs[job]?.if).toBe("needs.changes.outputs.kernel == 'true'");
@@ -866,7 +873,7 @@ describe('ARIA live runtime/documentation SSoT', () => {
     // ARIA-MEDIUM-130 / ARIA-LOW-599 — both halves refuse a skipped real-sandbox
     // pin, which is right only on a host that proved it can confine: each job
     // that runs the suite runner provisions the backend before it.
-    for (const job of ['suite', 'lane']) {
+    for (const job of ['suite', 'lane', 'workspace']) {
       const steps = jobs[job]?.steps ?? [];
       const provisioned = steps.findIndex(
         (step) => step.uses === './.github/actions/ensure-sandbox-backend',
@@ -883,10 +890,23 @@ describe('ARIA live runtime/documentation SSoT', () => {
     // aria-kernel/tests/test_state_compaction_gate.py. No suite runner here.
     expect(runnerSteps('state')).toEqual([]);
 
+    // workspace (ARIA-HIGH-602): the whole-checkout checks — the suite's live
+    // partition (the modules that declare READS_LIVE_CHECKOUT), the aria-poc
+    // drift bound, the discovery run, the acceptance harness — leave the jobs
+    // the surface decision may skip. No needs, no if: it runs on every PR.
+    const workspaceJob = jobs.workspace;
+    expect(workspaceJob?.needs).toBeUndefined();
+    expect(workspaceJob?.if).toBeUndefined();
+    expect(workspaceJob?.['runs-on']).toBe('ubuntu-22.04');
+    expect(runnerSteps('workspace').map((step) => step.run)).toEqual([
+      `bash ${ARIA_SUITE_RUNNER} --live ` +
+        '"${RUNNER_TEMP}/aria-suite-shards/live.attempt-${GITHUB_RUN_ATTEMPT}.json"',
+    ]);
+
     // aria-kernel: the verdict — every job green AND the reports prove the
     // shards ran the whole suite exactly once.
     const verdict = jobs['aria-kernel'];
-    expect(verdict?.needs).toEqual(['changes', 'suite', 'lane', 'state']);
+    expect(verdict?.needs).toEqual(['changes', 'suite', 'lane', 'state', 'workspace']);
     expect(verdict?.if).toBe('${{ !cancelled() }}');
     expect((verdict?.steps ?? []).map((step) => step.run)).toContain(
       'python3 aria-kernel/tests/_helpers/suite_shards.py verify --reports-dir "${RUNNER_TEMP}/aria-suite-shards"',

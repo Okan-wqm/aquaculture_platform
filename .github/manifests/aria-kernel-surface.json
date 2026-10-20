@@ -41,7 +41,7 @@
     },
     {
       "glob": "tools/aria-poc/**",
-      "readers": "lane: tools/aria-poc invariant tests (Plan ARIA-V2 3.6)"
+      "readers": "workspace (always-run): tools/aria-poc invariant tests (Plan ARIA-V2 3.6); the drift bound walks the whole repo"
     },
     {
       "glob": "tools/shared/**",
@@ -53,7 +53,7 @@
     },
     {
       "glob": "tools/aria-acceptance/**",
-      "readers": "lane: `npm run test:aria-acceptance:unit` and `npm run test:aria-acceptance`"
+      "readers": "lane: `npm run test:aria-acceptance:unit`; workspace (always-run): `npm run test:aria-acceptance`, whose harness reads the whole repo"
     },
     {
       "glob": "tools/aria/**",

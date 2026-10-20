@@ -348,5 +348,108 @@ class KernelWorkflowInputsTest(unittest.TestCase):
             self.assertIn(command, runs, f"{workflow_path} job `{context}` does not run `{command}`")
 
 
+def _run_lines(job: dict[str, Any]) -> list[str]:
+    """Every stripped `run:` script line of ``job``, heredoc bodies included."""
+
+    lines: list[str] = []
+    for step in job.get("steps", []):
+        run = step.get("run")
+        if isinstance(run, str):
+            lines.extend(line.strip() for line in run.splitlines() if line.strip())
+    return lines
+
+
+class WorkspaceJobTest(unittest.TestCase):
+    """ARIA-HIGH-602 — whole-checkout reads leave the jobs the surface decision may skip.
+
+    The `changes` job runs `suite`, `lane` and `state` only when a PR touches
+    the kernel surface. Some checks in those jobs read the WHOLE checkout: the
+    tools/aria-poc drift bound walks the repository, `discovery run
+    --workspace-root .` and the acceptance harness read product code, and the
+    suite's live partition runs the real adapter over apps/farm-service/src.
+    A PR that changed only what such a check read skipped it and passed the
+    required check. Those checks live in `workspace`, which has no `needs` and
+    no `if` — it runs on every PR, whatever the surface decision said.
+    """
+
+    def setUp(self) -> None:
+        self.workflow = _load_yaml(_KERNEL_WORKFLOW)
+
+    def test_the_workspace_job_runs_on_every_pr(self) -> None:
+        job = self.workflow["jobs"].get("workspace")
+        self.assertIsNotNone(job, "aria-kernel.yml has no `workspace` job")
+        assert job is not None
+        self.assertNotIn("needs", job, "the workspace job must not wait on the surface decision")
+        self.assertNotIn("if", job, "the workspace job must run on every PR")
+        # The image the discovery sandbox needs (see `suite`), and a hang guard.
+        self.assertEqual(job["runs-on"], "ubuntu-22.04")
+        self.assertLessEqual(int(job["timeout-minutes"]), 20)
+
+    def test_the_whole_checkout_checks_live_only_in_workspace(self) -> None:
+        workspace = _run_lines(self.workflow["jobs"].get("workspace") or {})
+        gated = {name: _run_lines(job) for name, job in gated_jobs(self.workflow).items()}
+        # (label, needle, exact-line?) for every whole-checkout check. The
+        # acceptance harness is exact-line so the self-test script
+        # (`test:aria-acceptance:unit`, a tools/aria-acceptance-only read that
+        # the surface covers) does not match it.
+        checks = (
+            ("the suite's live partition", "aria-suite-run.sh --live", False),
+            ("the tools/aria-poc invariant tests", "unittest discover tools/aria-poc/invariants", False),
+            ("the acceptance harness", "npm run test:aria-acceptance", True),
+            ("the tools bootstrap over the workspace", "integrity migrate-tools-bootstrap", False),
+            ("the discovery run", "discovery run --workspace-root .", False),
+            ("the integrity verify over the workspace", "integrity verify --workspace-root .", False),
+        )
+        for label, needle, exact in checks:
+            present = any(line == needle if exact else needle in line for line in workspace)
+            self.assertTrue(present, f"the workspace job does not run {label} (`{needle}`)")
+            holders = [
+                name for name, lines in gated.items()
+                if any(line == needle if exact else needle in line for line in lines)
+            ]
+            self.assertEqual(holders, [], f"{label} sits in a job the surface decision may skip: {holders}")
+
+    def test_a_gated_job_reads_the_whole_checkout_only_through_verify_registry(self) -> None:
+        # `workflow verify-registry --workspace-root .` reads workflow files,
+        # which the surface covers (.github/**); it is traced like any other
+        # read. Any other `--workspace-root .` in a gated job is a whole-checkout
+        # read a PR off the surface skips.
+        for name, job in gated_jobs(self.workflow).items():
+            for step in job.get("steps", []):
+                run = step.get("run")
+                if isinstance(run, str) and "--workspace-root ." in run:
+                    self.assertEqual(
+                        step.get("name"), "Verify workflow registry (whole inventory)",
+                        f"aria-kernel.yml job `{name}` step `{step.get('name')}` reads the whole "
+                        "checkout in a job the surface decision may skip; it belongs in `workspace`",
+                    )
+
+    def test_the_verdict_requires_workspace_success_whatever_the_surface_said(self) -> None:
+        verdict = self.workflow["jobs"]["aria-kernel"]
+        self.assertIn("workspace", verdict.get("needs") or [], "the verdict does not need `workspace`")
+        require = next(
+            step for step in verdict["steps"] if step.get("name") == "Require every kernel job"
+        )
+        self.assertIn("WORKSPACE_RESULT", require.get("env") or {})
+        self.assertIn('test "${WORKSPACE_RESULT}" = success', require["run"])
+
+    def test_the_required_check_contract_names_the_workspace_job(self) -> None:
+        manifest = json.loads(
+            (_REPO_ROOT / ".github/manifests/main-required-status-checks.json").read_text(encoding="utf-8")
+        )
+        contracts = [
+            context
+            for contract in manifest["workflow_contracts"]
+            if contract["workflow"] == _KERNEL_WORKFLOW
+            for context in contract["contexts"]
+        ]
+        self.assertTrue(contracts, f"main-required-status-checks.json has no contract for {_KERNEL_WORKFLOW}")
+        for context in contracts:
+            self.assertIn(
+                "workspace", context["requires_jobs"],
+                f"the {context['context']} contract's requires_jobs does not name `workspace`",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

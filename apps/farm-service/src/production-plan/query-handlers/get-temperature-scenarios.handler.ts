@@ -7,10 +7,8 @@ import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { DataSource } from 'typeorm';
 
 import { GetTemperatureScenariosQuery } from '../queries/get-temperature-scenarios.query';
-import {
-  TemperatureScenario,
-  TemperatureScenarioPoint,
-} from '../entities/temperature-scenario.entity';
+import { TemperatureScenario } from '../entities/temperature-scenario.entity';
+import { TemperatureScenarioPoint } from '../entities/temperature-scenario-point.entity';
 
 @QueryHandler(GetTemperatureScenariosQuery)
 export class GetTemperatureScenariosHandler implements IQueryHandler<GetTemperatureScenariosQuery> {

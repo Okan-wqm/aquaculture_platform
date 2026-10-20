@@ -13,9 +13,9 @@ import { DataSource } from 'typeorm';
 import { CreateTemperatureScenarioQuery } from '../queries/create-temperature-scenario.query';
 import {
   TemperatureScenario,
-  TemperatureScenarioPoint,
   TemperatureScenarioSource,
 } from '../entities/temperature-scenario.entity';
+import { TemperatureScenarioPoint } from '../entities/temperature-scenario-point.entity';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 

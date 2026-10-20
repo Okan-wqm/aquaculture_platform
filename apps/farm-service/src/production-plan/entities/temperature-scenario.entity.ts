@@ -85,36 +85,6 @@ export class TemperatureScenario {
   deletedAt?: Date;
 }
 
-/**
- * One dated point of a scenario's curve. Kept as rows (not JSON) so the
- * interpolation reads a range query and the Copernicus provider can upsert
- * points by date without rewriting a blob.
- */
-@Index(['tenantId', 'scenarioId', 'date'])
-@Entity('temperature_scenario_points')
-export class TemperatureScenarioPoint {
-  @Field(() => ID)
-  @PrimaryGeneratedColumn('uuid')
-  id!: string;
-
-  @Field()
-  @Column('uuid')
-  tenantId!: string;
-
-  @Field(() => ID)
-  @Column('uuid')
-  scenarioId!: string;
-
-  /** Yerel site günü (date, saat yok — interpolasyon gün çözünürlüklü). */
-  @Field()
-  @Column({ type: 'date' })
-  date!: string;
-
-  @Field(() => Float)
-  @Column({ type: 'real' })
-  celsius!: number;
-}
-
 @ObjectType()
 export class TemperatureScenarioResponse {
   @Field(() => ID)

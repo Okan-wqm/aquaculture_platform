@@ -23,9 +23,9 @@ import { DataSource, In } from 'typeorm';
 import { GetTankGrowthProjectionQuery } from '../queries/get-tank-growth-projection.query';
 import {
   TemperatureScenario,
-  TemperatureScenarioPoint,
   TemperatureScenarioSource,
 } from '../entities/temperature-scenario.entity';
+import { TemperatureScenarioPoint } from '../entities/temperature-scenario-point.entity';
 import { ProtocolAssignment } from '../../feeding-protocol/entities/protocol-assignment.entity';
 import { FeedingProtocolV2 } from '../../feeding-protocol/entities/feeding-protocol-v2.entity';
 import type { FcrOverride } from '../../feeding-protocol/entities/protocol-assignment.entity';

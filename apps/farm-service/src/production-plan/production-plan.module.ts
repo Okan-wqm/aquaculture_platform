@@ -5,17 +5,15 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
-import {
-  TemperatureScenario,
-  TemperatureScenarioPoint,
-} from './entities/temperature-scenario.entity';
+import { TemperatureScenario } from './entities/temperature-scenario.entity';
+import { TemperatureScenarioPoint } from './entities/temperature-scenario-point.entity';
 import { GetTemperatureScenariosHandler } from './query-handlers/get-temperature-scenarios.handler';
 import { CreateTemperatureScenarioHandler } from './query-handlers/create-temperature-scenario.handler';
 import { DeleteTemperatureScenarioHandler } from './query-handlers/delete-temperature-scenario.handler';
 import { GetTankGrowthProjectionHandler } from './query-handlers/get-tank-growth-projection.handler';
 import { ProductionPlanResolver } from './resolvers/production-plan.resolver';
-import { ProtocolRateService } from '../feeding-protocol/services/protocol-rate.service';
-import { WaterTemperatureService } from '../water-quality/services/water-temperature.service';
+import { FeedingProtocolCoreModule } from '../feeding-protocol/feeding-protocol-core.module';
+import { WaterQualityModule } from '../water-quality/water-quality.module';
 
 export const ProductionPlanQueryHandlers = [
   GetTemperatureScenariosHandler,
@@ -25,13 +23,14 @@ export const ProductionPlanQueryHandlers = [
 ];
 
 @Module({
-  imports: [TypeOrmModule.forFeature([TemperatureScenario, TemperatureScenarioPoint])],
-  providers: [
-    ...ProductionPlanQueryHandlers,
-    ProductionPlanResolver,
-    ProtocolRateService,
-    WaterTemperatureService,
+  imports: [
+    TypeOrmModule.forFeature([TemperatureScenario, TemperatureScenarioPoint]),
+    // ProtocolRateService comes from FeedingProtocolCoreModule (its provider
+    // home) — re-providing it here would split its state across two instances.
+    FeedingProtocolCoreModule,
+    WaterQualityModule,
   ],
+  providers: [...ProductionPlanQueryHandlers, ProductionPlanResolver],
   exports: [ProductionPlanResolver],
 })
 export class ProductionPlanModule {}

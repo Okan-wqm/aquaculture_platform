@@ -51,10 +51,15 @@ pub(super) fn decode_command(
 ) -> Result<CommandMessage, CommandDecodeRejection> {
     let tenant_bytes = match tenant_bytes {
         Some(tenant_bytes) => tenant_bytes,
+        // Enforcing (the only mode of the suderra-os profile, ADR-048
+        // DEC-9.1): no tenant binding, no command.
         None if matches!(signature_mode, SignatureMode::Enforcing) => {
             return Err(CommandDecodeRejection::TenantUnavailable);
         }
+        #[cfg(not(feature = "suderra-os"))]
         None => return parse_legacy_command(payload),
+        #[cfg(feature = "suderra-os")]
+        None => return Err(CommandDecodeRejection::TenantUnavailable),
     };
 
     match envelope_adapter::try_parse_and_verify(payload, tenant_bytes, signature_mode, rbac_store)
@@ -66,6 +71,7 @@ pub(super) fn decode_command(
             timestamp: adapted.timestamp,
             verified_co_approver: adapted.verified_co_approver,
         }),
+        #[cfg(not(feature = "suderra-os"))]
         AdapterOutcome::NotEnvelopeFormat
             if matches!(
                 signature_mode,
@@ -240,6 +246,7 @@ mod tests {
         assert!(!command.verified_co_approver);
     }
 
+    #[cfg(not(feature = "suderra-os"))]
     #[test]
     fn permissive_mode_accepts_legacy_payload() {
         let store = RbacManifestStore::new();
@@ -255,6 +262,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(feature = "suderra-os"))]
     #[test]
     fn disabled_mode_accepts_legacy_payload() {
         let store = RbacManifestStore::new();

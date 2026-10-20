@@ -598,6 +598,17 @@ impl Permission {
         )
     }
 
+    /// ADR-048 DEC-9.4: `true` when the Suderra OS agent refuses this
+    /// permission outright. Until operator keys and two-person co-signing
+    /// arrive (P2), the only command key is the single platform actor's, so
+    /// a co-approver signature cannot mean a second person: every
+    /// two-person-integrity permission is refused fail-closed, with or
+    /// without one. Always `false` in the generic profile, where the engine's
+    /// co-approver requirement applies.
+    pub fn refused_until_operator_co_signing(&self) -> bool {
+        cfg!(feature = "suderra-os") && self.requires_two_person_integrity()
+    }
+
     /// Returns `true` if this permission is a write (mutating) operation.
     ///
     /// **WHY:** Signature verification pipeline (ADR-018 SignatureMode::Enforcing

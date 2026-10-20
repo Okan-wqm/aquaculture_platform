@@ -1661,11 +1661,15 @@ impl AppState {
     /// INFALLIBLE: Moka cache construction doesn't touch disk
     /// or syscalls; can't fail. Returns `()` not `Result`.
     pub fn init_jti_dedup_table(&mut self) {
+        #[cfg(not(feature = "suderra-os"))]
         use crate::command_envelope::envelope::SignatureMode;
         use crate::command_envelope::{
             JtiDedupTable, LayeredJtiDedupTable, MokaJtiDedupTable, SqlCipherJtiDedupTable,
         };
 
+        // ADR-048 DEC-9.1: the suderra-os profile has no Disabled mode, so
+        // replay defense is always on there.
+        #[cfg(not(feature = "suderra-os"))]
         if matches!(self.config.signature_mode, SignatureMode::Disabled) {
             info!("JTI dedup table skipped: signature_mode=Disabled (HC-1 backward compat)");
             return;

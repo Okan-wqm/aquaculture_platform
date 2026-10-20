@@ -300,10 +300,11 @@ pub fn check_signature_mode_consistency(
         return SignatureModeConsistency::LicenseDoesNotRequireSignedDeploy;
     }
     match signature_mode {
+        #[cfg(not(feature = "suderra-os"))]
         SignatureMode::Disabled => SignatureModeConsistency::CriticalMismatchDisabledSignatureMode,
-        SignatureMode::Permissive | SignatureMode::Enforcing => {
-            SignatureModeConsistency::Consistent
-        }
+        #[cfg(not(feature = "suderra-os"))]
+        SignatureMode::Permissive => SignatureModeConsistency::Consistent,
+        SignatureMode::Enforcing => SignatureModeConsistency::Consistent,
     }
 }
 
@@ -613,7 +614,9 @@ mod tests {
         // so EVERY signature_mode is acceptable.
         let c = EdgeLicenseLimits::conservative();
         for mode in [
+            #[cfg(not(feature = "suderra-os"))]
             SignatureMode::Disabled,
+            #[cfg(not(feature = "suderra-os"))]
             SignatureMode::Permissive,
             SignatureMode::Enforcing,
         ] {
@@ -624,6 +627,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(feature = "suderra-os"))]
     #[test]
     fn consistency_signed_required_plus_disabled_is_critical() {
         let l = EdgeLicenseLimits {
@@ -636,6 +640,7 @@ mod tests {
         ));
     }
 
+    #[cfg(not(feature = "suderra-os"))]
     #[test]
     fn consistency_signed_required_plus_permissive_is_consistent() {
         let l = EdgeLicenseLimits {

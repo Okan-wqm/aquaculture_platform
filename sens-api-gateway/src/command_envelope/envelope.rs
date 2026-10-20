@@ -63,16 +63,24 @@ pub const MAX_CMD_NAME_BYTES: usize = 128;
 /// backward compat — operators running pre-Batch-45 configs (no field)
 /// get the same de-facto behavior. Explicit Permissive/Enforcing
 /// migration comes from operator-editable config.yaml.
+///
+/// ADR-048 DEC-9.1: the `suderra-os` profile compiles `Enforcing` alone.
+/// `Disabled` and `Permissive` do not exist there, so no configuration,
+/// payload or code path can lower the mode; a config that names one fails
+/// to parse instead of silently weakening the command plane.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SignatureMode {
     /// Legacy compatibility. Any envelope accepted. Operator opt-in only.
+    #[cfg(not(feature = "suderra-os"))]
     #[default]
     Disabled,
     /// Transitional. Unsigned mutating commands logged but accepted; signed
     /// envelopes MUST verify.
+    #[cfg(not(feature = "suderra-os"))]
     Permissive,
     /// Production default. Unsigned mutating commands rejected.
+    #[cfg_attr(feature = "suderra-os", default)]
     Enforcing,
 }
 
@@ -430,6 +438,7 @@ pub fn verify_envelope(
     let requires_signature = permission_for_command(&env.cmd, &env.params).is_some();
     match (mode, env.signature.as_ref(), requires_signature) {
         // Disabled — any envelope passes; no signature verify.
+        #[cfg(not(feature = "suderra-os"))]
         (SignatureMode::Disabled, _, _) => {}
         // Enforcing + permissioned command + no signature → reject.
         (SignatureMode::Enforcing, None, true) => {
@@ -438,6 +447,7 @@ pub fn verify_envelope(
         // Enforcing + anonymous command + no signature → accept.
         (SignatureMode::Enforcing, None, false) => {}
         // Permissive + no signature → accept (audit at sink-side).
+        #[cfg(not(feature = "suderra-os"))]
         (SignatureMode::Permissive, None, _) => {}
         // Any mode + signature present → verify (Gate 8).
         (_, Some(sig), _) => {
@@ -633,6 +643,15 @@ mod tests {
         }
     }
 
+    /// Gates 1-6 run before the signature gate, so the structural tests
+    /// run under the most permissive mode the profile compiles; their
+    /// envelopes are anonymous (`ping`) or signed, so they also pass Gate 7
+    /// under Enforcing, the only mode of the suderra-os profile.
+    #[cfg(not(feature = "suderra-os"))]
+    const STRUCTURAL: SignatureMode = SignatureMode::Disabled;
+    #[cfg(feature = "suderra-os")]
+    const STRUCTURAL: SignatureMode = SignatureMode::Enforcing;
+
     fn mock_hash(input: &[u8]) -> [u8; 32] {
         let mut out = [0u8; 32];
         for (i, b) in input.iter().take(32).enumerate() {
@@ -642,6 +661,7 @@ mod tests {
     }
 
     /// WHY: Happy path — Disabled mode accepts unsigned non-mutating envelope.
+    #[cfg(not(feature = "suderra-os"))]
     #[test]
     fn disabled_mode_accepts_unsigned_envelope() {
         let env = make_env("ping", 1_000, 9_000);
@@ -705,6 +725,7 @@ mod tests {
     }
 
     /// WHY: Permissive mode + unsigned mutating → accept (legacy rollout).
+    #[cfg(not(feature = "suderra-os"))]
     #[test]
     fn permissive_mode_accepts_unsigned_mutating() {
         let env = make_env("write_tag", 1_000, 9_000);
@@ -760,7 +781,7 @@ mod tests {
             &env,
             &[0x99u8; 16],
             5_000,
-            SignatureMode::Disabled,
+            STRUCTURAL,
             mock_hash,
             |_, _| true,
         )
@@ -776,7 +797,7 @@ mod tests {
             &env,
             &[0x42u8; 16],
             5_000,
-            SignatureMode::Disabled,
+            STRUCTURAL,
             mock_hash,
             |_, _| true,
         )
@@ -797,7 +818,7 @@ mod tests {
             &env,
             &[0x42u8; 16],
             1_000,
-            SignatureMode::Disabled,
+            STRUCTURAL,
             mock_hash,
             |_, _| true,
         )
@@ -812,7 +833,7 @@ mod tests {
             &env,
             &[0x42u8; 16],
             9_000,
-            SignatureMode::Disabled,
+            STRUCTURAL,
             mock_hash,
             |_, _| true,
         )
@@ -828,7 +849,7 @@ mod tests {
             &env,
             &[0x42u8; 16],
             5_000,
-            SignatureMode::Disabled,
+            STRUCTURAL,
             mock_hash,
             |_, _| true,
         )
@@ -842,7 +863,7 @@ mod tests {
             &env,
             &[0x42u8; 16],
             5_000,
-            SignatureMode::Disabled,
+            STRUCTURAL,
             mock_hash,
             |_, _| true,
         )
@@ -856,7 +877,7 @@ mod tests {
             &env,
             &[0x42u8; 16],
             -1,
-            SignatureMode::Disabled,
+            STRUCTURAL,
             mock_hash,
             |_, _| true,
         )
@@ -876,7 +897,7 @@ mod tests {
             &env,
             &[0x42u8; 16],
             5_000,
-            SignatureMode::Disabled,
+            STRUCTURAL,
             mock_hash,
             |_, _| true,
         )
@@ -893,7 +914,7 @@ mod tests {
             &env,
             &[0x42u8; 16],
             5_000,
-            SignatureMode::Disabled,
+            STRUCTURAL,
             mock_hash,
             |_, _| true,
         )
@@ -910,7 +931,7 @@ mod tests {
             &env,
             &[0x42u8; 16],
             5_000,
-            SignatureMode::Disabled,
+            STRUCTURAL,
             mock_hash,
             |_, _| true,
         )
@@ -927,7 +948,7 @@ mod tests {
             &env,
             &[0x42u8; 16],
             5_000,
-            SignatureMode::Disabled,
+            STRUCTURAL,
             mock_hash,
             |_, _| true,
         )
@@ -936,6 +957,7 @@ mod tests {
     }
 
     /// WHY: SignatureMode JSON wire format is snake_case.
+    #[cfg(not(feature = "suderra-os"))]
     #[test]
     fn signature_mode_serde_snake_case() {
         assert_eq!(
@@ -1086,7 +1108,7 @@ mod tests {
             &env,
             &[0x42u8; 16],
             5_000,
-            SignatureMode::Disabled,
+            STRUCTURAL,
             mock_hash,
             |_, _| true,
         )
@@ -1107,11 +1129,14 @@ mod tests {
             hash[i] = *b ^ 0x55;
         }
         env.cmd_hash = CmdHash::from_bytes(hash);
+        // Signed (closure accepts), so the bound is exercised past Gate 7 in
+        // every mode the profile compiles.
+        env.signature = Some(Ed25519SignatureBytes::from_array([0u8; 64]));
         verify_envelope(
             &env,
             &[0x42u8; 16],
             5_000,
-            SignatureMode::Disabled,
+            STRUCTURAL,
             mock_hash,
             |_, _| true,
         )
@@ -1123,6 +1148,7 @@ mod tests {
     ///      is legacy compat for initial deploy parity; any enforcement
     ///      there would break the migration path. Documents the
     ///      match-arm-1 short-circuit per SignatureMode::Disabled docstring.
+    #[cfg(not(feature = "suderra-os"))]
     #[test]
     fn disabled_mode_ignores_invalid_signature() {
         let mut env = make_env("write_tag", 1_000, 9_000);

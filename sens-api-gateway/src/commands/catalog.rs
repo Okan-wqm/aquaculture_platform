@@ -942,6 +942,9 @@ pub(crate) fn is_mutating_command(cmd: &str) -> bool {
         .unwrap_or(true)
 }
 
+/// Generic profile only: the suderra-os profile has no unsigned legacy
+/// command path for the policy to govern (ADR-048 DEC-9.1).
+#[cfg(not(feature = "suderra-os"))]
 pub(crate) fn legacy_policy_for_command(cmd: &str) -> LegacyPolicy {
     entry_for_command(cmd)
         .map(|entry| entry.legacy_policy)
@@ -968,6 +971,7 @@ pub(crate) fn legacy_policy_for_command(cmd: &str) -> LegacyPolicy {
 ///   Disabled.
 /// - `AllowUnsignedInEnforcing` — catalog-anonymous (ping/get_info);
 ///   always permitted.
+#[cfg(not(feature = "suderra-os"))]
 pub(crate) fn legacy_command_permitted(
     cmd: &str,
     mode: crate::command_envelope::envelope::SignatureMode,
@@ -1076,6 +1080,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(feature = "suderra-os"))]
     #[test]
     fn legacy_command_permitted_enforces_signature_mode() {
         use crate::command_envelope::envelope::SignatureMode;
@@ -1208,6 +1213,8 @@ mod tests {
         );
         // Same signature-enforcement floor as its parts.
         assert_eq!(bundle.legacy_policy, scada.legacy_policy);
+        assert_eq!(bundle.legacy_policy, LegacyPolicy::DenyUnsignedInEnforcing);
+        #[cfg(not(feature = "suderra-os"))]
         assert_eq!(
             legacy_policy_for_command("deploy_bundle"),
             LegacyPolicy::DenyUnsignedInEnforcing

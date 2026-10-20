@@ -3995,6 +3995,8 @@ impl AgentConfig {
         // in release.
         #[cfg(not(debug_assertions))]
         {
+            // The suderra-os profile compiles no Disabled mode (DEC-9.1).
+            #[cfg(not(feature = "suderra-os"))]
             if matches!(
                 self.signature_mode,
                 crate::command_envelope::envelope::SignatureMode::Disabled

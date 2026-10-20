@@ -289,6 +289,17 @@ pub(super) async fn authorize_adapted(
         Some(p) => p,
         None => return Ok(()),
     };
+    // ADR-048 DEC-9.4: until operator keys and co-signing exist (P2), a
+    // two-person-integrity command is refused outright on Suderra OS, with
+    // or without a co-approver: one platform key must not pass for two
+    // people.
+    if required.refused_until_operator_co_signing() {
+        return Err(format!(
+            "two-person-integrity permission {:?} is refused until operator co-signing \
+             (ADR-048 DEC-9.4)",
+            required
+        ));
+    }
 
     let actor = ActorIdentity::Operator(OperatorId::new_from_verified(adapted.actor));
     let tenant = TenantId::new_from_verified(tenant_bytes);
@@ -426,7 +437,7 @@ mod tests {
     fn not_envelope_format_on_legacy_payload() {
         let legacy = br#"{"command_id":"c1","command":"ping","timestamp":"2026-04-21T00:00:00Z","params":{}}"#;
         let store = RbacManifestStore::new();
-        let outcome = try_parse_and_verify(legacy, [0u8; 16], SignatureMode::Disabled, &store);
+        let outcome = try_parse_and_verify(legacy, [0u8; 16], SignatureMode::default(), &store);
         assert!(matches!(outcome, AdapterOutcome::NotEnvelopeFormat));
     }
 
@@ -434,7 +445,7 @@ mod tests {
     fn malformed_json_returns_not_envelope_format() {
         let junk = b"not json at all";
         let store = RbacManifestStore::new();
-        let outcome = try_parse_and_verify(junk, [0u8; 16], SignatureMode::Disabled, &store);
+        let outcome = try_parse_and_verify(junk, [0u8; 16], SignatureMode::default(), &store);
         assert!(matches!(outcome, AdapterOutcome::NotEnvelopeFormat));
     }
 
@@ -476,6 +487,80 @@ mod tests {
             co_approver_actor: None,
             co_approver_signature: None,
         }
+    }
+
+    /// ADR-048 DEC-9.4: on Suderra OS every two-person-integrity command is
+    /// refused before the engine runs, even when a manifest grants the
+    /// permission to both the actor and a distinct co-approver.
+    #[cfg(feature = "suderra-os")]
+    #[tokio::test]
+    async fn two_person_commands_are_refused_even_with_a_co_approver() {
+        use crate::authz::manifest::{CustomRole, Ed25519PublicKeyBytes, OperatorBinding, RbacManifest};
+        use crate::authz::permission::Permission;
+        use crate::authz::policy::Ed25519SignatureBytes;
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let role = CustomRole {
+            name: "both".to_string(),
+            permissions: vec![
+                Permission::Reboot,
+                Permission::UpdateFirmware,
+                Permission::DeployProgram,
+                Permission::ForceValue,
+                Permission::SafeStateTrigger,
+                Permission::ReadTag,
+            ],
+            valid_from_unix_secs: now - 60,
+            valid_until_unix_secs: now + 3600,
+            is_emergency_role: false,
+        };
+        let binding = |id: u8| OperatorBinding {
+            operator_id: OperatorId::new_from_verified([id; 16]),
+            pubkey: Ed25519PublicKeyBytes::from_bytes([id; 32]),
+            role_names: vec!["both".to_string()],
+        };
+        let store = Arc::new(RbacManifestStore::new());
+        store.test_set_manifest(RbacManifest {
+            policy_version: 1,
+            tenant_id: TenantId::new_from_verified([0u8; 16]),
+            manifest_valid_from_unix_secs: now - 60,
+            manifest_valid_until_unix_secs: now + 3600,
+            operator_bindings: vec![binding(0x07), binding(0x08)],
+            roles: vec![role],
+        });
+        let mut refused = 0;
+        for cmd in super::super::catalog::COMMAND_CATALOG.iter().map(|e| e.wire_name) {
+            let mut adapted = make_adapted(cmd);
+            adapted.claimed_policy_version = 1;
+            adapted.co_approver_actor = Some([0x08u8; 16]);
+            adapted.co_approver_signature = Some(Ed25519SignatureBytes::from_array([0u8; 64]));
+            let Some(permission) = super::super::catalog::permission_for_command(cmd, &adapted.params)
+            else {
+                continue;
+            };
+            if !permission.requires_two_person_integrity() {
+                continue;
+            }
+            refused += 1;
+            let res = authorize_adapted(&adapted, [0u8; 16], store.clone()).await;
+            assert!(
+                matches!(&res, Err(reason) if reason.contains("two-person-integrity")),
+                "{cmd} must be refused, got {res:?}"
+            );
+        }
+        assert!(refused >= 4, "only {refused} two-person commands in the catalog");
+        // A granted ordinary permission still authorizes, so the refusal is
+        // the TPI gate and not an empty manifest.
+        let mut read = make_adapted("get_config");
+        read.claimed_policy_version = 1;
+        assert_eq!(
+            super::super::catalog::permission_for_command("get_config", &read.params),
+            Some(Permission::ReadTag)
+        );
+        assert_eq!(authorize_adapted(&read, [0u8; 16], store).await, Ok(()));
     }
 
     #[tokio::test]

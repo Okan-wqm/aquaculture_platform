@@ -132,6 +132,19 @@ impl super::CommandHandler {
                     signature_mode,
                     &rbac_store,
                 ) {
+                    // ADR-048 DEC-9.1: the suderra-os profile has no
+                    // unsigned command path at all — only an envelope that
+                    // verified reaches dispatch.
+                    #[cfg(feature = "suderra-os")]
+                    envelope_adapter::AdapterOutcome::NotEnvelopeFormat => {
+                        warn!(
+                            "Rejected non-envelope payload on {}: the suderra-os profile has no \
+                             unsigned command path (ADR-048 DEC-9.1)",
+                            message.topic
+                        );
+                        return Ok(());
+                    }
+                    #[cfg(not(feature = "suderra-os"))]
                     envelope_adapter::AdapterOutcome::NotEnvelopeFormat => {
                         // SEC-HIGH-057 (2026-08-23 scan №2): Enforcing mode
                         // REJECTS every non-envelope payload — the entire
@@ -216,12 +229,26 @@ impl super::CommandHandler {
                     }
                 }
             } else {
+                // ADR-048 DEC-9.1 / DEC-3.6: on Suderra OS the tenant comes
+                // from the root-recorded identity through the trust root;
+                // without it no envelope can be bound, and there is no
+                // unsigned fallback.
+                #[cfg(feature = "suderra-os")]
+                {
+                    warn!(
+                        "Rejected command on {}: no tenant binding (trust root unavailable, \
+                         ADR-048 DEC-3.7)",
+                        message.topic
+                    );
+                    return Ok(());
+                }
                 // tenant_id unavailable (provisioning
                 // incomplete) — envelope verify can't run
                 // (Gate 5 tenant binding requires it). Fall
                 // back to legacy parse until provisioning
                 // completes. This matches pre-Batch-63 behavior
                 // for pre-provisioning bootstrap commands.
+                #[cfg(not(feature = "suderra-os"))]
                 match serde_json::from_slice::<CommandMessage>(&message.payload) {
                     Ok(cmd) => {
                         // EDGE-CRITICAL-003: even pre-provisioning the

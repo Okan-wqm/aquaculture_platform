@@ -1006,6 +1006,13 @@ path = "tests/invariants/systemd_unit_directive_contract.rs"
 name = "contracts_golden"
 path = "tests/contracts_golden.rs"
 
+# ADR-048 DEC-9.1 / DEC-9.4 — two-person-integrity commands are refused
+# fail-closed until operator co-signing (P2); the suderra-os profile compiles
+# Enforcing alone and no unsigned command path.
+[[test]]
+name = "tpi_commands_rejected_without_co_approver"
+path = "tests/invariants/tpi_commands_rejected_without_co_approver.rs"
+
 # =============================================================================
 # RUST-CVE-001: rumqttc 0.25.1 vendored fork (../crates/local-rumqttc)
 # =============================================================================

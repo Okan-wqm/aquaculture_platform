@@ -1,0 +1,114 @@
+{
+  "tool_id": "rust-runtime-safety-adapter",
+  "kind": "adapter",
+  "version": "1.0.0",
+  "status": "SHADOW",
+  "security_class": true,
+  "declared_scope": [
+    "sens-api-gateway/**/*.rs",
+    "sens-api-gateway/**/Cargo.toml",
+    "sens-api-gateway/**/Cargo.lock",
+    "apps/sensor-ingestion/**/*.rs",
+    "apps/sensor-ingestion/**/Cargo.toml",
+    "apps/sensor-ingestion/**/Cargo.lock",
+    "crates/**/*.rs",
+    "crates/**/Cargo.toml",
+    "crates/**/Cargo.lock",
+    "sensorprotocols/**/*.rs",
+    "sensorprotocols/**/Cargo.toml",
+    "sensorprotocols/**/Cargo.lock"
+  ],
+  "output_schema": {
+    "type": "object",
+    "required": ["observations", "findings", "read_paths", "evidence_sources"]
+  },
+  "fixture_set": "tools/aria-adapters/fixtures/rust-runtime-safety-adapter",
+  "health_thresholds": {
+    "max_cost_units": 2000
+  },
+  "default_input": {
+    "roots": ["sens-api-gateway", "apps/sensor-ingestion", "crates", "sensorprotocols"]
+  },
+  "allowed_read_globs": [
+    "sens-api-gateway/**",
+    "apps/sensor-ingestion/**",
+    "crates/**",
+    "sensorprotocols/**",
+    "tools/aria-adapters/rust-source.ts",
+    "tools/aria-adapters/rust-cargo.ts",
+    "tools/aria-adapters/adapter-fs.ts",
+    "tools/aria-adapters/rust-runtime-safety-adapter.ts",
+    "tools/aria-adapters/fixtures/rust-runtime-safety-adapter/**"
+  ],
+  "forbidden_read_globs": [
+    ".claude/**",
+    ".git/**",
+    "agent-workspace/**",
+    ".aria-poc/**",
+    "aria-tools/**",
+    "node_modules/**",
+    "dist/**",
+    "coverage/**",
+    "tmp/**"
+  ],
+  "claim_types": ["rust_runtime_safety"],
+  "rules": {
+    "detached_task": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "A spawned task or thread runs with its handle discarded at the call site, so nothing can join, await or abort it and its work strands past shutdown.",
+      "premises": [
+        "The cited call path ends in tokio::spawn, tokio::task::spawn, tokio::spawn_blocking, std::thread::spawn or thread::spawn (a receiver-based spawn like SubscriptionBridge::spawn is not a task spawn).",
+        "The call forms an expression statement by itself: the token before the path is a statement boundary (not a binding `=`, an argument, `return` or a match-arm value), and the token after the call group is `;` (not `.await`, `.join()`, `.abort()` or a block tail).",
+        "The file is production Rust (a harness or vendored-upstream file is never claimed)."
+      ]
+    },
+    "uncancellable_long_lived_loop": {
+      "claim_type": "wrong_code",
+      "severity_cap": "MEDIUM",
+      "defect_claim": "A long-lived loop in async code has no shutdown path, so the task holding it never observes a shutdown or cancellation and the process cannot drain it.",
+      "premises": [
+        "The cited `loop` or `while` sits in async code (an async fn body or async block; a sync fn resets the context, and `for` is iterator-bounded).",
+        "From the keyword to the loop body's closing brace there is no cancellation evidence: no `select!`, no identifier naming shutdown or cancellation, no `abort()` call.",
+        "The file is production Rust (a harness or vendored-upstream file is never claimed)."
+      ]
+    },
+    "unsafe_without_safety_contract": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "An unsafe block or unsafe impl carries no SAFETY comment stating the invariants that make it sound, so no reader or reviewer can check them.",
+      "premises": [
+        "The cited `unsafe {` block or `unsafe impl` has no comment containing `SAFETY:` whose last line is the line directly above the `unsafe` token (a blank line between, or a string literal, is not a contract).",
+        "An `unsafe fn` declaration is not claimed: the contract is owed at its call sites, where the unsafe block appears.",
+        "The file is production Rust (a harness or vendored-upstream file is never claimed)."
+      ]
+    },
+    "unbounded_external_io": {
+      "claim_type": "wrong_code",
+      "severity_cap": "MEDIUM",
+      "defect_claim": "An external connection or one-shot HTTP call starts with no timeout bound in its statement, so a peer that never answers parks the await forever.",
+      "premises": [
+        "The cited call is a path-form entry point that creates its primitive in the same statement: `TcpStream::connect`, an `async_nats::connect…` free function, `reqwest::get`, or a `reqwest::Client::builder` / `reqwest::Client::new` constructor.",
+        "The maximal statement around the call (walked out over balanced parentheses to its terminator) names no call with `timeout` in it: no `tokio::time::timeout`, `with_timeout`, `.timeout(…)` or `connection_timeout(…)`.",
+        "A method call on a stored value (`.connect(…)` on options, a request method on a stored client) is not claimed: its bound is set by whatever built the receiver in a different statement — an options builder's `connection_timeout(…)`, a client builder's `.timeout(…)` — which a per-statement evidence window cannot see.",
+        "The call is in async code (except a client constructor, which a sync constructor function may build), and the file is production Rust (a harness or vendored-upstream file is never claimed)."
+      ]
+    }
+  },
+  "owner": "platform",
+  "runner": {
+    "type": "subprocess",
+    "argv": [
+      "npx",
+      "ts-node",
+      "--project",
+      "tools/gates/tsconfig.json",
+      "tools/aria-adapters/rust-runtime-safety-adapter.ts"
+    ],
+    "cwd": ".",
+    "timeout_ms": 240000,
+    "stdin_json": true
+  },
+  "freshness_window_hours": 168,
+  "schema_version": 1
+}

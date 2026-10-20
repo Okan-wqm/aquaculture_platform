@@ -1,0 +1,12 @@
+# The ARIA-HIGH-010 semantic corpus crate. It is a standalone manifest on
+# purpose (the sensorprotocols/wasm-decoder-template precedent): no cargo
+# workspace lists it, so no repository build ever compiles it. The adapter
+# reads it as files, exactly as the adapter room binds it: node only.
+[package]
+name = "semantic-runtime-safety"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+path = "src/lib.rs"

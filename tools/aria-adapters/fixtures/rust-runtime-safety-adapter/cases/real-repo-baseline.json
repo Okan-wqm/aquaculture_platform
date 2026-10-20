@@ -1,0 +1,41 @@
+{
+  "name": "real-repo-baseline",
+  "lane": "real_repo_baseline",
+  "input": {
+    "roots": ["sens-api-gateway", "apps/sensor-ingestion", "crates", "sensorprotocols"]
+  },
+  "expected": {
+    "status": "ok",
+    "required_observations": ["rust_runtime_summary", "rust_runtime_file"],
+    "required_observation_values": [
+      {
+        "type": "rust_runtime_summary",
+        "details.parse_failures": 0,
+        "details.clean": true,
+        "details.authorities_complete": true,
+        "details.production_files": 296,
+        "details.findings.unsafe_without_safety_contract": 34,
+        "details.findings.detached_task": 12,
+        "details.findings.uncancellable_long_lived_loop": 18,
+        "details.findings.unbounded_external_io": 0
+      }
+    ],
+    "max_findings": 120
+  },
+  "curation": {
+    "curator": "claude/ARIA-HIGH-010 (rust-runtime-safety-adapter, session 2026-10-20)",
+    "gold_set": {
+      "true_positive_count": 64,
+      "known_false_positive_count": 134,
+      "false_positive_classes": [
+        "harness_files_never_claimed",
+        "vendored_upstream_files_never_claimed",
+        "safety_commented_unsafe",
+        "stored_joined_or_awaited_handles",
+        "cancellation_aware_loops",
+        "statement_local_timeout_bounds"
+      ]
+    },
+    "notes": "Measured at the adapter's landing commit on this checkout: 436 Rust files classified (296 production, 88 harness, 46 vendored upstream of crates/local-rumqttc, 6 unreached), 16 crates, zero parse failures, zero unclassified cargo targets, zero refused paths. The 64 findings are production-context only: 34 uncontracted unsafe (the FFI boundary in lora/sx1302.rs, db_migration, process_hardening), 12 detached spawns, 18 cancellation-free async loops, and zero unbounded path-form I/O (every connect/get/builder on this tree carries with_timeout, tokio::time::timeout or a builder .timeout). 88 harness files and 46 upstream files carry would-be sites and are never claimed. max_findings 120 is the ratchet ceiling, roughly twice the measured count, so the nightly refresh flags a Rust change that adds a wave of unsafe sites without silently absorbing it."
+  }
+}

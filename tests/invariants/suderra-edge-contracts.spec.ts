@@ -391,6 +391,26 @@ describe('suderra-edge contract v1 — integrity', () => {
   });
 });
 
+describe('suderra-edge contract v1 — the edge proxy answers as delivery.json says', () => {
+  it('a rate-limited provisioning fetch or activation gets rate_limited_status, not nginx 503', () => {
+    const delivery = readJson(join(CONTRACT, 'delivery.json'));
+    const refusal = asObject(
+      asObject(asObject(delivery, 'delivery')['network'], 'network')['refusal'],
+      'refusal',
+    );
+    const status = refusal['rate_limited_status'];
+    expect(status).toBe(429);
+    const conf = readFileSync(join(REPO_ROOT, 'infrastructure/nginx/droplet.conf'), 'utf8');
+    for (const path of ['/install/', '/api/devices/']) {
+      const start = conf.indexOf(`location ${path} {`);
+      expect(start).toBeGreaterThan(-1);
+      const block = conf.slice(start, conf.indexOf('\n        }', start));
+      expect(block).toMatch(/limit_req zone=/);
+      expect(block).toContain(`limit_req_status ${String(status)};`);
+    }
+  });
+});
+
 describe('suderra-edge contract v1 — one vocabulary', () => {
   it('the statement registry is closed: payload types, purposes, reasons, nesting and verifier scopes', () => {
     const reasons = Object.keys(asObject(statementsFile['rejection_reasons'], 'rejection_reasons'));

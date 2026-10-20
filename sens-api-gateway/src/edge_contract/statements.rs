@@ -44,8 +44,14 @@ fn uuid(value: &str, what: &str) -> Check {
 }
 
 fn window(not_before: &str, expires_at: &str) -> Check {
-    ensure(is_timestamp(not_before), "not_before is not a contract timestamp")?;
-    ensure(is_timestamp(expires_at), "expires_at is not a contract timestamp")
+    ensure(
+        is_timestamp(not_before),
+        "not_before is not a contract timestamp",
+    )?;
+    ensure(
+        is_timestamp(expires_at),
+        "expires_at is not a contract timestamp",
+    )
 }
 
 /// common.schema.json `digest`.
@@ -58,7 +64,10 @@ pub struct Digest {
 
 impl Digest {
     fn validate(&self) -> Check {
-        ensure(is_sha256_hex(&self.sha256), "digest is not lowercase hex SHA-256")
+        ensure(
+            is_sha256_hex(&self.sha256),
+            "digest is not lowercase hex SHA-256",
+        )
     }
 }
 
@@ -116,7 +125,10 @@ pub fn parse_payload<T: Statement>(bytes: &[u8]) -> Result<T, Reason> {
 }
 
 fn type_member(value: &str, expected: StatementType) -> Check {
-    ensure(value == expected.as_str(), "_type differs from the statement type")
+    ensure(
+        value == expected.as_str(),
+        "_type differs from the statement type",
+    )
 }
 
 // ------------------------------------------------------------- edge-release
@@ -210,7 +222,10 @@ impl Statement for EdgeRelease {
     fn validate(&self) -> Check {
         type_member(&self.type_, Self::TYPE)?;
         ensure(self.name == "suderra-agent", "name must be suderra-agent")?;
-        ensure(is_semver(&self.version), "version is not a path-safe semver")?;
+        ensure(
+            is_semver(&self.version),
+            "version is not a path-safe semver",
+        )?;
         ensure(
             self.security_version <= u64::from(u32::MAX),
             "security_version out of range",
@@ -220,7 +235,10 @@ impl Statement for EdgeRelease {
             "cargo_features must be a non-empty set",
         )?;
         let a = &self.artifact;
-        ensure(is_artifact_name(&a.name), "artifact.name does not match its pattern")?;
+        ensure(
+            is_artifact_name(&a.name),
+            "artifact.name does not match its pattern",
+        )?;
         ensure(
             a.format == super::registry::naming::FORMAT,
             "artifact.format must be tar.gz",
@@ -235,11 +253,20 @@ impl Statement for EdgeRelease {
             "artifact.binary_name must be suderra-agent",
         )?;
         a.binary_digest.validate()?;
-        ensure(is_os_version(&self.min_os_version), "min_os_version is not an OS version")?;
-        ensure((1..=65_535).contains(&self.agent_abi), "agent_abi out of range")?;
+        ensure(
+            is_os_version(&self.min_os_version),
+            "min_os_version is not an OS version",
+        )?;
+        ensure(
+            (1..=65_535).contains(&self.agent_abi),
+            "agent_abi out of range",
+        )?;
         ensure(
             unique(&self.required_kernel_config)
-                && self.required_kernel_config.iter().all(|s| is_kernel_symbol(s)),
+                && self
+                    .required_kernel_config
+                    .iter()
+                    .all(|s| is_kernel_symbol(s)),
             "required_kernel_config must be unique CONFIG_ symbols",
         )?;
         ensure(
@@ -399,7 +426,10 @@ impl Statement for TrustAnchors {
                 }
                 Anchor::X509(a) => {
                     ensure(a.algorithm == "x509", "anchor algorithm")?;
-                    ensure(a.purpose == Purpose::MqttCa, "x509 anchor purpose must be mqtt-ca")?;
+                    ensure(
+                        a.purpose == Purpose::MqttCa,
+                        "x509 anchor purpose must be mqtt-ca",
+                    )?;
                     ensure(
                         !a.certificates.is_empty()
                             && unique(&a.certificates)
@@ -479,10 +509,16 @@ impl Statement for SiteConfig {
         )?;
         for file in self.files.values() {
             file.digest.validate()?;
-            ensure(file.size_bytes <= 1_048_576, "site file size_bytes out of range")?;
+            ensure(
+                file.size_bytes <= 1_048_576,
+                "site file size_bytes out of range",
+            )?;
         }
         self.rbac_manifest.digest.validate()?;
-        sequence(self.rbac_manifest.policy_version, "policy_version out of range")
+        sequence(
+            self.rbac_manifest.policy_version,
+            "policy_version out of range",
+        )
     }
 
     fn window(&self) -> Option<(&str, &str)> {
@@ -624,7 +660,10 @@ fn actuator_class_ok(value: &Value) -> bool {
     match single_member(value) {
         Some(("Aeration", v)) => matches!(v.as_str(), Some("Normal" | "LifeSupport")),
         Some(("Chemistry", v)) => {
-            matches!(v.as_str(), Some("Nutrient" | "PhAdjust" | "LifeSupportDose"))
+            matches!(
+                v.as_str(),
+                Some("Nutrient" | "PhAdjust" | "LifeSupportDose")
+            )
         }
         Some(("Thermal", v)) => matches!(v.as_str(), Some("Heating" | "Cooling")),
         _ => false,
@@ -680,7 +719,10 @@ impl Statement for RbacManifest {
         ensure(self.actors.len() == 1, "exactly one actor")?;
         for actor in &self.actors {
             uuid(&actor.actor_id, "actor_id is not a UUID")?;
-            ensure(actor.kind == PLATFORM_ACTOR_KIND, "actor kind must be platform")?;
+            ensure(
+                actor.kind == PLATFORM_ACTOR_KIND,
+                "actor kind must be platform",
+            )?;
             ensure(is_sha256_hex(&actor.keyid), "actor keyid")?;
             ensure(is_ed25519_public_key(&actor.public_key), "actor public_key")?;
             ensure(
@@ -691,7 +733,10 @@ impl Statement for RbacManifest {
         ensure(self.roles.len() == 1, "exactly one role")?;
         for role in &self.roles {
             ensure(role.name == PLATFORM_ROLE, "role name")?;
-            ensure(!role.permissions.is_empty(), "permissions must not be empty")?;
+            ensure(
+                !role.permissions.is_empty(),
+                "permissions must not be empty",
+            )?;
             let distinct: BTreeSet<String> =
                 role.permissions.iter().map(Value::to_string).collect();
             ensure(
@@ -724,9 +769,15 @@ mod tests {
 
     #[test]
     fn artifact_names_follow_the_schema_pattern() {
-        assert!(is_artifact_name("suderra-agent-os-1.6.0-revpi-connect4-aarch64.tar.gz"));
-        assert!(is_artifact_name("suderra-agent-os-1.0.0-rc.1-qemu-x86_64-x86_64.tar.gz"));
-        assert!(!is_artifact_name("suderra-agent-os-1.6.0-revpi-connect4-armv7.tar.gz"));
+        assert!(is_artifact_name(
+            "suderra-agent-os-1.6.0-revpi-connect4-aarch64.tar.gz"
+        ));
+        assert!(is_artifact_name(
+            "suderra-agent-os-1.0.0-rc.1-qemu-x86_64-x86_64.tar.gz"
+        ));
+        assert!(!is_artifact_name(
+            "suderra-agent-os-1.6.0-revpi-connect4-armv7.tar.gz"
+        ));
         assert!(!is_artifact_name("suderra-agent-1.6.0-x86_64-linux.tar.gz"));
         assert!(!is_artifact_name("suderra-agent-os--x-aarch64.tar.gz"));
     }

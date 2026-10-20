@@ -212,7 +212,13 @@ mod tests {
 
     #[test]
     fn semver_is_path_safe() {
-        for ok in ["1.6.0", "0.0.0", "10.20.30", "1.0.0-rc.1", "1.0.0-alpha-1.x"] {
+        for ok in [
+            "1.6.0",
+            "0.0.0",
+            "10.20.30",
+            "1.0.0-rc.1",
+            "1.0.0-alpha-1.x",
+        ] {
             assert!(is_semver(ok), "{ok}");
         }
         let long = "1".repeat(65);
@@ -253,16 +259,26 @@ mod tests {
     #[test]
     fn base64_must_be_canonical() {
         assert_eq!(decode_canonical_base64("aGVsbG8="), Some(b"hello".to_vec()));
-        assert_eq!(decode_canonical_base64("aGVsbG9="), None, "non-zero trailing bits");
+        assert_eq!(
+            decode_canonical_base64("aGVsbG9="),
+            None,
+            "non-zero trailing bits"
+        );
         assert_eq!(decode_canonical_base64("aGVsbG8"), None, "missing padding");
         assert_eq!(decode_canonical_base64("aGVs bG8="), None);
     }
 
     #[test]
     fn payload_types_and_hex() {
-        assert!(is_payload_type("application/vnd.suderra.edge-release.v1+json"));
-        assert!(!is_payload_type("application/vnd.suderra.edge--release.v1+json"));
-        assert!(!is_payload_type("application/vnd.suderra.edge-release.v0+json"));
+        assert!(is_payload_type(
+            "application/vnd.suderra.edge-release.v1+json"
+        ));
+        assert!(!is_payload_type(
+            "application/vnd.suderra.edge--release.v1+json"
+        ));
+        assert!(!is_payload_type(
+            "application/vnd.suderra.edge-release.v0+json"
+        ));
         assert_eq!(hex_lower(&[0x00, 0xab, 0xff]), "00abff");
         assert_eq!(
             sha256_hex(b""),

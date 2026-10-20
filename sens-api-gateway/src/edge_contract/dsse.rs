@@ -7,7 +7,9 @@
 use ed25519_dalek::{Signature, VerifyingKey};
 use serde::Deserialize;
 
-use super::encoding::{decode_base64_array, decode_canonical_base64, is_payload_type, is_sha256_hex};
+use super::encoding::{
+    decode_base64_array, decode_canonical_base64, is_payload_type, is_sha256_hex,
+};
 use super::json::check_strict_object;
 use super::registry::Reason;
 
@@ -111,7 +113,10 @@ mod tests {
     #[test]
     fn pae_matches_dsse_example() {
         assert_eq!(
-            super::super::encoding::hex_lower(&pae("http://example.com/HelloWorld", b"hello world")),
+            super::super::encoding::hex_lower(&pae(
+                "http://example.com/HelloWorld",
+                b"hello world"
+            )),
             "44535345763120323920687474703a2f2f6578616d706c652e636f6d2f48656c6c6f576f726c642031312068656c6c6f20776f726c64"
         );
     }

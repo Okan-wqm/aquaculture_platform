@@ -107,7 +107,10 @@ fn no_contract_manifest_can_grant_a_two_person_permission() {
             Value::Object(m) => m.keys().next().unwrap().clone(),
             other => panic!("{other}"),
         };
-        assert!(!text.contains(&format!("\"{name}\"")), "{name} in the schema");
+        assert!(
+            !text.contains(&format!("\"{name}\"")),
+            "{name} in the schema"
+        );
         assert!(!PLAIN_PERMISSIONS.contains(&name.as_str()));
         assert!(!PARAMETERISED_PERMISSIONS.contains(&name.as_str()));
     }
@@ -157,7 +160,11 @@ fn authorization_refuses_the_class_before_the_engine_and_the_conversion_refuses_
     );
     let gate = adapter.code_lines_with("refused_until_operator_co_signing()");
     let engine = adapter.code_lines_with("engine.authorize(");
-    assert_eq!(gate.len(), 1, "one TPI refusal in authorize_adapted: {gate:?}");
+    assert_eq!(
+        gate.len(),
+        1,
+        "one TPI refusal in authorize_adapted: {gate:?}"
+    );
     assert_eq!(engine.len(), 1, "{engine:?}");
     assert!(gate[0] < engine[0], "the refusal must precede the engine");
 
@@ -212,15 +219,16 @@ fn the_suderra_os_profile_compiles_enforcing_alone() {
             "{variant} must be compiled out of the suderra-os profile"
         );
     }
-    let dispatch = std::fs::read_to_string(
-        source_scan_support::crate_root().join("src/commands/catalog.rs"),
-    )
-    .unwrap();
+    let dispatch =
+        std::fs::read_to_string(source_scan_support::crate_root().join("src/commands/catalog.rs"))
+            .unwrap();
     let legacy = dispatch
         .find("pub(crate) fn legacy_command_permitted(")
         .expect("legacy gate");
     assert!(
-        dispatch[..legacy].trim_end().ends_with("#[cfg(not(feature = \"suderra-os\"))]"),
+        dispatch[..legacy]
+            .trim_end()
+            .ends_with("#[cfg(not(feature = \"suderra-os\"))]"),
         "the unsigned legacy command gate exists only in the generic profile"
     );
 }

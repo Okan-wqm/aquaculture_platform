@@ -134,7 +134,11 @@ fn suderra_os_config_has_no_plaintext_or_ca_path_switch() {
         .find("pub struct MqttTlsConfig {")
         .expect("MqttTlsConfig");
     let body = &text[start..start + text[start..].find("\n}\n").unwrap()];
-    for field in ["pub enabled: bool", "pub ca_cert_path:", "pub insecure_skip_verify: bool"] {
+    for field in [
+        "pub enabled: bool",
+        "pub ca_cert_path:",
+        "pub insecure_skip_verify: bool",
+    ] {
         let at = body.find(field).unwrap_or_else(|| panic!("{field}"));
         let before = &body[..at];
         let gate = before.rfind("#[cfg(not(feature = \"suderra-os\"))]");

@@ -39,7 +39,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use edge_contract::dsse::{Envelope, pae, verify_strict};
-use edge_contract::encoding::{decode_base64_array, decode_canonical_base64, hex_lower, parse_version_core};
+use edge_contract::encoding::{
+    decode_base64_array, decode_canonical_base64, hex_lower, parse_version_core,
+};
 use edge_contract::keys::{KeyEntry, KeyStore};
 use edge_contract::registry::{
     AgentProfile, Arch, BindingMethod, BoardProfile, CargoFeature, EqualSeq, Purpose, Reason,
@@ -47,8 +49,8 @@ use edge_contract::registry::{
 };
 use edge_contract::statements::DeviceBinding;
 use edge_contract::verify::{
-    Accepted, AgentDevice, Identity, OsCompat, Scope, SiteFiles, verify_receipt, verify_release,
-    verify_rbac_with_bundle, verify_site_config_with_bundle, verify_trust_anchors,
+    Accepted, AgentDevice, Identity, OsCompat, Scope, SiteFiles, verify_rbac_with_bundle,
+    verify_receipt, verify_release, verify_site_config_with_bundle, verify_trust_anchors,
 };
 use serde_json::Value;
 
@@ -203,7 +205,12 @@ fn site_files(inputs: &Value) -> SiteFiles {
 }
 
 /// Reasons the agent verifier reports for one statement fixture.
-fn run_agent(index: &Value, keys: &KeyStore, ctx: &AgentContext, entry: &Value) -> BTreeSet<Reason> {
+fn run_agent(
+    index: &Value,
+    keys: &KeyStore,
+    ctx: &AgentContext,
+    entry: &Value,
+) -> BTreeSet<Reason> {
     let scope = Scope {
         os_keys: keys,
         device: &ctx.device,
@@ -248,7 +255,11 @@ fn labelled(entry: &Value) -> BTreeSet<Reason> {
 fn describe(entry: &Value) -> String {
     format!(
         "{} [{} {} {} ctx={}]",
-        entry["path"], entry["statement_type"], entry["verifier"], entry["mode"], entry["device_context"]
+        entry["path"],
+        entry["statement_type"],
+        entry["verifier"],
+        entry["mode"],
+        entry["device_context"]
     )
 }
 
@@ -320,7 +331,10 @@ fn agent_verified_types_reach_the_contract_verdict_with_root_only_checks_omitted
             "too few {t} fixtures ran through the agent: {ran:?}"
         );
     }
-    assert!(omitted_rejections >= 4, "only {omitted_rejections} root-only rejections seen");
+    assert!(
+        omitted_rejections >= 4,
+        "only {omitted_rejections} root-only rejections seen"
+    );
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
@@ -336,7 +350,10 @@ fn a_trust_anchors_bundle_signed_by_the_provisioning_key_is_refused() {
         gates: &ctx.gates,
         now: index["evaluation_time"].as_str().unwrap(),
     };
-    let env = Envelope::parse(&fixture("trust-anchors/invalid/wrong-purpose-key.dsse.json")).unwrap();
+    let env = Envelope::parse(&fixture(
+        "trust-anchors/invalid/wrong-purpose-key.dsse.json",
+    ))
+    .unwrap();
     let signer = os_pins().get(&env.keyid).cloned().expect("pinned signer");
     assert_eq!(signer.purpose, Purpose::EdgeProvisioning);
     assert_eq!(
@@ -354,8 +371,10 @@ fn an_identical_rbac_manifest_is_reaccepted_after_its_window_and_a_changed_one_i
     let ctx = agent_context(&index, "revpi-active").unwrap();
     let keys = os_pins();
     let ta = Envelope::parse(&fixture("trust-anchors/valid/bundle-seq-1.dsse.json")).unwrap();
-    let policy_1 =
-        Envelope::parse(&fixture("rbac-manifest/valid/platform-actor-policy-1.dsse.json")).unwrap();
+    let policy_1 = Envelope::parse(&fixture(
+        "rbac-manifest/valid/platform-actor-policy-1.dsse.json",
+    ))
+    .unwrap();
     let after_window = "2099-01-01T00:00:00Z";
     let scope = |now| Scope {
         os_keys: &keys,
@@ -371,8 +390,12 @@ fn an_identical_rbac_manifest_is_reaccepted_after_its_window_and_a_changed_one_i
     ))
     .unwrap();
     assert_eq!(
-        verify_rbac_with_bundle(&changed, &ta, &scope(index["evaluation_time"].as_str().unwrap()))
-            .reasons,
+        verify_rbac_with_bundle(
+            &changed,
+            &ta,
+            &scope(index["evaluation_time"].as_str().unwrap())
+        )
+        .reasons,
         BTreeSet::from([Reason::SequenceReplay])
     );
     // Without a gate record the same manifest is a first acceptance, whose
@@ -426,7 +449,12 @@ fn signature_vectors_pin_verify_strict() {
         );
         ids.insert(id.to_owned());
     }
-    for required in ["non-canonical-s", "small-order-r", "non-canonical-a", "non-canonical-r"] {
+    for required in [
+        "non-canonical-s",
+        "small-order-r",
+        "non-canonical-a",
+        "non-canonical-r",
+    ] {
         assert!(ids.contains(required), "vector {required} missing");
     }
 }
@@ -448,7 +476,10 @@ fn reasons_and_verification_order_match_the_contract() {
 fn statement_rows_match_the_contract() {
     let st = load("statements.json");
     let rows = st["statements"].as_object().unwrap();
-    assert_eq!(set(rows.keys()), set(StatementType::ALL.iter().map(|t| t.as_str())));
+    assert_eq!(
+        set(rows.keys()),
+        set(StatementType::ALL.iter().map(|t| t.as_str()))
+    );
     for t in StatementType::ALL {
         let row = &rows[t.as_str()];
         let spec = t.spec();
@@ -458,12 +489,18 @@ fn statement_rows_match_the_contract() {
         assert_eq!(row["tenant_bound"], spec.tenant_bound, "{t}");
         assert_eq!(
             strings(&row["checks"]),
-            spec.checks.iter().map(|r| r.as_str().to_owned()).collect::<Vec<_>>(),
+            spec.checks
+                .iter()
+                .map(|r| r.as_str().to_owned())
+                .collect::<Vec<_>>(),
             "{t}"
         );
         assert_eq!(
             strings(&row["nested"]),
-            spec.nested.iter().map(|n| n.as_str().to_owned()).collect::<Vec<_>>(),
+            spec.nested
+                .iter()
+                .map(|n| n.as_str().to_owned())
+                .collect::<Vec<_>>(),
             "{t}"
         );
         match (&row["sequence"], spec.sequence) {
@@ -501,12 +538,23 @@ fn statement_rows_match_the_contract() {
 fn purposes_match_the_contract() {
     let st = load("statements.json");
     let purposes = st["purposes"].as_object().unwrap();
-    assert_eq!(set(purposes.keys()), set(Purpose::ALL.iter().map(|p| p.as_str())));
+    assert_eq!(
+        set(purposes.keys()),
+        set(Purpose::ALL.iter().map(|p| p.as_str()))
+    );
     for p in Purpose::ALL {
         let row = &purposes[p.as_str()];
         let anchored = set(strings(&row["anchored_in"]));
-        assert_eq!(anchored.contains("os-image"), p.anchored_in_os_image(), "{p}");
-        assert_eq!(anchored.contains("trust-anchors-bundle"), p.anchored_in_bundle(), "{p}");
+        assert_eq!(
+            anchored.contains("os-image"),
+            p.anchored_in_os_image(),
+            "{p}"
+        );
+        assert_eq!(
+            anchored.contains("trust-anchors-bundle"),
+            p.anchored_in_bundle(),
+            "{p}"
+        );
         assert_eq!(row["algorithm"], p.algorithm(), "{p}");
     }
 }
@@ -529,18 +577,36 @@ fn boards_vocabularies_and_naming_match_the_contract() {
             set(spec.cargo_features.iter().map(|f| f.as_str())),
             "{board}"
         );
-        assert_eq!(row["device_binding_method"], spec.device_binding_method.as_str(), "{board}");
+        assert_eq!(
+            row["device_binding_method"],
+            spec.device_binding_method.as_str(),
+            "{board}"
+        );
     }
     let common = load("schemas/common.schema.json");
     let defs = &common["$defs"];
     let enum_set = |name: &str| set(strings(&defs[name]["enum"]));
-    assert_eq!(enum_set("board_profile"), set(BoardProfile::ALL.iter().map(|b| b.as_str())));
-    assert_eq!(enum_set("arch"), set(Arch::ALL.iter().map(|b| b.as_str())));
-    assert_eq!(enum_set("agent_profile"), set(AgentProfile::ALL.iter().map(|b| b.as_str())));
-    assert_eq!(enum_set("cargo_feature"), set(CargoFeature::ALL.iter().map(|b| b.as_str())));
-    assert_eq!(enum_set("site_path"), set(SitePath::ALL.iter().map(|b| b.as_str())));
     assert_eq!(
-        set(strings(&defs["device_binding"]["properties"]["method"]["enum"])),
+        enum_set("board_profile"),
+        set(BoardProfile::ALL.iter().map(|b| b.as_str()))
+    );
+    assert_eq!(enum_set("arch"), set(Arch::ALL.iter().map(|b| b.as_str())));
+    assert_eq!(
+        enum_set("agent_profile"),
+        set(AgentProfile::ALL.iter().map(|b| b.as_str()))
+    );
+    assert_eq!(
+        enum_set("cargo_feature"),
+        set(CargoFeature::ALL.iter().map(|b| b.as_str()))
+    );
+    assert_eq!(
+        enum_set("site_path"),
+        set(SitePath::ALL.iter().map(|b| b.as_str()))
+    );
+    assert_eq!(
+        set(strings(
+            &defs["device_binding"]["properties"]["method"]["enum"]
+        )),
         set(BindingMethod::ALL.iter().map(|b| b.as_str()))
     );
 
@@ -550,7 +616,10 @@ fn boards_vocabularies_and_naming_match_the_contract() {
     assert_eq!(os["statement"], naming::STATEMENT_TEMPLATE);
     assert_eq!(os["format"], naming::FORMAT);
     assert_eq!(os["binary_name"], naming::BINARY_NAME);
-    assert_eq!(strings(&os["archive_members"]), naming::ARCHIVE_MEMBERS.to_vec());
+    assert_eq!(
+        strings(&os["archive_members"]),
+        naming::ARCHIVE_MEMBERS.to_vec()
+    );
 }
 
 #[test]
@@ -559,8 +628,14 @@ fn rbac_permission_vocabulary_matches_the_schema() {
     let schema = load("schemas/rbac-manifest.schema.json");
     let permission = &schema["$defs"]["permission"];
     let text = permission.to_string();
-    for name in PLAIN_PERMISSIONS.iter().chain(PARAMETERISED_PERMISSIONS.iter()) {
-        assert!(text.contains(&format!("\"{name}\"")), "{name} not in $defs/permission");
+    for name in PLAIN_PERMISSIONS
+        .iter()
+        .chain(PARAMETERISED_PERMISSIONS.iter())
+    {
+        assert!(
+            text.contains(&format!("\"{name}\"")),
+            "{name} not in $defs/permission"
+        );
     }
     // The two-person-integrity class can never appear in a 1.x manifest
     // (DEC-9.4); tests/invariants/tpi_commands_rejected_without_co_approver.rs
@@ -574,7 +649,10 @@ fn rbac_permission_vocabulary_matches_the_schema() {
         "OpcUaWrite",
         "S7Write",
     ] {
-        assert!(!text.contains(&format!("\"{tpi}\"")), "{tpi} grantable by the schema");
+        assert!(
+            !text.contains(&format!("\"{tpi}\"")),
+            "{tpi} grantable by the schema"
+        );
         assert!(!PLAIN_PERMISSIONS.contains(&tpi) && !PARAMETERISED_PERMISSIONS.contains(&tpi));
     }
 }

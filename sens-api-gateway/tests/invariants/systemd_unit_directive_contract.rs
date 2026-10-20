@@ -35,8 +35,7 @@ fn contract_dir() -> PathBuf {
 fn read_json(path: &Path) -> Value {
     let bytes =
         std::fs::read(path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
-    serde_json::from_slice(&bytes)
-        .unwrap_or_else(|e| panic!("{} is not JSON: {e}", path.display()))
+    serde_json::from_slice(&bytes).unwrap_or_else(|e| panic!("{} is not JSON: {e}", path.display()))
 }
 
 fn strings(value: &Value) -> Vec<String> {
@@ -133,12 +132,7 @@ impl Rules {
         source
             .get(section)
             .and_then(Value::as_object)
-            .map(|block| {
-                block
-                    .iter()
-                    .map(|(k, v)| (k.clone(), strings(v)))
-                    .collect()
-            })
+            .map(|block| block.iter().map(|(k, v)| (k.clone(), strings(v))).collect())
             .unwrap_or_default()
     }
 
@@ -343,7 +337,10 @@ fn reference_unit_path() -> PathBuf {
     let declared = rules.file["profiles"]["generic"]["unit_path"]
         .as_str()
         .expect("generic unit_path");
-    assert_eq!(rules.file["profiles"]["generic"]["repository"], "aquaculture_platform");
+    assert_eq!(
+        rules.file["profiles"]["generic"]["repository"],
+        "aquaculture_platform"
+    );
     manifest_dir().join("..").join(declared)
 }
 

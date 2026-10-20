@@ -22,7 +22,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::dsse::{Envelope, pae, verify_strict};
 use super::encoding::{decode_base64_array, parse_version_core, sha256_hex};
 use super::keys::{KeyEntry, KeyStore, KeyView};
-use super::registry::{Arch, BoardProfile, EqualSeq, Purpose, Reason, SitePath, StatementType, naming};
+use super::registry::{
+    Arch, BoardProfile, EqualSeq, Purpose, Reason, SitePath, StatementType, naming,
+};
 use super::statements::{
     ActivationReceipt, Anchor, DeviceBinding, EdgeRelease, RbacManifest, SiteConfig, Statement,
     TrustAnchors, parse_payload,
@@ -145,7 +147,11 @@ fn open<T: Statement>(env: &Envelope, keys: KeyView<'_>) -> Result<Verified<T>, 
     }
     // key-epoch-below-ratchet: omitted by the agent for every type it
     // verifies (statements.json verified_by.agent.omits).
-    if !verify_strict(&key.raw, &pae(&env.payload_type, &env.payload), &env.signature) {
+    if !verify_strict(
+        &key.raw,
+        &pae(&env.payload_type, &env.payload),
+        &env.signature,
+    ) {
         return Err(Reason::SignatureInvalid);
     }
     let statement = parse_payload::<T>(&env.payload)?;

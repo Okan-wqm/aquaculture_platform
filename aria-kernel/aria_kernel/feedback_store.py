@@ -657,6 +657,12 @@ def record_operator_feedback(
     label_provenance: dict[str, Any] | None = None,
     request_ids: list[str] | None = None,
     target_sha: str | None = None,
+    # WP-J slice C — the decision's cost, read from the ONE cost ledger
+    # (cost-attribution rows joined by judgment_group_id through
+    # ci_executor._cost_identity). Additive optional: legacy rows read as
+    # absent. None stamps nothing (no cost rows exist for the group).
+    cost_usd: float | None = None,
+    agents: list[str] | None = None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     if judgment_subject not in JUDGMENT_SUBJECTS:
@@ -689,6 +695,11 @@ def record_operator_feedback(
     # folds), never inferred later from whichever request is newest.
     if request_ids is not None and not _valid_string_list(request_ids):
         raise GovernanceError("request_ids must be an array of non-empty strings")
+    if cost_usd is not None and (isinstance(cost_usd, bool) or not isinstance(cost_usd, (int, float))
+                                 or cost_usd < 0 or cost_usd != cost_usd):
+        raise GovernanceError("cost_usd must be a finite non-negative number")
+    if agents is not None and not _valid_string_list(agents):
+        raise GovernanceError("agents must be an array of non-empty strings")
     if target_sha is not None and not is_object_id(target_sha, formats=ANY_OBJECT_FORMAT):
         raise GovernanceError("target_sha must be a full git object id")
     # One gate for the whole number semantics: isinstance lets bool and
@@ -816,6 +827,10 @@ def record_operator_feedback(
         # different commits). funnel_health joins the learning funnel on them.
         "request_ids": sorted(set(request_ids)) if request_ids else [],
         "target_sha": target_sha,
+        # WP-J slice C — additive: what the decision cost and which agents
+        # ran it, joined from cost-attribution by the group id.
+        "cost_usd": round(float(cost_usd), 6) if cost_usd is not None else None,
+        "agents": sorted(set(agents)) if agents else None,
     }
     # The stored row carries the signature the signer added; return that
     # so callers (judge lanes, the CLI) see the row exactly as recorded.
@@ -1295,6 +1310,10 @@ def generate_ai_consensus(
                 judge_count=len(closing),
                 judges_voted=len(rows),
                 calibration_basis=calibration_basis,
+                # WP-J slice C — the decision's cost and agents, joined from
+                # the ONE cost ledger by the group id (the join
+                # ci_executor._cost_identity stamps at attribution time).
+                **_decision_cost(group_id, base_dir),
                 # ARIA-HIGH-004 — the consensus names the requests of the
                 # judges that closed it, and the commit only when every one
                 # of them was minted at the same one: a verdict folded from
@@ -1346,6 +1365,24 @@ def generate_ai_consensus(
         "consensus": consensus_rows,
         "uncertainties": uncertainties,
     }
+
+
+def _decision_cost(group_id: str, base_dir: str | Path | None) -> dict[str, Any]:
+    """WP-J slice C — {cost_usd, agents} for one judgment decision, from the
+    ONE cost ledger; empty kwargs stamp nothing (legacy rows stay additive)."""
+    if not group_id:
+        return {}
+    try:
+        from .budget import read_cost_attribution
+
+        rows = read_cost_attribution(base_dir=base_dir, plan_id=group_id)
+    except Exception:  # noqa: BLE001 — a cost-read fault never blocks consensus
+        return {}
+    if not rows:
+        return {}
+    usd = sum(float(row.get("estimated_usd") or 0.0) for row in rows)
+    agents = sorted({str(row.get("agent_role")) for row in rows if row.get("agent_role")})
+    return {"cost_usd": round(usd, 6), "agents": agents}
 
 
 def _common_target_sha(rows: list[dict[str, Any]]) -> str | None:

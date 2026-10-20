@@ -675,6 +675,73 @@ class JudgmentCacheTest(unittest.TestCase):
         self.assertIsNone(cited_blobs_code_hash(Path("/tmp"), ["a.py"], ""))
 
 
+class PerDecisionCostJoinTest(unittest.TestCase):
+    """Cost is joinable per decision: judgment_group_id is the one join."""
+
+    def _ci_executor(self):
+        import importlib
+        import sys
+
+        repo = Path(__file__).resolve().parents[2]
+        tools_dir = repo / "tools" / "aria-poc"
+        if str(tools_dir) not in sys.path:
+            sys.path.insert(0, str(tools_dir))
+        return importlib.import_module("ci_executor")
+
+    def test_a_judge_envelope_attributes_to_its_decision(self) -> None:
+        # _cost_identity is the ONE derivation every runtime path uses; a
+        # judge request has no convergence and no plan, so it fell back to
+        # plan-<request tail> - 186 judge-lane rows / $114.86 lived in
+        # cost-attribution joinable to no decision. The minted
+        # judgment_group_id is the decision identity.
+        executor = self._ci_executor()
+        cycle_id, plan_id = executor._cost_identity(
+            {"cycle_id": "cyc-1", "judgment_group_id": "judge:adapter-a:fp-1"},
+            "req-abcdef123456",
+        )
+        self.assertEqual(cycle_id, "cyc-1")
+        self.assertEqual(plan_id, "judge:adapter-a:fp-1")
+        # A converged plan keeps its plan identity; the group never
+        # displaces a real convergence.
+        _cycle, plan = executor._cost_identity(
+            {"cycle_id": "cyc-1", "convergence_id": "conv-9",
+             "judgment_group_id": "judge:adapter-a:fp-1"}, "req-x",
+        )
+        self.assertEqual(plan, "conv-9")
+
+    def test_the_consensus_row_carries_the_decisions_cost_and_agents(self) -> None:
+        # The read side of the join: an ai_consensus row names what the
+        # decision cost and which agents ran it, read from the ONE ledger
+        # (cost-attribution) filtered by the group - no second cost store.
+        with TemporaryDirectory() as tmp:
+            from aria_kernel.budget import record_cost_attribution
+            from aria_kernel.feedback_store import generate_ai_consensus, record_operator_feedback
+
+            base = Path(tmp) / "aria-tools"
+            group = "judge:adapter-a:fp-cost"
+            for judge_id, role in (("judge-e", "evidence_judgment"),
+                                   ("judge-a", "adversarial_judgment")):
+                record_operator_feedback(
+                    tool_id="adapter-a", run_id="run-1", finding_id="F-1",
+                    verdict="true_positive", severity="medium", note="n",
+                    source_type="ai_judge", judge_id=judge_id, model="m-1",
+                    confidence=0.9, judgment_group_id=group,
+                    finding_fingerprint="fp-cost", base_dir=base,
+                )
+                record_cost_attribution(
+                    cycle_id="cyc-1", plan_id=group, agent_role=role, model="m-1",
+                    input_tokens=1000, output_tokens=500, estimated_usd=0.25,
+                    base_dir=base,
+                )
+            result = generate_ai_consensus(
+                tool_id="adapter-a", cycle_id=None, base_dir=base,
+            )
+            self.assertEqual(result["consensus_count"], 1)
+            row = result["consensus"][0]
+            self.assertEqual(row["cost_usd"], 0.5)
+            self.assertEqual(row["agents"], ["adversarial_judgment", "evidence_judgment"])
+
+
 class FunnelPolicyKeysTest(unittest.TestCase):
     def test_the_funnel_keys_are_real_configuration(self) -> None:
         # A key absent from the defaults is dead JSON: judgment_pipeline_policy

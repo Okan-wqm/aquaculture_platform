@@ -81,10 +81,18 @@ on:
         required: false
         type: string
 
-# Z1 (ORPHAN-712) — shared self-hosted workspace group; see
-# dataflow-integrity-watchdog.yml for the measured wipe this prevents.
+# Z1 (ORPHAN-712) → ARIA-MEDIUM-277 — this lane's OWN group. A GitHub
+# concurrency group holds ONE pending slot and an arriving run evicts the
+# queued one, so a group shared with another lane let that lane's dispatch
+# cancel this lane's pending run (measured: the cycle this drain chains and
+# the dataflow watchdog's CRITICAL dispatch both evicted queued drains). In
+# a per-lane group only this lane's own duplicate can evict this lane's
+# pending run — dedup, not starvation. The workspace serialization the
+# shared group used to lend the one shared workspace is carried by the host
+# workspace lock (.github/actions/selfhosted-workspace-lock), taken by this
+# job below; see dataflow-integrity-watchdog.yml for the measured wipe.
 concurrency:
-  group: aria-selfhosted-workspace
+  group: aria-agent-executor
   cancel-in-progress: false
 
 permissions:
@@ -185,6 +193,23 @@ jobs:
       rechain_dispatch: ${{ steps.executor.outputs.rechain_dispatch }}
       rechain_request_ids: ${{ steps.executor.outputs.rechain_request_ids }}
     steps:
+      # ARIA-MEDIUM-277 — the host workspace lock, FIRST, before the anchor,
+      # the reset and any checkout below: those are the wipe vectors the
+      # lock exists to serialize across the lanes that share this workspace.
+      # The lock replaces the serialization the shared
+      # aria-selfhosted-workspace group used to provide (its single pending
+      # slot evicted other lanes' queued runs); GitHub's runner queue,
+      # which never evicts, does the waiting. It precedes the launch epoch
+      # on purpose: the epoch anchors the deadline the drain's work runs
+      # under, and scheduler wait is not drain work. timeout-seconds sits
+      # just above the cycle job's 454-min cap so a drain chained behind a
+      # full cycle eventually gets the workspace instead of failing on the
+      # wait.
+      - name: Take the shared self-hosted workspace lock
+        uses: ./.github/actions/selfhosted-workspace-lock
+        with:
+          timeout-seconds: '27300'
+
       # ARIA-HIGH-124 (round 3) — the absolute deadline every spawn and every
       # delivery in this job runs under is anchored HERE, at launch (the
       # auto-cycle's ARIA-HIGH-019 lesson: a fresh-store restore measured
@@ -1083,6 +1108,15 @@ jobs:
         with:
           lease-token: ${{ steps.restore_state.outputs.writer-lease-token }}
 
+      # ARIA-MEDIUM-277 — LAST step of the job: give back the host workspace
+      # lock the first step took, unconditionally, so a failed drain does not
+      # starve every other self-hosted lane until the holder's ceiling.
+      - name: Release the shared self-hosted workspace lock
+        if: always()
+        uses: ./.github/actions/selfhosted-workspace-lock
+        with:
+          mode: release
+
   # ARIA-HIGH-244 — the chain's return edge, on a hosted runner with the one
   # permission it needs. The executor decides (cycle_rhythm, via
   # tools/aria/chain_next_cycle.py) and hands the verdict over as a job
@@ -1117,8 +1151,9 @@ jobs:
   # work the drain itself minted and then window-skipped straight to the
   # next executor run instead of waiting a full cycle for it — and it
   # supersedes `chain-next-cycle` for that run (the two `if:`s are mutually
-  # exclusive), so one run never queues two pending runs into the shared
-  # aria-selfhosted-workspace group. The re-chained drain takes the normal
+  # exclusive), so one run never queues two pending runs into this lane's
+  # own group (ARIA-MEDIUM-277: one lane, one group — a lane's pending slot
+  # is nobody else's to evict). The re-chained drain takes the normal
   # cycle edge; the depth brake in the decider keeps this at one hop.
   chain-next-drain:
     needs: executor

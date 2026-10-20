@@ -74,9 +74,10 @@ class WorkflowAbortGate:
     # contract gate still green.
     announce_step: str = ""
     # ARIA-HIGH-342 / GSEC-LOW-001 — idempotent cleanup that must run even
-    # while blocked: the aria/state writer-lease release. Exempt by NAME, and
-    # only with exactly `if: always()` and only as the release action, so the
-    # exemption cannot be borrowed by a worker step.
+    # while blocked: the aria/state writer-lease release and (ARIA-MEDIUM-277)
+    # the self-hosted workspace-lock release. Exempt by NAME, and only with
+    # exactly `if: always()` and only as one of the kernel's sanctioned
+    # cleanup actions, so the exemption cannot be borrowed by a worker step.
     cleanup_steps: tuple[str, ...] = ()
 
     @property
@@ -407,7 +408,12 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                     gate_step=_EXECUTOR_LEASE_STEP,
                     guard_output="steps.lease_check.outputs.blocked",
                     announce_step="Skip autonomous loop when local lease is fresh",
-                    cleanup_steps=("Release the aria/state writer lease",),
+                    cleanup_steps=(
+                        "Release the aria/state writer lease",
+                        # ARIA-MEDIUM-277 — same class: the workspace
+                        # flock release must run even while blocked.
+                        "Release the shared self-hosted workspace lock",
+                    ),
                 ),
             ),
         ),
@@ -544,7 +550,12 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                     gate_step=_CYCLE_LEASE_STEP,
                     guard_output="steps.lease_check.outputs.blocked",
                     announce_step="Skip when local lease is fresh",
-                    cleanup_steps=("Release the aria/state writer lease",),
+                    cleanup_steps=(
+                        "Release the aria/state writer lease",
+                        # ARIA-MEDIUM-277 — same class: the workspace
+                        # flock release must run even while blocked.
+                        "Release the shared self-hosted workspace lock",
+                    ),
                 ),
             ),
         ),

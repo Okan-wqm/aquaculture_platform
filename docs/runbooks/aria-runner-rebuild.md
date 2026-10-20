@@ -47,10 +47,13 @@ only.
 | T2 probe (hourly)    | `aria-t2-probe.timer` runs `aria-kernel habitat t2-probe` as `gharunner` (`scripts/aria/runner-habitat/systemd/aria-t2-probe.{service,timer}`; verdict `aria_t2_boundary_held`, alerts in `infrastructure/monitoring/droplet/rules/80-aria-t2-boundary.yml`; ADR-0023) |
 
 Exactly ONE runner carries this label set. Both lanes share one
-persistent workspace serialized by the `aria-selfhosted-workspace`
-concurrency group (Z1, ORPHAN-712); registering a second runner with the
-same labels reintroduces the workspace races that group exists to
-prevent.
+persistent workspace serialized by the host workspace lock
+(`.github/actions/selfhosted-workspace-lock`, a flock on the workspace
+directory held for the job's lifetime; Z1/ORPHAN-712 → ARIA-MEDIUM-277).
+Each lane keeps its own concurrency group, so no lane's dispatch can
+cancel another lane's pending run; registering a second runner with the
+same labels is safe for the workspace (the lock serializes it) but is an
+operator capacity decision — see ARIA-MEDIUM-277's residual.
 
 ## Step 0 — Prerequisites (5 min)
 

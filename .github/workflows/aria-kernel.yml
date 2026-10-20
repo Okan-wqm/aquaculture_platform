@@ -136,6 +136,11 @@ jobs:
     # production (ARIA-MEDIUM-139), and `ensure-sandbox-backend` still
     # fails closed by name if this image stops confining.
     runs-on: ubuntu-22.04
+    # ARIA-HIGH-138 — on this lane a real-process seam's host-capability skip
+    # (an ssh-agent, a route) is a FAILURE, not a green: the seam registry's
+    # marked tests flip their skips through tests/_helpers/real_process_seams.py.
+    env:
+      ARIA_REQUIRE_REAL_SEAMS: '1'
     # 30 (ARIA-HIGH-136): a shard carries ~1/8 of the unittest half by measured
     # weight — aria-kernel/tests/_helpers/suite_shard_weights.json, 711 modules
     # summing to 124.1 min on the droplet (2026-09-28, four timers in
@@ -179,7 +184,7 @@ jobs:
       - uses: ./.github/actions/ensure-sandbox-backend
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "22"
+          node-version: '22'
           cache: npm
       - run: npm ci --ignore-scripts --no-audit --no-fund --prefer-offline
       # Plan ARIA-V2 §Phase 1 CRITICAL-020 — aria-kernel declares
@@ -225,6 +230,10 @@ jobs:
     # Same image and sandbox backend as `suite` (ARIA-MEDIUM-134/139): the
     # pytest half and the discovery run spawn through the same wrapper.
     runs-on: ubuntu-22.04
+    # ARIA-HIGH-138 — same rule as `suite`: a real-process seam's
+    # host-capability skip fails here instead of greening the lane.
+    env:
+      ARIA_REQUIRE_REAL_SEAMS: '1'
     # 15 (ARIA-HIGH-136): everything the one kernel job ran besides the unittest
     # half — 1.4 min after the suite step on run 36386654289 attempt 2 — plus
     # the pytest half (91 tests, 43 s on the droplet) and ~1.5 min of setup:
@@ -240,7 +249,7 @@ jobs:
       - uses: ./.github/actions/ensure-sandbox-backend
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "22"
+          node-version: '22'
           cache: npm
       - run: npm ci --ignore-scripts --no-audit --no-fund --prefer-offline
       - name: Run aria-kernel pytest-native tests

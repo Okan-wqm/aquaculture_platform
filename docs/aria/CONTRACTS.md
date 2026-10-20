@@ -79,8 +79,14 @@ Governance known kinds include `workspace_bootstrapped`, `tools_root_bootstrappe
 `rollback_phase`, `rollback_completed`, and `tool_unhealthy`. Unknown kinds remain additive-open and
 parse with warning semantics.
 
-Default governance actor: if `ARIA_ACTOR` is set, parse it as JSON `{kind, id, session?}`. Otherwise
-use `{kind: "human", id: "<user>@<hostname>"}`.
+Default governance actor: derived from the platform, never declared by the environment —
+`ARIA_ACTOR` is not read. Actor kinds: `workflow`, `unit`, `operator_session`, `unattributed`.
+A GitHub Actions run (`GITHUB_WORKFLOW_REF` + `GITHUB_RUN_ID`) gives `workflow`; a `system.slice`
+cgroup gives `unit`; a `user.slice` cgroup gives `operator_session`; anything else gives
+`unattributed` with a reason, and no kind is ever `human`. Inside a cycle, governance rows also
+carry the cycle's `session_id` (minted as `sess-<cycle_id>` at cycle start into the
+`sessions/session-ledger.jsonl` lifecycle: `session_started`, `mission_bound`, `provider_bound`,
+then `session_completed`/`session_failed`/`session_abandoned` at the cycle's terminal row).
 
 ### 0.1.1 — State-transaction bound (`ledger.state_transaction`)
 

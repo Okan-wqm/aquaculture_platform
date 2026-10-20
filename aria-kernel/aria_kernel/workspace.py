@@ -383,17 +383,26 @@ def governance_event(kind: str, details: dict[str, Any]) -> dict[str, Any]:
     import socket
     from datetime import datetime, timezone
 
+    from .execution_spine import active_session, current_actor_record
+
+    # ARIA-MEDIUM-029 — the actor is DERIVED from the platform (a workflow,
+    # a unit, an operator session, or unattributed with a reason), never
+    # declared by the environment: nothing sets ARIA_ACTOR, so the previous
+    # default named a human on every row the kernel ever wrote.
     ts = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-    actor = default_actor()
+    actor = current_actor_record()
     canonical = {
         "actor": actor,
         "details": details,
         "kind": kind,
         "ts": ts,
     }
+    session = active_session()
+    if session is not None:
+        canonical["session_id"] = session.session_id
     digest = sha256_of_canonical_json(canonical)
     slug_prefix = kind.replace("_", "-")[:32] or "event"
-    return {
+    event: dict[str, Any] = {
         "$schema": "aria/governance-event/v2",
         "event_id": f"GE-{slug_prefix}-{digest[:16]}",
         "kind": kind,
@@ -403,22 +412,12 @@ def governance_event(kind: str, details: dict[str, Any]) -> dict[str, Any]:
         "host": socket.gethostname(),
         "schema_version": 2,
     }
-
-
-def default_actor() -> dict[str, Any]:
-    import getpass
-    import os
-    import socket
-
-    raw = os.environ.get("ARIA_ACTOR")
-    if raw:
-        try:
-            actor = json.loads(raw)
-        except json.JSONDecodeError:
-            actor = {}
-        if isinstance(actor, dict) and isinstance(actor.get("kind"), str) and isinstance(actor.get("id"), str):
-            return actor
-    return {"kind": "human", "id": f"{getpass.getuser()}@{socket.gethostname()}"}
+    # The session id is additive: rows appended inside a cycle carry the
+    # thread that ties governance to the session ledger; rows appended
+    # outside any cycle (bootstrap, migration, operator CLI) do not.
+    if session is not None:
+        event["session_id"] = session.session_id
+    return event
 
 
 def _prepare_workspace_dirs(paths: WorkspacePaths) -> None:

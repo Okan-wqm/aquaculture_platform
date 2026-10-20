@@ -12,7 +12,8 @@ from .runs_reader import read_runs_rows, run_read_paths
 from .state_manifest import surface_for_path
 from .tool_health import runs_path
 from .tool_registry import GovernanceError, ensure_tools_dir, list_tools, utc_now
-from .workspace import WorkspacePaths, default_actor
+from .execution_spine import current_actor_record
+from .workspace import WorkspacePaths
 
 SOURCE_WEIGHTS: dict[str, int] = {
     "tool_quarantine": 90,
@@ -967,7 +968,7 @@ def append_pressure_state_event(
         "reason": reason,
         "cycle_id": cycle_id,
         "ts": _format_dt(now or _utcnow_dt()),
-        "actor": default_actor(),
+        "actor": current_actor_record(),
         "evidence_refs": sorted(evidence_refs or []),
         "feedback_event_ids": sorted(feedback_event_ids or []),
         "details": details or {},

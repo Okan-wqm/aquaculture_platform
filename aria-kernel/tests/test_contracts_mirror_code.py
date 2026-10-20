@@ -112,6 +112,19 @@ class SnapshotModesMirrorSNAPSHOT_MODES(unittest.TestCase):
         self.assertEqual({mode.strip() for mode in match.group(1).split(",")}, set(SNAPSHOT_MODES))
 
 
+class ActorKindsMirrorACTOR_KINDS(unittest.TestCase):
+    """ARIA-MEDIUM-029 — §0.1's actor-kind list is execution_spine.ACTOR_KINDS."""
+
+    def test_actor_kinds(self) -> None:
+        from aria_kernel.execution_spine import ACTOR_KINDS
+
+        section = _section("## 0.1 — Snowball v9 Root Contract")
+        match = re.search(r"Actor kinds: (.+?)\.\n", section)
+        self.assertIsNotNone(match, "the actor-kind sentence is missing from §0.1")
+        self.assertEqual(_backticked(match.group(1)), set(ACTOR_KINDS))
+        self.assertNotIn("human", _backticked(match.group(1)))
+
+
 class RuntimeCountersPassageNamesTheMarkerOwner(unittest.TestCase):
     """ARIA-HIGH-499 — §12.5 says the counters are derived and names what derives them."""
 

@@ -216,6 +216,31 @@ pub(crate) const COMMAND_CATALOG: &[CommandCatalogEntry] = &[
         AuditAction::TagRead,
         AuditAction::CommandRejected
     ),
+    // ADR-048 DEC-5.8 / DEC-5.14 (Suderra OS profile only): cloud-signed
+    // statements the agent hands to root. Catalog-anonymous because the
+    // statement carries its own signature (the receipt is verified against
+    // the trust root before it is written; root verifies both); the command
+    // envelope is still signed, as every command on Suderra OS is.
+    #[cfg(feature = "suderra-os")]
+    entry!(
+        "activation_receipt",
+        "cmd_activation_receipt",
+        PermissionResolver::Anonymous,
+        LegacyPolicy::AllowUnsignedInEnforcing,
+        true,
+        AuditAction::TenantProvisioned,
+        AuditAction::CommandRejected
+    ),
+    #[cfg(feature = "suderra-os")]
+    entry!(
+        "lifecycle_request",
+        "cmd_lifecycle_request",
+        PermissionResolver::Anonymous,
+        LegacyPolicy::AllowUnsignedInEnforcing,
+        false,
+        AuditAction::CommandExecuted,
+        AuditAction::CommandRejected
+    ),
     entry!(
         "get_config",
         "cmd_get_config",

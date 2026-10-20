@@ -63,6 +63,8 @@ mod rbac;
 mod read;
 mod refresh_license;
 pub(crate) mod required_permission;
+#[cfg(feature = "suderra-os")]
+mod root_handoff;
 mod rotate_master;
 mod script;
 #[cfg(feature = "suderra-os")]

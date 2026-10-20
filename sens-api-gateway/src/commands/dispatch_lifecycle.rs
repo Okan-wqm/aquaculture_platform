@@ -349,6 +349,12 @@ impl super::CommandHandler {
             "verify_signed_manifest" => self.cmd_verify_signed_manifest(&command.params).await,
             // Signed firmware manifest apply orchestrator (Batch 116 Sprint 6.5)
             "apply_signed_manifest" => self.cmd_apply_signed_manifest(&command.params).await,
+            // Cloud-signed statements handed to root (ADR-048 DEC-5.8,
+            // DEC-5.14; Suderra OS profile only)
+            #[cfg(feature = "suderra-os")]
+            "activation_receipt" => self.cmd_activation_receipt(&command.params).await,
+            #[cfg(feature = "suderra-os")]
+            "lifecycle_request" => self.cmd_lifecycle_request(&command.params).await,
             // License tier refresh (Batch 143 Faz 7)
             "refresh_license" => self.cmd_refresh_license(&command.params).await,
             // ST bytecode program deploy (Batch 167 Faz 3)

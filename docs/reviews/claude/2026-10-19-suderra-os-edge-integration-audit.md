@@ -20,9 +20,9 @@ P3 2027-03-31. Yan bulgular, uygulama paketine alınana kadar önemine göre P1 
 
 | Domain | CRITICAL | HIGH | MEDIUM | LOW | Toplam |
 |---|---|---|---|---|---|
-| EDGE | 4 | 23 | 32 | 13 | 72 |
-| INFRA | 1 | 1 | 14 | 2 | 18 |
-| SENSOR | 4 | 13 | 16 | 3 | 36 |
+| EDGE | 4 | 26 | 37 | 15 | 82 |
+| INFRA | 1 | 1 | 17 | 2 | 21 |
+| SENSOR | 4 | 13 | 17 | 6 | 40 |
 
 ## Dizin
 
@@ -100,6 +100,16 @@ P3 2027-03-31. Yan bulgular, uygulama paketine alınana kadar önemine göre P1 
 | [EDGE-LOW-115](#EDGE-LOW-115) | LOW | P2 | Backup format is unencrypted and unsigned, embeds the raw config, and create/restore have no callers |
 | [EDGE-HIGH-128](#EDGE-HIGH-128) | HIGH | P0 | The agent crate does not compile without its health feature, so every Suderra OS release builds the boards.json features plus health and signs a suderra.edge-release.v1 statement whose cargo_features misstate the build |
 | [EDGE-MEDIUM-130](#EDGE-MEDIUM-130) | MEDIUM | P0 | The suderra-os agent profile still builds tenant-token self-registration, which ADR-048 DEC-5.12 closes for Suderra OS, and the cloud cannot tell an agent's profile when it self-registers |
+| [EDGE-HIGH-131](#EDGE-HIGH-131) | HIGH | P1 | Safe-state writes pass through the per-device Modbus write limiter (burst 4, 2 ops/s), so a device with more than four outputs cannot be driven fully safe at boot or shutdown |
+| [EDGE-HIGH-132](#EDGE-HIGH-132) | HIGH | P1 | On the generic profile the cached license is never loaded after a restart: init_license_cache reads AppState.tenant_id, which is still None at that point, so the device runs on Starter limits and I/O polling is refused above 16 channels |
+| [EDGE-HIGH-133](#EDGE-HIGH-133) | HIGH | P1 | The offline queue is never used with the default config: the outbound publisher needs HealthState, which exists only when the health server is enabled (default off), so publishes go direct and are lost during a broker outage |
+| [EDGE-MEDIUM-134](#EDGE-MEDIUM-134) | MEDIUM | P2 | A Modbus device with allow_writes=true but the default function-code whitelist [1,2,3,4] passes config validation and registers safe-state outputs it can never write, so every boot goes degraded |
+| [EDGE-MEDIUM-135](#EDGE-MEDIUM-135) | MEDIUM | P2 | Every refused command envelope (bad signature, RBAC denial, stale or replayed command, missing tenant binding) is dropped with a WARN: no CommandResponse reaches the cloud and no audit event records the attempt |
+| [EDGE-MEDIUM-136](#EDGE-MEDIUM-136) | MEDIUM | P2 | Command audit actions are classified by a hand-written string match, not by the catalog that declares them, so the Suderra OS hand-off commands are audited as generic CommandExecuted and the catalog's audit and bootstrap fields plus command_acceptance.rs are dead code |
+| [EDGE-MEDIUM-137](#EDGE-MEDIUM-137) | MEDIUM | P2 | Eighteen files under sens-api-gateway/tests/invariants (about 110 tests) assert on a string literal they define themselves, and some store tests silently skip when the store cannot open, so the security invariants they name are not tested |
+| [EDGE-MEDIUM-138](#EDGE-MEDIUM-138) | MEDIUM | P2 | write_atomic_json/bytes uses one temp file name per process (.name.tmp-<pid>), so two concurrent writers of the same target can rename a half-written file into place |
+| [EDGE-LOW-139](#EDGE-LOW-139) | LOW | P2 | SPI and PWM drivers (about 1,370 lines) and the I2C/tag 'simulated' quality are compiled but unreachable: no config, no handle, no safe-state, no dispatch |
+| [EDGE-LOW-140](#EDGE-LOW-140) | LOW | P2 | Agent hygiene: the --audit-verify doc and clippy allows sit on the wrong function, run_audit_verify lacks its print allows, compute_hmac uses expect(), and remote-commands.md describes a pre-signing dispatcher |
 | [INFRA-CRITICAL-236](#INFRA-CRITICAL-236) | CRITICAL | P0 | Release and OS builds ship without the gpio feature, so GPIO writes and safe-state only simulate while reporting success |
 | [INFRA-HIGH-237](#INFRA-HIGH-237) | HIGH | P0 | Edge CI suppresses every denied clippy lint, never compiles gpio, and release ships untested, unlocked builds |
 | [INFRA-MEDIUM-238](#INFRA-MEDIUM-238) | MEDIUM | P0 | apply_signed_manifest streams base64 files from the MQTT command into agent-owned slot dirs (impossible above 1 MiB, never executed), and the anti-rollback floor lives in a plaintext, agent-writable partition.json that resets when deleted |
@@ -118,6 +128,9 @@ P3 2027-03-31. Yan bulgular, uygulama paketine alınana kadar önemine göre P1 
 | [INFRA-LOW-251](#INFRA-LOW-251) | LOW | P2 | Load-bearing agent comments and config docs contradict the code (FirmwareUpdateMode::Disabled "sole update path", safe-state degraded-mode claim, "default build must include gpio", Strict leaf max-age "unbounded" vs 398 days, panic=abort rationale, dead log_file setting, release trigger) |
 | [INFRA-LOW-252](#INFRA-LOW-252) | LOW | P2 | WASM decoder compilation is unbounded and decoder modules are unsigned |
 | [INFRA-MEDIUM-253](#INFRA-MEDIUM-253) | MEDIUM | P1 | The release checks a binary's NEEDED libraries and glibc symbol versions against hand-maintained release facts, not against a sysroot manifest the Suderra OS image publishes |
+| [INFRA-MEDIUM-254](#INFRA-MEDIUM-254) | MEDIUM | P1 | sens-api-gateway-ci.yml greps for the literal version = "2.0.0-rc.4", and the release workflow now calls that CI, so the first version bump blocks every agent release |
+| [INFRA-MEDIUM-255](#INFRA-MEDIUM-255) | MEDIUM | P1 | The nine CRITICAL findings registered by this audit have no truth-table row, so derived-merge-pins and enterprise-grade-debt-plan-contract fail on every run of the registry invariants |
+| [INFRA-MEDIUM-256](#INFRA-MEDIUM-256) | MEDIUM | P2 | e2e/.github/workflows/e2e-tests.yml is a nested workflow GitHub never runs, and it is the only caller of the e2e security, workflow and integration suites |
 | [SENSOR-CRITICAL-200](#SENSOR-CRITICAL-200) | CRITICAL | P0 | Activation credentials are persisted by rewriting the whole config.yaml via save(); secrets are only base64-encoded, and on Suderra OS the save fails after the cloud has already consumed the single-use token |
 | [SENSOR-CRITICAL-201](#SENSOR-CRITICAL-201) | CRITICAL | P0 | Production can only run Permissive or Disabled, where unsigned legacy commands drive outputs and I/O config with no RBAC |
 | [SENSOR-CRITICAL-202](#SENSOR-CRITICAL-202) | CRITICAL | P0 | Releases are signed only with cosign keyless; Suderra OS accepts only Ed25519-signed artifacts, so no official release can be installed. An unused armv7 build can also block releases |
@@ -154,6 +167,10 @@ P3 2027-03-31. Yan bulgular, uygulama paketine alınana kadar önemine göre P1 
 | [SENSOR-LOW-233](#SENSOR-LOW-233) | LOW | P0 | MqttTlsConfig derived Default contradicts its serde defaults (enabled/verify_hostname false when the tls block is missing) |
 | [SENSOR-LOW-234](#SENSOR-LOW-234) | LOW | P2 | Provisioning endpoints return raw exception messages with 400 (env var names, token/activation/device-existence state), reveal readiness before token validation, and readiness ignores the REVOKED lifecycle state |
 | [SENSOR-LOW-235](#SENSOR-LOW-235) | LOW | P2 | Topic templates substitute the cloud-supplied tenant_id without rejecting MQTT wildcards or separators |
+| [SENSOR-MEDIUM-236](#SENSOR-MEDIUM-236) | MEDIUM | P2 | Re-provisioning replaces the device's live MQTT password hash at activation, before the commit, so a reinstall that never connects strands the device |
+| [SENSOR-LOW-237](#SENSOR-LOW-237) | LOW | P2 | Self-register power-loss recovery reads a device outside a transaction and then saves the whole stale entity, overwriting concurrent changes (revocation, lifecycle, token) with the snapshot |
+| [SENSOR-LOW-238](#SENSOR-LOW-238) | LOW | P2 | The provisioning controller validates device codes with four copies of ^[A-Z]{2,5}-[0-9A-F]{8}$, narrower than the contract's ^[A-Za-z0-9_-]{1,50}$ |
+| [SENSOR-LOW-239](#SENSOR-LOW-239) | LOW | P2 | Banned type escapes remain in the edge provisioning and MQTT adapter code, and edge-device.service.ts and automation.service.ts fail the repo's Prettier gate |
 
 ## Edge agent (sens-api-gateway)
 
@@ -2502,3 +2519,194 @@ ADR-048 tarafından bilerek sonraki bir faza bırakılan riskler. Her biri ADR-0
 - **Köken:** ADR-048 kalıntı riski R-13
 - **Kanıt (dosya:satır):** `docs/adr/048-suderra-os-edge-agent-integration-contract.md:1`
 - **Mimari düzeltme yönü:** Renewal window well before expiry, offline-tolerant grace with local-only operation, and a signed USB re-certification path.
+
+## P0 sırasında kaydedilen yan bulgular
+
+ADR-048 P0 uygulaması ve doğrulaması sırasında kodun okunmasıyla bulunan ve bağımsız olarak doğrulanan yan bulgular. Hiçbiri P0 kapsamında kapatılmadı; önemine göre P1 (CRITICAL/HIGH ve yayın engelleyenler) veya P2'ye yazıldı. Suderra OS reposuna düşen on yan bulgu `Okan-wqm/Suderra-OS` reposunda `docs/assessments/2026-10-19-edge-agent-integration-audit.md` içinde EI-078..EI-087 kimlikleriyle tutulur.
+
+<a id="EDGE-HIGH-131"></a>
+
+### EDGE-HIGH-131 — Safe-state writes pass through the per-device Modbus write limiter (burst 4, 2 ops/s), so a device with more than four outputs cannot be driven fully safe at boot or shutdown
+
+- **Önem:** HIGH · **Faz:** P1 · **Son tarih:** 2026-11-30 · **Sahip:** @Okan-wqm · **Durum:** OPEN
+- **Bileşen:** sens-api-gateway Modbus write path and safe-state registry (modbus.rs, safe_state.rs, resilience/rate_limiter.rs)
+- **Köken:** yan bulgu (P0 sırasında kaydedildi, I-safe-state-shares-modbus-write-limiter)
+- **Kanıt (dosya:satır):** `sens-api-gateway/src/modbus.rs:555`, `sens-api-gateway/src/modbus.rs:694`, `sens-api-gateway/src/modbus.rs:1195`, `sens-api-gateway/src/modbus.rs:1294`, `sens-api-gateway/src/modbus.rs:408`, `sens-api-gateway/src/safe_state.rs:238`, `sens-api-gateway/src/safe_state.rs:330`, `sens-api-gateway/src/resilience/rate_limiter.rs:175`
+- **Kök neden:** write_coil_safe_state/write_register_safe_state only skip the degraded gate; they send the same ModbusCommand::WriteCoil/WriteRegister as an operator write, and the actor calls device.write_coil/write_register, which run validate_write_allowed, validate_write_address, validate_function_code and acquire_write_rate_limit. That limiter is a non-blocking token bucket created with capacity 4 and 2 tokens/s (modbus.rs:555-559, security.enabled defaults to true). SafeStateManager::apply loops over the outputs sequentially, so on a relay board with 8 coils outputs 1-4 are written and outputs 5-8 fail at once with 'Write rate limit exceeded'. At boot the agent goes degraded; at graceful shutdown outputs 5-8 keep their last state, which can be ON. The P0 incidental reports quoted 10 ops/s burst 20, which is the read limiter; the write limiter is stricter. AG2 and the agent review both left this open. Safe-state is a life-safety path that must not be throttled by a runaway-script guard.
+- **Mimari düzeltme yönü:** Tier 1: give the SafeStateWrite capability its own write path that bypasses rate limiting, the function-code whitelist and the address policy (the output set is already derived from the config, so it needs no per-write authorization), e.g. a separate ModbusCommand variant handled without acquire_write_rate_limit. Add a unit test with a device of 12 outputs asserting all 12 safe-state writes succeed, and an invariant that no safe-state call chain reaches acquire_write_rate_limit.
+
+<a id="EDGE-HIGH-132"></a>
+
+### EDGE-HIGH-132 — On the generic profile the cached license is never loaded after a restart: init_license_cache reads AppState.tenant_id, which is still None at that point, so the device runs on Starter limits and I/O polling is refused above 16 channels
+
+- **Önem:** HIGH · **Faz:** P1 · **Son tarih:** 2026-11-30 · **Sahip:** @Okan-wqm · **Durum:** OPEN
+- **Bileşen:** sens-api-gateway license cache init (main.rs, license.rs), generic profile
+- **Köken:** yan bulgu (P0 sırasında kaydedildi, I-license-cache-not-loaded-after-restart-generic)
+- **Kanıt (dosya:satır):** `sens-api-gateway/src/main.rs:2596`, `sens-api-gateway/src/main.rs:4090`, `sens-api-gateway/src/main.rs:1000`, `sens-api-gateway/src/main.rs:5247`, `sens-api-gateway/src/main.rs:5509`, `sens-api-gateway/src/license.rs:177`
+- **Kök neden:** AppState.tenant_id starts as None (main.rs:1000). On the generic profile it is set only by activation (main.rs:5024) or by the 'Device already activated' branch (main.rs:5247), both later in main than init_license_cache (main.rs:4090). init_license_cache resolves the tenant from self.tenant_id alone (main.rs:2596-2612) and on None returns leaving EdgeLicenseLimits::conservative() (Starter: 16 I/O channels, 8 FB instances, 0 forces, OPC UA server off, 5 s scan floor). The EDGE-HIGH-059 fix gave init_rbac_manifest_store the 'or config.tenant_id' fallback but not the license loader, whose own doc comment says 'tenant_id available via config'. After any restart or power loss a licensed device is back on Starter limits until a refresh_license command arrives, and the I/O budget gate (main.rs:5509) then puts a device configured with more than 16 channels into degraded mode with io_poll not started. It needs a cached license manifest and a configured firmware signing key, so it hits exactly the devices that use the license feature. The suderra-os profile is not affected (install_site sets tenant_id at main.rs:3680, before the license init).
+- **Mimari düzeltme yönü:** Tier 1: resolve the bound tenant in one place (a single AppState::bound_tenant() that returns state.tenant_id or the activated config tenant) and make RBAC, license and the watch publisher use it, so no loader can read a half-initialised field. Add a boot test: activated generic config + cached signed license manifest -> license tier is restored after restart.
+
+<a id="EDGE-HIGH-133"></a>
+
+### EDGE-HIGH-133 — The offline queue is never used with the default config: the outbound publisher needs HealthState, which exists only when the health server is enabled (default off), so publishes go direct and are lost during a broker outage
+
+- **Önem:** HIGH · **Faz:** P1 · **Son tarih:** 2026-11-30 · **Sahip:** @Okan-wqm · **Durum:** OPEN
+- **Bileşen:** sens-api-gateway outbound publisher / offline queue / HealthState construction (main.rs, publish_helpers.rs, config.rs)
+- **Köken:** yan bulgu (P0 sırasında kaydedildi, I-outbound-publisher-needs-health-server)
+- **Kanıt (dosya:satır):** `sens-api-gateway/src/main.rs:1281`, `sens-api-gateway/src/main.rs:1295`, `sens-api-gateway/src/main.rs:2011`, `sens-api-gateway/src/main.rs:5312`, `sens-api-gateway/src/config.rs:627`, `sens-api-gateway/src/config.rs:671`, `sens-api-gateway/src/publish_helpers.rs:131`
+- **Kök neden:** The connectivity state the OutboundPublisher and DrainTask read lives in HealthState, which is constructed only inside init_health_server, and that returns early unless config.health.enabled (HealthServerConfig::default has enabled: false). init_outbound_publisher then fails with 'health_state must be initialized first' (main.rs:2011-2013) on every default-config boot; AG2 changed the call site from exit(1) to a logged error (main.rs:5312-5325) but the publisher is still never built. publish_helpers.rs falls back to publishing directly through the MQTT client. The offline queue is enabled by default precisely to avoid 'drop-on-disconnect by default' (config.rs:671-676), its SQLCipher database is opened and keyed at boot, and nothing ever enqueues into it. Telemetry and alarms published during a broker or uplink outage are therefore lost on every Suderra OS device and on every generic device that does not enable the HTTP health server; the 'Initial status published via OutboundPublisher' log line is misleading. Related to EDGE-HIGH-128 (HealthState is also compile-gated on the health feature) and EDGE-HIGH-066, but the runtime coupling is a separate defect.
+- **Mimari düzeltme yönü:** Tier 1: separate the connectivity flag from the health HTTP server. Construct HealthState (or a small ConnectivityState that HealthState wraps) unconditionally at boot and gate only the axum listener on health.enabled and the feature, so init_outbound_publisher cannot fail for a missing health server. Add a boot test with the default config asserting outbound_publisher is Some and that a publish while the broker is down lands in the queue and drains on reconnect. This should land with the EDGE-HIGH-128 fix since both need HealthState compiled and built unconditionally.
+
+<a id="EDGE-MEDIUM-134"></a>
+
+### EDGE-MEDIUM-134 — A Modbus device with allow_writes=true but the default function-code whitelist [1,2,3,4] passes config validation and registers safe-state outputs it can never write, so every boot goes degraded
+
+- **Önem:** MEDIUM · **Faz:** P2 · **Son tarih:** 2026-12-31 · **Sahip:** @Okan-wqm · **Durum:** OPEN
+- **Bileşen:** sens-api-gateway config validation and Modbus write policy (config.rs, modbus.rs, safe_state.rs)
+- **Köken:** yan bulgu (P0 sırasında kaydedildi, I-modbus-allow-writes-without-write-fc)
+- **Kanıt (dosya:satır):** `sens-api-gateway/src/safe_state.rs:332`, `sens-api-gateway/src/config.rs:1564`, `sens-api-gateway/src/config.rs:3099`, `sens-api-gateway/src/config.rs:3713`, `sens-api-gateway/src/modbus.rs:584`, `sens-api-gateway/src/modbus.rs:1293`
+- **Kök neden:** Write authority is spread over three independent settings (allow_writes, allowed_function_codes, allowed_write_ranges/allow_all_write_addresses) and only the third is cross-checked by AgentConfig::validate (config.rs:3713-3720). collect_modbus_outputs registers every coil/holding register of a device from allow_writes alone, while a write also needs FC5/FC6 in allowed_function_codes (default [1,2,3,4]) and an address inside the policy. A config with allow_writes=true and the default whitelist validates, its safe-state writes are refused by validate_function_code, and the agent enters degraded mode (control disabled) on every boot; operator writes to the device fail the same way.
+- **Mimari düzeltme yönü:** Tier 1: derive the write function codes from allow_writes (allow_writes adds FC5/FC6/FC15/FC16 to the effective whitelist) or make validate() reject allow_writes=true when the whitelist lacks the write codes; derive the safe-state output set from the same effective write policy so a registered output is by construction writable. Add validation tests for the allow_writes/whitelist/range combinations.
+
+<a id="EDGE-MEDIUM-135"></a>
+
+### EDGE-MEDIUM-135 — Every refused command envelope (bad signature, RBAC denial, stale or replayed command, missing tenant binding) is dropped with a WARN: no CommandResponse reaches the cloud and no audit event records the attempt
+
+- **Önem:** MEDIUM · **Faz:** P2 · **Son tarih:** 2026-12-31 · **Sahip:** @Okan-wqm · **Durum:** OPEN
+- **Bileşen:** sens-api-gateway MQTT command dispatch (commands/mqtt_dispatch.rs)
+- **Köken:** yan bulgu (P0 sırasında kaydedildi, I-refused-command-envelopes-silent)
+- **Kanıt (dosya:satır):** `sens-api-gateway/src/commands/mqtt_dispatch.rs:207`, `sens-api-gateway/src/commands/mqtt_dispatch.rs:227`, `sens-api-gateway/src/commands/mqtt_dispatch.rs:238`, `sens-api-gateway/src/commands/mqtt_dispatch.rs:307`, `sens-api-gateway/src/commands/mqtt_dispatch.rs:318`, `sens-api-gateway/src/commands/mqtt_dispatch.rs:73`
+- **Kök neden:** The dispatch loop returns Ok(()) after a warn! at each pre-dispatch refusal, before the lifecycle layer that owns CommandResponse publication and audit emission, and the code still carries the comment 'audit sink wires in Sprint 6.2'. The cloud therefore cannot settle a command the agent refused (it waits for its ack timeout; SENSOR-HIGH-210 already shows the cloud treating publish as success), and rejected signature, replay and authorization-denied attempts leave no audit record, which IEC 62443 FR-2/FR-6 expect. EDGE-LOW-107 covers the rate-limit subset of the same pattern.
+- **Mimari düzeltme yönü:** Tier 2: move refusal handling into one function that every pre-dispatch refusal calls, which publishes a rejected CommandResponse with a stable reason code (never signature material) and emits a CommandRejected/AuthorizationDenied audit entry; throttle the response publish so a flood of bad envelopes cannot amplify. Add dispatch tests for each refusal asserting one response and one audit event. Extend EDGE-LOW-107's fix to the same function.
+
+<a id="EDGE-MEDIUM-136"></a>
+
+### EDGE-MEDIUM-136 — Command audit actions are classified by a hand-written string match, not by the catalog that declares them, so the Suderra OS hand-off commands are audited as generic CommandExecuted and the catalog's audit and bootstrap fields plus command_acceptance.rs are dead code
+
+- **Önem:** MEDIUM · **Faz:** P2 · **Son tarih:** 2026-12-31 · **Sahip:** @Okan-wqm · **Durum:** OPEN
+- **Bileşen:** sens-api-gateway command catalog and audit emission (commands/catalog.rs, audit_emit.rs, command_acceptance.rs)
+- **Köken:** yan bulgu (P0 sırasında kaydedildi, I-command-audit-taxonomy-second-table)
+- **Kanıt (dosya:satır):** `sens-api-gateway/src/commands/audit_emit.rs:43`, `sens-api-gateway/src/commands/audit_emit.rs:127`, `sens-api-gateway/src/commands/catalog.rs:157`, `sens-api-gateway/src/commands/catalog.rs:230`, `sens-api-gateway/src/commands/catalog.rs:255`, `sens-api-gateway/src/commands/catalog.rs:1110`, `sens-api-gateway/src/commands/catalog.rs:1116`, `sens-api-gateway/src/commands/mod.rs:43`, `sens-api-gateway/src/commands/command_acceptance.rs:1`
+- **Kök neden:** Two taxonomies exist. CommandCatalogEntry.audit_success/audit_failure and bootstrap_allowed, with is_bootstrap_allowed_command, audit_action_for_command, handler_name_for_command, is_mutating_command and MUTATING_WIRE_NAMES, are read only by tests; the runtime classifies through audit_emit::action_for_command, a separate match on string literals that falls to CommandExecuted. The catalog declares activation_receipt -> TenantProvisioned and request_update -> FirmwareDeployRequested, but audit_emit has no arm for activation_receipt, lifecycle_request or request_update, so those root hand-off events land in the catch-all and are indistinguishable from any other command in audit queries. src/commands/command_acceptance.rs (330 lines, decode_command and its rejection enums) is declared as a module and never called. Same family as EDGE-LOW-105 (superseded command lists never deleted).
+- **Mimari düzeltme yönü:** Tier 1: make the catalog the only source: audit_emit reads entry.audit_success/audit_failure (with the outcome-dependent exceptions expressed as catalog data) and the second match is deleted; delete command_acceptance.rs and the unused catalog helpers, or wire them. Add an invariant that every catalog command's emitted audit action equals its declared one, and that exactly one mutating/audit command table exists.
+
+<a id="EDGE-MEDIUM-137"></a>
+
+### EDGE-MEDIUM-137 — Eighteen files under sens-api-gateway/tests/invariants (about 110 tests) assert on a string literal they define themselves, and some store tests silently skip when the store cannot open, so the security invariants they name are not tested
+
+- **Önem:** MEDIUM · **Faz:** P2 · **Son tarih:** 2026-12-31 · **Sahip:** @Okan-wqm · **Durum:** OPEN
+- **Bileşen:** sens-api-gateway tests/invariants and authz manifest_version_store tests
+- **Köken:** yan bulgu (P0 sırasında kaydedildi, I-vacuous-invariant-tests)
+- **Kanıt (dosya:satır):** `sens-api-gateway/tests/invariants/config_coherence.rs:34`, `sens-api-gateway/tests/invariants/rbac_hot_reload.rs:28`, `sens-api-gateway/tests/invariants/audit_pipeline.rs:23`, `sens-api-gateway/tests/invariants/two_person_integrity_gate.rs:1`, `sens-api-gateway/tests/invariants/signature_mode.rs:1`, `sens-api-gateway/tests/invariants/mtls_config.rs:1`, `sens-api-gateway/src/authz/manifest_version_store.rs:387`, `sens-api-gateway/src/authz/manifest_version_store.rs:430`
+- **Kök neden:** The 'contract-anchor' style (let _contract = "..."; assert!(!_contract.is_empty())) was adopted because the crate had no lib target for integration tests; 18 of 57 invariant files use it (109 literal assertions, e.g. all 15 in config_coherence.rs, all 8 in rbac_hot_reload.rs, 15 in audit_pipeline.rs), covering mTLS strictness, signature mode, two-person integrity, RBAC hot reload, dedup, rate limiting and config coherence. They pass whatever the production code does. Separately, manifest_version_store.rs tests use try_open, which prints 'Skipping test' and returns when the SQLCipher store cannot open, so the persistent-floor tests can pass with zero coverage. EDGE-MEDIUM-102 covers invariant files that do not exist; this is the opposite failure, files that exist and prove nothing.
+- **Mimari düzeltme yönü:** Tier 3 with a Tier 1 backstop: expose the crate's logic through a lib target (or move each check into a unit test next to the code) and replace each literal with a call that fails when the rule is broken; add a lint or invariant that rejects a test whose only assertion is on a local string or constant. Replace try_open's silent skip with ensure_key_sandbox plus expect, as the new tests already do.
+
+<a id="EDGE-MEDIUM-138"></a>
+
+### EDGE-MEDIUM-138 — write_atomic_json/bytes uses one temp file name per process (.name.tmp-<pid>), so two concurrent writers of the same target can rename a half-written file into place
+
+- **Önem:** MEDIUM · **Faz:** P2 · **Son tarih:** 2026-12-31 · **Sahip:** @Okan-wqm · **Durum:** OPEN
+- **Bileşen:** sens-api-gateway shared_io atomic JSON sidecar writer
+- **Köken:** yan bulgu (P0 sırasında kaydedildi, I-atomic-sidecar-shared-temp-name)
+- **Kanıt (dosya:satır):** `sens-api-gateway/src/shared_io/atomic_json_sidecar.rs:244`, `sens-api-gateway/src/shared_io/atomic_json_sidecar.rs:251`, `sens-api-gateway/src/shared_io/atomic_json_sidecar.rs:255`, `sens-api-gateway/src/shared_io/atomic_json_sidecar.rs:283`, `sens-api-gateway/src/commands/root_handoff.rs:151`, `sens-api-gateway/src/authz/manifest_runtime.rs:551`
+- **Kök neden:** The temp path depends only on the target name and the pid, the helper removes any existing temp file and reopens it with create+truncate. Writer B can unlink writer A's temp file while A still writes to the open inode, then create a fresh temp; A's fsync succeeds and A renames B's partially written file onto the target. This is the same race the AG1 package fixed in db_secret (which uses a unique name plus hard_link). Callers are the primitive for security state: the RBAC manifest and floor, the activation document, site trust, the DB migration manifest and the root hand-off statements (named by digest, which the cloud re-delivers on each online transition).
+- **Mimari düzeltme yönü:** Tier 1: make the collision impossible by creating the temp file with O_EXCL under a unique name (pid plus a per-process counter plus random suffix, as TrybootBootloaderHandle already does) and cleaning stale temp files by prefix at start; add a test with N concurrent writers of one target asserting the final file always parses.
+
+<a id="EDGE-LOW-139"></a>
+
+### EDGE-LOW-139 — SPI and PWM drivers (about 1,370 lines) and the I2C/tag 'simulated' quality are compiled but unreachable: no config, no handle, no safe-state, no dispatch
+
+- **Önem:** LOW · **Faz:** P2 · **Son tarih:** 2026-12-31 · **Sahip:** @Okan-wqm · **Durum:** OPEN
+- **Bileşen:** sens-api-gateway SPI / PWM / I2C drivers and tag quality (spi.rs, pwm.rs, i2c.rs, io_poll.rs)
+- **Köken:** yan bulgu (P0 sırasında kaydedildi, I-dead-hardware-io-code)
+- **Kanıt (dosya:satır):** `sens-api-gateway/src/main.rs:105`, `sens-api-gateway/src/main.rs:249`, `sens-api-gateway/src/spi.rs:206`, `sens-api-gateway/src/pwm.rs:1`, `sens-api-gateway/src/i2c.rs:100`, `sens-api-gateway/src/io_poll.rs:293`
+- **Kök neden:** mod spi and mod pwm are declared in main.rs and referenced nowhere else; AgentConfig has no SPI or PWM section, nothing creates an SpiHandle or PWM channel, and neither is part of safe-state registration, so a PWM-driven actuator can be neither configured nor driven safe and the code reads as supported hardware. After AG2 removed the simulated I2C results, I2cReadResult.simulated is always false and the TagQuality::Simulated branches in io_poll.rs (and atlas_ezo.rs:63) are dead.
+- **Mimari düzeltme yönü:** Either wire SPI and PWM end to end (config, handle, safe-state registration, dispatch) as part of the RevPi/GPIO package, or delete the modules and the simulated flag so the feature surface matches what runs; add an unused-module check (dead_code deny on these modules) so it cannot recur.
+
+<a id="EDGE-LOW-140"></a>
+
+### EDGE-LOW-140 — Agent hygiene: the --audit-verify doc and clippy allows sit on the wrong function, run_audit_verify lacks its print allows, compute_hmac uses expect(), and remote-commands.md describes a pre-signing dispatcher
+
+- **Önem:** LOW · **Faz:** P2 · **Son tarih:** 2026-12-31 · **Sahip:** @Okan-wqm · **Durum:** OPEN
+- **Bileşen:** sens-api-gateway main.rs audit-verify, lifecycle_auth.rs, docs/api/remote-commands.md
+- **Köken:** yan bulgu (P0 sırasında kaydedildi, I-agent-doc-and-lint-hygiene)
+- **Kanıt (dosya:satır):** `sens-api-gateway/src/main.rs:4236`, `sens-api-gateway/src/main.rs:4251`, `sens-api-gateway/src/main.rs:4299`, `sens-api-gateway/src/main.rs:4584`, `sens-api-gateway/src/lifecycle_auth.rs:402`, `sens-api-gateway/docs/api/remote-commands.md:4`, `sens-api-gateway/docs/api/remote-commands.md:16`
+- **Kök neden:** When --confirm-active moved, the doc block and #[allow(clippy::print_stdout/print_stderr)] for run_audit_verify stayed above run_migrate_db_subcommand_with_context while run_audit_verify (a println!/eprintln! function) has neither; the crate denies expect_used (Cargo.toml:592) yet compute_hmac has expect(), unreachable in practice but hidden only because CI passes -A clippy::expect_used (INFRA-HIGH-237). docs/api/remote-commands.md cites src/commands.rs:364-475 and :380-397, a file that no longer exists, and states that the agent does not verify the invoker, which is false since signed envelopes and RBAC enforcement.
+- **Mimari düzeltme yönü:** Move the doc and attributes back to run_audit_verify; return a typed error from compute_hmac (HmacSha256::new_from_slice cannot fail for any key length, so map it to AuthError); regenerate remote-commands.md from the catalog (the doc then cannot drift) or add a doc-link check that every cited src path exists.
+
+<a id="INFRA-MEDIUM-254"></a>
+
+### INFRA-MEDIUM-254 — sens-api-gateway-ci.yml greps for the literal version = "2.0.0-rc.4", and the release workflow now calls that CI, so the first version bump blocks every agent release
+
+- **Önem:** MEDIUM · **Faz:** P1 · **Son tarih:** 2026-11-30 · **Sahip:** @Okan-wqm · **Durum:** OPEN
+- **Bileşen:** .github/workflows/sens-api-gateway-ci.yml and edge-agent-release.yml
+- **Köken:** yan bulgu (P0 sırasında kaydedildi, I-ci-pins-agent-version-literal)
+- **Kanıt (dosya:satır):** `.github/workflows/sens-api-gateway-ci.yml:81`, `.github/workflows/sens-api-gateway-ci.yml:82`, `.github/workflows/edge-agent-release.yml:196`, `sens-api-gateway/Cargo.toml:3`
+- **Kök neden:** A release-policy check was written as a grep for the current Cargo version instead of comparing Cargo.toml's version with the release ref. edge-agent-release.yml runs sens-api-gateway-ci.yml as a reusable workflow on the tag SHA (INFRA-HIGH-237 fix), so any tag whose Cargo version is not rc.4 fails that job; the same job also pins docs/evidence/sens-api-gateway-edge-v2.0.0-rc4.md. Loud and one line to fix, but it blocks the update channel's first real release.
+- **Mimari düzeltme yönü:** Tier 1: derive the expected version from the pushed ref (agent-vX.Y.Z -> Cargo.toml package.version must equal X.Y.Z) instead of a literal, and drop the rc4 evidence-file pin or select it by the same derived version; add a workflow-contract test that fails if a CI step contains a hard-coded crate version.
+
+<a id="INFRA-MEDIUM-255"></a>
+
+### INFRA-MEDIUM-255 — The nine CRITICAL findings registered by this audit have no truth-table row, so derived-merge-pins and enterprise-grade-debt-plan-contract fail on every run of the registry invariants
+
+- **Önem:** MEDIUM · **Faz:** P1 · **Son tarih:** 2026-11-30 · **Sahip:** @Okan-wqm · **Durum:** OPEN
+- **Bileşen:** docs/plans enterprise-grade-debt-closure truth table and registry invariants
+- **Köken:** yan bulgu (P0 sırasında kaydedildi, I-truth-table-rows-missing-for-audit-criticals)
+- **Kanıt (dosya:satır):** `docs/plans/2026-06-18-enterprise-grade-debt-closure/finding-truth-table.md:1`, `tests/invariants/enterprise-grade-debt-plan-contract.spec.ts:159`, `tests/invariants/derived-merge-pins.spec.ts:196`, `docs/reviews/_registry/findings.jsonl:1`
+- **Kök neden:** The registration commits (6cb0c746, 63b9f83f) appended EDGE-CRITICAL-046..049, SENSOR-CRITICAL-200..203 and INFRA-CRITICAL-236 to the registry without the one truth-table row (owner, sprint, bucket) per active CRITICAL that the invariant requires. Running the registry invariants on the branch tip fails 3 tests: 'keeps exactly one truth-table row per active CRITICAL' and two derived-merge-pins cases report missingRows with those nine ids. The invariants run in invariants:fast, so every PR stays red until the rows exist. (The finding-id-aliases spec also fails in this checkout, but only because the checkout is shallow and the 37 alias commits are not present; that is not a repository defect.)
+- **Mimari düzeltme yönü:** Add the nine rows to finding-truth-table.md. Tier 2: make the registration tool emit the truth-table row (owner, sprint, bucket) in the same commit as any new CRITICAL, so registration cannot leave the invariant red.
+
+<a id="INFRA-MEDIUM-256"></a>
+
+### INFRA-MEDIUM-256 — e2e/.github/workflows/e2e-tests.yml is a nested workflow GitHub never runs, and it is the only caller of the e2e security, workflow and integration suites
+
+- **Önem:** MEDIUM · **Faz:** P2 · **Son tarih:** 2026-12-31 · **Sahip:** @Okan-wqm · **Durum:** OPEN
+- **Bileşen:** e2e/.github/workflows (nested workflow) and the e2e Nx project
+- **Köken:** yan bulgu (P0 sırasında kaydedildi, I-e2e-nested-workflow-orphan)
+- **Kanıt (dosya:satır):** `e2e/.github/workflows/e2e-tests.yml:1`, `e2e/project.json:6`, `e2e/package.json:8`, `e2e/package.json:12`
+- **Kök neden:** GitHub reads workflows only from the root .github/workflows. The root e2e-tests.yml was deleted when E2E moved off the production host (ARIA-HIGH-334), leaving this copy; the e2e Nx project declares only a lint target, and the root workflows run only the water-chemistry e2e and the schema invariants. The Playwright security project (csrf, rbac-escalation, tenant-isolation, token-lifecycle, header-spoofing, rate-limiting, graphql-limits) and the jest workflow/integration suites therefore have no CI caller; they can rot or regress silently. Same pattern as the nested sens-api-gateway workflows removed under INFRA-HIGH-237 and as SENSOR-HIGH-070 for the sensor device-flow suites.
+- **Mimari düzeltme yönü:** Move the security and workflow suites into a root workflow (or Nx test targets reached from ci-affected) that runs against an ephemeral stack, and delete e2e/.github. Tier 3: extend the test-target-ci-reachability invariant to flag any .github/workflows directory below the repository root.
+
+<a id="SENSOR-MEDIUM-236"></a>
+
+### SENSOR-MEDIUM-236 — Re-provisioning replaces the device's live MQTT password hash at activation, before the commit, so a reinstall that never connects strands the device
+
+- **Önem:** MEDIUM · **Faz:** P2 · **Son tarih:** 2026-12-31 · **Sahip:** @Okan-wqm · **Durum:** OPEN
+- **Bileşen:** sensor-service edge-device provisioning-reservation.service.ts
+- **Köken:** yan bulgu (P0 sırasında kaydedildi, I-reprovision-replaces-live-broker-credential)
+- **Kanıt (dosya:satır):** `apps/sensor-service/src/edge-device/provisioning-reservation.service.ts:268`, `apps/sensor-service/src/edge-device/provisioning-reservation.service.ts:279`, `apps/sensor-service/src/edge-device/provisioning-reservation.service.ts:319`, `apps/sensor-service/src/edge-device/provisioning-reservation.service.ts:38`
+- **Kök neden:** The state-machine comment says the committed activation record, 'the live broker credential' included, is kept until the new commit replaces it, but issueCredentials writes mqttPasswordHash, credentialsIssuedAt and lifecycleState straight onto the device row at ACTIVATION_PENDING while commitFirstSession only clears token fields. There is one credential slot, so the old credential is invalid the moment the new one is issued; if the reinstall fails, is rolled back or the device never reaches the broker, the previously working agent can no longer authenticate and the device stays offline until it is re-provisioned again.
+- **Mimari düzeltme yönü:** Tier 1: add a second credential slot (pending_mqtt_password_hash and issued_at) that issueCredentials fills and commitFirstSession promotes, with the broker authenticator accepting the live hash and, until commit or expiry, the pending one; ship it as a generated migration (nullable column, no destructive change) and add a test: activate during re-provisioning, never connect, old credential still authenticates.
+
+<a id="SENSOR-LOW-237"></a>
+
+### SENSOR-LOW-237 — Self-register power-loss recovery reads a device outside a transaction and then saves the whole stale entity, overwriting concurrent changes (revocation, lifecycle, token) with the snapshot
+
+- **Önem:** LOW · **Faz:** P2 · **Son tarih:** 2026-12-31 · **Sahip:** @Okan-wqm · **Durum:** OPEN
+- **Bileşen:** sensor-service edge-device provisioning.service.ts (self-register recovery)
+- **Köken:** yan bulgu (P0 sırasında kaydedildi, I-self-register-recovery-stale-entity-save)
+- **Kanıt (dosya:satır):** `apps/sensor-service/src/edge-device/provisioning.service.ts:878`, `apps/sensor-service/src/edge-device/provisioning.service.ts:905`, `apps/sensor-service/src/edge-device/provisioning.service.ts:910`
+- **Kök neden:** The existing device is loaded in runInTenantRead and, after bcrypt hashing, persisted with qr.manager.save(existing) in a separate transaction. save() writes every column of the snapshot, so a revoke, decommission or token change committed in between is reverted, and the recovery path never re-checks the lifecycle state. Related to SENSOR-MEDIUM-227 (the recovery path's identity weakness), but a distinct lost-update defect.
+- **Mimari düzeltme yönü:** Tier 1: replace the whole-entity save with one conditional UPDATE of mqtt_password_hash that carries the guard (lifecycle_state not terminal, last_seen_at IS NULL, created_at within the window) inside the transaction and returns the affected row, like the other provisioning transitions.
+
+<a id="SENSOR-LOW-238"></a>
+
+### SENSOR-LOW-238 — The provisioning controller validates device codes with four copies of ^[A-Z]{2,5}-[0-9A-F]{8}$, narrower than the contract's ^[A-Za-z0-9_-]{1,50}$
+
+- **Önem:** LOW · **Faz:** P2 · **Son tarih:** 2026-12-31 · **Sahip:** @Okan-wqm · **Durum:** OPEN
+- **Bileşen:** sensor-service edge-device provisioning.controller.ts and contract common.schema.json
+- **Köken:** yan bulgu (P0 sırasında kaydedildi, I-device-code-regex-copies-narrower-than-contract)
+- **Kanıt (dosya:satır):** `apps/sensor-service/src/edge-device/provisioning.controller.ts:81`, `apps/sensor-service/src/edge-device/provisioning.controller.ts:215`, `apps/sensor-service/src/edge-device/provisioning.controller.ts:262`, `apps/sensor-service/src/edge-device/provisioning.controller.ts:356`, `contracts/suderra-edge/v1/schemas/common.schema.json:64`
+- **Kök neden:** The format is pasted into four handlers instead of one shared constant derived from the device-code generator and the contract. It matches codes the cloud mints today, but the status, install, uninstall and update routes answer 400 for any other code the contract admits (for example the EDGE-REVPI-0001 style used in contract fixtures), so contract and cloud can drift without any test failing.
+- **Mimari düzeltme yönü:** Tier 1: one exported DEVICE_CODE_PATTERN used by the generator, the controller and the DTO validation, with a contract-conformance test that the generator's output and the contract fixtures all pass it.
+
+<a id="SENSOR-LOW-239"></a>
+
+### SENSOR-LOW-239 — Banned type escapes remain in the edge provisioning and MQTT adapter code, and edge-device.service.ts and automation.service.ts fail the repo's Prettier gate
+
+- **Önem:** LOW · **Faz:** P2 · **Son tarih:** 2026-12-31 · **Sahip:** @Okan-wqm · **Durum:** OPEN
+- **Bileşen:** sensor-service edge-device, automation and MQTT adapter code
+- **Köken:** yan bulgu (P0 sırasında kaydedildi, I-sensor-edge-type-escapes-prettier)
+- **Kanıt (dosya:satır):** `apps/sensor-service/src/protocol/adapters/iot/mqtt.adapter.ts:150`, `apps/sensor-service/src/edge-device/provisioning.service.ts:218`, `apps/sensor-service/src/edge-device/provisioning.service.ts:219`, `apps/sensor-service/src/edge-device/edge-provisioning-manifest.service.ts:111`, `apps/sensor-service/src/edge-device/edge-provisioning-manifest.service.ts:113`, `apps/sensor-service/src/edge-device/edge-device.service.ts:1`, `apps/sensor-service/src/automation/automation.service.ts:1`
+- **Kök neden:** CLAUDE.md bans 'as unknown as X', 'as any' and defensive '?.'. mqtt.adapter.ts casts mqtt.connect() through unknown to MqttClientInstance; createProvisionedDevice catches 'error: any' and reads error?.code; the manifest parser asserts 'method as BindingMethod' and 'board as BoardProfile' after a runtime check instead of using a type guard. 'prettier --check' reports both edge-device.service.ts and automation.service.ts as unformatted, so any PR that touches them fails the format gate.
+- **Mimari düzeltme yönü:** Tier 1: use type guards (isBindingMethod, isBoardProfile) that narrow without casts; catch unknown and narrow to a QueryFailedError-style guard for the 23505 code; type the mqtt client through the library's own MqttClient type; run prettier --write on the two files and add the escape patterns to the existing lint ban so they fail CI.

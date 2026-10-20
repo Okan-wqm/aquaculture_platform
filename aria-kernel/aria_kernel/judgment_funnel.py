@@ -175,6 +175,28 @@ def _calibrations_routed_since(root: Path, since_iso: str) -> int:
     )
 
 
+def _item_cited_refs(item: dict[str, Any]) -> list[str]:
+    """The finding's own citations: its path plus its evidence refs."""
+    refs: list[str] = []
+    path = str(item.get("path") or "").strip()
+    if path:
+        refs.append(path)
+    for entry in item.get("evidence") or []:
+        if isinstance(entry, str) and entry.strip():
+            refs.append(entry.strip())
+    return refs
+
+
+def _cited_code_hash(
+    item: dict[str, Any], repo_root: str | Path | None, target_sha: str | None,
+) -> str | None:
+    from .evidence_trust import cited_blobs_code_hash
+
+    if repo_root is None:
+        return None
+    return cited_blobs_code_hash(Path(repo_root), _item_cited_refs(item), target_sha)
+
+
 def _tier0_verdict(
     item: dict[str, Any],
     repo_root: str | Path | None,
@@ -311,6 +333,24 @@ def route_judgment_sample(
             "summary": {"funnel": "off", "items_in": len(sample.get("items") or [])},
         }
     items = [item for item in sample.get("items") or [] if isinstance(item, dict)]
+    # The cache's write side runs BEFORE routing (learn, then route): the
+    # verdicts that settled since the last pass — keyed by the finding's
+    # own cited blobs at its anchor — are known to this pass's lookups.
+    try:
+        from .feedback_store import load_feedback
+        from .judgment_cache import record_settled_verdicts
+        from .ledger import load_declared_jsonl
+
+        routing_path_now = routing_path(root)
+        all_routes = (load_declared_jsonl(routing_path_now, expected_surface=ROUTING_SURFACE)
+                      if routing_path_now.exists() else [])
+        record_settled_verdicts(
+            root, routing_rows=all_routes,
+            feedback=load_feedback(base_dir=root),
+            repo_root=repo_root,
+        )
+    except Exception:  # noqa: BLE001 — the write side never breaks routing
+        pass
     now = _now()
     remaining, derivation = _tonight_allowance(root, policy, now=now)
     held: list[dict[str, Any]] = []
@@ -318,6 +358,7 @@ def route_judgment_sample(
     routed_tiers: list[int] = []
     routed_calibration: list[bool] = []
     tier0_refused: list[dict[str, Any]] = []
+    cache_hits: list[dict[str, Any]] = []
     hold_reason: str | None = None
     # The tier ladder, BEFORE any seat is planned or asked for:
     #   * severity routes (T2 one seat for S/M, T3 for HIGH, T4 for
@@ -400,6 +441,20 @@ def route_judgment_sample(
                     "detail": verdict.get("note"),
                 })
                 continue
+            # THE VERDICT CACHE (slice C-2): a settled verdict pinned to
+            # byte-identical cited code is reused, never re-paid. A hit
+            # mints nothing; unknown blob state is a miss (tri-state law).
+            from .judgment_cache import cache_lookup
+
+            code_hash = _cited_code_hash(item, repo_root, target_sha)
+            hit = cache_lookup(
+                root, finding_fingerprint=str(item.get("finding_fingerprint") or ""),
+                code_hash=code_hash,
+            )
+            if hit is not None:
+                cache_hits.append({"item": item, "verdict": hit.get("verdict"),
+                                   "source_group": hit.get("judgment_group_id")})
+                continue
             seats = SEATS_BY_TIER.get(tier, _LEGACY_SEATS)
             if remaining < seats:
                 hold_reason = "envelope_allowance_exhausted"
@@ -431,7 +486,8 @@ def route_judgment_sample(
     )
     _append_routing_rows(
         root, sample, routed,
-        held + [{"item": entry["item"], "reason": f"tier0:{entry['reason']}"} for entry in tier0_refused],
+        held + [{"item": entry["item"], "reason": f"tier0:{entry['reason']}"} for entry in tier0_refused]
+        + [{"item": entry["item"], "reason": "cache_hit"} for entry in cache_hits],
         tiers=routed_tiers, calibration=routed_calibration, tier1=tier1,
         target_sha=target_sha, now=now,
     )
@@ -480,6 +536,7 @@ def route_judgment_sample(
             "items_routed": len(routed),
             "items_held": len(held),
             "items_tier0_refused": len(tier0_refused),
+            "items_cache_hit": len(cache_hits),
             "tier4_quota_used": sum(1 for t in routed_tiers if t == 4),
             "derivation": derivation,
         },
@@ -523,6 +580,8 @@ def _append_routing_rows(
             # that routes; the calibration design validates the cut points
             # against outcome-truth rows first (crit2-06 selection bias).
             "tier1": shadow,
+            "cited_refs": _item_cited_refs(item) if hold is None else None,
+            "cache_hit": True if hold == "cache_hit" else None,
             "target_sha": target_sha,
             "held": hold,
         }

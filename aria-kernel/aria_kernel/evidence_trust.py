@@ -608,6 +608,50 @@ def _git_tree_exists(
     )
 
 
+def cited_blobs_code_hash(
+    repo_root: Path,
+    refs: list[str],
+    target_sha: str | None,
+    *,
+    session: "GitProbeSession | None" = None,
+) -> str | None:
+    """WP-J slice C — the code identity of a set of cited refs, or ``None``.
+
+    THE verdict-cache key's code half: one ``sha256:...`` over the sorted
+    ``(path, blob sha256)`` pairs of every cited ref's blob at
+    ``target_sha``, computed with the same ``git show <sha>:<path>`` bytes
+    and the same sha256 spelling as ``_git_blob_matches`` — one blob law,
+    two callers. A ref that names a line hashes its FILE (the line pin
+    matters to quoting, not to whether the cited code changed). A ref the
+    tree does not carry contributes its path with a ``absent`` marker: a
+    vanished file IS a code change for a verdict pinned to it.
+
+    Tri-state on purpose: ``None`` when there is no anchor, no repo, or a
+    git that did not answer inside the session's bounds — the cache treats
+    unknown as a MISS (fail toward minting), never as a verdict.
+    """
+    import hashlib
+
+    if not isinstance(target_sha, str) or not target_sha.strip():
+        return None
+    probe = session if session is not None else GitProbeSession()
+    pairs: list[str] = []
+    for ref in refs:
+        parsed = parse_evidence_ref(str(ref or ""))
+        rel = parsed[0] if parsed is not None else str(ref or "").strip()
+        if not rel:
+            continue
+        outcome = probe.run(["git", "show", f"{target_sha}:{rel}"], cwd=repo_root)
+        if not outcome.answered:
+            return None
+        if outcome.returncode != 0:
+            pairs.append(f"{rel}:absent")
+            continue
+        pairs.append(f"{rel}:sha256:{hashlib.sha256(outcome.stdout).hexdigest()}")
+    digest = hashlib.sha256("\n".join(sorted(pairs)).encode("utf-8")).hexdigest()
+    return f"sha256:{digest}"
+
+
 __all__ = [
     "ARIA_DETECTOR_SOURCE_CLASS",
     "ARIA_DETECTOR_SOURCE_PREFIXES",
@@ -630,4 +674,5 @@ __all__ = [
     "tool_evidence_refusal",
     "forbidden_detector_scope",
     "quote_matches_at",
+    "cited_blobs_code_hash",
 ]

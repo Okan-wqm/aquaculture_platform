@@ -75,7 +75,7 @@ def _run_phase(tmp: str, *, sample_items: list[dict] | None = None, enable_funne
     now = datetime(2026, 10, 20, 3, 0, tzinfo=timezone.utc)
     ledgers = _seed_ledgers(drained=drained, now=now)
 
-    with patch.object(cycle_mod, "list_tools", return_value=[{"tool_id": "adapter-a"}]), \
+    with _door_open(), patch.object(cycle_mod, "list_tools", return_value=[{"tool_id": "adapter-a"}]), \
          patch("aria_kernel.feedback_store.generate_judgment_sample", fake_sample), \
          patch("aria_kernel.judge_fanout.dispatch_judges_for_sample", fake_dispatch), \
          patch("aria_kernel.feedback_store.generate_ai_consensus",
@@ -84,6 +84,25 @@ def _run_phase(tmp: str, *, sample_items: list[dict] | None = None, enable_funne
          patch("aria_kernel.convergence_drainer._resolve_workspace_head_sha", return_value="a" * 40):
         result = cycle_mod._phase_judgment_pipeline(ctx)
     return result, calls, ctx
+
+
+def _door_open():
+    """Isolate the router-under-test from the admission door's environment.
+
+    The door (request_admission) is an INPUT organ for the tier/envelope
+    tests, like the drain ledgers: its own suite pins it. On a shared host
+    the door's provider read depends on the routing table's global state
+    (a sibling slice mid-flight on the panel roles makes it fail closed),
+    which must not decide whether SEVERITY ROUTING works. The door's own
+    contract is pinned by test_request_admission and by the
+    PRODUCER_CLASSES assertion below.
+    """
+    from aria_kernel.request_admission import Admission, CRITICAL_PATH
+
+    def _always_admit(producer, role, **_kw):
+        return Admission(producer, role, CRITICAL_PATH, "test", 1, True, CRITICAL_PATH)
+
+    return patch("aria_kernel.request_admission.admit_request", _always_admit)
 
 
 def _seed_ledgers(*, drained: int, now) -> tuple[list[dict], list[dict], list[dict]]:
@@ -292,7 +311,7 @@ class Tier0EarlyStopTest(unittest.TestCase):
             calls.append(kw)
             return {"minted": [], "skipped": []}
 
-        with patch.object(cycle_mod, "list_tools", return_value=[{"tool_id": "adapter-a"}]), \
+        with _door_open(), patch.object(cycle_mod, "list_tools", return_value=[{"tool_id": "adapter-a"}]), \
              patch("aria_kernel.feedback_store.generate_judgment_sample",
                    return_value={"sample_id": "S1", "cycle_id": "cyc-tier0", "items": items}), \
              patch("aria_kernel.judge_fanout.dispatch_judges_for_sample", fake_dispatch), \
@@ -394,7 +413,7 @@ class TierRoutingTest(unittest.TestCase):
             calls.append(kw)
             return {"minted": [], "skipped": []}
 
-        with patch.object(cycle_mod, "list_tools", return_value=[{"tool_id": "adapter-a"}]), \
+        with _door_open(), patch.object(cycle_mod, "list_tools", return_value=[{"tool_id": "adapter-a"}]), \
              patch("aria_kernel.feedback_store.generate_judgment_sample",
                    return_value={"sample_id": "S1", "cycle_id": "cyc-tiers", "items": items}), \
              patch("aria_kernel.judge_fanout.dispatch_judges_for_sample", fake_dispatch), \
@@ -521,6 +540,139 @@ class TierRoutingTest(unittest.TestCase):
             self.assertEqual(rows[0]["tier"], 2, "shadow score must not change the tier")
             self.assertEqual(rows[0].get("tier1", {}).get("outcome"), "unavailable")
             self.assertTrue(any(kw["sample"]["items"] for kw in calls))
+
+
+class JudgmentCacheTest(unittest.TestCase):
+    """A settled verdict over identical cited code is reused, never re-paid."""
+
+    def setUp(self) -> None:
+        import os as _os
+
+        _os.environ.setdefault("ARIA_CONSENSUS_PROMOTION_ACK", "operator-approved-tests")
+
+    def _night(self, tmp: str, items: list[dict], *, mutate: bool = False):
+        import json
+        import subprocess
+
+        repo = Path(tmp) / "ws"
+        if not repo.exists():
+            repo.mkdir(parents=True)
+
+            def git(*args: str) -> None:
+                subprocess.run(["git", "-C", str(repo), *args], check=True,
+                               capture_output=True, text=True)
+
+            git("init", "-q")
+            git("config", "user.email", "fixture@example.invalid")
+            git("config", "user.name", "fixture")
+            (repo / "src").mkdir()
+            (repo / "src" / "a.py").write_text("x = 1\n", encoding="utf-8")
+            config = repo / "aria-config"
+            config.mkdir()
+            (config / "genesis_policy.json").write_text(json.dumps(
+                {"$schema": "aria/genesis-policy/v1",
+                 "judgment_pipeline": {"funnel_enabled": True}}), encoding="utf-8")
+            git("add", "-A")
+            git("commit", "-q", "-m", "fixture")
+
+        def git(*args: str) -> None:
+            subprocess.run(["git", "-C", str(repo), *args], check=True,
+                           capture_output=True, text=True)
+
+        if mutate:
+            (repo / "src" / "a.py").write_text("x = 2  # changed\n", encoding="utf-8")
+            git("add", "-A")
+            git("commit", "-q", "-m", "code change")
+        head = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"],
+                              check=True, capture_output=True, text=True).stdout.strip()
+        # Each night starts 24h apart: the finding-opener gate admits one
+        # fan-out per interval (cycle_guard), so a same-day second night
+        # would be throttled before the funnel ever ran.
+        night_index = 0 if not hasattr(self, "_nights") else self._nights
+        self._nights = getattr(self, "_nights", 0) + 1
+        from datetime import timedelta
+
+        ctx = cycle_mod.build_phase_context(
+            cycle_id=f"cyc-cache-{night_index}-{mutate}", workspace_root=repo,
+            base_dir=Path(tmp) / "aria-tools",
+            cycle_started_at=datetime(2026, 10, 20, 3, 0, tzinfo=timezone.utc)
+            + timedelta(days=night_index),
+        )
+        calls: list[dict] = []
+
+        def fake_dispatch(**kw):
+            calls.append(kw)
+            return {"minted": [], "skipped": []}
+
+        with _door_open(), patch.object(cycle_mod, "list_tools", return_value=[{"tool_id": "adapter-a"}]), \
+             patch("aria_kernel.feedback_store.generate_judgment_sample",
+                   return_value={"sample_id": "S", "cycle_id": ctx.cycle_id, "items": items}), \
+             patch("aria_kernel.judge_fanout.dispatch_judges_for_sample", fake_dispatch), \
+             patch("aria_kernel.feedback_store.generate_ai_consensus",
+                   return_value={"consensus": []}), \
+             patch("aria_kernel.request_drain_capacity._request_ledgers",
+                   return_value=_seed_ledgers(drained=91, now=datetime(2026, 10, 20, 3, 0, tzinfo=timezone.utc))), \
+             patch("aria_kernel.convergence_drainer._resolve_workspace_head_sha", return_value=head):
+            result = cycle_mod._phase_judgment_pipeline(ctx)
+        return result, calls, ctx
+
+    def _seed_consensus(self, ctx, *, fingerprint: str, group: str) -> None:
+        from aria_kernel.feedback_store import record_operator_feedback
+
+        record_operator_feedback(
+            tool_id="adapter-a", run_id="r", finding_id="F-1",
+            verdict="false_positive", severity="low", note="settled",
+            source_type="ai_consensus", judge_id="aria-consensus-arbiter",
+            judgment_group_id=group, finding_fingerprint=fingerprint,
+            judge_count=3, judges_voted=3,
+            observers=[{"judge_id": "j1", "model": "m1"}, {"judge_id": "j2", "model": "m2"},
+                       {"judge_id": "j3", "model": "m3"}],
+            confidence=0.9, base_dir=ctx.base_dir,
+        )
+
+    def test_a_hit_mints_nothing_and_a_blob_change_invalidates(self) -> None:
+        fingerprint = "fp-same-claim"
+        item = {"finding_id": "F-1", "tool_id": "adapter-a", "run_id": "r",
+                "rule": "rule-a", "path": "src/a.py", "severity": "MEDIUM",
+                "finding_fingerprint": fingerprint}
+        with TemporaryDirectory() as tmp:
+            # Night 1: the item routes; the group later settles.
+            _r1, calls1, ctx = self._night(tmp, [dict(item)])
+            self.assertTrue(any(kw["sample"]["items"] for kw in calls1))
+            from aria_kernel.judge_fanout import _group_id
+
+            self._seed_consensus(ctx, fingerprint=fingerprint, group=_group_id(item))
+
+            # Night 2, same fingerprint, SAME cited code, a fresh finding id
+            # (what a re-run of the adapter mints): the cache answers and
+            # nothing is dispatched for it.
+            item2 = dict(item, finding_id="F-2")
+            _r2, calls2, _ctx2 = self._night(tmp, [item2])
+            self.assertFalse(any(kw["sample"]["items"] for kw in calls2),
+                             "a cache hit must mint nothing")
+
+            from aria_kernel.judgment_funnel import routing_path
+            from aria_kernel.ledger import load_declared_jsonl
+
+            rows = [r for r in load_declared_jsonl(
+                routing_path(ctx.base_dir), expected_surface="judgment_funnel_routing")
+                if r.get("finding_id") == "F-2"]
+            self.assertIs(rows[-1].get("cache_hit"), True)
+            self.assertEqual(rows[-1].get("held"), "cache_hit")
+
+            # Night 3: the cited blob CHANGED — the pin no longer describes
+            # the code, the verdict is stale, and the item is judged again.
+            item3 = dict(item, finding_id="F-3")
+            _r3, calls3, _ctx3 = self._night(tmp, [item3], mutate=True)
+            self.assertTrue(any(kw["sample"]["items"] for kw in calls3),
+                            "a blob change must invalidate the cache")
+
+    def test_unknown_blob_state_is_a_miss_never_a_hit(self) -> None:
+        # Tri-state law at the cache boundary: no anchor, no verdict.
+        from aria_kernel.evidence_trust import cited_blobs_code_hash
+
+        self.assertIsNone(cited_blobs_code_hash(Path("/tmp"), ["a.py"], None))
+        self.assertIsNone(cited_blobs_code_hash(Path("/tmp"), ["a.py"], ""))
 
 
 class FunnelPolicyKeysTest(unittest.TestCase):

@@ -20,6 +20,10 @@
 //                                            (`findUnguardedSharedEnumDrop`)
 //   tools/gates/rls-predicate-canonical.ts   canonical tenant RLS predicate
 //                                            (`findNonCanonicalTenantPolicies`)
+//   tools/gates/tenant-aware-migration-ddl.ts qualified/re-pinned DDL that
+//                                            escapes the tenant replay
+//                                            (`qualifiedDdlOffences`,
+//                                             `sourcePinOffences`)
 //
 // Each owner's SCOPE is its own predicate too (`isMigrationFile`,
 // `isExpandContractMigrationPath`, `isTenantAwareMigrationPath`,
@@ -32,9 +36,10 @@
 //     (`grandfathered_violations`), never raised as a finding: a finding there
 //     would ask ARIA to hand-edit a migration production already ran. The
 //     same holds for expand-contract's advisory (`warn`) verdict.
-//   - Expand-contract errors, the shared-enum drop and the RLS predicate are
-//     whole-tree invariants (their gates fail on any file in scope, with their
-//     own grandfather lists), so they are findings wherever they occur.
+//   - Expand-contract errors, the shared-enum drop, the RLS predicate and the
+//     tenant-aware qualified-DDL guard are whole-tree invariants (their gates
+//     fail on any file in scope, with their own grandfather lists), so they
+//     are findings wherever they occur.
 //
 // Projection, not policy: each finding carries the owner's rule id and
 // message, the migration direction (`up`, `down`, `helper`, or `file` for a
@@ -44,14 +49,12 @@
 // `.query(...)` whose SQL is not a template literal is counted as opaque,
 // because no owner can read it.
 //
-// Not observed here, and why: the tenant-aware qualified-DDL guard
-// (tests/invariants/tenant-aware-migration-ddl-guard.spec.ts) classifies by the
-// RUNTIME MODULE_SCHEMAS, whose entries spread imported constants
-// (`...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES`). The adapters' one
-// MODULE_SCHEMAS reader (typeorm-entity-schema-adapter, a source-text parser)
-// drops spread entries, so classifying with it would report tables the gate
-// accepts. That reader-parity defect is tracked on its own; until it is fixed
-// the guard stays in its invariant only.
+// The tenant-aware DDL guard classifies against the workspace's own
+// MODULE_SCHEMAS, read as source text by `module-schemas-source.ts` — the
+// reader that resolves the spread/import chains the runtime value uses, which
+// is what lets this adapter carry the guard at all (ARIA-MEDIUM-588). The
+// adapter-side registry is held equal to the runtime MODULE_SCHEMAS by
+// `tests/invariants/module-schemas-source-parity.spec.ts`.
 import { createHash } from 'node:crypto';
 import { join, relative } from 'node:path';
 
@@ -79,6 +82,15 @@ import {
   findNonCanonicalTenantPolicies,
   isRlsPredicateScopedPath,
 } from '../gates/rls-predicate-canonical';
+import {
+  RETIRED_SOURCE_TABLES,
+  isReviewedSourceSchemaDdl,
+  moduleSchemaRegistry,
+  qualifiedDdlOffences,
+  sourcePinOffences,
+  tenantAwareSourceSchemaOf,
+  type TenantAwareDdlRegistry,
+} from '../gates/tenant-aware-migration-ddl';
 
 import {
   collectFiles,
@@ -91,6 +103,7 @@ import {
   requireScanRoots,
   type RepoSnapshot,
 } from './adapter-fs';
+import { MODULE_SCHEMAS_SOURCE_PATH, readModuleSchemasSource } from './module-schemas-source';
 
 const TOOL_ID = 'sql-migration-safety-adapter';
 
@@ -142,7 +155,8 @@ type MigrationRule =
   | 'expand_contract_depends_on_unresolved'
   | 'breaking_ddl_without_expand_contract'
   | 'unguarded_shared_enum_drop'
-  | 'rls_predicate_not_canonical';
+  | 'rls_predicate_not_canonical'
+  | 'qualified_ddl_escapes_tenant_replay';
 
 interface AdapterFinding {
   readonly id: string;
@@ -185,9 +199,10 @@ const SQL_LINT_OWNER = 'tools/gates/migration-sql-lint.ts';
 const EXPAND_CONTRACT_OWNER = 'tools/gates/expand-contract-ast.ts';
 const ENUM_DROP_OWNER = 'tools/gates/migration-shared-enum-drop.ts';
 const RLS_OWNER = 'tools/gates/rls-predicate-canonical.ts';
+const TENANT_DDL_OWNER = 'tools/gates/tenant-aware-migration-ddl.ts';
 
 /**
- * The files whose text decides a verdict here: the four owners, and the
+ * The files whose text decides a verdict here: the five owners, and the
  * platform catalog the tenant-aware migration directories derive from. Their
  * hashes are the observation's provenance (`metadata.authorities`): the same
  * finding under a different hash came from a different rule.
@@ -197,6 +212,7 @@ const AUTHORITY_PATHS: readonly string[] = [
   EXPAND_CONTRACT_OWNER,
   ENUM_DROP_OWNER,
   RLS_OWNER,
+  TENANT_DDL_OWNER,
   'platform/libs/service-catalog/src/index.ts',
   'platform/libs/service-catalog/src/topology.ts',
 ];
@@ -293,6 +309,11 @@ const RLS_PROJECTION: Projection = {
   severity: 'critical',
   confidence: 0.9,
 };
+const TENANT_DDL_PROJECTION: Projection = {
+  rule: 'qualified_ddl_escapes_tenant_replay',
+  severity: 'high',
+  confidence: 0.9,
+};
 
 const ENUM_DROP_REMEDIATION =
   'Drop the COLUMN in every schema and leave the orphaned enum; a migration that must reclaim the type ' +
@@ -301,6 +322,54 @@ const ENUM_DROP_REMEDIATION =
 const RLS_REMEDIATION =
   'Replace the inline CREATE POLICY with applyTenantRlsToSchema(queryRunner, {...}) from ' +
   'libs/backend-common/src/database/rls/apply-tenant-rls.helper.ts, which emits the canonical predicate.';
+const TENANT_DDL_REMEDIATION =
+  'Drop the schema prefix so the replay search_path routes the DDL into tenant_<uuid>, or — if the ' +
+  'table really is cross-tenant — register it in MODULE_SCHEMAS[].infrastructureTables ' +
+  '(tools/gates/tenant-aware-migration-ddl.ts).';
+
+/**
+ * The tenant-aware DDL registry, read once per run from the workspace's own
+ * MODULE_SCHEMAS source text (ARIA-MEDIUM-588). `ready === false` names why:
+ * without a registry the guard cannot classify, and the failure is recorded as
+ * an observation — never as silence and never as a guessed verdict.
+ */
+interface TenantDdlRegistries {
+  readonly ready: boolean;
+  readonly reason: string | null;
+  readonly bySchema: ReadonlyMap<string, TenantAwareDdlRegistry>;
+  readonly readPaths: readonly string[];
+}
+
+function loadTenantDdlRegistries(
+  workspace: ReturnType<typeof containedWorkspace>,
+  workspaceRoot: string,
+): TenantDdlRegistries {
+  if (workspace.entry(MODULE_SCHEMAS_SOURCE_PATH) !== 'file') {
+    return {
+      ready: false,
+      reason: `no ${MODULE_SCHEMAS_SOURCE_PATH} in the workspace`,
+      bySchema: new Map(),
+      readPaths: [],
+    };
+  }
+  const source = readModuleSchemasSource(workspaceRoot);
+  if (source.errors.length > 0) {
+    return {
+      ready: false,
+      reason: `MODULE_SCHEMAS reader errors: ${source.errors.map((error) => error.message).join('; ')}`,
+      bySchema: new Map(),
+      readPaths: source.readPaths,
+    };
+  }
+  const bySchema = new Map<string, TenantAwareDdlRegistry>();
+  for (const module of source.modules) {
+    bySchema.set(
+      module.sourceSchema,
+      moduleSchemaRegistry(module, RETIRED_SOURCE_TABLES.get(module.sourceSchema) ?? new Set()),
+    );
+  }
+  return { ready: true, reason: null, bySchema, readPaths: source.readPaths };
+}
 
 export function assertLintProjectionComplete(): void {
   const missing = MIGRATION_SQL_LINT_RULE_IDS.filter((id) => SQL_LINT_PROJECTION[id] === undefined);
@@ -527,6 +596,42 @@ export function analyzeMigrationSafety(
     });
   };
 
+  // --------------------------------------- tenant-aware DDL (whole scope)
+  // The guard's registry comes from THIS workspace's MODULE_SCHEMAS source
+  // text (the reader that resolves spread/import entries — ARIA-MEDIUM-588);
+  // the same verdicts the invariant gate produces from the runtime import.
+  const tenantDdlRegistries = loadTenantDdlRegistries(workspace, workspaceRoot);
+  for (const path of tenantDdlRegistries.readPaths) {
+    readPaths.add(path);
+  }
+  const tenantDdlReportedSchemas = new Set<string>();
+  const tenantDdlRegistryFor = (schema: string): TenantAwareDdlRegistry | null => {
+    if (!tenantDdlRegistries.ready) {
+      if (!tenantDdlReportedSchemas.has(schema)) {
+        tenantDdlReportedSchemas.add(schema);
+        observations.push({
+          id: `${TOOL_ID}:tenant-aware-ddl-registry-unavailable:${schema}`,
+          type: 'tenant_aware_ddl_registry_unavailable',
+          details: { schema, reason: tenantDdlRegistries.reason },
+        });
+      }
+      return null;
+    }
+    const registry = tenantDdlRegistries.bySchema.get(schema);
+    if (registry === undefined && !tenantDdlReportedSchemas.has(schema)) {
+      tenantDdlReportedSchemas.add(schema);
+      observations.push({
+        id: `${TOOL_ID}:tenant-aware-ddl-registry-unavailable:${schema}`,
+        type: 'tenant_aware_ddl_registry_unavailable',
+        details: {
+          schema,
+          reason: `MODULE_SCHEMAS has no entry for source schema '${schema}'`,
+        },
+      });
+    }
+    return registry ?? null;
+  };
+
   // ------------------------------------------ expand-contract (whole scope)
   // `validateInspections` resolves `dependsOn` against every inspected class,
   // so it runs once over the whole scoped set, exactly as the gate's walk.
@@ -652,6 +757,45 @@ export function analyzeMigrationSafety(
       }
     }
 
+    // ------------------------------- tenant-aware qualified DDL (scope-wide)
+    if (file.kind === 'typeorm' && isTenantAwareMigrationPath(file.repoPath)) {
+      const schema = tenantAwareSourceSchemaOf(file.repoPath);
+      const registry = schema === null ? null : tenantDdlRegistryFor(schema);
+      if (schema !== null && registry !== null) {
+        const offences = isReviewedSourceSchemaDdl(file.repoPath)
+          ? []
+          : qualifiedDdlOffences(file.path, file.source, schema, registry);
+        for (const offence of offences) {
+          emit(
+            file,
+            TENANT_DDL_PROJECTION,
+            TENANT_DDL_OWNER,
+            'qualified-ddl-escapes-tenant-replay',
+            offence.line,
+            offence.reason,
+            `${file.path}: ${offence.reason}`,
+            TENANT_DDL_REMEDIATION,
+            null,
+            nextOccurrence(`tenant-ddl:${file.path}:${offence.line}`),
+          );
+        }
+        for (const offence of sourcePinOffences(file.path, file.source, schema)) {
+          emit(
+            file,
+            TENANT_DDL_PROJECTION,
+            TENANT_DDL_OWNER,
+            'source-pin-escapes-tenant-replay',
+            offence.line,
+            offence.reason,
+            `${file.path}: ${offence.reason}`,
+            TENANT_DDL_REMEDIATION,
+            null,
+            nextOccurrence(`tenant-pin:${file.path}:${offence.line}`),
+          );
+        }
+      }
+    }
+
     if (file.shape !== null) {
       if (file.shape.parseFailure !== null) {
         parseFailures += 1;
@@ -676,6 +820,8 @@ export function analyzeMigrationSafety(
       owners.push('expand-contract-ast');
     if (file.kind === 'typeorm' && isTenantAwareMigrationPath(file.repoPath))
       owners.push('migration-shared-enum-drop');
+    if (file.kind === 'typeorm' && isTenantAwareMigrationPath(file.repoPath))
+      owners.push('tenant-aware-migration-ddl');
     if (isRlsPredicateScopedPath(file.repoPath)) owners.push('rls-predicate-canonical');
     observations.push({
       id: `${TOOL_ID}:file:${file.path}`,

@@ -133,6 +133,71 @@ write(
 writeFileSync(join(outside, 'secret.ts'), UNSAFE_DELTA, 'utf8');
 symlinkSync(join(outside, 'secret.ts'), join(workspace, FARM, '1900000000017-Linked.ts'));
 
+// ARIA-MEDIUM-588 — the tenant-aware qualified-DDL guard, observed through the
+// adapter with a registry read from THIS workspace's own SSoT source text. The
+// fixture SSoT mirrors the real one's shape: the infrastructure set arrives
+// through a spread of a local const whose element is imported from a
+// path-mapped module that re-exports it (exactly the
+// `...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES` chain).
+write(
+  'tsconfig.base.json',
+  [
+    '{',
+    '  "compilerOptions": {',
+    '    "baseUrl": ".",',
+    '    "paths": {',
+    '      "@platform/outbox": ["platform/libs/outbox/src/index.ts"]',
+    '    }',
+    '  }',
+    '}',
+    '',
+  ].join('\n'),
+);
+write(
+  'platform/libs/outbox/src/index.ts',
+  "export { PROOF_TABLE as TENANT_ERASURE_TARGET_PROOF_LEDGER_TABLE } from './outbox-migration';\n",
+);
+write(
+  'platform/libs/outbox/src/outbox-migration.ts',
+  "export const PROOF_TABLE = 'tenant_erasure_target_proofs';\n",
+);
+write(
+  'libs/backend-common/src/database/schema-manager.service.ts',
+  [
+    "import { TENANT_ERASURE_TARGET_PROOF_LEDGER_TABLE } from '@platform/outbox';",
+    'const ERASURE_TABLES = [TENANT_ERASURE_TARGET_PROOF_LEDGER_TABLE] as const;',
+    'export const MODULE_SCHEMAS = [',
+    '  {',
+    "    moduleName: 'farm',",
+    "    sourceSchema: 'farm',",
+    "    infrastructureTables: ['migrations', ...ERASURE_TABLES],",
+    "    tables: ['ponds'],",
+    '  },',
+    '] as const;',
+    '',
+  ].join('\n'),
+);
+// Qualified DDL on a PER-TENANT table: escapes the replay's search_path.
+write(
+  `${FARM}/1900000000018-EscapedPerTenantDdl.ts`,
+  migration(
+    'EscapedPerTenantDdl1900000000018',
+    ['await queryRunner.query(`CREATE TABLE "farm"."ponds" (id uuid)`);'],
+    ['await queryRunner.query(`DROP TABLE IF EXISTS "farm"."ponds"`);'],
+  ),
+);
+// The same spelling on the spread-resolved infrastructure table: accepted.
+write(
+  `${FARM}/1900000000019-InfraQualifiedDdl.ts`,
+  migration(
+    'InfraQualifiedDdl1900000000019',
+    [
+      'await queryRunner.query(`CREATE TABLE IF NOT EXISTS "farm"."tenant_erasure_target_proofs" (id uuid)`);',
+    ],
+    ['await queryRunner.query(`SELECT 1`);'],
+  ),
+);
+
 const ADDED = [
   `${FARM}/1900000000010-UnsafeDelta.ts`,
   `${FARM}/1900000000011-SafeDelta.ts`,
@@ -200,8 +265,16 @@ assert.deepEqual(observationAt(`${FARM}/1800000000010-AppliedDelta.ts`).grandfat
 assert.equal(observationAt(`${FARM}/1800000000010-AppliedDelta.ts`).in_change_set, false);
 
 // --- orphan-type reclamation: tenant-aware scope only ------------------------
-assert.deepEqual(rulesAt(`${FARM}/1900000000012-EnumDrop.ts`), ['unguarded_shared_enum_drop']);
-const enumDrop = findingsAt(`${FARM}/1900000000012-EnumDrop.ts`)[0];
+// The same fixture file violates BOTH whole-tree tenant-aware rules: it drops
+// a type unguarded AND qualifies DDL the registry cannot explain (the fixture
+// registry carries no ponds_grade_enum — fail-closed is the owner's contract).
+assert.deepEqual(rulesAt(`${FARM}/1900000000012-EnumDrop.ts`), [
+  'qualified_ddl_escapes_tenant_replay',
+  'unguarded_shared_enum_drop',
+]);
+const enumDrop = findingsAt(`${FARM}/1900000000012-EnumDrop.ts`).find(
+  (finding) => finding.rule === 'unguarded_shared_enum_drop',
+);
 assert.equal(enumDrop?.subject, '"farm"."ponds_grade_enum"');
 assert.equal(enumDrop?.direction, 'up');
 assert.deepEqual(
@@ -225,6 +298,19 @@ assert.deepEqual(
 // --- expand-contract: whole-tree errors -------------------------------------
 assert.deepEqual(rulesAt(`${FARM}/1900000000014-DanglingContract.ts`), [
   'expand_contract_depends_on_unresolved',
+]);
+
+// --- tenant-aware qualified DDL: the guard observes via the adapter ---------
+assert.deepEqual(rulesAt(`${FARM}/1900000000018-EscapedPerTenantDdl.ts`), [
+  'qualified_ddl_escapes_tenant_replay',
+]);
+const escapedDdl = findingsAt(`${FARM}/1900000000018-EscapedPerTenantDdl.ts`)[0];
+assert.equal(escapedDdl?.owner, 'tools/gates/tenant-aware-migration-ddl.ts');
+assert.equal(escapedDdl?.direction, 'up');
+assert.match(escapedDdl?.message ?? '', /PER-TENANT table/);
+assert.deepEqual(rulesAt(`${FARM}/1900000000019-InfraQualifiedDdl.ts`), [
+  // The spread-resolved infrastructure table is ACCEPTED by the same guard: a
+  // reader that dropped the spread entry would report this file instead.
 ]);
 
 // --- honesty: unreadable SQL, unparsable files, symlinks, the change set ----
@@ -317,6 +403,12 @@ const fixture = analyzeMigrationSafety(fixtureCase.input, REPO_ROOT);
 assert.deepEqual(fixture.findings.map((finding) => finding.rule).sort(), [
   'breaking_ddl_without_expand_contract',
   'expand_contract_missing_depends_on',
+  // ARIA-MEDIUM-588: the tenant-aware qualified-DDL guard, classifying against
+  // THIS repository's real MODULE_SCHEMAS read as source text. Both fixture
+  // files that DROP TYPE a schema-qualified unregistered name are the owner's
+  // fail-closed verdicts.
+  'qualified_ddl_escapes_tenant_replay',
+  'qualified_ddl_escapes_tenant_replay',
   'rls_predicate_not_canonical',
   'unguarded_shared_enum_drop',
 ]);

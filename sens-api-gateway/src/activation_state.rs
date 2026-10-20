@@ -174,6 +174,10 @@ impl ActivationState {
         config.tenant_id = Some(self.tenant_id.clone());
         config.mqtt.username = Some(self.mqtt_username.clone());
         config.mqtt.password = Some(self.mqtt_password.clone());
+        // Suderra OS: the broker endpoint comes only from the signed site
+        // configuration; an activation response can never set or change it
+        // (ADR-048 DEC-10.1), and TLS is not optional there.
+        #[cfg(not(feature = "suderra-os"))]
         if config.mqtt.broker.is_none() {
             if let Some(broker) = &self.broker {
                 config.mqtt.broker = Some(broker.host.clone());
@@ -321,9 +325,24 @@ mod tests {
         state.apply_to(&mut applied);
         assert_eq!(applied.mqtt.broker.as_deref(), Some("broker.site.test"));
         assert_eq!(applied.mqtt.port, 1883);
-        assert!(!applied.mqtt.tls.enabled);
+        #[cfg(not(feature = "suderra-os"))]
+        assert_eq!(applied.mqtt.tls.enabled, cfg.mqtt.tls.enabled);
     }
 
+    /// DEC-10.1: on Suderra OS the activation response never supplies the
+    /// broker endpoint, even when the site configuration names none.
+    #[cfg(feature = "suderra-os")]
+    #[test]
+    fn the_activation_response_never_sets_the_broker() {
+        let cfg = config(None);
+        let state = ActivationState::from_result(&cfg, &result());
+        let mut applied = cfg.clone();
+        state.apply_to(&mut applied);
+        assert_eq!(applied.mqtt.broker, None);
+        assert_eq!(applied.mqtt.port, cfg.mqtt.port);
+    }
+
+    #[cfg(not(feature = "suderra-os"))]
     #[test]
     fn without_a_configured_broker_the_response_endpoint_applies() {
         let cfg = config(None);

@@ -130,9 +130,10 @@ pub fn verify_leaf_cert(
     let digest = compute_sha256(leaf_der_bytes);
     let fingerprint = LeafCertFingerprint::from_bytes(digest);
 
-    // Gate 8 — pinning check, mode-aware.
+    // Gate 8 — pinning check, mode-aware. `CaAnchored` pins no leaf
+    // (ADR-048 DEC-10.6): the chain to the bundle's CA set is the trust.
     let accepted_set = rotation_stage.accepted_fingerprints(now_unix_secs);
-    if !accepted_set.accepts(&fingerprint) {
+    if mode.uses_leaf_pins() && !accepted_set.accepts(&fingerprint) {
         // Legacy mode: log-only (return Ok but caller audits the violation
         // upstream via the `pinning_violation_audited()` flag). We express
         // this by returning Ok — the caller is responsible for checking
@@ -151,7 +152,7 @@ pub fn verify_leaf_cert(
     Ok(fingerprint)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "suderra-os")))]
 mod tests {
     use super::super::pinning::PinnedLeafCert;
     use super::*;
@@ -565,5 +566,58 @@ mod tests {
     fn min_tls_version_pinned_at_1_3() {
         assert_eq!(MIN_TLS_MAJOR, 3);
         assert_eq!(MIN_TLS_MINOR, 4);
+    }
+}
+
+/// ADR-048 DEC-10.6: the policy gates apply to `CaAnchored` while the leaf
+/// pin does not.
+#[cfg(test)]
+mod ca_anchored_tests {
+    use super::*;
+
+    fn unpinned() -> CertRotationStage {
+        CertRotationStage::Settled {
+            current: super::super::pinning::PinnedLeafCert {
+                fingerprint: LeafCertFingerprint::from_bytes([0u8; 32]),
+                not_before_unix_secs: 0,
+                not_after_unix_secs: 0,
+                cert_label: "unrelated".to_string(),
+            },
+        }
+    }
+
+    fn verify(not_before: i64, not_after: i64, depth: usize, now: i64) -> Result<LeafCertFingerprint, MtlsVerifyError> {
+        verify_leaf_cert(
+            b"leaf",
+            not_before,
+            not_after,
+            depth,
+            Some(CipherSuite::Chacha20Poly1305Sha256),
+            0x1303,
+            3,
+            4,
+            MtlsMode::CaAnchored,
+            &unpinned(),
+            now,
+            |_| [0x42; 32],
+        )
+    }
+
+    #[test]
+    fn an_unpinned_leaf_is_accepted_and_policy_violations_are_rejected() {
+        assert!(verify(1_000, 9_000_000, 2, 5_000).is_ok(), "no leaf pin");
+        assert!(matches!(
+            verify(1_000, 9_000_000, MAX_CHAIN_DEPTH + 1, 5_000),
+            Err(MtlsVerifyError::ChainTooLong { .. })
+        ));
+        assert!(matches!(
+            verify(1_000, 9_000, 2, 10_000),
+            Err(MtlsVerifyError::CertExpired { .. })
+        ));
+        let too_old = 1_000 + i64::from(super::super::mode::MAX_LEAF_CERT_AGE_DAYS_CA_ANCHORED + 1) * 86_400;
+        assert!(matches!(
+            verify(1_000, i64::MAX / 2, 2, too_old),
+            Err(MtlsVerifyError::CertAgeExceedsModeLimit { .. })
+        ));
     }
 }

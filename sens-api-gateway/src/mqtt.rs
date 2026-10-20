@@ -225,9 +225,14 @@ impl MqttClient {
     /// None in test contexts that don't spin up the
     /// health server. All counter increments + connection
     /// gauge updates short-circuit to no-op when None.
+    ///
+    /// `broker_ca` (Suderra OS profile only) — the DER root certificates of
+    /// the trust-anchors bundle's `mqtt-ca` anchor: the only roots the
+    /// broker connection trusts (ADR-048 DEC-10.6).
     pub async fn new(
         config: &AgentConfig,
         health_state: Option<crate::health::HealthState>,
+        #[cfg(feature = "suderra-os")] broker_ca: &[Vec<u8>],
     ) -> Result<Self> {
         // Get MQTT settings
         let broker = config
@@ -276,13 +281,29 @@ impl MqttClient {
         options.set_max_packet_size(1_048_576, 1_048_576);
 
         // Configure TLS transport if enabled (IEC 62443 SL2 FR4)
+        #[cfg(not(feature = "suderra-os"))]
         let mut mtls_verifier_state = None;
+        #[cfg(not(feature = "suderra-os"))]
         if config.mqtt.tls.enabled {
-            let (tls_config, verifier_state) = Self::configure_tls(&config.mqtt.tls, &config.mtls)?;
+            let roots = Self::configured_root_store(&config.mqtt.tls)?;
+            let (tls_config, verifier_state) =
+                Self::configure_tls(&config.mqtt.tls, &config.mtls, roots)?;
             mtls_verifier_state = Some(verifier_state);
             options.set_transport(tls_config);
             info!("MQTT TLS enabled");
         }
+        // ADR-048 DEC-10.1 / DEC-10.6: on Suderra OS the broker transport is
+        // always TLS, CA-anchored to the trust-anchors bundle — there is no
+        // plaintext transport to select.
+        #[cfg(feature = "suderra-os")]
+        let mtls_verifier_state = {
+            let roots = Self::bundle_root_store(broker_ca)?;
+            let (tls_config, verifier_state) =
+                Self::configure_tls(&config.mqtt.tls, &config.mtls, roots)?;
+            options.set_transport(tls_config);
+            info!("MQTT TLS (CA-anchored to the trust-anchors bundle) enabled");
+            Some(verifier_state)
+        };
 
         // Set last will (offline status)
         let last_will_payload = serde_json::to_vec(&StatusMessage {
@@ -939,58 +960,12 @@ impl MqttClient {
         self.mtls_verifier_state.as_ref()
     }
 
-    /// Configure TLS transport (IEC 62443 SL2 FR4: Data Confidentiality)
-    ///
-    /// Supports:
-    /// - Server certificate verification via CA cert
-    /// - Client certificate authentication (mTLS) for FR1 compliance
-    fn configure_tls(
+    /// The generic profile's broker roots: the operator's `ca_cert_path`
+    /// bundle, else the system CA store.
+    #[cfg(not(feature = "suderra-os"))]
+    fn configured_root_store(
         tls_config: &crate::config::MqttTlsConfig,
-        mtls_config: &crate::config::MtlsConfig,
-    ) -> Result<(Transport, Arc<crate::mtls::MtlsVerifierState>)> {
-        use rumqttc::TlsConfiguration;
-
-        // LOW/H-01: validate verify_hostname config is not set to false.
-        // This field was parsed from YAML but never enforced — an operator who
-        // sets verify_hostname: false gets no effect (rustls always verifies),
-        // creating a false sense of control. Fail-fast with a clear error.
-        if !tls_config.verify_hostname {
-            return Err(anyhow::anyhow!(
-                "SECURITY: verify_hostname=false is not supported. rustls always \
-                 verifies the broker hostname against the TLS certificate. To connect \
-                 to a broker with a self-signed cert, add the CA to ca_cert_path instead."
-            ));
-        }
-
-        // Phase 1.1.5 (ORPHAN-HIGH-035 closure) — `install_default()` removed.
-        //
-        // Pre-Phase-1.1.5 this site planted `rustls::crypto::ring::default_provider()`
-        // (the UNRESTRICTED ring provider, every TLS 1.2 ECDHE suite included)
-        // as the process-wide default. The Suderra cipher allowlist (TLS 1.3 +
-        // 3 AEAD suites) was applied only to MQTT via explicit
-        // `ClientConfig::builder_with_provider(suderra_provider)` further down
-        // this function. Every HTTPS reqwest callsite that didn't carry an
-        // explicit provider would inherit the unrestricted default — silently
-        // exposing `provisioning.rs::activate` (single-use device-bootstrap
-        // token exchange — edge-expert flagged as the highest-attack-surface
-        // HTTPS callsite), `firmware.rs::download_file`, and
-        // `scripting/engine.rs` HTTP webhooks to TLS 1.2 cipher-suite-downgrade
-        // attacks regardless of how carefully MQTT was hardened.
-        //
-        // Tier-1 MAKE-IT-IMPOSSIBLE (Phase 1.1.5): every TLS callsite in the
-        // agent now MUST go through one of these two factories:
-        //   - `crate::mtls::build_suderra_crypto_provider()` for the rustls
-        //     `ClientConfig::builder_with_provider(...)` path (MQTT transport).
-        //   - `crate::mtls::build_suderra_https_client_config()` for reqwest's
-        //     `use_preconfigured_tls(...)` path (HTTPS to cloud APIs).
-        //
-        // If a future caller skips both and writes
-        // `rustls::ClientConfig::builder()` without a provider arg, rustls
-        // panics at the builder call ("no process-level CryptoProvider
-        // available") — fail-fast at boot/dev/CI rather than silent bypass in
-        // production. The `d4_d6_mtls_unified::no_install_default_in_non_test_code`
-        // invariant is the source-grep detector that catches a regression.
-
+    ) -> Result<rumqttc::tokio_rustls::rustls::RootCertStore> {
         // Read CA certificate for server verification
         let ca_cert = if let Some(ref ca_path) = tls_config.ca_cert_path {
             let ca_bytes = std::fs::read(ca_path)
@@ -1001,21 +976,6 @@ impl MqttClient {
             // Use system root certificates if no CA specified
             info!("Using system root certificates for TLS");
             Vec::new()
-        };
-
-        // Read client certificate and key for mTLS (optional)
-        // v1.2.4: Rust 2024 edition - implicit borrowing in patterns
-        let client_auth = if let (Some(cert_path), Some(key_path)) =
-            (&tls_config.client_cert_path, &tls_config.client_key_path)
-        {
-            let cert_bytes = std::fs::read(cert_path)
-                .with_context(|| format!("Failed to read client certificate: {}", cert_path))?;
-            let key_bytes = std::fs::read(key_path)
-                .with_context(|| format!("Failed to read client key: {}", key_path))?;
-            info!("Loaded client certificate from: {}", cert_path);
-            Some((cert_bytes, key_bytes))
-        } else {
-            None
         };
 
         // PHASE 0.1 — Unified rustls path for system-CA + custom-CA branches.
@@ -1131,6 +1091,104 @@ impl MqttClient {
                 info!("Loaded {} custom CA certificate(s) for MQTT TLS", added);
             }
         }
+
+        Ok(root_store)
+    }
+
+    /// ADR-048 DEC-10.6: the Suderra OS broker roots are exactly the
+    /// trust-anchors bundle's `mqtt-ca` certificates. Native and embedded
+    /// webpki roots are never loaded, so no public CA outside the bundle
+    /// can vouch for the broker; an empty set refuses the connection.
+    #[cfg(feature = "suderra-os")]
+    fn bundle_root_store(
+        broker_ca: &[Vec<u8>],
+    ) -> Result<rumqttc::tokio_rustls::rustls::RootCertStore> {
+        let mut root_store = rumqttc::tokio_rustls::rustls::RootCertStore::empty();
+        for der in broker_ca {
+            root_store
+                .add(rustls::pki_types::CertificateDer::from(der.clone()))
+                .map_err(|e| anyhow::anyhow!("trust-anchors mqtt-ca certificate rejected: {e:?}"))?;
+        }
+        if root_store.is_empty() {
+            return Err(anyhow::anyhow!(
+                "the trust-anchors bundle anchors no mqtt-ca certificate; the broker \
+                 connection is refused (ADR-048 DEC-10.6)"
+            ));
+        }
+        info!(
+            "Loaded {} broker CA certificate(s) from the trust-anchors bundle",
+            root_store.len()
+        );
+        Ok(root_store)
+    }
+
+    /// Configure TLS transport (IEC 62443 SL2 FR4: Data Confidentiality)
+    ///
+    /// Supports:
+    /// - Server certificate verification via CA cert
+    /// - Client certificate authentication (mTLS) for FR1 compliance
+    fn configure_tls(
+        tls_config: &crate::config::MqttTlsConfig,
+        mtls_config: &crate::config::MtlsConfig,
+        root_store: rumqttc::tokio_rustls::rustls::RootCertStore,
+    ) -> Result<(Transport, Arc<crate::mtls::MtlsVerifierState>)> {
+        use rumqttc::TlsConfiguration;
+
+        // LOW/H-01: validate verify_hostname config is not set to false.
+        // This field was parsed from YAML but never enforced — an operator who
+        // sets verify_hostname: false gets no effect (rustls always verifies),
+        // creating a false sense of control. Fail-fast with a clear error.
+        if !tls_config.verify_hostname {
+            return Err(anyhow::anyhow!(
+                "SECURITY: verify_hostname=false is not supported. rustls always \
+                 verifies the broker hostname against the TLS certificate. To connect \
+                 to a broker with a self-signed cert, add the CA to ca_cert_path instead."
+            ));
+        }
+
+        // Phase 1.1.5 (ORPHAN-HIGH-035 closure) — `install_default()` removed.
+        //
+        // Pre-Phase-1.1.5 this site planted `rustls::crypto::ring::default_provider()`
+        // (the UNRESTRICTED ring provider, every TLS 1.2 ECDHE suite included)
+        // as the process-wide default. The Suderra cipher allowlist (TLS 1.3 +
+        // 3 AEAD suites) was applied only to MQTT via explicit
+        // `ClientConfig::builder_with_provider(suderra_provider)` further down
+        // this function. Every HTTPS reqwest callsite that didn't carry an
+        // explicit provider would inherit the unrestricted default — silently
+        // exposing `provisioning.rs::activate` (single-use device-bootstrap
+        // token exchange — edge-expert flagged as the highest-attack-surface
+        // HTTPS callsite), `firmware.rs::download_file`, and
+        // `scripting/engine.rs` HTTP webhooks to TLS 1.2 cipher-suite-downgrade
+        // attacks regardless of how carefully MQTT was hardened.
+        //
+        // Tier-1 MAKE-IT-IMPOSSIBLE (Phase 1.1.5): every TLS callsite in the
+        // agent now MUST go through one of these two factories:
+        //   - `crate::mtls::build_suderra_crypto_provider()` for the rustls
+        //     `ClientConfig::builder_with_provider(...)` path (MQTT transport).
+        //   - `crate::mtls::build_suderra_https_client_config()` for reqwest's
+        //     `use_preconfigured_tls(...)` path (HTTPS to cloud APIs).
+        //
+        // If a future caller skips both and writes
+        // `rustls::ClientConfig::builder()` without a provider arg, rustls
+        // panics at the builder call ("no process-level CryptoProvider
+        // available") — fail-fast at boot/dev/CI rather than silent bypass in
+        // production. The `d4_d6_mtls_unified::no_install_default_in_non_test_code`
+        // invariant is the source-grep detector that catches a regression.
+
+        // Read client certificate and key for mTLS (optional)
+        // v1.2.4: Rust 2024 edition - implicit borrowing in patterns
+        let client_auth = if let (Some(cert_path), Some(key_path)) =
+            (&tls_config.client_cert_path, &tls_config.client_key_path)
+        {
+            let cert_bytes = std::fs::read(cert_path)
+                .with_context(|| format!("Failed to read client certificate: {}", cert_path))?;
+            let key_bytes = std::fs::read(key_path)
+                .with_context(|| format!("Failed to read client key: {}", key_path))?;
+            info!("Loaded client certificate from: {}", cert_path);
+            Some((cert_bytes, key_bytes))
+        } else {
+            None
+        };
 
         // PHASE 0.2 — handshake-time cipher allowlist gate.
         //

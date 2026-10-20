@@ -3419,6 +3419,7 @@ async fn async_main(notifier: Arc<systemd_notify::SystemdNotifier>) -> Result<()
                 "  mTLS mode: {:?} (fingerprint_pinning={}, min_tls={})",
                 cfg.mtls.mode, cfg.mtls.enforce_fingerprint_pinning, cfg.mtls.min_tls_version
             );
+            #[cfg(not(feature = "suderra-os"))]
             if matches!(cfg.mtls.mode, crate::mtls::MtlsMode::Legacy)
                 && cfg.mtls.enforce_fingerprint_pinning
             {
@@ -4994,7 +4995,21 @@ async fn run_connectivity(
             // Batch 102: HealthState wires the publish/receive/connect
             // observability counters (Arc-bump clone).
             let health_for_mqtt = state_guard.health_state.clone();
-            MqttClient::new(&state_guard.config, health_for_mqtt).await
+            #[cfg(not(feature = "suderra-os"))]
+            let created = MqttClient::new(&state_guard.config, health_for_mqtt).await;
+            // ADR-048 DEC-10.6: the broker roots are the trust root's
+            // `mqtt-ca` set; without a trust root there is no connection.
+            #[cfg(feature = "suderra-os")]
+            let created = match state_guard.trust_anchors.as_ref().map(|t| t.mqtt_ca_der()) {
+                Some(Ok(broker_ca)) => {
+                    MqttClient::new(&state_guard.config, health_for_mqtt, &broker_ca).await
+                }
+                Some(Err(e)) => Err(anyhow::anyhow!("broker CA set unusable: {e}")),
+                None => Err(anyhow::anyhow!(
+                    "no trust root: the broker connection is refused (ADR-048 DEC-3.7)"
+                )),
+            };
+            created
         };
         match created {
             Ok(client) => break client,

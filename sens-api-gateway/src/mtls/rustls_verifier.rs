@@ -165,8 +165,8 @@ impl ServerCertVerifier for SuderraServerCertVerifier {
         let chain_depth = intermediates.len() + 1; // leaf + intermediates (+ implicit root)
         let policy_result = self.apply_policy_gates(end_entity, chain_depth, now_secs);
 
-        match (self.mode, policy_result) {
-            (_, Ok(fingerprint)) => {
+        match policy_result {
+            Ok(fingerprint) => {
                 info!(
                     "mTLS: leaf cert accepted (mode={:?} fingerprint_prefix={:02x}{:02x}{:02x}{:02x})",
                     self.mode,
@@ -177,25 +177,16 @@ impl ServerCertVerifier for SuderraServerCertVerifier {
                 );
                 Ok(ServerCertVerified::assertion())
             }
-            // Legacy mode: log-only. Even on policy
-            // failure, return success (webpki already
-            // validated the chain; Legacy stage is the
-            // operator-migration warm-up).
-            (MtlsMode::Legacy, Err(e)) => {
+            // Legacy mode: log-only. Even on policy failure, return
+            // success (webpki already validated the chain; Legacy stage is
+            // the operator-migration warm-up). Warn mode: log + audit-emit
+            // (via downstream consumer that subscribes to tracing
+            // warnings); still accept the handshake so the rollout can
+            // proceed. Neither exists in the suderra-os profile.
+            Err(e) if !self.mode.rejects_policy_violation() => {
                 warn!(
-                    "mTLS: leaf cert policy violation in Legacy mode (log-only): {:?}",
-                    e
-                );
-                Ok(ServerCertVerified::assertion())
-            }
-            // Warn mode: log + audit-emit (via downstream
-            // consumer that subscribes to tracing
-            // warnings); still accept the handshake so
-            // the rollout can proceed.
-            (MtlsMode::Warn, Err(e)) => {
-                warn!(
-                    "mTLS: leaf cert policy violation in Warn mode (audit-emit + continue): {:?}",
-                    e
+                    "mTLS: leaf cert policy violation in {:?} mode (log-only, handshake continues): {:?}",
+                    self.mode, e
                 );
                 Ok(ServerCertVerified::assertion())
             }
@@ -218,10 +209,11 @@ impl ServerCertVerifier for SuderraServerCertVerifier {
             // The fingerprint prefix is the first 4 bytes lowercase-hex
             // (8 chars) — sufficient for forensic uniqueness without
             // exposing the full digest in operator-readable detail.
-            (MtlsMode::Strict, Err(e)) => {
+            // Strict and CaAnchored: fail-closed.
+            Err(e) => {
                 error!(
-                    "mTLS: leaf cert policy violation in Strict mode — REJECTING handshake: {:?}",
-                    e
+                    "mTLS: leaf cert policy violation in {:?} mode — REJECTING handshake: {:?}",
+                    self.mode, e
                 );
                 let leaf_fp_prefix = compute_leaf_fingerprint_prefix(end_entity.as_ref());
                 let detail = serde_json::json!({
@@ -364,9 +356,11 @@ pub fn verify_cert_at_handshake(
     let digest = compute_sha256(leaf_der_bytes);
     let fingerprint = LeafCertFingerprint::from_bytes(digest);
 
-    // Gate F — pinning set membership.
+    // Gate F — pinning set membership. `CaAnchored` pins no leaf (ADR-048
+    // DEC-10.6): its trust is the chain to the bundle's CA set, which the
+    // webpki delegate has already verified together with the hostname.
     let accepted = rotation_stage.accepted_fingerprints(now_unix_secs);
-    if !accepted.accepts(&fingerprint) {
+    if mode.uses_leaf_pins() && !accepted.accepts(&fingerprint) {
         return Err(MtlsVerifyError::FingerprintNotPinned {
             actual: fingerprint,
         });
@@ -395,6 +389,9 @@ pub enum SuderraVerifierBuildError {
     /// same as the config coherence Rule 24 but
     /// defense-in-depth at construction.
     StrictModeRequiresPins,
+    /// CaAnchored was selected with pins supplied: the mode pins the CA,
+    /// never a leaf (ADR-048 DEC-10.6).
+    CaAnchoredTakesNoPins,
     /// Static pin rotation stage failed construction.
     InvalidRotationStage(String),
 }
@@ -417,6 +414,10 @@ impl std::fmt::Display for SuderraVerifierBuildError {
             }
             Self::StrictModeRequiresPins => f.write_str(
                 "mtls.mode=Strict requires at least one pinned_leaf_fingerprints_hex entry",
+            ),
+            Self::CaAnchoredTakesNoPins => f.write_str(
+                "mtls.mode=ca_anchored pins the broker CA, never a leaf: \
+                 pinned_leaf_fingerprints_hex must be empty",
             ),
             Self::InvalidRotationStage(reason) => {
                 write!(f, "mTLS static pin rotation stage invalid: {}", reason)
@@ -582,11 +583,18 @@ pub fn build_suderra_verifier(
     pins_hex: &[String],
     root_store: Arc<rustls::RootCertStore>,
 ) -> Result<Option<Arc<SuderraServerCertVerifier>>, SuderraVerifierBuildError> {
+    #[cfg(not(feature = "suderra-os"))]
     if matches!(mode, MtlsMode::Legacy) && pins_hex.is_empty() {
         return Ok(None);
     }
+    #[cfg(not(feature = "suderra-os"))]
     if matches!(mode, MtlsMode::Strict) && pins_hex.is_empty() {
         return Err(SuderraVerifierBuildError::StrictModeRequiresPins);
+    }
+    // DEC-10.6: CaAnchored has no leaf pin; a configured pin would be a
+    // trust input it silently ignores, so it is refused instead.
+    if matches!(mode, MtlsMode::CaAnchored) && !pins_hex.is_empty() {
+        return Err(SuderraVerifierBuildError::CaAnchoredTakesNoPins);
     }
 
     let rotation_stage = build_rotation_stage_from_pins_hex(pins_hex)?.unwrap_or_else(|| {
@@ -669,6 +677,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(feature = "suderra-os"))]
     #[test]
     fn chain_depth_cap_rejects_over_max() {
         // Pass empty DER; chain_depth check fires before
@@ -691,6 +700,7 @@ mod tests {
         ));
     }
 
+    #[cfg(not(feature = "suderra-os"))]
     #[test]
     fn clock_sanity_rejects_negative_now() {
         let err = verify_cert_at_handshake(
@@ -705,6 +715,7 @@ mod tests {
         assert!(matches!(err, MtlsVerifyError::InvalidNow));
     }
 
+    #[cfg(not(feature = "suderra-os"))]
     #[test]
     fn malformed_der_rejects_with_parse_error() {
         let err = verify_cert_at_handshake(
@@ -731,6 +742,7 @@ mod tests {
         assert!(!accepted.accepts(&probe));
     }
 
+    #[cfg(not(feature = "suderra-os"))]
     #[test]
     fn mode_routing_matrix_sanity() {
         // Sanity pin for the mode enum — ensures the 3
@@ -832,6 +844,7 @@ mod tests {
         ));
     }
 
+    #[cfg(not(feature = "suderra-os"))]
     #[test]
     fn build_suderra_verifier_legacy_empty_pins_returns_none() {
         let algs = rustls::crypto::ring::default_provider().signature_verification_algorithms;
@@ -840,6 +853,7 @@ mod tests {
         assert!(out.is_none(), "Legacy + no pins should skip wire");
     }
 
+    #[cfg(not(feature = "suderra-os"))]
     #[test]
     fn build_suderra_verifier_strict_empty_pins_errors() {
         let algs = rustls::crypto::ring::default_provider().signature_verification_algorithms;
@@ -852,6 +866,7 @@ mod tests {
         ));
     }
 
+    #[cfg(not(feature = "suderra-os"))]
     #[test]
     fn build_suderra_verifier_empty_root_store_surfaces_webpki_error() {
         // rustls's WebPkiServerVerifier::build() rejects an
@@ -868,6 +883,140 @@ mod tests {
         assert!(matches!(
             err,
             SuderraVerifierBuildError::WebPkiBuildFailed(_)
+        ));
+    }
+}
+
+/// ADR-048 DEC-10.6: the CaAnchored verifier against real certificates — a
+/// broker leaf chains to the pinned CA set and matches the host name, or
+/// the handshake is refused. Nothing outside the given root store is
+/// trusted.
+#[cfg(test)]
+mod ca_anchored_handshake_tests {
+    #![allow(clippy::expect_used, clippy::unwrap_used)]
+
+    use super::*;
+    use rustls::crypto::ring::default_provider;
+    use rustls::RootCertStore;
+
+    struct Pki {
+        ca_der: CertificateDer<'static>,
+        leaf_der: CertificateDer<'static>,
+    }
+
+    fn pki(host: &str) -> Pki {
+        let ca_key = rcgen::KeyPair::generate().unwrap();
+        let mut ca_params = rcgen::CertificateParams::new(Vec::<String>::new()).unwrap();
+        ca_params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+        ca_params
+            .distinguished_name
+            .push(rcgen::DnType::CommonName, "Test broker CA");
+        let ca = ca_params.self_signed(&ca_key).unwrap();
+        let leaf_key = rcgen::KeyPair::generate().unwrap();
+        let mut leaf_params = rcgen::CertificateParams::new(vec![host.to_string()]).unwrap();
+        // A current, short-lived leaf like a broker's (the CaAnchored age
+        // ceiling refuses rcgen's default 1975 not_before).
+        let today = {
+            use chrono::Datelike;
+            chrono::Utc::now().date_naive()
+        };
+        let (year, month, day) = {
+            use chrono::Datelike;
+            (today.year(), today.month() as u8, today.day() as u8)
+        };
+        leaf_params.not_before = rcgen::date_time_ymd(year, month, day);
+        leaf_params.not_after = rcgen::date_time_ymd(year + 1, month, 1);
+        let leaf = leaf_params.signed_by(&leaf_key, &ca, &ca_key).unwrap();
+        Pki {
+            ca_der: ca.der().clone(),
+            leaf_der: leaf.der().clone(),
+        }
+    }
+
+    fn verifier(roots: &[&CertificateDer<'static>]) -> Arc<SuderraServerCertVerifier> {
+        let mut store = RootCertStore::empty();
+        for root in roots {
+            store.add((*root).clone()).unwrap();
+        }
+        build_suderra_verifier(
+            MtlsMode::CaAnchored,
+            default_provider().signature_verification_algorithms,
+            &[],
+            Arc::new(store),
+        )
+        .unwrap()
+        .expect("CaAnchored always builds a policy verifier")
+    }
+
+    fn verify(v: &SuderraServerCertVerifier, leaf: &CertificateDer<'_>, host: &str) -> bool {
+        v.verify_server_cert(
+            leaf,
+            &[],
+            &ServerName::try_from(host.to_string()).unwrap(),
+            &[],
+            UnixTime::now(),
+        )
+        .is_ok()
+    }
+
+    #[test]
+    fn a_leaf_of_the_pinned_ca_for_the_broker_host_is_accepted_without_a_leaf_pin() {
+        let pki = pki("mqtt-devices.example.test");
+        assert!(verify(&verifier(&[&pki.ca_der]), &pki.leaf_der, "mqtt-devices.example.test"));
+    }
+
+    #[test]
+    fn hostname_verification_cannot_be_bypassed() {
+        let pki = pki("mqtt-devices.example.test");
+        assert!(!verify(&verifier(&[&pki.ca_der]), &pki.leaf_der, "other.example.test"));
+    }
+
+    #[test]
+    fn a_leaf_from_any_ca_outside_the_pinned_set_is_refused() {
+        let pinned = pki("mqtt-devices.example.test");
+        let other = pki("mqtt-devices.example.test");
+        assert!(!verify(&verifier(&[&pinned.ca_der]), &other.leaf_der, "mqtt-devices.example.test"));
+    }
+
+    #[test]
+    fn an_empty_ca_set_builds_no_verifier_and_pins_are_refused() {
+        let algs = default_provider().signature_verification_algorithms;
+        assert!(matches!(
+            build_suderra_verifier(MtlsMode::CaAnchored, algs, &[], Arc::new(RootCertStore::empty())),
+            Err(SuderraVerifierBuildError::WebPkiBuildFailed(_))
+        ));
+        let pki = pki("broker.example.test");
+        let mut store = RootCertStore::empty();
+        store.add(pki.ca_der).unwrap();
+        let pins = vec!["00".repeat(32)];
+        assert!(matches!(
+            build_suderra_verifier(MtlsMode::CaAnchored, algs, &pins, Arc::new(store)),
+            Err(SuderraVerifierBuildError::CaAnchoredTakesNoPins)
+        ));
+    }
+
+    #[test]
+    fn policy_gates_reject_under_ca_anchored() {
+        let pki = pki("broker.example.test");
+        let v = verifier(&[&pki.ca_der]);
+        let stage = CertRotationStage::Settled {
+            current: crate::mtls::pinning::PinnedLeafCert {
+                fingerprint: LeafCertFingerprint::from_bytes([0u8; 32]),
+                not_before_unix_secs: 0,
+                not_after_unix_secs: 0,
+                cert_label: "unrelated".to_string(),
+            },
+        };
+        let now = UnixTime::now().as_secs() as i64;
+        // No pin is consulted.
+        assert!(verify_cert_at_handshake(pki.leaf_der.as_ref(), 1, MtlsMode::CaAnchored, &stage, now, |_| [1; 32]).is_ok());
+        assert!(matches!(
+            v.apply_policy_gates(&pki.leaf_der, super::super::verify::MAX_CHAIN_DEPTH + 1, now),
+            Err(MtlsVerifyError::ChainTooLong { .. })
+        ));
+        assert!(matches!(
+            v.apply_policy_gates(&pki.leaf_der, 1, -1),
+            Err(MtlsVerifyError::InvalidNow)
         ));
     }
 }

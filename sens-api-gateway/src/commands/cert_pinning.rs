@@ -70,13 +70,41 @@
 //!   gate is the load-bearing floor.
 
 use serde_json::{Value, json};
-use tracing::{info, warn};
+#[cfg(not(feature = "suderra-os"))]
+use tracing::info;
+use tracing::warn;
 
 use super::CommandHandler;
+#[cfg(not(feature = "suderra-os"))]
 use crate::mtls::{MtlsMode, RebuildOutcome};
+#[cfg(not(feature = "suderra-os"))]
 use crate::security::sanitize_for_log;
 
 impl CommandHandler {
+    /// Suderra OS: the broker connection is CA-anchored to the trust-anchors
+    /// bundle's `mqtt-ca` set and pins no leaf (ADR-048 DEC-10.6), so there
+    /// is no pin set to rotate. The CA set changes only with a new bundle.
+    #[cfg(feature = "suderra-os")]
+    pub(super) async fn cmd_update_cert_pinning(
+        &self,
+        _params: &Value,
+    ) -> (bool, Value, Option<String>) {
+        warn!(
+            target: "mtls.hotreload",
+            "Rejecting update_cert_pinning: the suderra-os profile pins the broker CA from the \
+             trust-anchors bundle, never a leaf (ADR-048 DEC-10.6)"
+        );
+        (
+            false,
+            json!({"reason": "unsupported", "mtls_mode": "ca_anchored"}),
+            Some(
+                "unsupported: the suderra-os profile pins the broker CA from the trust-anchors \
+                 bundle, never a leaf; the CA set changes only with a new bundle (ADR-048 DEC-10.6)"
+                    .to_string(),
+            ),
+        )
+    }
+
     /// `update_cert_pinning` — rotate the live `MtlsVerifierState` to a
     /// new (mode, pin set).
     ///
@@ -96,6 +124,7 @@ impl CommandHandler {
     ///   "...", ...}`.
     /// - On build-failed (malformed hex, Strict + empty pins): structured
     ///   error with `{"reason": "build_failed", "detail": "..."}`.
+    #[cfg(not(feature = "suderra-os"))]
     pub(super) async fn cmd_update_cert_pinning(
         &self,
         params: &Value,

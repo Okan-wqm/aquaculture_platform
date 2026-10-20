@@ -579,11 +579,14 @@ mod tests {
     /// A 64-char hex literal that round-trips through fingerprint parsing.
     /// Avoids depending on any specific cert; we only need the wire format
     /// to be valid hex.
+    #[cfg_attr(feature = "suderra-os", allow(dead_code))]
     const PIN_A: &str = "0000000000000000000000000000000000000000000000000000000000000001";
+    #[cfg_attr(feature = "suderra-os", allow(dead_code))]
     const PIN_B: &str = "0000000000000000000000000000000000000000000000000000000000000002";
 
     /// HC-1 contract: Legacy mode + empty pins constructs a state handle
     /// whose `current()` is `None`. Callers fall through to default webpki.
+    #[cfg(not(feature = "suderra-os"))]
     #[test]
     fn legacy_no_pins_yields_none_current() {
         let (sig_algs, root_store) = empty_anchors();
@@ -595,6 +598,7 @@ mod tests {
 
     /// Strict + non-empty pins constructs a verifier; `current()` is `Some`.
     /// This is the production-fleet steady state per the rollout plan.
+    #[cfg(not(feature = "suderra-os"))]
     #[test]
     fn strict_with_pins_yields_some_current() {
         let (sig_algs, root_store) = empty_anchors();
@@ -611,6 +615,7 @@ mod tests {
 
     /// Strict + empty pins MUST fail at construction. Defense-in-depth on
     /// top of `MtlsConfig` Coherence Rule 24.
+    #[cfg(not(feature = "suderra-os"))]
     #[test]
     fn strict_no_pins_fails() {
         let (sig_algs, root_store) = empty_anchors();
@@ -626,6 +631,7 @@ mod tests {
     /// Bit-identical rebuild is a no-op. The verifier `Arc` pointer
     /// stays unchanged — important so in-flight handshakes are not
     /// disturbed by a redundant `cmd_update_cert_pinning` retry.
+    #[cfg(not(feature = "suderra-os"))]
     #[test]
     fn rebuild_with_identical_config_is_noop() {
         let (sig_algs, root_store) = empty_anchors();
@@ -639,6 +645,7 @@ mod tests {
     }
 
     /// Different config triggers a rebuild; the verifier `Arc` is replaced.
+    #[cfg(not(feature = "suderra-os"))]
     #[test]
     fn rebuild_with_new_pin_replaces_verifier() {
         let (sig_algs, root_store) = empty_anchors();
@@ -667,6 +674,7 @@ mod tests {
     /// build-time check (defense-in-depth: the gate rejects ANY pin-set
     /// emptying, regardless of mode). Use a non-pin-emptying invalid
     /// config (malformed hex) to exercise the build-failed preserve path.
+    #[cfg(not(feature = "suderra-os"))]
     #[test]
     fn rebuild_with_invalid_config_preserves_old_verifier() {
         let (sig_algs, root_store) = empty_anchors();
@@ -695,6 +703,7 @@ mod tests {
 
     /// Mode rotation Legacy → Warn picks up the new verifier. Tests that
     /// the snapshot equality is mode-sensitive, not just pin-set-sensitive.
+    #[cfg(not(feature = "suderra-os"))]
     #[test]
     fn rebuild_legacy_to_warn_with_same_pin_rebuilds() {
         let (sig_algs, root_store) = empty_anchors();
@@ -710,6 +719,7 @@ mod tests {
 
     /// Mode downgrade Strict → Warn MUST be rejected. Tier-1 floor against
     /// the silent-policy-disable attack (security review of 23e35c25).
+    #[cfg(not(feature = "suderra-os"))]
     #[test]
     fn rebuild_strict_to_warn_rejected_as_downgrade() {
         let (sig_algs, root_store) = empty_anchors();
@@ -732,6 +742,7 @@ mod tests {
     }
 
     /// Mode downgrade Strict → Legacy MUST be rejected.
+    #[cfg(not(feature = "suderra-os"))]
     #[test]
     fn rebuild_strict_to_legacy_rejected_as_downgrade() {
         let (sig_algs, root_store) = empty_anchors();
@@ -749,6 +760,7 @@ mod tests {
     }
 
     /// Mode downgrade Warn → Legacy MUST be rejected.
+    #[cfg(not(feature = "suderra-os"))]
     #[test]
     fn rebuild_warn_to_legacy_rejected_as_downgrade() {
         let (sig_algs, root_store) = empty_anchors();
@@ -769,6 +781,7 @@ mod tests {
     /// Warn + 1 pin → Warn + 0 pins). Empty pin set under Strict is
     /// already rejected by build_suderra_verifier; under Warn it routes
     /// to silent webpki fallthrough — both lethal.
+    #[cfg(not(feature = "suderra-os"))]
     #[test]
     fn rebuild_drop_all_pins_rejected_as_downgrade() {
         let (sig_algs, root_store) = empty_anchors();
@@ -787,6 +800,7 @@ mod tests {
 
     /// Mode promotion (Legacy → Warn → Strict) IS allowed. The downgrade
     /// gate is one-way — operators can ALWAYS tighten the policy floor.
+    #[cfg(not(feature = "suderra-os"))]
     #[test]
     fn rebuild_legacy_to_strict_promotion_succeeds() {
         let (sig_algs, root_store) = empty_anchors();
@@ -820,6 +834,7 @@ mod tests {
     /// captured Arc is still alive AND points to a verifier independent
     /// of the new slot contents. Pointer inequality + strong_count > 0
     /// together prove the semantic guarantee.
+    #[cfg(not(feature = "suderra-os"))]
     #[test]
     fn captured_arc_survives_rebuild_independent_of_new_verifier() {
         let (sig_algs, root_store) = empty_anchors();
@@ -871,6 +886,7 @@ mod tests {
     /// This is a weaker proof than a `loom::test` but sufficient for the
     /// Phase 1 invariant; the handle inherits its safety from `RwLock` +
     /// `Arc::clone`, both of which are loom-tested upstream.
+    #[cfg(not(feature = "suderra-os"))]
     #[test]
     fn concurrent_reader_during_rebuild_sees_consistent_arc() {
         use std::thread;
@@ -909,5 +925,27 @@ mod tests {
         reader.join().expect("reader thread");
         // Final state — current must still be Some (we keep installing valid pins).
         assert!(state.current().is_some());
+    }
+
+    /// ADR-048 DEC-10.6: a CaAnchored state always installs a policy
+    /// verifier (never the plain webpki fallback) and refuses pins, so a
+    /// rotation command cannot introduce a leaf pin.
+    #[test]
+    fn ca_anchored_state_installs_a_policy_verifier_and_refuses_pins() {
+        let (sig_algs, root_store) = empty_anchors();
+        let state = MtlsVerifierState::new(MtlsMode::CaAnchored, &[], sig_algs, root_store)
+            .expect("CaAnchored with a CA set builds");
+        assert_eq!(
+            state.current_mode_and_pin_count(),
+            Some((MtlsMode::CaAnchored, 0))
+        );
+        assert!(state.current().is_some(), "policy verifier installed");
+        let pins = vec!["0".repeat(63) + "1"];
+        assert!(matches!(
+            state.rebuild(MtlsMode::CaAnchored, &pins),
+            Err(MtlsRebuildError::BuildFailed(
+                SuderraVerifierBuildError::CaAnchoredTakesNoPins
+            ))
+        ));
     }
 }

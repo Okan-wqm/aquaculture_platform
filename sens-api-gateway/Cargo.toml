@@ -1013,6 +1013,13 @@ path = "tests/contracts_golden.rs"
 name = "tpi_commands_rejected_without_co_approver"
 path = "tests/invariants/tpi_commands_rejected_without_co_approver.rs"
 
+# ADR-048 DEC-10.1 / DEC-10.6 — the Suderra OS broker connection is TLS-only
+# and CA-anchored to the trust-anchors bundle's mqtt-ca set; leaf-pinning
+# modes exist in the generic profile alone.
+[[test]]
+name = "mtls_ca_anchored"
+path = "tests/invariants/mtls_ca_anchored.rs"
+
 # =============================================================================
 # RUST-CVE-001: rumqttc 0.25.1 vendored fork (../crates/local-rumqttc)
 # =============================================================================

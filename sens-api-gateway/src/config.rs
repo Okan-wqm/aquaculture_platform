@@ -405,13 +405,20 @@ pub struct AgentConfig {
 }
 
 /// MQTT TLS configuration (IEC 62443 SL2 FR4: Data Confidentiality)
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+///
+/// ADR-048 DEC-10.1 / DEC-10.6, Suderra OS profile: TLS is not optional and
+/// the broker's root CAs are the trust-anchors bundle's `mqtt-ca` set, so
+/// `enabled`, `ca_cert_path` and `insecure_skip_verify` do not exist there —
+/// a plaintext or self-chosen-CA broker connection cannot be configured.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MqttTlsConfig {
     /// Enable TLS encryption
+    #[cfg(not(feature = "suderra-os"))]
     #[serde(default = "default_true")]
     pub enabled: bool,
 
     /// CA certificate path for server verification
+    #[cfg(not(feature = "suderra-os"))]
     pub ca_cert_path: Option<String>,
 
     /// Client certificate path (for mTLS)
@@ -427,14 +434,35 @@ pub struct MqttTlsConfig {
     /// Disable TLS server certificate verification — ONLY for development/testing.
     /// Setting this to `true` in release builds is blocked at compile time
     /// to prevent insecure production deployments (IEC 62443 FR4).
+    #[cfg(not(feature = "suderra-os"))]
     #[serde(default)]
     pub insecure_skip_verify: bool,
+}
+
+/// The values a config file without a `tls` block gets, identical to the
+/// field-level serde defaults (SENSOR-LOW-233: the derived `Default` used
+/// to give `enabled: false` and `verify_hostname: false`, so omitting the
+/// block silently turned TLS off).
+impl Default for MqttTlsConfig {
+    fn default() -> Self {
+        Self {
+            #[cfg(not(feature = "suderra-os"))]
+            enabled: default_true(),
+            #[cfg(not(feature = "suderra-os"))]
+            ca_cert_path: None,
+            client_cert_path: None,
+            client_key_path: None,
+            verify_hostname: default_true(),
+            #[cfg(not(feature = "suderra-os"))]
+            insecure_skip_verify: false,
+        }
+    }
 }
 
 impl MqttTlsConfig {
     /// Validate TLS configuration — compile-time guard mirrors ModbusTlsConfig
     pub fn validate(&self) -> Result<(), crate::error::AgentError> {
-        #[cfg(not(debug_assertions))]
+        #[cfg(all(not(debug_assertions), not(feature = "suderra-os")))]
         if self.insecure_skip_verify {
             return Err(crate::error::AgentError::Config(
                 "MQTT TLS insecure_skip_verify is not allowed in release builds (IEC 62443 FR4)"
@@ -3700,7 +3728,7 @@ impl AgentConfig {
         // commands. Release builds must not boot with plaintext MQTT because
         // that turns a production misconfiguration into a supported runtime
         // posture.
-        #[cfg(not(debug_assertions))]
+        #[cfg(all(not(debug_assertions), not(feature = "suderra-os")))]
         if !self.mqtt.tls.enabled {
             anyhow::bail!(
                 "Config coherence: mqtt.tls.enabled=false is not allowed in release builds. \
@@ -3709,8 +3737,16 @@ impl AgentConfig {
         }
 
         // Validate MQTT TLS certificate paths exist (IEC 62443 SL2 FR4)
-        // v1.2.0: Fail-fast if TLS is enabled but certificates are missing
-        if self.mqtt.tls.enabled {
+        // v1.2.0: Fail-fast if TLS is enabled but certificates are missing.
+        // Suderra OS: TLS is always on (ADR-048 DEC-10.1).
+        #[cfg(not(feature = "suderra-os"))]
+        let tls_on = self.mqtt.tls.enabled;
+        #[cfg(feature = "suderra-os")]
+        let tls_on = true;
+        if tls_on {
+            // Suderra OS: the broker CA set is the trust-anchors bundle's
+            // (DEC-10.6); no CA path exists to check.
+            #[cfg(not(feature = "suderra-os"))]
             if let Some(ref ca_path) = self.mqtt.tls.ca_cert_path {
                 if !std::path::Path::new(ca_path).exists() {
                     anyhow::bail!("MQTT CA certificate not found: {}", ca_path);
@@ -3972,6 +4008,7 @@ impl AgentConfig {
         // enforced. Strict mode's whole point is "reject TLS
         // handshake on fingerprint mismatch"; disabling
         // pinning in Strict mode is self-contradictory.
+        #[cfg(not(feature = "suderra-os"))]
         if matches!(self.mtls.mode, crate::mtls::MtlsMode::Strict)
             && !self.mtls.enforce_fingerprint_pinning
         {
@@ -4008,6 +4045,7 @@ impl AgentConfig {
                      local development."
                 );
             }
+            #[cfg(not(feature = "suderra-os"))]
             if matches!(self.mtls.mode, crate::mtls::MtlsMode::Legacy) {
                 anyhow::bail!(
                     "Config coherence: mtls.mode=legacy is not allowed in release builds \
@@ -4419,6 +4457,7 @@ impl AgentConfig {
         // device's TLS connectivity. Fail-fast at config
         // load so operators don't discover this at first
         // MQTT connect.
+        #[cfg(not(feature = "suderra-os"))]
         if matches!(self.mtls.mode, crate::mtls::MtlsMode::Strict)
             && self.mtls.pinned_leaf_fingerprints_hex.is_empty()
         {
@@ -4426,6 +4465,22 @@ impl AgentConfig {
                 "Config coherence: mtls.mode=Strict requires at least one entry in \
                  mtls.pinned_leaf_fingerprints_hex. Supply the expected leaf cert \
                  SHA-256 hex digest(s) or downgrade mode to Warn during rollout."
+            );
+        }
+
+        // ADR-048 DEC-10.6: the suderra-os profile's only mode,
+        // CaAnchored, trusts the broker by the trust-anchors bundle's CA
+        // set and pins no leaf; a configured pin would be a trust input it
+        // ignores, so it is refused at load.
+        #[cfg(feature = "suderra-os")]
+        if !self.mtls.pinned_leaf_fingerprints_hex.is_empty()
+            || self.mtls.enforce_fingerprint_pinning
+        {
+            anyhow::bail!(
+                "Config coherence: mtls.mode=ca_anchored (the only mode of the suderra-os \
+                 profile) pins the broker CA from the trust-anchors bundle, never a leaf: \
+                 mtls.pinned_leaf_fingerprints_hex must be empty and \
+                 mtls.enforce_fingerprint_pinning false (ADR-048 DEC-10.6)"
             );
         }
 
@@ -5040,6 +5095,7 @@ tryboot_autoboot_path: /boot/firmware/autoboot.txt
         assert!(c.pinned_leaf_fingerprints_hex.is_empty());
     }
 
+    #[cfg(not(feature = "suderra-os"))]
     #[test]
     fn test_mtls_config_yaml_accepts_pinned_list() {
         let yaml = r#"
@@ -5053,6 +5109,7 @@ pinned_leaf_fingerprints_hex:
         assert!(matches!(c.mode, crate::mtls::MtlsMode::Warn));
     }
 
+    #[cfg(not(feature = "suderra-os"))]
     #[test]
     fn test_mtls_config_yaml_omitted_pins_yields_empty_vec() {
         let yaml = r#"

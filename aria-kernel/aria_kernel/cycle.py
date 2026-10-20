@@ -1955,20 +1955,37 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
                     base_dir=context.base_dir,
                 )
                 sampled += len(sample.get("items") or [])
-                fanout = dispatch_judges_for_sample(
-                    sample=sample, base_dir=context.base_dir, target_sha=target_sha,
-                    # E17-b — the same workspace target_sha was resolved from. The
-                    # mint needs it to quote the cited lines into the envelope; a
-                    # judge lane that dispatches two judges per finding is exactly
-                    # where paying for the same file read twice is worst.
+                # WP-J slice C — the ONE routing owner sits exactly here,
+                # between the sampler and the fan-out (judgment_funnel). Tier
+                # assignment, escalation, early stop, cache key and batch key
+                # live in that module and nowhere else; with the funnel policy
+                # off it hands back the sampler's own sample and this loop
+                # makes the exact legacy call, bit for bit.
+                from .judgment_funnel import route_judgment_sample
+
+                funnel = route_judgment_sample(
+                    sample=sample,
+                    base_dir=context.base_dir,
                     repo_root=context.workspace_root,
-                    max_pending_per_role=max_pending_per_role,
+                    target_sha=target_sha,
+                    policy=pipeline_policy,
                 )
-                fanned_out += len(fanout.get("minted") or [])
-                mint_skipped_backlog += sum(
-                    1 for s in fanout.get("skipped") or []
-                    if s.get("reason") == "mint_skipped_backlog"
-                )
+                for leg in funnel["plan"]:
+                    fanout = dispatch_judges_for_sample(
+                        sample=leg["sample"], base_dir=context.base_dir, target_sha=target_sha,
+                        # E17-b — the same workspace target_sha was resolved from. The
+                        # mint needs it to quote the cited lines into the envelope; a
+                        # judge lane that dispatches two judges per finding is exactly
+                        # where paying for the same file read twice is worst.
+                        repo_root=context.workspace_root,
+                        max_pending_per_role=max_pending_per_role,
+                        **({"roles": leg["roles"]} if leg.get("roles") is not None else {}),
+                    )
+                    fanned_out += len(fanout.get("minted") or [])
+                    mint_skipped_backlog += sum(
+                        1 for s in fanout.get("skipped") or []
+                        if s.get("reason") == "mint_skipped_backlog"
+                    )
             except GovernanceError as exc:
                 blocked.append({"tool_id": tool_id, "step": "sample_or_fanout", "reason": str(exc)[:200]})
         try:

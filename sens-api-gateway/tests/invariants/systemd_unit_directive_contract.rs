@@ -1,4 +1,9 @@
-#![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
+#![allow(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::unwrap_used
+)]
 //! ADR-048 DEC-1.9, DEC-21, DEC-25: the generic-Linux reference unit
 //! (`sens-api-gateway/systemd/suderra-agent.service`) satisfies the `generic`
 //! profile of `contracts/suderra-edge/v1/unit-directives.json`.

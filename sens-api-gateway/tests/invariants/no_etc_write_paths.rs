@@ -185,6 +185,13 @@ fn written_paths(p: &paths::AgentPaths) -> Vec<std::path::PathBuf> {
         out.push(p.rbac_manifest_persist_file());
         out.push(p.io_config_file());
     }
+    #[cfg(feature = "suderra-os")]
+    {
+        out.push(p.activation_receipt_file());
+        out.push(p.lifecycle_request_file());
+        out.push(p.rbac_gate_file());
+        out.push(p.update_requests_dir().join("request.dsse"));
+    }
     out
 }
 
@@ -267,6 +274,7 @@ fn site_files_are_read_only_site_material_of_the_contract() {
     for file in [
         paths::suderra_os::CONFIG_FILE,
         paths::suderra_os::RBAC_MANIFEST_FILE,
+        paths::suderra_os::TRUST_ANCHORS_FILE,
     ] {
         let path = Path::new(file);
         assert_eq!(
@@ -289,6 +297,30 @@ fn site_files_are_read_only_site_material_of_the_contract() {
     let p = paths::AgentPaths::suderra_os();
     assert!(p.check_agent_writable(p.config_file()).is_err());
     assert!(p.check_agent_writable(&p.rbac_manifest_file()).is_err());
+    assert!(p.check_agent_writable(&p.trust_anchors_file()).is_err());
+}
+
+#[cfg(feature = "suderra-os")]
+#[test]
+fn trust_inputs_are_root_owned_read_only_contract_locations() {
+    // DEC-3.4 / DEC-3.6: the key pins live on the verity rootfs and the
+    // identity on root's tmpfs; the agent reads both and writes neither.
+    let p = paths::AgentPaths::suderra_os();
+    assert!(p.key_pins_dir().starts_with("/etc/suderra"));
+    assert!(p.check_agent_writable(&p.key_pins_dir().join("fleet-root/1.pub")).is_err());
+    let identity = p.identity_file();
+    assert!(p.check_agent_writable(&identity).is_err());
+    let run = entry("/run/suderra");
+    assert_eq!(run["writer"], "os-root");
+    assert_eq!(run["agent_access"], "read");
+    let name = identity.file_name().expect("file name").to_string_lossy();
+    assert!(strings(&run["contents"]).contains(name.as_ref()));
+    // The receipt and the lifecycle request are named state contents.
+    let state = strings(&entry(paths::suderra_os::STATE_DIR)["contents"]);
+    for file in [p.activation_receipt_file(), p.lifecycle_request_file()] {
+        let name = file.file_name().expect("file name").to_string_lossy();
+        assert!(state.contains(name.as_ref()), "{name} is not a state file");
+    }
 }
 
 #[cfg(feature = "suderra-os")]

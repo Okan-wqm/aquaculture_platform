@@ -47,6 +47,14 @@ mod paths;
 // path can consult one (tests/invariants/no_security_env_in_suderra_os.rs).
 #[cfg(not(feature = "suderra-os"))]
 mod generic_env;
+// ADR-048 DEC-3, DEC-25: the agent's verifier of the contract's signed
+// statements (DSSE, verify_strict, strict JSON, typed schemas) and its trust
+// root, the fleet-root signed trust-anchors bundle. Suderra OS profile only:
+// the generic profile keeps its config-file keys until DEC-28's P2 work.
+#[cfg(feature = "suderra-os")]
+mod edge_contract;
+#[cfg(feature = "suderra-os")]
+mod trust_anchors;
 
 mod alarms; // v1.2.4: Alarm management (IEC 62682)
 // Batch 2 — ADR-018 §1 + ADR-024 §1 Permission enum + ActuatorClass taxonomy.

@@ -191,11 +191,35 @@ pub fn write_atomic_json_owner_only<T: Serialize>(
     write_atomic_json_with_mode(path, payload, Some(0o600))
 }
 
-/// The shared six-step write; `mode` is the temp file's creation mode
-/// (Unix only; `None` leaves it to the umask).
+/// The shared six-step write of a serializable payload; `mode` is the temp
+/// file's creation mode (Unix only; `None` leaves it to the umask).
 fn write_atomic_json_with_mode<T: Serialize>(
     path: &Path,
     payload: &T,
+    mode: Option<u32>,
+) -> Result<(), AtomicJsonWriteError> {
+    // Step 2 (before any filesystem change): serialize.
+    let bytes =
+        serde_json::to_vec_pretty(payload).map_err(|e| AtomicJsonWriteError::Serialize {
+            path: path.to_path_buf(),
+            reason: format!("json serialize: {e}"),
+        })?;
+    write_atomic_bytes_with_mode(path, &bytes, mode)
+}
+
+/// The same crash-safe write for bytes that must land exactly as given, such
+/// as a signed statement the agent hands to root verbatim (ADR-048 DEC-5.8:
+/// re-serializing would change the bytes the signature covers). Mode 0600.
+/// Only the Suderra OS profile hands statements to root.
+#[cfg_attr(not(feature = "suderra-os"), allow(dead_code))]
+pub fn write_atomic_bytes_owner_only(path: &Path, bytes: &[u8]) -> Result<(), AtomicJsonWriteError> {
+    write_atomic_bytes_with_mode(path, bytes, Some(0o600))
+}
+
+/// Steps 1 and 3-6 of the dance for already-encoded bytes.
+fn write_atomic_bytes_with_mode(
+    path: &Path,
+    bytes: &[u8],
     mode: Option<u32>,
 ) -> Result<(), AtomicJsonWriteError> {
     // Step 1: ensure parent directory exists.
@@ -207,13 +231,6 @@ fn write_atomic_json_with_mode<T: Serialize>(
         path: path.to_path_buf(),
         reason: format!("create_dir_all: {e}"),
     })?;
-
-    // Step 2: serialize.
-    let bytes =
-        serde_json::to_vec_pretty(payload).map_err(|e| AtomicJsonWriteError::Serialize {
-            path: path.to_path_buf(),
-            reason: format!("json serialize: {e}"),
-        })?;
 
     // Step 3+4: temp file in the SAME directory; write +
     // fsync.
@@ -246,7 +263,7 @@ fn write_atomic_json_with_mode<T: Serialize>(
                 temp_path: temp_path.clone(),
                 reason: format!("open temp: {e}"),
             })?;
-        f.write_all(&bytes)
+        f.write_all(bytes)
             .map_err(|e| AtomicJsonWriteError::TempIo {
                 temp_path: temp_path.clone(),
                 reason: format!("write_all: {e}"),
@@ -316,6 +333,22 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("payload.json");
         (dir, path)
+    }
+
+    /// Verbatim bytes land exactly as given, owner-only (ADR-048 DEC-5.8:
+    /// a signed statement is handed to root byte for byte).
+    #[test]
+    fn write_atomic_bytes_lands_verbatim_and_owner_only() {
+        let (_dir, path) = target_path();
+        let bytes = b"{\"payloadType\":\"x\",  \"payload\":\"e30=\"}\n";
+        write_atomic_bytes_owner_only(&path, bytes).expect("write");
+        assert_eq!(fs::read(&path).expect("read"), bytes.to_vec());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(&path).expect("meta").permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600);
+        }
     }
 
     /// Round-trip: write a known payload, read it back via

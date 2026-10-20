@@ -999,6 +999,13 @@ path = "tests/invariants/d3_boot_order.rs"
 name = "systemd_unit_directive_contract"
 path = "tests/invariants/systemd_unit_directive_contract.rs"
 
+# ADR-048 DEC-3 / DEC-25 — every golden fixture of contracts/suderra-edge/v1
+# the agent verifies reaches its labelled verdict through src/edge_contract/,
+# and the compiled-in contract tables equal the contract.
+[[test]]
+name = "contracts_golden"
+path = "tests/contracts_golden.rs"
+
 # =============================================================================
 # RUST-CVE-001: rumqttc 0.25.1 vendored fork (../crates/local-rumqttc)
 # =============================================================================

@@ -47,6 +47,16 @@ pub mod suderra_os {
     pub const CONFIG_FILE: &str = "/var/lib/suderra-site/config.yaml";
     /// The RBAC manifest statement the root installer delivered (DEC-4.12).
     pub const RBAC_MANIFEST_FILE: &str = "/var/lib/suderra-site/rbac-manifest.dsse";
+    /// The fleet-root signed trust-anchors bundle the root installer
+    /// delivered (DEC-3.7, contract delivery.json `installation`).
+    pub const TRUST_ANCHORS_FILE: &str = "/var/lib/suderra-site/trust-anchors.dsse";
+    /// Keys pinned in the verity rootfs, `<purpose>/<epoch>.pub`
+    /// (statements.json `os_key_pin_layout`, DEC-3.4). Read-only.
+    pub const KEY_PINS_DIR: &str = "/etc/suderra/keys";
+    /// The OS-owned device identity: board, hardware binding and, once
+    /// provisioned, tenant and device (DEC-3.6). Root writes it; the agent
+    /// only reads it.
+    pub const IDENTITY_FILE: &str = "/run/suderra/identity.json";
     /// Agent data root (`/data/suderra/agent`, suderra:suderra 0750). The
     /// agent reads it but writes only the subdirectories below.
     pub const DATA_ROOT: &str = "/var/lib/suderra";
@@ -106,6 +116,17 @@ const DB_KEY_FILENAME: &str = "db.key";
 /// Name of the agent health view (contract mutable-state.json,
 /// `/run/suderra/agent-health` contents).
 const AGENT_HEALTH_FILENAME: &str = "health.json";
+/// The cloud-signed activation receipt the agent hands to root (contract
+/// mutable-state.json `/var/lib/suderra/state` contents, DEC-5.8).
+#[cfg(feature = "suderra-os")]
+const ACTIVATION_RECEIPT_FILENAME: &str = "activation-receipt.dsse";
+/// The cloud-signed lifecycle statement the agent hands to root (contract
+/// mutable-state.json `/var/lib/suderra/state` contents, DEC-5.14, DEC-12).
+#[cfg(feature = "suderra-os")]
+const LIFECYCLE_REQUEST_FILENAME: &str = "lifecycle-request.dsse";
+/// The agent's RBAC version gate in the policy cache (DEC-9.9).
+#[cfg(feature = "suderra-os")]
+const RBAC_GATE_FILENAME: &str = "rbac-manifest.gate.json";
 
 /// Resolved paths of one agent process.
 ///
@@ -311,6 +332,44 @@ impl AgentPaths {
         self.state_dir().join(AGENT_HEALTH_FILENAME)
     }
 
+    /// The activation receipt root's `suderra-activation.path` watches
+    /// (DEC-5.8). Written by the agent, verbatim as the cloud signed it.
+    #[cfg(feature = "suderra-os")]
+    pub fn activation_receipt_file(&self) -> PathBuf {
+        self.state_dir().join(ACTIVATION_RECEIPT_FILENAME)
+    }
+
+    /// The lifecycle request root's `suderra-lifecycle.path` watches
+    /// (DEC-5.14). Written by the agent, verbatim as the cloud signed it.
+    #[cfg(feature = "suderra-os")]
+    pub fn lifecycle_request_file(&self) -> PathBuf {
+        self.state_dir().join(LIFECYCLE_REQUEST_FILENAME)
+    }
+
+    /// Directory of update requests for the root worker (DEC-2.3).
+    #[cfg(feature = "suderra-os")]
+    pub fn update_requests_dir(&self) -> PathBuf {
+        self.data_root.join("update-requests")
+    }
+
+    /// The trust-anchors bundle (DEC-3.7).
+    #[cfg(feature = "suderra-os")]
+    pub fn trust_anchors_file(&self) -> PathBuf {
+        PathBuf::from(suderra_os::TRUST_ANCHORS_FILE)
+    }
+
+    /// The OS key pins (DEC-3.4).
+    #[cfg(feature = "suderra-os")]
+    pub fn key_pins_dir(&self) -> PathBuf {
+        PathBuf::from(suderra_os::KEY_PINS_DIR)
+    }
+
+    /// The OS-owned device identity (DEC-3.6).
+    #[cfg(feature = "suderra-os")]
+    pub fn identity_file(&self) -> PathBuf {
+        PathBuf::from(suderra_os::IDENTITY_FILE)
+    }
+
     /// Where the agent creates its device secret when none exists.
     pub fn db_key_file(&self) -> PathBuf {
         self.secrets_dir().join(DB_KEY_FILENAME)
@@ -373,6 +432,14 @@ impl AgentPaths {
     /// RBAC manifest version floor.
     pub fn rbac_version_db(&self) -> PathBuf {
         self.store_dir("policy-cache").join("rbac_version.sqlite")
+    }
+
+    /// The Suderra OS agent's RBAC version gate: `policy_version` and
+    /// statement digest of the manifest it accepted (contract
+    /// mutable-state.json policy-cache contents, DEC-9.9).
+    #[cfg(feature = "suderra-os")]
+    pub fn rbac_gate_file(&self) -> PathBuf {
+        self.store_dir("policy-cache").join(RBAC_GATE_FILENAME)
     }
 
     /// OPC UA user-token manifest version floor.

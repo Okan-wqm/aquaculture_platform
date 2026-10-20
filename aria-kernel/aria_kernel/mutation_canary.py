@@ -93,7 +93,7 @@ _SANDBOX_FILES: dict[str, str] = {
 # defect claim, premise). Each is a REAL defect a judge must catch.
 _MUTANTS: list[dict[str, Any]] = [
     {
-        "rule": "canary-mutant-range-inclusive",
+        "rule": "canary-range-inclusive",
         "file": "sensor_range.py",
         "find": "    return lo <= value <= hi",
         "replace": "    return lo < value < hi",
@@ -102,7 +102,7 @@ _MUTANTS: list[dict[str, Any]] = [
         "premises": ["reading_in_range is documented to include both endpoints"],
     },
     {
-        "rule": "canary-mutant-clamp-order",
+        "rule": "canary-clamp-order",
         "file": "sensor_range.py",
         "find": "    return max(lo, min(hi, value))",
         "replace": "    return min(hi, max(lo, value))",
@@ -111,7 +111,7 @@ _MUTANTS: list[dict[str, Any]] = [
         "premises": ["clamp is documented to bound value into [lo, hi]"],
     },
     {
-        "rule": "canary-mutant-feed-floor",
+        "rule": "canary-feed-floor",
         "file": "feed_schedule.py",
         "find": "    return max(5, min(500, grams))",
         "replace": "    return min(5, max(500, grams))",
@@ -125,14 +125,14 @@ _MUTANTS: list[dict[str, Any]] = [
 # code. A judge must refute each.
 _FALSE_CLAIMS: list[dict[str, Any]] = [
     {
-        "rule": "canary-falseclaim-feeds-threshold",
+        "rule": "canary-feeds-threshold",
         "file": "feed_schedule.py",
         "path": "feed_schedule.py:7",
         "claim": "feeds_per_day feeds twice at exactly 24C, contradicting the 'above 24C' rule",
         "premises": ["feeds_per_day is documented to feed twice only strictly above 24C"],
     },
     {
-        "rule": "canary-falseclaim-range-strict",
+        "rule": "canary-range-strict",
         "file": "sensor_range.py",
         "path": "sensor_range.py:2",
         "claim": "reading_in_range uses strict comparisons and excludes the endpoints",
@@ -205,7 +205,11 @@ def build_canary_corpus(
             "verdict": "true_positive",
             "rule": mutant["rule"],
             "path": mutant["path"],
-            "message": f"planted mutant: {mutant['claim']}",
+            # WP-J review — BLIND by construction: the message is the
+            # defect claim alone. The item's kind/verdict live on the corpus
+            # row (the label side, read by the fitness measurement), never
+            # in the envelope the judge prompt renders.
+            "message": str(mutant["claim"]),
             "defect_claim": mutant["claim"],
             "premises": list(mutant["premises"]),
             "sandbox_sha": sha,
@@ -218,7 +222,7 @@ def build_canary_corpus(
             "verdict": "false_positive",
             "rule": false_claim["rule"],
             "path": false_claim["path"],
-            "message": f"planted false claim: {false_claim['claim']}",
+            "message": str(false_claim["claim"]),
             "defect_claim": false_claim["claim"],
             "premises": list(false_claim["premises"]),
             "sandbox_sha": base_sha,

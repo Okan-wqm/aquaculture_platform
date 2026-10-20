@@ -149,6 +149,33 @@ class MintTests(CanaryBase):
         for row in requests:
             self.assertIn("Decide whether this adapter finding names a product defect.", row["suggested_prompt"])
 
+    def test_no_envelope_tells_the_judge_what_was_planted(self) -> None:
+        """WP-J review — the self-exam is BLIND or it is meaningless.
+
+        The corpus message used to state the item's kind in plain text
+        ("planted mutant: ...", "planted false claim: ...") and that message
+        renders into the judge prompt, so the >=0.9 detection/refutation
+        bars were answered in the prompt itself. The envelope must carry
+        only what a real finding envelope carries: a neutral message — the
+        defect claim, never its provenance or label.
+        """
+        from aria_kernel.agent_invocations import list_agent_invocation_requests
+
+        self._mint(corpus=self._corpus())
+        requests = [
+            row for row in list_agent_invocation_requests(base_dir=self.tools)
+            if str(row.get("judgment_group_id") or "").startswith(CANARY_GROUP_PREFIX)
+        ]
+        self.assertTrue(requests)
+        for row in requests:
+            prompt = str(row.get("suggested_prompt") or "")
+            lowered = prompt.lower()
+            for leak in ("planted", "mutant", "false claim"):
+                self.assertNotIn(
+                    leak, lowered,
+                    f"the canary envelope labels its item: {leak!r} reached the judge prompt",
+                )
+
     def test_idempotent_and_hold_on_dead_drain(self) -> None:
         corpus = self._corpus()
         first = self._mint(corpus=corpus)

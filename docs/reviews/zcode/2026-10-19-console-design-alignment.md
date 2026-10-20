@@ -105,3 +105,30 @@ value "ACTIVE"?` — the PR #2026 chip row shipped `active/monitoring/resolved`
   the breaking-only reading were removed (ratchet stays at 5). While here,
   vite ^7.3.5 → ^7.3.7 takes the same-day GHSA-698v-4r3x-3vcv patch
   (launch-editor argument escaping) rather than an exception.
+
+## SUPPLY-HIGH-025 — RUSTSEC-2026-0381 (webpki-roots emSign roots) upstream-blocked behind async-nats
+
+- **Evidence:** the pull_request `CI - Affected` rust lane (first round this
+  event type fired for this branch) failed `cargo audit --deny warnings` on
+  three advisories published 2026-10-19/20 — external drift, zero Rust
+  changes on the branch: RUSTSEC-2026-0382 (rustls-webpki 0.103.15) and
+  RUSTSEC-2026-0381 on both webpki-roots copies (0.26.11 and 1.0.7).
+- **Fixed, not ignored:** rustls-webpki → 0.103.16 in all three lockfiles
+  (root, sens-api-gateway, fuzz); the fixable webpki-roots copy → 1.0.10;
+  the fuzz lock's yanked spin/chacha20 refreshed in-range (cargo audit
+  `--deny warnings` denies yanked).
+- **Upstream-blocked remainder:** webpki-roots 0.26.11 is reachable only
+  through async-nats (≤0.50, no release newer) → tokio-websockets ^0.10 →
+  webpki-roots ^0.26, a line with no patched release (the fix is ≥1.0.10).
+  tokio-websockets is an OPTIONAL async-nats dependency and this workspace
+  never enables its websockets feature, so the crate is lockfile-only and
+  never compiles into a target. Carried as tracked ignore EDGE-CI-010
+  (owner platform-team, deadline 2027-01-20) in deny.toml, .cargo/audit.toml
+  and the rust-ci.yml mirror — scripts/ci/check-advisory-ignore-sync.ts
+  keeps the surfaces in lock-step and fails the day the deadline lapses.
+- **Same commit:** the ci-affected `test` lane's 35-minute fan-out step
+  killed a healthy run mid-fan-out on this PR (affected set ≈ whole graph;
+  the identical unfiltered fan-out measured 44m14s the same day), reported
+  by `build-status` as a test failure. Budgets re-derived with the
+  measurement: step 35→50, job 45→55, preserving ci-timeout-budget-ssot's
+  orderings (step < job ≤ unfiltered 60).

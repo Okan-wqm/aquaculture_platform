@@ -40,11 +40,17 @@ class TheSweepCoversEveryDeclaredHolder(unittest.TestCase):
         dead.close()
         return directory
 
-    def test_the_four_holders_are_declared(self) -> None:
+    def test_the_five_holders_are_declared(self) -> None:
+        # ARIA-MEDIUM-583 added the fifth: the GitHub App token broker a
+        # lane starts as a sibling of its kernel-run process — swept like
+        # every holder even though its holder process is a workflow step's,
+        # because a broker the runner fails to reap leaves the same dead
+        # socket directory behind.
         self.assertEqual(
             sorted((holder.name, holder.prefix, holder.socket_name) for holder in SOCKET_HOLDERS),
             [("egress_proxies", "aria-ep-", "sock"), ("hook_brokers", "aria-hb-", "sock"),
-             ("mcp_brokers", "aria-mb-", "sock"), ("signing_agents", "aria-sa-", "agent")],
+             ("mcp_brokers", "aria-mb-", "sock"), ("signing_agents", "aria-sa-", "agent"),
+             ("token_brokers", "aria-tb-", "sock")],
         )
 
     def test_one_sweep_removes_every_holders_dead_directory_and_keeps_a_live_one(self) -> None:

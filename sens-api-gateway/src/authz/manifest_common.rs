@@ -32,7 +32,8 @@
 //! 3. Tenant match — CRITICAL make-it-impossible for cross-tenant pivot;
 //!    a mismatch is almost certainly an attack signal.
 //! 4. Policy version monotonicity — replay defense (ADR-018 §9); strictly
-//!    greater required.
+//!    greater required, except for the identical manifest already accepted
+//!    at the floor (a re-verification, [`Presentation`]).
 //! 5. Validity window covers `now` — expiry gate.
 //!
 //! Callers run gates 6 (canonical bytes) + 7 (signature crypto) in their
@@ -121,6 +122,48 @@ pub fn run_envelope_gates(
     highest_seen: u64,
     now: SystemTime,
 ) -> Result<i64, ManifestStructuralError> {
+    run_envelope_gates_for(
+        expected_tenant,
+        manifest_tenant,
+        valid_from,
+        valid_until,
+        policy_version,
+        highest_seen,
+        Presentation::New,
+        now,
+    )
+}
+
+/// How a manifest relates to its stream's acceptance record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Presentation {
+    /// A manifest the stream has not accepted: the version must exceed the
+    /// floor and the validity window must cover `now`.
+    New,
+    /// The identical manifest the stream accepted at its floor version,
+    /// presented again (every boot reloads the accepted manifest). This is
+    /// a re-verification: the version gate admits the equal version and
+    /// the window is not applied again, so an accepted manifest never
+    /// expires out from under a running device (ADR-048 DEC-9.9,
+    /// EDGE-HIGH-059; contract statements.json `sequences`, identical-only).
+    /// The engine still refuses commands outside the manifest's window.
+    IdenticalToAccepted,
+}
+
+/// [`run_envelope_gates`] for a manifest whose relation to the acceptance
+/// record is known. Gates 1-3 always run; an [`Presentation::IdenticalToAccepted`]
+/// manifest at exactly the floor version skips gates 4 and 5.
+#[allow(clippy::too_many_arguments)]
+pub fn run_envelope_gates_for(
+    expected_tenant: &TenantId,
+    manifest_tenant: &TenantId,
+    valid_from: i64,
+    valid_until: i64,
+    policy_version: u64,
+    highest_seen: u64,
+    presentation: Presentation,
+    now: SystemTime,
+) -> Result<i64, ManifestStructuralError> {
     // Gate 1: validity window sanity.
     if valid_from > valid_until {
         return Err(ManifestStructuralError::InvalidValidityWindow {
@@ -138,6 +181,11 @@ pub fn run_envelope_gates(
     // Gate 3: tenant match.
     if manifest_tenant != expected_tenant {
         return Err(ManifestStructuralError::TenantMismatch);
+    }
+
+    // A re-presentation of the accepted manifest: a re-verification.
+    if presentation == Presentation::IdenticalToAccepted && policy_version == highest_seen {
+        return Ok(now_unix_secs);
     }
 
     // Gate 4: policy version monotonicity. Strictly greater.
@@ -176,6 +224,65 @@ mod tests {
 
     fn now_at(unix_secs: u64) -> SystemTime {
         SystemTime::UNIX_EPOCH + Duration::from_secs(unix_secs)
+    }
+
+    #[test]
+    fn the_accepted_manifest_is_reaccepted_at_its_floor_even_after_its_window() {
+        // EDGE-HIGH-059: every boot reloads the manifest the store accepted.
+        let r = run_envelope_gates_for(
+            &tenant(0xAA),
+            &tenant(0xAA),
+            1_700_000_000,
+            1_800_000_000,
+            42,
+            42,
+            Presentation::IdenticalToAccepted,
+            now_at(1_900_000_000),
+        );
+        assert_eq!(r, Ok(1_900_000_000));
+        // A different manifest at the floor version is still a replay.
+        let replay = run_envelope_gates_for(
+            &tenant(0xAA),
+            &tenant(0xAA),
+            1_700_000_000,
+            1_800_000_000,
+            42,
+            42,
+            Presentation::New,
+            now_at(1_750_000_000),
+        );
+        assert!(matches!(
+            replay,
+            Err(ManifestStructuralError::StalePolicyVersion { .. })
+        ));
+        // Identity never admits a version below the floor, and the tenant
+        // gate still applies.
+        assert!(
+            run_envelope_gates_for(
+                &tenant(0xAA),
+                &tenant(0xAA),
+                1_700_000_000,
+                1_800_000_000,
+                41,
+                42,
+                Presentation::IdenticalToAccepted,
+                now_at(1_750_000_000),
+            )
+            .is_err()
+        );
+        assert_eq!(
+            run_envelope_gates_for(
+                &tenant(0xAA),
+                &tenant(0xBB),
+                1_700_000_000,
+                1_800_000_000,
+                42,
+                42,
+                Presentation::IdenticalToAccepted,
+                now_at(1_750_000_000),
+            ),
+            Err(ManifestStructuralError::TenantMismatch)
+        );
     }
 
     #[test]

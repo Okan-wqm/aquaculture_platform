@@ -162,6 +162,12 @@ impl ManifestVersionStore {
                 highest_seen  INTEGER NOT NULL CHECK (highest_seen >= 0),
                 updated_at    INTEGER NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS manifest_accepted_digest (
+                stream_id      TEXT NOT NULL PRIMARY KEY,
+                policy_version INTEGER NOT NULL CHECK (policy_version >= 0),
+                digest         TEXT NOT NULL,
+                updated_at     INTEGER NOT NULL
+            );
             ",
         )
         .map_err(|e| format!("ManifestVersionStore schema init: {}", e))?;
@@ -230,6 +236,67 @@ impl ManifestVersionStore {
         // application-side UPSERT ensure non-negative. Clamp
         // defensively against a tampered row.
         let floor = row.unwrap_or(0).max(0) as u64;
+        Ok(floor)
+    }
+
+    /// The floor and, when recorded, the digest of the manifest accepted
+    /// at it (EDGE-HIGH-059): the boot loader re-accepts exactly that
+    /// manifest at the floor version.
+    pub fn get_accepted(&self) -> Result<crate::authz::verify::AcceptedVersion, String> {
+        let highest_seen = self.get_highest_seen()?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| format!("ManifestVersionStore lock poisoned: {}", e))?;
+        let row: Option<(i64, String)> = conn
+            .query_row(
+                "SELECT policy_version, digest FROM manifest_accepted_digest WHERE stream_id = ?1",
+                [self.stream_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .map(Some)
+            .or_else(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => Ok(None),
+                other => Err(other),
+            })
+            .map_err(|e| format!("ManifestVersionStore digest SELECT: {}", e))?;
+        let digest = row.and_then(|(version, digest)| {
+            (u64::try_from(version).ok() == Some(highest_seen)).then_some(digest)
+        });
+        Ok(crate::authz::verify::AcceptedVersion {
+            highest_seen,
+            digest,
+        })
+    }
+
+    /// [`Self::record_accepted`] that also records `digest` as the manifest
+    /// accepted at `version` when `version` is the resulting floor.
+    pub fn record_accepted_with_digest(&self, version: u64, digest: &str) -> Result<u64, String> {
+        let floor = self.record_accepted(version)?;
+        if floor != version {
+            return Ok(floor);
+        }
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| format!("ManifestVersionStore lock poisoned: {}", e))?;
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
+            .unwrap_or(0);
+        let v_i64 = i64::try_from(version).unwrap_or(i64::MAX);
+        conn.execute(
+            "
+            INSERT INTO manifest_accepted_digest (stream_id, policy_version, digest, updated_at)
+            VALUES (?1, ?2, ?3, ?4)
+            ON CONFLICT (stream_id) DO UPDATE SET
+                policy_version = excluded.policy_version,
+                digest         = excluded.digest,
+                updated_at     = excluded.updated_at
+            ",
+            rusqlite::params![self.stream_id, v_i64, digest, now],
+        )
+        .map_err(|e| format!("ManifestVersionStore digest UPSERT: {}", e))?;
         Ok(floor)
     }
 
@@ -325,6 +392,26 @@ mod tests {
                 None
             }
         }
+    }
+
+    #[test]
+    fn the_digest_of_the_manifest_accepted_at_the_floor_is_recorded() {
+        // EDGE-HIGH-059: the boot loader needs the accepted manifest's
+        // digest to re-accept it at the floor version.
+        let _g = TEST_LOCK.lock().expect("test lock");
+        crate::offline_queue::test_support::ensure_key_sandbox();
+        let path = tmp_db_path();
+        let s = ManifestVersionStore::open(&path).expect("open version store");
+        assert_eq!(s.get_accepted().expect("get"), crate::authz::verify::AcceptedVersion::floor(0));
+        assert_eq!(s.record_accepted_with_digest(3, "aa").expect("record"), 3);
+        let accepted = s.get_accepted().expect("get");
+        assert_eq!((accepted.highest_seen, accepted.digest.as_deref()), (3, Some("aa")));
+        // An older version never replaces the floor or its digest.
+        assert_eq!(s.record_accepted_with_digest(2, "bb").expect("record"), 3);
+        assert_eq!(s.get_accepted().expect("get").digest.as_deref(), Some("aa"));
+        // A floor advanced without a digest no longer matches the old one.
+        assert_eq!(s.record_accepted(4).expect("record"), 4);
+        assert_eq!(s.get_accepted().expect("get"), crate::authz::verify::AcceptedVersion::floor(4));
     }
 
     #[test]

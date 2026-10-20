@@ -617,6 +617,14 @@ pub struct AppState {
     /// None on empty-store which is the Disabled semantic.
     pub rbac_manifest_store: std::sync::Arc<crate::authz::manifest_runtime::RbacManifestStore>,
 
+    /// ADR-048 DEC-3.7: the verified trust-anchors bundle, the agent's only
+    /// trust root on Suderra OS (command and RBAC keys, broker CA set, the
+    /// root-recorded identity). `None` when it could not be established:
+    /// the command plane and the broker connection then fail closed while
+    /// local control goes on.
+    #[cfg(feature = "suderra-os")]
+    pub trust_anchors: Option<std::sync::Arc<crate::trust_anchors::InstalledTrust>>,
+
     /// User-token manifest store (Batch #245 hot-reload atom +
     /// Batch #247 ingest_signed wire + Batch #249 MQTT handler).
     ///
@@ -1004,6 +1012,9 @@ impl AppState {
             rbac_manifest_store: std::sync::Arc::new(
                 crate::authz::manifest_runtime::RbacManifestStore::new(),
             ),
+            // ADR-048 DEC-3.7: loaded by `init_trust_anchors()` at boot.
+            #[cfg(feature = "suderra-os")]
+            trust_anchors: None,
             // Batch #249 Faz 5 A-3c wire: empty store at boot;
             // Batch #248 MQTT `update_user_token_manifest` command
             // later calls `ingest_signed` to populate. Until then,
@@ -1754,6 +1765,7 @@ impl AppState {
     /// regardless of mode — verify_manifest's Gate 3 cannot
     /// run without a known tenant. Sprint 6.1 follow-up adds
     /// post-provisioning re-load via MQTT `update_policy`.
+    #[cfg(not(feature = "suderra-os"))]
     pub fn init_rbac_manifest_store(&mut self) -> Result<(), String> {
         use crate::authz::manifest_runtime::RbacManifestStore;
         use crate::authz::manifest_version_store::ManifestVersionStore;
@@ -1765,7 +1777,15 @@ impl AppState {
             return Ok(());
         }
 
-        let tenant_str = match self.tenant_id.as_deref() {
+        // EDGE-HIGH-059: on every boot after activation the bound tenant is
+        // in the loaded configuration (the activation document overlays
+        // it); `self.tenant_id` is set later, by the connectivity task, so
+        // reading only it skipped the boot load on every restart.
+        let tenant_str = match self
+            .tenant_id
+            .as_deref()
+            .or(self.config.tenant_id.as_deref())
+        {
             Some(t) => t,
             None => {
                 info!(
@@ -1850,6 +1870,71 @@ impl AppState {
 
         self.rbac_manifest_store
             .load_from_file(mode, pubkey_hex, &manifest_path, &expected_tenant)
+    }
+
+    /// ADR-048 DEC-3.7: establish the trust root from the installed
+    /// trust-anchors bundle, verified against the fleet-root pin of the OS
+    /// image for the root-recorded identity. The identity's tenant is the
+    /// tenant every signed statement and command is bound to (DEC-3.6,
+    /// DEC-22). Failure is logged and leaves no trust root: the command
+    /// plane and the broker connection fail closed, local control goes on.
+    #[cfg(feature = "suderra-os")]
+    pub fn init_trust_anchors(&mut self) {
+        let paths = paths::AgentPaths::current();
+        match crate::trust_anchors::InstalledTrust::load(
+            paths,
+            &crate::trust_anchors::now_timestamp(),
+        ) {
+            Ok(trust) => {
+                let tenant = trust.device().identity.tenant_id.clone();
+                if let Some(configured) = self.config.tenant_id.as_deref() {
+                    if configured != tenant {
+                        warn!(
+                            "Activation tenant {} differs from the root-recorded tenant {};                              the root-recorded identity binds every statement (ADR-048 DEC-3.6)",
+                            configured, tenant
+                        );
+                    }
+                }
+                info!(
+                    "Trust anchors verified: bundle_seq={} digest={} tenant={}",
+                    trust.bundle_seq(),
+                    trust.digest(),
+                    tenant
+                );
+                self.tenant_id = Some(tenant);
+                self.trust_anchors = Some(std::sync::Arc::new(trust));
+            }
+            Err(e) => {
+                error!(
+                    "Trust anchors unavailable: {}. Every signed command and the broker                      connection are refused until a valid bundle is installed (ADR-048 DEC-3.7)",
+                    e
+                );
+            }
+        }
+    }
+
+    /// ADR-048 DEC-9.4, DEC-9.9: load the RBAC manifest statement the root
+    /// installer delivered, verified against the trust root. Without a trust
+    /// root or a valid manifest the store stays empty and every
+    /// permissioned command is refused; the agent does not exit (DEC-6.3).
+    #[cfg(feature = "suderra-os")]
+    pub fn init_rbac_manifest_store(&mut self) {
+        let Some(trust) = self.trust_anchors.clone() else {
+            error!("RBAC manifest not loaded: no trust root (ADR-048 DEC-9.4)");
+            return;
+        };
+        let paths = paths::AgentPaths::current();
+        if let Err(e) = self.rbac_manifest_store.load_contract_statement(
+            &trust,
+            &paths.rbac_manifest_file(),
+            &paths.rbac_gate_file(),
+            &crate::trust_anchors::now_timestamp(),
+        ) {
+            error!(
+                "{}. Every permissioned command is refused until a valid RBAC manifest                  is installed (ADR-048 DEC-9.9)",
+                e
+            );
+        }
     }
 
     /// Initialize the broker-aware outbound publisher + spawn
@@ -3400,9 +3485,15 @@ async fn async_main(notifier: Arc<systemd_notify::SystemdNotifier>) -> Result<()
                  Moka dedup tier ACTIVE (Batch 57); SQLCipher tier pending Sprint 6.4"
             );
             // Batch 66: RBAC manifest mode.
+            #[cfg(not(feature = "suderra-os"))]
             info!(
                 "  RBAC manifest: mode={:?} (loader runtime wires in Sprint 6.1; plan §3 R-5 / ADR-018)",
                 cfg.rbac_manifest.mode
+            );
+            #[cfg(feature = "suderra-os")]
+            info!(
+                "  RBAC manifest: root-delivered suderra.rbac-manifest.v1, verified against the \
+                 trust-anchors bundle (ADR-048 DEC-9.9)"
             );
             cfg
         }
@@ -3634,6 +3725,7 @@ async fn async_main(notifier: Arc<systemd_notify::SystemdNotifier>) -> Result<()
     // - Enforcing: load failure → exit(1). Operator must fix
     //   manifest or downgrade mode. Matches init_backup_manager +
     //   Faz 2 coherence discipline.
+    #[cfg(not(feature = "suderra-os"))]
     {
         let mut state_guard = state.write().await;
         if let Err(msg) = state_guard.init_rbac_manifest_store() {
@@ -3643,6 +3735,15 @@ async fn async_main(notifier: Arc<systemd_notify::SystemdNotifier>) -> Result<()
             );
             std::process::exit(1);
         }
+    }
+    // ADR-048 DEC-3.7, DEC-9.9: Suderra OS — the trust root first, then the
+    // RBAC manifest verified against it. Failure fails the command plane
+    // closed, never the process.
+    #[cfg(feature = "suderra-os")]
+    {
+        let mut state_guard = state.write().await;
+        state_guard.init_trust_anchors();
+        state_guard.init_rbac_manifest_store();
     }
 
     // Initialize user-token manifest store + persistent floor
@@ -4866,8 +4967,16 @@ async fn run_connectivity(
         let mut state_guard = state.write().await;
         state_guard.is_activated = true;
         // The stored credential's tenant (config.yaml or the activation
-        // document) is the tenant the MQTT topics already use.
-        state_guard.tenant_id = state_guard.config.tenant_id.clone();
+        // document) is the tenant the MQTT topics already use. On Suderra
+        // OS the root-recorded identity, when the trust root established
+        // it, stays authoritative (ADR-048 DEC-3.6).
+        #[cfg(feature = "suderra-os")]
+        let keep_identity = state_guard.trust_anchors.is_some();
+        #[cfg(not(feature = "suderra-os"))]
+        let keep_identity = false;
+        if !keep_identity {
+            state_guard.tenant_id = state_guard.config.tenant_id.clone();
+        }
     }
 
     // Step 2: the MQTT client. It connects and reconnects in the background

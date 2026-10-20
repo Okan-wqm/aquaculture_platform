@@ -79,6 +79,22 @@ impl CommandHandler {
 
         let state = self.state.read().await;
 
+        // Batch 66: RBAC manifest mode (generic); on Suderra OS the
+        // root-delivered statement and the trust root it verified against
+        // (ADR-048 DEC-3.7, DEC-9.9).
+        #[cfg(not(feature = "suderra-os"))]
+        let rbac_manifest = json!({
+            "mode": format!("{:?}", state.config.rbac_manifest.mode).to_lowercase(),
+            "manifest_signing_pubkey_configured": state.config.rbac_manifest.manifest_signing_pubkey_hex.is_some(),
+        });
+        #[cfg(feature = "suderra-os")]
+        let rbac_manifest = json!({
+            "source": "site-statement",
+            "loaded": state.rbac_manifest_store.is_loaded(),
+            "policy_version": state.rbac_manifest_store.policy_version(),
+            "trust_anchors_bundle_seq": state.trust_anchors.as_ref().map(|t| t.bundle_seq()),
+        });
+
         // Batch 36: extended to surface Faz 2 security posture
         // fields (mtls rollout stage, replay-protection
         // thresholds, shutdown/drain timeouts). Operators
@@ -123,11 +139,7 @@ impl CommandHandler {
                 "moka_capacity": state.config.envelope_dedup.moka_capacity,
                 "moka_ttl_secs": state.config.envelope_dedup.moka_ttl_secs,
             },
-            // Batch 66: RBAC manifest mode.
-            "rbac_manifest": {
-                "mode": format!("{:?}", state.config.rbac_manifest.mode).to_lowercase(),
-                "manifest_signing_pubkey_configured": state.config.rbac_manifest.manifest_signing_pubkey_hex.is_some(),
-            },
+            "rbac_manifest": rbac_manifest,
             // Batch 32+34: shutdown + replay-protection thresholds.
             "runtime": {
                 "shutdown_timeout_secs": state.config.runtime.shutdown_timeout_secs,

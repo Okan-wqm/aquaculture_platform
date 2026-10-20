@@ -393,19 +393,29 @@ impl InstalledTrust {
     }
 }
 
+/// Contract fixtures laid out as on a device, for tests of the consumers
+/// of the trust root.
 #[cfg(test)]
-mod tests {
+pub(crate) mod test_support {
     #![allow(clippy::expect_used, clippy::unwrap_used, clippy::indexing_slicing)]
 
     use super::*;
 
-    fn contract() -> PathBuf {
+    /// Evaluation time of the contract's golden fixtures.
+    pub(crate) const FIXTURE_NOW: &str = "2026-10-20T12:00:00Z";
+
+    pub(crate) fn contract() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../contracts/suderra-edge/v1")
+    }
+
+    /// Bytes of a contract fixture.
+    pub(crate) fn fixture(rel: &str) -> Vec<u8> {
+        std::fs::read(contract().join("fixtures").join(rel)).unwrap()
     }
 
     /// An OS image's pins and identity for the contract fixtures' active
     /// revpi-connect4 device, laid out as on the device.
-    fn device_root() -> tempfile::TempDir {
+    pub(crate) fn device_root() -> tempfile::TempDir {
         let root = tempfile::tempdir().unwrap();
         let ring: serde_json::Value =
             serde_json::from_slice(&std::fs::read(contract().join("test-keys/keyring.json")).unwrap())
@@ -440,13 +450,35 @@ mod tests {
         root
     }
 
+    /// The verified trust root of the fixtures' active device with the
+    /// given bundle fixture installed.
+    pub(crate) fn fixture_trust(bundle_fixture: &str) -> (tempfile::TempDir, InstalledTrust) {
+        let root = device_root();
+        let path = root.path().join("trust-anchors.dsse");
+        std::fs::write(&path, fixture(bundle_fixture)).unwrap();
+        let trust = InstalledTrust::load_from(
+            &root.path().join("identity.json"),
+            &root.path().join("keys"),
+            &path,
+            FIXTURE_NOW,
+        )
+        .unwrap();
+        (root, trust)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::expect_used, clippy::unwrap_used, clippy::indexing_slicing)]
+
+    use super::test_support::{FIXTURE_NOW as NOW, contract, device_root};
+    use super::*;
+
     fn bundle(root: &Path, fixture: &str) -> PathBuf {
         let path = root.join("trust-anchors.dsse");
         std::fs::copy(contract().join("fixtures").join(fixture), &path).unwrap();
         path
     }
-
-    const NOW: &str = "2026-10-20T12:00:00Z";
 
     #[test]
     fn installed_bundle_verifies_against_the_fleet_root_pin() {

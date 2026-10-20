@@ -305,6 +305,12 @@ pub struct AgentConfig {
     /// Pre-Sprint-6.1 the MODE is exposed + logged at boot;
     /// manifest runtime (actor-pubkey lookup for envelope
     /// signature verify) wires at Sprint 6.1 full.
+    ///
+    /// Generic profile only (ADR-048 DEC-3.3): on Suderra OS the manifest
+    /// is the root-delivered `suderra.rbac-manifest.v1` statement, verified
+    /// against the trust-anchors bundle; no key, mode or path of it comes
+    /// from this file.
+    #[cfg(not(feature = "suderra-os"))]
     #[serde(default)]
     pub rbac_manifest: RbacManifestConfig,
 
@@ -1702,7 +1708,8 @@ impl ModbusTlsConfig {
 // knob semantics regardless of which security surface they're configuring.
 
 /// RBAC manifest verification mode. 3-stage rollout pattern
-/// identical to ConfigIntegrityMode / SignatureMode.
+/// identical to ConfigIntegrityMode / SignatureMode. Generic profile only.
+#[cfg(not(feature = "suderra-os"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RbacManifestMode {
@@ -1718,7 +1725,8 @@ pub enum RbacManifestMode {
     Enforcing,
 }
 
-/// RBAC manifest loader knobs.
+/// RBAC manifest loader knobs. Generic profile only (ADR-048 DEC-3.3).
+#[cfg(not(feature = "suderra-os"))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RbacManifestConfig {
     /// Rollout mode: disabled / permissive / enforcing.
@@ -1754,6 +1762,7 @@ pub struct RbacManifestConfig {
     pub version_store_path: Option<std::path::PathBuf>,
 }
 
+#[cfg(not(feature = "suderra-os"))]
 impl Default for RbacManifestConfig {
     fn default() -> Self {
         Self {
@@ -3850,11 +3859,7 @@ impl AgentConfig {
     fn validate_suderra_os_paths(&self) -> Result<()> {
         let paths = crate::paths::AgentPaths::current();
 
-        let fixed: [(&str, bool); 5] = [
-            (
-                "rbac_manifest.manifest_path",
-                self.rbac_manifest.manifest_path.is_some(),
-            ),
+        let fixed: [(&str, bool); 4] = [
             (
                 "config_integrity.sidecar_path",
                 self.config_integrity.sidecar_path.is_some(),
@@ -3893,7 +3898,7 @@ impl AgentConfig {
         fn named(s: &str) -> Option<&Path> {
             (!s.is_empty()).then(|| Path::new(s))
         }
-        let written: [(&str, Option<&Path>); 15] = [
+        let written: [(&str, Option<&Path>); 14] = [
             (
                 "offline_queue.db_path_override",
                 opt(&self.offline_queue.db_path_override),
@@ -3912,10 +3917,6 @@ impl AgentConfig {
                 self.lorawan
                     .as_ref()
                     .and_then(|l| named(&l.session_db_path)),
-            ),
-            (
-                "rbac_manifest.version_store_path",
-                opt(&self.rbac_manifest.version_store_path),
             ),
             (
                 "user_token_manifest.version_store_path",
@@ -4160,67 +4161,72 @@ impl AgentConfig {
             );
         }
 
-        // Rule 12 (Batch 66): rbac_manifest Permissive/
-        // Enforcing mode requires manifest_signing_pubkey_hex.
-        // Same rationale as Rule 4 (config_integrity): pre-
-        // Sprint-6.1 the firmware-embedded default key
-        // doesn't exist; operators opting into Permissive/
-        // Enforcing MUST supply their own test key.
-        if !matches!(self.rbac_manifest.mode, RbacManifestMode::Disabled)
-            && self.rbac_manifest.manifest_signing_pubkey_hex.is_none()
+        // Rules 12-14 govern the generic profile's config-sourced RBAC
+        // manifest key and floor store (ADR-048 DEC-3.3).
+        #[cfg(not(feature = "suderra-os"))]
         {
-            anyhow::bail!(
-                "Config coherence: rbac_manifest.mode={:?} requires rbac_manifest.manifest_signing_pubkey_hex (pre-Sprint-6.1 firmware key bundle). Set manifest_signing_pubkey_hex to a 64-char hex string OR set mode=disabled",
-                self.rbac_manifest.mode
-            );
-        }
-
-        // Rule 13 (Batch 66): manifest_signing_pubkey_hex if
-        // present MUST be 64-char lowercase hex. Same rationale
-        // as Rule 5 (config_integrity): catches typos at
-        // config-load time instead of producing confusing
-        // `InvalidSignature` runtime errors downstream.
-        if let Some(ref hex) = self.rbac_manifest.manifest_signing_pubkey_hex {
-            if hex.len() != 64 {
-                anyhow::bail!(
-                    "Config coherence: rbac_manifest.manifest_signing_pubkey_hex must be 64 hex chars (32 bytes ed25519 pubkey), got {} chars",
-                    hex.len()
-                );
-            }
-            if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
-                anyhow::bail!(
-                    "Config coherence: rbac_manifest.manifest_signing_pubkey_hex contains non-hex characters"
-                );
-            }
-        }
-
-        // Rule 14 (Batch 71): rbac_manifest.version_store_path
-        // if set MUST point to a writable location (same
-        // filesystem permission class as offline_queue.sqlite
-        // + scada_db.sqlite). We cannot check writability at
-        // config-load time (the path may not yet exist) — we
-        // DO check that it has a parent component so
-        // `std::fs::create_dir_all` in ManifestVersionStore::
-        // open can succeed. An empty or root-only path is a
-        // likely misconfiguration.
-        if let Some(ref path) = self.rbac_manifest.version_store_path {
-            if path.as_os_str().is_empty() {
-                anyhow::bail!(
-                    "Config coherence: rbac_manifest.version_store_path is set to an empty path. \
-                     Either omit the field (defaults to rbac_version.sqlite under the agent data root) or \
-                     provide a valid filesystem path."
-                );
-            }
-            if path
-                .parent()
-                .map(|p| p.as_os_str().is_empty())
-                .unwrap_or(true)
+            // Rule 12 (Batch 66): rbac_manifest Permissive/
+            // Enforcing mode requires manifest_signing_pubkey_hex.
+            // Same rationale as Rule 4 (config_integrity): pre-
+            // Sprint-6.1 the firmware-embedded default key
+            // doesn't exist; operators opting into Permissive/
+            // Enforcing MUST supply their own test key.
+            if !matches!(self.rbac_manifest.mode, RbacManifestMode::Disabled)
+                && self.rbac_manifest.manifest_signing_pubkey_hex.is_none()
             {
                 anyhow::bail!(
-                    "Config coherence: rbac_manifest.version_store_path={} has no parent directory. \
-                     Provide an absolute path with a parent dir inside the agent data root.",
-                    path.display()
+                    "Config coherence: rbac_manifest.mode={:?} requires rbac_manifest.manifest_signing_pubkey_hex (pre-Sprint-6.1 firmware key bundle). Set manifest_signing_pubkey_hex to a 64-char hex string OR set mode=disabled",
+                    self.rbac_manifest.mode
                 );
+            }
+
+            // Rule 13 (Batch 66): manifest_signing_pubkey_hex if
+            // present MUST be 64-char lowercase hex. Same rationale
+            // as Rule 5 (config_integrity): catches typos at
+            // config-load time instead of producing confusing
+            // `InvalidSignature` runtime errors downstream.
+            if let Some(ref hex) = self.rbac_manifest.manifest_signing_pubkey_hex {
+                if hex.len() != 64 {
+                    anyhow::bail!(
+                        "Config coherence: rbac_manifest.manifest_signing_pubkey_hex must be 64 hex chars (32 bytes ed25519 pubkey), got {} chars",
+                        hex.len()
+                    );
+                }
+                if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+                    anyhow::bail!(
+                        "Config coherence: rbac_manifest.manifest_signing_pubkey_hex contains non-hex characters"
+                    );
+                }
+            }
+
+            // Rule 14 (Batch 71): rbac_manifest.version_store_path
+            // if set MUST point to a writable location (same
+            // filesystem permission class as offline_queue.sqlite
+            // + scada_db.sqlite). We cannot check writability at
+            // config-load time (the path may not yet exist) — we
+            // DO check that it has a parent component so
+            // `std::fs::create_dir_all` in ManifestVersionStore::
+            // open can succeed. An empty or root-only path is a
+            // likely misconfiguration.
+            if let Some(ref path) = self.rbac_manifest.version_store_path {
+                if path.as_os_str().is_empty() {
+                    anyhow::bail!(
+                        "Config coherence: rbac_manifest.version_store_path is set to an empty path. \
+                         Either omit the field (defaults to rbac_version.sqlite under the agent data root) or \
+                         provide a valid filesystem path."
+                    );
+                }
+                if path
+                    .parent()
+                    .map(|p| p.as_os_str().is_empty())
+                    .unwrap_or(true)
+                {
+                    anyhow::bail!(
+                        "Config coherence: rbac_manifest.version_store_path={} has no parent directory. \
+                         Provide an absolute path with a parent dir inside the agent data root.",
+                        path.display()
+                    );
+                }
             }
         }
 

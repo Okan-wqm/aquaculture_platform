@@ -5103,8 +5103,15 @@ export type EarningsInput = {
   overtime?: InputMaybe<Scalars['Float']['input']>;
 };
 
+/** Release channel of the edge agent (generic Linux or Suderra OS) */
+export type EdgeAgentChannel =
+  | 'GENERIC_LINUX'
+  | 'SUDERRA_OS';
+
 export type EdgeDevice = {
   activeAlarmCount?: Maybe<Scalars['Int']['output']>;
+  /** The release channel the agent runs on; a Suderra OS device accepts signed commands only (ADR-048 DEC-9.1) */
+  agentChannel: EdgeAgentChannel;
   agentVersion?: Maybe<Scalars['String']['output']>;
   appliedConfigHash?: Maybe<Scalars['String']['output']>;
   capabilities?: Maybe<Scalars['JSON']['output']>;
@@ -15519,6 +15526,7 @@ export type ProvisionedDeviceResponse = {
   installerUrl: Scalars['String']['output'];
   provisioningToken: Scalars['String']['output'];
   status: Scalars['String']['output'];
+  suderraOsProvisioningCommand: Scalars['String']['output'];
   tokenExpiresAt: Scalars['DateTime']['output'];
 };
 
@@ -19191,6 +19199,7 @@ export type RegenerateTokenResponse = {
   deviceId: Scalars['ID']['output'];
   installerCommand: Scalars['String']['output'];
   installerUrl: Scalars['String']['output'];
+  suderraOsProvisioningCommand: Scalars['String']['output'];
   tokenExpiresAt: Scalars['DateTime']['output'];
 };
 

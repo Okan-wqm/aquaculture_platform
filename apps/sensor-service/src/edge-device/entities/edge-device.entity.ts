@@ -356,7 +356,13 @@ export class EdgeDevice {
   // varchar + CHECK rather than a Postgres enum type: tenant provisioning
   // replays this table's migrations into every tenant schema, and a column
   // needs no schema-level type that a second replay would collide with.
-  @Field(() => EdgeAgentChannel)
+  // Public on purpose: the panel shows which re-provisioning flow applies
+  // (a signed lifecycle statement for Suderra OS, a re-install for generic
+  // Linux) and why a Suderra OS device refuses commands without a command key.
+  @Field(() => EdgeAgentChannel, {
+    description:
+      'The release channel the agent runs on; a Suderra OS device accepts signed commands only (ADR-048 DEC-9.1)',
+  })
   @Column({
     name: 'agent_channel',
     type: 'varchar',

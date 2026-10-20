@@ -53,7 +53,6 @@ env:
   # 2026-04-30: CI feature set compiles every software protocol/security path
   # while excluding `sx1302-vendor-hal`, which is a real hardware C HAL build
   # and must fail closed unless vendor/sx1302_hal sources are present.
-  SENS_API_GATEWAY_RELEASE_FEATURES: scada-display
   SENS_API_GATEWAY_CI_FEATURES: health,telemetry,metrics,strict-security,scada-display,lorawan,signed-deploy,tpm,st-bytecode,multi-task-scheduler,opc-ua-server,live-debug,license-enforce,wasm-codec
 
 jobs:
@@ -130,32 +129,6 @@ jobs:
       - name: Check gateway default build
         working-directory: ${{ env.SENS_API_GATEWAY_DIR }}
         run: cargo check --locked
-
-  check-release-features:
-    name: cargo check --features scada-display
-    runs-on: ubuntu-latest
-    timeout-minutes: 35
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # stable
-        with:
-          toolchain: 1.88.0
-
-      - name: Cache cargo registry and target
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          workspaces: sens-api-gateway -> target
-          shared-key: sens-api-gateway-release-features
-          save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/agentic' }}
-
-      # Release profile parity gate. The tag-only release workflow builds
-      # this exact feature tier across the cross targets; this host-native
-      # PR gate catches manifest/profile drift before a release tag is pushed.
-      - name: Check gateway release feature profile
-        working-directory: ${{ env.SENS_API_GATEWAY_DIR }}
-        run: cargo check --locked --features "$SENS_API_GATEWAY_RELEASE_FEATURES"
 
   check-ci-features:
     name: cargo check --release --all-targets --features curated
@@ -299,6 +272,10 @@ jobs:
         working-directory: ${{ env.SENS_API_GATEWAY_DIR }}
         run: cargo test --locked --all-targets --features "$SENS_API_GATEWAY_CI_FEATURES" --no-fail-fast -- --test-threads=1
 
+  # Every release feature set (each Suderra OS board's, the generic channel's)
+  # is linted, tested and cross-built from the release plan in ci-edge.yml,
+  # which the release calls on the tag's commit next to this workflow.
+  #
   # ADR-048 DEC-8 / DEC-28: the Suderra OS agent profile. Its filesystem and
   # environment invariants (tests/invariants/no_etc_write_paths.rs,
   # no_security_env_in_suderra_os.rs) and the contract checks of its path
@@ -436,7 +413,6 @@ jobs:
       - release-contract
       - format
       - check-default
-      - check-release-features
       - check-ci-features
       - clippy
       - test
@@ -455,7 +431,6 @@ jobs:
             "${{ needs.release-contract.result }}" \
             "${{ needs.format.result }}" \
             "${{ needs.check-default.result }}" \
-            "${{ needs.check-release-features.result }}" \
             "${{ needs.check-ci-features.result }}" \
             "${{ needs.clippy.result }}" \
             "${{ needs.test.result }}" \

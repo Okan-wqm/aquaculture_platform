@@ -8,17 +8,22 @@ name: Edge Agent Release
 # it from contracts/suderra-edge/v1 (boards.json, artifact-naming.json) and
 # sens-api-gateway/release/edge-release.toml:
 #   - Suderra OS channel: one suderra-agent-os-<version>-<board_profile>-<arch>.tar.gz
-#     per buildable boards.json board, holding exactly `suderra-agent`, built with
-#     exactly the board's cargo features, with its DSSE suderra.edge-release.v1
-#     statement <artifact>.release.dsse.json beside it;
+#     per buildable boards.json board, holding exactly `suderra-agent`, with its
+#     DSSE suderra.edge-release.v1 statement <artifact>.release.dsse.json beside
+#     it. The build uses the board's cargo features plus the release facts'
+#     crate_required_features (`health`, KNOWN DEFECT EDGE-HIGH-128: until it is
+#     fixed the statement's cargo_features omit `health`). A board the facts mark
+#     unbuildable gets no artifact; the release body names it and why;
 #   - generic-Linux channel (frozen, DEC-28): suderra-agent-<version>-<slug>.tar.gz
 #     for x86_64-linux, aarch64-linux and armv7-linux, holding `edge-agent`.
 #
 # Order: the tag's commit passes the gateway CI and the profile CI (every
-# feature set tested, every row cross-built) -> cache-free release builds ->
-# a separate signing job in the protected `edge-release` environment signs the
+# feature set linted and tested, every row cross-built) -> cache-free release
+# builds -> a separate job `sign-release-statement` (ADR-048 DEC-3) in the
+# protected `edge-release` environment states the provenance and signs the
 # statements over the exact artifact bytes -> the publish job verifies every
-# statement before cosign (provenance only, DEC-3.8) and the GitHub release.
+# statement (verify_strict) before cosign (provenance only, DEC-3.8) and the
+# GitHub release.
 
 on:
   push:
@@ -258,6 +263,8 @@ jobs:
       # DEC-8.5: the binary is the row's architecture, asks for the glibc
       # loader and links only the runtime the OS provides; the archive holds
       # exactly the contract's member, root-owned, at the commit time.
+      # The provenance is not stated here: this job runs cross and every
+      # crate's build script, so the signing job states it (DEC-20).
       - name: Package binary and release evidence
         run: |
           set -euo pipefail
@@ -269,9 +276,6 @@ jobs:
             --out-dir dist
           cargo metadata --manifest-path sens-api-gateway/Cargo.toml --locked --format-version=1 \
             > "dist/${ARTIFACT_BASE}.cargo-metadata.sbom.json"
-          python3 -I scripts/edge/edge_release.py provenance \
-            --channel "$CHANNEL" --id "$BUILD_ID" \
-            --artifact "dist/${ARTIFACT}" --tag "$RELEASE_TAG" --out-dir dist
           cp sens-api-gateway/docs/commercial/third-party-notices.md "dist/${ARTIFACT_BASE}.NOTICE.md"
 
       - name: Upload artifact
@@ -282,16 +286,16 @@ jobs:
             dist/${{ matrix.artifact }}
             dist/${{ matrix.artifact }}.sha256
             dist/${{ matrix.base }}.cargo-metadata.sbom.json
-            dist/${{ matrix.base }}.intoto.jsonl
             dist/${{ matrix.base }}.NOTICE.md
           if-no-files-found: error
           retention-days: 5
 
-  # ADR-048 DEC-3.9 / DEC-20: the edge-release signature, in its own minimal
-  # job: no cache, no third-party action, no toolchain — the runner's python3
-  # and OpenSSL 3, GitHub's checkout and artifact transfer. It runs in the
-  # protected environment `edge-release` (required reviewers; deployments only
-  # from agent-v* tags), which holds:
+  # ADR-048 DEC-3 / DEC-3.9 / DEC-20: the provenance and the edge-release
+  # signature, in their own minimal job: no cache, no third-party action, no
+  # toolchain — the runner's python3 and OpenSSL 3, GitHub's checkout and
+  # artifact transfer. The provenance's claims come from the plan of the tag's
+  # sources and this job's GitHub context, its subject from the downloaded
+  # bytes. It runs in the environment `edge-release`, which must hold:
   #   secret   EDGE_RELEASE_SIGNING_KEY  PKCS#8 PEM of the Ed25519 edge-release
   #            private key. P0: the dev/CI key (Suderra-OS scripts/gen-dev-keys.sh
   #            <dir>/edge/edge-release/1.key), pinned only by dev and QEMU images.
@@ -300,9 +304,14 @@ jobs:
   #   variable EDGE_RELEASE_KEYID        lowercase hex SHA-256 of that key's raw
   #            public key: the keyid the targeted images pin. The job refuses
   #            any other key, and every TEST-ONLY contract key.
-  # Keys are never committed. A missing environment, secret or variable fails
-  # the release.
-  sign:
+  # Keys are never committed. A missing secret or variable fails the sign step.
+  # A missing environment does NOT fail the release: GitHub creates a named
+  # environment on first use with no protection rules. Required reviewers, the
+  # agent-v* deployment policy and an environment-only (never repository)
+  # secret are repository settings nothing in this workflow can check; the
+  # operator check is .github/provisioned-secrets.json environments.edge-release
+  # (pinned by tests/invariants/edge-release-pipeline.spec.ts).
+  sign-release-statement:
     name: Sign release statements (edge-release)
     needs:
       - release-ref-contract
@@ -315,6 +324,7 @@ jobs:
     outputs:
       keyid: ${{ steps.sign.outputs.keyid }}
     env:
+      RELEASE_TAG: ${{ needs.release-ref-contract.outputs.tag }}
       RELEASE_VERSION: ${{ needs.release-ref-contract.outputs.version }}
     steps:
       - name: Checkout tag
@@ -328,6 +338,11 @@ jobs:
           pattern: build-*
           path: dist
           merge-multiple: true
+
+      # DEC-20: the provenance of every planned artifact, stated here from the
+      # downloaded bytes; the statements embed its digest.
+      - name: State the provenance of every artifact
+        run: python3 -I scripts/edge/edge_release.py provenance --artifacts dist --tag "${RELEASE_TAG}" --out-dir dist
 
       # The payload names the digests recomputed here from the downloaded
       # bytes, never digests a build job reported.
@@ -364,12 +379,20 @@ jobs:
           if-no-files-found: error
           retention-days: 5
 
+      - name: Upload the provenance
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-provenance
+          path: dist/*.intoto.jsonl
+          if-no-files-found: error
+          retention-days: 5
+
   release:
     name: Create GitHub Release
     needs:
       - release-ref-contract
       - build
-      - sign
+      - sign-release-statement
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -381,7 +404,7 @@ jobs:
       RELEASE_VERSION: ${{ needs.release-ref-contract.outputs.version }}
       RELEASE_CHANNEL: ${{ needs.release-ref-contract.outputs.channel }}
       RELEASE_PRERELEASE: ${{ needs.release-ref-contract.outputs.prerelease }}
-      STATEMENT_KEYID: ${{ needs.sign.outputs.keyid }}
+      STATEMENT_KEYID: ${{ needs.sign-release-statement.outputs.keyid }}
     steps:
       - name: Checkout tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -395,6 +418,12 @@ jobs:
           path: artifacts
           merge-multiple: true
 
+      - name: Download the provenance the signing job stated
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-provenance
+          path: artifacts
+
       - name: Download signed release statements
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -403,7 +432,10 @@ jobs:
 
       # SENSOR-CRITICAL-202: nothing is published unless every planned
       # Suderra OS artifact carries a statement that verifies under the
-      # edge-release key and names exactly these bytes.
+      # edge-release key with verify_strict semantics and is byte for byte
+      # the statement of exactly these bytes. This is the release tool's own
+      # verifier; no device-side verifier (suderra-installer, the agent's
+      # edge_contract) runs here yet.
       - name: Verify every release statement
         run: |
           set -euo pipefail
@@ -453,6 +485,14 @@ jobs:
             --output-signature artifacts/edge-release-manifest.json.sig \
             artifacts/edge-release-manifest.json
 
+      # The body names every artifact of both channels and each boards.json
+      # board this version does not ship, with its reason (release facts).
+      - name: Write the release notes
+        run: |
+          set -euo pipefail
+          python3 -I scripts/edge/edge_release.py notes \
+            --tag "${RELEASE_TAG}" --statement-keyid "${STATEMENT_KEYID}" --out release-notes.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v2.2.1
         with:
@@ -461,42 +501,7 @@ jobs:
           draft: false
           prerelease: ${{ env.RELEASE_PRERELEASE }}
           generate_release_notes: true
-          body: |
-            ## Suderra Edge Agent ${{ env.RELEASE_TAG }}
-
-            Tag-only release built from a commit reachable from `origin/main`,
-            after the gateway CI and the profile CI passed on that commit.
-            `edge-release-manifest.json` lists every file with its digest.
-
-            ### Suderra OS channel (ADR-048)
-
-            One `suderra-agent-os-${{ env.RELEASE_VERSION }}-<board_profile>-<arch>.tar.gz`
-            per board of `contracts/suderra-edge/v1/boards.json`, holding `suderra-agent`,
-            with its Ed25519 DSSE release statement `<artifact>.release.dsse.json`
-            (`suderra.edge-release.v1`, edge-release key `${{ env.STATEMENT_KEYID }}`).
-            Suderra OS installs it only through a signed provisioning manifest that
-            names the statement; root verifies the statement and both digests.
-
-            ### Generic-Linux channel (ADR-048 DEC-28)
-
-            `suderra-agent-${{ env.RELEASE_VERSION }}-<slug>.tar.gz` for `x86_64-linux`,
-            `aarch64-linux` and `armv7-linux`, holding `edge-agent`. The cloud's
-            installer and update scripts fetch and install it.
-
-            ### Provenance
-
-            Every file carries `.sig`/`.pem` cosign keyless signature material, plus
-            `.sha256`, `.cargo-metadata.sbom.json`, `.intoto.jsonl` and `.NOTICE.md`
-            per artifact. Verify a signature:
-
-            ```bash
-            cosign verify-blob \
-              --certificate <file>.pem \
-              --signature <file>.sig \
-              --certificate-identity "https://github.com/${{ github.repository }}/.github/workflows/edge-agent-release.yml@refs/tags/${{ env.RELEASE_TAG }}" \
-              --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-              <file>
-            ```
+          body_path: release-notes.md
           files: |
             artifacts/*.tar.gz
             artifacts/*.sha256

@@ -23,16 +23,25 @@ agent_abi = 1
 # DEC-23: the oldest Suderra OS VERSION_ID this agent runs on. The OS images
 # built today report 0.1.0 (Suderra-OS SUDERRA_VERSION v0.1.0-alpha).
 min_os_version = "0.1.0"
-# Cargo features every build of this crate carries on top of the board's
-# boards.json set. The crate does not compile without `health`: its
-# HealthState is the observability hub the MQTT client and the outbound
-# publisher take at init (src/main.rs init_outbound_publisher), not only the
-# health HTTP server, and --no-default-features fails in main.rs, io_poll.rs
-# and scripting/engine.rs. Contract v1's cargo_feature vocabulary has no
-# `health`, so the release statement lists the boards.json set and the build
-# adds this list; the contract change that removes the gap is reported with
-# ADR-048 P0 (release pipeline).
+# DEC-8.5: the newest glibc symbol version (ELF VERNEED GLIBC_x.y) a Suderra OS
+# release binary may require: the glibc of every Suderra OS image (Suderra-OS
+# Buildroot 2025.05.3, buildroot/package/glibc/glibc.mk 2.41, all boards
+# BR2_TOOLCHAIN_BUILDROOT_GLIBC). INFRA-MEDIUM-253 tracks deriving this, and
+# [runtime.*], from a runtime manifest the OS images publish.
+max_glibc = "2.41"
+# KNOWN DEFECT EDGE-HIGH-128 (owner @Okan-wqm, deadline 2026-11-02): cargo
+# features every Suderra OS build carries on top of the board's boards.json
+# set, because the crate does not compile without `health`. Its HealthState is
+# the observability hub the MQTT client, the outbound publisher, io_poll and
+# the scripting engine take at init, not only the health HTTP server, and
+# --no-default-features fails in main.rs, io_poll.rs, scripting/engine.rs and
+# health.rs. Contract v1's cargo_feature vocabulary has no `health`, so the
+# signed release statement lists the boards.json set while the build adds
+# this list: until EDGE-HIGH-128 is fixed every Suderra OS release statement
+# misstates its build's cargo feature set. The plan refuses a non-empty list
+# that names no tracking finding.
 crate_required_features = ["health"]
+crate_required_features_tracked_by = "EDGE-HIGH-128"
 
 # DEC-23: kernel config symbols the agent needs on each board. Root refuses a
 # release whose symbol has no =y or =m line in the image's
@@ -57,12 +66,20 @@ reason = "The revpi-io piControl backend (ADR-048 DEC-8.8) arrives with the KUNB
 # crate's default feature (health) plus scada-display, exactly as before the
 # Suderra OS channel existed.
 cargo_features = ["health", "scada-display"]
+# DEC-28 / DEC-8.5: the newest glibc symbol version a generic-channel binary
+# may require: the glibc of the cross 0.2.5 build images (Ubuntu 16.04, 2.23)
+# the v1.6.0 fleet's binaries were built against. A toolchain change that
+# needs a newer glibc would drop distributions the frozen channel serves, so
+# it fails the release until this value is raised on purpose.
+max_glibc = "2.23"
 
 # DEC-8.5: the shared libraries (ELF NEEDED) and program interpreter a release
 # binary may require. Every Suderra OS image ships them (Buildroot glibc and
 # the gcc runtime), and so does every glibc distribution of the generic
 # channel. A dependency that links anything else fails the release until it is
-# confirmed on the OS and added here.
+# confirmed on the OS and added here. This is a copy of what the OS provides:
+# INFRA-MEDIUM-253 (owner @Okan-wqm, deadline 2026-11-30) replaces it with a
+# runtime manifest the Suderra OS images publish.
 [runtime.x86_64]
 interpreter = "/lib64/ld-linux-x86-64.so.2"
 needed = [

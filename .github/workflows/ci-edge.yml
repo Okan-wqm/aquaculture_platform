@@ -7,15 +7,18 @@ name: CI - Edge Agent (sens-api-gateway)
 # contracts/suderra-edge/v1 (boards.json, artifact-naming.json) and
 # sens-api-gateway/release/edge-release.toml — the same plan the release
 # workflow builds from. For every distinct feature set (gpio for rpi4-cm4,
-# suderra-os, the generic channel's tier) the host runs the whole test suite;
-# every row is cross-built with that feature set and packaged through the same
-# ELF machine/interpreter/NEEDED check the release runs. A feature set or
-# target that does not build and test here cannot be released, because the
-# release workflow calls this workflow on the tag's commit (workflow_call)
-# before it builds (INFRA-HIGH-237, INFRA-CRITICAL-236).
+# suderra-os, the generic channel's tier) the host runs clippy and the whole
+# test suite; every row is cross-built with that feature set and packaged
+# through the same ELF machine/interpreter/NEEDED/glibc check the release
+# runs. A feature set or target that does not lint, build and test here cannot
+# be released, because the release workflow calls this workflow on the tag's
+# commit (workflow_call) before it builds (INFRA-HIGH-237, INFRA-CRITICAL-236).
 #
-# Lints run in sens-api-gateway-ci.yml (cargo clippy); cargo check does not
-# run clippy lints, so this workflow claims compilation and tests only.
+# profile-clippy runs the gateway CI's clippy gate (sens-api-gateway-ci.yml
+# `clippy`) on each planned feature set, with the same lint arguments
+# (tests/invariants/edge-release-pipeline.spec.ts keeps them identical): the
+# gateway's curated CI feature set holds neither suderra-os nor gpio, so their
+# cfg code is linted only here. The -A list is INFRA-HIGH-237's open debt.
 
 on:
   push:
@@ -103,6 +106,56 @@ jobs:
         working-directory: sens-api-gateway
         run: cargo test --locked --all-targets --no-default-features --features "$FEATURES" --no-fail-fast -- --test-threads=1
 
+  profile-clippy:
+    name: cargo clippy (${{ matrix.used_by }})
+    needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.test_matrix) }}
+    env:
+      FEATURES: ${{ matrix.features }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: clippy
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: sens-api-gateway -> target
+          shared-key: ci-edge-clippy-${{ matrix.features }}
+          save-if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/agentic' }}
+
+      - name: Lint exactly the release feature set
+        working-directory: sens-api-gateway
+        run: >
+          cargo clippy --locked --all-targets --no-default-features --features "$FEATURES" --
+          -D clippy::correctness
+          -D clippy::suspicious
+          -D clippy::perf
+          -A clippy::await_holding_lock
+          -A clippy::cmp_owned
+          -A clippy::dbg_macro
+          -A clippy::expect_fun_call
+          -A clippy::expect_used
+          -A clippy::indexing_slicing
+          -A clippy::large_stack_arrays
+          -A clippy::print_stderr
+          -A clippy::print_stdout
+          -A clippy::todo
+          -A clippy::unimplemented
+          -A clippy::unnecessary_to_owned
+          -A clippy::unwrap_used
+          -A clippy::vec_init_then_push
+
   profile-build:
     name: cross build (${{ matrix.artifact }})
     needs: plan
@@ -147,7 +200,7 @@ jobs:
           LIBCLANG_PATH: /usr/lib/llvm-12/lib
         run: cross build --locked --release --target-dir "$CARGO_TARGET_DIR" --target "$RUST_TARGET" --no-default-features --features "$FEATURES"
 
-      - name: Package through the release ELF and archive checks
+      - name: Package through the release ELF, glibc and archive checks
         run: |
           set -euo pipefail
           SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
@@ -161,6 +214,7 @@ jobs:
     name: CI - Edge Agent summary
     needs:
       - plan
+      - profile-clippy
       - profile-test
       - profile-build
     if: always()
@@ -169,7 +223,7 @@ jobs:
     steps:
       - name: Fail on skipped, cancelled or failed profile jobs
         env:
-          RESULTS: ${{ needs.plan.result }} ${{ needs.profile-test.result }} ${{ needs.profile-build.result }}
+          RESULTS: ${{ needs.plan.result }} ${{ needs.profile-clippy.result }} ${{ needs.profile-test.result }} ${{ needs.profile-build.result }}
         run: |
           for result in ${RESULTS}; do
             if [ "$result" != "success" ]; then

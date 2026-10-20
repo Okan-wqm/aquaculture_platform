@@ -12,19 +12,29 @@ Subcommands, in pipeline order:
 
   plan        build and test matrices for both channels (DEC-8.5, DEC-28)
   package     one deterministic tarball holding exactly the contract's member,
-              after the ELF machine, interpreter and NEEDED check (DEC-8.5)
-  provenance  the in-toto SLSA provenance statement of one artifact (DEC-3.8)
+              after the ELF machine, interpreter, NEEDED and glibc symbol
+              version check (DEC-8.5)
+  provenance  the in-toto SLSA provenance statement of every planned artifact,
+              from the artifact bytes, in the signing job (DEC-3.8, DEC-20)
   statements  the unsigned suderra.edge-release.v1 payload of every Suderra OS
               artifact, over the digests recomputed from the artifact bytes
   sign        the DSSE envelope of every payload with the edge-release key
               (DEC-3.9, DEC-20); the key comes from an environment variable
   verify      every planned envelope against its artifact, the public key and
-              the contract, in the statements.json verification_order
+              the contract, in the statements.json verification_order, with
+              verify_strict semantics; the payload must be byte for byte the
+              statement this release produces
   check-envelope  the key-free checks of one envelope (schema, profile)
+  signature-vectors  the Ed25519 verifier over fixtures/dsse/signature-vectors.json
+  notes       the GitHub release body: what each channel ships, which boards
+              are not built and why
   manifest    the machine-readable index of every published file
 
-The tool needs only the Python 3.11+ standard library and the OpenSSL 3 CLI
-(Ed25519 with -rawin), so the signing job installs nothing.
+The tool needs only the Python 3.11+ standard library and, for `sign` alone,
+the OpenSSL 3 CLI (Ed25519 -rawin), so the signing job installs nothing.
+Signatures are verified by this file's own Ed25519 verifier, which implements
+the contract's verify_strict semantics (statements.json
+dsse.signature_algorithm); OpenSSL's verifier is not conforming.
 
 Its JSON Schema check is a fail-closed subset validator over the contract's
 own schema files: a keyword it does not implement is an error, never a pass.
@@ -48,9 +58,9 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from collections.abc import Callable
 from typing import Any, NoReturn
 
 if sys.version_info < (3, 11):  # noqa: UP036 - a clear refusal instead of an ImportError of tomllib
@@ -83,6 +93,8 @@ ELF_MACHINE = {"x86_64": 62, "aarch64": 183, "armv7": 40}
 ELF_CLASS = {"x86_64": 2, "aarch64": 2, "armv7": 1}
 PT_LOAD, PT_DYNAMIC, PT_INTERP = 1, 2, 3
 DT_NULL, DT_NEEDED, DT_STRTAB = 0, 1, 5
+DT_VERNEED, DT_VERNEEDNUM = 0x6FFFFFFE, 0x6FFFFFFF
+GLIBC_VERSION = re.compile(r"GLIBC_([0-9]+)\.([0-9]+)(?:\.([0-9]+))?")
 
 
 class ReleaseError(Exception):
@@ -126,9 +138,8 @@ def _check_integers(value: Any) -> None:
     elif isinstance(value, list):
         for v in value:
             _check_integers(v)
-    elif isinstance(value, int) and not isinstance(value, bool):
-        if abs(value) > MAX_SAFE_INTEGER:
-            raise ValueError(f"integer {value} exceeds 2^53-1")
+    elif isinstance(value, int) and not isinstance(value, bool) and abs(value) > MAX_SAFE_INTEGER:
+        raise ValueError(f"integer {value} exceeds 2^53-1")
 
 
 _LONE_SURROGATE = re.compile(r"[\ud800-\udfff]")
@@ -301,9 +312,10 @@ class Schemas:
                     if (key == "minLength" and n < rule) or (key == "maxLength" and n > rule):
                         errs.append(f"{at}: length {n} breaks {key} {rule}")
             elif key in ("minimum", "maximum"):
-                if _json_type(value) == "integer":
-                    if (key == "minimum" and value < rule) or (key == "maximum" and value > rule):
-                        errs.append(f"{at}: {value} breaks {key} {rule}")
+                if _json_type(value) == "integer" and (
+                    (key == "minimum" and value < rule) or (key == "maximum" and value > rule)
+                ):
+                    errs.append(f"{at}: {value} breaks {key} {rule}")
             elif key in ("minItems", "maxItems"):
                 if isinstance(value, list):
                     n = len(value)
@@ -393,12 +405,13 @@ def _strict_table(table: dict[str, Any], allowed: set[str], where: str) -> None:
 
 
 class Release:
-    def __init__(self, facts_path: Path, cargo_toml: Path) -> None:
-        self.boards = read_json(CONTRACT / "boards.json")
-        self.naming = read_json(CONTRACT / "artifact-naming.json")
-        self.statements = read_json(CONTRACT / "statements.json")
-        self.keyring = read_json(CONTRACT / "test-keys" / "keyring.json")
-        self.schemas = Schemas(CONTRACT / "schemas")
+    def __init__(self, facts_path: Path, cargo_toml: Path, contract: Path = CONTRACT) -> None:
+        self.contract = contract
+        self.boards = read_json(contract / "boards.json")
+        self.naming = read_json(contract / "artifact-naming.json")
+        self.statements = read_json(contract / "statements.json")
+        self.keyring = read_json(contract / "test-keys" / "keyring.json")
+        self.schemas = Schemas(contract / "schemas")
         entry = self.statements["statements"][STATEMENT_TYPE]
         self.payload_type: str = entry["payload_type"]
         self.signing_purpose: str = entry["signing_purpose"]
@@ -430,13 +443,27 @@ class Release:
                 "security_version",
                 "agent_abi",
                 "min_os_version",
+                "max_glibc",
                 "crate_required_features",
+                "crate_required_features_tracked_by",
                 "required_kernel_config",
                 "unbuildable",
             },
             "release facts [suderra_os]",
         )
-        _strict_table(f["generic_channel"], {"cargo_features"}, "release facts [generic_channel]")
+        _strict_table(
+            f["generic_channel"], {"cargo_features", "max_glibc"}, "release facts [generic_channel]"
+        )
+        for channel in (CHANNEL_OS, CHANNEL_GENERIC):
+            self.max_glibc(channel)
+        if self._crate_required() and not re.fullmatch(
+            r"[A-Z]+-(CRITICAL|HIGH|MEDIUM|LOW)-[0-9]+",
+            str(os_facts.get("crate_required_features_tracked_by", "")),
+        ):
+            fail(
+                "release facts: crate_required_features puts features outside boards.json into a "
+                "Suderra OS build; crate_required_features_tracked_by must name the finding that removes them"
+            )
         for arch, rt in f["runtime"].items():
             _strict_table(rt, {"interpreter", "needed"}, f"release facts [runtime.{arch}]")
         board_ids = {b["board_profile"] for b in self.boards["boards"]}
@@ -458,6 +485,15 @@ class Release:
 
     def _crate_required(self) -> list[str]:
         return list(self.facts["suderra_os"]["crate_required_features"])
+
+    def max_glibc(self, channel: str) -> tuple[int, int, int]:
+        """DEC-8.5: the newest GLIBC_x.y symbol version a binary of the channel may need."""
+        table = self.facts["suderra_os" if channel == CHANNEL_OS else "generic_channel"]
+        text = table.get("max_glibc")
+        m = re.fullmatch(r"([0-9]+)\.([0-9]+)(?:\.([0-9]+))?", str(text))
+        if text is None or m is None:
+            fail(f"release facts: {channel} max_glibc must be a glibc version x.y, got {text!r}")
+        return (int(m[1]), int(m[2]), int(m[3] or 0))
 
     def runtime(self, arch: str) -> dict[str, Any]:
         rt = self.facts["runtime"].get(arch)
@@ -610,6 +646,8 @@ class ElfFacts:
     machine: int
     interpreter: str | None
     needed: tuple[str, ...]
+    # (library, version) of every ELF VERNEED requirement, e.g. ("libc.so.6", "GLIBC_2.17").
+    version_needs: tuple[tuple[str, str], ...]
 
 
 def elf_facts(data: bytes) -> ElfFacts:
@@ -666,13 +704,34 @@ def elf_facts(data: bytes) -> ElfFacts:
                     dynamic.append((tag, val))
         strtab = [val for tag, val in dynamic if tag == DT_STRTAB]
         needed_offsets = [val for tag, val in dynamic if tag == DT_NEEDED]
+        verneed = [val for tag, val in dynamic if tag == DT_VERNEED]
+        verneednum = [val for tag, val in dynamic if tag == DT_VERNEEDNUM]
         needed: list[str] = []
-        if needed_offsets:
+        version_needs: list[tuple[str, str]] = []
+        if needed_offsets or verneed or verneednum:
             if len(strtab) != 1:
                 fail("ELF dynamic section has no single string table", "archive-invalid")
             base = file_offset(strtab[0])
             needed = [c_string(base + off) for off in needed_offsets]
-        return ElfFacts(elf_class, machine, interpreter, tuple(needed))
+            if len(verneed) != len(verneednum) or len(verneed) > 1:
+                fail("ELF dynamic section has no single DT_VERNEED/DT_VERNEEDNUM pair", "archive-invalid")
+            if verneed:
+                # Elf32_Verneed and Elf64_Verneed share one layout, as do the
+                # Vernaux entries: (u16 version, u16 cnt, u32 file, u32 aux,
+                # u32 next) and (u32 hash, u16 flags, u16 other, u32 name, u32 next).
+                at = file_offset(verneed[0])
+                for _ in range(verneednum[0]):
+                    vn_version, vn_cnt, vn_file, vn_aux, vn_next = struct.unpack_from("<HHIII", data, at)
+                    if vn_version != 1:
+                        fail(f"ELF Verneed version {vn_version} is not 1", "archive-invalid")
+                    library = c_string(base + vn_file)
+                    aux = at + vn_aux
+                    for _ in range(vn_cnt):
+                        _hash, _flags, _other, vna_name, vna_next = struct.unpack_from("<IHHII", data, aux)
+                        version_needs.append((library, c_string(base + vna_name)))
+                        aux += vna_next
+                    at += vn_next
+        return ElfFacts(elf_class, machine, interpreter, tuple(needed), tuple(version_needs))
     except (struct.error, IndexError, ValueError, UnicodeDecodeError) as e:
         fail(f"malformed ELF file: {e}", "archive-invalid")
 
@@ -696,6 +755,23 @@ def check_binary(release: Release, row: Row, data: bytes) -> ElfFacts:
         fail(
             f"{row.artifact}: ELF NEEDED {foreign} is outside the {row.arch} runtime the OS provides "
             f"{sorted(rt['needed'])} (sens-api-gateway/release/edge-release.toml [runtime.{row.arch}])",
+            "archive-invalid",
+        )
+    # The loader refuses a binary that needs a newer glibc symbol version than
+    # the device's glibc has, and nothing may link against glibc's private ABI.
+    cap = release.max_glibc(row.channel)
+    too_new: list[str] = []
+    for library, version in facts.version_needs:
+        if version == "GLIBC_PRIVATE":
+            fail(f"{row.artifact}: needs GLIBC_PRIVATE of {library}", "archive-invalid")
+        m = GLIBC_VERSION.fullmatch(version)
+        if m and (int(m[1]), int(m[2]), int(m[3] or 0)) > cap:
+            too_new.append(f"{version} ({library})")
+    if too_new:
+        fail(
+            f"{row.artifact}: needs glibc symbol versions {sorted(too_new)} newer than the "
+            f"{row.channel} channel's glibc {'.'.join(map(str, cap)).removesuffix('.0')} "
+            "(sens-api-gateway/release/edge-release.toml max_glibc)",
             "archive-invalid",
         )
     return facts
@@ -762,7 +838,120 @@ def artifact_facts(release: Release, row: Row, path: Path) -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------
-# OpenSSL Ed25519
+# Ed25519 verify_strict (statements.json dsse.signature_algorithm)
+# --------------------------------------------------------------------------
+#
+# RFC 8032 arithmetic in extended coordinates, with the checks
+# ed25519-dalek's verify_strict adds and the contract requires: S < L, A and R
+# canonical encodings (y < p, and x = 0 never with the sign bit set) that are
+# not small-order points, and the cofactorless equation [S]B = R + [k]A.
+# Verification only: no secret ever enters this code, so its timing is not a
+# concern.
+
+_P = 2**255 - 19
+_L = 2**252 + 27742317777372353535851937790883648493
+_D = -121665 * pow(121666, _P - 2, _P) % _P
+_SQRT_M1 = pow(2, (_P - 1) // 4, _P)
+_Point = tuple[int, int, int, int]
+_IDENTITY: _Point = (0, 1, 1, 0)
+
+
+def _ed_add(p: _Point, q: _Point) -> _Point:
+    a = (p[1] - p[0]) * (q[1] - q[0]) % _P
+    b = (p[1] + p[0]) * (q[1] + q[0]) % _P
+    c = 2 * p[3] * q[3] * _D % _P
+    d = 2 * p[2] * q[2] % _P
+    e, f, g, h = b - a, d - c, d + c, b + a
+    return (e * f % _P, g * h % _P, f * g % _P, e * h % _P)
+
+
+def _ed_mul(scalar: int, p: _Point) -> _Point:
+    q = _IDENTITY
+    while scalar > 0:
+        if scalar & 1:
+            q = _ed_add(q, p)
+        p = _ed_add(p, p)
+        scalar >>= 1
+    return q
+
+
+def _ed_equal(p: _Point, q: _Point) -> bool:
+    return (p[0] * q[2] - q[0] * p[2]) % _P == 0 and (p[1] * q[2] - q[1] * p[2]) % _P == 0
+
+
+def _ed_recover_x(y: int, sign: int) -> int | None:
+    x2 = (y * y - 1) * pow(_D * y * y + 1, _P - 2, _P) % _P
+    if x2 == 0:
+        return None if sign else 0
+    x = pow(x2, (_P + 3) // 8, _P)
+    if (x * x - x2) % _P != 0:
+        x = x * _SQRT_M1 % _P
+    if (x * x - x2) % _P != 0:
+        return None
+    if x & 1 != sign:
+        x = _P - x
+    return x
+
+
+def _ed_decode_strict(encoded: bytes) -> _Point | None:
+    """A canonical encoding of a point that is not of small order, else None."""
+    if len(encoded) != 32:
+        return None
+    y = int.from_bytes(encoded, "little")
+    sign = y >> 255
+    y &= (1 << 255) - 1
+    if y >= _P:
+        return None
+    x = _ed_recover_x(y, sign)
+    if x is None:
+        return None
+    point = (x, y, 1, x * y % _P)
+    if _ed_equal(_ed_mul(8, point), _IDENTITY):
+        return None
+    return point
+
+
+_BASE_Y = 4 * pow(5, _P - 2, _P) % _P
+
+
+def _ed_base() -> _Point:
+    x = _ed_recover_x(_BASE_Y, 0)
+    if x is None:
+        raise RuntimeError("the Ed25519 base point does not decode")
+    return (x, _BASE_Y, 1, x * _BASE_Y % _P)
+
+
+_BASE: _Point = _ed_base()
+
+
+def ed25519_verify_strict(public_key: bytes, message: bytes, signature: bytes) -> bool:
+    if len(public_key) != 32 or len(signature) != 64:
+        return False
+    a = _ed_decode_strict(public_key)
+    r = _ed_decode_strict(signature[:32])
+    s = int.from_bytes(signature[32:], "little")
+    if a is None or r is None or s >= _L:
+        return False
+    k = int.from_bytes(hashlib.sha512(signature[:32] + public_key + message).digest(), "little") % _L
+    return _ed_equal(_ed_mul(s, _BASE), _ed_add(r, _ed_mul(k, a)))
+
+
+def spki_pem_public_key(text: str, what: str) -> bytes:
+    """The raw key of an RFC 8410 Ed25519 SubjectPublicKeyInfo PEM."""
+    lines = [line.strip() for line in text.strip().splitlines()]
+    if len(lines) < 3 or lines[0] != "-----BEGIN PUBLIC KEY-----" or lines[-1] != "-----END PUBLIC KEY-----":
+        fail(f"{what} is not one PEM public key")
+    try:
+        der = base64.b64decode("".join(lines[1:-1]), validate=True)
+    except (ValueError, TypeError) as e:
+        fail(f"{what}: not base64: {e}")
+    if len(der) != 44 or not der.startswith(ED25519_SPKI_PREFIX):
+        fail(f"{what} is not an Ed25519 public key")
+    return der[len(ED25519_SPKI_PREFIX) :]
+
+
+# --------------------------------------------------------------------------
+# OpenSSL Ed25519 signing
 # --------------------------------------------------------------------------
 
 
@@ -776,14 +965,11 @@ def openssl(*args: str) -> bytes:
     return proc.stdout
 
 
-def raw_public_key(pem_path: Path, private: bool) -> bytes:
-    args = ["pkey", "-in", str(pem_path), "-pubout", "-outform", "DER"]
-    if not private:
-        args.insert(1, "-pubin")
-    der = openssl(*args)
-    if len(der) != 44 or not der.startswith(ED25519_SPKI_PREFIX):
-        fail(f"{pem_path.name} is not an Ed25519 key")
-    return der[len(ED25519_SPKI_PREFIX) :]
+def private_key_public_pem(pem_path: Path) -> str:
+    """The SubjectPublicKeyInfo PEM of an Ed25519 PKCS#8 private key."""
+    public = openssl("pkey", "-in", str(pem_path), "-pubout").decode("ascii")
+    spki_pem_public_key(public, f"the public key of {pem_path.name}")
+    return public
 
 
 def pae(payload_type: str, body: bytes) -> bytes:
@@ -877,6 +1063,7 @@ def cmd_package(release: Release, args: argparse.Namespace) -> None:
                 "binary_sha256": sha256_hex(binary),
                 "interpreter": facts.interpreter,
                 "needed": list(facts.needed),
+                "version_needs": [f"{v} ({lib})" for lib, v in facts.version_needs],
             },
             indent=2,
         )
@@ -886,18 +1073,13 @@ def cmd_package(release: Release, args: argparse.Namespace) -> None:
 def _require_env(name: str) -> str:
     value = os.environ.get(name)
     if not value:
-        fail(f"provenance needs the environment variable {name}")
+        fail(f"this step needs the GitHub Actions environment variable {name}")
     return value
 
 
-def cmd_provenance(release: Release, args: argparse.Namespace) -> None:
-    row = release.row(args.channel, args.id)
-    path = Path(args.artifact)
-    if path.name != row.artifact:
-        fail(f"{path.name} is not the planned artifact {row.artifact}")
-    digest = sha256_hex(path.read_bytes())
+def _provenance_statement(release: Release, row: Row, digest: str, tag: str) -> dict[str, Any]:
     repo = _require_env("GITHUB_REPOSITORY")
-    statement = {
+    return {
         "_type": "https://in-toto.io/Statement/v1",
         "subject": [{"name": row.artifact, "digest": {"sha256": digest}}],
         "predicateType": release.release_schema["properties"]["provenance"]["properties"]["predicate_type"][
@@ -910,7 +1092,7 @@ def cmd_provenance(release: Release, args: argparse.Namespace) -> None:
                     "repository": repo,
                     "workflow": _require_env("GITHUB_WORKFLOW"),
                     "workflowRef": _require_env("GITHUB_WORKFLOW_REF"),
-                    "releaseTag": args.tag,
+                    "releaseTag": tag,
                     "channel": row.channel,
                     "target": row.id,
                     "rustTarget": row.rust_target,
@@ -931,9 +1113,29 @@ def cmd_provenance(release: Release, args: argparse.Namespace) -> None:
             },
         },
     }
-    out = Path(args.out_dir) / f"{row.base}.intoto.jsonl"
-    out.write_bytes(canonical(statement) + b"\n")
-    print(str(out))
+
+
+def cmd_provenance(release: Release, args: argparse.Namespace) -> None:
+    """DEC-20: the signing job states the provenance of every planned artifact.
+
+    Its claims come from the plan of the tag's sources and the signing job's
+    own GitHub context, and its subject digest from the downloaded artifact
+    bytes, never from what a build job (which runs cross and every build
+    script) reports.
+    """
+    artifacts = Path(args.artifacts)
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    rows = release.rows()
+    present = {p.name for p in artifacts.glob("*.tar.gz")}
+    planned = {r.artifact for r in rows}
+    if present != planned:
+        fail(f"artifacts {sorted(present)} are not the planned set {sorted(planned)}")
+    for row in rows:
+        digest = sha256_hex((artifacts / row.artifact).read_bytes())
+        out = out_dir / f"{row.base}.intoto.jsonl"
+        out.write_bytes(canonical(_provenance_statement(release, row, digest, args.tag)) + b"\n")
+        print(str(out))
 
 
 def _provenance_digest(row: Row, directory: Path, artifact_digest: str) -> str:
@@ -955,6 +1157,14 @@ def _os_rows(release: Release) -> list[Row]:
     return [r for r in release.rows() if r.channel == CHANNEL_OS]
 
 
+def _expected_body(release: Release, row: Row, facts: dict[str, Any], provenance_digest: str) -> bytes:
+    """The statement this release makes for the row, in canonical form: every
+    field from the contract, the release facts and the artifact bytes."""
+    body = release.body(row, facts, provenance_digest)
+    release.check_statement(body)
+    return canonical(body)
+
+
 def cmd_statements(release: Release, args: argparse.Namespace) -> None:
     if args.expect_version is not None and args.expect_version != release.version:
         fail(f"release version {args.expect_version} is not the Cargo version {release.version}")
@@ -963,10 +1173,11 @@ def cmd_statements(release: Release, args: argparse.Namespace) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     for row in _os_rows(release):
         facts = artifact_facts(release, row, artifacts / row.artifact)
-        body = release.body(row, facts, _provenance_digest(row, artifacts, facts["digest"]["sha256"]))
-        release.check_statement(body)
+        payload = _expected_body(
+            release, row, facts, _provenance_digest(row, artifacts, facts["digest"]["sha256"])
+        )
         target = out_dir / f"{row.artifact}{PAYLOAD_SUFFIX}"
-        target.write_bytes(canonical(body))
+        target.write_bytes(payload)
         print(str(target))
 
 
@@ -979,6 +1190,8 @@ def _statement_body(release: Release, payload: bytes, what: str) -> dict[str, An
 
 
 def _check_payload(release: Release, row: Row, payload: bytes, artifacts: Path) -> None:
+    """The contract checks with their reasons, then: the payload is byte for
+    byte the statement this release makes, so no field is left free."""
     body = _statement_body(release, payload, row.artifact)
     if body["board_profile"] != row.id or body["version"] != release.version:
         fail(
@@ -990,10 +1203,17 @@ def _check_payload(release: Release, row: Row, payload: bytes, artifacts: Path) 
         fail(f"{row.artifact}: the statement names other artifact bytes", "artifact-digest-mismatch")
     if body["artifact"]["binary_digest"] != facts["binary_digest"]:
         fail(f"{row.artifact}: the statement names another binary", "binary-digest-mismatch")
-    if body["provenance"]["digest"]["sha256"] != _provenance_digest(
-        row, artifacts, facts["digest"]["sha256"]
-    ):
-        fail(f"{row.artifact}: the statement names other provenance")
+    provenance = _provenance_digest(row, artifacts, facts["digest"]["sha256"])
+    if body["provenance"]["digest"]["sha256"] != provenance:
+        fail(f"{row.artifact}: the statement names other provenance than {row.base}.intoto.jsonl")
+    expected = _expected_body(release, row, facts, provenance)
+    if payload != expected:
+        expected_body = json.loads(expected)
+        differing = sorted(
+            k for k in expected_body.keys() | body.keys() if body.get(k) != expected_body.get(k)
+        )
+        what = f"fields {differing} differ" if differing else "its bytes are not the canonical form"
+        fail(f"{row.artifact}: the payload is not the statement this release makes: {what}")
 
 
 def cmd_sign(release: Release, args: argparse.Namespace) -> None:
@@ -1006,19 +1226,24 @@ def cmd_sign(release: Release, args: argparse.Namespace) -> None:
     artifacts = Path(args.artifacts)
     payloads = Path(args.payloads)
     out_dir = Path(args.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
     rows = _os_rows(release)
     expected_payloads = {f"{r.artifact}{PAYLOAD_SUFFIX}" for r in rows}
     present = {p.name for p in payloads.glob(f"*{PAYLOAD_SUFFIX}")}
     if present != expected_payloads:
         fail(f"payloads {sorted(present)} are not the planned set {sorted(expected_payloads)}")
+    # Every payload is this release's statement before the key signs any.
+    payload_of: dict[str, bytes] = {}
+    for row in rows:
+        payload = (payloads / f"{row.artifact}{PAYLOAD_SUFFIX}").read_bytes()
+        _check_payload(release, row, payload, artifacts)
+        payload_of[row.artifact] = payload
     with tempfile.TemporaryDirectory(prefix="edge-release-sign-") as tmp:
         key = Path(tmp) / "key.pem"
         fd = os.open(key, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "w", encoding="ascii") as fh:
             fh.write(pem if pem.endswith("\n") else pem + "\n")
-        raw = raw_public_key(key, private=True)
-        keyid = sha256_hex(raw)
+        public = private_key_public_pem(key)
+        keyid = sha256_hex(spki_pem_public_key(public, "the signing key"))
         if keyid in release.test_only_keyids():
             fail("the signing key is a TEST-ONLY contract key; no signer may hold one (DEC-3.9)")
         if keyid != expect:
@@ -1026,11 +1251,10 @@ def cmd_sign(release: Release, args: argparse.Namespace) -> None:
                 f"the signing key's keyid {keyid} is not the expected "
                 f"{release.signing_purpose} keyid {expect}"
             )
-        public = openssl("pkey", "-in", str(key), "-pubout")
-        (out_dir / PUBLIC_KEY_FILE).write_bytes(public)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / PUBLIC_KEY_FILE).write_text(public, encoding="ascii")
         for row in rows:
-            payload = (payloads / f"{row.artifact}{PAYLOAD_SUFFIX}").read_bytes()
-            _check_payload(release, row, payload, artifacts)
+            payload = payload_of[row.artifact]
             message = Path(tmp) / "pae"
             message.write_bytes(pae(release.payload_type, payload))
             sig = openssl("pkeyutl", "-sign", "-rawin", "-inkey", str(key), "-in", str(message))
@@ -1044,7 +1268,7 @@ def cmd_sign(release: Release, args: argparse.Namespace) -> None:
             target = out_dir / row.statement
             target.write_text(json.dumps(envelope, indent=2) + "\n", encoding="utf-8")
             print(str(target))
-    # Every envelope verifies under the key it claims before it leaves the job.
+    # Every envelope verifies, under verify_strict, before it leaves the job.
     _verify_all(release, artifacts, out_dir, out_dir / PUBLIC_KEY_FILE, expect)
 
 
@@ -1069,12 +1293,11 @@ def cmd_check_envelope(release: Release, args: argparse.Namespace) -> None:
 
 
 def _verify_envelope(
-    release: Release, row: Row, path: Path, public_key: Path, expect: str, artifacts: Path
+    release: Release, row: Row, path: Path, public_key: bytes, expect: str, artifacts: Path
 ) -> None:
     """statements.json verification_order, then the release checks."""
     envelope = _envelope(release, path)
-    raw = raw_public_key(public_key, private=False)
-    keyid = sha256_hex(raw)
+    keyid = sha256_hex(public_key)
     signature = envelope["signatures"][0]
     if keyid != expect or signature["keyid"] != keyid:
         fail(
@@ -1083,29 +1306,7 @@ def _verify_envelope(
         )
     payload = b64_strict(envelope["payload"], f"{row.statement} payload")
     sig = b64_strict(signature["sig"], f"{row.statement} sig")
-    with tempfile.TemporaryDirectory(prefix="edge-release-verify-") as tmp:
-        message = Path(tmp) / "pae"
-        message.write_bytes(pae(envelope["payloadType"], payload))
-        sig_file = Path(tmp) / "sig"
-        sig_file.write_bytes(sig)
-        proc = subprocess.run(
-            [
-                "openssl",
-                "pkeyutl",
-                "-verify",
-                "-rawin",
-                "-pubin",
-                "-inkey",
-                str(public_key),
-                "-in",
-                str(message),
-                "-sigfile",
-                str(sig_file),
-            ],
-            capture_output=True,
-            check=False,
-        )
-    if proc.returncode != 0:
+    if not ed25519_verify_strict(public_key, pae(envelope["payloadType"], payload), sig):
         fail(f"{row.statement}: the signature does not verify", "signature-invalid")
     _check_payload(release, row, payload, artifacts)
 
@@ -1116,8 +1317,9 @@ def _verify_all(release: Release, artifacts: Path, statements: Path, public_key:
     expected = {r.statement for r in rows}
     if present != expected:
         fail(f"statements {sorted(present)} are not the planned set {sorted(expected)}")
+    raw = spki_pem_public_key(public_key.read_text(encoding="ascii"), public_key.name)
     for row in rows:
-        _verify_envelope(release, row, statements / row.statement, public_key, expect, artifacts)
+        _verify_envelope(release, row, statements / row.statement, raw, expect, artifacts)
         print(f"verified {row.statement}")
 
 
@@ -1127,6 +1329,90 @@ def cmd_verify(release: Release, args: argparse.Namespace) -> None:
     _verify_all(
         release, Path(args.artifacts), Path(args.statements), Path(args.public_key), args.expect_keyid
     )
+
+
+def cmd_signature_vectors(release: Release, args: argparse.Namespace) -> None:
+    """The verifier against the contract's verify_strict vectors."""
+    path = (
+        Path(args.vectors)
+        if args.vectors
+        else release.contract / "fixtures" / "dsse" / "signature-vectors.json"
+    )
+    vectors = read_json(path)["vectors"]
+    results = []
+    for v in vectors:
+        got = ed25519_verify_strict(
+            bytes.fromhex(v["public_key_hex"]),
+            bytes.fromhex(v["message_hex"]),
+            bytes.fromhex(v["signature_hex"]),
+        )
+        results.append({"id": v["id"], "expected": v["verify_strict"], "verified": got})
+    print(json.dumps(results, indent=2))
+    wrong = [r["id"] for r in results if r["expected"] != r["verified"]]
+    if wrong:
+        fail(f"the verifier disagrees with the contract's verify_strict on {wrong}")
+
+
+def cmd_notes(release: Release, args: argparse.Namespace) -> None:
+    """The GitHub release body, from the plan: what ships and what does not."""
+    repo = _require_env("GITHUB_REPOSITORY")
+    rows = release.rows()
+    unbuildable = release.facts["suderra_os"].get("unbuildable", {})
+    os_lines = [
+        f"- `{r.artifact}` and `{r.statement}` ({r.id}, {r.arch})" for r in rows if r.channel == CHANNEL_OS
+    ]
+    skipped = [
+        f"- `{board}`: no release in this version ({entry['blocked_by']}). {entry['reason']}"
+        for board, entry in sorted(unbuildable.items())
+    ]
+    generic_lines = [f"- `{r.artifact}` ({r.id})" for r in rows if r.channel == CHANNEL_GENERIC]
+    identity = f"https://github.com/{repo}/.github/workflows/edge-agent-release.yml@refs/tags/{args.tag}"
+    text = "\n".join(
+        [
+            f"## Suderra Edge Agent {args.tag}",
+            "",
+            "Tag-only release built from a commit reachable from `origin/main`, after the",
+            "gateway CI and the profile CI passed on that commit.",
+            "`edge-release-manifest.json` lists every file with its digest.",
+            "",
+            "### Suderra OS channel (ADR-048)",
+            "",
+            "Each archive holds exactly `suderra-agent` and carries its Ed25519 DSSE release",
+            f"statement (`{STATEMENT_TYPE}`, {release.signing_purpose} key `{args.statement_keyid}`).",
+            "Suderra OS installs it only through a signed provisioning manifest that names",
+            "the statement; root verifies the statement and both digests.",
+            "",
+            *os_lines,
+            "",
+            "Boards of `contracts/suderra-edge/v1/boards.json` this version does not ship:",
+            "",
+            *(skipped or ["- none"]),
+            "",
+            "### Generic-Linux channel (ADR-048 DEC-28)",
+            "",
+            "Each archive holds `edge-agent`; the cloud's installer and update scripts fetch it.",
+            "",
+            *generic_lines,
+            "",
+            "### Provenance",
+            "",
+            "Every file carries `.sig`/`.pem` cosign keyless signature material, plus `.sha256`,",
+            "`.cargo-metadata.sbom.json`, `.intoto.jsonl` and `.NOTICE.md` per artifact. Devices",
+            "trust only the Ed25519 statement (DEC-3.8). Verify a signature:",
+            "",
+            "```bash",
+            "cosign verify-blob \\",
+            "  --certificate <file>.pem \\",
+            "  --signature <file>.sig \\",
+            f'  --certificate-identity "{identity}" \\',
+            '  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \\',
+            "  <file>",
+            "```",
+            "",
+        ]
+    )
+    Path(args.out).write_text(text, encoding="utf-8")
+    print(args.out)
 
 
 def _file_entry(directory: Path, name: str) -> dict[str, Any]:
@@ -1204,6 +1490,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="edge_release.py", description=__doc__.split("\n\n", 1)[0])
     parser.add_argument("--facts", default=str(DEFAULT_FACTS), help="release facts TOML")
     parser.add_argument("--cargo-toml", default=str(DEFAULT_CARGO_TOML), help="agent Cargo.toml")
+    parser.add_argument("--contract", default=str(CONTRACT), help="contracts/suderra-edge/v1 directory")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("plan", help="build and test matrices")
@@ -1217,10 +1504,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--out-dir", required=True)
     p.add_argument("--source-date-epoch", type=int)
 
-    p = sub.add_parser("provenance", help="in-toto SLSA provenance of one artifact")
-    p.add_argument("--channel", required=True, choices=[CHANNEL_OS, CHANNEL_GENERIC])
-    p.add_argument("--id", required=True)
-    p.add_argument("--artifact", required=True)
+    p = sub.add_parser("provenance", help="in-toto SLSA provenance of every planned artifact")
+    p.add_argument("--artifacts", required=True)
     p.add_argument("--tag", required=True)
     p.add_argument("--out-dir", required=True)
 
@@ -1245,6 +1530,14 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("check-envelope", help="key-free checks of one release statement")
     p.add_argument("--envelope", required=True)
 
+    p = sub.add_parser("signature-vectors", help="the Ed25519 verifier against the contract vectors")
+    p.add_argument("--vectors", help="default: the contract's fixtures/dsse/signature-vectors.json")
+
+    p = sub.add_parser("notes", help="the GitHub release body")
+    p.add_argument("--tag", required=True)
+    p.add_argument("--statement-keyid", required=True)
+    p.add_argument("--out", required=True)
+
     p = sub.add_parser("manifest", help="index of every published file")
     p.add_argument("--artifacts", required=True)
     p.add_argument("--tag", required=True)
@@ -1261,10 +1554,12 @@ def main(argv: list[str] | None = None) -> int:
         "sign": cmd_sign,
         "verify": cmd_verify,
         "check-envelope": cmd_check_envelope,
+        "signature-vectors": cmd_signature_vectors,
+        "notes": cmd_notes,
         "manifest": cmd_manifest,
     }
     try:
-        release = Release(Path(args.facts), Path(args.cargo_toml))
+        release = Release(Path(args.facts), Path(args.cargo_toml), Path(args.contract))
         commands[args.command](release, args)
     except ReleaseError as e:
         reason = f" [{e.reason}]" if e.reason else ""

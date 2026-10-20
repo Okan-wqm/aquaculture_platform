@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from .agent_invocations import request_anchor_sha
-from .agent_surface import JUDGE_ROLES, SUPPORTING_ROLES
+from .agent_surface import EXPERT_METHODS, JUDGE_ROLES, SUPPORTING_ROLES
 from .confidence import confidence_in_unit_interval
 from .feedback_store import (
     CONFIDENCE_SOURCES,
@@ -176,6 +176,31 @@ def parse_typed_verdict(
     return question, parse_single_answer(question, payload)
 
 
+def folded_judge_method(
+    request: dict[str, Any], details: dict[str, Any], verdict_block: dict[str, Any],
+) -> str | None:
+    """WP-J B-1 — the METHOD the seat practiced, mint-first.
+
+    Same precedence ladder as the model (ORPHAN-HIGH-781): the MINT's
+    ``agent_method`` (what the kernel asked the seat to practice, stamped
+    from ``agent_surface.EXPERT_METHODS``) outranks the executor's dispatch
+    stamp (``details.agent_dispatch_method``), which outranks the judge's
+    own ``verdict.method`` self-report. ``None`` on legacy envelopes that
+    predate the stamp — those receipts keep the model leg of the hybrid
+    anchor rule; a method is never re-derived for them.
+
+    An unknown spelling is NOT silently dropped: it is refused by name in
+    ``validate_judge_response`` (a garbage method string is a producer
+    regression, and quietly reading it as "no method" would hide it while
+    still writing a receipt the diversity legs cannot place).
+    """
+    return (
+        request.get("agent_method")
+        or details.get("agent_dispatch_method")
+        or verdict_block.get("method")
+    )
+
+
 def stamped_confidence_source(details: dict[str, Any]) -> tuple[str, str | None]:
     """The route's stamp for where the confidence came from, and why it is refused.
 
@@ -222,6 +247,12 @@ def validate_judge_response(
     verdict_block = _verdict_field(details)
     if not verdict_block:
         return ["judge_verdict:absent"]
+    # WP-J B-1 — the folded method must be a member of the one registry or
+    # the response is refused by name; see folded_judge_method for why this
+    # is a refusal and not a silent drop.
+    method = folded_judge_method(request, details, verdict_block)
+    if method is not None and str(method) not in EXPERT_METHODS.values():
+        errors.append(f"judge_verdict.method:invalid:{method!r}")
     _source, source_error = stamped_confidence_source(details)
     if source_error:
         errors.append(source_error)
@@ -453,6 +484,11 @@ def record_judge_verdict_from_response(
         # survives only as the fallback for mock/legacy envelopes that
         # predate the stamp.
         model=details.get("agent_dispatch_model") or verdict_block.get("model"),
+        # WP-J B-1 — the METHOD beside the model, same doctrine, one ladder
+        # (folded_judge_method): mint stamp, then dispatch stamp, then the
+        # self-report. None on legacy envelopes keeps the hybrid anchor
+        # rule's model leg for those receipts.
+        method=folded_judge_method(request, details, verdict_block),
         prompt_hash=verdict_block.get("prompt_hash"),
         confidence=float(confidence) if confidence is not None else None,
         rationale=str(note),

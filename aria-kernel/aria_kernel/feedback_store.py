@@ -9,6 +9,7 @@ from collections.abc import Callable
 from typing import Any
 
 from .confidence import confidence_in_unit_interval
+from .agent_surface import EXPERT_METHODS
 from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 from .ledger import append_declared_jsonl, append_declared_jsonl_rows, append_jsonl as append_chained_jsonl
 from .finding_subject import normalize_finding_message
@@ -75,6 +76,14 @@ CONSENSUS_UNCERTAINTY_REASONS = (
 CALIBRATION_GATES = ("measure_only", "enforce")
 CALIBRATED_QUORUM_MIN_JUDGES = 2
 CALIBRATED_QUORUM_MIN_MODELS = 2
+# WP-J B-1 — single-provider closing authority (operator decision
+# 2026-10-18): under `enforce` the calibrated quorum spans distinct METHODS
+# when the calibration rows can name them. Legacy calibration rows that
+# predate method receipts keep CALIBRATED_QUORUM_MIN_MODELS; the choice of
+# leg is the same hybrid law the anchor rule applies
+# (``observation_span``), so the gate and the anchor can never disagree
+# about what "diverse" means.
+CALIBRATED_QUORUM_MIN_DISTINCT_METHODS = 2
 FEEDBACK_SEVERITIES = ("low", "medium", "high", "critical")
 # WP-J D-1 — 'outcome' (the machine-verifiable outcome of a judged finding:
 # red-then-green same-recipe, merged, not reverted; outcome_truth.py) was
@@ -160,6 +169,15 @@ ANCHOR_MIN_JUDGE_COUNT = 3
 # the observers' model now comes from the dispatch record the executor
 # stamps (`details.agent_dispatch_model`), not from a judge's self-report.
 ANCHOR_MIN_DISTINCT_MODELS = 2
+# WP-J B-1 — operator decision 2026-10-18: diversity comes from PERSPECTIVE
+# and METHOD, not from the provider, so a single-provider fleet whose seats
+# span distinct methods must be able to anchor. The METHOD leg applies to
+# receipts that carry method (rows minted after EXPERT_METHODS landed);
+# model-only receipts — the 16 live anchors on aria/state, replayed as
+# fixtures in test_method_diversity_anchor — keep ANCHOR_MIN_DISTINCT_MODELS
+# and stay ground truth. Neither leg is re-derived from anything: a receipt
+# that cannot answer its leg fails closed (G-2 preserved).
+ANCHOR_MIN_DISTINCT_METHODS = 2
 
 JUDGMENT_SUBJECT_FINDING = "finding"
 JUDGMENT_SUBJECT_BELIEF = "belief"
@@ -242,11 +260,51 @@ def is_ground_truth_row(row: dict[str, Any]) -> bool:
     agreed = consensus_judge_count(row)
     if not (agreed >= ANCHOR_MIN_JUDGE_COUNT and consensus_judges_voted(row) == agreed):
         return False
-    # G-2 — and the agreement must span more than one model. A row written
-    # before `observers` existed cannot answer this question, so it is not
-    # ground truth: unknown is never green, and this ledger has exactly one
-    # such row (already non-anchor for other reasons, measured 2026-08-20).
-    return distinct_observer_models(row) >= ANCHOR_MIN_DISTINCT_MODELS
+    # G-2, hybrid (WP-J B-1) — and the agreement must span a diversity leg
+    # the receipt can actually answer. Receipts that carry method are judged
+    # in methods (a single-provider fleet whose seats span distinct methods
+    # anchors); model-only receipts — every row written before method
+    # receipts existed, including the 16 live anchors — keep the model leg;
+    # a receipt set that can answer NEITHER (mixed legs, or judge_id-only
+    # entries) is not ground truth: unknown is never green.
+    leg, span = observation_span(consensus_observers(row))
+    if leg == "methods":
+        return span >= ANCHOR_MIN_DISTINCT_METHODS
+    if leg == "models":
+        return span >= ANCHOR_MIN_DISTINCT_MODELS
+    return False
+
+
+def observation_span(receipts: tuple[dict[str, str], ...]) -> tuple[str, int]:
+    """The hybrid diversity law, ONE function for every consumer.
+
+    Returns ``(leg, span)``: ``("methods", n)`` when every receipt carries a
+    method, ``("models", n)`` when every receipt carries a model and none is
+    needed to carry a method, ``("unknown", 0)`` otherwise (a mixed set, or
+    receipts with neither field, cannot prove a span on either leg).
+
+    The anchor rule (``is_ground_truth_row``) and the calibrated quorum
+    (``generate_ai_consensus`` under ``enforce``) both ask this question; a
+    second copy of the leg choice is how the two would drift apart and let
+    a row the gate refused settle as truth.
+    """
+    if not receipts:
+        return "unknown", 0
+    carrying_method = [r for r in receipts if str(r.get("method") or "").strip()]
+    if carrying_method:
+        # A set with ANY method receipt is not legacy: every receipt must
+        # answer the method leg, or the set answers nothing. A panel whose
+        # stamps disagree is a producer inconsistency, and the one thing it
+        # must never do is quietly fall back to a model leg it only partly
+        # describes (that fallback anchored mixed sets on the models leg
+        # before WP-J B-1 — the fail-open this law closes).
+        if len(carrying_method) == len(receipts):
+            return "methods", len({str(r["method"]) for r in carrying_method})
+        return "unknown", 0
+    carrying_model = [r for r in receipts if str(r.get("model") or "").strip()]
+    if len(carrying_model) == len(receipts):
+        return "models", len({str(r["model"]) for r in carrying_model})
+    return "unknown", 0
 
 
 def consensus_observers(row: dict[str, Any]) -> tuple[dict[str, str], ...]:
@@ -255,6 +313,11 @@ def consensus_observers(row: dict[str, Any]) -> tuple[dict[str, str], ...]:
     Row-local by construction, the same discipline JJ-1 applied to
     judge_count/judges_voted: the anchor predicate must be answerable from
     the row, not from a join a future reader might forget to perform.
+
+    WP-J B-1 — a receipt is kept when it can answer a diversity leg: it
+    needs its judge_id plus a model (the legacy leg) or a method (the
+    single-provider leg). An entry with neither is not a receipt of
+    anything and is dropped here exactly as a model-less entry always was.
     """
     raw = row.get("observers")
     if not isinstance(raw, list):
@@ -265,14 +328,25 @@ def consensus_observers(row: dict[str, Any]) -> tuple[dict[str, str], ...]:
             continue
         judge_id = str(item.get("judge_id") or "").strip()
         model = str(item.get("model") or "").strip()
-        if judge_id and model:
-            out.append({"judge_id": judge_id, "model": model})
+        method = str(item.get("method") or "").strip()
+        if judge_id and (model or method):
+            receipt = {"judge_id": judge_id}
+            if model:
+                receipt["model"] = model
+            if method:
+                receipt["method"] = method
+            out.append(receipt)
     return tuple(out)
 
 
 def distinct_observer_models(row: dict[str, Any]) -> int:
     """How many different MODELS stand behind this row."""
-    return len({observer["model"] for observer in consensus_observers(row)})
+    return len({observer["model"] for observer in consensus_observers(row) if observer.get("model")})
+
+
+def distinct_observer_methods(row: dict[str, Any]) -> int:
+    """How many different METHODS stand behind this row (WP-J B-1)."""
+    return len({observer["method"] for observer in consensus_observers(row) if observer.get("method")})
 
 
 def judgment_subject_of(row: dict[str, Any]) -> str:
@@ -564,6 +638,9 @@ def record_operator_feedback(
     source_type: str = "human",
     judge_id: str | None = None,
     model: str | None = None,
+    # WP-J B-1 — the METHOD the seat practiced, folded mint-first by
+    # judgment_bridge (``folded_judge_method``). None on legacy rows.
+    method: str | None = None,
     prompt_hash: str | None = None,
     confidence: float | None = None,
     rationale: str | None = None,
@@ -596,6 +673,11 @@ def record_operator_feedback(
         raise GovernanceError(f"unknown feedback severity: {severity}")
     if source_type not in FEEDBACK_SOURCE_TYPES:
         raise GovernanceError(f"unknown feedback source_type: {source_type}")
+    # WP-J B-1 — the method vocabulary is the one registry
+    # (agent_surface.EXPERT_METHODS); a method outside it can never buy a
+    # receipt diversity it did not practice.
+    if method is not None and method not in EXPERT_METHODS.values():
+        raise GovernanceError(f"unknown feedback method: {method}")
     if affected_belief_ids is not None and not _valid_string_list(affected_belief_ids):
         raise GovernanceError("affected_belief_ids must be an array of non-empty strings")
     if evidence_refs is not None and not _valid_string_list(evidence_refs):
@@ -657,8 +739,17 @@ def record_operator_feedback(
                 raise GovernanceError("each observer must be an object")
             if not str(observer.get("judge_id") or "").strip():
                 raise GovernanceError("each observer requires judge_id")
-            if not str(observer.get("model") or "").strip():
-                raise GovernanceError("each observer requires model")
+            # WP-J B-1 — hybrid: a receipt answers the method leg or the
+            # model leg. One with neither is refused here rather than
+            # dropped at read time, so a producer that forgot both stamps
+            # learns it at mint, not from an anchor that never forms.
+            if not (
+                str(observer.get("model") or "").strip()
+                or str(observer.get("method") or "").strip()
+            ):
+                raise GovernanceError("each observer requires model or method")
+            if str(observer.get("method") or "").strip() and str(observer.get("method")) not in EXPERT_METHODS.values():
+                raise GovernanceError(f"unknown observer method: {observer.get('method')!r}")
     anchor_claimed = (
         source_type == "ai_consensus"
         and judge_count is not None
@@ -685,6 +776,7 @@ def record_operator_feedback(
         "source_type": source_type,
         "judge_id": judge_id,
         "model": model,
+        "method": method,
         "prompt_hash": prompt_hash,
         "confidence": confidence,
         "rationale": rationale,
@@ -694,8 +786,16 @@ def record_operator_feedback(
         "judge_count": judge_count,
         "judges_voted": judges_voted,
         "judgment_subject": judgment_subject,
+        # WP-J B-1 — the receipt keeps whichever leg each observer can
+        # answer: judge_id always, model and/or method when present. The
+        # mint-side validation above already refused an observer with
+        # neither.
         "observers": [
-            {"judge_id": str(o["judge_id"]).strip(), "model": str(o["model"]).strip()}
+            {
+                "judge_id": str(o["judge_id"]).strip(),
+                **({"model": str(o["model"]).strip()} if str(o.get("model") or "").strip() else {}),
+                **({"method": str(o["method"]).strip()} if str(o.get("method") or "").strip() else {}),
+            }
             for o in (observers or [])
         ] or None,
         # Additive (typed-judgment plan): absent on rows written before it,
@@ -1057,8 +1157,21 @@ def generate_ai_consensus(
         ) if judge_calibration is not None else []
         closing = agreeing
         if calibration_gate == "enforce":
-            distinct_models = {str(row.get("model") or "").strip() for row in calibrated_agreeing if str(row.get("model") or "").strip()}
-            if len(calibrated_agreeing) < CALIBRATED_QUORUM_MIN_JUDGES or len(distinct_models) < CALIBRATED_QUORUM_MIN_MODELS:
+            # WP-J B-1 — the calibrated quorum asks the SAME hybrid question
+            # the anchor rule asks (one law, ``observation_span``): distinct
+            # METHODS when the calibrated rows carry method receipts, the
+            # legacy distinct-models leg when they carry model only, and a
+            # refusal when they can answer neither — a mixed set cannot
+            # prove a quorum on either leg.
+            leg, span = observation_span(tuple(calibrated_agreeing))
+            quorum = (
+                span >= CALIBRATED_QUORUM_MIN_DISTINCT_METHODS
+                if leg == "methods"
+                else span >= CALIBRATED_QUORUM_MIN_MODELS
+                if leg == "models"
+                else False
+            )
+            if len(calibrated_agreeing) < CALIBRATED_QUORUM_MIN_JUDGES or not quorum:
                 uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "confidence_uncalibrated"))
                 continue
             closing = calibrated_agreeing
@@ -1105,15 +1218,25 @@ def generate_ai_consensus(
                 f" over {dissenting} dissenting (weighted majority; "
                 f"settles precision only, never ground truth)"
             )
-        # G-2 (ORPHAN-HIGH-760) — an ANCHOR must be able to say which models
-        # produced it. Enforced HERE rather than on every judge row: this is
-        # the one place the answer becomes load-bearing, and a rule placed
-        # where it does not bite only teaches people to satisfy it.
-        # Fail-closed: a group that would settle at anchor grade but cannot
-        # name its observers escalates as an uncertainty instead of
-        # laundering unknown provenance into repository truth.
+        # G-2 (ORPHAN-HIGH-760) — an ANCHOR must be able to say who produced
+        # it. Enforced HERE rather than on every judge row: this is the one
+        # place the answer becomes load-bearing, and a rule placed where it
+        # does not bite only teaches people to satisfy it. Fail-closed: a
+        # group that would settle at anchor grade but cannot name its
+        # observers escalates as an uncertainty instead of laundering
+        # unknown provenance into repository truth.
+        # WP-J B-1 — "naming its observers" is hybrid: a closing row needs a
+        # model OR a method (whichever leg its receipt answers). A judge row
+        # with neither is refused; a MIXED group still settles the precision
+        # lane but its receipt set answers no leg, so the anchor predicate
+        # fails closed at read time — exactly like a row written before
+        # `observers` existed.
         if len(closing) >= ANCHOR_MIN_JUDGE_COUNT and any(
-            not str(row.get("model") or "").strip() for row in closing
+            not (
+                str(row.get("model") or "").strip()
+                or str(row.get("method") or "").strip()
+            )
+            for row in closing
         ):
             uncertainties.append(
                 _consensus_uncertainty(
@@ -1144,17 +1267,20 @@ def generate_ai_consensus(
                 # are deliberately absent: they did not stand behind this
                 # verdict, and counting them would let a lone opposing model
                 # buy the diversity the agreeing side lacks.
+                # WP-J B-1 — the receipt carries the METHOD beside the model
+                # (the hybrid leg): a judge row that cannot name either
+                # contributes no receipt. Dropping it here rather than
+                # writing an empty one keeps the sub-anchor lane writable
+                # while the anchor lane above has already refused the group
+                # outright.
                 observers=[
                     {
                         "judge_id": str(row.get("judge_id") or ""),
-                        "model": str(row.get("model") or ""),
+                        **({"model": str(row.get("model") or "")} if str(row.get("model") or "").strip() else {}),
+                        **({"method": str(row.get("method") or "")} if str(row.get("method") or "").strip() else {}),
                     }
                     for row in closing
-                    # A judge row that cannot name its model contributes no
-                    # receipt. Dropping it here rather than writing an empty
-                    # one keeps the sub-anchor lane writable while the anchor
-                    # lane above has already refused the group outright.
-                    if str(row.get("model") or "").strip()
+                    if str(row.get("model") or "").strip() or str(row.get("method") or "").strip()
                 ] or None,
                 confidence=round(avg_confidence, 3),
                 rationale="; ".join(str(row.get("rationale") or row.get("note") or "") for row in closing if row.get("rationale") or row.get("note"))[:2000],

@@ -114,6 +114,32 @@ JUDGE_ROLES: tuple[str, ...] = (
     "consensus_arbitration",
 )
 
+# WP-J B-1 — the METHOD each judgment-lane seat practices. Operator decision
+# 2026-10-18: diversity comes from PERSPECTIVE and METHOD, not from the
+# provider, so the anchor's diversity question (feedback_store G-2 hybrid
+# leg) and the calibrated quorum's both read the METHOD off the receipt, and
+# the method a seat practiced is stamped at the MINT from THIS registry (the
+# ORPHAN-HIGH-781 doctrine: identity comes from what the kernel asked, never
+# from what the judged agent volunteers about itself). One registry, no
+# second copy: judgment_bridge folds it onto the ai_judge row,
+# generate_ai_consensus folds it onto the observers receipt, and nothing
+# else may spell a role's method.
+#
+# The three live seats map onto the operator's method list as: the evidence
+# judge is the static code tracer, the adversarial judge is the devil's
+# advocate, and the arbiter weighs evidence. The panel seats (bug hunt,
+# reproduction, impact, architecture) join this registry in the same commit
+# they join the four E14 tables below.
+EXPERT_METHODS: dict[str, str] = {
+    "evidence_judgment": "static_trace",
+    "adversarial_judgment": "devils_advocate",
+    "consensus_arbitration": "evidence_weighing",
+}
+
+# The closed vocabulary of methods (the values of EXPERT_METHODS), for
+# validators that check a method string without caring which seat owns it.
+METHODS: tuple[str, ...] = tuple(EXPERT_METHODS.values())
+
 SUPPORTING_ROLES: tuple[str, ...] = (
     "change_intelligence",
     "goldset_curation",
@@ -264,8 +290,10 @@ __all__ = [
     "DERIVED_REQUEST_STATES",
     "DISPATCHABLE_ROLES",
     "DRAFTER_ROLES",
+    "EXPERT_METHODS",
     "INVOCATION_ROLES",
     "JUDGE_ROLES",
+    "METHODS",
     "PLANNER_BRIDGE_ROLES",
     "REQUEST_ROLES",
     "ROLE_TARGET_PAIRING",

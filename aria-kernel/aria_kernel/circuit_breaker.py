@@ -506,6 +506,16 @@ def reset_breaker(
     if not (reason or "").strip():
         raise GovernanceError("circuit_breaker_reset_requires_reason")
     root = ensure_tools_dir(base_dir)
+    # ARIA-HIGH-238 — clearing a tripped breaker restores autonomous writes,
+    # so the ref must be the operator's own GitHub act, not a free string.
+    from .operator_approval import require_operator_act
+
+    approval = require_operator_act(
+        operator_approval_ref,
+        surface="circuit_breaker_reset",
+        scope={"target": "breaker"},
+        base_dir=root,
+    )
     atomic_write_json(_state_path(root), {"state": "ok"})
     failures_path = _failures_path(root)
     if failures_path.exists():
@@ -515,6 +525,7 @@ def reset_breaker(
         "circuit_breaker_reset",
         {
             "operator_approval_ref": operator_approval_ref,
+            "operator_approval": approval,
             "reason": reason,
         },
     )
@@ -619,6 +630,18 @@ def quarantine_breaker_evidence(
             "against a different definition of decodable than the evaluator uses."
         )
 
+    # ARIA-HIGH-238 — quarantining breaker evidence rewrites the evidence the
+    # breaker judges, so the ref must be the operator's own GitHub act. The
+    # act is verified (and consumed) only once the operation will really run:
+    # the no-op refusals above must not spend an operator act for nothing.
+    from .operator_approval import require_operator_act
+
+    approval = require_operator_act(
+        operator_approval_ref,
+        surface="breaker_evidence_quarantine",
+        scope={"target": "breaker_evidence"},
+        base_dir=root,
+    )
     stamped = utc_now_stamp()
     quarantine_path = _quarantine_path(root)
     with quarantine_path.open("a", encoding="utf-8") as sidecar:
@@ -628,6 +651,7 @@ def quarantine_breaker_evidence(
                     "schema_version": 1,
                     "quarantined_at": stamped,
                     "operator_approval_ref": operator_approval_ref,
+                    "operator_approval": approval,
                     "reason": reason,
                     "damaged_row_count": len(damaged),
                     "surviving_row_count": len(kept),

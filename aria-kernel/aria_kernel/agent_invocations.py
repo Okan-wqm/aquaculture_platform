@@ -1947,6 +1947,18 @@ def _submit_legacy_invocation_result_internal(
         raise GovernanceError(
             "legacy_submit_path_requires_operator_migration_approval"
         )
+    # ARIA-HIGH-238 — the legacy writer bypasses the lease-bound submission
+    # path, so its sign-off must be the operator's own GitHub act naming the
+    # request whose result row it writes.
+    from .operator_approval import require_operator_act
+
+    _root_for_approval = ensure_tools_dir(base_dir)
+    migration_approval = require_operator_act(
+        operator_migration_approval_ref,
+        surface="legacy_result_submit",
+        scope={"request": request_id},
+        base_dir=_root_for_approval,
+    )
     if status not in STATUSES:
         raise GovernanceError("status must be completed, rejected, or partial")
     if status != "completed" and not (rejection_reason or "").strip():
@@ -1970,6 +1982,7 @@ def _submit_legacy_invocation_result_internal(
         {
             "request_id": request_id,
             "operator_migration_approval_ref": operator_migration_approval_ref,
+            "operator_approval": migration_approval,
             "caller_module": caller_module,
         },
     )

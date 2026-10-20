@@ -53,11 +53,14 @@ class ApproveAgentPrSyntheticTests(unittest.TestCase):
             "aria_kernel.agent_genesis._latest_sandbox",
             return_value=self._sandbox(decision="pass", synthetic=False),
         ):
-            row = approve_agent_pr(
-                draft_id="drf-e2",
-                operator_approval_ref="op-1",
-                base_dir=self.base,
-            )
+            from tests._helpers.operator_acts import github_operator_acts
+
+            with github_operator_acts() as github:
+                row = approve_agent_pr(
+                    draft_id="drf-e2",
+                    operator_approval_ref=github.approve("agent_pr_approval", {"draft": "drf-e2"}),
+                    base_dir=self.base,
+                )
         self.assertEqual(row["status"], "approved_for_agent_pr")
 
     def test_synthetic_sandbox_rejects_without_override(self) -> None:
@@ -87,12 +90,15 @@ class ApproveAgentPrSyntheticTests(unittest.TestCase):
             "aria_kernel.agent_genesis._latest_sandbox",
             return_value=self._sandbox(decision="pass", synthetic=True),
         ):
-            row = approve_agent_pr(
-                draft_id="drf-e2",
-                operator_approval_ref="op-1",
-                base_dir=self.base,
-                operator_synthetic_override=True,
-            )
+            from tests._helpers.operator_acts import github_operator_acts
+
+            with github_operator_acts() as github:
+                row = approve_agent_pr(
+                    draft_id="drf-e2",
+                    operator_approval_ref=github.approve("agent_pr_approval", {"draft": "drf-e2"}),
+                    base_dir=self.base,
+                    operator_synthetic_override=True,
+                )
         self.assertEqual(row["status"], "approved_for_agent_pr")
 
 

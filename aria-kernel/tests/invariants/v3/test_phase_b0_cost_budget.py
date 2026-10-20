@@ -208,11 +208,16 @@ class PhaseB0CostBudget(unittest.TestCase):
             except GovernanceError:
                 pass
             self.assertEqual(current_state(base), "tripped")
-            reset_breaker(
-                base_dir=base,
-                reason="invariant b0 reset test",
-                operator_approval_ref="RFC-RST",
-            )
+            from tests._helpers.operator_acts import github_operator_acts
+
+            with github_operator_acts() as github:
+                reset_breaker(
+                    base_dir=base,
+                    reason="invariant b0 reset test",
+                    operator_approval_ref=github.approve(
+                        "cost_breaker_reset", {"target": "cost_breaker"},
+                    ),
+                )
             self.assertEqual(current_state(base), "ok")
 
 

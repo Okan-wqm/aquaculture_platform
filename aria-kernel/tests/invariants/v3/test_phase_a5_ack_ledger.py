@@ -38,11 +38,14 @@ _ACK_LEDGER_SOURCE = _KERNEL_ROOT / "aria_kernel" / "ack_ledger.py"
 
 def _seed_init(tools_dir: Path) -> None:
     from aria_kernel.ack_ledger import init_ack_ledger
-    init_ack_ledger(
-        base_dir=tools_dir,
-        reason="unit test seed initialisation",
-        operator_approval_ref="RFC-TEST",
-    )
+    from tests._helpers.operator_acts import github_operator_acts
+
+    with github_operator_acts() as github:
+        init_ack_ledger(
+            base_dir=tools_dir,
+            reason="unit test seed initialisation",
+            operator_approval_ref=github.approve("ack_key_operation", {"operation": "init"}),
+        )
 
 
 def _seed_draft(tools_dir: Path, draft_id: str) -> None:
@@ -287,11 +290,16 @@ class PhaseA5AckLedger(unittest.TestCase):
             # key; an operator row is signed by the operator, not this key.
             old_row = _record_auto(base, "draft-old")["row"]
             # Rotate.
-            rotate_key(
-                base_dir=base,
-                reason="key rotation invariant test",
-                operator_approval_ref="RFC-ROT",
-            )
+            from tests._helpers.operator_acts import github_operator_acts
+
+            with github_operator_acts() as github:
+                rotate_key(
+                    base_dir=base,
+                    reason="key rotation invariant test",
+                    operator_approval_ref=github.approve(
+                        "ack_key_operation", {"operation": "rotate"},
+                    ),
+                )
             # And one signed under the second key.
             new_row = _record_auto(base, "draft-new")["row"]
             # Both rows must verify (rolling key list resolves).

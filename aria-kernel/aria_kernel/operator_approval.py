@@ -71,6 +71,33 @@ AUTHORITY_RAISING_SURFACES: Mapping[str, tuple[str, ...]] = MappingProxyType({
     "tool_promote": ("tool", "target"),
     "tool_unquarantine": ("tool",),
     "l3_policy_approval": ("pr", "head_sha", "stage"),
+    # ARIA-HIGH-238 — the surfaces beyond unit O's four, landed with their
+    # verifier call sites (one cluster per commit). Scope carries the
+    # identifiers of the grant; a constant target still means one act
+    # authorizes one operation (acts are consumed on success).
+    "circuit_breaker_reset": ("target",),
+    "breaker_evidence_quarantine": ("target",),
+    "cost_breaker_reset": ("target",),
+    "host_lease_release": ("host",),
+    "kernel_change_request": ("digest",),
+    "agent_pr_approval": ("draft",),
+    "genesis_request": ("entity",),
+    "skill_pr_approval": ("draft",),
+    "skill_synthetic_sandbox": ("draft",),
+    "proposal_approval": ("proposal",),
+    "instinct_promotion": ("candidate",),
+    "genesis_transition": ("entity", "state"),
+    "skill_curation_decision": ("proposal", "decision"),
+    "pressure_weight_override": ("source", "weight"),
+    "agent_eval_run": ("agent", "fixture"),
+    "shadow_eval_bridge": ("agent", "invocation"),
+    "legacy_result_submit": ("request",),
+    "grant_human_approval": ("campaign", "risk"),
+    "ack_key_operation": ("operation",),
+    "retention_apply": ("retain",),
+    "artifact_restore": ("artifact",),
+    "retention_rollback": ("manifest",),
+    "tool_update": ("tool", "fields"),
 })
 
 # Decisions recorded with a reference that widen no authority.
@@ -435,6 +462,28 @@ def verify_operator_approval(
     }
 
 
+def require_operator_act(
+    ref: str | None,
+    *,
+    surface: str,
+    scope: Mapping[str, object],
+    base_dir: str | Path | None,
+) -> dict[str, Any]:
+    """``verify_operator_approval`` with the kernel's refusal mapping.
+
+    ARIA-HIGH-238 — the one wrapper every post-216 raising surface calls, so
+    the try/except that translates :class:`OperatorApprovalUnrecorded` into
+    the kernel's :class:`~aria_kernel.tool_registry.GovernanceError` (the
+    type the CLI renders) exists once, next to the rule it serves, instead
+    of being copied per module. The refusal prefix is the surface name, so
+    an audit row names exactly which grant was refused.
+    """
+    try:
+        return verify_operator_approval(ref, surface=surface, scope=scope, base_dir=base_dir)
+    except OperatorApprovalUnrecorded as exc:
+        raise GovernanceError(f"{surface}_approval_unrecorded: {exc}") from exc
+
+
 def verify_recorded_reference(
     ref: str | None,
     *,
@@ -516,6 +565,7 @@ __all__ = (
     "github_act_reader",
     "load_operators_policy",
     "parse_github_approval_ref",
+    "require_operator_act",
     "verify_operator_approval",
     "verify_recorded_reference",
 )

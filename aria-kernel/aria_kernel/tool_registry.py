@@ -1422,6 +1422,21 @@ def update_tool(
                 f"tool_id={tool_id!r} update_tool() touching {gated_present} "
                 f"requires reason kwarg"
             )
+        # ARIA-HIGH-238 — a runner or scope swap changes what the tool may
+        # read and execute: authority, so the ref must be the operator's own
+        # GitHub act naming the tool and exactly the fields being changed.
+        # Verified after the shape refusals and before any merge/write, so a
+        # refused call spends no act.
+        from .operator_approval import require_operator_act
+
+        update_approval = require_operator_act(
+            operator_approval_ref,
+            surface="tool_update",
+            scope={"tool": tool_id, "fields": ",".join(sorted(gated_present))},
+            base_dir=base_dir,
+        )
+    else:
+        update_approval = None
 
     # Capture pre-update runner argv so we can emit tool_runner_replaced
     # only when it actually changes.
@@ -1465,6 +1480,7 @@ def update_tool(
                     "new_argv": new_argv,
                     "reason": reason,
                     "operator_approval_ref": operator_approval_ref,
+                    **({"operator_approval": update_approval} if update_approval is not None else {}),
                 },
             )
 
@@ -1483,6 +1499,7 @@ def update_tool(
                 "new_thresholds": result.get("health_thresholds"),
                 "reason": reason,
                 "operator_approval_ref": operator_approval_ref,
+                **({"operator_approval": update_approval} if update_approval is not None else {}),
             },
         )
 

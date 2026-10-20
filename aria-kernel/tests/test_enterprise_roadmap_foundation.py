@@ -174,17 +174,35 @@ class EnterpriseRoadmapFoundationTests(unittest.TestCase):
             status="ready_for_operator",
             base_dir=self.tools_dir,
         )
-        approve_proposal(
-            proposal_id=proposal["proposal_id"],
-            operator_approval_ref="operator:test",
-            base_dir=self.tools_dir,
-        )
+        from tests._helpers.operator_acts import github_operator_acts
+
+        with github_operator_acts() as github:
+            approve_proposal(
+                proposal_id=proposal["proposal_id"],
+                operator_approval_ref=github.approve(
+                    "proposal_approval", {"proposal": proposal["proposal_id"]},
+                ),
+                base_dir=self.tools_dir,
+            )
         with self.assertRaises(GovernanceError):
             plan_apply_worktree(proposal_id=proposal["proposal_id"], workspace_root=self.root, base_dir=self.tools_dir)
 
-        request = request_kernel_change(
-            changed_files=["aria-kernel/aria_kernel/cli.py"],
-            operator_approval_ref="operator:test",
+        import hashlib
+
+        from tests._helpers.operator_acts import github_operator_acts
+
+        _files = ["aria-kernel/aria_kernel/cli.py"]
+        with github_operator_acts() as github:
+            request = request_kernel_change(
+                changed_files=_files,
+                operator_approval_ref=github.approve(
+                    "kernel_change_request",
+                    {
+                        "digest": hashlib.sha256(
+                            "\n".join(sorted(_files)).encode("utf-8")
+                        ).hexdigest(),
+                    },
+                ),
             validation_refs=["python-suite", "adapter-tests", "integrity-verify", "shadow-cycle", "validation-engine-self-test"],
             full_shadow_cycle_ref="cycle:test",
             rollback_plan="revert the kernel PR",

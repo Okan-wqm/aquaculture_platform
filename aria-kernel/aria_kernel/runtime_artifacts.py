@@ -1219,6 +1219,16 @@ def retention_apply(
         if workspace_root is not None
         else ensure_tools_dir(base_dir)
     )
+    # ARIA-HIGH-238 — retention archives live artifacts away; the ref must
+    # be the operator's own GitHub act naming the retention window applied.
+    from .operator_approval import require_operator_act
+
+    retention_approval = require_operator_act(
+        operator_approval_ref,
+        surface="retention_apply",
+        scope={"retain": str(retain_hot_cycles)},
+        base_dir=root,
+    )
     candidates = _retention_candidates(load_declared_jsonl(artifact_index_path(root), expected_surface="runtime_artifact_index"), retain_hot_cycles=retain_hot_cycles)
     archived: list[dict[str, Any]] = []
     for candidate in candidates:
@@ -1266,6 +1276,7 @@ def retention_apply(
             "reason": reason.strip(),
             "candidate_reason": candidate.get("reason"),
             "operator_approval_ref": operator_approval_ref.strip(),
+            "operator_approval": retention_approval,
             "reviewed": True,
             "recorded_at": utc_now(),
         }
@@ -1306,6 +1317,16 @@ def restore_artifact(
         if workspace_root is not None
         else ensure_tools_dir(base_dir)
     )
+    # ARIA-HIGH-238 — restore writes artifact bytes back into the tree; the
+    # ref must be the operator's own GitHub act naming the artifact.
+    from .operator_approval import require_operator_act
+
+    restore_approval = require_operator_act(
+        operator_approval_ref,
+        surface="artifact_restore",
+        scope={"artifact": artifact_ref},
+        base_dir=root,
+    )
     budget = _ArchiveReadBudget()
     try:
         ref = _archive_ref_for_query(root, artifact_ref, budget=budget)
@@ -1341,6 +1362,7 @@ def restore_artifact(
         "restored_from_cold": restored_from_cold,
         "reason": reason.strip(),
         "operator_approval_ref": operator_approval_ref.strip(),
+        "operator_approval": restore_approval,
         "recorded_at": utc_now(),
     }, expected_surface="retention_events")
     return {
@@ -1389,6 +1411,18 @@ def rollback_retention(
         if workspace_root is not None
         else ensure_tools_dir(base_dir)
     )
+    # ARIA-HIGH-238 — a rollback re-copies archived artifacts back into
+    # place; the ref must be the operator's own GitHub act naming the
+    # manifest being rolled back. Verified after the read-only checks and
+    # before the first copy.
+    from .operator_approval import require_operator_act
+
+    rollback_approval = require_operator_act(
+        operator_approval_ref,
+        surface="retention_rollback",
+        scope={"manifest": manifest_id},
+        base_dir=root,
+    )
     events = load_declared_jsonl(retention_events_path(root), expected_surface="retention_events")
     matches = [row for row in events if row.get("manifest_id") == manifest_id]
     restored: list[dict[str, Any]] = []
@@ -1410,6 +1444,7 @@ def rollback_retention(
         "restored_count": len(restored),
         "reason": reason.strip(),
         "operator_approval_ref": operator_approval_ref.strip(),
+        "operator_approval": rollback_approval,
         "recorded_at": utc_now(),
     }, expected_surface="retention_events")
     return {

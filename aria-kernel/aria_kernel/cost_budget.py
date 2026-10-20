@@ -281,6 +281,17 @@ def reset_breaker(
     the reset.
     """
     root = ensure_tools_dir(base_dir)
+    # ARIA-HIGH-238 — a tripped cost breaker blocks spending; clearing it
+    # re-opens the wallet, so the ref must be the operator's own GitHub act
+    # (previously ANY value — including an empty string — was accepted).
+    from .operator_approval import require_operator_act
+
+    approval = require_operator_act(
+        operator_approval_ref,
+        surface="cost_breaker_reset",
+        scope={"target": "cost_breaker"},
+        base_dir=root,
+    )
     atomic_write_json(_state_path(root), {"state": "ok"})
     from .tool_registry import append_tools_governance
     append_tools_governance(
@@ -288,6 +299,7 @@ def reset_breaker(
         "cost_budget_breaker_reset",
         {
             "operator_approval_ref": operator_approval_ref,
+            "operator_approval": approval,
             "reason": reason,
         },
     )

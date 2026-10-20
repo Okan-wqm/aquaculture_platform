@@ -87,9 +87,16 @@ class SkillGenesisChainTests(unittest.TestCase):
                 ],
                 base_dir=self.base,
                 synthetic_test_mode=True,
-                operator_approval_ref="test-synthetic-fixture",
+                operator_approval_ref=self._synthetic_ref("nope-no-such-draft"),
             )
         self.assertIn("draft_not_found", str(ctx.exception))
+
+    def _synthetic_ref(self, draft_id: str) -> str:
+        from tests._helpers.operator_acts import bind_github_operator_acts
+
+        if not hasattr(self, "_acts"):
+            self._acts = bind_github_operator_acts(self)
+        return self._acts.approve("skill_synthetic_sandbox", {"draft": draft_id})
 
     def test_materialize_without_sandbox_raises(self) -> None:
         req = request_skill_genesis(
@@ -143,7 +150,7 @@ class SkillGenesisChainTests(unittest.TestCase):
             ],
             base_dir=self.base,
             synthetic_test_mode=True,
-            operator_approval_ref="test-synthetic-fixture",
+            operator_approval_ref=self._synthetic_ref(draft["draft_id"]),
         )
         with self.assertRaises(GovernanceError) as ctx:
             materialize_skill(

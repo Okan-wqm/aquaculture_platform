@@ -267,15 +267,25 @@ fn d5_verify_at_boot_err_arm_is_fail_closed() {
     // An unverified configuration is the standby, never the boot.
     let async_main = main_rs
         .find("async fn async_main(")
-        .expect("async_main in main.rs");
+        .unwrap_or_else(|| panic!("BUG: async_main not found in main.rs"));
     let body = &main_rs[async_main..];
     let arm = body
         .find("Err(ConfigRejection::Unverified(")
-        .expect("async_main handles an unverified configuration");
+        .unwrap_or_else(|| {
+            panic!(
+                "D-5 WIRE INVARIANT VIOLATED: async_main does not handle \
+                 `ConfigRejection::Unverified`"
+            )
+        });
     let standby = body[arm..]
         .find("standby_until_verified(")
         .map(|rel| arm + rel)
-        .expect("the unverified arm enters the standby");
+        .unwrap_or_else(|| {
+            panic!(
+                "D-5 WIRE INVARIANT VIOLATED: the unverified arm does not enter \
+                 the standby"
+            )
+        });
     let next_arm = body[arm + 1..].find("=> ").map(|rel| arm + 1 + rel);
     assert!(
         next_arm.is_some_and(|n| standby > n) && standby < arm + 300,

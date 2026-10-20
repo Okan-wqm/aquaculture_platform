@@ -113,6 +113,11 @@ pub fn build_suderra_https_client_config() -> Result<Arc<ClientConfig>, String> 
             );
         }
     }
+    #[cfg(feature = "suderra-os")]
+    add_image_cloud_ca(
+        &mut root_store,
+        &crate::paths::AgentPaths::current().cloud_ca_file(),
+    )?;
     if root_store.is_empty() {
         return Err(
             "build_suderra_https_client_config: native CA store is empty. \
@@ -130,9 +135,90 @@ pub fn build_suderra_https_client_config() -> Result<Arc<ClientConfig>, String> 
     Ok(Arc::new(cfg))
 }
 
+/// Adds the image's provisioning-API CA (`paths::suderra_os::CLOUD_CA_FILE`)
+/// to `store` when the image ships one (ADR-048 DEC-5.5): dev images and the
+/// QEMU targets do, for the fake cloud of the QEMU e2e test, and root's
+/// provisioning client trusts the same file, so the agent's activation
+/// request reaches the provisioning API root fetched the manifest from. A
+/// production image has no such file and keeps the public roots alone. A
+/// file that is present but holds no valid certificate is an image defect
+/// and refuses the client instead of being skipped.
+#[cfg(feature = "suderra-os")]
+fn add_image_cloud_ca(store: &mut RootCertStore, path: &std::path::Path) -> Result<(), String> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => {
+            return Err(format!(
+                "cannot read the image's cloud CA {}: {e}",
+                path.display()
+            ))
+        }
+    };
+    let blocks = pem::parse_many(&text)
+        .map_err(|e| format!("the image's cloud CA {} is not PEM: {e}", path.display()))?;
+    let certificates: Vec<_> = blocks
+        .into_iter()
+        .filter(|block| block.tag() == "CERTIFICATE")
+        .collect();
+    if certificates.is_empty() {
+        return Err(format!(
+            "the image's cloud CA {} holds no certificate",
+            path.display()
+        ));
+    }
+    for block in certificates {
+        store
+            .add(rustls::pki_types::CertificateDer::from(
+                block.into_contents(),
+            ))
+            .map_err(|e| format!("the image's cloud CA {} is invalid: {e}", path.display()))?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "suderra-os")]
+    fn ca_pem() -> String {
+        let mut params = rcgen::CertificateParams::new(Vec::<String>::new()).expect("params");
+        params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+        let key = rcgen::KeyPair::generate().expect("key");
+        params.self_signed(&key).expect("self-signed").pem()
+    }
+
+    /// A dev or QEMU image's cloud CA joins the roots the activation client
+    /// trusts; an image without one keeps the store as it was.
+    #[cfg(feature = "suderra-os")]
+    #[test]
+    fn the_image_cloud_ca_is_added_when_the_image_ships_one() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("cloud-ca.pem");
+        let mut store = RootCertStore::empty();
+        add_image_cloud_ca(&mut store, &path).expect("a missing file is a production image");
+        assert!(store.is_empty());
+        std::fs::write(&path, ca_pem()).expect("write");
+        add_image_cloud_ca(&mut store, &path).expect("a dev image's CA");
+        assert_eq!(store.len(), 1);
+    }
+
+    /// A cloud CA file without a certificate is an image defect, not an
+    /// absent CA.
+    #[cfg(feature = "suderra-os")]
+    #[test]
+    fn a_cloud_ca_file_without_a_certificate_refuses_the_client() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("cloud-ca.pem");
+        let mut store = RootCertStore::empty();
+        std::fs::write(&path, "not a certificate\n").expect("write");
+        assert!(add_image_cloud_ca(&mut store, &path).is_err());
+        let key = rcgen::KeyPair::generate().expect("key");
+        std::fs::write(&path, key.serialize_pem()).expect("write");
+        assert!(add_image_cloud_ca(&mut store, &path).is_err());
+        assert!(store.is_empty());
+    }
 
     /// The factory must produce a non-empty trust anchor set on a host
     /// that has `ca-certificates` installed. This test runs on the CI

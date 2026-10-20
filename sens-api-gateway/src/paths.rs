@@ -69,6 +69,13 @@ pub mod suderra_os {
     /// provisioned, tenant and device (DEC-3.6). Root writes it; the agent
     /// only reads it.
     pub const IDENTITY_FILE: &str = "/run/suderra/identity.json";
+    /// The image's extra provisioning-API CA. Only dev images and the QEMU
+    /// targets ship it (Suderra-OS package/suderra-keys installs the dev/CI
+    /// `edge/cloud-ca` there, for the QEMU fake cloud); root's provisioning
+    /// client and the agent's activation client both add it to the public
+    /// roots, so they trust the same provisioning API. Read-only, on the
+    /// verity rootfs; absent on production images.
+    pub const CLOUD_CA_FILE: &str = "/etc/suderra/cloud-ca.pem";
     /// Agent data root (`/data/suderra/agent`, suderra:suderra 0750). The
     /// agent reads it but writes only the subdirectories below.
     pub const DATA_ROOT: &str = "/var/lib/suderra";
@@ -410,6 +417,12 @@ impl AgentPaths {
         PathBuf::from(suderra_os::IDENTITY_FILE)
     }
 
+    /// The image's extra provisioning-API CA (dev and QEMU images only).
+    #[cfg(feature = "suderra-os")]
+    pub fn cloud_ca_file(&self) -> PathBuf {
+        PathBuf::from(suderra_os::CLOUD_CA_FILE)
+    }
+
     /// Where the agent creates its device secret when none exists.
     pub fn db_key_file(&self) -> PathBuf {
         self.secrets_dir().join(DB_KEY_FILENAME)
@@ -699,14 +712,12 @@ mod tests {
     #[test]
     fn suderra_os_accepts_writes_only_below_the_writable_dirs() {
         let p = AgentPaths::suderra_os();
-        assert!(
-            p.check_agent_writable(Path::new("/var/lib/suderra/state/x.db"))
-                .is_ok()
-        );
-        assert!(
-            p.check_agent_writable(Path::new("/var/log/suderra/audit.log"))
-                .is_ok()
-        );
+        assert!(p
+            .check_agent_writable(Path::new("/var/lib/suderra/state/x.db"))
+            .is_ok());
+        assert!(p
+            .check_agent_writable(Path::new("/var/log/suderra/audit.log"))
+            .is_ok());
         for bad in [
             "/etc/suderra/x.db",
             "/var/lib/suderra/x.db",

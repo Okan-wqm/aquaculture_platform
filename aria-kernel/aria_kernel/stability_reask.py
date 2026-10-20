@@ -50,7 +50,6 @@ from .request_admission import admit_request
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 STABILITY_GROUP_PREFIX = "stability:"
-STABILITY_REASK_PRODUCER = "stability_reask.lane"
 # The dead-end escalation reasons worth one blind re-ask: a group stuck at
 # one judge, and a pair whose confidence never cleared the gate. Other
 # uncertainties (evidence refusals, uncalibrated gates) are not stability
@@ -253,7 +252,7 @@ def mint_stability_reasks(
                                 "reason": "not_a_judge_seat"})
                 continue
             admission = admit_request(
-                STABILITY_REASK_PRODUCER, role, base_dir=root, cycle_id=cycle_id,
+                "stability_reask.lane", role, base_dir=root, cycle_id=cycle_id,
             )
             if not admission.admitted:
                 skipped.append({"judgment_group_id": group_id, "target_agent": agent,

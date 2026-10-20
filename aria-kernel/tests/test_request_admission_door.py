@@ -69,6 +69,12 @@ MINT_SITES: dict[tuple[str, str], str] = {
     ("aria-kernel/aria_kernel/judge_remint.py", "remint_judge_request"): "the caller's admission",
     ("aria-kernel/aria_kernel/judge_remint.py", "remint_judge_for_panel"): "the caller's admission",
     ("aria-kernel/aria_kernel/judge_replay.py", "replay_judges_on_goldset"): "judge_replay.goldset",
+    # WP-J D-1/D-2 — the outcome lanes mint through the door like every
+    # other discretionary lane; their producer rows live one table above.
+    ("aria-kernel/aria_kernel/mutation_canary.py", "mint_canary_judgments"):
+        "mutation_canary.panel",
+    ("aria-kernel/aria_kernel/stability_reask.py", "mint_stability_reasks"):
+        "stability_reask.lane",
     ("aria-kernel/aria_kernel/plan_round_controller.py", "_ensure_planner_request"): "plan_round_controller.plan_step",
     ("aria-kernel/aria_kernel/plan_round_controller.py", "_ensure_cross_review_round"):
         "plan_round_controller.plan_step",

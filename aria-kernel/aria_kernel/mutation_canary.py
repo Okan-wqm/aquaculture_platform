@@ -55,7 +55,6 @@ CANARY_SOURCE_TYPE = "canary"
 CANARY_GROUP_PREFIX = "canary:"
 CANARY_TOOL_ID = "mutation-canary"
 CANARY_JUDGE_ID = "aria-mutation-canary"
-CANARY_REASK_PRODUCER = "mutation_canary.panel"
 # ≥90 % / ≥90 % — the operator's bars (WP-J §4), stated once here and read
 # by the role_fitness canary block.
 CANARY_MIN_MUTANT_DETECTION: float = 0.9
@@ -381,7 +380,7 @@ def mint_canary_judgments(
                                 "reason": "already_asked"})
                 continue
             admission = admit_request(
-                CANARY_REASK_PRODUCER, role, base_dir=root, cycle_id=cycle_id,
+                "mutation_canary.panel", role, base_dir=root, cycle_id=cycle_id,
             )
             if not admission.admitted:
                 skipped.append({"item_id": item_id, "target_agent": agent,

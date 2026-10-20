@@ -768,6 +768,26 @@ describe('ARIA live runtime/documentation SSoT', () => {
     ]);
   });
 
+  it('runs the live partition whole through the same two collectors', () => {
+    // ARIA-HIGH-602 — the modules that declare READS_LIVE_CHECKOUT read the
+    // live checkout outside the kernel surface, so the always-run `workspace`
+    // job runs them on every PR (`--live`), and the skippable lanes never do.
+    // That job provisions the sandbox backend like the kernel lane, so its
+    // pytest half refuses a skipped real-sandbox pin the same way.
+    expect(probeRunnerInvocations(['--live', '/probe/live.json'])).toEqual([
+      'BEGIN',
+      'PYTHONDONTWRITEBYTECODE=1',
+      'PYTHONPATH=aria-kernel:.:caller-pythonpath',
+      'ARG=aria-kernel/tests/_helpers/suite_shards.py',
+      'ARG=run',
+      'ARG=--live',
+      'ARG=--report',
+      'ARG=/probe/live.json',
+      'END',
+      ...pytestNativeInvocation('--aria-live-only', '--refuse-sandbox-skips'),
+    ]);
+  });
+
   it('preserves the legacy *test*.py collection contract in pytest configuration', () => {
     const pythonFiles = JSON.parse(
       execFileSync(

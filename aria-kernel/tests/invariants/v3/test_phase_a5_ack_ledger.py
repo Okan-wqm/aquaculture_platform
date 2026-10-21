@@ -48,6 +48,23 @@ def _seed_init(tools_dir: Path) -> None:
         )
 
 
+def _operator_rotate(tools_dir: Path, *, reason: str, emergency: bool = False) -> dict:
+    """Rotate the ack key on an operator's GitHub act (ARIA-HIGH-238:
+    ``ack_key_operation`` refuses a free-string reference)."""
+    from aria_kernel.ack_ledger import rotate_key
+    from tests._helpers.operator_acts import github_operator_acts
+
+    with github_operator_acts() as github:
+        return rotate_key(
+            base_dir=tools_dir,
+            reason=reason,
+            operator_approval_ref=github.approve(
+                "ack_key_operation", {"operation": "emergency_rotate" if emergency else "rotate"},
+            ),
+            emergency=emergency,
+        )
+
+
 def _seed_draft(tools_dir: Path, draft_id: str) -> None:
     """An agent draft with a drafter body: the ack's scope is derived from it (ARIA-MEDIUM-254 slice A)."""
     from aria_kernel.tool_registry import ensure_tools_dir
@@ -544,7 +561,7 @@ class RevokeKeyQuarantinesACompromisedKey(unittest.TestCase):
     def test_a_revoked_keys_rows_verify_as_revoked_and_its_secret_is_gone(self) -> None:
         import stat as stat_module
 
-        from aria_kernel.ack_ledger import revoke_key, rotate_key, verify_range
+        from aria_kernel.ack_ledger import revoke_key, verify_range
 
         with tempfile.TemporaryDirectory(prefix="aria-ack-revoke-") as tmp:
             base = Path(tmp)
@@ -552,8 +569,7 @@ class RevokeKeyQuarantinesACompromisedKey(unittest.TestCase):
             old_row = _record_auto(base, "draft-old")["row"]
             leaked = old_row["signed_key_id"]
             leaked_secret = next(k["secret"] for k in self._key_file(base)["keys"] if k["key_id"] == leaked)
-            rotate_key(base_dir=base, reason="emergency rotation before revoke",
-                       operator_approval_ref="INC-1", emergency=True)
+            _operator_rotate(base, reason="emergency rotation before revoke", emergency=True)
             new_row = _record_auto(base, "draft-new")["row"]
 
             result = revoke_key(base_dir=base, key_id=leaked, reason="leaked-rotated-out",
@@ -586,7 +602,7 @@ class RevokeKeyQuarantinesACompromisedKey(unittest.TestCase):
             self.assertEqual(verdict["invalid_count"], 2)
 
             # Nothing that rewrites the list brings it back.
-            rotate_key(base_dir=base, reason="scheduled rotation after revoke", operator_approval_ref="RFC-2")
+            _operator_rotate(base, reason="scheduled rotation after revoke")
             self.assertEqual([r["key_id"] for r in self._key_file(base)["revoked"]], [leaked])
             again = [r for r in verify_range(base_dir=base)["results"] if r["ack_id"] == old_row["ack_id"]]
             self.assertTrue(all(r["reason"].startswith("signed_key_revoked") for r in again))
@@ -609,14 +625,14 @@ class RevokeKeyQuarantinesACompromisedKey(unittest.TestCase):
             self.assertEqual(self._governance(base, "ack_key_revoked"), [])
 
     def test_an_unknown_or_already_revoked_key_is_refused(self) -> None:
-        from aria_kernel.ack_ledger import list_keys, revoke_key, rotate_key
+        from aria_kernel.ack_ledger import list_keys, revoke_key
         from aria_kernel.tool_registry import GovernanceError
 
         with tempfile.TemporaryDirectory(prefix="aria-ack-revoke-unknown-") as tmp:
             base = Path(tmp)
             _seed_init(base)
             old = list_keys(base_dir=base)[0]["key_id"]
-            rotate_key(base_dir=base, reason="rotation before revoke", operator_approval_ref="RFC-3")
+            _operator_rotate(base, reason="rotation before revoke")
             with self.assertRaises(GovernanceError) as unknown:
                 revoke_key(base_dir=base, key_id="not-a-key", reason="typo-in-key-id",
                            operator_approval_ref="INC-3")
@@ -632,15 +648,14 @@ class RevokeKeyQuarantinesACompromisedKey(unittest.TestCase):
         import contextlib
         import io
 
-        from aria_kernel.ack_ledger import list_keys, rotate_key
+        from aria_kernel.ack_ledger import list_keys
         from aria_kernel.cli import main
 
         with tempfile.TemporaryDirectory(prefix="aria-ack-revoke-cli-") as tmp:
             base = Path(tmp)
             _seed_init(base)
             leaked = list_keys(base_dir=base)[0]["key_id"]
-            rotate_key(base_dir=base, reason="emergency rotation before revoke",
-                       operator_approval_ref="INC-4", emergency=True)
+            _operator_rotate(base, reason="emergency rotation before revoke", emergency=True)
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
                 code = main(["--tools-dir", str(base), "ack", "revoke-key", "--key-id", leaked,

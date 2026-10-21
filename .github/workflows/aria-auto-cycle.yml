@@ -129,10 +129,18 @@ on:
           - 'none'
           - 'dataflow_integrity_critical'
 
-# Z1 (ORPHAN-712) — shared self-hosted workspace group; see
+# Z1 (ORPHAN-712) → ARIA-MEDIUM-277 — this lane's OWN group. A GitHub
+# concurrency group holds ONE pending slot and an arriving run evicts the
+# queued one, so a group shared with another lane let that lane's dispatch
+# cancel this lane's pending run (measured: the dataflow watchdog's CRITICAL
+# dispatch, the executor's chained cycle). In a per-lane group only this
+# lane's own duplicate can evict this lane's pending run — dedup, not
+# starvation. The workspace serialization the shared group used to lend the
+# one shared workspace is carried by the host workspace lock
+# (.github/actions/selfhosted-workspace-lock), taken by this job below; see
 # dataflow-integrity-watchdog.yml for the measured wipe this prevents.
 concurrency:
-  group: aria-selfhosted-workspace
+  group: aria-auto-cycle
   cancel-in-progress: false
 
 permissions:
@@ -241,6 +249,20 @@ jobs:
       ARIA_CLOSE_OUT_MARGIN_SECONDS: '11640'
       ARIA_CLOSE_OUT_UNBOUNDED_BASIS_SECONDS: '3420'
     steps:
+      # ARIA-MEDIUM-277 — the host workspace lock, FIRST, before the reset
+      # and any checkout below: those are the wipe vectors the lock exists
+      # to serialize across the lanes that share this workspace. The lock
+      # replaces the serialization the shared aria-selfhosted-workspace
+      # group used to provide (its single pending slot evicted other
+      # lanes' queued runs); GitHub's runner queue, which never evicts,
+      # does the waiting. timeout-seconds sits just above the cycle job's
+      # own 454-min cap so a lane chained behind a full cycle eventually
+      # gets the workspace instead of failing on the wait.
+      - name: Take the shared self-hosted workspace lock
+        uses: ./.github/actions/selfhosted-workspace-lock
+        with:
+          timeout-seconds: '27300'
+
       # ORPHAN-HIGH-802 — reset the persistent workspace HERE, so checkout
       # does not have to. actions/checkout's `clean` runs `git clean -ffdx`,
       # and `-x` deletes gitignored paths — including node_modules, which the
@@ -1430,6 +1452,15 @@ jobs:
         with:
           lease-token: ${{ steps.restore_state.outputs.writer-lease-token }}
 
+      # ARIA-MEDIUM-277 — LAST step of the job: give back the host workspace
+      # lock the first step took, unconditionally, so a failed night does not
+      # starve every other self-hosted lane until the holder's ceiling.
+      - name: Release the shared self-hosted workspace lock
+        if: always()
+        uses: ./.github/actions/selfhosted-workspace-lock
+        with:
+          mode: release
+
   # ORPHAN-724 / ARIA-HIGH-386 — the drain follows the producer. The edge is
   # an explicit dispatch, not a `workflow_run` trigger on the executor:
   # GitHub creates no `workflow_run` event for a run started with the job
@@ -1437,9 +1468,11 @@ jobs:
   # both start this workflow that way, so every chained cycle ended with no
   # drain after it (cycle 37728223278, 2026-10-08). A workflow_dispatch is
   # the one event the job token may create. The executor's run waits in the
-  # shared concurrency group until this run has finished, the same order the
-  # trigger gave. A cancelled cycle is an operator stop, so it chains
-  # nothing.
+  # runner queue — and, once a second runner service exists, behind the
+  # workspace lock this run holds — until this run has finished, the same
+  # order the trigger gave (ARIA-MEDIUM-277: per-lane groups replaced the
+  # shared one, so the wait can no longer be ended by eviction). A cancelled
+  # cycle is an operator stop, so it chains nothing.
   chain-executor:
     needs: cycle
     if: ${{ !cancelled() }}

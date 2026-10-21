@@ -120,7 +120,8 @@ class TheLaneVerdictRequiresTheGate(unittest.TestCase):
         self.assertEqual(required[0]["env"]["STATE_RESULT"], "${{ needs.state.result }}")
         return required[0]
 
-    def _verdict(self, *, changes: str, kernel: str, suite: str, lane: str, state: str) -> int:
+    def _verdict(self, *, changes: str, kernel: str, suite: str, lane: str, state: str,
+                 workspace: str = "success") -> int:
         env = {
             "PATH": os.environ["PATH"],
             "CHANGES_RESULT": changes,
@@ -128,6 +129,7 @@ class TheLaneVerdictRequiresTheGate(unittest.TestCase):
             "SUITE_RESULT": suite,
             "LANE_RESULT": lane,
             "STATE_RESULT": state,
+            "WORKSPACE_RESULT": workspace,
         }
         # GitHub runs a `run:` block under `bash -e`.
         return subprocess.run(
@@ -155,6 +157,15 @@ class TheLaneVerdictRequiresTheGate(unittest.TestCase):
                                           state="skipped"), 0)
         self.assertNotEqual(self._verdict(changes="success", kernel="", suite="skipped", lane="skipped",
                                           state="skipped"), 0)
+
+    def test_the_workspace_job_is_required_whatever_the_surface_said(self) -> None:
+        # ARIA-HIGH-602 — `workspace` has no `if`: its whole-checkout checks
+        # run on every PR, so a red workspace fails the verdict even when the
+        # surface decision skipped suite, lane and state.
+        self.assertNotEqual(self._verdict(changes="success", kernel="true", suite="success", lane="success",
+                                          state="success", workspace="failure"), 0)
+        self.assertNotEqual(self._verdict(changes="success", kernel="false", suite="skipped", lane="skipped",
+                                          state="skipped", workspace="failure"), 0)
 
 
 if __name__ == "__main__":

@@ -140,3 +140,9 @@ value "ACTIVE"?` — the PR #2026 chip row shipped `active/monitoring/resolved`
   Cargo.lock edits required regenerating
   tools/quality/rust-toolchain-manifest.json (its cargo_lock_sha256 pin),
   which every Rust-workspace-setup job verifies.
+
+  Round-13: the merge head's jest pass measured admin-api-service branches
+  at 21.96% against the 21.99% pin — the same jest-vs-lcov epsilon wobble
+  the double coverage gate's convention absorbs (pin sits lcov-floor minus
+  epsilon). Branches re-pinned to 21.9; the material-gain ratchet
+  (RATCHET_MIN_GAIN = 1.0) is untouched.

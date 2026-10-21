@@ -12,6 +12,7 @@ import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import { AUDIT_LOG_SERVICE, type IAuditLogService } from '@aquaculture/backend-common/audit';
 import { LegalHoldModule } from '@aquaculture/backend-common/compliance';
 import { SourceSchemaBootstrapService } from '@aquaculture/backend-common/database';
+import { ProductionPlanModule } from './production-plan/production-plan.module';
 import { DateTimeCustomScalar } from './graphql/datetime.custom-scalar';
 import { RolesGuard, ServiceIdentityGuard, TenantGuard } from '@aquaculture/backend-common/guards';
 import {
@@ -437,6 +438,8 @@ import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
     BatchModule,
     FeedingModule,
     FeedingProtocolModule,
+
+    ProductionPlanModule,
     GrowthModule,
     WaterQualityModule,
     FishHealthModule,

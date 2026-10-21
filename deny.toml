@@ -24,7 +24,25 @@ yanked = "deny"
 # testcontainers 0.27 bump cleared the last rustls-pemfile consumer
 # (bollard >= 0.20). The [bans] table below makes reintroduction of
 # either vulnerable line a build failure, not an audit warning.
-ignore = []
+ignore = [
+    # -----------------------------------------------------------------
+    # RUSTSEC-2026-0381 — webpki-roots 0.26.11 bundled roots allow trust
+    # in distrusted emSign intermediates (fix >=1.0.10 only)
+    # -----------------------------------------------------------------
+    # Finding: EDGE-CI-010 (registry: SUPPLY-HIGH-025)
+    # Owner: platform-team (okan@noras-wt.com)
+    # Deadline: 2027-01-20
+    # Why: upstream-blocked — async-nats <=0.50 requires tokio-websockets
+    #   ^0.10, which requires webpki-roots ^0.26 (a line with no patched
+    #   release), and no async-nats release takes tokio-websockets >=0.12
+    #   (webpki-roots ^1) yet. The crate is lockfile-only in this
+    #   workspace: tokio-websockets is an OPTIONAL async-nats dependency
+    #   and nothing here enables its websockets feature, so it never
+    #   compiles into a target. The fixable copy of the same advisory
+    #   (webpki-roots 1.0.7) was patched to 1.0.10 rather than ignored.
+    # Unblocked by: an async-nats release moving to tokio-websockets >=0.12.
+    "RUSTSEC-2026-0381",
+]
 
 [licenses]
 allow = [

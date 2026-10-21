@@ -59,7 +59,6 @@
 // claimed. Bounds: files, bytes per file, total bytes and cost units are
 // capped, and a cap that fires is an observation, never a hole.
 import { createHash } from 'node:crypto';
-import { statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 import {
@@ -71,9 +70,16 @@ import {
   pathAllowedBySnapshot,
   requireScanRoots,
   type RepoSnapshot,
+  workspaceFileBytes,
 } from './adapter-fs';
 import { cargoTargetDirSkip } from './rust-cargo';
-import { classifyRustWorkspace, type RustFileContext, type RustToken } from './rust-source';
+import {
+  classifyRustWorkspace,
+  type RustFileContext,
+  type RustToken,
+  type RustWorkspaceIo,
+  workspaceRustIo,
+} from './rust-source';
 
 const TOOL_ID = 'rust-runtime-safety-adapter';
 
@@ -91,7 +97,12 @@ const AUTHORITY_PATHS: readonly string[] = [READER, CARGO_READER, CONTAINMENT, S
 
 /** The walk stops here far above the repository's ~470 files. */
 const MAX_SOURCE_FILES = 4000;
-/** A single file above this is skipped with an observation, never read. */
+/**
+ * A single `.rs` file above this is refused with an observation and never
+ * read, on every path the reader reaches it by: the walk, a `mod`
+ * declaration, a `#[path]`. The cap is decided in the read gate
+ * (`withinFileByteCap`), not in the walk.
+ */
 const MAX_FILE_BYTES = 2_000_000;
 /** The whole scan stops (throws) past this: a budget is a refusal, not a hole. */
 const MAX_TOTAL_BYTES = 128 * 1024 * 1024;
@@ -567,18 +578,6 @@ export function analyzeRustRuntimeSafety(
       collectFiles(workspaceRoot, join(workspaceRoot, root), {
         extensions: [...RUST_EXTENSIONS],
         skipDir: cargoTargetDirSkip,
-        includeFile: (name, path) => {
-          if (!name.endsWith('.rs')) return true;
-          const bytes = statSync(path).size;
-          if (bytes <= MAX_FILE_BYTES) return true;
-          observations.push({
-            id: `${TOOL_ID}:skipped:${normalizeWorkspacePath(relative(workspaceRoot, path))}`,
-            type: 'rust_runtime_scan_refusal',
-            path: normalizeWorkspacePath(relative(workspaceRoot, path)),
-            details: { reason: 'file_over_byte_cap', bytes, cap: MAX_FILE_BYTES },
-          });
-          return false;
-        },
       }),
     ),
     workspaceRoot,
@@ -590,20 +589,49 @@ export function analyzeRustRuntimeSafety(
     );
   }
 
-  let totalBytes = 0;
-  const budgetedRead = (path: string): string => {
-    const text = workspace.readFile(path);
-    totalBytes += Buffer.byteLength(text, 'utf8');
-    if (totalBytes > MAX_TOTAL_BYTES) {
-      throw new Error(`${TOOL_ID}: the scan passed the ${MAX_TOTAL_BYTES} byte budget`);
+  // The per-file byte cap is a read permission, so it is decided where every
+  // Rust read is permitted: the `allowed` of the reader's own io
+  // (`workspaceRustIo`), which `read` re-checks. The walk only lists
+  // candidates; the reader also reaches files the walk never filtered (a
+  // `mod big;` or `#[path]` resolves through `allowed`/`read`), and a cap on
+  // walk candidates alone reported such a file skipped while the reader read,
+  // classified and claimed it whole. The size is the containment owner's
+  // answer, asked once per path; a refused path is one observation and lands
+  // in the summary's `refused`, so the scan is not reported clean.
+  const byteCapVerdicts = new Map<string, boolean>();
+  const withinFileByteCap = (path: string): boolean => {
+    if (!path.endsWith('.rs')) return true;
+    const known = byteCapVerdicts.get(path);
+    if (known !== undefined) return known;
+    const bytes = workspaceFileBytes(workspaceRoot, path);
+    const within = bytes <= MAX_FILE_BYTES;
+    byteCapVerdicts.set(path, within);
+    if (!within) {
+      observations.push({
+        id: `${TOOL_ID}:skipped:${path}`,
+        type: 'rust_runtime_scan_refusal',
+        path,
+        details: { reason: 'file_over_byte_cap', bytes, cap: MAX_FILE_BYTES },
+      });
     }
-    return text;
+    return within;
   };
-  const rustIo = {
-    exists: (path: string) => workspace.entry(path) !== 'absent',
-    allowed: (path: string) =>
-      workspace.entry(path) === 'file' && pathAllowedBySnapshot(workspaceRoot, path, input),
-    read: budgetedRead,
+  const containedRustIo = workspaceRustIo(
+    workspaceRoot,
+    (path) => pathAllowedBySnapshot(workspaceRoot, path, input) && withinFileByteCap(path),
+  );
+  let totalBytes = 0;
+  const rustIo: RustWorkspaceIo = {
+    exists: containedRustIo.exists,
+    allowed: containedRustIo.allowed,
+    read: (path) => {
+      const text = containedRustIo.read(path);
+      totalBytes += Buffer.byteLength(text, 'utf8');
+      if (totalBytes > MAX_TOTAL_BYTES) {
+        throw new Error(`${TOOL_ID}: the scan passed the ${MAX_TOTAL_BYTES} byte budget`);
+      }
+      return text;
+    },
   };
   const walked = candidates.map((absolute) =>
     normalizeWorkspacePath(relative(workspaceRoot, absolute)),

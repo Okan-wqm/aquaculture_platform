@@ -34,6 +34,8 @@
 import { existsSync, readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs';
 import { resolve, relative } from 'node:path';
 
+import { isUnresolvedFindingState } from '../gates/finding-registry-chain';
+
 const REPO_ROOT = process.cwd();
 
 interface FileSignals {
@@ -317,8 +319,10 @@ function main(): void {
   }
 
   // --- open findings: walk registry, attribute evidence file refs ---
+  // "Open" is the registry's one predicate: every state but RESOLVED. A STALE
+  // or BLOCKED finding is still owed, so it still weighs on its files.
   const findings = readFindingsJsonl(resolve(REPO_ROOT, 'docs', 'reviews', '_registry', 'findings.jsonl'));
-  const openFindings = findings.filter((f) => f.state === 'OPEN' || f.state === 'IN-PROGRESS');
+  const openFindings = findings.filter((f) => isUnresolvedFindingState(f.state));
   for (const f of openFindings) {
     for (const ev of f.evidence ?? []) {
       const m = /^([^:\s]+\.[a-zA-Z0-9]+):\d+/.exec(ev);

@@ -383,6 +383,27 @@ hash imzası (EDGE-MEDIUM-116).
     boşluklu bir sahada agent ve site config değişikliği, MAINTENANCE'ta USB provisioning
     bundle'ıyla (DEC-5.10) yeniden provisioning'dir; OS güncellemesi bu aralıkta yalnız bakım
     ziyaretinde USB payload installer'ıyla (madde 2, yol 6) yapılır.
+12. Bir istek nasıl biter (sözleşme 1.2.0, `channels.json update_channel.settlement`): root her
+    spool girdisini, ifadenin digest'ini `subject.statement_digest` olarak adlandıran tam bir sonuç
+    belgesiyle kapatır ve digest'i `concluded` kaydına yazar; bu karar kesindir. Root bir ifadeyi
+    penceresinin açılmasını, bir engelin kalkmasını veya saatin senkronlanmasını beklemek için
+    tutmaz: ifade penceresi dışında ilk bakışta `not-yet-valid` veya `expired` ile kapanır. Bu
+    yüzden bulut pencereli bir ifadeyi yalnız pencerenin içinde (`not_before <= now <
+    expires_at - 600 s`) teslim eder; "erken teslim, root pencere açılınca uygular" tasarımı
+    yoktur. Agent spool girdisini, herhangi bir sonuçla adlandırıldığında siler; bulut isteği aynı
+    sonuçtan kapatır; ikisi aynı belgeyi okuduğundan uyuşurlar
+    (`fixtures/update-channel/settlement-vectors.json`). Retlerin sınıfı: `retryable`
+    (`clock-unsynced`, `fetch-failed`, `io-error`, `maintenance-blocked`, `not-yet-valid`: bulut
+    en erken 900 s sonra, en çok 7 gün boyunca aynı niyeti yeni bir ifadeyle yeniden verebilir),
+    `reschedule` (`approval-missing`, `expired`: pencere geçti; operatör yeni pencere seçer) ve
+    `final` (ifade, artifact veya cihaz durumu nedendir; başka bir ifade gerekir). Yeniden verme
+    her zaman yeni bir ifadedir: yeni `not_before` yeni bir digest verir ve `update_seq`, bulutun o
+    tür için cihaza verdiği her değerden büyüktür, çünkü root doğrulamayı geçen bir ifadenin
+    `update_seq`'ini bakım kapısından önce harcar (`statements.json sequences.spending`); gerçek
+    kabul değil, geçerli doğrulama diziyi ilerletir. Bu, madde 4'ün "`update_seq` yalnız kabul
+    edilenle ilerler" okumasını bilinçli olarak daraltır: kapıda reddedilen bir ifade, agent
+    tarafından sonradan oynatılamaz. P2'de `edge-update.v2` onayları cihaza ve release'e bağlamalıdır;
+    aksi halde her `maintenance-blocked` reddi yeni bir iki kişilik onay isterdi.
 
 **Gerekçe.** Birden fazla yazıcı, bir bileşenin diğerinin varsayımlarını bozmasına yol açar.
 ADR-019 §3–§5 A/B ve tryboot'u agent'a veriyordu; Suderra OS'te A/B RAUC'undur ve aynı FAT
@@ -1080,7 +1101,15 @@ izleme amaçlı dağıtım vardır (SG-1).
    `clock-unsynced` sonucuyla reddedilir; tazelik kontrolü atlanarak asla çalıştırılmaz. Manifest
    kurulumları senkron bekler; çevrimdışı USB yolu zaman tabanına göre değerlendirir. Yerel kontrol,
    safe-state ve alarmlar zamana bağlı değildir ve her durumda çalışır. Agent senkron olmayan saat
-   yüzünden çıkmaz.
+   yüzünden çıkmaz. Hangi durumun yettiği tüketici başına sabittir (sözleşme 1.2.0,
+   `channels.json time`): root'un ifade kabulü (provisioning, edge-update, os-update, rbac-manifest,
+   site-config, site-netpolicy) ve agent'ın tazeliğe bağlı aktüasyonu için `synced-nts` ve
+   `synced-unauthenticated` yeter, `unsynced` yetmez (`clock-unsynced`); `synced-unauthenticated`
+   yalnız imzalı site politikası düz bir NTP kaynağını işaretlediğinde oluşabildiğinden ve zaman
+   tabanı (madde 2) geri adımı sınırladığından kabul edilir, düz NTP'ye güvenmeyen bir kurulum
+   kaynak işaretlemez. Yerel kontrol her durumda çalışır. `time-state` belgesi en az 30 s'de bir
+   yeniden yazılır; `updated_at`'i okuyanın saatinden 120 s'den fazla uzak, yok veya bozuk bir
+   belge `unsynced` sayılır.
 6. JTI dedup tutma süresi ≥ maksimum envelope geçerliliği + izin verilen sapmadır; anahtar
    (device, jti)'dir; depo reboot'tan sağ çıkar (DEC-4 DB anahtarı düzeltmesine bağlı).
 7. Egress: udp/123 yalnız NTS sunucu kümesine ve tcp/4460 (NTS-KE), yalnız chrony UID'sinden
@@ -1575,7 +1604,14 @@ cihaz sertifikaları, TPM anahtarı, PoP ile yeniden sertifikalama, yaşam döng
    egress gerektirirdi.
 6. Arayüz rolleri: imzalı site politikası NIC'leri MAC veya PCI yoluna göre rollere eşler (WAN/IT ve
    OT/PLC), kart profili varsayılanlarıyla; broker/API/NTP/DNS yalnız WAN rolünde, PLC
-   CIDR/port'ları yalnız OT rolünde. Bugün `overlay/etc/systemd/network/10-ethernet.network` her
+   CIDR/port'ları yalnız OT rolünde. Sözleşme 1.2.0'da kart varsayılanı `boards.json`
+   `default_interface_role`'dür ve her kart için `wan`'dır (porttan role sabit bir eşleme, nitelikli
+   bir port-NIC olgusu gerektirir ve henüz hiçbir kartta yoktur). Etkin rol, politikanın
+   `interfaces[]` girdisinden (MAC veya PCI yolu eşleşmesi), yoksa varsayılandır; cihazda bulunmayan
+   bir girdi yok sayılır. Etkin eşleme cihazı hiç `wan` arayüzsüz bırakıyorsa veya bir arayüzü iki
+   girdiyle (biri MAC, biri PCI yolu) eşliyorsa root, bir şey render etmeden politikayı
+   `interface-mapping-invalid` ile reddeder ve önceki kurallar kalır: `nft -c` ve atomik yükleme
+   WAN'sız bir kural kümesini geçerli sayacağından bu kontrol ruleset doğrulamasından önce yapılır. Bugün `overlay/etc/systemd/network/10-ethernet.network` her
    `en*`/`eth*` üzerinde DHCP çalıştırır ve kurallar arayüzü yok sayar.
 7. İmzalı site OT allowlist'i (`suderra.site-netpolicy.v1`, `config-integrity` anahtarı, cihaza bağlı,
    sürümlü, rollback'e karşı korumalı) root'ta tipli bir renderer ile render edilir: string
@@ -1731,7 +1767,26 @@ TPM NV aynası.
    doğrulanır.
 4. Planlı kesinti: güncellemeler bakım penceresi ve/veya yerel operatör onayı ister; azami kesinti
    bütçesi güncelleme ve watchdog mantığınca uygulanır; aktif alarm veya forced değer varken
-   güncelleme reddedilir; RAUC reboot'u zamanlanmış ve onaylıdır (DEC-2).
+   güncelleme reddedilir; RAUC reboot'u zamanlanmış ve onaylıdır (DEC-2). Bu kapı agent'ın yazdığı
+   sağlık görünümünü (`/run/suderra/agent-health/health.json`, `update_blockers`) okur ve agent
+   en az güvenilen bileşen olduğundan görünümün yokluğu bir güncellemeyi onu onaracak tek yolda
+   sonsuza dek engelleyemez. Karar (sözleşme 1.2.0, `channels.json
+   update_channel.maintenance.blockers`): (a) yalnız çalışan bir kontrol döngüsü alarm veya forced
+   değer tutabilir; bu yüzden kapı yalnız `suderra-agent.service` `active`/`reloading` iken
+   engeller. Birim `inactive`, `failed`, `activating` veya `deactivating` ise çıkışlar safe-state'te
+   tutulur, korunacak bir şey yoktur ve görünümün yokluğu, bayatlığı veya bozukluğu asla engellemez;
+   agent'ı onaran veya değiştiren güncelleme her zaman başlayabilir. (b) Birim aktifken boş olmayan
+   `update_blockers`, yok/okunamaz/64 KiB'dan büyük/bozuk bir görünüm ve `updated_at`'i root'un
+   saatinden 60 s'den fazla uzak (iki yönde) bir görünüm engeller; Suderra OS'te agent görünümü
+   değişmese de en az 15 s'de bir yeniden yazar. (c) Erteleme sınırlıdır: agent'ın watchdog'u
+   askıdaki agent'ı `active`'den çıkarır ve operatör, `local_approval: true` ile birlikte
+   `blockers_override: true` taşıyan imzalı bir `edge-update`/`os-update` verebilir; yerel onay
+   sahada bir kişinin alarmı veya forced değeri gördüğünü kanıtlar ve override agent'ı değiştirip
+   yeniden başlatan güncellemeyi her durumda açar. `site-config` için override yoktur: önce agent
+   `edge-update` ile değiştirilir. (d) Kapı, root'un bir şeyi getirmeden önce ve agent'ı durduracağı
+   veya reboot'u zamanlayacağı anda yeniden değerlendirilir. Sözleşmenin 1.1.0 metni, bu maddenin
+   söylemediği bir kural ekleyerek yok veya bozuk görünümü her durumda engelleyici sayıyordu; bu
+   kural kaldırıldı ve yukarıdaki (a)-(d) ile değiştirildi.
 5. x86 (fieldbus-only): uzak I/O ve PLC iletişim watchdog'ları (Modbus cihaz timeout'ları) devreye
    almanın parçasıdır; IPC'nin yerel çıkış katı yoktur.
 6. E-stop çıkış başına tanımlıdır ve yaşam desteği çıkışlarını enerjisiz bırakmaz (DEC-9).

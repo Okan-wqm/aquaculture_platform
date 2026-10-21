@@ -100,6 +100,13 @@ import {
   validator,
   runEntry,
   verifyDelivery,
+  agentPrunes,
+  cloudSettlement,
+  clockSufficient,
+  isAdmissibleKey,
+  maintenanceVerdict,
+  reasonClassOf,
+  EVALUATION_TIME,
 } from './lib/suderra-edge-contract';
 
 const THIS_SPEC = 'tests/invariants/suderra-edge-contracts.spec.ts';
@@ -1043,9 +1050,279 @@ describe('suderra-edge contract v1 — channels and run-time documents', () => {
     expect(sorted(outcomes)).toEqual(['accept', 'reject']);
   });
 
-  it('point vectors: a non-canonical encoding is never a canonical point, and no signature verifies under one', () => {
+  it("delivery.json's USB ingress states are the lifecycle states in which the provisioning surface is open", () => {
+    const ingress = asObject(asObject(deliveryFile['usb'], 'usb')['ingress'], 'ingress');
+    const open = strings(
+      lifecycleFile['provisioning_surface_states'],
+      'provisioning_surface_states',
+    );
+    expect(sorted(strings(ingress['states'], 'states'))).toEqual(sorted(open));
+    const states = Object.keys(asObject(lifecycleFile['states'], 'states'));
+    for (const state of open) expect(states).toContain(state);
+    expect(open).not.toContain('ACTIVE');
+  });
+
+  it('every reason an update request can end with is in exactly one settlement class', () => {
+    const settlement = asObject(UPDATE_CHANNEL['settlement'], 'settlement');
+    const classes = asObject(settlement['reason_classes'], 'reason_classes');
+    const listed = Object.values(classes).flatMap((list) => strings(list, 'list'));
+    expect(listed.length).toBe(new Set(listed).size);
+    const schema = readJson(join(CONTRACT, 'schemas', 'result.schema.json'));
+    const requestKinds = new Set<string>([
+      ...Object.values(CARRIED).map((entry) => asString(asObject(entry, 'c')['result_kind'], 'k')),
+      'update-request',
+      'edge-rollback',
+    ]);
+    const possible = new Set<string>();
+    for (const branch of objects(schema['allOf'], 'allOf')) {
+      const kind = asString(
+        asObject(asObject(asObject(branch['if'], 'if')['properties'], 'p')['kind'], 'k')['const'],
+        'kind',
+      );
+      if (!requestKinds.has(kind)) continue;
+      const then = asObject(asObject(branch['then'], 'then')['properties'], 'p');
+      strings(asObject(then['reason'], 'reason')['enum'], 'enum').forEach((r) => possible.add(r));
+    }
+    expect(sorted(listed)).toEqual(sorted(possible));
+    for (const reason of listed)
+      expect(['retryable', 'reschedule', 'final']).toContain(reasonClassOf(reason));
+    // a kind of the request channel names its statement, or nothing could settle the request
+    const conditional = asObject(schema['then'], 'then');
+    expect(
+      strings(asObject(asObject(conditional['properties'], 'p')['subject'], 's')['required'], 'r'),
+    ).toEqual(['statement_type', 'statement_digest']);
+    expect(
+      sorted(
+        strings(
+          asObject(asObject(asObject(schema['if'], 'if')['properties'], 'p')['kind'], 'k')['enum'],
+          'enum',
+        ),
+      ),
+    ).toEqual(
+      sorted(
+        [...requestKinds].filter((kind) => !['update-request', 'edge-rollback'].includes(kind)),
+      ),
+    );
+    const delivery = asObject(settlement['delivery_window'], 'delivery_window');
+    expect(asNumber(delivery['delivery_margin_seconds'], 'margin')).toBeLessThan(
+      asNumber(SPOOL['max_entry_age_seconds'], 'age'),
+    );
+  });
+
+  it('settlement vectors: the agent prunes and the cloud settles from the same result, as labelled', () => {
+    const file = readJson(
+      join(FIXTURES, asString(indexFile['settlement_vectors'], 'settlement_vectors')),
+    );
+    const maxAge = asNumber(SPOOL['max_entry_age_seconds'], 'max_entry_age_seconds');
+    expect(file['max_entry_age_seconds']).toBe(maxAge);
+    const base = {
+      _type: 'suderra.result.v1',
+      occurred_at: '2026-10-20T11:20:00Z',
+      time_state: 'synced-nts',
+      board_profile: 'revpi-connect4',
+      os_version: '1.0.0',
+    };
+    const cloud = new Set<string>();
+    const reasons = new Set<string>();
+    for (const vector of objects(file['vectors'], 'vectors')) {
+      const results = objects(vector['results'], 'results');
+      const [entry] = objects(vector['spool'], 'spool');
+      const statement = asObject(vector['statement'], 'statement');
+      const expected = asObject(vector['expect'], 'expect');
+      const now = asString(vector['now'], 'now');
+      const prune = agentPrunes(
+        {
+          name: asString(entry?.['name'], 'name'),
+          age_seconds: asNumber(entry?.['age_seconds'], 'age_seconds'),
+        },
+        results,
+        maxAge,
+      );
+      const settled = cloudSettlement(statement, results, now);
+      expect({ id: vector['id'], prune, cloud: settled }).toEqual({
+        id: vector['id'],
+        prune: expected['agent_prunes'],
+        cloud: expected['cloud'],
+      });
+      // the one reading: whatever settles a request by a result also prunes its entry
+      if (['done', 'reissue', 'reschedule', 'final'].includes(settled)) expect(prune).toBe(true);
+      cloud.add(settled);
+      for (const result of results) {
+        expect(validator('schemas/result.schema.json')({ ...base, ...result })).toBe(true);
+        if (result['reason'] !== undefined) reasons.add(asString(result['reason'], 'reason'));
+      }
+    }
+    expect(sorted(cloud)).toEqual(['done', 'final', 'lapsed', 'reissue', 'reschedule', 'wait']);
+    const classes = asObject(
+      asObject(UPDATE_CHANNEL['settlement'], 'settlement')['reason_classes'],
+      'reason_classes',
+    );
+    for (const reason of [
+      ...strings(classes['retryable'], 'r'),
+      ...strings(classes['reschedule'], 'r'),
+    ])
+      expect(reasons.has(reason)).toBe(true);
+  });
+
+  it("gate vectors: root's maintenance gate and the clock gate decide as labelled", () => {
+    const file = readJson(join(FIXTURES, asString(indexFile['gate_vectors'], 'gate_vectors')));
+    const gate = asObject(
+      asObject(UPDATE_CHANNEL['maintenance'], 'maintenance')['blockers'],
+      'blockers',
+    );
+    const blocking = strings(
+      asObject(gate['agent_unit'], 'agent_unit')['blocking_active_states'],
+      'blocking_active_states',
+    );
+    const units = new Set<string>();
+    const verdicts = new Set<string>();
+    const types = new Set<string>();
+    const overrides = new Set<string>();
+    for (const vector of objects(file['maintenance'], 'maintenance')) {
+      const type = asString(vector['statement_type'], 'statement_type');
+      const unit = asString(vector['agent_unit_state'], 'agent_unit_state');
+      const verdict = maintenanceVerdict(
+        type,
+        unit,
+        asObject(vector['health_view'], 'health_view'),
+        asString(vector['now'], 'now'),
+        vector['blockers_override'] === true,
+      );
+      expect({ id: vector['id'], verdict }).toEqual({
+        id: vector['id'],
+        verdict: vector['expect'],
+      });
+      units.add(unit);
+      verdicts.add(verdict);
+      types.add(type);
+      if (vector['blockers_override'] === true) overrides.add(type);
+    }
+    for (const state of blocking) expect(units).toContain(state);
+    expect([...units].filter((state) => !blocking.includes(state)).length).toBeGreaterThanOrEqual(
+      4,
+    );
+    expect(sorted(verdicts)).toEqual(['maintenance-blocked', 'proceed']);
+    expect(sorted(types)).toEqual(sorted(strings(gate['applies_to'], 'applies_to')));
+    expect(sorted(overrides)).toEqual(
+      sorted(strings(asObject(gate['override'], 'override')['applies_to'], 'applies_to')),
+    );
+    const clock = asObject(channelsFile['time'], 'time');
+    const consumers = asObject(clock['consumers'], 'consumers');
+    const seen = new Map<string, Set<string>>();
+    for (const vector of objects(file['clock'], 'clock')) {
+      const consumer = asString(vector['consumer'], 'consumer');
+      expect(Object.keys(consumers)).toContain(consumer);
+      const sufficient = clockSufficient(
+        consumer,
+        asObject(vector['time_state'], 'time_state'),
+        asString(vector['now'], 'now'),
+      );
+      expect({ id: vector['id'], verdict: sufficient ? 'sufficient' : 'insufficient' }).toEqual({
+        id: vector['id'],
+        verdict: vector['expect'],
+      });
+      seen.set(
+        consumer,
+        (seen.get(consumer) ?? new Set<string>()).add(asString(vector['expect'], 'e')),
+      );
+    }
+    expect(sorted(seen.keys())).toEqual(sorted(Object.keys(consumers)));
+    expect(sorted(seen.get('root-acceptance') ?? [])).toEqual(['insufficient', 'sufficient']);
+    expect(sorted(seen.get('agent-fresh-actuation') ?? [])).toEqual(['insufficient', 'sufficient']);
+    expect(EVALUATION_TIME).toBe('2026-10-20T12:00:00Z');
+  });
+
+  it('the gates and fetch rules of channels.json rest on members of the schemas they name', () => {
+    const gate = asObject(
+      asObject(UPDATE_CHANNEL['maintenance'], 'maintenance')['blockers'],
+      'blockers',
+    );
+    const carried = Object.keys(CARRIED);
+    for (const type of strings(gate['applies_to'], 'applies_to')) expect(carried).toContain(type);
+    const override = asObject(gate['override'], 'override');
+    for (const type of strings(override['applies_to'], 'applies_to')) {
+      const schema = readJson(join(CONTRACT, asString(spec(type)['schema'], 'schema')));
+      expect(Object.keys(asObject(schema['properties'], 'properties'))).toContain(
+        asString(override['member'], 'member'),
+      );
+    }
+    const view = asObject(gate['health_view'], 'health_view');
+    const health = readJson(join(CONTRACT, asString(view['schema'], 'schema')));
+    for (const member of strings(view['read_members'], 'read_members'))
+      expect(Object.keys(asObject(health['properties'], 'properties'))).toContain(member);
+    expect(asNumber(view['max_age_seconds'], 'max_age')).toBeGreaterThan(
+      asNumber(view['refresh_seconds'], 'refresh'),
+    );
+    const clock = asObject(channelsFile['time'], 'time');
+    expect(asNumber(clock['max_age_seconds'], 'max_age')).toBeGreaterThan(
+      asNumber(clock['refresh_seconds'], 'refresh'),
+    );
+    // root-acceptance covers the windowed statements whose result kinds carry a clock reason
+    const kinds = asObject(RESULT_DOCUMENT['reasons_by_kind'], 'reasons_by_kind');
+    const withClock = new Set<string>();
+    for (const value of Object.values(kinds)) {
+      const entry = asObject(value, 'kind');
+      if (!strings(entry['operational'], 'operational').includes('clock-unsynced')) continue;
+      strings(entry['statements'], 'statements').forEach((type) => withClock.add(type));
+    }
+    const windowed = [...withClock].filter((type) =>
+      strings(spec(type)['checks'], 'checks').includes('not-yet-valid'),
+    );
+    const root = asObject(asObject(clock['consumers'], 'consumers')['root-acceptance'], 'root');
+    expect(sorted(strings(root['statements'], 'statements'))).toEqual(sorted(windowed));
+    // every statement member root fetches from is a fetch_url, which only the platform's host can satisfy
+    const common = asObject(
+      readJson(join(CONTRACT, 'schemas', 'common.schema.json'))['$defs'],
+      '$defs',
+    );
+    const fetchRef = 'urn:suderra:edge-contract:v1:schema:common#/$defs/fetch_url';
+    expect(Object.keys(common)).toContain('fetch_url');
+    const member = (schemaName: string, path: string[]): Json | undefined => {
+      let node: Json | undefined = readJson(join(CONTRACT, 'schemas', `${schemaName}.schema.json`));
+      for (const key of path) node = asObject(node, key)[key === 'properties' ? 'properties' : key];
+      return node;
+    };
+    void member;
+    const properties = (name: string): JsonObject =>
+      asObject(
+        readJson(join(CONTRACT, 'schemas', `${name}.schema.json`))['properties'],
+        'properties',
+      );
+    const urlOf = (value: Json | undefined): Json | undefined => asObject(value, 'url')['$ref'];
+    expect(urlOf(properties('edge-update')['artifact_url'])).toBe(fetchRef);
+    expect(
+      urlOf(
+        asObject(asObject(properties('edge-update')['release_statement'], 'rs')['properties'], 'p')[
+          'url'
+        ],
+      ),
+    ).toBe(fetchRef);
+    expect(
+      urlOf(
+        asObject(asObject(properties('os-update')['bundle'], 'bundle')['properties'], 'p')['url'],
+      ),
+    ).toBe(fetchRef);
+    expect(urlOf(properties('site-config')['site_bundle_url'])).toBe(fetchRef);
+    const fetch = asObject(UPDATE_CHANNEL['fetch'], 'fetch');
+    expect(asNumber(fetch['max_release_statement_bytes'], 'bytes')).toBeGreaterThanOrEqual(
+      asNumber(SPOOL['max_entry_bytes'], 'entry'),
+    );
+  });
+
+  it('agent_profile has one value in contract 1.x: the day it grows, release-mismatch needs a fixture per profile', () => {
+    const common = asObject(
+      readJson(join(CONTRACT, 'schemas', 'common.schema.json'))['$defs'],
+      '$defs',
+    );
+    expect(strings(asObject(common['agent_profile'], 'agent_profile')['enum'], 'enum')).toEqual([
+      'suderra-os',
+    ]);
+  });
+
+  it('point vectors: no key store admits a non-canonical or small-order encoding as a key, and the test keys are all admissible', () => {
     const file = readJson(join(FIXTURES, asString(indexFile['point_vectors'], 'point_vectors')));
     let nonCanonicalFullOrder = 0;
+    let canonicalFullOrder = 0;
     for (const vector of objects(file['vectors'], 'vectors')) {
       const point = Buffer.from(asString(vector['encoding_hex'], 'encoding_hex'), 'hex');
       expect({
@@ -1057,12 +1334,25 @@ describe('suderra-edge contract v1 — channels and run-time documents', () => {
         canonical: vector['canonical'],
         smallOrder: vector['canonical'] === true ? vector['small_order'] : isSmallOrder(point),
       });
-      if (vector['canonical'] === false && vector['small_order'] === false) {
+      // Admission is the rule these vectors test: nothing signs under a non-canonical full-order
+      // point, so a signature test could not tell the rule from its absence.
+      expect({ id: vector['id'], admissible: isAdmissibleKey(point) }).toEqual({
+        id: vector['id'],
+        admissible: vector['canonical'] === true && vector['small_order'] === false,
+      });
+      if (vector['canonical'] === false && vector['small_order'] === false)
         nonCanonicalFullOrder += 1;
-        expect(verifyStrict(point, Buffer.from('message'), Buffer.alloc(64, 7))).toBe(false);
-      }
+      if (vector['canonical'] === true && vector['small_order'] === false) canonicalFullOrder += 1;
     }
     expect(nonCanonicalFullOrder).toBeGreaterThan(10);
+    expect(canonicalFullOrder).toBeGreaterThan(5);
+    for (const entry of objects(keyringFile['keys'], 'keys')) {
+      const raw = Buffer.from(asString(entry['public_key'], 'public_key'), 'base64');
+      expect({ key: entry['keyid'], admissible: isAdmissibleKey(raw) }).toEqual({
+        key: entry['keyid'],
+        admissible: true,
+      });
+    }
   });
 });
 
@@ -1159,6 +1449,8 @@ describe('suderra-edge contract v1 — golden fixtures', () => {
       asString(indexFile['point_vectors'], 'point_vectors'),
       asString(indexFile['spool_vectors'], 'spool_vectors'),
       asString(indexFile['usb_layout_vectors'], 'usb_layout_vectors'),
+      asString(indexFile['settlement_vectors'], 'settlement_vectors'),
+      asString(indexFile['gate_vectors'], 'gate_vectors'),
     ]);
     for (const entry of statementEntries) {
       referenced.add(asString(entry['path'], 'path'));
@@ -1233,15 +1525,20 @@ describe('suderra-edge contract v1 — golden fixtures', () => {
       e,
     ]),
   )('%s at %s reaches its labelled verdict, and carries one defect', (_path, _site, entry) => {
-    const expected = entry['expect'] === 'accept' ? [] : [asString(entry['reason'], 'reason')];
-    expect(runEntry(entry, false)).toEqual(expected);
+    const also = entry['also'] === undefined ? [] : strings(entry['also'], 'also');
+    const reason = entry['expect'] === 'accept' ? '' : asString(entry['reason'], 'reason');
+    const expected = entry['expect'] === 'accept' ? [] : sorted([reason, ...also]);
+    // A verifier that stops at a failed verification_order step reports that reason alone.
+    const stopsAtFirst = VERIFICATION_ORDER.includes(reason) ? [reason] : expected;
+    expect(runEntry(entry, false)).toEqual(stopsAtFirst);
     expect(runEntry(entry, true)).toEqual(expected);
     if (entry['expect'] === 'reject') {
       const allowed = allowedReasons(
         asString(entry['statement_type'], 't'),
         asString(entry['mode'], 'm'),
       );
-      expect(allowed.has(asString(entry['reason'], 'reason'))).toBe(true);
+      for (const reason of [asString(entry['reason'], 'reason'), ...also])
+        expect(allowed.has(reason)).toBe(true);
     }
   });
 

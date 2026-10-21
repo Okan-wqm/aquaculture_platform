@@ -136,9 +136,21 @@ pub fn is_semver(s: &str) -> bool {
         })
 }
 
-/// `os_version`: version core only, at most 32 characters.
+/// `0|[1-9][0-9]{0,8}`: a decimal component of at most nine digits, the bound
+/// of `os_version` and `agent_abi_range` components (common.schema.json), so
+/// that every verifier, whatever its integer width, reads the same number.
+fn bounded_decimal(s: &str) -> Option<u64> {
+    if s.len() > 9 { None } else { decimal(s) }
+}
+
+/// `os_version`: version core only, each component at most nine digits.
 pub fn is_os_version(s: &str) -> bool {
-    s.len() <= 32 && parse_version_core(s).is_some()
+    let mut parts = s.split('.');
+    let components = [parts.next(), parts.next(), parts.next()];
+    parts.next().is_none()
+        && components
+            .iter()
+            .all(|c| c.and_then(bounded_decimal).is_some())
 }
 
 /// Canonical RFC 4648 standard base64 with padding and zero trailing bits
@@ -154,9 +166,28 @@ pub fn decode_base64_array<const N: usize>(s: &str) -> Option<[u8; N]> {
     decode_canonical_base64(s)?.try_into().ok()
 }
 
-/// `https_url`: an https URL of at most 2048 characters with a host, an
-/// optional port and an optional path of the schema's character set.
-pub fn is_https_url(s: &str) -> bool {
+/// One DNS label: 1 to 63 characters of `[a-z0-9-]`, starting and ending with
+/// an alphanumeric one; the last label of a name must also start with a
+/// letter, which keeps an IP literal from being a host name.
+fn is_dns_label(label: &str, last: bool) -> bool {
+    let bytes = label.as_bytes();
+    let (Some(first), Some(end)) = (bytes.first(), bytes.last()) else {
+        return false;
+    };
+    let alnum = |b: &u8| b.is_ascii_lowercase() || b.is_ascii_digit();
+    bytes.len() <= 63
+        && alnum(first)
+        && alnum(end)
+        && bytes.iter().all(|b| alnum(b) || *b == b'-')
+        && (!last || first.is_ascii_lowercase())
+}
+
+/// `fetch_url`: the form of every URL root fetches on behalf of a signed
+/// statement (channels.json `update_channel.fetch`): https on port 443 (no
+/// port, or `:443`), a lowercase DNS name of at least two labels whose last
+/// label starts with a letter (never an IP literal), no userinfo, and a path of
+/// the schema's character set.
+pub fn is_fetch_url(s: &str) -> bool {
     if s.len() > 2048 {
         return false;
     }
@@ -167,15 +198,13 @@ pub fn is_https_url(s: &str) -> bool {
         Some(i) => (rest.get(..i).unwrap_or(""), rest.get(i..)),
         None => (rest, None),
     };
-    let (host, port) = match authority.split_once(':') {
-        Some((host, port)) => (host, Some(port)),
-        None => (authority, None),
-    };
-    !host.is_empty()
-        && all_bytes(host, |b| {
-            b.is_ascii_alphanumeric() || b == b'.' || b == b'-'
-        })
-        && port.is_none_or(|p| (1..=5).contains(&p.len()) && all_bytes(p, |b| b.is_ascii_digit()))
+    let host = authority.strip_suffix(":443").unwrap_or(authority);
+    let labels: Vec<&str> = host.split('.').collect();
+    labels.len() >= 2
+        && labels
+            .iter()
+            .enumerate()
+            .all(|(i, label)| is_dns_label(label, i + 1 == labels.len()))
         && path.is_none_or(|p| {
             all_bytes(p, |b| {
                 b.is_ascii_alphanumeric() || b"._~%!$&'()*+,;=:@/-".contains(&b)
@@ -316,28 +345,59 @@ mod tests {
     }
 
     #[test]
-    fn https_urls_follow_the_schema() {
+    fn fetch_urls_are_https_on_443_at_a_dns_name() {
         for ok in [
-            "https://edge-releases.example.com/site/7e570000-0000-4000-8000-0000000000d1/3/site-bundle.json",
-            "https://10.0.2.2:8443",
-            "https://example.com/a%20b?not-a-query-char-is-refused-below",
+            "https://artifacts.suderra.example/edge/release.dsse.json",
+            "https://artifacts.suderra.example:443/edge/release.dsse.json",
+            "https://a.bc",
+            "https://artifacts-1.example.com/a%20b/c",
         ] {
-            // The third is refused: '?' is outside the schema's path character set.
-            assert_eq!(is_https_url(ok), !ok.contains('?'), "{ok}");
+            assert!(is_fetch_url(ok), "{ok}");
         }
+        let long_label = format!("https://{}.example.com/x", "a".repeat(64));
+        let long_path = format!("https://example.com/{}", "a".repeat(2048));
         for bad in [
+            "https://10.0.2.2/x",
+            "https://10.0.2.2:443/x",
+            "https://example.123/x",
+            "https://example.com:8443/x",
+            "https://example.com:0443/x",
+            "https://example.com:/x",
+            "https://user@example.com/x",
+            "https://Example.com/x",
+            "https://example/x",
+            "https://-a.example.com/x",
+            "https://a-.example.com/x",
+            "https://a..example.com/x",
+            "https://example.com./x",
+            "https://example.com/x?y",
+            "https://example.com/x#y",
             "http://example.com/x",
             "https://",
-            "https://a b",
-            "https://x:123456/",
-            "https://x/<",
-            "ftp://example.com",
+            long_label.as_str(),
+            long_path.as_str(),
         ] {
-            assert!(!is_https_url(bad), "{bad}");
+            assert!(!is_fetch_url(bad), "{bad}");
         }
-        assert!(!is_https_url(&format!(
-            "https://example.com/{}",
-            "a".repeat(2048)
-        )));
+        let longest_label = format!("https://{}.example.com/x", "a".repeat(63));
+        assert!(is_fetch_url(&longest_label));
+    }
+
+    #[test]
+    fn os_version_components_have_at_most_nine_digits() {
+        assert!(is_os_version("999999999.999999999.999999999"));
+        assert!(is_os_version("0.0.0"));
+        for bad in [
+            "1000000000.0.0",
+            "0.1000000000.0",
+            "0.0.1000000000",
+            "99999999999999999999.0.0",
+            "01.0.0",
+            "1.0",
+            "1.0.0.0",
+            "1.0.0-rc1",
+        ] {
+            assert!(!is_os_version(bad), "{bad}");
+        }
     }
 }

@@ -285,7 +285,6 @@ export function verifyStrict(publicKey: Buffer, message: Buffer, signature: Buff
   if (publicKey.length !== 32 || signature.length !== 64) return false;
   const r = signature.subarray(0, 32);
   if (littleEndian(signature.subarray(32)) >= ED25519_L) return false;
-  if (!isCanonicalPoint(publicKey) || !isCanonicalPoint(r)) return false;
   if (isSmallOrder(publicKey) || isSmallOrder(r)) return false;
   const key = createPublicKey({
     key: Buffer.concat([ED25519_SPKI_PREFIX, publicKey]),
@@ -428,10 +427,14 @@ export function validator(schemaRel: string): ValidateFunction {
   return fn;
 }
 
-/** MAJOR.MINOR.PATCH as an integer tuple; the OS versions of the contract have no other form. */
-export function versionTuple(text: string): [number, number, number] {
-  const [major, minor, patch] = text.split('.').map(Number);
-  return [major ?? 0, minor ?? 0, patch ?? 0];
+/**
+ * MAJOR.MINOR.PATCH as an integer tuple; the OS versions of the contract have no other form. The
+ * components are BigInts so that the comparison is exact whatever a component's size: the schema
+ * bounds them at nine digits, which no verifier's integer overflows, and this does not rely on it.
+ */
+export function versionTuple(text: string): [bigint, bigint, bigint] {
+  const [major, minor, patch] = text.split('.').map((part) => BigInt(part));
+  return [major ?? 0n, minor ?? 0n, patch ?? 0n];
 }
 
 /** Negative, zero or positive as a is below, equal to or above b. */
@@ -439,10 +442,20 @@ export function compareVersions(a: string, b: string): number {
   const left = versionTuple(a);
   const right = versionTuple(b);
   for (let i = 0; i < 3; i += 1) {
-    const difference = (left[i] ?? 0) - (right[i] ?? 0);
-    if (difference !== 0) return difference;
+    const l = left[i] ?? 0n;
+    const r = right[i] ?? 0n;
+    if (l !== r) return l < r ? -1 : 1;
   }
   return 0;
+}
+
+/**
+ * Whether a key store may admit the 32 bytes as a public key: the canonical encoding of a point
+ * that is not small-order (statements.json dsse.signature_algorithm). verify_strict does not check
+ * the canonicality of A itself, so the contract closes it here, at admission.
+ */
+export function isAdmissibleKey(raw: Buffer): boolean {
+  return raw.length === 32 && isCanonicalPoint(raw) && !isSmallOrder(raw);
 }
 
 /** True when the CIDR's host bits are zero; a CIDR that does not parse has none to check. */
@@ -782,11 +795,14 @@ export function verifyStatement(
         check(() => boardCheck(payload['board_profile'], payload['arch']));
         check(() => {
           const osRelease = asObject(ctx['os_release'], 'os_release');
-          const version = (s: string): number[] => s.split('.').map(Number);
-          const have = version(asString(osRelease['VERSION_ID'], 'VERSION_ID'));
-          const need = version(asString(payload['min_os_version'], 'min_os_version'));
-          const older = need.findIndex((n, k) => n !== (have[k] ?? 0));
-          if (older >= 0 && (have[older] ?? 0) < (need[older] ?? 0)) fail('os-version-too-old');
+          if (
+            compareVersions(
+              asString(osRelease['VERSION_ID'], 'VERSION_ID'),
+              asString(payload['min_os_version'], 'min_os_version'),
+            ) < 0
+          ) {
+            fail('os-version-too-old');
+          }
           const [min, max] = asString(osRelease['SUDERRA_AGENT_ABI'], 'abi').split('-').map(Number);
           const abi = asNumber(payload['agent_abi'], 'agent_abi');
           if (abi < (min ?? 0) || abi > (max ?? -1)) fail('agent-abi-unsupported');
@@ -902,7 +918,9 @@ export function verifyStatement(
           const epoch = asNumber(anchor['epoch'], 'epoch');
           const raw = Buffer.from(asString(anchor['public_key'], 'public_key'), 'base64');
           const slot = `${purpose}/${epoch}`;
-          if (sha256(raw) !== anchor['keyid'] || seen.has(slot)) fail('anchor-invalid');
+          if (sha256(raw) !== anchor['keyid'] || seen.has(slot) || !isAdmissibleKey(raw)) {
+            fail('anchor-invalid');
+          }
           seen.add(slot);
           if (!bundleOnly(purpose)) {
             const pinned = OS_PINS.get(asString(anchor['keyid'], 'keyid'));
@@ -979,8 +997,32 @@ export function verifyStatement(
       });
       break;
     }
-    case ST_NETPOL:
+    case ST_NETPOL: {
+      check(() => {
+        // The roles of a policy that is not well-formed (an interface value listed twice) are
+        // undefined. The check depends on the interfaces present, which can change after
+        // installation, so a re-verification skips it (statements.json reverification).
+        if (ctx === null || !schemaValid || reVerify) return;
+        const profile = asString(ctx['board_profile'], 'board_profile');
+        const board = BOARD_BY_PROFILE.get(profile);
+        if (board === undefined) throw new Error(`board ${profile} is not in boards.json`);
+        const defaultRole = asString(board['default_interface_role'], 'default_interface_role');
+        const entries = objects(payload['interfaces'], 'interfaces');
+        let wan = 0;
+        for (const nic of objects(ctx['network_interfaces'], 'network_interfaces')) {
+          const matches = entries.filter(
+            (entry) =>
+              entry['mac'] === nic['mac'] ||
+              (entry['pci_path'] !== undefined && entry['pci_path'] === nic['pci_path']),
+          );
+          if (matches.length > 1) fail('interface-mapping-invalid');
+          const role = matches.length === 1 ? asString(matches[0]?.['role'], 'role') : defaultRole;
+          if (role === 'wan') wan += 1;
+        }
+        if (wan === 0) fail('interface-mapping-invalid');
+      });
       break;
+    }
     case ST_SITE: {
       check(() => {
         const named = asObject(payload['files'], 'files');
@@ -1137,4 +1179,160 @@ export function verifyDeliveryDocument(
     },
     { mode: 'accept', verifier: 'os-root', allChecks },
   ).reasons;
+}
+
+// ------------------------------------------------- gates and settlement (channels.json)
+
+const UPDATE_CHANNEL_SPEC = asObject(channelsFile['update_channel'], 'update_channel');
+const MAINTENANCE_GATE = asObject(
+  asObject(UPDATE_CHANNEL_SPEC['maintenance'], 'maintenance')['blockers'],
+  'blockers',
+);
+const SETTLEMENT = asObject(UPDATE_CHANNEL_SPEC['settlement'], 'settlement');
+const CLOCK_SPEC = asObject(channelsFile['time'], 'time');
+const HEALTH_SCHEMA = readJson(join(CONTRACT, 'schemas', 'agent-health.schema.json'));
+const HEALTH_PROPERTIES = asObject(HEALTH_SCHEMA['properties'], 'properties');
+const HEALTH_UPDATED_AT = new RegExp(
+  asString(asObject(HEALTH_PROPERTIES['updated_at'], 'updated_at')['pattern'], 'pattern'),
+);
+const HEALTH_BLOCKERS = strings(
+  asObject(asObject(HEALTH_PROPERTIES['update_blockers'], 'update_blockers')['items'], 'items')[
+    'enum'
+  ],
+  'enum',
+);
+const HEALTH_MAX_BYTES = 65536;
+
+/** Milliseconds of an RFC 3339 UTC instant (fractional seconds beyond a millisecond are cut). */
+function instantMs(text: string): number {
+  const match = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(\.\d{1,9})?(Z|\+00:00)$/.exec(text);
+  if (match === null) throw new Error(`not an RFC 3339 UTC instant: ${text}`);
+  return Date.parse(`${match[1] ?? ''}${(match[2] ?? '').slice(0, 4)}Z`);
+}
+
+function readDocument(descriptor: JsonObject): JsonObject | null {
+  if (descriptor['kind'] !== 'document') return null;
+  try {
+    return asObject(
+      parseStrictJson(
+        UTF8.decode(readFileSync(join(FIXTURES, asString(descriptor['path'], 'path')))),
+      ),
+      'document',
+    );
+  } catch {
+    return null;
+  }
+}
+
+/** What root's update worker reads of the agent health view: null when it is unavailable. */
+export function healthBlockers(descriptor: JsonObject, now: string): string[] | null {
+  // A view larger than 64 KiB is unavailable, whatever it holds: root reads at most that much.
+  if (
+    descriptor['size_bytes'] !== undefined &&
+    asNumber(descriptor['size_bytes'], 'size') > HEALTH_MAX_BYTES
+  )
+    return null;
+  const view = readDocument(descriptor);
+  if (view === null) return null;
+  const blockers = view['update_blockers'];
+  const updated = view['updated_at'];
+  if (
+    view['schema'] !== 'suderra.agent-health.v1' ||
+    !Array.isArray(blockers) ||
+    !blockers.every((b) => typeof b === 'string' && HEALTH_BLOCKERS.includes(b)) ||
+    new Set(blockers).size !== blockers.length ||
+    typeof updated !== 'string' ||
+    !HEALTH_UPDATED_AT.test(updated)
+  ) {
+    return null;
+  }
+  const limitMs =
+    asNumber(asObject(MAINTENANCE_GATE['health_view'], 'health_view')['max_age_seconds'], 'age') *
+    1000;
+  if (Math.abs(instantMs(now) - instantMs(updated)) > limitMs) return null;
+  return blockers as string[];
+}
+
+/**
+ * Root's maintenance gate for an edge-update, an os-update or a site-config
+ * (channels.json update_channel.maintenance.blockers).
+ */
+export function maintenanceVerdict(
+  statementType: string,
+  agentUnitState: string,
+  view: JsonObject,
+  now: string,
+  blockersOverride: boolean,
+): 'proceed' | 'maintenance-blocked' {
+  const unit = asObject(MAINTENANCE_GATE['agent_unit'], 'agent_unit');
+  if (!strings(unit['blocking_active_states'], 'states').includes(agentUnitState)) return 'proceed';
+  const override = asObject(MAINTENANCE_GATE['override'], 'override');
+  if (blockersOverride && strings(override['applies_to'], 'applies_to').includes(statementType))
+    return 'proceed';
+  const blockers = healthBlockers(view, now);
+  return blockers === null || blockers.length > 0 ? 'maintenance-blocked' : 'proceed';
+}
+
+/** The state a reader takes from the time-state document it finds (channels.json time.stale_rule). */
+export function clockState(descriptor: JsonObject, now: string): string {
+  const document = readDocument(descriptor);
+  if (document === null || !validator('schemas/time-state.schema.json')(document))
+    return 'unsynced';
+  const limitMs = asNumber(CLOCK_SPEC['max_age_seconds'], 'max_age_seconds') * 1000;
+  if (
+    Math.abs(instantMs(now) - instantMs(asString(document['updated_at'], 'updated_at'))) > limitMs
+  )
+    return 'unsynced';
+  return asString(document['state'], 'state');
+}
+
+/** Whether the clock meets a consumer's requirement (channels.json time.consumers). */
+export function clockSufficient(consumer: string, descriptor: JsonObject, now: string): boolean {
+  const entry = asObject(asObject(CLOCK_SPEC['consumers'], 'consumers')[consumer], consumer);
+  return strings(entry['sufficient'], 'sufficient').includes(clockState(descriptor, now));
+}
+
+export function reasonClassOf(reason: string): string {
+  const classes = asObject(SETTLEMENT['reason_classes'], 'reason_classes');
+  const found = Object.entries(classes).filter(([, list]) =>
+    strings(list, 'list').includes(reason),
+  );
+  if (found.length !== 1) throw new Error(`${reason} is in ${found.length} reason classes`);
+  return found[0]?.[0] ?? '';
+}
+
+function namesStatement(result: JsonObject, digest: string): boolean {
+  const subject = result['subject'];
+  if (subject === undefined) return false;
+  const named = asObject(asObject(subject, 'subject')['statement_digest'], 'digest')['sha256'];
+  return named === digest;
+}
+
+/** Whether the agent removes a spool entry (channels.json update_channel.spool.agent_is_only_writer). */
+export function agentPrunes(
+  entry: { name: string; age_seconds: number },
+  results: JsonObject[],
+  maxAgeSeconds: number,
+): boolean {
+  const digest = entry.name.replace(/\.dsse$/, '');
+  return (
+    results.some((result) => namesStatement(result, digest)) || entry.age_seconds > maxAgeSeconds
+  );
+}
+
+/** What the cloud does about a statement it owes, given the results it has seen. */
+export function cloudSettlement(statement: JsonObject, results: JsonObject[], now: string): string {
+  const digest = asString(statement['digest'], 'digest');
+  const mine = results
+    .filter((r) => r['kind'] === statement['result_kind'] && namesStatement(r, digest))
+    .sort((a, b) => asNumber(a['seq'], 'seq') - asNumber(b['seq'], 'seq'));
+  const last = mine[mine.length - 1];
+  if (last === undefined) {
+    return instantMs(now) >= instantMs(asString(statement['expires_at'], 'expires_at'))
+      ? 'lapsed'
+      : 'wait';
+  }
+  if (last['outcome'] === 'ok') return 'done';
+  const cls = reasonClassOf(asString(last['reason'], 'reason'));
+  return cls === 'retryable' ? 'reissue' : cls;
 }

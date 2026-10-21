@@ -42,7 +42,7 @@ use edge_contract::dsse::{Envelope, pae, verify_strict};
 use edge_contract::encoding::{
     decode_base64_array, decode_canonical_base64, hex_lower, parse_version_core,
 };
-use edge_contract::keys::{KeyEntry, KeyStore};
+use edge_contract::keys::{KeyEntry, KeyStore, is_admissible_key};
 use edge_contract::registry::{
     AgentProfile, Arch, BindingMethod, BoardProfile, CargoFeature, EqualSeq, Purpose, Reason,
     SitePath, StatementType, VERIFICATION_ORDER, naming,
@@ -268,11 +268,26 @@ fn run_agent(
     }
 }
 
+/// The reasons a fixture is labelled with: its one `reason` and the `also`
+/// reasons that follow from the one defect (fixture-index.schema.json). A
+/// verifier stops at a failed verification_order step (schema-invalid) and
+/// reports that reason alone.
 fn labelled(entry: &Value) -> BTreeSet<Reason> {
+    let parse = |text: &str| {
+        Reason::parse(text).unwrap_or_else(|| panic!("unknown reason {text} in {entry}"))
+    };
     match entry["expect"].as_str().unwrap() {
         "accept" => BTreeSet::new(),
-        "reject" => BTreeSet::from([Reason::parse(entry["reason"].as_str().unwrap())
-            .unwrap_or_else(|| panic!("unknown reason in {entry}"))]),
+        "reject" => {
+            let reason = parse(entry["reason"].as_str().unwrap());
+            let mut reasons = BTreeSet::from([reason]);
+            if !VERIFICATION_ORDER.contains(&reason) {
+                for also in entry["also"].as_array().into_iter().flatten() {
+                    reasons.insert(parse(also.as_str().unwrap()));
+                }
+            }
+            reasons
+        }
         other => panic!("expect {other}"),
     }
 }
@@ -485,45 +500,43 @@ fn signature_vectors_pin_verify_strict() {
 }
 
 #[test]
-fn a_non_canonical_point_encoding_never_verifies_as_a_key_or_a_commitment() {
-    // fixtures/dsse/point-vectors.json: encodings with y >= p of points that are
-    // not small-order. The signature vectors cannot test this rule, because no
-    // signature exists under such a point.
+fn a_key_store_admits_exactly_the_canonical_points_that_are_not_small_order() {
+    // fixtures/dsse/point-vectors.json: no signature exists under a non-canonical
+    // encoding of a full-order point, so the rule cannot be tested by verifying
+    // anything; it is the admission of a key, which fails here when either term
+    // of the rule is dropped. trust-anchors/invalid/anchor-non-canonical-key and
+    // anchor-small-order-key pin it through the bundle verifier.
     let v = load("fixtures/dsse/point-vectors.json");
-    let pins = os_pins();
-    let real_key = pins
-        .get(
-            &Envelope::parse(&fixture(
-                "edge-release/valid/revpi-connect4-aarch64-1.6.0.dsse.json",
-            ))
-            .unwrap()
-            .keyid,
-        )
-        .cloned()
-        .expect("pinned signer")
-        .raw;
-    let message = b"suderra-edge-contract point vector";
-    let mut refused = 0;
+    let mut refused_for_form = 0;
+    let mut refused_for_order = 0;
+    let mut admitted = 0;
     for vector in v["vectors"].as_array().unwrap() {
-        if vector["canonical"].as_bool().unwrap() || vector["small_order"].as_bool().unwrap() {
-            continue;
-        }
         let id = vector["id"].as_str().unwrap();
         let point: [u8; 32] = unhex(vector["encoding_hex"].as_str().unwrap())
             .try_into()
             .unwrap();
-        let mut signature = [7u8; 64];
-        assert!(!verify_strict(&point, message, &signature), "{id} as a key");
-        signature[..32].copy_from_slice(&point);
-        signature[32..].fill(0);
-        signature[32] = 1;
-        assert!(
-            !verify_strict(&real_key, message, &signature),
-            "{id} as a commitment"
-        );
-        refused += 1;
+        let canonical = vector["canonical"].as_bool().unwrap();
+        let small_order = vector["small_order"].as_bool().unwrap();
+        assert_eq!(is_admissible_key(&point), canonical && !small_order, "{id}");
+        match (canonical, small_order) {
+            (false, _) => refused_for_form += 1,
+            (true, true) => refused_for_order += 1,
+            (true, false) => admitted += 1,
+        }
     }
-    assert!(refused > 10, "only {refused} point vectors ran");
+    assert!(
+        refused_for_form >= 10 && refused_for_order >= 3 && admitted >= 10,
+        "vectors cover {refused_for_form} non-canonical, {refused_for_order} small-order and {admitted} admissible encodings"
+    );
+    // The rule must not refuse a key the fixtures sign with.
+    for key in load("test-keys/keyring.json")["keys"].as_array().unwrap() {
+        let raw = decode_base64_array::<32>(key["public_key"].as_str().unwrap()).unwrap();
+        assert!(
+            is_admissible_key(&raw),
+            "test key {} is not admissible",
+            key["keyid"]
+        );
+    }
 }
 
 // -------------------------------------------------------------- drift gates

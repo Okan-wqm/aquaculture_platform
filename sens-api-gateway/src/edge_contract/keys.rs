@@ -77,6 +77,78 @@ impl KeyStore {
     }
 }
 
+/// y of the small-order points of edwards25519 (little-endian, the sign bit
+/// masked): the encodings of 0, 1, p - 1, the two points of order 8, and the
+/// non-canonical encodings p and p + 1 of 0 and 1 (the list of
+/// statements.json `dsse.signature_algorithm`; libsodium's
+/// `ge25519_has_small_order`).
+const SMALL_ORDER_Y: [[u8; 32]; 7] = [
+    [0; 32],
+    [
+        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0,
+    ],
+    [
+        0x26, 0xe8, 0x95, 0x8f, 0xc2, 0xb2, 0x27, 0xb0, 0x45, 0xc3, 0xf4, 0x89, 0xf2, 0xef, 0x98,
+        0xf0, 0xd5, 0xdf, 0xac, 0x05, 0xd3, 0xc6, 0x33, 0x39, 0xb1, 0x38, 0x02, 0x88, 0x6d, 0x53,
+        0xfc, 0x05,
+    ],
+    [
+        0xc7, 0x17, 0x6a, 0x70, 0x3d, 0x4d, 0xd8, 0x4f, 0xba, 0x3c, 0x0b, 0x76, 0x0d, 0x10, 0x67,
+        0x0f, 0x2a, 0x20, 0x53, 0xfa, 0x2c, 0x39, 0xcc, 0xc6, 0x4e, 0xc7, 0xfd, 0x77, 0x92, 0xac,
+        0x03, 0x7a,
+    ],
+    [
+        0xec, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0x7f,
+    ],
+    [
+        0xed, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0x7f,
+    ],
+    [
+        0xee, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0x7f,
+    ],
+];
+
+/// The sign bit of an encoding is the top bit of its last byte; the rest is y.
+fn y_bytes(raw: &[u8; 32]) -> [u8; 32] {
+    let mut y = *raw;
+    if let Some(last) = y.last_mut() {
+        *last &= 0x7f;
+    }
+    y
+}
+
+/// RFC 8032 section 5.1.3: an encoding whose y is not below p = 2^255 - 19 is
+/// non-canonical. Only y in [p, 2^255) is, and those are the encodings
+/// `ed ff .. ff 7f` and above.
+fn is_canonical_point(raw: &[u8; 32]) -> bool {
+    let [first, middle @ .., last] = y_bytes(raw);
+    !(last == 0x7f && middle.iter().all(|b| *b == 0xff) && first >= 0xed)
+}
+
+fn is_small_order(raw: &[u8; 32]) -> bool {
+    let y = y_bytes(raw);
+    SMALL_ORDER_Y.contains(&y)
+}
+
+/// Whether a key store may admit the 32 bytes as an Ed25519 public key
+/// (statements.json `dsse.signature_algorithm`): the canonical encoding of a
+/// point that is not small-order. ed25519-dalek `verify_strict` refuses a
+/// small-order A but does not check the canonicality of A itself, so the
+/// contract closes it here, at admission: a bundle anchor that is not
+/// admissible is `anchor-invalid` and an OS pin that is not admissible is no
+/// pin ([`parse_spki_pem`]). A key that is admissible but not a point of the
+/// curve is admitted and never verifies a signature.
+pub fn is_admissible_key(raw: &[u8; 32]) -> bool {
+    is_canonical_point(raw) && !is_small_order(raw)
+}
+
 /// The keys one verification may resolve against.
 #[derive(Debug, Clone, Copy)]
 pub struct KeyView<'a> {
@@ -111,7 +183,13 @@ pub fn parse_spki_pem(text: &str) -> Result<[u8; 32], String> {
         .contents()
         .strip_prefix(&ED25519_SPKI_PREFIX[..])
         .ok_or("not an Ed25519 SubjectPublicKeyInfo")?;
-    <[u8; 32]>::try_from(raw).map_err(|_| "Ed25519 key is not 32 bytes".to_owned())
+    let raw = <[u8; 32]>::try_from(raw).map_err(|_| "Ed25519 key is not 32 bytes".to_owned())?;
+    if !is_admissible_key(&raw) {
+        return Err(
+            "Ed25519 key is not admissible (non-canonical or small-order point)".to_owned(),
+        );
+    }
+    Ok(raw)
 }
 
 /// Epoch of a pin file name: `<epoch>.pub` with a decimal epoch in
@@ -159,13 +237,67 @@ mod tests {
         }
     }
 
+    /// The Ed25519 base point: a full-order point in canonical form.
+    const BASE_POINT: [u8; 32] = [
+        0x58, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
+        0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66,
+        0x66, 0x66,
+    ];
+
+    fn spki_pem(key: &[u8]) -> String {
+        let mut der = ED25519_SPKI_PREFIX.to_vec();
+        der.extend_from_slice(key);
+        pem::encode(&pem::Pem::new("PUBLIC KEY", der))
+    }
+
     #[test]
     fn spki_pem_round_trip() {
-        let mut der = ED25519_SPKI_PREFIX.to_vec();
-        der.extend_from_slice(&[7; 32]);
-        let text = pem::encode(&pem::Pem::new("PUBLIC KEY", der));
-        assert_eq!(parse_spki_pem(&text), Ok([7; 32]));
+        assert_eq!(parse_spki_pem(&spki_pem(&BASE_POINT)), Ok(BASE_POINT));
         let wrong = pem::encode(&pem::Pem::new("CERTIFICATE", vec![0; 44]));
         assert!(parse_spki_pem(&wrong).is_err());
+    }
+
+    /// 0xff in every byte but the first and the last.
+    fn ff_between(first: u8, last: u8) -> [u8; 32] {
+        let mut key = [0xff; 32];
+        if let Some(byte) = key.first_mut() {
+            *byte = first;
+        }
+        if let Some(byte) = key.last_mut() {
+            *byte = last;
+        }
+        key
+    }
+
+    #[test]
+    fn a_pin_that_is_no_admissible_key_is_no_pin() {
+        // The non-canonical encoding of the identity, y = p.
+        let non_canonical_identity = ff_between(0xed, 0x7f);
+        for (what, key) in [
+            ("identity", [0u8; 32]),
+            ("non-canonical identity (y = p)", non_canonical_identity),
+        ] {
+            assert!(!is_admissible_key(&key), "{what}");
+            assert!(parse_spki_pem(&spki_pem(&key)).is_err(), "{what}");
+        }
+        assert!(is_admissible_key(&BASE_POINT));
+    }
+
+    #[test]
+    fn the_small_order_and_canonicality_rules_cover_both_sign_bits() {
+        for y in SMALL_ORDER_Y {
+            let mut with_sign = y;
+            if let Some(last) = with_sign.last_mut() {
+                *last |= 0x80;
+            }
+            assert!(!is_admissible_key(&y));
+            assert!(!is_admissible_key(&with_sign));
+        }
+        // y = p + 3 is non-canonical although it is no small-order point.
+        assert!(!is_admissible_key(&ff_between(0xf0, 0x7f)));
+        // The sign bit does not make a non-canonical y canonical.
+        assert!(!is_admissible_key(&ff_between(0xf0, 0xff)));
+        // p - 2 is the largest canonical y that is no small-order point.
+        assert!(is_admissible_key(&ff_between(0xeb, 0x7f)));
     }
 }

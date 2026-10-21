@@ -12,7 +12,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
 use super::encoding::{
-    is_ed25519_public_key, is_https_url, is_kernel_symbol, is_os_version, is_pem_certificate,
+    is_ed25519_public_key, is_fetch_url, is_kernel_symbol, is_os_version, is_pem_certificate,
     is_semver, is_sha256_hex, is_tag_id, is_timestamp, is_uuid,
 };
 use super::json::{MAX_SAFE_INTEGER, check_strict_object};
@@ -519,7 +519,7 @@ impl Statement for SiteConfig {
             )?;
         }
         if let Some(url) = &self.site_bundle_url {
-            ensure(is_https_url(url), "site_bundle_url is not an https URL")?;
+            ensure(is_fetch_url(url), "site_bundle_url is not a fetch URL")?;
         }
         self.rbac_manifest.digest.validate()?;
         sequence(

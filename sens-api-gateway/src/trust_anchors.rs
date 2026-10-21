@@ -592,6 +592,31 @@ mod tests {
     }
 
     #[test]
+    fn a_pin_that_is_a_small_order_point_is_no_pin() {
+        // statements.json dsse.signature_algorithm: no key store admits a key that
+        // is non-canonical or small-order, so the OS image's pin of one is no pin.
+        // The control is the same file with an admissible key.
+        let spki = |key: &[u8; 32]| {
+            let mut der = vec![
+                0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00,
+            ];
+            der.extend_from_slice(key);
+            pem::encode(&pem::Pem::new("PUBLIC KEY", der))
+        };
+        let root = device_root();
+        let dir = root.path().join("keys/fleet-root");
+        let mut base_point = [0x66; 32];
+        base_point[0] = 0x58;
+        std::fs::write(dir.join("2.pub"), spki(&base_point)).unwrap();
+        assert!(load_os_pins(&root.path().join("keys")).is_ok());
+        std::fs::write(dir.join("2.pub"), spki(&[0; 32])).unwrap();
+        assert!(matches!(
+            load_os_pins(&root.path().join("keys")),
+            Err(TrustError::Pins { .. })
+        ));
+    }
+
+    #[test]
     fn oversized_statements_are_not_read() {
         let root = device_root();
         let path = root.path().join("big.dsse");

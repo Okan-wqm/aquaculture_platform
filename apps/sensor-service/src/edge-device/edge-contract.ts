@@ -283,7 +283,14 @@ export type EdgeUpdateStatement = {
   readonly expires_at: string;
   readonly release_statement: { readonly digest: Sha256Digest; readonly url: string };
   readonly artifact_url: string;
+  /** Required: a statement without it is schema-invalid, never read as no approval. */
   readonly local_approval: boolean;
+  /**
+   * Present, and then always true, when an operator asked this update to ignore the
+   * maintenance gate's blockers; the schema allows it only with `local_approval: true`
+   * (channels.json update_channel.maintenance.blockers.override).
+   */
+  readonly blockers_override?: true;
   readonly max_outage_seconds: number;
 };
 
@@ -307,7 +314,10 @@ export type OsUpdateStatement = {
     readonly digest: Sha256Digest;
     readonly size_bytes: number;
   };
+  /** Required: a statement without it is schema-invalid, never read as no approval. */
   readonly local_approval: boolean;
+  /** As on the edge-update: only together with `local_approval: true`. */
+  readonly blockers_override?: true;
   readonly max_outage_seconds: number;
 };
 

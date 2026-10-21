@@ -21,7 +21,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::dsse::{Envelope, pae, verify_strict};
 use super::encoding::{decode_base64_array, parse_version_core, sha256_hex};
-use super::keys::{KeyEntry, KeyStore, KeyView};
+use super::keys::{KeyEntry, KeyStore, KeyView, is_admissible_key};
 use super::registry::{
     Arch, BoardProfile, EqualSeq, Purpose, Reason, SitePath, StatementType, naming,
 };
@@ -335,7 +335,9 @@ pub fn verify_trust_anchors(env: &Envelope, scope: &Scope<'_>) -> Verdict<TrustA
     for anchor in &v.statement.anchors {
         let Anchor::Ed25519(a) = anchor else { continue };
         let raw = decode_base64_array::<32>(&a.public_key);
-        let consistent = raw.is_some_and(|raw| sha256_hex(&raw) == a.keyid);
+        // A key no key store may admit (non-canonical or small-order) is no anchor.
+        let consistent =
+            raw.is_some_and(|raw| sha256_hex(&raw) == a.keyid && is_admissible_key(&raw));
         // One keyid resolves to one (purpose, epoch): a key anchored twice is
         // as ambiguous as a slot anchored twice.
         if !consistent || !slots.insert((a.purpose, a.epoch)) || !keyids.insert(&a.keyid) {

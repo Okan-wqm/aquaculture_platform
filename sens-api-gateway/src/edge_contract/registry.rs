@@ -95,6 +95,7 @@ string_enum!(
         RbacManifestDigestMismatch => "rbac-manifest-digest-mismatch",
         ActorKeyNotAnchored => "actor-key-not-anchored",
         InstalledDigestMismatch => "installed-digest-mismatch",
+        InterfaceMappingInvalid => "interface-mapping-invalid",
     }
 );
 
@@ -428,6 +429,7 @@ impl StatementType {
                     R::DeviceIdMismatch,
                     R::TenantMismatch,
                     R::SequenceReplay,
+                    R::InterfaceMappingInvalid,
                 ],
                 agent_omits: None,
             },

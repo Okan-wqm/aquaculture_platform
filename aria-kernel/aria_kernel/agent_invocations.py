@@ -8,7 +8,7 @@ import stat
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Mapping, Sequence
 
 from .agent_contract import CONTRACT_ENFORCED_ROLES, REQUEST_SCHEMA, validate_request
 from .agent_surface import (
@@ -16,7 +16,11 @@ from .agent_surface import (
     INVOCATION_ROLES,
     allowed_targets_for_role,
 )
-from .bridge_exceptions import BridgeContractViolation
+from .bridge_exceptions import (
+    DETERMINISTIC_BRIDGE_FAILURES,
+    BridgeContractRefused,
+    BridgeContractViolation,
+)
 from .checkout_root import is_git_worktree_marker as _is_git_worktree_marker
 from .genesis_lifecycle import verify_shadow_eval_proof
 from .must_satisfy import MUST_SATISFY_ID_FIELD, MUST_SATISFY_TEXT_FIELD, must_satisfy_text, validate_must_satisfy
@@ -1381,6 +1385,14 @@ def create_agent_invocation_request(
     # written. The 2026-10-06 store held 606 never-claimed and 836
     # anchor-stale rows minted by eleven producers that never asked.
     admission: Admission,
+    # ARIA-HIGH-614 — the read-only citation box a producer derives from its
+    # own subject (a questioning or Gate B judge carries the plan's surfaces
+    # and evidence; a genesis drafter or judge the evidence pack's). The
+    # planning-round roles keep their mint-derived scope (ARIA-HIGH-357:
+    # derived so no producer can widen or forget it) and are refused if they
+    # try to supply one. Additive + optional: every other role mints with
+    # None and legacy rows read as absent.
+    evidence_scope: list[str] | None = None,
     # ARIA-MEDIUM-385 — the stable name of WHAT the request is about, for a
     # producer whose subject outlives the cycle that asks (a merged PR, one
     # gold-corpus state: ``pr_tracking.change_intelligence_subject_ref``,
@@ -1462,12 +1474,29 @@ def create_agent_invocation_request(
     # an item they DO carry is still held to the shape.
     if must_satisfy:
         must_satisfy = validate_must_satisfy(must_satisfy)
+    # ARIA-HIGH-614 — the supplied read-only evidence scope is held to the
+    # same shape as forbidden_scope; a planning-round envelope refuses one
+    # outright (below).
+    if evidence_scope is not None and (
+        not isinstance(evidence_scope, list)
+        or any(not isinstance(item, str) or not item.strip() for item in evidence_scope)
+    ):
+        raise GovernanceError("create_agent_invocation_request_evidence_scope_must_be_list_of_strings")
     # ARIA-HIGH-345 — a planning-round envelope belongs to the plan it
     # names. The F-007 plan's round-1 cross_review was minted with the scope
     # and key change of another candidate in the same cycle and could only be
     # refused by its reviewer; the drainer no longer has a parameter through
     # which that can happen, and this refuses it for every other producer.
-    evidence_scope: list[str] = []
+    if role in PLANNING_ROUND_ROLES and evidence_scope:
+        # ARIA-HIGH-357 keeps the planning-round evidence scope derived from
+        # the plan's own record; a producer-supplied one here would be the
+        # widening that derivation exists to prevent, so it is refused by
+        # name rather than silently dropped or merged.
+        raise GovernanceError(
+            "create_agent_invocation_request_evidence_scope_derived_for_plan_rounds: "
+            f"role {role!r} envelope scope comes from plan_round_scope.plan_round_contract"
+        )
+    derived_evidence_scope: list[str] = []
     if role in PLANNING_ROUND_ROLES and convergence_id:
         from .plan_convergence import fold_plan_state
 
@@ -1479,7 +1508,8 @@ def create_agent_invocation_request(
         # ARIA-HIGH-357 (ADR-0021 D9) — the read-only evidence scope is the
         # plan's own record, derived here so no producer can widen or forget it.
         if isinstance(round_state.get("plan_started"), Mapping):
-            evidence_scope = list(plan_round_contract(round_state).evidence_scope)
+            derived_evidence_scope = list(plan_round_contract(round_state).evidence_scope)
+    evidence_scope = derived_evidence_scope or list(evidence_scope or [])
     if forbidden_scope is not None and (
         not isinstance(forbidden_scope, list)
         or any(not isinstance(item, str) or not item.strip() for item in forbidden_scope)
@@ -1597,6 +1627,31 @@ def create_agent_invocation_request(
             f"record rides on its own field (cycle_id, convergence_id, round_number, "
             f"subject_ref) or in the prompt as data"
         )
+    # ARIA-HIGH-614 — what the submit law refuses, the mint refuses, for the
+    # box AS A WHOLE: the response law admits a citation only inside
+    # ``allowed_scope ∪ evidence_scope`` or by identity as one of the
+    # request's ``evidence_refs`` (evidence_validator's cross-check), so an
+    # envelope whose union holds only non-repository namespace labels
+    # (``cycle/``, ``plan-convergence/``, ``convergent/``) can buy only a
+    # refused answer — the three paid ``verification`` runs of 2026-10-15/16
+    # were rejected for exactly this. The mint-side twin of that cross-check,
+    # role-independent; a kernel ledger pointer still counts (the law admits
+    # it by identity, which is how the adjudication lane's own subject
+    # travels). Judged for a NEW identity only, as above, and never for the
+    # operator's legacy opt-out lane, whose approved shape predates strict
+    # fields entirely.
+    if not legacy_strict_fields_optional:
+        from .evidence_validator import scope_entry_admits_citable_ref
+
+        box_entries = [*(allowed_scope or []), *(evidence_scope or []), *(evidence_refs or [])]
+        if not any(scope_entry_admits_citable_ref(entry) for entry in box_entries):
+            raise GovernanceError(
+                "agent_request_scope_admits_no_repository_ref: role "
+                f"{role!r} envelope box {box_entries[:6]} holds only non-repository "
+                f"namespaces; the response law would refuse every citation "
+                f"(agent_evidence_outside_allowed_scope). Carry the subject's own "
+                f"repository refs as evidence_refs and its surfaces as evidence_scope"
+            )
     # A sealed request owns its original context and audit. Only a new
     # identity acquires current optional inputs or captures budget costs.
     evidence_excerpts = _evidence_excerpts_for_refs(
@@ -3617,6 +3672,93 @@ def sweep_expired_anchors(
     return {"swept": swept, "by_role": by_role}
 
 
+@dataclass
+class SelectionSkip:
+    """Why a selection would not hand ``request`` out this poll (``None``: it would).
+
+    ``reason`` is one word naming the arm that refused; ``detail`` carries the
+    arm's own detail (the derived state, the dispatch refusal, the anchor
+    refusal or why the anchor gate could not answer).
+    """
+
+    reason: str
+    detail: str | None = None
+
+
+def selection_skip(
+    root: Path,
+    request: Mapping[str, Any],
+    *,
+    states: Mapping[str, str],
+    repo_root: Path | None,
+    probes: "GitProbeSession",
+    clock: "ProviderClock",
+    may_record: Callable[[], bool],
+    now: datetime | None = None,
+) -> SelectionSkip | None:
+    """The ONE per-request eligibility fold every selection boundary asks.
+
+    ``next_pending_request`` hands out the oldest request this fold passes.
+    ARIA-HIGH-579 (review): ``provider_hold`` asks the same fold to learn
+    whether any drain would hand a request out at all — a provider whose
+    lapsed back-off only a request this fold admits would carry is out for
+    the night, while a request no drain would select carries nothing and
+    counting it would stand a hold nothing can end. The fold lives here, at
+    the queue's owner, because the two questions must not diverge: a
+    half-copied eligibility is how a hold outlives the queue it watches.
+
+    Caller-specific filters (role, target agent, already-attempted ids) stay
+    with the caller; everything a drain and the night must agree on is here:
+    the shadow lane, the derived state, mootness (ARIA-HIGH-360),
+    dispatchability (ARIA-HIGH-388) and the anchor verdict
+    (ORPHAN-MEDIUM-492). ``may_record`` gates the fold's durable refusals
+    exactly as the selection does; a read-only caller (the night's question)
+    passes ``lambda: False`` and the request is still skipped. A skip whose
+    reason is ``anchor_undecided`` is not a refusal: the row stays PENDING
+    and the next selection asks git again.
+    """
+    from .human_required_adjudication import adjudication_envelope_is_moot
+    from .implementation_dispatch import disclose_undispatchable, implementation_dispatch_refusal
+
+    if _target_is_shadow(root, str(request.get("target_agent") or "")) and not request.get("shadow_eval"):
+        return SelectionSkip("shadow_target", str(request.get("target_agent") or ""))
+    state = states.get(str(request.get("request_id") or ""), "PENDING")
+    if state not in {"PENDING", "REQUEUED"}:
+        return SelectionSkip("state", state)
+    # ARIA-HIGH-360 — a panel envelope whose answer the adjudication sweep
+    # would never read (its escalation is resolved, handed to the operator,
+    # or of a kind no panel decides) is never handed out.
+    if adjudication_envelope_is_moot(root, request):
+        return SelectionSkip("moot", None)
+    # ARIA-HIGH-388 — an implementation request the delivery could not carry
+    # (no delivery authority) or whose plan already ended is never handed
+    # out: before any claim, identity mint or credential lease.
+    undispatchable = implementation_dispatch_refusal(request=request, base_dir=root)
+    if undispatchable is not None:
+        if may_record():
+            disclose_undispatchable(request=request, reason=undispatchable, base_dir=root)
+        return SelectionSkip("undispatchable", undispatchable)
+    if repo_root is not None:
+        moment = now or _utc_now_dt()
+        verdict = _anchor_refusal_reason(
+            request,
+            repo_root,
+            probes=probes,
+            clock=clock,
+            now=moment,
+            max_age_seconds=_anchor_max_age_seconds(root),
+        )
+        if verdict.refusal is not None:
+            # Under a profile that stops writes the refusal is not made
+            # durable; the request is still skipped (re-review N2).
+            if may_record():
+                _record_anchor_stale(root, request, verdict.refusal, now=moment)
+            return SelectionSkip("anchor_stale", verdict.refusal)
+        if verdict.undecided is not None:
+            return SelectionSkip("anchor_undecided", verdict.undecided)
+    return None
+
+
 def next_pending_request(
     *,
     role: str | None = None,
@@ -3648,8 +3790,6 @@ def next_pending_request(
     from a clean ledger.
     """
     from .evidence_probe import GitProbeSession
-    from .human_required_adjudication import adjudication_envelope_is_moot
-    from .implementation_dispatch import disclose_undispatchable, implementation_dispatch_refusal
 
     root = ensure_tools_dir(base_dir)
     repo_root = _anchor_repo_root(root)
@@ -3692,8 +3832,6 @@ def next_pending_request(
         return writable[0]
 
     for request in requests:
-        if _target_is_shadow(root, str(request.get("target_agent") or "")) and not request.get("shadow_eval"):
-            continue
         if role and request.get("role") != role:
             continue
         if target_agent and request.get("target_agent") != target_agent:
@@ -3703,45 +3841,15 @@ def next_pending_request(
         # structurally failing request used to end the entire drain.
         if exclude_request_ids and str(request.get("request_id")) in exclude_request_ids:
             continue
-        state = states.get(str(request.get("request_id") or ""), "PENDING")
-        if state not in {"PENDING", "REQUEUED"}:
-            continue
-        # ARIA-HIGH-360 — a panel envelope whose answer the adjudication
-        # sweep would never read (its escalation is resolved, handed to the
-        # operator, or of a kind no panel decides) is never handed out.
-        if adjudication_envelope_is_moot(root, request):
-            continue
-        # ARIA-HIGH-388 — an implementation request the delivery could not
-        # carry (no delivery authority) or whose plan already ended is never
-        # handed out: before any claim, identity mint or credential lease.
-        undispatchable = implementation_dispatch_refusal(request=request, base_dir=root)
-        if undispatchable is not None:
-            if may_record():
-                disclose_undispatchable(request=request, reason=undispatchable, base_dir=root)
-            continue
-        if repo_root is not None:
-            now = _utc_now_dt()
-            verdict = _anchor_refusal_reason(
-                request,
-                repo_root,
-                probes=probes,
-                clock=clock,
-                now=now,
-                max_age_seconds=_anchor_max_age_seconds(root),
-            )
-            if verdict.refusal is not None:
-                # Under a profile that stops writes the refusal is not made
-                # durable; the request is still skipped (re-review N2).
-                if may_record():
-                    _record_anchor_stale(root, request, verdict.refusal, now=now)
-                continue
-            if verdict.undecided is not None:
-                # Skipped, not refused: the row stays PENDING and the next
-                # selection asks git again.
-                undecided[str(request.get("request_id") or "")] = verdict.undecided
-                continue
-        selected = request
-        break
+        skip = selection_skip(root, request, states=states, repo_root=repo_root,
+                              probes=probes, clock=clock, may_record=may_record)
+        if skip is None:
+            selected = request
+            break
+        if skip.reason == "anchor_undecided":
+            # Skipped, not refused: the row stays PENDING and the next
+            # selection asks git again.
+            undecided[str(request.get("request_id") or "")] = skip.detail or ""
     if undecided:
         append_tools_governance(
             root,
@@ -4545,17 +4653,46 @@ def _invoke_bridges_for_result(
     re-invokes EXACTLY the code the accepted path runs — a replay that
     drifts from the original invocation is a second bridge implementation.
 
-    Error contract (unchanged from the inline original):
+    Error contract:
 
     * ``GovernanceError`` from any single bridge is recorded in
       ``bridged["bridge_errors"]`` + an ``agent_bridge_warning``
       governance event; the other bridges still run.
+    * ARIA-MEDIUM-172 — a failure that is a
+      ``DETERMINISTIC_BRIDGE_FAILURES`` member is ALSO recorded in
+      ``bridged["bridge_refusals"]`` (a subset of ``bridge_errors`` by
+      construction) and its warning carries
+      ``error_class="<bridge>:contract_refused"``, the categorical key the
+      watchdog prefers. The retry lane reads the refusal subset and ends
+      by name instead of spending the budget on an input that is refused
+      identically on every replay.
     * ``BridgeContractViolation`` PROPAGATES (Plan ARIA-V8 v2 §4 Phase
       8.2 B-V2-03) — a structural contract breach is operator-visible
       at the call site, never swallowed into a warning.
     * ``ImportError`` on the bridge modules is recorded, not raised.
     """
-    bridged: dict[str, Any] = {"judge_feedback": None, "supporting_payload": None, "bridge_errors": []}
+    bridged: dict[str, Any] = {
+        "judge_feedback": None,
+        "supporting_payload": None,
+        "bridge_errors": [],
+        "bridge_refusals": [],
+    }
+
+    def _record_bridge_failure(name: str, exc: GovernanceError) -> None:
+        """The ONE writer of a bridge failure (ARIA-MEDIUM-172)."""
+        detail = f"{name}: {exc}"
+        bridged["bridge_errors"].append(detail)
+        warning: dict[str, Any] = {
+            "claim_id": claim_id,
+            "request_id": request_id,
+            "kind": name,
+            "error": str(exc),
+        }
+        if isinstance(exc, DETERMINISTIC_BRIDGE_FAILURES):
+            bridged["bridge_refusals"].append(detail)
+            warning["error_class"] = f"{name}:contract_refused"
+        append_tools_governance(root, "agent_bridge_warning", warning)
+
     try:
         from .judgment_bridge import persist_supporting_payload, record_judge_verdict_from_response
 
@@ -4563,24 +4700,18 @@ def _invoke_bridges_for_result(
             bridged["judge_feedback"] = record_judge_verdict_from_response(
                 request=request, response=envelope, base_dir=base_dir
             )
+        except BridgeContractViolation:
+            raise
         except GovernanceError as exc:
-            bridged["bridge_errors"].append(f"judge_bridge: {exc}")
-            append_tools_governance(
-                root,
-                "agent_bridge_warning",
-                {"claim_id": claim_id, "request_id": request_id, "kind": "judge_bridge", "error": str(exc)},
-            )
+            _record_bridge_failure("judge_bridge", exc)
         try:
             bridged["supporting_payload"] = persist_supporting_payload(
                 request=request, response=envelope, base_dir=base_dir
             )
+        except BridgeContractViolation:
+            raise
         except GovernanceError as exc:
-            bridged["bridge_errors"].append(f"supporting_bridge: {exc}")
-            append_tools_governance(
-                root,
-                "agent_bridge_warning",
-                {"claim_id": claim_id, "request_id": request_id, "kind": "supporting_bridge", "error": str(exc)},
-            )
+            _record_bridge_failure("supporting_bridge", exc)
         # Plan 026R §C.1 — planner-role auto-bridge. Pre-§C.1 planner
         # roles (primary_plan / challenger_plan / cross_review) fell
         # through every bridge silently; convergent-planning state
@@ -4604,12 +4735,7 @@ def _invoke_bridges_for_result(
             # agent_bridge_warning.
             raise
         except GovernanceError as exc:
-            bridged["bridge_errors"].append(f"plan_convergence_bridge: {exc}")
-            append_tools_governance(
-                root,
-                "agent_bridge_warning",
-                {"claim_id": claim_id, "request_id": request_id, "kind": "plan_convergence_bridge", "error": str(exc)},
-            )
+            _record_bridge_failure("plan_convergence_bridge", exc)
         # B6 — the self-change bridge dispatches on the CONTRACT the request
         # declared (self_change_bridge.is_self_change_request), not on the
         # role: the self_improvement lane shares maintenance_utility with the
@@ -4623,14 +4749,11 @@ def _invoke_bridges_for_result(
             bridged["self_change"] = record_self_change_result(
                 request=request, response=envelope, base_dir=base_dir,
             )
+        except BridgeContractViolation:
+            raise
         except GovernanceError as exc:
             bridged["self_change"] = None
-            bridged["bridge_errors"].append(f"self_change_bridge: {exc}")
-            append_tools_governance(
-                root,
-                "agent_bridge_warning",
-                {"claim_id": claim_id, "request_id": request_id, "kind": "self_change_bridge", "error": str(exc)},
-            )
+            _record_bridge_failure("self_change_bridge", exc)
     except ImportError as exc:  # pragma: no cover — judgment_bridge is in tree
         bridged["bridge_errors"].append(f"bridge_import: {exc}")
     return bridged
@@ -6612,7 +6735,9 @@ def submit_claim_result(
     # results.jsonl stays IMMUTABLE (no patch); transitions land here.
     from .bridge_status_ledger import (
         BRIDGE_REQUIRED_ROLES,
+        BridgeOutcome,
         append_bridge_status,
+        bridge_transition,
     )
     envelope_role = envelope.get("role")
     result_row_ledger_hash = str(persisted.get("ledger_hash") or "")
@@ -6629,17 +6754,24 @@ def submit_claim_result(
             attempt_number=0,
         )
     elif bridged["bridge_errors"]:
-        # Bridge failed — record a ``pending_retry`` transition with
-        # attempt_number=1 (first attempt). F.1 orchestrator drains
-        # pending bridges on subsequent cycles.
+        # Bridge failed — record what the ONE transition owner decides
+        # (ARIA-MEDIUM-168/172). A deterministic refusal is
+        # ``permanent_fail``/``refused`` at attempt 1: the same sealed
+        # envelope is refused identically on every replay, so a retry
+        # would burn the budget to relearn it. Only a transient error
+        # schedules ``pending_retry`` for the F.1 orchestrator to drain
+        # on subsequent cycles.
+        outcome = BridgeOutcome.from_bridged(bridged)
+        transition, terminal_reason = bridge_transition(outcome, attempt=1)
         append_bridge_status(
             base_dir=root,
             result_row_ledger_hash=result_row_ledger_hash,
             envelope_evidence_hash=submitted_hash,
             role=envelope_role,
-            transition="pending_retry",
+            transition=transition,
             attempt_number=1,
-            error_detail="; ".join(bridged["bridge_errors"])[:500],
+            error_detail=outcome.detail() or None,
+            terminal_reason=terminal_reason,
         )
     else:
         # Bridge succeeded — record ``ok`` transition.

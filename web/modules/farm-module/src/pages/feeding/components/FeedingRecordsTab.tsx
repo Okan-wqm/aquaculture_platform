@@ -28,6 +28,44 @@ import {
   Textarea,
 } from '@aquaculture/shared-ui';
 import type { Batch } from '../../../hooks/useBatches';
+import { useI18n } from '@aquaculture/shared-ui';
+import { useColumnVisibility } from '../../tanks/useColumnVisibility';
+import { ColumnVisibilityMenu } from '../../tanks/ColumnVisibilityMenu';
+import type { TankColumn } from '../../tanks/types';
+
+// ============================================================================
+// COLUMN MODEL (selectable — design core columns default, details opt-in)
+// ============================================================================
+
+const FEEDING_RECORD_COLUMNS = [
+  // Core record columns (design defaults)
+  { key: 'date', header: 'feedingV2.records.col.date', defaultVisible: true },
+  { key: 'batch', header: 'feedingV2.records.col.batch', defaultVisible: true },
+  { key: 'feed', header: 'feedingV2.records.col.feed', defaultVisible: true },
+  { key: 'time', header: 'feedingV2.records.col.time', defaultVisible: true },
+  { key: 'plannedKg', header: 'feedingV2.records.col.planned', defaultVisible: true },
+  { key: 'actualKg', header: 'feedingV2.records.col.actual', defaultVisible: true },
+  { key: 'variance', header: 'feedingV2.records.col.variance', defaultVisible: true },
+  { key: 'method', header: 'feedingV2.records.col.method', defaultVisible: true },
+  { key: 'status', header: 'feedingV2.records.col.status', defaultVisible: true },
+  { key: 'actions', header: 'feedingV2.records.col.actions', defaultVisible: true },
+
+  // Detail columns (opt-in through the column menu)
+  { key: 'sequence', header: 'feedingV2.records.col.sequence', defaultVisible: false },
+  { key: 'mealsToday', header: 'feedingV2.records.col.mealsToday', defaultVisible: false },
+  { key: 'waste', header: 'feedingV2.records.col.waste', defaultVisible: false },
+  { key: 'duration', header: 'feedingV2.records.col.duration', defaultVisible: false },
+  { key: 'cost', header: 'feedingV2.records.col.cost', defaultVisible: false },
+  { key: 'fedBy', header: 'feedingV2.records.col.fedBy', defaultVisible: false },
+  { key: 'verifiedBy', header: 'feedingV2.records.col.verifiedBy', defaultVisible: false },
+  { key: 'notes', header: 'feedingV2.records.col.notes', defaultVisible: false },
+  { key: 'skipReason', header: 'feedingV2.records.col.skipReason', defaultVisible: false },
+] satisfies TankColumn[];
+
+const FEEDING_RECORD_COLUMN_GROUPS: { key: string; label: TankColumn['header'] }[] = [
+  { key: 'core', label: 'feedingV2.records.colGroup.core' },
+  { key: 'extra', label: 'feedingV2.records.colGroup.extra' },
+];
 import { Plus } from 'lucide-react';
 
 // ============================================================================
@@ -66,7 +104,19 @@ export const FeedingRecordsTab: React.FC<FeedingRecordsTabProps> = ({
   batches,
 }) => {
   const { user } = useAuth();
+  const { t } = useI18n();
   const [page, setPage] = useState(1);
+
+  // Selectable columns — core record columns default, detail columns opt-in
+  const columnVisibility = useColumnVisibility(
+    'feeding-records-column-visibility',
+    FEEDING_RECORD_COLUMNS,
+  );
+  const visibleRecordKeys = new Set(
+    FEEDING_RECORD_COLUMNS.filter((col) => columnVisibility.isColumnVisible(col.key)).map(
+      (col) => col.key,
+    ),
+  );
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [showForm, setShowForm] = useState(false);
@@ -270,9 +320,97 @@ export const FeedingRecordsTab: React.FC<FeedingRecordsTabProps> = ({
         </>
       ),
     },
+    ...(visibleRecordKeys.has('sequence')
+      ? [
+          {
+            key: 'sequence',
+            header: t('feedingV2.records.col.sequence'),
+            align: 'right' as const,
+            render: (_value: unknown, record: RecordRow) => record.feedingSequence,
+          },
+        ]
+      : []),
+    ...(visibleRecordKeys.has('mealsToday')
+      ? [
+          {
+            key: 'mealsToday',
+            header: t('feedingV2.records.col.mealsToday'),
+            align: 'right' as const,
+            render: (_value: unknown, record: RecordRow) => record.totalMealsToday,
+          },
+        ]
+      : []),
+    ...(visibleRecordKeys.has('waste')
+      ? [
+          {
+            key: 'waste',
+            header: t('feedingV2.records.col.waste'),
+            align: 'right' as const,
+            render: (_value: unknown, record: RecordRow) =>
+              record.wasteAmount != null ? Number(record.wasteAmount).toFixed(2) : '—',
+          },
+        ]
+      : []),
+    ...(visibleRecordKeys.has('duration')
+      ? [
+          {
+            key: 'duration',
+            header: t('feedingV2.records.col.duration'),
+            align: 'right' as const,
+            render: (_value: unknown, record: RecordRow) => record.feedingDurationMinutes ?? '—',
+          },
+        ]
+      : []),
+    ...(visibleRecordKeys.has('cost')
+      ? [
+          {
+            key: 'cost',
+            header: t('feedingV2.records.col.cost'),
+            align: 'right' as const,
+            render: (_value: unknown, record: RecordRow) =>
+              `${record.feedCostDecimal ?? record.feedCost ?? '—'}${record.currency ? ` ${record.currency}` : ''}`,
+          },
+        ]
+      : []),
+    ...(visibleRecordKeys.has('fedBy')
+      ? [
+          {
+            key: 'fedBy',
+            header: t('feedingV2.records.col.fedBy'),
+            render: (_value: unknown, record: RecordRow) => record.fedBy,
+          },
+        ]
+      : []),
+    ...(visibleRecordKeys.has('verifiedBy')
+      ? [
+          {
+            key: 'verifiedBy',
+            header: t('feedingV2.records.col.verifiedBy'),
+            render: (_value: unknown, record: RecordRow) => record.verifiedBy || '—',
+          },
+        ]
+      : []),
+    ...(visibleRecordKeys.has('notes')
+      ? [
+          {
+            key: 'notes',
+            header: t('feedingV2.records.col.notes'),
+            render: (_value: unknown, record: RecordRow) => record.notes || '—',
+          },
+        ]
+      : []),
+    ...(visibleRecordKeys.has('skipReason')
+      ? [
+          {
+            key: 'skipReason',
+            header: t('feedingV2.records.col.skipReason'),
+            render: (_value: unknown, record: RecordRow) => record.skipReason || '—',
+          },
+        ]
+      : []),
     {
       key: 'actions',
-      header: 'Actions',
+      header: t('feedingV2.records.col.actions'),
       align: 'right',
       render: (_value, record) => (
         <>
@@ -330,17 +468,28 @@ export const FeedingRecordsTab: React.FC<FeedingRecordsTabProps> = ({
             />
           </div>
         </div>
-        <Button variant="primary" onClick={handleCreate}>
-          <Plus className="w-4 h-4 mr-2" aria-hidden="true" />
-          New Record
-        </Button>
+        <div className="flex items-center space-x-3">
+          <ColumnVisibilityMenu
+            columns={FEEDING_RECORD_COLUMNS}
+            visibleColumns={columnVisibility.visibleColumns}
+            onToggle={columnVisibility.toggleColumn}
+            onToggleGroup={columnVisibility.toggleGroup}
+            onReset={columnVisibility.resetToDefaults}
+            onShowAll={columnVisibility.showAllColumns}
+            groups={FEEDING_RECORD_COLUMN_GROUPS}
+          />
+          <Button variant="primary" onClick={handleCreate}>
+            <Plus className="w-4 h-4 mr-2" aria-hidden="true" />
+            New Record
+          </Button>
+        </div>
       </div>
 
       {/* Records Table */}
       <div className="bg-white dark:bg-gray-900 shadow-(--shadow-sd-sm) rounded-lg overflow-hidden">
         <DataTable<RecordRow>
           data={data?.items ?? []}
-          columns={recordRowColumns}
+          columns={recordRowColumns.filter((col) => visibleRecordKeys.has(col.key))}
           keyExtractor={(record) => record.id}
           emptyMessage="No records found"
           searchable={false}

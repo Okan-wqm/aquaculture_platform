@@ -31,7 +31,9 @@ WHAT it does
   bytes of one artifact, through ``gh api`` with the caller's ``GH_TOKEN``
   (a token that may read Actions). Bounded, and refused by name when the
   artifact is expired, missing or unreadable;
-* :func:`artifact_member` — one member of the downloaded zip.
+* :func:`artifact_member` — one member of the downloaded zip;
+* :func:`list_actions_pages` — one paged Actions listing (runs, a run's
+  artifacts), read to its last page or refused by name.
 
 Tests replace :func:`fetch_actions_artifact` on this module (callers look
 it up here at call time) to serve an artifact without the network.
@@ -152,6 +154,27 @@ def fetch_actions_artifact(
     )
 
 
+def list_actions_pages(*, path: str, key: str, gh_cli: str = "gh") -> list[dict]:
+    """Every item under ``key`` of one paged Actions listing, to the last page.
+
+    ARIA-HIGH-222 — the claim lane's backstop reads which runs and artifacts
+    exist. ``gh api --paginate --slurp`` returns the array of the page
+    objects (``{"total_count": n, key: [...]}``); a listing that fails, or a
+    page of any other shape, is refused by name: an unreadable listing is
+    not an empty one.
+    """
+    raw = _gh_api(gh_cli, path, paginate=True, failure="actions_listing_failed")
+    try:
+        pages = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise GovernanceError(f"actions_listing_unparseable:{path}") from exc
+    if not isinstance(pages, list) or not all(
+        isinstance(page, dict) and isinstance(page.get(key), list) for page in pages
+    ):
+        raise GovernanceError(f"actions_listing_unparseable:{path}")
+    return [item for page in pages for item in page[key] if isinstance(item, dict)]
+
+
 def artifact_member(fetched: FetchedArtifact, member: str) -> bytes:
     """The bytes of ``member`` inside the downloaded zip, refused by name when
     the zip is unreadable or the member absent."""
@@ -169,20 +192,23 @@ def artifact_member(fetched: FetchedArtifact, member: str) -> bytes:
         ) from exc
 
 
-def _gh_api(gh_cli: str, path: str) -> bytes:
+def _gh_api(
+    gh_cli: str, path: str, *, paginate: bool = False, failure: str = "actions_artifact_fetch_failed",
+) -> bytes:
+    argv = [gh_cli, "api", *(("--paginate", "--slurp") if paginate else ()), path]
     try:
         completed = subprocess.run(
-            [gh_cli, "api", path],
+            argv,
             capture_output=True,
             check=False,
             timeout=ACTIONS_ARTIFACT_FETCH_TIMEOUT_SECONDS,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        raise GovernanceError(f"actions_artifact_fetch_failed:{path}:{exc.__class__.__name__}") from exc
+        raise GovernanceError(f"{failure}:{path}:{exc.__class__.__name__}") from exc
     if completed.returncode != 0:
         stderr = completed.stderr.decode("utf-8", errors="replace").strip().splitlines()
         raise GovernanceError(
-            f"actions_artifact_fetch_failed:{path}:{(stderr[0] if stderr else 'gh api exited non-zero')[:200]}"
+            f"{failure}:{path}:{(stderr[0] if stderr else 'gh api exited non-zero')[:200]}"
         )
     if len(completed.stdout) > MAX_ACTIONS_ARTIFACT_BYTES:
         raise GovernanceError(f"actions_artifact_exceeds_bound:{path}")
@@ -212,5 +238,6 @@ __all__ = [
     "actions_artifact_uri",
     "artifact_member",
     "fetch_actions_artifact",
+    "list_actions_pages",
     "parse_actions_artifact_uri",
 ]

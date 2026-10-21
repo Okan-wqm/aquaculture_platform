@@ -249,6 +249,49 @@ class ReplayTests(unittest.TestCase):
         self.assertNotEqual(raw["ledger_hash"], loser_hash_before)
         self.assertEqual(replayed["ledger_hash"], loser_hash_before)
 
+    def test_a_row_at_the_ledger_nesting_bound_replays_within_the_readers_bound(self) -> None:
+        """ARIA-HIGH-617: a producer row keeps one level for its transport envelope.
+
+        The append refuses a producer row past ``LEDGER_ROW_NESTING_MAX_DEPTH``;
+        one at the bound is wrapped once by the replay (``producer_payload``)
+        and the result is exactly as deep as the strict readers accept.
+        """
+        from aria_kernel.ledger import (
+            JSON_NESTING_MAX_DEPTH,
+            LEDGER_ROW_NESTING_MAX_DEPTH,
+            json_nesting_within_limit,
+            verify_jsonl_chunks,
+        )
+
+        base_count, base_tail = self._fork(1)
+        note: object = "leaf"
+        # The row object is one level; the note's lists fill the rest.
+        for _ in range(LEDGER_ROW_NESTING_MAX_DEPTH - 1):
+            note = [note]
+        append_declared_fixture(self.loser.path, {**_row(200), "note": note}, expected_surface=SURFACE)
+        replay_append_only_suffixes(
+            surfaces={
+                SURFACE: {
+                    "winner_path": self.winner.path,
+                    "loser_path": self.loser.path,
+                    "base_row_count": base_count,
+                    "base_tail_hash": base_tail,
+                },
+            },
+            replay_transaction_id="nesting-bound",
+        )
+        line = self.winner.path.read_text(encoding="utf-8").splitlines()[-1]
+        self.assertTrue(json_nesting_within_limit(line, max_depth=JSON_NESTING_MAX_DEPTH))
+        self.assertFalse(json_nesting_within_limit(line, max_depth=JSON_NESTING_MAX_DEPTH - 1))
+        data = self.winner.path.read_bytes()
+        summary = verify_jsonl_chunks(
+            [data], source=self.winner.path, expected_size=len(data), max_line_bytes=len(data),
+            max_rows=10, expected_surface=SURFACE,
+        )
+        # The shared row and the replayed one.
+        self.assertEqual(summary["row_count"], 2)
+        self.assertEqual(self.winner.rows()[-1]["note"], note)
+
     def test_replayed_bytes_use_an_exact_versioned_transport_envelope(self) -> None:
         base_count, base_tail = self._fork(1)
         self.loser.append(200)

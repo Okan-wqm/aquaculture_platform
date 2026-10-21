@@ -112,7 +112,44 @@ store; it never replays them onto someone else's turn.
 and leaving it exported in a shell profile or a workflow re-arms the
 exact failure this runbook exists to prevent.
 
-## Step 3 — confirm
+## Step 3 — pin the lineage on main
+
+Every checkout of an existing `aria/state` proves the fetched tip's history
+against `docs/aria/policy/state-lineage.json` in the checkout (ARIA-LOW-578),
+on every host, whether or not that host ever tracked the branch. A fresh
+GitHub-hosted runner has no tracking ref, so without the pin it would adopt
+any replacement tip, a brand-new root included. A publish proves the same
+pin on every tip it fetches to adopt or replay onto (ambiguous-push
+reconciliation, contention replay, accepted-loser recovery), so a tip that
+descends from the checked-out one but merged a second root in is refused
+there too. Until the root is pinned, every lane's restore refuses with
+`state_store_lineage_policy_missing` or `state_store_lineage_unpinned`, and
+the refusal names the root it saw.
+
+Read the root and confirm it is the genesis you just published:
+
+```bash
+git fetch origin aria/state
+git rev-list --max-parents=0 origin/aria/state     # exactly one sha
+git show -s --format='parents=[%P] %s' <that sha>  # parents=[] chore(aria-state): genesis for aria/state
+```
+
+Then pin it in a reviewed PR (the path is CODEOWNERS-protected):
+
+```json
+{
+  "$schema": "aria/state-lineage/v1",
+  "schema_version": 1,
+  "policy_id": "aria-state-lineage",
+  "lineages": [{ "branch": "aria/state", "root": "<that sha>" }]
+}
+```
+
+The pin is not something a host can change: a governed epoch reset or purge
+updates it in the same reviewed PR that lifts the `aria-state-protection`
+ruleset for its one push.
+
+## Step 4 — confirm
 
 ```bash
 git fetch origin aria/state
@@ -136,7 +173,9 @@ missing but ARIA reports it present, the fetch is succeeding and your
 local view is stale; run `git fetch origin aria/state` and look again.
 
 If the branch is genuinely gone (deleted by mistake), **do not
-re-bootstrap to make the error go away.** A fresh bootstrap publishes an
+re-bootstrap to make the error go away.** While the lineage is pinned the
+kernel refuses it anyway (`state_store_lineage_pinned_branch_absent`), even
+with the acknowledgement set. A fresh bootstrap publishes an
 empty tree that every later snapshot will chain to, and the accumulated
 state is then unreferenced. Recover the branch from the most recent
 `aria-state-cache-<run_id>` artifact — the run-scoped forensic copy each
@@ -145,6 +184,18 @@ if you have confirmed there is nothing to recover. (Before the lane cutover
 this named the `aria-tools-state` artifact, which no longer exists; the
 retention window is the same 30 days, but you now pick the run rather than
 trusting "the latest".)
+
+## Lineage refusals (exit 3)
+
+| Refusal                                    | Meaning                                                                   | Action                                                                              |
+| ------------------------------------------ | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `state_store_lineage_policy_missing`       | The checkout has no `docs/aria/policy/state-lineage.json`                 | Restore the file on main; after a genuine bootstrap, Step 3                         |
+| `state_store_lineage_unpinned`             | The policy pins no root for this branch                                   | Step 3, after verifying the named root is the branch's genesis                      |
+| `state_store_lineage_root_mismatch`        | The remote history roots elsewhere, or at more than one root              | Treat the remote as replaced. Do not re-pin to make it pass; find out who pushed it |
+| `state_store_lineage_history_truncated`    | The host holds a shallow or grafted history, so the root cannot be proven | Fetch the full history (no `--depth`); the lanes check out with `fetch-depth: 0`    |
+| `state_store_lineage_pinned_branch_absent` | The pinned branch is gone from the remote                                 | Recover it (see above); a deliberate reset changes the pin first                    |
+| `state_store_remote_history_rewind`        | The remote tip is behind what this host already tracked                   | Treat as a rewind; never adopted                                                    |
+| `state_store_remote_history_unrelated`     | The remote tip does not descend from what this host tracked (same root)   | Treat as a rewritten tail; never adopted                                            |
 
 ## When the writer lease is wedged
 

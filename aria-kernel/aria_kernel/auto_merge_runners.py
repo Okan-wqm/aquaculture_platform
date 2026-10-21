@@ -503,17 +503,9 @@ def enumerate_prs_with_readiness_claims(
     head a claim names — the set a merge could act on. An adapter that
     observes nothing (the recording adapter) yields no candidates.
     """
-    tools_root = ensure_tools_dir(base_dir)
-    rows = load_declared_jsonl(
-        tools_root / "enterprise" / "readiness-claims.jsonl",
-        expected_surface="enterprise_readiness_claims",
-    )
-    claimed: set[tuple[int, str]] = set()
-    for row in rows:
-        try:
-            claimed.add((int(row.get("pr_number")), str(row.get("head_sha") or "")))
-        except (TypeError, ValueError):
-            continue
+    from .readiness_proofs import recorded_claim_heads
+
+    claimed = recorded_claim_heads(base_dir)
     if not claimed:
         return []
     open_heads = adapter.list_open_pull_request_heads()

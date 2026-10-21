@@ -54,15 +54,6 @@
         "A later step builds, tests or executes the checked-out code while secrets or a write-scoped token are available to it."
       ]
     },
-    "broad_shell_permission": {
-      "claim_type": "wrong_code",
-      "severity_cap": "HIGH",
-      "defect_claim": "A workflow grants write permissions its jobs do not need.",
-      "premises": [
-        "The cited line grants write-all or contents: write to the workflow or a job.",
-        "No step in the jobs that receive the permission writes to the repository (push, release, tag, or a commit through the API)."
-      ]
-    },
     "prompt_injection_surface": {
       "claim_type": "absence_in_scope",
       "severity_cap": "HIGH",

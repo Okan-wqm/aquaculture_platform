@@ -16,6 +16,15 @@ operator-feedback signer mints on first use because the kernel is both the
 signer and the verifier there. Both call :meth:`HmacKeyring.resolve` with a
 ``key_id`` at verification time, which is what makes rotation safe: an old
 key is retired, never deleted, until it rolls off the five-entry window.
+
+REVOCATION (ARIA-LOW-598) is the one exception to that grace: a key believed
+compromised is taken OUT of the rolling list at once — its secret is dropped
+from the file — and a revocation record (``key_id``, ``revoked_at``,
+``reason``; never the secret) is kept beside the list for good. A revoked
+``key_id`` never resolves again, so a row it signed reads as revoked
+(unverifiable, its content intact), never as valid and never as unknown; and
+nothing that rewrites the list (rotation, init, a DR regeneration) can drop
+the record.
 """
 from __future__ import annotations
 
@@ -83,22 +92,38 @@ class HmacKeyring:
     path: Path
     purpose: str
 
-    def load(self) -> list[dict[str, Any]]:
+    def _document(self) -> dict[str, Any]:
         if not self.path.exists():
-            return []
+            return {}
         data = json.loads(self.path.read_text(encoding="utf-8"))
-        keys = data.get("keys") if isinstance(data, dict) else None
+        return data if isinstance(data, dict) else {}
+
+    def load(self) -> list[dict[str, Any]]:
+        keys = self._document().get("keys")
         if not isinstance(keys, list):
             return []
         return [entry for entry in keys if isinstance(entry, dict)]
 
+    def revoked(self) -> list[dict[str, Any]]:
+        """The revocation records, oldest first — ids and reasons, never a secret."""
+        records = self._document().get("revoked")
+        if not isinstance(records, list):
+            return []
+        return [entry for entry in records if isinstance(entry, dict)]
+
     def persist(self, keys: list[dict[str, Any]]) -> None:
-        payload = json.dumps(
-            {"schema_version": KEY_FILE_SCHEMA_VERSION, "keys": keys},
-            sort_keys=True,
-            indent=2,
-        )
-        atomic_write_secret(self.path, payload)
+        """Write the rolling list; the revocation records carry over unchanged.
+
+        Only :meth:`revoke` adds to them and nothing removes one, so no
+        rotation, init or DR regeneration can make a revoked key resolve again.
+        """
+        self._write(keys, self.revoked())
+
+    def _write(self, keys: list[dict[str, Any]], revoked: list[dict[str, Any]]) -> None:
+        document: dict[str, Any] = {"schema_version": KEY_FILE_SCHEMA_VERSION, "keys": keys}
+        if revoked:
+            document["revoked"] = revoked
+        atomic_write_secret(self.path, json.dumps(document, sort_keys=True, indent=2))
 
     def resolve(self, *, key_id: str | None = None) -> dict[str, Any]:
         """The head key, or the entry for ``key_id``; a miss is a named refusal."""
@@ -107,12 +132,50 @@ class HmacKeyring:
             raise GovernanceError(f"hmac_key_missing:{self.purpose}")
         if key_id is None:
             return keys[0]
+        for record in self.revoked():
+            if record.get("key_id") == key_id:
+                raise GovernanceError(
+                    f"hmac_key_revoked:{self.purpose}: key_id={key_id!r} "
+                    f"revoked at {record.get('revoked_at')}"
+                )
         for entry in keys:
             if entry.get("key_id") == key_id:
                 return entry
         raise GovernanceError(
             f"hmac_key_unknown:{self.purpose}: key_id={key_id!r} not in rolling list"
         )
+
+    def revoke(self, key_id: str, *, reason: str) -> dict[str, Any]:
+        """Take ``key_id`` out of the rolling list now and record why.
+
+        Refuses the head (the next row would be signed by a retired key, or by
+        none): rotate first, then revoke the key that was the head. Refuses an
+        id the list does not hold, and one already revoked. Returns
+        ``{"revoked", "keys"}`` so the owner can write its governance row.
+        """
+        keys = self.load()
+        revoked = self.revoked()
+        if any(record.get("key_id") == key_id for record in revoked):
+            raise GovernanceError(f"hmac_key_already_revoked:{self.purpose}: key_id={key_id!r}")
+        index = next((i for i, entry in enumerate(keys) if entry.get("key_id") == key_id), None)
+        if index is None:
+            raise GovernanceError(
+                f"hmac_key_unknown:{self.purpose}: key_id={key_id!r} not in rolling list"
+            )
+        if index == 0:
+            raise GovernanceError(
+                f"hmac_revoke_head_key:{self.purpose}: key_id={key_id!r} is the signing head; "
+                "rotate first, then revoke it"
+            )
+        record = {
+            "key_id": key_id,
+            "minted_at": keys[index].get("minted_at"),
+            "revoked_at": utc_now_stamp(),
+            "reason": reason,
+        }
+        remaining = keys[:index] + keys[index + 1:]
+        self._write(remaining, revoked + [record])
+        return {"revoked": record, "keys": remaining}
 
     def ensure_head(self) -> dict[str, Any]:
         """Head key, minted on first use — for keys the kernel owns end to end."""

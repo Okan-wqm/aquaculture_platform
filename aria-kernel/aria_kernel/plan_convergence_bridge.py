@@ -170,7 +170,7 @@ def record_plan_result(
     if role not in PLANNER_BRIDGE_ROLES:
         return None
     # Local imports avoid a kernel cold-start cycle.
-    from .bridge_exceptions import BridgeContractViolation
+    from .bridge_exceptions import BridgeContractRefused, BridgeContractViolation
     from .plan_convergence import (
         fold_plan_state,
         record_cross_review,
@@ -185,7 +185,9 @@ def record_plan_result(
 
     plan_id = _extract_plan_id(request, response)
     if plan_id is None:
-        raise GovernanceError(
+        # ARIA-MEDIUM-172 — a pure function of the request/response pair:
+        # the same envelope never gains a plan id on retry.
+        raise BridgeContractRefused(
             f"plan_convergence_bridge_missing_plan_id: role={role!r} "
             f"request keys={sorted(request.keys())[:8]}"
         )

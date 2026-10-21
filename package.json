@@ -169,8 +169,8 @@
     "gates:sens-enterprise-validation:self-test": "npm run gates:sens-enterprise-validation -- --self-test",
     "gates:root-ssot-stabilization": "jest --config tests/invariants/jest.config.ts --runTestsByPath tests/invariants/stabilization-manifest.spec.ts tests/invariants/toolchain-config-ssot.spec.ts",
     "validate:required-secrets": "node scripts/ci/validate-secrets-manifest.ts",
-    "smoke:nats-messaging-acl:static": "node scripts/nats/messaging-acl-smoke.mjs --mode static",
-    "smoke:nats-messaging-acl:external": "node scripts/nats/messaging-acl-smoke.mjs --mode live",
+    "smoke:nats-messaging-acl:static": "ts-node --project tools/gates/tsconfig.json scripts/nats/messaging-acl-smoke.ts --mode static",
+    "smoke:nats-messaging-acl:external": "ts-node --project tools/gates/tsconfig.json scripts/nats/messaging-acl-smoke.ts --mode live",
     "smoke:nats-messaging-acl": "bash scripts/nats/messaging-acl-smoke-harness.sh",
     "smoke:nats-boot-path-acl": "bash scripts/nats/boot-path-acl-smoke-harness.sh",
     "gates:all": "npm run toolchain:check && npm run service-catalog:check && npm run gates:tools-typecheck && npm run gates:csp-render && npm run gates:geospatial-browser-bundle && npm run gates:banned-phrase && npm run gates:migration-sql && npm run gates:tier-claim && npm run gates:type-check-spec && npm run gates:schema-drift-registration && npm run gates:signals-manifest && npm run gates:criticality-manifest && npm run gates:required-status-checks && npm run gates:root-ssot-stabilization",
@@ -268,7 +268,7 @@
     "react-leaflet": "^5.0.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
-    "sanitize-html": "^2.17.7",
+    "sanitize-html": "^2.18.1",
     "sharp": "^0.35.4",
     "socket.io": "^4.8.3",
     "socket.io-client": "^4.8.3",
@@ -343,7 +343,7 @@
     "ts-node": "10.9.2",
     "tsc-alias": "^1.8.16",
     "typescript": "5.9.3",
-    "vite": "^7.3.5",
+    "vite": "^7.3.7",
     "vitest": "3.2.7"
   },
   "engines": {
@@ -366,7 +366,8 @@
     "browserslist": "^4.28.7",
     "fast-uri": "^3.1.8",
     "fast-xml-builder": "^1.2.0",
-    "hono": "^4.13.5",
+    "hono": "^4.13.13",
+    "follow-redirects": "^1.16.1",
     "ip-address": "^10.5.1",
     "axios": "^1.20.0",
     "undici": "^7.29.1",
@@ -401,7 +402,7 @@
     "protobufjs": "^7.6.4",
     "qs": "^6.16.0",
     "ws": "^8.21.0",
-    "vite": "^7.3.5",
+    "vite": "^7.3.7",
     "@istanbuljs/load-nyc-config": {
       "js-yaml": {
         "argparse": "2.0.1"

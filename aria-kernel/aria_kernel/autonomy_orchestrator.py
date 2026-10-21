@@ -81,8 +81,15 @@ from .orchestrator_exit_history import (
     EXIT_BRIDGE_REPLAY_REQUIRED,
     EXIT_CYCLE_FAILED,
     EXIT_KIND,
+    EXIT_PROVIDER_OUTAGE_HOLD,
     FAILED_EXIT_REASONS,
     bridge_replay_reason,
+)
+from .provider_hold import (
+    CHECKPOINT_AFTER_PLANNER_DISPATCH,
+    CHECKPOINT_AFTER_WORKER_DISPATCH,
+    CHECKPOINT_CYCLE_START,
+    hold_if_every_provider_is_out,
 )
 from .reflection import run_reflection
 from .reflection_inputs import pedagogy_lint_snapshot, producer_reflection_kwargs
@@ -658,6 +665,11 @@ def _reflect_on_failed_cycle(
 ) -> dict[str, Any]:
     """ARIA-HIGH-420 — the reflection of a night that ended on a failed exit.
 
+    ARIA-HIGH-579 review — also of a cycle held mid-night because every
+    provider went out after its cycle step (``provider_hold``): the lanes
+    behind the hold did not run, which is the shape this reflection already
+    reports, and the cycle's pressures still reach the next night's queue.
+
     WHY: the cycle runs with ``defer_reflection=True``, so the orchestrator
     is the only writer of the reflection row. Before this, the two failed
     exits (fail-closed ``cycle_failed`` and ``bridge_replay_required``) wrote
@@ -929,6 +941,7 @@ def _calibration_reporter_and_auto_promotion(
     cycle_id: str,
     cycle_summary: dict[str, Any],
     profile_snapshot: dict[str, Any],
+    workspace_root: str | Path | None,
 ) -> None:
     """Plan ARIA-V7 §3 Phase 7.6 — calibration_reporter + the V6.4 first caller.
 
@@ -959,10 +972,16 @@ def _calibration_reporter_and_auto_promotion(
     ]
     if _v7_calibration_tool_ids:
         try:
+            # ARIA-HIGH-004 — the report names the commit this cycle ran at
+            # (the checkout HEAD every other phase resolves), so a SHADOW ->
+            # ACTIVE transition can bind it; no workspace, no commit.
+            from .convergence_drainer import _resolve_workspace_head_sha
+
             calibration_result = generate_adapter_calibration_report(
                     tool_ids=_v7_calibration_tool_ids,
                     base_dir=root,
                     cycle_id=cycle_id,
+                    target_sha=_resolve_workspace_head_sha(workspace_root) if workspace_root else None,
                 )
             cycle_summary["calibration_reporter"] = calibration_result
         except Exception as _v7_calib_exc:
@@ -1671,6 +1690,18 @@ def run_autonomy_orchestrator(
                     exit_reason = preflight_reason or "autonomous_preflight_blocked"
                     break
 
+                # ARIA-HIGH-579 — every provider is out of quota: the night
+                # holds where it stands. No cycle starts, so nothing is
+                # minted, claimed, rebuilt or spent; the next night with a
+                # provider continues the same requests and plans
+                # (`provider_hold`, one row and one notice, a clean exit).
+                if hold_if_every_provider_is_out(
+                    root, cycle_id=None, checkpoint=CHECKPOINT_CYCLE_START,
+                    profile=profile_snapshot, daemon_id=daemon_id,
+                ) is not None:
+                    exit_reason = EXIT_PROVIDER_OUTAGE_HOLD
+                    break
+
                 cycle_id = datetime.now(timezone.utc).strftime(
                     "cyc-%Y%m%dT%H%M%SZ-auto",
                 )
@@ -1874,6 +1905,25 @@ def run_autonomy_orchestrator(
                         "iterations": planner_result.get("iterations"),
                     },
                 )
+                # ARIA-HIGH-579 — a planner spawn may have spent the last
+                # provider's window: every model phase behind it holds.
+                _midnight_hold = hold_if_every_provider_is_out(
+                    root, cycle_id=cycle_id, checkpoint=CHECKPOINT_AFTER_PLANNER_DISPATCH,
+                    profile=profile_snapshot, daemon_id=daemon_id,
+                )
+                if _midnight_hold is not None:
+                    cycle_summary[EXIT_PROVIDER_OUTAGE_HOLD] = _midnight_hold
+                    # The cycle step ran: its reflection queues the cycle's
+                    # pressures for the next night (`provider_hold`).
+                    cycle_summary["reflection"] = _reflect_on_failed_cycle(
+                        root=root, cycle_id=cycle_id, profile=profile_snapshot,
+                        workspace_root=workspace_root,
+                        cycle_summary=cycle_summary, cycle_result=cycle_result,
+                        pedagogy_snapshot=pedagogy_snapshot,
+                    )
+                    per_cycle_results.append(cycle_summary)
+                    exit_reason = EXIT_PROVIDER_OUTAGE_HOLD
+                    break
 
                 # Phase: bridge drain (C.5 retry).
                 bridge_result = bridge_drainer(
@@ -2124,7 +2174,7 @@ def run_autonomy_orchestrator(
                     # cycle ran, tool health exists); a no-pressure night
                     # is not a reason to skip precision history.
                     _calibration_reporter_and_auto_promotion(
-                        root, cycle_id, cycle_summary, profile_snapshot,
+                        root, cycle_id, cycle_summary, profile_snapshot, workspace_root,
                     )
                     post_drain_reflection = run_reflection(
                         cycle_id=cycle_id,
@@ -2160,7 +2210,7 @@ def run_autonomy_orchestrator(
                         "plan_id": active_plan_id, "refusal": _seed_ticket.refusal,
                     }
                     _calibration_reporter_and_auto_promotion(
-                        root, cycle_id, cycle_summary, profile_snapshot,
+                        root, cycle_id, cycle_summary, profile_snapshot, workspace_root,
                     )
                     post_drain_reflection = run_reflection(
                         cycle_id=cycle_id,
@@ -2308,7 +2358,7 @@ def run_autonomy_orchestrator(
                     # ORPHAN-HIGH-782 — an invalid plan must not cost the
                     # night its precision history; the cycle itself ran.
                     _calibration_reporter_and_auto_promotion(
-                        root, cycle_id, cycle_summary, profile_snapshot,
+                        root, cycle_id, cycle_summary, profile_snapshot, workspace_root,
                     )
                     post_drain_reflection = run_reflection(
                         cycle_id=cycle_id,
@@ -2403,7 +2453,7 @@ def run_autonomy_orchestrator(
                     # Reporting is observational; it is not gated on plan
                     # convergence.
                     _calibration_reporter_and_auto_promotion(
-                        root, cycle_id, cycle_summary, profile_snapshot,
+                        root, cycle_id, cycle_summary, profile_snapshot, workspace_root,
                     )
                     # Plan ARIA-V3.3 §2b + V5.4 §3f — post-drain
                     # reflection STILL runs on convergence-blocked
@@ -2734,7 +2784,7 @@ def run_autonomy_orchestrator(
                     # ORPHAN-HIGH-782 — a specialist-blocked cycle still
                     # ran end to end; its precision history must not rot.
                     _calibration_reporter_and_auto_promotion(
-                        root, cycle_id, cycle_summary, profile_snapshot,
+                        root, cycle_id, cycle_summary, profile_snapshot, workspace_root,
                     )
                     # Reflection still runs (V3.3 §2b + V5.4 §3f)
                     # on specialist-blocked cycles so daily report
@@ -2790,6 +2840,25 @@ def run_autonomy_orchestrator(
                             worker_result.get("retries_attempted"),
                     },
                 )
+                # ARIA-HIGH-579 — the same question after the worker lane's
+                # spawns: the review it would mint holds.
+                _midnight_hold = hold_if_every_provider_is_out(
+                    root, cycle_id=cycle_id, checkpoint=CHECKPOINT_AFTER_WORKER_DISPATCH,
+                    profile=profile_snapshot, daemon_id=daemon_id,
+                )
+                if _midnight_hold is not None:
+                    cycle_summary[EXIT_PROVIDER_OUTAGE_HOLD] = _midnight_hold
+                    # The cycle step ran: its reflection queues the cycle's
+                    # pressures for the next night (`provider_hold`).
+                    cycle_summary["reflection"] = _reflect_on_failed_cycle(
+                        root=root, cycle_id=cycle_id, profile=profile_snapshot,
+                        workspace_root=workspace_root,
+                        cycle_summary=cycle_summary, cycle_result=cycle_result,
+                        pedagogy_snapshot=pedagogy_snapshot,
+                    )
+                    per_cycle_results.append(cycle_summary)
+                    exit_reason = EXIT_PROVIDER_OUTAGE_HOLD
+                    break
 
                 # Plan ARIA-V5 §2 V5.2 Phase 5.2 — Gate B post-impl
                 # adversarial review. Mint adversarial_judge +
@@ -2931,7 +3000,7 @@ def run_autonomy_orchestrator(
                 # calibration. The convergence-blocked branch calls the
                 # same helper before its own reflection.
                 _calibration_reporter_and_auto_promotion(
-                    root, cycle_id, cycle_summary, profile_snapshot,
+                    root, cycle_id, cycle_summary, profile_snapshot, workspace_root,
                 )
 
                 # Plan ARIA-V3.3 §2b + V5.4 §3f — post-drain reflection

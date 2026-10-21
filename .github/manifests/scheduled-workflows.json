@@ -32,6 +32,10 @@
       "maxAgeHours": 3
     },
     {
+      "workflow": "aria-readiness-claim.yml",
+      "maxAgeHours": 3
+    },
+    {
       "workflow": "backup-production.yml",
       "maxAgeHours": 30,
       "requiredArtifactPrefix": "walg-evidence-v2-"

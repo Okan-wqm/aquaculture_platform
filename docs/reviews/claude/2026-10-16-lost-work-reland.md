@@ -7,6 +7,111 @@ another defect on main.
 
 Owner: claude (implementation), okan (review).
 
+## INFRA-CRITICAL-233
+
+Ordinary certificate renewal regenerates the internal CA. Lost-work item 1; the old branch
+`fix/login-permanent-recovery` (57ca1a0f3, PR #1452 closed unmerged) carried it as
+ORPHAN-CRITICAL-820, which is not in main's registry.
+
+- `scripts/deploy/droplet-up.sh:1009` runs `generate-internal-certs.sh --force` when the redis
+  server leaf has under 30 days left.
+- `infrastructure/docker/scripts/generate-internal-certs.sh:603-626`: `--force` also mints a new
+  `ca-key.pem` and `ca-cert.pem`.
+- `docker-compose.droplet.yml:631-633`: the NATS broker bind-mounts its server leaf and CA copy
+  as single files, and an application rollout recreates it only when `nats.conf` changed.
+
+Failure scenario: the first application rollout after 2027-04-28 (the live leaves expire
+2027-05-28) runs `--force`. Restarted services trust the new CA and present leaves it signed.
+The running broker keeps the old CA and the old server leaf, so every restarted service fails
+the TLS handshake in both directions. A rollback restores the images, not the old CA.
+
+Planned fix: leaf renewal becomes its own mode that keeps, and requires, the validated CA. CA
+replacement gets an explicit name of its own that the deploy never passes.
+
+The old row's second half, PostgreSQL mounts from mixed releases, is ORPHAN-CRITICAL-810 (OPEN)
+and is not part of this row.
+
+Landed: renewal is the generator's decision. The deploy calls it with no option; once any
+managed leaf is inside 30 days of expiry, it re-issues every leaf under the existing, validated
+CA, and so does `--renew-leaves`. Neither mints a CA. Before anything is issued, every CA copy
+must equal `ca/ca-cert.pem` and every leaf must chain to it. A CA is minted only into a store
+that holds no identity issued under another, and no leaf is issued under a CA that expires
+first. `--rotate-ca` replaces the CA; `--force` and unknown options exit 2; no deploy path
+passes an option. `production-cert-identity-store.spec.ts` runs the deploy's own call.
+
+## INFRA-MEDIUM-234
+
+`validate_certificate_key_pair` and `validate_certificate_authority` end six failure branches
+with a bare `return` right after `if ! x=$(...); then`. A bare `return` returns the status of
+the last command, the negated test, which is 0. An unparseable certificate or key therefore
+logs its error, the generator prints `[skip]`, and the run exits 0. With `garbage` in
+`nats/nats-cert.pem` a default run on main does exactly that, so the deploy preflight passes
+and NATS fails at container start.
+
+Planned fix: every failure branch returns 1, and the spec refuses the bare-return pattern.
+
+Landed: the six branches return 1. The spec breaks a server leaf, a client key, the CA
+certificate and the CA key in turn; each run fails without `[skip]`, and the pattern is refused.
+
+## INFRA-HIGH-235
+
+A renewed leaf never reaches a consumer that the rollout does not recreate. Renewal re-issues
+every server and client leaf in one run and publishes each by rename, and every consumer
+bind-mounts its files as single files, so it keeps the inode it opened at start.
+
+- The NATS broker: `ensure_nats_acl_loaded` (`scripts/deploy/droplet-up.sh:508-511`) keeps it
+  when `nats.conf` is unchanged and compares no TLS file. It keeps serving the old server leaf.
+- Application services: a selective rollout recreates only the services it rolls out
+  (`scripts/deploy/droplet-up.sh:1479`). Every other service keeps presenting its old client
+  leaf.
+- PostgreSQL: a production selective rollout runs `up -d postgres redis minio` (`:1438`), which
+  keeps an unchanged container, and a development rollout preserves it. The applications run
+  `DATABASE_SSL=false`, so this part has low impact.
+
+Each old leaf expires at most 30 days after renewal. Only the full-stack path removes every
+container first (`:1162`); a `nats.conf` change recreates only the broker. Without a full-stack
+deploy inside those 30 days, the broker presents an expired leaf to every NATS client, and every
+service the rollout did not restart presents an expired leaf to the broker.
+
+Not fixed by the INFRA-CRITICAL-233 change: it needs a deploy-path harness for the recreate
+decision. The fix must cover every consumer of a renewed leaf, not the broker alone. Deadline
+2026-12-16. The row was widened to this scope before merge, after the change's first
+verification round.
+
+## INFRA-HIGH-237
+
+An ordinary certificate run into an empty store mints a new CA while the NATS broker and
+PostgreSQL still run on the old one. Found by the INFRA-CRITICAL-233 change's security
+verification (probe P3, again as P7 in run R12), next to that change and not fixed by it.
+
+- `infrastructure/docker/scripts/generate-internal-certs.sh:910-928`: with no CA and no managed
+  leaf, key or CA copy in the store, the no-option run mints a CA and publishes it by rename.
+  Nothing compares it with the root the running consumers hold. The row cites `:881-899`: the
+  same branch, before this change's expiry-report and alias edits above it moved it 29 lines.
+- `scripts/deploy/deploy-paths.sh:74` and `:137`: `DEPLOY_CERTS_DIR` follows
+  `DEPLOY_SOURCE_REPO`, and `mkdir -p` creates the store, empty, when it is missing.
+- `scripts/deploy/droplet-up.sh:1002` runs the generator with no option and continues on exit
+  0; a selective rollout then recreates only the services it rolls out (`:1479`).
+
+Failure scenario: `DEPLOY_SOURCE_REPO` or `DEPLOY_CERTS_DIR` is overridden, or the store is
+wiped. The generator exits 0 with `[done] CA`. Every restarted service presents a leaf the
+running broker does not trust and refuses the broker's leaf, so each fails the NATS handshake.
+Certificate expiry cannot reach this path, and a partly wiped store already refuses after the
+INFRA-CRITICAL-233 change; only a store with no managed file at all keeps main's behavior.
+
+Direction (this section replaces the direction in the row's notes; the row is append-only): the
+decision belongs to the generator, before anything is published. A `droplet-up.sh` refusal
+after the run comes too late. The generator has already published the new CA and leaves by
+rename (`generate-internal-certs.sh:926-927`, then the issuance loop). The next deploy finds a
+store consistent under the new root, prints `[skip] CA`, passes
+`require_store_issued_under_kept_ca`, and its selective rollout splits the restarted services
+one deploy later. Reading the generator's `[done] CA` line back would also make `droplet-up.sh`
+a second judge of a decision the generator owns. So an ordinary run with no option never mints
+a CA: into a store with no CA it refuses before staging a file. Minting takes an explicit mode
+that only the first-install or full-stack path passes, the path that recreates every consumer
+after it. Deadline 2026-12-18. The finding was first minted as INFRA-HIGH-236 in a commit that
+never landed; 236 has no row.
+
 ## FARM-CRITICAL-444
 
 The 18:00 FCR alert sweep never fires for a live batch. Lost-work item 2, half 601; the old

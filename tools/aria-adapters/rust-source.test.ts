@@ -4,14 +4,14 @@ import { createHash } from 'node:crypto';
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readdirSync,
   readFileSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join, posix, relative, resolve } from 'node:path';
+
+import { makeFixtureTree } from '../gates/fixture-tree';
 
 import {
   collectFiles,
@@ -1070,7 +1070,7 @@ const sha256 = (text: string): string => createHash('sha256').update(text, 'utf8
 // ---------------------------------------------------------------------------
 
 {
-  const workspace = mkdtempSync(join(tmpdir(), 'aria-rust-source-'));
+  const workspace = makeFixtureTree('aria-rust-source-');
   const write = (path: string, text: string): void => {
     mkdirSync(resolve(workspace, path, '..'), { recursive: true });
     writeFileSync(join(workspace, path), text, 'utf8');
@@ -1132,11 +1132,11 @@ const sha256 = (text: string): string => createHash('sha256').update(text, 'utf8
   // never follows a symlink either. The workspace sits in `base`, beside a
   // real `escape.rs`, so only the containment rule keeps `../escape.rs` and
   // the non-normalised `c/../../escape.rs` out.
-  const base = mkdtempSync(join(tmpdir(), 'aria-rust-io-'));
+  const base = makeFixtureTree('aria-rust-io-');
   const workspace = join(base, 'ws');
   mkdirSync(workspace);
   writeFileSync(join(base, 'escape.rs'), 'unsafe fn outside() {}', 'utf8');
-  const outside = mkdtempSync(join(tmpdir(), 'aria-rust-outside-'));
+  const outside = makeFixtureTree('aria-rust-outside-');
   writeFileSync(join(outside, 'secret.rs'), 'unsafe fn leaked() {}', 'utf8');
   const write = (path: string, text: string): void => {
     mkdirSync(resolve(workspace, path, '..'), { recursive: true });
@@ -1190,8 +1190,8 @@ const sha256 = (text: string): string => createHash('sha256').update(text, 'utf8
 {
   // An absolute #[path] names a file outside the workspace (rustc joins it
   // as-is): refused, and the same-suffix decoy inside the crate is not read.
-  const workspace = mkdtempSync(join(tmpdir(), 'aria-rust-abs-'));
-  const outside = mkdtempSync(join(tmpdir(), 'aria-rust-abs-out-'));
+  const workspace = makeFixtureTree('aria-rust-abs-');
+  const outside = makeFixtureTree('aria-rust-abs-out-');
   writeFileSync(join(outside, 'real.rs'), 'pub fn compiled() {}', 'utf8');
   const write = (path: string, text: string): void => {
     mkdirSync(resolve(workspace, path, '..'), { recursive: true });
@@ -1217,7 +1217,7 @@ const sha256 = (text: string): string => createHash('sha256').update(text, 'utf8
   // cfg predicate nested 20k deep, and Cargo.toml arrays and inline tables
   // nested 20k deep each become a per-file issue; the other crates are still
   // classified.
-  const workspace = mkdtempSync(join(tmpdir(), 'aria-rust-vectors-'));
+  const workspace = makeFixtureTree('aria-rust-vectors-');
   const write = (path: string, text: string): void => {
     mkdirSync(resolve(workspace, path, '..'), { recursive: true });
     writeFileSync(join(workspace, path), text, 'utf8');
@@ -1329,3 +1329,34 @@ const sha256 = (text: string): string => createHash('sha256').update(text, 'utf8
 }
 
 process.stdout.write('rust-source.test.ts OK\n');
+
+// ARIA-LOW-593 — a symlinked Cargo.toml is not a manifest. cargoTargetDirSkip
+// asked existsSync, which follows symlinks, so a `target` directory beside a
+// LINKED manifest was skipped as cargo's build directory and its files
+// vanished from the walk. Containment does not follow: without a real
+// manifest beside it, `target` is ordinary source.
+{
+  const base = makeFixtureTree('aria-rust-manifest-link-');
+  const linkedWorkspace = join(base, 'ws');
+  const outside = join(base, 'outside');
+  mkdirSync(join(linkedWorkspace, 'pkg/src'), { recursive: true });
+  mkdirSync(join(linkedWorkspace, 'pkg/target/debug'), { recursive: true });
+  mkdirSync(outside, { recursive: true });
+  writeFileSync(join(outside, 'Cargo.toml'), '[package]\nname = "c"\n', 'utf8');
+  writeFileSync(join(linkedWorkspace, 'pkg/src/lib.rs'), '', 'utf8');
+  writeFileSync(join(linkedWorkspace, 'pkg/target/debug/gen.rs'), '', 'utf8');
+  symlinkSync(join(outside, 'Cargo.toml'), join(linkedWorkspace, 'pkg/Cargo.toml'));
+  const walked = collectFiles(linkedWorkspace, linkedWorkspace, {
+    extensions: ['.rs', 'Cargo.toml'],
+    skipDir: cargoTargetDirSkip,
+  })
+    .map((path) => normalizeWorkspacePath(relative(linkedWorkspace, path)))
+    .sort();
+  assert.deepEqual(
+    walked,
+    ['pkg/src/lib.rs', 'pkg/target/debug/gen.rs'],
+    'a symlinked manifest does not make target/ a build directory',
+  );
+}
+
+process.stdout.write('rust manifest containment test OK\n');

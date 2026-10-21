@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from .ledger import load_declared_jsonl, load_segments
+from .merge_record import PR_BINDING_EVENT
 from .recovery import (
     EXTERNAL_EFFECTS_RELPATH,
     EXTERNAL_EFFECTS_SURFACE,
@@ -149,6 +150,17 @@ def _derive_state(rec: DeliveryRecord) -> str:
     return "dispatched"
 
 
+def delivery_closure_reader_faults() -> tuple[type[BaseException], ...]:
+    """The closed set a ``compute_delivery_closure`` caller may report as an
+    unreadable delivery store (ARIA-LOW-587): the ledger primitives' own
+    (``ledger.ledger_read_faults``) — every row the fold reads comes through
+    ``load_segments`` or ``load_declared_jsonl``. The fold itself is
+    arithmetic over those rows, so anything else it raises is a defect."""
+    from .ledger import ledger_read_faults
+
+    return ledger_read_faults()
+
+
 def compute_delivery_closure(*, base_dir: str | Path | None = None) -> DeliveryClosureReport:
     """Fold the delivery ledgers into per-request records + the SLO summary."""
     root = ensure_tools_dir_readonly(base_dir)
@@ -215,13 +227,14 @@ def compute_delivery_closure(*, base_dir: str | Path | None = None) -> DeliveryC
     for rid, intents in intents_by_request.items():
         records[rid].unresolved_intents = sum(1 for i in intents.values() if not i.get("_receipted"))
 
-    # Secondary PR link: lifecycle rows carry proposal_id, never request_id.
+    # Secondary PR link: lifecycle rows carry proposal_id, never request_id,
+    # and only the row that binds a PR (merge_record's binding event) names it.
     by_proposal: dict[str, list[str]] = {}
     for rec in records.values():
         for proposal in rec.proposal_ids:
             by_proposal.setdefault(proposal, []).append(rec.request_id)
     for row in _rows(root, *_PR_LIFECYCLE):
-        if str(row.get("event") or "") != "opened":
+        if row.get("event") != PR_BINDING_EVENT:
             continue
         number = row.get("pr_number")
         proposal = str(row.get("proposal_id") or "")
@@ -313,5 +326,6 @@ __all__ = [
     "IMPLEMENTATION_ROLE",
     "SLO_VERIFIED_PRS_MIN",
     "compute_delivery_closure",
+    "delivery_closure_reader_faults",
     "render_delivery_text",
 ]

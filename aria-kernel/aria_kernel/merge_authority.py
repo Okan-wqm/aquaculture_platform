@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 from .auto_merge import (
@@ -13,12 +13,17 @@ from .auto_merge import (
     evaluate_auto_merge,
     human_merge_decision,
     merge_outcome,
-    pr_change_binding,
 )
 from .autonomous_host_lease import release_remote_cas_lease
 from .autonomy_unlock import assert_autonomy_unlocked
 from .enterprise_readiness import verify_enterprise_readiness
-from .implementation_safety import GATE_PRE_MERGE, HardFailContext, run_hard_fail_checks
+from .implementation_safety import (
+    _PRE_MERGE_EVIDENCE_TOKEN,
+    GATE_PRE_MERGE,
+    HardFailContext,
+    _PreMergeEvidence,
+    run_hard_fail_checks,
+)
 from .incident_ledger import (
     ensure_pre_merge_incident_row,
     finalize_merge_incident,
@@ -26,7 +31,7 @@ from .incident_ledger import (
 )
 from .ledger import SEGMENTED_LEDGERS, load_declared_jsonl, load_segments, segment_paths
 from .merge_lane_merge_state import route_unmergeable_merge_state
-from .merge_record import LINEAGE_DELIVERED, MERGED_BY_MERGE_LANE, record_merge
+from .merge_record import LINEAGE_DELIVERED, MERGED_BY_MERGE_LANE, pr_change_binding, record_merge
 from .policy_approval import verify_policy_approval
 from .readiness_proofs import produce_remote_cas_proof
 from .risk_policy import first_present_string, record_risk_decision_for_pr
@@ -235,12 +240,9 @@ def merge_pr_if_ready(
         else:
             fresh_pr = adapter.get_pr(pr_number)
             fresh_github = collect_github_snapshot(adapter, fresh_pr)
-            fresh_diff: str | None = None
-            if hasattr(adapter, "get_pr_diff"):
-                try:
-                    fresh_diff = adapter.get_pr_diff(pr_number)  # type: ignore[attr-defined]
-                except Exception:
-                    fresh_diff = None
+            # ARIA-MEDIUM-581 — a diff the fresh read could not fetch is
+            # blocked by its named cause; an adapter fault raises.
+            fresh_diff, fresh_diff_error = adapter.get_pr_diff(pr_number)
             if fresh_diff is None:
                 fresh_diff = fresh_pr.get("diff_text")
             fresh_decision = evaluate_auto_merge(
@@ -251,6 +253,7 @@ def merge_pr_if_ready(
                 cycle_id=cycle_id,
                 dry_run=True,
                 diff_text=fresh_diff,
+                diff_lookup_error=fresh_diff_error,
                 workspace_root=workspace_root,
             )
             latest_head_sha = fresh_decision.get("head_sha")
@@ -751,7 +754,6 @@ def _evaluate_pre_merge_perimeter(
     too incomplete to shape one is left to the capture, which names it
     (``pr_commit_identity_unavailable``).
     """
-    from .implementation_safety import _PreMergeEvidence
     from .merge_lane_workspace import (
         MergeLaneWorkspaceRefusal,
         pr_head_workspace,
@@ -781,7 +783,7 @@ def _evaluate_pre_merge_perimeter(
             diff_text=diff_text,
             base_branch=_base_branch(pr),
             pr_body=pr.get("body") if isinstance(pr.get("body"), str) else None,
-            pre_merge_evidence=_PreMergeEvidence((f"merge_lane_workspace_unavailable:{exc}",)),
+            pre_merge_evidence=_pre_merge_evidence((f"merge_lane_workspace_unavailable:{exc}",)),
         )
         return context, run_hard_fail_checks(context, gate=GATE_PRE_MERGE)
 
@@ -818,6 +820,13 @@ def request_implementation_expert_review(
     if state != "OPEN":
         result["reasons"] = [f"pr_not_open:{state or 'unobserved'}"]
         return result
+    # ARIA-MEDIUM-581 — the review is of the implementation's diff; one that
+    # cannot be read is named (an oversized diff, a refused token) instead of
+    # an evaluated perimeter that requests nothing for a reason it cannot say.
+    diff_text, diff_lookup_error = adapter.get_pr_diff(pr_number)
+    if diff_text is None:
+        result["reasons"] = [f"pr_diff_unavailable:{diff_lookup_error}"]
+        return result
     requested: list[str] = []
 
     def request(context: HardFailContext, report: Any) -> None:
@@ -829,7 +838,7 @@ def request_implementation_expert_review(
         workspace_root=workspace_root,
         base_dir=base_dir,
         pr=pr,
-        diff_text=adapter.get_pr_diff(pr_number),
+        diff_text=diff_text,
         while_shaped=request,
     )
     result["requested"] = requested
@@ -859,7 +868,6 @@ def _capture_pre_merge_context(
     from . import agent_invocations as _invocations
     from . import plan_convergence as _plans
     from .change_paths import read_change_paths as _read_change_paths
-    from .implementation_safety import _PreMergeEvidence
     from .ledger import LedgerIntegrityError as _LedgerIntegrityError
     from .ledger import _verify_jsonl_from_text
     from .ledger import load_jsonl_verified_text as _load_verified_text
@@ -874,7 +882,7 @@ def _capture_pre_merge_context(
         diff_text=diff_text,
         base_branch=_base_branch(pr),
         pr_body=pr.get("body") if isinstance(pr.get("body"), str) else None,
-        pre_merge_evidence=_PreMergeEvidence(("workspace_root_unavailable",)),
+        pre_merge_evidence=_pre_merge_evidence(("workspace_root_unavailable",)),
     )
     if workspace_root is None:
         return context
@@ -996,33 +1004,36 @@ def _capture_pre_merge_context(
             expected_surface="operator_feedback",
         )[1] if prefixes["operator_feedback"] is not None else []
         reason = "pr_change_join_unavailable"
-        observations = [row for row in rows["pr_lifecycle"] if row.get("pr_number") == number]
-        change_ids = {row.get("change_id") for row in observations if row.get("change_id")}
-        # ARIA-HIGH-521 — the change is bound by the row that carries it
-        # (`pr_change_binding`: the opener's row), never by the last row:
-        # the merge lane has just appended its own `observed` row from
-        # GitHub's view of the PR, which carries no change_id. The last row
-        # still has to be this PR at the live head and base.
-        binding = pr_change_binding(observations, number)
-        if len(change_ids) != 1 or binding is None:
-            raise GovernanceError(reason)
-        observed = observations[-1]
-        change_id = str(binding["change_id"])
+        # merge-delivery-1 (ARIA-HIGH-521, ARIA-MEDIUM-656) — the PR is bound
+        # to its change by the row that opened it (the one binding owner,
+        # merge_record.pr_change_binding), read from the captured prefix. The
+        # merge lane appends its own `observed` row of GitHub's payload before
+        # this runs; that row binds nothing, so it can neither unbind the PR
+        # nor re-bind it. The live head is the payload's; the opened row names
+        # the head the kernel delivered. No lifecycle row has to name the live
+        # head (the claim-time capture appends none): it is judged against the
+        # committed commit below, by the shared lineage verifier when it moved,
+        # and merge_pr_if_ready re-reads it before it merges.
+        binding = pr_change_binding(rows["pr_lifecycle"], pr_number=number)
         if (
-            observed.get("head_sha") != head_sha
-            or observed.get("base_branch") != context.base_branch
-            or binding.get("base_branch") != context.base_branch
-            or (pr.get("change_id") is not None and pr["change_id"] != change_id)
+            binding is None or binding.change_id is None
+            or binding.bound_change_ids != (binding.change_id,)
+            or binding.base_branch != context.base_branch
+            or (pr.get("change_id") is not None and pr["change_id"] != binding.change_id)
         ):
             raise GovernanceError(reason)
+        bound, change_id = binding.row, binding.change_id
         planned_rows = [row for row in rows["change_planned"] if row.get("change_id") == change_id]
         committed_rows = [row for row in rows["change_committed"] if row.get("change_id") == change_id]
         if len(planned_rows) != 1 or len(committed_rows) != 1:
             raise GovernanceError(reason)
         planned, committed = planned_rows[0], committed_rows[0]
+        if binding.delivered_head_sha != committed.get("commit_sha"):
+            raise GovernanceError(reason)
         if committed.get("commit_sha") != head_sha:
             # ARIA-HIGH-374 — the one verifier all three gates share; any
-            # other head stays `pr_change_join_unavailable`, named.
+            # other head stays `pr_change_join_unavailable`, named by the
+            # verifier's reason in the evidence.
             from .branch_update_lineage import BranchUpdateLineageRefused, verify_branch_update_lineage
 
             try:
@@ -1031,7 +1042,8 @@ def _capture_pre_merge_context(
                     delivered_sha=str(committed.get("commit_sha") or ""), live_base_sha=live_base_sha,
                 )
             except BranchUpdateLineageRefused as exc:
-                raise GovernanceError(f"{reason}:{exc.reason}") from exc
+                reason = f"{reason}:{exc.reason}"
+                raise GovernanceError(reason) from exc
             head_sha = str(committed["commit_sha"])
             base_sha = _git(workspace, "merge-base", live_base_sha, head_sha).strip()
             if not is_object_id(base_sha, formats=ANY_OBJECT_FORMAT):
@@ -1073,7 +1085,7 @@ def _capture_pre_merge_context(
 
         implementation, gaps = _join_pre_merge_implementation(
             tools=tools, workspace=workspace, rows=rows, state=state,
-            body=body, planned=planned, committed=committed, pr_binding=binding,
+            body=body, planned=planned, committed=committed, pr_binding=bound,
             pr=pr, base_sha=base_sha, head_sha=head_sha, diff_text=diff_text,
             merge_base_sha=merge_base_sha, merge_head_sha=merge_head_sha,
         )
@@ -1138,9 +1150,9 @@ def _capture_pre_merge_context(
             context,
             affected_paths=tuple(merged_paths),
             envelope={"affected_surfaces": list(changed_paths)},
-            pre_merge_evidence=_PreMergeEvidence(
-                unavailable_reasons=gaps, pr_number=number, change_id=change_id,
-                pr_row_hash=binding["ledger_hash"], planned_row_hash=planned["ledger_hash"],
+            pre_merge_evidence=_pre_merge_evidence(
+                gaps, pr_number=number, change_id=change_id,
+                pr_row_hash=bound["ledger_hash"], planned_row_hash=planned["ledger_hash"],
                 committed_row_hash=committed["ledger_hash"], plan_id=plan_id,
                 plan_revision_id=body["revision_id"], plan_content_hash=body["content_hash"],
                 repo_identity=repo_identity, base_sha=base_sha, head_sha=head_sha,
@@ -1151,7 +1163,18 @@ def _capture_pre_merge_context(
             ),
         )
     except (OSError, ValueError, KeyError, TypeError, _LedgerIntegrityError, _StateStoreError):
-        return _replace(context, pre_merge_evidence=_PreMergeEvidence((reason,)))
+        return _replace(context, pre_merge_evidence=_pre_merge_evidence((reason,)))
+
+
+def _pre_merge_evidence(unavailable_reasons: Any, **observed: Any) -> _PreMergeEvidence:
+    """The one constructor of the immutable pre-merge snapshot.
+
+    ARIA-HIGH-005 (Task 8) — ``_PreMergeEvidence`` refuses construction
+    without the token held here, so the capture above (and the workspace
+    refusal beside it) is the only way a snapshot exists: a predicate input
+    cannot be assembled by hand and handed to the perimeter.
+    """
+    return _PreMergeEvidence(tuple(unavailable_reasons), _token=_PRE_MERGE_EVIDENCE_TOKEN, **observed)
 
 
 def _read_pre_merge_coverage_file(path: Path) -> bytes | None:
@@ -1462,7 +1485,7 @@ def _capture_pre_merge_turn_budget(
 def _join_pre_merge_implementation(
     *, tools: Path, workspace: Path, rows: dict[str, list[dict[str, Any]]],
     state: dict[str, Any], body: dict[str, Any], planned: dict[str, Any],
-    committed: dict[str, Any], pr_binding: dict[str, Any], pr: dict[str, Any],
+    committed: dict[str, Any], pr_binding: Mapping[str, Any], pr: dict[str, Any],
     base_sha: str, head_sha: str, diff_text: str | None,
     merge_base_sha: str, merge_head_sha: str,
 ) -> tuple[dict[str, Any], tuple[str, ...]]:

@@ -1,6 +1,8 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+import { loadNatsServices, subjectMatches } from '../../tools/gates/nats-services';
+
 const REPO_ROOT = resolve(__dirname, '..', '..');
 
 function readRepoFile(path: string): string {
@@ -375,20 +377,45 @@ describe('INVARIANT: notification commands have real consumers and ACL parity', 
     }
     const receiptMigration = readRepoFile(receiptMigrationPath);
     const natsConf = readRepoFile('infrastructure/docker/nats/nats.conf');
-    const serviceAcl = readRepoFile('infrastructure/nats/services.yaml');
+    // ARIA-LOW-603 — the ACL is judged per service and with broker matching, through the one
+    // shared reader: a raw-text search of services.yaml passed when ANY service named the
+    // subject, and missed a wildcard (`commands.notification.>`) that admits an unsupported one.
+    const services = loadNatsServices();
+    const grantees = (kind: 'publish' | 'subscribe', subject: string): string[] =>
+      services
+        .filter((service) => service[kind].some((grant) => subjectMatches(grant, subject)))
+        .map((service) => service.name);
 
     for (const subject of ['commands.notification.sendEmail', 'commands.notification.sendPush']) {
       expect(contracts).toContain(subject);
       expect(natsConf).toContain(subject);
-      expect(serviceAcl).toContain(subject);
+      expect({ subject, subscribers: grantees('subscribe', subject) }).toEqual({
+        subject,
+        subscribers: ['notification_service'],
+      });
+      expect({ subject, published: grantees('publish', subject).length > 0 }).toEqual({
+        subject,
+        published: true,
+      });
     }
 
     expect(contracts).not.toContain('commands.notification.sendSms');
     expect(contracts).not.toContain('commands.notification.sendWebhook');
     expect(natsConf).not.toContain('commands.notification.sendSms');
     expect(natsConf).not.toContain('commands.notification.sendWebhook');
-    expect(serviceAcl).not.toContain('commands.notification.sendSms');
-    expect(serviceAcl).not.toContain('commands.notification.sendWebhook');
+    for (const unsupported of [
+      'commands.notification.sendSms',
+      'commands.notification.sendWebhook',
+    ]) {
+      expect({ unsupported, publishers: grantees('publish', unsupported) }).toEqual({
+        unsupported,
+        publishers: [],
+      });
+      expect({ unsupported, subscribers: grantees('subscribe', unsupported) }).toEqual({
+        unsupported,
+        subscribers: [],
+      });
+    }
 
     for (const constant of ['SEND_EMAIL', 'SEND_PUSH']) {
       expect(handler).toContain(`@MessagePattern(NOTIFICATION_COMMAND_SUBJECTS.${constant})`);

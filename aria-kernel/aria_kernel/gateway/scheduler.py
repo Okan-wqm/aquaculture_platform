@@ -295,9 +295,15 @@ def run_action(action: str, *, base_dir: str | Path | None, workspace_root: str 
     elif action == "self_improve":
         from ..self_improvement import open_self_improvement_missions
 
-        opened = open_self_improvement_missions(base_dir=root, workspace_root=workspace_root, doctor_report=doctor_report)
-        result["detail"] = {"missions": [o["mission_id"] for o in opened], "new": sum(1 for o in opened if not o["idempotent"]),
-                            "doctor": "report_read" if doctor_report is not None else "ran"}
+        opening = open_self_improvement_missions(base_dir=root, workspace_root=workspace_root, doctor_report=doctor_report)
+        # ARIA-LOW-587 — the families the scan could not read, by name, on the
+        # result and on the governance row: a night that opened nothing because
+        # a ledger was corrupt is not a night with nothing to improve.
+        unreadable = [source.label for source in opening.unreadable]
+        result["detail"] = {"missions": [o["mission_id"] for o in opening.opened],
+                            "new": sum(1 for o in opening.opened if not o["idempotent"]),
+                            "doctor": "report_read" if doctor_report is not None else "ran", "unreadable": unreadable}
+        ran_facts["unreadable"] = unreadable
     elif action == "economy":
         from ..token_economy import calibrate_role_caps, recommend_efforts, record_recommendations, usage_per_accepted_result
 

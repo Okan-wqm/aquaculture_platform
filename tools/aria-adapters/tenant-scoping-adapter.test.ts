@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+import { makeFixtureTree } from '../gates/fixture-tree';
 
 import { analyzeTenantScoping } from './tenant-scoping-adapter';
 
-const workspace = mkdtempSync(join(tmpdir(), 'aria-tenant-scoping-adapter-'));
+const workspace = makeFixtureTree('aria-tenant-scoping-adapter-');
 const root = join(workspace, 'apps/farm-service/src');
 mkdirSync(root, { recursive: true });
 
@@ -128,28 +129,56 @@ writeFileSync(
   'utf8',
 );
 
-const output = analyzeTenantScoping({ roots: ['apps/farm-service/src'], includeRepositoryReadFindings: true }, workspace);
+const output = analyzeTenantScoping(
+  { roots: ['apps/farm-service/src'], includeRepositoryReadFindings: true },
+  workspace,
+);
 
 assert.equal(output.metadata.adapter, 'tenant-scoping-adapter');
-assert.equal(output.observations.some((item) => item.type === 'tenant_source'), true);
-assert.equal(output.observations.some((item) => item.type === 'tenant_repository_call'), true);
-assert.equal(output.observations.some((item) => item.type === 'tenant_guard_registration'), true);
+assert.equal(
+  output.observations.some((item) => item.type === 'tenant_source'),
+  true,
+);
+assert.equal(
+  output.observations.some((item) => item.type === 'tenant_repository_call'),
+  true,
+);
+assert.equal(
+  output.observations.some((item) => item.type === 'tenant_guard_registration'),
+  true,
+);
 assert.equal(
   output.findings.some(
-    (finding) => finding.rule === 'tenant_repository_unscoped_read' && finding.path.endsWith('unsafe.service.ts'),
+    (finding) =>
+      finding.rule === 'tenant_repository_unscoped_read' &&
+      finding.path.endsWith('unsafe.service.ts'),
   ),
   true,
 );
 assert.equal(
   output.findings.some(
-    (finding) => finding.rule === 'tenant_raw_query_missing_tenant_predicate' && finding.path.endsWith('raw-query.service.ts'),
+    (finding) =>
+      finding.rule === 'tenant_raw_query_missing_tenant_predicate' &&
+      finding.path.endsWith('raw-query.service.ts'),
   ),
   true,
 );
-assert.equal(output.findings.some((finding) => finding.path.endsWith('/safe.service.ts')), false);
-assert.equal(output.findings.some((finding) => finding.path.endsWith('safe-tenant-manager.service.ts')), false);
-assert.equal(output.findings.some((finding) => finding.path.endsWith('array-find.service.ts')), false);
-assert.equal(output.findings.some((finding) => finding.rule === 'tenant_guard_missing'), false);
+assert.equal(
+  output.findings.some((finding) => finding.path.endsWith('/safe.service.ts')),
+  false,
+);
+assert.equal(
+  output.findings.some((finding) => finding.path.endsWith('safe-tenant-manager.service.ts')),
+  false,
+);
+assert.equal(
+  output.findings.some((finding) => finding.path.endsWith('array-find.service.ts')),
+  false,
+);
+assert.equal(
+  output.findings.some((finding) => finding.rule === 'tenant_guard_missing'),
+  false,
+);
 
 type TenantFinding = (typeof output.findings)[number];
 function symbolOf(finding: TenantFinding | undefined): unknown {
@@ -168,9 +197,14 @@ assert.deepEqual(twoMethodSymbols, [
   'loadArrow',
   'loadFree',
 ]);
-assert.equal(symbolOf(output.findings.find((finding) => finding.path.endsWith('unsafe.service.ts'))), 'UnsafeService.load');
 assert.equal(
-  symbolOf(output.findings.find((finding) => finding.rule === 'tenant_raw_query_missing_tenant_predicate')),
+  symbolOf(output.findings.find((finding) => finding.path.endsWith('unsafe.service.ts'))),
+  'UnsafeService.load',
+);
+assert.equal(
+  symbolOf(
+    output.findings.find((finding) => finding.rule === 'tenant_raw_query_missing_tenant_predicate'),
+  ),
   'RawQueryService.load',
 );
 

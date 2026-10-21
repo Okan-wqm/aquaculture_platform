@@ -1,14 +1,16 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
+
+import { makeFixtureTree } from '../gates/fixture-tree';
 
 import {
   collectFiles,
   readWorkspaceFile,
   readWorkspaceJson,
   resolveInsideWorkspace,
+  workspaceIsExecutable,
   workspacePathExists,
 } from './adapter-fs';
 import { analyzeKernelDeadWire } from './kernel-dead-wire-adapter';
@@ -24,7 +26,7 @@ import { analyzeKernelDeadWire } from './kernel-dead-wire-adapter';
 // The workspace sits in `base` beside `outside`, which stands for anything
 // beyond the checkout; each symlink below is one a checkout can carry.
 
-const base = mkdtempSync(join(tmpdir(), 'aria-adapter-fs-'));
+const base = makeFixtureTree('aria-adapter-fs-');
 const workspace = join(base, 'repo');
 const outside = join(base, 'outside');
 const write = (path: string, text: string): void => {
@@ -48,7 +50,7 @@ symlinkSync(join(outside, 'kernel'), join(workspace, 'linked-kernel'));
 const relativePaths = (paths: readonly string[]): readonly string[] =>
   paths.map((path) => relative(workspace, join(workspace, path)));
 
-try {
+{
   // ---------------------------------------------------------------------
   // An adapter does not read through a symlink it was told to read.
   // ---------------------------------------------------------------------
@@ -135,8 +137,25 @@ try {
       'a walk from the root lists regular files only: no symlink, no fifo',
     );
   }
-} finally {
-  rmSync(base, { recursive: true, force: true });
+
+  // ---------------------------------------------------------------------
+  // ARIA-LOW-593 — the executable bit and the compiler host are the
+  // containment owner's too, so no adapter opens a second fs path.
+  // ---------------------------------------------------------------------
+  {
+    writeFileSync(join(workspace, 'k', 'tool-exec'), '#!/bin/sh\n', { mode: 0o755 });
+    writeFileSync(join(workspace, 'k', 'tool-plain'), '#!/bin/sh\n', { mode: 0o644 });
+    assert.equal(workspaceIsExecutable(workspace, 'k/tool-exec'), true);
+    assert.equal(workspaceIsExecutable(workspace, 'k/tool-plain'), false);
+    assert.equal(workspaceIsExecutable(workspace, 'k'), false, 'a directory is not executable');
+    assert.equal(workspaceIsExecutable(workspace, 'linked-cli.py'), false, 'never a symlink');
+    assert.equal(workspaceIsExecutable(workspace, workspace), false, 'not the root itself');
+    assert.equal(
+      workspaceIsExecutable(workspace, join(outside, 'cli.py')),
+      false,
+      'not a path outside the workspace',
+    );
+  }
 }
 
 process.stdout.write('adapter-fs.test.ts OK\n');

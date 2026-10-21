@@ -9,6 +9,8 @@ from collections.abc import Callable
 from typing import Any
 
 from .confidence import confidence_in_unit_interval
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
+from .model_fleet import dispatching_provider_for_model
 from .ledger import append_declared_jsonl, append_declared_jsonl_rows, append_jsonl as append_chained_jsonl
 from .finding_subject import normalize_finding_message
 from .ledger import sha256_of_canonical_json
@@ -73,7 +75,6 @@ CONSENSUS_UNCERTAINTY_REASONS = (
 # to calibrated judges of distinct models alone.
 CALIBRATION_GATES = ("measure_only", "enforce")
 CALIBRATED_QUORUM_MIN_JUDGES = 2
-CALIBRATED_QUORUM_MIN_MODELS = 2
 FEEDBACK_SEVERITIES = ("low", "medium", "high", "critical")
 FEEDBACK_SOURCE_TYPES = ("human", "ai_judge", "ai_consensus")
 # Typed-judgment plan (ARIA-HIGH-167) — where a judge's confidence came
@@ -150,7 +151,22 @@ ANCHOR_MIN_JUDGE_COUNT = 3
 # constant edit. What the rule counts also changed with ORPHAN-HIGH-781:
 # the observers' model now comes from the dispatch record the executor
 # stamps (`details.agent_dispatch_model`), not from a judge's self-report.
+#
+# WP-P recast (operator decision 2026-10-18): the distinct-MODEL count is
+# a BONUS this ledger records, never a gate. "Sometimes there is a single
+# provider, that's fine; use different agents with different perspectives"
+# — on an only-Z.ai night every seat runs glm-5.3, and requiring a second
+# vendor would block ground truth exactly when the operator told the
+# system to keep working. The laundering defect G-2 hunted is real, so the
+# GATE moved one level down, to SEATS (`consensus_distinct_seats`): three
+# agreeing votes are an anchor only when three distinct judge seats
+# produced them. A second provider behind an anchor stays visible as the
+# `provider_span` the mint stamps beside `observers`.
 ANCHOR_MIN_DISTINCT_MODELS = 2
+# WP-P — the vendor span recorded on every consensus row that can name its
+# observers: "multi" when they dispatched through more than one provider,
+# "single" when one provider carried the whole panel. Recorded, not gated.
+PROVIDER_SPANS = ("single", "multi")
 
 JUDGMENT_SUBJECT_FINDING = "finding"
 JUDGMENT_SUBJECT_BELIEF = "belief"
@@ -233,11 +249,16 @@ def is_ground_truth_row(row: dict[str, Any]) -> bool:
     agreed = consensus_judge_count(row)
     if not (agreed >= ANCHOR_MIN_JUDGE_COUNT and consensus_judges_voted(row) == agreed):
         return False
-    # G-2 — and the agreement must span more than one model. A row written
-    # before `observers` existed cannot answer this question, so it is not
-    # ground truth: unknown is never green, and this ledger has exactly one
-    # such row (already non-anchor for other reasons, measured 2026-08-20).
-    return distinct_observer_models(row) >= ANCHOR_MIN_DISTINCT_MODELS
+    # G-2, recast to SEATS (WP-P, operator decision 2026-10-18) — the
+    # agreement must span at least ANCHOR_MIN_JUDGE_COUNT distinct judge
+    # seats: the third credential that promotes a pair to an anchor is a
+    # third JUDGE, never the same judge asked again. A row written before
+    # `observers` existed cannot answer this question, so it is not ground
+    # truth: unknown is never green, and this ledger has exactly one such
+    # row (already non-anchor for other reasons, measured 2026-08-20). The
+    # MODELS behind the seats are recorded (`provider_span` at the mint),
+    # not gated: a single-provider panel of distinct seats anchors.
+    return consensus_distinct_seats(row) >= ANCHOR_MIN_JUDGE_COUNT
 
 
 def consensus_observers(row: dict[str, Any]) -> tuple[dict[str, str], ...]:
@@ -262,8 +283,57 @@ def consensus_observers(row: dict[str, Any]) -> tuple[dict[str, str], ...]:
 
 
 def distinct_observer_models(row: dict[str, Any]) -> int:
-    """How many different MODELS stand behind this row."""
+    """How many different MODELS stand behind this row.
+
+    A recorded bonus since WP-P (operator decision 2026-10-18), never a
+    gate: single-provider anchors stand on seat independence, and the
+    model count is what the mint's `provider_span` collapses one step
+    further (models → providers).
+    """
     return len({observer["model"] for observer in consensus_observers(row)})
+
+
+def consensus_distinct_seats(row: dict[str, Any]) -> int:
+    """How many distinct judge SEATS stand behind this row.
+
+    The anchor gate since WP-P (operator decision 2026-10-18): three
+    agreeing votes are three observations only when three distinct judge
+    ids produced them. The same seat appearing thrice — however many
+    models it names — is one observation with duplicate receipts, the
+    laundering defect G-2 hunted, restated at the level the ledger can
+    actually prove (the dispatcher mints the judge id; a judge's model
+    self-report was never trustworthy, ORPHAN-HIGH-781).
+    """
+    return len({observer["judge_id"] for observer in consensus_observers(row)})
+
+
+def provider_span_of(models: list[str]) -> str:
+    """The vendor span behind a set of dispatched models: ``multi``/``single``.
+
+    Provider identity comes from `model_fleet.dispatching_provider_for_
+    model` — the kernel's one binding of a model to the provider whose
+    quota and credential a dispatch on it lives under — so a self-reported
+    model can never pick its own provider. Unlisted tiers read as the
+    managed Anthropic session, exactly as every route resolver reads them.
+    """
+    providers = {
+        dispatching_provider_for_model(model)
+        for model in models
+        if str(model or "").strip()
+    }
+    return "multi" if len(providers) > 1 else "single"
+
+
+def consensus_provider_span(row: dict[str, Any]) -> str | None:
+    """The vendor span stamped at the mint, or None when the row predates it.
+
+    Reader-side view of `provider_span`: absent on rows written before the
+    field existed and on sub-anchor rows without observers, and never
+    re-derived here — the span is a fact about the mint, not a question a
+    later reader answers from partial data.
+    """
+    span = row.get("provider_span")
+    return span if span in PROVIDER_SPANS else None
 
 
 def judgment_subject_of(row: dict[str, Any]) -> str:
@@ -565,10 +635,13 @@ def record_operator_feedback(
     judges_voted: int | None = None,
     judgment_subject: str = JUDGMENT_SUBJECT_FINDING,
     observers: list[dict[str, str]] | None = None,
+    provider_span: str | None = None,
     confidence_source: str | None = None,
     evidence_selection: str | None = None,
     calibration_basis: dict[str, Any] | None = None,
     label_provenance: dict[str, Any] | None = None,
+    request_ids: list[str] | None = None,
+    target_sha: str | None = None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     if judgment_subject not in JUDGMENT_SUBJECTS:
@@ -589,6 +662,15 @@ def record_operator_feedback(
         raise GovernanceError("affected_belief_ids must be an array of non-empty strings")
     if evidence_refs is not None and not _valid_string_list(evidence_refs):
         raise GovernanceError("evidence_refs must be an array of non-empty strings")
+    # ARIA-HIGH-004 — the learning funnel's join identities: the agent
+    # requests a judgment answers and the commit those requests were minted
+    # at. Stamped from the trusted request envelope by the producers
+    # (judgment_bridge for a judge row, generate_ai_consensus for the row it
+    # folds), never inferred later from whichever request is newest.
+    if request_ids is not None and not _valid_string_list(request_ids):
+        raise GovernanceError("request_ids must be an array of non-empty strings")
+    if target_sha is not None and not is_object_id(target_sha, formats=ANY_OBJECT_FORMAT):
+        raise GovernanceError("target_sha must be a full git object id")
     # One gate for the whole number semantics: isinstance lets bool and
     # NaN through (nan < 0 and nan > 1 are both False), and those must be
     # refusals, not probabilities.
@@ -639,6 +721,13 @@ def record_operator_feedback(
                 raise GovernanceError("each observer requires judge_id")
             if not str(observer.get("model") or "").strip():
                 raise GovernanceError("each observer requires model")
+    # WP-P — the vendor span is a fact about the observers, so a row that
+    # cannot name them cannot claim one; the value itself stays closed.
+    if provider_span is not None:
+        if provider_span not in PROVIDER_SPANS:
+            raise GovernanceError(f"unknown provider_span: {provider_span}")
+        if observers is None:
+            raise GovernanceError("provider_span requires observers")
     anchor_claimed = (
         source_type == "ai_consensus"
         and judge_count is not None
@@ -647,7 +736,7 @@ def record_operator_feedback(
     if anchor_claimed and observers is None:
         raise GovernanceError(
             "anchor-grade ai_consensus feedback requires observers — the "
-            "anchor rule asks how many distinct models agreed, and that is "
+            "anchor rule asks how many distinct seats agreed, and that is "
             "answered from the row or not at all. Required HERE and not on "
             "every consensus row because this is the only place it is "
             "load-bearing: a sub-anchor row can never be ground truth."
@@ -678,6 +767,10 @@ def record_operator_feedback(
             {"judge_id": str(o["judge_id"]).strip(), "model": str(o["model"]).strip()}
             for o in (observers or [])
         ] or None,
+        # WP-P — the vendor span behind those observers, stamped by the
+        # mint (`generate_ai_consensus`) and additive on rows written
+        # before it existed.
+        "provider_span": provider_span,
         # Additive (typed-judgment plan): absent on rows written before it,
         # which verify unchanged — the signature covers the bytes each row
         # actually carries.
@@ -690,6 +783,12 @@ def record_operator_feedback(
         # stratum the finding was drawn from (escalated labels are reported,
         # never the basis of `calibrated`).
         "label_provenance": label_provenance,
+        # ARIA-HIGH-004 — additive like the two above: the requests this
+        # judgment answers and the commit they were minted at (None when the
+        # requests named none, or on a consensus whose judges judged
+        # different commits). funnel_health joins the learning funnel on them.
+        "request_ids": sorted(set(request_ids)) if request_ids else [],
+        "target_sha": target_sha,
     }
     # The stored row carries the signature the signer added; return that
     # so callers (judge lanes, the CLI) see the row exactly as recorded.
@@ -1031,8 +1130,17 @@ def generate_ai_consensus(
         ) if judge_calibration is not None else []
         closing = agreeing
         if calibration_gate == "enforce":
-            distinct_models = {str(row.get("model") or "").strip() for row in calibrated_agreeing if str(row.get("model") or "").strip()}
-            if len(calibrated_agreeing) < CALIBRATED_QUORUM_MIN_JUDGES or len(distinct_models) < CALIBRATED_QUORUM_MIN_MODELS:
+            # WP-P recast (operator decision 2026-10-18): the closing quorum
+            # needs two calibrated judge SEATS, not two distinct MODELS —
+            # under a single provider every calibrated seat runs the one
+            # model that provider has, and the enforce gate would hold every
+            # verdict forever. A seat voting twice still counts once.
+            distinct_seats = {
+                str(row.get("judge_id") or "").strip()
+                for row in calibrated_agreeing
+                if str(row.get("judge_id") or "").strip()
+            }
+            if len(calibrated_agreeing) < CALIBRATED_QUORUM_MIN_JUDGES or len(distinct_seats) < CALIBRATED_QUORUM_MIN_JUDGES:
                 uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "confidence_uncalibrated"))
                 continue
             closing = calibrated_agreeing
@@ -1130,6 +1238,18 @@ def generate_ai_consensus(
                     # lane above has already refused the group outright.
                     if str(row.get("model") or "").strip()
                 ] or None,
+                # WP-P — the multi-provider bonus, recorded beside the
+                # receipt it is computed from: the span of vendors the
+                # DISPATCHED models of the agreeing seats ran through. A
+                # single-provider panel is honest here ("single"), and the
+                # anchor rule never reads this field. Stamped only when the
+                # observers receipt exists — the span is a fact about the
+                # observers, and a group that cannot name them has none.
+                provider_span=(
+                    provider_span_of([str(row.get("model") or "") for row in closing])
+                    if any(str(row.get("model") or "").strip() for row in closing)
+                    else None
+                ),
                 confidence=round(avg_confidence, 3),
                 rationale="; ".join(str(row.get("rationale") or row.get("note") or "") for row in closing if row.get("rationale") or row.get("note"))[:2000],
                 evidence_refs=sorted({ref for row in closing for ref in _optional_string_list(row.get("evidence_refs"))}),
@@ -1143,6 +1263,16 @@ def generate_ai_consensus(
                 judge_count=len(closing),
                 judges_voted=len(rows),
                 calibration_basis=calibration_basis,
+                # ARIA-HIGH-004 — the consensus names the requests of the
+                # judges that closed it, and the commit only when every one
+                # of them was minted at the same one: a verdict folded from
+                # judgments of different trees is about no single tree.
+                request_ids=sorted({
+                    str(request_id)
+                    for row in closing
+                    for request_id in _optional_string_list(row.get("request_ids"))
+                }) or None,
+                target_sha=_common_target_sha(closing),
                 base_dir=base_dir,
             ),
         )
@@ -1184,6 +1314,15 @@ def generate_ai_consensus(
         "consensus": consensus_rows,
         "uncertainties": uncertainties,
     }
+
+
+def _common_target_sha(rows: list[dict[str, Any]]) -> str | None:
+    """The one commit every row was judged at, or None (ARIA-HIGH-004)."""
+    shas = {str(row.get("target_sha") or "") for row in rows}
+    if len(shas) != 1:
+        return None
+    sha = shas.pop()
+    return sha or None
 
 
 def generate_judgment_sample(

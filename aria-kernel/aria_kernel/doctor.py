@@ -57,6 +57,8 @@ def claude_cli_version_floor(repo_root: str | Path | None = None) -> str:
     return floor.strip()
 
 CHECK_STATUSES: tuple[str, ...] = ("ok", "warn", "fail")
+# Where `_guarded` records the class of the exception a probe raised.
+PROBE_FAULT_DETAIL_KEY = "probe_fault"
 DOCTOR_REPORT_SCHEMA_VERSION = 1
 DOCTOR_EXIT_HEALTHY = 0
 DOCTOR_EXIT_UNHEALTHY = 3
@@ -85,6 +87,16 @@ class DoctorCheck:
     detail: dict[str, Any] = field(default_factory=dict)
     # Empty: the organ's name alone identifies its failure.
     causes: tuple[DoctorCause, ...] = ()
+
+    @property
+    def probe_fault(self) -> str | None:
+        """The exception class the organ's probe raised, when it raised
+        (``_guarded``): the organ is a WARN because its verdict could not be
+        judged, not because it judged the store healthy. Read from ``detail``
+        so a report read back from file (``DoctorReport.from_dict``) keeps it
+        (ARIA-LOW-587)."""
+        fault = self.detail.get(PROBE_FAULT_DETAIL_KEY)
+        return str(fault) if fault is not None else None
 
 
 @dataclass(frozen=True)
@@ -157,7 +169,8 @@ def _guarded(name: str, probe: Callable[[], DoctorCheck]) -> DoctorCheck:
     try:
         return probe()
     except Exception as exc:  # noqa: BLE001 — the doctor reports, it does not crash
-        return DoctorCheck(name, "warn", f"check_unreadable:{type(exc).__name__}")
+        fault = type(exc).__name__
+        return DoctorCheck(name, "warn", f"check_unreadable:{fault}", {PROBE_FAULT_DETAIL_KEY: fault})
 
 
 def _check_integrity(tools_dir: Path, workspace_root: Path) -> DoctorCheck:
@@ -397,12 +410,18 @@ def _check_queue(tools_dir: Path) -> DoctorCheck:
     from .mission import list_open_missions
 
     states = Counter(derive_request_states(base_dir=tools_dir).values())
-    open_hr = list_human_required(base_dir=tools_dir)
+    listing = list_human_required(base_dir=tools_dir)
+    open_hr = listing.rows
+    unreadable = [f"{record.record_id}:{record.reason}" for record in listing.unreadable]
     missions = Counter(str(m.get("state") or "") for m in list_open_missions(base_dir=tools_dir))
     detail = {"requests_by_state": dict(sorted(states.items())), "human_required_open": len(open_hr),
+              "human_required_unreadable": unreadable,
               "missions_open_by_state": dict(sorted(missions.items()))}
-    if open_hr:
-        return DoctorCheck("queue", "warn", f"human_required_open:{len(open_hr)}", detail)
+    if open_hr or unreadable:
+        # ARIA-LOW-597 - an unreadable record is named, never dropped from
+        # the count: the queue's true depth is unknowable while one is.
+        reason = f"human_required_open:{len(open_hr)}" + (f" unreadable:{len(unreadable)}" if unreadable else "")
+        return DoctorCheck("queue", "warn", reason, detail)
     return DoctorCheck("queue", "ok", "", detail)
 
 
@@ -661,6 +680,26 @@ def _check_learning(tools_dir: Path) -> DoctorCheck:
     return DoctorCheck("learning", "ok", "" if detail["episodes"] else "no_episodes", detail)
 
 
+def _check_learning_funnel(tools_dir: Path, workspace: Path) -> DoctorCheck:
+    """ARIA-HIGH-004 — the learning funnel joined end to end at the
+    workspace's HEAD (``funnel_health.derive_learning_funnel_health``): each
+    stage's count, the history beside it, and a WARN naming every stage that
+    took ten and passed none on. The delivery funnel's organ (``funnel``)
+    reads plans; this one reads what a finding must pass to change what ARIA
+    trusts. With no HEAD there is no target to bind the join to, and that is
+    said, not guessed."""
+    from .convergence_drainer import _resolve_workspace_head_sha
+    from .funnel_health import derive_learning_funnel_health
+
+    head = _resolve_workspace_head_sha(workspace)
+    if head is None:
+        return DoctorCheck("learning_funnel", "warn", "learning_funnel_target_unresolved", {"workspace": str(workspace)})
+    health = derive_learning_funnel_health(base_dir=tools_dir, target_sha=head)
+    if health.blockers:
+        return DoctorCheck("learning_funnel", "warn", ",".join(health.blockers), health.as_dict())
+    return DoctorCheck("learning_funnel", "ok", detail=health.as_dict())
+
+
 CALIBRATION_GATE_DOWNGRADE_WARN_DAYS: int = 7
 
 
@@ -801,6 +840,7 @@ def run_doctor(
         _guarded("gateway_heartbeat_fresh", lambda: _check_gateway_heartbeat_fresh(tools_dir)),
         _guarded("economy", lambda: _check_economy(tools_dir)),
         _guarded("learning", lambda: _check_learning(tools_dir)),
+        _guarded("learning_funnel", lambda: _check_learning_funnel(tools_dir, workspace)),
         _guarded("orchestrator", lambda: _check_orchestrator(tools_dir)),
         _guarded("tools", lambda: _check_tools(tools_dir)),
         _guarded("deadlines", lambda: _check_deadlines(tools_dir, workspace)),
@@ -831,6 +871,7 @@ __all__ = [
     "DoctorCause",
     "DoctorCheck",
     "DoctorReport",
+    "PROBE_FAULT_DETAIL_KEY",
     "claude_cli_version_floor",
     "render_doctor_text",
     "run_doctor",

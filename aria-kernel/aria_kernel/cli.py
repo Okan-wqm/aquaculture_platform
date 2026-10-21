@@ -263,6 +263,31 @@ _GITHUB_APPROVAL_HELP = (
 _LOWERING_REASON_HELP = "the reason on the record; narrowing authority needs no operator act"
 
 
+def _add_raising_ref_arguments(
+    parser: argparse.ArgumentParser, ref_flag: str, *, surface: str, reason: bool = True,
+) -> None:
+    """ARIA-HIGH-238 — a verb that clears a stop takes exactly one of: the
+    operator's GitHub act, or ``--print-approval-line`` (the line to post for
+    the instance the verb would undo, read from current state). The operator
+    never computes ``tripped_at`` or ``quarantined_at`` by hand, and a
+    printed line spends nothing."""
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument(ref_flag, help=_GITHUB_APPROVAL_HELP + f" Surface: {surface}.")
+    group.add_argument(
+        "--print-approval-line", action="store_true",
+        help="print the ARIA-APPROVE line for the instance this verb would undo, and change nothing",
+    )
+    if reason:
+        parser.add_argument("--reason", type=_validate_reason, help="required when acting")
+
+
+def _print_approval_line(surface: str, scope: dict[str, str]) -> int:
+    from .operator_approval import approval_line
+
+    print(approval_line(surface, scope))
+    return 0
+
+
 # Plan 024 §F — post-parse table of commands that genuinely require an
 # operator-supplied --tools-dir (no env-var or default fallback). Both
 # entries are destructive integrity migrations where the operator MUST
@@ -1226,16 +1251,18 @@ def build_parser() -> argparse.ArgumentParser:
     add_subparser(cost_sub, "status")
     cost_reset = add_subparser(cost_sub, "reset")
     cost_reset.add_argument("--acknowledge", action="store_true")
-    cost_reset.add_argument("--reason", required=True, type=_validate_reason)
-    cost_reset.add_argument("--operator-approval-ref", required=True)
+    _add_raising_ref_arguments(
+        cost_reset, "--operator-approval-ref", surface="breaker_reset breaker=cost tripped_at=<this trip>",
+    )
 
     breaker_parser = add_subparser(sub, "breaker")
     breaker_sub = breaker_parser.add_subparsers(dest="breaker_command", required=True)
     add_subparser(breaker_sub, "status")
     breaker_reset = add_subparser(breaker_sub, "reset")
     breaker_reset.add_argument("--acknowledge", action="store_true")
-    breaker_reset.add_argument("--reason", required=True, type=_validate_reason)
-    breaker_reset.add_argument("--operator-approval-ref", required=True)
+    _add_raising_ref_arguments(
+        breaker_reset, "--operator-approval-ref", surface="breaker_reset breaker=autonomous tripped_at=<this trip>",
+    )
     # RC-6 — `quarantine` is a DIFFERENT verb from `reset`, not a flag on it,
     # because the guarantees differ: reset discards the whole window and clears
     # the state, quarantine preserves every decodable row and clears nothing.
@@ -1245,8 +1272,10 @@ def build_parser() -> argparse.ArgumentParser:
     # operator-recovery function that existed with no command surface.
     breaker_quarantine = add_subparser(breaker_sub, "quarantine")
     breaker_quarantine.add_argument("--acknowledge", action="store_true")
-    breaker_quarantine.add_argument("--reason", required=True, type=_validate_reason)
-    breaker_quarantine.add_argument("--operator-approval-ref", required=True)
+    _add_raising_ref_arguments(
+        breaker_quarantine, "--operator-approval-ref",
+        surface="breaker_evidence_quarantine breaker=autonomous tripped_at=<this trip>",
+    )
 
     tool_parser = add_subparser(sub, "tool")
     tool_sub = tool_parser.add_subparsers(dest="tool_command", required=True)
@@ -1405,6 +1434,25 @@ def build_parser() -> argparse.ArgumentParser:
     operator_inbox.add_argument("--workspace-root", default=".")
     operator_inbox.add_argument("--limit", type=int, default=None, help="items shown per section (counts cover all)")
     operator_inbox.add_argument("--json", action="store_true")
+    # ARIA-HIGH-238 — the one grammar check a workflow runs on an operator-
+    # supplied ref, so no workflow keeps its own regex (two copies of a
+    # grammar drift: the executor's accepted any free string).
+    # The grammar is the same for every surface, so the check takes none: a
+    # `--surface` here would read as a surface-bound check it is not. It takes
+    # exactly ONE ref unless `--list` says the input carries several.
+    check_ref = add_subparser(
+        operator_sub, "check-ref",
+        help="Check that a ref (or, with --list, each comma-separated ref) is a GitHub act reference (syntax only).",
+        description=(
+            "Syntax only: no network, nothing consumed, no surface. Prints each ref in canonical "
+            "form, one per line, or exits 2 naming the grammar. The granting verb still verifies the act."
+        ),
+    )
+    check_ref.add_argument("--ref", required=True, help="exactly one ref; with --list, several separated by commas")
+    check_ref.add_argument(
+        "--list", action="store_true",
+        help="the input carries one ref per item, comma-separated (e.g. one per tool id)",
+    )
 
     registry_parser = add_subparser(sub, "registry")
     registry_sub = registry_parser.add_subparsers(dest="registry_command", required=True)
@@ -2195,6 +2243,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--rollback-artifact-file", required=True,
         help="JSON file written by `readiness fetch-artifact` for the uploaded bundle artifact.",
     )
+    # ARIA-HIGH-222 — the claim lane's backstop. A claim run that meets a
+    # held writer lease yields and claims nothing; the lane's schedule asks
+    # this verb for the open heads no claim names that a completed, green
+    # aria-merge-authority run can still claim (readiness_claim_sweep).
+    claim_sweep = add_subparser(
+        readiness_sub,
+        "sweep-claimless",
+        help=("List the open PR heads no readiness claim names, and up to --limit with a green "
+              "aria-merge-authority run whose proof is still published, to claim now."),
+    )
+    claim_sweep.add_argument("--workspace-root", default=".")
+    claim_sweep.add_argument("--limit", type=int, default=1)
     rollback_build = add_subparser(
         readiness_sub,
         "build-rollback-bundle",
@@ -3178,6 +3238,13 @@ def build_parser() -> argparse.ArgumentParser:
     ack_rotate.add_argument("--operator-approval-ref", required=True)
     ack_rotate.add_argument("--emergency", action="store_true",
         help="Mark as emergency rotation (separate audit event).")
+    # ARIA-LOW-598 — runbook §3 step 2: quarantine a compromised key now,
+    # instead of letting it verify (and forge) until it rolls off the window.
+    ack_revoke = add_subparser(ack_sub, "revoke-key",
+        help="Drop a compromised HMAC key from the rolling list at once; its rows verify as signed_key_revoked.")
+    ack_revoke.add_argument("--key-id", required=True)
+    ack_revoke.add_argument("--reason", required=True, type=_validate_reason)
+    ack_revoke.add_argument("--operator-approval-ref", required=True)
     ack_verify = add_subparser(ack_sub, "verify",
         help="Verify the last N rows: operator acks against the committed allowed-signers file, HMAC rows over the rolling key list.")
     ack_verify.add_argument("--range", default="last-50",
@@ -3565,7 +3632,10 @@ def build_parser() -> argparse.ArgumentParser:
     mcp_health.add_argument("--server", default=None)
     mcp_release = add_subparser(mcp_sub, "release")
     mcp_release.add_argument("--server", required=True)
-    mcp_release.add_argument("--operator-ref", required=True)
+    _add_raising_ref_arguments(
+        mcp_release, "--operator-ref", surface="mcp_unquarantine server=<name> quarantined_at=<this quarantine>",
+        reason=False,
+    )
     mcp_config = add_subparser(mcp_sub, "config")
     mcp_config.add_argument("--profile", required=True)
 
@@ -3927,7 +3997,13 @@ def _main(argv: list[str] | None = None) -> int:
 
     if args.command == "cost-breaker" and args.cost_breaker_command == "reset":
         from aria_kernel.cost_budget import reset_breaker as _cost_reset
+        from aria_kernel.cost_budget import trip_scope as _cost_trip_scope
 
+        if args.print_approval_line:
+            return _print_approval_line("breaker_reset", _cost_trip_scope(args.tools_dir))
+        if not args.reason:
+            print("cost-breaker reset requires --reason when acting", file=sys.stderr)
+            return 2
         if not args.acknowledge:
             print(
                 "cost-breaker reset requires --acknowledge: it clears a cost "
@@ -3968,8 +4044,13 @@ def _main(argv: list[str] | None = None) -> int:
         return 0 if verdict.state == "ok" else 1
 
     if args.command == "breaker" and args.breaker_command == "reset":
-        from aria_kernel.circuit_breaker import reset_breaker
+        from aria_kernel.circuit_breaker import reset_breaker, trip_scope
 
+        if args.print_approval_line:
+            return _print_approval_line("breaker_reset", trip_scope(args.tools_dir))
+        if not args.reason:
+            print("breaker reset requires --reason when acting", file=sys.stderr)
+            return 2
         if not args.acknowledge:
             print(
                 "breaker reset requires --acknowledge: it truncates the 24h "
@@ -3985,8 +4066,13 @@ def _main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "breaker" and args.breaker_command == "quarantine":
-        from aria_kernel.circuit_breaker import quarantine_breaker_evidence
+        from aria_kernel.circuit_breaker import quarantine_breaker_evidence, trip_scope
 
+        if args.print_approval_line:
+            return _print_approval_line("breaker_evidence_quarantine", trip_scope(args.tools_dir))
+        if not args.reason:
+            print("breaker quarantine requires --reason when acting", file=sys.stderr)
+            return 2
         if not args.acknowledge:
             print(
                 "breaker quarantine requires --acknowledge: it moves undecodable "
@@ -4094,6 +4180,18 @@ def _main(argv: list[str] | None = None) -> int:
             workspace_root=args.workspace_root,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "readiness" and args.readiness_command == "sweep-claimless":
+        from .auto_merge import GhCliGitHubAdapter
+        from .readiness_claim_sweep import sweep_claimless_heads
+
+        swept = sweep_claimless_heads(
+            adapter=GhCliGitHubAdapter(cwd=args.workspace_root),
+            base_dir=args.tools_dir,
+            limit=args.limit,
+        )
+        print(json.dumps(swept, indent=2, sort_keys=True))
         return 0
 
     if args.command == "readiness" and args.readiness_command == "build-rollback-bundle":
@@ -4434,6 +4532,29 @@ def _main(argv: list[str] | None = None) -> int:
         )
         print(json.dumps(inbox, indent=2, sort_keys=True, default=str) if args.json else render_operator_inbox(inbox),
               end="\n" if args.json else "")
+        return 0
+
+    if args.command == "operator" and args.operator_command == "check-ref":
+        from .operator_approval import OperatorApprovalUnrecorded, parse_github_approval_ref
+
+        refs = args.ref.split(",") if args.list else [args.ref]
+        try:
+            canonical = [parse_github_approval_ref(ref, surface="operator check-ref").canonical for ref in refs]
+            # The workflow goes on to use the RAW value (`IFS=, read -ra` reads
+            # one line), and the parser strips: an input it accepts only once
+            # stripped is not the bytes that were checked.
+            for raw, form in zip(refs, canonical):
+                if raw != form:
+                    raise OperatorApprovalUnrecorded(
+                        f"operator check-ref: {raw!r} is not in canonical form {form!r} "
+                        "(no surrounding whitespace or line break): the workflow uses the bytes it checked"
+                    )
+        except OperatorApprovalUnrecorded as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            if not args.list and "," in args.ref:
+                print("error: exactly one ref expected; --list takes a comma-separated list", file=sys.stderr)
+            return 2
+        print("\n".join(canonical))
         return 0
 
     if args.command == "merge-lane" and args.merge_command == "unfreeze":
@@ -6325,8 +6446,14 @@ def _main(argv: list[str] | None = None) -> int:
             print(json.dumps(row, indent=2, sort_keys=True))
             return 0
         if args.human_required_command == "list":
-            rows = list_human_required(base_dir=args.tools_dir, include_resolved=args.include_resolved)
-            print(json.dumps(rows, indent=2, sort_keys=True))
+            listing = list_human_required(base_dir=args.tools_dir, include_resolved=args.include_resolved)
+            print(json.dumps({
+                "open": list(listing.rows),
+                "unreadable": [
+                    {"request_id": record.record_id, "reason": record.reason}
+                    for record in listing.unreadable
+                ],
+            }, indent=2, sort_keys=True))
             return 0
         if args.human_required_command == "resolve":
             row = resolve_human_required(
@@ -6363,6 +6490,8 @@ def _main(argv: list[str] | None = None) -> int:
             list_keys,
             mint_operator_ack,
             review_draft,
+            revoke_key,
+            revoked_keys,
             rotate_key,
             verify_range,
         )
@@ -6412,6 +6541,13 @@ def _main(argv: list[str] | None = None) -> int:
                 operator_approval_ref=args.operator_approval_ref,
                 emergency=args.emergency,
             )
+        elif args.ack_command == "revoke-key":
+            result = revoke_key(
+                base_dir=args.tools_dir,
+                key_id=args.key_id,
+                reason=args.reason,
+                operator_approval_ref=args.operator_approval_ref,
+            )
         elif args.ack_command == "verify":
             raw_range = (args.range or "").strip()
             last_n: int | None
@@ -6432,7 +6568,8 @@ def _main(argv: list[str] | None = None) -> int:
                 return 2
             result = verify_range(base_dir=args.tools_dir, last_n=last_n, workspace_root=args.workspace_root)
         elif args.ack_command == "list-keys":
-            result = {"keys": list_keys(base_dir=args.tools_dir)}
+            result = {"keys": list_keys(base_dir=args.tools_dir),
+                      "revoked": revoked_keys(base_dir=args.tools_dir)}
         else:
             parser.error("unknown ack command")
             return 2
@@ -7188,10 +7325,10 @@ def _main(argv: list[str] | None = None) -> int:
         from . import self_improvement as si
 
         if args.self_command == "scan":
-            print(json.dumps([s.to_dict() for s in si.scan_signals(base_dir=args.tools_dir, workspace_root=args.workspace_root)], indent=2, sort_keys=True))
+            print(json.dumps(si.scan_signals(base_dir=args.tools_dir, workspace_root=args.workspace_root).to_dict(), indent=2, sort_keys=True))
             return 0
         if args.self_command == "open":
-            print(json.dumps(si.open_self_improvement_missions(base_dir=args.tools_dir, workspace_root=args.workspace_root, max_new=args.max_new), indent=2, sort_keys=True))
+            print(json.dumps(si.open_self_improvement_missions(base_dir=args.tools_dir, workspace_root=args.workspace_root, max_new=args.max_new).to_dict(), indent=2, sort_keys=True))
             return 0
         kwargs = {"validation_command": args.validation_command} if args.validation_command else {}
         print(json.dumps(si.propose_self_change(mission_id=args.mission_id, base_dir=args.tools_dir, workspace_root=args.workspace_root,
@@ -7381,6 +7518,10 @@ def _main(argv: list[str] | None = None) -> int:
             print(json.dumps([mcp_client.evaluate_mcp_health(n, base_dir=args.tools_dir) for n in names], indent=2, sort_keys=True))
             return 0
         if args.mcp_command == "release":
+            if args.print_approval_line:
+                return _print_approval_line(
+                    "mcp_unquarantine", mcp_client.unquarantine_scope(args.server, base_dir=args.tools_dir),
+                )
             print(json.dumps(mcp_client.release_quarantine(args.server, base_dir=args.tools_dir, operator_ref=args.operator_ref), indent=2, sort_keys=True))
             return 0
         from .runtime_profiles import profile_by_id

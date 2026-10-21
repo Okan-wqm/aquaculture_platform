@@ -338,7 +338,7 @@ class NoUsableProviderIsToldNotHidden(unittest.TestCase):
         self.assertEqual((reasons["anthropic"], reasons["zai"]), ("claude_gateway_credential_absent", "provider_not_configured"))
         self.assertEqual((self._claim_rows(), self.vendor.received), ([], []))
         self.assertEqual([(i.provider, i.kind) for i in open_outages(self.tools)], [("anthropic", "logged_out")])
-        items = [item["context"] for item in list_human_required(base_dir=self.tools)
+        items = [item["context"] for item in list_human_required(base_dir=self.tools).rows
                  if (item.get("context") or {}).get("kind") == "provider_outage"]
         self.assertEqual([(item["provider"], item["outage_kind"]) for item in items], [("anthropic", "logged_out")])
 

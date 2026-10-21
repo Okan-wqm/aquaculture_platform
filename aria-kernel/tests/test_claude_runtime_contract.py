@@ -160,10 +160,6 @@ class ClaudeRuntimeContractTests(unittest.TestCase):
             claude_runtime.assert_write_runner_ok(skip_permissions=False, permission_mode=None)  # no raise
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class EffortArgvTests(unittest.TestCase):
     """K1 — the CLI ``--effort`` lever (ORPHAN-HIGH-283)."""
 
@@ -894,3 +890,7 @@ class UsageRecordingSeamTests(unittest.TestCase):
         self.assertFalse(
             (self.tools / "knowledge-graph" / "context-usage.jsonl").exists()
         )
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -739,7 +739,11 @@ def _compact_runs(path: Path, root: Path, cutoff: datetime, dry_run: bool) -> tu
             ev = row.get("evidence_validation")
             strip_envelopes = isinstance(ev, dict) and isinstance(ev.get("evidence_envelopes"), list)
             rp = row.get("read_paths")
-            slim_read_paths = isinstance(rp, list) and len(rp) > 20
+            # A row whose writer already sampled its read set
+            # (``read_paths_spilled``, ledger_inline.sample_inline_list;
+            # ARIA-HIGH-617) is bounded, and its marker names the true total:
+            # sampling it again would record the sample's length as the total.
+            slim_read_paths = isinstance(rp, list) and len(rp) > 20 and "read_paths_spilled" not in row
             # ARIA-LOW-571 — ONE decision per row drives the archive, the
             # count and the rewrite: a row slimmed for either field is a
             # stripped row. The count used to follow the envelopes alone, so

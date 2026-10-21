@@ -432,10 +432,6 @@ class APullRequestThatExistsIsNotACandidate(_PrPhaseFixture):
                          [{"pr_number": 77, "pr_state": "open"}])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class AnUnboundStoreHasNoPullRequests(unittest.TestCase):
     """Review of #1930: the reader must answer for a store no writer has bound yet."""
 
@@ -444,3 +440,7 @@ class AnUnboundStoreHasNoPullRequests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory(prefix="aria-unbound-") as tmp:
             self.assertEqual(lifecycle_rows(tmp), [])
+
+
+if __name__ == "__main__":
+    unittest.main()

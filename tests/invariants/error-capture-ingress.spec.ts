@@ -30,7 +30,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
-import * as yaml from 'js-yaml';
+import { loadNatsServices } from '../../tools/gates/nats-services';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const FACTORY = 'libs/backend-common/src/bootstrap/create-service-app.ts';
@@ -38,13 +38,6 @@ const INTERCEPTOR = 'libs/backend-common/src/observability/error-capture.interce
 const CONSUMER =
   'apps/admin-api-service/src/system-management/handlers/error-capture-projection.handler.ts';
 const SUBJECT = 'events.*.ServiceErrorCaptured';
-
-interface AclService {
-  name: string;
-  application?: string;
-  publish?: string[];
-  subscribe?: string[];
-}
 
 function read(file: string): string {
   return readFileSync(join(REPO_ROOT, file), 'utf8');
@@ -61,11 +54,6 @@ function listFiles(...globs: string[]): string[] {
   return execFileSync('git', ['-C', REPO_ROOT, 'ls-files', '--', ...globs], { encoding: 'utf8' })
     .split('\n')
     .filter(Boolean);
-}
-
-function aclServices(): AclService[] {
-  const doc = yaml.load(read('infrastructure/nats/services.yaml')) as { services: AclService[] };
-  return doc.services;
 }
 
 /**
@@ -116,12 +104,13 @@ describe('INVARIANT (ADMIN-HIGH-014): the error store has a producer, fleet-wide
   });
 
   it('every capturing service has the NATS publish grant — without it the defects are rejected', () => {
-    const services = aclServices();
+    // ARIA-LOW-603 — read through the one shared reader (tools/gates/nats-services.ts).
+    const services = loadNatsServices();
     const byApp = new Map(services.map((service) => [service.application, service]));
 
     const missing = capturingApps().filter((app) => {
       const service = byApp.get(app);
-      return !service || !(service.publish ?? []).includes(SUBJECT);
+      return service === undefined || !service.publish.includes(SUBJECT);
     });
     expect(missing).toEqual([]);
   });
@@ -130,17 +119,18 @@ describe('INVARIANT (ADMIN-HIGH-014): the error store has a producer, fleet-wide
     // A grant for a service that does not boot through the factory, or has no
     // event bus, is an ACL claiming coverage the platform does not have.
     const capturing = new Set(capturingApps());
-    const stale = aclServices()
-      .filter((service) => (service.publish ?? []).includes(SUBJECT))
-      .map((service) => service.application ?? service.name)
+    const stale = loadNatsServices()
+      .filter((service) => service.publish.includes(SUBJECT))
+      .map((service) => service.application)
       .filter((app) => !capturing.has(app));
     expect(stale).toEqual([]);
   });
 
   it('admin-api subscribes to the subject and binds a handler to it', () => {
-    const admin = aclServices().find((service) => service.application === 'admin-api-service');
-    expect(admin).toBeDefined();
-    expect(admin?.subscribe ?? []).toContain(SUBJECT);
+    const subscribers = loadNatsServices()
+      .filter((service) => service.subscribe.includes(SUBJECT))
+      .map((service) => service.application);
+    expect(subscribers).toContain('admin-api-service');
 
     const consumer = code(CONSUMER);
     expect(consumer).toMatch(/@SubscribeTo\(/);

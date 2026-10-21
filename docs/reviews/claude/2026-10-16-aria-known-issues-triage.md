@@ -2663,3 +2663,1081 @@ never consulted' (exit 3)
 - Measured by the 563 regression review: with an empty HOME, CLI 2.1.278 exits 1 with an empty
   stderr and the result `Not logged in - Please run /login`, so the probe returns 3. Today's runner
   still has its old login, so it turns red on the first rebuild.
+
+## ARIA-HIGH-579 — fixed (2026-10-18)
+
+What the proof showed, on the code before this change:
+
+- The nights were driven through `aria-kernel autonomy run --profile standard`, in process: the
+  command the nightly cycle step runs, with the runners the CLI selects. The stores were
+  production-shaped: a git workspace, a plan started through `plan_convergence`, the production
+  routing table and the production cooldown writer. In the test, `claude` and `gh` are logging
+  stubs, so no model is spawned and no network is reached.
+- With Anthropic (`rate_limit_event`, reset in 3 days) and Z.ai (429) both cooled, the night ran
+  every phase from `cycle_started` to `max_cycles_reached`. It exited `max_cycles` with
+  `overall_status: ok` and `cycles_completed: 1`. No row and no notice said it was an outage night.
+- It wrote cycle, discovery, pressure, reflection and memory rows. It booked the adopted plan in the
+  funnel again as minted and rejected (`cycles_minted` and `cycles_rejected` 1 -> 2 for one plan).
+  Ten such nights read as a stalled funnel to the doctor (`funnel_health`).
+- Where the adopted plan had no request in flight, its convergence step minted the next round
+  request (`challenger_plan`, `critical_path`), which no provider could serve.
+- The planner daemon polled its whole iteration budget and claimed nothing. With the CLI defaults
+  that is 10 iterations of 30 s.
+- What it did not do: claim, spawn, mint discretionary work (admission refused
+  `provider_unavailable`) or release anything as charged. The per-request waits held.
+- With only Anthropic cooled, the whole night ran and read seats were admitted to Z.ai. That is
+  expected and stays.
+
+What violates the decision, and what does not:
+
+- Violates: starting a cycle and recording it as a completed `ok` cycle, advancing a plan and
+  minting its round request while no provider can serve it, and booking funnel and learning rows
+  from a night on which nothing could run. There was no named hold.
+- Does not: the deterministic steps after the cycle step (doctor, self_improve, deliver, integrity
+  verify, publish) spawn no agent and write only their own ledgers. They keep running on a held
+  night, so the doctor still reads the store. The orchestrator's startup housekeeping also stays:
+  the orphan reaper already spares a request that waits on a provider, and key and socket pruning
+  touch no model work.
+
+What changed:
+
+- `provider_outage.fleet_outage`: every routed role is in an outage on this host. It asks
+  `provider_outage` once per role, so there is no second copy of the predicate.
+- `provider_hold` (new):
+  - `night_outage` reads the cooldowns and the host's providers. An unreadable ledger is not an
+    outage, as in the planner hook.
+  - `hold_if_every_provider_is_out` writes ONE `autonomy_state` row (`provider_outage_hold`, status
+    `held`, with the checkpoint, the cooled providers and when the first returns) and ONE
+    `cycle_held` notice.
+  - It runs `escalate_prolonged_outages`, so the 30-day bound still reaches the operator on held
+    nights. That bound ran only inside the cycle.
+- `autonomy_orchestrator` asks at three checkpoints:
+  - before a cycle starts, after the profile gate;
+  - after the planner drain;
+  - after the worker drain. These two drains are the night's only spawning lanes, and a spawn is the
+    only writer of a cooldown. A held night exits `provider_outage_hold`.
+- `orchestrator_exit_history.EXIT_PROVIDER_OUTAGE_HOLD` is a clean exit, not in
+  `FAILED_EXIT_REASONS`: exit code 0, no `cycle_failed` notice, no breaker count, and the doctor's
+  exit streak reads it as clean. `notify` gains the `cycle_held` kind and `AUTONOMY_PHASES` the
+  phase.
+- `tests/test_night_holds_while_every_provider_is_out.py` runs four nights on one store:
+  - night 0: every provider serves; the plan's round request is minted;
+  - night 1: all cooled; one hold row, no cycle started, the request, claim, admission, plan, queue,
+    funnel, memory, cycle and reflection ledgers byte-identical, one notice, exit 0;
+  - night 2: Z.ai back, Anthropic cooled; the same phases as night 0, the planner selects the
+    request night 0 minted, nothing re-minted;
+  - night 3: the planner's child spends Z.ai mid-night; the hold follows `planner_dispatch_drained`,
+    no request is minted after the spend, and the interrupted request is `REQUEUED` with no fault
+    requeue. Fast tests cover `fleet_outage` and the worker checkpoint (the review is not minted).
+- Red first: on the previous code 12 of the 19 tests failed. Six were behavioural (night 1 ran a
+  full cycle with exit `max_cycles`, no hold row and no notice; night 3 ran past the planner) and
+  six were the missing owner symbols.
+
+What is not done:
+
+- The cron still fires every night; the workflow is unchanged. The hold is decided in the kernel at
+  the cycle step, so the runner preflight, the state restore and the post-cycle steps still use
+  their minutes of host time on a held night.
+- The executor drain chained after the cycle still starts on a held night. Its per-request admission
+  refuses cooled providers, as before.
+- The scenario stands in for the planner hook's executor child, because the real hook makes a git
+  worktree of the repository that holds the executor. It runs under `standard`; a CONVERGED plan's
+  delivery under `strict` is not exercised on a held night. The hold at the cycle start skips that
+  sweep with the rest of the cycle.
+- The funnel counts an adopted plan once per cycle in which its convergence is stepped. This is not
+  an outage defect, so it was not registered here; a hold now keeps outage nights out of it.
+- The scenario test takes about 150 s. `suite_shard_weights.json` has no measured weight for it, so
+  CI places it by test count until the weights are next refreshed.
+
+### ARIA-HIGH-579 — review response (2026-10-18)
+
+The review of `8c5fb1a65` found one major and four minors; the round-2 scan of the cut-off fix
+found two more defects in the new carrier question. Each was reproduced first, and each fix is
+its own commit.
+
+- **Major: the night read the probe back-off, not the outage.** Reproduced with the reviewer's
+  probe. Anthropic was spent with a 3-day reset, and Z.ai was re-cooled four times from 02:40.
+  At 17:13 that day and the next, `night_outage` returned None while Z.ai's outage was still
+  open. The scenario now runs night 1 at production timing: Z.ai refused 14 h 44 min before the
+  run, with the policy 900 s back-off. On the previous code it ran the whole cycle and exited
+  `max_cycles`; 8 of the module's tests failed, all 33 pass at this tree.
+  - Fix (`10a7d9827`), at the one owner. `provider_outage.provider_outage`/`fleet_outage` take
+    `awaiting_reprobe`: providers that are out for the night with no clock. `provider_hold`
+    fills it with each provider that meets all three conditions:
+    - its outage is open;
+    - its back-off has lapsed, and that back-off was the policy's own. A reset the vendor
+      stated, once passed, is the vendor's word that the quota is back;
+    - a selectable request has it on its ladder (see the scan fix below for what selectable
+      means).
+  - Who releases the hold. The night carries no request, so it does not ask again. The drains'
+    native admission asks, and the served spawn closes the outage (`record_provider_restored`).
+  - Per-request callers (the planner hook and the discretionary mint admission) pass no
+    awaiting providers and keep reading the back-off. A lapsed back-off is exactly when their
+    request carries the re-probe (ARIA-HIGH-435).
+  - `provider_cooldown.latest_provider_cooldowns` is the one newest-row reader, and
+    `active_provider_cooldowns` filters it.
+  - **Operator gate — the nothing-waiting deviation, recorded before landing.** With every
+    provider out and NOTHING selectable to carry a re-probe, the night does not hold: it runs
+    one deterministic cycle and mints the request the next drain re-probes with. This narrows
+    the operator's 2026-10-17 hold rule ("when the quota runs out ARIA holds where it is") on
+    the empty-queue edge: holding there would stand for ever (no lane asks again, nothing
+    restores), which is a liveness loss the rule was never meant to buy. Relayed through the
+    program's owner on 2026-10-19 and recorded here as an ACCEPTED DEVIATION, pending Okan's
+    confirmation (surfaced to him as a to-confirm item with the reopen path). Verified at the
+    real entry point on this tree (scratch probe, production-shaped store, both outages open,
+    back-off lapsed, empty queue): exit 0 `max_cycles`, deterministic phases only, zero model
+    spawns, and the cooldown ledger unchanged — no admission probe spent anything. Reopening
+    conditions: if the operator reads the empty-queue night as work that must not even mint a
+    re-probe request, the night must hold and an explicit operator-approved release lane (a
+    scheduled admission re-probe) must replace the mint; if a provider-restoration or wake path
+    that could re-evaluate a standing hold lands, the nothing-waiting mint is no longer the
+    only release and the hold must return; and the first real all-out-and-idle night's doctor
+    and Actions output must be checked — reopen ARIA-HIGH-579 on any of them.
+- **Scan: the carrier question copied the state half of selection eligibility** (`e9a562216`).
+  The cut-off fix's `_WAITING_STATES` counted every `PENDING`/`REQUEUED` row, dropping the
+  owner's shadow, moot (ARIA-HIGH-360), undispatchable (ARIA-HIGH-388) and anchor
+  (ORPHAN-MEDIUM-492) refusals: a waiter no drain would ever select was counted as a re-probe
+  carrier, standing a hold nothing could end. The eligibility fold is now one function at the
+  queue's owner, `agent_invocations.selection_skip`; `next_pending_request` and
+  `provider_hold._reprobe_carried` both ask it (the night read-only). Red first: a store whose
+  only waiter is a real `issue_implementation_envelope` request the delivery has no authority
+  for held the night before the fix. The selection's own behaviour is unchanged (anchor, moot,
+  undispatchable and undecided suites re-run green).
+- **Scan: the fail-open over unreadable ledgers was silent — and the ledger's own RuntimeError
+  taxonomy raised past it** (`98af39493`). Each read the night needs is guarded and named
+  (`cooldown_ledger`, `outage_ledger`, `request_ledger`, `routing`) and records one
+  `hold_indeterminate` notice per unreadable source before the night runs on. Writing the red
+  found the second defect: a hash-broken governance ledger (`LedgerIntegrityError`) took the
+  checkpoint and the whole night down at all three call sites; it now fails open, named.
+- **Minor: the byte-identity pin was partly vacuous** (`6ad741435`). Reproduced: after night 0,
+  `queues`, `dispatch` and `skill-genesis` do not exist.
+  - A pinned path that is absent now fails the digest; a queued item is seeded through
+    `next_cycle_queue.append_pending` before night 1.
+  - `dispatch` and `skill-genesis` are dropped from the pin, since the fixture needs the triage
+    pipeline to write them. The docstring no longer claims they are pinned.
+- **Minor: nothing tested the night after a mid-night hold, and the held cycle skipped its
+  reflection** (`0e5b17a96`). Decided: a cycle held after its cycle step reflects, as the
+  failed exits do (`_reflect_on_failed_cycle`, ARIA-HIGH-420). The daily report is written and
+  the cycle's pressures reach the next night's queue.
+  - Red first: the worker-checkpoint test asserts the reflection row, and it failed on the
+    previous orchestrator (re-verified this round against the pre-fix tree).
+  - The scenario gains night 4. After night 3's hold, Z.ai is restored, and the night selects
+    the handed-back request with no remint and no fault requeue.
+- **Minor: the executor drain after a held night is unproven.** Not fixed; registered as
+  ARIA-LOW-627. The reviewer's first fix option, stopping the drain at the fleet outage, is
+  wrong after the major fix: the drain's native admission is the lane that re-probes the open
+  outage and restores the provider, so a drain that stopped there would leave the hold standing
+  for ever.
+- **Minor: no shard weight for the module.** Not fixed; registered as ARIA-LOW-628. The weights
+  file is generated from CI shard reports; a value typed by hand from this loaded host would be
+  a second, unmeasured source. The module took 446.6 s under nice 10 on the loaded host at the
+  review's round; 163-174 s in this round's runs.
+
+## Wave C FAST — fixed (2026-10-19)
+
+The six FAST lanes of the wave C takeover, one commit per finding, red first at the real entry
+point in every case (each commit body carries the full account and its proof):
+
+- `fix/aria-kc-merge-lane`: ARIA-HIGH-005, ARIA-HIGH-222, ARIA-MEDIUM-581, ARIA-MEDIUM-582,
+  ARIA-LOW-584, ARIA-LOW-585, ARIA-LOW-610 (7 findings);
+- `fix/aria-kc-gates-tests`: ARIA-HIGH-589, ARIA-MEDIUM-590, ARIA-MEDIUM-601, ARIA-LOW-595,
+  ARIA-LOW-599, ARIA-LOW-600, ARIA-LOW-603 (7);
+- `fix/aria-kc-invocations-fast`: ARIA-MEDIUM-168, ARIA-MEDIUM-172, ARIA-LOW-597, ARIA-LOW-607,
+  ARIA-LOW-608 (5);
+- `fix/aria-kc-adapters-fast`: ARIA-LOW-592, ARIA-LOW-593, ARIA-LOW-594 (3);
+- `fix/aria-kc-security-fast`: ARIA-LOW-269, ARIA-LOW-591, ARIA-MEDIUM-609 (3 findings, 4
+  commits — 609 carries its bounds follow-up as a second commit);
+- `fix/aria-kc-misc-fast`: ARIA-HIGH-213, ARIA-MEDIUM-398 (2 findings, 3 commits — 213's pin
+  needed its own strict-mode correction).
+
+Twenty-seven findings across twenty-nine commits, plus the four triage-evidence closures below:
+thirty-one registry rows move to RESOLVED with this integration.
+
+### ARIA-MEDIUM-581 — the merge lane names why a PR's diff could not be read
+
+Full title: The merge lane discards why a PR's diff could not be read, so a refused or oversized
+diff blocks as a bare 'diff_text missing' with no cause
+
+Closed by `72ac2e6ba`. `get_pr_diff` returns `(diff, lookup_error)` — the shape
+`read_required_status_checks` already uses — with codes parsed from gh's stderr
+(`pr_diff_too_large`, `pr_diff_refused_401/403`, `pr_diff_lookup_failed:http_<n>/exit_<n>`); the
+blanket `except Exception` catches in `_merge_if_green_with_executor` and merge_authority's fresh
+re-evaluation are gone, the lookup outcome is carried into `evaluate_auto_merge` as
+`diff_lookup_error` and named after the blocking reason, and the claim-time expert review request
+names an unreadable diff as `pr_diff_unavailable:<code>` instead of requesting a review of a diff
+it never read. Red first: 13 failures in `test_auto_merge_diff_integrity.py` against the real
+entry points with a fake gh on PATH serving GitHub's own refusal text.
+
+### ARIA-MEDIUM-582 — the merge lane's freeze reads see the whole open-issue set
+
+Full title: The merge lane's freeze reads (self-merge freeze notice, watchdog incident) see only
+the 50 newest open issues carrying the labels, so with more than 50 such issues an open freeze or
+incident is missed and the merge proceeds
+
+Closed by `cf99c1556`. The complete read already existed as the issue writer's own lookup
+(ARIA-LOW-554, `c616faba6`); it is now the single owner `github_issue_reads.read_open_issues` — a
+leaf module, because a reader module-level in `github_adapters` would cycle
+auto_merge → github_adapters → auto_merge. The capped `gh issue list` copy is deleted, the issues
+collection joins the gh api allowlist anchored like the bare pulls collection, and an unreadable
+or unparseable listing reports itself (`issue_list_failed`/`issue_list_unparseable`) so the freeze
+gates refuse instead of reading a partial set as no freeze. Red first: 6 failures against the real
+adapter with a fake gh serving 152 labelled issues — the freeze notice at row 151 was unseen.
+
+### ARIA-LOW-584 — a governance row the executor could not write is named, not dropped
+
+Full title: The executor's model-refusal exit swallows every exception from its
+model_refusal_unresolved governance append (`except Exception: pass`), so a failed append, a full
+disk named environment_failure:disk_full included, leaves no trace
+
+Closed by `2d0d2f71b`. The registry named one swallowed site; the branch found six
+(model_refusal_unresolved plus five siblings). All six now go through one reporter,
+`_append_governance_reported`: the store's own GovernanceError refusal becomes a
+`::error::aria executor could not record <kind> for request <id>: <cause>` stderr line while the
+effect the row reported still proceeds; anything else raised while appending propagates. Red
+first: the real `invoke_claude_cli` driven through a model refusal with
+`append_tools_governance` raising `GovernanceError(environment_failure:disk_full)` — stderr
+silent, no `::error::` line. The enclosing cost row inside the same `except Exception: return` is
+the residual registered as ARIA-MEDIUM-631 below.
+
+### ARIA-LOW-585 — one kernel owner prices both ARIA lanes' close-out
+
+Full title: The two ARIA lanes price the same aria/state publish two ways: aria-auto-cycle's
+whole close-out margin (6000 s, from one measurement) is below the kernel's own priced worst case
+for the publish arc alone (7200 s), which aria-agent-executor prices its post-drain reserve from
+
+Closed by `9e493f25f`. The steps allowance now has one kernel owner
+(`STATE_CLOSE_OUT_STEPS_ALLOWANCE_SECONDS` beside `PUBLISH_PREAMBLE_SECONDS`, sized from #1371's
+measured 47 minutes) and both lanes derive from it. The caps move WITH the numbers — the cycle
+360→454, the executor 570→602, writer-lease TTLs 650→682 and 440→534 — so neither lane's spend
+window changes (asserted by tests; the cycle keeps its 260-minute spawn window, the executor its
+26100 s drain window). No live red is writable (proving the 7200 s publish worst case takes a >2 h
+drain on the real store); the red is the static one the plan prescribed, at the real constants
+imported from their owners, with the production half held at `2d0d2f71b`. The live-run residual
+is under "not fixed" below.
+
+### ARIA-HIGH-589 — the workflow contract verifier judges what a job's token is granted
+
+Full title: The workflow contract verifier accepts a governed job that declares `permissions:
+write-all`: a non-mapping job permission falls back to the workflow-level map, so the job's
+least-privilege contract is never checked
+
+Closed by `b332186ef`. One owner beside `uncontracted_write_scopes` in
+`workflow_contract_registry.py`: `GITHUB_TOKEN_SCOPES`, `declared_token_permissions` (one reading
+of a `permissions:` value at either level; write-all/read-all expand, anything else is refused as
+`workflow_permissions_invalid`) and `job_token_permissions` (the job's own value replaces the
+workflow's, as GitHub applies it). Reproduced on `62c9864ae`: rule-health-report.yml with a
+job-level write-all gave `valid=True`. Red first: 4 of 6 behaviour tests of
+`test_workflow_contract_permissions.py` failed against the old verifier.
+
+### ARIA-MEDIUM-590 — tools/gates/gha-sha-pin.ts is the one owner of the action-pin rule
+
+Full title: Two copies of the action-pin rule disagree: tools/gates/gha-sha-pin.ts and
+tests/invariants/aria-workflow-sha-pin.spec.ts differ on docker:// references, `uses:` without
+@ref, and an operator allowlist
+
+Closed by `c814979e2`. The policy is decided once in the gate (a remote action pins a 40-hex SHA;
+a docker:// image only by sha256 digest; no branch-ref exception — the spec's
+dtolnay/rust-toolchain@nightly premise was refuted by the tree, which pins a SHA and selects the
+channel through `with: toolchain:`). `PinViolation` carries a reason, and the invariant spec
+walks the gate's own file set asking `inspectUsesText`; it holds no regex, SHA pattern or allowlist
+of its own, and the gate spec fails on any TS source that restates the rule. The Python pin check
+in `test_ci_workflow_invariants.py` cannot import the TS owner and stays a third copy — registered
+as ARIA-LOW-632 below.
+
+### ARIA-LOW-591 — the governance perimeter sees past git's global options to the subcommand
+
+Full title: governance_bypass_refusal does not see past git's global options, so `git -C dir push
+-f` and `git -c k=v push --force` are not refused as force pushes
+
+Closed by `517de1235`. One private `_git_subcommand(argv)` skips git's global options (the closed
+vocabulary verified against git 2.43.0's own parsing, separate-value and =-joined forms both) and
+returns `(subcommand, rest)`; an option the vocabulary cannot price fails closed. Reproduced
+pre-fix: all four escaping forms returned None. Red first: 8 new v9 invariant failures, recorded,
+plus the adapter's fixture script gaining `git -C "$dir" push --force origin main` with its
+expected no_force_push row.
+
+### ARIA-LOW-592 — workflow token scope has one observer: overbroad_write_token
+
+Full title: Two adapters report a workflow `permissions: write-all`:
+agent-harness-security-adapter's broad_shell_permission and workflow-shell-safety-adapter's
+overbroad_write_token
+
+Closed by `e8e5987d2`. The harness half is retired (7 rules → 6, manifest and README follow) and
+its one uniquely-covered case moved: `overbroad_write_token` gains the third sub-kind
+`ungoverned-write-scope` — an UNGOVERNED job's contents:write with no registry contract and no
+reason comment (the same two-line escape the harness rule gave). Measured on this tree: the 11
+ungoverned jobs keep exactly one finding each under the one owner, the 9 governed ones stop being
+flagged by a comment-less heuristic. Red first at both real entry points (the adapter spec and
+`test_agent_harness_security.py`).
+
+### ARIA-LOW-593 — adapters build programs and read the executable bit through the containment owner
+
+Full title: TypeScript adapters still reach the filesystem outside adapter-fs containment: the
+ts.Program compiler host and direct node:fs calls, with no lint rule confining node:fs to
+adapter-fs.ts
+
+Closed by `ea6a280f9`. `adapter-ts.ts` (the TypeScript binding of the one containment rule) gains
+`createContainedProgram` on `containedCompilerHost` — readFile/fileExists/directoryExists/realpath
+refuse every workspace symlink — and `adapter-fs` gains `workspaceIsExecutable` so no other module
+stats or canonicalizes. The split is deliberate: the room walker runs adapter-fs ALONE in a
+fixture repository with no node_modules, so the containment predicate must stay importable without
+resolving typescript. The containment rule is enforced by the real eslint engine (overrides ban
+node:fs imports outside adapter-fs.ts and host-less createProgram outside adapter-ts.ts), which
+exits nonzero listing today's four violators before the fix and zero after. Red first: symlinked
+content leaked into tenant-scoping and event-contracts verdicts, and a symlinked Cargo.toml made a
+target/ directory vanish from rust-cargo's walk. The plan's lintFiles-to-lintText switch was
+deliberately NOT taken: no red is writable at that entry.
+
+### ARIA-LOW-594 — the registry gate refuses a declared scope the production input never walks
+
+Full title: No kernel check ties an adapter's declared_scope to what its production input walks;
+bundle-budget-adapter claims 318 web/shared-ui files it never reads
+
+Closed by `9e8567d24`. The tie lives at the registry write gate
+(`_validate_scope_walked_by_default_input`): when `default_input` declares roots, every
+declared_scope glob's literal prefix must be one of those roots or lie under one, else
+GovernanceError `declared_scope_outside_walked_roots:<glob>`. The one violating manifest
+(bundle-budget-adapter, exactly as the triage measured) is corrected in the same change and its
+version bumped; web/shared-ui now counts as UNOBSERVED — the honest result. Red first: two
+synthetic over-root scopes failed to raise before the fix; a shipped-set test now runs every
+`tools/aria-adapters/*.tool.json` through the gate.
+
+### ARIA-LOW-595 — a test's temp fixture tree is removed by the one owner
+
+Full title: Eleven aria-adapters TS tests and test_published_text leave their temp workspaces in
+/tmp on every run
+
+Closed by `cba523f9e`. `tools/gates/fixture-tree.ts` (already the owner of removal,
+INFRA-HIGH-172) gains the creation half: `makeFixtureTree(prefix)` removes the tree through
+`removeFixtureTree` when the process exits, normal end, `process.exit` and uncaught failure
+alike. All fifteen adapter tests that make a tree use it, the two leaking invariant specs remove
+theirs in a finally through the owner, `test_published_text.py` registers rmtree with addCleanup,
+and `fixture-tree-removal-ssot.spec.ts` scans tools/aria-adapters as well and refuses a bare
+mkdtemp that never removes. Red first: the widened invariant failed 3 of 4; the new owner spec
+failed 4/4; the redirected-TMPDIR kernel check found 5 `aria-published-*` left. The ~21 kernel
+test sites outside the adapters are registered as ARIA-LOW-633 below.
+
+### ARIA-LOW-597 — an unreadable HUMAN_REQUIRED record is named everywhere, never skipped
+
+Full title: human_required.list_human_required silently skips a HUMAN_REQUIRED record file it
+cannot read or parse, so the operator inbox, the daily report and the CLI list undercount open
+records instead of naming the unreadable one
+
+Closed by `87fbe888f`. `list_human_required` returns a typed `HumanRequiredListing(rows,
+unreadable)`; every record file that cannot be read (or parses to a non-object, which used to
+CRASH the lister) is named by id with a deterministic reason. Every caller reads rows explicitly
+— plan_016_metrics reads `.rows` precisely because `len()` on a bare 2-tuple would silently
+report 2 — and each consumer surfaces the unreadable records at its own granularity: the inbox
+lifts them into the undecided roll-up, the deadlines source raises
+`PartiallyUnreadableSource`, telemetry exports `aria_human_required_unreadable`, the doctor's
+queue check warns with the named records. Red first: 11 of the new
+`test_human_required_unreadable.py` tests failed on the branch before the fix; the 21
+grep-derived caller files (54 call sites) green after.
+
+### ARIA-LOW-599 — the kernel lane's pytest half refuses a skipped real-sandbox pin
+
+Full title: A pytest-native test that skips as a real-sandbox pin is not counted: the
+sandbox-skip accounting that refuses a skipped pin covers only the unittest half run by
+suite_shards, not the pytest half the lane job runs whole
+
+Closed by `870a47b1d`. `aria_kernel/sandbox_pin_skip.py` holds the one predicate both halves use
+(moved out of test code so the production plugin reads it without importing tests);
+`pytest_native_only.py` gains `--refuse-sandbox-skips`: a ledger collects skipped reports whose
+reason is a sandbox-pin skip, names them in the terminal summary, and turns an otherwise-green
+session into exit 1. `aria-suite-run.sh --pytest-native` (the lane's only mode) passes the
+option; the whole-suite run does not, matching the unittest half. Red first: the two lane-option
+tests failed with "unrecognized arguments", and the doc-runtime pin failed on the missing ARG.
+
+### ARIA-LOW-600 — every kernel test module ends with its **main** guard
+
+Full title: test_watchdog_freeze.py defines TheFreezeMustNotStopTheRun after its
+`if __name__ == "__main__": unittest.main()` guard, so running the file as a script exits before
+the run-level freeze tests exist
+
+Closed by `c3a81d2c8`. The class was wider than the one file: an AST scan found 22 modules with a
+class or function after the guard. `tests/test_main_guard_is_last.py` parses every module under
+aria-kernel/tests and fails, by path:line, on a guard that is not the last top-level statement;
+the 22 guards moved to the end of their files, nothing else. Proved: the invariant failed listing
+all 22; for each file the module AST is identical before and after once the guard is set aside;
+`python3 tests/test_watchdog_freeze.py` ran 14 tests before and 20 after.
+
+### ARIA-MEDIUM-601 — a BLOCKED finding names its owner; an ownerless lapsed row is UNOWNED
+
+Full title: The schema's BLOCKED rule checks only that owner_user and deadline keys exist, so the
+daily sweep writes BLOCKED rows with owner_user null (82 rows at the next run) that no one can
+sign an override for
+
+Closed by `1cecc17f7`. The BLOCKED branch of the schema is `$ref: #/$defs/accountable` at every
+severity; the write sink refuses an ownerless BLOCKED row from any mutator; `planSweep` gives a
+lapsed ownerless row no transition and `sweepReportLines` reports each as UNOWNED with the
+`finding-registry assign` command beside it; `deadlines.read_registry_deadlines` names such a row
+"unenforced ... UNOWNED" instead of promising a sweep. Red first: 3 new accountability tests
+failed on the old code, and the kernel deadlines test failed at :374. Giving the ~82 lapsed rows
+owners is a data act for the operator, not done here.
+
+### ARIA-LOW-603 — the messaging ACL smoke reads the SSoT and the canonical NATS form
+
+Full title: Six invariant specs and one smoke script still read infrastructure/nats/services.yaml
+with private parsers, and request-reply-contract-acl keeps a private NATS matcher, beside the
+shared reader tools/gates/nats-services.ts
+
+Closed by `d819e5b7c` (the specs half: six specs move to `loadNatsServices()`, the fourth private
+matcher is gone, the pin scans tests/invariants too — a mutation probe on services.yaml showed
+the old capability and tenant-provisioning specs passing 44/44 on a tree the new ones fail) and
+`5d1399085` (the smoke half): `scripts/nats/messaging-acl-smoke.{ts,test.ts}` replace the .mjs
+pair, read services.yaml only through `tools/gates/nats-services.ts`, and render nothing — the
+canonical block is derived from the Python owner via `generate-nats-conf.py
+--print-generated-block`. The private renderer had drifted (the Python owner has emitted
+allow_responses since `e25c768f8`; the .mjs never learned it, so the smoke failed a clean tree
+AND accepted a config stripped of every allow_responses line), and scripts/package.json's
+"type":"module" broke all three wired ts-node commands with ERR_MODULE_NOT_FOUND — both defects
+are gone, `scripts/nats/package.json` declares commonjs, and the boot-path harness mints its
+certificates through the smoke tool's `--print-identities` mode.
+
+### ARIA-LOW-607 — an ORPHAN plan's trailer names the finding's own review file
+
+Full title: ORPHAN findings registered against a review file other than orphan-findings.md are
+scanned by no plan source (31 OPEN rows on the integrated head)
+
+Closed by `79d5b07ee`. The registry row's review_file is the single owner of the binding, read
+once at mint: the scanner drops the register filter and carries the row's review_file on the
+candidate; the minted plan body records `finding_review_file` beside `finding_id` (a hash-covered
+claim, so the trailer stays a pure function of the body); the commit-msg gate routes registry-held
+ORPHAN ids through `commitMessageClosesFindingExactly`. Red first at the real scan→mint→contract
+path over a committed fixture repo holding an OPEN ORPHAN row filed elsewhere, plus the gate
+admitting the wrong-file trailer.
+
+### ARIA-LOW-608 — judge calibration weights human labels by their inclusion probability
+
+Full title: Judge calibration does not weight human labels by the inclusion probability the label
+queue now records, so precision across strata stays unweighted
+
+Closed by `26b809f72`. The escalated stratum is over-sampled relative to its population share, so
+unweighted precision was biased toward exactly the stratum where judges look worst: in the red
+fixture, unweighted precision read 8/18 ≈ 0.444 → "degraded" while the Horvitz-Thompson ratio
+estimate over the same sample is 80/90 ≈ 0.889 → "ok". `score_judges` now reads
+`inclusion_probability` beside the stratum at the one ground-truth read, reports
+`precision_ht`/`recall_ht` with weighting "horvitz_thompson", and the degraded decision reads the
+weighted precision; a stratified label whose π is missing or outside (0, 1] is refused by name
+(`label_inclusion_probability_invalid`) instead of guessed at. Red first: the HT test died at
+KeyError 'weighting' with status "degraded".
+
+### ARIA-MEDIUM-609 — a forged hook request can neither quarantine the MCP server nor journal
+
+Full title: Any process in the agent's sandbox can forge PostToolUse requests to the hook broker:
+ten forged MCP failures quarantine the kernel's own MCP server store-wide until an operator
+releases it, and forged post-tool and session requests add work-journal, MCP-call and handoff
+rows without bound
+
+Closed by `04e1000e4` (quarantine + bounds) and `fc18fb3da` (the unbudgeted-broker bound).
+Quarantine is evaluated over the kernel's side=server rows only — `record_mcp_call(side="client")`
+stays telemetry — and only over faults that are the server's own (argument rejection classes are
+declared caller errors); the registry refuses a stdio/http server that declares no
+`kernel_side_witness`. The bounds: a post-tool for a budgeted tool is recorded once per tool_use_id
+this broker allowed in pre-tool; every other name is capped at `MAX_POST_TOOL_PER_TOOL_NAME` (240)
+per broker, and the follow-up commit bounds the UNBUDGETED broker the first cap's rationale missed
+(turn_budget None admits budgeted names without a turn cap). An over-cap request is answered
+EXIT_ALLOW with an `unrecorded:over_bound` note and writes no row. Red first through the real
+socket on the real store: ten forged PostToolUse failures quarantined 'aria' pre-fix; ten real
+server faults through the real MCP broker and relay never quarantined pre-fix; the v12 invariant
+module was amended in the SAME commit so it pins the new contract.
+
+### ARIA-LOW-610 — the judge-batch lane asks the pre-claim gate before any claim
+
+Full title: The judge-batch lane claims K requests after its native admission without asking the
+pre-claim environment gate, so a workspace whose git cannot answer burns K claims and rejects
+every result as verification_unavailable
+
+Closed by `b63e6e7dd`. The gate keeps one owner and grows a lane parameter:
+`PRE_CLAIM_LANE_JUDGE_BATCH` asks for git alone (the batch has no room and no validation
+commands), `_run_judge_batch` asks it after the PENDING check and before the fleet probe, and a
+refusal settles every member by name as harness_unavailable/retryable — the host, not the request
+— with all states PENDING and zero claims. Red first: the real `--judge-batch` child (subprocess,
+real store, fake vendor) through a workspace whose git wrapper answers rev-parse with exit 128
+claimed all 3 members; stderr carried no gate refusal.
+
+## Wave C FAST — closed findings with no section in their review file
+
+Seven findings closed above are only mentioned in their own review file, in a residual list or a
+plan table, with no section. Their section is here.
+
+### ARIA-HIGH-005 — the pre-merge evidence snapshot is built only by the merge owner's capture
+
+Full title: Pre-merge checks lack an immutable evidence snapshot
+
+`docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md` carries it as task 8. Closed by
+`0ae1566f1`: `_PreMergeEvidence` checks a module-private construction token in `__post_init__`
+through the registry's own `_require_registry_token`, `merge_authority._pre_merge_evidence` is
+the one constructor, and `test_pre_merge_evidence.py` (the proof file the closure policy pins,
+which did not exist) pins every task-8 property at the real entry points — direct construction
+raises ForgedVerdict, a row appended by a real concurrent writer between the capture's reads makes
+the snapshot unavailable as `native_context_changed_during_capture`, a head that moves after the
+green evaluation is refused before the perimeter, and the merge call carries expected_head_sha.
+Red first: direct construction was not refused.
+
+### ARIA-HIGH-222 — a claim run that yields on the writer lease is claimed by the backstop
+
+Full title: aria/state publish is single-attempt in every lane, so a lane that loses the
+fast-forward race drops its rows (a lost merged row blinds self-revert), and the global
+readiness-claim concurrency group silently drops claims
+
+`docs/reviews/claude/2026-09-26-aria-merge-lane-review.md` carries it. The publish-race and
+per-head group halves were fixed earlier; the lease half is what this lane closes, by `6021d92a6`:
+aria-readiness-claim.yml gains an hourly schedule (:23, off the merge lane's :47) whose
+lease-gated "Bind the claim target" step asks `readiness sweep-claimless` for an open PR whose
+live head no claim names, with a completed aria-merge-authority run and a published proof
+artifact; the claim is bound to the swept run id, one target per run rotated by the hour, an
+unreadable Actions listing raises `actions_listing_failed` (the step goes red), and the claimed
+set has one reader (`readiness_proofs.recorded_claim_heads`). Red first on `62c9864ae`: 23
+failures (verb missing, no schedule, claim steps on steps.pr).
+
+### ARIA-MEDIUM-168 — the submit path writes the fold's verdict, the fold's status has one reader
+
+Full title: 40 accepted judge results never folded, three causes
+
+`docs/reviews/claude/2026-09-19-aria-typed-judgment-plan.md` carries it. Closed by `9df225997`:
+the submit arm delegates to `bridge_transition` (the one decision owner introduced with 172), so
+all-refused writes permanent_fail/"refused" at attempt 1 instead of `pending_retry@1`, and
+`derive_request_state` lifts to the terminal state. A new AST invariant refuses any read of a
+result row's `bridge_status` key outside the sanctioned files — the fold's status lives in the
+ledger, derived by `bridge_status_ledger.derive_bridge_state`, and `bridge_status` on the result
+row is a mint-time constant any module reading it as state would misread for ever. Red first: the
+e2e transition tuple failed `('pending_retry', 1, None) != ('permanent_fail', 1, 'refused')`.
+
+### ARIA-MEDIUM-172 — a deterministic bridge refusal ends the replay lane by name
+
+Full title: the replay lane retries a claim whose fold is refused permanently
+
+The same plan carries it. Closed by `a4ee2b601`: `BridgeContractRefused` (a SIBLING of
+`BridgeContractViolation` — seven modules catch Violation and their semantics must not change)
+marks the pure content refusals; the hub records each failure once through
+`_record_bridge_failure`; `bridge_transition` is the ONE decision owner (all-refused →
+permanent_fail/"refused"; budget spent → permanent_fail/"retry_budget_exhausted"); the selector's
+budget filter is gone so a budget-spent row is terminalized instead of stranded; the replay reads
+the envelope against the row's output_hash (sealed bytes). On aria/state each of the 13
+permanent_fail@3 rows had cost two useless replays. Red first: 11 classification reds with the
+raise sites reverted, and the replay suite failed at collection.
+
+### ARIA-HIGH-213 — the GitHub App runbook states the five required checks the manifest enforces
+
+Full title: The GitHub App runbook is stale (snowball branch, 1 approval, missing permissions, no
+repository-secret step, no merge runner) and the runner rebuild runbook omits openssh-client
+
+`docs/reviews/claude/2026-09-26-aria-chain-gaps.md` carries it. The registry title was stale at
+this tree — `bd8d2c6f5` (#1676) already removed the snowball branch and wrote the permission
+table, the repository-secret step and the merge runner. The residual the lane closed, by
+`f3b628f64` (with `8e25b48d3`, the strict-mode correction to the same pin): section 6 still said
+"the 4 required checks" while `9454d3a93`/`58e5a2fab` made aria-kernel the fifth context of
+main-required-status-checks.json, and "both producing workflows run on merge_group" stopped
+describing every producer when aria-kernel.yml joined (it runs unfiltered on every pull request
+and declares no merge_group trigger). The SSoT assertion pins section 6's required-check bullet to
+the manifest's contexts and names the three producing workflows with their merge_group truth. The
+re-scope is recorded here per the work order: the permission-table and openssh-client pins were
+left out because they pin content #1676 already fixed.
+
+### ARIA-LOW-269 — the anchor's committed read verifies the object chain
+
+Full title: The ingestion trust anchor rests on the runner-writable local refs/remotes/origin/main
+and re-hashes only the allowed-signers blob, not the commit or tree that names it
+
+`docs/reviews/claude/2026-10-02-aria-operator-channel.md` carries it. Closed by `69d800e65`: git
+2.43.0 serves a rewritten loose object without checking its hash on the rev-parse/cat-file paths
+(measured: with the root tree's loose file rewritten under its genuine id, rev-parse returns the
+attacker's blob oid while ls-tree alone refuses), so `committed_blob` now walks a verified object
+chain — one batched cat-file read re-hashes the commit, every tree on the path and the final
+blobs; any mismatch, missing object or unclassifiable mode fails the read closed. `tracked_files_at`
+additionally excludes a gitlink that ls-tree -r had listed as a tracked file. The red is a real
+forgery in a hermetic temp repo: a tree under its genuine id and a commit with its tree line
+swapped, driving the REAL committed_blob — pre-fix it returned `CommittedBlob(b'attacker-key\n')`.
+The four private unverified readers elsewhere are registered as ARIA-LOW-636 below.
+
+### ARIA-MEDIUM-398 — a drain that window-skips its own minted implementation chains one hop
+
+Full title: An implementation request minted mid-drain is always window-skipped (worst case 20343
+s of a 21000 s budget) and waits for a full cycle before an executor run can take it
+
+`docs/reviews/claude/2026-10-09-aria-plan-feasibility.md` carries it. Closed by `593b9939e`:
+`cycle_rhythm.evaluate_drain_rechain` is the pure decision (named refusals; the depth brake fires
+first so no drain-to-drain loop can be written); the drain captures each window-skipped
+IMPLEMENTATION request minted at or after its wall-clock start, appends one
+executor_drain_rechain governance row per re-chained request, and hands
+window_skipped_self_minted / rechain_dispatch to the stage line and GITHUB_OUTPUT; the workflow
+declares the rechain_of input and a hosted chain-next-drain job (mutually exclusive with
+chain-next-cycle so one run never queues two pending runs into aria-selfhosted-workspace). Red
+first, three entries: the decider (ImportError), the wiring ('window_skipped_self_minted=1' not
+found in a summary carrying the plain count only), and the edge pin ('rechain_of' not found in the
+workflow_dispatch inputs).
+
+## Wave C FAST — closed without code, on triage evidence
+
+The 2026-10-16 triage (results/triage-result.json) re-examined these four rows against the tree
+and found them already fixed or not reproducible. The registry rows were never closed. Their
+section is here; the closing commit is the integration commit that carries this section.
+
+### ARIA-MEDIUM-099 — every submit-failure terminal supersedes the CLI's succeeded summary
+
+Full title: The executor drain counts a child as drained on the `succeeded` dispatch summary
+`invoke_claude_cli` writes when the CLI ran to completion, so a child whose SUBMIT then fails
+(`submit_rejected`, `submit_timeout_\<n\>s`,
+`native_runtime_result_reconciliation_unavailable` — each `return 1` without superseding the
+summary) is still reported as a drained success
+
+Verdict `already_fixed` (triage group 6). Evidence: `_fail_submit_dispatch` — the ARIA-HIGH-124
+round 5 writer — writes outcome=failed, phase=submit over the CLI's succeeded summary, and every
+submit-failure terminal (`submit_timeout`, `evidence_verification_unavailable`,
+`agent_result_rejected`, `submit_rejected`) calls it before return; on the native lane the success
+summary is written only after reconciliation succeeds, so the drain sees no summary
+(`child_without_summary`), not a success; the drain counts only `outcome=='succeeded'` as drained.
+Verified at the triage tree `4535de11a`; owner module tools/aria-poc/ci_executor.py.
+
+### ARIA-HIGH-206 — the merge runner also fires on CI - Affected, with an hourly backstop
+
+Full title: The merge runner fires only after aria-readiness-claim; when the other required checks
+(ci-affected) finish later it never retries, so an ARIA PR waits for an unrelated event
+
+Verdict `already_fixed` (triage group 3). Fixed in `bd8d2c6f5` (#1676): the merge runner's
+workflow_run trigger covers CI - Affected beside aria-readiness-claim, an hourly cron backstop
+(:47) re-sweeps, and with no PR given it sweeps every PR that holds a readiness claim; the job
+condition accepts a CI - Affected success on a pull_request event. Evidence anchors:
+aria-merge-runner.yml:30-39 and :74-78, ci-affected.yml:1 (name match), `git log -S"'CI -
+Affected'"` → bd8d2c6f5.
+
+### ARIA-MEDIUM-226 — the merge-lane grant defects the closure plan carried
+
+Full title: Merge-lane grant and merge runner defects: non-UTC expiry stored shifted, grant not
+validated on read, runner/adapter selection disagree with merge_authority_available, merged result
+unchecked, closed PRs evaluated, check runs not paginated, audit lacks grant fields
+
+Verdict `already_fixed` (triage group 7). The code at `4535de11a` addresses all seven sub-defects,
+each carrying an ARIA-MEDIUM-226 marker: expiry converted with `astimezone(timezone.utc)` before
+strftime; `get_merge_lane_grant` re-validates lane, expiry, max days, approval ref and approval
+object on read, fail-closed; runner/adapter selection aligned; `merge_outcome` checks
+MERGED/enqueued at the expected head; a non-open PR is not a candidate; check runs paged
+per_page=100 to total_count; the audit records the grant the decision ran under.
+
+### ARIA-MEDIUM-522 — pr_for_assignment already reads through the verified loader
+
+Full title: worker_dispatch.pr_for_assignment reads pr-lifecycle.jsonl with the unverified
+load_jsonl
+
+Verdict `not_reproducible` (triage group 1). Evidence: the module's load_jsonl delegates to
+`load_declared_jsonl(path, expected_surface=...)` or raises (verified since 2026-06-08, blame
+`42695736f5`), and load_declared_jsonl defaults verify=True through load_jsonl_verified — the
+finding confused it with an unverified loader. The only caller cannot merge either: its merge
+result is hard-coded to blocked. Invalid as stated.
+
+## Wave C FAST — not fixed, with reasons
+
+These findings stay OPEN. Each is one `not_fixed` entry of a lane report.
+
+- **ARIA-LOW-585, live-run residual** (code complete in `9e493f25f`). The steps-allowance figure
+  (2820 s) is #1371's measurement on the 842 MB store; re-measuring on the current store needs the
+  nightly "Measure the unbounded close-out" step to run on a live night, which needs Okan to
+  re-enable ARIA (paused). The cap raises are an operator budget decision to confirm — both spend
+  windows are provably unchanged (asserted by tests), so spend does not change.
+- **ARIA-MEDIUM-580** (ORPHAN-HIGH-779 bound to a never-existing task-7 test). Bound by the work
+  order: run only after learning and merge-lane are integrated. Verified on the invocations-fast
+  branch: neither fix/aria-kc-learning nor fix/aria-kc-merge-lane was merged into origin/main, and
+  both hold edits to the same PENDING_CLOSURE_REGRESSION_REFS dict the fix must rewrite. The
+  finding's allocation (through the registry allocator) is integration/main scope.
+- **ARIA-MEDIUM-596** (branch_protection_policy_reasons must measure squash_merge_commit_message).
+  Bound by the work order: 596 edits auto_merge.py + readiness_proofs.py + test_auto_merge.py that
+  merge-lane holds; sequencing it now would collide with that lane on exactly its owner files.
+  Fresh anchors were verified at origin/main `b6c604f5f` (enterprise_readiness.py:23, :576;
+  readiness_proofs.py:58, :328; auto_merge.py:1340); the plan is affirmed, only sequencing
+  changes. The operator-only residual also stands: the first live readiness probe must show the
+  repository's real squash_merge_commit_message.
+
+## Findings raised while closing the wave C FAST lanes
+
+Sixteen stubs are registered with `finding-registry add` from the integration worktree
+(`fix/aria-kc-integ-fast`, from origin/main `62beb2ef2`), all OPEN, owner Okan-wqm, agent claude,
+cycle `2026-10-18-aria-wave-c`, review file this document, deadline 2026-11-09. Every evidence
+anchor was re-verified at `62beb2ef2` before registering (the branch-written anchors that drifted
+were re-pinned; state-branch measurements and prose moved into notes to keep the evidence
+canonical). The work order's synthesis expected eleven c-\* stubs; thirteen existed by the time the
+recorder ran — the extra two pairs come from the learning and state-store lanes, whose branches
+land separately but whose stubs HANDOVER §5 registers as they appear.
+
+The allocator continued at ARIA-MEDIUM-631: 626, 629 and 630 are already claimed by a live sibling
+worktree (aria-order-chain), so the "only 626 is free" window the work order described has closed.
+
+- **ARIA-MEDIUM-631** (c-merge-lane-1) — the executor's Claude-usage cost row is written inside
+  `try/except Exception: return`, so a cost row the store refuses drops the USD attribution
+  silently (tools/aria-poc/ci_executor.py:2687, :2763-2829). Found while fixing ARIA-LOW-584.
+- **ARIA-LOW-632** (c-gates-tests-1) — test_ci_workflow_invariants.py keeps a third copy of the
+  action-pin rule beside the owner gha-sha-pin.ts (:76, :161-183). Found while closing 590.
+- **ARIA-LOW-633** (c-gates-tests-2) — about 21 kernel test sites mkdtemp a tree they never
+  remove, the class 595 closed for test_published_text (20 anchors listed).
+- **ARIA-LOW-634** (c-gates-tests-3) — three invariant specs run fixture git on the caller's
+  environment instead of hermeticGitEnv, and the SSOT pin checks only where the filter is spelled.
+- **ARIA-LOW-635** (c-invocations-fast-1) — render_dashboard_markdown's default repo resolution
+  has never run: `_resolve_repo_root` is called without its required override argument
+  (plan_016_metrics.py:285). Found while writing 597's red.
+- **ARIA-LOW-636** (c-security-fast-1) — four modules still read committed git content through
+  private readers that do not verify the object chain (autonomy_evidence.py:1740,
+  finding_line_map.py:41, state_writer_lease.py:412, runtime_artifacts.py:829). The 269 follow-up.
+- **ARIA-MEDIUM-637** (c-genesis-router-1) — router-emitted agent-genesis requests have no
+  consumer and existing_genesis_request_keys parks each gap on its first night (agent half of
+  ARIA-MEDIUM-612; existing_genesis_request_keys re-pinned at agent_genesis.py:1094).
+- **ARIA-MEDIUM-638** (c-genesis-router-2) — an operator seed whose corpus fails the pre-flight is
+  still authored on the evidence-pack proxy (skill_genesis_drainer.py:276).
+- **ARIA-LOW-639** (c-genesis-router-3) — that proxy spends a drafting round on a run whose
+  sandbox can only end sandbox_systematic_failure (skill_genesis_drainer.py:347).
+- **ARIA-MEDIUM-640** (c-learning-1) — no agent request ever carries a learned convention, and
+  the reader cannot tell a read fault from "none applies" (agent_invocations.py:259-276).
+- **ARIA-LOW-641** (c-learning-2) — an agent request's target_sha is not validated at mint
+  (agent_invocations.py:1301-1345; the two consuming anchors land with the learning branch).
+- **ARIA-LOW-642** (c-state-store-1) — `aria-kernel ack verify` exits 0 when rows fail
+  verification (cli.py:6440, runbook :78). Found while closing ARIA-LOW-598.
+- **ARIA-LOW-643** (c-state-store-2) — the ack runbook names an --emergency throttle bypass,
+  a webhook alert and an `aria-kernel autonomy stop` verb the kernel does not have.
+- **ARIA-MEDIUM-644** (hr-sweep-1, re-verified before registering) — judge-fanout mints the
+  backlog ceiling parks are disclosed only as an aggregate count; the per-decision skip rows are
+  dropped at the cycle boundary and no notice kind or human-required record names them
+  (judge_fanout.py:347-352, cycle.py:1968-1970, :2078, notify.py:31). The 10-10 anchor
+  cycle.py:3493-3502 had drifted; the finding holds, narrowed to the count-only disclosure the Y2
+  mint discipline added.
+- **ARIA-MEDIUM-645** (hr-sweep-2, re-verified before registering) — the
+  human_required_sla_breached notice kind exists (notify.py:32, :73) but nothing sends it;
+  `_stamp_escalated_to_operator` (:808-825) writes the record and never notifies. Anchor exact.
+- **ARIA-LOW-646** (main-shard-weights-1) — the kernel suite's shard weights go stale as modules
+  are added and only a manual refresh rebalances them (suite_shards.py:1-40, aria-kernel.yml:139);
+  the general class beside ARIA-LOW-628's single unweighed module.
+
+## Wave C — state-store, learning and self-improve closures (2026-10-19)
+
+The integration merges `fix/aria-kc-state-store`, `fix/aria-kc-learning` and the finished
+commits of `fix/aria-kc-self-improve` (586, 587 and the ARIA-HIGH-122 design-step-1 commit
+`5b24c84d9`; the staged step-3 `kernel_change_lane` work stays on the lane worktree, unmerged,
+and 122 stays OPEN).
+
+### ARIA-LOW-577 — a checkout lineage refusal reports as a refusal, not a transport failure
+
+Closed by `db07329bb`. Red first: the ReCheckoutSafety rewind test tightened to
+StateStoreRefusal failed with StateStoreError state_store_remote_history_rewind; the new-root
+replacement test (the ARIA-HIGH-572 lab shape) failed with StateStoreError
+state_store_remote_history_unrelated; the new test_restore_action_checkout_refusal ran the
+action's restore step under GitHub's bash flags against a fixture remote whose tip became a new
+root and failed "1 != 3" with "failed to reach the remote" on stderr. Both lineage branches now
+raise StateStoreRefusal with the same reason codes and `state checkout` exits 3; the genuinely
+unreadable "ancestry could not be verified" branch stays StateStoreError.
+
+### ARIA-LOW-578 — the aria/state lineage is pinned on main so no host adopts a replaced lineage
+
+Closed by `ef9042a5e`. Red first (test_state_store_lineage_pin.py + the restore-action test
+against the unwired checkout): 11 failed / 7 passed — the CLI case failed "0 != 3" (the
+ARIA-HIGH-572 lab's exit-0 adoption of a new root reproduced), the fresh-host new-root case
+"StateStoreRefusal not raised", the action's fresh-host step exited 1 with "wrote no verdict",
+and the two publish-path tests both failed "StateStoreRefusal not raised". Green after 17 + 3.
+The pin is committed policy (docs/aria/policy/state-lineage.json, CODEOWNERS-protected, outside
+every ARIA write scope) naming the one root each state branch's history must have; the owner
+module aria_kernel/state_lineage.py proves it before anything adopts a tip, whether or not the
+host tracks the branch, and state_store_lineage_history_truncated is read through the commit
+object with replace refs disabled, so a `git replace --graft` cannot forge descent.
+
+### ARIA-LOW-611 — a declared ledger is read once per append, not three times
+
+Closed by `38018702a`. Red first (test_ledger_append_single_read.py on the old body): a strict
+append read the ledger 3 times (3 != 1), a non-strict one twice (2 != 1); under cProfile on a
+30,000-row (26 MB) strict ledger the removed \_read_jsonl_stored + heal_torn_tail passes spent
+2.8 s of 20.6 s and made 180,039 json.loads calls against 90,036 after. The append body now
+takes its tail hash from \_tail_hash_for_append: strict surfaces verify the whole chain and
+refuse a corrupt one (declared_jsonl_refuses_append_to_corrupt_chain) before anything is healed
+or written, the torn tail is truncated from that same text, and non-strict surfaces keep their
+one full parse. The 26 test files that reach these internals pass.
+
+### ARIA-HIGH-004 — the learning funnel is joined end to end and ACTIVE is bound to its evidence
+
+Closed by `bbb4eaae3` (review file docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md).
+Red first: ImportError active_transition_evidence / derive_learning_funnel_health and doctor
+AttributeError \_check_learning_funnel on the pre-fix tree. funnel_health joins the funnel's
+stages only on the identities the producers stamp (request/run ids, fingerprint, tool version,
+fixture corpus, calibration report ids, target commit); a row lacking a key advances nothing,
+legacy rows count as history only, and a stage holding at least 10 whose successor holds 0 is
+named `learning_funnel_stalled:<up>-><down>`. The lane's ARIA-HIGH-125 (`993eb9cec`) and
+ARIA-HIGH-129 (`71528eb52`) measure halves land with the merge and stay OPEN per their own
+commit bodies, pending the operator decisions and the live corpus.
+
+### ARIA-LOW-586 — reflection sections absorb only declared reader faults and name them
+
+Closed by `347721d81`. Red first: tests/test_reflection_reader_faults.py failed 24 (14 tests +
+10 subtests) on the pre-fix tree — every section returned [] for a corrupt ledger / non-JSON
+registry, every injected TypeError was swallowed, `unreadable` was absent, and the AST pin
+listed the ten handlers. After: 16 passed + 10 subtests, dependents green (384 passed, 314
+subtests).
+
+### ARIA-LOW-587 — scan_signals absorbs only declared reader faults and names them
+
+Closed by `324dc096e`. Red first: tests/test_self_improvement_reader_faults.py failed 14 on the
+pre-fix tree (TypeError not raised for all five readers, RuntimeError not raised for a crashed
+doctor run, no `unreadable` on scan/opener/action/CLI), 10 + 5 subtests green after.
+ledger.ledger_read_faults() is the one declaration of what a ledger reader may treat as a store
+fault. BREAKING CHANGE carried in the lane commit: scan_signals returns SignalScan and
+open_self_improvement_missions returns MissionOpening, every caller updated in that commit.
+
+## WP-P provider continuity — recorded (2026-10-19; branch fix/aria-wp-p, not landed)
+
+Wave C FAST is on main (#2031). The waves after it — WP-P, WP-J and the SLOW clusters — are
+recorded here from their branches; **none has a PR, none has run the 10-shard suite plus the
+five required CI gates, so per the landing-wave hardening (below) none counts as trusted**.
+Per-finding truth for all of them is this registry plus git, never a session's claims.
+
+WP-P is six commits on `fix/aria-wp-p` (head `5c812c794`, base origin/main), one capability
+built red-first at the real night harness:
+
+- `a0d0201fe` — `tests/_helpers/single_provider_host.py`: the one shared definition of a host
+  that presents exactly one provider to the production lanes (the three lanes each carried a
+  private PATH/credential copy before), probed by the model fleet.
+- `65afbb7bf` — the role × provider matrix as a generated, pinned artifact
+  (`test_role_provider_matrix_ssot.py` on the JUDGE-DIGEST pattern, pins under
+  `tests/fixtures/role_provider_matrix_pins.json`).
+- `dbddccec3` — an only-Claude night completes every phase and charges only Claude; the
+  completed-night contract (the pinned ledgers a held night freezes must MOVE, a real runtime
+  attempt names the surviving provider) — the check ARIA-HIGH-579 already proved insufficient.
+- `792c2b776` — the operator's single-provider rule in the anchor law: the anchor gate counts
+  distinct judge SEATS (`ANCHOR_MIN_JUDGE_COUNT`; one seat thrice is one observation), the
+  enforce quorum asks two calibrated seats (`CALIBRATED_QUORUM_MIN_MODELS` removed), and every
+  consensus row that can name its observers is stamped `provider_span` via
+  `model_fleet.dispatching_provider_for_model`. Red first, four pins against `a488a36f2`:
+  three distinct seats all dispatched glm-5.3 were refused at the old model gate, one seat
+  voting thrice while naming three models passed it, and `provider_span` did not exist. After:
+  `test_jj1_anchor_consensus` 30 passed; the feedback_store symbols 1051 passed, 0 failing.
+- `d260825d1` — the only-Codex night (fake CLI; Codex is not installed on this host).
+- `5c812c794` — the night's fake Claude reports the model id the real CLI reports, so the
+  only-Claude night books a priced model instead of `cost_pricing_unknown_model`.
+
+Registered here from WP-P: ARIA-HIGH-672 (the anchor gate itself — the fix/aria-wp-p branch
+had allocated its own ARIA-HIGH-661 for the same finding in its off-main registry; the
+cross-worktree id-allocation guard refused to re-issue 661, so this row takes a fresh id and
+the WP-P landing must append at most one of the two and rechain), ARIA-HIGH-718/719 (the
+j-b-method-anchor design pair: the model-only diversity legs and the missing mint-first method
+stamp, both closed by this wave's implementation), and ARIA-MEDIUM-673 — the residual that the
+three night classes (~4m14s for 28 tests measured 2026-10-19) landed without a
+`suite_shard_weights.json` refresh, which must come from a green run's shard reports before
+WP-P merges.
+
+Not fixed by WP-P, on the record: the single-provider nights cannot be dispatched at all while
+ARIA's workflows stay disabled (the WK-2 gate) — the nights are code-proven, not live-proven.
+
+## WP-J expert panel — recorded (2026-10-19; branches fix/aria-wp-j and fix/aria-wp-j-fix2, not landed)
+
+The panel program landed as 30 commits on `fix/aria-wp-j` (head `cbaad3b83`) plus a parallel
+fix round as 28 commits on `fix/aria-wp-j-fix2` (head `3e559bf6b`); the two branches share
+their lineage up to `3c5760048` and then carry their own implementations of the same nine
+review fixes — the WP-J landing must pick one line, not merge both.
+
+What was built (slice → commits; every fix red-first at the real entry point, the proof lines
+quoted in each commit body):
+
+- **A, evidence protocol + tier-0** — one verbatim-quote law for both judgment paths
+  (`94c18b6ea`, `tests/test_quote_law.py` red on main); the rule contract's predicted
+  `observable` or the named refusal `claim_not_falsifiable` (`32fba0b8e`); the closed
+  evidence-class vocabulary R0..R4 with quotes on load-bearing rows and reproduction bound to
+  `{recipe_id, expected}` (`5fbc01cf3`); and tier-0 itself — `aria_kernel/tier0.py`, zero LLM,
+  refs resolve at the target SHA, quotes byte-match, fingerprint dedup, excerpt-skip named
+  (`7f45f829b`; the law pinned by `3d465916c`, 11 red ways pre-fix).
+- **C, the funnel** — `judgment_funnel.py` as the one routing owner at the `cycle.py:1950`
+  seam (`b65e731da`); the per-night envelope budget sized to the measured drain, holding
+  through the admission door, `assert_within_budget` banned on mint paths (`2f4406c1a`);
+  severity-routed tiers, tier 2 one seat, tier 4 quota-bound (`5f91179ce`, five tier tests red
+  pre-fix); the verdict cache keyed `(finding_fingerprint, code_hash)`, unknown blob state a
+  miss (`8a22d5ddf`); per-decision cost joined on `judgment_group_id` (`946eca283`).
+- **B, the panel** — four method seats (bug_hunt, reproduction_test, impact_assessment,
+  architecture) join every E14 table and the panel mints whole or not at all (`0a87da08c`);
+  the arbiter weighs evidence with a bounded rebuttal round and a panel diversity guard
+  (`194d7faf3`); method diversity as the single-provider anchor/quorum leg (`0fab74f54`,
+  shared with WP-P).
+- **D, measurement** — the stability lane: one blind re-ask, one flip table, two consumers
+  (the judge-weight temper and the promotion bar; `118bb215e` + `b22688550`); outcome truth:
+  a judged defect's mechanical outcome becomes scoring feedback (`05d99ba06` +
+  `9b904b3a1`); mutation canaries: labels by construction in a hermetic sandbox, scored only
+  as calibration truth (`07cdaa6d0`).
+
+The package's own review rounds (wpj-inceleme-1 probes, then the wpj-onarim fix rounds) found
+and fixed defects inside the package; their rows are registered here so the record survives
+the landing: ARIA-HIGH-685/686/687 and ARIA-MEDIUM-688 (zero-evidence anchors, the false
+'evidence=quote-verified' label, shape-only R4 rows, the dropped admission producers — 12
+tests red at `194d7faf3`), ARIA-MEDIUM-684 and ARIA-MEDIUM-691 (the expiry-ownership table
+drops), ARIA-HIGH-689 (the uncertainty-vocabulary pin), ARIA-MEDIUM-690 (the scoring pin),
+ARIA-HIGH-692 (the canary self-exam was not blind — the envelope named the plant), ARIA-HIGH-693
+(the undeclared flip-table ledger), ARIA-LOW-694 (an unreadable drain silently swallowed the
+routing). All nine were fixed on both branches (the `cbaad3b83`-line and the `3e559bf6b`-line);
+none is reachable on origin/main, where the WP-J modules do not exist. The slice-C findings
+ARIA-HIGH-678..683 and slice-A ARIA-HIGH-674..677 register the gaps as they stood on main.
+
+Registered with the package: ARIA-HIGH-695/696/697 (the three §1.8-1.10 operator asks —
+stability, outcome truth, canaries — as gaps on main), ARIA-MEDIUM-720 and ARIA-HIGH-721 (the
+j-b panel design pair), and the s2-mimari scan set ARIA-HIGH-708/709 and ARIA-MEDIUM-710/711
+(the role-registration contract, the test-execution owner, the independence-pair loader
+invariant, and the intake-refusal owner — all answered by the slices above, kept as rows
+because the scans measured the gaps on main).
+
+Not fixed by WP-J, on the record: the full 10-shard suite plus the five gates has not run on
+any PR (there is no PR); the nights and the canary cadence hold while the drain is dead and
+ARIA is paused; the package commits' `Closes: stubs/<name>.json` trailers do not match the
+registry's trailer law, so at landing the rows need a Closes-carrying closing commit or an
+alias entry (finding-closure-reconcile will not match a stub path to an id).
+
+## SLOW queue — recorded (2026-10-20; nine cluster branches, not landed)
+
+Per cluster: branch, commits, what closed, what stays open. All branches are local, none has
+a PR, and the same no-trust rule applies.
+
+- **misc-slow** (`fix/aria-kc-misc-slow`, 3 commits) — ARIA-LOW-605: the debt lifecycle is a
+  kernel-enforced state machine (`f2a438658`, red at the real debt entries; the handoff
+  consumer's status/current_status defect registered as ARIA-LOW-701); ARIA-LOW-517: every
+  sha256 producer, validator and token hasher goes through digest.py (`f00f52d4e`, the
+  single-owner invariant red first; the ~20 prefix-only gates registered as ARIA-LOW-700);
+  ARIA-HIGH-138: every kernel seam proved by a real process, not a mock of it (`b7ba78082`).
+  Residual: seeding the 6 production debts needs an aria/state write after unpause.
+- **genesis-router** (`fix/aria-kc-genesis-router`, 1 commit) — ARIA-MEDIUM-612: seed or
+  refuse by name every skill-genesis request the router emits (`04e233c1f`, red at
+  capability_gap.\_gap and the learning router branch). Residuals registered as ARIA-MEDIUM-704
+  (agent_gap still parks unconsumed; legacy rows suppress panel re-asks) and ARIA-LOW-705 (a
+  corpus-less convergent request still rides the proxy; operator CLI surface).
+- **ci-topology** (`fix/aria-kc-ci-topology`, 4 commits) — ARIA-HIGH-602: traced kernel jobs
+  fail on a tracked read outside the surface (`5ff665f96`, red at the real install refusal);
+  ARIA-MEDIUM-277: one lane one group, a host workspace lock, cadence gaps reported
+  (`3ad9716e6`, both halves red-first); plus the hermetic/live suite partition and the
+  always-run workspace job (`56f7db560`, `ec575865d`). Residuals: 602's acceptance is the
+  implementing PR's own CI first FULL traced run; 277's second self-hosted runner
+  registration is an operator capacity action.
+- **adapters-schema-slow** (`fix/aria-kc-adapters-schema-slow`, 2 commits) — ARIA-MEDIUM-588:
+  MODULE_SCHEMAS spread entries resolved in the registry reader (`35f54c759`, the parity
+  invariant red first) and the tenant-aware qualified-DDL guard projected through the
+  migration-safety adapter (`7440952af`). Residual registered as ARIA-LOW-703: the kernel
+  integration test still carries an inline copy of the manifest's read surface.
+- **approvals-slow** (`fix/aria-kc-approvals-slow`, 2 commits) — ARIA-HIGH-238: every
+  operator-approval ref proven at its raising surface (`1249cb8b0`, every ref class pinned
+  red first by `8fc39237d`). Residual registered as ARIA-MEDIUM-699: the provenance mint
+  itself still accepts any free-form ref.
+- **identity-slow** (`fix/aria-kc-identity-slow`, 2 commits) — ARIA-MEDIUM-029: execution
+  identity derived from the platform, the cycle produces the session ledger (`0182ff851`,
+  ImportError red first); ARIA-MEDIUM-583: the GitHub App key mints in a lane-side broker,
+  never the cycle process (`cfbe29804`, red on both lanes at base). Residuals: 029's
+  provider_bound producer binds at the 563 gateway integration point; 583's first live night
+  must prove broker persistence between Actions steps.
+- **invocations-slow** (`fix/aria-kc-invocations-slow`, 1 commit) — ARIA-HIGH-614: every
+  envelope gets a citable repository box or is refused by name (`a700d6207`, red at the mint).
+- **learning** (`fix/aria-kc-learning`, 1 commit) — the night's convention lift surfaces in
+  the operator inbox (`70cb9bd87`, KeyError red first). ARIA-HIGH-125 stays OPEN: the gold
+  corpus (≥20 TP/≥10 FP real-ground-truth rows per tool, aria/state shows 0 TP/5 FP) and the
+  operator-run promote_goldset_proposal; ARIA-MEDIUM-129 stays OPEN: negative-lift/decay
+  coupling and the A/B design decision.
+- **self-improve** (`fix/aria-kc-self-improve`, 1 commit) — the kernel-change lane carries an
+  adjudicated self-change to an operator-opened PR (`5183c6cf7`,
+  `self_change_validation_pin_refused` red first). ARIA-HIGH-122 stays OPEN: the operator
+  self-merge-set decision plus the live end-to-end lane exercise.
+
+## Landing-wave hardening (external review, 2026-10-20 — BINDING) and this lane's record
+
+The external closure-confidence audit's four points are accepted and bind the landing wave and
+the reopening (packages/INDEX.md, 'Landing-wave hardening'). What this lane did about each:
+
+1. **Mechanised red-first gate** — registered as ARIA-HIGH-671 from the binding stub
+   `verify-redfirst-ci-gate-1.json`: no CI step runs a fix PR's new/changed tests on the
+   merge-base and requires them to fail there (re-verified on 9ba453af5: neither
+   ci-full.yml nor aria-kernel.yml carries such a job). It is a new feature, so the full
+   new-feature protocol (reading passes with gap-and-duplicate reconciliation, twice-refuted
+   plan) applies before implementation, and it must be reconciled with WP-J slice A's
+   kernel-side repro seam — wire both layers, own each once.
+2. **No branch counts as trusted until the full 10-shard suite plus the five required CI
+   gates pass on its PR.** Recorded above per wave: WP-P, WP-J (both lines) and the nine SLOW
+   branches have no PRs and no such runs; their 65-85% figures are pre-landing estimates
+   only. The landing wave additionally draws a random sample of 3-5 landed closures and
+   re-proves them red on the merge-base, audited by an independent seat (the Claude session
+   on this host, or the WP-X external red-team cadence) — never this program's own verifiers.
+3. **Reopening precondition: one controlled SHADOW night.** ARIA stays PAUSED; its seven
+   workflows stay disabled. It is re-enabled for exactly one shadow night first (existing
+   machinery, `shadow_eval_bridge.py`); canary and calibration numbers are only spoken after
+   that night, never before. This also gates the WK-2 single-provider nights.
+4. **Per-finding truth comes from the registry plus git.** This lane re-verified every pending
+   stub against origin/main `9ba453af5` before registering it:
+   - Registered: 55 rows, ARIA-HIGH-671 through ARIA-LOW-725 (one per stub), via
+     `finding-registry.ts add` only; the chain verifies and main's first 2962 rows are
+     byte-identical to origin/main. Every row's title, evidence and notes carry the
+     re-verification; the id-to-stub map:
+
+   - **ARIA-HIGH-671** — stub `verify-redfirst-ci-gate-1`
+   - **ARIA-HIGH-672** — stub `wpp-anchor-single-provider`
+   - **ARIA-MEDIUM-673** — stub `wpp-2-night-shard-weights`
+   - **ARIA-HIGH-674** — stub `wpj-a-1`
+   - **ARIA-HIGH-675** — stub `wpj-a-2`
+   - **ARIA-HIGH-676** — stub `wpj-a-3`
+   - **ARIA-HIGH-677** — stub `wpj-a-4`
+   - **ARIA-HIGH-678** — stub `wpj-c-1`
+   - **ARIA-HIGH-679** — stub `wpj-c-2`
+   - **ARIA-HIGH-680** — stub `wpj-c-3`
+   - **ARIA-HIGH-681** — stub `wpj-c-4`
+   - **ARIA-MEDIUM-682** — stub `wpj-c-5`
+   - **ARIA-MEDIUM-683** — stub `wpj-c-6`
+   - **ARIA-MEDIUM-684** — stub `wpj-onarim-1-role-ownership`
+   - **ARIA-HIGH-685** — stub `wpj-r-1`
+   - **ARIA-HIGH-686** — stub `wpj-r-2`
+   - **ARIA-HIGH-687** — stub `wpj-r-3`
+   - **ARIA-MEDIUM-688** — stub `wpj-r-4`
+   - **ARIA-HIGH-689** — stub `wpj-r-5`
+   - **ARIA-MEDIUM-690** — stub `wpj-r-6`
+   - **ARIA-MEDIUM-691** — stub `wpj-r-7`
+   - **ARIA-HIGH-692** — stub `wpj-r-8`
+   - **ARIA-HIGH-693** — stub `wpj-r-9`
+   - **ARIA-LOW-694** — stub `wpj-r-10`
+   - **ARIA-HIGH-695** — stub `d-stability-lane-2`
+   - **ARIA-HIGH-696** — stub `d-outcome-truth-1`
+   - **ARIA-HIGH-697** — stub `d-mutation-canary-3`
+   - **ARIA-LOW-698** — stub `slow-ARIA-HIGH-012-1`
+   - **ARIA-MEDIUM-699** — stub `slow-ARIA-HIGH-238-1`
+   - **ARIA-LOW-700** — stub `slow-ARIA-LOW-517-1`
+   - **ARIA-LOW-701** — stub `slow-ARIA-LOW-605-1`
+   - **ARIA-LOW-702** — stub `slow-ARIA-MEDIUM-277-1`
+   - **ARIA-LOW-703** — stub `slow-ARIA-MEDIUM-588-1`
+   - **ARIA-MEDIUM-704** — stub `slow-ARIA-MEDIUM-612-1`
+   - **ARIA-LOW-705** — stub `slow-ARIA-MEDIUM-612-2`
+   - **ARIA-MEDIUM-706** — stub `s2-refuseview-pem-bearer-1`
+   - **ARIA-MEDIUM-707** — stub `scrub-refuse-view-pem-bearer-1`
+   - **ARIA-HIGH-708** — stub `s2-mimari-role-registration-1`
+   - **ARIA-HIGH-709** — stub `s2-mimari-test-execution-2`
+   - **ARIA-MEDIUM-710** — stub `s2-mimari-independence-pairs-3`
+   - **ARIA-MEDIUM-711** — stub `s2-mimari-intake-owner-4`
+   - **ARIA-HIGH-712** — stub `main-fehigh374-orphan-row`
+   - **ARIA-MEDIUM-713** — stub `goldset-replay-never-live`
+   - **ARIA-HIGH-714** — stub `judge-calibration-starved`
+   - **ARIA-HIGH-715** — stub `plan-refutation-1`
+   - **ARIA-MEDIUM-716** — stub `plan-refutation-2`
+   - **ARIA-LOW-717** — stub `plan-refutation-3`
+   - **ARIA-HIGH-718** — stub `j-b-method-anchor-1`
+   - **ARIA-HIGH-719** — stub `j-b-method-anchor-2`
+   - **ARIA-MEDIUM-720** — stub `j-b-panel-debate-1`
+   - **ARIA-HIGH-721** — stub `j-b-panel-seats-1`
+   - **ARIA-LOW-722** — stub `b-kernel-misc-5`
+   - **ARIA-HIGH-723** — stub `jevask-closes-secret-refusal-1`
+   - **ARIA-MEDIUM-724** — stub `pr-create-ambient-gitdir-1`
+   - **ARIA-HIGH-725** — stub `deploy-checkout-bare-resolve-1`
+
+   - Dropped, defect no longer holds on main (each re-verified this session):
+     `s2-messaging-smoke-canonical-1.json` — the ported smoke teaches the renderer
+     `allow_responses`; `npx tsx scripts/nats/messaging-acl-smoke.ts --mode static` passes on
+     9ba453af5 (OK, exit 0; see scripts/nats/messaging-acl-smoke.ts:19).
+     `b-operator-provenance-4.json` — `main_anchor.committed_blob` now resolves through the
+     verified object-chain walk (`_resolve_verified`/`_read_verified`), landed by `69d800e65`
+     (security-fast, #2031). `b-kernel-misc-7.json` — the redact view leaves boolean values
+     intact (`scrub_text` probe over the stub's exact fixture returns the JSON unchanged) and
+     `SpawnEnvironmentTests` passes (1 passed); fixed by the wave-A/B scrub rewrites.
+   - Registered re-scoped, with the fixed half recorded in the row's notes:
+     `main-fehigh374-orphan-row.json` → ARIA-HIGH-712 (the anchor landed in #2034; the open
+     half is that findings:add still accepts a review_file that anchors nothing);
+     `scrub-refuse-view-pem-bearer-1.json` → ARIA-MEDIUM-707 (the PEM/bearer halves were
+     fixed on main by `9c4d1f251` in #2019; the github-token underscore gap remains at
+     secret_scrub.py:300-307). `s2-refuseview-pem-bearer-1.json` → ARIA-MEDIUM-706 registers
+     the fixed PEM/bearer finding itself for traceability: its fixing commit carries no
+     Closes trailer (PROC-LOW-053 interim form, its body names this stub), so the row stays
+     OPEN until a trailer-carrying commit or alias reaches main.
+   - The wpp anchor row (ARIA-HIGH-672) records the id collision with the unmerged branch's
+     own ARIA-HIGH-661 and the resolution rule for the WP-P landing.
+
+The operator items that code cannot close are unchanged: the Claude token mint and the one
+live call in g563-results.json; the eleven open decisions (272 recorded as accepted, 273,
+221, 133, 139, 252, 555, 573, 604, 606, 613); the live-run items CRITICAL-015, 014, 137, 212,
+281; 532 helm (recommendation on record: accept the exclusion); and whether/when to re-enable
+ARIA's seven paused workflows — which the shadow night precedes.

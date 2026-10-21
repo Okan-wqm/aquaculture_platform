@@ -30,8 +30,19 @@ from tests.test_genesis_adapter_custody import GOOD_SOURCE, _manifest, accept_dr
 
 # A poll long enough to read the store a few times, short enough for a test.
 FAST = DispatcherConfig({"poll_timeout_seconds": 5.0, "poll_interval_seconds": 0.01})
-# What the drainer hands every drafter and judge: evidence, and no store.
-EVIDENCE_PACK = {"seed_id": "seed-507", "evidence_refs": ["docs/aria/SPEC.md"]}
+# What the drainer hands every drafter and judge: the pack Phase 0 collected
+# (ARIA-HIGH-614 — the envelope's citation box derives from it), and no store.
+EVIDENCE_PACK = {
+    "seed_id": "seed-507",
+    "base_commit_sha": "a" * 40,
+    "declared_scope": ["docs/"],
+    "claim_types": ["api_contract"],
+    "observations": [
+        {"file_path": "docs/aria/SPEC.md", "line": 1 + index,
+         "snippet": "spec line", "claim_class": "api_contract"}
+        for index in range(3)
+    ],
+}
 SEED_RULE = {"id": "seed-rule", "description": "cite three evidence refs per rule"}
 
 

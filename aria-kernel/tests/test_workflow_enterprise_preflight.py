@@ -761,17 +761,23 @@ class StepOrderingAndAbortGateContract(unittest.TestCase):
         # under load), and this cap moves with the YAML timeout it mirrors.
         # 510 -> 570 (ARIA-HIGH-342, PR #1779 re-review R-3): the post-drain
         # reserve prices the leased publish's preamble outside the lock.
+        # 570 -> 602 (ARIA-LOW-585): the steps allowance moved to its one
+        # kernel owner and was re-priced from #1371's measured 47 minutes;
+        # the cap moves WITH the reserve, so the drain window is unchanged.
         self.assertEqual(
             cycle_wall_clock_cap_seconds(self._EXECUTOR),
-            (570 - WALL_CLOCK_RESERVE_MINUTES) * 60,
+            (602 - WALL_CLOCK_RESERVE_MINUTES) * 60,
         )
-        # 50 → 360 (operator decision 2026-08-13): the night's window is the
-        # 360-minute platform ceiling. Smoke runs 1-3 proved 50 was the
-        # binding constraint; the ORPHAN-661/662 deadline pair keeps any
-        # value safe (the night seals + publishes at the wall).
+        # 50 → 360 (operator decision 2026-08-13): the night's window is
+        # unbounded, a stated cap. 360 → 454 (ARIA-LOW-585): the close-out
+        # margin is derived from the kernel's priced publish bounds and the
+        # cap moved WITH it, so the spawn window is the same 260 minutes.
+        # Smoke runs 1-3 proved 50 was the binding constraint; the
+        # ORPHAN-661/662 deadline pair keeps any value safe (the night seals
+        # + publishes at the wall).
         self.assertEqual(
             cycle_wall_clock_cap_seconds(self._CYCLE),
-            (360 - WALL_CLOCK_RESERVE_MINUTES) * 60,
+            (454 - WALL_CLOCK_RESERVE_MINUTES) * 60,
         )
         # An unknown lane must be None ("no self-imposed ceiling"), never 0,
         # which would refuse every dispatch.

@@ -5,7 +5,12 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { getTenantId, tenantScopedStorageKey } from '@aquaculture/shared-ui';
 import { COLUMN_VISIBILITY_STORAGE_KEY, TankColumn } from './types';
-import { DEFAULT_VISIBLE_COLUMNS, getAllColumnKeys, tankColumns, cleanerFishColumns } from './columns';
+import {
+  DEFAULT_VISIBLE_COLUMNS,
+  getAllColumnKeys,
+  tankColumns,
+  cleanerFishColumns,
+} from './columns';
 
 export interface UseColumnVisibilityReturn {
   visibleColumns: Set<string>;
@@ -26,7 +31,7 @@ export interface UseColumnVisibilityReturn {
  */
 export function useColumnVisibility(
   storageKey: string = COLUMN_VISIBILITY_STORAGE_KEY,
-  columns: TankColumn[] = tankColumns
+  columns: TankColumn[] = tankColumns,
 ): UseColumnVisibilityReturn {
   // Scope the storage key by tenantId to prevent cross-tenant data leakage.
   // null when no tenant is resolved → the hook uses the in-memory defaults and
@@ -39,11 +44,12 @@ export function useColumnVisibility(
   // Get column keys and defaults for the provided columns.
   // PERF-015: When using the default tankColumns, reuse the pre-computed
   // DEFAULT_VISIBLE_COLUMNS constant instead of creating a new Set each render.
-  const columnKeys = useMemo(() => columns.map(c => c.key), [columns]);
+  const columnKeys = useMemo(() => columns.map((c) => c.key), [columns]);
   const defaultVisible = useMemo(
-    () => columns === tankColumns
-      ? DEFAULT_VISIBLE_COLUMNS
-      : new Set(columns.filter(c => c.defaultVisible).map(c => c.key)),
+    () =>
+      columns === tankColumns
+        ? DEFAULT_VISIBLE_COLUMNS
+        : new Set(columns.filter((c) => c.defaultVisible).map((c) => c.key)),
     [columns],
   );
 
@@ -54,13 +60,13 @@ export function useColumnVisibility(
         const parsed: unknown = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
           // Filter to only include valid, known column keys
-          const validKeys = (parsed as string[]).filter(k => columnKeys.includes(k));
+          const validKeys = (parsed as string[]).filter((k) => columnKeys.includes(k));
           if (validKeys.length > 0) {
             // BUG-020: After a code update that adds new columns, users who had saved prefs
             // would not see the new columns. Merge saved keys with any defaultVisible columns
             // not in the saved set (i.e. newly added columns).
             const newColumnsToAdd = Array.from(defaultVisible).filter(
-              k => !parsed.includes(k) && columnKeys.includes(k)
+              (k) => !parsed.includes(k) && columnKeys.includes(k),
             );
             return new Set([...validKeys, ...newColumnsToAdd]);
           }
@@ -156,10 +162,7 @@ export function useColumnVisibility(
   /**
    * Check if a column is visible
    */
-  const isColumnVisible = useCallback(
-    (key: string) => visibleColumns.has(key),
-    [visibleColumns]
-  );
+  const isColumnVisible = useCallback((key: string) => visibleColumns.has(key), [visibleColumns]);
 
   return {
     visibleColumns,

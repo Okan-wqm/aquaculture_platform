@@ -32,6 +32,7 @@ from aria_kernel.genesis_adapter_custody import (
 )
 from aria_kernel.tool_registry import GovernanceError, get_tool, list_tools, register_tool, transition_tool
 from aria_kernel.tool_runner import run_tool
+from tests._helpers.active_evidence import stand_in_active_evidence
 from tests._helpers.sandbox_pins import require_sandbox_backend
 from tests.test_genesis_adapter_custody import (
     GOOD_SOURCE,
@@ -179,6 +180,9 @@ class PromotionAuthorityTests(_MaterializeLayout):
         super().setUp()
         result, _source = self._calibrate_passing("req-p")
         self._materialize("req-p", result)
+        # The subject is the authority gate; the ACTIVE evidence gate
+        # (ARIA-HIGH-004) is stood in, as the operator's act is.
+        stand_in_active_evidence(self)
 
     def test_the_auto_promote_token_alone_is_refused_before_it_is_verified(self) -> None:
         with mock.patch("aria_kernel.adapter_calibration.verify_auto_promote_token") as verify:

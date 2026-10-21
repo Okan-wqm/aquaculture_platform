@@ -9,7 +9,8 @@ from .feedback_store import (
     anchor_group_keys,
     operator_group_keys,
 )
-from .fixture_runner import latest_fixture_status
+from .fixture_runner import latest_fixture_status, tool_manifest_hash
+from .ledger import sha256_digest_of_canonical_json
 from .runs_reader import read_runs_rows
 from .tool_health import compute_metrics, current_emission_scope, runs_path
 from .tool_registry import GovernanceError, effective_freshness_window_hours, get_tool
@@ -142,8 +143,13 @@ def adapter_active_readiness(
     if critical_false_positives > 0:
         blockers.append("critical_false_positive_present")
 
-    return {
+    verdict: dict[str, Any] = {
         "tool_id": tool_id,
+        # ARIA-HIGH-004 — the verdict names the tool it measured by version
+        # and manifest, so the ACTIVE transition that consumes it can refuse
+        # a verdict about a tool that has since changed.
+        "tool_version": tool.get("version"),
+        "tool_manifest_hash": tool_manifest_hash(tool),
         "status": tool.get("status"),
         "runtime_ok": bool(runs and runs[-1].get("status") == "ok"),
         "fixture_pass": fixture_pass,
@@ -180,6 +186,19 @@ def adapter_active_readiness(
         "active_ready": not blockers,
         "blocked_by": blockers,
     }
+    verdict["verdict_hash"] = readiness_verdict_hash(verdict)
+    return verdict
+
+
+def readiness_verdict_hash(verdict: dict[str, Any]) -> str:
+    """ARIA-HIGH-004 — the identity of one readiness verdict: the digest of
+    everything it states. The adapter calibration report records it and the
+    SHADOW -> ACTIVE transition binds it (``adapter_calibration``), so the
+    verdict a promotion consumed is the verdict the report holds, byte for
+    byte, and a verdict edited after it was recorded no longer matches."""
+    return sha256_digest_of_canonical_json(
+        {key: value for key, value in verdict.items() if key != "verdict_hash"},
+    )
 
 
 def _last_ok_run_recorded_at(runs: list[dict[str, Any]]) -> str | None:

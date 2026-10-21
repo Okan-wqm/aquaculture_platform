@@ -53,7 +53,8 @@ for _ in $(seq 1 30); do
     NATS_TLS_CA="$TMP_DIR/certs/ca-cert.pem" \
     NATS_TLS_CERT="$TMP_DIR/client/messaging_service-cert.pem" \
     NATS_TLS_KEY="$TMP_DIR/client/messaging_service-key.pem" \
-    node "$ROOT/scripts/nats/messaging-acl-smoke.mjs" --mode live; then
+    "$ROOT/node_modules/.bin/ts-node" --project "$ROOT/tools/gates/tsconfig.json" \
+      "$ROOT/scripts/nats/messaging-acl-smoke.ts" --mode live; then
     echo "OK: repo-managed messaging NATS ACL live harness completed"
     exit 0
   fi

@@ -70,6 +70,71 @@ class TheChainTerminates(unittest.TestCase):
         self.assertGreaterEqual(MIN_CYCLE_INTERVAL_HOURS, 4.0)
 
 
+class TheDrainRechainIsBounded(unittest.TestCase):
+    """ARIA-MEDIUM-398 — a self-minted, window-skipped implementation request
+    is taken by ONE direct executor re-chain, not by the run after the next
+    cycle.
+
+    The drain that mints an implementation request mid-run and then cannot
+    fit its worst case in the remaining window leaves it PENDING; the only
+    chain out of a drain was `chain-next-cycle`, so the request waited a
+    full cycle (AIR-aria-implementer-9f5893f12678: minted 07:41Z, skipped
+    with 16659 s left, still waiting while the chained cycle ran at 09:07Z)
+    for work the drain itself had just produced. The return edge for that
+    case is ONE drain hop: one re-chain per minted request, and a re-chain
+    run never re-chains again — it takes the normal cycle edge.
+    """
+
+    def _rechain(self, **overrides) -> ChainDecision:
+        # Imported per call so the missing-capability red is this class's
+        # alone; the module's existing pins keep running.
+        from aria_kernel.cycle_rhythm import evaluate_drain_rechain
+
+        kwargs = dict(
+            window_skipped_self_minted=frozenset({"AIR-IMPL-1"}),
+            already_rechained_request_ids=frozenset(),
+            dispatched_as_rechain=False,
+        )
+        kwargs.update(overrides)
+        return evaluate_drain_rechain(**kwargs)
+
+    def test_a_self_minted_window_skip_earns_one_direct_rechain(self) -> None:
+        decision = self._rechain()
+        self.assertTrue(decision.dispatch)
+        self.assertEqual(decision.reason, "rechain_ready")
+
+    def test_no_self_minted_window_skip_refuses_by_name(self) -> None:
+        decision = self._rechain(window_skipped_self_minted=frozenset())
+        self.assertFalse(decision.dispatch)
+        self.assertEqual(decision.reason, "no_self_minted_window_skip")
+
+    def test_an_already_rechained_request_is_not_rechained_again(self) -> None:
+        # The one-per-request ledger is the bound: a request the re-chain
+        # ledger already names waits for the cycle like everything else.
+        decision = self._rechain(already_rechained_request_ids=frozenset({"AIR-IMPL-1"}))
+        self.assertFalse(decision.dispatch)
+        self.assertEqual(decision.reason, "already_rechained")
+
+    def test_a_rechain_run_never_rechains_again(self) -> None:
+        # The depth brake: one drain hop before the cycle edge. A re-chain
+        # that could re-chain would be a drain→drain loop with a minting
+        # implementation inside it.
+        decision = self._rechain(dispatched_as_rechain=True)
+        self.assertFalse(decision.dispatch)
+        self.assertEqual(decision.reason, "rechain_depth_exhausted")
+
+    def test_one_rechain_run_serves_every_waiting_candidate(self) -> None:
+        # The bound is per REQUEST (the ledger row), not per run: one
+        # dispatch is handed the whole waiting set, so a drain that minted
+        # and skipped three implementations queues exactly one re-chain.
+        decision = self._rechain(
+            window_skipped_self_minted=frozenset({"AIR-IMPL-1", "AIR-IMPL-2"}),
+            already_rechained_request_ids=frozenset({"AIR-IMPL-1"}),
+        )
+        self.assertTrue(decision.dispatch)
+        self.assertEqual(decision.reason, "rechain_ready")
+
+
 class TheChainScriptNeverBreaksTheDrain(unittest.TestCase):
     def _run(self, env: dict[str, str]) -> str:
         script = Path(__file__).resolve().parents[2] / "tools" / "aria" / "chain_next_cycle.py"

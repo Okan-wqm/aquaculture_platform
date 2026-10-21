@@ -47,7 +47,6 @@ def _write_policy(base_dir: Path, caps: dict[str, float]) -> None:
     )
 
 
-
 def _burn(base: Path, usd: float, *, cycle_id: str = "cyc-burn") -> None:
     """ORPHAN-HIGH-466 — spend real money the way the system actually does.
 
@@ -208,16 +207,21 @@ class PhaseB0CostBudget(unittest.TestCase):
             except GovernanceError:
                 pass
             self.assertEqual(current_state(base), "tripped")
-            reset_breaker(
-                base_dir=base,
-                reason="invariant b0 reset test",
-                operator_approval_ref="RFC-RST",
-            )
+            # ARIA-HIGH-238 — clearing the stop is an operator's GitHub act
+            # bound to this trip; a free string no longer clears it.
+            from aria_kernel.cost_budget import trip_scope
+            from tests._helpers.operator_acts import github_operator_acts
+
+            with github_operator_acts() as github:
+                with self.assertRaises(GovernanceError):
+                    reset_breaker(base_dir=base, reason="invariant b0 reset test", operator_approval_ref="RFC-RST")
+                self.assertEqual(current_state(base), "tripped")
+                reset_breaker(
+                    base_dir=base,
+                    reason="invariant b0 reset test",
+                    operator_approval_ref=github.approve("breaker_reset", trip_scope(base)),
+                )
             self.assertEqual(current_state(base), "ok")
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class CostCounterDerivationTests(unittest.TestCase):
@@ -291,3 +295,7 @@ class CostCounterDerivationTests(unittest.TestCase):
                     (budget_dir / stale).exists(),
                     f"{stale} is back; the gate can diverge from real spend again",
                 )
+
+
+if __name__ == "__main__":
+    unittest.main()

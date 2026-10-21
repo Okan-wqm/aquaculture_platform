@@ -258,6 +258,11 @@ class _Adapter:
         self.calls.append("merge")
         return dict(self.merge_result)
 
+    def get_pr_diff(self, pr_number: int) -> tuple[str | None, str | None]:
+        # The Protocol's required read (ARIA-MEDIUM-581); this fixture's PR
+        # carries no diff, and says so by name.
+        return None, "fixture_pr_diff_absent"
+
 
 def _gates() -> list:
     from tests.test_merge_lane_publication import _gates as publication_gates

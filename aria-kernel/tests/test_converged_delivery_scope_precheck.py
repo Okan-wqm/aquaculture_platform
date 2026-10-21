@@ -158,7 +158,7 @@ class _ScopeCase(unittest.TestCase):
         return load_jsonl(self.tools / "validation" / "validation-runs.jsonl")
 
     def operator_items(self) -> dict[str, dict]:
-        return {row["request_id"]: row for row in list_human_required(base_dir=self.tools)}
+        return {row["request_id"]: row for row in list_human_required(base_dir=self.tools).rows}
 
     def human_required_evaluations(self, plan_id: str) -> list[dict]:
         return [event["payload"] for event in self.state(plan_id)["events"]

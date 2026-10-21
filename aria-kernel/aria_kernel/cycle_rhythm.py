@@ -28,6 +28,7 @@ one of which stops the chain:
 """
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -48,7 +49,10 @@ class ChainDecision:
         return {"dispatch": self.dispatch, "reason": self.reason}
 
 
-def _parse_ts(value: str | None) -> datetime | None:
+def parse_iso_timestamp(value: str | None) -> datetime | None:
+    """One ISO-8601 parser for the rhythm's own edges and the drain's
+    mid-drain mint comparison (ARIA-MEDIUM-398): both read the queue's
+    ``created_at``, so both must read it the same way."""
     if not value:
         return None
     text = value.strip().replace("Z", "+00:00")
@@ -78,7 +82,7 @@ def evaluate_cycle_chain(
         return ChainDecision(False, "drain_empty")
     if open_findings >= backlog_cap:
         return ChainDecision(False, "backlog_at_cap")
-    started = _parse_ts(last_cycle_started_at)
+    started = parse_iso_timestamp(last_cycle_started_at)
     if started is None:
         # Unknown history fails CLOSED: the cron still runs, so refusing
         # here costs one delayed cycle, while dispatching on an unread
@@ -91,3 +95,39 @@ def evaluate_cycle_chain(
             f"min_interval_not_elapsed:{age.total_seconds() / 3600:.1f}h",
         )
     return ChainDecision(True, "chain_ready")
+
+
+def evaluate_drain_rechain(
+    *,
+    window_skipped_self_minted: Collection[str],
+    already_rechained_request_ids: Collection[str],
+    dispatched_as_rechain: bool,
+) -> ChainDecision:
+    """Decide whether a finished drain should chain ONE more drain run.
+
+    ARIA-MEDIUM-398 — an implementation request minted DURING a drain and
+    then window-skipped (its whole worst case does not fit the remaining
+    window) used to wait for the next cycle's executor: the only outbound
+    edge was ``chain-next-cycle``, so work the drain itself had just
+    produced sat PENDING for a full cycle (AIR-aria-implementer-9f5893f12678:
+    minted 07:41Z, skipped with 16659 s of window left, still waiting while
+    the chained cycle ran at 09:07Z). The rule this enforces is the
+    finding's own bound: such a request is taken by the next fresh executor
+    run — ONE direct drain hop, one re-chain per minted request.
+
+    Termination, in the order the brakes bind:
+
+    * a run dispatched AS the re-chain never re-chains again — one drain
+      hop before the cycle edge, so there is no drain→drain loop to write
+      by accident (the re-chained run still takes the normal cycle edge);
+    * no self-minted window skip means the ordinary cycle edge applies;
+    * a request the re-chain ledger already names has had its one hop.
+    """
+    if dispatched_as_rechain:
+        return ChainDecision(False, "rechain_depth_exhausted")
+    if not window_skipped_self_minted:
+        return ChainDecision(False, "no_self_minted_window_skip")
+    rechained = set(already_rechained_request_ids)
+    if not any(request_id not in rechained for request_id in window_skipped_self_minted):
+        return ChainDecision(False, "already_rechained")
+    return ChainDecision(True, "rechain_ready")

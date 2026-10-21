@@ -175,6 +175,10 @@ def _resolve_key(
                 "hmac_key_missing: run `aria-kernel ack init` first "
                 "(see docs/runbooks/aria-ack-key-rotation.md)"
             ) from exc
+        # ARIA-LOW-598 — a revoked key's row is unverifiable, not forged and
+        # not unknown: the verdict names the revocation (runbook §3).
+        if str(exc).startswith("hmac_key_revoked"):
+            raise GovernanceError(f"signed_key_revoked: signed_key_id={key_id!r}") from exc
         raise GovernanceError(
             f"hmac_key_unknown: signed_key_id={key_id!r} not in rolling list"
         ) from exc
@@ -269,6 +273,56 @@ def rotate_key(
         "retired_keys": retired_keys,
         "active_key_count": len(rotated),
     }
+
+
+def revoke_key(
+    *,
+    base_dir: str | Path,
+    key_id: str,
+    reason: str,
+    operator_approval_ref: str,
+) -> dict[str, Any]:
+    """ARIA-LOW-598 — quarantine a compromised key (runbook §3, step 2).
+
+    Rotation keeps the previous head in the rolling list so its rows stay
+    verifiable — which, for a LEAKED key, is the problem: whoever holds it can
+    forge rows that verify until it rolls off the five-entry window. This
+    drops the key's secret from the file at once, keeps a revocation record,
+    and writes an ``ack_key_revoked`` governance row. Every row it signed then
+    verifies as ``signed_key_revoked`` — unverifiable, its content intact.
+    The head key is refused: rotate first (``ack rotate-key --emergency``).
+    """
+    root = ensure_tools_dir(base_dir)
+    if not _load_keys(root):
+        raise GovernanceError(
+            "ack_revoke_no_existing_key: run `aria-kernel ack init` first"
+        )
+    revocation = _keyring(root).revoke(key_id, reason=reason)
+    record = revocation["revoked"]
+    from .tool_registry import append_tools_governance
+    append_tools_governance(
+        root,
+        "ack_key_revoked",
+        {
+            "key_id": key_id,
+            "minted_at": record["minted_at"],
+            "revoked_at": record["revoked_at"],
+            "operator_approval_ref": operator_approval_ref,
+            "reason": reason,
+            "active_key_count": len(revocation["keys"]),
+        },
+    )
+    return {
+        "status": "ok",
+        "revoked_key_id": key_id,
+        "revoked_at": record["revoked_at"],
+        "active_key_count": len(revocation["keys"]),
+    }
+
+
+def revoked_keys(*, base_dir: str | Path) -> list[dict[str, Any]]:
+    """The revocation records (``key_id``, ``minted_at``, ``revoked_at``, ``reason``)."""
+    return _keyring(base_dir).revoked()
 
 
 def list_keys(*, base_dir: str | Path) -> list[dict[str, Any]]:
@@ -875,6 +929,8 @@ __all__ = [
     "mint_operator_ack",
     "operator_ack_reason",
     "record_autonomous_ack",
+    "revoke_key",
+    "revoked_keys",
     "rotate_key",
     "verify_range",
     "verify_row",

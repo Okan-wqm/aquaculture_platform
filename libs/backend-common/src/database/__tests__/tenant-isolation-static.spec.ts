@@ -72,9 +72,11 @@ describe('Tenant Isolation Static Analysis', () => {
       // 197 → 198: sensor's channel_quantity_declarations, the append-only ledger
       // of what a channel was declared to measure, by whom and when
       // (SENSOR-MEDIUM-170). Per-tenant: it is keyed by the tenant's channels.
+      // 199 → 201: farm's temperature_scenarios + temperature_scenario_points,
+      // the production plan's dated temperature curve (design record 2026-10-19).
       // 198 → 199: farm's parameter_quantity_declarations, the same ledger for a
       // water-quality parameter's declared quantity (FARM-MEDIUM-374).
-      expect(tenantTotal).toBe(199);
+      expect(tenantTotal).toBe(201);
     });
 
     it('every module should have a sourceSchema', () => {
@@ -134,7 +136,9 @@ describe('Tenant Isolation Static Analysis', () => {
       // assessment, sync-state, and metric-outcome SSoT. 96 → 97:
       // feeding_record_attribution_quarantine (see the tenantTotal note above).
       // 97 → 98: parameter_quantity_declarations (see the tenantTotal note above).
-      expect(counts['farm']).toBe(98);
+      // 98 → 100: temperature_scenarios + temperature_scenario_points, the
+      // production plan's dated temperature curve (design record 2026-10-19).
+      expect(counts['farm']).toBe(100);
       expect(counts['hr']).toBe(29);
       expect(counts['hydroponics']).toBe(1);
       expect(counts['alert']).toBe(4);

@@ -34,6 +34,7 @@ from aria_kernel import state_snapshot
 from aria_kernel.operator_request_terms import parse_utc
 from aria_kernel.tool_registry import GovernanceError
 from tests._helpers import operator_requests as helpers
+from tests._helpers.pre_merge_evidence import fixture_pre_merge_evidence
 from tests._helpers.operator_requests import (
     ALL_OPERATOR_NAMESPACES,
     AUDIENCE,
@@ -196,10 +197,6 @@ class RegistryAnchorTests(unittest.TestCase):
         self.assertEqual(ors.allowed_signers_for_checkout(self.fx.repo, base_dir=self.fx.tools), (None, ors.ALLOWED_SIGNERS_UNAVAILABLE))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 def _git_out(*args: str) -> str:
     return subprocess.run(["git", "-C", str(_REPO_ROOT), *args], check=True, capture_output=True, text=True).stdout.strip()
 
@@ -283,7 +280,7 @@ class MergeTimeEnrolmentExpiryTests(unittest.TestCase):
     def _perimeter(self, *, at: datetime, base: str | None = None, head: str | None = None,
                    bound: bool = True) -> safety.HardFailResult:
         fields = {field: f"{field}-x" for field in self._BOUND} if bound else {}
-        evidence = safety._PreMergeEvidence((), base_sha=base or self.base, head_sha=head or self.head, **fields)
+        evidence = fixture_pre_merge_evidence((), base_sha=base or self.base, head_sha=head or self.head, **fields)
         context = safety.HardFailContext(workspace_root=self.fx.repo, pre_merge_evidence=evidence)
         with mock.patch.object(safety, "datetime") as clock:
             clock.now.return_value = at
@@ -533,3 +530,7 @@ class NamespaceAddedByEnrolmentTests(unittest.TestCase):
                  + json.dumps(row((signers, no_enrol), REGISTRY_BYTES)) + "\n").encode()
         self.assertEqual(ors.verify_enrolment_chain(chain, allowed_signers=signers, registry=REGISTRY_BYTES,
                                                     runner_keys=frozenset()), ors.ENROL_CHAIN_BROKEN)
+
+
+if __name__ == "__main__":
+    unittest.main()

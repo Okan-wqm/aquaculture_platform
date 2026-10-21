@@ -127,6 +127,17 @@ PUBLISH_PREAMBLE_SECONDS: int = (
     + 3 * GIT_TIMEOUT_SECONDS  # fence reads: lease probe, lease fetch, state-tip probe
     + 3 * GIT_TIMEOUT_SECONDS  # renewal: push, then the re-read's probe and fetch
 )
+# ARIA-LOW-585 — the steps around a leased publish that carry no kernel
+# bound of their own: the integrity verification, the handoff snapshot and
+# the request mint. ONE owner for the number, because both ARIA lanes
+# price the same close-out from it (the executor's post-drain reserve and
+# the producer's whole close-out margin), and they disagreed: the executor
+# allowed 900 s while the one measurement (#1371, the 842 MB store:
+# integrity verify 40 + handoff 5 + mint 2 minutes) says 47 minutes. The
+# nightly "Measure the unbounded close-out" step keeps measuring the real
+# stretch; until a live night re-measures on the current store, the
+# measured figure is the conservative one.
+STATE_CLOSE_OUT_STEPS_ALLOWANCE_SECONDS: int = 47 * 60
 # What must still fit in the lease when the fence has been checked: the cold
 # staging and the locked publish. A lease with less than this left is renewed
 # by CAS before anything is pushed. A leased publish never replays.

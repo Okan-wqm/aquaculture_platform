@@ -74,6 +74,17 @@ export function isDeadlineLapsed(deadline: string, now: Date): boolean {
   return !Number.isNaN(due) && due < now.getTime();
 }
 
+/**
+ * Whether a row names someone accountable: a non-blank `owner_user`, the
+ * property the schema's `$defs/accountable` requires of every BLOCKED row and
+ * every unresolved CRITICAL. The sweep asks it before it blocks a lapsed row,
+ * so it never plans a BLOCKED row no owner can sign an override for
+ * (ARIA-MEDIUM-601).
+ */
+export function hasAccountableOwner(entry: Pick<Finding, 'owner_user'>): boolean {
+  return typeof entry.owner_user === 'string' && entry.owner_user.trim() !== '';
+}
+
 export interface Finding {
   id: string;
   severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';

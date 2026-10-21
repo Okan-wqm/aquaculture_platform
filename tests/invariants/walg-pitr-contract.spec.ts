@@ -867,8 +867,9 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
     expect(entrypoint).toContain(
       '[ "$(stat -c \'%u:%g:%a\' "${SERVER_KEY_SOURCE}")" != \'0:0:600\' ]',
     );
+    // The generator's managed server table row: name|CN|subjectAltName|key mode.
     expect(certificateGenerator).toContain(
-      'generate_server_cert "postgres" "postgres" "DNS:postgres,DNS:aqua-postgres,DNS:localhost" 0600',
+      "'postgres|postgres|DNS:postgres,DNS:aqua-postgres,DNS:localhost|0600'",
     );
     expect(entrypoint).toContain(
       'for legacy_path in "${PGDATA}/server.crt" "${PGDATA}/server.key" "${PGDATA}/root.crt"',

@@ -149,6 +149,50 @@ class TheObservationStepsRunInTheLiveLane(unittest.TestCase):
         bounded = sum(int(step["timeout-minutes"]) * 60 for step in after if "timeout-minutes" in step)
         self.assertLessEqual(basis + bounded, margin, f"{basis} + {bounded} > {margin}")
 
+    def test_the_close_out_margin_is_priced_from_the_kernel_publish_bounds(self) -> None:
+        # ARIA-LOW-585 — one center for the publish pricing. The executor's
+        # post-drain reserve derives from the kernel's own bounds (liveness
+        # 2700 + publish preamble 4500 + a steps allowance); the producer's
+        # whole close-out margin was a separate measured literal, 6000,
+        # BELOW the kernel's priced worst case for the publish arc alone —
+        # one publish priced two ways, and a night that hits the kernel's
+        # worst case would seal past its own job cap. The margin now holds
+        # the kernel's publish arc, the kernel's close-out steps allowance
+        # and every bounded step after the cycle; and when the margin is
+        # re-derived the CAP moves with it, so the spawn window — what the
+        # night may spend, the operator's 2026-08-13 unbounded night — does
+        # not change. (No live red exists: proving the 7200s publish worst
+        # case takes a >2h drain on the real store; the nightly "Measure
+        # the unbounded close-out" step keeps measuring the real stretch.)
+        from aria_kernel.state_store_lifecycle_arcs import STATE_STORE_LIFECYCLE_LIVENESS_SECONDS
+        from aria_kernel.state_writer_lease import PUBLISH_PREAMBLE_SECONDS
+
+        env = _job()["env"]
+        margin = int(env["ARIA_CLOSE_OUT_MARGIN_SECONDS"])
+        self.assertGreaterEqual(
+            margin,
+            int(STATE_STORE_LIFECYCLE_LIVENESS_SECONDS) + PUBLISH_PREAMBLE_SECONDS,
+            "the close-out margin is below the kernel's priced publish arc alone",
+        )
+        from aria_kernel.state_writer_lease import STATE_CLOSE_OUT_STEPS_ALLOWANCE_SECONDS
+
+        names = _names()
+        after = [step for step in _steps()[names.index(_WORK_STEP) + 1:] if step.get("name") != _BURN_IN_STEP]
+        bounded = sum(int(step["timeout-minutes"]) * 60 for step in after if "timeout-minutes" in step)
+        self.assertGreaterEqual(
+            margin,
+            int(STATE_STORE_LIFECYCLE_LIVENESS_SECONDS) + PUBLISH_PREAMBLE_SECONDS
+            + STATE_CLOSE_OUT_STEPS_ALLOWANCE_SECONDS + bounded,
+            "the close-out margin drops a term the kernel prices",
+        )
+        job = _job()
+        run = _step(_WORK_STEP)["run"]
+        self.assertIn("JOB_TIMEOUT_MINUTES * 60 - ARIA_CLOSE_OUT_MARGIN_SECONDS ))", run)
+        self.assertIn(f"JOB_TIMEOUT_MINUTES={int(job['timeout-minutes'])}\n", run)
+        # The spawn window is the operator's budget: 260 minutes. A
+        # re-derived margin moves the cap with it, never the window.
+        self.assertEqual(int(job["timeout-minutes"]) * 60 - margin, 260 * 60)
+
     def test_every_unbounded_step_before_the_publish_is_inside_the_measured_stretch(self) -> None:
         # The basis prices the stretch from the anchor to the end of the
         # publish; a step with no timeout added between the cycle and the

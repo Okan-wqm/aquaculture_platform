@@ -59,6 +59,7 @@ from aria_kernel.state_store import (
 )
 from aria_kernel.tool_health import record_run
 from aria_kernel.tool_registry import register_tool
+from tests._helpers.state_lineage_pin import sync_fixture_lineage_pin
 from tests.test_runtime_artifacts import _run, _tool
 from tests.test_state_store import REPO_HASH, StateStoreTestCase, _EnvPatch, _git
 from tests._helpers.writer_lease import holding_writer_lease, leased_publish
@@ -87,6 +88,8 @@ class ColdEvictionTestCase(StateStoreTestCase):
     def _bound_store(self, repo: Path, store_dir: Path, *, bootstrap: bool = False):
         from aria_kernel.tools_binding import bind_tools_root
 
+        if not bootstrap:
+            sync_fixture_lineage_pin(repo, self.remote)  # main's lineage pin (ARIA-LOW-578)
         store = self._bootstrap() if bootstrap else checkout_state_store(repo, store_dir=store_dir)
         with _EnvPatch(state_store.store_environment(store, REPO_HASH)):
             bind_tools_root(

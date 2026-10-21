@@ -203,13 +203,17 @@ jobs:
     # the previous flat 50-minute limit, producing ZERO ladder evidence because
     # the acceptance verdict is all-or-nothing). Schedule/cycle runs keep 50.
     # Operator decision (2026-08-13): the night's window is UNBOUNDED — in
-    # GitHub terms that is the 360-minute platform ceiling, stated
-    # explicitly rather than left implicit by omitting the field. Smoke
-    # runs 1-3 proved the 50-minute cap was the binding constraint (the
-    # cycle needs adapters + queue drain + spawns); the deadline defence
-    # pair (ORPHAN-661 spawn clamp + ORPHAN-662 night-close) keeps ANY
-    # value safe: the night seals and publishes whatever the wall is.
-    timeout-minutes: 360
+    # GitHub terms that is a stated cap, not an omitted field (there is no
+    # 360-minute platform ceiling on a self-hosted runner; the executor job
+    # runs 602). 360 → 454 when the close-out margin was re-derived from the
+    # kernel's own publish bounds (ARIA-LOW-585): the cap moves WITH the
+    # margin, so the spawn window — what the night may spend — is the same
+    # 260 minutes it was. Smoke runs 1-3 proved a small cap was the binding
+    # constraint (the cycle needs adapters + queue drain + spawns); the
+    # deadline defence pair (ORPHAN-661 spawn clamp + ORPHAN-662 night-close)
+    # keeps ANY value safe: the night seals and publishes whatever the wall
+    # is.
+    timeout-minutes: 454
     env:
       # Kernel-workflow parity: no .pyc litter in the checkout — the
       # burn-in pre-clean guard treats any untracked path as dirty.
@@ -226,7 +230,15 @@ jobs:
       # measured 229 s / 245 s / 5 s on the 2026-10-10 store, when
       # self_improve still ran the doctor a second time — it reads the doctor
       # step's report since ARIA-LOW-559), 84 of the 100 minutes.
-      ARIA_CLOSE_OUT_MARGIN_SECONDS: '6000'
+      # ARIA-LOW-585 — the margin itself is DERIVED from the kernel's priced
+      # publish bounds, not a separate measured literal: the lifecycle
+      # liveness (2700) + the leased publish's preamble (4500) + the kernel's
+      # close-out steps allowance (#1371's 2820) + those bounded step
+      # timeouts (1620) = 11640 — the old 6000 was below the kernel's priced
+      # worst case for the publish arc alone (7200), the same publish priced
+      # two ways. The cap moved with it (360 → 454), so the spawn window is
+      # unchanged; the basis stays the nightly measurement's to check.
+      ARIA_CLOSE_OUT_MARGIN_SECONDS: '11640'
       ARIA_CLOSE_OUT_UNBOUNDED_BASIS_SECONDS: '3420'
     steps:
       # ORPHAN-HIGH-802 — reset the persistent workspace HERE, so checkout
@@ -479,8 +491,11 @@ jobs:
           # end: no other lane can publish in between. The expiry is this
           # job's own timeout-minutes plus the 80-minute leased-publish margin
           # (GSEC-MEDIUM-003); the wait covers the hosted writers' whole
-          # bounds (at most 25 min) before the run yields by name.
-          writer-lease-ttl-minutes: '440'
+          # bounds (at most 25 min) before the run yields by name. The TTL
+          # moves with the cap (440 → 534 when 360 → 454, ARIA-LOW-585): a
+          # publish at the very end of a longer job must still find a whole
+          # leased publish left on the lease.
+          writer-lease-ttl-minutes: '534'
           writer-lease-wait-seconds: '1800'
       - name: Pre-flight - cross-host autonomous-loop lease check
         id: lease_check
@@ -711,10 +726,11 @@ jobs:
           if ! printf '%s' "${TOOL_IDS}" | grep -Eq '^[a-z0-9-]+(,[a-z0-9-]+)*$'; then
             echo '::error::tool ids must be comma-separated slugs'; exit 1
           fi
-          GH_REF='gh:[A-Za-z0-9-]+/[A-Za-z0-9._-]+#[0-9]+/(comment|review)/[0-9]+'
-          if ! printf '%s' "${APPROVAL_REF}" | grep -Eq "^${GH_REF}(,${GH_REF})*\$"; then
-            echo '::error::approval refs must be comma-separated gh:<owner>/<repo>#<n>/comment|review/<id>'; exit 1
-          fi
+          # ARIA-HIGH-238 — the kernel owns the ref grammar; a regex copy here
+          # drifts the day the kernel's grammar moves. One ref per tool id.
+          PYTHONPATH=aria-kernel python3 -m aria_kernel operator check-ref \
+            --list \
+            --ref "${APPROVAL_REF}"
           IFS=',' read -ra IDS <<< "${TOOL_IDS}"
           IFS=',' read -ra REFS <<< "${APPROVAL_REF}"
           if [ "${#IDS[@]}" -ne "${#REFS[@]}" ]; then
@@ -1015,9 +1031,11 @@ jobs:
           # near the top of this job ($ARIA_JOB_LAUNCH_EPOCH), NOT here: a
           # fresh-store restore measured 17m41s before this step (run
           # 32771477211), which consumed the margin computed from the step
-          # clock and sealed the cycle 8 minutes past the platform ceiling.
-          # Anchoring here is only the local-dispatch fallback (env unset).
-          JOB_TIMEOUT_MINUTES=360
+          # clock and sealed the cycle 8 minutes past the job cap. Anchoring
+          # here is only the local-dispatch fallback (env unset). The cap and
+          # the margin move together (ARIA-LOW-585), so the spawn deadline —
+          # the window the night may spend — is the same 260 minutes.
+          JOB_TIMEOUT_MINUTES=454
           ANCHOR_EPOCH="${ARIA_JOB_LAUNCH_EPOCH:-$(date +%s)}"
           export ARIA_JOB_DEADLINE_EPOCH=$(( ANCHOR_EPOCH + JOB_TIMEOUT_MINUTES * 60 - ARIA_CLOSE_OUT_MARGIN_SECONDS ))
           echo "spawn deadline: $(date -u -d @${ARIA_JOB_DEADLINE_EPOCH} +%H:%M:%SZ) (job cap ${JOB_TIMEOUT_MINUTES}m - $(( ARIA_CLOSE_OUT_MARGIN_SECONDS / 60 ))m margin, anchored $( [ -n "${ARIA_JOB_LAUNCH_EPOCH:-}" ] && echo at-job-launch || echo at-step ))"

@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+import { makeFixtureTree } from '../gates/fixture-tree';
 
 import { analyzeBundleBudgets } from './bundle-budget-adapter';
 
-const workspace = mkdtempSync(join(tmpdir(), 'aria-bundle-budget-'));
+const workspace = makeFixtureTree('aria-bundle-budget-');
 
 // Module WITHOUT a budget, importing a heavyweight statically.
 const fat = join(workspace, 'web/modules/fat-module');

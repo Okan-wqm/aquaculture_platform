@@ -95,7 +95,11 @@ function str(value: Json | undefined): string {
 
 const sha256 = (data: Buffer | string): string => createHash('sha256').update(data).digest('hex');
 
-const boards = list(readJson(join(CONTRACT, 'boards.json'))['boards']).map(obj);
+const boardsFile = readJson(join(CONTRACT, 'boards.json'));
+const boards = list(boardsFile['boards']).map(obj);
+/** boards.json os_runtime: the one definition of what the Suderra OS images provide (DEC-8.5). */
+const osRuntime = obj(boardsFile['os_runtime']);
+const osLibraries = obj(osRuntime['shared_libraries']);
 const naming = readJson(join(CONTRACT, 'artifact-naming.json'));
 const osNaming = obj(naming['suderra_os_channel']);
 const genericNaming = obj(naming['generic_channel']);
@@ -107,11 +111,11 @@ const facts = parseToml(readFileSync(FACTS, 'utf8')) as {
   suderra_os: {
     crate_required_features: string[];
     crate_required_features_tracked_by?: string;
-    max_glibc: string;
     unbuildable?: Record<string, { blocked_by: string; reason: string }>;
     required_kernel_config: Record<string, string[]>;
   };
   generic_channel: { cargo_features: string[]; max_glibc: string };
+  /** Only the architectures boards.json os_runtime does not define (armv7: the generic channel). */
   runtime: Record<string, { interpreter: string; needed: string[] }>;
 };
 const cargo = parseToml(readFileSync(CARGO_TOML, 'utf8')) as {
@@ -327,13 +331,26 @@ const BASELINE_VERSION_NEEDS: VersionNeed[] = [
   { file: 'libgcc_s.so.1', versions: ['GCC_3.0'] },
 ];
 
+/** The interpreter and libraries of an architecture: the contract's, else the release facts'. */
+function runtimeOf(arch: string): { interpreter: string; needed: string[] } | undefined {
+  const contract = osLibraries[arch];
+  if (contract !== undefined) {
+    const table = obj(contract);
+    return {
+      interpreter: str(table['interpreter']),
+      needed: list(table['needed']).map(str),
+    };
+  }
+  return facts.runtime[arch];
+}
+
 function releaseElf(
   row: Row,
   extraNeeded: string[] = [],
   versionNeeds: VersionNeed[] = BASELINE_VERSION_NEEDS,
   interpreter?: string,
 ): Buffer {
-  const rt = facts.runtime[row.arch];
+  const rt = runtimeOf(row.arch);
   if (rt === undefined) throw new Error(`no runtime for ${row.arch}`);
   return elf(
     row.arch,
@@ -984,13 +1001,23 @@ describe('edge release statements (scripts/edge/edge_release.py)', () => {
     expect(existsSync(join(out, osRows[0]?.statement ?? ''))).toBe(false);
   });
 
+  it('keeps no second copy of what the Suderra OS images provide (INFRA-MEDIUM-253)', () => {
+    expect(Object.keys(facts.suderra_os)).not.toContain('max_glibc');
+    const copied = Object.keys(facts.runtime).filter((arch) => arch in osLibraries);
+    expect(copied).toEqual([]);
+    // Every planned architecture resolves to a runtime, from one source.
+    for (const row of [...osRows, ...genericRows]) {
+      expect(runtimeOf(row.arch)).toBeDefined();
+    }
+  });
+
   it('refuses binaries for another machine or linking outside the OS runtime (DEC-8.5)', () => {
     const row = osRows.find((r) => r.arch === 'aarch64') ?? osRows[0];
     if (row === undefined) throw new Error('no Suderra OS row planned');
     const out = join(run.dir, 'refused-elf');
     const bin = join(run.dir, 'refused.bin');
     const other = Object.keys(ELF_MACHINE).find((a) => a !== row.arch && a !== 'armv7') ?? 'x86_64';
-    writeFileSync(bin, elf(other, facts.runtime[other]?.interpreter ?? '', ['libc.so.6']));
+    writeFileSync(bin, elf(other, runtimeOf(other)?.interpreter ?? '', ['libc.so.6']));
     expect(
       tool(
         ['package', '--channel', row.channel, '--id', row.id, '--binary', bin, '--out-dir', out],
@@ -1351,11 +1378,12 @@ describe('edge release publish gate (scripts/edge/edge_release.py verify and sig
         GITHUB_ENV,
       );
     };
-    const osCap = `GLIBC_${facts.suderra_os.max_glibc}`;
+    const osGlibc = str(osRuntime['glibc_version']);
+    const osCap = `GLIBC_${osGlibc}`;
     ok(packageWith(row, ['GLIBC_2.17', osCap]));
-    const tooNew = packageWith(row, ['GLIBC_2.17', next(facts.suderra_os.max_glibc)]);
+    const tooNew = packageWith(row, ['GLIBC_2.17', next(osGlibc)]);
     expect(tooNew.reason).toBe('archive-invalid');
-    expect(tooNew.stderr).toContain(next(facts.suderra_os.max_glibc));
+    expect(tooNew.stderr).toContain(next(osGlibc));
     const privateAbi = packageWith(row, ['GLIBC_PRIVATE']);
     expect(privateAbi.reason).toBe('archive-invalid');
     expect(privateAbi.stderr).toContain('GLIBC_PRIVATE');
@@ -1436,6 +1464,41 @@ describe('edge release plan refusals', () => {
     const result = planWith(factsText.replace(/^qemu-x86_64 = .*\n/m, ''));
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('required_kernel_config');
+  });
+
+  it('fails when the release facts repeat a runtime the contract defines (INFRA-MEDIUM-253)', () => {
+    const arch = Object.keys(osLibraries)[0] ?? '';
+    const table = obj(osLibraries[arch]);
+    const copy = `\n[runtime.${arch}]\ninterpreter = ${JSON.stringify(str(table['interpreter']))}\nneeded = ${JSON.stringify(list(table['needed']).map(str))}\n`;
+    const result = planWith(factsText + copy);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(`[runtime.${arch}] repeats`);
+    expect(result.stderr).toContain('boards.json os_runtime');
+  });
+
+  it('fails when the release facts carry a Suderra OS glibc cap beside the contract', () => {
+    const result = planWith(
+      factsText.replace(/^\[suderra_os\]\n/m, '[suderra_os]\nmax_glibc = "2.41"\n'),
+    );
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("unknown keys ['max_glibc']");
+  });
+
+  it('fails when the contract names no runtime for a planned architecture', () => {
+    const contract = join(dir, 'contract-no-runtime');
+    for (const name of ['artifact-naming.json', 'statements.json']) {
+      cpSync(join(CONTRACT, name), join(contract, name));
+    }
+    for (const name of ['schemas', 'test-keys']) {
+      cpSync(join(CONTRACT, name), join(contract, name), { recursive: true });
+    }
+    const boardsCopy = readJson(join(CONTRACT, 'boards.json'));
+    const libraries = obj(obj(boardsCopy['os_runtime'])['shared_libraries']);
+    delete libraries['aarch64'];
+    writeFileSync(join(contract, 'boards.json'), JSON.stringify(boardsCopy));
+    const result = tool(['--contract', contract, 'plan']);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('declare a runtime for a planned aarch64 build');
   });
 
   it('fails when a release fact would not pass the contract schema', () => {

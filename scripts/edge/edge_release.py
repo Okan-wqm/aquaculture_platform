@@ -408,6 +408,9 @@ class Release:
     def __init__(self, facts_path: Path, cargo_toml: Path, contract: Path = CONTRACT) -> None:
         self.contract = contract
         self.boards = read_json(contract / "boards.json")
+        # DEC-8.5, INFRA-MEDIUM-253: the runtime the Suderra OS images provide is
+        # the contract's (boards.json os_runtime), not a second copy kept here.
+        self.os_runtime: dict[str, Any] = self.boards["os_runtime"]
         self.naming = read_json(contract / "artifact-naming.json")
         self.statements = read_json(contract / "statements.json")
         self.keyring = read_json(contract / "test-keys" / "keyring.json")
@@ -443,7 +446,6 @@ class Release:
                 "security_version",
                 "agent_abi",
                 "min_os_version",
-                "max_glibc",
                 "crate_required_features",
                 "crate_required_features_tracked_by",
                 "required_kernel_config",
@@ -466,6 +468,11 @@ class Release:
             )
         for arch, rt in f["runtime"].items():
             _strict_table(rt, {"interpreter", "needed"}, f"release facts [runtime.{arch}]")
+            if arch in self.os_runtime["shared_libraries"]:
+                fail(
+                    f"release facts [runtime.{arch}] repeats the {arch} runtime of boards.json os_runtime: "
+                    "the contract is the one definition, delete the copy"
+                )
         board_ids = {b["board_profile"] for b in self.boards["boards"]}
         kernel = set(os_facts["required_kernel_config"])
         if kernel != board_ids:
@@ -488,17 +495,26 @@ class Release:
 
     def max_glibc(self, channel: str) -> tuple[int, int, int]:
         """DEC-8.5: the newest GLIBC_x.y symbol version a binary of the channel may need."""
-        table = self.facts["suderra_os" if channel == CHANNEL_OS else "generic_channel"]
-        text = table.get("max_glibc")
+        if channel == CHANNEL_OS:
+            where = "boards.json os_runtime.glibc_version"
+            text = self.os_runtime.get("glibc_version")
+        else:
+            where = "release facts generic_channel.max_glibc"
+            text = self.facts["generic_channel"].get("max_glibc")
         m = re.fullmatch(r"([0-9]+)\.([0-9]+)(?:\.([0-9]+))?", str(text))
         if text is None or m is None:
-            fail(f"release facts: {channel} max_glibc must be a glibc version x.y, got {text!r}")
+            fail(f"{where} must be a glibc version x.y, got {text!r}")
         return (int(m[1]), int(m[2]), int(m[3] or 0))
 
     def runtime(self, arch: str) -> dict[str, Any]:
-        rt = self.facts["runtime"].get(arch)
+        """The interpreter and libraries of a planned build: the contract's for the architectures
+        the Suderra OS images are built for, the release facts' for any other (armv7, generic only)."""
+        rt = self.os_runtime["shared_libraries"].get(arch) or self.facts["runtime"].get(arch)
         if rt is None:
-            fail(f"release facts declare no [runtime.{arch}] for a planned {arch} build")
+            fail(
+                f"neither boards.json os_runtime nor the release facts [runtime.{arch}] "
+                f"declare a runtime for a planned {arch} build"
+            )
         return rt
 
     # ------------------------------------------------------------------- plan
@@ -754,7 +770,8 @@ def check_binary(release: Release, row: Row, data: bytes) -> ElfFacts:
     if foreign:
         fail(
             f"{row.artifact}: ELF NEEDED {foreign} is outside the {row.arch} runtime the OS provides "
-            f"{sorted(rt['needed'])} (sens-api-gateway/release/edge-release.toml [runtime.{row.arch}])",
+            f"{sorted(rt['needed'])} (contracts/suderra-edge/v1/boards.json os_runtime; "
+            f"sens-api-gateway/release/edge-release.toml [runtime.{row.arch}] for an architecture it names)",
             "archive-invalid",
         )
     # The loader refuses a binary that needs a newer glibc symbol version than
@@ -771,7 +788,7 @@ def check_binary(release: Release, row: Row, data: bytes) -> ElfFacts:
         fail(
             f"{row.artifact}: needs glibc symbol versions {sorted(too_new)} newer than the "
             f"{row.channel} channel's glibc {'.'.join(map(str, cap)).removesuffix('.0')} "
-            "(sens-api-gateway/release/edge-release.toml max_glibc)",
+            "(boards.json os_runtime.glibc_version; edge-release.toml generic_channel.max_glibc)",
             "archive-invalid",
         )
     return facts

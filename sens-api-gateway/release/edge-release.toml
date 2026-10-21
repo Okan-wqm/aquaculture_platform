@@ -24,11 +24,12 @@ agent_abi = 1
 # built today report 0.1.0 (Suderra-OS SUDERRA_VERSION v0.1.0-alpha).
 min_os_version = "0.1.0"
 # DEC-8.5: the newest glibc symbol version (ELF VERNEED GLIBC_x.y) a Suderra OS
-# release binary may require: the glibc of every Suderra OS image (Suderra-OS
-# Buildroot 2025.05.3, buildroot/package/glibc/glibc.mk 2.41, all boards
-# BR2_TOOLCHAIN_BUILDROOT_GLIBC). INFRA-MEDIUM-253 tracks deriving this, and
-# [runtime.*], from a runtime manifest the OS images publish.
-max_glibc = "2.41"
+# release binary may require, and the interpreter and shared libraries it may
+# link, are the contract's: contracts/suderra-edge/v1/boards.json os_runtime
+# (glibc 2.41 of Suderra-OS Buildroot 2025.05.3 on every board). They are not
+# repeated here; Suderra-OS tests/image-contracts/os-runtime-contract-test.sh
+# compares that table with the images' build inputs. INFRA-MEDIUM-253 stays open
+# for the comparison with a built rootfs.
 # KNOWN DEFECT EDGE-HIGH-128 (owner @Okan-wqm, deadline 2026-11-02): cargo
 # features every Suderra OS build carries on top of the board's boards.json
 # set, because the crate does not compile without `health`. Its HealthState is
@@ -74,36 +75,12 @@ cargo_features = ["health", "scada-display"]
 max_glibc = "2.23"
 
 # DEC-8.5: the shared libraries (ELF NEEDED) and program interpreter a release
-# binary may require. Every Suderra OS image ships them (Buildroot glibc and
-# the gcc runtime), and so does every glibc distribution of the generic
-# channel. A dependency that links anything else fails the release until it is
-# confirmed on the OS and added here. This is a copy of what the OS provides:
-# INFRA-MEDIUM-253 (owner @Okan-wqm, deadline 2026-11-30) replaces it with a
-# runtime manifest the Suderra OS images publish.
-[runtime.x86_64]
-interpreter = "/lib64/ld-linux-x86-64.so.2"
-needed = [
-  "ld-linux-x86-64.so.2",
-  "libc.so.6",
-  "libdl.so.2",
-  "libgcc_s.so.1",
-  "libm.so.6",
-  "libpthread.so.0",
-  "librt.so.1",
-]
-
-[runtime.aarch64]
-interpreter = "/lib/ld-linux-aarch64.so.1"
-needed = [
-  "ld-linux-aarch64.so.1",
-  "libc.so.6",
-  "libdl.so.2",
-  "libgcc_s.so.1",
-  "libm.so.6",
-  "libpthread.so.0",
-  "librt.so.1",
-]
-
+# binary may require, for an architecture the Suderra OS images are not built
+# for: armv7 builds only the frozen generic channel (glibc distributions, DEC-28).
+# The x86_64 and aarch64 runtimes of both channels are boards.json os_runtime
+# shared_libraries; the plan refuses a table here that repeats one of them. A
+# dependency that links anything else fails the release until it is confirmed
+# on the target and added.
 [runtime.armv7]
 interpreter = "/lib/ld-linux-armhf.so.3"
 needed = [

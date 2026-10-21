@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+
+import { makeFixtureTree } from '../gates/fixture-tree';
 
 import { readModuleSchemasSource } from './module-schemas-source';
 
@@ -16,10 +17,7 @@ import { readModuleSchemasSource } from './module-schemas-source';
  * this repository. The failure cases pin the contract that an unresolvable
  * element is a NAMED error, never a silent drop.
  */
-const workspace = mkdtempSync(join(tmpdir(), 'aria-module-schemas-source-'));
-process.on('exit', () => {
-  rmSync(workspace, { recursive: true, force: true });
-});
+const workspace = makeFixtureTree('aria-module-schemas-source-');
 
 function write(path: string, body: string): void {
   mkdirSync(dirname(join(workspace, path)), { recursive: true });
@@ -85,10 +83,7 @@ assert.deepEqual(source.readPaths, [
 
 // --- no path map: the imported constant is a NAMED error, never a drop -----
 {
-  const bareWorkspace = mkdtempSync(join(tmpdir(), 'aria-module-schemas-bare-'));
-  process.on('exit', () => {
-    rmSync(bareWorkspace, { recursive: true, force: true });
-  });
+  const bareWorkspace = makeFixtureTree('aria-module-schemas-bare-');
   mkdirSync(dirname(join(bareWorkspace, SSOT)), { recursive: true });
   writeFileSync(
     join(bareWorkspace, SSOT),
@@ -106,10 +101,7 @@ assert.deepEqual(source.readPaths, [
 
 // --- a non-array initializer is a named error, not a silent [] -------------
 {
-  const shapedWorkspace = mkdtempSync(join(tmpdir(), 'aria-module-schemas-shaped-'));
-  process.on('exit', () => {
-    rmSync(shapedWorkspace, { recursive: true, force: true });
-  });
+  const shapedWorkspace = makeFixtureTree('aria-module-schemas-shaped-');
   mkdirSync(dirname(join(shapedWorkspace, SSOT)), { recursive: true });
   writeFileSync(
     join(shapedWorkspace, SSOT),
@@ -140,15 +132,9 @@ assert.deepEqual(source.readPaths, [
 
 // --- a symlinked import target is refused, never followed (ARIA-LOW-543) ---
 {
-  const outside = mkdtempSync(join(tmpdir(), 'aria-module-schemas-outside-'));
-  process.on('exit', () => {
-    rmSync(outside, { recursive: true, force: true });
-  });
+  const outside = makeFixtureTree('aria-module-schemas-outside-');
   writeFileSync(join(outside, 'evil.ts'), "export const HOOK = 'hooked';\n", 'utf8');
-  const linkedWorkspace = mkdtempSync(join(tmpdir(), 'aria-module-schemas-linked-'));
-  process.on('exit', () => {
-    rmSync(linkedWorkspace, { recursive: true, force: true });
-  });
+  const linkedWorkspace = makeFixtureTree('aria-module-schemas-linked-');
   mkdirSync(join(linkedWorkspace, 'platform/libs/outbox/src'), { recursive: true });
   writeFileSync(
     join(linkedWorkspace, 'platform/libs/outbox/src/index.ts'),

@@ -51,6 +51,17 @@ function uncommentedLines(text: string): string[] {
     .filter((line) => !line.trimStart().startsWith('#'));
 }
 
+/**
+ * The lines of a registry-only compose file that float an image tag. Main's rule, kept at its
+ * strength: ANY uncommented line holding `${TAG:-latest}`, not only an `image:` line, because an
+ * anchor (`x-image: &image ghcr.io/o/x:${TAG:-latest}` + `image: *image`) or an `x-` field carries
+ * the floating ref to the service without an `image:` line ever spelling it (ARIA-HIGH-012
+ * landing, high-012-compare.md A-12: the port of the deploy-SSoT rule must not narrow it).
+ */
+function floatingTagLines(compose: string): string[] {
+  return uncommentedLines(compose).filter((line) => line.includes('${TAG:-latest}'));
+}
+
 function extractComposeServiceBlock(compose: string, serviceName: string): string {
   return (
     new RegExp(`\\n  ${serviceName}:\\n[\\s\\S]*?(?=\\n  [a-zA-Z0-9_-]+:\\n|\\n\\S|\\s*$)`).exec(
@@ -103,8 +114,27 @@ describe('deploy SSOT contract', () => {
       const lines = uncommentedLines(read(path));
 
       expect(lines.filter((line) => /^\s+build:\s*/.test(line))).toEqual([]);
-      expect(lines.filter((line) => line.includes('${TAG:-latest}'))).toEqual([]);
+      expect(floatingTagLines(read(path))).toEqual([]);
     }
+  });
+
+  it('refuses ${TAG:-latest} on any uncommented line, not only on an image: line', () => {
+    const anchored = [
+      'x-image: &api-image ghcr.io/okan-wqm/aquaculture_platform/api:${TAG:-latest}',
+      'x-release:',
+      '  tag: ${TAG:-latest}',
+      'services:',
+      '  api:',
+      '    image: *api-image',
+      '  pinned:',
+      '    image: ghcr.io/okan-wqm/aquaculture_platform/pinned:${TAG:?TAG required}',
+      '  # image: ghcr.io/okan-wqm/aquaculture_platform/old:${TAG:-latest}',
+      '',
+    ].join('\n');
+    expect(floatingTagLines(anchored)).toEqual([
+      'x-image: &api-image ghcr.io/okan-wqm/aquaculture_platform/api:${TAG:-latest}',
+      '  tag: ${TAG:-latest}',
+    ]);
   });
 
   it('builds staging frontends from the catalog SSOT, not a hardcoded list (INFRA-MEDIUM-002)', () => {

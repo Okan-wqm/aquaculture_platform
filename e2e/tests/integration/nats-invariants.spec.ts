@@ -186,6 +186,28 @@ function generatedBlockCredentialHits(): NatsCredentialHit[] {
   return natsCredentialAuth(parsed.tree).filter((hit) => hit.line > begin && hit.line < end);
 }
 
+/** The credential kinds whose value is a secret: none may sit in the GENERATED block (ADR-015). */
+function secretCredentialHits(hits: readonly NatsCredentialHit[]): NatsCredentialHit[] {
+  return hits.filter(
+    (hit) => hit.kind === 'password' || hit.kind === 'token' || hit.kind === 'nkey',
+  );
+}
+
+/**
+ * The failure text for credential fields in the GENERATED block, or null when there are none. It
+ * is printed to the CI log, so it names each field by kind, key and line and never by value: the
+ * test below pins that with literal credentials (ARIA-HIGH-012 landing fix 2).
+ */
+function credentialFieldFailure(secrets: readonly NatsCredentialHit[]): string | null {
+  if (secrets.length === 0) return null;
+  return (
+    'nats.conf GENERATED authorization block contains a password/token/nkey ' +
+    `field (${JSON.stringify(secrets)}). Under mTLS verify_and_map (ADR-015), passwords are ` +
+    'redundant (server ignores CONNECT-frame auth) and a drift ' +
+    'vector. Regenerate nats.conf via `scripts/nats/generate-nats-conf.py`.'
+  );
+}
+
 function loadNatsConfAuthBlock(): string {
   const path = join(REPO_ROOT, 'infrastructure', 'docker', 'nats', 'nats.conf');
   const content = readFileSync(path, 'utf-8');
@@ -700,17 +722,43 @@ describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subje
   );
 
   it('nats.conf GENERATED block contains ZERO password fields', () => {
-    const secrets = generatedBlockCredentialHits().filter(
-      (hit) => hit.kind === 'password' || hit.kind === 'token' || hit.kind === 'nkey',
+    const failure = credentialFieldFailure(secretCredentialHits(generatedBlockCredentialHits()));
+    if (failure !== null) throw new Error(failure);
+  });
+
+  it('the credential-field failure names each field and never prints its value', () => {
+    // A generator regression that writes a literal into the GENERATED block must not copy the
+    // literal into the CI log (ARIA-HIGH-012 landing fix 2, high-012-compare.md section 5).
+    const literals = [
+      'Pw-literal-91827364',
+      'Ps-literal-55501234',
+      'Tk-literal-10293847',
+      'UAXNKEYLITERAL4Q5R6S7T8U9V0W1X2Y3Z4A5B6C7D8E9F0G1H2',
+    ];
+    const parsed = readNatsConf(
+      [
+        'authorization {',
+        '  users: [',
+        `    { user: "CN=a", password: "${literals[0]}" }`,
+        `    { user: "CN=b", pass: ${literals[1]} }`,
+        `    { user: "CN=c", token: "${literals[2]}" }`,
+        `    { nkey: ${literals[3]} }`,
+        '  ]',
+        '}',
+        '',
+      ].join('\n'),
     );
-    if (secrets.length > 0) {
-      throw new Error(
-        'nats.conf GENERATED authorization block contains a password/token/nkey ' +
-          `field (${JSON.stringify(secrets)}). Under mTLS verify_and_map (ADR-015), passwords are ` +
-          'redundant (server ignores CONNECT-frame auth) and a drift ' +
-          'vector. Regenerate nats.conf via `scripts/nats/generate-nats-conf.py`.',
-      );
-    }
+    expect(parsed.errors).toEqual([]);
+    const secrets = secretCredentialHits(natsCredentialAuth(parsed.tree));
+    expect(secrets.map((hit) => [hit.kind, hit.key, hit.line])).toEqual([
+      ['password', 'password', 3],
+      ['password', 'pass', 4],
+      ['token', 'token', 5],
+      ['nkey', 'nkey', 6],
+    ]);
+    const failure = credentialFieldFailure(secrets);
+    expect(failure).not.toBeNull();
+    for (const literal of literals) expect(failure).not.toContain(literal);
   });
 
   it('nats.conf GENERATED block contains ZERO $-interpolated user vars', () => {

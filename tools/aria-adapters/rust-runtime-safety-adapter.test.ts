@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { dirname, join, relative, resolve } from 'node:path';
+import { mock } from 'node:test';
 
+import { makeFixtureTree } from '../gates/fixture-tree';
+
+import * as adapterFs from './adapter-fs';
 import { analyzeRustRuntimeSafety } from './rust-runtime-safety-adapter';
 
 // ARIA-HIGH-010 (plan Task 13). The semantic corpus is the committed
@@ -277,5 +281,139 @@ assert.ok(
     ).health_thresholds.max_cost_units,
   `cost_units ${real.cost_units} exceeds the manifest ceiling`,
 );
+
+// ------------------------------------------------------- the per-file byte cap
+// A `.rs` file over the per-file cap is skipped with an observation and never
+// read: a cap is a refusal, never a hole. The byte count the cap judges is the
+// containment owner's answer. adapter-fs.ts owns every filesystem fact an
+// adapter acts on (eslint overrides 2b/2c, ARIA-LOW-593), and the executable
+// bit already reads through it as `workspaceIsExecutable`; the size is its
+// sibling `workspaceFileBytes(workspaceRoot, path)`, not a statSync of the
+// adapter's own. On a static tree a walked regular file has one size either
+// way, because the walk has already refused every symlink, so the route shows
+// only when the owner answers: below it reports a size no file on disk has,
+// and the adapter must act on that answer.
+{
+  const capRoot = realpathSync(makeFixtureTree('aria-rust-runtime-cap-'));
+  const CAP_CRATE = 'cap-probe';
+  const CAP_LIB = `${CAP_CRATE}/src/lib.rs`;
+  const CAP_BIG = `${CAP_CRATE}/src/big.rs`;
+  const put = (path: string, text: string): void => {
+    mkdirSync(dirname(join(capRoot, path)), { recursive: true });
+    writeFileSync(join(capRoot, path), text, 'utf8');
+  };
+  /** ASCII text of exactly `bytes` bytes: `head`, then one padded comment line. */
+  const sized = (head: string, bytes: number): string =>
+    `${head}//${' '.repeat(bytes - head.length - 3)}\n`;
+  put(
+    `${CAP_CRATE}/Cargo.toml`,
+    [
+      '[package]',
+      'name = "cap-probe"',
+      'version = "0.1.0"',
+      'edition = "2021"',
+      'publish = false',
+      '',
+      '[lib]',
+      'path = "src/lib.rs"',
+      '',
+    ].join('\n'),
+  );
+  // big.rs is not declared by any `mod`: the walk alone reaches it.
+  put(CAP_LIB, 'pub fn quiet() {}\n');
+  put(CAP_BIG, 'pub fn also_quiet() {}\n');
+  const scan = (): ReturnType<typeof analyzeRustRuntimeSafety> =>
+    analyzeRustRuntimeSafety({ roots: [CAP_CRATE] }, capRoot);
+  const refusal = (
+    output: ReturnType<typeof analyzeRustRuntimeSafety>,
+    path: string,
+  ): Record<string, unknown> | undefined =>
+    output.observations.find(
+      (candidate) => candidate.id === `rust-runtime-safety-adapter:skipped:${path}`,
+    )?.details;
+
+  // The owner answers; the adapter acts on the answer.
+  const ownerFileBytes = adapterFs.workspaceFileBytes;
+  assert.equal(
+    typeof ownerFileBytes,
+    'function',
+    'adapter-fs.ts, the containment owner, answers the byte size of a contained ' +
+      'workspace file (workspaceFileBytes), as it answers the executable bit',
+  );
+  const asked: string[] = [];
+  const answered = mock.method(
+    adapterFs,
+    'workspaceFileBytes',
+    (workspaceRoot: string, path: string): number => {
+      const askedPath = adapterFs.normalizeWorkspacePath(
+        relative(capRoot, resolve(workspaceRoot, path)),
+      );
+      asked.push(askedPath);
+      return askedPath === CAP_BIG ? Number.MAX_SAFE_INTEGER : ownerFileBytes(workspaceRoot, path);
+    },
+  );
+  let routed: ReturnType<typeof analyzeRustRuntimeSafety>;
+  try {
+    routed = scan();
+  } finally {
+    answered.mock.restore();
+  }
+  assert.deepEqual(
+    [...new Set(asked.filter((path) => path.endsWith('.rs')))].sort(),
+    [CAP_BIG, CAP_LIB],
+    'the owner is asked the size of every walked .rs file before it is read',
+  );
+  const routedRefusal = refusal(routed, CAP_BIG);
+  assert.ok(
+    routedRefusal !== undefined,
+    'the file the owner reports over the cap is refused with an observation',
+  );
+  assert.equal(routedRefusal.reason, 'file_over_byte_cap');
+  assert.equal(
+    routedRefusal.bytes,
+    Number.MAX_SAFE_INTEGER,
+    "the refusal reports the owner's byte count, not a second measurement",
+  );
+  assert.ok(!routed.read_paths.includes(CAP_BIG), 'a refused file is never read');
+  assert.ok(routed.read_paths.includes(CAP_LIB), 'its siblings are still read');
+  const cap = routedRefusal.cap;
+  assert.ok(typeof cap === 'number' && cap > 64 && cap < Number.MAX_SAFE_INTEGER);
+
+  // The real owner on real bytes: one byte over the cap is refused with the
+  // file's true size; exactly the cap is read.
+  put(CAP_BIG, sized('', cap + 1));
+  const over = scan();
+  assert.deepEqual(refusal(over, CAP_BIG), { reason: 'file_over_byte_cap', bytes: cap + 1, cap });
+  assert.ok(!over.read_paths.includes(CAP_BIG), 'one byte over the cap is never read');
+  put(CAP_BIG, sized('', cap));
+  const atCap = scan();
+  assert.equal(refusal(atCap, CAP_BIG), undefined, 'a file of exactly the cap is not refused');
+  assert.ok(atCap.read_paths.includes(CAP_BIG), 'a file of exactly the cap is read');
+
+  // A refused file stays unread when a `mod` declaration reaches it: the
+  // reader follows `mod big;` to the file the walk refused, so the cap must
+  // hold on that path too, or the refusal is a hole that reads, classifies
+  // and claims the bytes it reports it skipped.
+  put(CAP_LIB, 'mod big;\n\npub fn quiet() {}\n');
+  put(
+    CAP_BIG,
+    sized('pub fn dispatch() {\n    tokio::spawn(work());\n}\n\nasync fn work() {}\n', cap + 1),
+  );
+  const reached = scan();
+  assert.deepEqual(refusal(reached, CAP_BIG), {
+    reason: 'file_over_byte_cap',
+    bytes: cap + 1,
+    cap,
+  });
+  assert.ok(
+    !reached.read_paths.includes(CAP_BIG),
+    'a refused file reached through `mod big;` is never read',
+  );
+  assert.deepEqual(
+    reached.findings.filter((finding) => finding.path === CAP_BIG).map((finding) => finding.rule),
+    [],
+    'nothing is claimed in bytes the cap refused',
+  );
+}
 
 process.stdout.write('rust-runtime-safety-adapter.test.ts OK\n');

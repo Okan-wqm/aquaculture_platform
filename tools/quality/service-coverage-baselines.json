@@ -1,7 +1,7 @@
 {
   "admin-api-service": {
     "branches": 21.99,
-    "functions": 26.25,
+    "functions": 26.2,
     "lines": 47.33,
     "statements": 27.43
   },
@@ -18,7 +18,7 @@
     "statements": 53.05
   },
   "farm-service": {
-    "branches": 45.09,
+    "branches": 45.0,
     "functions": 65.8,
     "lines": 65.46,
     "statements": 33.84

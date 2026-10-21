@@ -523,6 +523,9 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'feeding_forecast_snapshots',
       // Attribute edilemeyen tarihsel yem kayıtları (W0, FARM-HIGH-240)
       'feeding_record_attribution_quarantine',
+      // Üretim planı sıcaklık senaryoları (design record 2026-10-19)
+      'temperature_scenarios',
+      'temperature_scenario_points',
 
       // Chemical management
       'chemical_types',

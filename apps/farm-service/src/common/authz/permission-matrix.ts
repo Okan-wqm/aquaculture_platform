@@ -49,6 +49,9 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
   createMaintenanceSchedule: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   createWorkOrder: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   createBatch: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  // Production plan writes (scenario create/delete) — manager+admin only.
+  createTemperatureScenario: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  deleteTemperatureScenario: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   createBatchWaterQualityMeasurements: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   createBiomassReport: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   // Biomass Altinn manual-submission state machine (RPT-001).
@@ -305,6 +308,10 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   // Daily mortality totals (health-page chart) — operational signal, same
   // authorisation shape as the other batch read queries.
   mortalityDailyHistory: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  // Production plan (Üretim Planı) — read for all module users, writes for
+  // manager+admin (same shape as the protocol surfaces it builds on).
+  temperatureScenarios: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  tankGrowthProjection: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   // batchPerformance restricted to MANAGER + ADMIN — the query
   // exposes cost-per-kg, treatment totals, and labour costs which
   // are financial signals beyond the operator's scope.

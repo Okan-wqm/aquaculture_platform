@@ -5768,6 +5768,58 @@ type DeleteWorkOrderResponse {
   message: String
 }
 
+type TemperatureScenarioResponse {
+  id: ID!
+  siteId: ID!
+  name: String!
+  source: TemperatureScenarioSource!
+  points: [TemperatureScenarioPointResponse!]!
+  createdAt: DateTime!
+}
+
+"""Sıcaklık senaryo noktalarının kaynağı (elle girildi / Copernicus)."""
+enum TemperatureScenarioSource {
+  MANUAL
+  COPERNICUS
+}
+
+type TemperatureScenarioPointResponse {
+  date: String!
+  celsius: Float!
+}
+
+type TankProjectionDayResponse {
+  day: Int!
+  date: String!
+  temperatureC: Float!
+  avgWeightG: Float!
+  biomassKg: Float!
+  feedKg: Float!
+  capacityPercent: Float!
+}
+
+type TankGrowthProjectionResponse {
+  unitId: ID!
+  unitCode: String!
+  unitName: String!
+  siteId: ID!
+  siteName: String!
+  departmentId: ID
+  departmentName: String
+  protocolId: ID!
+  protocolName: String!
+  fishCount: Int!
+  currentAvgWeightG: Float!
+  currentBiomassKg: Float!
+  capacityKg: Float
+  projectedAvgWeightG: Float!
+  projectedBiomassKg: Float!
+  totalFeedKg: Float!
+  peakCapacityPercent: Float!
+  overCapacityDay: Int
+  series: [TankProjectionDayResponse!]!
+}
+
 type SpeciesListResponse {
   """Array of items"""
   items: [Species!]!
@@ -6396,6 +6448,8 @@ type Query {
   overdueWorkOrders: [WorkOrder!]!
   myWorkOrders(activeOnly: Boolean = true): [WorkOrder!]!
   workOrderStatistics(dateFrom: DateTime, dateTo: DateTime): WorkOrderStatisticsResponse!
+  temperatureScenarios(siteId: ID!): [TemperatureScenarioResponse!]!
+  tankGrowthProjection(input: TankGrowthProjectionInput): [TankGrowthProjectionResponse!]!
 
   """Slaughter-facility catalog for the tenant"""
   slaughterFacilities(includeInactive: Boolean = false): [SlaughterFacility!]!
@@ -7296,6 +7350,13 @@ input WorkOrderFilterInput {
   searchTerm: String
 }
 
+input TankGrowthProjectionInput {
+  siteId: ID
+  departmentId: ID
+  horizonDays: Int = 30
+  scenarioId: ID
+}
+
 input SpeciesFilterInput {
   search: String
   category: SpeciesCategory
@@ -7767,6 +7828,8 @@ type Mutation {
   cancelWorkOrder(id: ID!, reason: String): WorkOrder!
   putWorkOrderOnHold(id: ID!, reason: String): WorkOrder!
   resumeWorkOrder(id: ID!): WorkOrder!
+  createTemperatureScenario(input: CreateTemperatureScenarioInput!): TemperatureScenarioResponse!
+  deleteTemperatureScenario(id: ID!): Boolean!
 
   """Add a slaughter facility to the catalog"""
   createSlaughterFacility(input: CreateSlaughterFacilityInput!): SlaughterFacility!
@@ -12237,6 +12300,17 @@ input VerifyWorkOrderInput {
   verificationNotes: String
   approved: Boolean! = true
   rejectionReason: String
+}
+
+input CreateTemperatureScenarioInput {
+  siteId: ID!
+  name: String!
+  points: [TemperatureScenarioPointInput!]!
+}
+
+input TemperatureScenarioPointInput {
+  date: String!
+  celsius: Float!
 }
 
 input CreateSlaughterFacilityInput {

@@ -1,23 +1,27 @@
-"""The managed Anthropic session on the executor's native lane — real claim, real submit, fake CLI.
+"""The Anthropic route on the executor's native lane — real claim, real submit, fake CLI.
 
 Same shape as the native Codex and Z.ai lanes: the ACTUAL ci_executor entry
 runs as a child, the ACTUAL kernel CLI claims and submits, and the only
 declared substitute is the `claude` binary — a script that answers
-`--version`, `auth status --json` (the managed session's own non-model
-status) and the `-p` stream-json run. No codex binary and no Z.ai
-credential exist, so the only route the fleet can admit is Anthropic.
+`--version` and the `-p` stream-json run. The route's credential is the
+kernel's own token (ARIA-MEDIUM-563): a 0600 file named by
+ARIA_CLAUDE_OAUTH_TOKEN_FILE that the provider gateway injects, never seen by
+the CLI. No codex binary and no Z.ai credential exist, so the only route the
+fleet can admit is Anthropic.
 
 What this pins, one property per test:
 
-* A logged-in claude.ai session plus the containment backend admits the
-  route with auth_method `subscription`; the agent runs through the
-  existing spawn, the prompt it receives opens with its own contract, the
+* The kernel's token plus the containment backend admits the route with
+  auth_method `subscription` and credential_source `kernel_file`; the agent
+  runs through the existing spawn inside the real room, which holds the
+  gateway's socket and the placeholder credential — never a login file or
+  the token — the prompt it receives opens with its own contract, the
   result is sealed with the attempt's ledger hash, the finished row names
   the session and the usage row, and the request is ACCEPTED.
-* A session logged in through an API key is refused by name
-  (`api_key_auth_not_managed`) — the binding table admits the subscription
-  only — and the request stays PENDING with no attempt burned.
-* A logged-out session is `managed_session_logged_out`, PENDING, no attempt.
+* No kernel token on the host — a host login notwithstanding — is
+  `claude_gateway_credential_absent`, DECIDED in one attempt, PENDING, no
+  attempt burned; a token file readable beyond its owner is refused by
+  name the same way.
 * ARIA-HIGH-076 — a limiter that needs the user bus (`systemd-run --user`)
   receives it, in the probe and in the run, while the agent it limits never
   sees it: the spawn environment is built, and the bus is not on it. The
@@ -49,18 +53,15 @@ for _path in (_POC_DIR, _KERNEL_DIR):
     if str(_path) not in sys.path:
         sys.path.insert(0, str(_path))
 
+from aria_kernel.provider_routes import ROOM_CREDENTIAL_PLACEHOLDER  # noqa: E402
 from tests import test_ci_executor_live_path_smoke as _smoke  # noqa: E402
 
 
-# The installed CLI's own status arm (Claude Code 2.1.269, read from the
-# binary: `process.exit(loggedIn ? 0 : 1)`): the document is printed
-# whatever the answer, and a logged-out session ALSO exits 1. A fixture
-# that exited 0 on a logged-out document let the lane pass a shape the
-# real CLI never produces (verifier, ARIA-HIGH-107).
-_STATUS_ARM = "    print(json.dumps(status)); raise SystemExit(0 if status['loggedIn'] else 1)\n"
+# The kernel's Claude token: a fixture value the CLI must never see.
+KERNEL_TOKEN_FIXTURE = "kernel-token-fixture-" + "k" * 24
 
 
-def _fake_claude(status: dict, response: dict, host_login_dir: Path) -> str:
+def _fake_claude(response: dict, host_login_dir: Path) -> str:
     return (
         f"#!{sys.executable}\n"
         "import json, os, sys\n"
@@ -68,9 +69,6 @@ def _fake_claude(status: dict, response: dict, host_login_dir: Path) -> str:
         "argv = sys.argv[1:]\n"
         "if argv == ['--version']:\n"
         "    print('2.1.269 (Claude Code)'); raise SystemExit(0)\n"
-        "if argv[:3] == ['auth', 'status', '--json']:\n"
-        f"    status = {status!r}\n"
-        + _STATUS_ARM +
         "prompt = sys.stdin.read()\n"
         # The spawn may run inside the write-containment sandbox (private /tmp),
         # so the child's observation travels INSIDE its answer, as the native
@@ -85,6 +83,13 @@ def _fake_claude(status: dict, response: dict, host_login_dir: Path) -> str:
         "    'mcp_visible': bool(flag('--mcp-config')) and os.path.isfile(flag('--mcp-config')),\n"
         "    'config_dir': config_dir, 'credentials_visible': os.path.isfile(os.path.join(config_dir, '.credentials.json')),\n"
         f"    'host_login_visible': os.path.exists({str(host_login_dir)!r}),\n"
+        # ARIA-MEDIUM-563 — what the room hands the CLI in place of a login.
+        "    'gateway_socket': os.environ.get('ANTHROPIC_UNIX_SOCKET'), 'base_url': os.environ.get('ANTHROPIC_BASE_URL'),\n"
+        # A boolean, not the value: the publication boundary redacts any
+        # value under a credential-shaped name, the placeholder included.
+        f"    'oauth_is_placeholder': os.environ.get('CLAUDE_CODE_OAUTH_TOKEN') == {ROOM_CREDENTIAL_PLACEHOLDER!r},\n"
+        "    'gateway_socket_present': os.path.exists(os.environ.get('ANTHROPIC_UNIX_SOCKET') or '/nonexistent'),\n"
+        f"    'kernel_token_in_env': any({KERNEL_TOKEN_FIXTURE!r} in value for value in os.environ.values()),\n"
         "    'key_names': [k for k in os.environ if k in ('ANTHROPIC_API_KEY','ARIA_ZAI_API_KEY','ARIA_ZAI_API_KEY_FILE','OPENAI_API_KEY',\n"
         "                                                   'DBUS_SESSION_BUS_ADDRESS','XDG_RUNTIME_DIR')],\n"
         "    'cwd': os.getcwd()}\n"
@@ -103,16 +108,13 @@ def _fake_claude(status: dict, response: dict, host_login_dir: Path) -> str:
 _USAGE_LIMIT_NOTICE = "You've reached your limit. Run /usage-credits to continue or switch models with /model."
 
 
-def _fake_exhausted_claude(status: dict) -> str:
+def _fake_exhausted_claude() -> str:
     return (
         f"#!{sys.executable}\n"
         "import json, sys\n"
         "argv = sys.argv[1:]\n"
         "if argv == ['--version']:\n"
         "    print('2.1.269 (Claude Code)'); raise SystemExit(0)\n"
-        "if argv[:3] == ['auth', 'status', '--json']:\n"
-        f"    status = {status!r}\n"
-        + _STATUS_ARM +
         "sys.stdin.read()\n"
         f"message = {_USAGE_LIMIT_NOTICE!r}\n"
         "print(json.dumps({'type': 'assistant', 'error': 'rate_limit', 'message': {'role': 'assistant', 'model': '<synthetic>',\n"
@@ -143,9 +145,15 @@ class NativeClaudeLane(unittest.TestCase):
         # the fixture binary, exactly as the real CLI lives on a bound path.
         self.fixture_bin = self.repo / "aria-tools" / "fixture-bin"
         self.fixture_bin.mkdir(parents=True, exist_ok=True)
+        # A host login the room must never see (the operator's), and the
+        # kernel's own token outside the workspace — the one credential the
+        # route uses, injected by the gateway (ARIA-MEDIUM-563).
         config_dir = self.home / ".claude"
         config_dir.mkdir(parents=True, exist_ok=True)
         (config_dir / ".credentials.json").write_text('{"fixture":"managed-session"}\n', encoding="utf-8")
+        self.kernel_token = self.root / "claude_oauth_token"
+        self.kernel_token.write_text(KERNEL_TOKEN_FIXTURE + "\n", encoding="utf-8")
+        self.kernel_token.chmod(0o600)
         self.response = {
             "satisfaction_matrix": [{"id": "provider-source", "verdict": "satisfied",
                                      "evidence_refs": ["src/model_fleet.py:1"],
@@ -159,6 +167,7 @@ class NativeClaudeLane(unittest.TestCase):
             **os.environ, "PATH": str(self.fixture_bin) + os.pathsep + str(self.binary_dir) + os.pathsep + os.defpath,
             "ARIA_WORKSPACE_ROOT": str(self.repo), "MAX_TIMEOUT_SECONDS": "60",
             "CLAUDE_CONFIG_DIR": str(config_dir),
+            "ARIA_CLAUDE_OAUTH_TOKEN_FILE": str(self.kernel_token),
             # The suite runs as root on this host; the CLI refuses the
             # permission bypass under root unless the operator acknowledges a
             # genuine sandbox (ADR-040). The fixture binary is not the CLI, so
@@ -169,10 +178,9 @@ class NativeClaudeLane(unittest.TestCase):
             self.environment.pop(name, None)
         self.host_login_dir = config_dir
 
-    def _install_claude(self, status: dict, *, exhausted: bool = False) -> None:
+    def _install_claude(self, *, exhausted: bool = False) -> None:
         executable = self.fixture_bin / "claude"
-        script = (_fake_exhausted_claude(status) if exhausted
-                  else _fake_claude(status, self.response, self.host_login_dir))
+        script = _fake_exhausted_claude() if exhausted else _fake_claude(self.response, self.host_login_dir)
         executable.write_text(script, encoding="utf-8")
         executable.chmod(0o755)
 
@@ -185,8 +193,7 @@ class NativeClaudeLane(unittest.TestCase):
     def test_a_managed_session_admits_runs_and_accepts(self) -> None:
         from aria_kernel.ledger import load_declared_jsonl
 
-        self._install_claude({"loggedIn": True, "authMethod": "claude.ai", "apiProvider": "firstParty",
-                              "subscriptionType": "max"})
+        self._install_claude()
         completed = self._run_executor()
         governance = load_declared_jsonl(self.tools / "governance.jsonl", expected_surface="tools_governance")
         self.assertEqual(completed.returncode, 0, completed.stderr + json.dumps(
@@ -199,14 +206,22 @@ class NativeClaudeLane(unittest.TestCase):
         self.assertIn("-p", diagnostic["argv"])
         # ARIA-HIGH-077 — inside the real sandbox: the executable the executor
         # resolved ran by absolute path, the settings and MCP documents it
-        # wrote were visible, the CLI's config dir is the private home's and
-        # holds the one credential file, and the host login dir is not there.
+        # wrote were visible, the CLI's config dir is the private home's, and
+        # the host login dir is not there. ARIA-MEDIUM-563 — the room holds
+        # no credential file and not the kernel's token: the gateway's socket
+        # and the placeholder are what the CLI authenticates with.
+        from aria_kernel.provider_routes import route
+
         self.assertEqual(diagnostic["executable"], str((self.fixture_bin / "claude").resolve()))
         self.assertTrue(diagnostic["settings_visible"], diagnostic)
         self.assertTrue(diagnostic["mcp_visible"], diagnostic)
         self.assertEqual(diagnostic["config_dir"], "/tmp/aria-agent-home/.claude")
-        self.assertTrue(diagnostic["credentials_visible"], diagnostic)
+        self.assertFalse(diagnostic["credentials_visible"], diagnostic)
         self.assertFalse(diagnostic["host_login_visible"], diagnostic)
+        self.assertFalse(diagnostic["kernel_token_in_env"], diagnostic)
+        self.assertEqual((diagnostic["gateway_socket"], diagnostic["base_url"], diagnostic["oauth_is_placeholder"]),
+                         (route("anthropic").room_socket, "http://localhost", True))
+        self.assertTrue(diagnostic["gateway_socket_present"], diagnostic)
         self.assertEqual(output["role"], "evidence_judgment")
         self.assertTrue(output["details"]["agent_contract_hash"].startswith("sha256:"))
         attempt_rows = [row for row in governance if row["kind"] == "runtime_attempt_started"
@@ -215,6 +230,9 @@ class NativeClaudeLane(unittest.TestCase):
         attempts = [attempt_rows[0]["details"]]
         self.assertEqual((attempts[0]["provider"], attempts[0]["runtime"], attempts[0]["auth_method"]),
                          ("anthropic", "claude", "subscription"))
+        anthropic_row = attempts[0]["admission"]["candidate_observations"][0]
+        self.assertEqual((anthropic_row["provider"], anthropic_row["credential_source"]), ("anthropic", "kernel_file"))
+        self.assertNotIn(KERNEL_TOKEN_FIXTURE, json.dumps(governance))
         self.assertEqual(attempts[0]["model"], self.profile.model)
         # The whole fleet decision rides the attempt row: every candidate's
         # observation, so a preferred route that was skipped is explained
@@ -264,8 +282,7 @@ class NativeClaudeLane(unittest.TestCase):
         )
         limiter.chmod(0o755)
         self.environment.update(bus)
-        self._install_claude({"loggedIn": True, "authMethod": "claude.ai", "apiProvider": "firstParty",
-                              "subscriptionType": "max"})
+        self._install_claude()
         completed = self._run_executor()
         self.assertEqual(completed.returncode, 0, completed.stderr[-3000:])
         self.assertEqual(self.ai.derive_request_state(request_id=self.request["request_id"], base_dir=self.tools), "ACCEPTED")
@@ -281,10 +298,13 @@ class NativeClaudeLane(unittest.TestCase):
         finished = [row["details"] for row in governance if row["kind"] == "runtime_attempt_finished"]
         self.assertEqual([row["exit_code"] for row in finished], [0])
 
-    def test_an_api_key_login_is_refused_by_name(self) -> None:
+    def test_no_kernel_token_keeps_the_request_pending_whatever_the_host_login(self) -> None:
         from aria_kernel.ledger import load_declared_jsonl
 
-        self._install_claude({"loggedIn": True, "authMethod": "console", "apiProvider": "firstParty"})
+        # The host still holds a logged-in session (setUp's .credentials.json):
+        # the route asks the kernel's boundary, not the host login.
+        self._install_claude()
+        self.environment.pop("ARIA_CLAUDE_OAUTH_TOKEN_FILE")
         completed = self._run_executor()
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertEqual(self.ai.derive_request_state(request_id=self.request["request_id"], base_dir=self.tools), "PENDING")
@@ -294,37 +314,32 @@ class NativeClaudeLane(unittest.TestCase):
         decisions = [row["details"] for row in governance if row["kind"] == "runtime_admission_unavailable"]
         self.assertEqual(len(decisions), 1)
         anthropic = next(row for row in decisions[0]["candidate_observations"] if row["provider"] == "anthropic")
-        self.assertEqual((anthropic["auth_observation"], anthropic["status_reason"], anthropic["auth_method"]),
-                         ("unavailable", "api_key_auth_not_managed", "api_key"))
-        self.assertEqual(anthropic["credential_source"], "managed_session")
+        self.assertEqual((anthropic["auth_observation"], anthropic["status_reason"]),
+                         ("unavailable", "claude_gateway_credential_absent"))
+        self.assertEqual(anthropic["controls"]["reason"], "credential_not_configured")
+        # One attempt, no retry, `no_eligible_provider` — never a stall.
+        self.assertEqual((anthropic["decision"], anthropic["probe"]["attempts"]), ("unavailable", 1))
+        self.assertEqual((decisions[0]["reason"], decisions[0]["halting_provider"]), ("no_eligible_provider", None))
 
-    def test_a_logged_out_session_keeps_the_request_pending(self) -> None:
+    def test_a_loose_kernel_token_is_refused_by_name(self) -> None:
         from aria_kernel.ledger import load_declared_jsonl
 
-        # The real shape: `{"loggedIn": false, "authMethod": "none"}` AND
-        # exit 1 (the fixture's status arm mirrors the installed CLI).
-        self._install_claude({"loggedIn": False, "authMethod": "none", "apiProvider": "firstParty"})
+        self._install_claude()
+        self.kernel_token.chmod(0o644)
         completed = self._run_executor()
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertEqual(self.ai.derive_request_state(request_id=self.request["request_id"], base_dir=self.tools), "PENDING")
         governance = load_declared_jsonl(self.tools / "governance.jsonl", expected_surface="tools_governance")
         decisions = [row["details"] for row in governance if row["kind"] == "runtime_admission_unavailable"]
-        self.assertEqual(len(decisions), 1)
         anthropic = next(row for row in decisions[0]["candidate_observations"] if row["provider"] == "anthropic")
-        # DECIDED by the document, with the exit code as evidence — the
-        # defect, first: exit-code-first classification recorded
-        # ("unknown", "status_not_confirmed") for the vendor's own "no".
-        self.assertEqual((anthropic["auth_observation"], anthropic["status_reason"], anthropic["status_exit_code"]),
-                         ("unavailable", "managed_session_logged_out", 1))
-        # One attempt, no retry, `no_eligible_provider` — never a stall.
-        self.assertEqual((anthropic["decision"], anthropic["probe"]["attempts"]), ("unavailable", 1))
-        self.assertEqual((decisions[0]["reason"], decisions[0]["halting_provider"]), ("no_eligible_provider", None))
+        self.assertEqual((anthropic["status_reason"], anthropic["controls"]["reason"]),
+                         ("claude_gateway_credential_absent", "credential_file_permissions"))
+        self.assertNotIn(KERNEL_TOKEN_FIXTURE, json.dumps(governance))
 
     def test_an_exhausted_session_requeues_under_a_provider_cooldown(self) -> None:
         from aria_kernel.ledger import load_declared_jsonl
 
-        self._install_claude({"loggedIn": True, "authMethod": "claude.ai", "apiProvider": "firstParty",
-                              "subscriptionType": "max"}, exhausted=True)
+        self._install_claude(exhausted=True)
         completed = self._run_executor()
         self.assertEqual(completed.returncode, 1, completed.stderr[-3000:])
         self.assertIn("claude_credit_exhausted", completed.stderr)

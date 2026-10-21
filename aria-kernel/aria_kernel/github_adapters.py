@@ -45,6 +45,7 @@ import threading
 from pathlib import Path
 from typing import Any, Sequence
 
+from . import github_issue_reads
 from .auto_merge import GhCliGitHubAdapter
 from .github_writes import GitHubWriteRefused, run_gh_write
 from .hmac_keyring import utc_now_stamp
@@ -159,11 +160,11 @@ class RecordingGitHubAdapter:
         # claim there is no incident.
         return {"readable": False, "reason": "recording_adapter_no_fetch", "issues": []}
 
-    def get_pr_diff(self, number: int) -> str | None:
+    def get_pr_diff(self, number: int) -> tuple[str | None, str | None]:
         self._record("get_pr_diff", number=number)
-        # Empty diff → evaluate_auto_merge fails closed (Plan 023 v3
-        # §P-6 — empty/whitespace/malformed diff blocks auto-merge).
-        return ""
+        # A recording profile fetched no diff, so it names that
+        # (ARIA-MEDIUM-581) and evaluate_auto_merge fails closed on it.
+        return None, "recording_adapter_no_fetch"
 
     def merge_pr(
         self, number: int, *, method: str, expected_head_sha: str,
@@ -261,13 +262,17 @@ class GhCliIssueWriter:
         # (ARIA_NOTIFY_GITHUB_REPO) and prices its calls from its own wall
         # clock; the freeze notice passes neither, so its argv and timeout
         # are what they always were (`gh` resolves the repository from cwd).
+        self._repo = repo
         self._repo_flags = ["--repo", repo] if repo else []
         self._timeout = timeout_seconds
 
     def _gh(self, args: list[str]) -> tuple[bool, str]:
+        return self._gh_read([*args, *self._repo_flags])
+
+    def _gh_read(self, argv: list[str]) -> tuple[bool, str]:
         try:
             done = subprocess.run(
-                ["gh", *args, *self._repo_flags], cwd=self._cwd, capture_output=True, text=True, check=False,
+                ["gh", *argv], cwd=self._cwd, capture_output=True, text=True, check=False,
                 timeout=self._timeout,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
@@ -292,21 +297,28 @@ class GhCliIssueWriter:
             return False, f"rc={done.returncode}: {detail}"
         return True, done.stdout or ""
 
+    def _open_issues(self, labels: Sequence[str]) -> tuple[bool, list[dict[str, Any]], str]:
+        """Every open issue carrying all ``labels``, as ``{number, title, url}``.
+
+        ARIA-LOW-554 landed the WHOLE-open-set read here; ARIA-MEDIUM-582
+        made it the one owner of that question
+        (``github_issue_reads.read_open_issues``), because the merge lane's
+        adapter — which reads through the same REST list for the freeze
+        gates — kept a second, 50-newest copy. This class now brings only
+        its own ``gh`` plumbing; the read's contract (every page, never
+        the search index, pull requests dropped, an unreadable listing
+        named) is documented at the reader.
+        """
+        return github_issue_reads.read_open_issues(self._gh_read, repo=self._repo, labels=labels)
+
     def _find_open(self, title: str, labels: Sequence[str]) -> tuple[bool, dict[str, Any] | None, str]:
-        args = ["issue", "list", "--state", "open", "--limit", "100", "--json", "number,title,url"]
-        for label in labels:
-            args.extend(["--label", label])
-        ok, out = self._gh(args)
+        ok, rows, reason = self._open_issues(labels)
         if not ok:
-            return False, None, f"issue_list_failed:{out}"
-        try:
-            rows = json.loads(out or "[]")
-        except ValueError:
-            return False, None, "issue_list_unparseable"
+            return False, None, reason
         matches = sorted(
-            (row for row in rows if isinstance(row, dict) and row.get("title") == title),
+            (row for row in rows if row.get("title") == title),
             key=lambda row: int(row.get("number") or 0),
-        ) if isinstance(rows, list) else []
+        )
         return True, (matches[0] if matches else None), ""
 
     def _ensure_labels(self, labels: Sequence[str]) -> str | None:

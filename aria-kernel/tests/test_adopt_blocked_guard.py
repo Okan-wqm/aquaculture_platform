@@ -17,7 +17,10 @@ the mission's closure contract is now read off the candidate's `next_action`,
 which `task._candidate_from_pressure` takes from exactly that field, a fixture
 without it exercises a shape the pipeline never produces and would be testing
 the blocked-guard against a candidate that is refused for a different reason.
-The refusal for a pressure that names no action has its own pin below.
+The refusal for a pressure that names no action has its own pin below. For
+the same reason every admissible fixture cites a repo path: a candidate with
+no ref an agent can cite back is refused ``no_citable_evidence`` (ARIA-HIGH-245,
+pinned in ``test_mission_evidence_at_open``).
 
 THE LIVE SHAPE (origin/aria/state, read 2026-09-12). `tasks/task-candidates.
 jsonl` for cyc-20260904T194353Z-auto: ten slots, of which two ``capability_
@@ -124,6 +127,7 @@ class AdoptBlockedGuardTests(_StoreFixture):
                     "score": 80,
                     "reason": "schedulable",
                     "recommended_action": "rerun discovery and inspect missing fates",
+                    "evidence": ["apps/farm-service/src/discovery.service.ts"],
                     "blocked_by": [],
                 },
             ],
@@ -157,6 +161,7 @@ class AdoptBlockedGuardTests(_StoreFixture):
                 "score": 70,
                 "reason": "go",
                 "recommended_action": "rerun discovery and inspect missing fates",
+                "evidence": ["apps/farm-service/src/discovery.service.ts"],
                 "blocked_by": [],
             }],
         )
@@ -216,6 +221,7 @@ class BlockedCandidatesDoNotSpendTheBudget(_StoreFixture):
                 "score": 50 + n,
                 "reason": f"own PR {1300 + n} is red",
                 "recommended_action": f"read the failing check's log for PR {1300 + n} and fix forward",
+                "evidence": [f"apps/farm-service/src/pr{1300 + n}.service.ts"],
                 "blocked_by": [],
             }
             for n in range(8)

@@ -18,7 +18,7 @@
 #                                 against apps/** sources
 #   - nats-subject-contract.spec.ts  publisher↔subscriber subject shape pin
 #                                    (ORPHAN-013 regression guard)
-#   - messaging-acl-smoke.test.mjs  parser/envelope adversarial tests for the
+#   - messaging-acl-smoke.test.ts   parser/envelope adversarial tests for the
 #                                   generated cert-only authorization surface
 #   - boot-path-acl-smoke-harness.sh  a real broker on the generated nats.conf
 #                                     + one minted certificate per identity:
@@ -43,6 +43,7 @@ on:
       - 'infrastructure/nats/**'
       - 'libs/backend-common/src/nats/**'
       - 'tools/scripts/nats-boot-path-acl-smoke.ts'
+      - 'tools/gates/nats-services.ts'
       - 'infrastructure/docker/nats/**'
       - 'infrastructure/docker/scripts/generate-internal-certs.sh'
       - 'infrastructure/helm/aquaculture/**'
@@ -63,6 +64,7 @@ on:
       - 'infrastructure/nats/**'
       - 'libs/backend-common/src/nats/**'
       - 'tools/scripts/nats-boot-path-acl-smoke.ts'
+      - 'tools/gates/nats-services.ts'
       - 'infrastructure/docker/nats/**'
       - 'infrastructure/docker/scripts/generate-internal-certs.sh'
       - 'infrastructure/helm/aquaculture/**'
@@ -116,7 +118,7 @@ jobs:
             e2e/tests/integration/nats-subject-contract.spec.ts
 
       - name: Run generated authorization parser adversarial tests
-        run: node --test scripts/nats/messaging-acl-smoke.test.mjs
+        run: ./node_modules/.bin/ts-node --project tools/gates/tsconfig.json scripts/nats/messaging-acl-smoke.test.ts
 
       - name: Run every NestJS identity through the event-bus boot path on the generated ACL
         run: bash scripts/nats/boot-path-acl-smoke-harness.sh

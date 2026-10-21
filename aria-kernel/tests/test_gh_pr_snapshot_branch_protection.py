@@ -27,7 +27,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from aria_kernel.ci import _fetch_branch_protection_contexts
+from aria_kernel.auto_merge import read_required_status_checks
 
 
 class FetchBranchProtectionContextsTests(unittest.TestCase):
@@ -44,9 +44,9 @@ class FetchBranchProtectionContextsTests(unittest.TestCase):
         """HTTP 200, real protection list → (contexts, None)."""
         from pathlib import Path
         gh_response = '{"contexts": ["ci-affected", "security-snyk"]}'
-        with patch("aria_kernel.ci.subprocess.run") as mock_run:
+        with patch("aria_kernel.auto_merge.subprocess.run") as mock_run:
             mock_run.return_value = self._mock_gh_run(returncode=0, stdout=gh_response)
-            contexts, error = _fetch_branch_protection_contexts(
+            contexts, error = read_required_status_checks(
                 root=Path("/tmp"), base_branch="main",
             )
         self.assertEqual(contexts, ["ci-affected", "security-snyk"])
@@ -56,9 +56,9 @@ class FetchBranchProtectionContextsTests(unittest.TestCase):
         """HTTP 200, contexts=[] → branch_protection_no_required_checks_configured."""
         from pathlib import Path
         gh_response = '{"contexts": []}'
-        with patch("aria_kernel.ci.subprocess.run") as mock_run:
+        with patch("aria_kernel.auto_merge.subprocess.run") as mock_run:
             mock_run.return_value = self._mock_gh_run(returncode=0, stdout=gh_response)
-            contexts, error = _fetch_branch_protection_contexts(
+            contexts, error = read_required_status_checks(
                 root=Path("/tmp"), base_branch="main",
             )
         self.assertEqual(contexts, [])
@@ -68,11 +68,11 @@ class FetchBranchProtectionContextsTests(unittest.TestCase):
         """gh api returns non-zero with 'HTTP 404' in stderr → branch
         protection disabled on the base branch."""
         from pathlib import Path
-        with patch("aria_kernel.ci.subprocess.run") as mock_run:
+        with patch("aria_kernel.auto_merge.subprocess.run") as mock_run:
             mock_run.return_value = self._mock_gh_run(
                 returncode=1, stderr="gh: Branch not protected (HTTP 404)",
             )
-            contexts, error = _fetch_branch_protection_contexts(
+            contexts, error = read_required_status_checks(
                 root=Path("/tmp"), base_branch="main",
             )
         self.assertIsNone(contexts)
@@ -81,11 +81,11 @@ class FetchBranchProtectionContextsTests(unittest.TestCase):
     def test_http_403_returns_permission_denied(self) -> None:
         """gh api returns non-zero with 'HTTP 403' → permission denied."""
         from pathlib import Path
-        with patch("aria_kernel.ci.subprocess.run") as mock_run:
+        with patch("aria_kernel.auto_merge.subprocess.run") as mock_run:
             mock_run.return_value = self._mock_gh_run(
                 returncode=1, stderr="gh: Forbidden (HTTP 403)",
             )
-            contexts, error = _fetch_branch_protection_contexts(
+            contexts, error = read_required_status_checks(
                 root=Path("/tmp"), base_branch="main",
             )
         self.assertIsNone(contexts)
@@ -95,11 +95,11 @@ class FetchBranchProtectionContextsTests(unittest.TestCase):
         """gh api returns non-zero with 'HTTP 401' → also permission
         denied (auth missing/expired)."""
         from pathlib import Path
-        with patch("aria_kernel.ci.subprocess.run") as mock_run:
+        with patch("aria_kernel.auto_merge.subprocess.run") as mock_run:
             mock_run.return_value = self._mock_gh_run(
                 returncode=1, stderr="gh: Authentication required (HTTP 401)",
             )
-            contexts, error = _fetch_branch_protection_contexts(
+            contexts, error = read_required_status_checks(
                 root=Path("/tmp"), base_branch="main",
             )
         self.assertIsNone(contexts)
@@ -110,13 +110,36 @@ class FetchBranchProtectionContextsTests(unittest.TestCase):
         etc.) → branch_protection_lookup_failed (the operator-actionable
         catch-all)."""
         from pathlib import Path
-        with patch("aria_kernel.ci.subprocess.run") as mock_run:
+        with patch("aria_kernel.auto_merge.subprocess.run") as mock_run:
             mock_run.side_effect = FileNotFoundError("gh: not found")
-            contexts, error = _fetch_branch_protection_contexts(
+            contexts, error = read_required_status_checks(
                 root=Path("/tmp"), base_branch="main",
             )
         self.assertIsNone(contexts)
         self.assertEqual(error, "branch_protection_lookup_failed")
+
+    def test_checks_named_only_under_checks_are_required(self) -> None:
+        """ARIA-CRITICAL-009 — the one reader keeps the merge lane's reading:
+        a required check GitHub names only under ``checks[].context`` is
+        required, not an unconfigured protection."""
+        from pathlib import Path
+        gh_response = (
+            '{"contexts": ["ci-affected"], "checks": ['
+            '{"context": "ci-affected", "app_id": 15368}, '
+            '{"context": "invariants-fast", "app_id": 15368}]}'
+        )
+        with patch("aria_kernel.auto_merge.subprocess.run") as mock_run:
+            mock_run.return_value = self._mock_gh_run(returncode=0, stdout=gh_response)
+            contexts, error = read_required_status_checks(root=Path("/tmp"), base_branch="main")
+        self.assertEqual(contexts, ["ci-affected", "invariants-fast"])
+        self.assertIsNone(error)
+        with patch("aria_kernel.auto_merge.subprocess.run") as mock_run:
+            mock_run.return_value = self._mock_gh_run(
+                returncode=0, stdout='{"contexts": [], "checks": [{"context": "ci-affected"}]}',
+            )
+            contexts, error = read_required_status_checks(root=Path("/tmp"), base_branch="main")
+        self.assertEqual(contexts, ["ci-affected"])
+        self.assertIsNone(error)
 
 
 if __name__ == "__main__":

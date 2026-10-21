@@ -1,0 +1,15 @@
+{
+  "_doc": [
+    "WP-P operator pin list (HANDOVER 2026-10-18 §7): the ONLY exceptions to the",
+    "role x provider matrix floor. A role may serve fewer than",
+    "minimum_runnable_providers providers only while an operator-pinned cell",
+    "here names it, with the decision and the condition for reopening.",
+    "An entry names {role, provider, decided_by, date, note}. A pin whose",
+    "role or provider no longer exists fails test_provider_matrix_invariant",
+    "(a stale pin hides nothing). Today the list is empty: every dispatchable",
+    "role runs on at least two providers."
+  ],
+  "schema_version": 1,
+  "minimum_runnable_providers": 2,
+  "operator_pinned": []
+}

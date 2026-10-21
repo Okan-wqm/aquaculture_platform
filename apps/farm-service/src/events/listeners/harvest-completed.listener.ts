@@ -7,7 +7,16 @@
  *   - Advances batch status (partial harvest → HARVESTING; final → HARVESTED)
  *   - Generates a harvest report for dashboards
  *   - Publishes a regulatory/traceability follow-up event
- *   - Publishes a tank-cleared follow-up on a final, fully-emptied harvest
+ *   - Publishes a production-completed follow-up on a final, fully-emptied harvest
+ *
+ * TankCleared is NOT published here. CreateHarvestRecordHandler enqueues it in
+ * the harvest's own transaction, because only the harvest knows which tank it
+ * emptied. This listener used to look the cleared tanks up by
+ * `tank_batches.primaryBatchId = event.batchId`, which matched only because an
+ * emptied tank kept naming its departed batch (a stale marker TankBatchService
+ * left behind). With the composition writer clearing that marker, the lookup
+ * would find nothing and TankCleared would never be published (FARM-CRITICAL-454
+ * verification).
  *
  * WHY THIS WAS REWRITTEN (dead-listeners HIGH):
  *   The previous implementation subscribed via `@OnEvent(EventNames.HARVEST_COMPLETED)`
@@ -40,8 +49,7 @@
  *   repositories route to the correct `tenant_<uuid>` schema via search_path.
  *
  * FRESH FOLLOW-UP IDENTITY (dead-listeners CRITICAL):
- *   Each follow-up (HarvestRegulatoryRecorded / TankCleared /
- *   BatchProductionCompleted) is minted with `createBaseEvent` — a FRESH branded
+ *   Each follow-up (HarvestRegulatoryRecorded / BatchProductionCompleted) is minted with `createBaseEvent` — a FRESH branded
  *   `eventId` and timestamp — threading `causationId = trigger.eventId` and
  *   `correlationId = trigger.correlationId`. The previous code REUSED
  *   `trigger.eventId`, which NatsEventBus stamps as the JetStream `msgID`; with a
@@ -52,7 +60,7 @@
  * INBOUND IDEMPOTENCY (dead-listeners HIGH):
  *   NATS is at-least-once and the consumer's `max_deliver` is 3. A redelivery of
  *   the SAME BatchHarvested would re-run the status transition AND re-publish the
- *   regulatory / tank-cleared / production-completed follow-ups — emitting
+ *   regulatory / production-completed follow-ups — emitting
  *   duplicate regulatory records. A Redis `setNx` claim keyed by the trigger
  *   eventId (the same atomic primitive the alert-engine uses for cooldown) makes
  *   the side-effecting path run ONCE per trigger. The claim is RELEASED on
@@ -72,12 +80,10 @@ import {
   type BatchHarvestedEvent,
   type BatchProductionCompletedEvent,
   type HarvestRegulatoryRecordedEvent,
-  type TankClearedEvent,
 } from '@platform/event-contracts';
 import { Repository } from 'typeorm';
 
 import { Batch, BatchStatus } from '../../batch/entities/batch.entity';
-import { TankBatch } from '../../batch/entities/tank-batch.entity';
 
 /**
  * Harvest report structure (a subset of the original — fields that depend on
@@ -122,8 +128,6 @@ export class HarvestCompletedListener implements IEventHandler<BatchHarvestedEve
   constructor(
     @InjectRepository(Batch)
     private readonly batchRepository: Repository<Batch>,
-    @InjectRepository(TankBatch)
-    private readonly tankBatchRepository: Repository<TankBatch>,
     @Optional()
     @Inject('EVENT_BUS')
     private readonly eventBus?: IEventBus,
@@ -194,7 +198,7 @@ export class HarvestCompletedListener implements IEventHandler<BatchHarvestedEve
 
     // INBOUND IDEMPOTENCY: claim this trigger eventId atomically. If the claim
     // was already taken, a prior delivery already ran the side effects — skip to
-    // avoid duplicate regulatory / tank-cleared / production-completed events.
+    // avoid duplicate regulatory / production-completed events.
     const claimed = await this.claimEvent(event);
     if (!claimed) {
       this.logger.log(
@@ -212,7 +216,7 @@ export class HarvestCompletedListener implements IEventHandler<BatchHarvestedEve
         // 2. Generate a harvest report for dashboards.
         const report = await this.generateHarvestReport(event);
 
-        // 3. Publish follow-up events (regulatory + tank-cleared) onto the bus.
+        // 3. Publish follow-up events (regulatory + production-completed) onto the bus.
         await this.publishFollowUps(event, isFinal, remainingQuantity, report);
       });
 
@@ -373,8 +377,8 @@ export class HarvestCompletedListener implements IEventHandler<BatchHarvestedEve
    * `@platform/event-contracts` events, each with a FRESH `createBaseEvent`
    * identity (see class header for the msgID-collision rationale):
    *   - HarvestRegulatoryRecorded → notification-service (traceability)
-   *   - TankCleared               → gateway FarmNatsBridge → tenant room
    *   - BatchProductionCompleted  → gateway FarmNatsBridge → tenant room
+   * (TankCleared comes from CreateHarvestRecordHandler; see the class header.)
    *
    * `causationId` threads back to the trigger event; `correlationId` carries the
    * trigger's correlation so the whole chain is traceable end-to-end.
@@ -420,30 +424,8 @@ export class HarvestCompletedListener implements IEventHandler<BatchHarvestedEve
     };
     await this.eventBus.publish(regulatory);
 
-    // Tank-cleared follow-up — only on a final harvest that emptied the batch.
+    // Production-completed follow-up — only on a final harvest that emptied the batch.
     if (isFinal && remainingQuantity === 0) {
-      const tankBatches = await this.tankBatchRepository.find({
-        where: { tenantId: event.tenantId, primaryBatchId: event.batchId },
-      });
-
-      for (const tankBatch of tankBatches) {
-        this.logger.log(
-          `Tank ${tankBatch.tankCode || tankBatch.tankId} cleared after final harvest`,
-        );
-        const tankCleared: TankClearedEvent = {
-          ...createBaseEvent<TankClearedEvent>('TankCleared', event.tenantId, {
-            ...lineage,
-            aggregateId: tankBatch.tankId,
-            aggregateType: 'Tank',
-          }),
-          tankId: tankBatch.tankId,
-          tankCode: tankBatch.tankCode,
-          previousBatchId: event.batchId,
-          clearedAt: toEventIso(harvestedAt),
-        };
-        await this.eventBus.publish(tankCleared);
-      }
-
       // Batch-production-completed follow-up carries the frozen report,
       // FLATTENED per ADR-006 (no nested performance/production objects).
       const completed: BatchProductionCompletedEvent = {

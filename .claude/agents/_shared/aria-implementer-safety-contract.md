@@ -48,11 +48,12 @@ the sha256 of this file at V9.1 land time, and any drift will fire
 
 Your process runs under `bwrap` (`implementation_safety.wrap_managed_claude_in_sandbox`)
 in its own network namespace. The Claude CLI must reach its provider
-(`MANAGED_SPAWN_ALLOW_NETWORK`), and that is the only road out: the room
-holds loopback and the kernel's allowlist proxy (`egress_proxy`), reached
-through the `HTTPS_PROXY` the room starts with. A direct connection to any
-address, the host's own loopback services included, finds no route, and the
-proxy refuses every host that is not a provider endpoint by name. On top
+(`MANAGED_SPAWN_PROVIDER`), and that is the only road out: the room holds
+loopback and the kernel's provider gateway (`provider_gateway`), reached
+through the socket `ANTHROPIC_UNIX_SOCKET` names. The gateway forwards only
+the Messages requests the CLI makes, under the kernel's credential; the room
+holds no credential of its own and no proxy. A direct connection to any
+address, the host's own loopback services included, finds no route. On top
 of that, `curl`, `wget`, `nc`, `ssh`, `scp` and every network primitive
 are DENY rules the PreToolUse hook enforces.
 If you find yourself needing one, the task is OUT OF SCOPE — refuse with
@@ -217,6 +218,50 @@ Refusal envelope shape mirrors the V8.13 contract:
   `allowed_scope[]`. Reading READONLY_PATHS is permitted (you must
   understand the architecture even if you cannot modify it); writing
   is forbidden.
+
+## Bash Command Shape
+
+The PreToolUse hook judges each Bash call as one command line before it runs
+(`hooks.decide_pre_tool` → `implementation_safety.verify_bash_command_allowed`,
+ARIA-LOW-561). A refused call is not counted against
+`implementer_turn_budget` (only admitted calls are,
+`turn_budget.budgeted_turns_used`), but it still spends a model turn and wall
+clock toward the job deadline. The command's whole output already comes back
+to you, so nothing needs a pipe or a redirect.
+
+- One command per call. A shell operator outside quotes, `|`, `&`, `;`, `(`,
+  `)`, `<`, `>` or a line break, and every operator built from them (`&&`,
+  `||`, `2>&1`, `>>`, `<<`, ...), is refused as
+  `shell_control_operator_in_command`. So is `cd`: every call runs at the
+  workspace root.
+- No substitution anywhere, inside quotes too: a backtick, `$(`, `${`, `$[` or
+  `$'` is refused as `shell_substitution_in_command`.
+- No word bash would expand: an unquoted `$`, `*`, `?`, `[`, a brace list
+  (`{a,b}`) or a leading `~` is refused as `shell_expansion_in_command`.
+  Single quotes keep the word as written.
+- The program must match an allow rule (`command_policy.ALLOW_RULES`: git
+  reads, `git add`/`git commit`, the canonical validation suite, the test
+  runners and linters, `python3 -m unittest`, trusted repo scripts). Anything
+  else is a `BashAllowlistMiss`. For files, use the Read, Grep and Glob tools,
+  not `cat`, `grep`, `sed`, `head`, `ls`, `find` or `wc` in Bash.
+
+**Example:** how the hook answers (this block is checked against the hook by
+`test_phase_v9_1_aria_implementer_agent.py`):
+
+```text
+refused: npx nx affected --target=test 2>&1 | tail -50
+admitted: npx nx affected --target=test
+refused: python3 -m unittest tests.test_x 2>&1
+admitted: python3 -m unittest tests.test_x
+refused: git status && git diff --staged
+admitted: git diff --staged
+refused: git diff -- src/*.ts
+admitted: git diff -- 'src/*.ts'
+refused: git diff $(git merge-base HEAD main)
+refused: cd apps && npm test
+refused: cat src/app.ts
+refused: grep -rn needle src
+```
 
 ## Output envelope
 

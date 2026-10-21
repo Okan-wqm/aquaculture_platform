@@ -18,6 +18,7 @@ from .ledger import (
 )
 from .agent_invocations import DEFAULT_LEASE_SECONDS
 from .agent_network import latest_agent_network_hash
+from .merge_record import opened_row
 from .pressure import effective_workspace_pressures
 from .tool_registry import (
     GovernanceError,
@@ -811,11 +812,18 @@ def pr_for_assignment(
 ) -> int | None:
     """Lookup the PR number associated with a verified assignment.
 
-    Plan 025 §E — scans pr-lifecycle.jsonl for the most recent row
-    carrying ``assignment_id``. Pre-fix that ledger never recorded
-    the assignment_id link; the open_pr_for_action surface is
-    extended in this same batch to thread assignment_id into
-    record_pr_lifecycle so future PR rows match.
+    Plan 025 §E — reads pr-lifecycle.jsonl for the most recent
+    ``opened`` row carrying ``assignment_id``. Pre-fix that ledger
+    never recorded the assignment_id link; the open_pr_for_action
+    surface is extended in this same batch to thread assignment_id
+    into record_pr_lifecycle so future PR rows match.
+
+    merge-delivery-1 (ARIA-MEDIUM-656) — ``assignment_id`` is one of
+    ``merge_record.BINDING_FIELDS``: the row that opened the PR binds
+    it, selected by the binding owner (``merge_record.opened_row``).
+    A row of any other event that names the assignment (one written
+    before record_pr_lifecycle nulled the binding fields on those
+    events) binds nothing.
 
     Legacy rows (lacking assignment_id) return None — the caller's
     fail-closed path emits ``verified_pending_merge`` instead of
@@ -828,14 +836,10 @@ def pr_for_assignment(
     pr_path = root / "pr-lifecycle.jsonl"
     if not pr_path.exists():
         return None
-    pr_number: int | None = None
-    for row in load_jsonl(pr_path):
-        if row.get("assignment_id") != assignment_id:
-            continue
-        num = row.get("pr_number")
-        if isinstance(num, int):
-            pr_number = num
-    return pr_number
+    bound = opened_row(load_jsonl(pr_path), assignment_id=assignment_id)
+    if bound is None or type(bound.get("pr_number")) is not int:
+        return None
+    return int(bound["pr_number"])
 
 
 def _latest_assignment_states(root: Path) -> dict[str, str]:

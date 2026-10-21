@@ -17,9 +17,15 @@ from unittest.mock import patch
 
 from aria_kernel.promotion import attempt_auto_promotions, promote_tool
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from tests._helpers.active_evidence import active_evidence, stand_in_active_evidence
 
 
 class PromoteToolTokenPathTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # The subject is promote_tool's wiring; the ACTIVE evidence
+        # (ARIA-HIGH-004) is stood in and must reach transition_tool.
+        stand_in_active_evidence(self)
+
     def test_no_ref_and_default_policy_is_refused_with_reason(self) -> None:
         """Default policy: enabled=False → the token path refuses loudly,
         naming BOTH the missing operator ref and the ineligibility."""
@@ -68,6 +74,7 @@ class PromoteToolTokenPathTests(unittest.TestCase):
         self.assertEqual(captured["auto_promote_token"], "deadbeef" * 8)
         self.assertIsNone(captured["operator_approval_ref"])
         self.assertEqual(captured["precision"], 0.97)
+        self.assertEqual(captured["active_evidence"], active_evidence("adapter-x"))
 
     def test_operator_ref_path_never_computes_a_token(self) -> None:
         from aria_kernel.tool_registry import append_tools_governance

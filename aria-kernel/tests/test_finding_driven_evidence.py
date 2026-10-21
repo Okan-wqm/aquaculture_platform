@@ -183,20 +183,27 @@ class FFindingEvidenceTests(unittest.TestCase):
 
 
 class OrphanRegistryEvidenceTests(unittest.TestCase):
-    def _workspace_with_orphan(self, evidence: list | None) -> str:
+    def _workspace_with_orphan(self, evidence: list | None, *, review_file: str | None = None) -> str:
         d = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, d, True)
         reviews = Path(d) / "docs" / "reviews"
         (reviews / "_registry").mkdir(parents=True)
+        # The register's heading shape; OPEN is the registry row's state
+        # (ARIA-MEDIUM-249), registered against the register.
         (reviews / "orphan-findings.md").write_text(
-            "## ORPHAN-HIGH-501\nStatus: OPEN\nsome body\n", encoding="utf-8",
+            "## ORPHAN-HIGH-501 — leave entity — OPEN\nsome body\n", encoding="utf-8",
         )
-        row = {"id": "ORPHAN-HIGH-501", "severity": "HIGH", "state": "OPEN"}
+        row = {"id": "ORPHAN-HIGH-501", "severity": "HIGH", "state": "OPEN",
+               "review_file": review_file or "docs/reviews/orphan-findings.md"}
         if evidence is not None:
             row["evidence"] = evidence
         (reviews / "_registry" / "findings.jsonl").write_text(
             json.dumps(row) + "\n", encoding="utf-8",
         )
+        if review_file and review_file != "docs/reviews/orphan-findings.md":
+            document = Path(d) / review_file
+            document.parent.mkdir(parents=True, exist_ok=True)
+            document.write_text(f"# Review\n\n## ORPHAN-HIGH-501 — filed here\n", encoding="utf-8")
         return d
 
     def test_scan_attaches_registry_evidence(self) -> None:
@@ -207,17 +214,20 @@ class OrphanRegistryEvidenceTests(unittest.TestCase):
             candidates[0].get("evidence"), ["apps/hr-service/src/leave/leave.entity.ts"],
         )
 
-    def _committed(self, evidence: list | None) -> Path:
+    def _committed(self, evidence: list | None, *, review_file: str | None = None) -> Path:
         """The orphan workspace as a checkout, every file committed (the rule reads commits)."""
         import subprocess
 
         from tests._helpers.git_fixtures import make_local_git_repo
 
-        workspace = Path(self._workspace_with_orphan(evidence))
+        workspace = Path(self._workspace_with_orphan(evidence, review_file=review_file))
         repo = make_local_git_repo(workspace, name="repo")
         for relative in ("docs/reviews/orphan-findings.md", "docs/reviews/_registry/findings.jsonl"):
             (repo / relative).parent.mkdir(parents=True, exist_ok=True)
             (repo / relative).write_text((workspace / relative).read_text(encoding="utf-8"), encoding="utf-8")
+        if review_file and review_file != "docs/reviews/orphan-findings.md":
+            (repo / review_file).parent.mkdir(parents=True, exist_ok=True)
+            (repo / review_file).write_text((workspace / review_file).read_text(encoding="utf-8"), encoding="utf-8")
         (repo / "apps/hr-service/src/leave").mkdir(parents=True)
         (repo / "apps/hr-service/src/leave/leave.entity.ts").write_text("export class Leave {}\n", encoding="utf-8")
         subprocess.run(["git", "add", "-A"], cwd=repo, check=True, capture_output=True)
@@ -243,6 +253,57 @@ class OrphanRegistryEvidenceTests(unittest.TestCase):
         self.assertEqual(env.content["affected_surfaces"], ["docs/reviews/orphan-findings.md"])
         # The register's heading line, never `#<id>`: a path no file has.
         self.assertEqual(env.content["evidence_refs"], ["docs/reviews/orphan-findings.md:1"])
+
+    def test_an_orphan_filed_elsewhere_plans_and_closes_through_its_own_review_file(self) -> None:
+        """ARIA-LOW-607 — the real scan/mint/contract path over a row the
+        register does not hold.
+
+        Before the fix the scanner dropped the row (no plan source could reach
+        it) and the contract's one trailer form named the register — a file
+        whose closure derivation could never honour the finding. The minted
+        plan now carries the row's ``finding_review_file`` and the contract
+        derives the trailer from it; the register's heading anchor is not
+        cited for a row it does not hold, and the no-evidence fallback surface
+        is the row's own review document.
+        """
+        from aria_kernel.plan_origin import commit_contract_for_plan
+
+        other = "docs/reviews/2026-07-26-aria-codex-audit-verification.md"
+        repo = self._committed(["apps/hr-service/src/leave/leave.entity.ts"], review_file=other)
+        [candidate] = scan_orphan_findings(repo)
+        self.assertEqual(candidate.get("review_file"), other)
+        env = convert_candidate_to_plan_content(candidate, ground=PlanEvidenceGround.of(repo)).envelope
+        self.assertEqual(env.content["finding_id"], "ORPHAN-HIGH-501")
+        self.assertEqual(env.content["finding_review_file"], other)
+        # The code ref, then the finding's heading in its OWN review document
+        # (line 3 of the fixture document); the register's same-id heading is
+        # never cited for a row it does not hold.
+        self.assertEqual(
+            env.content["evidence_refs"],
+            ["apps/hr-service/src/leave/leave.entity.ts", f"{other}:3"],
+        )
+        self.assertEqual(env.content["affected_surfaces"], ["apps/hr-service/src/leave/leave.entity.ts"])
+        self.assertEqual(
+            commit_contract_for_plan(env.content, plan_id="p")["trailer"],
+            f"Closes: {other}#ORPHAN-HIGH-501",
+        )
+
+    def test_an_orphan_filed_elsewhere_without_code_evidence_falls_back_to_its_own_document(self) -> None:
+        from aria_kernel.plan_origin import commit_contract_for_plan
+
+        other = "docs/reviews/2026-07-26-aria-codex-audit-verification.md"
+        repo = self._committed(None, review_file=other)
+        [candidate] = scan_orphan_findings(repo)
+        env = convert_candidate_to_plan_content(candidate, ground=PlanEvidenceGround.of(repo)).envelope
+        # The anchor and the no-code fallback surface are the row's own review
+        # document (its heading sits at line 3); the register's same-id heading
+        # is never cited for a row it does not hold.
+        self.assertEqual(env.content["evidence_refs"], [f"{other}:3"])
+        self.assertEqual(env.content["affected_surfaces"], [other])
+        self.assertEqual(
+            commit_contract_for_plan(env.content, plan_id="p")["trailer"],
+            f"Closes: {other}#ORPHAN-HIGH-501",
+        )
 
 
 if __name__ == "__main__":

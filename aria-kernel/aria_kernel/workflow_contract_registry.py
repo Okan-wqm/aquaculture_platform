@@ -42,6 +42,7 @@ import json
 from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
+from typing import Any, Mapping
 
 from .ledger import sha256_of_canonical_json
 
@@ -363,9 +364,12 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 # 510 → 570 (ARIA-HIGH-342, PR #1779 re-review R-3): the
                 # post-drain reserve now prices the leased publish's preamble
                 # outside the lock (cold staging, the fence's lease reads and
-                # renewal: 4500 s). The YAML is the pin; this must move with it
-                # (`_verify_job_timeout_minutes`).
-                job_timeout_minutes=570,
+                # renewal: 4500 s). 570 → 602 (ARIA-LOW-585): the steps
+                # allowance moved to its one kernel owner and was re-priced
+                # from #1371's measured 47 minutes; the cap moves WITH the
+                # reserve, so the drain window is unchanged. The YAML is the
+                # pin; this must move with it (`_verify_job_timeout_minutes`).
+                job_timeout_minutes=602,
                 required_steps=(
                     _EXECUTOR_RESTORE_STEP,
                     _EXECUTOR_LEASE_STEP,
@@ -491,12 +495,16 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 clean_worktree_policy="pre_and_post",
                 external_root_allowlist=("RUNNER_TEMP",),
                 # Operator decision (2026-08-13): the night's window is
-                # unbounded — the 360-minute platform ceiling, one value for
-                # every mode. Smoke runs 1-3 proved the 50-minute cap was the
-                # binding constraint; the ORPHAN-661/662 deadline pair keeps
-                # any value safe (the night seals + publishes at the wall).
+                # unbounded — a stated cap, one value for every mode (no
+                # 360-minute platform ceiling exists on a self-hosted
+                # runner). 360 → 454 (ARIA-LOW-585): the close-out margin is
+                # derived from the kernel's priced publish bounds and the cap
+                # moved WITH it, so the spawn window is unchanged. Smoke runs
+                # 1-3 proved a small cap was the binding constraint; the
+                # ORPHAN-661/662 deadline pair keeps any value safe (the
+                # night seals + publishes at the wall).
                 burn_in_timeout_floor_minutes=120,
-                job_timeout_minutes=360,
+                job_timeout_minutes=454,
                 # The producer is the shape aria-agent-executor mirrors, so it
                 # carries the same declared constraints — a reference
                 # implementation that is itself unpinned is a reference that
@@ -729,9 +737,13 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 # ARIA-HIGH-217 — the expert panel is requested here, on the
                 # PR head (a worktree of the detached checkout), and the
                 # requests are published with the claim.
+                # ARIA-HIGH-222 — every claim step reads the one bound
+                # target; the hourly backstop sweeps for it under the
+                # writer lease, from the store the restore checked out.
                 required_steps=(
                     _DETACH_STEP,
                     _RESTORE_STEP,
+                    "Bind the claim target",
                     "Build the rollback bundle",
                     "Publish the rollback bundle",
                     "Download the published rollback bundle",
@@ -740,6 +752,9 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                     _PUBLISH_STEP,
                 ),
                 step_order=(
+                    (_RESTORE_STEP, "Bind the claim target"),
+                    ("Bind the claim target", "Build the rollback bundle"),
+                    ("Bind the claim target", "Assemble the readiness claim"),
                     ("Build the rollback bundle", "Publish the rollback bundle"),
                     ("Publish the rollback bundle", "Download the published rollback bundle"),
                     ("Download the published rollback bundle", "Assemble the readiness claim"),
@@ -975,6 +990,83 @@ def workflow_job_contract(workflow_id: str, job_id: str) -> WorkflowJobContract 
     return None
 
 
+def workflow_job_contract_for_file(workflow_file: str, job_id: str) -> WorkflowJobContract | None:
+    """The job contract governing ``job_id`` of the workflow at the
+    repository-relative ``workflow_file``, or None when the registry governs
+    no such job. The workflow/shell safety adapter (ARIA-HIGH-013) reads a
+    workflow by its path, not its registry id."""
+    for contract in WORKFLOW_CONTRACTS.values():
+        if contract.workflow_file == workflow_file:
+            return workflow_job_contract(contract.workflow_id, job_id)
+    return None
+
+
+# ARIA-HIGH-589 — the GITHUB_TOKEN scopes a ``permissions:`` keyword grants.
+# GitHub's ``write-all`` / ``read-all`` set EVERY scope at once, so the verifier
+# must expand a keyword into this set before judging it; reading only a
+# mapping let a governed job declare ``write-all`` and pass its contract.
+# Source: GitHub Actions "permissions" workflow syntax (scope list).
+GITHUB_TOKEN_SCOPES: tuple[str, ...] = (
+    "actions",
+    "attestations",
+    "checks",
+    "contents",
+    "deployments",
+    "discussions",
+    "id-token",
+    "issues",
+    "models",
+    "packages",
+    "pages",
+    "pull-requests",
+    "repository-projects",
+    "security-events",
+    "statuses",
+)
+
+_PERMISSION_KEYWORDS: dict[str, str] = {"write-all": "write", "read-all": "read"}
+
+
+def declared_token_permissions(declared: Any) -> dict[str, Any] | None:
+    """The scope map a ``permissions:`` value grants the job's GITHUB_TOKEN.
+
+    ONE reading of the value, at either level: a mapping as declared, the
+    keywords ``write-all`` / ``read-all`` as every scope in
+    ``GITHUB_TOKEN_SCOPES``, and an empty value (``{}`` or a bare
+    ``permissions:``) as no scope. Any other value is not a grant GitHub
+    accepts, so it answers None and the caller refuses it.
+    """
+    if declared is None:
+        return {}
+    if isinstance(declared, Mapping):
+        return dict(declared)
+    if isinstance(declared, str) and declared in _PERMISSION_KEYWORDS:
+        return {scope: _PERMISSION_KEYWORDS[declared] for scope in GITHUB_TOKEN_SCOPES}
+    return None
+
+
+def job_token_permissions(job: Mapping[str, Any], workflow: Mapping[str, Any]) -> dict[str, Any] | None:
+    """What a job's token is granted: the job's own ``permissions:`` when it
+    declares one (it REPLACES the workflow-level value, as GitHub applies it,
+    so a job's ``read-all`` drops the workflow's writes), else the
+    workflow-level value. Neither declared answers ``{}``: the contract cannot
+    see the repository default, so it credits no scope."""
+    if "permissions" in job:
+        return declared_token_permissions(job["permissions"])
+    if "permissions" in workflow:
+        return declared_token_permissions(workflow["permissions"])
+    return {}
+
+
+def uncontracted_write_scopes(actual: Mapping[str, Any], required: Mapping[str, str]) -> tuple[str, ...]:
+    """The token scopes ``actual`` grants ``write`` that the job contract's
+    ``required`` permissions do not: the least-privilege half of a governed
+    job's contract (ADR-036). ONE definition, read by the contract verifier
+    (``workflow_contracts._verify_permissions``) and by the workflow/shell
+    safety adapter (ARIA-HIGH-013, ``overbroad_write_token``)."""
+    return tuple(key for key, value in actual.items() if value == "write" and required.get(key) != "write")
+
+
 def workflow_hash(path: Path) -> str:
     return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -1027,9 +1119,12 @@ def cycle_wall_clock_cap_seconds(workflow_id: str, *, job_id: str | None = None)
 
 __all__ = [
     "AUDITED_WORKFLOW_EXCLUSIONS",
+    "GITHUB_TOKEN_SCOPES",
     "WALL_CLOCK_RESERVE_MINUTES",
     "WORKFLOW_CONTRACTS",
     "cycle_wall_clock_cap_seconds",
+    "declared_token_permissions",
+    "job_token_permissions",
     "AuditedWorkflowExclusion",
     "WorkflowAbortGate",
     "WorkflowContract",
@@ -1037,6 +1132,8 @@ __all__ = [
     "workflow_contract_hash",
     "workflow_contract_registry",
     "workflow_hash",
+    "uncontracted_write_scopes",
     "workflow_job_contract",
+    "workflow_job_contract_for_file",
     "workflow_job_contract_hash",
 ]

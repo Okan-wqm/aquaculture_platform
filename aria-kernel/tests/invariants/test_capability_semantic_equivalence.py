@@ -275,12 +275,14 @@ def produced_rows() -> list[tuple[str, str, dict[str, Any]]]:
             )),
             ("finding_promotion.promotion", "promotions", finding_promotion.promotion_row(
                 finding_fingerprint="fp-producer", finding_id="F-producer", tool_id="producer-tool",
-                judgment_group_id="jg-producer",
+                judgment_group_id="jg-producer", consensus_run_id="run-producer", request_ids=["AIR-producer"],
+                target_sha=_PRODUCED_SHA,
             )),
             ("fixture_runner.suite", "agent_eval_fixture_runs", fixture_runner.fixture_suite_row(
                 tool_id="producer-tool", tool={"tool_id": "producer-tool", "version": "1.0.0", "fixture_set": "producer"},
                 fixture_set_digest="sha256:" + "6" * 64, cycle_id="cyc-producer", case_results=cases,
-                execution_run_id="exec-producer",
+                execution_run_id="exec-producer", workspace_commit_sha=_PRODUCED_SHA,
+                argv_scripts_hash="sha256:" + "7" * 64,
             )),
             ("autonomy_unlock.verdict", "enterprise_autonomy_unlock_events", autonomy_unlock.unlock_verdict_row("L1", verdict)),
         ]
@@ -531,7 +533,12 @@ class CapabilitySemanticEquivalenceTests(unittest.TestCase):
             producer for producer, surface, row in produced
             if any(_fold([(surface, row)]).native_summaries()[_contract_owner(surface)[0]].targets_by_contract.values())
         }
-        self.assertEqual(admitted, {"cycle.completed", "agent_invocations.accepted", "readiness_proofs.claim"})
+        # ARIA-HIGH-004 — a promotion (finding_funnel@2) and a passing fixture
+        # suite (fixture_calibration@3) name the commit they prove.
+        self.assertEqual(admitted, {
+            "cycle.completed", "agent_invocations.accepted", "readiness_proofs.claim",
+            "finding_promotion.promotion", "fixture_runner.suite",
+        })
 
     def test_every_producer_is_pinned_for_its_declared_schema_version(self) -> None:
         self.assertEqual(producer_mismatches(), {})

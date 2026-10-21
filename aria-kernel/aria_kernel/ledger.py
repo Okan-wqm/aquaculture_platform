@@ -12,7 +12,7 @@ from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
-from typing import Any, Callable, Iterable, Iterator
+from typing import Any, Callable, Iterable, Iterator, NoReturn
 
 from .digest import is_sha256_digest, sha256_digest, sha256_hex
 from .file_lock import ExclusiveLockHandle, with_exclusive_lock
@@ -29,8 +29,13 @@ from .state_manifest import (
 __all__ = [
     "LedgerIntegrityError",
     "LedgerReadLimitError",
+    "LedgerRowTooDeepError",
     "LedgerRowTooLargeError",
+    "JSON_NESTING_MAX_DEPTH",
     "LEDGER_ROW_MAX_BYTES",
+    "LEDGER_ROW_NESTING_MAX_DEPTH",
+    "REPLAY_TRANSPORT_NESTING_LEVELS",
+    "ledger_read_faults",
     "REPLAY_TRANSPORT_SCHEMA_PREFIX",
     "ROW_FORMAT_VERSION",
     "STATE_LOCK_LIVENESS_SECONDS",
@@ -86,6 +91,24 @@ class LedgerReadLimitError(RuntimeError):
     pass
 
 
+def ledger_read_faults() -> tuple[type[BaseException], ...]:
+    """The closed set a reader of this module's ledgers may treat as a fault
+    of the STORE rather than of the code (ARIA-LOW-514, ARIA-LOW-587).
+
+    ``LedgerIntegrityError`` — a row that is not JSON, a broken hash chain, a
+    segment chain that does not link (what a corrupt or tampered store raises
+    through ``read_jsonl``, ``load_jsonl_verified``, ``load_declared_jsonl``
+    and ``load_segments``); ``LedgerReadLimitError`` — a ledger past the
+    reader's evidence budget; ``OSError`` — the file system. ``TypeError``,
+    ``KeyError``, ``ValueError`` and ``AttributeError`` are defects in the
+    reader and are deliberately absent: a caller that absorbs them turns a
+    kernel bug into a ledger nobody could open. A reader built on these
+    primitives declares its own ``*_reader_faults()`` from this set, next to
+    the reader, so a reader that grows a new fault widens its own declaration.
+    """
+    return (LedgerIntegrityError, LedgerReadLimitError, OSError)
+
+
 # ARIA-HIGH-034 — the ONE row-size cap, owned by the append primitive.
 #
 # WHY here and not only in the snapshot builder: the 1 MiB line limit used to
@@ -105,6 +128,21 @@ class LedgerReadLimitError(RuntimeError):
 # write-side and read-side agree by construction. The snapshot module
 # imports this constant; it has no number of its own.
 LEDGER_ROW_MAX_BYTES = 1024 * 1024
+
+# ARIA-HIGH-617 — the nesting bound every strict reader enforces on a stored
+# JSON line (`json_nesting_within_limit`'s default): the snapshot walk
+# (`verify_jsonl_chunks`), the replay staging verification and the evidence
+# readers. Contention replay re-appends a producer row inside a transport
+# row's `producer_payload` (`_make_replay_transport_row`), one level deeper,
+# and the staged copy is verified by the same walk. A producer row therefore
+# keeps that level free: the append primitive refuses a row past
+# LEDGER_ROW_NESTING_MAX_DEPTH (a transport row is checked against the readers'
+# bound itself), so no writer can seal a line the readers refuse or the
+# replay could not carry. The bytes cap above, measured the same way, is the
+# precedent.
+JSON_NESTING_MAX_DEPTH = 128
+REPLAY_TRANSPORT_NESTING_LEVELS = 1
+LEDGER_ROW_NESTING_MAX_DEPTH = JSON_NESTING_MAX_DEPTH - REPLAY_TRANSPORT_NESTING_LEVELS
 
 # How long a state writer waits for the LIVE holder of a state-group, index
 # or file lock before concluding the holder is wedged:
@@ -174,7 +212,20 @@ class LedgerRowTooLargeError(RuntimeError):
     pass
 
 
-def json_nesting_within_limit(content: str, *, max_depth: int = 128) -> bool:
+class LedgerRowTooDeepError(LedgerRowTooLargeError):
+    """A row offered to the append primitive is nested past its stored-line bound.
+
+    A row too large in nesting rather than in bytes: the strict readers would
+    refuse its line (``JSON_NESTING_MAX_DEPTH``), or contention replay could
+    not carry it (``LEDGER_ROW_NESTING_MAX_DEPTH``). Raised before the row is
+    written, like its base class, so a writer that already handles a row it
+    cannot store handles this one too.
+    """
+
+    pass
+
+
+def json_nesting_within_limit(content: str, *, max_depth: int = JSON_NESTING_MAX_DEPTH) -> bool:
     """Reject pathological JSON nesting before handing input to ``json``.
 
     CPython's decoder recursion limit is process-global and can change between
@@ -762,6 +813,14 @@ def state_transaction(
     holder (a probe that must not wait, a fixture proving lock order); an
     ordinary writer cannot know who holds the group lock and must not
     guess a shorter wait.
+
+    ARIA-MEDIUM-111 — a full disk while the transaction takes its locks or
+    while its body writes leaves it as ``environment_failure:disk_full``
+    (``_reraise_enospc_as_environment``). The translation lives HERE, not in
+    the module-level append wrappers, so the thirty-odd governed writers
+    that append through the transaction object get it with no cooperation;
+    ``StateTransaction`` is constructed nowhere else (pinned in
+    tests/test_bench_hygiene_residues.py).
     """
     concrete_paths = [Path(path).resolve() for path in paths]
     if not concrete_paths:
@@ -814,47 +873,50 @@ def state_transaction(
                     f"path={concrete_path.as_posix()}"
                 )
 
-    with contextlib.ExitStack() as stack:
-        lock_handles: list[ExclusiveLockHandle] = []
-        for ordinal, lock_path in enumerate(lock_paths):
-            remaining = max(0.0, acquisition_deadline - time.monotonic())
-            try:
-                lock_handles.append(
-                    stack.enter_context(
-                        with_exclusive_lock(lock_path, timeout_seconds=remaining)
+    try:
+        with contextlib.ExitStack() as stack:
+            lock_handles: list[ExclusiveLockHandle] = []
+            for ordinal, lock_path in enumerate(lock_paths):
+                remaining = max(0.0, acquisition_deadline - time.monotonic())
+                try:
+                    lock_handles.append(
+                        stack.enter_context(
+                            with_exclusive_lock(lock_path, timeout_seconds=remaining)
+                        )
                     )
+                except TimeoutError as exc:
+                    # The declared root may have vanished while this writer
+                    # waited; that semantic refusal outranks the timeout, as it
+                    # does for the I/O fault below.
+                    if ordinal == 0 and ordered_group_locks and declared_bindings:
+                        assert_declared_bindings_unchanged()
+                    # Name the bound that fired and where: the helper's message
+                    # says only which side-car was contended, and a reader of
+                    # the log needs to know the writer waited the WHOLE
+                    # transaction bound, not a per-lock default.
+                    raise TimeoutError(
+                        "state_transaction_liveness_bound_exhausted: "
+                        f"bound={wait_bound}s lock_ordinal={ordinal} "
+                        f"lock={lock_path.as_posix()}"
+                    ) from exc
+                except OSError:
+                    # A cleanup may unlink the group sidecar while this waiter has
+                    # it open.  The lock helper correctly rejects that changed
+                    # inode.  If the declared authority vanished with it, expose
+                    # the semantic refusal; otherwise preserve the real I/O fault.
+                    if ordinal == 0 and ordered_group_locks and declared_bindings:
+                        assert_declared_bindings_unchanged()
+                    raise
+                if ordinal == 0 and ordered_group_locks and declared_bindings:
+                    assert_declared_bindings_unchanged()
+            with state_transaction_held():
+                yield StateTransaction(
+                    frozenset(concrete_paths),
+                    verify_reads=verify_reads,
+                    lock_handles=tuple(lock_handles),
                 )
-            except TimeoutError as exc:
-                # The declared root may have vanished while this writer
-                # waited; that semantic refusal outranks the timeout, as it
-                # does for the I/O fault below.
-                if ordinal == 0 and ordered_group_locks and declared_bindings:
-                    assert_declared_bindings_unchanged()
-                # Name the bound that fired and where: the helper's message
-                # says only which side-car was contended, and a reader of
-                # the log needs to know the writer waited the WHOLE
-                # transaction bound, not a per-lock default.
-                raise TimeoutError(
-                    "state_transaction_liveness_bound_exhausted: "
-                    f"bound={wait_bound}s lock_ordinal={ordinal} "
-                    f"lock={lock_path.as_posix()}"
-                ) from exc
-            except OSError:
-                # A cleanup may unlink the group sidecar while this waiter has
-                # it open.  The lock helper correctly rejects that changed
-                # inode.  If the declared authority vanished with it, expose
-                # the semantic refusal; otherwise preserve the real I/O fault.
-                if ordinal == 0 and ordered_group_locks and declared_bindings:
-                    assert_declared_bindings_unchanged()
-                raise
-            if ordinal == 0 and ordered_group_locks and declared_bindings:
-                assert_declared_bindings_unchanged()
-        with state_transaction_held():
-            yield StateTransaction(
-                frozenset(concrete_paths),
-                verify_reads=verify_reads,
-                lock_handles=tuple(lock_handles),
-            )
+    except OSError as exc:
+        _reraise_enospc_as_environment(exc)
 
 
 def file_hash(path: Path) -> str:
@@ -1300,10 +1362,11 @@ def _record_hash(record: dict[str, Any], previous_hash: str | None = None) -> st
 def heal_torn_tail(path: Path) -> int:
     """Physically remove an incomplete trailing record. Returns bytes removed.
 
-    ORPHAN-CRITICAL-561. Tolerating a torn tail on READ is not enough: the
-    append path calls `read_jsonl`, which refuses unparseable content, and the
-    chain would stay broken for every future writer. The tail has to go, once,
-    under the lock the appender already holds.
+    ORPHAN-CRITICAL-561. Tolerating a torn tail on READ is not enough: a
+    reader that parses every row refuses unparseable content, and the chain
+    would stay broken for every future writer. The tail has to go, once, under
+    the lock the appender already holds (the append body truncates it from
+    the one text it reads, ``_tail_hash_for_append``).
 
     Truncation rather than rewrite: the verified prefix is left byte-identical,
     so no hash is recomputed and no row is touched. `torn_tail_length` is the
@@ -1314,7 +1377,16 @@ def heal_torn_tail(path: Path) -> int:
     if not path.exists():
         return 0
     content = path.read_text(encoding="utf-8")
-    torn_bytes = torn_tail_length(content)
+    return _truncate_torn_tail(path, content, torn_tail_length(content))
+
+
+def _truncate_torn_tail(path: Path, content: str, torn_bytes: int) -> int:
+    """Cut the ``torn_bytes`` trailing characters of ``content`` off ``path``.
+
+    ``content`` is the text this caller read from ``path`` under the lock it
+    holds, so the file still IS that text; truncating to the byte length of
+    its untorn prefix leaves that prefix byte-identical.
+    """
     if not torn_bytes:
         return 0
     fd = os.open(str(path), os.O_WRONLY)
@@ -1361,26 +1433,15 @@ def _append_rows_locked_body(
     _assert_segment_append_allowed(path, records)
     stamped = [_stamped_for_surface(path, record) for record in records]
     path.parent.mkdir(parents=True, exist_ok=True)
-    _verify_existing_declared_chain_before_append(path)
-    # After the verifier accepted the file, heal what it accepted AROUND: the
-    # verifier reads past a torn tail, `read_jsonl` below does not, and a
-    # writer that appended after one would chain onto a row that is not there.
-    heal_torn_tail(path)
-    rows = _read_jsonl_stored(path)
-    previous_hash = (
-        str(rows[-1].get("ledger_hash"))
-        if rows and rows[-1].get("ledger_hash")
-        else None
-    )
+    previous_hash = _tail_hash_for_append(path)
     stored_rows: list[dict[str, Any]] = []
     lines: list[bytes] = []
     for record in stamped:
         stored = dict(record)
         stored["previous_ledger_hash"] = previous_hash
         stored["ledger_hash"] = _record_hash(stored, previous_hash)
-        line = (
-            json.dumps(stored, sort_keys=True, separators=(",", ":")) + "\n"
-        ).encode("utf-8")
+        text = json.dumps(stored, sort_keys=True, separators=(",", ":"))
+        line = (text + "\n").encode("utf-8")
         # ARIA-HIGH-034 — refuse BEFORE the fd is opened: the chain tail, the
         # index and the file are exactly as the verifier accepted them above.
         # `len(line)` is the same quantity the snapshot reader compares per
@@ -1392,6 +1453,20 @@ def _append_rows_locked_body(
                 f"bytes={len(line)}:cap={LEDGER_ROW_MAX_BYTES}: the row would "
                 "be unpublishable (snapshot line cap); bound the writer's inline "
                 "payload with ledger_inline.spill_oversized_inline"
+            )
+        # ARIA-HIGH-617 — the nesting bound, measured on the same text the
+        # strict readers walk, so write side and read side agree by
+        # construction (see JSON_NESTING_MAX_DEPTH). Refused the same way.
+        nesting_bound = (
+            JSON_NESTING_MAX_DEPTH
+            if _is_replay_transport_candidate(stored)
+            else LEDGER_ROW_NESTING_MAX_DEPTH
+        )
+        if not json_nesting_within_limit(text, max_depth=nesting_bound):
+            raise LedgerRowTooDeepError(
+                f"ledger_row_too_deep:{path.as_posix()}:max_depth={nesting_bound}: "
+                "the strict readers or the contention replay would refuse the "
+                "row; bound the nesting of what the writer stores"
             )
         stored_rows.append(stored)
         lines.append(line)
@@ -1489,20 +1564,21 @@ def append_jsonl(
         )
 
 
-def _reraise_enospc_as_environment(exc: OSError) -> None:
+def _reraise_enospc_as_environment(exc: OSError) -> NoReturn:
     """E18-b (ORPHAN-695 sibling; lived 2026-08-13) — a full disk during a
-    ledger APPEND is an ENVIRONMENT failure, not phase logic. Pre-E18-b
+    ledger write is an ENVIRONMENT failure, not phase logic. Pre-E18-b
     only the read/verify path classified I/O faults; a mid-run ENOSPC on
     the write side still surfaced as an anonymous phase crash the operator
-    had to diagnose from a stack trace. Named here, once, for every
-    governed append."""
+    had to diagnose from a stack trace. Named here, once; ``state_transaction``
+    raises it for every write made inside one (ARIA-MEDIUM-111), which is
+    every governed append. Any other OSError is re-raised as it is."""
     import errno as _errno
 
     from .tool_registry import GovernanceError
 
     if exc.errno == _errno.ENOSPC:
         raise GovernanceError(
-            f"environment_failure:disk_full: ledger append hit ENOSPC "
+            f"environment_failure:disk_full: a state transaction write hit ENOSPC "
             f"({exc}); free disk and re-run — the rows already written are "
             f"intact, the chain refuses to advance on a torn write"
         ) from exc
@@ -1533,17 +1609,13 @@ def append_declared_jsonl_rows(
     if not records:
         return []
     resolved = Path(path).resolve()
-    try:
-        with state_transaction([resolved]) as transaction:
-            return transaction.append_declared_jsonl_rows(
-                resolved,
-                records,
-                expected_surface=expected_surface,
-                bypass_profile_gate=bypass_profile_gate,
-            )
-    except OSError as exc:
-        _reraise_enospc_as_environment(exc)
-        raise
+    with state_transaction([resolved]) as transaction:
+        return transaction.append_declared_jsonl_rows(
+            resolved,
+            records,
+            expected_surface=expected_surface,
+            bypass_profile_gate=bypass_profile_gate,
+        )
 
 
 def append_declared_jsonl(
@@ -1566,16 +1638,13 @@ def append_declared_jsonl(
         enforce_write_profile=not bypass_profile_gate,
     )
     resolved = Path(path).resolve()
-    try:
-        with state_transaction([resolved]) as transaction:
-            return transaction.append_declared_jsonl(
-                resolved,
-                record,
-                expected_surface=expected_surface,
-                bypass_profile_gate=bypass_profile_gate,
-            )
-    except OSError as exc:
-        _reraise_enospc_as_environment(exc)
+    with state_transaction([resolved]) as transaction:
+        return transaction.append_declared_jsonl(
+            resolved,
+            record,
+            expected_surface=expected_surface,
+            bypass_profile_gate=bypass_profile_gate,
+        )
 
 
 def _assert_raw_jsonl_append_allowed(
@@ -1746,22 +1815,60 @@ def _assert_declared_surface(
     return surface, _base_dir
 
 
-def _verify_existing_declared_chain_before_append(path: Path) -> None:
+def _tail_hash_for_append(path: Path) -> str | None:
+    """The hash the next row chains onto, from ONE read of ``path`` under the held lock.
+
+    ARIA-LOW-611. The body used to read the whole file three times here: the
+    strict verification, the torn-tail check, and a second full parse of every
+    row only to take the last ``ledger_hash`` — which the verification had
+    just computed from the same bytes under the same lock. Now the text is
+    read once and every step judges that text:
+
+    * a strict surface (``enterprise_required`` and ``strict_read``) verifies
+      its whole chain (ARIA-HIGH-237: one verification per batch) and refuses
+      a corrupt one BEFORE anything is healed or written; an I/O failure on
+      the read refuses the same way, as the verifier always reported it;
+    * a torn tail — the verifier reads past it — is truncated off the file,
+      so no writer chains onto a row that is not there (ORPHAN-CRITICAL-561);
+    * a non-strict surface keeps its one full parse: it is that surface's only
+      malformed-row check.
+    """
     match = surface_for_path(path)
-    if match is None:
-        return
-    surface, _base_dir = match
-    if not surface.enterprise_required or not surface.strict_read:
-        return
-    if not path.exists() or path.stat().st_size == 0:
-        return
-    result = verify_jsonl(path)
-    if not result.get("valid", False):
-        raise LedgerIntegrityError(
-            f"declared_jsonl_refuses_append_to_corrupt_chain: "
-            f"surface={surface.name!r} path={path.resolve().as_posix()} "
-            f"reason={result.get('reason')} line={result.get('line')}"
-        )
+    strict = (
+        match[0]
+        if match is not None and match[0].enterprise_required and match[0].strict_read
+        else None
+    )
+    try:
+        content = path.read_text(encoding="utf-8") if path.exists() else ""
+    except OSError as exc:
+        if strict is None:
+            raise
+        _refuse_append_to_corrupt_chain(path, strict.name, {"reason": str(exc)})
+    torn_bytes = torn_tail_length(content)
+    if strict is not None:
+        if not content:
+            return None
+        verdict, _rows = _verify_jsonl_from_text(path, content)
+        if not verdict.get("valid", False):
+            _refuse_append_to_corrupt_chain(path, strict.name, verdict)
+        _truncate_torn_tail(path, content, torn_bytes)
+        return verdict["last_hash"]
+    _truncate_torn_tail(path, content, torn_bytes)
+    rows = _parse_jsonl_stored_text(path, content[: len(content) - torn_bytes])
+    return (
+        str(rows[-1].get("ledger_hash"))
+        if rows and rows[-1].get("ledger_hash")
+        else None
+    )
+
+
+def _refuse_append_to_corrupt_chain(path: Path, surface: str, verdict: dict[str, Any]) -> NoReturn:
+    raise LedgerIntegrityError(
+        f"declared_jsonl_refuses_append_to_corrupt_chain: "
+        f"surface={surface!r} path={path.resolve().as_posix()} "
+        f"reason={verdict.get('reason')} line={verdict.get('line')}"
+    )
 
 
 def rewrite_jsonl(
@@ -2088,7 +2195,7 @@ def _verify_file_or_raise(
 
     The one verify-and-raise body of the file loaders. Unlike the text loaders
     it does not refuse a torn tail: a live file may carry one that the next
-    append heals (``heal_torn_tail``), and the verdict already excludes it.
+    append heals (``_tail_hash_for_append``), and the verdict already excludes it.
     """
     try:
         result, rows = _verify_jsonl_from_text(
@@ -2757,15 +2864,11 @@ def append_segment_rows(
     if not records:
         return []
     frozen = _segment_layout(Path(root), expected_surface)[0]
-    try:
-        with state_transaction([frozen]) as transaction:
-            return transaction.append_segment_rows(
-                root,
-                records,
-                expected_surface=expected_surface,
-                now=now,
-                bypass_profile_gate=bypass_profile_gate,
-            )
-    except OSError as exc:
-        _reraise_enospc_as_environment(exc)
-        raise
+    with state_transaction([frozen]) as transaction:
+        return transaction.append_segment_rows(
+            root,
+            records,
+            expected_surface=expected_surface,
+            now=now,
+            bypass_profile_gate=bypass_profile_gate,
+        )

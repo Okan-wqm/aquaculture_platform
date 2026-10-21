@@ -192,10 +192,6 @@ class RenameMigrationTests(unittest.TestCase):
             self.assertEqual(evaluate_breaker(base).state, "tripped")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class WindowSurvivesTheGateNotJustTheTrip(unittest.TestCase):
     """ORPHAN-MEDIUM-483 — evaluate at the GATE, which is where it broke.
 
@@ -250,3 +246,7 @@ class WindowSurvivesTheGateNotJustTheTrip(unittest.TestCase):
             _count_failures_in_window(self._rows_aged(ages), window_hours=72), threshold,
             "the 72h window must be shown to lose a failure",
         )
+
+
+if __name__ == "__main__":
+    unittest.main()

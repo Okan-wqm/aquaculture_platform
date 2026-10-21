@@ -74,6 +74,14 @@ const tsconfigRootDir = fileURLToPath(new URL('.', import.meta.url));
 // into a project (exactly what `root: true` prevented under ESLint 8).
 const PROJECT_GLOBS = PROJECT_LINT_OVERRIDES.map((p) => `${p.dir}/**`);
 
+// The @nx/enforce-module-boundaries options of the non-project zones, named
+// once so override 1b (ARIA adapters -> tools/gates) extends rather than copies.
+const NX_MODULE_BOUNDARIES = {
+  enforceBuildableLibDependency: true,
+  allow: ['@aquaculture/shared-ui', '@aquaculture/shared-ui/*'],
+  depConstraints: [{ sourceTag: '*', onlyDependOnLibsWithTags: ['*'] }],
+};
+
 // libs/migration-harness has its OWN nested `.eslintrc.json` that `extends` the
 // root (it is NOT `root: true`). Under ESLint 8, an extended parent's
 // path-glob overrides (`libs/**/src/**/*.ts`) are re-based to the EXTENDING
@@ -393,13 +401,25 @@ export default [
     ignores: PROJECT_GLOBS,
     plugins: { '@nx': nx },
     rules: {
+      '@nx/enforce-module-boundaries': ['error', NX_MODULE_BOUNDARIES],
+    },
+  },
+
+  // ── override 1b: ARIA adapters observe through the gates' owners ──
+  // tools/gates is not an Nx project, so a relative import into it is an
+  // "external resource" to @nx/enforce-module-boundaries. The ARIA closure plan
+  // (Tasks 13-16) requires each observation adapter to call the gate module
+  // that owns its policy rather than carry a second copy of the rule
+  // (ARIA-HIGH-011: sql-migration-safety-adapter -> migration-sql-lint et al.).
+  // This block allows exactly that edge — an adapter source directly in
+  // tools/aria-adapters importing `../gates/<module>` — and nothing else.
+  {
+    files: ['tools/aria-adapters/*.ts'],
+    plugins: { '@nx': nx },
+    rules: {
       '@nx/enforce-module-boundaries': [
         'error',
-        {
-          enforceBuildableLibDependency: true,
-          allow: ['@aquaculture/shared-ui', '@aquaculture/shared-ui/*'],
-          depConstraints: [{ sourceTag: '*', onlyDependOnLibsWithTags: ['*'] }],
-        },
+        { ...NX_MODULE_BOUNDARIES, allow: [...NX_MODULE_BOUNDARIES.allow, '../gates/*'] },
       ],
     },
   },
@@ -434,6 +454,53 @@ export default [
       'no-console': ['error'],
       'no-restricted-imports': ['error', { paths: RESTRICTED_IMPORTS_PATHS }],
       'no-restricted-syntax': ['error', ...RESTRICTED_SYNTAX_MAIN],
+    },
+  },
+
+  // ── overrides 2b/2c: adapter filesystem access has ONE owner (ARIA-LOW-593) ──
+  // adapter-fs.ts (containedWorkspace) is that owner: every adapter reads the
+  // workspace through its helpers, and no other adapter source may open a
+  // second path to the filesystem. Two shapes of bypass are refused, each
+  // with its own exemption: a direct node:fs import (exempt: adapter-fs.ts,
+  // the owner), and a ts.Program built on the default compiler host — ts.sys
+  // reads every imported module itself, following symlinks, so a program
+  // created outside the contained host escapes containment exactly like a
+  // readFileSync would (exempt: adapter-ts.ts, the one builder on that host).
+  // Both blocks sit AFTER override 2 on purpose: flat config resolves
+  // per-file rules last-write-wins, and override 2 redefines both rules for
+  // every non-project source. The specs are exempt: they build fixtures,
+  // not verdicts.
+  {
+    files: ['tools/aria-adapters/*.ts'],
+    ignores: ['tools/aria-adapters/adapter-fs.ts', 'tools/aria-adapters/*.test.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: ['node:fs', 'fs', 'node:fs/promises', 'fs/promises'].map((name) => ({
+            name,
+            message:
+              'adapter filesystem access has one owner: read the workspace through ' +
+              "adapter-fs.ts's contained helpers instead.",
+          })),
+        },
+      ],
+    },
+  },
+  {
+    files: ['tools/aria-adapters/*.ts'],
+    ignores: ['tools/aria-adapters/adapter-ts.ts', 'tools/aria-adapters/*.test.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            "CallExpression[callee.type='MemberExpression'][callee.property.name='createProgram']",
+          message:
+            'a program on the default compiler host reads imported modules through ts.sys, ' +
+            'following symlinks — build it through adapter-ts.ts, the one contained builder.',
+        },
+      ],
     },
   },
 

@@ -47,6 +47,7 @@ from tests._helpers.ambient_git_config import AMBIENT_GIT_CONFIG
 from tests._helpers.git_fixtures import _git, implementer_identity_args, make_repo_with_initial_commit
 from tests._helpers.installation_credential import LANE_CREDENTIAL_ENV
 from tests._helpers.operator_acts import operator_set_profile
+from tests._helpers.sandbox_pins import require_sandbox_backend
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _POC_DIR = _REPO_ROOT / "tools" / "aria-poc"
@@ -392,10 +393,7 @@ class AdmissionTests(_DeliveredBranch):
     """ARIA-HIGH-124 (round 3) — the delivery is priced and admitted before it runs."""
 
     def setUp(self) -> None:
-        from aria_kernel.implementation_safety import sandbox_backend
-
-        if sandbox_backend() is None:
-            self.skipTest("bwrap is not usable on this host")
+        require_sandbox_backend()
         super().setUp()
         # ARIA-HIGH-388 — the admission refuses a profile without the
         # delivery's actions first (`authority_absent`); these tests are
@@ -755,11 +753,9 @@ class ResultAdmissibilityTests(_DeliveredBranch):
     def setUp(self) -> None:
         from aria_kernel.agent_invocations import claim_request
         from aria_kernel.change_ledger import emit_change_planned
-        from aria_kernel.implementation_safety import sandbox_backend
         from tests._helpers.production_shaped import production_implementation_request
 
-        if sandbox_backend() is None:
-            self.skipTest("bwrap is not usable on this host")
+        require_sandbox_backend()
         super().setUp()
         # ARIA-HIGH-388 — the profile a delivery runs in (`authority_absent`
         # is refused at admission, ahead of the stage these tests pin).
@@ -1013,11 +1009,9 @@ class ValidationTimeoutStopsTheWholeTreeTests(unittest.TestCase):
         import secrets
 
         from aria_kernel.change_ledger import emit_change_planned
-        from aria_kernel.implementation_safety import sandbox_backend
         from aria_kernel.ledger import load_declared_jsonl as _load
 
-        if sandbox_backend() is None:
-            self.skipTest("bwrap is not usable on this host")
+        require_sandbox_backend()
         self.tmp = tempfile.TemporaryDirectory(prefix="aria-124-timeout-")
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name).resolve()
@@ -1146,10 +1140,7 @@ class ValidationSandboxHostsTheObservationChildTests(unittest.TestCase):
     none of it by design)."""
 
     def setUp(self) -> None:
-        from aria_kernel.implementation_safety import sandbox_backend
-
-        if sandbox_backend() is None:
-            self.skipTest("bwrap is not usable on this host")
+        require_sandbox_backend()
         self.tmp = tempfile.TemporaryDirectory(prefix="aria-124-observer-")
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name).resolve()
@@ -1226,10 +1217,6 @@ class ReleaseReasonTests(unittest.TestCase):
         self.assertEqual(IMPLEMENTATION_DELIVERY_REFUSED_PREFIX, "implementation_delivery_refused:")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class CredentialIsMintedWhereItIsConsumedTests(unittest.TestCase):
     """ARIA-HIGH-124 (round 6) — the delivery credential's life is the push
     and the PR, not the request.
@@ -1250,13 +1237,11 @@ class CredentialIsMintedWhereItIsConsumedTests(unittest.TestCase):
 
     def setUp(self) -> None:
         from aria_kernel.agent_invocations import claim_request
-        from aria_kernel.implementation_safety import sandbox_backend
         from aria_kernel.knowledge_graph import register_convention_signer
         from aria_kernel.tool_registry import ensure_tools_binding
         from tests._helpers.production_shaped import production_staged_implementation_request
 
-        if sandbox_backend() is None:
-            self.skipTest("bwrap is not usable on this host")
+        require_sandbox_backend()
         self.tmp = tempfile.TemporaryDirectory(prefix="aria-124-credential-")
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name).resolve()
@@ -1695,3 +1680,7 @@ class CredentialIsMintedWhereItIsConsumedTests(unittest.TestCase):
         self.assertEqual(self._log(self.push_log)[0]["credential_names"], ["GH_TOKEN"])
         self.assertEqual(self._log(self.gh_log)[0]["credential_names"], ["GH_TOKEN"])
         self.assertEqual(self._governance("delivery_credential_issued"), [])
+
+
+if __name__ == "__main__":
+    unittest.main()

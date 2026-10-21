@@ -114,11 +114,11 @@
           "format": "date-time"
         }
       ],
-      "description": "Deadline for BLOCKED state (override protocol) or for tracked planner packages. null otherwise. Accepts either ISO 8601 calendar-date (`YYYY-MM-DD`, the canonical writer convention used by ULTRA-* / RUST-CVE-* / INFRA-CRITICAL-*) OR full RFC 3339 date-time (`YYYY-MM-DDTHH:MM:SSZ`, used by ORPHAN-HIGH-035/039 and ULTRA-HIGH-071 which carry explicit end-of-day timestamps to remove ambiguity about when the day expires). Both shapes convey the same semantic — `date-time` is strictly more precise than `date` — so admitting either is the architectural fix rather than rewriting the three outlier entries (which would corrupt the hash chain). Future writers should default to the calendar-date shape unless they have a reason to encode a specific time-of-day."
+      "description": "Deadline for BLOCKED state (override protocol), for tracked planner packages, and for every unresolved CRITICAL (`$defs/accountable`: its only governance timer). null otherwise. Accepts either ISO 8601 calendar-date (`YYYY-MM-DD`, the canonical writer convention used by ULTRA-* / RUST-CVE-* / INFRA-CRITICAL-*) OR full RFC 3339 date-time (`YYYY-MM-DDTHH:MM:SSZ`, used by ORPHAN-HIGH-035/039 and ULTRA-HIGH-071 which carry explicit end-of-day timestamps to remove ambiguity about when the day expires). Both shapes convey the same semantic — `date-time` is strictly more precise than `date` — so admitting either is the architectural fix rather than rewriting the three outlier entries (which would corrupt the hash chain). Future writers should default to the calendar-date shape unless they have a reason to encode a specific time-of-day."
     },
     "owner_user": {
       "type": ["string", "null"],
-      "description": "GitHub handle accountable for closing. Required when state is BLOCKED."
+      "description": "GitHub handle accountable for closing, in its .github/CODEOWNERS spelling without the @ (tools/gates/finding-registry-owners.ts canonicalOwner; the registry writers store it so and refuse a value no handle names, ARIA-MEDIUM-535). Required when state is BLOCKED, and non-blank on every unresolved CRITICAL (`$defs/accountable`)."
     },
     "override_of": {
       "type": ["string", "null"],
@@ -146,6 +146,22 @@
       "description": "Free-form multi-paragraph context entries, captured when an incident note is too large for a single `notes` string and is not a precise `file:line` citation that belongs in `evidence`. Optional companion to `evidence`; `evidence` remains the canonical locus for file:line references."
     }
   },
+  "$defs": {
+    "accountable": {
+      "$comment": "ARIA-HIGH-044. A finding someone owes and a timer can reach: a non-blank owner_user and a deadline. Applied to every BLOCKED row (ARIA-MEDIUM-601) and every unresolved CRITICAL below. A CRITICAL is exempt from the sweep's 30-day STALE timer (silence is not resolution), so its deadline is the only clock that moves it (past deadline -> BLOCKED); without one it is out of reach of every governance timer. Rows registered before this rule gain the fields through `finding-registry assign`, which fills them and never overwrites.",
+      "required": ["owner_user", "deadline"],
+      "properties": {
+        "owner_user": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\S(.*\\S)?$"
+        },
+        "deadline": {
+          "type": "string"
+        }
+      }
+    }
+  },
   "allOf": [
     {
       "if": {
@@ -169,8 +185,9 @@
         },
         "required": ["state"]
       },
+      "$comment": "ARIA-MEDIUM-601: a BLOCKED row is an override its owner_user signs (README Override protocol), so it names a non-blank owner and a deadline at every severity. `required` alone accepted a null owner_user; the sweep reports a lapsed ownerless row UNOWNED instead of blocking it (tools/gates/finding-registry.ts findUnownedPastDeadline).",
       "then": {
-        "required": ["owner_user", "deadline"]
+        "$ref": "#/$defs/accountable"
       }
     },
     {
@@ -189,6 +206,25 @@
             "minItems": 1
           }
         }
+      }
+    },
+    {
+      "$comment": "ARIA-HIGH-044: an unresolved CRITICAL is accountable. Unresolved is every state but RESOLVED, the same set as isUnresolvedFindingState in tools/gates/finding-registry-chain.ts, written as a negation so this file keeps no second list of states.",
+      "if": {
+        "properties": {
+          "severity": {
+            "const": "CRITICAL"
+          },
+          "state": {
+            "not": {
+              "const": "RESOLVED"
+            }
+          }
+        },
+        "required": ["severity", "state"]
+      },
+      "then": {
+        "$ref": "#/$defs/accountable"
       }
     }
   ]

@@ -44,7 +44,6 @@ first.
 from __future__ import annotations
 
 import os
-import re
 import shutil
 import subprocess
 import tempfile
@@ -52,12 +51,12 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 from .git_containment import KERNEL_GIT_NO_HOOKS_ARGS
 from .risk_policy import first_present_string
 from .state_store import GIT_TIMEOUT_SECONDS
 from .tool_registry import GovernanceError
 
-_FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 
 
 class MergeLaneWorkspaceRefusal(GovernanceError):
@@ -117,7 +116,7 @@ def pr_workspace_identity(pr: dict[str, Any]) -> dict[str, Any]:
     if missing:
         raise MergeLaneWorkspaceRefusal("merge_lane_workspace_pr_fields_required:" + ",".join(missing))
     for name in ("head_sha", "live_base_sha"):
-        if _FULL_SHA.fullmatch(identity[name]) is None:
+        if not is_object_id(identity[name], formats=ANY_OBJECT_FORMAT):
             raise MergeLaneWorkspaceRefusal(f"merge_lane_workspace_{name}_not_a_full_sha")
     return identity
 
@@ -160,7 +159,7 @@ def pr_head_workspace(
             if not _commit_present(source, sha):
                 raise MergeLaneWorkspaceRefusal(f"merge_lane_workspace_{label}_unavailable:{sha}")
         implementation_base = _git(source, "merge-base", live_base_sha, head_sha).stdout.strip()
-        if _FULL_SHA.fullmatch(implementation_base) is None:
+        if not is_object_id(implementation_base, formats=ANY_OBJECT_FORMAT):
             raise MergeLaneWorkspaceRefusal("merge_lane_workspace_no_common_base")
         with _shaped(
             source=source, source_root=source_root, number=number, head_ref=head_ref,

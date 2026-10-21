@@ -3,17 +3,18 @@ and the write scope is a mount, not a promise.
 
 Invariants:
   I-V12-ENV-01   `build_agent_env` never copies: secret-shaped names that are not
-                 explicitly granted are dropped; the baseline, the CLI auth set,
-                 non-secret `CLAUDE_CODE_*` and the profile passthrough pass; HOME
-                 is synthetic and XDG_* point inside it; the report names every
-                 decision without a value.
-  I-V12-ENV-02   the managed-login directory is made explicit (`CLAUDE_CONFIG_DIR`)
-                 when the runner relied on the real `$HOME/.claude`.
-  I-V12-ENV-03   `run_claude_exec` spawns with the BUILT environment, runs the CLI
-                 it resolved on that environment's PATH by absolute path, and hands
-                 containment the login directory (one credential file goes into the
-                 private home), the settings and MCP documents it wrote, and that
-                 executable (ARIA-HIGH-077).
+                 explicitly granted are dropped (`CLAUDE_CODE_OAUTH_TOKEN` among
+                 them, ARIA-MEDIUM-563); the baseline, non-secret `CLAUDE_CODE_*`
+                 and the profile passthrough pass; HOME is synthetic and XDG_*
+                 point inside it; the report names every decision without a value.
+  I-V12-ENV-02   no login reaches a spawn (ARIA-MEDIUM-563): neither the operator's
+                 login directory (`CLAUDE_CONFIG_DIR`, the real `$HOME/.claude`)
+                 nor an OAuth token in the environment.
+  I-V12-ENV-03   `run_claude_exec` spawns with the BUILT environment — the gateway
+                 route's socket and placeholder credential added — runs the CLI it
+                 resolved on that environment's PATH by absolute path, and hands
+                 containment the settings and MCP documents it wrote and that
+                 executable (ARIA-HIGH-077), and no login.
   I-V12-ENV-04   `wrap_bash_in_sandbox(write_scope=...)` mounts the workspace
                  read-only and only the scope writable; `**` keeps the legacy
                  whole-workspace bind; a scope escaping the workspace refuses.
@@ -37,7 +38,6 @@ from aria_kernel.agent_env import (
     SYNTHETIC_HOME_PREFIX,
     build_agent_env,
     cleanup_synthetic_home,
-    derive_claude_config_dir,
 )
 from aria_kernel.runtime_profiles import profile_by_id
 
@@ -64,11 +64,12 @@ class EnvIsBuiltNotCopied(unittest.TestCase):
             env, report = built.env, built.report
             try:
                 for name in ("GH_TOKEN", "ARIA_LEASE_TOKEN", "AWS_SECRET_ACCESS_KEY", "ANTHROPIC_API_KEY",
-                             "SOME_PASSWORD", "OPERATOR_NOTE", "ARIA_ZAI_API_KEY"):
+                             "SOME_PASSWORD", "OPERATOR_NOTE", "ARIA_ZAI_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"):
                     self.assertNotIn(name, env, name)
-                for name in ("PATH", "LANG", "TERM", "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
-                             "CLAUDE_CODE_OAUTH_TOKEN", "ARIA_TOOLS_DIR"):
+                for name in ("PATH", "LANG", "TERM", "CLAUDE_CODE_MAX_OUTPUT_TOKENS", "ARIA_TOOLS_DIR"):
                     self.assertIn(name, env, name)
+                # ARIA-MEDIUM-563 — dropped as secret-shaped, by name.
+                self.assertIn("CLAUDE_CODE_OAUTH_TOKEN", report.dropped_secret_shaped)
                 self.assertTrue(Path(env["HOME"]).name.startswith(SYNTHETIC_HOME_PREFIX))
                 self.assertNotEqual(env["HOME"], tmp)
                 self.assertTrue(env["XDG_CONFIG_HOME"].startswith(env["HOME"]))
@@ -79,8 +80,7 @@ class EnvIsBuiltNotCopied(unittest.TestCase):
                 self.assertEqual(report.passthrough, ("ARIA_TOOLS_DIR",))
                 gov = report.to_governance()
                 self.assertEqual(set(gov), {"passed", "profile_passthrough", "dropped_count",
-                                            "dropped_secret_shaped", "synthetic_home",
-                                            "claude_config_dir_bound"})
+                                            "dropped_secret_shaped", "synthetic_home"})
                 for value in base.values():
                     if "VALUE" in value:
                         self.assertNotIn(value, str(gov), "values never enter the report")
@@ -115,21 +115,31 @@ class EnvIsBuiltNotCopied(unittest.TestCase):
             cleanup_synthetic_home(built.report.home)
         self.assertNotIn("HOME", BASELINE_ENV_NAMES)
 
-    def test_I_V12_ENV_02_managed_login_dir_is_made_explicit(self) -> None:
+    def test_I_V12_ENV_02_no_login_reaches_a_spawn(self) -> None:
+        # ARIA-MEDIUM-563 — the operator's login directory and token used to
+        # be passed to every spawn; the gateway holds the credential now.
         with tempfile.TemporaryDirectory() as tmp:
             real_home = Path(tmp) / "home"
             (real_home / ".claude").mkdir(parents=True)
-            self.assertEqual(derive_claude_config_dir({"HOME": str(real_home)}), str(real_home / ".claude"))
-            self.assertEqual(derive_claude_config_dir({"HOME": str(real_home), "CLAUDE_CONFIG_DIR": "/opt/c"}), "/opt/c")
-            self.assertIsNone(derive_claude_config_dir({"HOME": str(Path(tmp) / "nohome")}))
-            built = build_agent_env({"HOME": str(real_home), "PATH": "/bin"}, tmp_root=tmp)
-            self.assertEqual(built.env["CLAUDE_CONFIG_DIR"], str(real_home / ".claude"))
-            self.assertTrue(built.report.claude_config_dir)
-            cleanup_synthetic_home(built.report.home)
+            (real_home / ".claude" / ".credentials.json").write_text("{}", encoding="utf-8")
+            for base in ({"HOME": str(real_home), "PATH": "/bin"},
+                         {"HOME": str(real_home), "PATH": "/bin", "CLAUDE_CONFIG_DIR": str(real_home / ".claude"),
+                          "CLAUDE_CODE_OAUTH_TOKEN": "oauth-PLAINVALUE"}):
+                built = build_agent_env(base, tmp_root=tmp)
+                try:
+                    self.assertNotIn("CLAUDE_CONFIG_DIR", built.env)
+                    self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", built.env)
+                    self.assertNotIn(str(real_home), " ".join(built.env.values()))
+                finally:
+                    cleanup_synthetic_home(built.report.home)
+            from aria_kernel import agent_env
+
+            self.assertFalse(hasattr(agent_env, "derive_claude_config_dir"))
+            self.assertFalse(hasattr(agent_env, "CLAUDE_AUTH_ENV_NAMES"))
 
 
 class TheSpawnUsesTheBuiltEnv(unittest.TestCase):
-    def test_I_V12_ENV_03_run_claude_exec_passes_the_built_env_and_binds_the_login_dir(self) -> None:
+    def test_I_V12_ENV_03_run_claude_exec_passes_the_built_env_and_no_login(self) -> None:
         captured: dict = {}
 
         def fake_run(argv, **kwargs):
@@ -184,12 +194,20 @@ class TheSpawnUsesTheBuiltEnv(unittest.TestCase):
         env = captured["env"]
         self.assertNotIn("GH_TOKEN", env)
         self.assertNotIn("ARIA_LEASE_TOKEN", env)
-        self.assertEqual(env["CLAUDE_CONFIG_DIR"], str(real_home / ".claude"))
+        self.assertNotIn("CLAUDE_CONFIG_DIR", env)
+        # The gateway route's variables: the kernel's own socket outside a
+        # room (the room names its bound path) and the placeholder.
+        from aria_kernel.egress_proxy import kernel_egress_sockets
+        from aria_kernel.provider_routes import ROOM_CREDENTIAL_PLACEHOLDER
+
+        self.assertEqual(env["ANTHROPIC_UNIX_SOCKET"], str(kernel_egress_sockets()["anthropic"]))
+        self.assertEqual(env["ANTHROPIC_BASE_URL"], "http://localhost")
+        self.assertEqual(env["CLAUDE_CODE_OAUTH_TOKEN"], ROOM_CREDENTIAL_PLACEHOLDER)
         self.assertTrue(Path(env["HOME"]).name.startswith(SYNTHETIC_HOME_PREFIX))
         self.assertEqual(captured["cwd"], tmp)
         self.assertEqual(captured["containment"]["write_scope"], ("**",))
         containment = captured["containment"]
-        self.assertEqual(containment["managed_login_dir"], real_home / ".claude")
+        self.assertNotIn("managed_login_dir", containment)
         self.assertEqual(containment["executable"], (binaries / "claude.real").resolve())
         self.assertEqual([path.name.split("-")[0] for path in containment["spawn_files"]], ["aria", "aria"])
         self.assertEqual({path.parent.name for path in containment["spawn_files"]},
@@ -221,7 +239,7 @@ class TheSpawnUsesTheBuiltEnv(unittest.TestCase):
 class WriteScopeIsAMount(unittest.TestCase):
     def _wrap(self, workspace: Path, **kwargs) -> list[str]:
         with mock.patch.object(isf, "_bwrap_available", return_value=True):
-            return isf.wrap_bash_in_sandbox(["claude"], workspace_root=workspace, allow_network=True, **kwargs)
+            return isf.wrap_bash_in_sandbox(["claude"], workspace_root=workspace, provider="anthropic", **kwargs)
 
     def test_I_V12_ENV_04_scope_binds_only_its_directories_writable(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

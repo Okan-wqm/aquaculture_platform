@@ -5,11 +5,11 @@ import errno
 import json
 import subprocess
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, NamedTuple
 
 from .artifact_safety import published_text
 from .feedback import derive_pressure
@@ -52,7 +52,7 @@ from .goldset import propose_goldsets_for_labelled_tools
 from .judge_calibration import compute_judge_calibration
 from .proactive_priority import compute_proactive_priorities
 from .runtime_profile import ACTION_PERMISSIONS, get_profile
-from .tool_registry import GovernanceError, append_tools_governance, append_tools_governance_once, ensure_tools_binding, ensure_tools_dir, list_tools, register_tool, utc_now, update_tools_index
+from .tool_registry import GovernanceError, append_tools_governance, append_tools_governance_once, ensure_tools_binding, ensure_tools_dir, is_dispatchable, list_tools, register_tool, utc_now, update_tools_index
 from .tool_runner import run_tool
 from .turn_budget import (
     JOB_DEADLINE_CLOSE_OUT_MARGIN_SECONDS as _JOB_DEADLINE_PHASE_MARGIN_SECONDS,
@@ -688,9 +688,18 @@ def run_enterprise_cycle(
             emit_progress("state_gap_recovered", cycle_id=cycle_id, reason=recovery.reason)
         else:
             freeze_autonomous_writes(diagnosed, base_dir=root, cycle_id=cycle_id)
-            emit_progress("cycle_aborted", cycle_id=cycle_id, reason="state_integrity_gap")
+            emit_progress("cycle_aborted", cycle_id=cycle_id, reason=_STATE_INTEGRITY_GAP)
             event = _aborted_event(cycle_id, git_head_sha_at_cycle=git_head_sha_at_cycle)
             append_declared_jsonl(root / "cycles.jsonl", event, expected_surface="cycles")
+            # ARIA-LOW-549 — the gate that aborted the cycle is its failed
+            # phase, in the row shape the seal writes, so the summary, the
+            # doctor's cause key and the notice name it (see
+            # `_first_blocking_pre_phase`).
+            gap = {
+                "phase": _STATE_CONTINUITY_PHASE,
+                "status": "failed",
+                "error": _published_error(context, _state_integrity_gap_error(continuity, recovery.reason)),
+            }
             return {
                 "schema_version": 2,
                 "cycle_id": cycle_id,
@@ -699,6 +708,8 @@ def run_enterprise_cycle(
                 "event": event,
                 "learning": learning,
                 "state_continuity": continuity,
+                "aborted_by_phase": gap["phase"],
+                "failed_phases": [gap],
             }
 
     _run_phase_stage("discovery", context, phase_filter=_phase_filter)
@@ -729,8 +740,9 @@ def run_enterprise_cycle(
     # pre-tool gate cannot be demoted to a post-tool observation by a
     # caller's choice of argument.
     _run_phase_stage("pre_tool", context, phase_filter=_phase_filter)
-    aborted_by = _first_blocking_pre_phase(context)
-    if aborted_by is not None:
+    aborted = _first_blocking_pre_phase(context)
+    if aborted is not None:
+        aborted_by = aborted["phase"]
         # Plan 024 §E — pre-fix this path called _complete_event which
         # appended a row with event="completed" even though the cycle was
         # being aborted, AND the in-memory state.status was "aborted" —
@@ -752,6 +764,7 @@ def run_enterprise_cycle(
             "event": {**event, "reason": f"cycle_aborted_by_pre_phase:{aborted_by}"},
             "phases": dict(context.outcomes),
             "aborted_by_phase": aborted_by,
+            "failed_phases": [aborted],
         }
 
     _run_phase_stage("tools", context, phase_filter=_phase_filter)
@@ -1363,7 +1376,7 @@ def _phase_tools(context: PhaseContext) -> dict[str, Any]:
     decisions: list[Any] = []
     pressure_summary: dict[str, Any] = {}
     for tool in list_tools(base_dir=context.base_dir):
-        if tool.get("status") not in ("ACTIVE", "SHADOW", "CALIBRATE"):
+        if not is_dispatchable(tool):
             continue
         # The manifest's default_input is merged by run_tool, the one owner
         # (ARIA-MEDIUM-516); the cycle hands over only its own keys.
@@ -2138,8 +2151,14 @@ def _phase_judge_calibration(context: PhaseContext) -> dict[str, Any]:
     # Plan 024 §A — score each judge against accumulated ground truth so
     # the cheap-tier judgment is measured, not assumed. Read-only join over
     # the feedback ledger (no LLM).
+    # ARIA-HIGH-004 — the report names the commit this cycle measured at,
+    # resolved the way every other phase of the cycle resolves it, so the
+    # learning funnel can join it to the judgments of the same tree.
+    from .convergence_drainer import _resolve_workspace_head_sha
+
+    target_sha = _resolve_workspace_head_sha(context.workspace_root) if context.workspace_root else None
     return compute_judge_calibration(cycle_id=context.cycle_id, base_dir=context.base_dir,
-                                     **_calibration_knobs(context.workspace_root))
+                                     target_sha=target_sha, **_calibration_knobs(context.workspace_root))
 
 
 def _phase_fitness_report(context: PhaseContext) -> dict[str, Any]:
@@ -2155,6 +2174,16 @@ def _phase_fitness_report(context: PhaseContext) -> dict[str, Any]:
     return generate_fitness_report(
         cycle_id=context.cycle_id, base_dir=context.base_dir,
     )
+
+
+def _phase_training_set_export(context: PhaseContext) -> dict[str, Any]:
+    """ARIA-HIGH-125 — the gold corpus and the judges' replay verdicts on it,
+    signed, after the fitness report that measured them (post-chain plan
+    row 6). A corpus whose content did not change since its last export is
+    not exported again."""
+    from .training_set import export_training_sets
+
+    return export_training_sets(cycle_id=context.cycle_id, base_dir=context.base_dir)
 
 
 def _phase_goldset_proposal(context: PhaseContext) -> dict[str, Any]:
@@ -2302,13 +2331,22 @@ SERVICE_HARDENING_CORE: tuple[str, ...] = (
 )
 
 
+class ServiceClosureContract(NamedTuple):
+    """A service mission's forward pointer and the evidence it names (ARIA-HIGH-245)."""
+
+    next_action: str
+    wake_condition: dict[str, Any]
+    contract_source: str
+    evidence_refs: tuple[str, ...]
+
+
 def _service_closure_contract(
     project: str,
     *,
-    pressures: list[dict[str, Any]],
-    changed_paths: list[str],
-    finding_ids: list[str],
-) -> tuple[str, dict[str, Any], str] | None:
+    pressures: Mapping[str, Sequence[str]],
+    changed_paths: Sequence[str],
+    findings: Mapping[str, Sequence[str]],
+) -> ServiceClosureContract | None:
     """The forward pointer for a service-hardening mission, or ``None``.
 
     ORPHAN-MEDIUM-730 — `mission.open_mission` now refuses a mint without
@@ -2318,16 +2356,30 @@ def _service_closure_contract(
     stand-in, because a mission whose wake key names no evidence is exactly
     the row the closure gate exists to report.
 
-    ATTRIBUTION DOES NOT HAPPEN HERE. ``changed_paths`` and ``finding_ids``
-    arrive already attributed to THIS project by the caller, through
-    `impact_graph.project_for_path` — the same longest-root-prefix rule that
-    produced the nx project names this function is handed. The first version
-    asked `service_dimension.service_for_path` instead: that vocabulary emits
-    ``shared:<lib>`` / ``web:<app>`` / ``None`` and can never produce 54 of
-    this repository's 71 nx project names, so for those 54 the seeder wrote a
-    governance row claiming no derivable evidence about the very paths that
-    had just selected the project. Two path -> project vocabularies deciding
-    whether a mission exists is one more than the number of correct answers.
+    ARIA-HIGH-245 — AND THE EVIDENCE THE KEY NAMES TRAVELS WITH IT. Each tier
+    is a mapping from the identifier its key names to that item's evidence in
+    this project: a finding's cited paths, a pressure's own evidence, the
+    changed path itself. Only an item with at least one ref the agent law can
+    accept the shape of (`pressure_evidence.split_citable_refs`) qualifies, and
+    the winning item's citable refs are the mission's ``evidence_refs``. Before
+    this, the key named ``finding:<id>`` while the row recorded nothing, and
+    the drain consumed the mission ``next_cycle_queue_item_unevidenced`` every
+    cycle it was selected — 36 times for the auth-service mission alone on the
+    live store. An item with nothing citable (a pressure whose only evidence
+    is a ledger) names no contract, so a service with nothing else is refused
+    by name instead of minted unplannable.
+
+    ATTRIBUTION DOES NOT HAPPEN HERE. ``changed_paths``, ``findings`` and
+    ``pressures`` arrive already attributed to THIS project by the caller,
+    through `impact_graph.project_for_path` — the same longest-root-prefix
+    rule that produced the nx project names this function is handed. The
+    first version asked `service_dimension.service_for_path` instead: that
+    vocabulary emits ``shared:<lib>`` / ``web:<app>`` / ``None`` and can never
+    produce 54 of this repository's 71 nx project names, so for those 54 the
+    seeder wrote a governance row claiming no derivable evidence about the
+    very paths that had just selected the project. Two path -> project
+    vocabularies deciding whether a mission exists is one more than the number
+    of correct answers.
 
     THE TIER ORDER IS READ OFF `mission_scheduler.SOURCE_RANK` — literally,
     not in prose. That table is this repo's statement of evidence authority
@@ -2335,71 +2387,78 @@ def _service_closure_contract(
     not a mission source at all, so it ranks strictly below every source that
     is. Reordering SOURCE_RANK reorders these tiers with it instead of
     leaving two orders to drift apart.
-
-    Returns ``(next_action, wake_condition, contract_source)``.
     """
     from .mission_scheduler import SOURCE_RANK
+    from .pressure_evidence import split_citable_refs
 
-    # (rank, contract_source, next_action, wake_condition)
-    candidates: list[tuple[int, str, str, dict[str, Any]]] = []
+    def citable(items: Mapping[str, Sequence[str]]) -> dict[str, tuple[str, ...]]:
+        # Sorted by identifier alone: two severity vocabularies live in this
+        # kernel (`finding.SEVERITY_RANK` is uppercase INFORMATIONAL..HIGH,
+        # tool findings carry lowercase critical..low), so choosing one to
+        # sort by here would fork it. The action names the COUNT and the
+        # agent triages.
+        out: dict[str, tuple[str, ...]] = {}
+        for identifier in sorted(items):
+            evidence, _provenance = split_citable_refs(sorted(set(items[identifier])))
+            if identifier.strip() and evidence:
+                out[identifier] = tuple(evidence)
+        return out
 
-    # A confirmed open defect this service owns. Ordered by finding_id
-    # alone: two severity vocabularies live in this kernel
-    # (`finding.SEVERITY_RANK` is uppercase INFORMATIONAL..HIGH, tool
-    # findings carry lowercase critical..low), so choosing one to sort by
-    # here would fork it. The action names the COUNT and the agent triages.
-    findings = sorted(set(finding_ids))
-    if findings:
+    # (rank, contract_source, next_action, wake_condition, evidence_refs)
+    candidates: list[tuple[int, str, str, dict[str, Any], tuple[str, ...]]] = []
+
+    # A confirmed open defect this service owns.
+    owned = citable(findings)
+    if owned:
+        first = next(iter(owned))
         candidates.append((
             SOURCE_RANK["finding"],
             "open_finding",
-            f"Harden {project} against its {len(findings)} open finding(s), "
-            f"starting with {findings[0]}",
-            {"kind": "evidence", "key": f"finding:{findings[0]}"},
+            f"Harden {project} against its {len(owned)} open finding(s), "
+            f"starting with {first}",
+            {"kind": "evidence", "key": f"finding:{first}"},
+            owned[first],
         ))
 
     # A pressure this cycle scoped onto the service. Only a pressure that
     # carries its own id qualifies: an id-less pressure would force a key
     # naming the service instead of the evidence, and every such mission
     # would then share one handle.
-    identified = sorted(
-        (
-            str(pressure.get("pressure_id"))
-            for pressure in pressures
-            if isinstance(pressure, dict)
-            and isinstance(pressure.get("pressure_id"), str)
-            and pressure["pressure_id"].strip()
-        )
-    )
-    if identified:
+    scoped = citable(pressures)
+    if scoped:
+        first = next(iter(scoped))
         candidates.append((
             SOURCE_RANK["pressure"],
             "scoped_pressure",
-            f"Examine {project} against the {len(identified)} pressure(s) scoped "
-            f"to it this cycle, starting with {identified[0]}",
-            {"kind": "evidence", "key": f"pressure:{identified[0]}"},
+            f"Examine {project} against the {len(scoped)} pressure(s) scoped "
+            f"to it this cycle, starting with {first}",
+            {"kind": "evidence", "key": f"pressure:{first}"},
+            scoped[first],
         ))
 
     # The service moved this cycle. A changed path is evidence but not a
     # mission source, so it cannot appear in SOURCE_RANK at all; ranking it
     # one step below the weakest ranked source keeps it last WITHOUT pinning
-    # a number that a future source could quietly overtake.
-    mine = sorted(set(changed_paths))
-    if mine:
+    # a number that a future source could quietly overtake. A path is its own
+    # evidence.
+    moved = citable({path: (path,) for path in changed_paths})
+    if moved:
+        first = next(iter(moved))
         candidates.append((
             max(SOURCE_RANK.values()) + 1,
             "changed_path",
-            f"Review the {len(mine)} path(s) changed in {project} this cycle "
-            f"against charter D1-D6, starting with {mine[0]}",
-            {"kind": "evidence", "key": f"changed_path:{mine[0]}"},
+            f"Review the {len(moved)} path(s) changed in {project} this cycle "
+            f"against charter D1-D6, starting with {first}",
+            {"kind": "evidence", "key": f"changed_path:{first}"},
+            moved[first],
         ))
 
     if not candidates:
         return None
-    _, contract_source, next_action, wake_condition = min(
+    _, contract_source, next_action, wake_condition, evidence_refs = min(
         candidates, key=lambda candidate: (candidate[0], candidate[1])
     )
-    return next_action, wake_condition, contract_source
+    return ServiceClosureContract(next_action, wake_condition, contract_source, evidence_refs)
 
 
 def _phase_service_mission_seed(context: PhaseContext) -> dict[str, Any]:
@@ -2521,7 +2580,10 @@ def _phase_service_mission_seed(context: PhaseContext) -> dict[str, Any]:
     from .service_dimension import finding_dimension_paths
 
     open_findings = list_findings(status="open", base_dir=context.base_dir)
-    findings_by_project: dict[str, list[str]] = {}
+    # project -> finding_id -> the finding's cited paths IN that project: the
+    # paths are the mission's evidence when the finding names its contract
+    # (ARIA-HIGH-245), so they are kept, not reduced to the id.
+    findings_by_project: dict[str, dict[str, list[str]]] = {}
     for finding_row in open_findings:
         finding_id = finding_row.get("finding_id")
         if not isinstance(finding_id, str) or not finding_id.strip():
@@ -2530,19 +2592,29 @@ def _phase_service_mission_seed(context: PhaseContext) -> dict[str, Any]:
         cited = finding_dimension_paths(document if isinstance(document, dict) else {})
         for path in cited:
             owner = project_for_path(path, project_roots)
-            if owner and finding_id not in findings_by_project.setdefault(owner, []):
-                findings_by_project[owner].append(finding_id)
+            if owner:
+                findings_by_project.setdefault(owner, {}).setdefault(finding_id, []).append(path)
     seeded: list[dict[str, Any]] = []
     refused: list[dict[str, Any]] = []
     for rank, project in enumerate(targets):
         pressures_here = per_service.get(project) or []
         project_changed = changed_by_project.get(project) or []
-        project_findings = findings_by_project.get(project) or []
+        project_findings = findings_by_project.get(project) or {}
+        # pressure_id -> the pressure's own evidence in THIS project, through
+        # the same attribution the changed paths and findings went through.
+        project_pressures: dict[str, list[str]] = {}
+        for pressure in pressures_here:
+            if not isinstance(pressure, dict) or not isinstance(pressure.get("pressure_id"), str):
+                continue
+            project_pressures.setdefault(pressure["pressure_id"], []).extend(
+                ref for ref in (pressure.get("evidence") or [])
+                if isinstance(ref, str) and project_for_path(ref, project_roots) == project
+            )
         contract = _service_closure_contract(
             project,
-            pressures=pressures_here,
+            pressures=project_pressures,
             changed_paths=project_changed,
-            finding_ids=project_findings,
+            findings=project_findings,
         )
         if contract is None:
             # The honest outcome: no evidence names a next action or a wake,
@@ -2556,10 +2628,11 @@ def _phase_service_mission_seed(context: PhaseContext) -> dict[str, Any]:
             # asserting "no derivable evidence" while a diff and a findings
             # ledger sit unattributed would be the disclosure claiming a
             # result the cycle never computed. That is a different fact and
-            # it gets a different reason.
+            # it gets a different reason. A scoped pressure counts too: its
+            # evidence goes through the same attribution (ARIA-HIGH-245).
             reason = (
                 "project_attribution_unavailable"
-                if not project_roots and (changed_paths or open_findings)
+                if not project_roots and (changed_paths or open_findings or pressures_here)
                 else "no_derivable_closure_contract"
             )
             row = {
@@ -2610,7 +2683,6 @@ def _phase_service_mission_seed(context: PhaseContext) -> dict[str, Any]:
                 "newly_disclosed": bool(disclosure["appended"]),
             })
             continue
-        next_action, wake_condition, contract_source = contract
         if project in SERVICE_HARDENING_CORE:
             priority = rank
         elif centrality:
@@ -2626,8 +2698,9 @@ def _phase_service_mission_seed(context: PhaseContext) -> dict[str, Any]:
                 f"Harden {project}: secure/performant/sustainable/testable/"
                 f"documented/correct (charter D1-D6)"
             ),
-            next_action=next_action,
-            wake_condition=wake_condition,
+            next_action=contract.next_action,
+            wake_condition=contract.wake_condition,
+            evidence_refs=contract.evidence_refs,
             capability=SERVICE_HARDENING_CAPABILITY,
             priority=priority,
             target_project=project,
@@ -2647,9 +2720,11 @@ def _phase_service_mission_seed(context: PhaseContext) -> dict[str, Any]:
             "scoped_pressures": len(pressures_here),
             "priority": priority,
             "centrality": round(centrality.get(project, 0.0), 6) if centrality else None,
-            "contract_source": contract_source,
+            "contract_source": contract.contract_source,
             "contract_healed": bool(result.get("healed")),
             "heal_declined": result.get("heal_declined"),
+            "evidence_refs": list(contract.evidence_refs),
+            "evidence_healed": bool(result.get("evidence_healed")),
         })
     return {
         "status": "completed",
@@ -3598,6 +3673,14 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
         "fitness_report", "post_tool", _phase_fitness_report,
         on_error="record_and_continue", state_key="fitness_report",
     ),
+    # ARIA-HIGH-125 — the signed training set, after the report that
+    # measured its corpus. A write (ledger + the kernel's signing key), so
+    # WRITES_PERMITTED; a crash must not cost the night.
+    CyclePhase(
+        "training_set_export", "post_tool", _phase_training_set_export,
+        precondition=WRITES_PERMITTED, on_error="record_and_continue",
+        state_key="training_set_export",
+    ),
     CyclePhase(
         "goldset_proposal", "post_tool", _phase_goldset_proposal,
         precondition=WRITES_PERMITTED, on_error="record_and_continue",
@@ -4098,26 +4181,53 @@ def _refusal_summary(rows: list[dict[str, Any]], *, total: int, noun: str) -> st
     return f"{len(refused)} of {total} {noun} refused: {first}"
 
 
-def _first_blocking_pre_phase(context: PhaseContext) -> str | None:
-    """Plan 023 v3 §R-1 — the pre_tool phase, if any, that aborts the cycle.
+def _first_blocking_pre_phase(context: PhaseContext) -> dict[str, Any] | None:
+    """Plan 023 v3 §R-1 — the pre_tool phase, if any, that aborts the cycle,
+    as the failed-phase row the cycle seal writes (``phase``, ``status``,
+    ``error``).
 
     Two ways a pre-tool phase blocks: it raised (an outcome of
     ``failed``), or it returned a payload declaring itself failed,
     blocked or a regression. The second is how the architecture spine
     gate reports a regression — it returns rather than raises — and
     missing it would let a detected regression proceed to tool dispatch.
+
+    ARIA-LOW-549 — the row, not the name: an aborted cycle returns before the
+    seal, so this row is the only failed phase its summary carries. With the
+    name alone (``aborted_by_phase``, which the orchestrator's closed summary
+    does not keep) the doctor keyed the night ``cycle:unrecorded`` and the
+    cycle-failed notice said ``status=aborted runtime_status=aborted``.
     """
     for phase in CYCLE_PHASES:
         if phase.stage != "pre_tool":
             continue
-        if context.outcomes.get(phase.name, {}).get("outcome") == "failed":
-            return phase.name
+        outcome = context.outcomes.get(phase.name, {})
+        if outcome.get("outcome") == "failed":
+            return {"phase": phase.name, "status": "failed", "error": _published_error(context, outcome.get("error"))}
         payload = context.result(phase.name)
         if not isinstance(payload, dict):
             continue
-        if (payload.get("status") or payload.get("decision")) in ("failed", "blocked", "regression"):
-            return phase.name
+        verdict = payload.get("status") or payload.get("decision")
+        if verdict in ("failed", "blocked", "regression"):
+            return {
+                "phase": phase.name, "status": "failed",
+                "error": _published_error(context, payload.get("error") or payload.get("reason") or verdict),
+            }
     return None
+
+
+# ARIA-LOW-549 — the preflight gate whose blocking verdict aborts a cycle
+# (the ``state_continuity`` row of CYCLE_PHASES), and the reason that abort is
+# announced under.
+_STATE_CONTINUITY_PHASE = "state_continuity"
+_STATE_INTEGRITY_GAP = "state_integrity_gap"
+
+
+def _state_integrity_gap_error(continuity: dict[str, Any], recovery_reason: str) -> str:
+    """Why the continuity gate aborted the cycle: its reasons (else its
+    status) and why recovery did not resolve the gap."""
+    reasons = "; ".join(str(reason) for reason in continuity.get("reasons") or ()) or str(continuity.get("status"))
+    return f"{_STATE_INTEGRITY_GAP}: {reasons}; recovery: {recovery_reason}"
 
 
 def _non_ok_runs(context: PhaseContext) -> list[dict[str, Any]]:

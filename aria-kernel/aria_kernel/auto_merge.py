@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, Protocol
 
+from . import github_issue_reads
 from .canonical_path import matches_repo_glob, normalize_repo_relpath
 from .github_writes import run_gh_write
 from .implementation_safety import (
@@ -14,6 +16,7 @@ from .implementation_safety import (
     is_gh_api_path_forbidden,
 )
 from .ledger import append_declared_jsonl, load_declared_jsonl
+from .merge_record import BINDING_FIELD_EVENTS, BINDING_FIELDS, pr_change_binding
 from .risk_policy import (
     HUMAN_MERGE_DECISION,
     HUMAN_MERGE_LABEL,
@@ -95,16 +98,20 @@ class GitHubAdapter(Protocol):
     def get_unresolved_conversation_count(self, number: int) -> dict[str, Any]:
         ...
 
-    def get_pr_diff(self, number: int) -> str | None:
-        """Plan 023 v3 §P-6 — required Protocol method.
+    def get_pr_diff(self, number: int) -> tuple[str | None, str | None]:
+        """Plan 023 v3 §P-6 — required Protocol method: ``(diff, lookup_error)``.
 
         Live mode (GhCliGitHubAdapter) implements via `gh pr diff
         <number>`. Snapshot/test mode returns the diff fixture from
         the seeded payload. evaluate_auto_merge fails-closed on
-        empty / whitespace / malformed diff content (P-6 fix), so an
-        adapter implementation that returns None / empty surfaces as
-        an explicit auto_merge_blocked reason rather than a silent
-        path-class-only acceptance.
+        empty / whitespace / malformed diff content (P-6 fix).
+
+        ARIA-MEDIUM-581 — a diff that could not be read is ``(None, code)``,
+        the code naming why (``pr_diff_too_large``, ``pr_diff_refused_403``,
+        ...), the shape ``read_required_status_checks`` returns. The gate
+        names that code in its blocking reason, so an operator can tell a
+        token refusal from an oversized change. An adapter fault is not a
+        lookup outcome: it raises.
         """
         ...
 
@@ -249,9 +256,14 @@ def evaluate_auto_merge(
     cycle_id: str | None = None,
     dry_run: bool = True,
     diff_text: str | None = None,
+    diff_lookup_error: str | None = None,
     workspace_root: str | Path | None,
 ) -> dict[str, Any]:
     """Whether ``pr`` may auto-merge; records the decision.
+
+    ``diff_lookup_error`` is why ``diff_text`` could not be read
+    (``GitHubAdapter.get_pr_diff``), named in the blocking reason when the
+    diff is missing (ARIA-MEDIUM-581).
 
     ARIA-CRITICAL-215 — path risk is the PR's change as the checkout at
     ``workspace_root`` holds it, read and classified by the one reader of a
@@ -293,8 +305,13 @@ def evaluate_auto_merge(
     if diff_text is None:
         # Diff content REQUIRED for auto-merge. Fail-closed: caller
         # must supply diff (typically via gh pr diff <pr_number>) so
-        # path-class + content-class AND-merge can run.
-        reasons.append("diff_text missing — auto_merge_requires_diff_content")
+        # path-class + content-class AND-merge can run. ARIA-MEDIUM-581 —
+        # a read that failed names its cause after the reason; a caller that
+        # supplied no diff and read none (the CI observer) has none to name.
+        reasons.append(
+            "diff_text missing — auto_merge_requires_diff_content"
+            + (f": {diff_lookup_error}" if diff_lookup_error else "")
+        )
     elif not diff_text.strip():
         # Plan 023 v3 §P-6 — empty / whitespace-only diff treated as a
         # missing diff. Pre-fix scan_unified_diff_text("") returned []
@@ -452,10 +469,11 @@ def change_for_pr(
 ) -> str | None:
     """Plan 026R §D.3 — reverse lookup: find the change_id bound to a PR.
 
-    Scans ``pr-lifecycle.jsonl`` for the latest row matching
-    ``pr_number`` that carries a non-null ``change_id``. Returns
-    the change_id or ``None`` when no binding exists (legacy
-    pre-§D.3 PRs without the anchor).
+    The change the PR's latest ``opened`` row names, read through the one
+    binding owner (``merge_record.pr_change_binding``, merge-delivery-1);
+    ``None`` when the kernel never opened the PR or opened it without a change
+    (legacy pre-§D.3 PRs, the operator lane). No other row binds: an
+    ``observed`` or terminal row carries no binding fields.
 
     Consumed by ``merge_if_green`` to assemble the §D.4 triple-gate
     inputs (change_committed + change_validated + validation_runs)
@@ -465,11 +483,8 @@ def change_for_pr(
         ensure_tools_dir(base_dir) / "pr-lifecycle.jsonl",
         expected_surface="pr_lifecycle",
     )
-    latest_change_id: str | None = None
-    for row in rows:
-        if row.get("pr_number") == pr_number and row.get("change_id"):
-            latest_change_id = str(row["change_id"])
-    return latest_change_id
+    binding = pr_change_binding(rows, pr_number=pr_number)
+    return binding.change_id if binding is not None else None
 
 
 def human_merge_decision(
@@ -493,14 +508,13 @@ def human_merge_decision(
     if live_pr is not None:
         marked = HUMAN_MERGE_LABEL in _label_names(live_pr)
     if not marked:
-        opened = [
-            row
-            for row in load_declared_jsonl(
-                ensure_tools_dir(base_dir) / "pr-lifecycle.jsonl", expected_surface="pr_lifecycle",
-            )
-            if row.get("pr_number") == pr_number and row.get("event") == "opened"
-        ]
-        route = opened[-1].get("merge_route") if opened else None
+        # The opened row, read through the one owner of "the row that names
+        # the PR as ARIA's" (merge_record.pr_change_binding).
+        binding = pr_change_binding(
+            load_declared_jsonl(ensure_tools_dir(base_dir) / "pr-lifecycle.jsonl", expected_surface="pr_lifecycle"),
+            pr_number=pr_number,
+        )
+        route = binding.row.get("merge_route") if binding is not None else None
         marked = isinstance(route, dict) and route.get("human_merge") is True
     if not marked:
         return None
@@ -533,12 +547,17 @@ def _label_names(pr: dict[str, Any]) -> set[str]:
 _MERGED_ROW_OWNER = object()
 _OWNED_LIFECYCLE_EVENTS = frozenset({"merged", "closed_unmerged", "merge_unproven", "merge_lineage_unverified",
                                      "merge_lineage_attested"})
+# merge-delivery-1 (ARIA-HIGH-521) — the closed vocabulary of pr-lifecycle
+# events: the rows that name a PR as ARIA's (`merge_record.BINDING_FIELD_EVENTS`),
+# the merge lane's observation of GitHub's payload, and the terminal events
+# `merge_record` owns. A new writer registers its event here, once.
+PR_LIFECYCLE_EVENTS = BINDING_FIELD_EVENTS | {"observed"} | _OWNED_LIFECYCLE_EVENTS
 
 
 def record_pr_lifecycle(
     pr: dict[str, Any],
     *,
-    event: str = "observed",
+    event: str,
     base_dir: str | Path | None = None,
     cycle_id: str | None = None,
     assignment_id: str | None = None,
@@ -556,7 +575,20 @@ def record_pr_lifecycle(
     Legacy rows without assignment_id return None from the helper
     worker_dispatch.pr_for_assignment, which fail-closes the merge
     path (verified_pending_merge).
+
+    merge-delivery-1 — ``event`` is required and closed
+    (:data:`PR_LIFECYCLE_EVENTS`). Only the rows that name the PR as ARIA's
+    (``merge_record.BINDING_FIELD_EVENTS``) carry the binding fields and the
+    merge route; every other event writes ``merge_record.BINDING_FIELDS`` as
+    null whatever its payload holds, so an observation or a terminal row can
+    never carry, change or re-bind the PR's change.
     """
+    if event not in PR_LIFECYCLE_EVENTS:
+        raise ValueError(f"pr_lifecycle_event_unknown:{event}")
+    # The caller's own binding intent on a row that binds nothing is refused,
+    # never dropped (a payload's fields are nulled: they are GitHub's).
+    if assignment_id is not None and event not in BINDING_FIELD_EVENTS:
+        raise ValueError(f"pr_lifecycle_binding_on_non_binding_event:{event}")
     if event in _OWNED_LIFECYCLE_EVENTS and _owner is not _MERGED_ROW_OWNER:
         raise GovernanceError(
             f"pr_lifecycle_{event}_has_one_writer: merge_record.record_merge writes it (ARIA-HIGH-390)"
@@ -569,20 +601,21 @@ def record_pr_lifecycle(
         "pr_number": pr.get("number"),
         "base_branch": first_present_string(pr, "base_branch", "baseRefName", "base"),
         "head_sha": first_present_string(pr, "head_sha", "headRefOid", "head"),
-        "task_id": pr.get("task_id"),
-        "proposal_id": pr.get("proposal_id"),
-        "assignment_id": assignment_id or pr.get("assignment_id"),
         # Plan 026R §D.3 — change_id anchor for the §D.4 triple-gate.
-        # ``change_for_pr`` (below) reverse-looks-up the change_id by
-        # pr_number; the auto-merge path then fetches change_committed
-        # + change_validated + validation_runs and asserts the triple.
-        "change_id": pr.get("change_id"),
+        # ``change_for_pr`` (above) reverse-looks-up the change_id by
+        # pr_number through ``merge_record.pr_change_binding``; the
+        # auto-merge path then fetches change_committed + change_validated
+        # + validation_runs and asserts the triple.
+        **dict.fromkeys(BINDING_FIELDS),
         "changed_files": [_changed_file_path(item) for item in pr.get("changed_files", pr.get("files", []))],
     }
-    # ARIA-HIGH-211 — the opener's merge route (merge lane or a person's
-    # merge) is recorded on the row that names the PR; other events carry none.
-    if isinstance(pr.get("merge_route"), dict):
-        row["merge_route"] = dict(pr["merge_route"])
+    if event in BINDING_FIELD_EVENTS:
+        row.update({field: pr.get(field) for field in BINDING_FIELDS})
+        row["assignment_id"] = assignment_id or pr.get("assignment_id")
+        # ARIA-HIGH-211 — the opener's merge route (merge lane or a person's
+        # merge) is recorded on the row that names the PR; other events carry none.
+        if isinstance(pr.get("merge_route"), dict):
+            row["merge_route"] = dict(pr["merge_route"])
     if base_dir is None:
         return row
     return append_declared_jsonl(
@@ -776,16 +809,15 @@ def _merge_if_green_with_executor(
     github = collect_github_snapshot(adapter, pr)
     # Plan 022 §H-2 — auto-merge content scan requires diff_text. If
     # caller didn't pass it, fall back to pr.diff_text (some adapters
-    # surface it directly), then to the adapter if it exposes a
-    # get_pr_diff() optional method. Otherwise pass None and let
-    # evaluate_auto_merge fail-closed.
+    # surface it directly), then to the adapter's required get_pr_diff().
+    # ARIA-MEDIUM-581 — a diff the adapter could not read carries its named
+    # cause into the decision; an adapter that raises is a fault, not a
+    # missing diff, and is not caught here.
+    diff_lookup_error: str | None = None
     if diff_text is None:
         diff_text = pr.get("diff_text")
-        if diff_text is None and hasattr(adapter, "get_pr_diff"):
-            try:
-                diff_text = adapter.get_pr_diff(pr_number)  # type: ignore[attr-defined]
-            except Exception:
-                diff_text = None
+    if diff_text is None:
+        diff_text, diff_lookup_error = adapter.get_pr_diff(pr_number)
     decision = evaluate_auto_merge(
         pr=pr,
         github=github,
@@ -794,6 +826,7 @@ def _merge_if_green_with_executor(
         cycle_id=cycle_id,
         dry_run=dry_run,
         diff_text=diff_text,
+        diff_lookup_error=diff_lookup_error,
         workspace_root=workspace_root,
     )
     return decision
@@ -822,6 +855,96 @@ def merge_if_green(
         diff_text=diff_text,
         workspace_root=workspace_root,
     )
+
+
+_HTTP_STATUS_RE = re.compile(r"\bHTTP (\d{3})\b")
+
+
+def pr_diff_lookup_error(*, returncode: int, stderr: str) -> str:
+    """Why ``gh pr diff`` refused, as a named code (ARIA-MEDIUM-581).
+
+    gh prints the API's status on stderr (``HTTP 406: Sorry, the diff
+    exceeded the maximum number of files (300)``). GitHub answers 406 for a
+    diff over its line or file limit (``pr_diff_too_large``) and 401/403 for
+    a token without pull-request read (``pr_diff_refused_<status>``); any
+    other status is ``pr_diff_lookup_failed:http_<status>``, and a failure
+    with no status (a transport error) ``pr_diff_lookup_failed:exit_<code>``.
+    """
+    match = _HTTP_STATUS_RE.search(stderr)
+    if match is None:
+        return f"pr_diff_lookup_failed:exit_{returncode}"
+    status = match.group(1)
+    if status == "406":
+        return "pr_diff_too_large"
+    if status in ("401", "403"):
+        return f"pr_diff_refused_{status}"
+    return f"pr_diff_lookup_failed:http_{status}"
+
+
+def read_required_status_checks(
+    *, root: Path, base_branch: str,
+) -> tuple[list[str] | None, str | None]:
+    """Plan 023 v3 §P-2 — fetch real branch-protection required contexts.
+
+    ARIA-CRITICAL-009 — the one reader of a base branch's required status
+    checks: the CI observer's snapshot (``ci._gh_pr_snapshot``) and the merge
+    lane's adapter (``GhCliGitHubAdapter.get_required_checks``) both read
+    through it. It is a plain GET built here (no method or field flags), so
+    it is not routed through the agents' ``gh api`` path guard, whose deny
+    list forbids ``branches/*/protection`` for agents absolutely; the merge
+    token is minted with administration:read for this read
+    (``gh_token_factory.DEFAULT_INSTALLATION_TOKEN_PERMISSIONS``).
+
+    Pre-Plan-023 _gh_pr_snapshot derived `required_checks` from
+    `gh pr checks` stdout, which lists the checks that ALREADY RAN on
+    the PR — not the checks branch protection requires. A PR with 0
+    runs against a base branch protected by `ci-affected` returned
+    required=[] and auto-merge then accepted "all required satisfied".
+
+    Post-fix: query the real protection contexts via gh api. Returns
+    a (contexts, error_code) tuple; the auto-merge consumer (P-4)
+    reads both. Failure paths discriminate explicitly:
+      * HTTP 200, populated → (contexts, None).
+      * HTTP 200, empty contexts → ([], 'branch_protection_no_required_checks_configured').
+      * HTTP 404 in stderr → (None, 'branch_protection_disabled_on_base').
+      * HTTP 401/403 in stderr → (None, 'branch_protection_lookup_permission_denied').
+      * Subprocess error / unrecognized failure → (None, 'branch_protection_lookup_failed').
+    """
+    try:
+        completed = subprocess.run(
+            [
+                "gh", "api",
+                f"repos/{{owner}}/{{repo}}/branches/{base_branch}/protection/required_status_checks",
+            ],
+            cwd=root, capture_output=True, text=True, check=False,
+        )
+    except (FileNotFoundError, OSError):
+        return None, "branch_protection_lookup_failed"
+    if completed.returncode != 0:
+        stderr = (completed.stderr or "").lower()
+        if "404" in stderr or "not protected" in stderr:
+            return None, "branch_protection_disabled_on_base"
+        if "401" in stderr or "403" in stderr or "forbidden" in stderr or "authentication required" in stderr:
+            return None, "branch_protection_lookup_permission_denied"
+        return None, "branch_protection_lookup_failed"
+    try:
+        body = json.loads(completed.stdout or "{}")
+    except json.JSONDecodeError:
+        return None, "branch_protection_lookup_failed"
+    contexts = body.get("contexts") if isinstance(body, dict) else None
+    if not isinstance(contexts, list):
+        return None, "branch_protection_lookup_failed"
+    # GitHub names each required check twice: the legacy `contexts` list and
+    # `checks[].context` (with the app the check must come from). The merge
+    # lane's reader read both; one reader keeps that, so a protection that
+    # lists a check only under `checks` is not read as unconfigured.
+    checks = body.get("checks")
+    named = [*contexts, *(item.get("context") for item in checks if isinstance(item, dict))] \
+        if isinstance(checks, list) else list(contexts)
+    contexts_str = sorted({str(c) for c in named if isinstance(c, str) and c.strip()})
+    if not contexts_str:
+        return [], "branch_protection_no_required_checks_configured"
+    return contexts_str, None
 
 
 def collect_github_snapshot(adapter: GitHubAdapter, pr: dict[str, Any]) -> dict[str, Any]:
@@ -950,15 +1073,15 @@ class SnapshotGitHubAdapter:
             return {}
         return {pr["number"]: head}
 
-    def get_pr_diff(self, number: int) -> str | None:
+    def get_pr_diff(self, number: int) -> tuple[str | None, str | None]:
         """Plan 023 v3 §P-6 — read pre-seeded diff from the snapshot
-        payload. Returns None when the fixture didn't supply a diff so
-        evaluate_auto_merge's empty-diff fail-closed gate fires."""
+        payload. A fixture that supplied none is ``fixture_pr_diff_absent``,
+        so evaluate_auto_merge's missing-diff gate fires by name."""
         _ = number
         diff = self.payload.get("github", {}).get("pr_diff")
         if not isinstance(diff, str) or not diff.strip():
-            return None
-        return diff
+            return None, "fixture_pr_diff_absent"
+        return diff, None
 
     def merge_pr(self, number: int, *, method: str, expected_head_sha: str) -> dict[str, Any]:
         call = {"number": number, "method": method, "expected_head_sha": expected_head_sha}
@@ -1005,25 +1128,44 @@ class GhCliGitHubAdapter:
         if self._merge_authority_token == token:
             self._merge_authority_token = None
 
-    def get_open_issues(self, *, labels: list[str]) -> dict[str, Any]:
-        """Open issues carrying every label, via `gh issue list`."""
-        args = ["issue", "list", "--state", "open", "--limit", "50",
-                "--json", "number,title,labels"]
-        for label in labels:
-            args.extend(["--label", label])
+    def _gh_read(self, argv: list[str]) -> tuple[bool, str]:
+        """``(ok, output)`` for the shared REST readers — a refusal or a
+        transport failure is a failed read with its detail, never an
+        exception: the freeze gates report an unreadable listing rather
+        than raise through the merge decision."""
         try:
-            payload = self._gh_json(args)
-        except Exception as exc:  # an unreadable alarm is not an absent alarm
-            return {"readable": False, "reason": f"{exc.__class__.__name__}: {exc}", "issues": []}
-        if not isinstance(payload, list):
-            return {"readable": False, "reason": "gh_issue_list_not_a_list", "issues": []}
+            completed = subprocess.run(
+                ["gh", *argv], cwd=self.cwd, capture_output=True, text=True, check=False,
+            )
+        except OSError as exc:
+            return False, f"{exc.__class__.__name__}: {str(exc)[:200]}"
+        if completed.returncode != 0:
+            detail = ((completed.stderr or completed.stdout or "").strip().splitlines() or ["?"])[0][:200]
+            return False, f"rc={completed.returncode}: {detail}"
+        return True, completed.stdout or ""
+
+    def get_open_issues(self, *, labels: list[str]) -> dict[str, Any]:
+        """Every open issue carrying all ``labels`` — the WHOLE open set
+        through the one complete read
+        (``github_issue_reads.read_open_issues``), never a capped
+        newest-first window.
+
+        ARIA-MEDIUM-582 — this read feeds the self-merge freeze and the
+        watchdog incident gates, which filter by title: a notice older
+        than a 50-newest window was an absent freeze, and the merge
+        proceeded. An unreadable listing says so (the freeze gates refuse
+        on it), because an unreadable freeze is not an absent freeze.
+        """
+        repo = f"{self.owner}/{self.repo}"
+        endpoint = github_issue_reads.open_issues_endpoint(repo=repo, labels=labels)
+        if is_gh_api_path_forbidden(endpoint):
+            raise GovernanceError(f"forbidden gh api path: {endpoint}")
+        ok, rows, reason = github_issue_reads.read_open_issues(self._gh_read, repo=repo, labels=labels)
+        if not ok:
+            return {"readable": False, "reason": reason, "issues": []}
         return {
             "readable": True,
-            "issues": [
-                {"number": row.get("number"), "title": row.get("title")}
-                for row in payload
-                if isinstance(row, dict)
-            ],
+            "issues": [{"number": row["number"], "title": row["title"]} for row in rows],
         }
 
     def get_pr(self, number: int) -> dict[str, Any]:
@@ -1118,14 +1260,21 @@ class GhCliGitHubAdapter:
         }
 
     def get_required_checks(self, base_branch: str) -> dict[str, Any]:
-        payload = self._gh_api_json(
-            [
-                f"repos/{self.owner}/{self.repo}/branches/{base_branch}/protection/required_status_checks",
-            ],
-        )
-        checks = payload.get("contexts", [])
-        checks.extend(item.get("context") for item in payload.get("checks", []) if isinstance(item, dict))
-        return {"readable": True, "required_checks": sorted({str(check) for check in checks if check})}
+        """The base branch's required status checks, in the snapshot's shape.
+
+        ARIA-CRITICAL-009 — read through ``read_required_status_checks``, the
+        reader the CI observer uses. This read went through ``_gh_api_json``,
+        whose agent path guard forbids ``branches/*/protection``: it raised
+        before any call, ``collect_github_snapshot`` swallowed that into an
+        unreadable protection with no cause, and every live merge-lane
+        evaluation blocked there, before the pre-merge perimeter. A refused
+        or empty read is unreadable here with its named ``lookup_error``.
+        """
+        checks, lookup_error = read_required_status_checks(root=self.cwd, base_branch=base_branch)
+        protection: dict[str, Any] = {"readable": lookup_error is None, "required_checks": checks or []}
+        if lookup_error is not None:
+            protection["lookup_error"] = lookup_error
+        return protection
 
     def get_checks(self, head_sha: str) -> dict[str, Any]:
         """Every check run and commit status on ``head_sha``, or unreadable.
@@ -1210,25 +1359,28 @@ class GhCliGitHubAdapter:
                 return {"readable": True, "unresolved_count": unresolved}
             cursor = page_info.get("endCursor")
 
-    def get_pr_diff(self, number: int) -> str | None:
+    def get_pr_diff(self, number: int) -> tuple[str | None, str | None]:
         """Plan 023 v3 §P-6 — fetch the unified diff from gh CLI.
 
-        Returns the diff text on success, or None on any subprocess
-        failure / empty output. evaluate_auto_merge's empty-diff gate
-        then converts the None / empty case into an explicit
-        auto_merge_requires_nonempty_unified_diff blocking reason.
+        ``(diff, None)`` on success. ARIA-MEDIUM-581 — otherwise
+        ``(None, code)``: ``gh_unavailable`` when gh cannot be run,
+        ``pr_diff_empty`` for an empty answer, and for a refused read the
+        code ``pr_diff_lookup_error`` reads from gh's stderr (an oversized
+        diff and a token refusal used to be the same bare None).
         """
         try:
             completed = subprocess.run(
                 ["gh", "pr", "diff", str(number)],
                 cwd=self.cwd, capture_output=True, text=True, check=False,
             )
-        except (FileNotFoundError, OSError):
-            return None
+        except OSError:
+            return None, "gh_unavailable"
         if completed.returncode != 0:
-            return None
+            return None, pr_diff_lookup_error(returncode=completed.returncode, stderr=completed.stderr or "")
         diff = completed.stdout or ""
-        return diff if diff.strip() else None
+        if not diff.strip():
+            return None, "pr_diff_empty"
+        return diff, None
 
     def merge_pr(
         self,
@@ -1409,7 +1561,7 @@ def _required_checks(github: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(protection, dict):
         return {"readable": False, "checks": [], "lookup_error": "branch_protection_payload_unreadable"}
     # Plan 023 v3.1 §P-2-followup — propagate lookup_error from the
-    # _fetch_branch_protection_contexts helper. Pre-Plan-023.1 the
+    # read_required_status_checks helper. Pre-Plan-023.1 the
     # helper populated github.branch_protection.lookup_error on
     # network/HTTP failure but evaluate_auto_merge never read it; the
     # gate fell through to checks validation as if branch protection

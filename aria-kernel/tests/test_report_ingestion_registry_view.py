@@ -230,11 +230,32 @@ class KernelReadSitesSeeDeltaRowsTests(unittest.TestCase):
 
     def test_orphan_plan_evidence_comes_from_the_folded_row(self) -> None:
         orphan = self.repo.root / "docs" / "reviews" / "orphan-findings.md"
-        orphan.write_text("## ORPHAN-HIGH-501\nStatus: OPEN\nbody\n", encoding="utf-8")
-        self.repo.write_base([_finding("ORPHAN-HIGH-501", evidence=["apps/a.ts:1"])])
-        self.repo.write_delta("evidence.jsonl", [_finding("ORPHAN-HIGH-501", evidence=["apps/b.ts:2"])])
+        orphan.write_text("## ORPHAN-HIGH-501 — t — OPEN\nbody\n", encoding="utf-8")
+        register = {"review_file": "docs/reviews/orphan-findings.md"}
+        self.repo.write_base([_finding("ORPHAN-HIGH-501", evidence=["apps/a.ts:1"], **register)])
+        self.repo.write_delta("evidence.jsonl", [_finding("ORPHAN-HIGH-501", evidence=["apps/b.ts:2"], **register)])
         candidates = scan_orphan_findings(self.repo.root)
         self.assertEqual(candidates[0].get("evidence"), ["apps/b.ts:2"])
+
+    def test_an_orphan_filed_in_another_review_is_still_this_sources(self) -> None:
+        """ARIA-LOW-607 — the scanner's ``review_file`` filter was the defect.
+
+        31 OPEN ORPHAN rows sit against review files other than the register
+        (20 in the codex-audit verification alone); a filter that kept only
+        register-filed rows meant no plan source could ever reach them. The
+        candidate now carries the row's own ``review_file`` (the trailer's
+        owner), and no ``heading_line`` — the register holds no heading for a
+        row it does not carry.
+        """
+        other = "docs/reviews/2026-07-26-aria-codex-audit-verification.md"
+        self.repo.write_base([
+            _finding("ORPHAN-HIGH-501", evidence=["apps/a.ts:1"], review_file="docs/reviews/orphan-findings.md"),
+            _finding("ORPHAN-HIGH-502", evidence=["apps/b.ts:2"], review_file=other),
+        ])
+        by_id = {row["candidate_id"]: row for row in scan_orphan_findings(self.repo.root)}
+        self.assertEqual(set(by_id), {"ORPHAN-HIGH-501", "ORPHAN-HIGH-502"})
+        self.assertEqual(by_id["ORPHAN-HIGH-502"].get("review_file"), other)
+        self.assertNotIn("heading_line", by_id["ORPHAN-HIGH-502"])
 
 
 if __name__ == "__main__":

@@ -1,0 +1,57 @@
+{
+  "name": "semantic-expand-contract",
+  "lane": "semantic_regression",
+  "input": {
+    "roots": [
+      "tools/aria-adapters/fixtures/sql-migration-safety-adapter/workspaces/semantic-expand-contract/apps"
+    ],
+    "pathBase": "tools/aria-adapters/fixtures/sql-migration-safety-adapter/workspaces/semantic-expand-contract",
+    "addedPaths": [
+      "tools/aria-adapters/fixtures/sql-migration-safety-adapter/workspaces/semantic-expand-contract/apps/farm-service/src/database/migrations/1900000000000-UnguardedEnumDrop.ts",
+      "tools/aria-adapters/fixtures/sql-migration-safety-adapter/workspaces/semantic-expand-contract/apps/farm-service/src/database/migrations/1900000000001-InlineTenantPolicy.ts",
+      "tools/aria-adapters/fixtures/sql-migration-safety-adapter/workspaces/semantic-expand-contract/apps/farm-service/src/database/migrations/1900000000002-ContractWithoutExpand.ts",
+      "tools/aria-adapters/fixtures/sql-migration-safety-adapter/workspaces/semantic-expand-contract/apps/farm-service/src/database/migrations/1900000000003-CanonicalTenantRls.ts",
+      "tools/aria-adapters/fixtures/sql-migration-safety-adapter/workspaces/semantic-expand-contract/apps/farm-service/src/database/migrations/1900000000004-InlineCanonicalPolicy.ts",
+      "tools/aria-adapters/fixtures/sql-migration-safety-adapter/workspaces/semantic-expand-contract/apps/farm-service/src/database/migrations/1900000000005-ReviewedEnumReclaim.ts"
+    ]
+  },
+  "expected": {
+    "status": "ok",
+    "required_findings": [
+      "unguarded_shared_enum_drop",
+      "rls_predicate_not_canonical",
+      "expand_contract_missing_depends_on",
+      "breaking_ddl_without_expand_contract",
+      "qualified_ddl_escapes_tenant_replay"
+    ],
+    "forbidden_findings": ["expand_contract_depends_on_unresolved"],
+    "findings_count": 6,
+    "required_observation_values": [
+      {
+        "type": "migration_safety_summary",
+        "details.files": 7,
+        "details.parse_failures": 0,
+        "details.grandfathered_violations.breaking_ddl_without_decorator": 1
+      },
+      {
+        "type": "migration_change_set",
+        "details.declared": 6,
+        "details.matched": 6
+      }
+    ]
+  },
+  "curation": {
+    "curator": "claude/ARIA-HIGH-011 (sql-migration-safety-adapter, session 2026-10-16)",
+    "gold_set": {
+      "true_positive_count": 6,
+      "known_false_positive_count": 4,
+      "false_positive_classes": [
+        "rls_helper_call_is_canonical",
+        "inline_canonical_predicate",
+        "pg_depend_gated_reviewed_enum_reclaim",
+        "grandfathered_advisory_expand_contract"
+      ]
+    },
+    "notes": "Every verdict comes from the gate that owns it (tools/gates/*). The delta-safety rules R1-R12 have no true positive here on purpose: a committed migration that violates them is refused by the migration-sql-lint pre-commit and CI gates this adapter mirrors, so their true and false positives live in sql-migration-safety-adapter.test.ts, which builds its workspace at run time. 1900000000006 is outside the change set, so its advisory expand-contract verdict is recorded on its observation, not raised. qualified_ddl_escapes_tenant_replay (ARIA-MEDIUM-588): 1900000000000 and 1900000000005 both DROP TYPE a schema-qualified name the fixture registry cannot classify \u2014 the owner's fail-closed contract (register the table, or add the migration to REVIEWED_SOURCE_SCHEMA_DDL); the classification registry is this repository's real MODULE_SCHEMAS, read as source text by module-schemas-source.ts."
+  }
+}

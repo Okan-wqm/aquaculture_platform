@@ -41,6 +41,7 @@ import {
   SiteFeedConsumptionResult,
 } from '../../feeding/queries/get-site-feed-consumption.query';
 import { BiomassReportPayload } from '../entities/biomass-report.entity';
+import { batchAllocatedToSiteSql, batchHeldAtSiteSql } from './batch-site-scope';
 import { AssembledDraft, fromRecords, manualRequired } from './provenance.types';
 import { isStandingStockStale, monthRange, round2 } from './period.util';
 
@@ -275,8 +276,10 @@ export class BiomassReportAssembler {
     fromDate: string,
     toDate: string,
   ): Promise<StockingRow[]> {
-    // A batch counts as stocked into the site when any tank allocation
-    // (primary or combined-batch detail) points at a tank under the site.
+    // A batch counts as stocked into the site when the allocation ledger puts
+    // its fish into a tank under the site, or a tank there holds it now (a
+    // stocking older than the ledger). The current composition alone loses a
+    // batch stocked and emptied within the month (batch-site-scope).
     return qr.query(
       `SELECT DISTINCT b."stockedAt"::date::text AS date,
                 COALESCE(s."officialCode", s.code) AS "speciesCode",
@@ -289,23 +292,8 @@ export class BiomassReportAssembler {
           WHERE b."tenantId" = $1
             AND b."stockedAt"::date BETWEEN $3 AND $4
             AND (
-              EXISTS (
-                SELECT 1 FROM tank_batches tb
-                JOIN tanks t ON t.id = tb."tankId"
-                JOIN departments d ON d.id = t."departmentId"
-                WHERE tb."tenantId" = b."tenantId"
-                  AND tb."primaryBatchId" = b.id
-                  AND d."siteId" = $2
-              )
-              OR EXISTS (
-                SELECT 1 FROM tank_batches tb
-                JOIN tanks t ON t.id = tb."tankId"
-                JOIN departments d ON d.id = t."departmentId",
-                jsonb_array_elements(COALESCE(tb."batchDetails", '[]'::jsonb)) AS bd
-                WHERE tb."tenantId" = b."tenantId"
-                  AND d."siteId" = $2
-                  AND bd->>'batchId' = b.id::text
-              )
+              ${batchAllocatedToSiteSql('b.id', 'b."tenantId"', '$2')}
+              OR ${batchHeldAtSiteSql('b.id', 'b."tenantId"', '$2')}
             )
           ORDER BY date`,
       [tenantId, siteId, fromDate, toDate],

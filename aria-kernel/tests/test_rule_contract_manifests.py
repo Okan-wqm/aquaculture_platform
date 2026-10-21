@@ -65,6 +65,12 @@ class ShippedManifestsDeclareEveryRule(unittest.TestCase):
                 compiled = validate_tool_definition(manifest)
                 self.assertTrue(compiled.get("rules"), "the manifest declares no rule contracts")
 
+    def test_every_manifests_declared_scope_is_walked_by_its_input_roots(self) -> None:
+        """ARIA-LOW-594 — no shipped adapter declares coverage it never walks."""
+        for manifest in _manifests():
+            with self.subTest(tool=manifest["tool_id"]):
+                validate_tool_definition(manifest)
+
     def test_every_emitted_rule_has_its_own_contract_and_no_contract_is_dead(self) -> None:
         for manifest in _manifests():
             with self.subTest(tool=manifest["tool_id"]):
@@ -126,6 +132,63 @@ class ContractShapeIsRefusedAtTheGate(unittest.TestCase):
         manifest["rules"]["bundle_budget_not_enforced"]["claim_type"] = "product_bug"
         with self.assertRaises(GovernanceError):
             validate_tool_definition(manifest)
+
+
+class DeclaredScopeMustLieInsideTheWalkedRoots(unittest.TestCase):
+    """ARIA-LOW-594 — a declared scope production never walks is coverage theatre.
+
+    observation_coverage.adapter_scopes counts a path as observed when an
+    adapter DECLARES it, never asking whether the production input ever
+    reaches it: bundle-budget-adapter declared ``web/**`` while
+    default_input.roots walked only web/shell, web/modules and web/apps, so
+    every web/shared-ui file counted as observed without being read. The
+    registry write gate is the one point every manifest passes, so the tie
+    lives there: with roots (or coverageRoots) declared, each declared_scope
+    glob's literal prefix must be a root or lie under one. A manifest
+    without default_input walks its declared scope directly and is exempt.
+    """
+
+    def _manifest(self, scope: list[str], roots: list[str], coverage_roots: list[str] | None = None) -> dict:
+        manifest = json.loads((ADAPTERS / "bundle-budget-adapter.tool.json").read_text(encoding="utf-8"))
+        manifest["declared_scope"] = scope
+        # The signature is derived; dropping it lets the gate recompute it
+        # over the synthetic shape instead of refusing the stale one.
+        manifest.pop("parse_window_signature", None)
+        default_input: dict[str, list[str]] = {"roots": roots}
+        if coverage_roots is not None:
+            default_input["coverageRoots"] = coverage_roots
+        manifest["default_input"] = default_input
+        return manifest
+
+    def test_a_scope_wider_than_the_walked_roots_is_refused(self) -> None:
+        with self.assertRaises(GovernanceError) as ctx:
+            validate_tool_definition(self._manifest(["web/**/*.{ts,tsx}"], ["web/shell"]))
+        self.assertIn("declared_scope_outside_walked_roots:web/**/*.{ts,tsx}", str(ctx.exception))
+
+    def test_a_scope_above_the_roots_is_refused_even_when_they_share_a_prefix(self) -> None:
+        with self.assertRaises(GovernanceError) as ctx:
+            validate_tool_definition(self._manifest(["web/**/*.{ts,tsx}"], ["web/shell", "web/modules"]))
+        self.assertIn("declared_scope_outside_walked_roots", str(ctx.exception))
+
+    def test_a_scope_equal_to_a_root_and_one_under_it_are_admitted(self) -> None:
+        compiled = validate_tool_definition(
+            self._manifest(["web/shell/**/*.{ts,tsx}", "web/shell/src/vite.config.ts"], ["web/shell"])
+        )
+        self.assertEqual(
+            compiled["declared_scope"], ["web/shell/**/*.{ts,tsx}", "web/shell/src/vite.config.ts"]
+        )
+
+    def test_coverage_roots_are_roots_for_the_check(self) -> None:
+        compiled = validate_tool_definition(
+            self._manifest(["apps/**/*.ts", "e2e/**/*.ts"], ["apps"], coverage_roots=["e2e"])
+        )
+        self.assertEqual(compiled["declared_scope"], ["apps/**/*.ts", "e2e/**/*.ts"])
+
+    def test_a_manifest_without_default_input_walks_its_scope_directly(self) -> None:
+        manifest = self._manifest(["web/**/*.{ts,tsx}"], ["web/shell"])
+        manifest.pop("default_input")
+        compiled = validate_tool_definition(manifest)
+        self.assertEqual(compiled["declared_scope"], ["web/**/*.{ts,tsx}"])
 
 
 if __name__ == "__main__":

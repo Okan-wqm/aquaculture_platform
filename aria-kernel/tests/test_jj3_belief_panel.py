@@ -396,7 +396,7 @@ class HumanQueueShrinksByExactlyTheRoutedKinds(unittest.TestCase):
                     reason=f"queue member {request_id}",
                     context=context, base_dir=root,
                 )
-            before = {row["request_id"] for row in list_human_required(base_dir=root)}
+            before = {row["request_id"] for row in list_human_required(base_dir=root).rows}
             self.assertIn(escalation_id, before)
 
             # The production caller, twice: open the panels, then fold them.
@@ -404,7 +404,7 @@ class HumanQueueShrinksByExactlyTheRoutedKinds(unittest.TestCase):
             _answer_panel(root, escalation_id, hra.RESOLVE_VERDICT)
             hra.sweep_human_required_adjudications(base_dir=root)
 
-            after = {row["request_id"] for row in list_human_required(base_dir=root)}
+            after = {row["request_id"] for row in list_human_required(base_dir=root).rows}
             self.assertEqual(before - after, {escalation_id})
             self.assertEqual(
                 after, {"HR-belief-anonymous", "HR-profile", "HR-unknown"},

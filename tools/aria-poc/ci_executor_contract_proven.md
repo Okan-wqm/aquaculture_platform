@@ -4,8 +4,9 @@
 > `tools/aria-poc/worker_executor.py`, and
 > `.github/workflows/aria-agent-executor.yml` must use this Claude-first
 > contract. The earlier Codex `codex exec` argv, the legacy Anthropic
-> API-key/OAuth-token paths, and ChatGPT-managed Codex auth are retired and
-> must not be live execution authorities.
+> API-key paths, a token handed to the CLI through the executor's
+> environment, the managed host login, and ChatGPT-managed Codex auth are
+> retired and must not be live execution authorities.
 
 ## Runtime Contract
 
@@ -28,10 +29,10 @@ ci_executor:
     - --strict-mcp-config
     - --mcp-config
     - "<per-spawn document written by aria_kernel.mcp_client from data/mcp_registry.json: only the profile's mcp_servers, minus quarantined; empty without a profile>"
-  stdin: "<contents of aria-tools/agent-invocations/prompts/${REQUEST_ID}.md>"
-  persisted_output: "<sanitized aria/agent-response/v1 envelope at expected_output_path>"
+  stdin: '<contents of aria-tools/agent-invocations/prompts/${REQUEST_ID}.md>'
+  persisted_output: '<sanitized aria/agent-response/v1 envelope at expected_output_path>'
   raw_jsonl_persisted: false
-  subprocess_timeout_seconds: "${MAX_TIMEOUT_SECONDS}"
+  subprocess_timeout_seconds: '${MAX_TIMEOUT_SECONDS}'
   env_transit:
     - ARIA_LEASE_TOKEN
     - CLAUDE_CLI_MOCK
@@ -61,25 +62,25 @@ ci_executor_read_contained:
     - "<derived from the agent's kernel runtime profile: ungranted tools + external-write rules + mcp__<server> for servers the profile does not name>"
     - --strict-mcp-config
     - --mcp-config
-    - "<per-spawn document: empty — no read profile names an MCP server>"
-  stdin: "<contents of aria-tools/agent-invocations/prompts/${REQUEST_ID}.md>"
-  persisted_output: "<sanitized aria/agent-response/v1 envelope at expected_output_path>"
+    - '<per-spawn document: empty — no read profile names an MCP server>'
+  stdin: '<contents of aria-tools/agent-invocations/prompts/${REQUEST_ID}.md>'
+  persisted_output: '<sanitized aria/agent-response/v1 envelope at expected_output_path>'
   governance: claude_spawn_read_contained {request_id, subagent_type, profile_id, tools}
   raw_jsonl_persisted: false
-  subprocess_timeout_seconds: "${MAX_TIMEOUT_SECONDS}"
+  subprocess_timeout_seconds: '${MAX_TIMEOUT_SECONDS}'
 ci_executor_judge_batch:
   # Typed-judgment plan Phase 4b (ARIA-MEDIUM-163) — K judge requests that share a
   # role, an agent and an anchor, served by ONE typed model call on a process-less
   # route (`judgment_pipeline.judge_batch_runtimes`, default ["zai"]; opt-in via
   # `judge_batch_size` > 1). No binary: the kernel's own HTTP transport.
-  entry: "ci_executor.py --judge-batch <role> <target_agent> <request_id>..."
-  admission: "_admit_native_route once per child; _bind_request_to_route per member"
+  entry: 'ci_executor.py --judge-batch <role> <target_agent> <request_id>...'
+  admission: '_admit_native_route once per child; _bind_request_to_route per member'
   lease_seconds: "batch_worst_case_seconds(K) for every member's claim"
-  call: "run_zai_chat(system=render_batch_system_turn(contract), user=render_batch_user_turn(batch), json_object=true)"
-  per_member: "attempt reservation, typed envelope (build_envelope_from_typed_answer), transcript {batch_id, payload_hash, answer, usage_share}, pre-submit gate, submit-result, reconcile, dispatch summary"
-  cost: "one cost row per call; every runtime_attempt_finished row carries batch_id and usage_apportioned"
+  call: 'run_zai_chat(system=render_batch_system_turn(contract), user=render_batch_user_turn(batch), json_object=true)'
+  per_member: 'attempt reservation, typed envelope (build_envelope_from_typed_answer), transcript {batch_id, payload_hash, answer, usage_share}, pre-submit gate, submit-result, reconcile, dispatch summary'
+  cost: 'one cost row per call; every runtime_attempt_finished row carries batch_id and usage_apportioned'
   release_reasons:
-    - "judge_batch_call_failed:<code> (harness-class: transport, auth, credit, input_budget, payload_*, http_<status>, usage_unavailable)"
+    - 'judge_batch_call_failed:<code> (harness-class: transport, auth, credit, input_budget, payload_*, http_<status>, usage_unavailable)'
     - "judge_batch_item_unanswered:<typed_judgment reason code> (request-class: this member's item refused while siblings folded)"
 worker_executor:
   binary: claude
@@ -99,8 +100,8 @@ worker_executor:
     - --strict-mcp-config
     - --mcp-config
     - "<per-spawn document written by aria_kernel.mcp_client from data/mcp_registry.json: only the profile's mcp_servers, minus quarantined; empty without a profile>"
-  stdin: "<contents of aria-tools/dispatch/prompts/${ASSIGNMENT_ID}.md>"
-  cwd: "<assigned worktree path>"
+  stdin: '<contents of aria-tools/dispatch/prompts/${ASSIGNMENT_ID}.md>'
+  cwd: '<assigned worktree path>'
   raw_jsonl_persisted: false
   env_transit:
     - ARIA_LEASE_TOKEN
@@ -128,23 +129,23 @@ human approving each tool call (the autonomy `codex exec` previously provided).
 
 ## Auth And Billing Policy
 
-* Default auth is a managed Claude Code login session on a trusted/private runner.
-* API-key / proxy-billing mode is disallowed: `ANTHROPIC_API_KEY`, `CLAUDE_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, and `ANTHROPIC_BASE_URL` must be absent unless a future ADR explicitly permits API billing (`ARIA_ALLOW_CLAUDE_API_KEY_MODE=1`).
-* Real mode must fail closed if `claude --version`, the managed-auth credential surface, stream-json event parsing, or usage extraction cannot be verified.
-* Budget enforcement in this mode tracks account/session headroom and token usage, not API-dollar spend.
+- Auth is the kernel's own Claude token on a trusted/private runner (ARIA-MEDIUM-563): a `claude setup-token` token in a 0600 file named by `ARIA_CLAUDE_OAUTH_TOKEN_FILE`, outside every tree a room is given, read only by `aria_kernel.provider_credentials`. No spawn holds a login or a token: every Claude spawn reaches the provider through the kernel's provider gateway (`aria_kernel.provider_gateway`, route `anthropic` in `aria_kernel.provider_routes`) with `ANTHROPIC_UNIX_SOCKET`, `ANTHROPIC_BASE_URL=http://localhost` and a placeholder `CLAUDE_CODE_OAUTH_TOKEN`; the gateway pins the Messages requests and injects the kernel's token.
+- API-key / proxy-billing mode is disallowed: `ANTHROPIC_API_KEY`, `CLAUDE_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, and `ANTHROPIC_BASE_URL` must be absent from the executor's own environment unless a future ADR explicitly permits API billing (`ARIA_ALLOW_CLAUDE_API_KEY_MODE=1`). A spawn never inherits them; its `ANTHROPIC_BASE_URL` is the gateway route's.
+- Real mode must fail closed if `claude --version`, the kernel's credential boundary (`python3 -m aria_kernel.provider_credentials check anthropic`), stream-json event parsing, or usage extraction cannot be verified.
+- Budget enforcement in this mode tracks account/session headroom and token usage, not API-dollar spend.
 
 ## Artifact Policy
 
-* Persist only the sanitized `aria/agent-response/v1` envelope expected by the kernel.
-* Do not upload raw Claude stream-json, raw prompts, raw responses, claims ledgers, runs ledgers, lease tokens, session tokens, or API keys.
-* GitHub Actions upload path must be exact per-request output, with short retention and `if-no-files-found: error`.
+- Persist only the sanitized `aria/agent-response/v1` envelope expected by the kernel.
+- Do not upload raw Claude stream-json, raw prompts, raw responses, claims ledgers, runs ledgers, lease tokens, session tokens, or API keys.
+- GitHub Actions upload path must be exact per-request output, with short retention and `if-no-files-found: error`.
 
 ## Workflow Policy
 
-* Scheduled workflows run from the repository default branch and checkout the `main` target ref.
-* The executor job runs on a trusted self-hosted runner labelled `claude`; GitHub-hosted runners must not carry a persisted managed Claude Code session. The autonomous-WRITE executor runs as a **non-root** user (the Claude Code CLI refuses `--dangerously-skip-permissions` under root) or in an acknowledged sandbox (`ARIA_CLAUDE_SANDBOX=1`); `claude_runtime.assert_write_runner_ok` enforces this fail-closed (ADR-040, ORPHAN-MEDIUM-254).
-* `CLAUDE_CLI_MOCK` kill switch remains available for dry-runs.
-* Anthropic API-key / OAuth-token workflow secrets are not part of the live executor contract.
+- Scheduled workflows run from the repository default branch and checkout the `main` target ref.
+- The executor job runs on a trusted self-hosted runner labelled `claude`; GitHub-hosted runners must not carry the kernel's Claude token. The autonomous-WRITE executor runs as a **non-root** user (the Claude Code CLI refuses `--dangerously-skip-permissions` under root) or in an acknowledged sandbox (`ARIA_CLAUDE_SANDBOX=1`); `claude_runtime.assert_write_runner_ok` enforces this fail-closed (ADR-040, ORPHAN-MEDIUM-254).
+- `CLAUDE_CLI_MOCK` kill switch remains available for dry-runs.
+- Anthropic API-key / OAuth-token workflow secrets are not part of the live executor contract.
 
 ## Verification Fields
 
@@ -157,8 +158,8 @@ verified_at_iso8601: workflow-run-time
 finding_closed: DEBT-2026-06-29-CLAUDE-CLI-MIGRATION
 ```
 
-The workflow enforces the minimum Claude Code CLI version and managed-auth at
-run time before any request is claimed. Static prose is not accepted as
+The workflow enforces the minimum Claude Code CLI version and checks the
+kernel's Claude credential boundary at run time before any request is claimed. Static prose is not accepted as
 authority when the pre-flight fails.
 
 The contract is code-owned. Any runtime argv/config/auth change must update this

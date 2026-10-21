@@ -57,7 +57,20 @@ def _inventory_validation(sources: int, envelopes: int) -> dict:
     }
 
 
-class FixtureRunRowCapTests(unittest.TestCase):
+class _FixtureSuiteStore(unittest.TestCase):
+    """A checkout holding one fixture case of ``x-adapter``, whose run prints ``_adapter_argv``'s output."""
+
+    def _adapter_argv(self) -> list[str]:
+        return _fake_tool_argv(
+            {
+                "observations": [],
+                "findings": [],
+                "read_paths": ["src/app.ts"],
+                "evidence_sources": ["src/app.ts"],
+                "cost_units": 1,
+            }
+        )
+
     def setUp(self) -> None:
         self._saved_env = {key: os.environ.get(key) for key in ("ARIA_TOOLS_DIR", "ARIA_REPO_ROOT")}
         os.environ.pop("ARIA_REPO_ROOT", None)
@@ -90,15 +103,7 @@ class FixtureRunRowCapTests(unittest.TestCase):
                 "owner": "platform",
                 "runner": {
                     "type": "subprocess",
-                    "argv": _fake_tool_argv(
-                        {
-                            "observations": [],
-                            "findings": [],
-                            "read_paths": ["src/app.ts"],
-                            "evidence_sources": ["src/app.ts"],
-                            "cost_units": 1,
-                        }
-                    ),
+                    "argv": self._adapter_argv(),
                     "cwd": ".",
                     "timeout_ms": 30_000,
                     "stdin_json": True,
@@ -116,6 +121,8 @@ class FixtureRunRowCapTests(unittest.TestCase):
                 os.environ[key] = value
         shutil.rmtree(self.workspace.parent, ignore_errors=True)
 
+
+class FixtureRunRowCapTests(_FixtureSuiteStore):
     def _run_with_inventory(self, validation: dict) -> tuple[dict, str]:
         with mock.patch.object(fixture_runner, "validate_tool_output_evidence", return_value=validation):
             summary = run_fixture_suite(
@@ -169,6 +176,32 @@ class FixtureRunRowCapTests(unittest.TestCase):
         _summary, line = self._run_with_inventory(validation)
         inline = json.loads(line)["cases"][0]["evidence_validation"]
         self.assertEqual(inline, validation)
+
+
+class FixtureRunRowNestingTests(_FixtureSuiteStore):
+    """ARIA-HIGH-617 — the deepest output the shared parser accepts still yields a readable fixture row.
+
+    A fixture-runs case nests a parsed value three levels deeper than stdout
+    (``cases[i].evidence_validation.errors[j].finding_id`` for a finding that
+    cites no evidence), the deepest any kernel row stores one. The parser
+    accepted output as deep as the readers' bound, so such a row could be
+    written and then refused by ``load_fixture_runs`` and by every publish.
+    """
+
+    def _adapter_argv(self) -> list[str]:
+        from tests.test_run_row_read_set_ref import deep_finding_stdout, deepest_accepted_depth
+
+        stdout = deep_finding_stdout(deepest_accepted_depth(), read_paths='["src/app.ts"]')
+        encoded = base64.b64encode(stdout.encode("utf-8")).decode("ascii")
+        return ["python3", FAKE_RUNNER.as_posix(), "--stdout-b64", encoded]
+
+    def test_the_deepest_output_the_parser_accepts_yields_a_readable_fixture_row(self) -> None:
+        run_fixture_suite("x-adapter", workspace_root=self.workspace, cycle_id="cycle-617", base_dir=self.tools)
+        [row] = fixture_runner.load_fixture_runs("x-adapter", base_dir=self.tools)
+        [case] = row["cases"]
+        self.assertEqual(case["status"], "evidence_error")
+        [error] = case["evidence_validation"]["errors"]
+        self.assertEqual(error["code"], "finding_evidence_missing")
 
 
 if __name__ == "__main__":

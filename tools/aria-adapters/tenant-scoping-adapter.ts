@@ -12,6 +12,7 @@ import {
   resolveInsideWorkspace as resolveAdapterPath,
   workspacePathExists,
 } from './adapter-fs';
+import { createContainedProgram } from './adapter-ts';
 
 type FindingRule =
   | 'tenant_repository_unscoped_read'
@@ -22,7 +23,11 @@ interface AdapterInput {
   readonly roots?: readonly string[];
   readonly allowlist?: readonly string[];
   readonly includeRepositoryReadFindings?: boolean;
-  readonly repo_snapshot?: { readonly allowed_paths?: readonly string[]; readonly snapshot_hash?: string; readonly repo_state_id?: string };
+  readonly repo_snapshot?: {
+    readonly allowed_paths?: readonly string[];
+    readonly snapshot_hash?: string;
+    readonly repo_state_id?: string;
+  };
 }
 
 interface EvidenceRef {
@@ -98,19 +103,36 @@ interface AnalysisResult {
   readonly readPaths: string[];
 }
 
-const REPOSITORY_METHODS = new Set(['find', 'findOne', 'findOneBy', 'findBy', 'count', 'update', 'delete', 'softDelete']);
+const REPOSITORY_METHODS = new Set([
+  'find',
+  'findOne',
+  'findOneBy',
+  'findBy',
+  'count',
+  'update',
+  'delete',
+  'softDelete',
+]);
 const RAW_QUERY_METHODS = new Set(['query']);
 const TENANT_GUARD_NAMES = new Set(['TenantGuard', 'GqlTenantGuard']);
 
-export function analyzeTenantScoping(input: AdapterInput, workspaceRoot = process.cwd()): AriaOutput {
+export function analyzeTenantScoping(
+  input: AdapterInput,
+  workspaceRoot = process.cwd(),
+): AriaOutput {
   const roots = requireScanRoots('tenant-scoping-adapter', input.roots);
   const allowlist = new Set((input.allowlist ?? []).map(normalizePath));
   const files = roots
     .map((root) => resolveInsideWorkspace(workspaceRoot, root))
-    .filter((root) => workspacePathExists(root))
-    .flatMap((root) => collectTypeScriptFiles(root));
+    .filter((root) => workspacePathExists(workspaceRoot, root))
+    .flatMap((root) => collectTypeScriptFiles(workspaceRoot, root));
   const snapshotFiles = filterFilesBySnapshot(files, workspaceRoot, input);
-  const program = createAnalysisProgram(snapshotFiles);
+  // ARIA-LOW-593 — the program is built on the containment owner's host, so
+  // a symlinked import inside the workspace resolves to nothing and no row
+  // can carry content from beyond it.
+  const program = createContainedProgram(workspaceRoot, snapshotFiles, {
+    experimentalDecorators: true,
+  });
   const units = snapshotFiles.map((file) => readSourceUnit(file, workspaceRoot, program));
   const tenantEntities = collectTenantEntities(units);
   const context: AnalysisContext = {
@@ -152,7 +174,9 @@ export function analyzeTenantScoping(input: AdapterInput, workspaceRoot = proces
     return true;
   });
   const evidenceSources = Array.from(
-    new Set(result.findings.flatMap((finding) => finding.evidence.map((evidence) => evidence.path))),
+    new Set(
+      result.findings.flatMap((finding) => finding.evidence.map((evidence) => evidence.path)),
+    ),
   ).sort();
 
   return {
@@ -163,9 +187,14 @@ export function analyzeTenantScoping(input: AdapterInput, workspaceRoot = proces
     belief_candidates: [
       {
         belief_id: 'tenant-scoping:repository-boundary-surface',
-        claim: 'backend services use tenant context and repository/query boundaries that require tenant-scoped access checks',
+        claim:
+          'backend services use tenant context and repository/query boundaries that require tenant-scoped access checks',
         confidence: 0.8,
-        evidence_refs: ['apps/**/*.ts', 'libs/backend-common/src/database/**/*.ts', 'platform/libs/**/*.ts'],
+        evidence_refs: [
+          'apps/**/*.ts',
+          'libs/backend-common/src/database/**/*.ts',
+          'platform/libs/**/*.ts',
+        ],
         source_tool_id: 'tenant-scoping-adapter',
       },
     ],
@@ -191,8 +220,12 @@ function analyzeTenantUnit(
   context: AnalysisContext,
 ): void {
   const allowlisted = allowlist.has(unit.relativePath);
-  const hasTenantSignal = /\btenantId\b|@Tenant\b|TenantGuard|tenantManagerRepo|TenantContext/.test(unit.text);
-  const guardNames = collectIdentifiers(unit.sourceFile).filter((name) => TENANT_GUARD_NAMES.has(name));
+  const hasTenantSignal = /\btenantId\b|@Tenant\b|TenantGuard|tenantManagerRepo|TenantContext/.test(
+    unit.text,
+  );
+  const guardNames = collectIdentifiers(unit.sourceFile).filter((name) =>
+    TENANT_GUARD_NAMES.has(name),
+  );
 
   if (hasTenantSignal) {
     result.observations.push({
@@ -227,10 +260,19 @@ function analyzeTenantUnit(
     if (!boundary.isBoundary) {
       return;
     }
-    const scopedByTenantManager = /tenantManagerRepo|tenantAware|tenantScoped|withTenant/i.test(receiverText + scopeText);
-    const callHasTenantPredicate = /\btenantId\b|tenant_id|current_tenant|set_config\(['"]app\.current_tenant/.test(callText + statementText);
+    const scopedByTenantManager = /tenantManagerRepo|tenantAware|tenantScoped|withTenant/i.test(
+      receiverText + scopeText,
+    );
+    const callHasTenantPredicate =
+      /\btenantId\b|tenant_id|current_tenant|set_config\(['"]app\.current_tenant/.test(
+        callText + statementText,
+      );
     const scopeHasTenant = /\btenantId\b|@Tenant\b|TenantContext|tenantManagerRepo/.test(scopeText);
-    const explicitCrossTenant = hasCrossTenantComment(unit.text, node.getFullStart(), node.getStart(unit.sourceFile));
+    const explicitCrossTenant = hasCrossTenantComment(
+      unit.text,
+      node.getFullStart(),
+      node.getStart(unit.sourceFile),
+    );
     // ARIA-HIGH-045 — where in the code the call sits, by name: the spine
     // gate keys a finding without its line, so two calls in one file are
     // told apart by their symbol and an edit above them moves neither.
@@ -256,13 +298,13 @@ function analyzeTenantUnit(
     });
 
     if (
-      allowlisted
-      || explicitCrossTenant
-      || scopedByTenantManager
-      || unit.relativePath.includes('/migrations/')
-      || !scopeHasTenant
-      || callHasTenantPredicate
-      || !boundary.tenantOwned
+      allowlisted ||
+      explicitCrossTenant ||
+      scopedByTenantManager ||
+      unit.relativePath.includes('/migrations/') ||
+      !scopeHasTenant ||
+      callHasTenantPredicate ||
+      !boundary.tenantOwned
     ) {
       return;
     }
@@ -273,12 +315,22 @@ function analyzeTenantUnit(
         severity: 'high',
         path: unit.relativePath,
         line,
-        message: 'Raw tenant-bound query is executed in a tenant-aware scope without an explicit tenant predicate.',
+        message:
+          'Raw tenant-bound query is executed in a tenant-aware scope without an explicit tenant predicate.',
         evidence: [{ path: unit.relativePath, line }],
         confidence: isSeedOrBootstrapContext(unit.relativePath, scopeText) ? 0.55 : 0.9,
-        actionability: isSeedOrBootstrapContext(unit.relativePath, scopeText) ? 'review_required' : 'actionable',
-        review_reason: isSeedOrBootstrapContext(unit.relativePath, scopeText) ? 'seed_or_bootstrap_context' : undefined,
-        details: { method, receiver: receiverText, entityName: boundary.entityName ?? null, enclosingSymbol },
+        actionability: isSeedOrBootstrapContext(unit.relativePath, scopeText)
+          ? 'review_required'
+          : 'actionable',
+        review_reason: isSeedOrBootstrapContext(unit.relativePath, scopeText)
+          ? 'seed_or_bootstrap_context'
+          : undefined,
+        details: {
+          method,
+          receiver: receiverText,
+          entityName: boundary.entityName ?? null,
+          enclosingSymbol,
+        },
       });
       return;
     }
@@ -288,14 +340,23 @@ function analyzeTenantUnit(
     result.findings.push({
       id: `tenant-repository-unscoped-read:${unit.relativePath}:${line}`,
       rule: 'tenant_repository_unscoped_read',
-      severity: method === 'find' || method === 'findOne' || method === 'findOneBy' || method === 'findBy' ? 'medium' : 'high',
+      severity:
+        method === 'find' || method === 'findOne' || method === 'findOneBy' || method === 'findBy'
+          ? 'medium'
+          : 'high',
       path: unit.relativePath,
       line,
-      message: 'Repository call is made in a tenant-aware scope without an explicit tenant predicate or tenant-scoped repository helper.',
+      message:
+        'Repository call is made in a tenant-aware scope without an explicit tenant predicate or tenant-scoped repository helper.',
       evidence: [{ path: unit.relativePath, line }],
       confidence: 0.82,
       actionability: 'actionable',
-      details: { method, receiver: receiverText, entityName: boundary.entityName ?? null, enclosingSymbol },
+      details: {
+        method,
+        receiver: receiverText,
+        entityName: boundary.entityName ?? null,
+        enclosingSymbol,
+      },
     });
   });
 }
@@ -309,11 +370,17 @@ function enclosingStatementText(node: ts.Node, sourceFile: ts.SourceFile): strin
 }
 
 function isSeedOrBootstrapContext(path: string, text: string): boolean {
-  return /seed|bootstrap|fixture/i.test(path) || /\b(seed|bootstrap|fixture)\b/i.test(text.slice(0, 4000));
+  return (
+    /seed|bootstrap|fixture/i.test(path) ||
+    /\b(seed|bootstrap|fixture)\b/i.test(text.slice(0, 4000))
+  );
 }
 
 function inputAllowsRepositoryReadFinding(context: AnalysisContext, method: string): boolean {
-  return context.includeRepositoryReadFindings || !['find', 'findOne', 'findOneBy', 'findBy', 'count'].includes(method);
+  return (
+    context.includeRepositoryReadFindings ||
+    !['find', 'findOne', 'findOneBy', 'findBy', 'count'].includes(method)
+  );
 }
 
 function classifyTenantBoundaryCall(
@@ -352,7 +419,10 @@ function classifyTenantBoundaryCall(
       typeEvidence: receiverType,
     };
   }
-  if (method === 'getRepository' && /\b(DataSource|EntityManager|QueryRunner)\b/.test(receiverType)) {
+  if (
+    method === 'getRepository' &&
+    /\b(DataSource|EntityManager|QueryRunner)\b/.test(receiverType)
+  ) {
     const firstArg = node.arguments[0]?.getText(unit.sourceFile);
     const normalized = firstArg?.split('.').pop();
     return {
@@ -387,7 +457,9 @@ function queryReferencesTenantTable(callText: string, tenantTables: ReadonlySet<
   return [...tenantTables].some((table) => table && lower.includes(table.toLowerCase()));
 }
 
-function collectTenantEntities(units: readonly SourceUnit[]): ReadonlyMap<string, TenantEntityRecord> {
+function collectTenantEntities(
+  units: readonly SourceUnit[],
+): ReadonlyMap<string, TenantEntityRecord> {
   const entities = new Map<string, TenantEntityRecord>();
   for (const unit of units) {
     visit(unit.sourceFile, (node) => {
@@ -395,7 +467,10 @@ function collectTenantEntities(units: readonly SourceUnit[]): ReadonlyMap<string
         return;
       }
       const hasTenantField = node.members.some((member) => {
-        const name = ts.isPropertyDeclaration(member) && member.name ? member.name.getText(unit.sourceFile) : '';
+        const name =
+          ts.isPropertyDeclaration(member) && member.name
+            ? member.name.getText(unit.sourceFile)
+            : '';
         return name === 'tenantId' || name === 'tenant_id';
       });
       if (!hasTenantField && !/implements\s+TenantEntity/.test(node.getText(unit.sourceFile))) {
@@ -414,10 +489,13 @@ function collectTenantEntities(units: readonly SourceUnit[]): ReadonlyMap<string
 }
 
 function readEntityTableName(node: ts.ClassDeclaration, unit: SourceUnit): string | undefined {
-  const decorators = ts.canHaveDecorators(node) ? ts.getDecorators(node) ?? [] : [];
+  const decorators = ts.canHaveDecorators(node) ? (ts.getDecorators(node) ?? []) : [];
   for (const decorator of decorators) {
     const expression = decorator.expression;
-    if (!ts.isCallExpression(expression) || expression.expression.getText(unit.sourceFile).split('.').pop() !== 'Entity') {
+    if (
+      !ts.isCallExpression(expression) ||
+      expression.expression.getText(unit.sourceFile).split('.').pop() !== 'Entity'
+    ) {
       continue;
     }
     const firstArg = expression.arguments[0];
@@ -435,7 +513,8 @@ function camelToSnake(value: string): string {
 function analyzeGuardCoverage(units: readonly SourceUnit[], result: AnalysisResult): void {
   const modules = units.filter((unit) => unit.relativePath.endsWith('app.module.ts'));
   for (const unit of modules) {
-    const registersTenantGuard = /APP_GUARD[\s\S]{0,240}TenantGuard|TenantGuard[\s\S]{0,240}APP_GUARD/.test(unit.text);
+    const registersTenantGuard =
+      /APP_GUARD[\s\S]{0,240}TenantGuard|TenantGuard[\s\S]{0,240}APP_GUARD/.test(unit.text);
     const importsTenantGuard = /\bTenantGuard\b/.test(unit.text);
     result.observations.push({
       id: `tenant-guard-registration:${unit.relativePath}`,
@@ -501,7 +580,10 @@ function enclosingSymbolName(enclosing: ts.Node | undefined, sourceFile: ts.Sour
   return parts.length > 0 ? parts.join('.') : '<module>';
 }
 
-function declarationName(node: ts.SignatureDeclaration | ts.ClassLikeDeclaration, sourceFile: ts.SourceFile): string {
+function declarationName(
+  node: ts.SignatureDeclaration | ts.ClassLikeDeclaration,
+  sourceFile: ts.SourceFile,
+): string {
   if (ts.isConstructorDeclaration(node)) {
     return 'constructor';
   }
@@ -509,7 +591,12 @@ function declarationName(node: ts.SignatureDeclaration | ts.ClassLikeDeclaration
     return node.name.getText(sourceFile);
   }
   const parent = node.parent;
-  if ((ts.isVariableDeclaration(parent) || ts.isPropertyAssignment(parent) || ts.isPropertyDeclaration(parent)) && parent.initializer === node) {
+  if (
+    (ts.isVariableDeclaration(parent) ||
+      ts.isPropertyAssignment(parent) ||
+      ts.isPropertyDeclaration(parent)) &&
+    parent.initializer === node
+  ) {
     return parent.name.getText(sourceFile);
   }
   return '<anonymous>';
@@ -521,31 +608,19 @@ function firstLineMatching(unit: SourceUnit, pattern: RegExp): number {
   return index >= 0 ? index + 1 : 1;
 }
 
-function createAnalysisProgram(files: readonly string[]): ts.Program {
-  return ts.createProgram([...files], {
-    target: ts.ScriptTarget.ES2022,
-    module: ts.ModuleKind.CommonJS,
-    moduleResolution: ts.ModuleResolutionKind.NodeJs,
-    esModuleInterop: true,
-    experimentalDecorators: true,
-    skipLibCheck: true,
-    strict: false,
-    noEmit: true,
-  });
-}
-
 function readSourceUnit(path: string, workspaceRoot: string, program: ts.Program): SourceUnit {
-  const text = readWorkspaceFile(path);
+  const text = readWorkspaceFile(workspaceRoot, path);
   return {
     path,
     relativePath: normalizePath(relative(workspaceRoot, path)),
     text,
-    sourceFile: program.getSourceFile(path) ?? ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true),
+    sourceFile:
+      program.getSourceFile(path) ?? ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true),
   };
 }
 
-function collectTypeScriptFiles(root: string): readonly string[] {
-  return collectFiles(root, {
+function collectTypeScriptFiles(workspaceRoot: string, root: string): readonly string[] {
+  return collectFiles(workspaceRoot, root, {
     extensions: ['.ts'],
     includeExcludedDir: (name) => name === '__tests__',
     includeFile: (name) => !isTestFile(name),

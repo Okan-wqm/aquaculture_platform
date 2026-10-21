@@ -93,10 +93,17 @@ jobs:
         run: node scripts/ci/check-advisory-ignore-sync.ts
       # EDGE-HIGH-001 / SUPPLY-HIGH-001: the fork-hygiene gate must be
       # CI-enforced, not pre-commit-only (hooks are bypassable; web-UI and
-      # bot commits never run husky). The spec uses node builtins only, so
-      # it runs without npm install.
+      # bot commits never run husky). It reads both manifests through the ARIA
+      # Rust adapter's one parser (ARIA-LOW-544), so it runs the way every gate
+      # spec runs, in the pre-commit hook and in CI: ts-node with the gates'
+      # tsconfig after `npm ci`. It no longer runs under node's strip-types
+      # loader, which needs explicit `.ts` import specifiers and has no
+      # parameter properties.
+      - name: Install gate dependencies
+        # --ignore-scripts is MANDATORY per infra-expert supply-chain rule.
+        run: npm ci --ignore-scripts --no-audit
       - name: local-rumqttc fork hygiene
-        run: node --experimental-strip-types tools/gates/local-rumqttc-fork-hygiene.spec.ts
+        run: npx ts-node --project tools/gates/tsconfig.json tools/gates/local-rumqttc-fork-hygiene.spec.ts
       # SUPPLY-MEDIUM-001: prove the vendored tree equals the PUBLISHED
       # crates.io artifact, not merely its own manifest. Fetch the .crate,
       # pin its sha256 to the pre-fork lockfile checksum, extract, and
@@ -215,7 +222,10 @@ jobs:
       # removed (vendored fork crates/local-rumqttc, see UPSTREAM.md).
       - name: cargo audit
         run: |
-          cargo audit --deny warnings
+          # RUSTSEC-2026-0381: tracked ignore (EDGE-CI-010 / SUPPLY-HIGH-025)
+          # — mirrored in .cargo/audit.toml + deny.toml; rationale there.
+          cargo audit --deny warnings \
+            --ignore RUSTSEC-2026-0381
 
   drift:
     name: codec-drift

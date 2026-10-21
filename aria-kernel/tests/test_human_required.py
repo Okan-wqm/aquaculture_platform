@@ -112,9 +112,9 @@ class HumanRequiredListResolveTests(unittest.TestCase):
             resolution_note="operator addressed manually",
             base_dir=self.tools,
         )
-        open_rows = list_human_required(base_dir=self.tools)
+        open_rows = list_human_required(base_dir=self.tools).rows
         self.assertEqual([r["request_id"] for r in open_rows], ["req-A"])
-        all_rows = list_human_required(base_dir=self.tools, include_resolved=True)
+        all_rows = list_human_required(base_dir=self.tools, include_resolved=True).rows
         self.assertEqual({r["request_id"] for r in all_rows}, {"req-A", "req-B"})
 
     def test_list_sorted_by_sla_deadline(self) -> None:
@@ -127,7 +127,7 @@ class HumanRequiredListResolveTests(unittest.TestCase):
             request_id="req-critical", severity="CRITICAL", reason="critical",
             base_dir=self.tools, now=ts,
         )
-        rows = list_human_required(base_dir=self.tools)
+        rows = list_human_required(base_dir=self.tools).rows
         # CRITICAL has the earliest deadline (72h < 14d).
         self.assertEqual(rows[0]["request_id"], "req-critical")
 

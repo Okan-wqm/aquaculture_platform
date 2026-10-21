@@ -8,8 +8,12 @@ WHAT: a kernel-owned registry (`data/mcp_registry.json`, closed keys), a
 config document per spawn (only the profile's servers, minus quarantined
 ones), always passed with `--strict-mcp-config`; `--disallowedTools` rules
 for excluded servers/tools; every `mcp__*` call the hooks see lands on
-`mcp/tool-calls.jsonl`; an error-rate threshold quarantines a server on
-`mcp/quarantine.jsonl` until an operator releases it.
+`mcp/tool-calls.jsonl`; an error-rate threshold over the KERNEL-WITNESSED
+outcomes quarantines a server on `mcp/quarantine.jsonl` until an operator
+releases it (ARIA-MEDIUM-609: the client-side rows are the agent's own
+attestation of its PostToolUse payload — telemetry, never a quarantine; the
+kernel's own `side="server"` rows are the witness, minus the failures the
+CALLER caused).
 """
 from __future__ import annotations
 
@@ -24,6 +28,7 @@ from typing import Any, Mapping
 
 from .agent_env import SECRET_SHAPED_ENV_NAME
 from .ledger import append_declared_jsonl, load_declared_jsonl
+from .operator_approval import OperatorApprovalUnrecorded, recorded_instance, verify_operator_approval
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 
 MCP_REGISTRY_RELPATH = ("data", "mcp_registry.json")
@@ -35,7 +40,7 @@ MCP_REGISTRY_RELPATH = ("data", "mcp_registry.json")
 MCP_TRANSPORTS: tuple[str, ...] = ("stdio", "http", "kernel_socket")
 KERNEL_SOCKET_TRANSPORT = "kernel_socket"
 MCP_RELAY_RELPATH: tuple[str, ...] = ("aria_kernel", "mcp_relay.py")
-_SERVER_KEYS: frozenset[str] = frozenset({"transport", "command", "args", "url", "env_passthrough", "tools", "timeout_seconds", "manifest_version", "description"})
+_SERVER_KEYS: frozenset[str] = frozenset({"transport", "command", "args", "url", "env_passthrough", "tools", "timeout_seconds", "manifest_version", "description", "kernel_side_witness"})
 _NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{1,31}$")
 _ENV_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]{1,63}$")
 MCP_TOOL_PREFIX = "mcp__"
@@ -46,8 +51,18 @@ QUARANTINE_RELPATH: tuple[str, ...] = ("mcp", "quarantine.jsonl")
 QUARANTINE_MIN_CALLS = 10
 QUARANTINE_ERROR_RATE = 0.5
 QUARANTINE_WINDOW = 50
+# ARIA-MEDIUM-609 — the failure classes that are the CALLER's, produced by
+# the server's own call_tool (mcp_server.py): "UnknownTool" for a name the
+# manifest does not carry, and the exceptions a handler raises rejecting the
+# arguments it was handed. They are recorded like any fault but never count
+# toward quarantine — otherwise an agent quarantines the kernel's server
+# through the real socket by malforming its own calls.
+QUARANTINE_CALLER_ERROR_CLASSES: frozenset[str] = frozenset({"UnknownTool", "ValueError", "KeyError", "TypeError"})
 MCP_QUARANTINED_EVENT = "mcp_server_quarantined"
 MCP_RELEASED_EVENT = "mcp_server_released"
+# The `event` of a quarantine-ledger row; the fold below reads only these two.
+QUARANTINE_ROW_EVENT = "quarantined"
+RELEASE_ROW_EVENT = "released"
 
 
 @dataclass(frozen=True)
@@ -96,6 +111,19 @@ def _validate_server(name: str, raw: Mapping[str, Any]) -> McpServerSpec:
         # The relay's command and socket are the kernel's per-spawn facts;
         # a registry entry that spelled them would be a second definition.
         raise GovernanceError(f"mcp_server_kernel_socket_carries_spawn_facts:{name}")
+    if transport != KERNEL_SOCKET_TRANSPORT and raw.get("kernel_side_witness") is not True:
+        # ARIA-MEDIUM-609 — a quarantine is a store-wide decision that
+        # outlives the spawn, and only a kernel-side witness (the kernel
+        # recording this server's outcomes itself, as it does for the
+        # servers it serves) can ground one. A `stdio`/`http` server whose
+        # outcomes only the agent's PostToolUse attestation reports has no
+        # witness, so registering it is refused by name rather than
+        # admitting a server whose health nobody kernel-side can vouch for.
+        raise GovernanceError(f"mcp_server_no_kernel_side_witness:{name}")
+    if transport == KERNEL_SOCKET_TRANSPORT and raw.get("kernel_side_witness") is not None:
+        # The kernel's own servers carry their witness by construction; a
+        # registry entry spelling it would be a second definition of that.
+        raise GovernanceError(f"mcp_server_kernel_socket_witness_implied:{name}")
     names = tuple(str(n) for n in (raw.get("env_passthrough") or []))
     for env_name in names:
         if not _ENV_NAME_RE.match(env_name):
@@ -131,17 +159,32 @@ def load_mcp_registry(path: str | Path | None = None) -> McpRegistry:
     return McpRegistry(servers={name: _validate_server(str(name), spec) for name, spec in servers.items()})
 
 
-def quarantined_servers(base_dir: str | Path | None = None) -> frozenset[str]:
+def _standing_quarantines(base_dir: str | Path | None) -> dict[str, dict[str, Any]]:
+    """Server -> the quarantine row still in force (the fold of the ledger)."""
     path = ensure_tools_dir(base_dir).joinpath(*QUARANTINE_RELPATH)
     if not path.exists():
-        return frozenset()
-    state: set[str] = set()
+        return {}
+    standing: dict[str, dict[str, Any]] = {}
     for row in load_declared_jsonl(path, expected_surface=QUARANTINE_SURFACE):
-        if row.get("event") == "quarantined":
-            state.add(str(row.get("server")))
-        elif row.get("event") == "released":
-            state.discard(str(row.get("server")))
-    return frozenset(state)
+        if row.get("event") == QUARANTINE_ROW_EVENT:
+            standing[str(row.get("server"))] = row
+        elif row.get("event") == RELEASE_ROW_EVENT:
+            standing.pop(str(row.get("server")), None)
+    return standing
+
+
+def quarantined_servers(base_dir: str | Path | None = None) -> frozenset[str]:
+    return frozenset(_standing_quarantines(base_dir))
+
+
+def quarantine_reader_faults() -> tuple[type[BaseException], ...]:
+    """The closed set a ``quarantined_servers`` caller may report as an
+    unreadable quarantine ledger (ARIA-LOW-587): the ledger primitives' own
+    (``ledger.ledger_read_faults``) — the reader is one strict
+    ``load_declared_jsonl``. Anything else is a defect and raises."""
+    from .ledger import ledger_read_faults
+
+    return ledger_read_faults()
 
 
 @dataclass(frozen=True)
@@ -288,7 +331,10 @@ def record_mcp_call(
     path = root.joinpath(*TOOL_CALLS_RELPATH)
     path.parent.mkdir(parents=True, exist_ok=True)
     append_declared_jsonl(path, row, expected_surface=TOOL_CALLS_SURFACE)
-    if side == "client":
+    if side == "server":
+        # ARIA-MEDIUM-609 — only the kernel's own outcomes can quarantine.
+        # The client rows are the agent's attestation of its PostToolUse
+        # payload (any sandbox process can forge one); they stay telemetry.
         _maybe_quarantine(server, base_dir=root)
     return row
 
@@ -297,8 +343,11 @@ def evaluate_mcp_health(server: str, *, base_dir: str | Path | None, window: int
     root = ensure_tools_dir(base_dir)
     path = root.joinpath(*TOOL_CALLS_RELPATH)
     rows = [r for r in (load_declared_jsonl(path, expected_surface=TOOL_CALLS_SURFACE) if path.exists() else [])
-            if r.get("server") == server and r.get("side") == "client"][-window:]
-    errors = sum(1 for r in rows if not r.get("ok"))
+            if r.get("server") == server and r.get("side") == "server"][-window:]
+    # A fault the CALLER caused — the classes the server's own call_tool
+    # produces for a call the agent malformed (an unknown tool, arguments a
+    # handler rejected) — is not the server failing (ARIA-MEDIUM-609).
+    errors = sum(1 for r in rows if not r.get("ok") and r.get("error_class") not in QUARANTINE_CALLER_ERROR_CLASSES)
     rate = (errors / len(rows)) if rows else 0.0
     return {"server": server, "calls": len(rows), "errors": errors, "error_rate": round(rate, 3),
             "quarantined": server in quarantined_servers(root),
@@ -311,31 +360,57 @@ def _maybe_quarantine(server: str, *, base_dir: Path) -> None:
         return
     path = base_dir.joinpath(*QUARANTINE_RELPATH)
     path.parent.mkdir(parents=True, exist_ok=True)
-    append_declared_jsonl(path, {"schema_version": 1, "recorded_at": utc_now(), "event": "quarantined", "server": server,
+    append_declared_jsonl(path, {"schema_version": 1, "recorded_at": utc_now(), "event": QUARANTINE_ROW_EVENT, "server": server,
                                  "calls": health["calls"], "errors": health["errors"], "error_rate": health["error_rate"]},
                           expected_surface=QUARANTINE_SURFACE)
     append_tools_governance(base_dir, MCP_QUARANTINED_EVENT, {"server": server, **{k: health[k] for k in ("calls", "errors", "error_rate")}})
 
 
+def unquarantine_scope(server: str, *, base_dir: str | Path | None) -> dict[str, str]:
+    """ARIA-HIGH-238 — the quarantine an operator act releasing ``server`` binds
+    to: its standing quarantine row's ``recorded_at``, so an act posted for one
+    quarantine cannot release the next."""
+    standing = _standing_quarantines(base_dir).get(server)
+    if standing is None:
+        raise GovernanceError(f"mcp_unquarantine_not_quarantined: {server} is not quarantined")
+    return {"server": server, "quarantined_at": recorded_instance(standing.get("recorded_at"))}
+
+
 def release_quarantine(server: str, *, base_dir: str | Path | None, operator_ref: str) -> dict[str, Any]:
-    if not operator_ref.strip():
-        raise ValueError("operator_ref is required to release a quarantined server")
+    """Release a quarantined server on an operator's GitHub act (ARIA-HIGH-238).
+
+    A release puts the server back into every spawn's MCP config, so it is
+    proven like any authority grant: ``surface=mcp_unquarantine`` for THIS
+    quarantine (:func:`unquarantine_scope`; ``aria-kernel mcp release
+    --print-approval-line`` prints the line). It took any non-empty string
+    before. Refusals are ``GovernanceError`` (a ``ValueError``, as before).
+    """
     root = ensure_tools_dir(base_dir)
-    if server not in quarantined_servers(root):
-        raise ValueError(f"{server} is not quarantined")
+    scope = unquarantine_scope(server, base_dir=root)
+    # The audit row below is refused under a frozen profile; refusing first
+    # keeps the act unspent.
+    from .runtime_profile import enforce_profile_for_write
+
+    enforce_profile_for_write("tool_governance", base_dir=root)
+    try:
+        approval = verify_operator_approval(operator_ref, surface="mcp_unquarantine", scope=scope, base_dir=root)
+    except OperatorApprovalUnrecorded as exc:
+        raise GovernanceError(f"mcp_unquarantine_approval_unrecorded:{exc}") from exc
     path = root.joinpath(*QUARANTINE_RELPATH)
-    row = append_declared_jsonl(path, {"schema_version": 1, "recorded_at": utc_now(), "event": "released", "server": server, "operator_ref": operator_ref},
+    row = append_declared_jsonl(path, {"schema_version": 1, "recorded_at": utc_now(), "event": RELEASE_ROW_EVENT, "server": server,
+                                       "operator_ref": operator_ref, "operator_approval": approval},
                                 expected_surface=QUARANTINE_SURFACE)
-    append_tools_governance(root, MCP_RELEASED_EVENT, {"server": server, "operator_ref": operator_ref})
+    append_tools_governance(root, MCP_RELEASED_EVENT, {"server": server, "operator_ref": operator_ref, "operator_approval": approval})
     return row
 
 
 __all__ = [
     "KERNEL_SOCKET_TRANSPORT", "MCP_QUARANTINED_EVENT", "MCP_REGISTRY_RELPATH", "MCP_RELAY_RELPATH", "MCP_RELEASED_EVENT",
     "MCP_TOOL_PREFIX", "MCP_TRANSPORTS",
-    "QUARANTINE_ERROR_RATE", "QUARANTINE_MIN_CALLS", "QUARANTINE_RELPATH", "QUARANTINE_SURFACE", "QUARANTINE_WINDOW",
+    "QUARANTINE_CALLER_ERROR_CLASSES", "QUARANTINE_ERROR_RATE", "QUARANTINE_MIN_CALLS", "QUARANTINE_RELPATH",
+    "QUARANTINE_ROW_EVENT", "QUARANTINE_SURFACE", "QUARANTINE_WINDOW", "RELEASE_ROW_EVENT",
     "TOOL_CALLS_RELPATH", "TOOL_CALLS_SURFACE", "McpRegistry", "McpRelayContext", "McpServerSpec", "evaluate_mcp_health",
     "kernel_socket_servers", "load_mcp_registry",
-    "mcp_config_for_profile", "mcp_tool_rules", "quarantined_servers", "record_mcp_call", "registry_path",
-    "release_quarantine", "split_mcp_tool", "write_mcp_config_file",
+    "mcp_config_for_profile", "mcp_tool_rules", "quarantine_reader_faults", "quarantined_servers", "record_mcp_call", "registry_path",
+    "release_quarantine", "split_mcp_tool", "unquarantine_scope", "write_mcp_config_file",
 ]

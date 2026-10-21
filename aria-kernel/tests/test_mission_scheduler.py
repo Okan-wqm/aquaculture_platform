@@ -10,13 +10,18 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
+from aria_kernel.knowledge_graph import KnowledgeGraphTamper, record_pressure_source_outcome
 from aria_kernel.ledger import load_jsonl
 from aria_kernel.mission import TERMINAL_STATES, fold_mission, open_mission, transition_mission
 from aria_kernel.mission_scheduler import (
     _rank,
     ALL_MISSIONS_WAITING,
     NO_OPEN_MISSIONS,
+    RANKING_LEDGER_UNREADABLE,
+    RANKING_STATIC,
+    RANKING_THOMPSON,
     SELECTED,
     WIP_SLOT_HELD,
     select_next_mission,
@@ -43,6 +48,9 @@ class MissionSchedulerTests(unittest.TestCase):
             title=f"{source_kind}:{source_id}",
             next_action=f"work {source_kind} {source_id}",
             wake_condition={"kind": "evidence", "key": f"{source_kind}:{source_id}"},
+            # ARIA-HIGH-245 — a mission the drain could not plan is skipped, so
+            # every fixture the ranking is tested over carries citable evidence.
+            evidence_refs=kwargs.pop("evidence_refs", [f"apps/farm-service/src/{source_id}.ts"]),
             base_dir=self.tools,
             **kwargs,  # type: ignore[arg-type]
         )
@@ -249,6 +257,55 @@ class MissionSchedulerTests(unittest.TestCase):
             if row.get("kind") == "mission_schedule_decided"
         ]
         self.assertEqual(rows, [])
+
+
+class TheSourceRankingIsNamed(MissionSchedulerTests):
+    """ARIA-MEDIUM-101 — the Thompson tiebreak read the effectiveness ledger
+    and ranked it inside ``except (OSError, ValueError, KeyError, TypeError)``,
+    so a defect in the ranker became an empty draw set and the scheduler fell
+    back to the static rank without saying so. Only the reader's own fault set
+    (``effectiveness_reader_faults``) is absorbed, and the decision names which
+    ranking ordered the missions."""
+
+    def _decided_rows(self) -> list[dict[str, object]]:
+        return [
+            row["details"] for row in load_jsonl(self.tools / "governance.jsonl")
+            if row.get("kind") == "mission_schedule_decided"
+        ]
+
+    def test_a_defect_in_the_ranker_raises(self) -> None:
+        self._open("finding", "f-1")
+        self._open("pressure", "p-1")
+        with mock.patch("aria_kernel.knowledge_graph.rank_pressure_sources", side_effect=TypeError("signature drift")):
+            with self.assertRaises(TypeError):
+                select_next_mission(base_dir=self.tools, record=False)
+        record_pressure_source_outcome(base_dir=self.tools, source_type="finding", minted=1, merged=1)
+        with mock.patch("aria_kernel.calibrated_intelligence.thompson_rank", side_effect=KeyError("draw")):
+            with self.assertRaises(KeyError):
+                select_next_mission(base_dir=self.tools, record=False)
+
+    def test_an_unreadable_ledger_falls_back_to_the_static_rank_by_name(self) -> None:
+        self._open("pressure", "p-1")
+        finding = self._open("finding", "f-1")
+        with mock.patch("aria_kernel.knowledge_graph.rank_pressure_sources",
+                        side_effect=KnowledgeGraphTamper("chain broken")):
+            decision = select_next_mission(base_dir=self.tools)
+        self.assertEqual(decision.selected["mission_id"], finding, "the static rank decided")
+        self.assertEqual((decision.ranking, decision.ranking_fault),
+                         (RANKING_LEDGER_UNREADABLE, "KnowledgeGraphTamper"))
+        [event] = self._decided_rows()
+        self.assertEqual((event["ranking"], event["ranking_fault"]),
+                         (RANKING_LEDGER_UNREADABLE, "KnowledgeGraphTamper"))
+
+    def test_the_decision_names_the_static_rank_and_the_draws(self) -> None:
+        self._open("finding", "f-1")
+        self.assertEqual(select_next_mission(base_dir=self.tools, record=False).ranking, RANKING_STATIC)
+        record_pressure_source_outcome(base_dir=self.tools, source_type="finding", minted=1, merged=1)
+        decision = select_next_mission(base_dir=self.tools)
+        self.assertEqual((decision.ranking, decision.ranking_fault), (RANKING_THOMPSON, ""))
+        [event] = self._decided_rows()
+        self.assertEqual(event["ranking"], RANKING_THOMPSON)
+        self.assertNotIn("ranking_fault", event)
 
 
 if __name__ == "__main__":

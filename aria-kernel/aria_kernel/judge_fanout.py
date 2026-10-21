@@ -141,6 +141,14 @@ def judge_request_fields(item: dict[str, Any], contract: RuleContract) -> dict[s
 
 
 def _evidence_refs(item: dict[str, Any]) -> list[str]:
+    """The finding's path and evidence a judge envelope hands out.
+
+    ARIA-MEDIUM-385 — only refs the agent law admits by shape
+    (``pressure_evidence.split_citable_refs``): the mint refuses any other,
+    and the finding row the sampler read keeps every ref it reported.
+    """
+    from .pressure_evidence import split_citable_refs
+
     refs: list[str] = []
     path = str(item.get("path") or "")
     if path:
@@ -148,7 +156,7 @@ def _evidence_refs(item: dict[str, Any]) -> list[str]:
     for ev in item.get("evidence") or []:
         if isinstance(ev, str) and ev.strip():
             refs.append(ev)
-    return refs
+    return split_citable_refs(refs)[0]
 
 
 def _existing_judge_dispatches(root: Path) -> set[tuple[str, str]]:
@@ -427,6 +435,14 @@ def _judge_rows_by_group(
     return grouped, settled
 
 
+def _group_fingerprint(by_judge: dict[str, dict[str, Any]]) -> str:
+    """The finding fingerprint the group's judges were minted with."""
+    return next(
+        (str(row["finding_fingerprint"]) for _judge, row in sorted(by_judge.items()) if row.get("finding_fingerprint")),
+        "",
+    )
+
+
 def split_verdict_groups(
     *,
     tool_id: str,
@@ -453,6 +469,7 @@ def split_verdict_groups(
             "run_id": run_id,
             "finding_id": finding_id,
             "judgment_group_id": group_id,
+            "finding_fingerprint": _group_fingerprint(by_judge),
             "judges": [
                 {
                     "judge_id": judge_id,
@@ -583,6 +600,11 @@ def _mint_arbiter(
         allowed_scope=["**"],
         evidence_refs=refs or None,
         finding_id=str(group.get("finding_id") or ""),
+        # ARIA-HIGH-004 — the arbiter's verdict joins the learning funnel by
+        # the same fingerprint the two judges it re-examines were minted
+        # with (ORPHAN-HIGH-765's mint-first doctrine, which the fan-out
+        # mint follows and this mint did not).
+        finding_fingerprint=str(group.get("finding_fingerprint") or ""),
         tool_id=tool_id,
         run_id=str(group.get("run_id") or ""),
         judgment_group_id=group_id,
@@ -694,6 +716,7 @@ def anchor_candidate_groups(
             "run_id": run_id,
             "finding_id": finding_id,
             "judgment_group_id": group_id,
+            "finding_fingerprint": _group_fingerprint(by_judge),
             "verdict": verdict,
             "judges": [
                 {

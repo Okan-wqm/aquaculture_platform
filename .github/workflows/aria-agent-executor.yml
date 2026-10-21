@@ -3,7 +3,8 @@ name: aria-agent-executor
 # Plan ARIA-V3 §B1 — scheduled CI executor for ARIA's bound-agent
 # pipeline. Runs once per off-hours window OR on manual dispatch; pulls
 # the next pending agent request from the kernel's queue, invokes the
-# Claude Code CLI via a managed login session, submits the result.
+# Claude Code CLI through the kernel's provider gateway (ARIA-MEDIUM-563),
+# submits the result.
 #
 # Argv contract status (DEBT-2026-05-08-001 retired by V3 §B1): the
 # kernel-side argv shape is now PROVEN — see
@@ -65,9 +66,24 @@ on:
         type: string
       operator_approval_ref:
         description: >-
-          Audit reference recorded against the quarantine (issue, incident or
-          approval ID). Required whenever breaker_quarantine_reason is set; the
-          kernel refuses the operation without one.
+          The operator's GitHub act approving this repair (ARIA-HIGH-238):
+          gh:<owner>/<repo>#<n>/comment/<id> or gh:<owner>/<repo>#<n>/review/<id>,
+          posted by a login in docs/aria/policy/operators.json, unedited, whose
+          body carries the line `aria-kernel breaker quarantine
+          --print-approval-line` prints against the published aria/state
+          (surface=breaker_evidence_quarantine breaker=autonomous
+          tripped_at=<this trip>). Required whenever breaker_quarantine_reason
+          is set; a dispatch without one prints that line in the job log and
+          stops. The kernel verifies the act and spends it once.
+        required: false
+        type: string
+      rechain_of:
+        description: >-
+          ARIA-MEDIUM-398 bounded re-chain: non-empty marks this run as the
+          ONE direct drain hop for the window-skipped, drain-minted
+          implementation requests named here (comma-joined). A re-chain run
+          never re-chains again -- the rhythm decider's depth brake reads
+          this -- and after it the normal cycle edge applies.
         required: false
         type: string
 
@@ -92,7 +108,12 @@ permissions:
   # classifier asks whether a PR exists for an unresolved pr_create intent
   # (recovery.gh_remote_reader, `gh pr list --head`). It read with the
   # operator's PAT; it now reads with the job token, which needs this.
+  # ARIA-HIGH-238 — it also covers reading an operator's PR-review approval.
   pull-requests: read
+  # ARIA-HIGH-238 — the breaker-quarantine dispatch is proven by an operator's
+  # GitHub comment, which the kernel reads back through the API (issue and PR
+  # comments are both issue comments). Read only.
+  issues: read
 
 jobs:
   # B8 (2026-09-12) — a run that cannot get its runner fails by name. The
@@ -137,10 +158,12 @@ jobs:
     # holder's longest arc, 2700 s, plus the leased publish's preamble
     # outside the lock — cold staging and the fence's lease reads and
     # renewal, 4500 s) and the unbounded setup/verification steps around
-    # them (900 s), every arc a sum over git steps at the store's git cap, as
-    # `ci_executor_drain.JOB_RESERVE_SECONDS` (12600 s) — is 33600 s = 560
-    # minutes; 570 keeps ten minutes of margin (510 -> 570 for the preamble:
-    # a narrower window could not hold the 20343 s implementation child). The pairing is pinned by
+    # them (the kernel's steps allowance, #1371's measured 47 minutes),
+    # every arc a sum over git steps at the store's git cap, as
+    # `ci_executor_drain.JOB_RESERVE_SECONDS` (14520 s) — is 35520 s = 592
+    # minutes; 602 keeps ten minutes of margin (510 -> 570 for the preamble;
+    # 570 -> 602 for the re-priced steps allowance, ARIA-LOW-585: a narrower
+    # window could not hold the 20343 s implementation child). The pairing is pinned by
     # `aria-kernel/tests/test_state_lock_liveness_bound.py`, which reads
     # this file, and mirrored in `workflow_contract_registry` (150 → 200
     # with the child pricing of 2026-09-12; 200 → 280 once the lifecycle
@@ -154,15 +177,24 @@ jobs:
     # that cannot hold an implementation child never delivers one, and a
     # child admitted without that term ran three hours past the window into
     # the reserve; 500 → 510 with round 6's start window, below; 510 → 570
-    # for the leased publish's preamble, ARIA-HIGH-342). Legal on
-    # a self-hosted runner, where the platform's job ceiling is days, not
-    # the hosted six hours.
-    timeout-minutes: 570
+    # for the leased publish's preamble, ARIA-HIGH-342; 570 → 602 when the
+    # steps allowance moved to its one kernel owner and was re-priced from
+    # #1371's measured 47 minutes instead of 900 s, ARIA-LOW-585 — the cap
+    # moves WITH the reserve, so the drain window itself is unchanged).
+    # Legal on a self-hosted runner, where the platform's job ceiling is
+    # days, not the hosted six hours.
+    timeout-minutes: 602
     outputs:
       # ARIA-HIGH-244 — the chain decision leaves this job as data; the
       # dispatch itself runs in `chain-next-cycle`, the one job whose token
       # may write actions.
       chain_dispatch: ${{ steps.chain.outputs.dispatch }}
+      # ARIA-MEDIUM-398 — the bounded drain→drain edge leaves the same way:
+      # the drain's own verdict (cycle_rhythm.evaluate_drain_rechain, fed by
+      # the drain's summary) keys `chain-next-drain`, which supersedes
+      # `chain-next-cycle` for this run when it fires.
+      rechain_dispatch: ${{ steps.executor.outputs.rechain_dispatch }}
+      rechain_request_ids: ${{ steps.executor.outputs.rechain_request_ids }}
     steps:
       # ARIA-HIGH-124 (round 3) — the absolute deadline every spawn and every
       # delivery in this job runs under is anchored HERE, at launch (the
@@ -353,8 +385,11 @@ jobs:
           # end: no other lane can publish in between. The expiry is this
           # job's own timeout-minutes plus the 80-minute leased-publish margin
           # (GSEC-MEDIUM-003); the wait covers the hosted writers' whole
-          # bounds (at most 25 min) before the run yields by name.
-          writer-lease-ttl-minutes: '650'
+          # bounds (at most 25 min) before the run yields by name. The TTL
+          # moves with the cap (650 → 682 when 570 → 602, ARIA-LOW-585): a
+          # publish at the very end of a longer job must still find a whole
+          # leased publish left on the lease.
+          writer-lease-ttl-minutes: '682'
           writer-lease-wait-seconds: '1800'
       - name: Pre-flight — cross-host autonomous-loop lease check
         id: lease_check
@@ -436,7 +471,7 @@ jobs:
       #
       # WHY BEFORE THE CLAUDE PREFLIGHT. A recovery must not depend on the agent
       # path being healthy. The steps below refuse the job when the Claude CLI
-      # or its managed session is absent, and a runner in that state is exactly
+      # is absent or API-key mode is set, and a runner in that state is exactly
       # where an operator still needs to repair a breaker.
       #
       # WHY IT STILL CARRIES THE LEASE GUARD. The repair mutates the same tree a
@@ -449,19 +484,27 @@ jobs:
           # environment, never through `${{ }}` splicing into the script source.
           QUARANTINE_REASON: ${{ inputs.breaker_quarantine_reason }}
           QUARANTINE_APPROVAL_REF: ${{ inputs.operator_approval_ref }}
+          # ARIA-HIGH-238 — the kernel reads the operator's act back from GitHub
+          # with the job token (`issues: read` / `pull-requests: read` above).
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # The line the operator posts, for the trip in the RESTORED store:
+          # printed first, so a dispatch without a ref (or with a stale one)
+          # shows exactly what to post. Printing spends nothing.
+          echo "Approval line for this repair (post it as an operator comment):"
+          PYTHONPATH=aria-kernel python3 -m aria_kernel breaker quarantine \
+            --tools-dir "$ARIA_TOOLS_DIR" --print-approval-line
           if [ -z "${QUARANTINE_APPROVAL_REF:-}" ]; then
             echo "::error::operator_approval_ref is required with breaker_quarantine_reason" >&2
             exit 1
           fi
-          # Validate BEFORE any use, per the §B-3 pattern. The kernel validates
-          # again; this refuses early with a message naming the input rather
-          # than surfacing an argparse error from three layers down.
-          if ! [[ "$QUARANTINE_APPROVAL_REF" =~ ^[A-Za-z0-9/_.:#-]{1,128}$ ]]; then
-            echo "::error::operator_approval_ref has an unexpected format" >&2
-            exit 1
-          fi
+          # Validate BEFORE any use, per the §B-3 pattern — with the kernel's
+          # own grammar (ARIA-HIGH-238): a second, hand-written regex here
+          # accepted any free string the kernel had already retired. One ref:
+          # the input names one act, so a comma-separated list is refused here.
+          PYTHONPATH=aria-kernel python3 -m aria_kernel operator check-ref \
+            --ref "$QUARANTINE_APPROVAL_REF"
           if ! [[ "$QUARANTINE_REASON" =~ ^[A-Za-z0-9\ _.,:;()/#-]{8,256}$ ]]; then
             echo "::error::breaker_quarantine_reason must be 8-256 plain characters" >&2
             exit 1
@@ -479,8 +522,9 @@ jobs:
             --operator-approval-ref "$QUARANTINE_APPROVAL_REF"
 
       # Plan ARIA-V3 §B1 INFRA-CRITICAL-002 — refuse to start when
-      # the workflow is in live mode but managed Claude Code auth is
-      # absent. The kill switch (vars.ARIA_MOCK_KILL_SWITCH) is read
+      # the workflow is in live mode in API-key mode or without the Claude
+      # CLI, and report the kernel's Claude credential boundary
+      # (ARIA-MEDIUM-563). The kill switch (vars.ARIA_MOCK_KILL_SWITCH) is read
       # AHEAD of the workflow default — operator opt-out path (Plan
       # ARIA-V3 §B1 INFRA-MEDIUM-011). The mock_source value flows
       # into the ci_executor via CLAUDE_CLI_MOCK_SOURCE so the
@@ -488,8 +532,8 @@ jobs:
       # records exactly which layer decided the mock state.
       - name: Pre-flight - Claude Code auth + mock-mode kill-switch resolution
         id: preflight
-        # RC-6 — see the CLI floor above: a recovery run needs no managed
-        # Claude session, and this step hard-fails the job without one.
+        # RC-6 — see the CLI floor above: a recovery run needs no Claude
+        # CLI, and this step hard-fails the job without one.
         if: steps.lease_check.outputs.blocked != 'true' && inputs.breaker_quarantine_reason == ''
         env:
           KILL_SWITCH: ${{ vars.ARIA_MOCK_KILL_SWITCH }}
@@ -520,21 +564,25 @@ jobs:
           echo "mock_source=${MOCK_SOURCE}" >> "$GITHUB_OUTPUT"
           if [ "${EFFECTIVE_MOCK}" = "false" ]; then
             if env | grep -E '^(ANTHROPIC_API_KEY|CLAUDE_API_KEY|ANTHROPIC_AUTH_TOKEN)=' >/dev/null; then
-              echo "::error::API-key Claude mode is disallowed for ARIA; use a managed Claude Code login on the trusted runner." >&2
+              echo "::error::API-key Claude mode is disallowed for ARIA; use the kernel's Claude token ('claude setup-token' into the 0600 file ARIA_CLAUDE_OAUTH_TOKEN_FILE names) on the trusted runner." >&2
               exit 1
             fi
             claude --version >/tmp/aria-claude-auth.txt 2>/tmp/aria-claude-auth.err \
               || { echo "::error::Claude Code CLI preflight failed" >&2; cat /tmp/aria-claude-auth.err >&2; exit 1; }
-            # ARIA-HIGH-441 — a missing managed login is reported, not a job
+            # ARIA-MEDIUM-563 — Claude's credential is the kernel's own token
+            # (`claude setup-token`, a 0600 file named by
+            # ARIA_CLAUDE_OAUTH_TOKEN_FILE) that the provider gateway injects;
+            # no spawn holds a login. The check is the kernel's one credential
+            # reader, so it cannot disagree with the gateway or the admission.
+            # ARIA-HIGH-441 — a refused boundary is reported, not a job
             # refusal: whether a request needs Claude is its route's question.
-            # The native admission probes `claude auth status` and cools a
-            # logged-out anthropic (claude_logged_out, which opens its outage);
-            # the spawn lane's pre-claim gate and the worker child cool it the
-            # same way. Work routed to Z.ai runs; work only Claude can run waits
-            # by name. Exiting here held every request, Z.ai's included.
-            CLAUDE_AUTH_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-            if [ ! -f "${CLAUDE_AUTH_DIR}/.credentials.json" ] && [ ! -f "${CLAUDE_AUTH_DIR}/config.json" ]; then
-              echo "::warning::Claude Code managed-auth session not found on the trusted runner; requests routed to Claude are cooled and wait, requests routed to Z.ai run" >&2
+            # The native admission reads the same boundary and cools anthropic
+            # (claude_logged_out, which opens its outage); the spawn lane's
+            # pre-claim gate and the worker child cool it the same way. Work
+            # routed to Z.ai runs; work only Claude can run waits by name.
+            # Exiting here held every request, Z.ai's included.
+            if ! CLAUDE_CREDENTIAL="$(PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel python3 -m aria_kernel.provider_credentials check anthropic)"; then
+              echo "::warning::the kernel's Claude credential boundary refused (${CLAUDE_CREDENTIAL}); requests routed to Claude are cooled and wait, requests routed to Z.ai run" >&2
             fi
           fi
 
@@ -650,6 +698,10 @@ jobs:
           # ARIA-CRITICAL-246 — the lane's ambient gh identity is the job
           # token (a Bot); a delivery mints its own App token below.
           GH_TOKEN: ${{ github.token }}
+          # ARIA-MEDIUM-398 — empty on every ordinary run; non-empty only on
+          # the one bounded re-chain dispatch, where it is the depth brake's
+          # "this run IS the re-chain" fact.
+          ARIA_DRAIN_RECHAIN_OF: ${{ inputs.rechain_of }}
           CLAUDE_CLI_MOCK: ${{ steps.preflight.outputs.effective_mock }}
           CLAUDE_CLI_MOCK_SOURCE: ${{ steps.preflight.outputs.mock_source }}
           ARIA_CLAUDE_REQUIRE_USAGE: '1'
@@ -733,8 +785,8 @@ jobs:
           # name (`deadline_insufficient`) when what remains cannot hold its
           # worst case — nothing pushed, nothing opened. The pin in
           # `test_state_lock_liveness_bound.py` reads both numbers here.
-          JOB_TIMEOUT_MINUTES=570
-          POST_DRAIN_RESERVE_SECONDS=8100
+          JOB_TIMEOUT_MINUTES=602
+          POST_DRAIN_RESERVE_SECONDS=10020
           ANCHOR_EPOCH="${ARIA_JOB_LAUNCH_EPOCH:-$(date +%s)}"
           export ARIA_JOB_DEADLINE_EPOCH=$(( ANCHOR_EPOCH + JOB_TIMEOUT_MINUTES * 60 - POST_DRAIN_RESERVE_SECONDS ))
           echo "job deadline: $(date -u -d @${ARIA_JOB_DEADLINE_EPOCH} +%H:%M:%SZ) (job cap ${JOB_TIMEOUT_MINUTES}m - ${POST_DRAIN_RESERVE_SECONDS}s post-drain reserve, anchored at job launch)"
@@ -775,12 +827,14 @@ jobs:
           fi
 
       - name: Upload response envelope (artefact)
-        # `drained == '0'` is a drain night where the queue emptied between
-        # the pending probe and the loop (or every child failed before
-        # publishing a path): there is nothing to upload, and
-        # `if-no-files-found: error` would turn "no work" into a red.
-        # Targeted runs never set `drained`, so the guard is a no-op there.
-        if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != '' && steps.executor.outputs.drained != '0'
+        # ARIA-MEDIUM-574 — the executor publishes, when it exits, the result
+        # files the kernel KEPT (`_publish_kept_artifact_paths_at_exit`): a
+        # credential refusal withholds (deletes) both, a refusal after the
+        # claim may leave neither, and a drain night whose queue emptied
+        # publishes nothing. An empty list is nothing to upload, in a
+        # targeted run and a drain alike; `if-no-files-found: error` stays
+        # for a path that WAS published and resolves to nothing here.
+        if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != '' && (steps.executor.outputs.envelope_path != '' || steps.executor.outputs.transcript_path != '')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           # Limited scope — response envelope plus its transcript anchor. claims.jsonl +
@@ -1057,7 +1111,7 @@ jobs:
   # granted, a refusal is a fault somebody has to see.
   chain-next-cycle:
     needs: executor
-    if: always() && needs.executor.outputs.chain_dispatch == 'true'
+    if: always() && needs.executor.outputs.chain_dispatch == 'true' && needs.executor.outputs.rechain_dispatch != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -1071,3 +1125,34 @@ jobs:
           set -euo pipefail
           gh workflow run aria-auto-cycle.yml --ref main --repo "${REPOSITORY}"
           echo "::notice::chained the next cycle"
+
+  # ARIA-MEDIUM-398 — the drain's own bounded return edge, in the exact
+  # ARIA-HIGH-244 shape: the executor decides (cycle_rhythm's
+  # evaluate_drain_rechain, fed by the drain's window_skipped_self_minted
+  # summary and the one-per-request executor_drain_rechain ledger rows) and
+  # hands the verdict over as job outputs; this job holds `actions: write`
+  # and nothing else, on a hosted runner, so no write scope reaches the
+  # self-hosted drain for the sake of one API call. A re-chain run takes
+  # work the drain itself minted and then window-skipped straight to the
+  # next executor run instead of waiting a full cycle for it — and it
+  # supersedes `chain-next-cycle` for that run (the two `if:`s are mutually
+  # exclusive), so one run never queues two pending runs into the shared
+  # aria-selfhosted-workspace group. The re-chained drain takes the normal
+  # cycle edge; the depth brake in the decider keeps this at one hop.
+  chain-next-drain:
+    needs: executor
+    if: always() && needs.executor.outputs.rechain_dispatch == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch the bounded drain re-chain
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RECHAIN_OF: ${{ needs.executor.outputs.rechain_request_ids }}
+        run: |
+          set -euo pipefail
+          gh workflow run aria-agent-executor.yml --ref main --repo "${REPOSITORY}" -f "rechain_of=${RECHAIN_OF}"
+          echo "::notice::re-chained the drain for ${RECHAIN_OF}"

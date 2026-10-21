@@ -59,6 +59,7 @@ from aria_kernel.implementation_safety import (
 from aria_kernel.tool_registry import ensure_tools_dir
 from aria_kernel.turn_budget_policy import IMPLEMENTER_TURN_BUDGET_DEFAULTS
 from tests.test_turn_budget_policy import write_override
+from tests._helpers.pre_merge_evidence import fixture_pre_merge_evidence
 
 # The kernel default; the predicate judges against whatever the policy says.
 _CAP = IMPLEMENTER_TURN_BUDGET_DEFAULTS["budgeted_turns"]
@@ -101,9 +102,10 @@ def _fixture() -> dict[str, Any]:
         "body": dict(_BODY),
         "planned": {"plan_id": "PLAN-1", "change_id": "CHG-1", "intended_request_id": "AIR-1"},
         "committed": {"claim_id": "CL-1"},
-        "observed": {"proposal_id": "PROP-1"},
+        "pr_binding": {"proposal_id": "PROP-1"},
         # Production-shaped: the gh adapter's get_pr carries no proposal_id,
-        # so the observed proposal row is the binding the join has to hold.
+        # so the opener's binding row (ARIA-HIGH-521: `pr_change_binding`)
+        # is the proposal the join has to hold.
         "pr": {"head_ref": "aria/chg-1", "url": "https://github.com/o/r/pull/1"},
     }
 
@@ -130,7 +132,7 @@ def _join(fx: dict[str, Any]) -> tuple[dict[str, Any], tuple[str, ...]]:
                               lambda **_: binding):
         return merge_authority._join_pre_merge_implementation(
             tools=Path(tmp), workspace=Path(tmp), rows=fx["rows"], state=fx["state"], body=fx["body"],
-            planned=fx["planned"], committed=fx["committed"], observed=fx["observed"], pr=fx["pr"],
+            planned=fx["planned"], committed=fx["committed"], pr_binding=fx["pr_binding"], pr=fx["pr"],
             base_sha=_BASE, head_sha=_HEAD, diff_text="", merge_base_sha=_BASE, merge_head_sha=_HEAD,
         )
 
@@ -171,13 +173,13 @@ class PlanContentBindingTests(unittest.TestCase):
             "request.role": lambda fx: _request(fx).update(role="review"),
             "request.convergence_id": lambda fx: _request(fx).update(convergence_id="PLAN-2"),
             "implementation_ids.change_id": lambda fx: _ids(fx).update(change_id="CHG-2"),
-            # The PR row carries no proposal, so only the observed proposal
-            # row can refuse a request planned for another proposal.
+            # The PR row carries no proposal, so only the binding row's
+            # proposal can refuse a request planned for another proposal.
             "implementation_ids.proposal_id": lambda fx: _ids(fx).update(proposal_id="PROP-2"),
-            # Request and PR agree with each other, not with the observation.
-            "observed proposal only": _request_and_pr_name_another_proposal,
-            "observed proposal absent": lambda fx: fx.update(observed={}),
-            # Request and observation agree; the PR names another proposal.
+            # Request and PR agree with each other, not with the binding row.
+            "binding proposal only": _request_and_pr_name_another_proposal,
+            "binding proposal absent": lambda fx: fx.update(pr_binding={}),
+            # Request and binding row agree; the PR names another proposal.
             "pr.proposal_id": lambda fx: fx["pr"].update(proposal_id="PROP-2"),
             "implementation_ids.base_sha": lambda fx: _ids(fx).update(base_sha="e" * 40),
             "implementation_ids.branch": lambda fx: _ids(fx).update(branch="aria/other"),
@@ -194,8 +196,8 @@ class PlanContentBindingTests(unittest.TestCase):
 def _bound_evidence(**budget) -> _PreMergeEvidence:
     """Every native binding field the predicates require, plus the budget view."""
     sha = "b" * 40
-    return _PreMergeEvidence(
-        unavailable_reasons=(), repo_identity="repo", snapshot_hash="sha256:snap",
+    return fixture_pre_merge_evidence(
+        (), repo_identity="repo", snapshot_hash="sha256:snap",
         pr_row_hash="sha256:pr", planned_row_hash="sha256:planned", committed_row_hash="sha256:committed",
         request_id="AIR-1", claim_id="claim-1", request_row_hash="sha256:req", claim_row_hash="sha256:claim",
         result_row_hash="sha256:res", implementation_event_hash="sha256:evt",

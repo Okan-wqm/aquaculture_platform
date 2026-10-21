@@ -53,6 +53,7 @@ from tests._helpers.declared_fixtures import (
     append_declared_fixture,
     rewrite_declared_fixture,
 )
+from tests._helpers.state_lineage_pin import pin_bootstrapped_lineage, sync_fixture_lineage_pin
 from tests._helpers.writer_lease import leased_publish
 
 REPO_HASH = "repohash0001"
@@ -141,7 +142,13 @@ class PublishContentionTests(unittest.TestCase):
         return repo
 
     def _store(self, repo: Path, name: str):
-        return checkout_state_store(repo, store_dir=self.base / name)
+        # ARIA-LOW-578 — every clone reads the same lineage pin, as every lane
+        # reads main's; the bootstrapping clone pins the genesis it minted.
+        sync_fixture_lineage_pin(repo, self.remote)
+        store = checkout_state_store(repo, store_dir=self.base / name)
+        if store.bootstrapped:
+            pin_bootstrapped_lineage(store)
+        return store
 
     def _append(self, store, cycle_id: str) -> None:
         """Bind the store's tools root the way a real lane must, then write.

@@ -1,0 +1,48 @@
+{
+  "name": "semantic-command-safety",
+  "lane": "semantic_regression",
+  "input": {
+    "roots": [
+      "tools/aria-adapters/fixtures/workflow-shell-safety-adapter/workspaces/semantic-command-safety/.github",
+      "tools/aria-adapters/fixtures/workflow-shell-safety-adapter/workspaces/semantic-command-safety/scripts"
+    ],
+    "pathBase": "tools/aria-adapters/fixtures/workflow-shell-safety-adapter/workspaces/semantic-command-safety"
+  },
+  "expected": {
+    "status": "ok",
+    "required_findings": [
+      "unpinned_action",
+      "untrusted_workflow_interpolation",
+      "overbroad_write_token",
+      "pipe_to_shell",
+      "governance_bypass_command",
+      "missing_strict_shell_mode"
+    ],
+    "findings_count": 8,
+    "required_observation_values": [
+      {
+        "type": "workflow_shell_summary",
+        "details.workflows": 1,
+        "details.shell_scripts": 1,
+        "details.parse_failures": 0,
+        "details.findings.pipe_to_shell": 2,
+        "details.findings.governance_bypass_command": 2
+      }
+    ]
+  },
+  "curation": {
+    "curator": "claude/ARIA-HIGH-013 (workflow-shell-safety-adapter, session 2026-10-17)",
+    "gold_set": {
+      "true_positive_count": 8,
+      "known_false_positive_count": 5,
+      "false_positive_classes": [
+        "sha_pinned_action",
+        "untrusted_value_through_env",
+        "quoted_install_hint",
+        "commented_command",
+        "heredoc_body_written_to_a_file"
+      ]
+    },
+    "notes": "unsafe.yml: actions/checkout@v4 (unpinned), the pull-request title spliced into run:, write-all, curl|bash, and a forced push are true positives; the SHA-pinned setup-node, the title passed through env:, and the quoted install hint must not fire. unsafe.sh: bash <(curl ...), git commit --no-verify and the missing set -euo pipefail are true positives; the comment and the heredoc body written to NOTES.md must not fire. The governed-job contract check (uncontracted write scope) is exercised in workflow-shell-safety-adapter.test.ts, which builds a workflow at a path the registry governs."
+  }
+}

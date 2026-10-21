@@ -60,6 +60,8 @@ from aria_kernel.tool_registry import (
     register_tool,
     transition_tool,
 )
+from tests._helpers.active_evidence import stand_in_active_evidence
+from tests._helpers.measured_fitness import stand_in_measured_fitness
 
 _FAKE_RUNNER = Path(__file__).resolve().parent / "_helpers" / "fake_tool_runner.py"
 
@@ -303,6 +305,12 @@ class PanelPromotionVetoTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory(prefix="aria-jj2b-")
         self.tools = Path(self._tmp.name) / "aria-tools"
+        # The subject is the panel authority; the ACTIVE evidence gate
+        # (ARIA-HIGH-004) is stood in, as the readiness verdict is.
+        stand_in_active_evidence(self)
+        # The measured fitness (ARIA-HIGH-125) likewise: test_role_fitness
+        # proves the panel lane refuses without it.
+        stand_in_measured_fitness(self)
         register_tool(_adapter("jj2-product", ["apps/farm-service/src/**/*.ts"]), base_dir=self.tools)
         register_tool(_adapter("jj2-kernel", ["aria-kernel/aria_kernel/**/*.py"]), base_dir=self.tools)
 
@@ -561,6 +569,12 @@ class PanelRefIsResolvedNotAssertedTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory(prefix="aria-jj2ref-")
         self.tools = Path(self._tmp.name) / "aria-tools"
+        # The subject is the panel authority; the ACTIVE evidence gate
+        # (ARIA-HIGH-004) is stood in, as the readiness verdict is.
+        stand_in_active_evidence(self)
+        # The measured fitness (ARIA-HIGH-125) likewise: test_role_fitness
+        # proves the panel lane refuses without it.
+        stand_in_measured_fitness(self)
         register_tool(_adapter("jj2-product", ["apps/farm-service/src/**/*.ts"]), base_dir=self.tools)
         register_tool(_adapter("jj2-other", ["apps/hr-service/src/**/*.ts"]), base_dir=self.tools)
 
@@ -814,6 +828,9 @@ class PromotionPanelProducerTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory(prefix="aria-jj2c-")
         self.tools = Path(self._tmp.name) / "aria-tools"
+        # The subject is the panel's question and decision; the measured
+        # fitness (ARIA-HIGH-125) is stood in, as the readiness verdict is.
+        stand_in_measured_fitness(self)
         register_tool(_adapter("jj2-product", ["apps/farm-service/src/**/*.ts"]), base_dir=self.tools)
         register_tool(_adapter("jj2-kernel", ["aria-kernel/aria_kernel/**/*.py"]), base_dir=self.tools)
 
@@ -965,6 +982,9 @@ class PanelDecisionIsRecordedNotInferredTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory(prefix="aria-jj2dec-")
         self.tools = Path(self._tmp.name) / "aria-tools"
+        # The subject is the panel's question and decision; the measured
+        # fitness (ARIA-HIGH-125) is stood in, as the readiness verdict is.
+        stand_in_measured_fitness(self)
         register_tool(_adapter("jj2-product", ["apps/farm-service/src/**/*.ts"]), base_dir=self.tools)
 
     def tearDown(self) -> None:

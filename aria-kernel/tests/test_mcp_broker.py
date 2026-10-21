@@ -36,12 +36,13 @@ from aria_kernel import mcp_broker
 from aria_kernel.mcp_broker import (
     MCP_BROKER_SOCKET_ENV,
     SANDBOX_MCP_BROKER_SOCKET,
-    prune_stale_mcp_brokers,
     serve_mcp_broker,
 )
 from aria_kernel.mcp_server import READ_TOOLS, WRITE_TOOLS
+from aria_kernel.socket_holders import MCP_BROKER, prune_stale_socket_dirs
 from aria_kernel.tool_registry import append_tools_governance, ensure_tools_dir
 from tests._helpers.git_fixtures import make_repo_with_initial_commit
+from tests._helpers.operator_acts import github_operator_acts
 
 _KERNEL_DIR = Path(__file__).resolve().parents[1]
 RELAY = _KERNEL_DIR / "aria_kernel" / "mcp_relay.py"
@@ -194,11 +195,11 @@ class RelayThroughTheBrokerTests(unittest.TestCase):
         unrelated.mkdir()
         with mock.patch.object(tempfile, "tempdir", str(temp_root)):
             with serve_mcp_broker(base_dir=self.tools, workspace_root=self.repo, request_id="AIR-124") as broker:
-                swept = prune_stale_mcp_brokers(temp_root=temp_root)
+                swept = prune_stale_socket_dirs(MCP_BROKER, temp_root=temp_root)
                 self.assertEqual(swept["swept"], ["aria-mb-deadbeef"])
                 self.assertEqual(swept["live"], [broker.socket_path.parent.name])
         self.assertTrue(unrelated.exists(), "a directory this module did not make is left alone")
-        self.assertEqual(prune_stale_mcp_brokers(temp_root=temp_root)["swept"], [])
+        self.assertEqual(prune_stale_socket_dirs(MCP_BROKER, temp_root=temp_root)["swept"], [])
         # The broker's own socket directory is gone once the body has exited,
         # not merely scheduled for removal.
         self.assertFalse(broker.socket_path.parent.exists())
@@ -230,6 +231,102 @@ def mcp_broker_error_code() -> int:
     return BROKER_UNREACHABLE_ERROR_CODE
 
 
+class QuarantineIsTheKernelsOwnWitnessTests(unittest.TestCase):
+    """ARIA-MEDIUM-609 — quarantine is taken from the kernel's side=server
+    outcomes only, and only from faults that are the server's own.
+
+    The forged half (ten agent-attested PostToolUse failures through the HOOK
+    broker) is pinned in ``tests/test_hook_broker.py``. This class drives the
+    REAL MCP broker and relay, the way the CLI's tool calls reach the server:
+
+    * ten UnknownTool calls — a call the AGENT malformed — are caller errors:
+    recorded, and never enough to quarantine the server the kernel serves;
+    * ten calls that fault INSIDE the handler (a corrupted mission-events
+    ledger the strict reader refuses) are the server's own faults: the tenth
+    quarantines it, and only an operator release lifts that.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory(prefix="aria-609-mcp-")
+        self.addCleanup(_cleanup_waiting_for_late_writers, self.tmp)
+        self.root = Path(self.tmp.name).resolve()
+        self.repo = make_repo_with_initial_commit(self.root, {"src/app.ts": "export const app = true;\n"}, name="ws")
+        self.tools = ensure_tools_dir(self.root / "aria-tools")
+
+    def _calls(self, broker: object, name: str, count: int) -> subprocess.CompletedProcess[str]:
+        return _relay(str(broker.socket_path), _messages(*[
+            {"jsonrpc": "2.0", "id": 10 + index, "method": "tools/call",
+             "params": {"name": name, "arguments": {}}}
+            for index in range(count)
+        ]))
+
+    def _server_rows(self) -> list[dict]:
+        return [json.loads(line) for line in (self.tools / "mcp" / "tool-calls.jsonl").read_text(encoding="utf-8").splitlines()]
+
+    def test_ten_unknown_tool_calls_do_not_quarantine_the_server(self) -> None:
+        from aria_kernel.mcp_client import quarantined_servers
+
+        with serve_mcp_broker(base_dir=self.tools, workspace_root=self.repo, request_id="AIR-609a") as broker:
+            done = self._calls(broker, "no_such_tool", 10)
+            quarantined = quarantined_servers(self.tools)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        rows = self._server_rows()
+        self.assertEqual(len(rows), 10)
+        self.assertEqual({(row["side"], row["ok"], row["error_class"]) for row in rows},
+                         {("server", False, "UnknownTool")})
+        self.assertEqual(quarantined, frozenset(), "calls the agent malformed must not quarantine the server")
+
+    def test_the_registry_refuses_a_server_no_kernel_side_witness_can_vouch_for(self) -> None:
+        from aria_kernel.mcp_client import load_mcp_registry
+        from aria_kernel.tool_registry import GovernanceError
+
+        def registry(name: str, server: dict) -> Path:
+            path = self.root / f"registry-{name}.json"
+            path.write_text(json.dumps({"servers": {"aria": server}}), encoding="utf-8")
+            return path
+
+        with self.assertRaises(GovernanceError) as refused:
+            load_mcp_registry(registry("stdio", {"transport": "stdio", "command": "npx", "args": ["x"]}))
+        self.assertIn("mcp_server_no_kernel_side_witness:aria", str(refused.exception))
+        with self.assertRaises(GovernanceError) as refused:
+            load_mcp_registry(registry("http", {"transport": "http", "url": "https://x.test"}))
+        self.assertIn("mcp_server_no_kernel_side_witness:aria", str(refused.exception))
+        witnessed = load_mcp_registry(registry("witnessed", {"transport": "stdio", "command": "npx", "args": ["x"],
+                                                             "kernel_side_witness": True}))
+        self.assertEqual(witnessed.servers["aria"].transport, "stdio")
+        with self.assertRaises(GovernanceError) as refused:
+            load_mcp_registry(registry("spelled", {"transport": "kernel_socket", "kernel_side_witness": True}))
+        self.assertIn("mcp_server_kernel_socket_witness_implied:aria", str(refused.exception))
+
+    def test_ten_real_server_faults_quarantine_the_server(self) -> None:
+        from aria_kernel.mcp_client import quarantined_servers, release_quarantine, unquarantine_scope
+
+        # A corrupted mission-events ledger: `missions_list` reads it through
+        # the strict declared loader, so the handler itself faults on every
+        # call — the server's own failure, not the caller's.
+        events = self.tools / "missions" / "mission-events.jsonl"
+        events.parent.mkdir(parents=True, exist_ok=True)
+        events.write_text("this line is not json\n", encoding="utf-8")
+        with serve_mcp_broker(base_dir=self.tools, workspace_root=self.repo, request_id="AIR-609b") as broker:
+            done = self._calls(broker, "missions_list", 10)
+            quarantined = quarantined_servers(self.tools)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        rows = self._server_rows()
+        self.assertEqual(len(rows), 10)
+        self.assertEqual({row["side"] for row in rows}, {"server"})
+        self.assertTrue(all(row["ok"] is False for row in rows), rows)
+        self.assertNotIn("UnknownTool", {row["error_class"] for row in rows})
+        self.assertEqual(quarantined, frozenset({"aria"}),
+                         "the kernel's own witnessed faults still quarantine")
+        # ARIA-HIGH-238 — a release is proven by the operator's GitHub act for
+        # THIS quarantine, never by a string the caller writes.
+        with github_operator_acts() as github:
+            ref = github.approve("mcp_unquarantine", unquarantine_scope("aria", base_dir=self.tools))
+            released = release_quarantine("aria", base_dir=self.tools, operator_ref=ref)
+        self.assertEqual(released["event"], "released")
+        self.assertEqual(quarantined_servers(self.tools), frozenset())
+
+
 class SandboxAndDocumentTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory(prefix="aria-124-mcp-wrap-")
@@ -242,14 +339,14 @@ class SandboxAndDocumentTests(unittest.TestCase):
         from aria_kernel.implementation_safety import SandboxUnavailable, _sandbox_argv
 
         with serve_mcp_broker(base_dir=self.tools, workspace_root=self.repo, request_id="AIR-124") as broker:
-            argv = _sandbox_argv(["sh", "-c", "true"], workspace_root=self.repo, allow_network=True,
+            argv = _sandbox_argv(["sh", "-c", "true"], workspace_root=self.repo, provider="anthropic",
                                  mcp_broker_socket=broker.socket_path)
             self.assertIn(["--bind", str(broker.socket_path), SANDBOX_MCP_BROKER_SOCKET],
                           [argv[i:i + 3] for i in range(len(argv) - 2)])
             self.assertIn(["--setenv", MCP_BROKER_SOCKET_ENV, SANDBOX_MCP_BROKER_SOCKET],
                           [argv[i:i + 3] for i in range(len(argv) - 2)])
         with self.assertRaises(SandboxUnavailable) as refused:
-            _sandbox_argv(["sh", "-c", "true"], workspace_root=self.repo, allow_network=True,
+            _sandbox_argv(["sh", "-c", "true"], workspace_root=self.repo, provider="anthropic",
                           mcp_broker_socket=self.root / "gone" / "sock")
         self.assertIn("mcp_broker_socket_missing", str(refused.exception))
 

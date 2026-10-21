@@ -412,6 +412,41 @@ class PreClaimGateTest(unittest.TestCase):
         self.assertIn("did not answer", gov.call_args.args[2]["detail"])
         self.assertEqual(stalled.stalled_attempts, 2)
 
+    def test_the_judge_batch_lane_is_asked_for_git_alone(self) -> None:
+        # ARIA-LOW-610 — the batch is one HTTP call: no room, no validation
+        # commands. On a host with no sandbox, no egress boundary, no Claude
+        # session and no node_modules it still claims when git answers, and
+        # is refused by name when git does not; the spawn lane on the same
+        # host is refused for the room.
+        with TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            _checkout_with_one_commit(workspace)
+            cwd = os.getcwd()
+            os.chdir(workspace)
+            try:
+                with patch.object(ci_executor, "_MOCK_MODE_AT_ENTRY", False), \
+                     patch.object(ci_executor, "preflight_claude_auth",
+                                  side_effect=ci_executor.ClaudeAuthUnavailable("no session")) as auth, \
+                     patch.object(ci_executor, "_sandbox_backend", return_value=None), \
+                     patch.object(ci_executor, "_egress_boundary_probe", return_value="no proxy"), \
+                     patch.object(ci_executor, "_append_tools_governance") as gov:
+                    batch = ci_executor._pre_claim_environment_gate(
+                        tools_dir=workspace, lane=ci_executor.PRE_CLAIM_LANE_JUDGE_BATCH)
+                    auth.assert_not_called()
+                    gov.assert_not_called()
+                    spawn = ci_executor._pre_claim_environment_gate(
+                        tools_dir=workspace, native_runtime=object())
+                    (workspace / ".git").rename(workspace / "not-a-git-dir")
+                    no_git = ci_executor._pre_claim_environment_gate(
+                        tools_dir=workspace, lane=ci_executor.PRE_CLAIM_LANE_JUDGE_BATCH)
+            finally:
+                os.chdir(cwd)
+
+        self.assertIsNone(batch)
+        self.assertEqual(spawn, "sandbox_unavailable")
+        self.assertEqual(no_git, "git_unavailable")
+        self.assertEqual(gov.call_args.args[1], "git_unavailable")
+
     def test_the_git_probe_is_the_kernels_own_session(self) -> None:
         # Not a private subprocess with its own bound: the same probe the
         # validator runs, so the two cannot disagree on what "answers" is.
@@ -429,6 +464,81 @@ class PreClaimGateTest(unittest.TestCase):
 
         self.assertIsNone(kind)
         pf.assert_not_called()
+
+    def _run_native_entry(self, workspace: Path, *, egress_gap: str | None = None,
+                          claude_refusal: Exception | None = None):
+        """``_main``'s self-claim branch with the adaptive admission having
+        admitted a native route; the claim itself is a recorder, so what is
+        observed is whether the host checks ran before it."""
+        from unittest.mock import MagicMock
+
+        plan = ci_executor._NativeRuntimePlan(None, {}, {}, {}, None, {})
+        claim = MagicMock(return_value=None)
+        preflight = (patch.object(ci_executor, "preflight_claude_auth", side_effect=claude_refusal)
+                     if claude_refusal is not None
+                     else patch.object(ci_executor, "preflight_claude_auth", return_value={"status": "ok"}))
+        cwd = os.getcwd()
+        os.chdir(workspace)
+        try:
+            with patch.object(ci_executor, "_is_mock_mode", return_value=False), \
+                 patch.object(ci_executor, "_record_mock_mode_audit"), \
+                 patch.object(ci_executor, "_adaptive_pre_claim_admission", return_value=plan), \
+                 patch.object(ci_executor, "_sandbox_backend", return_value="bwrap"), \
+                 patch.object(ci_executor, "_egress_boundary_probe", return_value=egress_gap), \
+                 patch.object(ci_executor, "_claim_request_via_cli", claim), \
+                 patch.object(ci_executor, "_append_tools_governance") as gov, \
+                 patch.dict(os.environ, {"ARIA_TOOLS_DIR": str(workspace / "aria-tools")}), \
+                 preflight as claude_preflight:
+                exit_code = ci_executor.main(["REQ-native-host", "aria-evidence-judge"])
+        finally:
+            os.chdir(cwd)
+        return exit_code, claim, gov, claude_preflight
+
+    def test_an_admitted_native_route_still_runs_the_host_checks_before_the_claim(self) -> None:
+        # ARIA-MEDIUM-564 — the adaptive native admission answers the
+        # provider's auth and (for the Claude arm) the sandbox, but not the
+        # room's egress boundary, git or node_modules. Those are the host's,
+        # whatever route was admitted: an admitted route on a host whose
+        # room has a road out is refused by name and never claimed.
+        with TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            _checkout_with_one_commit(workspace)
+            (workspace / "node_modules").mkdir()
+            exit_code, claim, gov, _ = self._run_native_entry(
+                workspace, egress_gap="the managed room's egress boundary does not hold: direct_connect_admitted")
+
+        self.assertEqual(exit_code, 1)
+        claim.assert_not_called()
+        self.assertEqual([call.args[1] for call in gov.call_args_list], ["egress_boundary_unavailable"])
+        self.assertEqual(gov.call_args.args[2]["source"], "ci_executor_pre_claim_gate")
+
+    def test_an_admitted_native_route_on_a_workspace_git_cannot_read_is_never_claimed(self) -> None:
+        with TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            (workspace / "node_modules").mkdir()
+            with patch.dict(os.environ, {"GIT_CEILING_DIRECTORIES": str(workspace.parent)}):
+                exit_code, claim, gov, _ = self._run_native_entry(workspace)
+
+        self.assertEqual(exit_code, 1)
+        claim.assert_not_called()
+        self.assertEqual([call.args[1] for call in gov.call_args_list], ["git_unavailable"])
+
+    def test_an_admitted_native_route_is_not_asked_the_spawn_lanes_claude_preflight(self) -> None:
+        # The native admission decided the provider's auth through its own
+        # status probe; the spawn lane's Claude preflight is not its question
+        # (a logged-out Claude must not refuse an admitted Z.ai route). The
+        # host checks pass here, so the claim is reached.
+        with TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            _checkout_with_one_commit(workspace)
+            (workspace / "node_modules").mkdir()
+            exit_code, claim, gov, claude_preflight = self._run_native_entry(
+                workspace, claude_refusal=ci_executor.ClaudeAuthUnavailable("no session"))
+
+        self.assertEqual(exit_code, 1)  # the recorder claim answers None
+        claim.assert_called_once()
+        claude_preflight.assert_not_called()
+        gov.assert_not_called()
 
     def test_the_gate_runs_before_the_claim_in_main(self) -> None:
         # Position pin: the whole defect was ordering (claim first, discover
@@ -553,10 +663,6 @@ class AnchorBlockedReasonTest(unittest.TestCase):
         self.assertEqual(anchor["blocked_reason"], [])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class MergeRunVerbTest(unittest.TestCase):
     """ARIA-HIGH-198 — `aria-kernel merge-lane run --pr N` runs the SAME runner and
     authority the cycle uses, for exactly that PR, on the invoking host."""
@@ -590,3 +696,7 @@ class MergeRunVerbTest(unittest.TestCase):
         # The operator's verb is the one path that may execute a merge; the
         # nightly cycle selects the same runner with executes_merges=False.
         self.assertIs(seen["executes_merges"], True)
+
+
+if __name__ == "__main__":
+    unittest.main()

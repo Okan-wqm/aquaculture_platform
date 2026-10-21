@@ -183,7 +183,7 @@ class B1APlanWaitingThroughAnOutageIsAdoptedNotAbandoned(_Store):
             self.assertEqual(resume_candidate_plan_id(base_dir=self.tools), "plan-o")
         from aria_kernel.human_required import list_human_required
 
-        reasons = [row["reason"] for row in list_human_required(base_dir=self.tools)]
+        reasons = [row["reason"] for row in list_human_required(base_dir=self.tools).rows]
         self.assertEqual(len(reasons), 1, reasons)
         self.assertTrue(reasons[0].startswith("provider_unavailable:anthropic:quota"))
 
@@ -374,7 +374,7 @@ class OperatorRequestExpiryIsPutBackNotSpentInSilence(_Store):
 
         self.outage(self.t0 + timedelta(days=4), None)
         signal = surface_outage_expired_request(self.tools, self._row(), now=self.t0 + timedelta(days=8))
-        items = {row["request_id"]: row for row in list_human_required(base_dir=self.tools)}
+        items = {row["request_id"]: row for row in list_human_required(base_dir=self.tools).rows}
         self.assertIn(signal, items)
         self.assertEqual(items[signal]["context"]["request"], "fix the timers")
         self.assertEqual(items[signal]["context"]["finding_id"], "ARIA-HIGH-365")

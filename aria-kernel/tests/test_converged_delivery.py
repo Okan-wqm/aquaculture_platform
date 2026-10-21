@@ -233,7 +233,7 @@ class ConvergedDeliveryTests(unittest.TestCase):
         self.assertEqual(evaluated[-1]["payload"]["reason_codes"], [DELIVERY_EXHAUSTED_REASON])
         # ARIA-MEDIUM-429 — the parking is ONE operator item, the plan's own,
         # carrying the exhaustion's facts; the sweep's reconcile adds none.
-        records = [row for row in list_human_required(base_dir=self.tools)
+        records = [row for row in list_human_required(base_dir=self.tools).rows
                    if (row.get("context") or {}).get("plan_id") == PLAN]
         self.assertEqual([row["request_id"] for row in records], [parked_plan_request_id(PLAN)])
         context = records[0]["context"]
@@ -339,7 +339,7 @@ class ReviewCorrectionTests(unittest.TestCase):
                 )
 
     def _records(self) -> list[str]:
-        return [row["request_id"] for row in list_human_required(base_dir=self.tools)]
+        return [row["request_id"] for row in list_human_required(base_dir=self.tools).rows]
 
     # M5 ----------------------------------------------------------------
     def test_a_runner_that_cannot_deliver_is_never_counted_whatever_the_profile_string(self) -> None:
@@ -426,7 +426,7 @@ class ReviewCorrectionTests(unittest.TestCase):
         repaired = self._sweep(_DispatchingRunner(), cycle_id="cyc-10")
         self.assertEqual(repaired["parked"]["recorded"], [parked_plan_request_id(PLAN)])
         self.assertEqual(self._records(), [parked_plan_request_id(PLAN)])
-        item = next(row for row in list_human_required(base_dir=self.tools))
+        item = next(row for row in list_human_required(base_dir=self.tools).rows)
         self.assertEqual([row["attempt"] for row in item["context"]["delivery_attempts"]], [1, 2, 3])
 
     # M4 ----------------------------------------------------------------
@@ -441,7 +441,7 @@ class ReviewCorrectionTests(unittest.TestCase):
         self.assertNotIn(authority_absent_request_id(PLAN), self._records())
         last = self._sweep(noop, cycle_id=f"cyc-{AUTHORITY_ABSENT_CYCLES}", profile="standard")
         self.assertEqual(last["surfaced"], [PLAN])
-        record = next(row for row in list_human_required(base_dir=self.tools)
+        record = next(row for row in list_human_required(base_dir=self.tools).rows
                       if row["request_id"] == authority_absent_request_id(PLAN))
         self.assertEqual(record["context"]["reason_code"], AUTHORITY_ABSENT_REASON)
         self.assertEqual(len(record["context"]["uncounted_cycles"]), AUTHORITY_ABSENT_CYCLES)
@@ -482,7 +482,7 @@ class ReviewCorrectionTests(unittest.TestCase):
             outcome = self._deliver(_DispatchingRunner(), cycle_id=f"cyc-{night}", profile="strict")
             self.assertEqual(outcome["delivery"]["withheld"], WITHHELD_WORKSPACE_DIRTY)
         self.assertTrue(outcome["delivery"]["uncounted"]["surfaced"])
-        record = next(row for row in list_human_required(base_dir=self.tools)
+        record = next(row for row in list_human_required(base_dir=self.tools).rows
                       if row["request_id"] == authority_absent_request_id(PLAN))
         self.assertEqual(record["context"]["reason_code"], DELIVERY_WITHHELD_REASON)
         self.assertEqual(record["context"]["withheld_reasons"], [WITHHELD_WORKSPACE_DIRTY])
@@ -613,10 +613,6 @@ class OrchestratorWiringTests(unittest.TestCase):
                          "IMPLEMENTATION_REQUESTED")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class OperatorWithdrawConvergedTests(unittest.TestCase):
     """ARIA-HIGH-362 (review M3) — the guarded default refuses a CONVERGED
     plan; the operator CLI names the state it withdraws from, and only then
@@ -644,3 +640,7 @@ class OperatorWithdrawConvergedTests(unittest.TestCase):
         with self.assertRaises(GovernanceError):
             self._cli("--from-state", "IMPLEMENTATION_REQUESTED")
         self.assertEqual(self._state()["state"], "CONVERGED")
+
+
+if __name__ == "__main__":
+    unittest.main()

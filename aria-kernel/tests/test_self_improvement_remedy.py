@@ -19,11 +19,12 @@ take a slot from a self-change row beside it.
 from __future__ import annotations
 
 import dataclasses
-
+import io
 import json
 import subprocess
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
@@ -88,10 +89,14 @@ class RemedyVocabulary(unittest.TestCase):
         self.assertEqual(tuple(si.SIGNAL_REMEDIES), si.SIGNAL_KINDS)
         self.assertEqual(set(si.SIGNAL_REMEDIES.values()), {si.SELF_CHANGE_REMEDY, si.ANNOUNCE_REMEDY})
         # ARIA-MEDIUM-417 — `config_missing` joins the vocabulary as an
-        # ANNOUNCED kind, so the self-change list is unchanged.
+        # ANNOUNCED kind, so the self-change list is unchanged. ARIA-HIGH-122
+        # — a named refusal / escalation class is born `adaptation_due`
+        # (self-change) or `operator_condition` (announced) by
+        # `ADAPTATION_SIGNAL_KINDS`.
         self.assertEqual(si.SIGNAL_KINDS, ("capability_gap", "funnel_stall", "delivery_slo_gap", "mcp_quarantine", "doctor_fail",
-                                           "deadline_due", "config_missing"))
-        self.assertEqual(si.SELF_CHANGE_SIGNAL_KINDS, ("capability_gap", "funnel_stall", "delivery_slo_gap", "mcp_quarantine", "doctor_fail"))
+                                           "deadline_due", "config_missing", "host_fault", "adaptation_due", "operator_condition"))
+        self.assertEqual(si.SELF_CHANGE_SIGNAL_KINDS, ("capability_gap", "funnel_stall", "delivery_slo_gap", "mcp_quarantine", "doctor_fail",
+                                                       "adaptation_due"))
         self.assertEqual(si.SIGNAL_REMEDIES["deadline_due"], si.ANNOUNCE_REMEDY)
         self.assertEqual(si.SIGNAL_REMEDIES["config_missing"], si.ANNOUNCE_REMEDY)
         self.assertEqual(si.Signal("deadline_due", "registry_finding:X-LOW-001", "t").remedy, si.ANNOUNCE_REMEDY)
@@ -113,9 +118,9 @@ class OpenerRouting(_Store):
     def test_lapsed_registry_rows_do_not_starve_a_quarantined_server(self) -> None:
         self.lapsed_registry(5)
         with mock.patch.object(mcp_client, "quarantined_servers", return_value=frozenset({"context7"})), self.doctor_scoped_to("deadlines"):
-            signals = si.scan_signals(base_dir=self.tools, workspace_root=self.ws)
+            signals = si.scan_signals(base_dir=self.tools, workspace_root=self.ws).signals
             self.assertEqual(sum(1 for s in signals if s.kind == "deadline_due"), 5, "the rows are still announced by the scan")
-            opened = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=3)
+            opened = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=3).opened
         self.assertEqual([(o["signal"], o["key"], o["idempotent"]) for o in opened], [("mcp_quarantine", "context7", False)])
         self.assertEqual([m["source_id"] for m in self.self_improvement_missions()], ["mcp_quarantine:context7"])
 
@@ -123,7 +128,7 @@ class OpenerRouting(_Store):
         self.lapsed_registry(2)
         record_human_required(request_id="AIR-late", severity="HIGH", reason="late", base_dir=self.tools, now=self.now - timedelta(days=5))
         with self.doctor_scoped_to("deadlines"):
-            signals = si.scan_signals(base_dir=self.tools, workspace_root=self.ws)
+            signals = si.scan_signals(base_dir=self.tools, workspace_root=self.ws).signals
             keys = {s.key for s in signals if s.kind == "deadline_due"}
             # The rows, plus the `deadlines` organ's own FAIL, announced under the same kind.
             self.assertEqual(keys, {"registry_finding:X-MEDIUM-000", "registry_finding:X-MEDIUM-001", "human_required_sla:AIR-late", "deadlines"})
@@ -145,7 +150,7 @@ class OpenerRouting(_Store):
             {"capability_gap_key": "repo:evidence_gap:jsonl", "blocked_by": []},
         ]
         with mock.patch("aria_kernel.capability_gap.latest_capability_gaps", return_value=gaps), self.doctor_scoped_to():
-            signals = si.scan_signals(base_dir=self.tools, workspace_root=self.ws)
+            signals = si.scan_signals(base_dir=self.tools, workspace_root=self.ws).signals
         self.assertEqual([s.key for s in signals if s.kind == "capability_gap"], ["repo:evidence_gap:jsonl"])
 
 
@@ -176,9 +181,9 @@ class RepairLoop(_Store):
         record_failed_night(self.tools, "cyc-1", failed_phases=[self.PR_REFUSED])
         record_failed_night(self.tools, "cyc-2", failed_phases=[{**self.PR_REFUSED, "error": "3 of 4 PR previews refused: x"}])
         with self.doctor_scoped_to("orchestrator"):
-            first = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=3)
+            first = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=3).opened
             record_failed_night(self.tools, "cyc-3", failed_phases=[], runtime_status="integrity_failed")
-            second = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=3)
+            second = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=3).opened
 
         self.assertEqual([(o["key"], o["idempotent"]) for o in first], [("orchestrator:pr_lifecycle:phase_failed", False)])
         self.assertEqual(
@@ -203,7 +208,7 @@ class RepairLoop(_Store):
         record_failed_night(self.tools, "cyc-1", failed_phases=[], runtime_status="failed", error=hostile)
         record_failed_night(self.tools, "cyc-2", failed_phases=[], runtime_status="failed", error=hostile)
         with self.doctor_scoped_to("orchestrator"):
-            [opened] = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=3)
+            [opened] = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=3).opened
 
         [mission] = [m for m in self.self_improvement_missions() if m["mission_id"] == opened["mission_id"]]
         self.assertEqual(mission["title"], "Doctor organ orchestrator failing: cycle:failed")
@@ -218,11 +223,11 @@ class RepairLoop(_Store):
         record_failed_night(self.tools, "cyc-1", failed_phases=[self.PR_REFUSED])
         record_failed_night(self.tools, "cyc-2", failed_phases=[self.PR_REFUSED])
         with self.doctor_scoped_to("orchestrator"):
-            [minted] = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=1)
+            [minted] = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=1).opened
             transition_mission(mission_id=minted["mission_id"], to_state="SUPERSEDED", reason_code="test", step_id="s", base_dir=self.tools)
             before = self.opened_events()
             with mock.patch.object(mcp_client, "quarantined_servers", return_value=frozenset({"context7"})):
-                again = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=1)
+                again = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=1).opened
 
         # The id is a hash of the source (mission.mission_id_for), so the same
         # signature folds into the terminal mission: reported, not re-opened,
@@ -236,9 +241,9 @@ class RepairLoop(_Store):
 
     def test_max_new_counts_only_the_missions_this_call_opened(self) -> None:
         signals = [si.Signal("doctor_fail", organ, f"Doctor organ {organ} failing: x", priority=1) for organ in ("a", "b", "c")]
-        with mock.patch.object(si, "scan_signals", return_value=signals):
-            first = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=2)
-            second = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=2)
+        with mock.patch.object(si, "scan_signals", return_value=si.SignalScan(signals=tuple(signals), unreadable=())):
+            first = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=2).opened
+            second = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=2).opened
 
         self.assertEqual([(o["key"], o["idempotent"]) for o in first], [("a", False), ("b", False)])
         # Before: the two re-sightings spent both slots, and `c` — like every
@@ -249,13 +254,36 @@ class RepairLoop(_Store):
         notifications = DoctorCheck("notifications", "fail", "no_notification_channel_in_ci")
         queue = DoctorCheck("queue", "fail", "human_required_open:628")
         with self.reported(notifications, queue):
-            signals = {(s.kind, s.key): s for s in si.scan_signals(base_dir=self.tools, workspace_root=self.ws)}
-            opened = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=3)
+            signals = {(s.kind, s.key): s for s in si.scan_signals(base_dir=self.tools, workspace_root=self.ws).signals}
+            opened = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=3).opened
 
         announced = signals[("config_missing", "notifications")]
         self.assertEqual(announced.remedy, si.ANNOUNCE_REMEDY)
         self.assertEqual(announced.title, "Doctor organ notifications failing: no_notification_channel_in_ci")
         self.assertNotIn(("doctor_fail", "notifications"), signals)
+        self.assertEqual([(o["signal"], o["key"]) for o in opened], [("doctor_fail", "queue")])
+
+    def test_a_host_organs_fail_is_announced_and_never_minted(self) -> None:
+        """ARIA-LOW-550 — a missing `claude` binary, no provider credential, no
+        bwrap backend or a dead gateway daemon is answered on the HOST. Each
+        minted a `propose_self_change` mission whose only answer was an
+        operator's, spending a slot and an agent turn every new signature."""
+        host = (
+            DoctorCheck("providers", "fail", "no_provider_available"),
+            DoctorCheck("sandbox_backend", "fail", "no_sandbox_backend_write_capable_spawns_refused"),
+            DoctorCheck("claude_cli", "fail", "claude_binary_missing"),
+            DoctorCheck("gateway_heartbeat_fresh", "fail", "gateway_heartbeat_stale:9000s>3x60s"),
+        )
+        queue = DoctorCheck("queue", "fail", "human_required_open:628")
+        with self.reported(*host, queue):
+            signals = {(s.kind, s.key): s for s in si.scan_signals(base_dir=self.tools, workspace_root=self.ws).signals}
+            opened = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=5).opened
+
+        for check in host:
+            announced = signals[("host_fault", check.name)]
+            self.assertEqual(announced.remedy, si.ANNOUNCE_REMEDY, check.name)
+            self.assertEqual(announced.title, f"Doctor organ {check.name} failing: {check.reason}")
+            self.assertNotIn(("doctor_fail", check.name), signals)
         self.assertEqual([(o["signal"], o["key"]) for o in opened], [("doctor_fail", "queue")])
 
     def test_every_organ_routed_to_an_announcement_is_an_organ_the_doctor_runs(self) -> None:
@@ -286,6 +314,102 @@ class RepairLoop(_Store):
 
         self.assertEqual(breaker.title, "Doctor organ breakers failing: breaker_tripped:cost_breaker")
         self.assertEqual(tools.title, "Doctor organ tools failing: tools_degraded_human_required:a-adapter")
+
+
+class TheLaneReadsTheDoctorStepsReport(_Store):
+    """ARIA-LOW-559 — the nightly's self-improve step ran the whole doctor
+    again inside `scan_signals`, minutes after the doctor step had written
+    its report (doctor 229 s, self_improve 245 s on the 2026-10-10 store).
+    The doctor action's output now carries the report and the self-improve
+    action reads it."""
+
+    QUEUE = DoctorCheck("queue", "fail", "human_required_open:628")
+
+    def doctor_step_output(self, *checks: DoctorCheck, tools_dir: str | None = None,
+                           workspace_root: str | None = None) -> Path:
+        """What the lane's doctor step writes: `schedule run --action doctor`'s output."""
+        from aria_kernel import doctor as doctor_module
+        from aria_kernel.cli import main
+
+        report = DoctorReport(checks=checks, tools_dir=tools_dir or str(self.tools),
+                              workspace_root=workspace_root or str(self.ws))
+        out = Path(self._tmp.name) / "aria-doctor.json"
+        with mock.patch.object(doctor_module, "run_doctor", lambda **_kwargs: report), \
+                redirect_stdout(io.StringIO()) as stdout:
+            self.assertEqual(main(["--tools-dir", str(self.tools), "schedule", "run", "--action", "doctor",
+                                   "--workspace-root", str(self.ws)]), 0)
+        out.write_text(stdout.getvalue(), encoding="utf-8")
+        return out
+
+    def test_the_report_reads_back_whole(self) -> None:
+        from aria_kernel.doctor import DoctorCause
+
+        report = DoctorReport(checks=(
+            DoctorCheck("orchestrator", "fail", "orchestrator_exits_all_failed:2", {"window": 3},
+                        (DoctorCause("bridge:phase_failed", "bridge phase_failed: x"),)),
+            DoctorCheck("tools", "ok"),
+        ), tools_dir=str(self.tools), workspace_root=str(self.ws))
+
+        self.assertEqual(DoctorReport.from_dict(json.loads(json.dumps(report.to_dict()))), report)
+        with self.assertRaises(GovernanceError) as refused:
+            DoctorReport.from_dict({**report.to_dict(), "schema_version": 2})
+        self.assertEqual(str(refused.exception), "doctor_report_schema_unsupported:2")
+
+    def test_self_improve_mints_from_the_doctor_steps_report_and_runs_no_doctor(self) -> None:
+        from aria_kernel import doctor as doctor_module
+        from aria_kernel.cli import main
+
+        output = self.doctor_step_output(self.QUEUE, DoctorCheck("tools", "ok"))
+        with mock.patch.object(doctor_module, "run_doctor") as doctor_run, \
+                redirect_stdout(io.StringIO()) as stdout:
+            rc = main(["--tools-dir", str(self.tools), "schedule", "run", "--action", "self_improve",
+                       "--workspace-root", str(self.ws), "--doctor-report", str(output)])
+
+        self.assertEqual(rc, 0)
+        doctor_run.assert_not_called()
+        self.assertEqual(json.loads(stdout.getvalue())["detail"]["doctor"], "report_read")
+        self.assertEqual([m["source_id"] for m in self.self_improvement_missions()], ["doctor_fail:queue"])
+
+    def test_without_a_report_the_action_runs_the_doctor(self) -> None:
+        """The gateway daemon's own `self_improve` slot has no doctor step before it."""
+        from aria_kernel import doctor as doctor_module
+        from aria_kernel.gateway import scheduler
+
+        report = DoctorReport(checks=(self.QUEUE,), tools_dir=str(self.tools), workspace_root=str(self.ws))
+        with mock.patch.object(doctor_module, "run_doctor", return_value=report) as doctor_run:
+            result = scheduler.run_action("self_improve", base_dir=self.tools, workspace_root=self.ws)
+
+        doctor_run.assert_called_once()
+
+        self.assertEqual(result["detail"]["doctor"], "ran")
+        self.assertEqual([m["source_id"] for m in self.self_improvement_missions()], ["doctor_fail:queue"])
+
+    def test_a_report_of_another_store_or_workspace_is_refused(self) -> None:
+        from aria_kernel.gateway import scheduler
+
+        other = Path(self._tmp.name)
+        for foreign, refusal in ((dict(tools_dir=str(other / "other-tools")), "doctor_report_store_mismatch:"),
+                                 (dict(workspace_root=str(other / "other-repo")), "doctor_report_workspace_mismatch:")):
+            with self.subTest(refusal=refusal):
+                output = self.doctor_step_output(self.QUEUE, **foreign)
+                with self.assertRaises(GovernanceError) as refused:
+                    si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws,
+                                                      doctor_report=scheduler.load_doctor_report(output))
+                self.assertTrue(str(refused.exception).startswith(refusal), refused.exception)
+                self.assertEqual(self.self_improvement_missions(), [])
+
+    def test_only_a_doctor_actions_output_is_a_report_and_only_self_improve_takes_one(self) -> None:
+        from aria_kernel.gateway import scheduler
+
+        deliver = Path(self._tmp.name) / "aria-deliver.json"
+        deliver.write_text(json.dumps({"action": "deliver", "status": "ran", "detail": {}}), encoding="utf-8")
+        with self.assertRaises(GovernanceError) as refused:
+            scheduler.load_doctor_report(deliver)
+        self.assertEqual(str(refused.exception), "doctor_report_not_a_doctor_result:'deliver'")
+
+        report = scheduler.load_doctor_report(self.doctor_step_output(self.QUEUE))
+        with self.assertRaises(ValueError):
+            scheduler.run_action("deliver", base_dir=self.tools, workspace_root=self.ws, doctor_report=report)
 
 
 if __name__ == "__main__":

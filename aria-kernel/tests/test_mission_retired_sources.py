@@ -253,7 +253,7 @@ class TheSweepDeclinesWhatClosingWouldAbandon(_RetiredFixture):
         scheduler can advance it, which is not "unhealable"."""
         opened = open_mission(
             source_kind="shadow_run_summary", source_id="security-boundary-adapter",
-            repo_hash=REPO_HASH, title="t", base_dir=self.base, **CONTRACT,
+            repo_hash=REPO_HASH, title="t", evidence_refs=(), base_dir=self.base, **CONTRACT,
         )
 
         self._assert_declined(opened["mission_id"], DECLINE_CONTRACTED, "DISCOVERED")
@@ -318,6 +318,8 @@ class TheIngestPhaseRunsTheSweep(_RetiredFixture):
                 "pressure_id": "pressure:own-pr-ci:pr-1335", "score": 90,
                 "reason": "own PR 1335 is red",
                 "recommended_action": "read the failing check's log and fix forward",
+                # Admissible means citable (ARIA-HIGH-245).
+                "evidence": ["apps/farm-service/src/app.module.ts"],
                 "blocked_by": [],
             }],
         }))

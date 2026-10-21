@@ -752,15 +752,18 @@ class TheExecutorSubmitWallClockCoversTheBound(unittest.TestCase):
         self.assertLessEqual(drain_budget + ci_executor_drain.JOB_RESERVE_SECONDS, job_seconds)
         # 510 -> 570 (PR #1779 re-review R-3): the post-drain reserve now
         # prices the publish preamble outside the lock (cold staging and the
-        # fence's lease reads and renewal). Shrinking the window instead
-        # would drop it below the implementation child's 20343 s.
-        self.assertEqual(int(job["timeout-minutes"]), 570)
+        # fence's lease reads and renewal). 570 -> 602 (ARIA-LOW-585): the
+        # steps allowance moved to its one kernel owner, re-priced from
+        # #1371's measured 47 minutes, and the cap moved WITH the reserve.
+        # Shrinking the window instead would drop it below the
+        # implementation child's 20343 s.
+        self.assertEqual(int(job["timeout-minutes"]), 602)
         # Round 6: the start window before an implementation child is a
         # measured figure, not a remainder — 657 s clears the >40 s first
         # `next-pending` seen under load with the same margin the judge
         # child always had.
         self.assertGreaterEqual(drain_budget - 20343, 600)
-        self.assertEqual(ci_executor_drain.JOB_RESERVE_SECONDS, 12600)
+        self.assertEqual(ci_executor_drain.JOB_RESERVE_SECONDS, 14520)
         # ARIA-HIGH-342 — the writer-lease wait before the restore is part of
         # the reserve, and the YAML waits exactly what the reserve prices.
         restore = next(
@@ -789,7 +792,23 @@ class TheExecutorSubmitWallClockCoversTheBound(unittest.TestCase):
             + PUBLISH_PREAMBLE_SECONDS
             + ci_executor_drain.JOB_STEPS_ALLOWANCE_SECONDS,
         )
-        self.assertEqual(ci_executor_drain.JOB_RESERVE_AFTER_DRAIN_SECONDS, 8100)
+        # ARIA-LOW-585 — the steps allowance has ONE owner, the kernel:
+        # STATE_CLOSE_OUT_STEPS_ALLOWANCE_SECONDS beside the publish
+        # preamble, sized from the one measurement (#1371: integrity verify
+        # 40 + handoff 5 + mint 2 minutes on the 842 MB store = 2820 s),
+        # never the 900 s private literal this lane used to keep. Both
+        # lanes' close-out pricing reads it: this reserve here, the
+        # producer's ARIA_CLOSE_OUT_MARGIN_SECONDS in aria-auto-cycle.yml
+        # (test_auto_cycle_observation_steps).
+        from aria_kernel.state_writer_lease import STATE_CLOSE_OUT_STEPS_ALLOWANCE_SECONDS
+
+        self.assertEqual(ci_executor_drain.JOB_STEPS_ALLOWANCE_SECONDS, STATE_CLOSE_OUT_STEPS_ALLOWANCE_SECONDS)
+        self.assertEqual(ci_executor_drain.JOB_STEPS_ALLOWANCE_SECONDS, 2820)
+        self.assertEqual(ci_executor_drain.JOB_RESERVE_AFTER_DRAIN_SECONDS, 10020)
+        # The re-pricing moves the job cap WITH the reserve, so the drain
+        # window — what the job may spend on the drain itself — is exactly
+        # what it was (570*60 - 8100 == 602*60 - 10020 == 26100 s).
+        self.assertEqual(job_seconds - ci_executor_drain.JOB_RESERVE_AFTER_DRAIN_SECONDS, 26100)
         self.assertIn(f"JOB_TIMEOUT_MINUTES={int(job['timeout-minutes'])}\n", step["run"])
         self.assertIn(f"POST_DRAIN_RESERVE_SECONDS={ci_executor_drain.JOB_RESERVE_AFTER_DRAIN_SECONDS}\n", step["run"])
         self.assertIn("export ARIA_JOB_DEADLINE_EPOCH=$(( ANCHOR_EPOCH + JOB_TIMEOUT_MINUTES * 60 - POST_DRAIN_RESERVE_SECONDS ))", step["run"])

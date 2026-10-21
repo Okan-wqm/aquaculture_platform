@@ -203,6 +203,49 @@ class OriginAndContractTests(unittest.TestCase):
         self.assertIn('-m "Closes: docs/reviews/orphan-findings.md#ORPHAN-HIGH-104"`', orphan)
 
 
+class OrphanTrailerNamesTheRowsReviewFileTests(unittest.TestCase):
+    """ARIA-LOW-607 — the trailer names the finding's own review file.
+
+    The registry row's ``review_file`` is the single owner of the binding: the
+    closure derivation (``finding-traceability.ts``) honours a ``Closes:``
+    trailer only when the anchored file is that row's ``review_file``. A
+    trailer hard-built from the register can therefore never close a finding
+    filed in another review document, whatever the gate's ORPHAN lane admits.
+    The plan body carries the row's ``finding_review_file`` (stamped at mint,
+    beside ``finding_id``), and the contract names it.
+    """
+
+    OTHER = "docs/reviews/2026-07-26-aria-codex-audit-verification.md"
+
+    def test_the_trailer_names_the_review_file_the_body_carries(self) -> None:
+        contract = commit_contract_for_plan(
+            {"finding_id": "ORPHAN-HIGH-779", "finding_review_file": self.OTHER}, plan_id="plan-607",
+        )
+        self.assertEqual(contract["origin_kind"], ORIGIN_ORPHAN_FINDING)
+        self.assertEqual(contract["trailer"], f"Closes: {self.OTHER}#ORPHAN-HIGH-779")
+        self.assertIsNotNone(CLOSES_TRAILER_RE.match(contract["trailer"]))
+        validate_commit_contract(contract)
+
+    def test_a_body_without_the_binding_keeps_the_register_trailer(self) -> None:
+        # Every body minted before the binding was carried was minted by a
+        # scanner that selected ONLY register-filed rows, so the register IS
+        # that finding's review file; the fallback is the pre-607 truth, not
+        # a guess. The gate binds a registry-held id to its own review file,
+        # so a trailer that contradicts the row is refused there.
+        contract = commit_contract_for_plan({"finding_id": "ORPHAN-HIGH-104"}, plan_id="plan-1")
+        self.assertEqual(contract["trailer"], "Closes: docs/reviews/orphan-findings.md#ORPHAN-HIGH-104")
+
+    def test_a_binding_that_cannot_form_a_trailer_is_refused_at_the_origin(self) -> None:
+        # CLOSES_TRAILER_RE takes a ``\\S+?#`` path: a review file with
+        # whitespace, or an empty one, can never form a trailer the gate
+        # accepts, so the origin refuses it before a contract is derived.
+        for bad in ("", "   ", "docs/reviews/with space.md", 7):
+            with self.subTest(bad=bad), self.assertRaisesRegex(
+                GovernanceError, "plan_origin_finding_review_file_unusable",
+            ):
+                plan_origin({"finding_id": "ORPHAN-HIGH-779", "finding_review_file": bad})
+
+
 class CommitsAreJudgedTests(unittest.TestCase):
     ORPHAN = commit_contract_for_plan({"finding_id": "ORPHAN-HIGH-104"}, plan_id="plan-1")
     PLAIN = commit_contract_for_plan({}, plan_id="plan-3")
@@ -227,6 +270,62 @@ class CommitsAreJudgedTests(unittest.TestCase):
         self.assertIn("subject_type_requires_trailer", verify_commits_honour_contract(demanding, self.PLAIN).violations[0])
         agentic = [{"sha": "d" * 40, "subject": "refactor(agentic,phase-2): x", "body": ""}]
         self.assertFalse(verify_commits_honour_contract(agentic, self.PLAIN).honoured)
+
+
+class OperatorRequestLinesTests(unittest.TestCase):
+    """ARIA-MEDIUM-264 — the request an operator plan spends rides on main's history.
+
+    The merged-once proof read only aria/state ledgers, which a rollback
+    erases. Every commit of an operator plan's implementation (and its PR
+    body) now carries one ``Aria-Operator-Request: <id>`` line per consumed
+    request, so the squash commit the merge queue lands on main carries it
+    and check 12 can read it there.
+    """
+
+    OPERATOR = {"finding_id": "F-007", "provenance_refs": ["aria-tools/operator-feedback.jsonl:OP-1"]}
+
+    def test_an_operator_plan_contract_names_the_request_line(self) -> None:
+        contract = commit_contract_for_plan(self.OPERATOR, plan_id="p")
+        self.assertEqual(contract["request_lines"], ["Aria-Operator-Request: OP-1"])
+        validate_commit_contract(contract)
+        # A plan that spends no operator request carries no line.
+        for content in ({"finding_id": "F-007"}, {"provenance_refs": ["gh-run-list:12"]}, {}):
+            with self.subTest(content=content):
+                self.assertNotIn("request_lines", commit_contract_for_plan(content, plan_id="p"))
+
+    def test_a_hand_built_request_line_is_refused(self) -> None:
+        contract = commit_contract_for_plan(self.OPERATOR, plan_id="p")
+        for lines in ([], ["Aria-Operator-Request: OP 1"], ["Closes: x#F-001"],
+                      ["Aria-Operator-Request: OP-2", "Aria-Operator-Request: OP-1"], "Aria-Operator-Request: OP-1"):
+            with self.subTest(lines=lines):
+                with self.assertRaises(GovernanceError):
+                    validate_commit_contract(dict(contract, request_lines=lines))
+
+    def test_every_commit_carries_exactly_the_request_line(self) -> None:
+        contract = commit_contract_for_plan(self.OPERATOR, plan_id="p")
+        good = [{"sha": "a" * 40, "subject": "refactor(hr): x", "body": "why\n\nAria-Operator-Request: OP-1\n"}]
+        self.assertTrue(verify_commits_honour_contract(good, contract).honoured)
+        for body in ("why\n", "Aria-Operator-Request: OP-2\n", "Aria-Operator-Request: OP-1\nAria-Operator-Request: OP-2\n"):
+            with self.subTest(body=body):
+                verdict = verify_commits_honour_contract(
+                    good + [{"sha": "b" * 40, "subject": "test(hr): y", "body": body}], contract,
+                )
+                self.assertFalse(verdict.honoured)
+                self.assertIn("request_lines_mismatch", verdict.violations[0])
+        # A plan that spends no request cannot record one on main.
+        invented = [{"sha": "c" * 40, "subject": "chore(hr): x", "body": "Aria-Operator-Request: OP-1\n"}]
+        verdict = verify_commits_honour_contract(invented, commit_contract_for_plan({}, plan_id="p"))
+        self.assertIn("request_lines_mismatch", verdict.violations[0])
+
+    def test_the_prompt_and_the_pr_body_carry_the_request_line(self) -> None:
+        from aria_kernel.pr_manager import build_pr_body
+
+        contract = commit_contract_for_plan(self.OPERATOR, plan_id="p")
+        self.assertIn("`Aria-Operator-Request: OP-1`", render_commit_contract_section(contract))
+        body = build_pr_body(proposal={"proposal_id": "prop-1"}, action={}, request_lines=contract["request_lines"])
+        self.assertIn("\nAria-Operator-Request: OP-1\n", body)
+        self.assertNotIn("Aria-Operator-Request", build_pr_body(proposal={"proposal_id": "prop-1"}, action={},
+                                                                request_lines=()))
 
 
 class PerimeterCheckTests(unittest.TestCase):

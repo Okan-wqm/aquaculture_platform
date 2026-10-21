@@ -11,7 +11,7 @@ from .agent_routing import ROUTING_TABLE_REL, unowned_projects
 from .candidate_blocks import GENESIS_ADJUDICATION_REQUIRED
 from .fitness import list_fitness_reports
 from .ledger import append_declared_jsonl, load_jsonl
-from .runs_reader import read_runs_rows, run_read_paths
+from .runs_reader import read_runs_rows, run_path_citations
 from .memory import list_memory
 from .observation_coverage import (
     ADAPTER_DIR,
@@ -21,7 +21,7 @@ from .observation_coverage import (
 )
 from .pressure import effective_workspace_pressures
 from .tool_health import runs_path
-from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
+from .tool_registry import GovernanceError, ensure_tools_dir, list_tools, utc_now
 
 
 # Plan 026R §E.9 — closed-enum of capability_gap types emitted by
@@ -122,7 +122,9 @@ GENESIS_ADJUDICATION_BLOCK_TOKEN = GENESIS_ADJUDICATION_REQUIRED
 # payload stops being readable. The cap bounds the ledger row; the full list
 # stays on the RootCoverage the gap was minted from. The adapter directory and
 # observation policy the gap cites are observation_coverage's own paths
-# (ADAPTER_DIR, POLICY_RELATIVE_PATH), the ones its measurement read.
+# (ADAPTER_DIR, POLICY_RELATIVE_PATH): where a manifest's typed scope is
+# declared, and the policy the measurement read. The measurement itself reads
+# the live registry rows those manifests register (ARIA-HIGH-531).
 UNPARSED_TYPES_IN_PAYLOAD = 12
 
 
@@ -132,6 +134,16 @@ def latest_capability_gaps(*, base_dir: str | Path | None = None) -> list[dict[s
         return []
     gaps = rows[-1].get("gaps", [])
     return gaps if isinstance(gaps, list) else []
+
+
+def capability_gap_reader_faults() -> tuple[type[BaseException], ...]:
+    """The closed set a ``latest_capability_gaps`` caller may report as an
+    unreadable gap ledger (ARIA-LOW-587): the ledger primitives' own
+    (``ledger.ledger_read_faults``) — the reader is one ``load_jsonl`` of
+    ``capability-gaps/gaps.jsonl``. Anything else is a defect and raises."""
+    from .ledger import ledger_read_faults
+
+    return ledger_read_faults()
 
 
 def _gaps_from_adapter_registry(
@@ -406,7 +418,10 @@ def _gaps_from_unobserved_surface(
       dates, so a re-run cannot buy a night of evidence.
     """
     try:
-        verdict = evaluate_observation_coverage(paths.repo_root)
+        # ARIA-HIGH-531 — the live registry rows, not the committed manifests:
+        # a genesis adapter exists only there, and a row's status is the one
+        # the runner obeys. No rows read is an unknown night.
+        verdict = evaluate_observation_coverage(paths.repo_root, tools=list_tools(base_dir=root))
     except Exception:
         # An unreadable tree is unknown, never an assertion of sight — and
         # never a reason to take the whole learning hook down with it.
@@ -521,7 +536,7 @@ def _gaps_from_shadow_runs(cycle_id: str, root: Path, base_dir: str | Path | Non
         emitted = _emitted_count(run, "findings")
         if raw_count < 3 or emitted:
             continue
-        paths = [str(path) for path in run_read_paths(run, base_dir=root)[:20]]
+        paths = run_path_citations(run, base_dir=root)
         related = related_agents_for_paths(paths=paths, base_dir=base_dir)
         gap_type = "existing_agent_extension" if related else "agent_gap"
         gaps.append(

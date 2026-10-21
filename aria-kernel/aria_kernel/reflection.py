@@ -7,12 +7,12 @@ from typing import Any
 
 from .agent_eval import observe_agent_performance
 from .governance_reader import read_governance_rows
-from .ledger import append_declared_jsonl, load_jsonl_verified, read_jsonl
+from .ledger import append_declared_jsonl, ledger_read_faults, load_jsonl_verified, read_jsonl
 from .provider_outage_ledger import render_outage_section
 from .request_admission_report import admission_cycle_summary, render_request_admission_section
 from .snapshot import file_counts_from_payload
 from .tool_health import runs_path
-from .tool_registry import ensure_tools_dir, utc_now
+from .tool_registry import ensure_tools_dir, registry_reader_faults, utc_now
 
 
 def run_reflection(
@@ -345,9 +345,11 @@ def _human_required_summary(tools_root: Path) -> dict[str, Any]:
     """
     from .human_required import list_human_required
 
-    items = list_human_required(base_dir=tools_root, include_resolved=False)
-    if not items:
-        return {"open": 0, "breaching_sla": 0, "items": [], "tiers": {}}
+    listing = list_human_required(base_dir=tools_root, include_resolved=False)
+    items = listing.rows
+    unreadable = [{"request_id": record.record_id, "reason": record.reason} for record in listing.unreadable]
+    if not items and not unreadable:
+        return {"open": 0, "breaching_sla": 0, "items": [], "tiers": {}, "unreadable": []}
     now = datetime.now(timezone.utc)
     breaching = 0
     tiers: dict[str, int] = {}
@@ -390,7 +392,7 @@ def _human_required_summary(tools_root: Path) -> dict[str, Any]:
 
     human_merge = [item for item in items if (item.get("context") or {}).get("kind") == HUMAN_MERGE_PR_KIND]
     return {"open": len(items), "breaching_sla": breaching, "items": items[:5], "tiers": tiers,
-            "human_merge": human_merge}
+            "human_merge": human_merge, "unreadable": unreadable}
 
 
 def _summarize_findings(repo_root: Path) -> dict[str, Any]:
@@ -800,17 +802,26 @@ def _synced_tool_series(root: Path) -> list[int]:
     return [len(list_tools(base_dir=root))]
 
 
+# ARIA-LOW-586 — each series declares the faults its reader may meet that
+# are the STORE's, not the code's (`reader_faults`): the two ledger series
+# the ledger primitives' own set (the calibration reader is the tolerant
+# strict reader, which skips a corrupt row by itself; `load_feedback` is a
+# plain ledger read), the registry series the registry's. Such a fault is
+# named in `unreadable`; anything else raises.
 WATCHED_SIGNALS: dict[str, dict[str, Any]] = {
     "judged_judges": {
         "series_fn": "_judged_judges_series",
+        "reader_faults": ledger_read_faults,
         "producer_chain": "accepted results -> judge fan-out -> judge_calibration.jsonl",
     },
     "labelled_tool_count": {
         "series_fn": "_labelled_tool_series",
+        "reader_faults": ledger_read_faults,
         "producer_chain": "operator feedback -> operator-feedback.jsonl",
     },
     "synced_tool_ids": {
         "series_fn": "_synced_tool_series",
+        "reader_faults": registry_reader_faults,
         "producer_chain": "tools/aria-adapters/*.tool.json -> registry.json",
     },
 }
@@ -825,13 +836,24 @@ def _compute_dataflow_health(root: Path) -> dict[str, Any]:
     starvation flags. Cycle history still comes from cycles.jsonl (row
     COUNT is exactly what its schema does carry); the VALUES come from
     each signal's own producer ledger.
+
+    ARIA-LOW-586 — both reads sat in ``except Exception``: an unreadable
+    cycle history read as a short one, and an unreadable series read as
+    ``[]`` — which, once the history was full, raised SIGNAL STARVED for a
+    feed nobody had read. Now a reader's declared fault is named in
+    ``unreadable`` (``{"cycles" | <signal>: <class>}``) and judged neither
+    starved nor healthy; anything else is a defect and raises.
     """
     from .ledger import load_declared_jsonl
 
+    unreadable: dict[str, str] = {}
     try:
         rows = load_declared_jsonl(root / "cycles.jsonl", expected_surface="cycles")
-    except Exception:
+    except ledger_read_faults() as exc:
+        # The history length is unknown, so no window is full: nothing is
+        # declared starved on a history nobody could count.
         rows = []
+        unreadable["cycles"] = type(exc).__name__
     completed = sum(1 for row in rows if row.get("status") == "completed")
     history_full = completed >= SIGNAL_WINDOW_CYCLES
     signals: dict[str, Any] = {}
@@ -842,8 +864,15 @@ def _compute_dataflow_health(root: Path) -> dict[str, Any]:
             # import) so tests can patch the series functions and the dict
             # cannot hold a stale reference.
             values = globals()[spec["series_fn"]](root)
-        except Exception:
-            values = []
+        except spec["reader_faults"]() as exc:
+            unreadable[name] = type(exc).__name__
+            signals[name] = {
+                "window_values": [],
+                "starved": False,
+                "unreadable": unreadable[name],
+                "producer_chain": spec["producer_chain"],
+            }
+            continue
         # An EMPTY producer ledger after a full history window IS the
         # starved case — the producer never wrote at all, which is the
         # strongest form of the signal this sentinel exists for.
@@ -859,6 +888,7 @@ def _compute_dataflow_health(root: Path) -> dict[str, Any]:
         "window_cycles": min(completed, SIGNAL_WINDOW_CYCLES),
         "signals": signals,
         "starved": starved,
+        "unreadable": unreadable,
     }
 
 
@@ -990,7 +1020,10 @@ def _render_dataflow_health_section(reflection: dict[str, Any]) -> list[str]:
     """
     health = reflection.get("dataflow_health") or {}
     starved = health.get("starved") or []
-    if not starved:
+    # ARIA-LOW-586 — a source the sentinel could not read is named, never
+    # silently dropped (and never counted as starved).
+    unreadable = health.get("unreadable") or {}
+    if not starved and not unreadable:
         return []
     lines = ["", "## Signal starvation", ""]
     for name in starved:
@@ -1001,6 +1034,7 @@ def _render_dataflow_health_section(reflection: dict[str, Any]) -> list[str]:
             f"{spec.get('producer_chain', 'unknown')}. A zero this old is a "
             "severed feed until proven otherwise."
         )
+    lines.extend(f"- unreadable: `{source}`: {fault}" for source, fault in unreadable.items())
     return lines
 
 
@@ -1113,13 +1147,31 @@ def _render_proactive_section(reflection: dict[str, Any]) -> list[str]:
 # its ledger does not exist yet.
 
 
-def _render_plan016_section(root: Path) -> list[str]:
-    try:
-        from .plan_016_metrics import compute_plan_016_metrics
+def _unreadable_section(heading: str, fault: BaseException) -> list[str]:
+    """A section whose reader met one of its DECLARED faults (ARIA-LOW-514,
+    ARIA-LOW-586): the heading, and the fault named by class — the message
+    carries host paths, and the report is published. Only a reader's own
+    ``*_reader_faults()`` may reach here; anything else raises."""
+    return [heading, "", f"- unreadable: {type(fault).__name__}", ""]
 
+
+def _render_plan016_section(root: Path) -> list[str]:
+    """The Plan-016 counters, or the fault that kept the store from them.
+
+    ARIA-LOW-514 — the computation sat in ``except Exception: return []``, so
+    an unreadable ledger and a defect in the counters both read as a report
+    with no such section. Only the reader's declared faults
+    (``plan_016_metric_reader_faults``) are absorbed, and they are named by
+    class (the message carries host paths, and the report is published);
+    anything else raises.
+    """
+    from .plan_016_metrics import compute_plan_016_metrics, plan_016_metric_reader_faults
+
+    faults = plan_016_metric_reader_faults()
+    try:
         metrics = compute_plan_016_metrics(base_dir=root)
-    except Exception:
-        return []
+    except faults as exc:
+        return _unreadable_section("## Plan-016 Counters", exc)
     if not metrics:
         return []
     return [
@@ -1131,12 +1183,16 @@ def _render_plan016_section(root: Path) -> list[str]:
 
 
 def _render_observability_section(root: Path) -> list[str]:
-    try:
-        from .observability import list_observability_dashboards
+    """ARIA-LOW-586 — both reads absorb only ``observability_reader_faults``
+    and name them: an unreadable dashboard ledger is the section's one line,
+    an unreadable alert history a line under the readable dashboard."""
+    from .observability import alerts_path, list_observability_dashboards, observability_reader_faults
 
+    faults = observability_reader_faults()
+    try:
         dashboards = list_observability_dashboards(base_dir=root)
-    except Exception:
-        return []
+    except faults as exc:
+        return _unreadable_section("## SLO / Alerts", exc)
     if not dashboards:
         return []
     latest = dashboards[-1]
@@ -1169,13 +1225,12 @@ def _render_observability_section(root: Path) -> list[str]:
     # above shows only THIS cycle, so a degradation trend across nights
     # was invisible. One honest window line makes the ledger load-bearing.
     try:
-        from .observability import alerts_path
-
         # Same trust level as the producer: _record_alerts appends via the
         # hash-chained append_jsonl, so the verified loader is its mirror.
         history = load_jsonl_verified(alerts_path(root))
-    except Exception:
+    except faults as exc:
         history = []
+        lines.append(f"- Alert history: unreadable: {type(exc).__name__}")
     if history:
         recent = history[-20:]
         by_reason: dict[str, int] = {}
@@ -1198,15 +1253,15 @@ def _render_learning_events_section(root: Path) -> list[str]:
     deliberately a summary, not a dump — the ledger stays the archive; the
     report answers "did ARIA learn anything tonight, and what kind?".
     """
-    try:
-        from .ledger import load_declared_jsonl
+    from .ledger import load_declared_jsonl
 
+    try:
         rows = load_declared_jsonl(
             root / "memory" / "learning-events.jsonl",
             expected_surface="memory_learning_events",
         )
-    except Exception:
-        return []
+    except ledger_read_faults() as exc:
+        return _unreadable_section("## Learning Events", exc)
     if not rows:
         return []
     recent = rows[-50:]
@@ -1237,12 +1292,12 @@ def _render_mission_section(root: Path) -> list[str]:
     path = root / "missions" / "mission-events.jsonl"
     if not path.exists():
         return []
-    try:
-        from .ledger import load_declared_jsonl
+    from .ledger import load_declared_jsonl
 
+    try:
         rows = load_declared_jsonl(path, expected_surface="mission_events")
-    except Exception:
-        return []
+    except ledger_read_faults() as exc:
+        return _unreadable_section("## Missions", exc)
     if not rows:
         return []
     state: dict[str, dict[str, Any]] = {}
@@ -1283,12 +1338,12 @@ def _render_mission_section(root: Path) -> list[str]:
 
 
 def _render_quarantine_section(root: Path) -> list[str]:
-    try:
-        from .tool_registry import list_tools
+    from .tool_registry import list_tools
 
+    try:
         quarantined = list_tools(status="QUARANTINED", base_dir=root)
-    except Exception:
-        return []
+    except registry_reader_faults() as exc:
+        return _unreadable_section("## Quarantined Tools", exc)
     if not quarantined:
         return []
     lines = [
@@ -1343,15 +1398,15 @@ def _render_replay_recall_section(reflection: dict[str, Any]) -> list[str]:
 
 def _render_rule_health_section(root: Path) -> list[str]:
     """D4 — per-rule TP/FP from ground truth; silent until data exists."""
-    try:
-        from .rule_health import quarantined_rules, rule_stats
+    from .rule_health import quarantined_rules, rule_health_reader_faults, rule_stats
 
+    try:
         stats = rule_stats(root)
-    except Exception:
-        return []
+        quarantined = quarantined_rules(root) if stats else set()
+    except rule_health_reader_faults() as exc:
+        return _unreadable_section("## Rule Health", exc)
     if not stats:
         return []
-    quarantined = quarantined_rules(root)
     lines = [
         "## Rule Health",
         "",
@@ -1376,13 +1431,13 @@ def _render_duel_ratings_section(root: Path) -> list[str]:
     operator reads is the number replay derives — nothing stored, nothing
     to drift. Silent until the ledger holds at least one decided duel.
     """
-    try:
-        from .calibrated_intelligence import bradley_terry
-        from .genesis_superiority import duel_observations
+    from .calibrated_intelligence import bradley_terry
+    from .genesis_superiority import duel_observations, duel_reader_faults
 
+    try:
         observations = duel_observations(base_dir=root)
-    except Exception:
-        return []
+    except duel_reader_faults() as exc:
+        return _unreadable_section("## Duel Ratings", exc)
     if not observations:
         return []
     ratings = bradley_terry(observations)
@@ -1403,12 +1458,12 @@ def _render_duel_ratings_section(root: Path) -> list[str]:
 def _render_own_pr_ci_section(root: Path) -> list[str]:
     """ARIA's own PRs that are red in CI — the operator's 'it wrote wrong
     code' view (ORPHAN-HIGH-626). Silent when nothing is red."""
-    try:
-        from .own_pr_ci import load_open_own_pr_reds
+    from .own_pr_ci import load_open_own_pr_reds, own_pr_reds_reader_faults
 
+    try:
         reds = load_open_own_pr_reds(base_dir=root)
-    except Exception:
-        return []
+    except own_pr_reds_reader_faults() as exc:
+        return _unreadable_section("## Own PR CI", exc)
     if not reds:
         return []
     lines = [

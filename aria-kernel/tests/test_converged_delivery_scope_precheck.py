@@ -158,7 +158,7 @@ class _ScopeCase(unittest.TestCase):
         return load_jsonl(self.tools / "validation" / "validation-runs.jsonl")
 
     def operator_items(self) -> dict[str, dict]:
-        return {row["request_id"]: row for row in list_human_required(base_dir=self.tools)}
+        return {row["request_id"]: row for row in list_human_required(base_dir=self.tools).rows}
 
     def human_required_evaluations(self, plan_id: str) -> list[dict]:
         return [event["payload"] for event in self.state(plan_id)["events"]
@@ -373,11 +373,13 @@ class TheMoveNeverRaces(_ScopeCase):
         self.assertEqual(self.governance(KIND), [])
         self.assertEqual(self.operator_items(), {})
 
-    def test_a_body_the_ledger_cannot_prove_is_not_a_scope_verdict(self) -> None:
-        # Only the gate's refusals park. A body-proof error is the ledger's,
-        # so it reaches the door's own fault row, uncounted, plan untouched.
+    def test_a_fault_reading_the_body_is_not_a_scope_verdict(self) -> None:
+        # Only the gate's refusals park. A fault while reading the body (a
+        # GovernanceError that is not the ledger's PlanBodyUnprovable, which
+        # parks: test_converged_delivery_unprovable_body.py) reaches the
+        # door's own fault row, uncounted, plan untouched.
         plan_id = self.converge("plan-readonly", [WORKFLOW])
-        unproven = GovernanceError("plan_body_unavailable_for_revision: fixture")
+        unproven = GovernanceError("plan_store_fault: fixture")
 
         with patch("aria_kernel.plan_convergence.plan_body_from_state", side_effect=unproven):
             summary = self.deliver(plan_id, cycle_id="cyc-1")

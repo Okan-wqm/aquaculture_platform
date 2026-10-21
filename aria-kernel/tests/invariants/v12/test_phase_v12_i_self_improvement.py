@@ -200,13 +200,13 @@ class SelfImprovement(_Store):
         from aria_kernel import recovery
 
         recovery.record_intent(request_id="AIR-1", effect_kind="git_push", target="origin/x", intended_postcondition={}, base_dir=self.tools)
-        signals = si.scan_signals(base_dir=self.tools, workspace_root=self.ws)
+        signals = si.scan_signals(base_dir=self.tools, workspace_root=self.ws).signals
         for signal in signals:
             self.assertIn(signal.kind, si.SIGNAL_KINDS)
-        opened = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=2)
+        opened = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=2).opened
         # ARIA-MEDIUM-417: the budget bounds what a call OPENS; re-sightings are reported, free.
         self.assertLessEqual(sum(1 for o in opened if not o["idempotent"]), 2)
-        again = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=2)
+        again = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=2).opened
         self.assertTrue(all(o["idempotent"] for o in again), "the same signals reopen nothing")
         from aria_kernel.mission import list_open_missions, open_mission
         from aria_kernel.workspace import canonical_identity
@@ -214,13 +214,15 @@ class SelfImprovement(_Store):
         missions = [m for m in list_open_missions(base_dir=self.tools) if m["source_kind"] == si.SELF_IMPROVEMENT_SOURCE_KIND]
         self.assertEqual(len(missions), len(opened))
         foreign = open_mission(source_kind="github_issue", source_id="issue-1", repo_hash=canonical_identity(self.ws), title="t",
-                               next_action="triage_github_issue", wake_condition={"kind": "timer", "key": "k"}, base_dir=self.tools)
+                               next_action="triage_github_issue", wake_condition={"kind": "timer", "key": "k"}, evidence_refs=(),
+                               base_dir=self.tools)
         with self.assertRaises(GovernanceError):
             si.propose_self_change(mission_id=str(foreign["mission_id"]), base_dir=self.tools, workspace_root=self.ws,
                                    evidence_paths=["aria-kernel/aria_kernel/search.py"], problem="p", proposed_change="c")
         mission_id = str(missions[0]["mission_id"]) if missions else str(open_mission(
             source_kind=si.SELF_IMPROVEMENT_SOURCE_KIND, source_id="manual:x", repo_hash=canonical_identity(self.ws), title="manual",
-            next_action=si.SELF_CHANGE_NEXT_ACTION, wake_condition={"kind": "evidence", "key": "manual"}, base_dir=self.tools)["mission_id"])
+            next_action=si.SELF_CHANGE_NEXT_ACTION, wake_condition={"kind": "evidence", "key": "manual"}, evidence_refs=(),
+            base_dir=self.tools)["mission_id"])
         with self.assertRaises(GovernanceError):
             si.propose_self_change(mission_id=mission_id, base_dir=self.tools, workspace_root=self.ws,
                                    evidence_paths=["aria-kernel/aria_kernel/data/runtime_profiles.json"], problem="p", proposed_change="widen")

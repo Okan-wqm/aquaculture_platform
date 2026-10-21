@@ -2,7 +2,8 @@
 
 Locked invariants (9 cases, I-V3-18..20):
 
-  * I-V3-18 — ack ledger is append-only AND every row is signed.
+  * I-V3-18 — ack ledger is append-only AND every row is signed (an
+    operator row by the operator's key, ARIA-MEDIUM-254).
   * I-V3-19 — one-time consumption (second consume raises).
   * I-V3-19a — a minted ack row carries exactly ACK_ROW_REQUIRED_FIELDS
     (+ the ledger hash-chain envelope), on both mint paths (the operator
@@ -10,7 +11,8 @@ Locked invariants (9 cases, I-V3-18..20):
   * I-V3-19b — ``actor_kind`` distinguishes operator vs autonomous_profile.
   * I-V3-19c — ``aria-tools/secrets/`` covered by .gitignore.
   * I-V3-19d — HMAC key not committed to git history.
-  * I-V3-19e — key rotation preserves historical row verification.
+  * I-V3-19e — key rotation preserves historical row verification (the
+    HMAC rows: autonomous mints).
   * I-V3-19f — DR runbook present (aria-ack-key-rotation.md).
   * I-V3-20 — ``ack mint --reason`` validated via ``_validate_reason``.
 """
@@ -45,7 +47,9 @@ def _seed_init(tools_dir: Path) -> None:
 
 def _seed_draft(tools_dir: Path, draft_id: str) -> None:
     """An agent draft with a drafter body: the ack's scope is derived from it (ARIA-MEDIUM-254 slice A)."""
+    from aria_kernel.tool_registry import ensure_tools_dir
     from tests._helpers.declared_fixtures import append_declared_fixture
+    ensure_tools_dir(tools_dir)
     append_declared_fixture(
         tools_dir / "agent-genesis" / "drafts.jsonl",
         {
@@ -63,27 +67,29 @@ def _scope(tools_dir: Path, draft_id: str):
     return ack_scope_for_draft(draft_id, tools_dir)
 
 
-def _mint_row(tools_dir: Path, *, draft_suffix: str = "1"):
-    from aria_kernel.ack_ledger import mint_operator_ack
+def _signer(tools_dir: Path):
+    """ARIA-MEDIUM-254 — the operator's throwaway key, enrolled on a checkout on main beside the store."""
+    from tests._helpers.operator_acks import OperatorAckSigner
+    return OperatorAckSigner(tools_dir.parent / f"{tools_dir.name}-operator")
+
+
+def _mint_row(tools_dir: Path, *, draft_suffix: str = "1", signer=None):
     _seed_draft(tools_dir, f"draft-{draft_suffix}")
-    return mint_operator_ack(
+    return (signer or _signer(tools_dir)).mint(
         base_dir=tools_dir,
         draft_id=f"draft-{draft_suffix}",
         kind="agent",
         reason="unit test ack mint",
-        operator_user_id="tester",
-        profile_name="standard",
-        profile_state_at_mint="standard:v1",
         commit_sha_at_mint="deadbeef",
     )
 
 
-def _record_auto(tools_dir: Path) -> dict:
+def _record_auto(tools_dir: Path, draft_id: str = "draft-auto") -> dict:
     from aria_kernel.ack_ledger import record_autonomous_ack
-    _seed_draft(tools_dir, "draft-auto")
+    _seed_draft(tools_dir, draft_id)
     return record_autonomous_ack(
         base_dir=tools_dir,
-        scope=_scope(tools_dir, "draft-auto"),
+        scope=_scope(tools_dir, draft_id),
         materialize_event_id="mat-auto",
         profile_name="autonomous",
         lane="L0-main",
@@ -103,10 +109,10 @@ class PhaseA5AckLedger(unittest.TestCase):
         )
 
         with tempfile.TemporaryDirectory(prefix="aria-i-v3-18-") as tmp:
-            base = Path(tmp)
-            _seed_init(base)
+            base = Path(tmp) / "aria-tools"
+            signer = _signer(base)
             for i in range(3):
-                _mint_row(base, draft_suffix=str(i))
+                _mint_row(base, draft_suffix=str(i), signer=signer)
             ledger_file = _ledger_path(base)
             self.assertTrue(ledger_file.exists())
             rows = [
@@ -120,8 +126,9 @@ class PhaseA5AckLedger(unittest.TestCase):
                 self.assertIn("signature", row)
                 self.assertIsInstance(row["signature"], str)
                 self.assertTrue(row["signature"])
-            # verify_range reports zero invalid.
-            result = verify_range(base_dir=base)
+            # verify_range reports zero invalid (the operator's signatures
+            # against the checkout on main).
+            result = verify_range(base_dir=base, workspace_root=signer.repo)
             self.assertEqual(result["invalid_count"], 0)
             self.assertEqual(result["rows_checked"], 3)
 
@@ -130,15 +137,16 @@ class PhaseA5AckLedger(unittest.TestCase):
         from aria_kernel.tool_registry import GovernanceError
 
         with tempfile.TemporaryDirectory(prefix="aria-i-v3-19-") as tmp:
-            base = Path(tmp)
-            _seed_init(base)
-            row = _mint_row(base)
+            base = Path(tmp) / "aria-tools"
+            signer = _signer(base)
+            row = _mint_row(base, signer=signer)
             scope = _scope(base, row.draft_id)
             result_first = consume_token(
                 base_dir=base,
                 ack_id=row.ack_id,
                 materialize_event_id="mat-evt-1",
                 scope=scope,
+                workspace_root=signer.repo,
             )
             self.assertEqual(result_first["status"], "ok")
             ledger_rows = [
@@ -156,6 +164,7 @@ class PhaseA5AckLedger(unittest.TestCase):
                     ack_id=row.ack_id,
                     materialize_event_id="mat-evt-2",
                     scope=scope,
+                    workspace_root=signer.repo,
                 )
             self.assertIn("ack_token_already_consumed", str(ctx.exception))
 
@@ -165,9 +174,10 @@ class PhaseA5AckLedger(unittest.TestCase):
         from aria_kernel.ledger import _CHAIN_FIELDS
 
         with tempfile.TemporaryDirectory(prefix="aria-i-v3-19a-") as tmp:
-            base = Path(tmp)
+            base = Path(tmp) / "aria-tools"
             _seed_init(base)
-            _mint_row(base)
+            signer = _signer(base)
+            _mint_row(base, signer=signer)
             _record_auto(base)
             # Mint rows only: the autonomous path also appends its
             # consumption transition in the same transaction.
@@ -200,13 +210,13 @@ class PhaseA5AckLedger(unittest.TestCase):
                             f"extra={sorted(keys - expected)}"
                         ),
                     )
-                    self.assertTrue(verify_row(row, base_dir=base)["valid"])
+                    self.assertTrue(verify_row(row, base_dir=base, workspace_root=signer.repo)["valid"])
 
     def test_i_v3_19b_actor_kind_distinguishes_operator_vs_autonomous(self) -> None:
         from aria_kernel.ack_row import ACK_ACTOR_KINDS
 
         with tempfile.TemporaryDirectory(prefix="aria-i-v3-19b-") as tmp:
-            base = Path(tmp)
+            base = Path(tmp) / "aria-tools"
             _seed_init(base)
             op_row = _mint_row(base, draft_suffix="op")
             self.assertEqual(op_row.actor_kind, "operator")
@@ -273,31 +283,32 @@ class PhaseA5AckLedger(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="aria-i-v3-19e-") as tmp:
             base = Path(tmp)
             _seed_init(base)
-            # Mint a row signed under the first key.
-            old_row = _mint_row(base, draft_suffix="old")
+            # An autonomous row (mint + consumption) signed under the first
+            # key; an operator row is signed by the operator, not this key.
+            old_row = _record_auto(base, "draft-old")["row"]
             # Rotate.
             rotate_key(
                 base_dir=base,
                 reason="key rotation invariant test",
                 operator_approval_ref="RFC-ROT",
             )
-            # Mint a row signed under the second key.
-            new_row = _mint_row(base, draft_suffix="new")
+            # And one signed under the second key.
+            new_row = _record_auto(base, "draft-new")["row"]
             # Both rows must verify (rolling key list resolves).
             result = verify_range(base_dir=base)
             self.assertEqual(result["invalid_count"], 0)
             old_result = [
                 r for r in result["results"]
-                if r["ack_id"] == old_row.ack_id
+                if r["ack_id"] == old_row["ack_id"]
             ]
             new_result = [
                 r for r in result["results"]
-                if r["ack_id"] == new_row.ack_id
+                if r["ack_id"] == new_row["ack_id"]
             ]
-            self.assertEqual(len(old_result), 1)
-            self.assertEqual(len(new_result), 1)
-            self.assertTrue(old_result[0]["valid"])
-            self.assertTrue(new_result[0]["valid"])
+            # Each ack: its mint row and its consumption transition.
+            self.assertEqual(len(old_result), 2)
+            self.assertEqual(len(new_result), 2)
+            self.assertTrue(all(r["valid"] for r in old_result + new_result))
 
     def test_i_v3_19f_dr_runbook_aria_ack_key_rotation_present(self) -> None:
         runbook = _REPO_ROOT / "docs" / "runbooks" / "aria-ack-key-rotation.md"
@@ -485,13 +496,15 @@ class AckLedgerSingleOwnerContracts(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tools = Path(tmp) / "aria-tools"
             tools.mkdir()
-            _seed_init(tools)
+            signer = _signer(tools)
             ledger_path = ack_ledger._ledger_path(tools)
             rows_before = load_jsonl(ledger_path) if ledger_path.exists() else []
             governance = tools / "governance.jsonl"
             with mock.patch.object(ack_ledger, "AckLedgerRow", narrowed):
                 with self.assertRaises(TypeError):
-                    _mint_row(tools)
+                    _mint_row(tools, signer=signer)
+            self.assertNotIn("aria-kernel: signing this subject", signer.subjects.getvalue(),
+                             "the schema refuses before the operator is asked to sign")
             rows_after = load_jsonl(ledger_path) if ledger_path.exists() else []
             self.assertEqual(rows_after, rows_before)
             self.assertEqual(
@@ -501,6 +514,137 @@ class AckLedgerSingleOwnerContracts(unittest.TestCase):
                 ],
                 [],
             )
+
+
+class RevokeKeyQuarantinesACompromisedKey(unittest.TestCase):
+    """ARIA-LOW-598 — runbook §3 step 2, ``aria-kernel ack revoke-key``.
+
+    Rotation keeps the previous head verifiable for up to five rotations; for
+    a LEAKED key that is the defect — whoever holds it forges rows that
+    verify. Revocation drops its secret at once and every row it signed
+    verifies as ``signed_key_revoked``: unverifiable, content intact.
+    """
+
+    def _key_file(self, base: Path) -> dict:
+        return json.loads((base / "secrets" / "ack_hmac.key").read_text(encoding="utf-8"))
+
+    def _governance(self, base: Path, kind: str) -> list[dict]:
+        from aria_kernel.ledger import load_declared_jsonl
+        rows = load_declared_jsonl(base / "governance.jsonl", expected_surface="tools_governance")
+        return [row for row in rows if row.get("kind") == kind]
+
+    def test_a_revoked_keys_rows_verify_as_revoked_and_its_secret_is_gone(self) -> None:
+        import stat as stat_module
+
+        from aria_kernel.ack_ledger import revoke_key, rotate_key, verify_range
+
+        with tempfile.TemporaryDirectory(prefix="aria-ack-revoke-") as tmp:
+            base = Path(tmp)
+            _seed_init(base)
+            old_row = _record_auto(base, "draft-old")["row"]
+            leaked = old_row["signed_key_id"]
+            leaked_secret = next(k["secret"] for k in self._key_file(base)["keys"] if k["key_id"] == leaked)
+            rotate_key(base_dir=base, reason="emergency rotation before revoke",
+                       operator_approval_ref="INC-1", emergency=True)
+            new_row = _record_auto(base, "draft-new")["row"]
+
+            result = revoke_key(base_dir=base, key_id=leaked, reason="leaked-rotated-out",
+                                operator_approval_ref="INC-1")
+
+            self.assertEqual(result["revoked_key_id"], leaked)
+            self.assertEqual(result["active_key_count"], 1)
+            key_file = base / "secrets" / "ack_hmac.key"
+            self.assertNotIn(leaked_secret, key_file.read_text(encoding="utf-8"))
+            self.assertEqual(stat_module.S_IMODE(key_file.stat().st_mode), 0o600)
+            document = self._key_file(base)
+            self.assertNotIn(leaked, [k["key_id"] for k in document["keys"]])
+            self.assertEqual([r["key_id"] for r in document["revoked"]], [leaked])
+            self.assertNotIn("secret", document["revoked"][0])
+            self.assertEqual(document["revoked"][0]["reason"], "leaked-rotated-out")
+            (governance,) = self._governance(base, "ack_key_revoked")
+            self.assertEqual(governance["details"]["key_id"], leaked)
+            self.assertEqual(governance["details"]["operator_approval_ref"], "INC-1")
+
+            verdict = verify_range(base_dir=base)
+            by_ack = {}
+            for row in verdict["results"]:
+                by_ack.setdefault(row["ack_id"], []).append(row)
+            # The leaked key's mint and its consumption: unverifiable, by name.
+            self.assertEqual(len(by_ack[old_row["ack_id"]]), 2)
+            for row in by_ack[old_row["ack_id"]]:
+                self.assertFalse(row["valid"])
+                self.assertTrue(row["reason"].startswith("signed_key_revoked"), row)
+            self.assertTrue(all(row["valid"] for row in by_ack[new_row["ack_id"]]))
+            self.assertEqual(verdict["invalid_count"], 2)
+
+            # Nothing that rewrites the list brings it back.
+            rotate_key(base_dir=base, reason="scheduled rotation after revoke", operator_approval_ref="RFC-2")
+            self.assertEqual([r["key_id"] for r in self._key_file(base)["revoked"]], [leaked])
+            again = [r for r in verify_range(base_dir=base)["results"] if r["ack_id"] == old_row["ack_id"]]
+            self.assertTrue(all(r["reason"].startswith("signed_key_revoked") for r in again))
+
+    def test_the_signing_head_is_refused_rotate_first(self) -> None:
+        from aria_kernel.ack_ledger import list_keys, revoke_key
+        from aria_kernel.tool_registry import GovernanceError
+
+        with tempfile.TemporaryDirectory(prefix="aria-ack-revoke-head-") as tmp:
+            base = Path(tmp)
+            _seed_init(base)
+            head = list_keys(base_dir=base)[0]["key_id"]
+            before = (base / "secrets" / "ack_hmac.key").read_bytes()
+            with self.assertRaises(GovernanceError) as refused:
+                revoke_key(base_dir=base, key_id=head, reason="leaked-but-still-head",
+                           operator_approval_ref="INC-2")
+            self.assertIn("hmac_revoke_head_key", str(refused.exception))
+            self.assertIn("rotate first", str(refused.exception))
+            self.assertEqual((base / "secrets" / "ack_hmac.key").read_bytes(), before)
+            self.assertEqual(self._governance(base, "ack_key_revoked"), [])
+
+    def test_an_unknown_or_already_revoked_key_is_refused(self) -> None:
+        from aria_kernel.ack_ledger import list_keys, revoke_key, rotate_key
+        from aria_kernel.tool_registry import GovernanceError
+
+        with tempfile.TemporaryDirectory(prefix="aria-ack-revoke-unknown-") as tmp:
+            base = Path(tmp)
+            _seed_init(base)
+            old = list_keys(base_dir=base)[0]["key_id"]
+            rotate_key(base_dir=base, reason="rotation before revoke", operator_approval_ref="RFC-3")
+            with self.assertRaises(GovernanceError) as unknown:
+                revoke_key(base_dir=base, key_id="not-a-key", reason="typo-in-key-id",
+                           operator_approval_ref="INC-3")
+            self.assertIn("hmac_key_unknown", str(unknown.exception))
+            revoke_key(base_dir=base, key_id=old, reason="leaked-rotated-out", operator_approval_ref="INC-3")
+            with self.assertRaises(GovernanceError) as twice:
+                revoke_key(base_dir=base, key_id=old, reason="leaked-rotated-out",
+                           operator_approval_ref="INC-3")
+            self.assertIn("hmac_key_already_revoked", str(twice.exception))
+            self.assertEqual(len(self._governance(base, "ack_key_revoked")), 1)
+
+    def test_the_runbook_step_runs_through_the_cli(self) -> None:
+        import contextlib
+        import io
+
+        from aria_kernel.ack_ledger import list_keys, rotate_key
+        from aria_kernel.cli import main
+
+        with tempfile.TemporaryDirectory(prefix="aria-ack-revoke-cli-") as tmp:
+            base = Path(tmp)
+            _seed_init(base)
+            leaked = list_keys(base_dir=base)[0]["key_id"]
+            rotate_key(base_dir=base, reason="emergency rotation before revoke",
+                       operator_approval_ref="INC-4", emergency=True)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = main(["--tools-dir", str(base), "ack", "revoke-key", "--key-id", leaked,
+                             "--reason", "leaked-rotated-out", "--operator-approval-ref", "INC-4"])
+            self.assertEqual(code, 0)
+            self.assertEqual(json.loads(out.getvalue())["revoked_key_id"], leaked)
+            listed = io.StringIO()
+            with contextlib.redirect_stdout(listed):
+                self.assertEqual(main(["--tools-dir", str(base), "ack", "list-keys"]), 0)
+            shown = json.loads(listed.getvalue())
+            self.assertNotIn(leaked, [k["key_id"] for k in shown["keys"]])
+            self.assertEqual([r["key_id"] for r in shown["revoked"]], [leaked])
 
 
 if __name__ == "__main__":

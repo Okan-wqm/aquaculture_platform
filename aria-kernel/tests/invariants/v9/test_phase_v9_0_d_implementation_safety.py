@@ -390,11 +390,26 @@ class TestV9SecretScan(unittest.TestCase):
         diff = "ANTHROPIC_API_KEY=sk-ant-api03-deadbeef0123456789abcdef0123456"
         with self.assertRaises(_is.SecretLeakDetected):
             _is.verify_no_secret_in_diff(diff)
+        # ARIA-MEDIUM-620 — the setup-token body is base64url: an underscore
+        # inside the first 32 characters after sk-ant- must be refused like
+        # any other body (the redact view has always admitted '_').
+        setup_token = "sk-ant-" + "oat01-" + "Ab3_" + "Q" * 60
+        with self.assertRaises(_is.SecretLeakDetected):
+            _is.verify_no_secret_in_diff(f"pasted {setup_token} into the diff")
 
     def test_i_v9_secret_01_private_key_caught(self):
         diff = "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAA..."
         with self.assertRaises(_is.SecretLeakDetected):
             _is.verify_no_secret_in_diff(diff)
+        # The boundary's PEM redactor is label-agnostic ([A-Z0-9 ]*, like
+        # the DLP and system_one rows); the refusal row used to name four
+        # labels only, so an ENCRYPTED (pkcs8 v2) or plain pkcs8 block
+        # passed the diff scan while the boundary redacted it.
+        for header in ("ENCRYPTED PRIVATE KEY", "PRIVATE KEY"):
+            with self.subTest(header=header):
+                block = f"-----BEGIN {header}-----\nMIIEpAIBAA..."
+                with self.assertRaises(_is.SecretLeakDetected):
+                    _is.verify_no_secret_in_diff(block)
 
     def test_i_v9_secret_01_clean_diff_passes(self):
         diff = "diff --git a/x.py b/x.py\n+def foo():\n+    return 42\n"
@@ -406,6 +421,16 @@ class TestV9SecretScan(unittest.TestCase):
         bad = {"details": {"validation_results": [{"stdout": fake_aws_key}]}}
         with self.assertRaises(_is.SecretLeakDetected):
             _is.verify_no_secret_in_envelope(bad)
+        # The bearer row's redaction reads the scheme in any case and the
+        # standard-base64 alphabet (+, /); the refusal used to read capital-B
+        # "Bearer" and the URL-safe alphabet only, so both shapes passed
+        # while the boundary redacted them.
+        for scheme in ("Bearer", "bearer"):
+            body = "Np+" * 12 + "/Q"
+            with self.subTest(scheme=scheme):
+                bad_bearer = {"headers": {"authorization": f"{scheme} {body}"}}
+                with self.assertRaises(_is.SecretLeakDetected):
+                    _is.verify_no_secret_in_envelope(bad_bearer)
 
     def test_i_v9_secret_01_error_message_does_not_leak_value(self):
         """SecretLeakDetected message MUST count hits but NOT include
@@ -528,6 +553,67 @@ class TestV9SizeCap(unittest.TestCase):
         result = _is.truncate_validation_result(text)
         self.assertLessEqual(len(result), 4500)  # head + tail + marker
         self.assertIn("TRUNCATED", result)
+
+
+class GovernanceBypassGlobalOptionTests(unittest.TestCase):
+    """ARIA-LOW-591 — git's global options precede the subcommand; the
+    perimeter read argv[:2].
+
+    `git -C dir push -f` and `git -c k=v push --force` reached git unexamined
+    (probed 2026-10-17: both returned None while `git push --force` was
+    refused), so the force-push definition did not hold for every spelling of
+    a push. The sandbox argv allowlist refuses the escaping forms first, but
+    the workflow/shell safety adapter asks this same function about the
+    repository's scripts, where a `git -C "$dir" push --force` sat unseen.
+    Every case here drives the ONE definition, ``governance_bypass_refusal``
+    (ARIA-HIGH-013), at its real entry point.
+    """
+
+    def test_global_options_do_not_hide_a_force_push(self) -> None:
+        for argv, offender in (
+            (["git", "-C", "d", "push", "-f"], "-f"),
+            (["git", "-c", "a=b", "push", "--force"], "--force"),
+            (["git", "--git-dir=x", "push", "+main"], "+main"),
+            (["git", "--git-dir", ".git", "push", "--force-with-lease"], "--force-with-lease"),
+            (["git", "-C", "d", "-c", "a=b", "--no-pager", "push", "-fu"], "-fu"),
+        ):
+            with self.subTest(argv=argv):
+                self.assertEqual(_is.governance_bypass_refusal(argv),
+                                 ("no_force_push", f"force_flag_in_bash_argv:{offender}"))
+
+    def test_global_options_do_not_hide_a_hook_bypass(self) -> None:
+        self.assertEqual(_is.governance_bypass_refusal(["git", "-C", "d", "commit", "-n"]),
+                         ("no_no_verify", "hook_bypass_flag:-n"))
+        self.assertEqual(_is.governance_bypass_refusal(["git", "-c", "a=b", "commit", "--no-verify"]),
+                         ("no_no_verify", "hook_bypass_flag:--no-verify"))
+
+    def test_an_unknown_leading_option_fails_closed_as_a_possible_push_or_commit(self) -> None:
+        self.assertEqual(_is.governance_bypass_refusal(["git", "--future-global", "push", "--force"]),
+                         ("no_force_push", "force_flag_in_bash_argv:--force"))
+        self.assertEqual(_is.governance_bypass_refusal(["git", "--future-global", "commit", "-n"]),
+                         ("no_no_verify", "hook_bypass_flag:-n"))
+
+    def test_legitimate_git_with_global_options_still_passes(self) -> None:
+        for argv in (
+            ["git", "-C", "d", "status"],
+            ["git", "-c", "a=b", "push", "origin", "main"],
+            ["git", "--git-dir=.git", "--no-pager", "log", "-n", "5"],
+            ["git", "-C", "d", "commit", "-m", "x"],
+            ["git", "-C", "d", "push", "origin", "HEAD:refs/heads/aria-impl-0123abcd4567890"],
+            ["bash", "-c", "git push --force"],
+        ):
+            with self.subTest(argv=argv):
+                self.assertIsNone(_is.governance_bypass_refusal(argv), argv)
+
+    def test_the_perimeter_checks_refuse_the_same_argv(self) -> None:
+        """The gate the adapter's verdict mirrors: `_check_no_force_push` and
+        `_check_no_no_verify` refuse an action carrying the escaping forms."""
+        forced = _is._check_no_force_push(_is.HardFailContext(bash_argv=["git", "-C", "d", "push", "-f"]))
+        self.assertFalse(forced.passed)
+        self.assertEqual(forced.reason, "force_flag_in_bash_argv:-f")
+        verified = _is._check_no_no_verify(_is.HardFailContext(bash_argv=["git", "-c", "a=b", "commit", "-n"]))
+        self.assertFalse(verified.passed)
+        self.assertEqual(verified.reason, "hook_bypass_flag:-n")
 
 
 class TestPhaseAPrePrOpenChecks(unittest.TestCase):
@@ -1062,9 +1148,10 @@ class TestV9PublicApi(unittest.TestCase):
             "SandboxUnavailable", "sandbox_backend",
             # ARIA-HIGH-123 — why sandbox_backend() answered None (the git
             # containment probe's reason), for the pre-claim gate's row; and
-            # the managed route's network setting, which the containment
-            # probe builds with so it proves the implementer's own argv.
-            "sandbox_unavailable_detail", "MANAGED_SPAWN_ALLOW_NETWORK",
+            # the managed route's provider route, which the containment
+            # probe builds with so it proves the implementer's own argv
+            # (ARIA-MEDIUM-563: a route key, no longer a network bool).
+            "sandbox_unavailable_detail", "MANAGED_SPAWN_PROVIDER",
             # ORPHAN-HIGH-470 — the limiter contract is typed for the same
             # reason: apply_resource_limits RAISES rather than handing back
             # bare argv when no limiter is usable.
@@ -1124,10 +1211,10 @@ class TestV9PublicApi(unittest.TestCase):
             # event. The limiter's bus plumbing is named and read by one owner
             # so every lane probes its limiter in the environment that launches
             # it; the managed Claude sandbox wrapper binds the resolved
-            # executable, the spawn's documents and one credential file into
-            # the private home (the mirror of the Codex runtime-state wrapper).
+            # executable and the spawn's documents (the mirror of the Codex
+            # runtime-state wrapper); no login file since ARIA-MEDIUM-563.
             "LIMITER_CONTROL_ENV_NAMES", "limiter_control_environment",
-            "wrap_managed_claude_in_sandbox", "CLAUDE_LOGIN_CREDENTIALS_FILENAME",
+            "wrap_managed_claude_in_sandbox",
             # ARIA-HIGH-104 (2) — the one whole-entry matching rule the
             # pre-PR-open suite check and the merge gate's hygiene battery share.
             "canonical_command_satisfied_by",
@@ -1152,15 +1239,24 @@ class TestV9PublicApi(unittest.TestCase):
             "COMMIT_SIGNATURE_VERIFY_TIMEOUT_SECONDS",
             "VALIDATION_SANDBOX_CONTAINMENT_FLAGS",
             "VALIDATION_OBSERVATION_CHILD",
+            # ARIA-HIGH-013 — one addition, a review event. The force-push
+            # and hook-bypass definition the `no_force_push` / `no_no_verify`
+            # perimeter checks refuse an argv with, made public so the
+            # workflow/shell safety adapter asks the same function about the
+            # repository's own workflows and scripts instead of keeping a
+            # second list of forbidden git flags.
+            "governance_bypass_refusal",
+            # ARIA-MEDIUM-563 review — the host trees every room binds
+            # read-only, built from the same tuple as the binds. The
+            # kernel's credential-file reader refuses a token under one
+            # (rooms run as the kernel's uid), so it reads the room
+            # builder's list instead of keeping a copy.
+            "room_host_roots",
         }
         self.assertEqual(
             set(_is.__all__), canonical,
             f"__all__ drifted; missing={canonical - set(_is.__all__)} extra={set(_is.__all__) - canonical}",
         )
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class ResourceLimitSelectionTests(unittest.TestCase):
@@ -1234,3 +1330,7 @@ class ResourceLimitSelectionTests(unittest.TestCase):
             self.assertIn("resource_limits_unavailable", str(ctx.exception))
         finally:
             impl._systemd_run_available.cache_clear()
+
+
+if __name__ == "__main__":
+    unittest.main()

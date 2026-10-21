@@ -407,6 +407,65 @@ class SubmitResultE2ETests(unittest.TestCase):
         ):
             yield
 
+    def test_a_refused_judge_envelope_is_permanent_fail_at_submit(self) -> None:
+        """ARIA-MEDIUM-168 red — the submit path records the fold's status.
+
+        A judge envelope whose verdict is outside the vocabulary is REFUSED
+        by the judge bridge deterministically (ARIA-MEDIUM-172 typed it);
+        the submit-time bridge-status write must record permanent_fail at
+        attempt 1 with terminal_reason "refused" — not schedule a retry of
+        an input that is refused identically on every replay — and the
+        request state must lift straight to the terminal
+        ACCEPTED_PENDING_BRIDGE_PERMANENT_FAIL. Before the fix this wrote
+        pending_retry@1 and the state was ACCEPTED_PENDING_BRIDGE."""
+        from aria_kernel.bridge_status_ledger import latest_bridge_status_for
+
+        request, claim = self._claim(nonce="-refused")
+        envelope = {
+            "$schema": "aria/agent-response/v1",
+            "request_id": request["request_id"],
+            "claim_id": claim["claim_id"],
+            "agent_id": claim["agent_id"],
+            "role": "evidence_judgment",
+            "status": "submitted",
+            "satisfaction_matrix": [
+                {"id": "F-001-evidence", "verdict": "satisfied", "evidence_refs": ["src.txt:1"]},
+            ],
+            "evidence_refs": ["src.txt:1"],
+            "details": {"verdict": {"verdict": "maybe", "confidence": 0.9}},
+        }
+        out_path = Path(request["expected_output_path"])
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(envelope), encoding="utf-8")
+        transcript = self._transcript_artifact(request, claim)
+        result = submit_claim_result(
+            claim_id=claim["claim_id"],
+            agent_id="judge-worker-001",
+            lease_token=claim["lease_token"],
+            output_path=out_path,
+            workspace_root=self.repo,
+            base_dir=self.tools,
+            **self._binding_kwargs(request, transcript),
+        )
+        # The response itself passed every gate: a bridge refusal does not
+        # undo the accept.
+        self.assertEqual(result["status"], "accepted", result)
+        self.assertTrue(result["bridged"]["bridge_refusals"])
+        row = result["row"]
+        latest = latest_bridge_status_for(
+            base_dir=self.tools,
+            result_row_ledger_hash=str(row["ledger_hash"]),
+            envelope_evidence_hash=str(row["envelope_evidence_hash"]),
+        )
+        self.assertEqual(
+            (latest.get("transition"), latest.get("attempt_number"), latest.get("terminal_reason")),
+            ("permanent_fail", 1, "refused"),
+        )
+        self.assertEqual(
+            derive_request_state(request_id=request["request_id"], base_dir=self.tools),
+            "ACCEPTED_PENDING_BRIDGE_PERMANENT_FAIL",
+        )
+
     def test_full_claim_submit_accept_flow(self) -> None:
         request, claim = self._claim()
         out = self._good_envelope(request=request, claim=claim)
@@ -428,16 +487,17 @@ class SubmitResultE2ETests(unittest.TestCase):
         # Plan 026R §C.5 — derive_request_state is bridge-aware. For
         # BRIDGE_REQUIRED roles (this test uses evidence_judgment) the
         # state lifts to ACCEPTED_PENDING_BRIDGE when the bridge has
-        # not yet succeeded; ACCEPTED when it has. This e2e test does
-        # not drive a fully-bridgeable judgment envelope, so the
-        # bridge may legitimately end in pending_retry. The assertion
-        # preserves the test's original architectural intent (accept
-        # != reject) without overspecifying the bridge sub-state —
-        # bridge-specific assertions live in test_bridge_retry.py.
+        # not yet succeeded; ACCEPTED when it has. This envelope is
+        # refused deterministically by the judge bridge (no judge
+        # identity in the fixture), which since ARIA-MEDIUM-168 is
+        # permanent_fail/"refused" at submit: the state is exactly the
+        # terminal ACCEPTED_PENDING_BRIDGE_PERMANENT_FAIL — a retry of a
+        # refused envelope is a budget burned to relearn a refusal.
+        # Bridge-specific assertions live in test_bridge_retry.py.
         state = derive_request_state(
             request_id=request["request_id"], base_dir=self.tools,
         )
-        self.assertIn(state, {"ACCEPTED", "ACCEPTED_PENDING_BRIDGE"})
+        self.assertEqual(state, "ACCEPTED_PENDING_BRIDGE_PERMANENT_FAIL")
 
     def test_successful_submit_never_reacquires_the_state_transaction(self) -> None:
         request, claim = self._claim()

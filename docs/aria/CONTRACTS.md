@@ -1629,7 +1629,8 @@ a probe that did not answer is neither.
 The observation is three-valued BY CONSTRUCTION. Every `_RuntimeStatusObservation` carries a
 required `decision: StatusDecision` named at the site that saw the answer — `AVAILABLE` (the vendor
 confirmed the managed session / credential), `UNAVAILABLE` (the vendor or the ledger SAID no:
-`managed_session_logged_out`, `api_key_auth_not_managed`, `managed_login_required`,
+`claude_gateway_credential_absent` (the kernel's Claude credential boundary refused, ARIA-MEDIUM-563),
+`managed_login_required`,
 `cli_reported_not_logged_in`, a Z.ai 401/403, a Z.ai 429/402 or entitlement refusal,
 `cli_unavailable`, `provider_not_configured`, `provider_quota_cooldown`,
 `provider_readonly_runtime`, and the managed Codex route's decided refusals
@@ -1644,23 +1645,21 @@ error, a vendor 5xx, a managed context this host could not bind). A contradictor
 the type, never on a reason string. The Z.ai probe's `_classify` returns the decision beside
 auth/quota/reason; a 429 is DECIDED unavailable with auth still `available`.
 
-The answer decides before the exit code (verifier, 2026-09-12). Both managed CLIs report a
-logged-out session as an answer AND a non-zero exit: Claude Code 2.1.269 prints `{"loggedIn": false,
-…}` then `process.exit(loggedIn ? 0 : 1)` (read from the installed binary; reproduced offline with
-an empty config dir), Codex 0.154.0 prints `Not logged in` and exits 1 (reproduced offline with an
-empty `CODEX_HOME`). `tools/aria-poc/status_answers.py` owns the classification for both:
-`classify_claude_status_answer(stdout, returncode)` reads the JSON document first (a boolean
-`loggedIn` is the vendor's answer whatever the exit — logged out → `managed_session_logged_out`
-UNAVAILABLE carrying `exit_code=1`), `classify_codex_status_answer(output, returncode)` reads the
-line first (`Not logged in` → `cli_reported_not_logged_in` UNAVAILABLE, with the same read-only
-PATH-alias-warning tolerance as the login lines). The exit code is consulted in the shared no-answer
-arm and nowhere else — pinned structurally by `tests/test_status_answers_before_exit_codes.py` (an
-AST scan: neither classifier compares `returncode`) and behaviourally through the real probes with
-scripted binaries that mirror the installed exit codes; the lane fixtures
-(`test_ci_executor_native_claude._fake_claude`, the smoke suite's Codex status fixture) exit as the
-real CLIs do. The probes (`claude_runtime._probe_claude_auth_status`,
-`codex_runtime._probe_codex_auth_status`) keep the spawn — environment boundary, per-attempt cap,
-byte cap, reaping, the limiter's dead-bus arm — and hand the bytes to the classifier.
+The answer decides before the exit code (verifier, 2026-09-12). The managed Codex CLI reports a
+logged-out session as an answer AND a non-zero exit: Codex 0.154.0 prints `Not logged in` and exits
+1 (reproduced offline with an empty `CODEX_HOME`). `tools/aria-poc/status_answers.py` owns the
+classification: `classify_codex_status_answer(output, returncode)` reads the line first (`Not logged
+in` → `cli_reported_not_logged_in` UNAVAILABLE, with the same read-only PATH-alias-warning tolerance
+as the login lines). The exit code is consulted in the no-answer arm and nowhere else — pinned
+structurally by `tests/test_status_answers_before_exit_codes.py` (an AST scan: the classifier never
+compares `returncode`) and behaviourally through the real probe with scripted binaries that mirror
+the installed exit codes. The probe (`codex_runtime._probe_codex_auth_status`) keeps the spawn —
+environment boundary, per-attempt cap, byte cap, reaping, the limiter's dead-bus arm — and hands the
+bytes to the classifier. The Anthropic route asks no CLI (ARIA-MEDIUM-563): its credential is the
+kernel's own gateway token, so the admission reads the kernel's credential boundary
+(`provider_credentials.read_provider_credential`) and decides `claude_gateway_credential_absent`
+UNAVAILABLE by name, or AVAILABLE with quota unknown; a token that no longer works is the first
+spawn's `claude_auth_failure`.
 
 The liveness bound. `recheck_timeout_seconds` (genesis policy, 20 s) keeps its meaning as the cap of
 ONE attempt. `status_probe.observe_until_decided` retries ONLY an undecided observation:
@@ -2049,7 +2048,8 @@ days or lapsed, 3 otherwise). Adding a rule the kernel enforces means adding its
 **A signal is routed by its remedy, not by its priority.** `self_improvement.SIGNAL_REMEDIES` gives
 every signal kind exactly one closed remedy — `self_change` for the five kinds whose answer is a
 change to ARIA's own code (`capability_gap`, `funnel_stall`, `delivery_slo_gap`, `mcp_quarantine`,
-`doctor_fail`, together `SELF_CHANGE_SIGNAL_KINDS`) and `announce` for `deadline_due` — and a
+`doctor_fail`, `adaptation_due`, together `SELF_CHANGE_SIGNAL_KINDS`) and `announce` for
+`deadline_due`, `config_missing`, `host_fault` and `operator_condition` — and a
 `Signal` of a kind outside the table cannot be built (`signal_kind_unknown`). The mission opener
 (`open_self_improvement_missions` → `self_change_signals`) mints `propose_self_change` missions only
 for the `self_change` remedy, ordered by priority within it. `deadline_due` is announced — the doctor,
@@ -2063,6 +2063,44 @@ missions and the `mcp_quarantine:context7` row never got one (132 lapsed rows on
 made the starvation permanent). A lapsed FAULT still reaches the opener at priority 1 as the
 `deadlines` organ's own `doctor_fail`. When HIGH-122's adaptation loop owns a contract for a dated
 row, that contract is added to `SIGNAL_REMEDIES` — not to the opener's sort key.
+
+**A signal family the scan cannot read is named, never read as "nothing to improve"
+(ARIA-LOW-587).** `scan_signals` returns a `SignalScan`: the signals, and `unreadable` — one
+`UnreadableSource(family, fault)` per family of `SCAN_FAMILIES` it could not read. Each family absorbs
+only the faults its reader declares next to it (`capability_gap_reader_faults`,
+`knowledge_graph.effectiveness_reader_faults`, `delivery_closure_reader_faults`,
+`mcp_client.quarantine_reader_faults`, all built on `ledger.ledger_read_faults`); a doctor organ whose
+probe raised (`DoctorCheck.probe_fault`) is named `doctor_organ:<organ>:<class>`; a deadline source
+the reader could not read (`DeadlineReadout.undecided`) is named `deadline_due:<source>:<class>`.
+Anything else a reader raises — a `TypeError`, a crash of the doctor run itself — is a kernel defect
+and raises out of the scan. The opener's `MissionOpening`, the `self_improve` action's `detail` and its
+`gateway_action_ran` row, and `aria-kernel self-improve scan|open` all carry `unreadable`.
+
+**A daily-report section its reader could not read says so (ARIA-LOW-514, ARIA-LOW-586).** Every
+store-reading section of the reflection report absorbs only the faults its reader declares next to it
+(`plan_016_metric_reader_faults`, `observability_reader_faults`, `registry_reader_faults`,
+`rule_health_reader_faults`, `duel_reader_faults`, `own_pr_reds_reader_faults`, and the ledger
+primitives' own `ledger_read_faults` for the learning-events, missions and cycle-history reads) and
+renders it under its own heading as `- unreadable: <class>` — the class, never the message, which
+carries host paths. The signal-starvation sentinel (`_compute_dataflow_health`) names an unreadable
+cycle history or watched series in `unreadable` and judges it neither starved nor healthy. Anything
+else a reader raises is a kernel defect and fails the report; `test_reflection_reader_faults` refuses
+an `except Exception`, `except BaseException` or bare `except` anywhere in reflection.py.
+
+**A condition the kernel can name is a condition it can plan against (ARIA-HIGH-122).** The
+`adaptation` family (`adaptation_signals`) reads the classes the kernel already names, one signal per
+CLASS with its count and at most `ADAPTATION_EVIDENCE_IDS_MAX` evidence ids — never one per record (the
+live store held 355 open records of one HUMAN_REQUIRED kind): an open HUMAN_REQUIRED record by its
+`context.kind` (a prose reason without a kind is `unclassified`), a harness-class release on the claims
+ledger by its structured `reason_code` once it recurs `RELEASE_MIN_IN_WINDOW` times in
+`RELEASE_WINDOW_DAYS`, and a lapsed dated waiver by its manifest kind. What a class is born as is
+`self_improvement.ADAPTATION_SIGNAL_KINDS`' decision, on an authority surface: `adaptation_due`
+(remedy `self_change`, a `propose_self_change` mission) only when the answer is a change under
+`SELF_CHANGE_ALLOWED_PREFIXES` that touches no authority surface; `operator_condition` (remedy
+`announce`) for a credential, a subscription, a vendor's outage, a host's binding, a per-record
+decision, this loop's own `self_change_adjudication` — and for every class the table does not name.
+Every harness release code and every waiver manifest is named there, so a new one fails
+`test_self_improvement_adaptation` instead of defaulting.
 
 Not in the registry, on purpose: rolling housekeeping windows (`state_compact` `retain_days`, the
 signing-key 24 h grace in `prune_stale_signing_keys`). Passing those windows IS their design — the row
@@ -2579,7 +2617,8 @@ unpack-objects --strict` against the shared store (each object under the hash of
   still names the private path (the B7 config transaction's ownership marker is unchanged): git
   2.43 / OpenSSH 9.6 load `<private path>.pub` when the private file is absent and sign through the
   agent; without the agent the commit fails `No private key found`, never silently unsigned. The
-  orchestrator's startup sweep (`prune_stale_signing_agents`, `prune_stale_hook_brokers`,
+  orchestrator's startup sweep (`socket_holders.prune_stale_holder_sockets` over every holder
+  `socket_holders` declares, `SIGNING_AGENT` and `HOOK_BROKER` among them, ARIA-LOW-565;
   governance `sockets_pruned`) removes socket directories whose listener is gone. The refusals
   ride the HIGH-115 release reason `implementation_signing_unavailable` with the cause in the
   governance row: `signing_agent_unavailable:<reason>`, `git_containment_refused:<reason>`; a MAIN
@@ -2608,8 +2647,8 @@ gate`, `pr create`, the push — and the `aria` MCP server once spawned inside a
   commit-capable containment derived with that signing exposure, the sandbox stood on the probe's
   `aria-impl-*` branch by the kernel (`stand_on_implementation_branch`, ARIA-HIGH-124), `git
 status` / the branch check / a signed `git commit` inside the real argv built with the managed
-  route's network setting
-  (`MANAGED_SPAWN_ALLOW_NETWORK`), `git config --local`, a hooks write and a read of the private
+  route's provider route
+  (`MANAGED_SPAWN_PROVIDER`), `git config --local`, a hooks write and a read of the private
   key REFUSED inside, a planted `refs/heads/main.lock` that must not reach the repository, then
   the executor's own publication and `git verify-commit` against the minted key from outside).
   `/etc/passwd` and `/etc/group` are system binds: `ssh-keygen -Y sign` resolves its uid before it
@@ -3023,8 +3062,9 @@ submit-result`, the drain's `agent next-pending`, the worker lane's `worker list
   (`mcp_kernel_socket_requires_relay`), never handed a server spawned inside; a relay whose
   broker cannot be reached answers every request with a JSON-RPC error naming the cause
   (`mcp_broker_unreachable:<why>`), never a hung server. The orchestrator's startup sweep prunes
-  the broker's socket directories with the others (`prune_stale_mcp_brokers`). Served against
-  the real store, the view's `governance_tail` tool turned out to have never answered at all
+  the broker's socket directories with the others (its `socket_holders.MCP_BROKER`
+  declaration). Served against the real store, the view's `governance_tail` tool turned out to
+  have never answered at all
   (`read_governance_rows(on_corruption="skip")`, a mode the reader refuses at entry) — it reads
   through the bounded seek-to-end reader now.
   Pinned end to end through the REAL executor child under REAL bwrap in

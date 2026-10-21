@@ -133,6 +133,25 @@ def _plan_round_total(tools_root: Path) -> int:
     return total
 
 
+def plan_016_metric_reader_faults() -> tuple[type[BaseException], ...]:
+    """The closed set a ``compute_plan_016_metrics`` caller may report as an
+    unreadable store (ARIA-LOW-514).
+
+    ``LedgerIntegrityError`` — a ledger whose strict verification fails (a
+    corrupt or tampered row: what a damaged store raises here, measured on a
+    governance ledger with one non-JSON row); ``LedgerReadLimitError`` — a
+    row beyond the reader's bound; ``OSError`` — the file system. Anything
+    else (``TypeError``, ``KeyError``, ``ValueError``, ``AttributeError``) is
+    a defect in this computation and must raise, never read as a store the
+    counters could not open. The set is the ledger primitives' own
+    (``ledger.ledger_read_faults``, ARIA-LOW-587): the counters read nothing
+    else. Resolved lazily, like ``knowledge_graph.effectiveness_reader_faults``.
+    """
+    from .ledger import ledger_read_faults
+
+    return ledger_read_faults()
+
+
 def compute_plan_016_metrics(*, base_dir: str | Path | None = None) -> dict[str, int]:
     """Return the Plan 016 + Plan 020 counter set as a flat dict.
 
@@ -268,7 +287,9 @@ def render_dashboard_markdown(
     )
     open_findings = _open_finding_count(repo_path) if repo_path is not None else 0
     open_debts = _open_debt_count(repo_path) if repo_path is not None else 0
-    hr_open = len(list_human_required(base_dir=tools_root))
+    hr_listing = list_human_required(base_dir=tools_root)
+    hr_open = len(hr_listing.rows)
+    hr_unreadable = [record.record_id for record in hr_listing.unreadable]
     gate_activity = _gate_activity_for_dashboard(tools_root)
 
     now = utc_now()
@@ -283,6 +304,8 @@ def render_dashboard_markdown(
         "## Unresolved Risks",
         "",
         f"- HUMAN_REQUIRED open: {hr_open}",
+        *( [f"- HUMAN_REQUIRED unreadable: {len(hr_unreadable)} ({', '.join(sorted(hr_unreadable))})"]
+           if hr_unreadable else [] ),
         f"- Open findings: {open_findings}",
         f"- Open debts: {open_debts}",
         "",

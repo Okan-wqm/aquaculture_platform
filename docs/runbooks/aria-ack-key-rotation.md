@@ -6,6 +6,38 @@
 
 ---
 
+## 0. Operator acks are signed with the operator's key (ARIA-MEDIUM-254)
+
+The HMAC key below does not sign operator acks. It lived under the store's untracked `secrets/`,
+which `aria/state` never carries and every self-hosted job sweeps (`git clean -ffdx`) before the
+store is restored, so an operator ack minted in one job never verified in a later one. An operator
+ack is now the operator's own signed act, the same way `feedback request` is:
+
+```bash
+aria-kernel ack scope --draft-id <id> --kind agent          # read the body; note scope.body_sha256
+aria-kernel ack mint --draft-id <id> --kind agent --body-sha256 <digest> \
+  --reason "<why>" --operator-user-id <you> \
+  --signing-key ~/.ssh/<operator-key> --signer-principal <principal> --actor-class T0 \
+  --workspace-root <root-owned checkout on main>
+```
+
+- `ssh-keygen` signs the row as an `operator_ack` subject in the `aria-operator-request` namespace, with
+  the actor class, the repository audience and an expiry (default and maximum: the namespace's 168 h).
+  The subject is printed to stderr before `ssh-keygen` runs.
+- The mint verifies the signature against `.github/manifests/aria-operator-signers` as committed at the
+  checkout's commit proven on `main`, and writes nothing if it does not verify. Signing as root, the
+  checkout, the working directory and the kernel package must be root-only (ARIA-LOW-266).
+- Materialize verifies it again in whatever job runs it, against the checkout it is given
+  (`--workspace-root`), and refuses an expired ack, a row no enrolled key signed, and any operator row
+  minted with the HMAC key before this change (`operator_signature_required`: mint a new ack).
+- `aria-kernel ack verify --workspace-root <checkout on main>` checks operator rows against the committed
+  allowed-signers file and their consumption rows by their binding to the mint row on the hash-chained
+  ledger; it needs no secret.
+
+The rest of this runbook governs the HMAC key, which now signs only autonomous acks (minted and
+consumed in one materialization; no live lane mints them) and the operator rows minted before
+ARIA-MEDIUM-254.
+
 ## 1. Key custody
 
 The ack-ledger HMAC key lives at `aria-tools/secrets/ack_hmac.key` on the operator's local filesystem. The file:
@@ -14,7 +46,14 @@ The ack-ledger HMAC key lives at `aria-tools/secrets/ack_hmac.key` on the operat
 - Has `chmod 0600` (operator-readable only).
 - Is gitignored via `.gitignore` rule `aria-tools/secrets/` (verified by invariant `I-V3-19c`).
 - Is NEVER committed to git history (verified by `I-V3-19d` `git log` scan).
-- Contains a JSON document `{"keys": [{"key_id": "<uuid>", "secret": "<base64>", "minted_at": "<ts>", "retired_at": <ts|null>}, ...]}` with the rolling key list (most recent first).
+- Contains a JSON document with the rolling key list (most recent first) and, once a key has been
+  revoked (§3), a `revoked` record list — ids and reasons only, never a secret:
+
+  ```json
+  {"keys": [{"key_id": "<uuid>", "secret": "<base64>", "minted_at": "<ts>", "retired_at": <ts|null>}, ...]}
+  {"revoked": [{"key_id", "minted_at", "revoked_at", "reason"}, ...]}
+  ```
+
 - Retains the **last 5 keys** for historical signature verification (locked by `I-V3-19e`).
 
 If `aria-tools/secrets/ack_hmac.key` does not exist, `aria-kernel ack init --reason <text> --operator-approval-ref <ref>` mints the first key and creates the file. The reason text is validated via `_validate_reason` (Plan ARIA-V2 §AUDITTRAIL-HIGH-005).
@@ -72,10 +111,19 @@ aria-kernel ack revoke-key \
 - Emits `ack_key_emergency_rotated` event (distinct from scheduled `ack_key_rotated`).
 - Triggers a governance alert if observability webhook is configured.
 
-`ack revoke-key`:
+`ack revoke-key` (ARIA-LOW-598):
 
-- Removes the named key from the rolling list **without** the standard retirement grace period.
-- Any historical row signed by the revoked key becomes UNVERIFIABLE — but the row CONTENT remains (forensic value preserved); a `signed_key_revoked` annotation is appended to the row at verify-time.
+- Removes the named key from the rolling list **without** the standard retirement grace period: its
+  secret is deleted from the key file at once, so a leaked copy can no longer produce a row that
+  verifies.
+- Keeps a revocation record (`key_id`, `minted_at`, `revoked_at`, `reason`) beside the list and emits
+  an `ack_key_revoked` governance event with the `--operator-approval-ref`. No later rotation, init
+  or DR regeneration drops the record; `ack list-keys` shows it under `revoked`.
+- Refuses the current head key (`hmac_revoke_head_key`): rotate first (Step 1), then revoke the key
+  that was the head. Refuses an id the rolling list does not hold and one already revoked.
+- Any historical row signed by the revoked key becomes UNVERIFIABLE — but the row CONTENT remains
+  (forensic value preserved): `ack verify` reports it as `signed_key_revoked`, never as valid and
+  never as an unknown key.
 
 ---
 
@@ -83,7 +131,9 @@ aria-kernel ack revoke-key \
 
 If `aria-tools/secrets/ack_hmac.key` is lost:
 
-1. **STOP**: any new `ack mint` will fail with `hmac_key_missing` until the key is regenerated. Do NOT regenerate silently — historical row verification is impacted.
+1. **STOP**: any new autonomous ack will fail with `hmac_key_missing` until the key is
+   regenerated (operator acks need no HMAC key, §0). Do NOT regenerate silently — historical row
+   verification is impacted.
 2. Run `aria-kernel ack verify --range full` BEFORE creating a new key — this records WHICH rows are currently verifiable (will be most of them, until step 3).
 3. Mint a fresh key:
    ```bash
@@ -114,12 +164,13 @@ ARIA's ack key is per-clone by design (operator-local secret). To hand off the a
 
 ## 6. Verification invariants (CI-enforced)
 
-| Invariant | What it locks |
-|---|---|
-| `I-V3-19c test_hmac_key_path_in_gitignore` | `.gitignore` covers `aria-tools/secrets/` |
-| `I-V3-19d test_hmac_key_not_committed_to_git_history` | `git log` scan finds zero key-shaped commits |
+| Invariant                                                              | What it locks                                  |
+| ---------------------------------------------------------------------- | ---------------------------------------------- |
+| `I-V3-19c test_hmac_key_path_in_gitignore`                             | `.gitignore` covers `aria-tools/secrets/`      |
+| `I-V3-19d test_hmac_key_not_committed_to_git_history`                  | `git log` scan finds zero key-shaped commits   |
 | `I-V3-19e test_hmac_key_rotation_preserves_old_signature_verification` | Rolling list (last 5) verifies historical rows |
-| `I-V3-19f test_dr_runbook_aria_ack_key_rotation_present` | This file exists at this path |
+| `I-V3-19f test_dr_runbook_aria_ack_key_rotation_present`               | This file exists at this path                  |
+| `test_i_v3_00d_every_ack_command_the_runbook_prescribes_runs`          | Every `ack` command here parses (ARIA-LOW-598) |
 
 A failed invariant blocks the V3 invariant suite from passing; the kernel test sweep also blocks any PR landing on snowball until the invariant is restored.
 
@@ -127,15 +178,16 @@ A failed invariant blocks the V3 invariant suite from passing; the kernel test s
 
 ## 7. Quick reference
 
-| Action | Command |
-|---|---|
-| First-time init | `aria-kernel ack init --reason ... --operator-approval-ref ...` |
-| Schedule rotation | `aria-kernel ack rotate-key --reason ... --operator-approval-ref ...` |
-| Emergency rotation | `aria-kernel ack rotate-key --emergency --reason ...` |
-| Revoke compromised key | `aria-kernel ack revoke-key --key-id ... --reason ...` |
-| DR regenerate after loss | `aria-kernel ack init --force --reason ...` |
-| Verify rows | `aria-kernel ack verify --range last-N|full` |
-| List rolling keys | `aria-kernel ack list-keys` |
+| Action                     | Command                                                                                         |
+| -------------------------- | ----------------------------------------------------------------------------------------------- |
+| Operator ack (no HMAC key) | `aria-kernel ack mint ... --signing-key ... --signer-principal ... --actor-class T0` (§0)       |
+| First-time init            | `aria-kernel ack init --reason ... --operator-approval-ref ...`                                 |
+| Schedule rotation          | `aria-kernel ack rotate-key --reason ... --operator-approval-ref ...`                           |
+| Emergency rotation         | `aria-kernel ack rotate-key --emergency --reason ... --operator-approval-ref ...`               |
+| Revoke compromised key     | `aria-kernel ack revoke-key --key-id ... --reason ... --operator-approval-ref ...`              |
+| DR regenerate after loss   | `aria-kernel ack init --force --reason ...`                                                     |
+| Verify rows                | `aria-kernel ack verify --range last-N --workspace-root <checkout on main>` (or `--range full`) |
+| List rolling keys          | `aria-kernel ack list-keys`                                                                     |
 
 ---
 
@@ -147,6 +199,10 @@ When auditing ack-ledger integrity:
 2. Confirm `.gitignore` covers `aria-tools/secrets/`.
 3. Confirm `git log --all --full-history -- aria-tools/secrets/` returns empty.
 4. Run `aria-kernel ack verify --range full`; capture rows that fail.
-5. For each failure row, look up `signed_key_id` in the rolling list AND in the revoked-key audit ledger; classify (rotated-out-grace-window vs revoked vs lost-key vs forged).
-6. Cross-reference `ack_key_rotated` / `ack_key_emergency_rotated` / `ack_key_dr_regenerated` events with the operator's incident log.
+5. For each failure row, look up `signed_key_id` in the rolling list AND in the revocation records
+   (`aria-kernel ack list-keys` → `revoked`, and the `ack_key_revoked` governance events); classify
+   (rotated-out-grace-window vs revoked vs lost-key vs forged). A revoked key's rows already verify
+   as `signed_key_revoked`.
+6. Cross-reference `ack_key_rotated` / `ack_key_emergency_rotated` / `ack_key_revoked` /
+   `ack_key_dr_regenerated` events with the operator's incident log.
 7. Emit auditor decision row to `docs/reviews/aria/<date>-ack-key-audit.md`.

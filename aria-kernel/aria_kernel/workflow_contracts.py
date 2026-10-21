@@ -39,6 +39,8 @@ from .workflow_contract_registry import (
     WorkflowJobContract,
     workflow_contract_hash,
     workflow_contract_registry,
+    job_token_permissions,
+    uncontracted_write_scopes,
     workflow_hash,
     workflow_job_contract_hash,
 )
@@ -236,7 +238,6 @@ def verify_workflow_contract(
         reasons.append(f"governed_jobs_missing:{missing_jobs}")
         failure_classes.append("workflow_contract_jobs")
 
-    top_permissions = workflow.get("permissions") if isinstance(workflow.get("permissions"), dict) else {}
     for job_contract in contract.job_contracts:
         job = jobs.get(job_contract.job_id)
         if not isinstance(job, dict):
@@ -245,7 +246,7 @@ def verify_workflow_contract(
             workflow_id=workflow_id,
             job=job,
             job_contract=job_contract,
-            top_permissions=top_permissions,
+            workflow=workflow,
             reasons=reasons,
             failure_classes=failure_classes,
         )
@@ -308,7 +309,7 @@ def _verify_job_contract(
     workflow_id: str,
     job: dict[str, Any],
     job_contract: WorkflowJobContract,
-    top_permissions: dict[str, Any],
+    workflow: dict[str, Any],
     reasons: list[str],
     failure_classes: list[str],
 ) -> None:
@@ -393,7 +394,8 @@ def _verify_job_contract(
     )
     _verify_permissions(
         job_id=job_contract.job_id,
-        actual=job.get("permissions") if isinstance(job.get("permissions"), dict) else top_permissions,
+        job=job,
+        workflow=workflow,
         required=dict(job_contract.required_permissions),
         reasons=reasons,
         failure_classes=failure_classes,
@@ -748,23 +750,29 @@ def _verify_preflight_call_shape(
 def _verify_permissions(
     *,
     job_id: str,
-    actual: dict[str, Any],
+    job: dict[str, Any],
+    workflow: dict[str, Any],
     required: dict[str, str],
     reasons: list[str],
     failure_classes: list[str],
 ) -> None:
-    if not isinstance(actual, dict):
-        reasons.append(f"workflow_permissions_missing:{job_id}")
+    # ARIA-HIGH-589 — judge what the token is GRANTED (job_token_permissions:
+    # the job's own value replaces the workflow's; write-all/read-all expand
+    # to every scope), so a governed job's `permissions: write-all` meets its
+    # least-privilege contract instead of falling back to the workflow map.
+    actual = job_token_permissions(job, workflow)
+    if actual is None:
+        declared = job["permissions"] if "permissions" in job else workflow["permissions"]
+        reasons.append(f"workflow_permissions_invalid:{job_id}:{declared!r}")
         failure_classes.append("workflow_permissions")
         return
     for key, value in required.items():
         if actual.get(key) != value:
             reasons.append(f"workflow_permission_mismatch:{job_id}:{key}:{actual.get(key)!r}!={value!r}")
             failure_classes.append("workflow_permissions")
-    for key, value in actual.items():
-        if value == "write" and required.get(key) != "write":
-            reasons.append(f"workflow_uncontracted_write_permission:{job_id}:{key}")
-            failure_classes.append("workflow_permissions")
+    for key in uncontracted_write_scopes(actual, required):
+        reasons.append(f"workflow_uncontracted_write_permission:{job_id}:{key}")
+        failure_classes.append("workflow_permissions")
 
 
 def _uses_action_id(value: Any) -> str:

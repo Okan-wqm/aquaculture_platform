@@ -87,6 +87,17 @@ class ValidateJudgeResponseTests(unittest.TestCase):
             )
         self.assertIn("judge bridge contract violation", str(ctx.exception))
 
+    def test_the_bridge_refusal_is_typed_not_transient(self) -> None:
+        # ARIA-MEDIUM-172 — the shared contract's refusal is deterministic
+        # (the same envelope is refused on every replay), so the exception
+        # carries the type the bridge-status ledger ends retries by.
+        from aria_kernel.bridge_exceptions import BridgeContractRefused
+
+        with self.assertRaises(BridgeContractRefused):
+            record_judge_verdict_from_response(
+                request=_request(), response=_response(None),
+            )
+
     def test_release_reason_is_harness_class(self) -> None:
         self.assertIn("judge_verdict_contract_violation", HARNESS_FAULT_RELEASE_REASONS)
         self.assertTrue(_is_harness_fault_reason("judge_verdict_contract_violation"))

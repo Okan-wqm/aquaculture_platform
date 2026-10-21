@@ -118,6 +118,17 @@ def list_observability_dashboards(*, base_dir: str | Path | None = None) -> list
     return load_jsonl(ensure_tools_dir(base_dir) / "observability" / "dashboards.jsonl")
 
 
+def observability_reader_faults() -> tuple[type[BaseException], ...]:
+    """The closed set a reader of this module's ledgers (dashboards, cycle
+    metrics, the alert history at ``alerts_path``) may report as an
+    unreadable store (ARIA-LOW-586): they are plain ledgers, so the set is
+    the ledger primitives' own (``ledger.ledger_read_faults``). Anything
+    else is a defect and must raise."""
+    from .ledger import ledger_read_faults
+
+    return ledger_read_faults()
+
+
 def _normalize_durations(durations: dict[str, int | float]) -> dict[str, int]:
     if not isinstance(durations, dict) or not durations:
         raise GovernanceError("phase_durations_ms must be a non-empty object")

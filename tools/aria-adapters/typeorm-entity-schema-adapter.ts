@@ -14,6 +14,12 @@ import {
   resolveInsideWorkspace as resolveAdapterPath,
   workspacePathExists,
 } from './adapter-fs';
+import {
+  MODULE_SCHEMAS_SOURCE_PATH,
+  readModuleSchemasSource,
+  type ModuleSchemaSourceError,
+  type ModuleSchemaSourceRecord as ModuleSchemaRecord,
+} from './module-schemas-source';
 
 type CheckName = 'entity_schema' | 'module_schema' | 'migration_registry' | 'db_snapshot';
 type FindingRule =
@@ -39,7 +45,11 @@ interface AdapterInput {
   readonly allowlist?: readonly string[];
   readonly dbSnapshotPath?: string;
   readonly moduleTableAllowlist?: readonly string[];
-  readonly repo_snapshot?: { readonly allowed_paths?: readonly string[]; readonly snapshot_hash?: string; readonly repo_state_id?: string };
+  readonly repo_snapshot?: {
+    readonly allowed_paths?: readonly string[];
+    readonly snapshot_hash?: string;
+    readonly repo_state_id?: string;
+  };
 }
 
 interface EvidenceRef {
@@ -118,17 +128,6 @@ interface AnalysisResult {
   readonly readPaths: string[];
 }
 
-interface ModuleSchemaRecord {
-  readonly moduleName: string;
-  readonly sourceSchema: string;
-  readonly strictOwnership: boolean;
-  readonly tables: readonly string[];
-  readonly referenceDataTables: readonly string[];
-  readonly infrastructureTables: readonly string[];
-  readonly path: string;
-  readonly line: number;
-}
-
 /**
  * E13 spot-audit FP class (1) — ADR-011 schema-ownership policy, DERIVED from
  * the SSoT file (`libs/backend-common/src/database/schema-manager.service.ts`)
@@ -145,6 +144,20 @@ interface SchemaOwnershipPolicy {
   readonly tenantScopedModules: ReadonlySet<string> | null;
   readonly moduleSchema: ModuleSchemaRecord | null;
   readonly infrastructureTables: ReadonlySet<string>;
+  /**
+   * Named element-resolution failures from the MODULE_SCHEMAS reader
+   * (ARIA-MEDIUM-588). Non-empty means the registry reading is partial: the
+   * classification cannot trust `infrastructureTables`, so the entity_schema
+   * check fails closed (historical always-flag) and the module_schema check
+   * reports the errors instead of diffing against a partial list.
+   */
+  readonly readerErrors: readonly ModuleSchemaSourceError[];
+  /**
+   * Every file the reading touched (SSoT, tsconfig path map, resolved import
+   * targets) — surfaced as read_paths so the observation names what its
+   * registry verdicts came from.
+   */
+  readonly sourceReadPaths: readonly string[];
 }
 
 interface MigrationRegistry {
@@ -177,7 +190,7 @@ const DEFAULT_CHECKS: readonly CheckName[] = [
   'module_schema',
   'migration_registry',
 ];
-const MODULE_SCHEMA_PATH = 'libs/backend-common/src/database/schema-manager.service.ts';
+const MODULE_SCHEMA_PATH = MODULE_SCHEMAS_SOURCE_PATH;
 // FAZ 7 — the schema-per-tenant services from MODULE_SCHEMAS (ADR-011).
 // Scanning only farm-service made schema drift a farm-only property while
 // six sibling services carried the identical per-tenant discipline unwatched.
@@ -200,7 +213,7 @@ export function analyzeTypeOrmEntities(
   // sweeps the declared service list and merges.
   if (input.root === undefined) {
     const services = (input.services ?? DEFAULT_SERVICES).filter((service) =>
-      workspacePathExists(resolveInsideWorkspace(workspaceRoot, service.root)),
+      workspacePathExists(workspaceRoot, resolveInsideWorkspace(workspaceRoot, service.root)),
     );
     const outputs = services.map((service) =>
       analyzeTypeOrmEntities(
@@ -230,20 +243,24 @@ export function analyzeTypeOrmEntities(
   const serviceName = input.serviceName ?? 'farm';
   const checks = new Set(input.checks ?? DEFAULT_CHECKS);
   const scanRoot = resolveInsideWorkspace(workspaceRoot, requestedRoot);
-  if (!workspacePathExists(scanRoot)) {
+  if (!workspacePathExists(workspaceRoot, scanRoot)) {
     throw new Error(`scan root does not exist: ${requestedRoot}`);
   }
 
   const allowlist = new Set((input.allowlist ?? []).map(normalizePath));
   const moduleTableAllowlist = new Set((input.moduleTableAllowlist ?? []).map(String));
-  const files = filterFilesBySnapshot(collectEntityFiles(scanRoot), workspaceRoot, input);
+  const files = filterFilesBySnapshot(
+    collectEntityFiles(workspaceRoot, scanRoot),
+    workspaceRoot,
+    input,
+  );
   // The ownership policy is consulted by BOTH the entity_schema check (per-tenant
   // vs cross-tenant classification) and the module_schema check (declared-table
   // diff), so it is parsed exactly once per service run.
   const policy = loadSchemaOwnershipPolicy(workspaceRoot, serviceName, input);
   const result = analyzeFiles(files, workspaceRoot, allowlist, checks, serviceName, policy);
   if (policy.ssotReadable && (checks.has('entity_schema') || checks.has('module_schema'))) {
-    result.readPaths.push(MODULE_SCHEMA_PATH);
+    result.readPaths.push(...policy.sourceReadPaths);
   }
 
   if (checks.has('module_schema')) {
@@ -260,7 +277,9 @@ export function analyzeTypeOrmEntities(
   result.findings.sort(compareById);
   result.readPaths.sort();
   const evidenceSources = Array.from(
-    new Set(result.findings.flatMap((finding) => finding.evidence.map((evidence) => evidence.path))),
+    new Set(
+      result.findings.flatMap((finding) => finding.evidence.map((evidence) => evidence.path)),
+    ),
   ).sort();
 
   return {
@@ -313,7 +332,7 @@ function analyzeFiles(
   const readPaths = files.map((file) => normalizePath(relative(workspaceRoot, file)));
 
   for (const file of files) {
-    const sourceText = readWorkspaceFile(file);
+    const sourceText = readWorkspaceFile(workspaceRoot, file);
     const sourceFile = ts.createSourceFile(file, sourceText, ts.ScriptTarget.Latest, true);
     const relativePath = normalizePath(relative(workspaceRoot, file));
     const allowlisted = allowlist.has(relativePath);
@@ -327,7 +346,8 @@ function analyzeFiles(
         return;
       }
 
-      const line = sourceFile.getLineAndCharacterOfPosition(decorator.getStart(sourceFile)).line + 1;
+      const line =
+        sourceFile.getLineAndCharacterOfPosition(decorator.getStart(sourceFile)).line + 1;
       const className = node.name?.text ?? '<anonymous>';
       const entity = readEntityDecorator(decorator);
       const record: EntityRecord = {
@@ -378,11 +398,15 @@ function analyzeFiles(
         // routes them into tenant_<uuid> at runtime. A missing schema is only
         // a violation when the table is in that service's cross-tenant
         // infrastructureTables set (parsed from the SSoT, never hardcoded).
-        // When the SSoT cannot be read or lacks TENANT_SCOPED_MODULES the
-        // check fails closed and keeps the historical always-flag behaviour.
+        // When the SSoT cannot be read, lacks TENANT_SCOPED_MODULES, or the
+        // reader reported element-resolution failures (ARIA-MEDIUM-588: a
+        // partial registry cannot classify), the check fails closed and keeps
+        // the historical always-flag behaviour.
         const effectiveTable = entity.table ?? snakeCaseIdentifier(className);
         const tenantScoped =
-          policy.tenantScopedModules !== null && policy.tenantScopedModules.has(serviceName);
+          policy.readerErrors.length === 0 &&
+          policy.tenantScopedModules !== null &&
+          policy.tenantScopedModules.has(serviceName);
         const infrastructureTable = policy.infrastructureTables.has(effectiveTable);
         if (!tenantScoped || infrastructureTable) {
           findings.push({
@@ -417,26 +441,41 @@ function loadSchemaOwnershipPolicy(
   input: AdapterInput,
 ): SchemaOwnershipPolicy {
   const modulePath = resolveInsideWorkspace(workspaceRoot, MODULE_SCHEMA_PATH);
-  if (!workspacePathExists(modulePath) || !pathAllowedBySnapshot(workspaceRoot, MODULE_SCHEMA_PATH, input)) {
+  if (
+    !workspacePathExists(workspaceRoot, modulePath) ||
+    !pathAllowedBySnapshot(workspaceRoot, MODULE_SCHEMA_PATH, input)
+  ) {
     return {
       ssotReadable: false,
       tenantScopedModules: null,
       moduleSchema: null,
       infrastructureTables: new Set(),
+      readerErrors: [],
+      sourceReadPaths: [],
     };
   }
+  // The one adapter-side MODULE_SCHEMAS reading (ARIA-MEDIUM-588): resolves
+  // spread elements and imported constants exactly as declared, and names
+  // what it cannot resolve instead of dropping it. The snapshot's read policy
+  // governs the import-chain files exactly as it governs the SSoT itself.
+  // TENANT_SCOPED_MODULES is read from the same file's source text.
+  const source = readModuleSchemasSource(workspaceRoot, MODULE_SCHEMAS_SOURCE_PATH, {
+    pathAllowed: (path) => pathAllowedBySnapshot(workspaceRoot, path, input),
+  });
   const sourceFile = ts.createSourceFile(
     modulePath,
-    readWorkspaceFile(modulePath),
+    readWorkspaceFile(workspaceRoot, modulePath),
     ts.ScriptTarget.Latest,
     true,
   );
-  const moduleSchema = readModuleSchema(sourceFile, modulePath, workspaceRoot, serviceName);
+  const moduleSchema = source.modules.find((module) => module.moduleName === serviceName) ?? null;
   return {
     ssotReadable: true,
     tenantScopedModules: readTenantScopedModules(sourceFile),
     moduleSchema,
     infrastructureTables: new Set(moduleSchema?.infrastructureTables ?? []),
+    readerErrors: source.errors,
+    sourceReadPaths: source.readPaths,
   };
 }
 
@@ -455,6 +494,18 @@ function analyzeModuleSchema(
     return;
   }
   const moduleSchema = policy.moduleSchema;
+  if (policy.readerErrors.length > 0) {
+    // ARIA-MEDIUM-588: the registry reading is partial — named errors, never a
+    // silently truncated diff. The declared-table diff is skipped rather than
+    // diffed against a list the runtime disagrees with.
+    result.observations.push({
+      id: `module-schema:${serviceName}:parse-error`,
+      type: 'module_schema_parse_error',
+      path: MODULE_SCHEMA_PATH,
+      details: { errors: policy.readerErrors.map((error) => error.message) },
+    });
+    return;
+  }
   if (!moduleSchema) {
     result.observations.push({
       id: `module-schema:${serviceName}:not-found`,
@@ -534,7 +585,11 @@ function analyzeMigrationRegistry(
   const MIGRATIONS_DIR = `${rootRel.replace(/\/$/, '')}/database/migrations`;
   const appModulePath = resolveInsideWorkspace(workspaceRoot, APP_MODULE_PATH);
   const migrationsDir = resolveInsideWorkspace(workspaceRoot, MIGRATIONS_DIR);
-  if (!workspacePathExists(appModulePath) || !workspacePathExists(migrationsDir) || !pathAllowedBySnapshot(workspaceRoot, APP_MODULE_PATH, input)) {
+  if (
+    !workspacePathExists(workspaceRoot, appModulePath) ||
+    !workspacePathExists(workspaceRoot, migrationsDir) ||
+    !pathAllowedBySnapshot(workspaceRoot, APP_MODULE_PATH, input)
+  ) {
     result.observations.push({
       id: `migration-registry:unavailable:${serviceName}`,
       type: 'migration_registry_unavailable',
@@ -543,13 +598,17 @@ function analyzeMigrationRegistry(
     return;
   }
   addReadPath(result, workspaceRoot, appModulePath);
-  const files = filterFilesBySnapshot(collectMigrationFiles(migrationsDir), workspaceRoot, input);
+  const files = filterFilesBySnapshot(
+    collectMigrationFiles(workspaceRoot, migrationsDir),
+    workspaceRoot,
+    input,
+  );
   for (const file of files) {
     addReadPath(result, workspaceRoot, file);
   }
   const fileClasses = new Map<string, string>();
   for (const file of files) {
-    const className = readFirstExportedClass(file);
+    const className = readFirstExportedClass(workspaceRoot, file);
     if (className) {
       fileClasses.set(className, normalizePath(relative(workspaceRoot, file)));
     }
@@ -565,8 +624,10 @@ function analyzeMigrationRegistry(
     const dataSourcePath = `${rootRel.replace(/\/$/, '')}/database/data-source.ts`;
     const dataSourceAbsolute = resolveInsideWorkspace(workspaceRoot, dataSourcePath);
     if (
-      workspacePathExists(dataSourceAbsolute) &&
-      /migrations:\s*\[[^\]]*database\/migrations\//.test(readWorkspaceFile(dataSourceAbsolute))
+      workspacePathExists(workspaceRoot, dataSourceAbsolute) &&
+      /migrations:\s*\[[^\]]*database\/migrations\//.test(
+        readWorkspaceFile(workspaceRoot, dataSourceAbsolute),
+      )
     ) {
       addReadPath(result, workspaceRoot, dataSourceAbsolute);
       result.observations.push({
@@ -589,7 +650,10 @@ function analyzeMigrationRegistry(
         path: APP_MODULE_PATH,
         line: registry.migrationsArrayLine,
         message: `Migration class '${className}' exists in ${filePath} but is not registered in app.module.ts migrations array.`,
-        evidence: [{ path: filePath }, { path: APP_MODULE_PATH, line: registry.migrationsArrayLine }],
+        evidence: [
+          { path: filePath },
+          { path: APP_MODULE_PATH, line: registry.migrationsArrayLine },
+        ],
         details: { className, filePath },
       });
     }
@@ -638,11 +702,11 @@ function analyzeDbSnapshot(
     return;
   }
   const snapshotPath = resolveInsideWorkspace(workspaceRoot, input.dbSnapshotPath);
-  if (!workspacePathExists(snapshotPath)) {
+  if (!workspacePathExists(workspaceRoot, snapshotPath)) {
     throw new Error(`dbSnapshotPath does not exist: ${input.dbSnapshotPath}`);
   }
   addReadPath(result, workspaceRoot, snapshotPath);
-  const snapshot = readJson(snapshotPath) as SchemaSnapshot;
+  const snapshot = readJson(workspaceRoot, snapshotPath) as SchemaSnapshot;
   const snapshotRel = normalizePath(relative(workspaceRoot, snapshotPath));
   const tables = new Map(snapshot.tables.map((table) => [table.name, table]));
 
@@ -702,7 +766,12 @@ function analyzeDbSnapshot(
           className: record.className,
           message: `Entity declares '${record.table}.${column.databaseName}' as uuid but snapshot type is '${dbColumn.dataType}'.`,
           evidence: [{ path: record.path, line: column.line }, { path: snapshotRel }],
-          details: { table: record.table, column: column.databaseName, expected: 'uuid', actual: dbColumn.dataType },
+          details: {
+            table: record.table,
+            column: column.databaseName,
+            expected: 'uuid',
+            actual: dbColumn.dataType,
+          },
         });
       }
       if (!column.nullable && dbColumn.isNullable === 'YES') {
@@ -790,7 +859,7 @@ function collectEntityRecords(result: AnalysisResult): EntityRecord[] {
 }
 
 function getEntityDecorator(node: ts.ClassDeclaration): ts.CallExpression | null {
-  const decorators = ts.canHaveDecorators(node) ? ts.getDecorators(node) ?? [] : [];
+  const decorators = ts.canHaveDecorators(node) ? (ts.getDecorators(node) ?? []) : [];
   for (const decorator of decorators) {
     const expression = decorator.expression;
     if (!ts.isCallExpression(expression)) {
@@ -814,11 +883,12 @@ function readEntityDecorator(call: ts.CallExpression): {
   // tolerate an absent node before asking TypeScript for its kind.
   const firstArg = call.arguments[0];
   const secondArg = call.arguments[1];
-  const optionsArg = firstArg && ts.isObjectLiteralExpression(firstArg)
-    ? firstArg
-    : secondArg && ts.isObjectLiteralExpression(secondArg)
-      ? secondArg
-      : null;
+  const optionsArg =
+    firstArg && ts.isObjectLiteralExpression(firstArg)
+      ? firstArg
+      : secondArg && ts.isObjectLiteralExpression(secondArg)
+        ? secondArg
+        : null;
   const table =
     firstArg && ts.isStringLiteralLike(firstArg)
       ? firstArg.text
@@ -833,7 +903,10 @@ function readEntityDecorator(call: ts.CallExpression): {
   };
 }
 
-function readEntityColumns(node: ts.ClassDeclaration, sourceFile: ts.SourceFile): readonly EntityColumn[] {
+function readEntityColumns(
+  node: ts.ClassDeclaration,
+  sourceFile: ts.SourceFile,
+): readonly EntityColumn[] {
   const columns: EntityColumn[] = [];
   for (const member of node.members) {
     if (!ts.isPropertyDeclaration(member) || !member.name || !ts.isIdentifier(member.name)) {
@@ -858,7 +931,7 @@ function readEntityColumns(node: ts.ClassDeclaration, sourceFile: ts.SourceFile)
 }
 
 function getColumnDecorator(node: ts.PropertyDeclaration): ts.CallExpression | null {
-  const decorators = ts.canHaveDecorators(node) ? ts.getDecorators(node) ?? [] : [];
+  const decorators = ts.canHaveDecorators(node) ? (ts.getDecorators(node) ?? []) : [];
   const names = new Set([
     'Column',
     'PrimaryColumn',
@@ -881,7 +954,10 @@ function getColumnDecorator(node: ts.PropertyDeclaration): ts.CallExpression | n
   return null;
 }
 
-function readColumnOptions(call: ts.CallExpression, propertyName: string): {
+function readColumnOptions(
+  call: ts.CallExpression,
+  propertyName: string,
+): {
   readonly databaseName: string;
   readonly type: string | null;
   readonly nullable: boolean;
@@ -892,7 +968,9 @@ function readColumnOptions(call: ts.CallExpression, propertyName: string): {
   // `secondArg` died when findObjectArg took over options discovery —
   // removed rather than underscore-parked (İ2: dead code is deleted).
   const optionsArg = findObjectArg(call.arguments);
-  const databaseName = optionsArg ? readStringProperty(optionsArg, 'name') ?? propertyName : propertyName;
+  const databaseName = optionsArg
+    ? (readStringProperty(optionsArg, 'name') ?? propertyName)
+    : propertyName;
   const explicitType =
     firstArg && ts.isStringLiteralLike(firstArg)
       ? firstArg.text
@@ -919,45 +997,6 @@ function findObjectArg(args: ts.NodeArray<ts.Expression>): ts.ObjectLiteralExpre
     }
   }
   return null;
-}
-
-function readModuleSchema(
-  sourceFile: ts.SourceFile,
-  path: string,
-  workspaceRoot: string,
-  serviceName: string,
-): ModuleSchemaRecord | null {
-  let found: ModuleSchemaRecord | null = null;
-  visit(sourceFile, (node) => {
-    if (found || !ts.isVariableDeclaration(node) || !ts.isIdentifier(node.name) || node.name.text !== 'MODULE_SCHEMAS') {
-      return;
-    }
-    const initializer = unwrapExpression(node.initializer);
-    if (!initializer || !ts.isArrayLiteralExpression(initializer)) {
-      return;
-    }
-    for (const element of initializer.elements) {
-      if (!ts.isObjectLiteralExpression(element)) {
-        continue;
-      }
-      const moduleName = readStringProperty(element, 'moduleName');
-      if (moduleName !== serviceName) {
-        continue;
-      }
-      found = {
-        moduleName,
-        sourceSchema: readStringProperty(element, 'sourceSchema') ?? serviceName,
-        strictOwnership: readBooleanProperty(element, 'strictOwnership') === true,
-        tables: readStringArrayProperty(element, 'tables'),
-        referenceDataTables: readStringArrayProperty(element, 'referenceDataTables'),
-        infrastructureTables: readStringArrayProperty(element, 'infrastructureTables'),
-        path: normalizePath(relative(workspaceRoot, path)),
-        line: sourceFile.getLineAndCharacterOfPosition(element.getStart(sourceFile)).line + 1,
-      };
-      return;
-    }
-  });
-  return found;
 }
 
 /**
@@ -1011,7 +1050,12 @@ function snakeCaseIdentifier(name: string): string {
 }
 
 function readMigrationRegistry(path: string, workspaceRoot: string): MigrationRegistry {
-  const sourceFile = ts.createSourceFile(path, readWorkspaceFile(path), ts.ScriptTarget.Latest, true);
+  const sourceFile = ts.createSourceFile(
+    path,
+    readWorkspaceFile(workspaceRoot, path),
+    ts.ScriptTarget.Latest,
+    true,
+  );
   const importedClasses = new Map<string, string>();
   const registeredClasses: string[] = [];
   let migrationsArrayLine = 1;
@@ -1023,8 +1067,13 @@ function readMigrationRegistry(path: string, workspaceRoot: string): MigrationRe
     if (!ts.isNamedImports(statement.importClause.namedBindings)) {
       continue;
     }
-    const specifier = ts.isStringLiteral(statement.moduleSpecifier) ? statement.moduleSpecifier.text : '';
-    if (!specifier.includes('/database/migrations/') && !specifier.includes('./database/migrations/')) {
+    const specifier = ts.isStringLiteral(statement.moduleSpecifier)
+      ? statement.moduleSpecifier.text
+      : '';
+    if (
+      !specifier.includes('/database/migrations/') &&
+      !specifier.includes('./database/migrations/')
+    ) {
       continue;
     }
     for (const element of statement.importClause.namedBindings.elements) {
@@ -1039,7 +1088,8 @@ function readMigrationRegistry(path: string, workspaceRoot: string): MigrationRe
     if (!ts.isArrayLiteralExpression(node.initializer)) {
       return;
     }
-    migrationsArrayLine = sourceFile.getLineAndCharacterOfPosition(node.initializer.getStart(sourceFile)).line + 1;
+    migrationsArrayLine =
+      sourceFile.getLineAndCharacterOfPosition(node.initializer.getStart(sourceFile)).line + 1;
     for (const element of node.initializer.elements) {
       if (ts.isIdentifier(element)) {
         registeredClasses.push(element.text);
@@ -1055,8 +1105,13 @@ function readMigrationRegistry(path: string, workspaceRoot: string): MigrationRe
   };
 }
 
-function readFirstExportedClass(path: string): string | null {
-  const sourceFile = ts.createSourceFile(path, readWorkspaceFile(path), ts.ScriptTarget.Latest, true);
+function readFirstExportedClass(workspaceRoot: string, path: string): string | null {
+  const sourceFile = ts.createSourceFile(
+    path,
+    readWorkspaceFile(workspaceRoot, path),
+    ts.ScriptTarget.Latest,
+    true,
+  );
   for (const statement of sourceFile.statements) {
     if (ts.isClassDeclaration(statement) && statement.name) {
       return statement.name.text;
@@ -1065,11 +1120,14 @@ function readFirstExportedClass(path: string): string | null {
   return null;
 }
 
-function readJson(path: string): unknown {
-  return readWorkspaceJson(path);
+function readJson(workspaceRoot: string, path: string): unknown {
+  return readWorkspaceJson(workspaceRoot, path);
 }
 
-function readStringProperty(object: ts.ObjectLiteralExpression, propertyName: string): string | null {
+function readStringProperty(
+  object: ts.ObjectLiteralExpression,
+  propertyName: string,
+): string | null {
   for (const property of object.properties) {
     if (!ts.isPropertyAssignment(property) || !isPropertyNamed(property.name, propertyName)) {
       continue;
@@ -1079,7 +1137,10 @@ function readStringProperty(object: ts.ObjectLiteralExpression, propertyName: st
   return null;
 }
 
-function readBooleanProperty(object: ts.ObjectLiteralExpression, propertyName: string): boolean | null {
+function readBooleanProperty(
+  object: ts.ObjectLiteralExpression,
+  propertyName: string,
+): boolean | null {
   for (const property of object.properties) {
     if (!ts.isPropertyAssignment(property) || !isPropertyNamed(property.name, propertyName)) {
       continue;
@@ -1094,7 +1155,10 @@ function readBooleanProperty(object: ts.ObjectLiteralExpression, propertyName: s
   return null;
 }
 
-function readStringArrayProperty(object: ts.ObjectLiteralExpression, propertyName: string): readonly string[] {
+function readStringArrayProperty(
+  object: ts.ObjectLiteralExpression,
+  propertyName: string,
+): readonly string[] {
   for (const property of object.properties) {
     if (!ts.isPropertyAssignment(property) || !isPropertyNamed(property.name, propertyName)) {
       continue;
@@ -1119,7 +1183,12 @@ function isPropertyNamed(name: ts.PropertyName, expected: string): boolean {
 
 function unwrapExpression(expression: ts.Expression | undefined): ts.Expression | undefined {
   let current = expression;
-  while (current && (ts.isAsExpression(current) || ts.isTypeAssertionExpression(current) || ts.isParenthesizedExpression(current))) {
+  while (
+    current &&
+    (ts.isAsExpression(current) ||
+      ts.isTypeAssertionExpression(current) ||
+      ts.isParenthesizedExpression(current))
+  ) {
     current = current.expression;
   }
   return current;
@@ -1130,19 +1199,19 @@ function visit(node: ts.Node, visitor: (node: ts.Node) => void): void {
   ts.forEachChild(node, (child) => visit(child, visitor));
 }
 
-function collectEntityFiles(root: string): readonly string[] {
-  return collectFiles(root, {
+function collectEntityFiles(workspaceRoot: string, root: string): readonly string[] {
+  return collectFiles(workspaceRoot, root, {
     extensions: ['.entity.ts'],
     // E13 FP class (2): archived corpus is dead code — no schema discipline applies.
     includeFile: (name, path) => !isArchivedWorkspacePath(path),
   });
 }
 
-function collectMigrationFiles(root: string): readonly string[] {
-  if (!workspacePathExists(root)) {
+function collectMigrationFiles(workspaceRoot: string, root: string): readonly string[] {
+  if (!workspacePathExists(workspaceRoot, root)) {
     return [];
   }
-  return collectFiles(root, {
+  return collectFiles(workspaceRoot, root, {
     extensions: ['.ts'],
     // E13 FP class (2): `.archive/<timestamp>/` migration snapshots are retired
     // by definition — they are never registered, so diffing them against the

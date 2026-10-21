@@ -5,7 +5,8 @@ import {
   FARM_TIME_ZONE_QUERY_SUBJECTS,
   SENSOR_CHANNEL_QUERY_SUBJECTS,
 } from '@platform/event-contracts';
-import yaml from 'js-yaml';
+
+import { loadNatsServices, subjectMatches } from '../../tools/gates/nats-services';
 
 /**
  * INVARIANT: a core-NATS request/reply contract between two services is
@@ -45,23 +46,6 @@ const CONTRACTS: readonly RequestReplyContract[] = [
   },
 ];
 
-interface ServicesManifest {
-  services: Array<{ name: string; publish?: string[]; subscribe?: string[] }>;
-}
-
-/** NATS subject matching: `*` is one token, a trailing `>` is one or more. */
-export function grantCovers(grant: string, subject: string): boolean {
-  const pattern = grant.split('.');
-  const tokens = subject.split('.');
-  for (let index = 0; index < pattern.length; index += 1) {
-    const part = pattern[index];
-    if (part === '>') return index === pattern.length - 1 && tokens.length > index;
-    if (index >= tokens.length) return false;
-    if (part !== '*' && part !== tokens[index]) return false;
-  }
-  return pattern.length === tokens.length;
-}
-
 function sourceFiles(dir: string): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(resolve(REPO_ROOT, dir))) {
@@ -74,17 +58,22 @@ function sourceFiles(dir: string): string[] {
 }
 
 describe('INVARIANT: request/reply contracts are granted at the broker', () => {
-  const manifest = yaml.load(
-    readFileSync(resolve(REPO_ROOT, 'infrastructure/nats/services.yaml'), 'utf8'),
-  ) as ServicesManifest;
-  const grants = (service: string, kind: 'publish' | 'subscribe'): string[] =>
-    manifest.services.find((entry) => entry.name === service)?.[kind] ?? [];
+  // ARIA-LOW-603 — the SSoT is read, and NATS subjects matched, by the one shared reader
+  // (tools/gates/nats-services.ts); this spec used to carry its own parse and its own matcher.
+  const services = loadNatsServices();
+  const grants = (service: string, kind: 'publish' | 'subscribe'): readonly string[] => {
+    const entry = services.find((candidate) => candidate.name === service);
+    if (entry === undefined) throw new Error(`services.yaml has no service ${service}`);
+    return entry[kind];
+  };
 
-  it('matches NATS wildcards the way the broker does', () => {
-    expect(grantCovers('request.sensor.>', 'request.sensor.describeChannels')).toBe(true);
-    expect(grantCovers('request.*.describeChannels', 'request.sensor.describeChannels')).toBe(true);
-    expect(grantCovers('request.sensor.>', 'request.sensor')).toBe(false);
-    expect(grantCovers('request.farm.>', 'request.sensor.describeChannels')).toBe(false);
+  it('matches NATS wildcards the way these contracts need', () => {
+    expect(subjectMatches('request.sensor.>', 'request.sensor.describeChannels')).toBe(true);
+    expect(subjectMatches('request.*.describeChannels', 'request.sensor.describeChannels')).toBe(
+      true,
+    );
+    expect(subjectMatches('request.sensor.>', 'request.sensor')).toBe(false);
+    expect(subjectMatches('request.farm.>', 'request.sensor.describeChannels')).toBe(false);
   });
 
   const cases = CONTRACTS.flatMap((contract) =>
@@ -94,13 +83,13 @@ describe('INVARIANT: request/reply contracts are granted at the broker', () => {
   it.each(cases)(
     '$contract.name.$key: owner subscribes, callers publish',
     ({ contract, subject }) => {
-      expect(grants(contract.owner.service, 'subscribe').some((g) => grantCovers(g, subject))).toBe(
-        true,
-      );
+      expect(
+        grants(contract.owner.service, 'subscribe').some((g) => subjectMatches(g, subject)),
+      ).toBe(true);
       for (const caller of contract.callers) {
         expect({
           caller,
-          granted: grants(caller, 'publish').some((g) => grantCovers(g, subject)),
+          granted: grants(caller, 'publish').some((g) => subjectMatches(g, subject)),
         }).toEqual({ caller, granted: true });
       }
     },

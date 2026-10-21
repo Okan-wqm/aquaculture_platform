@@ -38,18 +38,6 @@ TOOL_DIAL_NEUTRAL = 50
 #: and never above a confirmed in-repo violation (tool_quarantine, 90).
 TOOL_DIAL_MIN = 20
 TOOL_DIAL_MAX = 80
-#: Review of #1829 (HIGH-4) — the adapters whose findings guard tenant
-#: isolation, authorization, the agent harness's security boundary and the
-#: tenant-schema invariant. Their dial is RAISE-ONLY with a floor of
-#: neutral: a precise security adapter may gain attention, and making one
-#: quieter is an operator's act (``pressure weight-override`` territory), never
-#: the actuator's. Closed; ``tests/test_calibration_actuator.py`` pins that
-#: every registered adapter whose id names security, tenant, auth, rls or
-#: secret is in it.
-SECURITY_TOOLS: frozenset[str] = frozenset({
-    "security-boundary-adapter", "tenant-scoping-adapter", "agent-harness-security-adapter",
-    "typeorm-entity-schema-adapter",
-})
 AUTO_APPLIED_PATH = ("calibration", "auto-applied.jsonl")
 AUTO_APPLIED_SURFACE = "calibration_auto_applied"
 
@@ -145,13 +133,37 @@ def auto_applied_rows(base_dir: str | Path | None) -> list[dict[str, Any]]:
     return load_declared_jsonl(path, expected_surface=AUTO_APPLIED_SURFACE)
 
 
-def dial_bounds(tool: str) -> tuple[int, int]:
-    """(min, max) of a tool's dial; a security tool's floor is neutral."""
-    return (TOOL_DIAL_NEUTRAL if tool in SECURITY_TOOLS else TOOL_DIAL_MIN), TOOL_DIAL_MAX
+def security_classes(base_dir: str | Path | None) -> dict[str, bool]:
+    """tool_id -> security class, for every row of the live tool registry.
+
+    Review of #1829 (HIGH-4) — a security adapter's dial (its findings guard
+    tenant isolation, authorization, the agent harness's security boundary
+    or the tenant-schema invariant) is RAISE-ONLY with a floor of neutral: a
+    precise security adapter may gain attention, and making one quieter is
+    an operator's act (``pressure weight-override`` territory), never the
+    actuator's. ARIA-LOW-533 — which adapters those are was a hand-kept id
+    list here, pinned only by id words; it is now each adapter's declared
+    ``security_class`` (its manifest, carried into the registry row by the
+    manifest sync), read by ``tool_registry.is_security_class``.
+    """
+    from .tool_registry import is_security_class, list_tools
+
+    return {str(row.get("tool_id")): is_security_class(row) for row in list_tools(base_dir=base_dir)}
 
 
-def clamp_dial(tool: str, weight: int) -> int:
-    low, high = dial_bounds(tool)
+def is_raise_only(tool: str, classes: Mapping[str, bool]) -> bool:
+    """May the actuator never lower this tool's dial? True for a security
+    class tool and for a tool with no registry row to declare otherwise."""
+    return classes.get(tool, True)
+
+
+def dial_bounds(tool: str, classes: Mapping[str, bool]) -> tuple[int, int]:
+    """(min, max) of a tool's dial; a raise-only tool's floor is neutral."""
+    return (TOOL_DIAL_NEUTRAL if is_raise_only(tool, classes) else TOOL_DIAL_MIN), TOOL_DIAL_MAX
+
+
+def clamp_dial(tool: str, weight: int, classes: Mapping[str, bool]) -> int:
+    low, high = dial_bounds(tool, classes)
     return max(low, min(high, int(weight)))
 
 
@@ -160,18 +172,23 @@ def tool_pressure_weights(base_dir: str | Path | None) -> dict[str, int]:
 
     Clamped on READ as well as on write (review of #1829, M): the ledger is a
     file, and a stray ``to_weight`` of 1000 must not become 20x pressure."""
+    rows = auto_applied_rows(base_dir)
+    if not rows:
+        return {}
+    classes = security_classes(base_dir)
     weights: dict[str, int] = {}
-    for row in auto_applied_rows(base_dir):
+    for row in rows:
         tool = str(row["dial"]["name"])
         if row["event"] == "applied":
-            weights[tool] = clamp_dial(tool, row["to_weight"])
+            weights[tool] = clamp_dial(tool, row["to_weight"], classes)
         elif row["event"] == "reverted":
-            weights[tool] = clamp_dial(tool, row["weight"])
+            weights[tool] = clamp_dial(tool, row["weight"], classes)
     return weights
 
 
 __all__ = [
-    "AUTO_APPLIED_PATH", "AUTO_APPLIED_SURFACE", "SECURITY_TOOLS", "SOURCE_DIAL", "clamp_dial", "dial_bounds", "TOOL_DIAL", "TOOL_DIAL_MAX",
+    "AUTO_APPLIED_PATH", "AUTO_APPLIED_SURFACE", "SOURCE_DIAL", "clamp_dial", "dial_bounds", "is_raise_only",
+    "security_classes", "TOOL_DIAL", "TOOL_DIAL_MAX",
     "TOOL_DIAL_MIN", "TOOL_DIAL_NEUTRAL", "auto_applied_rows", "feedback_counts_by_dial", "feedback_dial",
     "tool_pressure_weights",
     "GOLDSET_REPLAY_JUDGE_ID", "moves_auto_applied_dial",

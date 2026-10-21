@@ -398,12 +398,23 @@ def load_open_own_pr_reds(*, base_dir: str | Path | None = None) -> list[dict[st
     return [row for row in latest.values() if row.get("status") == "open"]
 
 
+def own_pr_reds_reader_faults() -> tuple[type[BaseException], ...]:
+    """The closed set a ``load_open_own_pr_reds`` caller may report as an
+    unreadable bridge ledger (ARIA-LOW-586): a declared ledger read, so the
+    set is the ledger primitives' own (``ledger.ledger_read_faults``).
+    Anything else is a defect and must raise."""
+    from .ledger import ledger_read_faults
+
+    return ledger_read_faults()
+
+
 __all__ = [
     "OWN_PR_EXCLUDED_HEADS",
     "OWN_PR_HEAD_PREFIXES",
     "bridge_path",
     "is_own_pr_head",
     "load_open_own_pr_reds",
+    "own_pr_reds_reader_faults",
     "load_post_merge_reds",
     "load_third_party_pr_reds",
     "merge_outcomes_path",

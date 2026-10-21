@@ -110,7 +110,7 @@ class _Store(unittest.TestCase):
         # The live shape: a mission `open_self_improvement_missions` mints.
         row = open_mission(source_kind=SELF_IMPROVEMENT_SOURCE_KIND, source_id=key, repo_hash=canonical_identity(self.ws),
                            title=f"Doctor organ {key} failing", next_action=SELF_CHANGE_NEXT_ACTION,
-                           wake_condition={"kind": "evidence", "key": key}, priority=1, base_dir=self.tools)
+                           wake_condition={"kind": "evidence", "key": key}, evidence_refs=(), priority=1, base_dir=self.tools)
         return str(row["mission_id"])
 
 
@@ -150,7 +150,7 @@ class TheMissionBranchMintsTheContract(_Store):
     def test_every_other_mission_keeps_the_queue_contract(self) -> None:
         row = open_mission(source_kind="service_hardening", source_id="auth-service", repo_hash="rh-1", title="Harden auth-service",
                            next_action="Harden auth-service against finding F-1", wake_condition={"kind": "evidence", "key": "finding:F-1"},
-                           target_project="auth-service", base_dir=self.tools)
+                           evidence_refs=(), target_project="auth-service", base_dir=self.tools)
         # The generic projection mints only with evidence (ARIA-HIGH-243), and
         # only with refs the agent law admits at the checkout (ARIA-HIGH-384),
         # so the cited file is committed.
@@ -173,7 +173,7 @@ class TheMissionBranchMintsTheContract(_Store):
         # instead of handing the planner the generic contract.
         row = open_mission(source_kind="service_hardening", source_id="farm-service", repo_hash="rh-1", title="Harden farm-service",
                            next_action=SELF_CHANGE_NEXT_ACTION, wake_condition={"kind": "evidence", "key": "x"},
-                           target_project="farm-service", base_dir=self.tools)
+                           evidence_refs=(), target_project="farm-service", base_dir=self.tools)
         disclosed: list[tuple[str, dict]] = []
         item = {"queue_item_id": "qi-f1", "pressure_id": f"mission:{row['mission_id']}", "source_cycle_id": "cyc-1",
                 "recommended_action": SELF_CHANGE_NEXT_ACTION, "candidate_tools": []}
@@ -275,7 +275,7 @@ class TheBridgeCallsProposeSelfChange(_Store):
         self.assertEqual(outcome["proposal"]["kind"], "self_change")
         self.assertEqual(outcome["human_required"]["reason"], "self_change_adjudication")
         self.assertIn(SELF_CHANGE_PROPOSED_EVENT, self.governance_kinds())
-        self.assertEqual([row["reason"] for row in list_human_required(base_dir=self.tools)], ["self_change_adjudication"])
+        self.assertEqual([row["reason"] for row in list_human_required(base_dir=self.tools).rows], ["self_change_adjudication"])
         mission = fold_mission(mission_id=mission_id, base_dir=self.tools)
         self.assertEqual(mission["state"], "HUMAN_REQUIRED", "the loop closes through a person; the scheduler must not re-select it")
         self.assertIn(outcome["proposal"]["proposal_id"], mission["next_action"])
@@ -290,7 +290,7 @@ class TheBridgeCallsProposeSelfChange(_Store):
         kinds = self.governance_kinds()
         self.assertIn(SELF_CHANGE_REFUSED_EVENT, kinds)
         self.assertNotIn(SELF_CHANGE_PROPOSED_EVENT, kinds)
-        self.assertEqual(list_human_required(base_dir=self.tools), [])
+        self.assertEqual(list_human_required(base_dir=self.tools).rows, [])
         self.assertEqual(fold_mission(mission_id=mission_id, base_dir=self.tools)["state"], "DISCOVERED")
 
     def test_a_malformed_answer_is_named_field_by_field(self) -> None:
@@ -312,7 +312,7 @@ class TheBridgeCallsProposeSelfChange(_Store):
             propose_self_change(mission_id=mission_id, base_dir=self.tools, workspace_root=self.ws,
                                 evidence_paths=["aria-kernel/aria_kernel/doctor.py"], problem="p", proposed_change="c")
         self.assertIn("self_change_mission_terminal", str(refused.exception))
-        self.assertEqual(list_human_required(base_dir=self.tools), [])
+        self.assertEqual(list_human_required(base_dir=self.tools).rows, [])
         self.assertNotIn(SELF_CHANGE_PROPOSED_EVENT, self.governance_kinds())
         self.assertEqual(self.mission_refusals(), ["self_change_mission_terminal"])
 
@@ -343,7 +343,7 @@ class TheBridgeCallsProposeSelfChange(_Store):
         self.assertIn(f"self_change_mission_moved_on:{mission_id}:", bridged["bridge_errors"][0])
         after = fold_mission(mission_id=mission_id, base_dir=self.tools)
         self.assertEqual((after["state"], after["next_action"]), ("PLANNING", operator_sentence), "the operator's sentence stands")
-        self.assertEqual(len(list_human_required(base_dir=self.tools)), 1, "exactly one adjudication")
+        self.assertEqual(len(list_human_required(base_dir=self.tools).rows), 1, "exactly one adjudication")
         self.assertEqual(len(list_proposals(base_dir=self.tools, kind="self_change")), 1, "exactly one proposal")
         self.assertEqual(self.governance_kinds().count(SELF_CHANGE_PROPOSED_EVENT), 1)
         self.assertEqual(self.mission_refusals(), ["self_change_mission_moved_on"])
@@ -358,7 +358,7 @@ class TheBridgeCallsProposeSelfChange(_Store):
         after = fold_mission(mission_id=mission_id, base_dir=self.tools)
         self.assertEqual((after["state"], after["next_action"], after["wake_condition"]),
                          (parked["state"], parked["next_action"], parked["wake_condition"]), "the park is untouched")
-        self.assertEqual(len(list_human_required(base_dir=self.tools)), 1)
+        self.assertEqual(len(list_human_required(base_dir=self.tools).rows), 1)
         self.assertEqual(len(list_proposals(base_dir=self.tools, kind="self_change")), 1)
         self.assertEqual(self.mission_refusals(), ["self_change_mission_operator_held"])
 
@@ -369,7 +369,7 @@ class TheBridgeCallsProposeSelfChange(_Store):
         # once that adjudication is resolved — the guard is about what
         # stands, not about history.
         mission_id, _first, second = self._two_in_flight()
-        adjudication = list_human_required(base_dir=self.tools)[0]
+        adjudication = list_human_required(base_dir=self.tools).rows[0]
         transition_mission(mission_id=mission_id, to_state="PLANNING", reason_code="operator_re_ask", step_id="op-1",
                            next_action=SELF_CHANGE_NEXT_ACTION, wake_condition={"kind": "evidence", "key": "re-ask"}, base_dir=self.tools)
 
@@ -514,7 +514,7 @@ class EveryNextActionHasADispatcher(unittest.TestCase):
                 tools = ensure_tools_dir(workspace / "aria-tools")
                 row = open_mission(source_kind=entry.source_kind, source_id=f"consumer-proof:{pointer}", repo_hash=canonical_identity(workspace),
                                    title=f"consumer proof for {pointer}", next_action=pointer,
-                                   wake_condition={"kind": "evidence", "key": "consumer-proof"}, base_dir=tools)
+                                   wake_condition={"kind": "evidence", "key": "consumer-proof"}, evidence_refs=(), base_dir=tools)
                 candidates = consumer(workspace)
                 self.assertIn(str(row["mission_id"]), {str(c.get("candidate_id")) for c in candidates},
                               f"{pointer}: {entry.consumer} does not read a {entry.source_kind} mission carrying the pointer")

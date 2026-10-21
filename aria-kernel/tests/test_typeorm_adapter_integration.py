@@ -40,6 +40,12 @@ class TypeOrmAdapterIntegrationTests(unittest.TestCase):
                 "allowed_read_globs": [
                     "apps/farm-service/src/**/*.ts",
                     "libs/backend-common/src/database/schema-manager.service.ts",
+                    # ARIA-MEDIUM-588: the adapter-side MODULE_SCHEMAS reader
+                    # resolves imported table constants through the tsconfig
+                    # path map, so the registry inputs are part of the read
+                    # surface (mirror of the real manifest's globs).
+                    "tsconfig.base.json",
+                    "platform/libs/outbox/src/**/*.ts",
                 ],
                 "forbidden_read_globs": ["dist/**"],
                 "claim_types": ["schema_drift"],

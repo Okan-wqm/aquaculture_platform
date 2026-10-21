@@ -18,6 +18,8 @@ import time
 from types import MappingProxyType
 from typing import Any, Callable, Iterable, Iterator, Literal, Mapping
 
+from .funnel_health import learning_stage_blockers
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 from .ledger import SEGMENT_OPENED_ROW_TYPE
 from .state_snapshot import (
     MAX_SNAPSHOT_JSON_BYTES,
@@ -55,9 +57,7 @@ class _LegacyKgCanonicalMigrationRequired(RuntimeError):
     """A published KG ledger needs an operator-governed dual-chain migration."""
 
 
-_FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 _LEDGER_HASH = re.compile(r"^sha256:[0-9a-f]{64}$")
-_GIT_OBJECT_ID = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 _OWNER_TASK = re.compile(r"^task-(?:[1-9]|1\d|20a)$")
 _REQUIRED_PREDICATE = re.compile(r"^[a-z][a-z0-9_]+$")
 _REGRESSION_TEST_REF = re.compile(r"(?:^|/)(?:tests?|[^/]*\.(?:spec|test)\.)")
@@ -397,7 +397,11 @@ _EXPECTED_CLOSURE_POLICY_REFERENCES: Mapping[
     "ORPHAN-HIGH-778": (
         _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-HIGH-778",
         _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-HIGH-778",
-        ("aria-kernel/tests/test_provider_redirect.py",),
+        # ARIA-HIGH-520 — 450f457a3 deleted test_provider_redirect.py with the
+        # redirect it pinned; the provider process boundary is now pinned by
+        # its successor (a foreign-provider model is refused at the claude
+        # spawn seam, and no redirect machinery remains).
+        ("aria-kernel/tests/test_claude_runtime_serves_anthropic_only.py",),
     ),
     "ORPHAN-HIGH-779": (
         _ORPHAN_REVIEW_ANCHOR_PREFIX + "ORPHAN-HIGH-779",
@@ -696,6 +700,11 @@ _EVIDENCE_CHECKPOINT_ROW_TYPE = "evidence_checkpoint"
 # ARIA-HIGH-286 — named on every capability that counts a carried claim the
 # publish's slice (`_evidence_slice_bytes`) could not reach.
 EVIDENCE_REBUILD_BLOCKER = "evidence_checkpoint_rebuild_in_progress"
+# ARIA-HIGH-520 / ARIA-MEDIUM-663 — the target's closure policy pins a
+# regression test its tree does not hold yet: a proof its task still owes.
+# That is engineering work, not an operator action, so it demotes readiness
+# to `declared` and never masks an operator prerequisite.
+CLOSURE_REGRESSION_REFS_UNRESOLVED = "closure_policy_regression_refs_unresolved"
 _MAX_SNAPSHOT_LEDGER_LINE_BYTES = SNAPSHOT_MAX_LEDGER_LINE_BYTES
 _MAX_SNAPSHOT_LEDGER_ROWS = SNAPSHOT_MAX_LEDGER_ROWS
 _MAX_SNAPSHOT_SURFACE_MATCH_CANDIDATES = 100_000
@@ -944,6 +953,12 @@ _COMMON_AUTHORITY_PATHS = (
     f"{_KERNEL}state_manifest.py",
     f"{_KERNEL}state_snapshot.py",
     f"{_KERNEL}state_store.py",
+    # ARIA-LOW-541 — ledger imports it at module level and runs it on every
+    # append (state_transaction_held, the lock liveness). Every module in
+    # ledger's import-time closure is listed here; the closure is derived
+    # from the source and compared with this set by
+    # test_common_authorities_hold_ledger_import_time_closure.
+    f"{_KERNEL}state_store_lifecycle_arcs.py",
     f"{_KERNEL}tool_registry.py",
     f"{_KERNEL}tools_binding.py",
     f"{_KERNEL}workspace.py",
@@ -1134,7 +1149,15 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             schema_versions=frozenset({1}),
             identity_field="finding_fingerprint",
             integrity_hash_field="ledger_hash",
-            authoritative_sha_field=None,
+            # ARIA-HIGH-004 — a promotion names the commit its consensus's
+            # judge requests were minted at (finding_promotion.promotion_row,
+            # stamped from the trusted request envelope through
+            # judgment_bridge and generate_ai_consensus, never inferred), so
+            # a finding_funnel proof binds the tree it judged. A legacy row,
+            # or one whose judges judged different trees (target_sha None),
+            # stays countable history and never becomes live_proven.
+            # finding_funnel@2 (capability_semantic_authority.json).
+            authoritative_sha_field="target_sha",
             upcaster=_identity_upcaster,
             terminal_predicate=lambda row: bool(row.get("finding_id")),
         ),),
@@ -1183,10 +1206,18 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             surface="agent_eval_fixture_runs",
             proof_kind="live",
             schema_id="aria/agent-eval-fixture-run/v1",
-            schema_versions=frozenset({1}),
+            # ARIA-MEDIUM-400 — a fixture proof names the code it measured
+            # (workspace_commit_sha + argv_scripts_hash, schema version 2);
+            # a version-1 row names none and proves nothing. Read under
+            # fixture_calibration@2 (capability_semantic_authority.json).
+            schema_versions=frozenset({2}),
             identity_field="execution_run_id",
             integrity_hash_field="ledger_hash",
-            authoritative_sha_field=None,
+            # ARIA-HIGH-004 — the suite's checkout HEAD, named by the run
+            # that measured it (fixture_runner.fixture_suite_row, ARIA-
+            # MEDIUM-400), binds the proof to the tree it ran against.
+            # fixture_calibration@3 (capability_semantic_authority.json).
+            authoritative_sha_field="workspace_commit_sha",
             upcaster=_identity_upcaster,
             terminal_predicate=lambda row: (
                 row.get("row_type") == "fixture_run_suite"
@@ -1357,6 +1388,15 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
         ),
     ),
 })
+# ARIA-HIGH-004 — the counts (of ``capability_counts``) that measure the
+# learning stages a capability proves, upstream first. Any one at zero names
+# ``funnel_health.learning_stage_blockers``'s blocker and keeps the capability
+# from live_proven; the full join, stage by stage, is
+# ``funnel_health.derive_learning_funnel_health`` over the store.
+_LEARNING_STAGE_COUNTS: Mapping[str, tuple[str, ...]] = MappingProxyType({
+    "finding_funnel": ("ai_consensus_true_positive", "unique_promoted"),
+    "fixture_calibration": ("fixture_suites_passed", "judge_rows", "adapter_rows"),
+})
 CAPABILITY_AUTHORITY_PATHS: Mapping[str, tuple[str, ...]] = MappingProxyType({
     key: spec.authority_paths
     for key, spec in CAPABILITY_SPECS.items()
@@ -1467,7 +1507,7 @@ def _summarize_native_rows(
             evidence_target_sha = row.get(sha_field)
             if (
                 not isinstance(evidence_target_sha, str)
-                or not _FULL_SHA.fullmatch(evidence_target_sha)
+                or not is_object_id(evidence_target_sha, formats=ANY_OBJECT_FORMAT)
             ):
                 blockers.add(f"proof_target_sha_invalid:{contract.surface}")
                 continue
@@ -1578,7 +1618,7 @@ def _git_blob_size(
     too_large: str,
 ) -> int:
     """Return one immutable blob's strict decimal Git object size."""
-    if _GIT_OBJECT_ID.fullmatch(object_id) is None:
+    if not is_object_id(object_id, formats=ANY_OBJECT_FORMAT):
         raise RuntimeError("git_blob_object_id_invalid")
     result = _run_git(repo_root, "cat-file", "-s", object_id)
     if result.returncode != 0:
@@ -1763,7 +1803,7 @@ def _git_tree_entry(
     if (
         re.fullmatch(r"[0-7]{6}", mode) is None
         or object_type not in {"blob", "tree", "commit"}
-        or re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", object_id) is None
+        or not is_object_id(object_id, formats=ANY_OBJECT_FORMAT)
     ):
         raise RuntimeError("git_authority_tree_invalid")
     return listing.stdout, mode, object_type, object_id
@@ -1825,7 +1865,7 @@ def _git_tree_entries(
         if (
             re.fullmatch(r"[0-7]{6}", mode) is None
             or object_type not in {"blob", "tree", "commit"}
-            or _GIT_OBJECT_ID.fullmatch(object_id) is None
+            or not is_object_id(object_id, formats=ANY_OBJECT_FORMAT)
             or path in entries
         ):
             raise RuntimeError("state_snapshot_tree_invalid")
@@ -2264,7 +2304,7 @@ def _resolve_target_sha(repo_root: Path, target_sha: str | None) -> str:
         "--verify",
         f"{requested}^{{commit}}",
     )
-    if returncode != 0 or not _FULL_SHA.fullmatch(resolved):
+    if returncode != 0 or not is_object_id(resolved, formats=ANY_OBJECT_FORMAT):
         raise ValueError(f"evidence_target_sha_unavailable:{requested}")
     if target_sha is not None and target_sha != resolved:
         raise ValueError(f"evidence_target_sha_not_full:{target_sha}")
@@ -2433,7 +2473,7 @@ def _state_commit_single_parent(store_root: Path, state_commit: str) -> str:
     if (
         len(fields) != 2
         or fields[0] != state_commit
-        or any(_GIT_OBJECT_ID.fullmatch(field) is None for field in fields)
+        or any(not is_object_id(field, formats=ANY_OBJECT_FORMAT) for field in fields)
     ):
         raise RuntimeError("state_snapshot_parent_invalid")
     return fields[1]
@@ -3206,7 +3246,7 @@ def _capture_state_admission(
         head_code, head = _git_text(store.root, "rev-parse", "--verify", "HEAD")
     except RuntimeError:
         head_code, head = 1, ""
-    if head_code != 0 or not _FULL_SHA.fullmatch(head):
+    if head_code != 0 or not is_object_id(head, formats=ANY_OBJECT_FORMAT):
         blockers.add("state_store_head_unavailable")
         head = ""
     try:
@@ -3232,7 +3272,7 @@ def _capture_state_admission(
         )
     except RuntimeError:
         tracking_code, tracking = 1, ""
-    if tracking_code != 0 or not _FULL_SHA.fullmatch(tracking):
+    if tracking_code != 0 or not is_object_id(tracking, formats=ANY_OBJECT_FORMAT):
         blockers.add("state_store_tracking_tip_unavailable")
     elif head and tracking != head:
         blockers.add("state_store_unpublished_head")
@@ -3653,6 +3693,12 @@ class _StreamingEvidenceAccumulator:
             else:  # pragma: no cover - roster is exhaustive above
                 unlock_blocker = None
             blockers: set[str] = set()
+            # ARIA-HIGH-004 — a capability that proves learning stages is
+            # never live_proven while one of them holds nothing: a passing
+            # fixture suite with no judge or adapter calibration behind it
+            # is not a calibrated adapter.
+            learning_stages = _LEARNING_STAGE_COUNTS.get(capability, ())
+            blockers.update(learning_stage_blockers({name: counts[name] for name in learning_stages}))
             if capability in self.count_rejected:
                 counts = {
                     surface: self.surface_counts[surface]
@@ -3847,7 +3893,14 @@ def _stream_unlock_verdict_counts(
 def _policy_at_target(
     repo_root: Path,
     target_sha: str,
-) -> tuple[dict[str, Any] | None, str | None]:
+) -> dict[str, Any] | str:
+    """The closure policy object at the target, or the operator blocker that
+    names why it cannot be read (unavailable, too large, invalid).
+
+    One or the other, never neither: the earlier ``(policy | None, blocker |
+    None)`` pair admitted ``(None, None)``, so both callers carried a
+    fallback blocker of their own for a result no path produced.
+    """
     policy_path = "docs/aria/policy/autonomy-closure-findings.json"
     try:
         entry = _git_tree_entry(repo_root, target_sha, policy_path)
@@ -3861,12 +3914,11 @@ def _policy_at_target(
             unavailable="operator_prerequisite_policy_unavailable",
         )
     except RuntimeError as exc:
-        blocker = (
+        return (
             "operator_prerequisite_policy_too_large"
             if str(exc) == "operator_prerequisite_policy_too_large"
             else "operator_prerequisite_policy_unavailable"
         )
-        return None, blocker
     try:
         text = payload.decode("utf-8")
         from .ledger import json_nesting_within_limit
@@ -3875,22 +3927,37 @@ def _policy_at_target(
             raise ValueError("json_nesting_limit_exceeded")
         policy = json.loads(text)
     except (UnicodeDecodeError, json.JSONDecodeError, RecursionError, ValueError):
-        return None, "operator_prerequisite_policy_invalid"
+        return "operator_prerequisite_policy_invalid"
     if not isinstance(policy, dict):
-        return None, "operator_prerequisite_policy_invalid"
-    return policy, None
+        return "operator_prerequisite_policy_invalid"
+    return policy
 
 
-def _with_capability_blocker(
+def _with_prerequisite_blockers(
     evidence: CapabilityEvidence,
-    blocker: str,
     *,
-    state: EvidenceState | None = None,
+    operator: frozenset[str],
+    engineering: frozenset[str],
 ) -> CapabilityEvidence:
+    """Fold every prerequisite blocker that holds into one evidence state.
+
+    ARIA-MEDIUM-663 — an operator blocker makes the capability
+    ``operator_blocked``; an engineering blocker alone demotes it to
+    ``declared``, the lowest rank, as the derivation's count blockers do, so
+    it fails closed without telling the operator to act; otherwise the
+    derived state stands. The blockers are the sorted union, so no blocker
+    can hide another.
+    """
+    if operator or evidence.state == "operator_blocked":
+        state: EvidenceState = "operator_blocked"
+    elif engineering:
+        state = "declared"
+    else:
+        state = evidence.state
     return CapabilityEvidence(
-        state=state or evidence.state,
+        state=state,
         counts=evidence.counts,
-        blockers=tuple(sorted({*evidence.blockers, blocker})),
+        blockers=tuple(sorted({*evidence.blockers, *operator, *engineering})),
         evidence_refs=evidence.evidence_refs,
         proof_cardinality=evidence.proof_cardinality,
     )
@@ -3926,13 +3993,33 @@ def _mode_a_signed_readiness_live_proven(
     )
 
 
+# One policy validation's ls-tree records at its target, by path: the review
+# anchors, the pinned refs and their ancestors share it, so each path costs
+# one git call however many entries name it.
+_TargetTreeEntries = dict[str, tuple[bytes, str, str, str] | None]
+
+
+def _target_tree_entry(
+    tree_entries: _TargetTreeEntries,
+    *,
+    repo_root: Path,
+    target_sha: str,
+    path: str,
+) -> tuple[bytes, str, str, str] | None:
+    """``_git_tree_entry`` through the validation's cache; a git failure
+    propagates and is never cached."""
+    if path not in tree_entries:
+        tree_entries[path] = _git_tree_entry(repo_root, target_sha, path)
+    return tree_entries[path]
+
+
 def _valid_policy_anchor(
     value: Any,
     *,
     finding_id: str,
     repo_root: Path,
     target_sha: str,
-    entry_cache: dict[str, str | None],
+    tree_entries: _TargetTreeEntries,
     blob_cache: dict[str, str],
 ) -> bool:
     if not isinstance(value, str) or value.count("#") != 1:
@@ -3944,21 +4031,22 @@ def _valid_policy_anchor(
         return False
     if anchor != finding_id or normalized_path != raw_path:
         return False
-    if raw_path not in entry_cache:
-        try:
-            entry = _git_tree_entry(repo_root, target_sha, raw_path)
-        except (RuntimeError, ValueError, UnicodeError, OSError):
-            return False
-        entry_cache[raw_path] = (
-            entry[3]
-            if entry is not None
-            and entry[1] in {"100644", "100755"}
-            and entry[2] == "blob"
-            else None
+    try:
+        entry = _target_tree_entry(
+            tree_entries,
+            repo_root=repo_root,
+            target_sha=target_sha,
+            path=raw_path,
         )
-    object_id = entry_cache[raw_path]
-    if object_id is None:
+    except (RuntimeError, ValueError, UnicodeError, OSError):
         return False
+    if (
+        entry is None
+        or entry[1] not in {"100644", "100755"}
+        or entry[2] != "blob"
+    ):
+        return False
+    object_id = entry[3]
     text = blob_cache.get(object_id)
     if text is None:
         try:
@@ -3979,13 +4067,94 @@ def _valid_policy_anchor(
     )
 
 
-def _valid_operator_policy_shape(
+@dataclass(frozen=True, slots=True)
+class _OperatorPolicyShape:
+    """ARIA-HIGH-520 — the target policy's structure, apart from its refs.
+
+    ``valid`` is the structure: schema, keys, anchors, the pinned semantics
+    and references, and every pinned ref being landed or unlanded, never
+    irregular (``_regression_ref_presence``). ``unresolved_refs`` are the
+    unlanded refs: a proof test its task still owes, which says nothing
+    about whether the policy's operator metadata can be trusted.
+    """
+
+    valid: bool
+    unresolved_refs: tuple[str, ...] = ()
+
+
+_INVALID_OPERATOR_POLICY = _OperatorPolicyShape(valid=False)
+_RegressionRefPresence = Literal["landed", "unlanded", "irregular"]
+
+
+def _regression_ref_presence(
+    ref: str,
+    *,
+    repo_root: Path,
+    target_sha: str,
+    tree_entries: _TargetTreeEntries,
+) -> _RegressionRefPresence:
+    """Classify one pinned regression ref in the target tree.
+
+    ARIA-MEDIUM-662 — ``landed``: a regular blob (mode 100644/100755).
+    ``unlanded``: absent, and every ancestor that exists is a directory, so a
+    regular file could be added there. ``irregular``: a symlink, tree or
+    gitlink at the path, or a non-directory ancestor the path would resolve
+    through (``ls-tree`` lists nothing below a symlink, so absence alone
+    cannot tell an owed proof from a tampered tree) -- a tampering shape,
+    never backlog. Git failures propagate; the caller fails closed. Every
+    lookup goes through the validation's ``tree_entries``, so an ancestor two
+    refs share, or a ref two entries pin, costs one ls-tree call.
+    """
+    found = _target_tree_entry(
+        tree_entries,
+        repo_root=repo_root,
+        target_sha=target_sha,
+        path=ref,
+    )
+    if found is not None:
+        if found[1] in {"100644", "100755"} and found[2] == "blob":
+            return "landed"
+        return "irregular"
+    parts = ref.split("/")
+    for depth in range(1, len(parts)):
+        ancestor = _target_tree_entry(
+            tree_entries,
+            repo_root=repo_root,
+            target_sha=target_sha,
+            path="/".join(parts[:depth]),
+        )
+        if ancestor is None:
+            return "unlanded"
+        if ancestor[1] != "040000" or ancestor[2] != "tree":
+            return "irregular"
+    return "unlanded"
+
+
+def _operator_policy_shape(
     policy: Mapping[str, Any],
     *,
     repo_root: Path,
     target_sha: str,
-) -> bool:
+) -> _OperatorPolicyShape:
     """Validate the complete immutable v1 policy, not only its metadata row."""
+    unresolved: list[str] = []
+    if not _valid_operator_policy_structure(
+        policy, repo_root=repo_root, target_sha=target_sha, unresolved=unresolved,
+    ):
+        return _INVALID_OPERATOR_POLICY
+    return _OperatorPolicyShape(valid=True, unresolved_refs=tuple(unresolved))
+
+
+def _valid_operator_policy_structure(
+    policy: Mapping[str, Any],
+    *,
+    repo_root: Path,
+    target_sha: str,
+    unresolved: list[str],
+) -> bool:
+    """The structural half of ``_operator_policy_shape``; appends each pinned
+    ref that is unlanded (``_regression_ref_presence``) to ``unresolved``
+    instead of failing on it."""
     if set(policy) != {"$schema", "schema_version", "policy_id", "entries"}:
         return False
     version = policy.get("schema_version")
@@ -4017,7 +4186,7 @@ def _valid_operator_policy_shape(
     }
     task_ids: set[str] = set()
     finding_ids: set[str] = set()
-    anchor_entries: dict[str, str | None] = {}
+    tree_entries: _TargetTreeEntries = {}
     anchor_blobs: dict[str, str] = {}
     for entry in entries:
         if not isinstance(entry, dict):
@@ -4061,7 +4230,7 @@ def _valid_operator_policy_shape(
             finding_id=finding_id,
             repo_root=repo_root,
             target_sha=target_sha,
-            entry_cache=anchor_entries,
+            tree_entries=tree_entries,
             blob_cache=anchor_blobs,
         ):
             return False
@@ -4070,7 +4239,7 @@ def _valid_operator_policy_shape(
             finding_id=finding_id,
             repo_root=repo_root,
             target_sha=target_sha,
-            entry_cache=anchor_entries,
+            tree_entries=tree_entries,
             blob_cache=anchor_blobs,
         ):
             return False
@@ -4094,36 +4263,47 @@ def _valid_operator_policy_shape(
             )
         ):
             return False
+        # ARIA-MEDIUM-662 — the pinned references are compared before any
+        # ref reaches git, so only this module's fixed refs are classified.
+        expected_references = _EXPECTED_CLOSURE_POLICY_REFERENCES.get(finding_id)
+        if (
+            expected_references is None
+            or (
+                entry["review_anchor"],
+                entry.get("narrative_anchor"),
+                tuple(refs),
+            )
+            != expected_references
+            or ("narrative_anchor" in entry) != (expected_references[1] is not None)
+        ):
+            return False
         for ref in refs:
-            if ref not in anchor_entries:
-                try:
-                    regression_entry = _git_tree_entry(
-                        repo_root,
-                        target_sha,
-                        ref,
-                    )
-                except (RuntimeError, ValueError, UnicodeError, OSError):
-                    return False
-                anchor_entries[ref] = (
-                    regression_entry[3]
-                    if regression_entry is not None
-                    and regression_entry[1] in {"100644", "100755"}
-                    and regression_entry[2] == "blob"
-                    else None
+            try:
+                presence = _regression_ref_presence(
+                    ref,
+                    repo_root=repo_root,
+                    target_sha=target_sha,
+                    tree_entries=tree_entries,
                 )
-            if anchor_entries[ref] is None:
+            except (RuntimeError, ValueError, UnicodeError, OSError):
                 return False
+            if presence == "irregular":
+                return False
+            if presence == "unlanded" and ref not in unresolved:
+                # ARIA-HIGH-520 — a proof its task still owes, named by the
+                # caller, never a malformed policy (that reading hid the
+                # Mode-A operator blocker).
+                unresolved.append(ref)
         historical = entry.get("historical_fix_shas", [])
         if (
             not isinstance(historical, list)
             or any(
-                not isinstance(sha, str) or _FULL_SHA.fullmatch(sha) is None
+                not isinstance(sha, str) or not is_object_id(sha, formats=ANY_OBJECT_FORMAT)
                 for sha in historical
             )
         ):
             return False
         expected_semantic = _EXPECTED_CLOSURE_POLICY_SEMANTICS.get(finding_id)
-        expected_references = _EXPECTED_CLOSURE_POLICY_REFERENCES.get(finding_id)
         actual_semantic: _ClosurePolicySemantic = (
             task_id,
             owner_task,
@@ -4136,14 +4316,6 @@ def _valid_operator_policy_shape(
             expected_semantic is None
             or actual_semantic != expected_semantic
             or ("historical_fix_shas" in entry) != bool(expected_semantic[-1])
-            or expected_references is None
-            or (
-                entry["review_anchor"],
-                entry.get("narrative_anchor"),
-                tuple(refs),
-            )
-            != expected_references
-            or ("narrative_anchor" in entry) != (expected_references[1] is not None)
         ):
             return False
         if entry["closure_mode"] == "historical_main":
@@ -4186,98 +4358,47 @@ def _apply_operator_prerequisites(
     repo_root: str | Path,
     target_sha: str,
 ) -> dict[str, CapabilityEvidence]:
-    """Apply target-tree operator metadata without consulting registry state."""
+    """Apply target-tree operator metadata without consulting registry state.
+
+    ARIA-HIGH-520 — every blocker is composed; none returns early. The policy
+    is read and validated at the target (unavailable, too large, invalid:
+    operator blockers); the pinned refs its target tree does not hold yet are
+    named as ``CLOSURE_REGRESSION_REFS_UNRESOLVED``, an engineering blocker;
+    and the Mode-A prerequisite is applied from the readiness evidence as
+    derived: its owner (ORPHAN-MEDIUM-789) and blocker are pinned in this
+    module (``_valid_operator_policy_structure``), so no policy defect can
+    hide the one action only the operator can take. One fold
+    (``_with_prerequisite_blockers``, ARIA-MEDIUM-663) turns the two sets
+    into the state: an owed proof alone demotes readiness to ``declared``,
+    never leaving it ``live_proven``.
+    """
     updated = dict(capabilities)
-    readiness = updated.get("enterprise_readiness")
-    if readiness is None:
-        return updated
-    policy, policy_blocker = _policy_at_target(
-        Path(repo_root).resolve(),
-        target_sha,
-    )
-    if policy is None:
-        updated["enterprise_readiness"] = _with_capability_blocker(
-            readiness,
-            policy_blocker or "operator_prerequisite_policy_unavailable",
-            state="operator_blocked",
-        )
+    evidence = updated.get("enterprise_readiness")
+    if evidence is None:
         return updated
     resolved_repo_root = Path(repo_root).resolve()
-    if not _valid_operator_policy_shape(
-        policy,
-        repo_root=resolved_repo_root,
-        target_sha=target_sha,
-    ):
-        updated["enterprise_readiness"] = _with_capability_blocker(
-            readiness,
-            "operator_prerequisite_policy_invalid",
-            state="operator_blocked",
+    operator: set[str] = set()
+    engineering: set[str] = set()
+    policy = _policy_at_target(resolved_repo_root, target_sha)
+    if isinstance(policy, str):
+        operator.add(policy)
+    else:
+        shape = _operator_policy_shape(
+            policy,
+            repo_root=resolved_repo_root,
+            target_sha=target_sha,
         )
-        return updated
-    entries = policy["entries"]
-    finding_ids = tuple(
-        entry.get("finding_id")
-        for entry in entries
-        if isinstance(entry, dict)
+        if not shape.valid:
+            operator.add("operator_prerequisite_policy_invalid")
+        elif shape.unresolved_refs:
+            engineering.add(CLOSURE_REGRESSION_REFS_UNRESOLVED)
+    if not _mode_a_signed_readiness_live_proven(evidence):
+        operator.add("github_app_mode_a_unconfigured")
+    updated["enterprise_readiness"] = _with_prerequisite_blockers(
+        evidence,
+        operator=frozenset(operator),
+        engineering=frozenset(engineering),
     )
-    if (
-        len(finding_ids) != len(entries)
-        or any(not isinstance(finding_id, str) for finding_id in finding_ids)
-        or len(set(finding_ids)) != len(finding_ids)
-    ):
-        updated["enterprise_readiness"] = _with_capability_blocker(
-            readiness,
-            "operator_prerequisite_policy_invalid",
-            state="operator_blocked",
-        )
-        return updated
-    metadata_owners = tuple(
-        entry
-        for entry in entries
-        if isinstance(entry, dict)
-        and entry.get("operator_prerequisite") is not None
-    )
-    if (
-        len(metadata_owners) != 1
-        or metadata_owners[0].get("finding_id") != "ORPHAN-MEDIUM-789"
-    ):
-        updated["enterprise_readiness"] = _with_capability_blocker(
-            readiness,
-            "operator_prerequisite_policy_invalid",
-            state="operator_blocked",
-        )
-        return updated
-    owner = next(
-        (
-            entry
-            for entry in entries
-            if isinstance(entry, dict)
-            and entry.get("finding_id") == "ORPHAN-MEDIUM-789"
-        ),
-        None,
-    )
-    expected_metadata = {
-        "capability": "enterprise_readiness",
-        "blocker": "github_app_mode_a_unconfigured",
-    }
-    if (
-        owner is None
-        or owner.get("required_predicate")
-        != "mode_a_signed_readiness_live_proven"
-        or owner.get("operator_prerequisite") != expected_metadata
-    ):
-        updated["enterprise_readiness"] = _with_capability_blocker(
-            readiness,
-            "operator_prerequisite_policy_invalid",
-            state="operator_blocked",
-        )
-        return updated
-    if not _mode_a_signed_readiness_live_proven(readiness):
-        updated["enterprise_readiness"] = _with_capability_blocker(
-            readiness,
-            "github_app_mode_a_unconfigured",
-            state="operator_blocked",
-        )
     return updated
 
 

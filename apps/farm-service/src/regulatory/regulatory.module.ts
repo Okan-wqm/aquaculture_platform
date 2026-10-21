@@ -50,7 +50,7 @@ import { RensefiskReportAssembler } from './assembly/assemblers/rensefisk.assemb
 import { SettefiskReportAssembler } from './assembly/assemblers/settefisk.assembler';
 import { SlaktReportAssembler } from './assembly/assemblers/slakt.assembler';
 import { WelfareReportAssembler } from './assembly/assemblers/welfare.assembler';
-import { WaterTemperatureService } from '../water-quality/services/water-temperature.service';
+import { WaterTemperatureCoreModule } from '../water-quality/water-temperature-core.module';
 import { ReportAssemblyService } from './assembly/report-assembly.service';
 import { GetReportPrefillHandler } from './handlers/get-report-prefill.handler';
 import { ReportPrefillResolver } from './report-prefill.resolver';
@@ -68,6 +68,8 @@ import { RegulatoryAiQueryResponder } from './responders/regulatory-ai-query.res
 
 @Module({
   imports: [
+    // WaterTemperatureService's provider home — imported, never re-provided.
+    WaterTemperatureCoreModule,
     ConfigModule,
     // The Maskinporten + Mattilsynet clients wrap their outbound calls in the
     // canonical per-tenant circuit breaker (fail-closed) so one tenant's failing
@@ -118,7 +120,6 @@ import { RegulatoryAiQueryResponder } from './responders/regulatory-ai-query.res
     DiseaseReportAssembler,
     // Same local-provider pattern feeding.module/equipment.module use — the
     // service only injects DataSource; no module cycle with water-quality.
-    WaterTemperatureService,
     ReportAssemblyService,
     GetReportPrefillHandler,
     ReportPrefillResolver,

@@ -659,6 +659,72 @@ def agent_ref_shape_refusal(ref: Any) -> str | None:
     return None
 
 
+# ARIA-MEDIUM-385 — the two codes the shape law gives a kernel-recorded agent
+# output: a store-relative path under ARIA's own prefixes, or a runner's
+# absolute path. The submit law admits such a ref for an arbitration role by
+# its results ledger BEFORE the shape law (``_check_agent_ref``,
+# ORPHAN-CRITICAL-734), and only the submit's checkout locates that ledger.
+_RECORDED_OUTPUT_SHAPE_CODES: frozenset[str] = frozenset({
+    "agent_evidence_self_output",
+    "agent_evidence_path_escapes_workspace",
+})
+
+
+def agent_ref_mint_refusal(ref: Any, *, role: str) -> str | None:
+    """ARIA-MEDIUM-385 — the code the submit law refuses ``ref`` with when an answer of ``role`` cites it, as far as a mint can decide; ``None`` otherwise.
+
+    An agent cites the refs its envelope hands it, so a ref this refuses is a
+    paid run the submit law will refuse (the class of ARIA-HIGH-384).
+    ``create_agent_invocation_request`` asks it of every evidence ref of every
+    new request. It is :func:`agent_ref_shape_refusal`, scoped as the submit
+    law is scoped: an arbitration role may cite a kernel-recorded agent
+    output, which the submit law verifies against the results ledger before
+    the shape law, so the two shape codes such an output draws are left to
+    the submit law for those roles. Every other code holds for every role.
+    """
+    refusal = agent_ref_shape_refusal(ref)
+    if role in ARBITRATION_ROLES and refusal in _RECORDED_OUTPUT_SHAPE_CODES:
+        return None
+    return refusal
+
+
+# ARIA-HIGH-614 — the store namespaces producers once spelled as an
+# envelope's whole ``allowed_scope``: ``cycle/<id>``, ``plan-convergence/<id>``
+# and ``convergent/<seed>``. They are labels for kernel records shaped like
+# repository paths, so the scope grammar accepts them, but no checkout
+# carries a file under them: an agent whose box holds only such entries
+# cannot cite one thing this law admits, and the cross-check below refuses
+# every repository citation as ``agent_evidence_outside_allowed_scope``
+# (the three paid ``verification`` runs rejected on 2026-10-15/16). The
+# namespaces are the mint-side twin's share of this law: the response side
+# needs no list, because a label matches no path any tree can hold.
+NON_REPOSITORY_SCOPE_NAMESPACES: tuple[str, ...] = (
+    "cycle/",
+    "plan-convergence/",
+    "convergent/",
+)
+
+
+def scope_entry_admits_citable_ref(entry: Any) -> bool:
+    """ARIA-HIGH-614 — can ``entry`` name a ref an agent may cite and have admitted?
+
+    A kernel ledger pointer can: the law binds it by identity at the envelope
+    that minted it, so a box whose only entry is one (the adjudication lane's
+    own subject) is answerable. A repository-shaped ``path[:line]`` or glob
+    outside the non-repository namespaces can. A namespace label can not: it
+    is neither a pointer nor a path in any checkout. The mint asks this of
+    every entry of ``allowed_scope ∪ evidence_scope ∪ evidence_refs`` and
+    refuses an envelope nothing answers yes to, before the paid run.
+    """
+    if not isinstance(entry, str) or not entry.strip():
+        return False
+    if _is_ledger_pointer_ref(entry):
+        return True
+    if any(entry.startswith(namespace) for namespace in NON_REPOSITORY_SCOPE_NAMESPACES):
+        return False
+    return agent_ref_shape_refusal(entry) is None
+
+
 def _judge_agent_ref(
     ref: str,
     *,

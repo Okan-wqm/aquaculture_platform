@@ -12,6 +12,8 @@ import { PlatformJwtModule } from '@aquaculture/backend-common/auth';
 import { AUDIT_LOG_SERVICE, type IAuditLogService } from '@aquaculture/backend-common/audit';
 import { LegalHoldModule } from '@aquaculture/backend-common/compliance';
 import { SourceSchemaBootstrapService } from '@aquaculture/backend-common/database';
+import { ProductionPlanModule } from './production-plan/production-plan.module';
+import { DateTimeCustomScalar } from './graphql/datetime.custom-scalar';
 import { RolesGuard, ServiceIdentityGuard, TenantGuard } from '@aquaculture/backend-common/guards';
 import {
   createGraphqlOperationLimitPlugin,
@@ -436,6 +438,8 @@ import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
     BatchModule,
     FeedingModule,
     FeedingProtocolModule,
+
+    ProductionPlanModule,
     GrowthModule,
     WaterQualityModule,
     FishHealthModule,
@@ -503,6 +507,12 @@ import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
     SchemaDriftModule.forRoot({ serviceName: 'farm' }),
   ],
   providers: [
+    // PLAT-CRITICAL-931: federation driver reads scalars ONLY from the
+    // ScalarsExplorer (@Scalar providers); the top-level scalarsMap option is
+    // ignored on that path. This provider binds the platform DateTime
+    // serialisation (backend-common SSoT) to every Date field — the fix for
+    // the date-column string crash (purchaseOrders/workOrders in prod).
+    DateTimeCustomScalar,
     // Phase 6.4 — domain error filter runs BEFORE the generic
     // GlobalExceptionFilter. NestJS invokes filters in reverse
     // registration order so the FarmAppErrorFilter needs to come

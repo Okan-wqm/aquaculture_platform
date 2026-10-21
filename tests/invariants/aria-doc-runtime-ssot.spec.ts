@@ -18,6 +18,7 @@ import yaml from 'js-yaml';
 import { checkCurrentState } from '../../tools/gates/aria-authority-hash';
 
 import { removeFixtureTree } from '../../tools/gates/fixture-tree';
+import { hermeticGitEnv } from '../../tools/gates/hermetic-git';
 const REPO_ROOT = (() => {
   try {
     return execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
@@ -103,7 +104,7 @@ const ARIA_PYTEST_NATIVE_PLUGIN = 'aria_kernel.pytest_native_only';
 const KERNEL_SHARD_BUDGET_MINUTES = 30;
 const KERNEL_LANE_BUDGET_MINUTES = 15;
 
-type WorkflowStep = { id?: string; run?: string; env?: Record<string, string> };
+type WorkflowStep = { id?: string; run?: string; uses?: string; env?: Record<string, string> };
 type PullRequestWorkflow = {
   on?: { pull_request?: null | { paths?: string[] } };
   jobs?: Record<
@@ -119,17 +120,22 @@ type PullRequestWorkflow = {
 };
 
 // INFRA-HIGH-215 — the kernel lane runs on every PR (`aria-kernel` is a required
-// context); its `changes` job decides from KERNEL_SURFACE whether the suite runs.
+// context); its `changes` job decides from the kernel surface manifest whether the suite
+// runs. ARIA-HIGH-530 — the manifest is the surface's one owner: the workflow, the pre-push
+// selector, the kernel's own helper and this spec all read it, and git matches it everywhere.
+const KERNEL_SURFACE_MANIFEST = '.github/manifests/aria-kernel-surface.json';
+
 function kernelScopeStep(workflow: PullRequestWorkflow): WorkflowStep {
   const step = (workflow.jobs?.changes?.steps ?? []).find((candidate) => candidate.id === 'scope');
   if (step === undefined) throw new Error('aria-kernel.yml: the `changes` job has no `scope` step');
   return step;
 }
 
-function kernelSurface(workflow: PullRequestWorkflow): string[] {
-  return (kernelScopeStep(workflow).env?.KERNEL_SURFACE ?? '')
-    .split('\n')
-    .filter((line) => line.trim() !== '');
+function kernelSurface(): string[] {
+  const manifest = JSON.parse(read(KERNEL_SURFACE_MANIFEST)) as {
+    surface: { glob: string; readers: string }[];
+  };
+  return manifest.surface.map((entry) => entry.glob);
 }
 
 const ARCHITECTURE_SECTIONS = [
@@ -551,6 +557,42 @@ describe('ARIA live runtime/documentation SSoT', () => {
     }
   });
 
+  it('the GitHub App runbook states the required checks and strict pin the manifest enforces', () => {
+    // ARIA-HIGH-213 — "an operator runbook states the settings the code
+    // enforces". bd8d2c6f5 (#1676) fixed every gap the finding named, but
+    // section 6 kept "the 4 required checks" after 9454d3a93/58e5a2fab made
+    // aria-kernel the fifth context of the SSoT manifest, and nothing compared
+    // the two. The list and the count are pinned to the manifest here, plus
+    // the strict sentence the manifest's own gate enforces.
+    const manifest = JSON.parse(read('.github/manifests/main-required-status-checks.json')) as {
+      required_status_checks: { strict: boolean; contexts: string[] };
+    };
+    const contexts = manifest.required_status_checks.contexts;
+    const sectionSix =
+      read('docs/runbooks/aria-github-app-setup.md')
+        .split(/^## /m)
+        .find((chunk) => chunk.startsWith('6. ')) ?? '';
+    expect(sectionSix).not.toBe('');
+    const lines = sectionSix.split(/\r?\n/);
+    const listStart = lines.findIndex((line) => line.includes('required checks'));
+    expect(listStart).toBeGreaterThanOrEqual(0);
+    // The bullet wraps, so the list is every line from its first to the one
+    // that hands over to "each pinned".
+    let bullet = '';
+    for (let index = listStart; index < lines.length; index += 1) {
+      const line = lines[index] ?? '';
+      bullet += `${line} `;
+      if (line.includes('each pinned')) break;
+    }
+    expect(bullet).toContain(`the ${contexts.length} required checks`);
+    const listSegment = bullet.split(/,? each pinned/)[0] ?? '';
+    const named = [...listSegment.matchAll(/`([^`]+)`/g)].map((match) => match[1]);
+    expect([...named].sort()).toEqual([...contexts].sort());
+    if (manifest.required_status_checks.strict) {
+      expect(sectionSix).toContain('`strict: true`');
+    }
+  });
+
   it('Claude Code executor contract is mainline, version-bound, and has no pending verification placeholders', () => {
     const contract = read('tools/aria-poc/ci_executor_contract_proven.md');
     expect(contract).toContain('checkout the `main` target ref');
@@ -560,7 +602,10 @@ describe('ARIA live runtime/documentation SSoT', () => {
     ).claude_code_floor;
     expect(contract).toContain(`claude_cli_version_minimum: claude-code ${floor}`);
     expect(contract).toContain('verification_mode: runtime-preflight');
-    expect(contract).toContain('managed Claude Code login');
+    // ARIA-MEDIUM-563 — the kernel's own token behind the provider gateway, not a host login.
+    expect(contract).toContain("Auth is the kernel's own Claude token");
+    expect(contract).toContain('provider gateway');
+    expect(contract).not.toContain('managed Claude Code login');
     expect(contract).not.toMatch(
       /PENDING-CLAUDE-CONTRACT-TESTS|claude_cli_version_minimum:\s*PENDING|verified_by_operator_handle:\s*PENDING|verified_at_iso8601:\s*PENDING/,
     );
@@ -664,7 +709,9 @@ describe('ARIA live runtime/documentation SSoT', () => {
     }
   };
 
-  const PYTEST_NATIVE_INVOCATION = [
+  // The pytest half's interpreter call; `laneOptions` are what only the kernel
+  // lane passes.
+  const pytestNativeInvocation = (...laneOptions: string[]): string[] => [
     'BEGIN',
     'PYTHONDONTWRITEBYTECODE=1',
     'PYTHONPATH=aria-kernel:.:caller-pythonpath',
@@ -673,6 +720,7 @@ describe('ARIA live runtime/documentation SSoT', () => {
     'ARG=-q',
     'ARG=-p',
     `ARG=${ARIA_PYTEST_NATIVE_PLUGIN}`,
+    ...laneOptions.map((option) => `ARG=${option}`),
     'ARG=aria-kernel',
     'END',
   ];
@@ -689,7 +737,9 @@ describe('ARIA live runtime/documentation SSoT', () => {
       'ARG=-p',
       'ARG=*test*.py',
       'END',
-      ...PYTEST_NATIVE_INVOCATION,
+      // The whole-suite run (`npm run aria:test:unit`, a laptop) provisions no
+      // sandbox backend, so a real-sandbox pin that cannot confine stays a skip.
+      ...pytestNativeInvocation(),
     ]);
     expect(read(ARIA_SUITE_RUNNER)).not.toMatch(/\bgrep\b|PYTEST_STYLE_MODULES/);
   });
@@ -712,7 +762,9 @@ describe('ARIA live runtime/documentation SSoT', () => {
       'ARG=--report',
       'ARG=/probe/shard-2.json',
       'END',
-      ...PYTEST_NATIVE_INVOCATION,
+      // ARIA-LOW-599 — the lane's pytest half refuses a skipped real-sandbox
+      // pin, as `suite_shards verify` refuses one in the unittest half.
+      ...pytestNativeInvocation('--refuse-sandbox-skips'),
     ]);
   });
 
@@ -747,12 +799,15 @@ describe('ARIA live runtime/documentation SSoT', () => {
     const workflow = yaml.load(read('.github/workflows/aria-kernel.yml')) as PullRequestWorkflow;
     // INFRA-HIGH-215 — unfiltered, so the required context reports on every PR.
     expect(workflow.on?.pull_request).toBeNull();
-    expect(kernelSurface(workflow)).toContain(ARIA_SUITE_RUNNER);
+    // ARIA-HIGH-530 — the scope step reads the manifest; no list of its own.
+    expect(kernelScopeStep(workflow).env?.KERNEL_SURFACE_MANIFEST).toBe(KERNEL_SURFACE_MANIFEST);
+    expect(Object.keys(kernelScopeStep(workflow).env ?? {})).not.toContain('KERNEL_SURFACE');
+    expect(kernelSurface()).toContain(ARIA_SUITE_RUNNER);
     // ARIA-HIGH-098 — the adapter registry contract
     // (aria-kernel/tests/test_adapter_fixture_evidence_contract.py) is a
     // suite test over tools/aria-adapters/**; a lane that does not run on
     // that directory checks an adapters-only PR first on main.
-    expect(kernelSurface(workflow)).toContain(ARIA_ADAPTERS_DIR + '/**');
+    expect(kernelSurface()).toContain(ARIA_ADAPTERS_DIR + '/**');
 
     const jobs = workflow.jobs ?? {};
     expect(Object.keys(jobs)).toEqual(['changes', 'suite', 'lane', 'state', 'aria-kernel']);
@@ -788,6 +843,21 @@ describe('ARIA live runtime/documentation SSoT', () => {
       `bash ${ARIA_SUITE_RUNNER} --pytest-native`,
     ]);
 
+    // ARIA-MEDIUM-130 / ARIA-LOW-599 — both halves refuse a skipped real-sandbox
+    // pin, which is right only on a host that proved it can confine: each job
+    // that runs the suite runner provisions the backend before it.
+    for (const job of ['suite', 'lane']) {
+      const steps = jobs[job]?.steps ?? [];
+      const provisioned = steps.findIndex(
+        (step) => step.uses === './.github/actions/ensure-sandbox-backend',
+      );
+      const firstRunner = steps.findIndex((step) =>
+        step.run?.startsWith(`bash ${ARIA_SUITE_RUNNER}`),
+      );
+      expect({ job, provisioned: provisioned >= 0 }).toEqual({ job, provisioned: true });
+      expect({ job, beforeRunner: provisioned < firstRunner }).toEqual({ job, beforeRunner: true });
+    }
+
     // state (ARIA-HIGH-240): this change's kernel compacts and verifies the
     // live aria/state tip; its likeness to the maintenance lane is pinned by
     // aria-kernel/tests/test_state_compaction_gate.py. No suite runner here.
@@ -811,10 +881,13 @@ describe('ARIA live runtime/documentation SSoT', () => {
     const workflow = yaml.load(read('.github/workflows/aria-kernel.yml')) as PullRequestWorkflow;
     const scope = kernelScopeStep(workflow);
     const script = scope.run ?? '';
-    const surface = scope.env?.KERNEL_SURFACE ?? '';
+    const manifestPath = KERNEL_SURFACE_MANIFEST;
     const fixture = mkdtempSync(join(tmpdir(), 'aria-kernel-scope-'));
+    // Never the caller's git context: from a worktree's pre-push hook an inherited
+    // GIT_DIR made these commands commit, branch and check out in the developer's
+    // repository instead of the fixture (ARIA-MEDIUM-616).
     const gitEnv = {
-      ...process.env,
+      ...hermeticGitEnv(),
       GIT_CONFIG_GLOBAL: '/dev/null',
       GIT_CONFIG_NOSYSTEM: '1',
       GIT_AUTHOR_NAME: 'scope',
@@ -825,15 +898,26 @@ describe('ARIA live runtime/documentation SSoT', () => {
     const git = (repo: string, ...args: string[]): void => {
       execFileSync(REAL_GIT, args, { cwd: repo, env: gitEnv, stdio: 'pipe' });
     };
-    const decide = (eventName: string, changedPath: string): string => {
+    // The PR merge commit carries the manifest, exactly as the real checkout does.
+    const decide = (
+      eventName: string,
+      changedPath: string,
+      manifest: string = read(KERNEL_SURFACE_MANIFEST),
+    ): string => {
       const repo = mkdtempSync(join(fixture, 'repo-'));
       git(repo, 'init', '--quiet', '--initial-branch=main');
       writeFileSync(join(repo, 'README.md'), 'base\n');
+      mkdirSync(join(repo, manifestPath, '..'), { recursive: true });
+      writeFileSync(join(repo, manifestPath), manifest);
       git(repo, 'add', '-A');
       git(repo, 'commit', '--quiet', '-m', 'base');
       git(repo, 'checkout', '--quiet', '-b', 'pr');
       mkdirSync(join(repo, changedPath, '..'), { recursive: true });
-      writeFileSync(join(repo, changedPath), 'change\n');
+      // A PR that edits the manifest keeps it a manifest.
+      writeFileSync(
+        join(repo, changedPath),
+        changedPath === manifestPath ? `${manifest}\n` : 'change\n',
+      );
       git(repo, 'add', '-A');
       git(repo, 'commit', '--quiet', '-m', 'change');
       git(repo, 'checkout', '--quiet', 'main');
@@ -844,7 +928,12 @@ describe('ARIA live runtime/documentation SSoT', () => {
       writeFileSync(output, '');
       execFileSync('bash', ['-e', '-c', script], {
         cwd: repo,
-        env: { ...gitEnv, EVENT_NAME: eventName, KERNEL_SURFACE: surface, GITHUB_OUTPUT: output },
+        env: {
+          ...gitEnv,
+          EVENT_NAME: eventName,
+          KERNEL_SURFACE_MANIFEST: manifestPath,
+          GITHUB_OUTPUT: output,
+        },
         stdio: 'pipe',
       });
       return readFileSync(output, 'utf8').trim();
@@ -859,19 +948,36 @@ describe('ARIA live runtime/documentation SSoT', () => {
         'tools/aria-poc/poc.py',
         'tools/shared/invariants/test_x.py',
         `${ARIA_ADAPTERS_DIR}/some-adapter/manifest.json`,
+        // ARIA-HIGH-530 — inputs the suite and the lane steps read, which the hand list
+        // in the workflow left out (and the pre-push selector, a second list, half kept).
+        '.claude/agents/aria-implementer.md',
+        'tools/aria-acceptance/test_harness.py',
+        '.github/workflows/aria-state-maintenance.yml',
+        '.github/actions/restore-aria-state/action.yml',
+        'package.json',
+        'tools/aria/chain_next_cycle.py',
+        KERNEL_SURFACE_MANIFEST,
+        // Pinned by the lane's own aria:docs:ssot step.
+        'scripts/ci/aria-suite-changed.mjs',
       ]) {
         expect([changed, decide('pull_request', changed)]).toEqual([changed, 'kernel=true']);
       }
       for (const changed of [
         'apps/farm-service/src/main.ts',
         'docs/runbooks/aria-pr-landing-gate.md',
-        'scripts/ci/aria-suite-changed.mjs',
         'tools/aria-poc-notes.md',
+        '.claude/allowlists/x.yaml',
+        'docs/reviews/_registry/findings.jsonl',
       ]) {
         expect([changed, decide('pull_request', changed)]).toEqual([changed, 'kernel=false']);
       }
       // A main push runs the lane whole, whatever it touched (ARIA-V-007).
       expect(decide('push', 'apps/farm-service/src/main.ts')).toBe('kernel=true');
+      // A missing, empty or unreadable surface fails the step; it never yields a vacuous
+      // kernel=false (the verdict refuses a `changes` job that did not succeed).
+      for (const broken of ['', '{"schema_version":1,"surface":[]}', '{not json']) {
+        expect(() => decide('pull_request', 'aria-kernel/aria_kernel/x.py', broken)).toThrow();
+      }
     } finally {
       removeFixtureTree(fixture);
     }
@@ -966,11 +1072,20 @@ describe('ARIA live runtime/documentation SSoT', () => {
     'treats the ARIA suite selector and both entrypoints as pre-push surfaces',
     () => {
       const { diffArgs, bash, npx } = probeSelector(ARIA_SUITE_SELECTOR);
-      expect(diffArgs).toContain(ARIA_SUITE_SELECTOR);
-      expect(diffArgs).toContain(ARIA_SUITE_RUNNER);
-      expect(diffArgs).toContain(ARIA_IMPORT_GRAPH);
-      expect(diffArgs).toContain('package.json');
-      expect(diffArgs).toContain(ARIA_ADAPTERS_DIR);
+      // ARIA-HIGH-530 — the selector diffs exactly the kernel lane's surface: the manifest's
+      // globs as git `:(glob)` pathspecs, the same ones aria-kernel.yml's `changes` job passes.
+      expect(diffArgs.slice(diffArgs.indexOf('--') + 1)).toEqual(
+        kernelSurface().map((glob) => `:(glob)${glob}`),
+      );
+      for (const entrypoint of [
+        ARIA_SUITE_SELECTOR,
+        ARIA_SUITE_RUNNER,
+        ARIA_IMPORT_GRAPH,
+        'package.json',
+        `${ARIA_ADAPTERS_DIR}/**`,
+      ]) {
+        expect(kernelSurface()).toContain(entrypoint);
+      }
       // GATE SELF-VALIDATION (PROC-MEDIUM-045): a change to the code deciding what the next
       // push runs is validated by the specs that drive that code, this one among them — the
       // kernel suite never executed a line of the selector. The jest run is marked so the

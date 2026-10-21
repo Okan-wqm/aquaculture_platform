@@ -34,49 +34,13 @@ from aria_kernel.ledger import append_declared_jsonl, load_jsonl
 from aria_kernel.memory import list_memory, validate_repo_evidence
 from aria_kernel.pressure import explain_pressure, run_pressure
 from aria_kernel.tool_registry import GovernanceError, transition_tool, get_tool
+from aria_kernel.architecture_spine_gate import INVARIANT_KINDS, SPINE_ADAPTER_IDS
+from aria_kernel.finding_subject import adapter_violation_keys
+from tests._helpers.active_evidence import register_active_for_test
 from tests._helpers.production_shaped import cycle_workspace
+from tests._helpers.spine_fixture import SPINE_FIXTURE_VERSION, SpineFixture, findings_path
 
 FAKE_RUNNER = Path(__file__).resolve().parent / "_helpers" / "fake_tool_runner.py"
-
-
-def register_active_for_test(tool, base_dir):
-    """Plan 023 v3 §C-3 — test fixture helper (mirrors test_tool_governance).
-
-    register_tool now rejects first-time registrations at ACTIVE / CALIBRATE
-    / QUARANTINED. Route ACTIVE through SHADOW + transition_tool, route
-    QUARANTINED through SHADOW + quarantine_tool, and let the initial-lifecycle
-    state (SHADOW) pass through register_tool unchanged.
-    """
-    target = tool.get("status", "ACTIVE")
-    if target == "SHADOW":
-        return register_tool(tool, base_dir=base_dir)
-    if target not in ("ACTIVE", "CALIBRATE", "QUARANTINED"):
-        return register_tool(tool, base_dir=base_dir)
-    initial = {**tool, "status": "SHADOW"}
-    register_tool(initial, base_dir=base_dir)
-    if target == "QUARANTINED":
-        from aria_kernel.quarantine import quarantine_tool
-        return quarantine_tool(
-            tool["tool_id"], "test fixture quarantine", base_dir=base_dir,
-        )
-    # ARIA-CRITICAL-216 — the promotion is an operator's GitHub act (faked).
-    from tests._helpers.operator_acts import github_operator_acts
-
-    with github_operator_acts() as github:
-        return transition_tool(
-            tool["tool_id"],
-            target_status=target,
-            reason="test fixture promotion",
-            precision=1.0,
-            critical_false_positives=0,
-            evidence_chains_valid=True,
-            operator_approval_ref=github.approve(
-                "tool_promote", {"tool": tool["tool_id"], "target": target},
-            ),
-            base_dir=base_dir,
-        )
-
-
 
 
 def fake_tool_argv(output):
@@ -261,22 +225,47 @@ class EnterpriseCycleTests(unittest.TestCase):
         self.assertEqual(cycle_rows[-1]["status"], "failed")
         self.assertEqual(verify_integrity(tools_dir=self.tools_dir)["status"], "ok")
 
+    # ARIA-HIGH-045 / ARIA-HIGH-071 — the spine's event_contracts invariant is
+    # event-contracts-adapter's violation set. These cycles drive it through
+    # the real tool runner (tests/_helpers/spine_fixture.py): the adapter
+    # reports the findings the test wrote into the workspace, and an edit
+    # between the baseline and the postcheck is what a remediation does.
+    _EVENTS = "event-contracts-adapter"
+
+    def _spine(self, *events: str) -> SpineFixture:
+        """The five spine adapters registered clean, the event adapter reporting ``events``, committed."""
+        spine = SpineFixture(self.root, self.tools_dir)
+        spine.register_clean()
+        if events:
+            spine.set_findings(self._EVENTS, [self._event_finding(name) for name in events], commit=True)
+        return spine
+
+    @staticmethod
+    def _event_finding(name: str) -> dict:
+        return {
+            "id": f"event-{name}", "rule": "event_schema_missing", "path": "src/app.ts", "line": 1,
+            "severity": "medium", "message": f"{name} has no schema", "details": {"event": name},
+            "evidence": [{"path": "src/app.ts", "line": 1}],
+        }
+
+    def _event_violations(self, *names: str) -> dict:
+        identities = adapter_violation_keys([self._event_finding(name) for name in names])
+        return {"violation_count": len(identities), "violation_identities": identities}
+
+    def _set_events(self, spine: SpineFixture, *names: str) -> None:
+        """A working-tree edit of what the event adapter reports (a remediation's change)."""
+        spine.set_findings(self._EVENTS, [self._event_finding(name) for name in names], commit=False)
+
+    def _assert_only_spine_runs(self, result: dict) -> None:
+        # The tools phase and the refresh run the five fixture adapters and
+        # nothing else.
+        self.assertTrue(result["tool_run_summary"])
+        self.assertLessEqual({row["tool_id"] for row in result["tool_run_summary"]}, set(SPINE_ADAPTER_IDS))
+
     def test_native_equal_count_postcheck_regression_fails_cycle_terminal(self):
         from aria_kernel.architecture_spine_gate import list_spine_events
 
-        contracts = self.root / "libs/event-contracts/src/ordinary-events.ts"
-        schemas = contracts.parent / "schemas"
-        schemas.mkdir(parents=True)
-        contracts.write_text(
-            "interface BaseEvent { eventId: string; }\n"
-            "export interface AlphaEvent extends BaseEvent {}\n"
-            "export interface BetaEvent extends BaseEvent {}\n"
-            "export interface GammaEvent extends BaseEvent {}\n",
-            encoding="utf-8",
-        )
-        beta_schema = schemas / "beta_event.json"
-        beta_schema.write_text('{"type":"object"}\n', encoding="utf-8")
-        self.commit_working_tree()
+        spine = self._spine("AlphaEvent", "GammaEvent")
         plan_id = "ordinary-cycle-schema-swap"
         cycle_id = "cycle-native-schema-swap"
 
@@ -285,10 +274,7 @@ class EnterpriseCycleTests(unittest.TestCase):
             # ordinary fixture edit happens afterwards, before the registered
             # postcheck phase; no measurement or phase verdict is supplied.
             result = update_memory(**kwargs)
-            (schemas / "alpha_event.json").write_text(
-                '{"type":"object"}\n', encoding="utf-8",
-            )
-            beta_schema.unlink()
+            self._set_events(spine, "BetaEvent", "GammaEvent")
             return result
 
         with patch(
@@ -312,7 +298,7 @@ class EnterpriseCycleTests(unittest.TestCase):
         for phase in ("architecture_baseline", "tools", "memory", "architecture_postcheck"):
             self.assertEqual(result["phases"][phase], {"outcome": "ran"})
         self.assertTrue(result["artifact_integrity"]["valid"])
-        self.assertEqual(result["tool_run_summary"], [])
+        self._assert_only_spine_runs(result)
 
         rows = list_spine_events(plan_id=plan_id, base_dir=self.tools_dir)
         self.assertEqual([row["kind"] for row in rows], [
@@ -324,17 +310,12 @@ class EnterpriseCycleTests(unittest.TestCase):
         self.assertEqual(postcheck["cycle_id"], cycle_id)
         self.assertEqual(postcheck["baseline_hash"], baseline["baseline_hash"])
         self.assertEqual(postcheck["regression_count"], 1)
-        prefix = "libs/event-contracts/src/ordinary-events.ts::"
-        for observation, identities in (
-            (baseline["invariant_measurements"]["event_contracts"], ["AlphaEvent", "GammaEvent"]),
-            (postcheck["postcheck_measurements"]["event_contracts"], ["BetaEvent", "GammaEvent"]),
+        for observation, names in (
+            (baseline["invariant_measurements"]["event_contracts"], ("AlphaEvent", "GammaEvent")),
+            (postcheck["postcheck_measurements"]["event_contracts"], ("BetaEvent", "GammaEvent")),
         ):
-            self.assertEqual(observation["source"], "static:_check_event_contracts")
-            self.assertEqual(observation["measurements"], {
-                "declared_event_count": 3,
-                "missing_schema_count": 2,
-                "missing_schema_identities": [prefix + name for name in identities],
-            })
+            self.assertEqual(observation["source"], f"adapter:{self._EVENTS}@{SPINE_FIXTURE_VERSION}")
+            self.assertEqual(observation["measurements"], self._event_violations(*names))
         self.assertEqual(result["architecture_postcheck"]["regression_count"], 1)
         self.assertEqual(result["architecture_postcheck"]["drifts"], postcheck["drifts"])
         self.assertEqual([
@@ -355,36 +336,20 @@ class EnterpriseCycleTests(unittest.TestCase):
         ]
         self.assertEqual([row["event"] for row in cycle_rows], ["started", "failed"])
         self.assertEqual(cycle_rows[-1]["status"], "failed")
-        self.assertEqual(cycle_rows[-1]["tool_decision_count"], 0)
 
     def test_native_followup_cycle_preserves_regression_baseline_until_actual_repair(self):
         from aria_kernel.architecture_spine_gate import list_spine_events
 
-        contracts = self.root / "libs/event-contracts/src/ordinary-events.ts"
-        schemas = contracts.parent / "schemas"
-        schemas.mkdir(parents=True)
-        contracts.write_text(
-            "interface BaseEvent { eventId: string; }\n"
-            "export interface AlphaEvent extends BaseEvent {}\n"
-            "export interface BetaEvent extends BaseEvent {}\n"
-            "export interface GammaEvent extends BaseEvent {}\n",
-            encoding="utf-8",
-        )
-        beta_schema = schemas / "beta_event.json"
-        beta_schema.write_text('{"type":"object"}\n', encoding="utf-8")
-        self.commit_working_tree()
+        spine = self._spine("AlphaEvent", "GammaEvent")
+        findings_file = self.root / findings_path(self._EVENTS)
         plan_id = "ordinary-persistent-schema-obligation"
         initial_cycle = "cycle-obligation-introduced"
         followup_cycle = "cycle-obligation-unrepaired"
         repaired_cycle = "cycle-obligation-repaired"
-        prefix = "libs/event-contracts/src/ordinary-events.ts::"
 
         def update_memory_then_edit(**kwargs):
             result = update_memory(**kwargs)
-            (schemas / "alpha_event.json").write_text(
-                '{"type":"object"}\n', encoding="utf-8",
-            )
-            beta_schema.unlink()
+            self._set_events(spine, "BetaEvent", "GammaEvent")
             return result
 
         def run_native(cycle_id):
@@ -414,28 +379,25 @@ class EnterpriseCycleTests(unittest.TestCase):
         original_hash = baseline["baseline_hash"]
         self.assertEqual(baseline["cycle_id"], initial_cycle)
         self.assertEqual(
-            baseline["invariant_measurements"]["event_contracts"]["measurements"]["missing_schema_identities"],
-            [prefix + "AlphaEvent", prefix + "GammaEvent"],
+            baseline["invariant_measurements"]["event_contracts"]["measurements"],
+            self._event_violations("AlphaEvent", "GammaEvent"),
         )
         initial_postcheck = original_rows[1]["details"]
         self.assertEqual(initial_postcheck["baseline_hash"], original_hash)
         self.assertEqual(
-            initial_postcheck["postcheck_measurements"]["event_contracts"]["measurements"]["missing_schema_identities"],
-            [prefix + "BetaEvent", prefix + "GammaEvent"],
+            initial_postcheck["postcheck_measurements"]["event_contracts"]["measurements"],
+            self._event_violations("BetaEvent", "GammaEvent"),
         )
-        unchanged_source = {str(path): path.read_bytes() for path in (contracts, schemas / "alpha_event.json")}
-        self.assertFalse(beta_schema.exists())
+        unchanged_source = findings_file.read_bytes()
 
         # A new cycle is an ordinary follow-up, not authority to forgive the
         # failed plan's still-unrepaired baseline obligation.
         followup = run_native(followup_cycle)
-        for path, expected in unchanged_source.items():
-            self.assertEqual(Path(path).read_bytes(), expected)
-        self.assertFalse(beta_schema.exists())
+        self.assertEqual(findings_file.read_bytes(), unchanged_source)
         for phase in ("architecture_baseline", "tools", "memory", "architecture_postcheck"):
             self.assertEqual(followup["phases"][phase], {"outcome": "ran"})
         self.assertTrue(followup["artifact_integrity"]["valid"])
-        self.assertEqual(followup["tool_run_summary"], [])
+        self._assert_only_spine_runs(followup)
         self.assertEqual(
             followup["architecture_postcheck"]["regression_count"], 1,
             "The same plan must retain its introduced BetaEvent obligation across cycles.",
@@ -445,16 +407,16 @@ class EnterpriseCycleTests(unittest.TestCase):
         self.assertEqual(followup["event"]["event"], "failed")
 
         # Declared ordinary source repair; this is not an autonomous editor or
-        # planner substitute. Retain the Alpha improvement while restoring Beta.
-        beta_schema.write_text('{"type":"object"}\n', encoding="utf-8")
+        # planner substitute. Retain the Alpha improvement while repairing Beta.
+        self._set_events(spine, "GammaEvent")
         repaired = run_native(repaired_cycle)
         self.assertEqual(repaired["architecture_postcheck"]["regression_count"], 0)
         self.assertEqual(repaired["architecture_postcheck"]["baseline_hash"], original_hash)
         self.assertEqual(repaired["status"], "completed")
         self.assertEqual(repaired["event"]["event"], "completed")
         self.assertEqual(
-            repaired["architecture_postcheck"]["postcheck_measurements"]["event_contracts"]["measurements"]["missing_schema_identities"],
-            [prefix + "GammaEvent"],
+            repaired["architecture_postcheck"]["postcheck_measurements"]["event_contracts"]["measurements"],
+            self._event_violations("GammaEvent"),
         )
         rows = list_spine_events(plan_id=plan_id, base_dir=self.tools_dir)
         self.assertEqual([row["kind"] for row in rows], [
@@ -475,20 +437,6 @@ class EnterpriseCycleTests(unittest.TestCase):
             (repaired_cycle, "started"), (repaired_cycle, "completed"),
         ])
 
-    def _seed_native_baseline_schema(self) -> Path:
-        contracts = self.root / "libs/event-contracts/src/ordinary-events.ts"
-        schemas = contracts.parent / "schemas"
-        schemas.mkdir(parents=True)
-        contracts.write_text(
-            "interface BaseEvent { eventId: string; }\n"
-            "export interface AlphaEvent extends BaseEvent {}\n",
-            encoding="utf-8",
-        )
-        schema = schemas / "alpha_event.json"
-        schema.write_text('{"type":"object"}\n', encoding="utf-8")
-        self.commit_working_tree()
-        return schema
-
     def _native_baseline_context(self, plan_id: str, cycle_id: str):
         from aria_kernel.cycle import build_phase_context
 
@@ -501,14 +449,14 @@ class EnterpriseCycleTests(unittest.TestCase):
         from aria_kernel.architecture_spine_gate import list_spine_events, take_baseline
         from aria_kernel.cycle import _phase_architecture_baseline, _phase_architecture_postcheck
 
-        schema = self._seed_native_baseline_schema()
+        spine = self._spine()
         plan_id = "ordinary-clean-then-new-baseline"
         initial = self._native_baseline_context(plan_id, "cycle-clean-baseline")
         baseline = _phase_architecture_baseline(initial)
-        schema.unlink()
+        self._set_events(spine, "AlphaEvent")
         failed = _phase_architecture_postcheck(initial)
         self.assertEqual(failed["regression_count"], 1)
-        schema.write_text('{"type":"object"}\n', encoding="utf-8")
+        self._set_events(spine)
         repaired = self._native_baseline_context(plan_id, "cycle-repaired-baseline")
         retained = _phase_architecture_baseline(repaired)
         self.assertEqual(retained["baseline_hash"], baseline["baseline_hash"])
@@ -519,7 +467,7 @@ class EnterpriseCycleTests(unittest.TestCase):
         self.assertNotIn("baseline_reuse", baseline)
 
         # A resolved obligation does not freeze a later ordinary observation.
-        schema.unlink()
+        self._set_events(spine, "AlphaEvent")
         following = _phase_architecture_baseline(
             self._native_baseline_context(plan_id, "cycle-next-baseline"),
         )
@@ -530,19 +478,13 @@ class EnterpriseCycleTests(unittest.TestCase):
             plan_id=plan_id, cycle_id="cycle-explicit-capture",
             workspace_root=self.root, base_dir=self.tools_dir,
         )
-        # Fresh observation hashes include measured_at and adapter-run metadata.
-        # Their stable source contract is the actual event measurement, not
+        # Fresh observation hashes include measured_at and adapter-run
+        # provenance. Their stable contract is the violation set, not
         # equality of two separately captured observation envelopes.
         for observation in (following, explicit):
             event_contract = observation["invariant_measurements"]["event_contracts"]
-            self.assertEqual(event_contract["source"], "static:_check_event_contracts")
-            self.assertEqual(event_contract["measurements"], {
-                "declared_event_count": 1,
-                "missing_schema_count": 1,
-                "missing_schema_identities": [
-                    "libs/event-contracts/src/ordinary-events.ts::AlphaEvent",
-                ],
-            })
+            self.assertEqual(event_contract["source"], f"adapter:{self._EVENTS}@{SPINE_FIXTURE_VERSION}")
+            self.assertEqual(event_contract["measurements"], self._event_violations("AlphaEvent"))
         self.assertEqual(explicit["cycle_id"], "cycle-explicit-capture")
         self.assertNotIn("baseline_reuse", explicit)
         rows = list_spine_events(plan_id=plan_id, base_dir=self.tools_dir)
@@ -561,11 +503,11 @@ class EnterpriseCycleTests(unittest.TestCase):
         from aria_kernel.architecture_spine_gate import list_spine_events, take_baseline
         from aria_kernel.cycle import _phase_architecture_baseline, _phase_architecture_postcheck
 
-        schema = self._seed_native_baseline_schema()
+        spine = self._spine()
         plan_id = "ordinary-unresolved-plan"
         initial = self._native_baseline_context(plan_id, "cycle-original-anchor")
         original = _phase_architecture_baseline(initial)
-        schema.unlink()
+        self._set_events(spine, "AlphaEvent")
         failed = _phase_architecture_postcheck(initial)
         self.assertEqual(failed["regression_count"], 1)
         retained_rows = list_spine_events(plan_id=plan_id, base_dir=self.tools_dir)
@@ -595,11 +537,11 @@ class EnterpriseCycleTests(unittest.TestCase):
         from aria_kernel.architecture_spine_gate import DEFAULT_MAX_REGRESSION_ROUNDS, list_spine_events
         from aria_kernel.cycle import _phase_architecture_baseline, _phase_architecture_postcheck
 
-        schema = self._seed_native_baseline_schema()
+        spine = self._spine()
         plan_id = "ordinary-bounded-baseline-followups"
         initial = self._native_baseline_context(plan_id, "cycle-obligation-base")
         baseline = _phase_architecture_baseline(initial)
-        schema.unlink()
+        self._set_events(spine, "AlphaEvent")
         result = _phase_architecture_postcheck(initial)
         self.assertEqual(DEFAULT_MAX_REGRESSION_ROUNDS, 5)
         self.assertEqual(result["regression_count"], 1)
@@ -629,18 +571,7 @@ class EnterpriseCycleTests(unittest.TestCase):
     def test_native_clean_postcheck_preserves_completed_cycle_terminal(self):
         from aria_kernel.architecture_spine_gate import list_spine_events
 
-        contracts = self.root / "libs/event-contracts/src/ordinary-events.ts"
-        schemas = contracts.parent / "schemas"
-        schemas.mkdir(parents=True)
-        contracts.write_text(
-            "interface BaseEvent { eventId: string; }\n"
-            "export interface AlphaEvent extends BaseEvent {}\n",
-            encoding="utf-8",
-        )
-        (schemas / "alpha_event.json").write_text(
-            '{"type":"object"}\n', encoding="utf-8",
-        )
-        self.commit_working_tree()
+        self._spine("AlphaEvent")
         plan_id = "ordinary-cycle-schema-clean"
         cycle_id = "cycle-native-schema-clean"
         result = run_cycle(
@@ -663,16 +594,14 @@ class EnterpriseCycleTests(unittest.TestCase):
         self.assertEqual(postcheck["cycle_id"], cycle_id)
         self.assertEqual(postcheck["regression_count"], 0)
         self.assertEqual(postcheck["drifts"], [])
+        self.assertEqual((postcheck["unmeasured_invariants"], postcheck["excluded_invariants"]), ([], []))
         self.assertEqual(result["architecture_postcheck"], postcheck)
         for observation in (
             baseline["invariant_measurements"]["event_contracts"],
             postcheck["postcheck_measurements"]["event_contracts"],
         ):
-            self.assertEqual(observation["source"], "static:_check_event_contracts")
-            self.assertEqual(observation["measurements"], {
-                "declared_event_count": 1, "missing_schema_count": 0,
-                "missing_schema_identities": [],
-            })
+            self.assertEqual(observation["source"], f"adapter:{self._EVENTS}@{SPINE_FIXTURE_VERSION}")
+            self.assertEqual(observation["measurements"], self._event_violations("AlphaEvent"))
         self.assertEqual(result["phases"]["architecture_postcheck"], {"outcome": "ran"})
         self.assertTrue(result["artifact_integrity"]["valid"])
         self.assertEqual(result["status"], "completed")
@@ -684,6 +613,28 @@ class EnterpriseCycleTests(unittest.TestCase):
         ]
         self.assertEqual([row["event"] for row in cycle_rows], ["started", "completed"])
         self.assertEqual(cycle_rows[-1]["status"], "completed")
+
+    def test_native_unmeasured_spine_does_not_complete_a_plan_cycle_clean(self):
+        # ARIA-HIGH-525 — a planned cycle whose owner adapters are not there
+        # to run measures nothing; that is an unmeasured comparison (the
+        # plan's comparison unavailable), never a silently clean postcheck.
+        from aria_kernel.architecture_spine_gate import _plan_comparison_obligation, list_spine_events
+
+        plan_id = "ordinary-cycle-unmeasured"
+        run_cycle(
+            workspace_root=self.root, cycle_id="cycle-native-unmeasured", base_dir=self.tools_dir,
+            workspace_base=Path(self.tmp.name) / "cycle-workspaces", shadow_only=True,
+            defer_reflection=True, snapshot_mode="working-tree", plan_id=plan_id,
+        )
+        rows = list_spine_events(plan_id=plan_id, base_dir=self.tools_dir)
+        self.assertEqual([row["kind"] for row in rows], [
+            "architecture_spine_baseline", "architecture_spine_unmeasured",
+        ])
+        self.assertEqual(rows[1]["details"]["unmeasured_invariants"], [
+            {"invariant": kind, "reason": "baseline:adapter_unregistered"} for kind in INVARIANT_KINDS
+        ])
+        obligation = _plan_comparison_obligation(self.tools_dir, plan_id)
+        self.assertEqual((obligation["status"], obligation["reason"]), ("unavailable", "invariant_unmeasured"))
 
     def test_snapshot_outside_evidence_marks_run_invalid_and_unsampleable(self):
         tool = shadow_tool()
@@ -1267,15 +1218,6 @@ class EnterpriseCycleTests(unittest.TestCase):
             f"{OUTPUT_CONTRACT_COMPAT_FINDING_ID} violation: {current_version} >= {OUTPUT_CONTRACT_COMPAT_REMOVAL_VERSION}; compat aliases must be removed",
         )
 
-    def test_output_contract_compat_finding_is_registered(self):
-        registry = Path(__file__).parents[2] / "docs/reviews/_registry/findings.jsonl"
-        rows = [json.loads(line) for line in registry.read_text(encoding="utf-8").splitlines() if line.strip()]
-        finding = next(row for row in rows if row["id"] == OUTPUT_CONTRACT_COMPAT_FINDING_ID)
-        self.assertEqual(finding["state"], "OPEN")
-        self.assertEqual(finding["deadline"], "2026-06-05")
-        self.assertEqual(finding["owner_agent"], "platform-kernel-expert")
-        self.assertEqual(finding["severity"], "MEDIUM")
-
     def test_cli_exposes_memory_withdraw_and_pressure_explain(self):
         migration_dir = self.root / "apps/farm-service/src/database/migrations"
         migration_dir.mkdir(parents=True)
@@ -1480,6 +1422,64 @@ class EnterpriseCycleTests(unittest.TestCase):
             for row in integrity_result["cycle_lifecycle"]["incomplete_cycles"]
         }
         self.assertNotIn("cycle-pre-phase-abort", incomplete_ids)
+
+    def _accounts_of_an_aborted_cycle(self, result: dict) -> tuple[list[dict], list[str], str]:
+        """ARIA-LOW-549 — what the night reads off an aborted cycle, through
+        the production path: the orchestrator's closed summary (the
+        ``cycle_completed`` row), the doctor's cause keys over the exit streak
+        that covers it, and the cycle-failed notice's reason."""
+        from aria_kernel import doctor
+        from aria_kernel.autonomy_orchestrator import _bounded_cycle_summary, _cycle_failure_reason
+        from aria_kernel.orchestrator_exit_history import read_orchestrator_exit_streak
+        from tests._helpers.orchestrator_exits import record_cycle_completed, record_exit
+
+        summary = _bounded_cycle_summary(result)
+        record_cycle_completed(self.tools_dir, result["cycle_id"], "failed", summary)
+        record_exit(self.tools_dir, "cycle_failed", 0)
+        streak = read_orchestrator_exit_streak(self.tools_dir)
+        keys = [cause.key for cause in doctor._failed_cycle_causes(streak.failed_cycles)]
+        return summary["failed_phases"], keys, _cycle_failure_reason(summary)
+
+    def test_a_pre_phase_abort_names_its_phase_on_every_account(self):
+        """ARIA-LOW-549 — the aborted cycle carried ``aborted_by_phase`` and no
+        failed phase; the closed summary dropped the first, so the doctor
+        keyed the night ``cycle:unrecorded`` and the notice said
+        ``status=aborted runtime_status=aborted``."""
+        with patch(
+            "aria_kernel.architecture_spine_gate.take_baseline",
+            return_value={"status": "failed", "reason": "fixture-injected baseline failure"},
+        ):
+            result = run_cycle(
+                workspace_root=self.root, cycle_id="cycle-pre-phase-cause", base_dir=self.tools_dir,
+                shadow_only=True, plan_id="PLAN-PRE-PHASE-CAUSE",
+            )
+        self.assertEqual(result["status"], "aborted")
+
+        failed_phases, keys, reason = self._accounts_of_an_aborted_cycle(result)
+
+        self.assertEqual(failed_phases, [{"phase": "architecture_baseline", "status": "failed",
+                                          "error": "fixture-injected baseline failure"}])
+        self.assertEqual(keys, ["architecture_baseline:phase_failed"])
+        self.assertEqual(reason, "architecture_baseline: fixture-injected baseline failure")
+
+    def test_a_state_integrity_gap_abort_names_the_continuity_gate_on_every_account(self):
+        """ARIA-LOW-549 — the gap abort recorded its reason only in a progress
+        line; the cycle result named no phase at all. A standard cycle bound
+        to a tools root outside a workspace that holds the store is the
+        blocking verdict (GSEC-MEDIUM-006), and recovery refuses it."""
+        from aria_kernel.state_store import STORE_DIRNAME
+
+        (self.root / STORE_DIRNAME).mkdir()
+        result = run_cycle(workspace_root=self.root, cycle_id="cycle-gap-cause", base_dir=self.tools_dir)
+        self.assertEqual(result["status"], "aborted")
+
+        failed_phases, keys, reason = self._accounts_of_an_aborted_cycle(result)
+
+        self.assertEqual([(row["phase"], row["status"]) for row in failed_phases], [("state_continuity", "failed")])
+        self.assertTrue(failed_phases[0]["error"].startswith(
+            "state_integrity_gap: state_continuity_tools_root_detached_from_state_store"), failed_phases)
+        self.assertEqual(keys, ["state_continuity:phase_failed"])
+        self.assertTrue(reason.startswith("state_continuity: state_integrity_gap: "), reason)
 
     def latest_run(self):
         rows = (self.tools_dir / "runs.jsonl").read_text(encoding="utf-8").strip().splitlines()

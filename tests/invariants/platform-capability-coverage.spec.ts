@@ -24,6 +24,8 @@
 
 import * as yaml from 'js-yaml';
 
+import { loadNatsServices } from '../../tools/gates/nats-services';
+
 import {
   allAdminMutationHandlers,
   readRepoFile,
@@ -151,16 +153,17 @@ describe('INVARIANT (ADR-0016): platform capabilities — one enum, one projecti
   });
 
   it('admin-api may publish the three capability command subjects (NATS ACL SSoT)', () => {
-    const acl = readRepoFile('infrastructure/nats/services.yaml');
-    const adminBlock = acl.slice(acl.indexOf('- name: admin_api_service'));
+    // ARIA-LOW-603 — admin-api's OWN publish grants, through the one shared reader. The raw-text
+    // search this replaced read everything after admin_api_service's entry, so a grant held by any
+    // later service passed too.
+    const adminApi = loadNatsServices().find((service) => service.name === 'admin_api_service');
+    if (adminApi === undefined) throw new Error('services.yaml has no admin_api_service');
     for (const subject of [
       'request.auth.admin.grantPlatformCapability',
       'request.auth.admin.revokePlatformCapability',
       'request.auth.admin.listPlatformCapabilityGrants',
     ]) {
-      // The generator writes plain YAML scalars — `- request.auth.…` — so the
-      // assertion matches the list entry, not a quoted form the file never had.
-      expect(adminBlock).toContain(`- ${subject}`);
+      expect(adminApi.publish).toContain(subject);
     }
   });
 });

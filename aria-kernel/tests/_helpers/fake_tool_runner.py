@@ -32,7 +32,18 @@ def main(argv: list[str] | None = None) -> int:
     # sorted, citing nothing: the read set of a tree-walking adapter (test-gap
     # read 7,818 files on 2026-10-15), too large for --output-b64's argv.
     parser.add_argument("--read-tree")
+    # Print these bytes as they are, with no JSON round trip: the text an
+    # adapter writes when the kernel's own decoder could not re-encode it
+    # (nesting past the decoder's recursion limit; ARIA-HIGH-617).
+    parser.add_argument("--stdout-b64")
+    # Text the run writes to stderr before it answers (base64 UTF-8): what a
+    # crashing adapter leaves behind (ARIA-LOW-542).
+    parser.add_argument("--stderr-b64")
     args = parser.parse_args(argv)
+
+    if args.stderr_b64:
+        sys.stderr.write(base64.b64decode(args.stderr_b64.encode("ascii")).decode("utf-8"))
+        sys.stderr.flush()
 
     if args.sleep_seconds:
         time.sleep(args.sleep_seconds)
@@ -82,6 +93,8 @@ def main(argv: list[str] | None = None) -> int:
         }))
     elif args.output_b64:
         print(json.dumps(_decode_json(args.output_b64)))
+    elif args.stdout_b64:
+        print(base64.b64decode(args.stdout_b64.encode("ascii")).decode("utf-8"))
     else:
         print("{}")
     return args.exit_code

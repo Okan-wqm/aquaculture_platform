@@ -50,40 +50,77 @@ class TestV9KeyChangeCategories(unittest.TestCase):
         self.assertEqual(_ps.MIN_EVIDENCE_REF_CARDINALITY, 5)
 
 
-class TestV9OrphanScanner(unittest.TestCase):
+def _orphan_repo(tmp: str, rows: list[dict], register: str) -> None:
+    """A checkout with the finding registry and the orphan register, in their real shapes."""
+    registry = Path(tmp) / "docs" / "reviews" / "_registry" / "findings.jsonl"
+    registry.parent.mkdir(parents=True)
+    registry.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    (Path(tmp) / "docs" / "reviews" / "orphan-findings.md").write_text(register, encoding="utf-8")
 
-    def test_scan_missing_file_returns_empty(self):
+
+def _orphan_row(finding_id: str, state: str = "OPEN", review_file: str = "docs/reviews/orphan-findings.md",
+                evidence: list[str] | None = None) -> dict:
+    return {"id": finding_id, "severity": finding_id.split("-")[1], "state": state, "title": "t",
+            "owner_agent": "claude", "evidence": evidence or [], "override_of": None,
+            "review_file": review_file}
+
+
+class TestV9OrphanScanner(unittest.TestCase):
+    """ARIA-MEDIUM-249 — OPEN is the registry's state, the register gives the anchor.
+
+    The scanner used to parse ``^## ORPHAN-<SEV>-<n>$`` plus a ``Status:
+    OPEN`` line; the register's headings read ``## ORPHAN-HIGH-811 — <title>
+    — OPEN`` (the fixture below), so it matched none of the 721 and the
+    source never produced a candidate."""
+
+    REGISTER = (
+        "# Orphan Findings\n\n"
+        "## ORPHAN-CRITICAL-810 — Postgres restarts with a mixed contract — OPEN\n\nbody\n\n"
+        "## ORPHAN-HIGH-811 — Credential version breaks issuance — OPEN\n\nbody\n\n"
+        "## ORPHAN-HIGH-417 — closed by the registry, heading never updated — OPEN\n\nbody\n\n"
+        "## ORPHAN-LOW-047 — open, heading still says resolved — RESOLVED (this PR)\n\nbody\n"
+    )
+
+    def test_scan_without_a_registry_returns_empty(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(_ps.scan_orphan_findings(tmp), [])
 
-    def test_scan_picks_only_open_findings(self):
+    def test_the_register_as_written_yields_its_open_findings(self):
         with tempfile.TemporaryDirectory() as tmp:
-            md = Path(tmp) / "docs" / "reviews" / "orphan-findings.md"
-            md.parent.mkdir(parents=True)
-            md.write_text(
-                "## ORPHAN-CRITICAL-001\nStatus: OPEN\nDesc one\n\n"
-                "## ORPHAN-HIGH-002\nStatus: RESOLVED\nDesc two\n\n"
-                "## ORPHAN-LOW-003\nStatus: OPEN\nDesc three\n",
-            )
+            _orphan_repo(tmp, [
+                _orphan_row("ORPHAN-HIGH-811", evidence=["apps/auth-service/src/a.ts:820"]),
+                _orphan_row("ORPHAN-CRITICAL-810"),
+                _orphan_row("ORPHAN-HIGH-417", state="RESOLVED"),
+                _orphan_row("ORPHAN-LOW-047"),
+            ], self.REGISTER)
             results = _ps.scan_orphan_findings(tmp)
-            ids = [c["candidate_id"] for c in results]
-            self.assertIn("ORPHAN-CRITICAL-001", ids)
-            self.assertNotIn("ORPHAN-HIGH-002", ids)  # not OPEN
-            self.assertIn("ORPHAN-LOW-003", ids)
+
+        self.assertEqual(
+            [(c["candidate_id"], c.get("heading_line")) for c in results],
+            [("ORPHAN-CRITICAL-810", 3), ("ORPHAN-HIGH-811", 7), ("ORPHAN-LOW-047", 15)],
+        )
+        self.assertEqual(results[1]["evidence"], ["apps/auth-service/src/a.ts:820"])
+
+    def test_an_orphan_registered_in_another_review_file_is_still_this_sources(self):
+        # ARIA-LOW-607 — the review_file filter WAS the defect: 31 OPEN ORPHAN
+        # rows are filed against review documents other than the register and
+        # were reachable by no plan source. The candidate carries the row's own
+        # review_file (the commit trailer's owner), and the register's heading
+        # is not its anchor.
+        with tempfile.TemporaryDirectory() as tmp:
+            _orphan_repo(tmp, [_orphan_row("ORPHAN-HIGH-811", review_file="docs/reviews/other.md")], self.REGISTER)
+            [candidate] = _ps.scan_orphan_findings(tmp)
+
+        self.assertEqual(candidate["candidate_id"], "ORPHAN-HIGH-811")
+        self.assertEqual(candidate["review_file"], "docs/reviews/other.md")
+        self.assertNotIn("heading_line", candidate)
 
     def test_scan_severity_ordering(self):
         with tempfile.TemporaryDirectory() as tmp:
-            md = Path(tmp) / "docs" / "reviews" / "orphan-findings.md"
-            md.parent.mkdir(parents=True)
-            md.write_text(
-                "## ORPHAN-LOW-001\nStatus: OPEN\n\n"
-                "## ORPHAN-CRITICAL-002\nStatus: OPEN\n\n"
-                "## ORPHAN-HIGH-003\nStatus: OPEN\n",
-            )
+            _orphan_repo(tmp, [_orphan_row("ORPHAN-LOW-001"), _orphan_row("ORPHAN-CRITICAL-002"),
+                               _orphan_row("ORPHAN-HIGH-003")], "")
             results = _ps.scan_orphan_findings(tmp)
-            self.assertEqual(results[0]["severity"], "CRITICAL")
-            self.assertEqual(results[1]["severity"], "HIGH")
-            self.assertEqual(results[2]["severity"], "LOW")
+            self.assertEqual([c["severity"] for c in results], ["CRITICAL", "HIGH", "LOW"])
 
 
 class TestV9FFindingScanner(unittest.TestCase):
@@ -109,6 +146,32 @@ class TestV9FFindingScanner(unittest.TestCase):
             results = _ps.scan_f_findings(fold_findings(tmp))
             self.assertEqual([c["candidate_id"] for c in results], ["F-001", "F-002"])
             self.assertGreater(results[0]["age_seconds"], results[1]["age_seconds"])
+
+    def test_the_merged_ranking_keeps_the_oldest_first_order(self):
+        """ARIA-MEDIUM-249 — the merge re-ranked every source by a secondary
+        key of its own; for F findings that was ``age_seconds`` ascending, so
+        the NEWEST finding led the merged list against the scanner's contract.
+        The scanner owns its order and the merge keeps it."""
+        from tests._helpers.declared_fixtures import append_declared_fixture
+
+        with tempfile.TemporaryDirectory() as tmp:
+            findings = Path(tmp) / "aria-findings"
+            findings.mkdir()
+            for finding_id, created_at in (("F-001", "2026-09-01T00:00:00Z"),
+                                           ("F-002", "2026-09-02T00:00:00Z"),
+                                           ("F-003", "2026-09-03T00:00:00Z")):
+                append_declared_fixture(findings / "finding-events.jsonl", {
+                    "schema_version": 1, "event": "finding_emitted",
+                    "event_id": f"finding:{finding_id}:emitted", "finding_id": finding_id,
+                    "record": {"finding_id": finding_id, "status": "OPEN", "created_at": created_at},
+                }, expected_surface="repo_finding_events")
+            with mock.patch.object(_ps, "scan_operator_feedback", return_value=[]), \
+                    mock.patch.object(_ps, "scan_failing_ci", return_value=[]):
+                ranked = _ps.rank_candidate_sources(workspace_root=tmp, findings=fold_findings(tmp))
+            self.assertEqual(
+                [c["candidate_id"] for c in ranked if c["source_type"] == "f_finding"],
+                ["F-001", "F-002", "F-003"],
+            )
 
     def test_scan_ignores_a_finding_file_the_ledger_never_emitted(self):
         """ARIA-MEDIUM-330 — the fold, not the directory, says which findings exist."""

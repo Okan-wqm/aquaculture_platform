@@ -91,6 +91,7 @@ _PROFILE_SURFACE_BY_NAME: dict[str, str] = {
     "fitness_reports": "observation",
     "fitness_recommendation_candidates": "observation",
     "fitness_agent": "observation",
+    "training_set_exports": "observation",
     "heartbeat_ticks": "observation",
     "heartbeat_cycle_batches": "observation",
     "ci_workflow_inventory": "ci",
@@ -535,6 +536,10 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     # Plan 032 Faz 032f — event gateway: inbox (accepted/routed/rejected), schedule table, heartbeat.
     StateSurface("gateway_inbox", "gateway/inbox.jsonl", "ledger", "gateway", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
     StateSurface("gateway_schedules", "gateway/schedules.jsonl", "ledger", "gateway", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
+    # ARIA-MEDIUM-271 — runtime signals as append-only events (observed,
+    # resolved, quarantined), folded by runtime_signal_bridge. The bridge used
+    # to keep one undeclared JSON file per signal, which no publish carried.
+    StateSurface("runtime_signal_events", "runtime-signals/events.jsonl", "ledger", "runtime_signals", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation"),
     StateSurface("gateway_heartbeat", "gateway/heartbeat.json", "artifact", "gateway", "runtime", True, "rewrite_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("gateway_telemetry", "gateway/telemetry.prom", "artifact", "gateway", "runtime", True, "rewrite_fsync", False, profile_surface="observation", observe_class="observation"),
     # Plan 032 Faz 032g — MCP call ledger (client + server side) and server quarantine.
@@ -762,6 +767,8 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("fitness_reports", "fitness/fitness-reports.jsonl", "ledger", "fitness", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation", memory=True),
     StateSurface("fitness_recommendation_candidates", "fitness/recommendation-candidates.jsonl", "ledger", "fitness", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation"),
     StateSurface("fitness_agent", "fitness/agent-fitness.jsonl", "ledger", "fitness", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation", memory=True),
+    # ARIA-HIGH-125 — the signed gold corpus + replay verdicts (training_set).
+    StateSurface("training_set_exports", "fitness/training-sets.jsonl", "ledger", "fitness", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation", memory=True),
     StateSurface("heartbeat_ticks", "heartbeat/ticks.jsonl", "ledger", "heartbeat", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation"),
     StateSurface("heartbeat_cycle_batches", "heartbeat/cycle-batches.jsonl", "ledger", "heartbeat", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation"),
     StateSurface("ci_workflow_inventory", "ci/workflow-inventory.jsonl", "ledger", "ci", "runtime", True, "append_fsync", True, profile_surface="ci", observe_class="action"),

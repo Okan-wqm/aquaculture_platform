@@ -33,6 +33,8 @@ from aria_kernel.ledger import load_jsonl
 from aria_kernel.plan_convergence import fold_plan_state
 from aria_kernel.runtime_profile import set_profile
 from tests._helpers.operator_acts import operator_set_profile
+from tests._helpers.spine_fixture import SPINE_FIXTURE_VERSION, SpineFixture
+from aria_kernel.finding_subject import adapter_violation_keys
 from aria_kernel.tool_registry import ensure_tools_dir
 from tests.test_implementation_lifecycle_continuity import (
     drive_plan_to_converged,
@@ -303,24 +305,32 @@ class AutonomyOrchestratorTests(unittest.TestCase):
         from tests._helpers.git_fixtures import _git
 
         repo = self.tmp / "source"
-        schemas = repo / "libs/event-contracts/src/schemas"
-        schemas.mkdir(parents=True)
-        contracts = schemas.parent / "ordinary-events.ts"
-        contracts.write_text(
-            "interface BaseEvent { eventId: string; }\n"
-            "export interface AlphaEvent extends BaseEvent {}\n"
-            "export interface BetaEvent extends BaseEvent {}\n"
-            "export interface GammaEvent extends BaseEvent {}\n",
-            encoding="utf-8",
-        )
-        beta_schema = schemas / "beta_event.json"
-        beta_schema.write_text('{"type":"object"}\n', encoding="utf-8")
+        contracts = repo / "libs/event-contracts/src/ordinary-events.ts"
+        contracts.parent.mkdir(parents=True)
+        contracts.write_text("export interface AlphaEvent {}\n", encoding="utf-8")
         (repo / "package.json").write_text('{"name":"outer-fixture"}\n', encoding="utf-8")
         _git(["init", "-q"], cwd=repo)
         _git(["config", "user.email", "outer-fixture@aria.test"], cwd=repo)
         _git(["config", "user.name", "Outer Fixture"], cwd=repo)
         _git(["add", "-A"], cwd=repo)
         _git(["commit", "-q", "-m", "test: ordinary outer schema source"], cwd=repo)
+        # ARIA-HIGH-045 — the event_contracts invariant is the owner
+        # adapter's violation set, run through the real tool runner.
+        events = "event-contracts-adapter"
+
+        def event_finding(name: str) -> dict:
+            return {"id": f"event-{name}", "rule": "event_schema_missing",
+                    "path": "libs/event-contracts/src/ordinary-events.ts", "line": 1, "severity": "medium",
+                    "message": f"{name} has no schema", "details": {"event": name},
+                    "evidence": [{"path": "libs/event-contracts/src/ordinary-events.ts", "line": 1}]}
+
+        def violations(*names: str) -> dict:
+            identities = adapter_violation_keys([event_finding(name) for name in names])
+            return {"violation_count": len(identities), "violation_identities": identities}
+
+        spine_fixture = SpineFixture(repo, ensure_tools_dir(self.base))
+        spine_fixture.register_clean()
+        spine_fixture.set_findings(events, [event_finding("AlphaEvent"), event_finding("GammaEvent")], commit=True)
         ensure_tools_binding(self.base, workspace_root=repo)
         plan_id = "ordinary-outer-schema-plan"
         observed: dict[str, Any] = {}
@@ -342,8 +352,7 @@ class AutonomyOrchestratorTests(unittest.TestCase):
 
         def update_memory_then_edit(**kwargs):
             result = update_memory(**kwargs)
-            (schemas / "alpha_event.json").write_text('{"type":"object"}\n', encoding="utf-8")
-            beta_schema.unlink()
+            spine_fixture.set_findings(events, [event_finding("BetaEvent"), event_finding("GammaEvent")], commit=False)
             return result
 
         native_runner = Mock(side_effect=source_cycle)
@@ -381,16 +390,12 @@ class AutonomyOrchestratorTests(unittest.TestCase):
         self.assertEqual(baseline["cycle_id"], cycle_id)
         self.assertEqual(postcheck["baseline_hash"], baseline["baseline_hash"])
         self.assertEqual(postcheck["regression_count"], 1)
-        prefix = "libs/event-contracts/src/ordinary-events.ts::"
         for measurement, names in (
-            (baseline["invariant_measurements"]["event_contracts"], ["AlphaEvent", "GammaEvent"]),
-            (postcheck["postcheck_measurements"]["event_contracts"], ["BetaEvent", "GammaEvent"]),
+            (baseline["invariant_measurements"]["event_contracts"], ("AlphaEvent", "GammaEvent")),
+            (postcheck["postcheck_measurements"]["event_contracts"], ("BetaEvent", "GammaEvent")),
         ):
-            self.assertEqual(measurement["source"], "static:_check_event_contracts")
-            self.assertEqual(measurement["measurements"], {
-                "declared_event_count": 3, "missing_schema_count": 2,
-                "missing_schema_identities": [prefix + name for name in names],
-            })
+            self.assertEqual(measurement["source"], f"adapter:{events}@{SPINE_FIXTURE_VERSION}")
+            self.assertEqual(measurement["measurements"], violations(*names))
         cycles = [row for row in load_jsonl(self.base / "cycles.jsonl") if row.get("cycle_id") == cycle_id]
         self.assertEqual([row["event"] for row in cycles], ["started", "failed"])
         self.assertEqual(len(result["per_cycle"]), 1)
@@ -445,6 +450,9 @@ class AutonomyOrchestratorTests(unittest.TestCase):
         _git(["config", "user.name", "Outer Fixture"], cwd=repo)
         _git(["add", "-A"], cwd=repo)
         _git(["commit", "-q", "-m", "test: ordinary clean outer source"], cwd=repo)
+        # ARIA-HIGH-045 — the five owner adapters, reporting nothing: an
+        # observed clean spine (without them every invariant is unmeasured).
+        SpineFixture(repo, ensure_tools_dir(self.base)).register_clean()
         ensure_tools_binding(self.base, workspace_root=repo)
         plan_id = "ordinary-clean-outer-plan"
         observed: dict[str, Any] = {}
@@ -2295,7 +2303,7 @@ class TheStartupReaperCollectsAbandonmentNotLateness(unittest.TestCase):
         from aria_kernel.human_required import list_human_required
 
         escalations = [
-            row for row in list_human_required(base_dir=self.base)
+            row for row in list_human_required(base_dir=self.base).rows
             if row.get("context", {}).get("plan_id") == "plan-729"
         ]
         self.assertEqual(len(escalations), 1, escalations)
@@ -2311,7 +2319,7 @@ class TheStartupReaperCollectsAbandonmentNotLateness(unittest.TestCase):
         from aria_kernel.human_required import list_human_required
 
         escalations = [
-            row for row in list_human_required(base_dir=self.base)
+            row for row in list_human_required(base_dir=self.base).rows
             if row.get("context", {}).get("plan_id") == "plan-729"
         ]
         self.assertEqual(len(escalations), 1, escalations)

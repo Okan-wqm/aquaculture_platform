@@ -22,12 +22,13 @@ would otherwise be recorded as a terminal guess
 The governed set is derived, not listed, across EVERY workflow file: a job
 runs the kernel when it provisions it (a ``uses:`` of the local
 ``.github/actions/setup-aria-kernel`` action, under whatever checkout path
-it lives — the dataflow watchdog checks out into ``watchdog-checkout/``) or
-invokes it in a ``run:`` step. The rule is "a kernel workspace is a whole
-clone", and four of the lanes that run the kernel are not named ``aria-*``
-(``dataflow-integrity-watchdog``, ``finding-closure-reconcile``,
-``finding-state-sweep``, ``rule-health-report``); a name filter would have
-left them ungoverned. ``aria-external-watchdog.yml`` falls outside by
+it lives) or invokes it in a ``run:`` step. The rule is "a kernel workspace
+is a whole clone", and three of the lanes that run the kernel are not named
+``aria-*`` (``finding-closure-reconcile``, ``finding-state-sweep``,
+``rule-health-report``); a name filter would have left them ungoverned. The
+dataflow watchdog ran the kernel until ARIA-MEDIUM-271 (it ingested its
+signal into its own checkout, thrown away with the job); it now hands the
+signal to the cycle by dispatch and runs no kernel code. ``aria-external-watchdog.yml`` falls outside by
 construction — its own contract
 (``tests/invariants/aria-external-watchdog-contract.spec.ts``) forbids it
 from reaching the kernel, and it reads one manifest at depth 1 on purpose.
@@ -66,7 +67,6 @@ _LANES_THAT_READ_HISTORY_LIVE: frozenset[str] = frozenset({
     "aria-auto-cycle.yml",
     "aria-agent-executor.yml",
     "aria-state-maintenance.yml",
-    "dataflow-integrity-watchdog.yml",
     "finding-closure-reconcile.yml",
     "finding-state-sweep.yml",
     "rule-health-report.yml",

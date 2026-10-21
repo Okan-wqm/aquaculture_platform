@@ -1,0 +1,222 @@
+{
+  "tool_id": "sql-migration-safety-adapter",
+  "kind": "adapter",
+  "version": "1.0.0",
+  "status": "SHADOW",
+  "security_class": true,
+  "declared_scope": ["apps/**/migrations/**/*.ts", "apps/**/migrations/*.sql"],
+  "output_schema": {
+    "type": "object",
+    "required": ["observations", "findings", "read_paths", "evidence_sources"]
+  },
+  "fixture_set": "tools/aria-adapters/fixtures/sql-migration-safety-adapter",
+  "health_thresholds": {
+    "max_cost_units": 2000
+  },
+  "default_input": {
+    "roots": ["apps"]
+  },
+  "allowed_read_globs": [
+    "apps/**/migrations/**/*.ts",
+    "apps/**/migrations/*.sql",
+    "tools/gates/migration-sql-lint.ts",
+    "tools/gates/expand-contract-ast.ts",
+    "tools/gates/migration-shared-enum-drop.ts",
+    "tools/gates/rls-predicate-canonical.ts",
+    "platform/libs/service-catalog/src/index.ts",
+    "platform/libs/service-catalog/src/topology.ts",
+    "tools/aria-adapters/fixtures/sql-migration-safety-adapter/**",
+    "tools/gates/tenant-aware-migration-ddl.ts",
+    "libs/backend-common/src/database/schema-manager.service.ts",
+    "tsconfig.base.json",
+    "platform/libs/outbox/src/**/*.ts"
+  ],
+  "forbidden_read_globs": [
+    ".claude/**",
+    ".git/**",
+    "agent-workspace/**",
+    ".aria-poc/**",
+    "aria-tools/**",
+    "node_modules/**",
+    "dist/**",
+    "coverage/**",
+    "build/**",
+    "tmp/**"
+  ],
+  "claim_types": ["migration_safety"],
+  "rules": {
+    "destructive_ddl_without_marker": {
+      "claim_type": "wrong_code",
+      "severity_cap": "CRITICAL",
+      "defect_claim": "A new migration runs destructive DDL with no recorded rollback, so the data it removes cannot be restored by the documented path.",
+      "premises": [
+        "The cited statement drops a column, table or schema, or truncates a table, and its statement carries no `-- DESTRUCTIVE: <rollback reference>` marker.",
+        "The cited migration is in the change set under review (added, never applied), so it can still be corrected before it runs."
+      ]
+    },
+    "single_step_add_not_null": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "A new migration adds a NOT NULL column with no default in one step, which fails on any populated table and locks it while it tries.",
+      "premises": [
+        "The cited ADD COLUMN declares NOT NULL with no DEFAULT in the same clause, and the table can hold rows when the migration runs.",
+        "The cited migration is in the change set under review (added, never applied), so it can still be corrected before it runs."
+      ]
+    },
+    "create_index_not_idempotent": {
+      "claim_type": "wrong_code",
+      "severity_cap": "MEDIUM",
+      "defect_claim": "A new migration creates an index that takes an exclusive lock on a live table and crashes when the migration replays.",
+      "premises": [
+        "The cited CREATE INDEX carries neither CONCURRENTLY nor IF NOT EXISTS, and no CREATE TABLE earlier in the same SQL creates its table.",
+        "The cited migration is in the change set under review (added, never applied), so it can still be corrected before it runs."
+      ]
+    },
+    "session_scoped_search_path": {
+      "claim_type": "wrong_code",
+      "severity_cap": "CRITICAL",
+      "defect_claim": "A new migration sets search_path for the whole pooled session, so later queries on that connection resolve tables in the wrong schema.",
+      "premises": [
+        "The cited statement is a standalone SET search_path (not SET LOCAL and not a routine's declaration option).",
+        "The cited migration is in the change set under review (added, never applied), so it can still be corrected before it runs."
+      ]
+    },
+    "overbroad_exception_catch": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "A new migration swallows every PL/pgSQL error, including security failures, deadlocks and timeouts.",
+      "premises": [
+        "The cited block handles `WHEN others THEN NULL` rather than a specific condition such as duplicate_object.",
+        "The cited migration is in the change set under review (added, never applied), so it can still be corrected before it runs."
+      ]
+    },
+    "create_table_without_if_not_exists": {
+      "claim_type": "wrong_code",
+      "severity_cap": "MEDIUM",
+      "defect_claim": "A new migration creates a table non-idempotently, so a replay after a partial run crashes with relation-already-exists.",
+      "premises": [
+        "The cited CREATE TABLE (not TEMP or UNLOGGED) has no IF NOT EXISTS.",
+        "The cited migration is in the change set under review (added, never applied), so it can still be corrected before it runs."
+      ]
+    },
+    "create_type_without_do_block": {
+      "claim_type": "wrong_code",
+      "severity_cap": "MEDIUM",
+      "defect_claim": "A new migration creates an enum type outside the duplicate_object guard, so a replay crashes with duplicate-object.",
+      "premises": [
+        "The cited CREATE TYPE ... AS ENUM is not inside a `DO $$ BEGIN ... EXCEPTION WHEN duplicate_object` block.",
+        "The cited migration is in the change set under review (added, never applied), so it can still be corrected before it runs."
+      ]
+    },
+    "add_column_without_if_not_exists": {
+      "claim_type": "wrong_code",
+      "severity_cap": "MEDIUM",
+      "defect_claim": "A new migration adds a column non-idempotently, so a replay crashes with column-already-exists.",
+      "premises": [
+        "The cited ADD COLUMN has no IF NOT EXISTS.",
+        "The cited migration is in the change set under review (added, never applied), so it can still be corrected before it runs."
+      ]
+    },
+    "alter_column_unguarded": {
+      "claim_type": "wrong_code",
+      "severity_cap": "MEDIUM",
+      "defect_claim": "A new migration alters a column's type or nullability with no idempotency probe, so a replay either crashes or silently does nothing.",
+      "premises": [
+        "The cited ALTER COLUMN changes TYPE or NOT NULL, the same SQL holds no information_schema.columns probe, and it is not inside a DO $$ EXCEPTION block.",
+        "The cited migration is in the change set under review (added, never applied), so it can still be corrected before it runs."
+      ]
+    },
+    "add_constraint_without_do_block": {
+      "claim_type": "wrong_code",
+      "severity_cap": "MEDIUM",
+      "defect_claim": "A new migration adds a constraint with no idempotency guard, so a replay crashes with duplicate-object.",
+      "premises": [
+        "The cited ADD CONSTRAINT (FOREIGN KEY, UNIQUE or CHECK) is neither inside a DO $$ EXCEPTION block nor preceded by a pg_constraint/conname existence probe.",
+        "The cited migration is in the change set under review (added, never applied), so it can still be corrected before it runs."
+      ]
+    },
+    "drop_table_without_if_exists": {
+      "claim_type": "wrong_code",
+      "severity_cap": "CRITICAL",
+      "defect_claim": "A new migration drops a table non-idempotently, so a replay after a partial run crashes and the drop is not guarded.",
+      "premises": [
+        "The cited DROP TABLE has no IF EXISTS.",
+        "The cited migration is in the change set under review (added, never applied), so it can still be corrected before it runs."
+      ]
+    },
+    "expand_contract_missing_depends_on": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "A contract-phase migration names no expand phase, so nothing orders it after the code stopped depending on what it removes.",
+      "premises": [
+        "The cited class is decorated @ExpandContract({ phase: 'contract' }) and supplies no dependsOn.",
+        "The migration is not archived and runs in the service's migration set."
+      ]
+    },
+    "expand_contract_depends_on_unresolved": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "A contract-phase migration depends on an expand phase that does not exist, so its ordering guarantee is empty.",
+      "premises": [
+        "The cited class is decorated @ExpandContract({ phase: 'contract', dependsOn }) and the dependsOn name matches no migration class or file name in the scanned migrations.",
+        "The scan covered the whole migration directory the class belongs to."
+      ]
+    },
+    "breaking_ddl_without_expand_contract": {
+      "claim_type": "absence_in_scope",
+      "severity_cap": "LOW",
+      "defect_claim": "A new migration's forward path removes schema with no @ExpandContract marker, so reviewers get no phase ordering for the breaking change.",
+      "premises": [
+        "The cited class's up() body drops a table, column or type, or drops a column property, and the class carries no @ExpandContract decorator.",
+        "The cited migration is in the change set under review (added, never applied), so it can still be corrected before it runs."
+      ]
+    },
+    "unguarded_shared_enum_drop": {
+      "claim_type": "wrong_code",
+      "severity_cap": "CRITICAL",
+      "defect_claim": "A tenant-aware migration drops a shared source-schema enum while tenant clones can still reference it, which aborts db-migrate's source-first fan-out and stops every dependent service.",
+      "premises": [
+        "The cited up() issues DROP TYPE in a tenant-aware service's migration directory.",
+        "up() does not both probe pg_depend for remaining dependents and carry the SHARED-ENUM-DROP-REVIEWED annotation."
+      ]
+    },
+    "rls_predicate_not_canonical": {
+      "claim_type": "wrong_code",
+      "severity_cap": "CRITICAL",
+      "defect_claim": "A tenant-isolation RLS policy is hand-rolled with a non-canonical predicate, which either crashes on an unset tenant GUC, blocks admin bypass, or exposes rows across tenants.",
+      "premises": [
+        "The cited CREATE POLICY names a tenant_isolation policy and its migration does not call applyTenantRlsToSchema.",
+        "The USING clause lacks one of the canonical elements: the app.bypass_rls clause, NULLIF over current_setting('app.current_tenant', true), the ::uuid cast, or the `, true` argument.",
+        "The migration is not on the owner's grandfathered list."
+      ]
+    },
+    "qualified_ddl_escapes_tenant_replay": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "A tenant-aware migration qualifies its DDL with its own source schema (or re-pins the session search_path to it), so the tenant replay's search_path cannot redirect it: every tenant pass writes to the source schema and the tenant ledger still records the migration as applied.",
+      "premises": [
+        "The cited statement issues CREATE/ALTER/DROP/TRUNCATE against \"<source schema>\".\"<identifier>\" (or the migration calls pinSearchPath with its own source schema without @SourceOnlyMigration), and the statement is not inside a comment.",
+        "The identifier is NOT classified as infrastructure or enum by MODULE_SCHEMAS (per-tenant tables and unclassifiable names both violate: the guard is fail-closed).",
+        "The migration file is not on the owner's REVIEWED_SOURCE_SCHEMA_DDL allowlist.",
+        "tools/gates/tenant-aware-migration-ddl.ts owns the rule; the classification registry is the workspace's MODULE_SCHEMAS read as source text by tools/aria-adapters/module-schemas-source.ts, held equal to the runtime value by tests/invariants/module-schemas-source-parity.spec.ts."
+      ]
+    }
+  },
+  "owner": "platform",
+  "runner": {
+    "type": "subprocess",
+    "argv": [
+      "npx",
+      "ts-node",
+      "--project",
+      "tools/gates/tsconfig.json",
+      "tools/aria-adapters/sql-migration-safety-adapter.ts"
+    ],
+    "cwd": ".",
+    "timeout_ms": 180000,
+    "stdin_json": true
+  },
+  "freshness_window_hours": 168,
+  "parse_window_signature": "sha256:19040cd0c1dd26f5b86288d068d2b90b4f17a1f9782417dc92ddd8132f608145",
+  "schema_version": 1
+}

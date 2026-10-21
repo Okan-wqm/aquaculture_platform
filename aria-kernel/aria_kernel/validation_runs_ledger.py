@@ -73,6 +73,7 @@ import secrets
 from pathlib import Path
 from typing import Any
 
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id_prefix, object_id_pattern
 from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 from .tool_registry import parse_utc_stamp as _parse_utc_stamp
@@ -92,7 +93,6 @@ VALIDATION_RUN_SCHEMA_VERSION = 2
 # an infrastructure stall read as a code defect.
 VALIDATION_RUN_STATUSES: tuple[str, ...] = ("ok", "failed", "timeout")
 
-_COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-f]{7,64}$")
 
 
 def derive_validation_run_status(
@@ -278,7 +278,7 @@ def record_validation_run(
         raise GovernanceError(
             f"validation_run_commit_sha_required: got {commit_sha!r}"
         )
-    if not _COMMIT_SHA_PATTERN.match(commit_sha):
+    if not is_object_id_prefix(commit_sha, formats=ANY_OBJECT_FORMAT, min_digits=7):
         raise GovernanceError(
             f"validation_run_commit_sha_not_hex: got {commit_sha!r}; a "
             f"validation run that cannot name the commit it validated is "
@@ -434,7 +434,7 @@ def _validated_input_binding(value: dict[str, Any]) -> dict[str, Any]:
             invalid()
         result[key] = item
     for key, limit, pattern in (("repo_identity", 16, r"[0-9a-f]{16}"),
-                                ("base_commit_sha", 64, r"(?:[0-9a-f]{40}|[0-9a-f]{64})"),
+                                ("base_commit_sha", 64, object_id_pattern(ANY_OBJECT_FORMAT)),
                                 ("repo_state_id", 75, r"repo-state:[0-9a-f]{64}")):
         item = value[key]
         if item is not None and (not text(item, limit) or re.fullmatch(pattern, item) is None):

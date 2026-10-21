@@ -1,0 +1,19 @@
+{
+  "$schema": "aria/state-lineage/v1",
+  "$comment": [
+    "ARIA-LOW-578: the ONE root commit each state branch's history must have. Every checkout of an",
+    "existing branch proves the fetched tip against it (aria-kernel/aria_kernel/state_lineage.py),",
+    "on every host, whether or not that host ever tracked the branch; a replaced lineage is refused",
+    "by name. aria/state: 'chore(aria-state): genesis for aria/state', 2026-08-05, no parents.",
+    "A governed epoch reset or purge changes this pin in the same reviewed PR that lifts the",
+    "aria-state-protection ruleset (docs/runbooks/aria-state-branch-bootstrap.md)."
+  ],
+  "schema_version": 1,
+  "policy_id": "aria-state-lineage",
+  "lineages": [
+    {
+      "branch": "aria/state",
+      "root": "22edebf1885eb2d632201abe38cccc18c3621016"
+    }
+  ]
+}

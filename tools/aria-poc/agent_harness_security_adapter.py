@@ -1,7 +1,13 @@
 """Plan 020 Phase 10 — agent harness security adapter.
 
-7 detection rules over `.claude/agents/**`, `.github/workflows/**`,
+6 detection rules over `.claude/agents/**`, `.github/workflows/**`,
 `tools/aria-{poc,adapters}/**`, `aria-kernel/**`, `aria-tools/registry.json`.
+
+Workflow token scope is NOT one of them: `permissions: write-all` and a
+governed job's uncontracted or ungoverned scoped write are
+workflow-shell-safety-adapter's `overbroad_write_token`, the one owner
+(ARIA-LOW-592); this adapter's `broad_shell_permission` regex read the same
+lines under a second rule name and is retired.
 
 Rule taxonomy (Plan v3.3 §Phase 10.A — operator gap #9 refinement):
 1. secret_leak_in_yaml_or_md
@@ -12,18 +18,15 @@ Rule taxonomy (Plan v3.3 §Phase 10.A — operator gap #9 refinement):
    github.event.workflow_run.head_sha or pull_request.head.sha (untrusted
    head ref). Standalone actions/checkout WITHOUT fetch-depth NOT flagged
    (false-positive eliminated per operator gap #9 refinement).
-3. broad_shell_permission
-   permissions: write-all OR contents: write WITHOUT scoped justification
-   comment.
-4. prompt_injection_surface
+3. prompt_injection_surface
    agent .md frontmatter `tools:` allowlist missing OR allowed_paths: **
    glob.
-5. direct_anthropic_api_usage
+4. direct_anthropic_api_usage
    import.*@anthropic-ai/sdk outside ARIA approved wrappers.
-6. lease_token_in_logs
+5. lease_token_in_logs
    process.stdout|console.log|print|sys.stdout argv references
    lease_token (Plan 019 Phase 8 redaction-test pattern).
-7. agent_self_modification_bypass
+6. agent_self_modification_bypass
    .claude/agents/**/*.md frontmatter `tools: [Edit, Write, ...]` would
    permit writing to .claude/agents/** paths.
 
@@ -121,26 +124,21 @@ _UNTRUSTED_REF_RE = re.compile(
     re.DOTALL,
 )
 
-# Rule 3 — broad permission.
-_BROAD_PERMISSION_RE = re.compile(
-    r"permissions:\s*write-all|^\s*contents:\s*write\b", re.MULTILINE,
-)
-
-# Rule 4 — prompt injection surface (agent .md frontmatter).
+# Rule 3 — prompt injection surface (agent .md frontmatter).
 _FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---", re.DOTALL)
 _TOOLS_LINE_RE = re.compile(r"^tools:\s*(.*)$", re.MULTILINE)
 _ALLOWED_PATHS_GLOB_RE = re.compile(r"allowed_paths:.*\*\*", re.IGNORECASE)
 
-# Rule 5 — direct Anthropic API usage.
+# Rule 4 — direct Anthropic API usage.
 _DIRECT_ANTHROPIC_RE = re.compile(r"@anthropic-ai/sdk")
 _APPROVED_WRAPPERS = ("aria-kernel/aria_kernel/llm_bridge.py",)
 
-# Rule 6 — lease token in logs.
+# Rule 5 — lease token in logs.
 _LEASE_TOKEN_LOG_RE = re.compile(
     r"(?:print|console\.log|process\.stdout|sys\.stdout|logger\.\w+)\s*\(.*lease_token"
 )
 
-# Rule 7 — agent self-modification.
+# Rule 6 — agent self-modification.
 _AGENT_WRITE_TOOLS_RE = re.compile(r"tools:.*(Edit|Write).*", re.IGNORECASE)
 
 
@@ -226,24 +224,6 @@ def _check_untrusted_checkout(rel_path: str, content: str) -> list[dict[str, Any
     )]
 
 
-def _check_broad_permission(rel_path: str, content: str) -> list[dict[str, Any]]:
-    if not (rel_path.startswith(".github/workflows/")):
-        return []
-    findings: list[dict[str, Any]] = []
-    for match in _BROAD_PERMISSION_RE.finditer(content):
-        line_no = content[: match.start()].count("\n") + 1
-        # Look back 3 lines for a justification comment containing 'reason'.
-        chunk = "\n".join(content.splitlines()[max(0, line_no - 3): line_no - 1])
-        if "reason" in chunk.lower():
-            continue
-        findings.append(_finding(
-            "broad_shell_permission", "MEDIUM", rel_path, line=line_no,
-            message="write permission granted without a scoped justification comment",
-            match=match.group(0),
-        ))
-    return findings
-
-
 def _check_prompt_injection_surface(rel_path: str, content: str) -> list[dict[str, Any]]:
     if not rel_path.startswith(".claude/agents/"):
         return []
@@ -307,7 +287,7 @@ def _check_agent_self_modification(rel_path: str, content: str) -> list[dict[str
 
 
 def scan(repo_root: Path) -> dict[str, Any]:
-    """Run all 7 rules across the scanned glob set; return ARIA envelope."""
+    """Run all 6 rules across the scanned glob set; return ARIA envelope."""
     findings: list[dict[str, Any]] = []
     read_paths: list[str] = []
     for path in _iter_scanned_files(repo_root):
@@ -320,7 +300,6 @@ def scan(repo_root: Path) -> dict[str, Any]:
         for fn in (
             _check_secret_leak,
             _check_untrusted_checkout,
-            _check_broad_permission,
             _check_prompt_injection_surface,
             _check_direct_anthropic_usage,
             _check_lease_token_in_logs,

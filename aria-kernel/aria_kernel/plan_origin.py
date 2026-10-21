@@ -31,6 +31,14 @@ The contract rides on the implementation envelope as a structured field
 (``commit_contract``), the prompt prints it verbatim, and the pre-PR-open
 perimeter (``implementation_safety._check_commit_contract_honoured``) reads
 the branch's commits against the same derivation.
+
+ARIA-MEDIUM-264 — a plan that spends operator requests (its
+``provenance_refs``, ``operator_feedback_ingestion.plan_request_ids``) also
+gets ``request_lines``: one ``operator_request_spend.merged_request_line``
+per request, which every commit (and the PR body) carries, so main's history
+records the spend where a rollback of aria/state cannot erase it. A plan
+that spends none has no ``request_lines`` key, and its commits carry no such
+line.
 """
 from __future__ import annotations
 
@@ -113,6 +121,12 @@ TRAILERLESS_COMMIT_TYPES: tuple[str, ...] = tuple(
 class PlanOrigin:
     kind: str
     finding_id: str | None = None
+    # ARIA-LOW-607 — the review document the finding's registry row is filed
+    # against, stamped into the plan body at mint (beside ``finding_id``).
+    # None on every other origin kind, and on an ORPHAN body minted before the
+    # binding was carried (those bodies were minted by a scanner that selected
+    # ONLY register-filed rows, so the register is their review file).
+    review_file: str | None = None
 
 
 def plan_origin(plan_content: Any) -> PlanOrigin:
@@ -122,7 +136,22 @@ def plan_origin(plan_content: Any) -> PlanOrigin:
         return PlanOrigin(kind=ORIGIN_PLAN)
     finding_id = finding_id.strip()
     if ORPHAN_FINDING_ID_RE.match(finding_id):
-        return PlanOrigin(kind=ORIGIN_ORPHAN_FINDING, finding_id=finding_id)
+        review_file = plan_content.get("finding_review_file") if isinstance(plan_content, dict) else None
+        if review_file is not None and (
+            not isinstance(review_file, str)
+            or not review_file.strip()
+            or any(character.isspace() for character in review_file)
+        ):
+            raise GovernanceError(
+                f"plan_origin_finding_review_file_unusable: {review_file!r} cannot form a "
+                f"Closes: trailer path (CLOSES_TRAILER_RE takes a \\S+?# path); the finding's "
+                f"own review file is a path without whitespace"
+            )
+        return PlanOrigin(
+            kind=ORIGIN_ORPHAN_FINDING,
+            finding_id=finding_id,
+            review_file=review_file,
+        )
     if FINDING_ID_RE.match(finding_id) or F_AUTO_FINDING_ID_RE.match(finding_id):
         return PlanOrigin(kind=ORIGIN_F_FINDING, finding_id=finding_id)
     raise GovernanceError(
@@ -139,11 +168,23 @@ def commit_contract_for_plan(plan_content: Any, *, plan_id: str) -> dict[str, An
     the subject types those commits may open with. Never a trailer the gate
     would refuse, never a guess for the agent to fill in.
     """
+    from .operator_feedback_ingestion import plan_request_ids
+    from .operator_request_spend import merged_request_line
+
     origin = plan_origin(plan_content)
     trailer: str | None = None
     if origin.kind == ORIGIN_ORPHAN_FINDING:
-        trailer = f"Closes: {ORPHAN_FINDINGS_DOCUMENT}#{origin.finding_id}"
-    contract = {
+        # ARIA-LOW-607 — the registry row's review_file is the single owner of
+        # the binding: the closure derivation honours a `Closes:` trailer only
+        # when the anchored file is that row's review_file, so a trailer
+        # hard-built from the register can never close a finding filed in
+        # another review document. The body carries the row's review_file
+        # (stamped at mint); a body without it was minted by the pre-607
+        # scanner, which selected only register-filed rows — the register IS
+        # that finding's review file.
+        document = origin.review_file or ORPHAN_FINDINGS_DOCUMENT
+        trailer = f"Closes: {document}#{origin.finding_id}"
+    contract: dict[str, Any] = {
         "schema_version": COMMIT_CONTRACT_SCHEMA_VERSION,
         "plan_id": plan_id,
         "origin_kind": origin.kind,
@@ -151,6 +192,9 @@ def commit_contract_for_plan(plan_content: Any, *, plan_id: str) -> dict[str, An
         "trailer": trailer,
         "commit_types": list(COMMIT_TYPES if trailer is not None else TRAILERLESS_COMMIT_TYPES),
     }
+    requests = sorted(plan_request_ids(plan_content))
+    if requests:
+        contract["request_lines"] = [merged_request_line(request_id) for request_id in requests]
     validate_commit_contract(contract)
     return contract
 
@@ -174,6 +218,20 @@ def validate_commit_contract(contract: Any) -> None:
         raise GovernanceError(f"commit_contract.commit_types must be a non-empty subset of {COMMIT_TYPES}")
     if trailer is None and any(REQUIRE_CLOSES_SUBJECT_RE.match(f"{kind}(scope): s") for kind in types):
         raise GovernanceError("commit_contract without a trailer admits a commit type the gate requires one for")
+    if "request_lines" in contract:
+        from .operator_request_spend import merged_request_ids, merged_request_line
+
+        lines = contract["request_lines"]
+        if (
+            not isinstance(lines, list) or not lines
+            or any(not isinstance(line, str) for line in lines)
+            or lines != sorted(set(lines))
+            or [merged_request_line(request_id) for request_id in sorted(merged_request_ids(lines))] != lines
+        ):
+            raise GovernanceError(
+                "commit_contract.request_lines must be the sorted, non-empty merged_request_line of "
+                f"each request the plan spends: {lines!r}"
+            )
 
 
 # ADR-0018 D4 — a plan's origin is fixed when it starts. Every body later
@@ -185,40 +243,56 @@ def validate_commit_contract(contract: Any) -> None:
 # the way to CONVERGED, and the commit contract and K-A closure lost the
 # finding they were about.
 PLAN_ORIGIN_CHANGED = "plan_origin_changed"
+# The origin's fields. ARIA-LOW-265 — an operator plan answers the finding
+# AND the grounding the operator signed (``grounding_digest``, stamped by the
+# synthesizer from the admission that matched the signature), and check 12
+# (``operator_feedback_observation``) compares both with the signed request
+# at merge. The grounding is fixed and carried like the finding, so no
+# revision drops it and a re-plan successor (a copy of the converged body,
+# ``implementation_replan``) starts with it.
+ORIGIN_FIELDS: tuple[str, ...] = ("finding_id", "grounding_digest")
+
+
+def started_origin(state: Any) -> dict[str, Any]:
+    """The :data:`ORIGIN_FIELDS` the plan's ``plan_started`` body carried (absent ones omitted)."""
+    started = state.get("plan_started") if isinstance(state, dict) else None
+    content = started.get("plan_content") if isinstance(started, dict) else None
+    if not isinstance(content, dict):
+        return {}
+    return {name: content[name] for name in ORIGIN_FIELDS if content.get(name) is not None}
 
 
 def started_origin_finding_id(state: Any) -> Any:
     """The ``finding_id`` the plan's ``plan_started`` body carried, or None."""
-    started = state.get("plan_started") if isinstance(state, dict) else None
-    content = started.get("plan_content") if isinstance(started, dict) else None
-    return content.get("finding_id") if isinstance(content, dict) else None
+    return started_origin(state).get("finding_id")
 
 
 def require_origin_unchanged(state: Any, body: Any) -> None:
-    """Refuse a submitted body whose ``finding_id`` differs from, adds to or drops the start's."""
-    started = started_origin_finding_id(state)
-    submitted = body.get("finding_id") if isinstance(body, dict) else None
-    if submitted != started:
-        raise GovernanceError(
-            f"{PLAN_ORIGIN_CHANGED}: the plan started with finding_id {started!r} and this "
-            f"body carries {submitted!r}; a plan's origin is fixed when it starts"
-        )
+    """Refuse a submitted body whose origin field differs from, adds to or drops the start's."""
+    started = started_origin(state)
+    for name in ORIGIN_FIELDS:
+        submitted = body.get(name) if isinstance(body, dict) else None
+        if submitted != started.get(name):
+            raise GovernanceError(
+                f"{PLAN_ORIGIN_CHANGED}: the plan started with {name} {started.get(name)!r} and this "
+                f"body carries {submitted!r}; a plan's origin is fixed when it starts"
+            )
 
 
 def carry_started_origin(plan_content: Any, state: Any) -> Any:
-    """Stamp the started origin onto a planner body that names none.
+    """Stamp each started origin field onto a planner body that names none.
 
     The origin is a kernel fact a planner cannot read — the challenger
     never sees the primary body, and the first revision's request carries
     no body at all — exactly like the round and parent hash the bridge
-    already fills from kernel state. A body that names an origin keeps it
-    and is judged by :func:`require_origin_unchanged`; an agent can omit the
-    origin, never replace it.
+    already fills from kernel state. A body that names an origin field keeps
+    it and is judged by :func:`require_origin_unchanged`; an agent can omit
+    the origin, never replace it.
     """
-    started = started_origin_finding_id(state)
-    if started is None or not isinstance(plan_content, dict) or "finding_id" in plan_content:
+    if not isinstance(plan_content, dict):
         return plan_content
-    return {**plan_content, "finding_id": started}
+    missing = {name: value for name, value in started_origin(state).items() if name not in plan_content}
+    return {**plan_content, **missing} if missing else plan_content
 
 
 # ADR-0021 (ARIA-MEDIUM-261) — the write bound of a finding-sourced plan.
@@ -546,6 +620,13 @@ def _trailer_lines(message: str) -> list[str]:
     return [line.rstrip() for line in message.splitlines() if line.startswith("Closes:")]
 
 
+def _request_lines(message: str) -> list[str]:
+    """Every line of ``message`` main's history would read as a merged request."""
+    from .operator_request_spend import merged_request_ids
+
+    return sorted(line.rstrip() for line in message.splitlines() if merged_request_ids([line]))
+
+
 def verify_commits_honour_contract(
     commits: list[dict[str, str]], contract: dict[str, Any],
 ) -> CommitContractVerdict:
@@ -555,9 +636,14 @@ def verify_commits_honour_contract(
     trailer: every commit carries exactly that trailer line and no other. Without
     one: no commit carries any ``Closes:`` line (the agent never invents a
     trailer) and no subject opens with a type the gate requires one for.
+    ARIA-MEDIUM-264 — every commit carries exactly the contract's
+    ``request_lines`` (none when it has none): a missing line would merge an
+    operator request main never records, an extra one would spend a request
+    this plan did not.
     """
     validate_commit_contract(contract)
     trailer = contract.get("trailer")
+    request_lines = list(contract.get("request_lines", []))
     violations: list[str] = []
     if not commits:
         return CommitContractVerdict(honoured=False, violations=("no_commits_on_branch",))
@@ -573,6 +659,9 @@ def verify_commits_honour_contract(
                 violations.append(f"{sha}:invented_trailer:{lines!r}")
             if REQUIRE_CLOSES_SUBJECT_RE.match(subject):
                 violations.append(f"{sha}:subject_type_requires_trailer:{subject[:80]!r}")
+        found = _request_lines(f"{subject}\n{commit.get('body') or ''}")
+        if found != request_lines:
+            violations.append(f"{sha}:request_lines_mismatch:expected={request_lines!r} found={found!r}")
     return CommitContractVerdict(honoured=not violations, violations=tuple(violations))
 
 
@@ -592,6 +681,10 @@ def render_commit_contract_section(contract: Any) -> str:
         lines.append(f"- Every commit ends with exactly this trailer line, verbatim: `{trailer}`")
     else:
         lines.append("- No `Closes:` trailer exists for this origin; write none. Never invent one.")
+    request_lines = contract.get("request_lines") or []
+    for request_line in request_lines:
+        lines.append(f"- Every commit also carries this line, verbatim, on a line of its own: `{request_line}` "
+                     "(the operator request this plan spends; main's history records it)")
     lines.append(f"- Commit subject types admitted: {types}")
     # ARIA-HIGH-371 — the two lines above were the whole section, while the
     # repository CLAUDE.md the agent also reads demands `fix(...)` plus a
@@ -614,6 +707,8 @@ def render_commit_contract_section(contract: Any) -> str:
     example = f'git commit -m "{first}(<scope>): <subject>" -m "<why>"'
     if trailer is not None:
         example += f' -m "{trailer}"'
+    for request_line in request_lines:
+        example += f' -m "{request_line}"'
     lines.append(f"- Exactly: `{example}`")
     return "\n".join(lines) + "\n\n"
 
@@ -626,6 +721,7 @@ __all__ = [
     "COMMIT_CONTRACT_SCHEMA_VERSION",
     "COMMIT_TYPES",
     "F_AUTO_FINDING_ID_RE",
+    "ORIGIN_FIELDS",
     "ORIGIN_F_FINDING",
     "ORIGIN_KINDS",
     "ORIGIN_ORPHAN_FINDING",
@@ -657,6 +753,7 @@ __all__ = [
     "render_commit_contract_section",
     "require_origin_unchanged",
     "require_within_admission_scope",
+    "started_origin",
     "started_origin_finding_id",
     "validate_admission_scope",
     "validate_commit_contract",

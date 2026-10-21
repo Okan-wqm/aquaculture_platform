@@ -27,6 +27,7 @@ import { after, test } from 'node:test';
 
 import { removeFixtureTree } from './fixture-tree';
 import { commitReachableFrom } from './git-reachability';
+import { hermeticGitEnv } from './hermetic-git';
 
 const repo = mkdtempSync(join(tmpdir(), 'git-reachability-spec-'));
 
@@ -41,9 +42,7 @@ const repo = mkdtempSync(join(tmpdir(), 'git-reachability-spec-'));
  * remote-tracking ref. Fixture repositories MUST NOT inherit the
  * ambient git context.
  */
-const HERMETIC_ENV: NodeJS.ProcessEnv = Object.fromEntries(
-  Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')),
-);
+const HERMETIC_ENV: NodeJS.ProcessEnv = hermeticGitEnv();
 
 function git(args: readonly string[]): string {
   return execFileSync('git', ['-C', repo, ...args], {
@@ -95,7 +94,11 @@ void test('branch-only sha → refused with post-merge ceremony instructions', (
 });
 
 void test('unknown sha → refused as unknown commit', () => {
-  const result = commitReachableFrom(repo, 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef', 'origin/main');
+  const result = commitReachableFrom(
+    repo,
+    'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef',
+    'origin/main',
+  );
   assert.equal(result.ok, false);
   assert.match(result.reason ?? '', /unknown to this repository/);
 });

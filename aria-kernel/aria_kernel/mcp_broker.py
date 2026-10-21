@@ -28,31 +28,28 @@ One broker per spawn, like the hook broker: created before the spawn's
 environment is built (``claude_runtime.run_claude_exec``), gone when the
 spawn returns — ``serve_mcp_broker`` is a context manager whose exit shuts
 the listener down and removes the socket directory; the orphan sweep
-(``prune_stale_mcp_brokers``) removes directories a killed executor left.
+(``socket_holders.prune_stale_holder_sockets``, ARIA-LOW-565, over the
+``socket_holders.MCP_BROKER`` declaration) removes directories a killed
+executor left.
 """
 from __future__ import annotations
 
 import io
-import re
 import shutil
-import socket
 import socketserver
-import tempfile
 import threading
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Iterator
 
 from .mcp_relay import MCP_BROKER_SOCKET_ENV
+from .socket_holders import MCP_BROKER as _SOCKET_HOLDER
 
 # Where the broker's socket appears INSIDE the sandbox: under the sandbox's
 # private /tmp tmpfs, like the hook broker's and the signing agent's.
 SANDBOX_MCP_BROKER_SOCKET = "/tmp/aria-mcp-broker.sock"
-_SOCKET_DIR_PREFIX = "aria-mb-"
-_SOCKET_NAME = "sock"
-_SOCKET_DIR_RE = re.compile(r"^aria-mb-[A-Za-z0-9_]{8}$")
 # Linux `sun_path` is 108 bytes including the terminator.
 _UNIX_SOCKET_PATH_MAX = 107
 # One JSON-RPC line at most this long is read; the CLI's tool arguments
@@ -128,8 +125,8 @@ def serve_mcp_broker(*, base_dir: str | Path, workspace_root: str | Path, reques
     tree the spawn runs in — the kernel's facts, fixed for the broker's
     life. The listener is shut down and the socket directory removed on
     every exit of the body."""
-    socket_dir = Path(tempfile.mkdtemp(prefix=_SOCKET_DIR_PREFIX))
-    socket_path = socket_dir / _SOCKET_NAME
+    socket_dir = _SOCKET_HOLDER.make_directory()
+    socket_path = socket_dir / _SOCKET_HOLDER.socket_name
     server: _Server | None = None
     thread: threading.Thread | None = None
     try:
@@ -159,7 +156,8 @@ def remove_socket_dir(socket_dir: Path, *, deadline_seconds: float = 2.0) -> boo
     """Remove the broker's socket directory, waiting out a late writer.
 
     A handler thread that is still closing its connection, or a prober
-    (`prune_stale_mcp_brokers`) that connected a moment before shutdown,
+    (`socket_holders.prune_stale_holder_sockets`) that connected a moment
+    before shutdown,
     can leave an entry under the directory between the walk and the rmdir;
     `shutil.rmtree(ignore_errors=True)` then left the directory standing,
     and the caller's own fixture root failed its cleanup with
@@ -177,49 +175,11 @@ def remove_socket_dir(socket_dir: Path, *, deadline_seconds: float = 2.0) -> boo
         time.sleep(0.05)
 
 
-def _broker_answers(socket_path: Path) -> bool:
-    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    try:
-        client.settimeout(1.0)
-        client.connect(str(socket_path))
-        return True
-    except OSError:
-        return False
-    finally:
-        client.close()
-
-
-def prune_stale_mcp_brokers(*, temp_root: str | Path | None = None) -> dict[str, Any]:
-    """Remove the socket directories of brokers that no longer answer (an
-    executor killed outright never reached ``serve_mcp_broker``'s exit)."""
-    root = Path(temp_root) if temp_root is not None else Path(tempfile.gettempdir())
-    swept: list[str] = []
-    live: list[str] = []
-    errors: list[str] = []
-    for entry in sorted(root.glob(f"{_SOCKET_DIR_PREFIX}*")):
-        if not entry.is_dir() or not _SOCKET_DIR_RE.match(entry.name):
-            continue
-        socket_path = entry / _SOCKET_NAME
-        if socket_path.is_socket() and _broker_answers(socket_path):
-            live.append(entry.name)
-            continue
-        try:
-            if any(child.name != _SOCKET_NAME for child in entry.iterdir()):
-                continue
-            shutil.rmtree(entry)
-        except OSError as exc:
-            errors.append(f"{entry.name}:{type(exc).__name__}")
-        else:
-            swept.append(entry.name)
-    return {"scanned": len(swept) + len(live) + len(errors), "swept": swept, "live": live, "errors": errors}
-
-
 __all__ = [
     "MAX_LINE_BYTES",
     "MCP_BROKER_SOCKET_ENV",
     "SANDBOX_MCP_BROKER_SOCKET",
     "McpBroker",
     "McpBrokerUnavailable",
-    "prune_stale_mcp_brokers",
     "serve_mcp_broker",
 ]

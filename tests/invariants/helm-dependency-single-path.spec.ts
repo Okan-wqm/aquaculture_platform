@@ -42,6 +42,8 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
+import { removeFixtureTree } from '../../tools/gates/fixture-tree';
+
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const WORKFLOW_DIR = join(REPO_ROOT, '.github', 'workflows');
 const ACTIONS_DIR = join(REPO_ROOT, '.github', 'actions');
@@ -132,52 +134,56 @@ function runResolver({
   withChart?: boolean;
 }): { status: number; output: string; calls: number } {
   const dir = mkdtempSync(join(tmpdir(), 'helm-resolve-'));
-  const chartDir = join(dir, 'chart');
-  const binDir = join(dir, 'bin');
-  const counter = join(dir, 'calls');
-  execFileSync('mkdir', ['-p', chartDir, binDir]);
-  if (withChart) writeFileSync(join(chartDir, 'Chart.yaml'), 'name: stub\nversion: 0.0.0\n');
-  writeFileSync(counter, '');
-
-  // Appends a line per invocation, then fails or succeeds by count. `wc -l`
-  // over the file is the call count — the assertion the text scan could not
-  // make.
-  const stub = [
-    '#!/usr/bin/env bash',
-    `echo call >> "${counter}"`,
-    `calls=$(wc -l < "${counter}")`,
-    `if [ "$calls" -le ${Number.isFinite(failures) ? failures : 999999} ]; then`,
-    '  echo "Save error occurred: connection reset by peer" >&2',
-    '  exit 1',
-    'fi',
-    'echo "resolved"',
-  ].join('\n');
-  writeFileSync(join(binDir, 'helm'), `${stub}\n`);
-  chmodSync(join(binDir, 'helm'), 0o755);
-
-  let status = 0;
-  let output = '';
   try {
-    output = execFileSync('bash', [RESOLVE_SH, chartDir], {
-      env: {
-        ...process.env,
-        PATH: `${binDir}:${process.env.PATH ?? ''}`,
-        BACKOFF_SECONDS: '0',
-        ...(attempts ? { ATTEMPTS: attempts } : {}),
-      },
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-  } catch (error) {
-    const err = error as { status?: number; stdout?: string; stderr?: string };
-    status = err.status ?? 1;
-    output = `${err.stdout ?? ''}${err.stderr ?? ''}`;
+    const chartDir = join(dir, 'chart');
+    const binDir = join(dir, 'bin');
+    const counter = join(dir, 'calls');
+    execFileSync('mkdir', ['-p', chartDir, binDir]);
+    if (withChart) writeFileSync(join(chartDir, 'Chart.yaml'), 'name: stub\nversion: 0.0.0\n');
+    writeFileSync(counter, '');
+
+    // Appends a line per invocation, then fails or succeeds by count. `wc -l`
+    // over the file is the call count — the assertion the text scan could not
+    // make.
+    const stub = [
+      '#!/usr/bin/env bash',
+      `echo call >> "${counter}"`,
+      `calls=$(wc -l < "${counter}")`,
+      `if [ "$calls" -le ${Number.isFinite(failures) ? failures : 999999} ]; then`,
+      '  echo "Save error occurred: connection reset by peer" >&2',
+      '  exit 1',
+      'fi',
+      'echo "resolved"',
+    ].join('\n');
+    writeFileSync(join(binDir, 'helm'), `${stub}\n`);
+    chmodSync(join(binDir, 'helm'), 0o755);
+
+    let status = 0;
+    let output = '';
+    try {
+      output = execFileSync('bash', [RESOLVE_SH, chartDir], {
+        env: {
+          ...process.env,
+          PATH: `${binDir}:${process.env.PATH ?? ''}`,
+          BACKOFF_SECONDS: '0',
+          ...(attempts ? { ATTEMPTS: attempts } : {}),
+        },
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    } catch (error) {
+      const err = error as { status?: number; stdout?: string; stderr?: string };
+      status = err.status ?? 1;
+      output = `${err.stdout ?? ''}${err.stderr ?? ''}`;
+    }
+    return {
+      status,
+      output,
+      calls: readFileSync(counter, 'utf8').split('\n').filter(Boolean).length,
+    };
+  } finally {
+    removeFixtureTree(dir);
   }
-  return {
-    status,
-    output,
-    calls: readFileSync(counter, 'utf8').split('\n').filter(Boolean).length,
-  };
 }
 
 describe('helm dependency resolution has a single path', () => {

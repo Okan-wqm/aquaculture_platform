@@ -18,6 +18,7 @@ from pathlib import Path
 
 from aria_kernel import cli
 from aria_kernel.tool_registry import GovernanceError, get_tool, register_tool
+from tests._helpers.active_evidence import stand_in_active_evidence
 from tests._helpers.operator_acts import github_operator_acts
 
 _FAKE_RUNNER = Path(__file__).resolve().parent / "_helpers" / "fake_tool_runner.py"
@@ -53,6 +54,9 @@ class ToolPromoteCliTests(unittest.TestCase):
         acts = github_operator_acts()
         self.github = acts.__enter__()
         self.addCleanup(acts.__exit__, None, None, None)
+        # The subject is the verb and the operator act; the ACTIVE evidence
+        # gate (ARIA-HIGH-004) is stood in, as the readiness verdict is.
+        stand_in_active_evidence(self)
 
     def tearDown(self) -> None:
         self.tmp.cleanup()

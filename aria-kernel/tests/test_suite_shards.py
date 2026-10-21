@@ -12,6 +12,7 @@ or unimportable module.
 
 from __future__ import annotations
 
+import ast
 import json
 import subprocess
 import sys
@@ -21,6 +22,7 @@ import unittest
 from pathlib import Path
 from typing import Any
 
+from aria_kernel.sandbox_pin_skip import is_sandbox_pin_skip
 from tests._helpers import suite_shards as shards
 
 _SCRIPT = Path(shards.__file__)
@@ -111,6 +113,7 @@ def _report(shard: int, total: int, modules: dict[str, int], **overrides: Any) -
         "modules": {name: {"tests": tests, "seconds": 1.0} for name, tests in modules.items()},
         "tests_run": sum(modules.values()),
         "successful": True,
+        "sandbox_skips": [],
     }
     report.update(overrides)
     return report
@@ -156,6 +159,22 @@ class VerifyTests(unittest.TestCase):
         reports = self._complete()
         reports[0]["successful"] = False
         self.assertEqual(shards.verify_reports(reports), ["shard 1 was not successful"])
+
+    def test_a_shard_that_skipped_a_sandbox_pin_is_refused(self) -> None:
+        # ARIA-MEDIUM-130 — the lane verified the backend before the suite ran
+        # (ensure-sandbox-backend), so a real-sandbox pin that skipped is a
+        # containment proof that did not run, and the run is not green.
+        reports = self._complete()
+        reports[1]["sandbox_skips"] = ["tests.test_git_containment.RealBwrap.test_commit"]
+        problems = shards.verify_reports(reports)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("shard 2 skipped 1 real-sandbox pin", problems[0])
+        self.assertIn("tests.test_git_containment.RealBwrap.test_commit", problems[0])
+
+    def test_a_report_that_does_not_account_for_sandbox_skips_is_refused(self) -> None:
+        reports = self._complete()
+        del reports[0]["sandbox_skips"]
+        self.assertEqual(shards.verify_reports(reports), ["shard 1 does not account for its sandbox-pin skips"])
 
 
 _PASSING = """
@@ -281,6 +300,22 @@ class ShardCliTests(unittest.TestCase):
         owners = [self._report(index) for index in (1, 2)]
         self.assertTrue(any("shardfixture.test_broken" in report["modules"] for report in owners))
 
+    def test_a_sandbox_pin_that_skips_is_reported_and_refused_by_verify(self) -> None:
+        # The fixture skips through the one helper every real-sandbox pin uses.
+        self._module(
+            "test_pin.py",
+            "import unittest\nfrom tests._helpers.sandbox_pins import skip_sandbox_pin\n\n"
+            "class Pin(unittest.TestCase):\n    def test_pin(self):\n        skip_sandbox_pin('fixture host')\n"
+            "    def test_other_skip(self):\n        self.skipTest('not a sandbox pin')\n",
+        )
+        results = [self._run(spec).returncode for spec in ("1/2", "2/2")]
+        self.assertEqual(results, [0, 0], "a skip is green inside its shard; verify is the gate")
+        skips = [skip for index in (1, 2) for skip in self._report(index)["sandbox_skips"]]
+        self.assertEqual(skips, ["shardfixture.test_pin.Pin.test_pin"])
+        verify = self._cli("verify", "--reports-dir", str(self.reports))
+        self.assertEqual(verify.returncode, 1)
+        self.assertIn("skipped 1 real-sandbox pin", verify.stderr)
+
     def test_more_shards_than_modules_is_refused_rather_than_run_empty(self) -> None:
         proc = self._run("4/4")
         self.assertNotEqual(proc.returncode, 0)
@@ -293,6 +328,55 @@ class ShardCliTests(unittest.TestCase):
         probe = f"import runpy; runpy.run_path({str(_SCRIPT)!r}, run_name='__mp_main__'); print('imported')"
         proc = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, timeout=60, check=False)
         self.assertEqual((proc.returncode, proc.stdout.strip()), (0, "imported"), proc.stderr)
+
+
+_SKIP_CALLS = frozenset({"skipTest", "SkipTest", "skip", "skipIf", "skipUnless"})
+_SANDBOX_WORDS = ("bwrap", "sandbox")
+
+
+def _skip_call_texts(tree: ast.AST) -> list[tuple[int, str]]:
+    """``(line, literal text)`` of every skip call whose reason is written out."""
+    found: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", None)
+        if name not in _SKIP_CALLS:
+            continue
+        for argument in node.args:
+            for part in ast.walk(argument):
+                if isinstance(part, ast.Constant) and isinstance(part.value, str):
+                    found.append((node.lineno, part.value))
+    return found
+
+
+class SandboxPinSkipSpellingTests(unittest.TestCase):
+    """ARIA-MEDIUM-130 — every real-sandbox skip carries the name verify counts.
+
+    ``verify`` can refuse a skipped sandbox pin only if the skip says it is
+    one. A pin that skips with its own reason text is green and uncounted, so
+    every skip whose reason names bwrap or the sandbox goes through
+    ``tests/_helpers/sandbox_pins.py``.
+    """
+
+    def test_no_test_module_spells_its_own_sandbox_skip(self) -> None:
+        helper = shards.KERNEL_ROOT / "tests" / "_helpers" / "sandbox_pins.py"
+        offenders: list[str] = []
+        for path in sorted((shards.KERNEL_ROOT / "tests").rglob("*.py")):
+            if path == helper:
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for line, text in _skip_call_texts(tree):
+                if any(word in text.lower() for word in _SANDBOX_WORDS):
+                    offenders.append(f"{path.relative_to(shards.KERNEL_ROOT).as_posix()}:{line}")
+        self.assertEqual(offenders, [], "skip through tests._helpers.sandbox_pins so verify counts it")
+
+    def test_the_helper_skips_with_the_marker_verify_counts(self) -> None:
+        from tests._helpers import sandbox_pins
+
+        with self.assertRaises(unittest.SkipTest) as raised:
+            sandbox_pins.skip_sandbox_pin("detail")
+        self.assertTrue(is_sandbox_pin_skip(str(raised.exception)))
 
 
 if __name__ == "__main__":

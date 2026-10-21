@@ -44,6 +44,7 @@ from aria_kernel.state_store import (
     tools_root,
     verify_state_store,
 )
+from tests._helpers.state_lineage_pin import pin_bootstrapped_lineage, sync_fixture_lineage_pin
 from tests._helpers.writer_lease import leased_publish
 
 REPO_HASH = "repohash0001"
@@ -319,6 +320,10 @@ class StateStoreTestCase(unittest.TestCase):
         # ambient user.name.
         store = checkout_state_store(self.repo, store_dir=self.repo.parent / "store")
         self.assertTrue(store.bootstrapped)
+        # ARIA-LOW-578 — the operator's step after a genesis (the bootstrap
+        # runbook): pin its root, so every later checkout of this fixture's
+        # branch is held to it like a lane's checkout is held to main's pin.
+        pin_bootstrapped_lineage(store)
         return store
 
     def _seed_surface(self, store, text: str) -> Path:
@@ -1007,6 +1012,8 @@ class ConcurrentPublishers(StateStoreTestCase):
         _git(clone, "config", "user.email", "b@example.invalid")
         _git(clone, "config", "user.name", "ARIA B")
         _git(clone, "config", "commit.gpgsign", "false")
+        # The second lane reads the same lineage pin main carries (ARIA-LOW-578).
+        sync_fixture_lineage_pin(clone, self.remote)
         return clone
 
     def test_a_loser_sharing_refs_is_refused_before_it_commits(self) -> None:
@@ -1119,7 +1126,10 @@ class ReCheckoutSafety(StateStoreTestCase):
         self.assertNotEqual(first_tip, tracking_before)
         _git(self.remote, "update-ref", "refs/heads/aria/state", first_tip)
 
-        with self.assertRaisesRegex(StateStoreError, "state_store_remote_history_rewind"):
+        # ARIA-LOW-577 — a rewind is a VERDICT on the lineage, not a failure
+        # to reach the remote: it must be the refusal type the CLI maps to
+        # exit 3, or the restore action reports it as a transport failure.
+        with self.assertRaisesRegex(StateStoreRefusal, "state_store_remote_history_rewind"):
             checkout_state_store(
                 self.repo,
                 store_dir=self.repo.parent / "rewound-store",
@@ -1127,6 +1137,80 @@ class ReCheckoutSafety(StateStoreTestCase):
 
         self.assertEqual(_git(self.repo, "rev-parse", tracking).strip(), tracking_before)
         self.assertEqual(self._scratch_state_refs(), [])
+
+    def test_checkout_refuses_a_new_root_replacement_tip_without_moving_tracking(
+        self,
+    ) -> None:
+        """ARIA-LOW-577/578 — the ARIA-HIGH-572 lab shape: the remote tip is a new root.
+
+        A host that tracked the old lineage must REFUSE the replacement by
+        name (StateStoreRefusal, exit 3), never report it as a transport
+        failure, and never move its publication anchor onto it. The pinned
+        root names it first: a replaced lineage is a root mismatch.
+        """
+        store = self._bootstrap()
+        self._seed_surface(store, '{"row": 1}\n')
+        publish_state(
+            store, writer_fence=None,
+            snapshot=self._snapshot(store, "snap-1"),
+            cycle_id="cycle-1",
+            repo_hash=REPO_HASH,
+        )
+        tracking = "refs/remotes/origin/aria/state"
+        tracking_before = _git(self.repo, "rev-parse", tracking).strip()
+        empty_tree = _git(self.remote, "hash-object", "-t", "tree", "/dev/null").strip()
+        replacement = _git(
+            self.remote,
+            "-c", "user.name=Replacement", "-c", "user.email=r@example.invalid",
+            "commit-tree", empty_tree, "-m", "replacement root",
+        ).strip()
+        _git(self.remote, "update-ref", "refs/heads/aria/state", replacement)
+
+        with self.assertRaises(StateStoreRefusal) as ctx:
+            checkout_state_store(
+                self.repo,
+                store_dir=self.repo.parent / "replaced-store",
+            )
+
+        self.assertIn("state_store_lineage_root_mismatch", str(ctx.exception))
+        self.assertEqual(_git(self.repo, "rev-parse", tracking).strip(), tracking_before)
+        self.assertEqual(self._scratch_state_refs(), [])
+        self.assertFalse((self.repo.parent / "replaced-store").exists())
+
+    def test_checkout_refuses_a_tip_that_left_the_tracked_history_as_a_refusal(
+        self,
+    ) -> None:
+        """ARIA-LOW-577 — same root (the pin holds), but the tip does not
+        descend from what this host tracked: a refusal, not a transport error."""
+        store = self._bootstrap()
+        self._seed_surface(store, '{"row": 1}\n')
+        publish_state(
+            store, writer_fence=None,
+            snapshot=self._snapshot(store, "snap-1"),
+            cycle_id="cycle-1",
+            repo_hash=REPO_HASH,
+        )
+        tracking = "refs/remotes/origin/aria/state"
+        tracking_before = _git(self.repo, "rev-parse", tracking).strip()
+        genesis = _git(self.remote, "rev-list", "--max-parents=0", "refs/heads/aria/state").strip()
+        empty_tree = _git(self.remote, "hash-object", "-t", "tree", "/dev/null").strip()
+        diverged = _git(
+            self.remote,
+            "-c", "user.name=Rewrite", "-c", "user.email=r@example.invalid",
+            "commit-tree", empty_tree, "-p", genesis, "-m", "a rewritten tail",
+        ).strip()
+        _git(self.remote, "update-ref", "refs/heads/aria/state", diverged)
+
+        with self.assertRaises(StateStoreRefusal) as ctx:
+            checkout_state_store(
+                self.repo,
+                store_dir=self.repo.parent / "diverged-store",
+            )
+
+        self.assertIn("state_store_remote_history_unrelated", str(ctx.exception))
+        self.assertEqual(_git(self.repo, "rev-parse", tracking).strip(), tracking_before)
+        self.assertEqual(self._scratch_state_refs(), [])
+        self.assertFalse((self.repo.parent / "diverged-store").exists())
 
     def test_checkout_rejects_noncanonical_remote_listings_without_ref_changes(
         self,
@@ -3438,6 +3522,7 @@ class PortableValidationContinuity(StateStoreTestCase):
         _git(Path(self._tmp.name), "clone", str(self.remote), str(fresh_repo))
         self.assertEqual(_git(fresh_repo, "rev-parse", "HEAD").strip(), commit_sha)
         self.assertEqual(canonical_identity(fresh_repo), repo_identity)
+        sync_fixture_lineage_pin(fresh_repo, self.remote)  # main's lineage pin (ARIA-LOW-578)
         fresh = checkout_state_store(fresh_repo, store_dir=Path(self._tmp.name) / "receiving-store")
         self.assertFalse(fresh.bootstrapped)
         fresh_tools = tools_root(fresh)
@@ -3649,10 +3734,6 @@ class PortableValidationContinuity(StateStoreTestCase):
                     self.assertFalse((repo / "aria-tools").exists())
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class AHollowWorktreeIsNotUnpublishedWork(StateStoreTestCase):
     """ARIA-HIGH-155 — the store directory is there, its worktree registered,
     its ``.git`` link gone (``git clean -ffdx`` between two jobs on the
@@ -3664,6 +3745,7 @@ class AHollowWorktreeIsNotUnpublishedWork(StateStoreTestCase):
     def _hollow_store_inside_the_repo(self):
         root = self.repo / ".aria-state-store"
         store = checkout_state_store(self.repo, store_dir=root)
+        pin_bootstrapped_lineage(store)
         self._seed_surface(store, "")
         publish_state(store, writer_fence=None, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1", repo_hash=REPO_HASH)
         # The sweep: the link goes, the registration stays, a later step
@@ -3707,6 +3789,7 @@ class AHollowWorktreeIsNotUnpublishedWork(StateStoreTestCase):
     def test_a_real_worktree_with_an_unpushed_commit_is_still_refused(self) -> None:
         root = self.repo / ".aria-state-store"
         store = checkout_state_store(self.repo, store_dir=root)
+        pin_bootstrapped_lineage(store)
         self._seed_surface(store, "")
         publish_state(store, writer_fence=None, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1", repo_hash=REPO_HASH)
         self._seed_surface(store, '{"row": "committed-never-pushed"}\n')
@@ -3715,3 +3798,7 @@ class AHollowWorktreeIsNotUnpublishedWork(StateStoreTestCase):
             checkout_state_store(self.repo, store_dir=root)
         self.assertIn("state_store_unpushed_commits", str(ctx.exception))
         self.assertFalse(sorted(self.repo.glob(".aria-state-store.hollow-*")))
+
+
+if __name__ == "__main__":
+    unittest.main()

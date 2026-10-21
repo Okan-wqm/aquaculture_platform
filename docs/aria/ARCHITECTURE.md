@@ -208,22 +208,27 @@ controls will run on this connected revision.
 
 #### aria-kernel/aria_kernel/architecture_spine_gate.py
 
-Source SHA256: `a096f44e3018d398c395124c438abfe9e6de1dd1a140bb1fbca7e6cddb807699`.
+Source SHA256: `154d03a47f02fbb1297c6feeb1ad29e7dba8f6452e32b7621cc745815abef604`.
 
-Owns source invariant measurement and native baseline/postcheck evidence. Event-schema comparison
-records introduced and removed violation identities while retaining count fallback for historical
-inputs. The private cycle-baseline decision reuses the existing same-plan governance readers and
-preserves an unresolved baseline hash; missing or replaced anchors remain unavailable. The private
-plan projection now carries that same selected postcheck, baseline hash and regression descriptors
-into plan evaluation. It reads source/native history and appends through the existing governance
-owner. The cycle and plan evaluator are its production consumers.
+Owns native baseline/postcheck evidence for the five spine invariants (contract
+`aria/architecture-spine/v2`). It holds no rule of its own: each invariant is the violation set of
+the one owner adapter `SPINE_INVARIANTS` names, by location-free identity
+(`finding_subject.adapter_violation_keys`), read from the run the spine refresh stored in the tools
+root it was given (ARIA-HIGH-045, ARIA-HIGH-525, ARIA-MEDIUM-526). `InvariantMeasurement` refuses
+any measured value that is not that set and its size. `compare_spine_measurements` reports removed
+identities as an improvement and introduced ones as a regression, and names what it could not
+compare: `unmeasured` (failed or missing run, unreadable artifact, over-budget set, changed producer,
+a pre-v2 block) and `excluded` (a quarantined owner). A postcheck records exactly one of
+`architecture_spine_regression`, `architecture_spine_unmeasured` and `architecture_spine_postcheck`.
+The private cycle-baseline decision keeps an unresolved regression's baseline, follows the latest
+verdict (an unmeasured row is none) and supersedes a retained count-only baseline, naming the
+regressions it held. The private plan projection reads all three kinds; an unmeasured comparison is
+`unavailable` (`invariant_unmeasured`). It appends through the existing governance owner. The cycle
+and plan evaluator are its production consumers.
 
-Evidence/review boundary: Original identity regression, clean comparison, legacy comparator and
-later-cycle retention controls exercised this owner in isolated runs. The corrective-consumer
-selection subsequently passed seven methods with two subtests in 212.27 seconds; five unchanged
-compatibility methods passed separately in 72.99 seconds. Changed producers/readers were peer
-reviewed; wider file reading remains partial. Connected candidate execution, actual model repair and
-native source-validation linkage remain open.
+Evidence/review boundary: `test_architecture_spine_gate.py` runs the real tool runner over fixture
+owner adapters whose store sits beside the workspace, as in production. Live production runs of the
+five owner adapters inside the runner are not yet observed.
 
 #### aria-kernel/aria_kernel/plan_convergence.py
 
@@ -319,17 +324,14 @@ execution remain unproven.
 
 #### aria-kernel/tests/test_architecture_spine_gate.py
 
-Source SHA256: `1b4e1bf420f253c9ddecb50dd4498fb996649af46a0bd723c722c19881f2f626`.
+Source SHA256: `e1694d62abaa4646adba3256bf3d9fedb338692bf031b82df6f300d5fb147bcf`.
 
-Tests the existing spine producers, comparison and native governance rows. Added event identity
-controls distinguish an equal-count swap from no drift, empty/restored identities and historical
-count fallback. Pytest/unittest is the caller; only disposable source and native test roots are
-written.
-
-Evidence/review boundary: Original equal-count RED and the four-method producer/comparator selection
-reached real native assertions; complementary controls are not additional reproduced defects.
-Existing affected compatibility was separately selected. New method/helper review is complete; the
-whole historical file is not re-certified by integration.
+Tests the spine gate's measurement shape, its set comparison and its native governance rows. The
+integration cases drive the five owner adapters as fake tools through the real tool runner
+(`tests/_helpers/spine_fixture.py`), with the tools root outside the workspace: an equal-count swap
+and a fix-two-break-one change are regressions, moved lines and totals are not, the refreshed run is
+the one measured, and a failed or quarantined owner is unmeasured or excluded by name. Pytest/unittest
+is the caller; only disposable source and native test roots are written.
 
 #### aria-kernel/tests/test_enterprise_cycle.py
 
@@ -371,12 +373,12 @@ ARIA kapalı-hata veren bir yetki zinciriyle yönetilir. Çalıştırılabilir k
 
 ### Executable Links / Çalıştırılabilir Bağlantılar
 
-| Claim | Code/Test authority | Why it matters |
-|---|---|---|
-| Live human-readable authority | [docs/aria/CURRENT_STATE.md](./CURRENT_STATE.md) | Runtime claims must defer to the current state index. |
-| CLI surface | [aria-kernel/aria_kernel/cli.py](../../aria-kernel/aria_kernel/cli.py) | Public runtime entry points are defined in code. |
-| Runtime profile authority | [aria-kernel/aria_kernel/runtime_profile.py](../../aria-kernel/aria_kernel/runtime_profile.py) | Write permission is profile-bound. |
-| SSoT invariant | [tests/invariants/aria-doc-runtime-ssot.spec.ts](../../tests/invariants/aria-doc-runtime-ssot.spec.ts) | Stale runtime prose is test-blocked. |
+| Claim                         | Code/Test authority                                                                                    | Why it matters                                        |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------- |
+| Live human-readable authority | [docs/aria/CURRENT_STATE.md](./CURRENT_STATE.md)                                                       | Runtime claims must defer to the current state index. |
+| CLI surface                   | [aria-kernel/aria_kernel/cli.py](../../aria-kernel/aria_kernel/cli.py)                                 | Public runtime entry points are defined in code.      |
+| Runtime profile authority     | [aria-kernel/aria_kernel/runtime_profile.py](../../aria-kernel/aria_kernel/runtime_profile.py)         | Write permission is profile-bound.                    |
+| SSoT invariant                | [tests/invariants/aria-doc-runtime-ssot.spec.ts](../../tests/invariants/aria-doc-runtime-ssot.spec.ts) | Stale runtime prose is test-blocked.                  |
 
 ### Diagram / Diyagram
 
@@ -409,12 +411,12 @@ ARIA'nın ana katkısı Aqua testlerinin ya da reviewerların yerine geçmek de�
 
 ### Executable Links / Çalıştırılabilir Bağlantılar
 
-| Claim | Code/Test authority | Why it matters |
-|---|---|---|
-| Aqua risk adapters are known but gated | [aria-kernel/aria_kernel/adapter_portfolio.py](../../aria-kernel/aria_kernel/adapter_portfolio.py) | Tenant, schema, event, CQRS, outbox, and NATS surfaces are named capability lanes. |
-| Risk becomes pressure | [aria-kernel/aria_kernel/pressure.py](../../aria-kernel/aria_kernel/pressure.py) | ARIA prioritizes stale beliefs, contradictions, health violations, and findings. |
-| Pressure becomes triage | [aria-kernel/aria_kernel/triage.py](../../aria-kernel/aria_kernel/triage.py) | High-risk domains default to review or human-only handling. |
-| Validation is structured | [aria-kernel/aria_kernel/validation_matrix_gate.py](../../aria-kernel/aria_kernel/validation_matrix_gate.py) | Claims must map to required validation evidence. |
+| Claim                                  | Code/Test authority                                                                                          | Why it matters                                                                     |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| Aqua risk adapters are known but gated | [aria-kernel/aria_kernel/adapter_portfolio.py](../../aria-kernel/aria_kernel/adapter_portfolio.py)           | Tenant, schema, event, CQRS, outbox, and NATS surfaces are named capability lanes. |
+| Risk becomes pressure                  | [aria-kernel/aria_kernel/pressure.py](../../aria-kernel/aria_kernel/pressure.py)                             | ARIA prioritizes stale beliefs, contradictions, health violations, and findings.   |
+| Pressure becomes triage                | [aria-kernel/aria_kernel/triage.py](../../aria-kernel/aria_kernel/triage.py)                                 | High-risk domains default to review or human-only handling.                        |
+| Validation is structured               | [aria-kernel/aria_kernel/validation_matrix_gate.py](../../aria-kernel/aria_kernel/validation_matrix_gate.py) | Claims must map to required validation evidence.                                   |
 
 ### Diagram / Diyagram
 
@@ -450,11 +452,11 @@ ARIA repo şeklini committed snapshot, file fate, fingerprint, service map, pack
 
 ### Executable Links / Çalıştırılabilir Bağlantılar
 
-| Claim | Code/Test authority | Why it matters |
-|---|---|---|
+| Claim                                                   | Code/Test authority                                                                | Why it matters                                            |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------------- |
 | Discovery writes snapshot/fates/fingerprint/service map | [aria-kernel/aria_kernel/discovery.py](../../aria-kernel/aria_kernel/discovery.py) | Repo topology enters ARIA through reproducible artifacts. |
-| Path feedback becomes capability gaps | [aria-kernel/aria_kernel/feedback.py](../../aria-kernel/aria_kernel/feedback.py) | External reports are mapped back to repo surfaces. |
-| Service ownership is later validated | [tests/invariants/_constants.ts](../../tests/invariants/_constants.ts) | Aqua already has invariant-backed surface definitions. |
+| Path feedback becomes capability gaps                   | [aria-kernel/aria_kernel/feedback.py](../../aria-kernel/aria_kernel/feedback.py)   | External reports are mapped back to repo surfaces.        |
+| Service ownership is later validated                    | [tests/invariants/\_constants.ts](../../tests/invariants/_constants.ts)            | Aqua already has invariant-backed surface definitions.    |
 
 ### Diagram / Diyagram
 
@@ -502,12 +504,12 @@ ARIA hafızası ledger-first çalışır. Discovery artefaktları observation ol
 
 ### Executable Links / Çalıştırılabilir Bağlantılar
 
-| Claim | Code/Test authority | Why it matters |
-|---|---|---|
-| Belief and observation lifecycle | [aria-kernel/aria_kernel/memory.py](../../aria-kernel/aria_kernel/memory.py) | Memory state is append-only and evidence-bound. |
-| Write-driving runtime state | [aria-kernel/aria_kernel/state_manifest.py](../../aria-kernel/aria_kernel/state_manifest.py) | State surfaces must be declared before autonomy trusts them. |
-| Learning hooks | [aria-kernel/aria_kernel/learning.py](../../aria-kernel/aria_kernel/learning.py) | Feedback and stale state can trigger future skill or agent genesis. |
-| Knowledge graph support | [aria-kernel/aria_kernel/knowledge_graph.py](../../aria-kernel/aria_kernel/knowledge_graph.py) | Repo facts can be connected across surfaces. |
+| Claim                            | Code/Test authority                                                                            | Why it matters                                                      |
+| -------------------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Belief and observation lifecycle | [aria-kernel/aria_kernel/memory.py](../../aria-kernel/aria_kernel/memory.py)                   | Memory state is append-only and evidence-bound.                     |
+| Write-driving runtime state      | [aria-kernel/aria_kernel/state_manifest.py](../../aria-kernel/aria_kernel/state_manifest.py)   | State surfaces must be declared before autonomy trusts them.        |
+| Learning hooks                   | [aria-kernel/aria_kernel/learning.py](../../aria-kernel/aria_kernel/learning.py)               | Feedback and stale state can trigger future skill or agent genesis. |
+| Knowledge graph support          | [aria-kernel/aria_kernel/knowledge_graph.py](../../aria-kernel/aria_kernel/knowledge_graph.py) | Repo facts can be connected across surfaces.                        |
 
 ### Diagram / Diyagram
 
@@ -557,12 +559,12 @@ ARIA kararını pressure üzerinden verir. Pressure yoksa plan üretilmez. Plan 
 
 ### Executable Links / Çalıştırılabilir Bağlantılar
 
-| Claim | Code/Test authority | Why it matters |
-|---|---|---|
-| Outer autonomy loop | [aria-kernel/aria_kernel/autonomy_orchestrator.py](../../aria-kernel/aria_kernel/autonomy_orchestrator.py) | Cycle, convergence, review, dispatch, and merge order are coded. |
-| Plan content synthesis | [aria-kernel/aria_kernel/plan_synthesizer.py](../../aria-kernel/aria_kernel/plan_synthesizer.py) | Plans come from concrete pressure sources. |
-| Convergence state machine | [aria-kernel/aria_kernel/plan_convergence.py](../../aria-kernel/aria_kernel/plan_convergence.py) | Plans cannot silently jump from draft to execution. |
-| Cross-review bridge | [aria-kernel/aria_kernel/cross_review_bridge.py](../../aria-kernel/aria_kernel/cross_review_bridge.py) | Agent responses must become legal convergence events. |
+| Claim                     | Code/Test authority                                                                                        | Why it matters                                                   |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| Outer autonomy loop       | [aria-kernel/aria_kernel/autonomy_orchestrator.py](../../aria-kernel/aria_kernel/autonomy_orchestrator.py) | Cycle, convergence, review, dispatch, and merge order are coded. |
+| Plan content synthesis    | [aria-kernel/aria_kernel/plan_synthesizer.py](../../aria-kernel/aria_kernel/plan_synthesizer.py)           | Plans come from concrete pressure sources.                       |
+| Convergence state machine | [aria-kernel/aria_kernel/plan_convergence.py](../../aria-kernel/aria_kernel/plan_convergence.py)           | Plans cannot silently jump from draft to execution.              |
+| Cross-review bridge       | [aria-kernel/aria_kernel/cross_review_bridge.py](../../aria-kernel/aria_kernel/cross_review_bridge.py)     | Agent responses must become legal convergence events.            |
 
 ### Diagram / Diyagram
 
@@ -620,12 +622,12 @@ Skill yazımı prompt-only üretim değildir; yönetişimli genesis akışıdır
 
 ### Executable Links / Çalıştırılabilir Bağlantılar
 
-| Claim | Code/Test authority | Why it matters |
-|---|---|---|
-| Skill genesis request/draft/materialize | [aria-kernel/aria_kernel/skill_genesis.py](../../aria-kernel/aria_kernel/skill_genesis.py) | Skill files are scoped and approval-gated. |
-| Convergent authoring | [aria-kernel/aria_kernel/convergent_skill_authoring.py](../../aria-kernel/aria_kernel/convergent_skill_authoring.py) | Primary/challenger/judge gates reduce hallucinated adapters. |
-| Sandbox isolation | [aria-kernel/aria_kernel/skill_genesis_sandbox.py](../../aria-kernel/aria_kernel/skill_genesis_sandbox.py) | Unsafe imports and unsandboxed execution fail closed. |
-| Promotion policy | [aria-kernel/aria_kernel/promotion.py](../../aria-kernel/aria_kernel/promotion.py) | SHADOW to ACTIVE requires readiness and operator approval. |
+| Claim                                   | Code/Test authority                                                                                                  | Why it matters                                               |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| Skill genesis request/draft/materialize | [aria-kernel/aria_kernel/skill_genesis.py](../../aria-kernel/aria_kernel/skill_genesis.py)                           | Skill files are scoped and approval-gated.                   |
+| Convergent authoring                    | [aria-kernel/aria_kernel/convergent_skill_authoring.py](../../aria-kernel/aria_kernel/convergent_skill_authoring.py) | Primary/challenger/judge gates reduce hallucinated adapters. |
+| Sandbox isolation                       | [aria-kernel/aria_kernel/skill_genesis_sandbox.py](../../aria-kernel/aria_kernel/skill_genesis_sandbox.py)           | Unsafe imports and unsandboxed execution fail closed.        |
+| Promotion policy                        | [aria-kernel/aria_kernel/promotion.py](../../aria-kernel/aria_kernel/promotion.py)                                   | SHADOW to ACTIVE requires readiness and operator approval.   |
 
 ### Diagram / Diyagram
 
@@ -675,12 +677,12 @@ Agent yazımı capability gap ile başlar ve `aria-*` draft intent kaydına dön
 
 ### Executable Links / Çalıştırılabilir Bağlantılar
 
-| Claim | Code/Test authority | Why it matters |
-|---|---|---|
-| Agent genesis | [aria-kernel/aria_kernel/agent_genesis.py](../../aria-kernel/aria_kernel/agent_genesis.py) | Agent birth is approval and sandbox gated. |
-| Agent role SSoT | [aria-kernel/aria_kernel/agent_surface.py](../../aria-kernel/aria_kernel/agent_surface.py) | Roles, targets, lifecycle labels, and pairings are centralized. |
-| Request/response contract | [aria-kernel/aria_kernel/agent_contract.py](../../aria-kernel/aria_kernel/agent_contract.py) | Responses must satisfy exact scope and evidence rules. |
-| Invocation ledger | [aria-kernel/aria_kernel/agent_invocations.py](../../aria-kernel/aria_kernel/agent_invocations.py) | Claims, leases, heartbeats, and results are append-only. |
+| Claim                     | Code/Test authority                                                                                | Why it matters                                                  |
+| ------------------------- | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Agent genesis             | [aria-kernel/aria_kernel/agent_genesis.py](../../aria-kernel/aria_kernel/agent_genesis.py)         | Agent birth is approval and sandbox gated.                      |
+| Agent role SSoT           | [aria-kernel/aria_kernel/agent_surface.py](../../aria-kernel/aria_kernel/agent_surface.py)         | Roles, targets, lifecycle labels, and pairings are centralized. |
+| Request/response contract | [aria-kernel/aria_kernel/agent_contract.py](../../aria-kernel/aria_kernel/agent_contract.py)       | Responses must satisfy exact scope and evidence rules.          |
+| Invocation ledger         | [aria-kernel/aria_kernel/agent_invocations.py](../../aria-kernel/aria_kernel/agent_invocations.py) | Claims, leases, heartbeats, and results are append-only.        |
 
 ### Diagram / Diyagram
 
@@ -731,12 +733,12 @@ ARIA bug benzeri sinyalleri evidence-bound finding, feedback, pressure ve debt o
 
 ### Executable Links / Çalıştırılabilir Bağlantılar
 
-| Claim | Code/Test authority | Why it matters |
-|---|---|---|
-| Finding emission | [aria-kernel/aria_kernel/finding.py](../../aria-kernel/aria_kernel/finding.py) | Operator-facing findings have severity and evidence gates. |
-| Debt emission | [aria-kernel/aria_kernel/debt.py](../../aria-kernel/aria_kernel/debt.py) | Debts require owner, due date, verified source finding, and no auto-close. |
-| Evidence validation | [aria-kernel/aria_kernel/evidence_validator.py](../../aria-kernel/aria_kernel/evidence_validator.py) | Missing files, bad lines, self-output refs, and scope escapes are rejected. |
-| Finding registry invariant | [tests/invariants/finding-registry-integrity.spec.ts](../../tests/invariants/finding-registry-integrity.spec.ts) | Registry shape and hash-chain integrity are checked. |
+| Claim                      | Code/Test authority                                                                                              | Why it matters                                                              |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Finding emission           | [aria-kernel/aria_kernel/finding.py](../../aria-kernel/aria_kernel/finding.py)                                   | Operator-facing findings have severity and evidence gates.                  |
+| Debt emission              | [aria-kernel/aria_kernel/debt.py](../../aria-kernel/aria_kernel/debt.py)                                         | Debts require owner, due date, verified source finding, and no auto-close.  |
+| Evidence validation        | [aria-kernel/aria_kernel/evidence_validator.py](../../aria-kernel/aria_kernel/evidence_validator.py)             | Missing files, bad lines, self-output refs, and scope escapes are rejected. |
+| Finding registry invariant | [tests/invariants/finding-registry-integrity.spec.ts](../../tests/invariants/finding-registry-integrity.spec.ts) | Registry shape and hash-chain integrity are checked.                        |
 
 ### Diagram / Diyagram
 
@@ -790,14 +792,14 @@ ARIA en çok Aqua'nın mevcut risk kurallarını görünür ve tekrarlanabilir y
 
 ### Executable Links / Çalıştırılabilir Bağlantılar
 
-| Claim | Code/Test authority | Why it matters |
-|---|---|---|
-| Tenant-scoped repository | [libs/backend-common/src/database/tenant-scoped-repository.ts](../../libs/backend-common/src/database/tenant-scoped-repository.ts) | Repository access must stay tenant-aware. |
-| Tenant transaction schema pinning | [libs/backend-common/src/database/tenant-transaction.ts](../../libs/backend-common/src/database/tenant-transaction.ts) | Transaction search path is a tenant boundary. |
-| Schema manager | [libs/backend-common/src/database/schema-manager.service.ts](../../libs/backend-common/src/database/schema-manager.service.ts) | Platform and tenant schemas are coordinated. |
-| Outbox publisher | [platform/libs/outbox/src/outbox-publisher.service.ts](../../platform/libs/outbox/src/outbox-publisher.service.ts) | Domain events should pass through transactional outbox. |
-| NATS event bus | [platform/libs/event-bus/src/nats/nats-event-bus.ts](../../platform/libs/event-bus/src/nats/nats-event-bus.ts) | Tenant subjects and event emission rules are runtime concerns. |
-| Workflow SHA pin invariant | [tests/invariants/aria-workflow-sha-pin.spec.ts](../../tests/invariants/aria-workflow-sha-pin.spec.ts) | CI supply-chain posture is checked. |
+| Claim                             | Code/Test authority                                                                                                                | Why it matters                                                 |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| Tenant-scoped repository          | [libs/backend-common/src/database/tenant-scoped-repository.ts](../../libs/backend-common/src/database/tenant-scoped-repository.ts) | Repository access must stay tenant-aware.                      |
+| Tenant transaction schema pinning | [libs/backend-common/src/database/tenant-transaction.ts](../../libs/backend-common/src/database/tenant-transaction.ts)             | Transaction search path is a tenant boundary.                  |
+| Schema manager                    | [libs/backend-common/src/database/schema-manager.service.ts](../../libs/backend-common/src/database/schema-manager.service.ts)     | Platform and tenant schemas are coordinated.                   |
+| Outbox publisher                  | [platform/libs/outbox/src/outbox-publisher.service.ts](../../platform/libs/outbox/src/outbox-publisher.service.ts)                 | Domain events should pass through transactional outbox.        |
+| NATS event bus                    | [platform/libs/event-bus/src/nats/nats-event-bus.ts](../../platform/libs/event-bus/src/nats/nats-event-bus.ts)                     | Tenant subjects and event emission rules are runtime concerns. |
+| Workflow SHA pin invariant        | [tests/invariants/aria-workflow-sha-pin.spec.ts](../../tests/invariants/aria-workflow-sha-pin.spec.ts)                             | CI supply-chain posture is checked.                            |
 
 ### Diagram / Diyagram
 
@@ -877,17 +879,17 @@ ARIA canlı autonomous execution Claude Code CLI tabanlıdır. Promotion evidenc
 
 ### Executable Links / Çalıştırılabilir Bağlantılar
 
-| Claim | Code/Test authority | Why it matters |
-|---|---|---|
-| Claude runtime | [tools/aria-poc/claude_runtime.py](../../tools/aria-poc/claude_runtime.py) | Runtime calls are Claude Code CLI mainline. |
-| CI executor | [tools/aria-poc/ci_executor.py](../../tools/aria-poc/ci_executor.py) | CI execution path is explicit. |
-| Worker executor | [tools/aria-poc/worker_executor.py](../../tools/aria-poc/worker_executor.py) | Worker execution path is explicit. |
-| Artifact graph | [aria-kernel/aria_kernel/runtime_artifacts.py](../../aria-kernel/aria_kernel/runtime_artifacts.py) | Promotion proof is graph and hash bound. |
-| Artifact safety | [aria-kernel/aria_kernel/artifact_safety.py](../../aria-kernel/aria_kernel/artifact_safety.py) | Runtime artifacts must stay inside safe boundaries. |
-| Enterprise observe burn-in | [aria-kernel/aria_kernel/burn_in.py](../../aria-kernel/aria_kernel/burn_in.py) | 20-30 observe cycles prove discovery, memory, pressure, and triage without agent/tool/PR action. |
-| Burn-in SSoT | [docs/aria/ENTERPRISE_AUTONOMY_SSOT.md](./ENTERPRISE_AUTONOMY_SSOT.md) | Enterprise autonomy gates and acceptance matrix are documented separately. |
-| Auto merge evaluator | [aria-kernel/aria_kernel/auto_merge.py](../../aria-kernel/aria_kernel/auto_merge.py) | Readiness evaluation remains low-level; real merge is delegated to the authority wrapper. |
-| Auto merge authority | [aria-kernel/aria_kernel/merge_authority.py::merge_pr_if_ready](../../aria-kernel/aria_kernel/merge_authority.py) | Real merge is fail-closed and authority-wrapper-bound. |
+| Claim                      | Code/Test authority                                                                                               | Why it matters                                                                                   |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Claude runtime             | [tools/aria-poc/claude_runtime.py](../../tools/aria-poc/claude_runtime.py)                                        | Runtime calls are Claude Code CLI mainline.                                                      |
+| CI executor                | [tools/aria-poc/ci_executor.py](../../tools/aria-poc/ci_executor.py)                                              | CI execution path is explicit.                                                                   |
+| Worker executor            | [tools/aria-poc/worker_executor.py](../../tools/aria-poc/worker_executor.py)                                      | Worker execution path is explicit.                                                               |
+| Artifact graph             | [aria-kernel/aria_kernel/runtime_artifacts.py](../../aria-kernel/aria_kernel/runtime_artifacts.py)                | Promotion proof is graph and hash bound.                                                         |
+| Artifact safety            | [aria-kernel/aria_kernel/artifact_safety.py](../../aria-kernel/aria_kernel/artifact_safety.py)                    | Runtime artifacts must stay inside safe boundaries.                                              |
+| Enterprise observe burn-in | [aria-kernel/aria_kernel/burn_in.py](../../aria-kernel/aria_kernel/burn_in.py)                                    | 20-30 observe cycles prove discovery, memory, pressure, and triage without agent/tool/PR action. |
+| Burn-in SSoT               | [docs/aria/ENTERPRISE_AUTONOMY_SSOT.md](./ENTERPRISE_AUTONOMY_SSOT.md)                                            | Enterprise autonomy gates and acceptance matrix are documented separately.                       |
+| Auto merge evaluator       | [aria-kernel/aria_kernel/auto_merge.py](../../aria-kernel/aria_kernel/auto_merge.py)                              | Readiness evaluation remains low-level; real merge is delegated to the authority wrapper.        |
+| Auto merge authority       | [aria-kernel/aria_kernel/merge_authority.py::merge_pr_if_ready](../../aria-kernel/aria_kernel/merge_authority.py) | Real merge is fail-closed and authority-wrapper-bound.                                           |
 
 ### Diagram / Diyagram
 
@@ -900,7 +902,7 @@ sequenceDiagram
   participant Artifacts as Artifact Graph
   participant Gates as Validation Gates
 
-  CI->>Claude: managed Claude Code login
+  CI->>Claude: spawn in a room bound to the kernel's provider gateway (kernel-held token)
   Claude->>Kernel: run with workspace-root and tools-dir
   Kernel->>Tools: write bounded ledgers
   Kernel->>Artifacts: attach hash-bound proof
@@ -955,12 +957,12 @@ Tarihsel snowball, Claude Code, Anthropic ve `llm_bridge.py` dili, güncel execu
 
 ### Executable Links / Çalıştırılabilir Bağlantılar
 
-| Claim | Code/Test authority | Why it matters |
-|---|---|---|
-| Current runtime authority | [docs/aria/CURRENT_STATE.md](./CURRENT_STATE.md) | Stale runtime claims must defer to the live index. |
-| Historical stale-term invariant | [tests/invariants/aria-doc-runtime-ssot.spec.ts](../../tests/invariants/aria-doc-runtime-ssot.spec.ts) | Historical docs must carry authority notices. |
-| Historical smoke runbook | [docs/runbooks/aria-v3-1-smoke.md](../runbooks/aria-v3-1-smoke.md) | This runbook is compatibility material, not live authority. |
-| Historical GitHub App runbook | [docs/runbooks/aria-github-app-setup.md](../runbooks/aria-github-app-setup.md) | Its snowball branch-protection instructions are not current authority. |
+| Claim                           | Code/Test authority                                                                                    | Why it matters                                                         |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
+| Current runtime authority       | [docs/aria/CURRENT_STATE.md](./CURRENT_STATE.md)                                                       | Stale runtime claims must defer to the live index.                     |
+| Historical stale-term invariant | [tests/invariants/aria-doc-runtime-ssot.spec.ts](../../tests/invariants/aria-doc-runtime-ssot.spec.ts) | Historical docs must carry authority notices.                          |
+| Historical smoke runbook        | [docs/runbooks/aria-v3-1-smoke.md](../runbooks/aria-v3-1-smoke.md)                                     | This runbook is compatibility material, not live authority.            |
+| Historical GitHub App runbook   | [docs/runbooks/aria-github-app-setup.md](../runbooks/aria-github-app-setup.md)                         | Its snowball branch-protection instructions are not current authority. |
 
 ### Diagram / Diyagram
 
@@ -991,24 +993,24 @@ Bu matris açıklayıcı grafikleri koda bağlı tutar. Aşağıdaki ana dayanak
 
 ### Executable Links / Çalıştırılabilir Bağlantılar
 
-| Surface | Authority |
-|---|---|
-| CLI | [aria-kernel/aria_kernel/cli.py](../../aria-kernel/aria_kernel/cli.py) |
-| Runtime profile | [aria-kernel/aria_kernel/runtime_profile.py](../../aria-kernel/aria_kernel/runtime_profile.py) |
-| State manifest | [aria-kernel/aria_kernel/state_manifest.py](../../aria-kernel/aria_kernel/state_manifest.py) |
-| Tool registry | [aria-kernel/aria_kernel/tool_registry.py](../../aria-kernel/aria_kernel/tool_registry.py) |
-| Runtime artifacts | [aria-kernel/aria_kernel/runtime_artifacts.py](../../aria-kernel/aria_kernel/runtime_artifacts.py) |
-| Tool health | [aria-kernel/aria_kernel/tool_health.py](../../aria-kernel/aria_kernel/tool_health.py) |
-| Runs reader | [aria-kernel/aria_kernel/runs_reader.py](../../aria-kernel/aria_kernel/runs_reader.py) |
-| Agent surface | [aria-kernel/aria_kernel/agent_surface.py](../../aria-kernel/aria_kernel/agent_surface.py) |
-| Agent contract | [aria-kernel/aria_kernel/agent_contract.py](../../aria-kernel/aria_kernel/agent_contract.py) |
-| Ledger primitive | [aria-kernel/aria_kernel/ledger.py](../../aria-kernel/aria_kernel/ledger.py) |
-| Auto merge evaluator | [aria-kernel/aria_kernel/auto_merge.py](../../aria-kernel/aria_kernel/auto_merge.py) |
-| Merge authority | [aria-kernel/aria_kernel/merge_authority.py::merge_pr_if_ready](../../aria-kernel/aria_kernel/merge_authority.py) |
-| CI executor | [tools/aria-poc/ci_executor.py](../../tools/aria-poc/ci_executor.py) |
-| Worker executor | [tools/aria-poc/worker_executor.py](../../tools/aria-poc/worker_executor.py) |
-| Claude runtime | [tools/aria-poc/claude_runtime.py](../../tools/aria-poc/claude_runtime.py) |
-| Artifact safety | [aria-kernel/aria_kernel/artifact_safety.py](../../aria-kernel/aria_kernel/artifact_safety.py) |
+| Surface              | Authority                                                                                                         |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| CLI                  | [aria-kernel/aria_kernel/cli.py](../../aria-kernel/aria_kernel/cli.py)                                            |
+| Runtime profile      | [aria-kernel/aria_kernel/runtime_profile.py](../../aria-kernel/aria_kernel/runtime_profile.py)                    |
+| State manifest       | [aria-kernel/aria_kernel/state_manifest.py](../../aria-kernel/aria_kernel/state_manifest.py)                      |
+| Tool registry        | [aria-kernel/aria_kernel/tool_registry.py](../../aria-kernel/aria_kernel/tool_registry.py)                        |
+| Runtime artifacts    | [aria-kernel/aria_kernel/runtime_artifacts.py](../../aria-kernel/aria_kernel/runtime_artifacts.py)                |
+| Tool health          | [aria-kernel/aria_kernel/tool_health.py](../../aria-kernel/aria_kernel/tool_health.py)                            |
+| Runs reader          | [aria-kernel/aria_kernel/runs_reader.py](../../aria-kernel/aria_kernel/runs_reader.py)                            |
+| Agent surface        | [aria-kernel/aria_kernel/agent_surface.py](../../aria-kernel/aria_kernel/agent_surface.py)                        |
+| Agent contract       | [aria-kernel/aria_kernel/agent_contract.py](../../aria-kernel/aria_kernel/agent_contract.py)                      |
+| Ledger primitive     | [aria-kernel/aria_kernel/ledger.py](../../aria-kernel/aria_kernel/ledger.py)                                      |
+| Auto merge evaluator | [aria-kernel/aria_kernel/auto_merge.py](../../aria-kernel/aria_kernel/auto_merge.py)                              |
+| Merge authority      | [aria-kernel/aria_kernel/merge_authority.py::merge_pr_if_ready](../../aria-kernel/aria_kernel/merge_authority.py) |
+| CI executor          | [tools/aria-poc/ci_executor.py](../../tools/aria-poc/ci_executor.py)                                              |
+| Worker executor      | [tools/aria-poc/worker_executor.py](../../tools/aria-poc/worker_executor.py)                                      |
+| Claude runtime       | [tools/aria-poc/claude_runtime.py](../../tools/aria-poc/claude_runtime.py)                                        |
+| Artifact safety      | [aria-kernel/aria_kernel/artifact_safety.py](../../aria-kernel/aria_kernel/artifact_safety.py)                    |
 
 ### Diagram / Diyagram
 
@@ -1039,12 +1041,12 @@ ARIA temkinli anlatılmalıdır. SHADOW veya scaffolded adapterlar kontrollü ca
 
 ### Executable Links / Çalıştırılabilir Bağlantılar
 
-| Limit | Code/Test authority | Why it matters |
-|---|---|---|
-| Tool promotion is gated | [aria-kernel/aria_kernel/tool_registry.py](../../aria-kernel/aria_kernel/tool_registry.py) | Tools must not silently jump to ACTIVE. |
-| Readiness is explicit | [aria-kernel/aria_kernel/readiness.py](../../aria-kernel/aria_kernel/readiness.py) | Precision, fixtures, and false positives matter. |
-| Auto-merge is bounded | [aria-kernel/aria_kernel/auto_merge.py](../../aria-kernel/aria_kernel/auto_merge.py) + [aria-kernel/aria_kernel/merge_authority.py::merge_pr_if_ready](../../aria-kernel/aria_kernel/merge_authority.py) | Evaluation and real merge authority are separate. |
-| Human-required paths exist | [aria-kernel/aria_kernel/human_required.py](../../aria-kernel/aria_kernel/human_required.py) | Unsafe or ambiguous items stop for operator review. |
+| Limit                      | Code/Test authority                                                                                                                                                                                      | Why it matters                                      |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| Tool promotion is gated    | [aria-kernel/aria_kernel/tool_registry.py](../../aria-kernel/aria_kernel/tool_registry.py)                                                                                                               | Tools must not silently jump to ACTIVE.             |
+| Readiness is explicit      | [aria-kernel/aria_kernel/readiness.py](../../aria-kernel/aria_kernel/readiness.py)                                                                                                                       | Precision, fixtures, and false positives matter.    |
+| Auto-merge is bounded      | [aria-kernel/aria_kernel/auto_merge.py](../../aria-kernel/aria_kernel/auto_merge.py) + [aria-kernel/aria_kernel/merge_authority.py::merge_pr_if_ready](../../aria-kernel/aria_kernel/merge_authority.py) | Evaluation and real merge authority are separate.   |
+| Human-required paths exist | [aria-kernel/aria_kernel/human_required.py](../../aria-kernel/aria_kernel/human_required.py)                                                                                                             | Unsafe or ambiguous items stop for operator review. |
 
 ### Diagram / Diyagram
 
@@ -1363,7 +1365,7 @@ flowchart TD
   merge is established. Manual read covers the complete test file and its native
   setup/record owners.
 
-### aria-kernel/tests/_helpers/production_shaped.py
+### aria-kernel/tests/\_helpers/production_shaped.py
 
 - Entry: `production_converged_plan`; SHA256
   `50a5402d9ec400857fd2fa77220e99ae60326522fe13a572bc78ec19ea9ed21a`.
@@ -1568,27 +1570,30 @@ and stops the daemon. Pinned by `tests/test_provider_quota_cooldown.py`,
 
 The Z.ai transport (operator policy 2026-09-11: Z.ai only through its own subscription API; never a
 credential handed to the `claude` or `codex` child). `read_zai_credential` establishes the secret
-from exactly one boundary and refuses by name (`credential_not_configured`,
-`credential_file_unreadable`, `credential_file_permissions`, `credential_file_empty`,
-`credential_sources_ambiguous`); `resolve_zai_endpoint` names the documented Coding-Plan
-(`/api/coding/paas/v4`) and general (`/api/paas/v4`) OpenAI-compatible base URLs or an explicit
-`custom` URL; `probe_zai_status` spends one `max_tokens=1` completion to record what the selected
-endpoint actually answered as the (auth, quota, reason, HTTP status, vendor code/message)
-observation; `run_zai_chat` sends the kernel-rendered prompt as the user turn and returns content,
-the vendor's usage block and the same `auth_failure`/`credit_exhaustion` classification the CLI
-runtimes report. In `ci_executor`, `observe_status` prepares a `ZaiExecutionContext` for the
-admission probe, `_invoke_native_zai` mirrors `_invoke_native_codex` row for row (attempt
-reservation, transcript = raw response body, sealed envelope, usage-or-refuse,
-`runtime_attempt_finished` with `provider_session_provenance="http_response_id"`), and the legacy
-auth failover's Z.ai rung reaches `_run_zai_as_claude_result` (AUTH failures of read-only roles
-only, since 2026-09-12). Proven end to end against a local stand-in vendor with the real executor
-child and real kernel claim/submit (`tests/test_ci_executor_native_zai.py`); the secret is asserted
-absent from every file the kernel writes. Live (2026-09-11): the Coding-Plan route answered 200 and
-the general route 429/1113, and the first accepted native planner result ran here — with three
-transport facts measured on the way: GLM-5.3 reasons by default against `max_tokens` (default now
-65,536, `ARIA_ZAI_MAX_TOKENS`; route effort → `reasoning_effort`; an exhausted budget is
-`output_budget_exhausted`), and `response_format=json_object` made it rewrite `.json` evidence paths
-(opt-in via `ARIA_ZAI_JSON_OBJECT=1`).
+from exactly one boundary through the kernel's one credential reader
+(`aria-kernel/aria_kernel/provider_credentials.py`) and refuses by name
+(`credential_not_configured`, `credential_file_in_room_tree`, `credential_file_unreadable`,
+`credential_file_owner`, `credential_file_permissions`, `credential_file_too_large`,
+`credential_file_empty`, `credential_file_malformed`, `credential_sources_ambiguous`);
+`resolve_zai_endpoint` names the documented Coding-Plan (`/api/coding/paas/v4`) and general
+(`/api/paas/v4`) OpenAI-compatible base URLs or an explicit `custom` URL; `probe_zai_status` spends
+one `max_tokens=1` completion to record what the selected endpoint actually answered as the (auth,
+quota, reason, HTTP status, vendor code/message) observation; `run_zai_chat` sends the
+kernel-rendered prompt as the user turn and returns content, the vendor's usage block and the same
+`auth_failure`/`credit_exhaustion` classification the CLI runtimes report. In `ci_executor`,
+`observe_status` prepares a `ZaiExecutionContext` for the admission probe, `_invoke_native_zai`
+mirrors `_invoke_native_codex` row for row (attempt reservation, transcript = raw response body,
+sealed envelope, usage-or-refuse, `runtime_attempt_finished` with
+`provider_session_provenance="http_response_id"`), and the legacy auth failover's Z.ai rung reaches
+`_run_zai_as_claude_result` (AUTH failures of read-only roles only, since 2026-09-12). Proven end to
+end against a local stand-in vendor with the real executor child and real kernel claim/submit
+(`tests/test_ci_executor_native_zai.py`); the secret is asserted absent from every file the kernel
+writes. Live (2026-09-11): the Coding-Plan route answered 200 and the general route 429/1113, and
+the first accepted native planner result ran here — with three transport facts measured on the way:
+GLM-5.3 reasons by default against `max_tokens` (default now 65,536, `ARIA_ZAI_MAX_TOKENS`; route
+effort → `reasoning_effort`; an exhausted budget is `output_budget_exhausted`), and
+`response_format=json_object` made it rewrite `.json` evidence paths (opt-in via
+`ARIA_ZAI_JSON_OBJECT=1`).
 
 ### `aria-kernel/aria_kernel/agent_contract_delivery.py`
 

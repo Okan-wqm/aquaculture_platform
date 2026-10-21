@@ -53,6 +53,7 @@ import {
 } from '../entities/feeding-forecast-snapshot.entity';
 import { collectFeedSourceFeedIds } from './feed-fcr-source.util';
 import { ProtocolRateService } from './protocol-rate.service';
+import { simulateProtocolDay } from './protocol-day-step.util';
 
 // ============================================================================
 // SABİTLER
@@ -219,33 +220,25 @@ export class ProtocolFeedForecastService {
           terminalFeedId = band.feedId;
         }
 
-        const tempMultiplier = this.rateService.temperatureMultiplier(
-          unit.protocol.temperatureAdjustments,
-          unit.temperatureC,
-        );
-        const ratePercent = this.rateService.effectiveRatePercent({
-          baseRatePercent: band.feedingRatePercent,
-          temperatureMultiplier: tempMultiplier,
-          rateAdjustmentPercent: unit.rateAdjustmentPercent,
-          minRatePercent: unit.protocol.settings.minFeedingRatePercent,
-          maxRatePercent: unit.protocol.settings.maxFeedingRatePercent,
-        });
-        const dailyKg = (biomassKg * ratePercent) / 100;
-
-        const series = mapGet(unitSeries, band.feedId, () => new Array<number>(horizon).fill(0));
-        series[day] = (series[day] ?? 0) + dailyKg;
-
-        const fcr = this.rateService.resolveExpectedFcr({
+        // Per-day physics lives in the shared simulation core (SSoT — the
+        // production plan's growth projection runs the same step).
+        const step = simulateProtocolDay(this.rateService, {
+          protocol: unit.protocol,
           band,
-          fcrSource: unit.protocol.settings.fcrSource,
           avgWeightG,
+          biomassKg,
+          fishCount: count,
           temperatureC: unit.temperatureC,
-          protocolFcrMatrix: unit.protocol.fcrMatrix,
-          feedFcrMatrix: feedById.get(band.feedId)?.feedFcrMatrix,
+          rateAdjustmentPercent: unit.rateAdjustmentPercent,
           fcrOverrides: unit.fcrOverrides,
-        }).value;
-        biomassKg += dailyKg / fcr;
-        avgWeightG = (biomassKg * 1000) / count;
+          feedFcrMatrix: feedById.get(band.feedId)?.feedFcrMatrix,
+        });
+
+        const series = mapGet(unitSeries, step.feedId, () => new Array<number>(horizon).fill(0));
+        series[day] = (series[day] ?? 0) + step.feedKg;
+
+        biomassKg = step.nextBiomassKg;
+        avgWeightG = step.nextAvgWeightG;
       }
 
       const perUnitEntry: ForecastPerUnit = {

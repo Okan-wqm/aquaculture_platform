@@ -31,6 +31,13 @@
  * So the rule is not "remember to wrap" and not "remember to check membership".
  * It is: there is ONE way to ask each question, and this gate fails the build
  * for any file that asks it a second way.
+ *
+ * A service may take the lock FOR its callers, inside their transaction, when
+ * the unit it locks is something it decides (GrowthSampleApplierService finds
+ * the unit a sample weighed; a unit id and a lock handed in separately could
+ * name two different units). The retry still has to wrap the whole
+ * transaction, so it cannot live in that service: the obligation moves to every
+ * file that calls the service's locking method (LOCK_DELEGATES).
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -47,6 +54,15 @@ const RETRY_EXEMPT: Readonly<Record<string, string>> = {
   'apps/farm-service/src/feeding-protocol/services/feeding-cron-v2.service.ts':
     'Sweep job: a ConflictException aborts this tenant tick and the same work is ' +
     'retried by the next hourly tick, so no operator ever sees it.',
+};
+
+/**
+ * Services that acquire the unit lock on behalf of their callers, each with the
+ * method through which they do. Every file that calls that method must wrap the
+ * call's transaction in `withUnitLockRetry`.
+ */
+const LOCK_DELEGATES: Readonly<Record<string, string>> = {
+  'apps/farm-service/src/growth/services/growth-sample-applier.service.ts': 'applySample',
 };
 
 function sourceFiles(): string[] {
@@ -95,7 +111,7 @@ describe('INVARIANT: unit-growth lock composition', () => {
 
   it('wraps every unit-lock acquisition in the shared retry', () => {
     const unwrapped = callers
-      .filter((c) => !(c.file in RETRY_EXEMPT))
+      .filter((c) => !(c.file in RETRY_EXEMPT) && !(c.file in LOCK_DELEGATES))
       .filter((c) => !/\bwithUnitLockRetry\s*\(/.test(c.source))
       .map(
         (c) =>
@@ -104,6 +120,42 @@ describe('INVARIANT: unit-growth lock composition', () => {
       );
 
     expect(unwrapped).toEqual([]);
+  });
+
+  it("wraps every call to a lock delegate's locking method in the shared retry", () => {
+    const unwrapped: string[] = [];
+    for (const [delegate, method] of Object.entries(LOCK_DELEGATES)) {
+      const call = new RegExp(`\\.${method}\\s*\\(`);
+      for (const file of files) {
+        if (file === delegate) continue;
+        const source = readFileSync(join(REPO_ROOT, file), 'utf8');
+        if (!call.test(source)) continue;
+        if (!/\bwithUnitLockRetry\s*\(/.test(source)) {
+          unwrapped.push(
+            `${file} calls ${method}() (which takes the unit lock) without withUnitLockRetry()`,
+          );
+        }
+      }
+    }
+
+    expect(unwrapped).toEqual([]);
+  });
+
+  it('keeps the delegate list honest — every delegate takes the lock and has callers', () => {
+    const stale: string[] = [];
+    for (const [delegate, method] of Object.entries(LOCK_DELEGATES)) {
+      if (!callers.some((c) => c.file === delegate)) {
+        stale.push(`${delegate} no longer calls lockUnitForGrowth()`);
+        continue;
+      }
+      const call = new RegExp(`\\.${method}\\s*\\(`);
+      const used = files.some(
+        (file) => file !== delegate && call.test(readFileSync(join(REPO_ROOT, file), 'utf8')),
+      );
+      if (!used) stale.push(`${delegate}: nothing calls ${method}()`);
+    }
+
+    expect(stale).toEqual([]);
   });
 
   it('never decides batch locking from the mere PRESENCE of a unit lock', () => {

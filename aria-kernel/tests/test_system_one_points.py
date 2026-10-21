@@ -370,6 +370,9 @@ class Merge(unittest.TestCase):
                 calls.append("merge")
                 return {"merged": True}
 
+            def get_pr_diff(self, number: int) -> tuple[str | None, str | None]:
+                return diff, None
+
         result = merge_pr_if_ready(adapter=Adapter(), pr_number=7, base_dir=self.tools, workspace_root=self.repo,
                                    readiness_claim_id="claim:7:aaaaaaaaaaaa",
                                    intent_publisher=lambda intent: {"published": True})

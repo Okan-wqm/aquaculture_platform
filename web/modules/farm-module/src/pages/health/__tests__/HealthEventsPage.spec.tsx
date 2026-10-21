@@ -78,8 +78,39 @@ beforeEach(() => {
         },
       },
     },
-    { match: 'query Batches', result: { batches: { items: [], total: 0, page: 1, limit: 100, totalPages: 0 } } },
-    { match: 'query EquipmentWithBatches', result: { equipmentList: { items: [], total: 0, page: 1, limit: 200, totalPages: 1 } } },
+    {
+      match: 'query Batches',
+      result: { batches: { items: [], total: 0, page: 1, limit: 100, totalPages: 0 } },
+    },
+    {
+      match: 'query EquipmentWithBatches',
+      result: { equipmentList: { items: [], total: 0, page: 1, limit: 200, totalPages: 1 } },
+    },
+    {
+      match: 'query HealthEventStats',
+      result: {
+        healthEventStats: {
+          total: 8,
+          active: 4,
+          critical: 1,
+          underTreatment: 2,
+          quarantined: 1,
+          withdrawalActive: 3,
+          resolved: 3,
+          byEventType: {},
+          bySeverity: {},
+        },
+      },
+    },
+    {
+      match: 'query MortalityDailyHistory',
+      result: {
+        mortalityDailyHistory: [
+          { date: '2026-10-18', count: 412 },
+          { date: '2026-10-19', count: 236 },
+        ],
+      },
+    },
   ]);
 });
 
@@ -106,6 +137,19 @@ describe('HealthEventsPage', () => {
     await waitFor(() => {
       expect(screen.queryByText(/Gill disease outbreak/)).not.toBeInTheDocument();
     });
+  });
+
+  it('renders the design KPI strip incl. withdrawal-active and the mortality chart', async () => {
+    renderWithProviders(<HealthEventsPage />, { route: '/health', path: 'health' });
+
+    // KPI strip tiles from healthEventStats (design layout, our extras kept)
+    expect(await screen.findByText('Open events')).toBeInTheDocument();
+    expect(screen.getByText('Withdrawal active')).toBeInTheDocument();
+    expect(screen.getAllByText('3').length).toBeGreaterThan(0); // withdrawalActive = 3
+    expect(screen.getByText('Daily mortality · last 14 days')).toBeInTheDocument();
+    // Chart series renders the returned counts
+    expect(await screen.findByText('412')).toBeInTheDocument();
+    expect(screen.getByText('236')).toBeInTheDocument();
   });
 
   it('does not render events as an empty success state when the query fails', async () => {

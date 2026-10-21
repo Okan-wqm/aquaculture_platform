@@ -154,8 +154,8 @@ class _Scenario:
                 reason, auth, decided = (
                     ("cli_reported_not_logged_in", "unavailable", "unavailable") if answer == "logged_out"
                     else ("cli_reported_logged_in", "available", "available"))
-            else:  # `claude auth status` sees the login, never a quota or a lapsed subscription
-                reason, auth, decided = "managed_session_logged_in", "available", "available"
+            else:  # the kernel's Claude credential boundary: present, never a quota or a lapsed subscription
+                reason, auth, decided = "claude_gateway_credential_present", "available", "available"
             rows.append({"provider": provider, "model": f"{provider}-model", "status_reason": reason,
                          "auth_observation": auth, "decision": decided})
             if decided == "available" and chosen is None:
@@ -338,7 +338,7 @@ class TenDaysWithoutAProviderLoseNothing(unittest.TestCase):
                 "states": {key: derive_request_state(request_id=rid, base_dir=s.tools)
                            for key, rid in s.ids.items() if key != "queue_item"},
                 "breaker": circuit_breaker.current_state(s.tools),
-                "items": human_required.list_human_required(base_dir=s.tools),
+                "items": human_required.list_human_required(base_dir=s.tools).rows,
                 "queue_live": [row["queue_item_id"] for row in read_pending(s.tools)],
             }
         cls.claims = load_jsonl(s.tools / "agent-invocations" / "claims.jsonl")

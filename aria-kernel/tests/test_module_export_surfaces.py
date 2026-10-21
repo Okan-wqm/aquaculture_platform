@@ -56,5 +56,38 @@ class ModuleExportSurfaces(unittest.TestCase):
                 )
 
 
+class EveryDeclaredExportResolves(unittest.TestCase):
+    """ARIA-LOW-504 — no kernel module declares a name it does not define.
+
+    ``circuit_breaker.__all__`` kept ``assert_within_breaker`` after the
+    function was deleted (ORPHAN-HIGH-573), so ``from
+    aria_kernel.circuit_breaker import *`` raised ``AttributeError``. The
+    registered-module test above only covers the modules it names; this one
+    walks every module of the package and performs the star import itself,
+    which is exactly what ``__all__`` promises (a package may list a
+    submodule, and the star import loads it).
+    """
+
+    def test_a_star_import_of_every_kernel_module_succeeds(self) -> None:
+        import pkgutil
+
+        import aria_kernel
+
+        failures: dict[str, str] = {}
+        modules = [aria_kernel.__name__] + [
+            info.name for info in pkgutil.walk_packages(aria_kernel.__path__, f"{aria_kernel.__name__}.")
+        ]
+        for dotted in modules:
+            module = importlib.import_module(dotted)
+            if not hasattr(module, "__all__"):
+                continue
+            try:
+                exec(f"from {dotted} import *", {})  # noqa: S102 - the statement under test
+            except (AttributeError, ImportError) as exc:
+                failures[dotted] = str(exc)
+        self.assertGreater(len(modules), 100, "the walk found too few kernel modules to mean anything")
+        self.assertEqual(failures, {})
+
+
 if __name__ == "__main__":
     unittest.main()

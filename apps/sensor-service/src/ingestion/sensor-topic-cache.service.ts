@@ -193,6 +193,14 @@ export class SensorTopicCacheService implements OnModuleInit {
    * scanning unrelated tenants' cache entries.
    */
   async invalidateTenant(tenantId: string): Promise<void> {
+    // The local entries go first: dropping them cannot fail, and a Redis
+    // outage below must not leave this process serving the tenant's mappings.
+    for (const [topic, entry] of this.localCache.entries()) {
+      if (entry.sensor?.tenantId === tenantId) {
+        this.localCache.delete(topic);
+      }
+    }
+
     try {
       /** SEC-M16: Scan only this tenant's cache keys using the tenant-scoped prefix */
       const pattern = `${this.CACHE_KEY_PREFIX}${tenantId}:topic:*`;
@@ -202,17 +210,38 @@ export class SensorTopicCacheService implements OnModuleInit {
         await this.redisService.del(key);
       }
 
-      // Clear local cache entries for this tenant
-      for (const [topic, entry] of this.localCache.entries()) {
-        if (entry.sensor?.tenantId === tenantId) {
-          this.localCache.delete(topic);
-        }
-      }
-
       this.logger.log(`Invalidated cache for tenant ${tenantId} (${keys.length} keys removed)`);
     } catch (error) {
       this.logger.error(`Error invalidating cache for tenant ${tenantId}: ${(error as Error).message}`);
     }
+  }
+
+  /**
+   * Evict every topic mapping of a tenant that is no longer active, and say
+   * whether it was evicted.
+   *
+   * WHY: a mapping outlives its tenant. This resolver maps topics of ACTIVE
+   * tenants only (listActiveTenantSchemaIdentities: provider ingestion is
+   * active-only by design), but an entry cached before the tenant was
+   * deprovisioned or erased keeps resolving for up to CACHE_TTL_SECONDS. Once
+   * db-migrate's delete job has dropped the schema, every read through that
+   * entry fails the tenant boundary (current_schema() falls through to the
+   * source schema: SCHEMA_MISMATCH), and nothing else evicts it. A caller asks
+   * this after such a read failed, so the mapping read runs on that failure
+   * path only, never per message.
+   *
+   * Rejects when the platform mapping cannot be read: whether the tenant is
+   * live is then unknown, and the caller's failed read must stay a failure.
+   */
+  async evictIfTenantInactive(tenantId: string): Promise<boolean> {
+    const active = await listActiveTenantSchemaIdentities(this.dataSource);
+    // The ledger returns lower-case ids; compare on that spelling.
+    const normalizedTenantId = tenantId.toLowerCase();
+    if (active.some((identity) => identity.tenantId === normalizedTenantId)) {
+      return false;
+    }
+    await this.invalidateTenant(tenantId);
+    return true;
   }
 
   /**

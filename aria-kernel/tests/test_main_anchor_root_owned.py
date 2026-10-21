@@ -21,6 +21,7 @@ another uid) and skip, saying so, elsewhere.
 """
 from __future__ import annotations
 
+import ast
 import contextlib
 import json
 import os
@@ -39,6 +40,28 @@ _CALLER = 1000
 _OTHER = 1001
 _NOBODY = 65534
 _SIGNERS = "signers"
+
+
+def _copy_anchor_package(lib: Path) -> None:
+    """``main_anchor`` and the kernel modules it imports (relatively, transitively)
+    as a package under ``lib``: what the non-root reader needs, and nothing of
+    the kernel package it cannot be shown to need (ARIA-LOW-518 made the anchor
+    read object ids through ``git_object_id``)."""
+    package = lib / "anchor_pkg"
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    kernel = Path(main_anchor.__file__).parent
+    pending, copied = ["main_anchor"], set()
+    while pending:
+        name = pending.pop()
+        if name in copied:
+            continue
+        copied.add(name)
+        source = kernel / f"{name}.py"
+        shutil.copyfile(source, package / source.name)
+        for node in ast.walk(ast.parse(source.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.ImportFrom) and node.level == 1 and node.module:
+                pending.append(node.module.split(".")[0])
 
 
 def _git_cmd(*args: str, cwd: Path) -> str:
@@ -195,12 +218,12 @@ class LiveRootOwnedCheckoutTests(unittest.TestCase):
         self.clone, self.linked, self.tip = _make_layouts(self.tmp)
         lib = self.tmp / "lib"
         lib.mkdir()
-        shutil.copyfile(main_anchor.__file__, lib / "main_anchor.py")
+        _copy_anchor_package(lib)
         subprocess.run(["chmod", "-R", "a+rX,go-w", str(self.tmp)], check=True)
         self.lib = lib
 
     def _read_as(self, uid: int, repo: Path) -> dict:
-        code = ("import json, sys; sys.path.insert(0, sys.argv[1]); import main_anchor as m; "
+        code = ("import json, sys; sys.path.insert(0, sys.argv[1]); from anchor_pkg import main_anchor as m; "
                 "tip = m.main_tip(sys.argv[2]); "
                 "blob = m.committed_blob(sys.argv[2], commit=tip, path=sys.argv[3]) if tip else None; "
                 "print(json.dumps({'tip': tip, 'blob': blob.content.decode() if blob else None}))")

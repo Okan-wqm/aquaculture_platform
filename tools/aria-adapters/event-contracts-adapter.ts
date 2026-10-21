@@ -11,6 +11,7 @@ import {
   resolveInsideWorkspace as resolveAdapterPath,
   workspacePathExists,
 } from './adapter-fs';
+import { createContainedProgram } from './adapter-ts';
 
 type CheckName = 'base_event' | 'event_interfaces' | 'schema_catalogs' | 'validator_dispatch';
 type FindingRule =
@@ -23,7 +24,11 @@ type FindingRule =
 interface AdapterInput {
   readonly root?: string;
   readonly checks?: readonly CheckName[];
-  readonly repo_snapshot?: { readonly allowed_paths?: readonly string[]; readonly snapshot_hash?: string; readonly repo_state_id?: string };
+  readonly repo_snapshot?: {
+    readonly allowed_paths?: readonly string[];
+    readonly snapshot_hash?: string;
+    readonly repo_state_id?: string;
+  };
 }
 
 interface EvidenceRef {
@@ -105,12 +110,19 @@ export function analyzeEventContracts(
   const requestedRoot = input.root ?? DEFAULT_ROOT;
   const checks = new Set(input.checks ?? DEFAULT_CHECKS);
   const scanRoot = resolveInsideWorkspace(workspaceRoot, requestedRoot);
-  if (!workspacePathExists(scanRoot)) {
+  if (!workspacePathExists(workspaceRoot, scanRoot)) {
     throw new Error(`scan root does not exist: ${requestedRoot}`);
   }
 
-  const files = filterFilesBySnapshot(collectTypeScriptFiles(scanRoot), workspaceRoot, input);
-  const program = createAnalysisProgram(files);
+  const files = filterFilesBySnapshot(
+    collectTypeScriptFiles(workspaceRoot, scanRoot),
+    workspaceRoot,
+    input,
+  );
+  // ARIA-LOW-593 — the program is built on the containment owner's host, so
+  // a heritage alias that resolves only through a symlinked module resolves
+  // to nothing: workspace content alone must establish the inheritance.
+  const program = createContainedProgram(workspaceRoot, files);
   const units = files.map((file) => readSourceUnit(file, workspaceRoot, program));
   const context: AnalysisContext = {
     checker: program.getTypeChecker(),
@@ -139,7 +151,9 @@ export function analyzeEventContracts(
   result.findings.sort(compareById);
   result.readPaths.sort();
   const evidenceSources = Array.from(
-    new Set(result.findings.flatMap((finding) => finding.evidence.map((evidence) => evidence.path))),
+    new Set(
+      result.findings.flatMap((finding) => finding.evidence.map((evidence) => evidence.path)),
+    ),
   ).sort();
 
   return {
@@ -150,7 +164,8 @@ export function analyzeEventContracts(
     belief_candidates: [
       {
         belief_id: 'event-contracts:runtime-schema-validation-surface',
-        claim: 'event-contracts exposes branded base events and runtime JSON Schema validator catalogs for event-boundary checks',
+        claim:
+          'event-contracts exposes branded base events and runtime JSON Schema validator catalogs for event-boundary checks',
         confidence: 0.85,
         evidence_refs: [
           'libs/event-contracts/src/base-event.ts',
@@ -172,7 +187,11 @@ export function analyzeEventContracts(
 }
 
 function analyzeBaseEvent(units: readonly SourceUnit[], result: AnalysisResult): void {
-  const unit = units.find((item) => item.relativePath.endsWith('/base-event.ts') || item.relativePath === 'libs/event-contracts/src/base-event.ts');
+  const unit = units.find(
+    (item) =>
+      item.relativePath.endsWith('/base-event.ts') ||
+      item.relativePath === 'libs/event-contracts/src/base-event.ts',
+  );
   if (!unit) {
     return;
   }
@@ -198,7 +217,8 @@ function analyzeBaseEvent(units: readonly SourceUnit[], result: AnalysisResult):
       severity: 'high',
       path: unit.relativePath,
       line: eventId ? lineOf(unit.sourceFile, eventId) : 1,
-      message: 'EventId should be a branded type so inline event construction cannot assign plain strings.',
+      message:
+        'EventId should be a branded type so inline event construction cannot assign plain strings.',
       evidence: [{ path: unit.relativePath, line: eventId ? lineOf(unit.sourceFile, eventId) : 1 }],
     });
   }
@@ -210,7 +230,8 @@ function analyzeBaseEvent(units: readonly SourceUnit[], result: AnalysisResult):
       severity: 'high',
       path: unit.relativePath,
       line: 1,
-      message: 'Event contracts should expose createBaseEvent so eventId, timestamp, tenantId, and version are minted consistently.',
+      message:
+        'Event contracts should expose createBaseEvent so eventId, timestamp, tenantId, and version are minted consistently.',
       evidence: [{ path: unit.relativePath, line: 1 }],
     });
   }
@@ -235,7 +256,11 @@ function analyzeBaseEvent(units: readonly SourceUnit[], result: AnalysisResult):
   }
 }
 
-function analyzeEventInterfaces(units: readonly SourceUnit[], result: AnalysisResult, context: AnalysisContext): void {
+function analyzeEventInterfaces(
+  units: readonly SourceUnit[],
+  result: AnalysisResult,
+  context: AnalysisContext,
+): void {
   for (const unit of units) {
     if (unit.relativePath.includes('/schemas/') || unit.relativePath.endsWith('/base-event.ts')) {
       continue;
@@ -365,31 +390,26 @@ function analyzeValidatorDispatch(units: readonly SourceUnit[], result: Analysis
   }
 }
 
-function createAnalysisProgram(files: readonly string[]): ts.Program {
-  return ts.createProgram([...files], {
-    target: ts.ScriptTarget.ES2022,
-    module: ts.ModuleKind.CommonJS,
-    moduleResolution: ts.ModuleResolutionKind.NodeJs,
-    esModuleInterop: true,
-    skipLibCheck: true,
-    strict: false,
-    noEmit: true,
-  });
-}
-
 function readSourceUnit(path: string, workspaceRoot: string, program: ts.Program): SourceUnit {
-  const text = readWorkspaceFile(path);
+  const text = readWorkspaceFile(workspaceRoot, path);
   return {
     path,
     relativePath: normalizePath(relative(workspaceRoot, path)),
     text,
-    sourceFile: program.getSourceFile(path) ?? ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true),
+    sourceFile:
+      program.getSourceFile(path) ?? ts.createSourceFile(path, text, ts.ScriptTarget.Latest, true),
   };
 }
 
-function findBaseEventSymbol(units: readonly SourceUnit[], checker: ts.TypeChecker): ts.Symbol | undefined {
+function findBaseEventSymbol(
+  units: readonly SourceUnit[],
+  checker: ts.TypeChecker,
+): ts.Symbol | undefined {
   for (const unit of units) {
-    if (!unit.relativePath.endsWith('/base-event.ts') && unit.relativePath !== 'libs/event-contracts/src/base-event.ts') {
+    if (
+      !unit.relativePath.endsWith('/base-event.ts') &&
+      unit.relativePath !== 'libs/event-contracts/src/base-event.ts'
+    ) {
       continue;
     }
     const baseEvent = findInterface(unit, 'BaseEvent');
@@ -475,13 +495,19 @@ function countObjectLiteralProperties(node: ts.Expression | undefined): number {
   if (!target || !ts.isObjectLiteralExpression(target)) {
     return 0;
   }
-  return target.properties.filter((property) => ts.isPropertyAssignment(property) || ts.isShorthandPropertyAssignment(property)).length;
+  return target.properties.filter(
+    (property) => ts.isPropertyAssignment(property) || ts.isShorthandPropertyAssignment(property),
+  ).length;
 }
 
 function unwrapExpression(node: ts.Expression | undefined): ts.Expression | undefined {
   let current = node;
   while (current) {
-    if (ts.isAsExpression(current) || ts.isSatisfiesExpression(current) || ts.isTypeAssertionExpression(current)) {
+    if (
+      ts.isAsExpression(current) ||
+      ts.isSatisfiesExpression(current) ||
+      ts.isTypeAssertionExpression(current)
+    ) {
       current = current.expression;
       continue;
     }
@@ -596,10 +622,11 @@ function visit(node: ts.Node, visitor: (node: ts.Node) => void): void {
   ts.forEachChild(node, (child) => visit(child, visitor));
 }
 
-function collectTypeScriptFiles(root: string): readonly string[] {
-  return collectFiles(root, {
+function collectTypeScriptFiles(workspaceRoot: string, root: string): readonly string[] {
+  return collectFiles(workspaceRoot, root, {
     extensions: ['.ts'],
-    includeFile: (name) => !name.endsWith('.spec.ts') && !name.endsWith('.test.ts') && !name.endsWith('.d.ts'),
+    includeFile: (name) =>
+      !name.endsWith('.spec.ts') && !name.endsWith('.test.ts') && !name.endsWith('.d.ts'),
   });
 }
 

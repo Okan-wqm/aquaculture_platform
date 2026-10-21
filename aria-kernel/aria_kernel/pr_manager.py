@@ -6,7 +6,7 @@ import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from .apply_engine import list_apply_actions, verify_plan_converged_approval
 from .auto_merge import record_pr_lifecycle
@@ -195,6 +195,7 @@ def build_pr_body(
     *,
     proposal: dict[str, Any],
     action: dict[str, Any],
+    request_lines: Sequence[str],
     mission_id: str | None = None,
 ) -> str:
     """Render the PR body, and — when the work belongs to a mission — the
@@ -204,6 +205,11 @@ def build_pr_body(
     provenance section rather than as a bullet inside it: the pattern is
     anchored with MULTILINE, so an indented trailer would never match, and
     `format_mission_trailer` refuses to produce a line the pattern misses.
+
+    ARIA-MEDIUM-264 — ``request_lines`` are the commit contract's (the
+    operator requests the plan spends), as bare lines too: a squash default
+    that copies the PR body, not the commit messages, still lands them on
+    main, where check 12 reads them.
     """
     from .mission_reconcile import format_mission_trailer
 
@@ -211,6 +217,7 @@ def build_pr_body(
     validation = "\n".join(f"- `{item}`" for item in action.get("validation_commands", []))
     validation_refs = "\n".join(f"- `{item}`" for item in action.get("validation_run_refs", []))
     trailer = [format_mission_trailer(mission_id), ""] if mission_id else []
+    trailer += [*request_lines, ""] if request_lines else []
     return "\n".join(
         [
             "## Problem",
@@ -389,9 +396,14 @@ def _pr_open_inputs(
     # supplied by the caller. `open_pr_for_action` takes no mission_id
     # parameter, so the PR's mission and the dispatch row's mission cannot
     # disagree: there is only one of them, and it is the one promotion wrote.
+    # ARIA-HIGH-104 (4) — the commit contract the plan's origin admits; the
+    # PR body carries its request lines (ARIA-MEDIUM-264) and the perimeter
+    # below judges the branch's commits against it.
+    commit_contract = _commit_contract_for_action(action, base_dir=base_dir)
     body = build_pr_body(
         proposal=proposal,
         action=action,
+        request_lines=commit_contract.get("request_lines", []) if commit_contract is not None else [],
         mission_id=mission_for_assignment(assignment_id=assignment_id, base_dir=base_dir),
     )
     _validate_pr_body(body)
@@ -492,7 +504,7 @@ def _pr_open_inputs(
         pr_body=body,
         # ARIA-HIGH-104 (4) — the commit contract the plan's origin admits and
         # the commits that must honour it; both absent-means-refuse.
-        commit_contract=_commit_contract_for_action(action, base_dir=base_dir),
+        commit_contract=commit_contract,
         branch_commits=_branch_commits_for_action(
             workspace_path=workspace_path,
             base_sha=action.get("base_sha"),

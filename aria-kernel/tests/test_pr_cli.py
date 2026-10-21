@@ -250,6 +250,12 @@ class PrCliCreateTests(unittest.TestCase):
         # ARIA-CRITICAL-246 — with no GH_TOKEN, gh would open the PR as the
         # terminal's stored login, i.e. as the operator. The kernel refuses
         # before gh runs.
+        # ARIA-LOW-503 — and before the pr_create intent is recorded. Without
+        # the pre-intent check run_gh_write still refuses the write, but only
+        # after the intent row exists, so recovery would chase a PR that was
+        # never attempted.
+        from aria_kernel.ledger import load_declared_jsonl
+        from aria_kernel.recovery import EXTERNAL_EFFECTS_RELPATH, EXTERNAL_EFFECTS_SURFACE
         from aria_kernel.tool_registry import GovernanceError
 
         environ = {key: value for key, value in os.environ.items() if key not in ("GH_TOKEN", "GITHUB_TOKEN")}
@@ -265,6 +271,10 @@ class PrCliCreateTests(unittest.TestCase):
                     "--no-dry-run",
                 ])
         self.assertEqual([c for c in recorded_calls() if c.argv[:3] == ["gh", "pr", "create"]], [])
+        effects = self.tools.joinpath(*EXTERNAL_EFFECTS_RELPATH)
+        rows = load_declared_jsonl(effects, expected_surface=EXTERNAL_EFFECTS_SURFACE) if effects.exists() else []
+        self.assertEqual([row for row in rows if row.get("effect_kind") == "pr_create"], [],
+                         "a refused create leaves no pr_create intent for recovery to chase")
 
 
 class PrCliListActionsTests(unittest.TestCase):

@@ -39,10 +39,26 @@
  * and this spec keeps it the only way to spell it. A new fixture teardown is
  * correct because the only import available is already correct.
  *
+ * # Creation, too (ARIA-LOW-595)
+ *
+ * A teardown that never runs leaks as surely as one that races. Eleven
+ * `tools/aria-adapters/*.test.ts` files built their workspace with
+ * `mkdtempSync` at module level, where a script-style test has no `afterAll`,
+ * and removed nothing: one `nx test aria-adapters` run left 20 directories in
+ * the temp dir, and two invariant specs here left one per run. So the owner
+ * also has the creation half, `makeFixtureTree`, which removes the tree when
+ * the process exits, and this spec holds two more rules: an adapter test makes
+ * its trees only through it, and any file in these trees that makes one with
+ * `mkdtemp` removes through the owner. The second is per file, not per call:
+ * it catches the test that forgot removal altogether, which is the shape both
+ * leaks had.
+ *
  * # Scope
  *
- * `tests/invariants/**` and `tools/gates/**` — the two trees that run as gates
- * on every PR, where a teardown race costs a red check. Operator scripts
+ * `tests/invariants/**`, `tools/gates/**` and `tools/aria-adapters/**` — the
+ * trees that run as gates on a PR (the adapters through `nx test
+ * aria-adapters`), where a teardown race costs a red check and a missing
+ * teardown fills the host's temp dir. Operator scripts
  * elsewhere under `tools/` are not covered: there a failed cleanup is a visible
  * error in front of the person who ran it, not a random CI result.
  */
@@ -59,8 +75,17 @@ const REPO_ROOT = resolve(__dirname, '..', '..');
 /** The module that owns the semantics, and the only file allowed to call `rmSync` recursively. */
 const OWNER = 'tools/gates/fixture-tree.ts';
 
-/** Trees that run as gates on every PR. */
-const SCANNED_ROOTS = ['tests/invariants', 'tools/gates'] as const;
+/** Trees that run as gates on a PR. */
+const SCANNED_ROOTS = ['tests/invariants', 'tools/gates', 'tools/aria-adapters'] as const;
+
+/** Script-style tests: each file is its own process, with no afterAll. */
+const ADAPTER_TESTS = /^tools\/aria-adapters\/.*\.test\.ts$/;
+
+/** A temp-tree creation, sync or async, under any import spelling. */
+const TEMP_TREE_CREATION = /\bmkdtemp(?:Sync)?\(/g;
+
+/** A removal through the owner. */
+const OWNER_REMOVAL = /\bremove(?:Existing)?FixtureTree\(/;
 
 const SKIPPED_DIRECTORIES = new Set(['node_modules', 'fixtures', '__fixtures__', 'dist']);
 
@@ -82,6 +107,28 @@ function withoutComments(source: string): string {
   return source.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (comment) =>
     comment.replace(/[^\n]/g, ' '),
   );
+}
+
+/** `path:line` of every match of `pattern` in `source`. */
+function matchLines(repoPath: string, source: string, pattern: RegExp): string[] {
+  const found: string[] = [];
+  pattern.lastIndex = 0;
+  let match: RegExpExecArray | null = pattern.exec(source);
+  while (match !== null) {
+    found.push(`${repoPath}:${source.slice(0, match.index).split('\n').length}`);
+    match = pattern.exec(source);
+  }
+  return found;
+}
+
+/** Every scanned file except the owner, as repo path + source without comments. */
+function nonOwnerSources(): Array<{ repoPath: string; source: string }> {
+  return sourceFiles()
+    .map((file) => ({
+      repoPath: relative(REPO_ROOT, file).split('\\').join('/'),
+      source: withoutComments(readFileSync(file, 'utf8')),
+    }))
+    .filter(({ repoPath }) => repoPath !== OWNER);
 }
 
 function sourceFiles(): string[] {
@@ -140,5 +187,23 @@ describe('recursive fixture-tree removal is single-sourced', () => {
     expect(retryBudgets).toHaveLength(removals.length);
     expect(FIXTURE_TREE_REMOVAL_MAX_RETRIES).toBeGreaterThanOrEqual(1);
     expect(FIXTURE_TREE_REMOVAL_RETRY_DELAY_MS).toBeGreaterThanOrEqual(1);
+  });
+
+  it('makes every adapter-test tree through the owner, which removes it when the test process exits', () => {
+    // ARIA-LOW-595 — a script-style test builds its workspace at module level
+    // and has no afterAll; `makeFixtureTree` is the removal it cannot forget.
+    const offenders = nonOwnerSources()
+      .filter(({ repoPath }) => ADAPTER_TESTS.test(repoPath))
+      .flatMap(({ repoPath, source }) => matchLines(repoPath, source, TEMP_TREE_CREATION));
+
+    expect(offenders).toEqual([]);
+  });
+
+  it('removes, through the owner, every tree a file makes with mkdtemp', () => {
+    const offenders = nonOwnerSources()
+      .filter(({ source }) => !OWNER_REMOVAL.test(source))
+      .flatMap(({ repoPath, source }) => matchLines(repoPath, source, TEMP_TREE_CREATION));
+
+    expect(offenders).toEqual([]);
   });
 });

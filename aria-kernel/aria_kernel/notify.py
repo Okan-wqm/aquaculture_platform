@@ -3,8 +3,8 @@
 WHY: `observability/alerts.jsonl` had no reader; a cycle failed, a breaker
 tripped, a request went HUMAN_REQUIRED and nobody was told until the next
 manual look. WHAT: a closed event vocabulary, channels configured by env
-NAMES only (values never touch a ledger), a per-signature dedup window,
-and `notifications/outbox.jsonl` recording every attempt — sent, failed,
+NAMES only (values never touch a ledger), a dedup window per signature
+and channel, and `notifications/outbox.jsonl` recording every attempt — sent, failed,
 deduped, dry-run or unconfigured — so silence is itself auditable.
 """
 from __future__ import annotations
@@ -32,6 +32,11 @@ NOTIFY_EVENT_KINDS: tuple[str, ...] = (
     "cycle_failed", "breaker_tripped", "human_required_opened", "human_required_sla_breached",
     "pr_opened", "pr_red", "pr_merged", "daily_report", "delivery_slo_gap", "doctor_unhealthy",
     "operator_cancelled", "gateway_rejected", "test",
+    # ARIA-HIGH-579 — a night held in place because every provider is out (`provider_hold`).
+    "cycle_held",
+    # ARIA-HIGH-579 (review) — the night's hold question could not even be asked: a ledger
+    # it reads was unreadable, the night failed open, and the failure names itself.
+    "hold_indeterminate",
 )
 NOTIFY_CHANNELS: tuple[str, ...] = ("stdout", "github_issue", "email", "telegram")
 NOTIFY_STATUSES: tuple[str, ...] = ("sent", "failed", "deduped", "dry_run", "unconfigured")
@@ -267,9 +272,18 @@ SENDERS: dict[str, Sender] = {
 }
 
 
-def _recent_sent(rows: list[dict[str, Any]], signature: str, *, now: datetime, window: timedelta) -> dict[str, Any] | None:
+def _recent_sent(
+    rows: list[dict[str, Any]], signature: str, channel: str, *, now: datetime, window: timedelta,
+) -> dict[str, Any] | None:
+    """The newest `sent` row of ``signature`` on ``channel`` inside ``window``, else None.
+
+    ARIA-MEDIUM-110 — the channel is part of the key. Matched on the
+    signature alone, the first channel to send silenced every other one for
+    the window: a two-channel operator got one delivery, and a channel whose
+    send had failed was not retried while another had sent.
+    """
     for row in reversed(rows):
-        if row.get("signature") != signature or row.get("status") != "sent":
+        if row.get("signature") != signature or row.get("channel") != channel or row.get("status") != "sent":
             continue
         try:
             stamp = datetime.fromisoformat(str(row.get("recorded_at")).replace("Z", "+00:00"))
@@ -346,7 +360,7 @@ def notify(
             row.update({"status": "unconfigured", "detail": {"missing_env_names": [n for n in CHANNEL_ENV_NAMES[channel] if not env.get(n)]}})
         elif (channel_text := channel_body(kind, channel, body, record)) is None:
             row.update({"status": "failed", "detail": {"error": PUBLIC_RECORD_INVALID}})
-        elif _recent_sent([*existing, *rows], signature, now=stamp, window=dedup_window) is not None:
+        elif _recent_sent([*existing, *rows], signature, channel, now=stamp, window=dedup_window) is not None:
             row.update({"status": "deduped", "detail": {"window_seconds": int(dedup_window.total_seconds())}})
         elif dry_run:
             row.update({"status": "dry_run", "detail": {}})

@@ -1,8 +1,17 @@
 /**
  * Tank Columns Definition
- * Defines all available columns for the tanks listing table
- * All columns are visible by default per user requirement
+ * Defines all available columns for the tanks listing table (30 columns).
+ *
+ * `header` carries an i18n message key — the table and the column-visibility
+ * menu translate it at render time, so the design's Turkish headers and their
+ * English equivalents live in the locale SSoT, not here.
+ *
+ * Default visibility mirrors the design reference: the 9 design columns
+ * (unit · batch · fish · avg weight · biomass · density/capacity · FCR ·
+ * survival · last fed) render out of the box; every other column is opt-in
+ * through the column menu (up to all 30).
  */
+import type { MessageKey } from '@aquaculture/shared-ui';
 import { TankColumn } from './types';
 
 // ============================================================================
@@ -11,107 +20,17 @@ import { TankColumn } from './types';
 
 export const tankColumns: TankColumn[] = [
   // Basic Info Group
-  {
-    key: 'name',
-    header: 'Tank/Pond',
-    defaultVisible: true,
-    sortable: true,
-    group: 'basic',
-  },
-  {
-    key: 'code',
-    header: 'Code',
-    defaultVisible: true,
-    sortable: true,
-    group: 'basic',
-  },
-  {
-    key: 'category',
-    header: 'Category',
-    defaultVisible: true,
-    sortable: true,
-    group: 'basic',
-  },
-  {
-    key: 'status',
-    header: 'Status',
-    defaultVisible: true,
-    sortable: true,
-    group: 'basic',
-  },
-  {
-    key: 'departmentName',
-    header: 'Department',
-    defaultVisible: true,
-    sortable: true,
-    group: 'basic',
-  },
-
-  // Specifications Group
-  {
-    key: 'tankType',
-    header: 'Type',
-    defaultVisible: true,
-    sortable: true,
-    group: 'specifications',
-  },
-  {
-    key: 'material',
-    header: 'Material',
-    defaultVisible: true,
-    sortable: true,
-    group: 'specifications',
-  },
-  {
-    key: 'waterType',
-    header: 'Water Type',
-    defaultVisible: true,
-    sortable: true,
-    group: 'specifications',
-  },
-  {
-    key: 'volume',
-    header: 'Volume (m\u00B3)',
-    defaultVisible: true,
-    sortable: true,
-    align: 'right',
-    group: 'specifications',
-  },
-  {
-    key: 'maxBiomass',
-    header: 'Max Biomass (kg)',
-    defaultVisible: true,
-    sortable: true,
-    align: 'right',
-    group: 'specifications',
-  },
-  {
-    key: 'maxDensity',
-    header: 'Max Density (kg/m\u00B3)',
-    defaultVisible: true,
-    sortable: true,
-    align: 'right',
-    group: 'specifications',
-  },
-
-  // Batch Info Group
-  {
-    key: 'speciesCode',
-    header: 'Species',
-    defaultVisible: true,
-    sortable: true,
-    group: 'batch',
-  },
+  { key: 'code', header: 'tanksV2.col.unit', defaultVisible: true, sortable: true, group: 'basic' },
   {
     key: 'batchNumber',
-    header: 'Batch',
+    header: 'tanksV2.col.batch',
     defaultVisible: true,
     sortable: true,
     group: 'batch',
   },
   {
     key: 'pieces',
-    header: 'Pieces',
+    header: 'tanksV2.col.fish',
     defaultVisible: true,
     sortable: true,
     align: 'right',
@@ -119,7 +38,7 @@ export const tankColumns: TankColumn[] = [
   },
   {
     key: 'avgWeight',
-    header: 'Avg Weight (g)',
+    header: 'tanksV2.col.avgWeight',
     defaultVisible: true,
     sortable: true,
     align: 'right',
@@ -127,7 +46,7 @@ export const tankColumns: TankColumn[] = [
   },
   {
     key: 'biomass',
-    header: 'Biomass (kg)',
+    header: 'tanksV2.col.biomass',
     defaultVisible: true,
     sortable: true,
     align: 'right',
@@ -135,114 +54,200 @@ export const tankColumns: TankColumn[] = [
   },
   {
     key: 'density',
-    header: 'Density (kg/m\u00B3)',
+    header: 'tanksV2.col.density',
     defaultVisible: true,
     sortable: true,
     align: 'right',
     group: 'batch',
   },
-
-  // Performance Metrics Group
-  {
-    key: 'survivalRate',
-    header: 'Survival (%)',
-    defaultVisible: true,
-    sortable: true,
-    align: 'right',
-    group: 'metrics',
-  },
-  {
-    key: 'mortalityRate',
-    header: 'Mortality (%)',
-    defaultVisible: true,
-    sortable: true,
-    align: 'right',
-    group: 'metrics',
-  },
   {
     key: 'fcr',
-    header: 'FCR',
+    header: 'tanksV2.col.fcr',
     defaultVisible: true,
+    sortable: true,
+    align: 'right',
+    group: 'metrics',
+  },
+  {
+    key: 'survivalRate',
+    header: 'tanksV2.col.survival',
+    defaultVisible: true,
+    sortable: true,
+    align: 'right',
+    group: 'metrics',
+  },
+  {
+    key: 'lastFeedingAt',
+    header: 'tanksV2.col.lastFed',
+    defaultVisible: true,
+    sortable: true,
+    group: 'operations',
+  },
+
+  // Basic Info (opt-in)
+  {
+    key: 'name',
+    header: 'tanksV2.col.name',
+    defaultVisible: false,
+    sortable: true,
+    group: 'basic',
+  },
+  {
+    key: 'category',
+    header: 'tanksV2.col.category',
+    defaultVisible: false,
+    sortable: true,
+    group: 'basic',
+  },
+  {
+    key: 'status',
+    header: 'tanksV2.col.status',
+    defaultVisible: false,
+    sortable: true,
+    group: 'basic',
+  },
+  {
+    key: 'departmentName',
+    header: 'tanksV2.col.department',
+    defaultVisible: false,
+    sortable: true,
+    group: 'basic',
+  },
+
+  // Specifications Group (opt-in)
+  {
+    key: 'tankType',
+    header: 'tanksV2.col.tankType',
+    defaultVisible: false,
+    sortable: true,
+    group: 'specifications',
+  },
+  {
+    key: 'material',
+    header: 'tanksV2.col.material',
+    defaultVisible: false,
+    sortable: true,
+    group: 'specifications',
+  },
+  {
+    key: 'waterType',
+    header: 'tanksV2.col.waterType',
+    defaultVisible: false,
+    sortable: true,
+    group: 'specifications',
+  },
+  {
+    key: 'volume',
+    header: 'tanksV2.col.volume',
+    defaultVisible: false,
+    sortable: true,
+    align: 'right',
+    group: 'specifications',
+  },
+  {
+    key: 'maxBiomass',
+    header: 'tanksV2.col.maxBiomass',
+    defaultVisible: false,
+    sortable: true,
+    align: 'right',
+    group: 'specifications',
+  },
+  {
+    key: 'maxDensity',
+    header: 'tanksV2.col.maxDensity',
+    defaultVisible: false,
+    sortable: true,
+    align: 'right',
+    group: 'specifications',
+  },
+
+  // Batch Info Group (opt-in)
+  {
+    key: 'speciesCode',
+    header: 'tanksV2.col.species',
+    defaultVisible: false,
+    sortable: true,
+    group: 'batch',
+  },
+
+  // Performance Metrics Group (opt-in)
+  {
+    key: 'mortalityRate',
+    header: 'tanksV2.col.mortalityRate',
+    defaultVisible: false,
     sortable: true,
     align: 'right',
     group: 'metrics',
   },
   {
     key: 'growthRate',
-    header: 'Growth (g/day)',
-    defaultVisible: true,
+    header: 'tanksV2.col.growthRate',
+    defaultVisible: false,
     sortable: true,
     align: 'right',
     group: 'metrics',
   },
   {
     key: 'sgr',
-    header: 'SGR (%/day)',
-    defaultVisible: true,
+    header: 'tanksV2.col.sgr',
+    defaultVisible: false,
     sortable: true,
     align: 'right',
     group: 'metrics',
   },
   {
     key: 'capacityUsedPercent',
-    header: 'Capacity (%)',
-    defaultVisible: true,
+    header: 'tanksV2.col.capacity',
+    defaultVisible: false,
     sortable: true,
     align: 'right',
     group: 'metrics',
   },
 
-  // Operations Group
+  // Operations Group (opt-in)
   {
     key: 'daysSinceStocking',
-    header: 'Days Stocked',
-    defaultVisible: true,
+    header: 'tanksV2.col.daysStocked',
+    defaultVisible: false,
     sortable: true,
     align: 'right',
     group: 'operations',
   },
   {
-    key: 'lastFeedingAt',
-    header: 'Last Feeding',
-    defaultVisible: true,
-    sortable: true,
-    group: 'operations',
-  },
-  {
     key: 'lastSamplingAt',
-    header: 'Last Sampling',
-    defaultVisible: true,
+    header: 'tanksV2.col.lastSampling',
+    defaultVisible: false,
     sortable: true,
     group: 'operations',
   },
   {
     key: 'projectedHarvestDate',
-    header: 'Est. Harvest',
-    defaultVisible: true,
+    header: 'tanksV2.col.estHarvest',
+    defaultVisible: false,
     sortable: true,
     group: 'operations',
   },
 
-  // Feeding Group
+  // Feeding Group (opt-in)
   {
     key: 'feedCode',
-    header: 'Feed Type',
-    defaultVisible: true,
+    header: 'tanksV2.col.feedType',
+    defaultVisible: false,
     sortable: true,
     group: 'feeding',
   },
   {
     key: 'feedingRatePercent',
-    header: 'Feed Rate (%)',
-    defaultVisible: true,
+    header: 'tanksV2.col.feedRate',
+    defaultVisible: false,
     sortable: true,
     align: 'right',
     group: 'feeding',
   },
   {
     key: 'dailyFeedKg',
-    header: 'Daily Feed (kg)',
-    defaultVisible: true,
+    header: 'tanksV2.col.dailyFeed',
+    defaultVisible: false,
     sortable: true,
     align: 'right',
     group: 'feeding',
@@ -255,38 +260,32 @@ export const tankColumns: TankColumn[] = [
 
 export const cleanerFishColumns: TankColumn[] = [
   // Basic Info (same as production)
+  { key: 'code', header: 'tanksV2.col.unit', defaultVisible: true, sortable: true, group: 'basic' },
   {
     key: 'name',
-    header: 'Tank/Pond',
-    defaultVisible: true,
-    sortable: true,
-    group: 'basic',
-  },
-  {
-    key: 'code',
-    header: 'Code',
-    defaultVisible: true,
+    header: 'tanksV2.col.name',
+    defaultVisible: false,
     sortable: true,
     group: 'basic',
   },
   {
     key: 'category',
-    header: 'Category',
-    defaultVisible: true,
+    header: 'tanksV2.col.category',
+    defaultVisible: false,
     sortable: true,
     group: 'basic',
   },
   {
     key: 'status',
-    header: 'Status',
-    defaultVisible: true,
+    header: 'tanksV2.col.status',
+    defaultVisible: false,
     sortable: true,
     group: 'basic',
   },
   {
     key: 'departmentName',
-    header: 'Department',
-    defaultVisible: true,
+    header: 'tanksV2.col.department',
+    defaultVisible: false,
     sortable: true,
     group: 'basic',
   },
@@ -294,31 +293,31 @@ export const cleanerFishColumns: TankColumn[] = [
   // Tank specifications (limited)
   {
     key: 'volume',
-    header: 'Volume (m³)',
+    header: 'tanksV2.col.volume',
     defaultVisible: true,
     sortable: true,
     align: 'right',
     group: 'specifications',
   },
 
-  // Cleaner Fish specific columns
+  // Cleaner Fish specific columns (per-batch rows)
   {
     key: 'cfBatchNumber',
-    header: 'CF Batch #',
+    header: 'tanksV2.cfCol.batchNumber',
     defaultVisible: true,
     sortable: true,
     group: 'cleanerFish',
   },
   {
     key: 'cfSpecies',
-    header: 'CF Species',
+    header: 'tanksV2.cfCol.species',
     defaultVisible: true,
     sortable: true,
     group: 'cleanerFish',
   },
   {
     key: 'cfQuantity',
-    header: 'CF Quantity',
+    header: 'tanksV2.cfCol.quantity',
     defaultVisible: true,
     sortable: true,
     align: 'right',
@@ -326,7 +325,7 @@ export const cleanerFishColumns: TankColumn[] = [
   },
   {
     key: 'cfAvgWeight',
-    header: 'CF Avg Wt (g)',
+    header: 'tanksV2.cfCol.avgWeight',
     defaultVisible: true,
     sortable: true,
     align: 'right',
@@ -334,7 +333,7 @@ export const cleanerFishColumns: TankColumn[] = [
   },
   {
     key: 'cfBiomass',
-    header: 'CF Biomass (kg)',
+    header: 'tanksV2.cfCol.biomass',
     defaultVisible: true,
     sortable: true,
     align: 'right',
@@ -342,22 +341,22 @@ export const cleanerFishColumns: TankColumn[] = [
   },
   {
     key: 'cfSourceType',
-    header: 'CF Source',
-    defaultVisible: true,
+    header: 'tanksV2.cfCol.source',
+    defaultVisible: false,
     sortable: true,
     group: 'cleanerFish',
   },
   {
     key: 'cfDeployedAt',
-    header: 'CF Deployed',
-    defaultVisible: true,
+    header: 'tanksV2.cfCol.deployed',
+    defaultVisible: false,
     sortable: true,
     group: 'cleanerFish',
   },
   {
     key: 'cfBatchCount',
-    header: 'CF Batches',
-    defaultVisible: true,
+    header: 'tanksV2.cfCol.batchCount',
+    defaultVisible: false,
     sortable: true,
     align: 'right',
     group: 'cleanerFish',
@@ -366,39 +365,39 @@ export const cleanerFishColumns: TankColumn[] = [
   // Cleaner Fish Mortality columns
   {
     key: 'cfInitialQuantity',
-    header: 'CF Initial Qty',
-    defaultVisible: true,
+    header: 'tanksV2.cfCol.initialQty',
+    defaultVisible: false,
     sortable: true,
     align: 'right',
     group: 'cleanerFishMortality',
   },
   {
     key: 'cfTotalMortality',
-    header: 'CF Mortality',
-    defaultVisible: true,
+    header: 'tanksV2.cfCol.totalMortality',
+    defaultVisible: false,
     sortable: true,
     align: 'right',
     group: 'cleanerFishMortality',
   },
   {
     key: 'cfMortalityRate',
-    header: 'CF Mort. Rate (%)',
-    defaultVisible: true,
+    header: 'tanksV2.cfCol.mortalityRate',
+    defaultVisible: false,
     sortable: true,
     align: 'right',
     group: 'cleanerFishMortality',
   },
   {
     key: 'cfLastMortalityAt',
-    header: 'CF Last Mortality',
-    defaultVisible: true,
+    header: 'tanksV2.cfCol.lastMortality',
+    defaultVisible: false,
     sortable: true,
     group: 'cleanerFishMortality',
   },
   {
     key: 'cfSurvivalRate',
-    header: 'CF Survival (%)',
-    defaultVisible: true,
+    header: 'tanksV2.cfCol.survival',
+    defaultVisible: false,
     sortable: true,
     align: 'right',
     group: 'cleanerFishMortality',
@@ -409,20 +408,20 @@ export const cleanerFishColumns: TankColumn[] = [
 // COLUMN GROUPS
 // ============================================================================
 
-export const columnGroups = [
-  { key: 'basic', label: 'Basic Info' },
-  { key: 'specifications', label: 'Specifications' },
-  { key: 'batch', label: 'Batch Info' },
-  { key: 'metrics', label: 'Performance Metrics' },
-  { key: 'operations', label: 'Operations' },
-  { key: 'feeding', label: 'Feeding' },
+export const columnGroups: { key: string; label: MessageKey }[] = [
+  { key: 'basic', label: 'tanksV2.colGroup.basic' },
+  { key: 'specifications', label: 'tanksV2.colGroup.specifications' },
+  { key: 'batch', label: 'tanksV2.colGroup.batch' },
+  { key: 'metrics', label: 'tanksV2.colGroup.metrics' },
+  { key: 'operations', label: 'tanksV2.colGroup.operations' },
+  { key: 'feeding', label: 'tanksV2.colGroup.feeding' },
 ];
 
-export const cleanerFishColumnGroups = [
-  { key: 'basic', label: 'Basic Info' },
-  { key: 'specifications', label: 'Specifications' },
-  { key: 'cleanerFish', label: 'Cleaner Fish' },
-  { key: 'cleanerFishMortality', label: 'CF Mortality' },
+export const cleanerFishColumnGroups: { key: string; label: MessageKey }[] = [
+  { key: 'basic', label: 'tanksV2.colGroup.basic' },
+  { key: 'specifications', label: 'tanksV2.colGroup.specifications' },
+  { key: 'cleanerFish', label: 'tanksV2.colGroup.cleanerFish' },
+  { key: 'cleanerFishMortality', label: 'tanksV2.colGroup.cleanerFishMortality' },
 ];
 
 // ============================================================================
@@ -434,7 +433,7 @@ export const cleanerFishColumnGroups = [
  * instead of recreating a new Set on every call.
  */
 export const DEFAULT_VISIBLE_COLUMNS: Set<string> = new Set(
-  tankColumns.filter((col) => col.defaultVisible).map((col) => col.key)
+  tankColumns.filter((col) => col.defaultVisible).map((col) => col.key),
 );
 
 /**
@@ -453,8 +452,6 @@ export const getAllColumnKeys = (): string[] => {
 /**
  * Get columns by group
  */
-export const getColumnsByGroup = (
-  group: string
-): TankColumn[] => {
+export const getColumnsByGroup = (group: string): TankColumn[] => {
   return tankColumns.filter((col) => col.group === group);
 };

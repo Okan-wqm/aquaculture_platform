@@ -1328,11 +1328,13 @@ describe('deploy SSOT contract', () => {
       scripts?: Record<string, string>;
     };
 
+    // ARIA-LOW-603 — TypeScript through ts-node, so the smoke reads services.yaml through the
+    // shared reader (tools/gates/nats-services.ts) instead of a private parse.
     expect(packageJson.scripts?.['smoke:nats-messaging-acl:static']).toBe(
-      'node scripts/nats/messaging-acl-smoke.mjs --mode static',
+      'ts-node --project tools/gates/tsconfig.json scripts/nats/messaging-acl-smoke.ts --mode static',
     );
     expect(packageJson.scripts?.['smoke:nats-messaging-acl:external']).toBe(
-      'node scripts/nats/messaging-acl-smoke.mjs --mode live',
+      'ts-node --project tools/gates/tsconfig.json scripts/nats/messaging-acl-smoke.ts --mode live',
     );
     expect(packageJson.scripts?.['smoke:nats-messaging-acl']).toBe(
       'bash scripts/nats/messaging-acl-smoke-harness.sh',

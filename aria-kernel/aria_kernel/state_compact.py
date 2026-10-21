@@ -736,25 +736,31 @@ def _compact_runs(path: Path, root: Path, cutoff: datetime, dry_run: bool) -> tu
     for row in rows:
         recorded = parse_utc_stamp(row.get("recorded_at"))
         if recorded is not None and recorded < cutoff:
-            will_strip = False
             ev = row.get("evidence_validation")
-            if isinstance(ev, dict) and isinstance(ev.get("evidence_envelopes"), list):
-                will_strip = True
+            strip_envelopes = isinstance(ev, dict) and isinstance(ev.get("evidence_envelopes"), list)
             rp = row.get("read_paths")
-            if isinstance(rp, list) and len(rp) > 20:
-                will_strip = True
-            if will_strip:
+            # A row whose writer already sampled its read set
+            # (``read_paths_spilled``, ledger_inline.sample_inline_list;
+            # ARIA-HIGH-617) is bounded, and its marker names the true total:
+            # sampling it again would record the sample's length as the total.
+            slim_read_paths = isinstance(rp, list) and len(rp) > 20 and "read_paths_spilled" not in row
+            # ARIA-LOW-571 — ONE decision per row drives the archive, the
+            # count and the rewrite: a row slimmed for either field is a
+            # stripped row. The count used to follow the envelopes alone, so
+            # a pass whose only slim was read_paths returned before the
+            # rewrite and the archive, and dropped the slim it had made.
+            if strip_envelopes or slim_read_paths:
                 # The archive must carry the row as it was BEFORE slimming.
                 # `row` is mutated in place below and `kept.append(row)`
                 # aliases it, so any shallow copy taken after the first
                 # mutation archives the slimmed row — the loss the
                 # "nothing is lost" contract exists to prevent.
                 stripped_rows.append(copy.deepcopy(row))
-            if isinstance(ev, dict) and isinstance(ev.get("evidence_envelopes"), list):
+                stripped += 1
+            if strip_envelopes:
                 envelopes = ev.pop("evidence_envelopes")
                 ev["evidence_envelope_count"] = len(envelopes)
-                stripped += 1
-            if isinstance(rp, list) and len(rp) > 20:
+            if slim_read_paths:
                 row["read_paths_count"] = len(rp)
                 row["read_paths"] = rp[:5]
         kept.append(row)

@@ -68,6 +68,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 from .ledger import (
     StateTransaction,
     _lock_requirements_for_path,
@@ -517,6 +518,14 @@ def _checkout_state_store_locked(
                     f"{remote_head or '<absent>'} but {remote}/{branch} is at "
                     f"{probe.sha}; fetch was disabled"
                 )
+        # ARIA-LOW-578 — the lineage is proven against the pin the checkout
+        # carries (state_lineage), on every host, BEFORE anything adopts the
+        # tip. The tracking-ref ancestry below only knows what this host
+        # saw before; a host that saw nothing (a fresh runner) used to adopt
+        # any replacement tip, a brand-new root included.
+        from .state_lineage import require_pinned_lineage
+
+        require_pinned_lineage(repo_root, branch=branch, tip=remote_head)
         _advance_checkout_tracking_ref(
             repo_root,
             tracking_ref=tracking_ref,
@@ -606,6 +615,11 @@ def _checkout_state_store_locked(
         _attest_state_writer(store, action="checkout")
         return store
 
+    # ARIA-LOW-578 — a pinned branch that is absent was LOST; a genesis
+    # would replace its lineage, so no acknowledgement authorises it.
+    from .state_lineage import refuse_bootstrap_over_pinned_lineage
+
+    refuse_bootstrap_over_pinned_lineage(repo_root, branch=branch)
     _require_bootstrap_ack(repo_root, branch)
     _git_step(
         BOOTSTRAP_WORKTREE_ADD_STEP,
@@ -1340,11 +1354,8 @@ def _stageable_pathspecs(store: StateStore, specs: set[str]) -> list[str]:
 
 
 def _full_git_sha(value: str) -> bool:
-    return (
-        value != "0" * 40
-        and len(value) == 40
-        and all(character in "0123456789abcdef" for character in value)
-    )
+    # A full object id that is not git's null id (all zeros, in either format).
+    return is_object_id(value, formats=ANY_OBJECT_FORMAT) and set(value) != {"0"}
 
 
 def _parse_remote_tip_listing(listing: str, *, ref: str) -> _RemoteTipProbe:
@@ -1419,8 +1430,18 @@ def _strict_is_ancestor(root: Path, ancestor: str, descendant: str) -> bool:
 
 
 def _fetch_remote_branch_tip(store: StateStore) -> str:
+    """The state branch's remote tip, fetched for a publish to adopt or replay onto.
+
+    The ONE fetch every publish-side adoption goes through (ambiguous-push
+    reconciliation, contention replay, accepted-loser recovery), so it is
+    where the pinned lineage is proven for them (ARIA-LOW-578), exactly as
+    the checkout proves it for the tip a store starts from. Descending from
+    the checked-out tip is not enough on its own: an intermediate merge can
+    bring a second root into a history that still descends from it, and the
+    snapshot verifier only reads the tip's own parent.
+    """
     try:
-        return _fetch_remote_branch_tip_at(
+        tip = _fetch_remote_branch_tip_at(
             store.root,
             remote=store.remote,
             branch=store.branch,
@@ -1431,6 +1452,19 @@ def _fetch_remote_branch_tip(store: StateStore) -> str:
             "state_publish_outcome_unknown: reconciliation fetch unavailable "
             f"({exc})"
         ) from exc
+    from .state_lineage import require_pinned_lineage
+
+    try:
+        require_pinned_lineage(store.repo_root, branch=store.branch, tip=tip)
+    except StateStoreRefusal:
+        raise
+    except StateStoreError as exc:
+        # A lineage that could not be READ is not a verdict on it: the push
+        # that led here may have landed, so the outcome stays unknown.
+        raise StatePublishOutcomeUnknown(
+            f"state_publish_outcome_unknown: the fetched tip's lineage could not be proven ({exc})"
+        ) from exc
+    return tip
 
 
 def _fetch_remote_branch_tip_at(
@@ -1501,13 +1535,19 @@ def _advance_checkout_tracking_ref(
                     "state_store_remote_history_unavailable: checkout ancestry "
                     "could not be verified"
                 ) from exc
+            # ARIA-LOW-577 — both are VERDICTS on the lineage the ancestry
+            # proof just read, not failures to reach the remote: refusals
+            # (exit 3 at the CLI), so the restore action reports a refused
+            # checkout instead of "failed to reach the remote", and nobody
+            # retries a replaced or rewound lineage into an adoption. The
+            # unverifiable case above stays a transport error.
             if target_behind:
-                raise StateStoreError(
+                raise StateStoreRefusal(
                     "state_store_remote_history_rewind: the validated remote tip "
                     "is behind local tracking; refusing to rewrite the anchor"
                 )
             if not current_behind:
-                raise StateStoreError(
+                raise StateStoreRefusal(
                     "state_store_remote_history_unrelated: the validated remote tip "
                     "does not descend from local tracking"
                 )
@@ -1517,7 +1557,9 @@ def _advance_checkout_tracking_ref(
                 "update-ref",
                 tracking_ref,
                 target,
-                current or ("0" * 40),
+                # Empty old-value: "the ref must not exist" (git-update-ref), in either
+                # object format; forty zeros was SHA-1's null id only.
+                current or "",
             ),
         )
         if proc.returncode == 0:
@@ -1550,7 +1592,9 @@ def _advance_tracking_ref_cas(store: StateStore, target: str) -> None:
                 "update-ref",
                 tracking,
                 target,
-                current or ("0" * 40),
+                # Empty old-value: "the ref must not exist" (git-update-ref), in either
+                # object format; forty zeros was SHA-1's null id only.
+                current or "",
             ),
         )
         if proc.returncode == 0:

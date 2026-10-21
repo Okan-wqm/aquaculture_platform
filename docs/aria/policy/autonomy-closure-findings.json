@@ -61,7 +61,7 @@
         "d7fa539ea03a52ff2cf5e21a9253d4d7cb84f311"
       ],
       "closing_sha_rule": "task_commit",
-      "regression_test_refs": ["aria-kernel/tests/test_provider_redirect.py"]
+      "regression_test_refs": ["aria-kernel/tests/test_claude_runtime_serves_anthropic_only.py"]
     },
     {
       "task_id": "task-7",

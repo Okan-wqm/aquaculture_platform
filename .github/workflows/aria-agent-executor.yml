@@ -746,7 +746,7 @@ jobs:
           # reap cannot hold the key past the job, and no token it mints can
           # outlive it either. The pairing with the job's timeout-minutes is
           # pinned by test_delivery_identity_lanes.py.
-          BROKER_DEADLINE=$(( ARIA_JOB_LAUNCH_EPOCH + 570 * 60 ))
+          BROKER_DEADLINE=$(( ARIA_JOB_LAUNCH_EPOCH + 602 * 60 ))
           SOCKET="$(printf '%s\n' "$ARIA_GH_APP_PRIVATE_KEY" | PYTHONPATH=aria-kernel python3 -m aria_kernel.token_broker start \
             --app-id "$ARIA_GH_APP_ID" \
             --installation-id "$ARIA_GH_APP_INSTALLATION_ID" \

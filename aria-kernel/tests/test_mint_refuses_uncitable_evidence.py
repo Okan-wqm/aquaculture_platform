@@ -208,12 +208,26 @@ class GenesisDispatchersHandOutNoPointer(_Store):
     def test_the_drafter_and_judge_envelopes(self) -> None:
         from aria_kernel.dispatcher_factory import DispatcherConfig, select_drafter, select_judge
 
+        # ARIA-HIGH-614 — the pack Phase 0 collected: observations over a
+        # scan scope, bound to a commit. An envelope citing inside it is
+        # answerable; the bare seed label no producer can answer from.
+        pack = {
+            "seed_id": "seed-385",
+            "base_commit_sha": "a" * 40,
+            "declared_scope": ["aria-kernel/"],
+            "claim_types": ["api_contract"],
+            "observations": [
+                {"file_path": "aria-kernel/aria_kernel/cycle.py", "line": 10 + index,
+                 "snippet": "def cycle():", "claim_class": "api_contract"}
+                for index in range(3)
+            ],
+        }
         fast = DispatcherConfig({"poll_timeout_seconds": 0.05, "poll_interval_seconds": 0.01})
         drafter = select_drafter(role="primary_authoring", base_dir=self.tools, config=fast, cycle_id="cyc-385")
         drafter(seed_id="seed-385", must_satisfy=[{"id": "r", "description": "cite three refs"}],
-                evidence_pack={"seed_id": "seed-385"}, round_number=2)
+                evidence_pack=pack, round_number=2)
         judge = select_judge(role="evidence_judgment", base_dir=self.tools, config=fast, cycle_id="cyc-385")
-        judge(primary_draft={}, sandbox_result={"precision": 0.75}, evidence_pack={"seed_id": "seed-385"})
+        judge(primary_draft={}, sandbox_result={"precision": 0.75}, evidence_pack=pack)
 
         drafted, judged = list_agent_invocation_requests(base_dir=self.tools)
         for row in (drafted, judged):
@@ -223,9 +237,32 @@ class GenesisDispatchersHandOutNoPointer(_Store):
 
 
 class ReviewEnvelopesCarryTheirCycleOnItsField(_Store):
+    def _start_reviewed_plan(self, plan_id: str) -> None:
+        # ARIA-HIGH-614 — Gate B derives the judge's citation box from the
+        # plan it audits; production always reviews a plan the store holds.
+        from aria_kernel.plan_convergence import start_plan
+
+        start_plan(
+            plan_id=plan_id,
+            initial_revision_id=f"rev-{plan_id}-0",
+            plan_content={
+                "schema_version": 1,
+                "title": f"Plan {plan_id}",
+                "summary": "Review envelope fixture.",
+                "key_changes": [{"id": "kc-1", "description": "fix the drift",
+                                 "paths": ["aria-kernel/aria_kernel/cycle.py"]}],
+                "evidence_refs": ["aria-kernel/aria_kernel/cycle.py:10"],
+                "validation_commands": [{"cmd": "nx affected --target=test"}],
+                "affected_surfaces": [{"paths": ["aria-kernel/aria_kernel/cycle.py"]}],
+                "architectural_tier": 2,
+            },
+            base_dir=self.tools,
+        )
+
     def test_the_post_implementation_judge(self) -> None:
         from aria_kernel.review_runner import run_review_runner
 
+        self._start_reviewed_plan("plan-385")
         run_review_runner(
             cycle_id="cyc-385", base_dir=self.tools, workspace_root=None, plan_id="plan-385",
             convergence_id="plan-385", impl_artifacts_ref="cyc-385:sha256:abc",
@@ -240,6 +277,7 @@ class ReviewEnvelopesCarryTheirCycleOnItsField(_Store):
     def test_the_specialist_without_a_workspace(self) -> None:
         from aria_kernel.specialist_review_runner import run_specialist_review_runner
 
+        self._start_reviewed_plan("plan-385")
         run_specialist_review_runner(
             cycle_id="cyc-385", base_dir=self.tools, workspace_root=None, plan_id="plan-385",
             convergence_id="plan-385", touched_services=["apps/farm-service/"], pressures=[],

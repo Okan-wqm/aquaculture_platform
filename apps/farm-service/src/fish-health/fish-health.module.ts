@@ -40,7 +40,7 @@ import { TreatmentApplicationService } from './services/treatment-application.se
 import { WelfareAssessmentService } from './services/welfare-assessment.service';
 import { EscapeIncidentService } from './services/escape-incident.service';
 import { IncidentMediaService } from './services/incident-media.service';
-import { WaterTemperatureService } from '../water-quality/services/water-temperature.service';
+import { WaterTemperatureCoreModule } from '../water-quality/water-temperature-core.module';
 
 // Resolvers
 import { HealthEventResolver } from './resolvers/health-event.resolver';
@@ -77,6 +77,8 @@ const FieldCaptureQueryHandlers = [
 
 @Module({
   imports: [
+    // WaterTemperatureService's provider home — imported, never re-provided.
+    WaterTemperatureCoreModule,
     TypeOrmModule.forFeature([
       HealthEvent,
       LiceCount,
@@ -101,7 +103,6 @@ const FieldCaptureQueryHandlers = [
     IncidentMediaService,
     // Same local-provider pattern regulatory/feeding/equipment modules use —
     // the service only injects DataSource; no module cycle with water-quality.
-    WaterTemperatureService,
     // Phase 6 (FARM-HIGH-214): welfare + escape are plain inserts, so mobile
     // offline-queue replays dedup through the farm_mobile_command_receipts
     // ledger (same at-most-once contract as mortality/cull/harvest).

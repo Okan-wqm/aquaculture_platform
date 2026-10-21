@@ -222,7 +222,10 @@ jobs:
       # removed (vendored fork crates/local-rumqttc, see UPSTREAM.md).
       - name: cargo audit
         run: |
-          cargo audit --deny warnings
+          # RUSTSEC-2026-0381: tracked ignore (EDGE-CI-010 / SUPPLY-HIGH-025)
+          # — mirrored in .cargo/audit.toml + deny.toml; rationale there.
+          cargo audit --deny warnings \
+            --ignore RUSTSEC-2026-0381
 
   drift:
     name: codec-drift

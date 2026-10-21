@@ -71,3 +71,78 @@ value "ACTIVE"?` — the PR #2026 chip row shipped `active/monitoring/resolved`
   page behind "Error loading health events. Please try again."
 - **Fix:** chip values to `ACTIVE/MONITORING/RESOLVED` (same wire-key rule the
   page's own label maps and FARM-CRITICAL-409 already follow).
+
+## FE-HIGH-377 — production planning surface (Üretim Planı)
+
+- **Gap:** tanks carry protocol assignments and realized growth, but nothing
+  projected a tank's growth curve forward — grading dates (2 g, 100–120 g
+  operator thresholds) and capacity overfill were invisible until they
+  happened.
+- **First slice (this PR):** `temperature_scenarios` + dated points (tenant
+  migration 1823000000000; source manual, Copernicus later),
+  `tankGrowthProjection` day-by-day simulation (protocol band by weight →
+  rate × temperature multiplier → feed ÷ expected FCR → next biomass; capacity
+  fill % and over-capacity day), and the Üretim Planı tab (scope site/system,
+  horizon, scenario editor with the operator's interpolation rule).
+- **Next phase (tracked, not here):** the grading puzzle planner — class
+  distribution from sampling CV, class→tank allocation with capacity and
+  harvest-timing constraints, same-size batch merge suggestions, plan→
+  recordGrading bridge.
+
+## SUPPLY-HIGH-024 — follow-redirects advisories masked as an @nx toolchain break
+
+- **Evidence:** npm-audit gate red between CI rounds with zero dependency
+  changes on the branch — GHSA-q3jh-wrc6-jgq8 and GHSA-8r9p-f939-6h3c hit
+  every dev-scope @nx package; npm's only suggestion was the Nx 23 major
+  (breaking).
+- **Root cause:** both advisories are `follow-redirects` 1.16.0 advisories
+  (patched 1.16.1), and `nx` pins `follow-redirects` exactly at 1.16.0, so
+  no in-range update could reach the patch and npm's fix graph could only
+  offer nx@23.3.0.
+- **Disposition:** RESOLVED on the branch — a `follow-redirects: ^1.16.1`
+  override (same mechanism as the existing hono override) moves the whole
+  toolchain to the patched release; the two dated exceptions registered for
+  the breaking-only reading were removed (ratchet stays at 5). While here,
+  vite ^7.3.5 → ^7.3.7 takes the same-day GHSA-698v-4r3x-3vcv patch
+  (launch-editor argument escaping) rather than an exception.
+
+## SUPPLY-HIGH-025 — RUSTSEC-2026-0381 (webpki-roots emSign roots) upstream-blocked behind async-nats
+
+- **Evidence:** the pull_request `CI - Affected` rust lane (first round this
+  event type fired for this branch) failed `cargo audit --deny warnings` on
+  three advisories published 2026-10-19/20 — external drift, zero Rust
+  changes on the branch: RUSTSEC-2026-0382 (rustls-webpki 0.103.15) and
+  RUSTSEC-2026-0381 on both webpki-roots copies (0.26.11 and 1.0.7).
+- **Fixed, not ignored:** rustls-webpki → 0.103.16 in all three lockfiles
+  (root, sens-api-gateway, fuzz); the fixable webpki-roots copy → 1.0.10;
+  the fuzz lock's yanked spin/chacha20 refreshed in-range (cargo audit
+  `--deny warnings` denies yanked).
+- **Upstream-blocked remainder:** webpki-roots 0.26.11 is reachable only
+  through async-nats (≤0.50, no release newer) → tokio-websockets ^0.10 →
+  webpki-roots ^0.26, a line with no patched release (the fix is ≥1.0.10).
+  tokio-websockets is an OPTIONAL async-nats dependency and this workspace
+  never enables its websockets feature, so the crate is lockfile-only and
+  never compiles into a target. Carried as tracked ignore EDGE-CI-010
+  (owner platform-team, deadline 2027-01-20) in deny.toml, .cargo/audit.toml
+  and the rust-ci.yml mirror — scripts/ci/check-advisory-ignore-sync.ts
+  keeps the surfaces in lock-step and fails the day the deadline lapses.
+- **Same commit:** the ci-affected `test` lane's 35-minute fan-out step
+  killed a healthy run mid-fan-out on this PR (affected set ≈ whole graph;
+  the identical unfiltered fan-out measured 44m14s the same day), reported
+  by `build-status` as a test failure. Budgets re-derived with the
+  measurement: step 35→50, job 45→55, preserving ci-timeout-budget-ssot's
+  orderings (step < job ≤ unfiltered 60).
+
+  Round-11 follow-ups in the same file set: the aquamobil workspace's own
+  lockfile carried vite 7.3.5 (two more launch-editor advisories,
+  GHSA-r825-w8mm-5pxw/GHSA-587h-7wmj-h5pm, joined GHSA-698v mid-round) —
+  bumped to ^7.3.7 with its root-lockfile workspace snapshot; and the
+  Cargo.lock edits required regenerating
+  tools/quality/rust-toolchain-manifest.json (its cargo_lock_sha256 pin),
+  which every Rust-workspace-setup job verifies.
+
+  Round-13: the merge head's jest pass measured admin-api-service branches
+  at 21.96% against the 21.99% pin — the same jest-vs-lcov epsilon wobble
+  the double coverage gate's convention absorbs (pin sits lcov-floor minus
+  epsilon). Branches re-pinned to 21.9; the material-gain ratchet
+  (RATCHET_MIN_GAIN = 1.0) is untouched.

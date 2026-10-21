@@ -4018,6 +4018,12 @@ export type CreateTaskInput = {
   title: Scalars['String']['input'];
 };
 
+export type CreateTemperatureScenarioInput = {
+  name: Scalars['String']['input'];
+  points: Array<TemperatureScenarioPointInput>;
+  siteId: Scalars['ID']['input'];
+};
+
 export type CreateTenantAnnouncementInput = {
   content: Scalars['String']['input'];
   expiresAt?: InputMaybe<Scalars['String']['input']>;
@@ -9794,6 +9800,7 @@ export type Mutation = {
   createSystem: SystemResponse;
   createTank: Tank;
   createTask: Task;
+  createTemperatureScenario: TemperatureScenarioResponse;
   createTenantAnnouncement: Announcement;
   createTenantProvisioningKey: TenantKeyResponse;
   createTenantRole: TenantRole;
@@ -9872,6 +9879,7 @@ export type Mutation = {
   deleteSystem: Scalars['Boolean']['output'];
   deleteTank: DeleteTankResponse;
   deleteTask: Scalars['Boolean']['output'];
+  deleteTemperatureScenario: Scalars['Boolean']['output'];
   deleteTenantRole: Scalars['Boolean']['output'];
   deleteTenantUser: Scalars['Boolean']['output'];
   deleteUnifiedTag: Scalars['Boolean']['output'];
@@ -11374,6 +11382,11 @@ export type MutationCreateTaskArgs = {
 };
 
 
+export type MutationCreateTemperatureScenarioArgs = {
+  input: CreateTemperatureScenarioInput;
+};
+
+
 export type MutationCreateTenantAnnouncementArgs = {
   input: CreateTenantAnnouncementInput;
 };
@@ -11732,6 +11745,11 @@ export type MutationDeleteTankArgs = {
 
 
 export type MutationDeleteTaskArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type MutationDeleteTemperatureScenarioArgs = {
   id: Scalars['ID']['input'];
 };
 
@@ -16171,6 +16189,7 @@ export type Query = {
   tableSchema: TableSchemaInfo;
   tank: Tank;
   tankCleanerFish?: Maybe<TankCleanerFishInfo>;
+  tankGrowthProjection: Array<TankGrowthProjectionResponse>;
   /** AI-powered risk assessment for a specific tank (0-100 score with factors) */
   tankRiskAssessment?: Maybe<TankRiskAssessment>;
   tanks: TankListResponse;
@@ -16182,6 +16201,7 @@ export type Query = {
   teamLeaveCalendar: Array<LeaveCalendarEntry>;
   teamPerformanceOverview: TeamPerformanceOverview;
   teamWeeklyOverview: TeamWeeklyOverview;
+  temperatureScenarios: Array<TemperatureScenarioResponse>;
   tenant: Tenant;
   tenantActivity: TenantActivityResponse;
   tenantAuditLogs: AuditLogPage;
@@ -18228,6 +18248,11 @@ export type QueryTankCleanerFishArgs = {
 };
 
 
+export type QueryTankGrowthProjectionArgs = {
+  input?: InputMaybe<TankGrowthProjectionInput>;
+};
+
+
 export type QueryTankRiskAssessmentArgs = {
   tankId: Scalars['ID']['input'];
 };
@@ -18275,6 +18300,11 @@ export type QueryTeamWeeklyOverviewArgs = {
   departmentId?: InputMaybe<Scalars['ID']['input']>;
   siteId?: InputMaybe<Scalars['ID']['input']>;
   weekStartDate: Scalars['String']['input'];
+};
+
+
+export type QueryTemperatureScenariosArgs = {
+  siteId: Scalars['ID']['input'];
 };
 
 
@@ -22246,6 +22276,35 @@ export type TankFilterInput = {
   waterType?: InputMaybe<WaterType>;
 };
 
+export type TankGrowthProjectionInput = {
+  departmentId?: InputMaybe<Scalars['ID']['input']>;
+  horizonDays?: InputMaybe<Scalars['Int']['input']>;
+  scenarioId?: InputMaybe<Scalars['ID']['input']>;
+  siteId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type TankGrowthProjectionResponse = {
+  capacityKg?: Maybe<Scalars['Float']['output']>;
+  currentAvgWeightG: Scalars['Float']['output'];
+  currentBiomassKg: Scalars['Float']['output'];
+  departmentId?: Maybe<Scalars['ID']['output']>;
+  departmentName?: Maybe<Scalars['String']['output']>;
+  fishCount: Scalars['Int']['output'];
+  overCapacityDay?: Maybe<Scalars['Int']['output']>;
+  peakCapacityPercent: Scalars['Float']['output'];
+  projectedAvgWeightG: Scalars['Float']['output'];
+  projectedBiomassKg: Scalars['Float']['output'];
+  protocolId: Scalars['ID']['output'];
+  protocolName: Scalars['String']['output'];
+  series: Array<TankProjectionDayResponse>;
+  siteId: Scalars['ID']['output'];
+  siteName: Scalars['String']['output'];
+  totalFeedKg: Scalars['Float']['output'];
+  unitCode: Scalars['String']['output'];
+  unitId: Scalars['ID']['output'];
+  unitName: Scalars['String']['output'];
+};
+
 export type TankListResponse = {
   /** Whether there is a next page */
   hasNextPage: Scalars['Boolean']['output'];
@@ -22282,6 +22341,16 @@ export type TankMaterial =
   | 'PVC'
   | 'STAINLESS_STEEL'
   | 'STEEL';
+
+export type TankProjectionDayResponse = {
+  avgWeightG: Scalars['Float']['output'];
+  biomassKg: Scalars['Float']['output'];
+  capacityPercent: Scalars['Float']['output'];
+  date: Scalars['String']['output'];
+  day: Scalars['Int']['output'];
+  feedKg: Scalars['Float']['output'];
+  temperatureC: Scalars['Float']['output'];
+};
 
 /** AI-powered risk assessment for a specific tank */
 export type TankRiskAssessment = {
@@ -22524,6 +22593,30 @@ export type TemperatureRangeResponse = {
   min: Scalars['Float']['output'];
   unit: Scalars['String']['output'];
 };
+
+export type TemperatureScenarioPointInput = {
+  celsius: Scalars['Float']['input'];
+  date: Scalars['String']['input'];
+};
+
+export type TemperatureScenarioPointResponse = {
+  celsius: Scalars['Float']['output'];
+  date: Scalars['String']['output'];
+};
+
+export type TemperatureScenarioResponse = {
+  createdAt: Scalars['DateTime']['output'];
+  id: Scalars['ID']['output'];
+  name: Scalars['String']['output'];
+  points: Array<TemperatureScenarioPointResponse>;
+  siteId: Scalars['ID']['output'];
+  source: TemperatureScenarioSource;
+};
+
+/** Sıcaklık senaryo noktalarının kaynağı (elle girildi / Copernicus). */
+export type TemperatureScenarioSource =
+  | 'COPERNICUS'
+  | 'MANUAL';
 
 export type Tenant = {
   address?: Maybe<Scalars['String']['output']>;

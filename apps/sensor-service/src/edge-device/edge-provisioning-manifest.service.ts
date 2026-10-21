@@ -66,8 +66,10 @@ const REQUEST_KEYS = [
 ] as const;
 const SHA256_HEX = /^[0-9a-f]{64}$/;
 const NONCE = /^[0-9a-f]{32,128}$/;
-const OS_VERSION = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
-const ABI_RANGE = /^(0|[1-9][0-9]*)-(0|[1-9][0-9]*)$/;
+// common.schema.json os_version and agent_abi_range: components of at most nine digits, so that
+// every verifier, whatever its integer width, reads the same number (contract 1.2.0).
+const OS_VERSION = /^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$/;
+const ABI_RANGE = /^(0|[1-9][0-9]{0,8})-(0|[1-9][0-9]{0,8})$/;
 
 /**
  * Parses the request query exactly as the schema states it: these six

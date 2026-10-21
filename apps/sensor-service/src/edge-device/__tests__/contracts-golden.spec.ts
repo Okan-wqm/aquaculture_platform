@@ -409,6 +409,26 @@ describe('contracts golden — byte-for-byte producers', () => {
     );
   });
 
+  it('request: an os_version or agent_abi component of ten digits is refused, nine are read', () => {
+    const request = readJson(join(FIXTURES, REQUEST_FIRST));
+    for (const [member, value] of [
+      ['os_version', '1000000000.0.0'],
+      ['os_version', '1.1000000000.0'],
+      ['os_version', '1.0.1000000000'],
+      ['agent_abi', '1000000000-1'],
+      ['agent_abi', '1-1000000000'],
+    ] as const) {
+      expect(parseProvisioningRequest({ ...request, [member]: value })).toBeNull();
+    }
+    expect(
+      parseProvisioningRequest({
+        ...request,
+        os_version: '999999999.999999999.999999999',
+        agent_abi: '999999999-999999999',
+      }),
+    ).not.toBeNull();
+  });
+
   it('request: the golden request parses; a token in the query and a short nonce do not', () => {
     const request = readJson(join(FIXTURES, REQUEST_FIRST));
     expect(parseProvisioningRequest(request)).toMatchObject({ nonce: request['nonce'] });

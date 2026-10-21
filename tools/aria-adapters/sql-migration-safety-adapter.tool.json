@@ -25,7 +25,11 @@
     "tools/gates/rls-predicate-canonical.ts",
     "platform/libs/service-catalog/src/index.ts",
     "platform/libs/service-catalog/src/topology.ts",
-    "tools/aria-adapters/fixtures/sql-migration-safety-adapter/**"
+    "tools/aria-adapters/fixtures/sql-migration-safety-adapter/**",
+    "tools/gates/tenant-aware-migration-ddl.ts",
+    "libs/backend-common/src/database/schema-manager.service.ts",
+    "tsconfig.base.json",
+    "platform/libs/outbox/src/**/*.ts"
   ],
   "forbidden_read_globs": [
     ".claude/**",
@@ -185,6 +189,17 @@
         "The USING clause lacks one of the canonical elements: the app.bypass_rls clause, NULLIF over current_setting('app.current_tenant', true), the ::uuid cast, or the `, true` argument.",
         "The migration is not on the owner's grandfathered list."
       ]
+    },
+    "qualified_ddl_escapes_tenant_replay": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "A tenant-aware migration qualifies its DDL with its own source schema (or re-pins the session search_path to it), so the tenant replay's search_path cannot redirect it: every tenant pass writes to the source schema and the tenant ledger still records the migration as applied.",
+      "premises": [
+        "The cited statement issues CREATE/ALTER/DROP/TRUNCATE against \"<source schema>\".\"<identifier>\" (or the migration calls pinSearchPath with its own source schema without @SourceOnlyMigration), and the statement is not inside a comment.",
+        "The identifier is NOT classified as infrastructure or enum by MODULE_SCHEMAS (per-tenant tables and unclassifiable names both violate: the guard is fail-closed).",
+        "The migration file is not on the owner's REVIEWED_SOURCE_SCHEMA_DDL allowlist.",
+        "tools/gates/tenant-aware-migration-ddl.ts owns the rule; the classification registry is the workspace's MODULE_SCHEMAS read as source text by tools/aria-adapters/module-schemas-source.ts, held equal to the runtime value by tests/invariants/module-schemas-source-parity.spec.ts."
+      ]
     }
   },
   "owner": "platform",
@@ -202,6 +217,6 @@
     "stdin_json": true
   },
   "freshness_window_hours": 168,
-  "parse_window_signature": "sha256:20915fd4d0deb4be4926ae68b381f0db0356d6f3c88a70430e4ee6fb9372780c",
+  "parse_window_signature": "sha256:19040cd0c1dd26f5b86288d068d2b90b4f17a1f9782417dc92ddd8132f608145",
   "schema_version": 1
 }

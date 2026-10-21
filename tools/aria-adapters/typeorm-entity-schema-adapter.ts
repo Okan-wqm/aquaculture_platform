@@ -14,6 +14,12 @@ import {
   resolveInsideWorkspace as resolveAdapterPath,
   workspacePathExists,
 } from './adapter-fs';
+import {
+  MODULE_SCHEMAS_SOURCE_PATH,
+  readModuleSchemasSource,
+  type ModuleSchemaSourceError,
+  type ModuleSchemaSourceRecord as ModuleSchemaRecord,
+} from './module-schemas-source';
 
 type CheckName = 'entity_schema' | 'module_schema' | 'migration_registry' | 'db_snapshot';
 type FindingRule =
@@ -122,17 +128,6 @@ interface AnalysisResult {
   readonly readPaths: string[];
 }
 
-interface ModuleSchemaRecord {
-  readonly moduleName: string;
-  readonly sourceSchema: string;
-  readonly strictOwnership: boolean;
-  readonly tables: readonly string[];
-  readonly referenceDataTables: readonly string[];
-  readonly infrastructureTables: readonly string[];
-  readonly path: string;
-  readonly line: number;
-}
-
 /**
  * E13 spot-audit FP class (1) — ADR-011 schema-ownership policy, DERIVED from
  * the SSoT file (`libs/backend-common/src/database/schema-manager.service.ts`)
@@ -149,6 +144,20 @@ interface SchemaOwnershipPolicy {
   readonly tenantScopedModules: ReadonlySet<string> | null;
   readonly moduleSchema: ModuleSchemaRecord | null;
   readonly infrastructureTables: ReadonlySet<string>;
+  /**
+   * Named element-resolution failures from the MODULE_SCHEMAS reader
+   * (ARIA-MEDIUM-588). Non-empty means the registry reading is partial: the
+   * classification cannot trust `infrastructureTables`, so the entity_schema
+   * check fails closed (historical always-flag) and the module_schema check
+   * reports the errors instead of diffing against a partial list.
+   */
+  readonly readerErrors: readonly ModuleSchemaSourceError[];
+  /**
+   * Every file the reading touched (SSoT, tsconfig path map, resolved import
+   * targets) — surfaced as read_paths so the observation names what its
+   * registry verdicts came from.
+   */
+  readonly sourceReadPaths: readonly string[];
 }
 
 interface MigrationRegistry {
@@ -181,7 +190,7 @@ const DEFAULT_CHECKS: readonly CheckName[] = [
   'module_schema',
   'migration_registry',
 ];
-const MODULE_SCHEMA_PATH = 'libs/backend-common/src/database/schema-manager.service.ts';
+const MODULE_SCHEMA_PATH = MODULE_SCHEMAS_SOURCE_PATH;
 // FAZ 7 — the schema-per-tenant services from MODULE_SCHEMAS (ADR-011).
 // Scanning only farm-service made schema drift a farm-only property while
 // six sibling services carried the identical per-tenant discipline unwatched.
@@ -251,7 +260,7 @@ export function analyzeTypeOrmEntities(
   const policy = loadSchemaOwnershipPolicy(workspaceRoot, serviceName, input);
   const result = analyzeFiles(files, workspaceRoot, allowlist, checks, serviceName, policy);
   if (policy.ssotReadable && (checks.has('entity_schema') || checks.has('module_schema'))) {
-    result.readPaths.push(MODULE_SCHEMA_PATH);
+    result.readPaths.push(...policy.sourceReadPaths);
   }
 
   if (checks.has('module_schema')) {
@@ -389,11 +398,15 @@ function analyzeFiles(
         // routes them into tenant_<uuid> at runtime. A missing schema is only
         // a violation when the table is in that service's cross-tenant
         // infrastructureTables set (parsed from the SSoT, never hardcoded).
-        // When the SSoT cannot be read or lacks TENANT_SCOPED_MODULES the
-        // check fails closed and keeps the historical always-flag behaviour.
+        // When the SSoT cannot be read, lacks TENANT_SCOPED_MODULES, or the
+        // reader reported element-resolution failures (ARIA-MEDIUM-588: a
+        // partial registry cannot classify), the check fails closed and keeps
+        // the historical always-flag behaviour.
         const effectiveTable = entity.table ?? snakeCaseIdentifier(className);
         const tenantScoped =
-          policy.tenantScopedModules !== null && policy.tenantScopedModules.has(serviceName);
+          policy.readerErrors.length === 0 &&
+          policy.tenantScopedModules !== null &&
+          policy.tenantScopedModules.has(serviceName);
         const infrastructureTable = policy.infrastructureTables.has(effectiveTable);
         if (!tenantScoped || infrastructureTable) {
           findings.push({
@@ -437,20 +450,32 @@ function loadSchemaOwnershipPolicy(
       tenantScopedModules: null,
       moduleSchema: null,
       infrastructureTables: new Set(),
+      readerErrors: [],
+      sourceReadPaths: [],
     };
   }
+  // The one adapter-side MODULE_SCHEMAS reading (ARIA-MEDIUM-588): resolves
+  // spread elements and imported constants exactly as declared, and names
+  // what it cannot resolve instead of dropping it. The snapshot's read policy
+  // governs the import-chain files exactly as it governs the SSoT itself.
+  // TENANT_SCOPED_MODULES is read from the same file's source text.
+  const source = readModuleSchemasSource(workspaceRoot, MODULE_SCHEMAS_SOURCE_PATH, {
+    pathAllowed: (path) => pathAllowedBySnapshot(workspaceRoot, path, input),
+  });
   const sourceFile = ts.createSourceFile(
     modulePath,
     readWorkspaceFile(workspaceRoot, modulePath),
     ts.ScriptTarget.Latest,
     true,
   );
-  const moduleSchema = readModuleSchema(sourceFile, modulePath, workspaceRoot, serviceName);
+  const moduleSchema = source.modules.find((module) => module.moduleName === serviceName) ?? null;
   return {
     ssotReadable: true,
     tenantScopedModules: readTenantScopedModules(sourceFile),
     moduleSchema,
     infrastructureTables: new Set(moduleSchema?.infrastructureTables ?? []),
+    readerErrors: source.errors,
+    sourceReadPaths: source.readPaths,
   };
 }
 
@@ -469,6 +494,18 @@ function analyzeModuleSchema(
     return;
   }
   const moduleSchema = policy.moduleSchema;
+  if (policy.readerErrors.length > 0) {
+    // ARIA-MEDIUM-588: the registry reading is partial — named errors, never a
+    // silently truncated diff. The declared-table diff is skipped rather than
+    // diffed against a list the runtime disagrees with.
+    result.observations.push({
+      id: `module-schema:${serviceName}:parse-error`,
+      type: 'module_schema_parse_error',
+      path: MODULE_SCHEMA_PATH,
+      details: { errors: policy.readerErrors.map((error) => error.message) },
+    });
+    return;
+  }
   if (!moduleSchema) {
     result.observations.push({
       id: `module-schema:${serviceName}:not-found`,
@@ -960,50 +997,6 @@ function findObjectArg(args: ts.NodeArray<ts.Expression>): ts.ObjectLiteralExpre
     }
   }
   return null;
-}
-
-function readModuleSchema(
-  sourceFile: ts.SourceFile,
-  path: string,
-  workspaceRoot: string,
-  serviceName: string,
-): ModuleSchemaRecord | null {
-  let found: ModuleSchemaRecord | null = null;
-  visit(sourceFile, (node) => {
-    if (
-      found ||
-      !ts.isVariableDeclaration(node) ||
-      !ts.isIdentifier(node.name) ||
-      node.name.text !== 'MODULE_SCHEMAS'
-    ) {
-      return;
-    }
-    const initializer = unwrapExpression(node.initializer);
-    if (!initializer || !ts.isArrayLiteralExpression(initializer)) {
-      return;
-    }
-    for (const element of initializer.elements) {
-      if (!ts.isObjectLiteralExpression(element)) {
-        continue;
-      }
-      const moduleName = readStringProperty(element, 'moduleName');
-      if (moduleName !== serviceName) {
-        continue;
-      }
-      found = {
-        moduleName,
-        sourceSchema: readStringProperty(element, 'sourceSchema') ?? serviceName,
-        strictOwnership: readBooleanProperty(element, 'strictOwnership') === true,
-        tables: readStringArrayProperty(element, 'tables'),
-        referenceDataTables: readStringArrayProperty(element, 'referenceDataTables'),
-        infrastructureTables: readStringArrayProperty(element, 'infrastructureTables'),
-        path: normalizePath(relative(workspaceRoot, path)),
-        line: sourceFile.getLineAndCharacterOfPosition(element.getStart(sourceFile)).line + 1,
-      };
-      return;
-    }
-  });
-  return found;
 }
 
 /**

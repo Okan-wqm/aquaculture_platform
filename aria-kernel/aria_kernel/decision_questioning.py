@@ -75,6 +75,7 @@ from .agent_invocations import (
 )
 from .human_required import record_human_required
 from .plan_convergence import events_path, fold_plan_state
+from .plan_round_scope import plan_round_contract
 from .ledger import load_declared_jsonl, state_transaction
 from .request_admission import admit_request
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
@@ -266,6 +267,14 @@ def open_decision_questioning(
         if not admission.admitted:
             throttled = admission.refusal
             break
+        # ARIA-HIGH-614 — the question's box is the plan's own record. The
+        # prompt tells the agent to "re-resolve the plan's evidence_refs",
+        # so the envelope carries them, with the started body's surfaces and
+        # the admission bound's read-only scope as evidence_scope; the
+        # plan-convergence/<id> label matches no repository path, and before
+        # this the only compliant answer cited nothing (three paid runs were
+        # refused exactly there, 2026-10-15/16).
+        contract = plan_round_contract(fold_plan_state(plan_id=plan_id, base_dir=root))
         request = create_agent_invocation_request(
             target_agent=resolved_target,
             role=QUESTIONING_ROLE,
@@ -285,6 +294,8 @@ def open_decision_questioning(
                 }
             ],
             allowed_scope=[f"plan-convergence/{plan_id}"],
+            evidence_refs=list(contract.evidence_refs),
+            evidence_scope=[*contract.allowed_scope, *contract.evidence_scope],
             # ARIA-MEDIUM-385 — the plan rides on convergence_id (which
             # ``already_questioned`` reads), never as a ``plan:`` ref the
             # questioner would cite and the submit law refuse.

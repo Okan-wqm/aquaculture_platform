@@ -41,7 +41,7 @@ function kernelApprovalVocabulary(): RegExp {
   const match = /^APPROVAL_PARAMETER = re\.compile\(r"([^"]+)"\)$/m.exec(
     readFileSync(KERNEL_PIN, 'utf8'),
   );
-  if (match === null) {
+  if (match === null || match[1] === undefined) {
     throw new Error(`${relative(REPO_ROOT, KERNEL_PIN)} no longer defines APPROVAL_PARAMETER`);
   }
   return new RegExp(match[1]);
@@ -159,14 +159,18 @@ function kernelCheckViolations(run: string, variable: string): string[] {
     `\\boperator\\s+check-ref\\b[^\\n]*--ref\\s+"${expansion(variable)}\\}?"`,
   );
   const at = lines.findIndex((line) => check.test(line));
-  if (at < 0) return [`${variable} is not passed to \`operator check-ref --ref "$${variable}"\``];
+  // lines[-1] is undefined, so this one test covers "no check-ref line" and narrows the line.
+  const checkLine = lines[at];
+  if (checkLine === undefined) {
+    return [`${variable} is not passed to \`operator check-ref --ref "$${variable}"\``];
+  }
   const violations: string[] = [];
   const emptinessTest = new RegExp(`-[zn]\\s+"?${expansion(variable)}(?::-)?\\}?"?`, 'g');
   const anyUse = new RegExp(expansion(variable));
   if (lines.slice(0, at).some((line) => anyUse.test(line.replace(emptinessTest, '')))) {
     violations.push(`${variable} is used before \`operator check-ref\` checks it`);
   }
-  if (CONDITION_KEYWORD_RE.test(lines[at]) || !PLAIN_CHECK_COMMAND_RE.test(lines[at])) {
+  if (CONDITION_KEYWORD_RE.test(checkLine) || !PLAIN_CHECK_COMMAND_RE.test(checkLine)) {
     violations.push(
       `\`operator check-ref\` on ${variable} is not a plain command whose failure aborts the step`,
     );
@@ -274,7 +278,7 @@ describe('ARIA-HIGH-238 — one grammar owner for operator approval refs', () =>
       ['[[ $OPERATOR_REF == gh:* ]] || exit 1', 'OPERATOR_REF'],
       ['grep -Eq "^gh:" <<< "$OPERATOR_REF"', 'OPERATOR_REF'],
       ['[ -n "${OPERATOR_REF#gh:}" ]', 'OPERATOR_REF'],
-    ]) {
+    ] as const) {
       expect({ run, matched: patternMatchesVariable(run, variable) }).toEqual({
         run,
         matched: true,
@@ -324,7 +328,7 @@ describe('ARIA-HIGH-238 — one grammar owner for operator approval refs', () =>
         ['set -euo pipefail', 'set +e', `${kernel} --ref "$APPROVAL_REF"`].join('\n'),
         'no `set -e`',
       ],
-    ]) {
+    ] as const) {
       expect({ run, problems: kernelCheckViolations(run, 'APPROVAL_REF').join('; ') }).toEqual({
         run,
         problems: expect.stringContaining(expected),

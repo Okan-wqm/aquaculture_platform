@@ -22,11 +22,13 @@
  *   over fixture gh run lists.
  */
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import yaml from 'js-yaml';
+
+import { removeFixtureTree } from '../../tools/gates/fixture-tree';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const HOUR_MS = 60 * 60 * 1000;
@@ -236,7 +238,7 @@ describe('dataflow probe — the missed hourly slots are written to the textfile
   });
 
   afterAll(() => {
-    rmSync(tempDir, { recursive: true, force: true });
+    removeFixtureTree(tempDir);
   });
 
   function probeSteps(): WorkflowStep[] {

@@ -101,6 +101,14 @@ from tests._helpers.installation_credential import INSTALLATION_TOKEN  # noqa: E
 from tests._helpers.production_shaped import production_staged_implementation_request  # noqa: E402
 from tests._helpers.sandbox_pins import require_sandbox_backend  # noqa: E402
 
+# ARIA-HIGH-138 — the seam(s) this file proves by a real process, per
+# the closed registry in tests/invariants/seam_registry.py.
+REAL_PROCESS_SEAMS = (
+    "aria-kernel/aria_kernel/implementation_safety.py",
+    "aria-kernel/aria_kernel/implementation_delivery.py",
+    "tools/aria-poc/ci_executor_drain.py",
+)
+
 SOURCE = "apps/farm-service/src/sample-interval.ts"
 PLAN_ID = "plan-aria-high-115"
 CYCLE_ID = "cyc-aria-high-115"

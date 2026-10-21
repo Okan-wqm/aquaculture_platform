@@ -6,9 +6,10 @@ from typing import Any, Literal
 
 from .agent_eval import _require_operator_approval_future, _validate_real_eval_provenance
 from .genesis_policy import genesis_lifecycle_policy
-from .ledger import append_declared_jsonl, is_sha256_digest, load_declared_jsonl
+from .ledger import append_declared_jsonl, load_declared_jsonl
 from .ledger_refs import find_row_by_source_ledger_ref
 from .tool_registry import GovernanceError, bound_workspace_root, ensure_tools_dir, utc_now
+from .digest import is_sha256_digest
 
 
 GenesisState = Literal[

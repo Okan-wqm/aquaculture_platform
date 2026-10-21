@@ -30,7 +30,6 @@ import os
 import selectors as _selectors
 import signal as _signal
 import shutil as _shutil
-import hashlib as _hashlib
 import subprocess
 import tempfile
 import time as _time
@@ -343,8 +342,10 @@ class _ManagedCodexContext:
 
     @property
     def settings_hash(self) -> str:
+        from aria_kernel.digest import sha256_digest
+
         encoded = json.dumps(self.configuration, sort_keys=True, separators=(",", ":")).encode()
-        return "sha256:" + _hashlib.sha256(encoded).hexdigest()
+        return sha256_digest(encoded)
 
 
 class ManagedCodexRouteUnavailable(RuntimeError):

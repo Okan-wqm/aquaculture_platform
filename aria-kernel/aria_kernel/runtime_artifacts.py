@@ -15,7 +15,7 @@ from typing import Any
 
 from .artifact_safety import sanitized_json_text, scrub_json
 from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
-from .ledger import LedgerIntegrityError, append_declared_jsonl, file_hash, is_sha256_digest, load_declared_jsonl, load_jsonl, verify_jsonl
+from .ledger import LedgerIntegrityError, append_declared_jsonl, file_hash, load_declared_jsonl, load_jsonl, verify_jsonl
 from .ledger import (
     LEDGER_ROW_MAX_BYTES as _LEDGER_ROW_MAX_BYTES,
     LedgerReadLimitError as _LedgerReadLimitError,
@@ -26,6 +26,7 @@ from .ledger import (
 from .cycle_runtime_status import is_integrity_class, runtime_status
 from .state_manifest import resolve_surface_path, surface_by_name, surface_for_path
 from .tool_registry import GovernanceError, ensure_tools_binding, ensure_tools_dir, is_dispatchable, tools_dir, utc_now
+from .digest import is_sha256_digest, normalize_sha256_digest, sha256_digest, sha256_digest_file, sha256_digest_from_hex, sha256_digest_text
 
 
 RUN_LEDGER_FORMAT_ENV = "ARIA_RUN_LEDGER_FORMAT"
@@ -804,7 +805,7 @@ class ColdPointers:
 
     def evicted(self, uri: Any, sha256: Any) -> dict[str, Any] | None:
         digest = str(sha256 or "")
-        return self.by_key.get((str(uri or ""), digest if digest.startswith("sha256:") else f"sha256:{digest}"))
+        return self.by_key.get((str(uri or ""), normalize_sha256_digest(digest)))
 
 
 def cold_pointers(base_dir: str | Path) -> ColdPointers:
@@ -1115,7 +1116,7 @@ def approve_runtime_v2_promotion(
     verification = verify_runtime_artifacts(base_dir=root, workspace_root=bound_workspace)
     if verification["status"] != "ok":
         raise GovernanceError("runtime_v2_promotion_evidence_integrity_failed")
-    bundle_hash = "sha256:" + hashlib.sha256(bundle_path.read_bytes()).hexdigest()
+    bundle_hash = sha256_digest_file(bundle_path)
     identity_hash = _current_tools_identity_hash(root)
     if identity_hash is None:
         raise GovernanceError("runtime_v2_promotion_requires_tools_identity")
@@ -1179,7 +1180,7 @@ def require_runtime_v2_promotion(
         raise GovernanceError("runtime_v2_promotion_evidence_bundle_outside_tools_root") from exc
     if not bundle_path.exists() or not bundle_path.is_file():
         raise GovernanceError("runtime_v2_promotion_evidence_bundle_missing")
-    actual_hash = "sha256:" + hashlib.sha256(bundle_path.read_bytes()).hexdigest()
+    actual_hash = sha256_digest_file(bundle_path)
     if latest.get("evidence_bundle_hash") != actual_hash:
         raise GovernanceError("runtime_v2_promotion_evidence_bundle_hash_mismatch")
 
@@ -2045,7 +2046,7 @@ def _artifact_ref_verdict(
                 retained = None
             if retained is not None and retained["status"] == "resolved":
                 return ARTIFACT_RETAINED, None
-            return None, {"code": "artifact_hash_mismatch", "path": raw_path, "expected": expected_hash, "actual": "sha256:" + actual, "source": source}
+            return None, {"code": "artifact_hash_mismatch", "path": raw_path, "expected": expected_hash, "actual": sha256_digest_from_hex(actual), "source": source}
     return ARTIFACT_VERIFIED, None
 
 
@@ -2229,7 +2230,7 @@ def _evidence_hash_for_finding(finding: dict[str, Any]) -> str:
     if not isinstance(refs, list):
         refs = []
     canonical = json.dumps(refs, sort_keys=True, separators=(",", ":"))
-    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return sha256_digest_text(canonical)
 
 
 def _verify_cycle_files(*, root: Path, cycle_id: str | None, issues: list[dict[str, Any]]) -> int:
@@ -2516,11 +2517,7 @@ def _regular_file_digest(path: Path) -> str | None:
         return None
     if not _stat.S_ISREG(metadata.st_mode):
         return None
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return "sha256:" + digest.hexdigest()
+    return sha256_digest_file(path)
 
 
 def _verify_withheld_outputs(*, root: Path, issues: list[dict[str, Any]]) -> None:
@@ -2615,13 +2612,13 @@ def _verify_retention_events(*, root: Path, issues: list[dict[str, Any]]) -> Non
                     if actual_source != normalized:
                         try:
                             republished = _source_is_native_republication(
-                                root, row, "sha256:" + actual_source, budget=budget,
+                                root, row, sha256_digest_from_hex(actual_source), budget=budget,
                             )
                         except (_ArchiveUnavailable, _ArchiveLimit, _LedgerReadLimitError, LedgerIntegrityError, OSError):
                             republished = False
                             issues.append({"code": "retention_source_provenance_unavailable", "source_path": str(source)})
                         if not republished:
-                            issues.append({"code": "retention_source_hash_mismatch", "source_path": str(source), "expected": expected_source_hash, "actual": "sha256:" + actual_source})
+                            issues.append({"code": "retention_source_hash_mismatch", "source_path": str(source), "expected": expected_source_hash, "actual": sha256_digest_from_hex(actual_source)})
                 if expected_archive_hash:
                     normalized = expected_archive_hash.split(":", 1)[1] if expected_archive_hash.startswith("sha256:") else expected_archive_hash
                     try:
@@ -2636,7 +2633,7 @@ def _verify_retention_events(*, root: Path, issues: list[dict[str, Any]]) -> Non
                                        "reason": "budget_exceeded" if isinstance(exc, _ArchiveLimit) else "archive_read_unavailable"})
                         continue
                     if actual_archive != normalized:
-                        issues.append({"code": "retention_archive_hash_mismatch", "archive_path": str(archive), "expected": expected_archive_hash, "actual": "sha256:" + actual_archive})
+                        issues.append({"code": "retention_archive_hash_mismatch", "archive_path": str(archive), "expected": expected_archive_hash, "actual": sha256_digest_from_hex(actual_archive)})
         if kind in {"retention_missing_source", "restore_failed"}:
             issues.append({"code": str(kind), "details": row})
         if kind == "rollback" and not row.get("manifest_id") and not row.get("manifest_path"):
@@ -2827,7 +2824,7 @@ def _safe_segment(value: str) -> str:
 
 
 def _sha256_bytes(data: bytes) -> str:
-    return "sha256:" + hashlib.sha256(data).hexdigest()
+    return sha256_digest(data)
 
 
 def _atomic_write_bytes(path: Path, content: bytes) -> None:
@@ -2859,7 +2856,7 @@ def _current_tools_identity_hash(root: Path) -> str | None:
     identity_path = root / "repo_identity.json"
     if not identity_path.exists():
         return None
-    return "sha256:" + hashlib.sha256(identity_path.read_bytes()).hexdigest()
+    return sha256_digest_file(identity_path)
 
 
 def _bound_workspace_root(root: Path) -> Path | None:

@@ -24,6 +24,7 @@ from .workspace import (
     repo_hash,
     workspace_paths,
 )
+from .digest import sha256_digest_from_hex
 
 
 MIGRATION_PHASES = ("started", "copied", "validated", "finalized")
@@ -414,8 +415,8 @@ def migrate_tools_v2_to_v3(
         "tools_root_schema_stripped",
         {
             "migration_event_id": migration_event_id,
-            "pre_strip_content_hash": f"sha256:{pre_strip_hash}",
-            "post_strip_content_hash": f"sha256:{post_strip_hash}",
+            "pre_strip_content_hash": sha256_digest_from_hex(pre_strip_hash),
+            "post_strip_content_hash": sha256_digest_from_hex(post_strip_hash),
             "reason": reason,
             "acknowledged_by": actor,
         },

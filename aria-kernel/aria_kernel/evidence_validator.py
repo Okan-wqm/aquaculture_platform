@@ -345,6 +345,7 @@ def _parse_agent_ref(ref: str) -> tuple[str, int | None] | None:
 # for the validate_evidence_path + _check_agent_ref callsites
 # below; new code MUST import from `.canonical_path` directly.
 from .canonical_path import _canonical_evidence_path  # noqa: F401
+from .digest import sha256_digest_file
 
 
 # ARIA-HIGH-354 — the closure manifest a coverage round writes lives in the
@@ -502,7 +503,7 @@ def _kernel_artifact_verdict(ref: str, root: Path) -> tuple[bool, str]:
         return False, "artifact_not_recorded_in_results_ledger"
     if not candidate.exists() or not candidate.is_file():
         return False, "artifact_missing"
-    digest = "sha256:" + hashlib.sha256(candidate.read_bytes()).hexdigest()
+    digest = sha256_digest_file(candidate)
     if digest != recorded:
         return False, "artifact_hash_mismatch"
     return True, "kernel_artifact_verified"

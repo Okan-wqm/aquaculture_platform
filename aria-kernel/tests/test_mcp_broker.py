@@ -43,6 +43,12 @@ from aria_kernel.socket_holders import MCP_BROKER, prune_stale_socket_dirs
 from aria_kernel.tool_registry import append_tools_governance, ensure_tools_dir
 from tests._helpers.git_fixtures import make_repo_with_initial_commit
 
+# ARIA-HIGH-138 — the seam(s) this file proves by a real process, per
+# the closed registry in tests/invariants/seam_registry.py.
+REAL_PROCESS_SEAMS = (
+    "aria-kernel/aria_kernel/mcp_broker.py",
+)
+
 _KERNEL_DIR = Path(__file__).resolve().parents[1]
 RELAY = _KERNEL_DIR / "aria_kernel" / "mcp_relay.py"
 

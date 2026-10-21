@@ -60,6 +60,7 @@ from .tool_registry import (
     append_tools_governance,
     ensure_tools_dir,
 )
+from .digest import sha256_digest_text
 
 
 _LOCKS_DIR_RELATIVE = ("locks",)
@@ -253,7 +254,7 @@ def _build_remote_cas_lease(
     epoch = (previous.epoch + 1) if previous is not None else 1
     seed = f"{owner}:{target_ref}:{head_sha}:{epoch}:{now.isoformat()}"
     return RemoteCasLease(
-        lease_id="sha256:" + hashlib.sha256(seed.encode("utf-8")).hexdigest(),
+        lease_id=sha256_digest_text(seed),
         epoch=epoch,
         owner=owner,
         target_ref=target_ref,

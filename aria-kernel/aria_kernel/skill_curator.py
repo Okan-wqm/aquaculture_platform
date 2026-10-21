@@ -23,6 +23,7 @@ from typing import Any
 
 from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
+from .digest import sha256_fingerprint
 
 SKILLS_RELDIR = ".claude/skills"
 AGENTS_RELDIR = ".claude/agents"
@@ -101,7 +102,7 @@ def list_curation_proposals(*, base_dir: str | Path | None = None, open_only: bo
 
 
 def _signature(kind: str, subjects: list[str]) -> str:
-    return "sha256:" + hashlib.sha256(f"{kind}|{'|'.join(sorted(subjects))}".encode("utf-8")).hexdigest()[:20]
+    return sha256_fingerprint(f"{kind}|{'|'.join(sorted(subjects))}".encode("utf-8"), hex_chars=20)
 
 
 def propose_curation(workspace_root: str | Path, *, base_dir: str | Path | None, similarity_threshold: float = DEFAULT_SIMILARITY,

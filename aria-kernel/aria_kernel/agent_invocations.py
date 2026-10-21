@@ -42,7 +42,6 @@ from .ledger import (
     append_declared_jsonl,
     append_jsonl,
     append_segment_rows,
-    is_sha256_digest,
     load_declared_jsonl,
     load_segments,
     segment_paths,
@@ -58,6 +57,7 @@ from .tool_registry import (
     utc_now,
 )
 from .workspace import governance_event
+from .digest import is_sha256_digest, secret_matches_sha256_digest, sha256_digest, sha256_digest_file, sha256_digest_text
 
 if TYPE_CHECKING:  # the probe session and the clock are imported lazily where they are used
     from .evidence_probe import GitProbeSession
@@ -113,7 +113,7 @@ def _target_is_shadow(root: Path, target_agent: str) -> bool:
 
 
 def _sha256_text(value: str) -> str:
-    return "sha256:" + hashlib.sha256(value.encode("utf-8")).hexdigest()
+    return sha256_digest_text(value)
 
 
 def _sha256_payload(payload: dict[str, Any]) -> str:
@@ -1964,7 +1964,7 @@ def _verify_transcript_artifact_ref(
     artifact = _submission_source_path(artifact_ref, workspace_root)
     if not artifact.exists() or not artifact.is_file():
         raise GovernanceError("transcript_artifact_ref_missing")
-    observed = "sha256:" + hashlib.sha256(artifact.read_bytes()).hexdigest()
+    observed = sha256_digest_file(artifact)
     if observed != transcript_hash:
         raise GovernanceError("transcript_artifact_hash_mismatch")
     return artifact.resolve()
@@ -2064,7 +2064,7 @@ def _submit_legacy_invocation_result_internal(
         "role": request.get("role"),
         "target_agent": request.get("target_agent"),
         "output_path": path.resolve().as_posix(),
-        "content_hash": "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest(),
+        "content_hash": sha256_digest_file(path),
         "status": status,
         "by": by,
         "rejection_reason": rejection_reason,
@@ -2458,7 +2458,7 @@ def _seal_submission_artifact(
     content_hash: str,
 ) -> Path:
     """Persist immutable bytes at a store-relative content-addressed path."""
-    observed_hash = "sha256:" + hashlib.sha256(content).hexdigest()
+    observed_hash = sha256_digest(content)
     if observed_hash != content_hash:
         raise GovernanceError("submission_artifact_content_hash_mismatch")
     target = _submission_artifact_target(
@@ -2485,7 +2485,7 @@ def _seal_submission_artifact(
                 f"submission_artifact_existing_unreadable: {exc}"
             ) from exc
         if existing != content:
-            existing_hash = "sha256:" + hashlib.sha256(existing).hexdigest()
+            existing_hash = sha256_digest(existing)
             if existing_hash == content_hash:
                 raise GovernanceError("submission_artifact_digest_collision")
             # A process can die while writing the declared digest target.
@@ -2611,10 +2611,6 @@ def _parse_iso(value: str | None) -> datetime | None:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc)
-
-
-def _hash_lease_token(token: str) -> str:
-    return "sha256:" + hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 def _claim_id(request_id: str, agent_id: str, claimed_at: datetime) -> str:
@@ -4180,7 +4176,7 @@ def claim_request(
             "claim_id": cid,
             "request_id": request_id,
             "agent_id": agent_id,
-            "lease_token_hash": _hash_lease_token(lease_token),
+            "lease_token_hash": sha256_digest_text(lease_token),
             "lease_seconds": lease_seconds,
             "claimed_at": _iso(now),
             "lease_expires_at": _iso(expires),
@@ -4377,7 +4373,7 @@ def _validate_claim_identity(
             f"claim {claim_id} owned by {claim_event.get('agent_id')!r}, "
             f"not {agent_id!r}"
         )
-    if claim_event.get("lease_token_hash") != _hash_lease_token(lease_token):
+    if not secret_matches_sha256_digest(lease_token, claim_event.get("lease_token_hash")):
         raise GovernanceError(f"claim {claim_id} lease_token mismatch")
     return claim_event
 
@@ -4506,7 +4502,7 @@ def release_claim(
     the flag, so today's CI release path FAILS at argparse before
     even reaching this function — the asymmetry has been latent.
 
-    The lease_token is hashed via ``_hash_lease_token`` and compared
+    The lease_token is hashed via ``digest.sha256_digest_text`` and compared
     against the claim row's ``lease_token_hash`` field (same pattern
     as ``heartbeat_claim:681`` and ``submit_claim_result:868``).
     Mismatch raises ``GovernanceError``.
@@ -5154,7 +5150,7 @@ def _verify_prepared_artifact(
         raise GovernanceError(
             f"submission_prepared_{artifact_kind}_artifact_unreadable: {exc}"
         ) from exc
-    observed = "sha256:" + hashlib.sha256(content).hexdigest()
+    observed = sha256_digest(content)
     if observed != expected_hash:
         raise GovernanceError(
             f"submission_prepared_{artifact_kind}_artifact_hash_mismatch"
@@ -5289,7 +5285,7 @@ def _seal_pending_submission_artifacts(
             ) from exc
         if raw_transcript_bytes is not None:
             observed_transcript_hash = (
-                "sha256:" + hashlib.sha256(raw_transcript_bytes).hexdigest()
+                sha256_digest(raw_transcript_bytes)
             )
             if observed_transcript_hash != expected_transcript_hash:
                 raise GovernanceError(
@@ -5605,7 +5601,7 @@ def _prepare_submission_transcript_artifact(
         raise GovernanceError(
             f"transcript_artifact_ref_unreadable: {exc}"
         ) from exc
-    observed = "sha256:" + hashlib.sha256(transcript_bytes).hexdigest()
+    observed = sha256_digest(transcript_bytes)
     if observed != transcript_hash:
         raise GovernanceError("transcript_artifact_hash_mismatch")
     if observed == output_content_hash:
@@ -6195,7 +6191,7 @@ def submit_claim_result(
             claim_id=claim_id,
             request_id=request_id,
             agent_id=agent_id,
-            lease_token_hash=_hash_lease_token(lease_token),
+            lease_token_hash=sha256_digest_text(lease_token),
             submitted_hash=submitted_hash,
             output=output,
             output_content_hash=output_content_hash,
@@ -6251,7 +6247,7 @@ def submit_claim_result(
             raise GovernanceError(f"output_path_unreadable: {exc}") from exc
         if raw_output_bytes is not None:
             raw_output_hash = (
-                "sha256:" + hashlib.sha256(raw_output_bytes).hexdigest()
+                sha256_digest(raw_output_bytes)
             )
             if raw_output_hash != output_content_hash:
                 if not initial_results:
@@ -6294,7 +6290,7 @@ def submit_claim_result(
         except OSError as exc:
             raise GovernanceError(f"output_path_unreadable: {exc}") from exc
         output_content_hash = (
-            "sha256:" + hashlib.sha256(output_bytes).hexdigest()
+            sha256_digest(output_bytes)
         )
 
     envelope_unreadable_error: str | None = None
@@ -6334,7 +6330,7 @@ def submit_claim_result(
             claim_id=claim_id,
             request_id=request_id,
             agent_id=agent_id,
-            lease_token_hash=_hash_lease_token(lease_token),
+            lease_token_hash=sha256_digest_text(lease_token),
             submitted_hash=submitted_hash,
             output=output,
             output_content_hash=output_content_hash,
@@ -6965,7 +6961,7 @@ def bound_submission_transcript(
     if not transcript_artifact_ref or not transcript_hash or not is_sha256_digest(transcript_hash):
         return None
     content = read_submission_transcript(_submission_source_path(transcript_artifact_ref, workspace_root))
-    if content is None or "sha256:" + hashlib.sha256(content).hexdigest() != transcript_hash:
+    if content is None or sha256_digest(content) != transcript_hash:
         return None
     return content
 
@@ -7068,7 +7064,7 @@ def _withhold_submission_sources(root: Path, result_row: Mapping[str, Any]) -> N
             raise GovernanceError(
                 f"submission_withheld_source_unreadable: {relative}: {exc}"
             ) from exc
-        if "sha256:" + hashlib.sha256(content).hexdigest() != digest:
+        if sha256_digest(content) != digest:
             raise GovernanceError(f"submission_withheld_source_drift: {relative}")
         judged.append(target)
     for target in judged:

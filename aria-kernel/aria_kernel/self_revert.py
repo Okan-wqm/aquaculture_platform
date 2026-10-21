@@ -150,7 +150,6 @@ an operator lifts it (``merge-lane unfreeze``).
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import shutil
@@ -180,6 +179,7 @@ from .self_merge_freeze import (
 from .state_store import GIT_TIMEOUT_SECONDS
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 from .validation import SpawnWrapper
+from .digest import sha256_digest_text
 
 SELF_REVERTS_SURFACE = "enterprise_self_reverts"
 SELF_REVERTS_RELPATH = ("enterprise", "self-reverts.jsonl")
@@ -350,7 +350,7 @@ def _request_id(merge_sha: str) -> str:
 
 def _digest(payload: Any) -> str:
     text = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
-    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return sha256_digest_text(text)
 
 
 def _record(

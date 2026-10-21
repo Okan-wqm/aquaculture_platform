@@ -26,6 +26,12 @@ from aria_kernel import secret_scrub
 from aria_kernel.provider_credentials import ProviderCredential, ProviderCredentialUnavailable
 from aria_kernel.provider_routes import route
 
+# ARIA-HIGH-138 — the seam(s) this file proves by a real process, per
+# the closed registry in tests/invariants/seam_registry.py.
+REAL_PROCESS_SEAMS = (
+    "aria-kernel/aria_kernel/provider_gateway.py",
+)
+
 KERNEL_TOKEN = "sk-ant" + "-oat01-" + "K" * 48
 ROOM_TOKEN = "sk-ant" + "-api03-" + "R" * 48
 MESSAGES_BODY = json.dumps({"model": "claude-opus", "max_tokens": 5,

@@ -29,6 +29,7 @@ from typing import Any, Callable
 from .evidence_validator import coverage_manifest_pointer
 from .plan_convergence import affected_surface_paths as _affected_surface_paths
 from .tool_registry import ensure_tools_dir, utc_now
+from .digest import sha256_digest
 
 WITNESS_RELPATH = "tools/gates/plan-coverage-witness.ts"
 WITNESS_TSCONFIG = "tools/gates/tsconfig.json"
@@ -335,7 +336,7 @@ def compute_plan_coverage(
             target_revision_id=target_revision_id,
             target_plan_content_hash=target_plan_content_hash,
             manifest_relpath=manifest_relpath,
-            manifest_hash="sha256:" + hashlib.sha256(b"").hexdigest(),
+            manifest_hash=sha256_digest(b""),
             computed_at_sha=computed_at_sha,
             witness={"tool": WITNESS_RELPATH, "error": f"toolchain_missing: {exc}", "started_at": started_at},
         )
@@ -345,7 +346,7 @@ def compute_plan_coverage(
             target_revision_id=target_revision_id,
             target_plan_content_hash=target_plan_content_hash,
             manifest_relpath=manifest_relpath,
-            manifest_hash="sha256:" + hashlib.sha256(b"").hexdigest(),
+            manifest_hash=sha256_digest(b""),
             computed_at_sha=computed_at_sha,
             witness={"tool": WITNESS_RELPATH, "error": f"timeout_after_{timeout_seconds}s", "started_at": started_at},
         )
@@ -364,7 +365,7 @@ def compute_plan_coverage(
             target_revision_id=target_revision_id,
             target_plan_content_hash=target_plan_content_hash,
             manifest_relpath=manifest_relpath,
-            manifest_hash="sha256:" + hashlib.sha256(b"").hexdigest(),
+            manifest_hash=sha256_digest(b""),
             computed_at_sha=computed_at_sha,
             witness=witness_meta,
         )
@@ -380,14 +381,14 @@ def compute_plan_coverage(
             target_revision_id=target_revision_id,
             target_plan_content_hash=target_plan_content_hash,
             manifest_relpath=manifest_relpath,
-            manifest_hash="sha256:" + hashlib.sha256(b"").hexdigest(),
+            manifest_hash=sha256_digest(b""),
             computed_at_sha=computed_at_sha,
             witness=witness_meta,
         )
 
     manifest_bytes = (json.dumps(report, indent=2, sort_keys=True) + "\n").encode("utf-8")
     manifest_path.write_bytes(manifest_bytes)
-    manifest_hash = "sha256:" + hashlib.sha256(manifest_bytes).hexdigest()
+    manifest_hash = sha256_digest(manifest_bytes)
 
     fields = _coverage_report_fields(report, round_number=round_number, manifest_relpath=manifest_relpath)
     return {

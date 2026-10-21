@@ -16,6 +16,7 @@ from .ledger import (
 from .proposal import record_proposal
 from .risk_policy import first_present_string
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
+from .digest import sha256_digest_text
 
 
 FAILURE_CLASSES = (
@@ -890,7 +891,7 @@ def _string_list(value: Any) -> list[str]:
 
 
 def _hash_text(text: str) -> str:
-    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return sha256_digest_text(text)
 
 
 def _hash_json(payload: dict[str, Any]) -> str:
@@ -925,7 +926,7 @@ def record_ci_source_attestation(
         "row_type": "ci_source",
         "label": label,
         "payload": payload,
-        "content_hash": "sha256:" + _hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+        "content_hash": sha256_digest_text(canonical),
     }
     return append_declared_jsonl(
         root / "ci" / "source.jsonl", row, expected_surface="ci_source",

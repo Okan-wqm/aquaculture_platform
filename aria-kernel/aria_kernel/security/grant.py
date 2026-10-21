@@ -24,6 +24,7 @@ from typing import Any
 from ..ledger import append_declared_jsonl, load_declared_jsonl
 from ..tool_registry import ensure_tools_dir, utc_now
 from .scope_policy import RISK_CLASSES
+from ..digest import sha256_digest
 
 GRANT_SURFACE = "security_grants"
 GRANT_RELPATH: tuple[str, ...] = ("security", "grants.jsonl")
@@ -184,7 +185,7 @@ def new_claims(*, campaign_run_id: str, lease_id: str, lab_attestation_digest: s
 
 
 def grant_digest(token: str) -> str:
-    return "sha256:" + hashlib.sha256(token.encode("ascii")).hexdigest()
+    return sha256_digest(token.encode("ascii"))
 
 
 def verify_grant(token: str, public_key_raw: bytes, *, now: datetime | None = None,

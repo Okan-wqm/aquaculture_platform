@@ -146,3 +146,18 @@ value "ACTIVE"?` — the PR #2026 chip row shipped `active/monitoring/resolved`
   the double coverage gate's convention absorbs (pin sits lcov-floor minus
   epsilon). Branches re-pinned to 21.9; the material-gain ratchet
   (RATCHET_MIN_GAIN = 1.0) is untouched.
+
+## FARM-HIGH-464 — tankGrowthProjection resolved units from the equipment registry
+
+- **Evidence:** live verification after PR #2042's deploy — an ACTIVE
+  protocol assignment on TNK-2026-00012 (269.38 kg, 2830 fish) projected
+  0 rows. The handler looked units up through the `Equipment` entity
+  (`equipment` table), while production tanks are rows in `tanks`; the
+  batch existed, the assignment existed, and the join silently returned
+  nothing for every tank, always.
+- **Fix:** the handler resolves `Tank` (`tanks`) directly; capacity comes
+  from the tank's own `volume`/`maxBiomass`/`maxDensity` columns instead
+  of an equipment specifications JSON; department scoping goes through
+  `Tank.departmentId`. A new handler spec pins the resolution: an
+  Equipment-only row must never project, a real tank must — with the
+  series, capacity and department assertions.

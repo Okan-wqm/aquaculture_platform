@@ -1308,7 +1308,7 @@ duplicate `lint-changed-files`. The real residual is INFRA-MEDIUM-224.
   `own_pr_delivery.py` and `human_merge_surface.py`. Deadline: 2026-10-31 (dated by that review
   round).
 
-### ARIA-MEDIUM-664 — `state lease release --force-foreign` needs no operator act, and the pin cannot see it
+### ARIA-MEDIUM-664 — `state lease release --force-foreign` needs no operator act; the pin misses it
 
 - **Raised by:** the wave-3 `G010-238-pin-breakers` implementation (residual 1; "not covered" in
   wave2/design/G010.md); re-read by the ARIA order chain on origin/main e1f659819.

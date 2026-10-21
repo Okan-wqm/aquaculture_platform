@@ -688,6 +688,43 @@ def agent_ref_mint_refusal(ref: Any, *, role: str) -> str | None:
     return refusal
 
 
+# ARIA-HIGH-614 — the store namespaces producers once spelled as an
+# envelope's whole ``allowed_scope``: ``cycle/<id>``, ``plan-convergence/<id>``
+# and ``convergent/<seed>``. They are labels for kernel records shaped like
+# repository paths, so the scope grammar accepts them, but no checkout
+# carries a file under them: an agent whose box holds only such entries
+# cannot cite one thing this law admits, and the cross-check below refuses
+# every repository citation as ``agent_evidence_outside_allowed_scope``
+# (the three paid ``verification`` runs rejected on 2026-10-15/16). The
+# namespaces are the mint-side twin's share of this law: the response side
+# needs no list, because a label matches no path any tree can hold.
+NON_REPOSITORY_SCOPE_NAMESPACES: tuple[str, ...] = (
+    "cycle/",
+    "plan-convergence/",
+    "convergent/",
+)
+
+
+def scope_entry_admits_citable_ref(entry: Any) -> bool:
+    """ARIA-HIGH-614 — can ``entry`` name a ref an agent may cite and have admitted?
+
+    A kernel ledger pointer can: the law binds it by identity at the envelope
+    that minted it, so a box whose only entry is one (the adjudication lane's
+    own subject) is answerable. A repository-shaped ``path[:line]`` or glob
+    outside the non-repository namespaces can. A namespace label can not: it
+    is neither a pointer nor a path in any checkout. The mint asks this of
+    every entry of ``allowed_scope ∪ evidence_scope ∪ evidence_refs`` and
+    refuses an envelope nothing answers yes to, before the paid run.
+    """
+    if not isinstance(entry, str) or not entry.strip():
+        return False
+    if _is_ledger_pointer_ref(entry):
+        return True
+    if any(entry.startswith(namespace) for namespace in NON_REPOSITORY_SCOPE_NAMESPACES):
+        return False
+    return agent_ref_shape_refusal(entry) is None
+
+
 def _judge_agent_ref(
     ref: str,
     *,

@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import { makeFixtureTree } from '../gates/fixture-tree';
 
+import { readModuleSchemasSource } from './module-schemas-source';
 import { analyzeTypeOrmEntities } from './typeorm-entity-schema-adapter';
+
+const REPO_ROOT = resolve(__dirname, '..', '..');
 
 const workspace = makeFixtureTree('aria-typeorm-adapter-');
 const root = join(workspace, 'apps/farm-service/src');
@@ -335,5 +338,39 @@ assert.deepEqual(
   failClosedOutput.findings.map((finding) => finding.rule),
   ['typeorm_entity_schema_required'],
 );
+
+// ARIA-MEDIUM-588 — the adapter-side MODULE_SCHEMAS reading must carry every
+// element the runtime value declares, including the ones expressed as
+// `...TENANT_ERASURE_PROOF_INFRASTRUCTURE_TABLES` (a local const whose element
+// is itself the imported `TENANT_ERASURE_TARGET_PROOF_LEDGER_TABLE`). The
+// repository's own SSoT is the production-shaped fixture: this repository
+// declares the spread in every tenant-aware module entry, so a reader that
+// drops spread elements undercounts infrastructure by exactly one table here.
+{
+  const source = readModuleSchemasSource(REPO_ROOT);
+  assert.deepEqual(
+    source.errors,
+    [],
+    'the real SSoT resolves every element; an unresolvable one is a named error',
+  );
+  const sensor = source.modules.find((module) => module.moduleName === 'sensor');
+  assert.ok(sensor, 'the reader finds the sensor module on the real repo');
+  assert.equal(
+    sensor.infrastructureTables.includes('tenant_erasure_target_proofs'),
+    true,
+    `sensor infrastructureTables must carry the spread-resolved table: ${JSON.stringify(
+      sensor.infrastructureTables,
+    )}`,
+  );
+  const repoOutput = analyzeTypeOrmEntities(
+    { root: 'apps/sensor-service/src', serviceName: 'sensor', checks: ['module_schema'] },
+    REPO_ROOT,
+  );
+  const observation = repoOutput.observations.find((item) => item.id === 'module-schema:sensor');
+  assert.ok(observation, 'the sensor module_schema observation is emitted on the real repo');
+  // The count the adapter observes must equal the count the reader yields for
+  // the same SSoT — the reader is the adapter's own reading path.
+  assert.equal(observation.details?.infrastructureTables, sensor.infrastructureTables.length);
+}
 
 process.stdout.write('typeorm-entity-schema-adapter tests passed\n');

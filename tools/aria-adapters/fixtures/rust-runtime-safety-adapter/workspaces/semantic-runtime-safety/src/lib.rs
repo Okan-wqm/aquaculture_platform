@@ -5,7 +5,7 @@
 //! The claimed constructs in this file are pinned by
 //! `rust-runtime-safety-adapter.test.ts` and by the semantic fixture case;
 //! `src/diagnostics.rs` is reached only through `#[cfg(test)]` and is
-//! harness: nothing in it may be claimed.
+//! harness: nothing in it may be claimed, nor in this file's own test items.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -178,6 +178,206 @@ pub async fn io_documented_only(addr: &str) -> std::io::Result<()> {
     let note2 = "reqwest::get(url) has a 30 second timeout";
     let _ = note.len() + note2.len() + addr.len();
     Ok(())
+}
+
+// --------------------------------- uncancellable_long_lived_loop, long-lived only
+// A loop is long-lived only when it waits on the executor (an `.await` in its
+// span) and nothing ends it. Each loop below that no `.await` drives, or that a
+// timeout or deadline ends as a whole, is not a claim; each one paired with it
+// waits forever and is.
+
+const DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
+const TICK: Duration = Duration::from_millis(100);
+
+async fn refill_frame() -> Vec<u8> {
+    Vec::new()
+}
+
+/// No `.await` in the loop: a parse over a buffer already in hand never
+/// yields to the executor, whatever the async fn around it awaits first.
+pub async fn parse_frame_words(frame: Vec<u8>) -> Vec<u16> {
+    let _ = read_sensors().await;
+    let mut words = Vec::new();
+    let mut offset = 0;
+    while offset + 2 <= frame.len() {
+        words.push(u16::from_le_bytes([frame[offset], frame[offset + 1]]));
+        offset += 2;
+    }
+    words
+}
+
+/// Claimed: the await sits in a nested block of the body, and nothing ends
+/// the loop.
+pub async fn refill_frames_forever(mut frame: Vec<u8>) {
+    let mut offset = 0;
+    loop {
+        if offset + 2 > frame.len() {
+            frame = refill_frame().await;
+            offset = 0;
+        }
+        offset += 2;
+    }
+}
+
+/// The whole loop runs inside `tokio::time::timeout`: the timeout ends it.
+pub async fn drain_within_timeout(mut rx: tokio::sync::mpsc::Receiver<u32>) -> u32 {
+    let mut total = 0;
+    let _ = tokio::time::timeout(DRAIN_TIMEOUT, async {
+        while let Some(value) = rx.recv().await {
+            total += value;
+        }
+    })
+    .await;
+    total
+}
+
+/// Claimed: a timeout on each receive bounds one wait, never the loop; an
+/// elapsed receive goes round again.
+pub async fn drain_with_per_receive_timeout(mut rx: tokio::sync::mpsc::Receiver<u32>) -> u32 {
+    let mut total = 0;
+    loop {
+        match tokio::time::timeout(DRAIN_TIMEOUT, rx.recv()).await {
+            Ok(Some(value)) => total += value,
+            Ok(None) => return total,
+            Err(_) => continue,
+        }
+    }
+}
+
+/// A fixed deadline ends the receive loop: once it passes, `timeout_at`
+/// answers `Err` and the `while let` stops.
+pub async fn collect_until_deadline(mut rx: tokio::sync::mpsc::Receiver<u32>) -> Vec<u32> {
+    let deadline = tokio::time::Instant::now() + DRAIN_TIMEOUT;
+    let mut results = Vec::new();
+    while let Ok(Some(value)) = tokio::time::timeout_at(deadline, rx.recv()).await {
+        results.push(value);
+    }
+    results
+}
+
+/// Claimed: the deadline is re-armed on every round, so `timeout_at` bounds
+/// one receive, never the loop.
+pub async fn rearm_deadline_forever(mut rx: tokio::sync::mpsc::Receiver<u32>) {
+    loop {
+        let deadline = tokio::time::Instant::now() + DRAIN_TIMEOUT;
+        if let Ok(Some(value)) = tokio::time::timeout_at(deadline, rx.recv()).await {
+            let _ = value;
+        }
+    }
+}
+
+/// The loop leaves when its deadline passes.
+pub async fn settle_until_deadline() -> u32 {
+    let deadline = tokio::time::Instant::now() + DRAIN_TIMEOUT;
+    let mut last = 0;
+    loop {
+        if tokio::time::Instant::now() >= deadline {
+            break;
+        }
+        last = read_sensors().await;
+    }
+    last
+}
+
+/// Claimed: `sleep_until(deadline)` paces the loop on a deadline it keeps
+/// moving; it never leaves.
+pub async fn sample_on_deadline_forever() {
+    let mut deadline = tokio::time::Instant::now();
+    loop {
+        deadline += TICK;
+        tokio::time::sleep_until(deadline).await;
+        read_sensors().await;
+    }
+}
+
+/// A `try_recv` drain in the shutdown arm of a `select!`: it never awaits and
+/// runs once, after cancellation fired. Neither the drain nor the select! loop
+/// around it is a claim.
+pub async fn batch_until_cancelled(
+    mut rx: tokio::sync::mpsc::Receiver<u32>,
+    cancel: tokio_util::sync::CancellationToken,
+) -> Vec<u32> {
+    let mut buf = Vec::new();
+    loop {
+        tokio::select! {
+            () = cancel.cancelled() => {
+                while let Ok(value) = rx.try_recv() {
+                    buf.push(value);
+                }
+                return buf;
+            }
+            msg = rx.recv() => match msg {
+                Some(value) => buf.push(value),
+                None => return buf,
+            },
+        }
+    }
+}
+
+/// Claimed at the outer `loop`: it polls by draining with `try_recv`, sleeps
+/// and goes round again with nothing to end it. The drain inside is not.
+pub async fn poll_drain_forever(mut rx: tokio::sync::mpsc::Receiver<u32>) {
+    let mut buf = Vec::new();
+    loop {
+        while let Ok(value) = rx.try_recv() {
+            buf.push(value);
+        }
+        buf.clear();
+        tokio::time::sleep(TICK).await;
+    }
+}
+
+// ------------------------------------------------- inline test code, never claimed
+// A production file's own `#[cfg(test)] mod` and `#[test]` / `#[tokio::test]`
+// fns are test code (rust-source.ts testSpans marks them). Each construct in
+// them would be a claim in shipped code, and none is one here. The production
+// twin after them proves a span ends where its item does.
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn harness_spawns_and_unsafe() {
+        tokio::spawn(poll_worker());
+        thread::spawn(collect_diagnostics());
+        let value = unsafe { start_hardware() };
+        assert_eq!(value, 0);
+    }
+
+    #[tokio::test]
+    async fn harness_loop_and_io() {
+        let socket = TcpStream::connect("127.0.0.1:1883").await;
+        let _ = socket;
+        loop {
+            read_sensors().await;
+        }
+    }
+
+    struct HarnessHandle(*const u8);
+
+    unsafe impl Send for HarnessHandle {}
+}
+
+#[test]
+fn file_level_test_fn() {
+    let value = unsafe { start_hardware() };
+    let client = reqwest::Client::builder().build();
+    let _ = client;
+    assert_eq!(value, 0);
+}
+
+#[tokio::test]
+async fn file_level_tokio_test() {
+    tokio::spawn(poll_worker());
+    while read_sensors().await == 0 {
+        tokio::time::sleep(TICK).await;
+    }
+}
+
+/// Claimed: shipped code after the test items.
+pub fn dispatch_after_tests() {
+    tokio::spawn(poll_worker());
 }
 
 #[cfg(test)]

@@ -7,12 +7,15 @@ import { makeFixtureTree } from '../gates/fixture-tree';
 
 import * as adapterFs from './adapter-fs';
 import { analyzeRustRuntimeSafety } from './rust-runtime-safety-adapter';
+import { lexRust, type RustTestSpan, testSpans } from './rust-source';
 
 // ARIA-HIGH-010 (plan Task 13). The semantic corpus is the committed
 // fixture workspace: a safe and an unsafe twin per claim, plus comment and
-// string-literal decoys, plus a harness file nothing in may claim. The
-// real-repo half proves the production surface (the manifest's roots) is
-// read whole, parses clean, and never claims vendored upstream bytes.
+// string-literal decoys, plus a harness file nothing in may claim, plus the
+// production file's own test items (a `#[cfg(test)] mod`, `#[test]` fns)
+// nothing in may claim either. The real-repo half proves the production
+// surface (the manifest's roots) is read whole, parses clean, and never
+// claims vendored upstream bytes or test code.
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const FIXTURE_ROOT =
@@ -34,17 +37,92 @@ const observation = (id: string): Record<string, unknown> => {
 };
 const summary = (): Record<string, unknown> => observation('rust-runtime-safety-adapter:summary');
 
+// Test code inside a production file: the items under `#[cfg(test)]` and the
+// `#[test]` / `#[<path>::test]` fns, as the one Rust reader marks them
+// (rust-source.ts testSpans; a `macro_rules!` template is not test code).
+// The classifier reads the file as production, so the file context alone
+// never keeps a claim out of these spans.
+const testCodeSpans = new Map<string, readonly RustTestSpan[]>();
+const testCodeOf = (path: string): readonly RustTestSpan[] => {
+  const known = testCodeSpans.get(path);
+  if (known !== undefined) return known;
+  const lexed = lexRust(readFileSync(join(REPO_ROOT, path), 'utf8'));
+  assert.ok(lexed.ok, `${path} lexes`);
+  const spans = testSpans(lexed.tokens).filter((span) => span.kind !== 'macro_rules');
+  testCodeSpans.set(path, spans);
+  return spans;
+};
+const inTestCode = (finding: Finding): boolean =>
+  testCodeOf(finding.path).some(
+    (span) => span.startLine <= finding.line && finding.line <= span.endLine,
+  );
+const located = (finding: Finding): string => `${finding.rule} ${finding.path}:${finding.line}`;
+
+// ------------------------------------------------ inline test code is never claimed
+// src/lib.rs is production, and its own `#[cfg(test)] mod inline_tests`, a
+// file-level `#[test]` fn and a `#[tokio::test]` fn carry a would-be finding
+// of every rule. A shipped twin after them (dispatch_after_tests) is claimed,
+// so a test span ends where its item does.
+assert.deepEqual(
+  testCodeOf(FIXTURE_LIB).map((span) => [span.kind, span.startLine, span.endLine]),
+  [
+    ['cfg_test', 336, 360],
+    ['test_fn', 362, 368],
+    ['test_fn', 370, 376],
+    ['cfg_test', 383, 384],
+  ],
+  'the corpus holds an inline #[cfg(test)] mod, a #[test] fn, a #[tokio::test] fn ' +
+    'and the out-of-line #[cfg(test)] mod diagnostics',
+);
+assert.deepEqual(
+  output.findings.filter(inTestCode).map(located).sort(),
+  [],
+  "nothing inside a production file's own #[cfg(test)] mod or #[test] fn is claimed",
+);
+
+// --------------------------------------------- only long-lived loops are claimed
+// uncancellable_long_lived_loop is about a loop that waits on the executor
+// (an `.await` in its span) with nothing to end it. A loop no `.await`
+// drives never parks the task; a loop a timeout or a deadline ends as a
+// whole, and a `try_recv` drain in the shutdown arm of a `select!`, end on
+// their own. Each pair below is a twin: the same shape, claimed only where
+// the loop really can outlive its shutdown.
+const LOOP_VERDICTS: readonly (readonly [line: number, claimed: boolean, why: string])[] = [
+  [202, false, 'no .await drives the while: a parse over a buffer already in hand'],
+  [213, true, 'the await sits in a nested block of the body and nothing ends the loop'],
+  [226, false, 'the whole while runs inside tokio::time::timeout'],
+  [238, true, 'a timeout on each receive bounds one wait, never the loop'],
+  [252, false, 'the while-let ends when its fixed timeout_at deadline passes'],
+  [261, true, 'a timeout_at deadline re-armed every round bounds one wait, never the loop'],
+  [273, false, 'the loop breaks once its deadline passes'],
+  [286, true, 'sleep_until on a deadline the loop keeps moving never ends it'],
+  [304, false, 'a try_recv drain in the shutdown arm of a select! never awaits'],
+  [321, true, 'it polls with try_recv and a sleep, and nothing ends it'],
+  [322, false, 'the try_recv drain inside that poll never awaits'],
+];
+assert.deepEqual(
+  LOOP_VERDICTS.map(([line, , why]) => [
+    line,
+    at('uncancellable_long_lived_loop', FIXTURE_LIB).some((finding) => finding.line === line),
+    why,
+  ]),
+  LOOP_VERDICTS.map(([line, claimed, why]) => [line, claimed, why]),
+  'uncancellable_long_lived_loop claims only loops that wait on the executor with nothing to end them',
+);
+
 // -------------------------------------------------------- the corpus verdicts
-// The unsafe twins fire, the safe twins and the decoys never do, and the
-// harness file (#[cfg(test)] mod diagnostics) is not production code.
+// The unsafe twins fire, the safe twins and the decoys never do, and neither
+// the harness file (#[cfg(test)] mod diagnostics) nor the test items inside
+// src/lib.rs is production code.
 assert.deepEqual(
   byRule('detached_task').map((finding) => [finding.path, finding.line, finding.subject]),
   [
     [FIXTURE_LIB, 44, 'tokio::spawn'],
     [FIXTURE_LIB, 45, 'thread::spawn'],
+    [FIXTURE_LIB, 380, 'tokio::spawn'],
   ],
-  'the two discarded handles only: not the stored handle, the aborted one, ' +
-    'the joined thread spawn or the awaited task',
+  'the three discarded handles only: not the stored handle, the aborted one, ' +
+    'the joined thread spawn, the awaited task or a spawn inside a test item',
 );
 assert.deepEqual(
   byRule('uncancellable_long_lived_loop').map((finding) => [
@@ -55,9 +133,15 @@ assert.deepEqual(
   [
     [FIXTURE_LIB, 66, 'loop'],
     [FIXTURE_LIB, 73, 'while'],
+    [FIXTURE_LIB, 213, 'loop'],
+    [FIXTURE_LIB, 238, 'loop'],
+    [FIXTURE_LIB, 261, 'loop'],
+    [FIXTURE_LIB, 286, 'loop'],
+    [FIXTURE_LIB, 321, 'loop'],
   ],
-  'the two cancellation-free async loops only: not the select! loop, the ' +
-    'shutdown-conditioned while or the sync busy_collect loop',
+  'the long-lived async loops only: not the select! loop, the shutdown-conditioned ' +
+    'while, the sync busy_collect loop, a loop no .await drives, a loop a timeout or ' +
+    'deadline ends, a try_recv drain or a loop inside a test item',
 );
 assert.deepEqual(
   byRule('unsafe_without_safety_contract').map((finding) => [
@@ -71,8 +155,9 @@ assert.deepEqual(
     [FIXTURE_LIB, 125, 'unsafe block'],
     [FIXTURE_LIB, 134, 'unsafe impl'],
   ],
-  'the uncontracted blocks and impl only: not the SAFETY-commented twins, ' +
-    'and a SAFETY string literal or a comment a blank line away is no contract',
+  'the uncontracted blocks and impl only: not the SAFETY-commented twins or an ' +
+    'unsafe inside a test item, and a SAFETY string literal or a comment a blank ' +
+    'line away is no contract',
 );
 assert.deepEqual(
   byRule('unbounded_external_io').map((finding) => [finding.path, finding.line, finding.subject]),
@@ -81,10 +166,10 @@ assert.deepEqual(
     [FIXTURE_LIB, 157, 'reqwest::get'],
     [FIXTURE_LIB, 171, 'reqwest::Client::builder'],
   ],
-  'the three unwrapped calls only: not with_timeout, tokio::time::timeout ' +
-    'or the .timeout() builder chain',
+  'the three unwrapped calls only: not with_timeout, tokio::time::timeout, ' +
+    'the .timeout() builder chain or a call inside a test item',
 );
-assert.equal(output.findings.length, 11, 'exactly the eleven gold true positives of the corpus');
+assert.equal(output.findings.length, 17, 'exactly the seventeen gold true positives of the corpus');
 assert.equal(
   at('detached_task', FIXTURE_DIAGNOSTICS).length +
     at('uncancellable_long_lived_loop', FIXTURE_DIAGNOSTICS).length +
@@ -111,7 +196,7 @@ assert.match(
 assert.deepEqual(observation(`rust-runtime-safety-adapter:file:${FIXTURE_LIB}`), {
   context: 'production',
   crate: FIXTURE_ROOT,
-  findings: 11,
+  findings: 17,
   parsed: true,
 });
 assert.deepEqual(observation(`rust-runtime-safety-adapter:file:${FIXTURE_DIAGNOSTICS}`), {
@@ -128,8 +213,8 @@ assert.equal(summary().parse_failures, 0);
 assert.equal(summary().clean, true);
 assert.equal(summary().authorities_complete, true);
 assert.deepEqual(summary().findings, {
-  detached_task: 2,
-  uncancellable_long_lived_loop: 2,
+  detached_task: 3,
+  uncancellable_long_lived_loop: 7,
   unsafe_without_safety_contract: 4,
   unbounded_external_io: 3,
 });
@@ -139,7 +224,10 @@ for (const finding of output.findings) {
   assert.ok(output.read_paths.includes(finding.path), `${finding.id} cites a read path`);
   for (const ref of finding.evidence) {
     assert.ok(output.read_paths.includes(ref.path), `${finding.id} evidence is a read path`);
-    assert.ok(ref.line >= 1);
+    assert.ok(
+      ref.line !== undefined && ref.line >= 1,
+      `${finding.id} evidence names the line it cites`,
+    );
   }
   assert.match(finding.fingerprint, /^sha256:[0-9a-f]{64}$/);
   assert.equal(finding.owner, 'tools/aria-adapters/rust-runtime-safety-adapter.ts');
@@ -205,7 +293,11 @@ assert.equal(
 // claims stay inside the production context.
 const manifest = JSON.parse(
   readFileSync(join(__dirname, 'rust-runtime-safety-adapter.tool.json'), 'utf8'),
-) as { declared_scope: string[]; default_input: { roots: string[] } };
+) as {
+  declared_scope: string[];
+  default_input: { roots: string[] };
+  rules: Record<string, unknown>;
+};
 
 // The manifest claims only what the production input walks: each glob's
 // literal prefix must sit under one of the roots (the observation map
@@ -249,6 +341,39 @@ const harnessPaths = new Set(
 for (const finding of real.findings) {
   assert.ok(!harnessPaths.has(finding.path), `${finding.id} claims harness code (${finding.path})`);
 }
+// Nor a production file's own test code: the `#[cfg(test)] mod tests` blocks
+// of sens-api-gateway's production files held 31 of the 34 unsafe claims at
+// the adapter's landing (`std::env::set_var` / `remove_var` in tests), and
+// none of it ships.
+assert.deepEqual(
+  real.findings.filter(inTestCode).map(located).sort(),
+  [],
+  "no real finding claims a production file's own #[cfg(test)] mod or #[test] fn",
+);
+// The real-repo baseline (cases/real-repo-baseline.json) is the fixture
+// runner's exact expectation of this scan, so each rule count it pins is a
+// count of production claims: the real findings of that rule outside test
+// code. A baseline measured while test code was still claimed over-counts
+// and fails here.
+const baselineCase = JSON.parse(
+  readFileSync(
+    join(__dirname, 'fixtures/rust-runtime-safety-adapter/cases/real-repo-baseline.json'),
+    'utf8',
+  ),
+) as { expected: { required_observation_values: Record<string, unknown>[] } };
+const baselineSummary = baselineCase.expected.required_observation_values.find(
+  (expectation) => expectation.type === 'rust_runtime_summary',
+);
+assert.ok(baselineSummary !== undefined, 'the baseline pins the summary observation');
+const manifestRules = Object.keys(manifest.rules).sort();
+assert.deepEqual(
+  manifestRules.map((rule) => [rule, baselineSummary[`details.findings.${rule}`]]),
+  manifestRules.map((rule) => [
+    rule,
+    real.findings.filter((finding) => finding.rule === rule && !inTestCode(finding)).length,
+  ]),
+  'the real-repo baseline pins every rule at the production claims outside test code',
+);
 // The repository carries real uncontracted unsafe code (the FFI boundary),
 // detached spawns and cancellation-free async loops: the observation is not
 // decorative. Measured at the corpus landing: 34 unsafe, 12 detached, 18

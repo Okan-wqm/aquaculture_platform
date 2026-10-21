@@ -14,12 +14,21 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+// nginx add_header inheritance has one owner, shared with ARIA's infrastructure-policy
+// adapter (ARIA-HIGH-012); this spec keeps its own Cache-Control filter on top of it.
+import { readNginx } from '../../tools/gates/lib/infra/nginx-conf';
+import {
+  addHeaderNames,
+  headerLevels,
+} from '../../tools/gates/infra-policy/nginx-header-inheritance';
+
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const SNIPPET = 'infrastructure/docker/nginx/snippets/security-headers.conf';
 const AQUAMOBIL_CONF = 'infrastructure/docker/nginx/aquamobil.conf';
 const DOCKERFILE = 'infrastructure/docker/Dockerfile.aquamobil';
 const DROPLET_CONF = 'infrastructure/nginx/droplet.conf';
-const INCLUDE_DIRECTIVE = 'include /etc/nginx/snippets/security-headers.conf';
+const SNIPPET_INCLUDE_PATH = '/etc/nginx/snippets/security-headers.conf';
+const INCLUDE_DIRECTIVE = `include ${SNIPPET_INCLUDE_PATH}`;
 
 function read(rel: string): string {
   const path = resolve(REPO_ROOT, rel);
@@ -81,26 +90,35 @@ describe('mobile PWA security headers (SEC-MEDIUM-052)', () => {
     });
 
     it('the service workers re-apply the security headers', () => {
-      expect(blockBody(conf, /location\s*~\*\s*\^\/\(messaging-sw\|firebase-messaging-sw\)/)).toContain(
-        INCLUDE_DIRECTIVE,
-      );
+      expect(
+        blockBody(conf, /location\s*~\*\s*\^\/\(messaging-sw\|firebase-messaging-sw\)/),
+      ).toContain(INCLUDE_DIRECTIVE);
       expect(blockBody(conf, /location\s*=\s*\/sw\.js\s*\{/)).toContain(INCLUDE_DIRECTIVE);
     });
 
     it('no Cache-Control-overriding location is left without the security include (regression guard)', () => {
       // Every block that sets its own Cache-Control add_header drops the inherited
-      // security set, so it MUST re-include the snippet.
-      const offenders: string[] = [];
-      const locationRe = /location[^\n{]*\{/g;
-      let m: RegExpExecArray | null;
-      while ((m = locationRe.exec(conf)) !== null) {
-        const body = blockBody(conf, new RegExp(m[0].replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))) ?? '';
-        // Only top-level-ish blocks that override Cache-Control matter; skip the
-        // /health JSON endpoint (it sets Content-Type, not Cache-Control).
-        if (/add_header\s+Cache-Control/.test(body) && !body.includes(INCLUDE_DIRECTIVE)) {
-          offenders.push(m[0]);
-        }
-      }
+      // security set, so it MUST re-include the snippet. The owner computes each level's
+      // drop (the /health JSON endpoint drops too: it sets Content-Type, not
+      // Cache-Control); this spec guards the Cache-Control overrides.
+      const snippetRead = readNginx(read(SNIPPET));
+      const confRead = readNginx(conf);
+      // A misread file yields a partial tree, on which "no offenders" would mean nothing.
+      expect(snippetRead.errors).toEqual([]);
+      expect(confRead.errors).toEqual([]);
+      const levels = headerLevels(confRead.tree, {
+        includedHeaders: new Map([[SNIPPET_INCLUDE_PATH, addHeaderNames(snippetRead.tree)]]),
+      });
+      const cacheControlLevels = levels.filter((level) => level.declared.includes('Cache-Control'));
+      // Non-vacuous: the tree holds one level per `add_header Cache-Control` line of the file.
+      const cacheControlLines = conf
+        .split('\n')
+        .filter((line) => /^\s*add_header\s+Cache-Control\b/.test(line)).length;
+      expect(cacheControlLines).toBeGreaterThan(0);
+      expect(cacheControlLevels).toHaveLength(cacheControlLines);
+      const offenders = cacheControlLevels
+        .filter((level) => level.dropped.length > 0)
+        .map((level) => `location ${level.location} (line ${level.line})`);
       expect(offenders).toEqual([]);
     });
   });

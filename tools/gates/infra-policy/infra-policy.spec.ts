@@ -1,0 +1,1132 @@
+#!/usr/bin/env ts-node
+/**
+ * Infrastructure readers (tools/gates/lib/infra) and rule owners (tools/gates/infra-policy).
+ *
+ * WHY this spec exists (ARIA-HIGH-012): every infrastructure rule the repository had was
+ * welded inside one jest spec and applied to one hard-coded file, so ARIA's
+ * infrastructure-policy adapter could only copy them — a second owner per rule. The rules
+ * now live here once; ci-image-registry, mobile-csp-headers and the e2e NATS invariants
+ * call them, and the adapter will too.
+ *
+ * WHAT it pins: each reader on its parser traps (multi-document YAML with anchors and merge
+ * keys, Dockerfile continuations / escape directive / heredocs / ARG in FROM / stage
+ * references, HCL heredocs and comment braces, nginx and NATS comment and quote handling),
+ * each rule owner on paired positive and negative inputs, and every reader on every tracked
+ * file of its format (zero read errors), so a reader that stops understanding the real
+ * corpus fails here instead of silently dropping files.
+ *
+ * Runner: node:test under ts-node (tools/gates/run-all.mjs walks tools/gates recursively).
+ */
+
+import { strict as assert } from 'node:assert';
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { test } from 'node:test';
+
+import { classifyInfraFile, INFRA_FORMATS } from '../lib/infra/classify';
+import { readDockerfile } from '../lib/infra/dockerfile';
+import { readHclBlocks } from '../lib/infra/hcl-blocks';
+import { readNatsConf } from '../lib/infra/nats-conf';
+import { readNginx } from '../lib/infra/nginx-conf';
+import { readInfraFile } from '../lib/infra/read-infra-file';
+import {
+  composeBuildDockerfile,
+  composeEnvironment,
+  composeServices,
+  containerEnv,
+  k8sWorkloads,
+  kustomizePatchTargets,
+  podContainers,
+} from '../lib/infra/workloads';
+import { readYamlDocuments } from '../lib/infra/yaml-documents';
+import { REPO_ROOT } from '../lib/repo-root';
+
+import { imagePinVerdict, parseImageReference, PIN_MUTABILITY } from './image-reference';
+import { natsCredentialAuth } from './nats-identity';
+import { addHeaderNames, headerInheritanceDrops, headerLevels } from './nginx-header-inheritance';
+import { composeGuards, podGuards } from './runtime-guards';
+import {
+  composeServicePrivilege,
+  composeServiceUser,
+  dockerfileFinalUser,
+  podContainerUser,
+  podSpecPrivilege,
+} from './runtime-privilege';
+import {
+  gitleaksPatterns,
+  loadEnvSecretRule,
+  secretsHiddenByPathAllowlist,
+  type StructuredEnvEntry,
+  translateRe2,
+} from './secret-allowlist-premise';
+import { MODULE_SOURCE_PINNING, moduleSourcePin, providerConstraints } from './terraform-pins';
+
+function repoFile(rel: string): string {
+  return readFileSync(join(REPO_ROOT, rel), 'utf8');
+}
+
+/** The item at `index`; a missing item fails the test here instead of as a TypeError later. */
+function nth<T>(items: readonly T[], index: number): T {
+  const item = items[index];
+  assert.ok(item !== undefined, `no item at index ${index}`);
+  return item;
+}
+
+function present<T>(value: T | null | undefined, what: string): T {
+  assert.ok(value !== null && value !== undefined, `${what} is absent`);
+  return value;
+}
+
+function trackedFiles(): string[] {
+  return execFileSync('git', ['-C', REPO_ROOT, 'ls-files', '-z'], { encoding: 'utf8' })
+    .split('\0')
+    .filter((p) => p.length > 0);
+}
+
+// ---------------------------------------------------------------- classify
+
+void test('classifyInfraFile decides the format by basename and path segment', () => {
+  const table: Array<[string, string | null]> = [
+    ['Dockerfile.agent-tooling', 'dockerfile'],
+    ['apps/sensor-ingestion/Dockerfile', 'dockerfile'],
+    ['infrastructure/docker/Dockerfile.backend.dev', 'dockerfile'],
+    ['web/app.Dockerfile', 'dockerfile'],
+    ['infrastructure/docker/Dockerfile.dockerignore', null],
+    ['docker-compose.droplet.yml', 'compose'],
+    ['infrastructure/simulators/docker-compose.simulators.yml', 'compose'],
+    ['compose.yaml', 'compose'],
+    ['infrastructure/deploy/postgres-dr-bootstrap-rollback.override.yml', 'compose'],
+    ['infrastructure/helm/aquaculture/templates/secrets.yaml', 'helm_template'],
+    ['infrastructure/helm/aquaculture/templates/NOTES.txt', 'helm_template'],
+    ['infra/helm/charts/aquaculture-platform/templates/_helpers.tpl', 'helm_template'],
+    ['infrastructure/helm/aquaculture/Chart.yaml', 'helm_chart'],
+    ['infrastructure/helm/aquaculture/values-production.yaml', 'helm_values'],
+    ['infra/kubernetes/data/kafka/values.yaml', 'helm_values'],
+    ['infrastructure/monitoring/loki/loki-values.yaml', 'helm_values'],
+    ['infrastructure/helm/aquaculture/files/nats-service-identities.yaml', null],
+    ['infrastructure/kubernetes/base/auth-service.yaml', 'k8s'],
+    ['deploy/production/kustomization.yaml', 'k8s'],
+    ['deploy/production/secret.yaml.template', 'k8s'],
+    ['infra/argocd/projects/aquaculture-platform.yaml', 'k8s'],
+    ['infrastructure/terraform/modules/staging-droplet/main.tf', 'terraform'],
+    ['infra/terraform/environments/prod/terraform.tfvars', 'terraform'],
+    ['infrastructure/nginx/droplet.conf', 'nginx'],
+    ['infrastructure/docker/nginx/default.conf.template', 'nginx'],
+    ['nginx/nginx.conf', 'nginx'],
+    ['infrastructure/docker/nats/nats-auth-enabled.conf', 'nats'],
+    ['infrastructure/docker/redis/redis.conf', null],
+    ['infrastructure/nats/services.yaml', null],
+    ['infrastructure/monitoring/droplet/prometheus.yml', null],
+    ['tests/invariants/nginx-route-resolution.spec.ts', null],
+  ];
+  for (const [path, format] of table) {
+    assert.equal(classifyInfraFile(path), format, path);
+  }
+});
+
+// ---------------------------------------------------------------- YAML
+
+void test('readYamlDocuments: multi-document, anchors, merge keys, positions, errors', () => {
+  const text = [
+    'x-limits: &limits', //                     1
+    '  mem_limit: 512m', //                     2
+    'services:', //                             3
+    '  web:', //                                4
+    '    <<: *limits', //                       5
+    '    image: "redis:7"', //                  6
+    '    command: "privileged: true"', //       7
+    '---', //                                   8
+    'kind: Deployment', //                      9
+    '---', //                                   10
+    'bad: [1, 2', //                            11 (end of input)
+  ].join('\n');
+  const read = readYamlDocuments(text);
+  assert.equal(read.docs.length, 2, 'the broken third document yields an error, not a value');
+  const first = nth(read.docs, 0);
+  assert.deepEqual(first.value, {
+    'x-limits': { mem_limit: '512m' },
+    services: { web: { mem_limit: '512m', image: 'redis:7', command: 'privileged: true' } },
+  });
+  assert.equal(first.lineOf(['services', 'web', 'image']), 6);
+  assert.equal(first.lineOf(['services', 'web', 'mem_limit']), 2, 'a merged key cites its anchor');
+  assert.equal(first.lineOf(['services', 'nope']), null);
+  assert.equal(nth(read.docs, 1).line, 9);
+  assert.equal(read.errors.length, 1);
+  assert.equal(nth(read.errors, 0).line, 11);
+  // An alias bomb (each level aliases the previous one ten times) is a read error, not a value
+  // graph that grows tenfold per level for every caller that walks it.
+  const bomb = ['a0: &a0 [x]'];
+  for (let level = 1; level <= 6; level += 1) {
+    bomb.push(
+      `a${level}: &a${level} [${Array(10)
+        .fill(`*a${level - 1}`)
+        .join(', ')}]`,
+    );
+  }
+  const bombRead = readYamlDocuments(bomb.join('\n'));
+  // A count, not deepEqual: on failure the assertion must not render the exploded value.
+  assert.equal(bombRead.docs.length, 0);
+  assert.match(nth(bombRead.errors, 0).message, /alias/i);
+  // The same bomb through merge keys: yaml@2.9.0 counts aliases only in Alias.toJS, and a merge
+  // source is copied without that count, so this 400-byte chain took ~1 s at depth 6 (~10 s at
+  // depth 7, tenfold per level) and returned with no error.
+  const mergeBomb = ['m0: &m0 {x: 1}'];
+  for (let level = 1; level <= 6; level += 1) {
+    mergeBomb.push(
+      `m${level}: &m${level} {<<: [${Array(10)
+        .fill(`*m${level - 1}`)
+        .join(', ')}], k${level}: 1}`,
+    );
+  }
+  const started = Date.now();
+  const mergeRead = readYamlDocuments(mergeBomb.join('\n'));
+  assert.equal(mergeRead.docs.length, 0);
+  assert.match(nth(mergeRead.errors, 0).message, /alias/i);
+  assert.ok(Date.now() - started < 500, 'the budget refuses before the expansion runs');
+});
+
+void test('workloads: compose services, env forms, build Dockerfile; k8s pod specs; kustomize targets', () => {
+  const compose = nth(
+    readYamlDocuments(
+      [
+        'services:',
+        '  api:',
+        '    build: { context: ./apps/api, dockerfile: ../../infrastructure/docker/Dockerfile.backend }',
+        '    environment:',
+        '      JWT_SECRET: abc',
+        '      EMPTY:',
+        '  worker:',
+        '    build: ./worker',
+        '    environment: ["A=1", "B"]',
+        '',
+      ].join('\n'),
+    ).docs,
+    0,
+  ).value;
+  const services = composeServices(compose);
+  assert.deepEqual(
+    services.map((s) => s.name),
+    ['api', 'worker'],
+  );
+  assert.deepEqual(
+    composeEnvironment(nth(services, 0)).map((e) => [e.key, e.value]),
+    [
+      ['JWT_SECRET', 'abc'],
+      ['EMPTY', null],
+    ],
+  );
+  assert.deepEqual(
+    composeEnvironment(nth(services, 1)).map((e) => [e.key, e.value]),
+    [
+      ['A', '1'],
+      ['B', null],
+    ],
+  );
+  assert.equal(
+    composeBuildDockerfile(nth(services, 0), 'docker-compose.yml'),
+    'infrastructure/docker/Dockerfile.backend',
+    'dockerfile is relative to the build context',
+  );
+  assert.equal(
+    composeBuildDockerfile(nth(services, 0), 'deploy/docker-compose.yml'),
+    'deploy/infrastructure/docker/Dockerfile.backend',
+    'the context is relative to the compose file',
+  );
+  assert.equal(composeBuildDockerfile(nth(services, 1), 'docker-compose.yml'), 'worker/Dockerfile');
+
+  const cron = nth(
+    readYamlDocuments(
+      [
+        'apiVersion: batch/v1',
+        'kind: CronJob',
+        'metadata: { name: backup }',
+        'spec:',
+        '  jobTemplate:',
+        '    spec:',
+        '      template:',
+        '        spec:',
+        '          initContainers: [{ name: init, image: busybox }]',
+        '          containers:',
+        '            - name: run',
+        '              env:',
+        '                - { name: TOKEN, value: literal-value }',
+        '                - name: REF',
+        '                  valueFrom: { secretKeyRef: { name: s, key: k } }',
+        '',
+      ].join('\n'),
+    ).docs,
+    0,
+  ).value;
+  const [workload] = k8sWorkloads(cron);
+  assert.ok(workload);
+  assert.equal(workload.kind, 'CronJob');
+  assert.equal(workload.name, 'backup');
+  const containers = podContainers(workload);
+  assert.deepEqual(
+    containers.map((c) => [c.name, c.init]),
+    [
+      ['init', true],
+      ['run', false],
+    ],
+  );
+  assert.deepEqual(
+    containerEnv(nth(containers, 1)).map((e) => [e.key, e.value]),
+    [
+      ['TOKEN', 'literal-value'],
+      ['REF', null],
+    ],
+  );
+
+  const kustomization = nth(
+    readYamlDocuments(
+      [
+        'patches:',
+        '  - patch: |-',
+        '      kind: Deployment',
+        '      metadata: { name: backend }',
+        '  - path: hpa-patch.yaml',
+        '    target: { kind: HorizontalPodAutoscaler, name: backend }',
+        'patchesStrategicMerge: [memory.yaml]',
+        '',
+      ].join('\n'),
+    ).docs,
+    0,
+  ).value;
+  assert.deepEqual(
+    kustomizePatchTargets(kustomization, 'deploy/production/kustomization.yaml').map((t) => [
+      t.kind,
+      t.name,
+      t.file,
+    ]),
+    [
+      ['Deployment', 'backend', null],
+      ['HorizontalPodAutoscaler', 'backend', 'deploy/production/hpa-patch.yaml'],
+      [null, null, 'deploy/production/memory.yaml'],
+    ],
+  );
+});
+
+// ---------------------------------------------------------------- Dockerfile
+
+void test('readDockerfile: stages, ARG in FROM, stage refs, continuations, heredocs, escape directive', () => {
+  const text = [
+    '# syntax=docker/dockerfile:1.7', //                  1
+    'ARG BASE=node:22.12.0-alpine', //                    2
+    'FROM ${BASE} AS Builder', //                         3
+    'USER node', //                                       4
+    'RUN apk add \\', //                                  5
+    '# a comment inside a continuation', //               6
+    '    curl', //                                        7
+    'RUN <<EOF', //                                       8
+    'FROM evil:latest', //                                9
+    'USER root', //                                       10
+    'EOF', //                                             11
+    'FROM --platform=$BUILDPLATFORM nginx:1.27-alpine', // 12
+    'COPY --from=builder /app /app', //                   13
+    'HEALTHCHECK NONE', //                                14
+    'FROM builder AS final', //                           15
+    '',
+  ].join('\n');
+  const read = readDockerfile(text);
+  assert.deepEqual(read.errors, []);
+  assert.equal(read.stages.length, 3, 'FROM inside a heredoc body is not a stage');
+  const [builder, nginx, final] = read.stages;
+  assert.ok(builder && nginx && final);
+  assert.equal(builder.from, 'node:22.12.0-alpine');
+  assert.equal(builder.fromLine, 3);
+  assert.equal(builder.user, 'node');
+  assert.equal(builder.runs.length, 2);
+  assert.equal(nth(builder.runs, 0).body.replace(/\s+/g, ' '), 'apk add curl');
+  assert.equal(nginx.platform, '$BUILDPLATFORM');
+  assert.equal(nginx.isStageRef, false);
+  assert.equal(nginx.user, null, 'USER root inside the heredoc body is not an instruction');
+  assert.deepEqual(nginx.healthcheck, { line: 14, disabled: true });
+  assert.equal(final.isStageRef, true);
+  assert.equal(final.baseStage, 0, 'stage names are case-insensitive');
+
+  const backtick = readDockerfile(
+    ['# escape=`', 'FROM alpine:3.20', 'RUN echo a `', '    b', 'USER 65534', ''].join('\n'),
+  );
+  assert.deepEqual(backtick.errors, []);
+  assert.equal(nth(nth(backtick.stages, 0).runs, 0).body.replace(/\s+/g, ' '), 'echo a b');
+  assert.equal(nth(backtick.stages, 0).user, '65534');
+
+  assert.ok(
+    readDockerfile('RUN true\n').errors.length > 0,
+    'an instruction before FROM is an error',
+  );
+  assert.ok(readDockerfile('FROM a\nRUN <<EOF\nnever closed\n').errors.length > 0);
+});
+
+void test('dockerfileFinalUser follows stage references and treats an absent USER as unset', () => {
+  const buildOnly = readDockerfile('FROM node:22 AS b\nUSER node\nFROM nginx:1.27.3\n');
+  assert.equal(dockerfileFinalUser(buildOnly).verdict, 'unset', 'USER only in the build stage');
+  const inherited = readDockerfile('FROM node:22 AS b\nUSER node\nFROM b\n');
+  assert.deepEqual(
+    [dockerfileFinalUser(inherited).verdict, dockerfileFinalUser(inherited).user],
+    ['non_root', 'node'],
+  );
+  const root = readDockerfile('FROM x@sha256:' + 'a'.repeat(64) + '\nUSER 0:0\n');
+  assert.equal(dockerfileFinalUser(root).verdict, 'root');
+  assert.equal(dockerfileFinalUser(root).line, 2);
+});
+
+// ---------------------------------------------------------------- HCL
+
+void test('readHclBlocks: nested blocks, heredocs, comment braces, template strings, objects', () => {
+  const text = [
+    '# } a comment brace', //                                       1
+    'terraform {', //                                               2
+    '  required_providers {', //                                    3
+    '    aws = { source = "hashicorp/aws", version = "~> 5.0" }', // 4
+    '    random = { source = "hashicorp/random" }', //              5
+    '  }', //                                                       6
+    '}', //                                                         7
+    '/* { block comment', //                                        8
+    '   } */', //                                                   9
+    'module "vpc" {', //                                            10
+    '  source = "git::https://example.com/vpc.git?ref=main"', //    11
+    '  name   = "${var.project}-{x}"', //                           12
+    '  script = <<-EOT', //                                         13
+    '    version = "9.9.9" }', //                                   14
+    '    EOT', //                                                   15
+    '  list = [', //                                                16
+    '    "a", // trailing comment }', //                            17
+    '  ]', //                                                       18
+    '}', //                                                         19
+    '',
+  ].join('\n');
+  const read = readHclBlocks(text);
+  assert.deepEqual(read.errors, []);
+  assert.deepEqual(
+    read.blocks.map((b) => [b.type, b.labels, b.line]),
+    [
+      ['terraform', [], 2],
+      ['module', ['vpc'], 10],
+    ],
+  );
+  const providers = nth(nth(read.blocks, 0).blocks, 0);
+  assert.equal(providers.type, 'required_providers');
+  const aws = providers.attributes.aws;
+  assert.ok(aws && aws.object);
+  assert.equal(present(aws.object.version, 'version').string, '~> 5.0');
+  const vpc = nth(read.blocks, 1);
+  assert.equal(
+    present(vpc.attributes.source, 'source').string,
+    'git::https://example.com/vpc.git?ref=main',
+  );
+  assert.equal(present(vpc.attributes.name, 'name').string, '${var.project}-{x}');
+  assert.equal(vpc.attributes.version, undefined, 'version inside a heredoc is not an attribute');
+  assert.equal(present(vpc.attributes.list, 'list').line, 16);
+  assert.ok(readHclBlocks('a {\n  b = 1\n').errors.length > 0, 'an unclosed block is an error');
+});
+
+void test('terraform pins: module sources and provider constraints', () => {
+  const read = readHclBlocks(
+    [
+      'module "a" { source = "git::https://e.com/m.git" }',
+      'module "b" { source = "git::https://e.com/m.git?ref=main" }',
+      'module "c" { source = "git::https://e.com/m.git?ref=' + 'b'.repeat(40) + '" }',
+      'module "d" { source = "github.com/org/m?ref=v1.2.3" }',
+      'module "e" { source = "terraform-aws-modules/vpc/aws" }',
+      'module "f" {',
+      '  source  = "terraform-aws-modules/vpc/aws"',
+      '  version = "5.1.2"',
+      '}',
+      'module "g" { source = "../modules/vpc" }',
+      'terraform {',
+      '  required_providers {',
+      '    aws    = { source = "hashicorp/aws", version = "~> 5.0" }',
+      '    random = { source = "hashicorp/random" }',
+      '    legacy = "~> 2.0"',
+      '  }',
+      '}',
+      '',
+    ].join('\n'),
+  );
+  assert.deepEqual(read.errors, []);
+  const modules = read.blocks.filter((b) => b.type === 'module');
+  assert.deepEqual(
+    modules.map((m) => moduleSourcePin(m).verdict),
+    [
+      'git_unpinned',
+      'git_branch_ref',
+      'git_commit',
+      'git_tag',
+      'registry_unversioned',
+      'registry_versioned',
+      'local',
+    ],
+  );
+  // A Record over the verdict union: a new verdict without an entry does not compile.
+  assert.deepEqual(
+    Object.entries(MODULE_SOURCE_PINNING)
+      .filter(([, pinning]) => pinning === 'unpinned')
+      .map(([verdict]) => verdict),
+    ['git_branch_ref', 'git_unpinned', 'registry_unversioned'],
+  );
+  const terraform = read.blocks.find((b) => b.type === 'terraform');
+  assert.ok(terraform);
+  assert.deepEqual(
+    providerConstraints(terraform).map((p) => [p.provider, p.version]),
+    [
+      ['aws', '~> 5.0'],
+      ['random', null],
+      ['legacy', '~> 2.0'],
+    ],
+  );
+});
+
+// ---------------------------------------------------------------- nginx
+
+void test('readNginx: comments, quotes, variables, nesting, line numbers', () => {
+  const text = [
+    'http {', //                                                    1
+    '  # add_header X-Commented "x"; { }', //                       2
+    '  server {', //                                                3
+    '    add_header X-A "semi;colon # not a comment" always;', //   4
+    '    location ~* ^/(a|b)\\.js$ {', //                           5
+    '      return 200 \'{"ok":true}\';', //                         6
+    '      proxy_set_header Host ${host};', //                      7
+    '    }', //                                                     8
+    '  }', //                                                       9
+    '}', //                                                         10
+    '',
+  ].join('\n');
+  const read = readNginx(text);
+  assert.deepEqual(read.errors, []);
+  const server = nth(present(nth(read.tree, 0).block, 'http block'), 0);
+  assert.equal(server.name, 'server');
+  assert.equal(server.line, 3);
+  const serverBlock = present(server.block, 'server block');
+  const header = nth(serverBlock, 0);
+  assert.deepEqual(
+    [header.name, header.args, header.line],
+    ['add_header', ['X-A', 'semi;colon # not a comment', 'always'], 4],
+  );
+  const location = nth(serverBlock, 1);
+  assert.deepEqual(location.args, ['~*', '^/(a|b)\\.js$']);
+  const locationBlock = present(location.block, 'location block');
+  assert.deepEqual(nth(locationBlock, 0).args, ['200', '{"ok":true}']);
+  assert.deepEqual(nth(locationBlock, 1).args, ['Host', '${host}']);
+  assert.ok(readNginx('server {\n listen 80;\n').errors.length > 0);
+  assert.ok(readNginx('listen 80\n').errors.length > 0, 'a directive without ; is an error');
+});
+
+void test('readNginx returns on every input; only space, tab, CR and LF separate words', () => {
+  // nginx's lexer (ngx_conf_read_token) separates on those four only, so a BOM or a no-break
+  // space is part of a word and nginx rejects it as an unknown directive. A word loop that
+  // stopped on any other whitespace consumed nothing and looped forever.
+  const bom = readNginx('\uFEFFserver { listen 80; }');
+  assert.deepEqual(
+    bom.tree.map((d) => d.name),
+    ['\uFEFFserver'],
+  );
+  const nbsp = readNginx('server {\u00A0listen 80; }');
+  assert.deepEqual(
+    present(nth(nbsp.tree, 0).block, 'server block').map((d) => [d.name, d.args]),
+    [['\u00A0listen', ['80']]],
+  );
+  assert.deepEqual(readNginx('server {\f listen 80; }\v').errors, [
+    { line: 1, message: 'directive \v has no ; or {' },
+  ]);
+  const alphabet = ['{', '}', ';', '#', '"', "'", '\\', '$', 'a', ' ', '\n'];
+  const exotic = ['\u00A0', '\f', '\v', '\uFEFF', '\u2028'];
+  let inputs = [''];
+  for (let length = 1; length <= 4; length += 1) {
+    inputs = inputs.flatMap((prefix) => [...alphabet, ...exotic].map((c) => prefix + c));
+    for (const input of inputs) readNginx(input);
+  }
+});
+
+void test('headerInheritanceDrops: 3-level inheritance reports declared and dropped headers', () => {
+  const sec = '/etc/nginx/snippets/sec.conf';
+  const tree = readNginx(
+    [
+      'http {',
+      '  add_header X-Http "h";',
+      '  server {',
+      '    add_header Strict-Transport-Security "s" always;',
+      '    add_header X-Frame-Options DENY always;',
+      '    location / {',
+      '      location /a/ { add_header Cache-Control "no-store"; }',
+      `      location /b/ { add_header Cache-Control "no-store"; include ${sec}; }`,
+      '    }',
+      '    location /c/ { proxy_pass http://c; }',
+      '    location /d/ { if ($x) { add_header X-If 1; } }',
+      '    location /e/ { add_header strict-transport-security "s2"; }',
+      `    location /f/ { include ${sec}; }`,
+      '  }',
+      '  server {',
+      '    add_header X-Extra "e";',
+      `    include ${sec};`,
+      // The include re-applies the snippet only: X-Extra is still dropped here and in /h/.
+      `    location /g/ { add_header Cache-Control "no-store"; include ${sec}; }`,
+      `    location /h/ { include ${sec}; }`,
+      '  }',
+      '}',
+      '',
+    ].join('\n'),
+  ).tree;
+  const options = {
+    includedHeaders: new Map([[sec, ['Strict-Transport-Security', 'X-Frame-Options']]]),
+  };
+  assert.deepEqual(
+    headerInheritanceDrops(tree, options).map((d) => [
+      d.context,
+      d.location,
+      d.declared,
+      d.dropped,
+    ]),
+    [
+      ['server', '', ['Strict-Transport-Security', 'X-Frame-Options'], ['X-Http']],
+      ['location', '/a/', ['Cache-Control'], ['Strict-Transport-Security', 'X-Frame-Options']],
+      ['if', '($x)', ['X-If'], ['Strict-Transport-Security', 'X-Frame-Options']],
+      // A level re-declaring an inherited header (any case) does not drop it.
+      ['location', '/e/', ['strict-transport-security'], ['X-Frame-Options']],
+      ['server', '', ['X-Extra', 'Strict-Transport-Security', 'X-Frame-Options'], ['X-Http']],
+      [
+        'location',
+        '/g/',
+        ['Cache-Control', 'Strict-Transport-Security', 'X-Frame-Options'],
+        ['X-Extra'],
+      ],
+      ['location', '/h/', ['Strict-Transport-Security', 'X-Frame-Options'], ['X-Extra']],
+    ],
+  );
+  // Every level is listed, dropping or not: /b/ and /f/ re-apply the whole inherited set through
+  // the include, /c/ sets nothing and inherits everything.
+  const levels = headerLevels(tree, options);
+  const at = (location: string): [readonly string[], readonly string[]] => {
+    const level = present(
+      levels.find((l) => l.location === location),
+      `${location} level`,
+    );
+    return [level.declared, level.dropped];
+  };
+  assert.deepEqual(at('/b/'), [
+    ['Cache-Control', 'Strict-Transport-Security', 'X-Frame-Options'],
+    [],
+  ]);
+  assert.deepEqual(at('/f/'), [['Strict-Transport-Security', 'X-Frame-Options'], []]);
+  assert.deepEqual(at('/c/'), [[], []]);
+});
+
+void test('headerInheritanceDrops on aquamobil.conf: /health is a raw drop, no Cache-Control drop', () => {
+  const snippet = addHeaderNames(
+    readNginx(repoFile('infrastructure/docker/nginx/snippets/security-headers.conf')).tree,
+  );
+  assert.deepEqual(snippet, [
+    'X-Frame-Options',
+    'X-Content-Type-Options',
+    'Referrer-Policy',
+    'Permissions-Policy',
+    'Content-Security-Policy',
+  ]);
+  const include = '/etc/nginx/snippets/security-headers.conf';
+  const drops = headerInheritanceDrops(
+    readNginx(repoFile('infrastructure/docker/nginx/aquamobil.conf')).tree,
+    { includedHeaders: new Map([[include, snippet]]) },
+  );
+  assert.deepEqual(
+    drops.map((d) => [d.location, d.declared, d.dropped]),
+    [['/health', ['Content-Type'], snippet]],
+  );
+});
+
+void test('headerInheritanceDrops on droplet.conf: /remotes/dashboard/ drops the CSP', () => {
+  const drops = headerInheritanceDrops(
+    readNginx(repoFile('infrastructure/nginx/droplet.conf')).tree,
+    {
+      includedHeaders: new Map(),
+    },
+  );
+  const dashboard = drops.find((d) => d.location === '/remotes/dashboard/');
+  assert.ok(dashboard);
+  assert.ok(dashboard.dropped.includes('Content-Security-Policy'));
+  assert.ok(dashboard.dropped.includes('Strict-Transport-Security'));
+  // /mobile/ sets its own HSTS: it drops the rest of the server set, never HSTS.
+  const mobile = present(
+    drops.find((d) => d.location === '/mobile/'),
+    '/mobile/ drop',
+  );
+  assert.ok(mobile.declared.includes('Strict-Transport-Security'));
+  assert.equal(mobile.dropped.includes('Strict-Transport-Security'), false);
+});
+
+// ---------------------------------------------------------------- NATS
+
+void test('readNatsConf: separators, maps, arrays, includes, comments, quotes', () => {
+  const text = [
+    'listen: 0.0.0.0:4222', //                        1
+    'http_port = 8222', //                            2
+    'server_name nats-1 # trailing comment', //       3
+    '// a slash comment', //                          4
+    'authorization {', //                             5
+    '  # password: commented', //                     6
+    '  users: [', //                                  7
+    '    { user: "CN=a#b", permissions: { publish: { allow: ["x.>", "y"] } } },', // 8
+    '  ]', //                                         9
+    '}', //                                           10
+    'include nats-tls.conf', //                       11
+    '',
+  ].join('\n');
+  const read = readNatsConf(text);
+  assert.deepEqual(read.errors, []);
+  assert.deepEqual(
+    read.tree.map((e) => [e.key, e.line]),
+    [
+      ['listen', 1],
+      ['http_port', 2],
+      ['server_name', 3],
+      ['authorization', 5],
+      ['include', 11],
+    ],
+  );
+  const listen = nth(read.tree, 0).value;
+  assert.ok(listen.kind === 'scalar');
+  assert.equal(listen.raw, '0.0.0.0:4222');
+  const server = nth(read.tree, 2).value;
+  assert.ok(server.kind === 'scalar');
+  assert.equal(server.raw, 'nats-1');
+  const auth = nth(read.tree, 3).value;
+  assert.ok(auth.kind === 'map');
+  assert.deepEqual(
+    auth.entries.map((e) => e.key),
+    ['users'],
+  );
+  assert.ok(readNatsConf('authorization {\n  user: a\n').errors.length > 0);
+});
+
+void test('readNatsConf returns on every input: a stray } inside an array is an error', () => {
+  // A value scan that consumes nothing on `}` used to loop forever inside `[...]`, so a typo
+  // between `# END GENERATED` and the `]` of `users: [` hung the e2e gate instead of failing it.
+  assert.ok(readNatsConf('a: [ } ]').errors.length > 0);
+  assert.ok(readNatsConf('authorization { users: [ { user: "CN=a" } } ] }').errors.length > 0);
+  const lines = repoFile('infrastructure/docker/nats/nats.conf').split('\n');
+  const end = lines.findIndex((line) => line.includes('# END GENERATED'));
+  assert.ok(end >= 0, 'nats.conf has an END GENERATED sentinel');
+  const typo = [...lines.slice(0, end + 1), '    }', ...lines.slice(end + 1)].join('\n');
+  assert.ok(readNatsConf(typo).errors.length > 0);
+  // Every input of up to 4 structural characters terminates: each loop step consumes input.
+  const alphabet = ['{', '}', '[', ']', ':', '=', ',', ';', '#', '/', '"', "'", 'a', '\n', ' '];
+  let inputs = [''];
+  for (let length = 1; length <= 4; length += 1) {
+    inputs = inputs.flatMap((prefix) => alphabet.map((c) => prefix + c));
+    for (const input of inputs) readNatsConf(input);
+  }
+});
+
+void test('natsCredentialAuth flags credential identity, not cert identity or comments', () => {
+  const read = readNatsConf(
+    [
+      'authorization {',
+      '  user: $NATS_USER',
+      '  password: $NATS_PASS',
+      '  # token: commented-out',
+      '  users = [ { user: "CN=ok" }, { user: admin, pass: "x" } ]',
+      '}',
+      'accounts { A { users: [ { nkey: UABC } ] } }',
+      'cluster { authorization { token: t } }',
+      // nats-server reads `username` as `user` (opts.go: `case "user", "username"`), keys
+      // case-insensitively; a quoted "$NAME" is a literal string, not a variable.
+      'leafnodes { authorization { users: [ { username: $NATS_X_USER }, { USERNAME: admin } ] } }',
+      'websocket { authorization { user: "$LITERAL" } }',
+      '',
+    ].join('\n'),
+  );
+  assert.deepEqual(read.errors, []);
+  assert.deepEqual(
+    natsCredentialAuth(read.tree).map((h) => [h.kind, h.key, h.line]),
+    [
+      ['interpolated_user', 'user', 2],
+      ['password', 'password', 3],
+      ['non_cert_user', 'user', 5],
+      ['password', 'pass', 5],
+      ['nkey', 'nkey', 7],
+      ['token', 'token', 8],
+      ['interpolated_user', 'username', 9],
+      ['non_cert_user', 'USERNAME', 9],
+      ['non_cert_user', 'user', 10],
+    ],
+  );
+  // The real true positive by kind; line numbers of a repository file are not pinned here.
+  const enabled = readNatsConf(repoFile('infrastructure/docker/nats/nats-auth-enabled.conf'));
+  assert.deepEqual(
+    natsCredentialAuth(enabled.tree).map((h) => [h.kind, h.key]),
+    [
+      ['interpolated_user', 'user'],
+      ['password', 'password'],
+    ],
+  );
+  assert.deepEqual(
+    natsCredentialAuth(readNatsConf(repoFile('infrastructure/docker/nats/nats.conf')).tree),
+    [],
+  );
+});
+
+// ---------------------------------------------------------------- image references
+
+void test('parseImageReference / imagePinVerdict', () => {
+  const digest = 'sha256:' + 'c'.repeat(64);
+  const table: Array<[string, string | null, string, string | null, string]> = [
+    // ref, registry, name, tag, verdict
+    ['redis:7-alpine', null, 'redis', '7-alpine', 'floating'],
+    ['redis', null, 'redis', null, 'implicit_latest'],
+    ['nats:2.10.24-alpine', null, 'nats', '2.10.24-alpine', 'exact_version'],
+    ['postgres:latest', null, 'postgres', 'latest', 'floating'],
+    ['timescale/timescaledb-ha:pg16', null, 'timescale/timescaledb-ha', 'pg16', 'opaque_tag'],
+    [`node:22@${digest}`, null, 'node', '22', 'digest'],
+    ['localhost:5000/img:1', 'localhost:5000', 'localhost:5000/img', '1', 'floating'],
+    ['localhost:5000/img', 'localhost:5000', 'localhost:5000/img', null, 'implicit_latest'],
+    [
+      'ghcr.io/okan-wqm/aquaculture_platform/gateway-api:${TAG:?TAG required}',
+      'ghcr.io',
+      'ghcr.io/okan-wqm/aquaculture_platform/gateway-api',
+      '${TAG:?TAG required}',
+      'interpolated_required',
+    ],
+    [
+      'ghcr.io/o/x:${TAG:-latest}',
+      'ghcr.io',
+      'ghcr.io/o/x',
+      '${TAG:-latest}',
+      'interpolated_default',
+    ],
+    ['ghcr.io/o/x:${TAG}', 'ghcr.io', 'ghcr.io/o/x', '${TAG}', 'interpolated_unchecked'],
+    // One required and one defaulted variable: the tag can still fall back, so it is not required.
+    [
+      'ghcr.io/o/x:${A:?a}-${B:-b}',
+      'ghcr.io',
+      'ghcr.io/o/x',
+      '${A:?a}-${B:-b}',
+      'interpolated_default',
+    ],
+    ['ghcr.io/o/x:${A:?a}-$B', 'ghcr.io', 'ghcr.io/o/x', '${A:?a}-$B', 'interpolated_unchecked'],
+    [
+      'ghcr.io/o/x:${{ env.TAG }}',
+      'ghcr.io',
+      'ghcr.io/o/x',
+      '${{ env.TAG }}',
+      'interpolated_unchecked',
+    ],
+    [
+      'quay.io/minio/minio:RELEASE.2025-04-03T14-56-28Z',
+      'quay.io',
+      'quay.io/minio/minio',
+      'RELEASE.2025-04-03T14-56-28Z',
+      'opaque_tag',
+    ],
+    ['rust:1.88-slim', null, 'rust', '1.88-slim', 'floating'],
+    ['img:1234abc', null, 'img', '1234abc', 'opaque_tag'],
+  ];
+  for (const [raw, registry, name, tag, verdict] of table) {
+    const ref = parseImageReference(raw);
+    assert.deepEqual(
+      [ref.registry, ref.name, ref.tag, imagePinVerdict(ref)],
+      [registry, name, tag, verdict],
+      raw,
+    );
+  }
+  assert.equal(parseImageReference(`node@${digest}`).digest, digest);
+  // PIN_MUTABILITY is a Record over the verdict union, so a new verdict without an entry does
+  // not compile (it cannot default to immutable).
+  assert.deepEqual(
+    Object.entries(PIN_MUTABILITY)
+      .filter(([, mutability]) => mutability === 'immutable')
+      .map(([verdict]) => verdict),
+    ['digest', 'interpolated_required'],
+  );
+});
+
+// ---------------------------------------------------------------- runtime privilege and guards
+
+void test('compose privilege, user and guards', () => {
+  const doc = nth(
+    readYamlDocuments(
+      [
+        'x-limits: &limits',
+        '  mem_limit: 256m',
+        'services:',
+        '  bad:',
+        '    privileged: true',
+        '    cap_add: [CAP_SYS_ADMIN, CHOWN]',
+        '    network_mode: host',
+        '    user: "0:0"',
+        '    volumes: ["/var/run/docker.sock:/var/run/docker.sock"]',
+        '  good:',
+        '    <<: *limits',
+        '    user: "1000"',
+        '    command: ["sh", "-c", "privileged: true"]',
+        '    healthcheck: { test: ["CMD", "true"] }',
+        '  once:',
+        '    restart: "no"',
+        '  inherits:',
+        '    healthcheck: { interval: 5s }',
+        '    deploy: { resources: { limits: { memory: 1g } } }',
+        '',
+      ].join('\n'),
+    ).docs,
+    0,
+  ).value;
+  const [bad, good, once, inherits] = composeServices(doc);
+  assert.ok(bad && good && once && inherits);
+  assert.deepEqual(
+    composeServicePrivilege(bad).map((h) => h.reason),
+    ['privileged', 'capability', 'host_namespace', 'docker_socket'],
+  );
+  assert.deepEqual(
+    composeServicePrivilege(good),
+    [],
+    'a quoted lookalike in a command is not a setting',
+  );
+  assert.equal(composeServiceUser(bad).verdict, 'root');
+  assert.equal(composeServiceUser(good).verdict, 'non_root');
+  assert.equal(composeServiceUser(once).verdict, 'unset');
+
+  assert.deepEqual(composeGuards(good, { imageHealthcheck: 'absent' }).missing, []);
+  assert.deepEqual(composeGuards(bad, { imageHealthcheck: 'absent' }).missing, [
+    'healthcheck',
+    'memory_limit',
+  ]);
+  assert.deepEqual(composeGuards(bad, { imageHealthcheck: 'present' }).missing, ['memory_limit']);
+  const unresolved = composeGuards(bad, { imageHealthcheck: 'unresolved' });
+  assert.deepEqual([unresolved.missing, unresolved.healthUnresolved], [['memory_limit'], true]);
+  const oneShot = composeGuards(once, { imageHealthcheck: 'absent' });
+  assert.deepEqual([oneShot.missing, oneShot.healthExempt], [['memory_limit'], 'one_shot']);
+  assert.deepEqual(
+    composeGuards(inherits, { imageHealthcheck: 'absent' }).missing,
+    ['healthcheck'],
+    'a healthcheck without test only retimes the image HEALTHCHECK',
+  );
+  assert.deepEqual(composeGuards(inherits, { imageHealthcheck: 'present' }).missing, []);
+});
+
+void test('compose privilege: socket-exposing binds, escape capabilities, unconfined profiles', () => {
+  const doc = nth(
+    readYamlDocuments(
+      [
+        'services:',
+        '  parent:',
+        // `:ro` does not stop connect() on a unix socket, so a parent bind exposes it too.
+        '    volumes: ["/var/run:/host-run:ro", "/:/rootfs:ro", "/run/:/r", "/var/lib/x:/x"]',
+        '  socket:',
+        '    volumes: [{ type: bind, source: /var/run/docker.sock/, target: /s }]',
+        '  caps:',
+        '    cap_add: [SYS_MODULE, sys_ptrace, CAP_SYS_RAWIO, DAC_READ_SEARCH, BPF, CHOWN]',
+        '  unconfined:',
+        '    security_opt: ["seccomp:unconfined", "apparmor=unconfined", "no-new-privileges:true"]',
+        '    userns_mode: host',
+        '  stringly:',
+        // compose-spec types booleans as boolean|string; the CLI reads "true"/"yes"/"on" as true.
+        '    privileged: "true"',
+        '  stringly_off:',
+        '    privileged: "false"',
+        '',
+      ].join('\n'),
+    ).docs,
+    0,
+  ).value;
+  const reasons = (name: string): [string, string][] => {
+    const service = present(
+      composeServices(doc).find((s) => s.name === name),
+      name,
+    );
+    return composeServicePrivilege(service).map((h) => [h.reason, h.detail]);
+  };
+  assert.deepEqual(reasons('parent'), [
+    ['docker_socket', 'mounts /var/run'],
+    ['docker_socket', 'mounts /'],
+    ['docker_socket', 'mounts /run/'],
+  ]);
+  assert.deepEqual(reasons('socket'), [['docker_socket', 'mounts /var/run/docker.sock/']]);
+  assert.deepEqual(
+    reasons('caps').map(([reason]) => reason),
+    ['capability', 'capability', 'capability', 'capability', 'capability'],
+  );
+  assert.deepEqual(reasons('unconfined'), [
+    ['host_namespace', 'userns_mode: host'],
+    ['unconfined', 'security_opt seccomp:unconfined'],
+    ['unconfined', 'security_opt apparmor=unconfined'],
+  ]);
+  assert.deepEqual(reasons('stringly'), [['privileged', 'privileged: true']]);
+  assert.deepEqual(reasons('stringly_off'), []);
+
+  // The production cAdvisor binds / and /var/run: the docker socket is reachable from it.
+  const droplet = readYamlDocuments(repoFile('docker-compose.droplet.yml'));
+  const cadvisor = present(
+    composeServices(nth(droplet.docs, 0).value).find((s) => s.name === 'cadvisor'),
+    'droplet cadvisor service',
+  );
+  assert.ok(composeServicePrivilege(cadvisor).some((h) => h.reason === 'docker_socket'));
+});
+
+void test('pod privilege, user precedence and guards', () => {
+  const doc = readYamlDocuments(
+    [
+      'kind: Deployment',
+      'metadata: { name: api }',
+      'spec:',
+      '  template:',
+      '    spec:',
+      '      hostNetwork: true',
+      '      securityContext: { runAsUser: 0, runAsNonRoot: false }',
+      '      containers:',
+      '        - name: app',
+      '          securityContext: { runAsUser: 1000, allowPrivilegeEscalation: true }',
+      '          resources: { limits: { memory: 1Gi } }',
+      '          readinessProbe: { httpGet: { path: /, port: 80 } }',
+      '        - name: sidecar',
+      '          securityContext: { privileged: true, capabilities: { add: [NET_ADMIN] } }',
+      '---',
+      'kind: Job',
+      'metadata: { name: once }',
+      'spec: { template: { spec: { containers: [ { name: j, resources: { limits: { memory: 1Gi } } } ] } } }',
+      '',
+    ].join('\n'),
+  ).docs;
+  const [deployment] = k8sWorkloads(nth(doc, 0).value);
+  assert.ok(deployment);
+  const [app, sidecar] = podContainers(deployment);
+  assert.ok(app && sidecar);
+  assert.deepEqual(
+    podSpecPrivilege(deployment).map((h) => [h.container, h.reason]),
+    [
+      [null, 'host_namespace'],
+      ['app', 'privilege_escalation'],
+      ['sidecar', 'privileged'],
+      ['sidecar', 'capability'],
+    ],
+  );
+  assert.equal(
+    podContainerUser(deployment, app).verdict,
+    'non_root',
+    'container runAsUser overrides the pod',
+  );
+  assert.equal(podContainerUser(deployment, sidecar).verdict, 'root', 'the pod runAsUser applies');
+  assert.deepEqual(podGuards(deployment, app).missing, ['liveness_probe']);
+  assert.deepEqual(podGuards(deployment, sidecar).missing, [
+    'memory_limit',
+    'readiness_probe',
+    'liveness_probe',
+  ]);
+  const [job] = k8sWorkloads(nth(doc, 1).value);
+  assert.ok(job);
+  assert.deepEqual(
+    podGuards(job, nth(podContainers(job), 0)).missing,
+    [],
+    'a Job has no probes to miss',
+  );
+
+  const [agent] = k8sWorkloads(
+    nth(
+      readYamlDocuments(
+        [
+          'kind: DaemonSet',
+          'metadata: { name: agent }',
+          'spec:',
+          '  template:',
+          '    spec:',
+          '      securityContext: { seccompProfile: { type: Unconfined } }',
+          '      volumes:',
+          '        - { name: run, hostPath: { path: /var/run } }',
+          '        - { name: data, hostPath: { path: /var/lib/agent } }',
+          '      containers:',
+          '        - name: a',
+          '          securityContext:',
+          '            appArmorProfile: { type: Unconfined }',
+          '            capabilities: { add: [SYS_PTRACE] }',
+          '',
+        ].join('\n'),
+      ).docs,
+      0,
+    ).value,
+  );
+  assert.ok(agent);
+  assert.deepEqual(
+    podSpecPrivilege(agent).map((h) => [h.container, h.reason, h.detail]),
+    [
+      [null, 'docker_socket', 'hostPath /var/run'],
+      [null, 'unconfined', 'securityContext.seccompProfile Unconfined'],
+      ['a', 'capability', 'capabilities.add SYS_PTRACE'],
+      ['a', 'unconfined', 'securityContext.appArmorProfile Unconfined'],
+    ],
+  );
+});
+
+// ---------------------------------------------------------------- secret premise
+
+void test('every regex in .gitleaks.toml compiles after the RE2 translation', () => {
+  const patterns = gitleaksPatterns(repoFile('.gitleaks.toml'));
+  assert.ok(patterns.length >= 20, `found ${patterns.length} patterns`);
+  for (const pattern of patterns) {
+    assert.doesNotThrow(() => translateRe2(pattern.source), pattern.location);
+  }
+  assert.equal(translateRe2('(?i)abc').flags.includes('i'), true);
+  assert.equal(translateRe2('a\\"b').test('a"b'), true);
+  assert.throws(() => translateRe2('a(?i)b'), /cannot be translated/);
+  assert.throws(() => translateRe2('[[:alpha:]]'), /cannot be translated/);
+  assert.throws(() => translateRe2('\\z'), /cannot be translated/);
+});
+
+void test('secretsHiddenByPathAllowlist reports what the env-secret rule would report in hidden files', () => {
+  const rule = loadEnvSecretRule(repoFile('.gitleaks.toml'));
+  const doc = nth(
+    readYamlDocuments(
+      [
+        'services:',
+        '  api:',
+        '    environment:',
+        '      JWT_SECRET: Abcdefgh12345678',
+        '      REDIS_PASSWORD: ${REDIS_PASSWORD}',
+        '      POSTGRES_PASSWORD: change-me',
+        '      SMTP_PASS: changeme-1234567890',
+        '      UNRELATED_KEY: Abcdefgh12345678',
+        '',
+      ].join('\n'),
+    ).docs,
+    0,
+  );
+  const entries = (path: string): StructuredEnvEntry[] =>
+    composeServices(doc.value).flatMap((service) =>
+      composeEnvironment(service).flatMap((e) =>
+        e.value === null
+          ? []
+          : [{ path, line: doc.lineOf(e.path) ?? 0, key: e.key, value: e.value }],
+      ),
+    );
+  const hidden = secretsHiddenByPathAllowlist(entries('deploy/docker-compose.prod.yml'), rule);
+  assert.deepEqual(
+    hidden.map((h) => [h.path, h.key, h.line, h.secretLength]),
+    [['deploy/docker-compose.prod.yml', 'JWT_SECRET', 4, 16]],
+  );
+  assert.match(nth(hidden, 0).hiddenBy, /docker-compose/);
+  // A hit locates the secret; it never carries the value into findings, evidence or state.
+  assert.equal(JSON.stringify(hidden).includes('Abcdefgh12345678'), false);
+  assert.deepEqual(
+    secretsHiddenByPathAllowlist(entries('apps/api/src/config.yml'), rule),
+    [],
+    'outside the path allowlist gitleaks itself reports it; nothing is hidden',
+  );
+});
+
+// ---------------------------------------------------------------- real corpus
+
+void test('every reader reads every tracked file of its format with zero errors', () => {
+  const failures: string[] = [];
+  const counts = new Map<string, number>();
+  for (const path of trackedFiles()) {
+    const format = classifyInfraFile(path);
+    if (format === null) continue;
+    counts.set(format, (counts.get(format) ?? 0) + 1);
+    const { read } = readInfraFile(format, repoFile(path));
+    if (read === null) continue;
+    for (const error of read.errors) failures.push(`${path}:${error.line} ${error.message}`);
+  }
+  assert.deepEqual(failures, []);
+  for (const format of INFRA_FORMATS) {
+    if (format === 'helm_template') continue;
+    assert.ok((counts.get(format) ?? 0) > 0, `no tracked ${format} file was read`);
+  }
+});

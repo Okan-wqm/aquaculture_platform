@@ -52,6 +52,11 @@ import { join, resolve } from 'node:path';
 
 import yaml from 'js-yaml';
 
+// The Docker reference grammar has one owner, shared with ARIA's infrastructure-policy
+// adapter (ARIA-HIGH-012): `.registry` is null exactly when the CLI resolves to Docker Hub,
+// `.name` is the reference without tag or digest (the image family).
+import { parseImageReference } from '../../tools/gates/infra-policy/image-reference';
+
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const FINDINGS_REGISTRY_PATH = join(REPO_ROOT, 'docs', 'reviews', '_registry', 'findings.jsonl');
 const CI_IMAGES_MANIFEST = '.github/manifests/ci-images.json';
@@ -176,21 +181,6 @@ function rustManifestConsumers(): ImageReference[] {
   });
 }
 
-/** Docker resolves a reference to Docker Hub when its first path component is not a host. */
-function registryHost(image: string): string | null {
-  const slash = image.indexOf('/');
-  if (slash < 0) {
-    return null;
-  }
-  const first = image.slice(0, slash);
-  return first.includes('.') || first.includes(':') || first === 'localhost' ? first : null;
-}
-
-/** The repository part of a reference: everything before `:tag` and `@digest`. */
-function imageFamily(image: string): string {
-  return image.split('@')[0]!.replace(/:[^/]*$/, '');
-}
-
 function openFindingIds(): Set<string> {
   const open = new Set<string>();
   for (const line of readFileSync(FINDINGS_REGISTRY_PATH, 'utf8').split('\n')) {
@@ -210,12 +200,12 @@ function openFindingIds(): Set<string> {
 /** Why a workflow image ref is not an approved form, or null when it is. */
 function imageViolation(image: string, mirrorRefs: ReadonlySet<string>): string | null {
   if (mirrorRefs.has(image)) return null;
-  const family = imageFamily(image);
+  const { registry, name: family } = parseImageReference(image);
   if (family.startsWith(`${MIRROR_PREFIX}/`)) {
     return `is not spelled as a ${CI_IMAGES_MANIFEST} entry (<mirror>:<tag>@<digest>)`;
   }
   if (family.startsWith(`${ORG_REGISTRY}/`)) return null;
-  if (registryHost(image) === null && family in DOCKER_HUB_EXCEPTIONS) return null;
+  if (registry === null && family in DOCKER_HUB_EXCEPTIONS) return null;
   return `is a third-party registry pull; mirror it through ${CI_IMAGES_MANIFEST}`;
 }
 
@@ -399,7 +389,7 @@ describe('INVARIANT: CI pulls no third-party image anonymously (INFRA-HIGH-213, 
 
   it('keys every Docker Hub exception to an OPEN finding and an image still in use', () => {
     const open = openFindingIds();
-    const families = new Set(workflowRefs.map((ref) => imageFamily(ref.image)));
+    const families = new Set(workflowRefs.map((ref) => parseImageReference(ref.image).name));
     for (const [family, findingId] of Object.entries(DOCKER_HUB_EXCEPTIONS)) {
       expect({ family, findingOpen: open.has(findingId) }).toEqual({ family, findingOpen: true });
       expect({ family, inUse: families.has(family) }).toEqual({ family, inUse: true });
@@ -407,6 +397,8 @@ describe('INVARIANT: CI pulls no third-party image anonymously (INFRA-HIGH-213, 
   });
 
   it('classifies image references the way the Docker CLI does', () => {
+    const registryHost = (image: string): string | null => parseImageReference(image).registry;
+    const imageFamily = (image: string): string => parseImageReference(image).name;
     expect(registryHost('redis:7-alpine')).toBeNull();
     expect(registryHost('timescale/timescaledb-ha:pg16@sha256:00')).toBeNull();
     expect(registryHost('public.ecr.aws/docker/library/redis:7-alpine')).toBe('public.ecr.aws');

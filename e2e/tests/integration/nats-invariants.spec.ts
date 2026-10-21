@@ -72,6 +72,14 @@ import {
 import Ajv from 'ajv';
 import { parse as yamlParse } from 'yaml';
 
+// NATS credential identity has one owner, shared with ARIA's infrastructure-policy adapter
+// (ARIA-HIGH-012): it reads the parsed config, so a `#`-commented line is not configuration.
+import {
+  type NatsCredentialHit,
+  natsCredentialAuth,
+} from '../../../tools/gates/infra-policy/nats-identity';
+import { readNatsConf } from '../../../tools/gates/lib/infra/nats-conf';
+
 // Faz C (ARCH-HIGH-001 / ARCH-MEDIUM-004): the config-runtime caller allowlists +
 // scoped-inbox token are the SSoT the config-service handler enforces; importing
 // them here binds the NATS ACL grants to that same SSoT (the generic RPC scan
@@ -152,6 +160,30 @@ function composeVolumeSource(volume: ComposeVolume): string {
     return volume.split(':', 1)[0];
   }
   return volume.source ?? '';
+}
+
+/**
+ * Credential-identity hits inside the GENERATED block: the whole nats.conf is parsed (the
+ * block alone is a fragment of the `users: [...]` list, not a config) and hits are kept by
+ * line between the BEGIN/END sentinels.
+ */
+function generatedBlockCredentialHits(): NatsCredentialHit[] {
+  const path = join(REPO_ROOT, 'infrastructure', 'docker', 'nats', 'nats.conf');
+  const content = readFileSync(path, 'utf-8');
+  const lines = content.split('\n');
+  const begin = lines.findIndex((line) => line.includes('# BEGIN GENERATED')) + 1;
+  const end = lines.findIndex((line) => line.includes('# END GENERATED')) + 1;
+  if (begin === 0 || end === 0) {
+    throw new Error(
+      'nats.conf is missing BEGIN/END GENERATED sentinels. Run ' +
+        '`scripts/nats/generate-nats-conf.py` to regenerate.',
+    );
+  }
+  const parsed = readNatsConf(content);
+  if (parsed.errors.length > 0) {
+    throw new Error(`nats.conf does not parse: ${JSON.stringify(parsed.errors)}`);
+  }
+  return natsCredentialAuth(parsed.tree).filter((hit) => hit.line > begin && hit.line < end);
 }
 
 function loadNatsConfAuthBlock(): string {
@@ -668,10 +700,13 @@ describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subje
   );
 
   it('nats.conf GENERATED block contains ZERO password fields', () => {
-    if (/password:/i.test(authBlock)) {
+    const secrets = generatedBlockCredentialHits().filter(
+      (hit) => hit.kind === 'password' || hit.kind === 'token' || hit.kind === 'nkey',
+    );
+    if (secrets.length > 0) {
       throw new Error(
-        'nats.conf GENERATED authorization block contains a `password:` ' +
-          'field. Under mTLS verify_and_map (ADR-015), passwords are ' +
+        'nats.conf GENERATED authorization block contains a password/token/nkey ' +
+          `field (${JSON.stringify(secrets)}). Under mTLS verify_and_map (ADR-015), passwords are ` +
           'redundant (server ignores CONNECT-frame auth) and a drift ' +
           'vector. Regenerate nats.conf via `scripts/nats/generate-nats-conf.py`.',
       );
@@ -679,11 +714,16 @@ describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subje
   });
 
   it('nats.conf GENERATED block contains ZERO $-interpolated user vars', () => {
-    // Literal user names only — no `$NATS_*_USER` / `$NATS_*_PASS`.
-    if (/\$NATS_[A-Z]+_(USER|PASS)/.test(authBlock)) {
+    // Literal certificate user names only: no `$VAR` user (`$NATS_*_USER`) and no user
+    // that is not a certificate DN (`CN=<name>`). A `$NATS_*_PASS` value sits under a
+    // password/token key, which the test above already refuses.
+    const users = generatedBlockCredentialHits().filter(
+      (hit) => hit.kind === 'interpolated_user' || hit.kind === 'non_cert_user',
+    );
+    if (users.length > 0) {
       throw new Error(
         'nats.conf GENERATED authorization block still contains ' +
-          '$NATS_*_USER or $NATS_*_PASS substitutions. Pre-ADR-015 ' +
+          `$NATS_*_USER substitutions or non-certificate users (${JSON.stringify(users)}). Pre-ADR-015 ` +
           'pattern; regenerate via `scripts/nats/generate-nats-conf.py`.',
       );
     }

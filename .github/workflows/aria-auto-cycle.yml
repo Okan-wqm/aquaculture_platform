@@ -726,10 +726,11 @@ jobs:
           if ! printf '%s' "${TOOL_IDS}" | grep -Eq '^[a-z0-9-]+(,[a-z0-9-]+)*$'; then
             echo '::error::tool ids must be comma-separated slugs'; exit 1
           fi
-          GH_REF='gh:[A-Za-z0-9-]+/[A-Za-z0-9._-]+#[0-9]+/(comment|review)/[0-9]+'
-          if ! printf '%s' "${APPROVAL_REF}" | grep -Eq "^${GH_REF}(,${GH_REF})*\$"; then
-            echo '::error::approval refs must be comma-separated gh:<owner>/<repo>#<n>/comment|review/<id>'; exit 1
-          fi
+          # ARIA-HIGH-238 — the kernel owns the ref grammar; a regex copy here
+          # drifts the day the kernel's grammar moves. One ref per tool id.
+          PYTHONPATH=aria-kernel python3 -m aria_kernel operator check-ref \
+            --list \
+            --ref "${APPROVAL_REF}"
           IFS=',' read -ra IDS <<< "${TOOL_IDS}"
           IFS=',' read -ra REFS <<< "${APPROVAL_REF}"
           if [ "${#IDS[@]}" -ne "${#REFS[@]}" ]; then

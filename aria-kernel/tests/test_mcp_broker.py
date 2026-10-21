@@ -42,6 +42,7 @@ from aria_kernel.mcp_server import READ_TOOLS, WRITE_TOOLS
 from aria_kernel.socket_holders import MCP_BROKER, prune_stale_socket_dirs
 from aria_kernel.tool_registry import append_tools_governance, ensure_tools_dir
 from tests._helpers.git_fixtures import make_repo_with_initial_commit
+from tests._helpers.operator_acts import github_operator_acts
 
 _KERNEL_DIR = Path(__file__).resolve().parents[1]
 RELAY = _KERNEL_DIR / "aria_kernel" / "mcp_relay.py"
@@ -298,7 +299,7 @@ class QuarantineIsTheKernelsOwnWitnessTests(unittest.TestCase):
         self.assertIn("mcp_server_kernel_socket_witness_implied:aria", str(refused.exception))
 
     def test_ten_real_server_faults_quarantine_the_server(self) -> None:
-        from aria_kernel.mcp_client import quarantined_servers, release_quarantine
+        from aria_kernel.mcp_client import quarantined_servers, release_quarantine, unquarantine_scope
 
         # A corrupted mission-events ledger: `missions_list` reads it through
         # the strict declared loader, so the handler itself faults on every
@@ -317,7 +318,11 @@ class QuarantineIsTheKernelsOwnWitnessTests(unittest.TestCase):
         self.assertNotIn("UnknownTool", {row["error_class"] for row in rows})
         self.assertEqual(quarantined, frozenset({"aria"}),
                          "the kernel's own witnessed faults still quarantine")
-        released = release_quarantine("aria", base_dir=self.tools, operator_ref="test-release")
+        # ARIA-HIGH-238 — a release is proven by the operator's GitHub act for
+        # THIS quarantine, never by a string the caller writes.
+        with github_operator_acts() as github:
+            ref = github.approve("mcp_unquarantine", unquarantine_scope("aria", base_dir=self.tools))
+            released = release_quarantine("aria", base_dir=self.tools, operator_ref=ref)
         self.assertEqual(released["event"], "released")
         self.assertEqual(quarantined_servers(self.tools), frozenset())
 

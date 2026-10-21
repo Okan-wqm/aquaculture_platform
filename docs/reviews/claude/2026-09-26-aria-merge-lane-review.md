@@ -299,6 +299,29 @@ Owner okan, deadline 2026-10-31.
 Rule: Every operator approval is proven by the operator's own GitHub act; a ref no one verifies is
 not an approval.
 
+**Landed (ARIA order chain, `G010-238-pin-breakers`; slices 1-2, Part of).** The four verbs that
+clear a stop no longer take a free string. Each one verifies an operator's GitHub act, bound to the
+instance it undoes and spent once:
+
+- `circuit_breaker.reset_breaker` and `cost_budget.reset_breaker`: `surface=breaker_reset`, scope
+  `breaker` and `tripped_at`.
+- `circuit_breaker.quarantine_breaker_evidence`: `breaker_evidence_quarantine`, same scope.
+- `mcp_client.release_quarantine`: `mcp_unquarantine`, scope `server` and `quarantined_at`.
+
+Each verb's `--print-approval-line` prints the line to post for the current instance.
+`aria-kernel operator check-ref` is now the only grammar check a workflow runs. The executor's
+free-string regex and the auto-cycle's regex copy are gone, and
+`tests/invariants/aria-approval-ref-grammar-owner.spec.ts` keeps them gone.
+`test_operator_approval_callers.py` pins the whole population: every function with an
+approval-reference parameter, plus every verifier caller. Each one is classified and checked
+against rules P1-P5. `control.record_control`, `agent_genesis.approve_agent_pr` and
+`skill_genesis.approve_skill_pr` are strict `UNVERIFIED_UNTIL` entries.
+
+Still open: slices 3-4 (control resume, the gateway's `approval_ref`, genesis PR approval). They
+belong to wave-3 bucket `G010-238-control-genesis`, deadline 2026-10-31. The residuals are
+registered as ARIA-MEDIUM-664, ARIA-MEDIUM-665, ARIA-LOW-666, ARIA-LOW-667, ARIA-MEDIUM-668,
+ARIA-LOW-669 and ARIA-LOW-670.
+
 ## ARIA-HIGH-234 — closed (2026-10-10, wave 2)
 
 The push leg was fixed by #1676: `git_containment._publish_environment` stripped the ambient

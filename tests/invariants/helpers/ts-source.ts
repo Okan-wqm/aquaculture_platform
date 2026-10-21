@@ -8,80 +8,14 @@
  * two fresh violations.
  *
  * Regex-based stripping is not good enough — `//` and `/*` occur inside SQL
- * template literals — so this walks the source tracking string, template and
- * comment state, and blanks comment bodies while preserving offsets so a
- * reported index still points at the right place in the original file.
+ * template literals — so the implementation walks the source tracking string,
+ * template and comment state, and blanks comment bodies while preserving
+ * offsets so a reported index still points at the right place in the original
+ * file.
+ *
+ * The one definition lives in `tools/gates/tenant-aware-migration-ddl.ts`
+ * (moved there by ARIA-MEDIUM-588: the tenant-aware DDL guard classifies with
+ * it internally, and a gate-side copy plus a spec-side copy could drift).
+ * This module re-exports it for the specs that consume the helper.
  */
-
-/** Replace every comment body with spaces, keeping newlines and total length. */
-export function stripComments(source: string): string {
-  const out: string[] = [];
-  let i = 0;
-  type State = 'code' | 'line' | 'block' | 'single' | 'double' | 'template';
-  let state: State = 'code';
-
-  const blank = (ch: string): string => (ch === '\n' ? '\n' : ' ');
-
-  while (i < source.length) {
-    const ch = source[i] as string;
-    const next = source[i + 1];
-
-    if (state === 'code') {
-      if (ch === '/' && next === '/') {
-        state = 'line';
-        out.push('  ');
-        i += 2;
-        continue;
-      }
-      if (ch === '/' && next === '*') {
-        state = 'block';
-        out.push('  ');
-        i += 2;
-        continue;
-      }
-      if (ch === "'") state = 'single';
-      else if (ch === '"') state = 'double';
-      else if (ch === '`') state = 'template';
-      out.push(ch);
-      i += 1;
-      continue;
-    }
-
-    if (state === 'line') {
-      if (ch === '\n') state = 'code';
-      out.push(blank(ch));
-      i += 1;
-      continue;
-    }
-
-    if (state === 'block') {
-      if (ch === '*' && next === '/') {
-        state = 'code';
-        out.push('  ');
-        i += 2;
-        continue;
-      }
-      out.push(blank(ch));
-      i += 1;
-      continue;
-    }
-
-    // Inside a string or template literal: copy verbatim, honour escapes.
-    if (ch === '\\') {
-      out.push(ch, source[i + 1] ?? '');
-      i += 2;
-      continue;
-    }
-    if (
-      (state === 'single' && ch === "'") ||
-      (state === 'double' && ch === '"') ||
-      (state === 'template' && ch === '`')
-    ) {
-      state = 'code';
-    }
-    out.push(ch);
-    i += 1;
-  }
-
-  return out.join('');
-}
+export { stripComments } from '../../../tools/gates/tenant-aware-migration-ddl';

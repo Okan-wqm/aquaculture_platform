@@ -15,7 +15,9 @@
   },
   "allowed_read_globs": [
     "apps/**/*.ts",
-    "libs/backend-common/src/database/schema-manager.service.ts"
+    "libs/backend-common/src/database/schema-manager.service.ts",
+    "tsconfig.base.json",
+    "platform/libs/outbox/src/**/*.ts"
   ],
   "forbidden_read_globs": [
     ".claude/**",
@@ -119,6 +121,6 @@
     "stdin_json": true
   },
   "freshness_window_hours": 168,
-  "parse_window_signature": "sha256:279526798279a75e61ea430aa99d506ab91e3f547eacbed66c03e3fbaf085035",
+  "parse_window_signature": "sha256:8bc4517f2905126e4174893569cfd459d35bf89089e8ee13e2d62b5e2da66543",
   "schema_version": 1
 }

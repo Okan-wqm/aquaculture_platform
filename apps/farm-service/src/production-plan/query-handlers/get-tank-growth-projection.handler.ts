@@ -16,6 +16,7 @@
  * projection works before any scenario exists.
  */
 import { runInTenantRead } from '@aquaculture/backend-common/database';
+import { Inject } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { DataSource, In } from 'typeorm';
@@ -32,8 +33,12 @@ import type { FcrOverride } from '../../feeding-protocol/entities/protocol-assig
 import { ProtocolRateService } from '../../feeding-protocol/services/protocol-rate.service';
 import { simulateProtocolDay } from '../../feeding-protocol/services/protocol-day-step.util';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
-import { Equipment } from '../../equipment/entities/equipment.entity';
+import { Tank } from '../../tank/entities/tank.entity';
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
+
+/** The projection reads exactly one member — a Pick keeps the constructor
+ * honest for tests without weakening Nest's runtime injection (@Inject token). */
+export type WaterTemperatureReader = Pick<WaterTemperatureService, 'getEffectiveTemperature'>;
 
 interface DayPoint {
   day: number;
@@ -101,7 +106,8 @@ export class GetTankGrowthProjectionHandler implements IQueryHandler<GetTankGrow
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly rateService: ProtocolRateService,
-    private readonly waterTemperature: WaterTemperatureService,
+    @Inject(WaterTemperatureService)
+    private readonly waterTemperature: WaterTemperatureReader,
   ) {}
 
   async execute(query: GetTankGrowthProjectionQuery): Promise<TankProjection[]> {
@@ -118,10 +124,12 @@ export class GetTankGrowthProjectionHandler implements IQueryHandler<GetTankGrow
       if (assignments.length === 0) return [];
       const unitIds = assignments.map((a) => a.unitId);
 
-      // 2) Department scoping (system = department) after the site filter
+      // 2) Department scoping (system = department) after the site filter.
+      // Tanks carry departmentId directly on the tanks table — the projection
+      // resolves units from Tank, never the equipment registry.
       let scopedUnitIds = unitIds;
       if (input.departmentId) {
-        const units = await queryRunner.manager.find(Equipment, {
+        const units = await queryRunner.manager.find(Tank, {
           where: { tenantId, id: In(unitIds) },
         });
         scopedUnitIds = units.filter((u) => u.departmentId === input.departmentId).map((u) => u.id);
@@ -145,7 +153,7 @@ export class GetTankGrowthProjectionHandler implements IQueryHandler<GetTankGrow
 
       // 4) Tanks + stock + protocol data
       const [tanks, batches, protocols] = await Promise.all([
-        queryRunner.manager.find(Equipment, { where: { tenantId, id: In(scopedUnitIds) } }),
+        queryRunner.manager.find(Tank, { where: { tenantId, id: In(scopedUnitIds) } }),
         queryRunner.manager.find(TankBatch, { where: { tenantId, tankId: In(scopedUnitIds) } }),
         queryRunner.manager.find(FeedingProtocolV2, {
           where: {
@@ -169,11 +177,11 @@ export class GetTankGrowthProjectionHandler implements IQueryHandler<GetTankGrow
         if (!tank || !batch || !protocol) continue;
         if ((batch.totalQuantity ?? 0) <= 0) continue;
 
-        const specs = (tank as Equipment & { specifications?: Record<string, unknown> })
-          .specifications;
-        const volume = Number(tank.volume ?? specs?.effectiveVolume ?? specs?.waterVolume ?? 0);
-        const maxBiomass = Number(specs?.maxBiomass ?? 0) || null;
-        const maxDensity = Number(specs?.maxDensity ?? 0) || null;
+        // Tank columns are authoritative: volume/maxBiomass/maxDensity live on
+        // the tanks table itself (no specifications JSON indirection).
+        const volume = Number(tank.volume ?? 0);
+        const maxBiomass = Number(tank.maxBiomass ?? 0) || null;
+        const maxDensity = Number(tank.maxDensity ?? 0) || null;
         const capacityKg = maxBiomass ?? (maxDensity && volume ? maxDensity * volume : null);
 
         let fishCount = batch.totalQuantity;
@@ -234,15 +242,13 @@ export class GetTankGrowthProjectionHandler implements IQueryHandler<GetTankGrow
           });
         }
 
-        const tankDept = (
-          tank as Equipment & {
-            department?: {
-              id: string;
-              name: string;
-              site?: { id: string; name: string } | null;
-            } | null;
-          }
-        ).department;
+        // Tank.department is a ManyToOne relation on the tanks table; the
+        // resolved projection reads its name (and its site) without a join
+        // query — TypeORM returns it only when the caller loaded it, so the
+        // handler degrades to empty strings rather than failing the row.
+        const tankDept = tank.department as
+          | { id: string; name: string; site?: { id: string; name: string } | null }
+          | undefined;
         results.push({
           unitId: tank.id,
           unitCode: tank.code,

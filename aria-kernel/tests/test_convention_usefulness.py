@@ -207,5 +207,89 @@ class ConventionLiftReadsTheRealLedgersTests(unittest.TestCase):
         self.assertEqual([(row["pattern_id"], row["lift"]) for row in lift["conventions"]], [("conv-A", 1.0)])
 
 
+class ConventionLiftInTheOperatorInboxTests(unittest.TestCase):
+    """ARIA-MEDIUM-129 — the operator inbox surfaces the night's lift.
+
+    The package's step 3 names two surfaces: the nightly fitness report and
+    the operator inbox. The inbox reads the measurement from the report that
+    measured it (the owner's reader — the inbox never re-measures, so there
+    is one measurement per night, stamped with its cycle), and each measured
+    convention carries the answer it waits on: whether a lift should couple
+    to convention decay is the finding's recorded operator decision. A store
+    the night never measured is named in ``undecided``, never shown as an
+    empty measurement (the HIGH-108 doctrine)."""
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="aria-m129-inbox-"))
+        self.checkout = self.tmp / "checkout"
+        self.checkout.mkdir()
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _inbox(self, store: _Store, **kwargs: Any) -> dict[str, Any]:
+        from aria_kernel.operator_inbox import read_operator_inbox
+
+        return read_operator_inbox(tools_dir=store.tools, workspace_root=self.checkout, **kwargs)
+
+    def test_the_inbox_carries_the_nights_measurement_from_the_report(self) -> None:
+        from aria_kernel.fitness import generate_fitness_report
+
+        store = _Store(self.tmp / "measured")
+        for index in range(2):
+            store.request(f"base-good-{index}")
+            store.request(f"base-bad-{index}", state="REJECTED")
+        for index in range(3):
+            store.request(f"a-{index}", conventions=("conv-A",))
+        for index in range(3):
+            store.request(f"b-{index}", conventions=("conv-B",), state="REJECTED")
+        generate_fitness_report(cycle_id="cycle-night", base_dir=store.tools)
+
+        inbox = self._inbox(store)
+        section = inbox["sections"]["convention_lift"]
+        self.assertEqual(section["status"], "measured")
+        self.assertEqual((section["measured"], section["harmful"]), (2, 1))
+        self.assertEqual(section["report"]["cycle_id"], "cycle-night")
+        # The harmful convention first: ARIA keeps serving it, and whether a
+        # negative lift should change that is the operator's decision.
+        self.assertEqual([item["pattern_id"] for item in section["items"]], ["conv-B", "conv-A"])
+        harmful = section["items"][0]
+        self.assertEqual((harmful["lift"], harmful["n"], harmful["matched_n"]), (-0.5, 3, 3))
+        self.assertIn("ARIA-MEDIUM-129", harmful["answer"])
+        self.assertEqual(inbox["undecided"], [])
+        # The limit bounds items, never counts.
+        limited = self._inbox(store, limit=1)
+        bounded = limited["sections"]["convention_lift"]
+        self.assertEqual((bounded["measured"], len(bounded["items"])), (2, 1))
+
+    def test_a_store_the_night_never_measured_is_named_not_shown_empty(self) -> None:
+        store = _Store(self.tmp / "unmeasured")
+        inbox = self._inbox(store)
+        self.assertIn("convention_lift:no_fitness_report", inbox["undecided"])
+        self.assertNotIn("convention_lift", inbox["sections"])
+        self.assertIn("human_required", inbox["sections"], "the other owners are still read")
+
+    def test_a_report_from_before_the_measurement_existed_is_named(self) -> None:
+        store = _Store(self.tmp / "pre-measurement")
+        append_declared_jsonl(
+            store.tools / "fitness" / "fitness-reports.jsonl",
+            {"schema_version": 1, "recorded_at": "2026-09-01T00:00:00Z", "cycle_id": "cycle-old",
+             "overall_score": 0.0, "dimensions": {}},
+            expected_surface="fitness_reports",
+        )
+        inbox = self._inbox(store)
+        self.assertEqual(inbox["undecided"], ["convention_lift:convention_lift_absent"])
+
+    def test_a_night_with_no_convention_bearing_request_is_a_status_not_a_zero(self) -> None:
+        from aria_kernel.fitness import generate_fitness_report
+
+        store = _Store(self.tmp / "empty-night")
+        generate_fitness_report(cycle_id="cycle-empty", base_dir=store.tools)
+        section = self._inbox(store)["sections"]["convention_lift"]
+        self.assertEqual(section["status"], "no_convention_bearing_requests")
+        self.assertEqual(section["items"], [])
+        self.assertEqual(section["report"]["cycle_id"], "cycle-empty")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -29,8 +29,9 @@ API. Two verifiers, one per class of caller:
 
 Authority-LOWERING actions (revoke a grant, freeze, a lower profile or
 ceiling) call neither: a reason on the record is enough to narrow authority.
-The whole caller population is pinned by
-``tests/test_operator_approval_callers.py``.
+The whole population of functions that take an approval reference (by
+parameter name, or by calling either verifier) is classified and pinned by
+``tests/test_operator_approval_callers.py`` (ARIA-HIGH-238).
 """
 from __future__ import annotations
 
@@ -64,6 +65,20 @@ GITHUB_REF_GRAMMAR = (
 )
 
 # Surface -> the scope fields its approval line must carry, in line order.
+#
+# ARIA-HIGH-238 — clearing a stop widens authority as much as granting one.
+# The verifier has no lower freshness bound (an act is valid for the policy's
+# max age from when it was posted), so a stop's scope names the INSTANCE being
+# undone: the trip (`tripped_at`) or the quarantine (`quarantined_at`). An act
+# posted for one recorded trip cannot clear another. The one exception is a
+# stop whose state records no instance: it binds to NO_RECORDED_INSTANCE, so an
+# unspent `tripped_at=none` act clears whichever unrecorded stop stands when it
+# is presented, within the act's max age; for the failure breaker that
+# includes a reset while nothing is tripped. The raising module owns the
+# function that reads the instance from its own state
+# (`circuit_breaker.trip_scope`, `cost_budget.trip_scope`,
+# `mcp_client.unquarantine_scope`, each through `recorded_instance`), and its
+# CLI verb prints the line from that state (`--print-approval-line`).
 AUTHORITY_RAISING_SURFACES: Mapping[str, tuple[str, ...]] = MappingProxyType({
     "merge_lane_grant": ("lane", "expires"),
     "runtime_profile": ("profile", "ceiling"),
@@ -71,7 +86,27 @@ AUTHORITY_RAISING_SURFACES: Mapping[str, tuple[str, ...]] = MappingProxyType({
     "tool_promote": ("tool", "target"),
     "tool_unquarantine": ("tool",),
     "l3_policy_approval": ("pr", "head_sha", "stage"),
+    "breaker_reset": ("breaker", "tripped_at"),
+    "breaker_evidence_quarantine": ("breaker", "tripped_at"),
+    "mcp_unquarantine": ("server", "quarantined_at"),
 })
+
+# The scope value of an instance field whose state records no instance (a
+# breaker tripped by its evidence before any trip was written down). One
+# spelling, so the line a verb prints and the scope it verifies agree.
+NO_RECORDED_INSTANCE = "none"
+
+
+def recorded_instance(value: object) -> str:
+    """An instance field's scope value: the stamp the state recorded when it is
+    one timezone-aware ISO-8601 token, else ``NO_RECORDED_INSTANCE`` (none was
+    recorded, or a damaged one ``canonical_scope`` would refuse on every print
+    and verify, so the stop could never be cleared). The one owner of that rule
+    for every scope function of an instance-bound surface."""
+    if isinstance(value, str) and value.split() == [value] and _parse_utc(value) is not None:
+        return value
+    return NO_RECORDED_INSTANCE
+
 
 # Decisions recorded with a reference that widen no authority.
 RECORD_SURFACES: frozenset[str] = frozenset({
@@ -177,19 +212,29 @@ def parse_github_approval_ref(ref: str | None, *, surface: str) -> GitHubApprova
     )
 
 
-def _canonical_utc(value: str) -> str:
+def _parse_utc(value: object) -> datetime | None:
+    """``value`` as a timezone-aware instant, or None: this module's one stamp reader."""
+    if not isinstance(value, str):
+        return None
     try:
         moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
-        return value
-    if moment.tzinfo is None:
-        return value
-    return moment.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return None
+    return moment if moment.tzinfo is not None else None
+
+
+def _canonical_utc(value: str) -> str:
+    moment = _parse_utc(value)
+    return value if moment is None else moment.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 # Fields with more than one spelling of the same value; both sides of the
 # comparison pass through the same canonical form.
-_SCOPE_CANONICALIZERS = {"expires": _canonical_utc}
+_SCOPE_CANONICALIZERS = {
+    "expires": _canonical_utc,
+    "tripped_at": _canonical_utc,
+    "quarantined_at": _canonical_utc,
+}
 
 
 def canonical_scope(surface: str, scope: Mapping[str, object]) -> dict[str, str]:
@@ -221,16 +266,6 @@ def approval_line(surface: str, scope: Mapping[str, object]) -> str:
     return " ".join(
         [APPROVAL_MARKER, f"surface={surface}", *(f"{key}={value}" for key, value in fields.items())]
     )
-
-
-def _parse_utc(value: object) -> datetime | None:
-    if not isinstance(value, str):
-        return None
-    try:
-        moment = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return moment if moment.tzinfo is not None else None
 
 
 def _read_act(source: OperatorActReader, parsed: GitHubApprovalRef, *, surface: str) -> dict[str, Any]:
@@ -506,6 +541,7 @@ __all__ = (
     "APPROVAL_MARKER",
     "AUTHORITY_RAISING_SURFACES",
     "GITHUB_REF_GRAMMAR",
+    "NO_RECORDED_INSTANCE",
     "OPERATORS_POLICY_PATH",
     "RECORD_SURFACES",
     "GitHubApprovalRef",
@@ -516,6 +552,7 @@ __all__ = (
     "github_act_reader",
     "load_operators_policy",
     "parse_github_approval_ref",
+    "recorded_instance",
     "verify_operator_approval",
     "verify_recorded_reference",
 )

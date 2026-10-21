@@ -43,8 +43,10 @@ from aria_kernel.circuit_breaker import (  # noqa: E402
     _quarantine_path,
     evaluate_breaker,
     quarantine_breaker_evidence,
+    trip_scope,
 )
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir  # noqa: E402
+from tests._helpers.operator_acts import github_operator_acts  # noqa: E402
 
 _TRUNCATED = '{"ts":"2020-01'
 
@@ -70,6 +72,11 @@ class BreakerEvidenceQuarantine(unittest.TestCase):
         self.root = ensure_tools_dir(Path(self._tmp.name) / "aria-tools")
         self.ledger = _failures_path(self.root)
         self.ledger.parent.mkdir(parents=True, exist_ok=True)
+        # ARIA-HIGH-238 — the repair is an operator's GitHub act bound to the
+        # breaker's trip (a fake GitHub here, never the network).
+        acts = github_operator_acts()
+        self.github = acts.__enter__()
+        self.addCleanup(acts.__exit__, None, None, None)
 
     def tearDown(self) -> None:
         self._tmp.cleanup()
@@ -78,9 +85,10 @@ class BreakerEvidenceQuarantine(unittest.TestCase):
         self.ledger.write_text("".join(f"{line}\n" for line in lines), encoding="utf-8")
 
     def _quarantine(self) -> dict:
+        self.approval_ref = self.github.approve("breaker_evidence_quarantine", trip_scope(self.root))
         return quarantine_breaker_evidence(
             base_dir=self.root,
-            operator_approval_ref="OPS-4711",
+            operator_approval_ref=self.approval_ref,
             reason="artifact round-trip truncated the last row",
         )
 
@@ -147,7 +155,8 @@ class BreakerEvidenceQuarantine(unittest.TestCase):
         preserved = [json.loads(line).get("raw") for line in lines[1:]]
         self.assertEqual(preserved, [_TRUNCATED])
         header = json.loads(lines[0])
-        self.assertEqual(header["operator_approval_ref"], "OPS-4711")
+        self.assertEqual(header["operator_approval_ref"], self.approval_ref)
+        self.assertEqual(header["operator_approval"]["surface"], "breaker_evidence_quarantine")
         self.assertEqual(header["damaged_row_count"], 1)
         self.assertEqual(header["surviving_row_count"], 1)
 
@@ -166,10 +175,12 @@ class BreakerEvidenceQuarantine(unittest.TestCase):
         self.assertEqual(kept, [good_one, good_two])
 
     def test_an_operator_contract_is_required(self) -> None:
-        """Same fail-closed contract as reset: no silent repair."""
+        """Same fail-closed contract as reset: no silent repair, and a free
+        string is not an operator act (ARIA-HIGH-238)."""
         self._write(_row(), _TRUNCATED)
         for kwargs in (
             {"operator_approval_ref": "", "reason": "x"},
+            {"operator_approval_ref": "OPS-1", "reason": "a real reason"},
             {"operator_approval_ref": "OPS-1", "reason": "   "},
         ):
             with self.subTest(**kwargs):

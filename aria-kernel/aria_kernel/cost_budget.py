@@ -48,8 +48,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .hmac_keyring import utc_now_stamp
 from .ledger import atomic_write_json
-from .tool_registry import GovernanceError, ensure_tools_dir
+from .operator_approval import recorded_instance, require_operator_act
+from .tool_registry import GovernanceError, ensure_tools_dir, tools_dir
+
+# ARIA-HIGH-238 — the breaker's name in an operator approval line, and the
+# governance kind recording an operator clearing it (an authority-raising
+# write, pinned by tests/test_operator_approval_callers.py).
+COST_BREAKER = "cost"
+COST_BREAKER_RESET_EVENT = "cost_budget_breaker_reset"
 
 _BUDGET_DIR_RELATIVE = ("budget",)
 # ORPHAN-HIGH-466 — budget/daily.json + budget/monthly.json are GONE.
@@ -241,7 +249,7 @@ def _trip_breaker(
         _state_path(root),
         {
             "state": "tripped",
-            "tripped_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "tripped_at": utc_now_stamp(),
             "cap_name": cap_name,
             "amount": amount,
             "cap": cap,
@@ -270,6 +278,16 @@ def _trip_breaker(
     )
 
 
+def trip_scope(base_dir: str | Path | None) -> dict[str, str]:
+    """ARIA-HIGH-238 — the trip an operator act clearing this breaker binds to:
+    the state's ``tripped_at`` (``NO_RECORDED_INSTANCE`` when the tripped state
+    records none), so an act posted for one trip cannot clear the next."""
+    return {
+        "breaker": COST_BREAKER,
+        "tripped_at": recorded_instance(_read_json(_state_path(tools_dir(base_dir)), {}).get("tripped_at")),
+    }
+
+
 def reset_breaker(
     *,
     base_dir: str | Path,
@@ -279,24 +297,32 @@ def reset_breaker(
     """Plan ARIA-V3 §B0 — operator clears the tripped flag after
     investigating + adjusting caps if needed. Audit event records
     the reset.
-    """
-    root = ensure_tools_dir(base_dir)
-    # ARIA-HIGH-238 — a tripped cost breaker blocks spending; clearing it
-    # re-opens the wallet, so the ref must be the operator's own GitHub act
-    # (previously ANY value — including an empty string — was accepted).
-    from .operator_approval import require_operator_act
 
+    ARIA-HIGH-238 — clearing a cost stop is proven by an operator's GitHub
+    act approving ``surface=breaker_reset breaker=cost`` for THIS trip
+    (:func:`trip_scope`; ``aria-kernel cost-breaker reset
+    --print-approval-line`` prints the line). It accepted any string,
+    including an empty one, before. A breaker that is not tripped has
+    nothing to clear: no act is asked for and nothing is written.
+    """
+    if not (reason or "").strip():
+        raise GovernanceError("cost_budget_reset_requires_reason")
+    root = ensure_tools_dir(base_dir)
+    if current_state(root) != "tripped":
+        return {"status": "ok", "already_ok": True}
+    # The audit row below is refused under a frozen profile; refusing first
+    # keeps the act unspent and the stop in place.
+    from .runtime_profile import enforce_profile_for_write
+
+    enforce_profile_for_write("tool_governance", base_dir=root)
     approval = require_operator_act(
-        operator_approval_ref,
-        surface="cost_breaker_reset",
-        scope={"target": "cost_breaker"},
-        base_dir=root,
+        operator_approval_ref, surface="breaker_reset", scope=trip_scope(root), base_dir=root,
     )
     atomic_write_json(_state_path(root), {"state": "ok"})
     from .tool_registry import append_tools_governance
     append_tools_governance(
         root,
-        "cost_budget_breaker_reset",
+        COST_BREAKER_RESET_EVENT,
         {
             "operator_approval_ref": operator_approval_ref,
             "operator_approval": approval,
@@ -307,8 +333,11 @@ def reset_breaker(
 
 
 __all__ = [
+    "COST_BREAKER",
+    "COST_BREAKER_RESET_EVENT",
     "assert_within_budget",
     "current_state",
     "derived_usage",
     "reset_breaker",
+    "trip_scope",
 ]

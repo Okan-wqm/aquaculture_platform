@@ -207,15 +207,19 @@ class PhaseB0CostBudget(unittest.TestCase):
             except GovernanceError:
                 pass
             self.assertEqual(current_state(base), "tripped")
+            # ARIA-HIGH-238 — clearing the stop is an operator's GitHub act
+            # bound to this trip; a free string no longer clears it.
+            from aria_kernel.cost_budget import trip_scope
             from tests._helpers.operator_acts import github_operator_acts
 
             with github_operator_acts() as github:
+                with self.assertRaises(GovernanceError):
+                    reset_breaker(base_dir=base, reason="invariant b0 reset test", operator_approval_ref="RFC-RST")
+                self.assertEqual(current_state(base), "tripped")
                 reset_breaker(
                     base_dir=base,
                     reason="invariant b0 reset test",
-                    operator_approval_ref=github.approve(
-                        "cost_breaker_reset", {"target": "cost_breaker"},
-                    ),
+                    operator_approval_ref=github.approve("breaker_reset", trip_scope(base)),
                 )
             self.assertEqual(current_state(base), "ok")
 

@@ -1,320 +1,654 @@
-"""ARIA-CRITICAL-216 — every operator-approval caller, classified and pinned.
+"""ARIA-CRITICAL-216 + ARIA-HIGH-238 — every function that takes an operator
+approval reference, classified and pinned.
 
-Three classes, one rule each:
+THE POPULATION is decided from the code, not from a list someone remembers:
+every kernel function with a parameter named like an approval reference
+(``APPROVAL_PARAMETER``) plus every function that calls one of the two
+verifiers. ``APPROVAL_FUNCTIONS`` must name that population exactly. A new
+parameter, a new verifier call or a vanished function fails here until it is
+classified — that is how ARIA-HIGH-238 found 25 modules accepting a free
+string the old pin (verifier call sites only) never saw.
 
-* RAISING — success widens what ARIA may do. Proven only by a GitHub act of a
-  listed operator (``operator_approval.verify_operator_approval``), scoped to
-  exactly the grant and consumed once. ``gov:``/``review:``/``ack-env:`` are
-  refused: ARIA can author every one of them.
-* LOWERING — success narrows authority (revoke a grant, freeze, lower a
-  profile or ceiling). A reason string on the record is enough; these callers
-  reference neither verifier.
-* RECORD — the reference attests a decision that grants no authority (a
-  consensus finding admitted, an anti-pattern that SKIPS work, a run-ledger
-  format, a surface reset). They keep the recorded-reference grammar
-  (``operator_approval.verify_recorded_reference``), which refuses every
-  RAISING surface by construction.
+THE CLASSES, each with one rule checked from the AST:
 
-The table below is the whole population. A new call to either verifier, a new
-surface, or a caller moving class fails here until it is classified.
+* RAISING — success widens what ARIA may do. It calls
+  ``verify_operator_approval`` (directly, or through the owner's one wrapper
+  ``require_operator_act``) naming exactly its literal surfaces (a GitHub
+  act of a listed operator, scoped, consumed once), or hands its reference to
+  a classified RAISING callee that does.
+* RAISING|LOWERING — one entry point, both directions: as RAISING.
+* PASS_THROUGH — hands the reference only to the named RAISING callee and
+  verifies nothing itself.
+* RECORD — calls ``verify_recorded_reference`` with exactly its literal
+  ``RECORD_SURFACES``: a decision that grants no authority.
+* LOWERING — narrows authority; a reason on the record is enough.
+* PROVENANCE — the reference is written as context and nothing reads it as
+  authority; each entry says why. Neither LOWERING nor PROVENANCE verifies or
+  calls a RAISING function (``lowering_violations``): one that does raises.
+* INTERNAL — a private helper with no call site outside the named callers.
+* PANEL — the authority is a panel adjudication the kernel resolves itself.
+* INERT — no production call site at all. The first caller fails the pin and
+  forces a real class with a real surface; designing a scope for a door
+  nobody uses would freeze a contract with no caller.
+* OWNED_ELSEWHERE — another open finding owns the fix. The entry lapses when
+  that finding leaves OPEN/IN-PROGRESS: the pin then fails and forces a class.
+
+``UNVERIFIED_UNTIL`` names RAISING entries whose verification lands in a later
+slice of ARIA-HIGH-238. Each is a strict expected failure: the pin fails the
+moment the function verifies (drop the entry), the moment its surface is
+declared without a verifier, and when the finding closes with it still listed.
+
+P5 is the build-time gate for the event kinds that record a raise: each is
+written only inside a RAISING function, so a future raise that asks for
+nothing cannot write the event without failing CI.
 """
 from __future__ import annotations
 
 import ast
 import os
+import re
 import shutil
 import tempfile
 import unittest
+from collections.abc import Iterator
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import aria_kernel
+from aria_kernel.circuit_breaker import BREAKER_EVIDENCE_QUARANTINED_EVENT, BREAKER_RESET_EVENT
+from aria_kernel.control import CONTROL_RECORDED_EVENT
+from aria_kernel.cost_budget import COST_BREAKER_RESET_EVENT
+from aria_kernel.mcp_client import MCP_RELEASED_EVENT, QUARANTINE_SURFACE, RELEASE_ROW_EVENT
 from aria_kernel.operator_approval import AUTHORITY_RAISING_SURFACES, RECORD_SURFACES
+from aria_kernel.report_ingestion import read_registry_view
 from aria_kernel.tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
 from tests._helpers.operator_acts import github_operator_acts, operator_set_profile
 
 KERNEL = Path(aria_kernel.__file__).resolve().parent
+REPO = KERNEL.parents[1]
 
 GITHUB_VERIFIER = "verify_operator_approval"
 RECORDED_VERIFIER = "verify_recorded_reference"
-# ARIA-HIGH-238 — the owner module's wrapper every new raising surface calls
-# (verify + the GovernanceError mapping, in one place).
-GITHUB_VERIFIERS = frozenset({GITHUB_VERIFIER, "require_operator_act"})
+# ARIA-HIGH-238 — the owner module's one wrapper (verify + the GovernanceError
+# mapping, in one place). A call to it is a call to the GitHub verifier.
+GITHUB_WRAPPER = "require_operator_act"
+GITHUB_VERIFIERS = frozenset({GITHUB_VERIFIER, GITHUB_WRAPPER})
+VERIFIERS = frozenset({*GITHUB_VERIFIERS, RECORDED_VERIFIER})
+PANEL_RESOLVERS = frozenset({"resolve_panel_approval", "resolve_panel_adjudication_proof"})
+GOVERNANCE_WRITERS = frozenset({"append_tools_governance", "append_tools_governance_once"})
+DECLARED_WRITERS = frozenset({"append_declared_jsonl"})
+OPEN_STATES = frozenset({"OPEN", "IN-PROGRESS"})
 
-# (module, function) -> (verifier it calls, surfaces it names). The direct call
-# sites; the entry points that reach them are listed in ENTRY_POINTS.
-VERIFIER_CALL_SITES: dict[tuple[str, str], tuple[str, frozenset[str]]] = {
-    ("runtime_profile", "set_profile"): (GITHUB_VERIFIER, frozenset({"runtime_profile"})),
-    ("runtime_profile", "set_merge_lane_grant"): (GITHUB_VERIFIER, frozenset({"merge_lane_grant"})),
-    ("self_merge_freeze", "unfreeze_self_merge"): (GITHUB_VERIFIER, frozenset({"self_merge_unfreeze"})),
-    ("tool_registry", "resolve_transition_approval"): (
-        GITHUB_VERIFIER, frozenset({"tool_promote", "tool_unquarantine"}),
-    ),
-    ("policy_approval", "record_policy_approval"): (GITHUB_VERIFIER, frozenset({"l3_policy_approval"})),
-    # ARIA-HIGH-238 — surfaced as their fixes land; every row is also an
-    # ENTRY_POINTS key above.
-    ("circuit_breaker", "reset_breaker"): (GITHUB_VERIFIER, frozenset({"circuit_breaker_reset"})),
-    ("circuit_breaker", "quarantine_breaker_evidence"): (
-        GITHUB_VERIFIER, frozenset({"breaker_evidence_quarantine"}),
-    ),
-    ("cost_budget", "reset_breaker"): (GITHUB_VERIFIER, frozenset({"cost_breaker_reset"})),
-    ("autonomous_host_lease", "release_lease"): (GITHUB_VERIFIER, frozenset({"host_lease_release"})),
-    ("self_modification", "request_kernel_change"): (
-        GITHUB_VERIFIER, frozenset({"kernel_change_request"}),
-    ),
-    ("proposal", "approve_proposal"): (GITHUB_VERIFIER, frozenset({"proposal_approval"})),
-    ("instinct_candidate", "promote_candidate"): (
-        GITHUB_VERIFIER, frozenset({"instinct_promotion"}),
-    ),
-    ("genesis_lifecycle", "record_transition"): (
-        GITHUB_VERIFIER, frozenset({"genesis_transition"}),
-    ),
-    ("agent_genesis", "approve_agent_pr"): (GITHUB_VERIFIER, frozenset({"agent_pr_approval"})),
-    ("agent_genesis", "record_draft_lifecycle_chain"): (
-        GITHUB_VERIFIER, frozenset({"genesis_request"}),
-    ),
-    ("skill_genesis", "approve_skill_pr"): (GITHUB_VERIFIER, frozenset({"skill_pr_approval"})),
-    ("skill_genesis", "sandbox_skill"): (
-        GITHUB_VERIFIER, frozenset({"skill_synthetic_sandbox"}),
-    ),
-    ("skill_curator", "decide_curation"): (
-        GITHUB_VERIFIER, frozenset({"skill_curation_decision"}),
-    ),
-    ("agent_eval", "run_agent_eval"): (GITHUB_VERIFIER, frozenset({"agent_eval_run"})),
-    ("shadow_eval_bridge", "bridge_shadow_eval_from_invocation"): (
-        GITHUB_VERIFIER, frozenset({"shadow_eval_bridge"}),
-    ),
-    ("agent_invocations", "_submit_legacy_invocation_result_internal"): (
-        GITHUB_VERIFIER, frozenset({"legacy_result_submit"}),
-    ),
-    ("security.grant", "new_claims"): (GITHUB_VERIFIER, frozenset({"grant_human_approval"})),
-    ("pressure", "record_weight_override"): (
-        GITHUB_VERIFIER, frozenset({"pressure_weight_override"}),
-    ),
-    ("ack_ledger", "init_ack_ledger"): (GITHUB_VERIFIER, frozenset({"ack_key_operation"})),
-    ("ack_ledger", "rotate_key"): (GITHUB_VERIFIER, frozenset({"ack_key_operation"})),
-    ("runtime_artifacts", "retention_apply"): (
-        GITHUB_VERIFIER, frozenset({"retention_apply"}),
-    ),
-    ("runtime_artifacts", "restore_artifact"): (
-        GITHUB_VERIFIER, frozenset({"artifact_restore"}),
-    ),
-    ("runtime_artifacts", "rollback_retention"): (
-        GITHUB_VERIFIER, frozenset({"retention_rollback"}),
-    ),
-    ("tool_registry", "update_tool"): (GITHUB_VERIFIER, frozenset({"tool_update"})),
-    ("finding_promotion", "promote_consensus_findings"): (
-        RECORDED_VERIFIER, frozenset({"consensus_finding_promotion"}),
-    ),
-    ("knowledge_graph", "record_anti_pattern"): (RECORDED_VERIFIER, frozenset({"knowledge_graph_anti_pattern"})),
-    ("runtime_artifacts", "approve_runtime_v2_promotion"): (RECORDED_VERIFIER, frozenset({"runtime_v2_promotion"})),
-    ("memory_gap", "record_surface_reset"): (RECORDED_VERIFIER, frozenset({"surface_reset"})),
+# The vocabulary: a parameter that carries an approval reference.
+APPROVAL_PARAMETER = re.compile(r"^(operator_ref|.*approval(_ledger)?_ref)$")
+
+
+@dataclass(frozen=True)
+class Klass:
+    kind: str
+    surfaces: frozenset[str] = frozenset()
+    callee: str = ""  # module.function the reference is handed to (RAISING via, PASS_THROUGH)
+    parameter: str = ""  # the parameter PASS_THROUGH hands on
+    callers: frozenset[str] = frozenset()  # INTERNAL: the only module.function call sites
+    finding: str = ""  # OWNED_ELSEWHERE
+    why: str = ""
+
+
+def raising(*surfaces: str) -> Klass:
+    return Klass("RAISING", surfaces=frozenset(surfaces))
+
+
+def raising_via(callee: str) -> Klass:
+    return Klass("RAISING", callee=callee)
+
+
+def raising_or_lowering(*surfaces: str) -> Klass:
+    return Klass("RAISING|LOWERING", surfaces=frozenset(surfaces))
+
+
+def pass_through(parameter: str, callee: str) -> Klass:
+    return Klass("PASS_THROUGH", callee=callee, parameter=parameter)
+
+
+def record(*surfaces: str) -> Klass:
+    return Klass("RECORD", surfaces=frozenset(surfaces))
+
+
+def lowering(why: str) -> Klass:
+    return Klass("LOWERING", why=why)
+
+
+def provenance(why: str) -> Klass:
+    return Klass("PROVENANCE", why=why)
+
+
+def internal(*callers: str) -> Klass:
+    return Klass("INTERNAL", callers=frozenset(callers))
+
+
+def panel(why: str) -> Klass:
+    return Klass("PANEL", why=why)
+
+
+def inert(why: str) -> Klass:
+    return Klass("INERT", why=why)
+
+
+def owned_elsewhere(finding: str, why: str) -> Klass:
+    return Klass("OWNED_ELSEWHERE", finding=finding, why=why)
+
+
+RAISING_KINDS = frozenset({"RAISING", "RAISING|LOWERING"})
+
+APPROVAL_FUNCTIONS: dict[tuple[str, str], Klass] = {
+    # --- RAISING: a GitHub act of a listed operator, bound to the grant ----------
+    ("runtime_profile", "set_merge_lane_grant"): raising("merge_lane_grant"),
+    ("self_merge_freeze", "unfreeze_self_merge"): raising("self_merge_unfreeze"),
+    ("tool_registry", "resolve_transition_approval"): raising("tool_promote", "tool_unquarantine"),
+    ("policy_approval", "record_policy_approval"): raising("l3_policy_approval"),
+    ("circuit_breaker", "reset_breaker"): raising("breaker_reset"),
+    ("circuit_breaker", "quarantine_breaker_evidence"): raising("breaker_evidence_quarantine"),
+    ("cost_budget", "reset_breaker"): raising("breaker_reset"),
+    ("mcp_client", "release_quarantine"): raising("mcp_unquarantine"),
+    ("tool_registry", "transition_tool"): raising_via("tool_registry.resolve_transition_approval"),
+    ("tool_registry", "unquarantine_tool"): raising_via("tool_registry.transition_tool"),
+    ("agent_genesis", "approve_agent_pr"): raising("agent_pr_approval"),
+    ("skill_genesis", "approve_skill_pr"): raising("skill_pr_approval"),
+    # ARIA-HIGH-238 — the surfaces beyond unit O's four: each verifies the
+    # operator's GitHub act through require_operator_act.
+    ("autonomous_host_lease", "release_lease"): raising_or_lowering("host_lease_release"),
+    ("self_modification", "request_kernel_change"): raising("kernel_change_request"),
+    ("agent_genesis", "record_draft_lifecycle_chain"): raising("genesis_request"),
+    ("agent_genesis", "draft_agent_from_gap"): raising_via("agent_genesis.record_draft_lifecycle_chain"),
+    ("skill_genesis", "sandbox_skill"): raising("skill_synthetic_sandbox"),
+    ("proposal", "approve_proposal"): raising("proposal_approval"),
+    ("instinct_candidate", "promote_candidate"): raising("instinct_promotion"),
+    ("genesis_lifecycle", "record_transition"): raising_or_lowering("genesis_transition"),
+    ("skill_curator", "decide_curation"): raising("skill_curation_decision"),
+    ("pressure", "record_weight_override"): raising("pressure_weight_override"),
+    ("agent_eval", "run_agent_eval"): raising("agent_eval_run"),
+    ("shadow_eval_bridge", "bridge_shadow_eval_from_invocation"): raising("shadow_eval_bridge"),
+    ("agent_invocations", "_submit_legacy_invocation_result_internal"): raising("legacy_result_submit"),
+    ("security.grant", "new_claims"): raising("grant_human_approval"),
+    ("ack_ledger", "init_ack_ledger"): raising("ack_key_operation"),
+    ("ack_ledger", "rotate_key"): raising("ack_key_operation"),
+    ("runtime_artifacts", "retention_apply"): raising("retention_apply"),
+    ("runtime_artifacts", "restore_artifact"): raising("artifact_restore"),
+    ("runtime_artifacts", "rollback_retention"): raising("retention_rollback"),
+    ("tool_registry", "update_tool"): raising("tool_update"),
+    # A transition that widens the recorded grant raises; frozen, observe, a
+    # lower ceiling or a lane inside its ceiling lowers. `resume` with a
+    # standing pause raises; `pause` and `cancel` lower.
+    ("runtime_profile", "set_profile"): raising_or_lowering("runtime_profile"),
+    ("control", "record_control"): raising_or_lowering("control_resume"),
+    # --- PASS_THROUGH ----------------------------------------------------------
+    ("promotion", "promote_tool"): pass_through("operator_approval_ref", "tool_registry.transition_tool"),
+    # --- RECORD: attests a decision that grants no authority ---------------------
+    ("finding_promotion", "promote_consensus_findings"): record("consensus_finding_promotion"),
+    ("memory_gap", "record_surface_reset"): record("surface_reset"),
+    ("runtime_artifacts", "approve_runtime_v2_promotion"): record("runtime_v2_promotion"),
+    ("knowledge_graph", "record_anti_pattern"): record("knowledge_graph_anti_pattern"),
+    # --- LOWERING: a reason is enough --------------------------------------------
+    ("runtime_profile", "revoke_merge_lane_grant"): lowering("removes the merge lane grant"),
+    ("self_merge_freeze", "freeze_self_merge"): lowering("stops ARIA merging until an operator unfreezes"),
+    ("promotion_veto", "veto_promotion"): lowering("cancels an armed panel promotion inside its veto window"),
+    ("skill_curator", "rollback_skill_materialization"): lowering("removes a materialized skill"),
+    ("ack_ledger", "revoke_key"): lowering(
+        "drops a compromised ack key from the verifying set; every row it signed verifies as "
+        "signed_key_revoked (ARIA-LOW-598)"),
+    # --- PROVENANCE: written as context, read by nothing as authority -------------
+    ("agent_eval", "_validate_real_eval_provenance"): provenance(
+        "checks the shape of a real-eval ledger reference; grants nothing"),
+    ("gateway.scheduler", "add_schedule"): provenance(
+        "a schedule runs a kernel action under that action's own gates; the ref names who asked"),
+    ("gateway.scheduler", "change_schedule"): provenance(
+        "a schedule runs a kernel action under that action's own gates; the ref names who asked"),
+    # --- INTERNAL ------------------------------------------------------------------
+    ("runtime_profile", "_transition_merge_lane_grant"): internal(
+        "runtime_profile.set_merge_lane_grant", "runtime_profile.revoke_merge_lane_grant"),
+    ("proposal", "_write_approval"): internal("proposal.approve_proposal", "proposal.record_machine_approval"),
+    # --- PANEL ---------------------------------------------------------------------
+    ("promotion_veto", "resolve_panel_approval"): panel("re-derives the panel adjudication for this tool"),
+    ("promotion_veto", "record_pending_promotion"): panel("arms the veto window only on a resolved panel approval"),
 }
 
-# Every entry point an operator (or a lane) reaches, with its class. set_profile
-# is both: a transition that widens the recorded grant is RAISING, any other
-# transition (frozen, observe, a lower ceiling, a lane inside its ceiling) is
-# LOWERING. transition_tool is RAISING for ACTIVE and for leaving QUARANTINED.
-ENTRY_POINTS: dict[tuple[str, str], str] = {
-    ("runtime_profile", "set_profile"): "RAISING|LOWERING",
-    ("runtime_profile", "set_merge_lane_grant"): "RAISING",
-    ("runtime_profile", "revoke_merge_lane_grant"): "LOWERING",
-    ("self_merge_freeze", "unfreeze_self_merge"): "RAISING",
-    ("self_merge_freeze", "freeze_self_merge"): "LOWERING",
-    ("tool_registry", "transition_tool"): "RAISING",
-    ("tool_registry", "unquarantine_tool"): "RAISING",
-    ("promotion", "promote_tool"): "RAISING",
-    ("policy_approval", "record_policy_approval"): "RAISING",
-    ("finding_promotion", "promote_consensus_findings"): "RECORD",
-    ("knowledge_graph", "record_anti_pattern"): "RECORD",
-    ("runtime_artifacts", "approve_runtime_v2_promotion"): "RECORD",
-    ("memory_gap", "record_surface_reset"): "RECORD",
-    # ARIA-HIGH-238 — the surfaces beyond the original six, classified as
-    # their fix lands. Conditional raisers (a ref kwarg that is None unless
-    # the caller claims operator authority) verify exactly when supplied.
-    ("circuit_breaker", "reset_breaker"): "RAISING",
-    ("circuit_breaker", "quarantine_breaker_evidence"): "RAISING",
-    ("cost_budget", "reset_breaker"): "RAISING",
-    ("autonomous_host_lease", "release_lease"): "RAISING|LOWERING",
-    ("self_modification", "request_kernel_change"): "RAISING",
-    ("proposal", "approve_proposal"): "RAISING",
-    ("instinct_candidate", "promote_candidate"): "RAISING",
-    ("genesis_lifecycle", "record_transition"): "RAISING|LOWERING",
-    ("agent_genesis", "approve_agent_pr"): "RAISING",
-    ("agent_genesis", "record_draft_lifecycle_chain"): "RAISING",
-    ("skill_genesis", "approve_skill_pr"): "RAISING",
-    ("skill_genesis", "sandbox_skill"): "RAISING",
-    ("skill_curator", "decide_curation"): "RAISING",
-    ("skill_curator", "rollback_skill_materialization"): "LOWERING",
-    ("agent_eval", "run_agent_eval"): "RAISING",
-    ("shadow_eval_bridge", "bridge_shadow_eval_from_invocation"): "RAISING",
-    ("agent_invocations", "_submit_legacy_invocation_result_internal"): "RAISING",
-    ("security.grant", "new_claims"): "RAISING",
-    ("pressure", "record_weight_override"): "RAISING",
-    ("ack_ledger", "init_ack_ledger"): "RAISING",
-    ("ack_ledger", "rotate_key"): "RAISING",
-    ("runtime_artifacts", "retention_apply"): "RAISING",
-    ("runtime_artifacts", "restore_artifact"): "RAISING",
-    ("runtime_artifacts", "rollback_retention"): "RAISING",
-    ("tool_registry", "update_tool"): "RAISING",
+# RAISING entries whose verification lands in a later slice of ARIA-HIGH-238.
+UNVERIFIED_UNTIL: dict[tuple[str, str], str] = {
+    ("control", "record_control"): "ARIA-HIGH-238",
 }
 
-
-# Internal plumbing: the function hands the ref to the layer that owns its
-# proof and never decides anything on the string itself. PASS_THROUGH is not
-# an honour class — every entry names the layer that holds the rule.
-PASS_THROUGH: dict[tuple[str, str], str] = {
-    ("runtime_profile", "_transition_merge_lane_grant"):
-        "set_merge_lane_grant verifies the act before the state writer runs",
-    ("proposal", "_write_approval"):
-        "approve_proposal verifies; record_machine_approval passes no operator ref",
-    ("promotion_veto", "resolve_panel_approval"):
-        "resolves a PANEL adjudication (human_required.resolve_panel_adjudication_proof); "
-        "a panel ref is not operator authority",
-    ("promotion_veto", "record_pending_promotion"):
-        "calls resolve_panel_approval, the panel-proof resolver above",
-    ("agent_genesis", "draft_agent_from_gap"):
-        "hands the ref to record_draft_lifecycle_chain, which verifies the operator "
-        "path (genesis_request) before the chain records REQUEST",
-}
+# P5 — the writes that record an authority raise.
+RAISING_GOVERNANCE_KINDS: frozenset[str] = frozenset({
+    BREAKER_RESET_EVENT,
+    COST_BREAKER_RESET_EVENT,
+    BREAKER_EVIDENCE_QUARANTINED_EVENT,
+    MCP_RELEASED_EVENT,
+    CONTROL_RECORDED_EVENT,
+})
+RAISING_DECLARED_ROWS: frozenset[tuple[str, str]] = frozenset({(QUARANTINE_SURFACE, RELEASE_ROW_EVENT)})
 
 
-# ARIA-HIGH-238 — the shrink-to-zero queue. Every kernel function that takes
-# an ``*approval_ref`` parameter must be classified above (or here while its
-# fix is in flight). An entry leaves this table only with its production fix
-# in the same commit; the completing commit empties it.
-PENDING_CLASSIFICATION: frozenset[tuple[str, str]] = frozenset()
+# ----- the kernel, read once ------------------------------------------------------
 
 
-def _functions(tree: ast.AST) -> list[ast.FunctionDef]:
-    return [node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)]
+@dataclass(frozen=True)
+class Module:
+    name: str
+    tree: ast.Module
+    parents: dict[ast.AST, ast.AST]
+    constants: dict[str, str]
+    imported: dict[str, tuple[str, str]]  # local name -> (module, name)
 
 
-def _approval_ref_parameters() -> set[tuple[str, str]]:
-    """Every (module, function) whose signature takes an ``*approval_ref``."""
+def _module_name(path: Path) -> str:
+    parts = list(path.relative_to(KERNEL).with_suffix("").parts)
+    if parts[-1] == "__init__":
+        parts = parts[:-1]
+    return ".".join(parts)
+
+
+def _resolve_from(module: str, node: ast.ImportFrom, *, is_package: bool) -> str:
+    package = module.split(".") if is_package else module.split(".")[:-1]
+    if node.level:
+        package = package[: len(package) - (node.level - 1)] if node.level > 1 else package
+    else:
+        package = []
+    target = (node.module or "").split(".") if node.module else []
+    if not node.level and target[:1] == ["aria_kernel"]:
+        target = target[1:]
+    return ".".join([*package, *target])
+
+
+def parse_module(name: str, source: str, *, is_package: bool = False) -> Module:
+    tree = ast.parse(source)
+    parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+    constants: dict[str, str] = {}
+    for node in tree.body:
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target] if isinstance(node, ast.AnnAssign) else []
+        value = getattr(node, "value", None)
+        if isinstance(value, ast.Constant) and isinstance(value.value, str):
+            for target in targets:
+                if isinstance(target, ast.Name):
+                    constants[target.id] = value.value
+    imported: dict[str, tuple[str, str]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            source_module = _resolve_from(name, node, is_package=is_package)
+            for alias in node.names:
+                imported[alias.asname or alias.name] = (source_module, alias.name)
+    return Module(name, tree, parents, constants, imported)
+
+
+def load_kernel() -> dict[str, Module]:
+    return {
+        _module_name(path): parse_module(
+            _module_name(path), path.read_text(encoding="utf-8"), is_package=path.name == "__init__.py",
+        )
+        for path in sorted(KERNEL.rglob("*.py"))
+    }
+
+
+MODULES = load_kernel()
+
+
+def _functions(module: Module) -> Iterator[ast.FunctionDef | ast.AsyncFunctionDef]:
+    for node in ast.walk(module.tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            yield node
+
+
+def _function(
+    key: tuple[str, str], modules: dict[str, Module] = MODULES,
+) -> ast.FunctionDef | ast.AsyncFunctionDef:
+    module, name = key
+    found = [f for f in _functions(modules[module]) if f.name == name]
+    if len(found) != 1:
+        raise AssertionError(f"{module}.{name}: {len(found)} definitions")
+    return found[0]
+
+
+def _parameters(function: ast.FunctionDef | ast.AsyncFunctionDef) -> list[str]:
+    arguments = function.args
+    return [a.arg for a in (*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs)]
+
+
+def _call_name(call: ast.Call) -> str | None:
+    func = call.func
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    return None
+
+
+def _calls(node: ast.AST) -> Iterator[ast.Call]:
+    for child in ast.walk(node):
+        if isinstance(child, ast.Call):
+            yield child
+
+
+def _verifier_surfaces(function: ast.AST) -> dict[str, frozenset[str]]:
+    """verifier -> every string literal under its ``surface=`` keyword.
+
+    The wrapper is reported as the GitHub verifier it calls."""
+    found: dict[str, set[str]] = {}
+    for call in _calls(function):
+        name = _call_name(call)
+        if name not in VERIFIERS:
+            continue
+        literals = found.setdefault(GITHUB_VERIFIER if name in GITHUB_VERIFIERS else name, set())
+        for keyword in call.keywords:
+            if keyword.arg == "surface":
+                literals.update(
+                    node.value for node in ast.walk(keyword.value)
+                    if isinstance(node, ast.Constant) and isinstance(node.value, str)
+                )
+    return {name: frozenset(values) for name, values in found.items()}
+
+
+def _hands_on(function: ast.AST, parameter: str, *, through_locals: bool = False) -> set[str]:
+    """Names of the callees whose arguments carry ``parameter``.
+
+    ``through_locals`` also follows a local bound from it (``ref =
+    str(parameter or "").strip() or None``): a RAISING-via entry may normalise
+    the reference before handing it to its RAISING callee. PASS_THROUGH keeps
+    the exact rule (only the parameter itself)."""
+    carriers = {parameter}
+    for node in ast.walk(function) if through_locals else ():
+        if isinstance(node, ast.Assign) and any(
+            isinstance(leaf, ast.Name) and leaf.id in carriers for leaf in ast.walk(node.value)
+        ):
+            carriers.update(target.id for target in node.targets if isinstance(target, ast.Name))
+    callees: set[str] = set()
+    for call in _calls(function):
+        arguments = [*call.args, *(keyword.value for keyword in call.keywords)]
+        if any(isinstance(node, ast.Name) and node.id in carriers for arg in arguments for node in ast.walk(arg)):
+            name = _call_name(call)
+            if name is not None:
+                callees.add(name)
+    return callees
+
+
+def population(modules: dict[str, Module]) -> set[tuple[str, str]]:
+    """Every function with an approval parameter, plus every verifier caller."""
     found: set[tuple[str, str]] = set()
-    for path in sorted(KERNEL.rglob("*.py")):
-        module = path.relative_to(KERNEL).with_suffix("").as_posix().replace("/", ".")
-        for function in _functions(ast.parse(path.read_text(encoding="utf-8"))):
-            arguments = function.args.args + function.args.kwonlyargs
-            if any(arg.arg.endswith("approval_ref") for arg in arguments):
-                found.add((module, function.name))
+    for module in modules.values():
+        if module.name == "operator_approval":
+            continue
+        for function in _functions(module):
+            if any(APPROVAL_PARAMETER.match(p) for p in _parameters(function)) or _verifier_surfaces(function):
+                found.add((module.name, function.name))
     return found
 
 
-def _called_names(node: ast.AST) -> set[str]:
-    names: set[str] = set()
-    for call in ast.walk(node):
-        if isinstance(call, ast.Call):
-            func = call.func
-            if isinstance(func, ast.Name):
-                names.add(func.id)
-            elif isinstance(func, ast.Attribute):
-                names.add(func.attr)
+def _resolve_string(module: Module, node: ast.AST, modules: dict[str, Module]) -> str | None:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.Name):
+        if node.id in module.constants:
+            return module.constants[node.id]
+        origin = module.imported.get(node.id)
+        if origin is not None and origin[0] in modules:
+            return modules[origin[0]].constants.get(origin[1])
+    if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+        origin = module.imported.get(node.value.id)
+        if origin is not None:
+            target = ".".join(part for part in origin if part)
+            if target in modules:
+                return modules[target].constants.get(node.attr)
+    return None
+
+
+def _enclosing(module: Module, node: ast.AST) -> list[str]:
+    names: list[str] = []
+    current = module.parents.get(node)
+    while current is not None:
+        if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            names.append(current.name)
+        current = module.parents.get(current)
     return names
 
 
-def _verifier_calls() -> dict[tuple[str, str], tuple[str, frozenset[str]]]:
-    found: dict[tuple[str, str], tuple[str, frozenset[str]]] = {}
-    for path in sorted(KERNEL.rglob("*.py")):
-        module = path.relative_to(KERNEL).with_suffix("").as_posix().replace("/", ".")
-        if module == "operator_approval":
+def raising_writes(modules: dict[str, Module]) -> list[tuple[str, tuple[str, ...], str]]:
+    """(module, enclosing functions inner->outer, what) for every raising write."""
+    writes: list[tuple[str, tuple[str, ...], str]] = []
+    for module in modules.values():
+        for call in _calls(module.tree):
+            name = _call_name(call)
+            if name in GOVERNANCE_WRITERS:
+                kind_node = call.args[1] if len(call.args) > 1 else next(
+                    (k.value for k in call.keywords if k.arg == "kind"), None)
+                kind = _resolve_string(module, kind_node, modules) if kind_node is not None else None
+                if kind in RAISING_GOVERNANCE_KINDS:
+                    writes.append((module.name, tuple(_enclosing(module, call)), kind))
+            elif name in DECLARED_WRITERS and len(call.args) > 1 and isinstance(call.args[1], ast.Dict):
+                surface_node = next((k.value for k in call.keywords if k.arg == "expected_surface"), None)
+                surface = _resolve_string(module, surface_node, modules) if surface_node is not None else None
+                for key, value in zip(call.args[1].keys, call.args[1].values):
+                    if isinstance(key, ast.Constant) and key.value == "event":
+                        event = _resolve_string(module, value, modules)
+                        if surface is not None and event is not None and (surface, event) in RAISING_DECLARED_ROWS:
+                            writes.append((module.name, tuple(_enclosing(module, call)), f"{surface}:{event}"))
+    return writes
+
+
+def raising_write_violations(
+    modules: dict[str, Module], classification: dict[tuple[str, str], Klass],
+) -> list[str]:
+    violations = []
+    for module, enclosing, what in raising_writes(modules):
+        if not any(classification.get((module, name), Klass("")).kind in RAISING_KINDS for name in enclosing):
+            where = f"{module}.{enclosing[0]}" if enclosing else f"{module} (module level)"
+            violations.append(f"{where} writes {what}")
+    return violations
+
+
+def lowering_violations(
+    modules: dict[str, Module], classification: dict[tuple[str, str], Klass],
+) -> list[str]:
+    """P2 for LOWERING and PROVENANCE: neither calls a RAISING function.
+
+    A call to one raises authority (verified inside the callee), so the class
+    would no longer say what the function does. Callees match by name, which
+    over-approximates (a same-named function elsewhere counts too); the remedy
+    is the same either way: reclassify, or rename.
+    """
+    raising_names = {name for (_module, name), klass in classification.items() if klass.kind in RAISING_KINDS}
+    violations: list[str] = []
+    for key, klass in classification.items():
+        if klass.kind not in {"LOWERING", "PROVENANCE"}:
             continue
-        for function in _functions(ast.parse(path.read_text(encoding="utf-8"))):
-            for call in ast.walk(function):
-                if not isinstance(call, ast.Call):
-                    continue
-                func = call.func
-                name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
-                if name not in (GITHUB_VERIFIERS | {RECORDED_VERIFIER}):
-                    continue
-                verifier = GITHUB_VERIFIER if name in GITHUB_VERIFIERS else RECORDED_VERIFIER
-                surface = next((kw.value for kw in call.keywords if kw.arg == "surface"), None)
-                literals = frozenset(
-                    node.value for node in ast.walk(surface)
-                    if isinstance(node, ast.Constant) and isinstance(node.value, str)
-                ) if surface is not None else frozenset()
-                key = (module, function.name)
-                prior = found.get(key)
-                if prior is not None:
-                    literals = literals | prior[1]
-                found[key] = (verifier, literals)
-    return found
+        called = {_call_name(call) for call in _calls(_function(key, modules))}
+        violations.extend(f"{_qualified(key)} calls RAISING {name}" for name in sorted(called & raising_names))
+    return violations
+
+
+def _production_call_sites(name: str) -> list[str]:
+    sites: list[str] = []
+    for module in MODULES.values():
+        for call in _calls(module.tree):
+            if _call_name(call) == name:
+                sites.append(f"aria_kernel/{module.name}:{call.lineno}")
+    for root in ("tools", "scripts"):
+        for path in sorted((REPO / root).rglob("*.py")):
+            if "node_modules" in path.parts:
+                continue
+            for call in _calls(ast.parse(path.read_text(encoding="utf-8"))):
+                if _call_name(call) == name:
+                    sites.append(f"{path.relative_to(REPO)}:{call.lineno}")
+    word = re.compile(rf"\b{re.escape(name)}\b")
+    for path in sorted([*(REPO / ".github" / "workflows").glob("*.yml"), *(REPO / ".github" / "actions").rglob("*.yml")]):
+        if word.search(path.read_text(encoding="utf-8")):
+            sites.append(str(path.relative_to(REPO)))
+    return sites
+
+
+def _registry_states() -> dict[str, str]:
+    return {str(row.get("id")): str(row.get("state")) for row in read_registry_view(REPO).rows}
+
+
+def _function_name(qualified: str) -> str:
+    return qualified.rsplit(".", 1)[1]
+
+
+def _qualified(key: tuple[str, str]) -> str:
+    return f"{key[0]}.{key[1]}"
 
 
 class CallerClassificationTests(unittest.TestCase):
-    def test_every_verifier_call_site_is_classified(self) -> None:
-        self.assertEqual(_verifier_calls(), VERIFIER_CALL_SITES)
+    def test_every_approval_function_is_classified(self) -> None:
+        """P1 — the table is the population: nothing unclassified, nothing stale."""
+        found = population(MODULES)
+        self.assertEqual(sorted(found - set(APPROVAL_FUNCTIONS)), [], "classify these in APPROVAL_FUNCTIONS")
+        defined = {(module.name, f.name) for module in MODULES.values() for f in _functions(module)}
+        stale = [
+            key for key in set(APPROVAL_FUNCTIONS) - found
+            if key not in defined or APPROVAL_FUNCTIONS[key].kind != "LOWERING"
+        ]
+        self.assertEqual(sorted(stale), [], "stale entries (gone, or outside the population and not a pinned LOWERING)")
 
-    def test_every_approval_ref_parameter_is_classified(self) -> None:
-        """ARIA-HIGH-238 — the parameter list is the whole caller population.
+    def test_raising_functions_verify_their_surface(self) -> None:
+        """P2 — RAISING asks GitHub for exactly its surfaces, or hands the ref to one that does."""
+        for key, klass in APPROVAL_FUNCTIONS.items():
+            if klass.kind not in RAISING_KINDS or key in UNVERIFIED_UNTIL:
+                continue
+            with self.subTest(function=_qualified(key)):
+                function = _function(key)
+                verifiers = _verifier_surfaces(function)
+                self.assertNotIn(RECORDED_VERIFIER, verifiers)
+                if klass.callee:
+                    callee = tuple(klass.callee.rsplit(".", 1))
+                    self.assertIn(APPROVAL_FUNCTIONS[callee].kind, RAISING_KINDS)
+                    self.assertIn(
+                        _function_name(klass.callee),
+                        _hands_on(function, "operator_approval_ref", through_locals=True),
+                    )
+                else:
+                    self.assertEqual(verifiers.get(GITHUB_VERIFIER), klass.surfaces)
+                    self.assertLessEqual(klass.surfaces, set(AUTHORITY_RAISING_SURFACES))
 
-        A function that takes an ``*approval_ref`` parameter claims operator
-        authority somewhere. Every such (module, function) must be classified:
-        an entry point in ``ENTRY_POINTS``/``VERIFIER_CALL_SITES``, internal
-        plumbing in ``PASS_THROUGH`` (naming the layer that owns the proof),
-        or queued in ``PENDING_CLASSIFICATION`` — which shrinks to zero and
-        must be empty when the finding closes.
-        """
-        classified = set(ENTRY_POINTS) | set(VERIFIER_CALL_SITES) | set(PASS_THROUGH)
-        pending = set(PENDING_CLASSIFICATION)
-        self.assertEqual(pending & classified, set(), "a PENDING row was fixed but not removed")
-        unclassified = _approval_ref_parameters() - classified
-        self.assertEqual(
-            sorted(unclassified - pending),
-            [],
-            "kernel functions taking an *approval_ref parameter with no class",
-        )
-        self.assertEqual(
-            sorted(pending - _approval_ref_parameters()),
-            [],
-            "PENDING rows that no longer take an approval-ref parameter",
-        )
-        # Plumbing must stay plumbing: a PASS_THROUGH that starts verifying
-        # is an entry point and belongs in ENTRY_POINTS instead.
-        trees = {
-            path.relative_to(KERNEL).with_suffix("").as_posix().replace("/", "."):
-                ast.parse(path.read_text(encoding="utf-8"))
-            for path in KERNEL.rglob("*.py")
-        }
-        for (module, name) in PASS_THROUGH:
-            with self.subTest(pass_through=f"{module}.{name}"):
-                function = next(f for f in _functions(trees[module]) if f.name == name)
-                self.assertFalse(
-                    _called_names(function) & (GITHUB_VERIFIERS | {RECORDED_VERIFIER}),
-                )
+    def test_every_other_class_keeps_its_rule(self) -> None:
+        """P2 — PASS_THROUGH, RECORD, LOWERING, PROVENANCE, INTERNAL, PANEL."""
+        lowering = lowering_violations(MODULES, APPROVAL_FUNCTIONS)
+        for key, klass in APPROVAL_FUNCTIONS.items():
+            with self.subTest(function=_qualified(key), kind=klass.kind):
+                function = _function(key)
+                verifiers = _verifier_surfaces(function)
+                if klass.kind == "PASS_THROUGH":
+                    self.assertEqual(verifiers, {})
+                    self.assertEqual(_hands_on(function, klass.parameter), {_function_name(klass.callee)})
+                    self.assertIn(APPROVAL_FUNCTIONS[tuple(klass.callee.rsplit(".", 1))].kind, RAISING_KINDS)
+                elif klass.kind == "RECORD":
+                    self.assertEqual(verifiers, {RECORDED_VERIFIER: klass.surfaces})
+                    self.assertLessEqual(klass.surfaces, RECORD_SURFACES)
+                elif klass.kind in {"LOWERING", "PROVENANCE"}:
+                    self.assertEqual(verifiers, {})
+                    self.assertTrue(klass.why)
+                    # Main's pin refused the resolver here; any RAISING callee is refused now.
+                    self.assertEqual([v for v in lowering if v.startswith(f"{_qualified(key)} ")], [])
+                elif klass.kind == "INTERNAL":
+                    sites = {
+                        f"{module.name}.{(_enclosing(module, call) or ['<module>'])[0]}"
+                        for module in MODULES.values() for call in _calls(module.tree)
+                        if _call_name(call) == key[1]
+                    }
+                    self.assertTrue(sites)
+                    self.assertLessEqual(sites, set(klass.callers))
+                elif klass.kind == "PANEL":
+                    self.assertTrue({_call_name(call) for call in _calls(function)} & PANEL_RESOLVERS)
+
+    def test_inert_functions_have_no_production_caller(self) -> None:
+        """P3 — the first production caller forces a real class."""
+        for key, klass in APPROVAL_FUNCTIONS.items():
+            if klass.kind == "INERT":
+                with self.subTest(function=_qualified(key)):
+                    self.assertEqual(_production_call_sites(key[1]), [])
+
+    def test_owned_elsewhere_ids_are_open(self) -> None:
+        """P4 — an entry lapses with the finding that owns it."""
+        states = _registry_states()
+        for key, klass in APPROVAL_FUNCTIONS.items():
+            if klass.kind == "OWNED_ELSEWHERE":
+                with self.subTest(function=_qualified(key), finding=klass.finding):
+                    self.assertIn(states.get(klass.finding), OPEN_STATES)
+
+    def test_unverified_raising_entries_are_strict_expected_failures(self) -> None:
+        """A RAISING entry still waiting for its slice may not verify, declare, or outlive its finding."""
+        states = _registry_states()
+        for key, finding in UNVERIFIED_UNTIL.items():
+            klass = APPROVAL_FUNCTIONS[key]
+            with self.subTest(function=_qualified(key)):
+                self.assertIn(klass.kind, RAISING_KINDS)
+                self.assertEqual(_verifier_surfaces(_function(key)), {}, "it verifies now: drop it from UNVERIFIED_UNTIL")
+                self.assertFalse(klass.surfaces & set(AUTHORITY_RAISING_SURFACES), "surface declared, no verifier")
+                self.assertIn(states.get(finding), OPEN_STATES, f"{finding} closed with the entry still unverified")
 
     def test_the_surface_sets_are_exactly_the_classified_surfaces(self) -> None:
-        raising = set().union(*(s for v, s in VERIFIER_CALL_SITES.values() if v == GITHUB_VERIFIER))
-        record = set().union(*(s for v, s in VERIFIER_CALL_SITES.values() if v == RECORDED_VERIFIER))
-        self.assertEqual(raising, set(AUTHORITY_RAISING_SURFACES))
-        self.assertEqual(record, set(RECORD_SURFACES))
+        raising_surfaces = set().union(*(
+            klass.surfaces for key, klass in APPROVAL_FUNCTIONS.items()
+            if klass.kind in RAISING_KINDS and key not in UNVERIFIED_UNTIL
+        ))
+        record_surfaces = set().union(*(k.surfaces for k in APPROVAL_FUNCTIONS.values() if k.kind == "RECORD"))
+        self.assertEqual(raising_surfaces, set(AUTHORITY_RAISING_SURFACES))
+        self.assertEqual(record_surfaces, set(RECORD_SURFACES))
+
+    def test_raising_event_kinds_written_only_by_raising_functions(self) -> None:
+        """P5 — and every raising kind still has its writer (a renamed constant is not a pass)."""
+        self.assertEqual(raising_write_violations(MODULES, APPROVAL_FUNCTIONS), [])
+        written = {what for _module, _enclosing, what in raising_writes(MODULES)}
+        expected = set(RAISING_GOVERNANCE_KINDS) | {f"{s}:{e}" for s, e in RAISING_DECLARED_ROWS}
+        self.assertEqual(written, expected)
+
+    def test_the_raising_write_detector_catches_an_unclassified_writer(self) -> None:
+        """P5's detector, on a module that clears the breaker without asking anyone."""
+        source = (
+            "from .tool_registry import append_tools_governance\n"
+            "from .circuit_breaker import BREAKER_RESET_EVENT\n"
+            "def quiet_reset(root):\n"
+            "    append_tools_governance(root, BREAKER_RESET_EVENT, {})\n"
+            "def quiet_release(root, path):\n"
+            "    append_declared_jsonl(path, {'event': 'released'}, expected_surface='mcp_quarantine')\n"
+        )
+        modules = {**MODULES, "rogue": parse_module("rogue", source)}
+        self.assertEqual(
+            raising_write_violations(modules, APPROVAL_FUNCTIONS),
+            [f"rogue.quiet_reset writes {BREAKER_RESET_EVENT}", "rogue.quiet_release writes mcp_quarantine:released"],
+        )
+
+    def test_the_lowering_rule_catches_a_lowering_function_that_reaches_a_raising_callee(self) -> None:
+        """P2's LOWERING/PROVENANCE rule, on functions whose class no longer says what they do.
+
+        A freeze that also promotes a tool through the resolver raises; so does a
+        provenance writer that hands its ref to ``transition_tool``. The authority
+        is still verified inside the callee, but the table would call them
+        narrowing, so the pin refuses them until they are reclassified.
+        """
+        source = (
+            "from .tool_registry import resolve_transition_approval, transition_tool\n"
+            "def quiet_freeze(root, operator_approval_ref, reason):\n"
+            "    resolve_transition_approval(root, operator_approval_ref)\n"
+            "def quiet_note(root, operator_approval_ref):\n"
+            "    transition_tool(root, operator_approval_ref=operator_approval_ref)\n"
+            "def honest_freeze(root, operator_approval_ref, reason):\n"
+            "    return reason\n"
+        )
+        modules = {**MODULES, "rogue": parse_module("rogue", source)}
+        classification = {
+            **APPROVAL_FUNCTIONS,
+            ("rogue", "quiet_freeze"): lowering("stops something"),
+            ("rogue", "quiet_note"): provenance("writes context"),
+            ("rogue", "honest_freeze"): lowering("stops something"),
+        }
+        self.assertEqual(
+            lowering_violations(modules, classification),
+            ["rogue.quiet_freeze calls RAISING resolve_transition_approval",
+             "rogue.quiet_note calls RAISING transition_tool"],
+        )
 
     def test_the_legacy_verifier_is_gone(self) -> None:
         for path in sorted(KERNEL.rglob("*.py")):
             self.assertNotIn("verify_operator_approval_ref", path.read_text(encoding="utf-8"), msg=str(path))
-
-    def test_every_entry_point_exists_and_reaches_its_class(self) -> None:
-        trees = {
-            path.relative_to(KERNEL).with_suffix("").as_posix().replace("/", "."):
-                ast.parse(path.read_text(encoding="utf-8"))
-            for path in KERNEL.rglob("*.py")
-        }
-        for (module, name), klass in ENTRY_POINTS.items():
-            with self.subTest(entry=f"{module}.{name}"):
-                function = next(f for f in _functions(trees[module]) if f.name == name)
-                called = _called_names(function)
-                if klass == "LOWERING":
-                    self.assertFalse(
-                        called & (GITHUB_VERIFIERS | {RECORDED_VERIFIER, "resolve_transition_approval"}),
-                    )
-                elif klass == "RECORD":
-                    self.assertIn(RECORDED_VERIFIER, called)
-                elif (module, name) in VERIFIER_CALL_SITES:
-                    self.assertTrue(called & GITHUB_VERIFIERS, called)
-                else:
-                    # Reaches the verifier through the tool lifecycle resolver.
-                    self.assertTrue(called & {"resolve_transition_approval", "transition_tool"}, called)
 
 
 class VerifiedApprovalSurfaces(unittest.TestCase):
@@ -323,7 +657,10 @@ class VerifiedApprovalSurfaces(unittest.TestCase):
     Each test drives the REAL entry point in a real tools dir: a free string
     such as ``"ok"`` is refused with the GitHub-act grammar, a fixture
     operator act (``tests/_helpers/operator_acts``) is accepted, and the same
-    act is refused a second time — one act authorizes one grant.
+    act is refused a second time — one act authorizes one grant. The stop
+    verbs (``breaker_reset``, ``breaker_evidence_quarantine``,
+    ``mcp_unquarantine``) bind to the trip or quarantine instance; their pins
+    live in ``tests/test_breaker_mcp_operator_approval.py``.
     """
 
     def setUp(self) -> None:
@@ -338,61 +675,6 @@ class VerifiedApprovalSurfaces(unittest.TestCase):
     def _refused_as_consumed(self, action, ref: str) -> None:
         with self.assertRaisesRegex(GovernanceError, "already consumed"):
             action(ref)
-
-    def test_circuit_breaker_reset(self) -> None:
-        from aria_kernel.circuit_breaker import reset_breaker
-
-        self._refused_as_unrecorded(
-            lambda ref: reset_breaker(base_dir=self.tools, operator_approval_ref=ref, reason="investigated"),
-        )
-        with github_operator_acts() as github:
-            ref = github.approve("circuit_breaker_reset", {"target": "breaker"})
-            self.assertEqual(
-                reset_breaker(base_dir=self.tools, operator_approval_ref=ref, reason="investigated"),
-                {"status": "ok"},
-            )
-            self._refused_as_consumed(
-                lambda _: reset_breaker(base_dir=self.tools, operator_approval_ref=ref, reason="again"),
-                ref,
-            )
-
-    def test_breaker_evidence_quarantine(self) -> None:
-        from aria_kernel.circuit_breaker import quarantine_breaker_evidence
-
-        from aria_kernel.circuit_breaker import _failures_path
-
-        damaged = _failures_path(self.tools)
-        damaged.parent.mkdir(parents=True, exist_ok=True)
-        run = lambda ref: quarantine_breaker_evidence(  # noqa: E731 - test local
-            base_dir=self.tools, operator_approval_ref=ref, reason="damaged ledger",
-        )
-        damaged.write_text('{"failure": 1}\nnot-json-at-all\n', encoding="utf-8")
-        self._refused_as_unrecorded(run)
-        with github_operator_acts() as github:
-            ref = github.approve("breaker_evidence_quarantine", {"target": "breaker_evidence"})
-            result = run(ref)
-            self.assertEqual(result["quarantined"], 1)
-            # A second damaged row: the same act must not authorize a second
-            # repair — one GitHub act authorizes one grant.
-            damaged.write_text('{"failure": 2}\nstill-not-json\n', encoding="utf-8")
-            self._refused_as_consumed(run, ref)
-
-    def test_cost_breaker_reset(self) -> None:
-        from aria_kernel.cost_budget import reset_breaker
-
-        self._refused_as_unrecorded(
-            lambda ref: reset_breaker(base_dir=self.tools, reason="investigated", operator_approval_ref=ref),
-        )
-        with github_operator_acts() as github:
-            ref = github.approve("cost_breaker_reset", {"target": "cost_breaker"})
-            self.assertEqual(
-                reset_breaker(base_dir=self.tools, reason="investigated", operator_approval_ref=ref),
-                {"status": "ok"},
-            )
-            self._refused_as_consumed(
-                lambda _: reset_breaker(base_dir=self.tools, reason="again", operator_approval_ref=ref),
-                ref,
-            )
 
     def test_host_lease_release_takeover(self) -> None:
         from aria_kernel.autonomous_host_lease import acquire_lease, release_lease
@@ -633,6 +915,35 @@ class RaisingSurfacesRefuseRecordedReferences(unittest.TestCase):
             "policy_hash": "sha256:" + "c" * 64, "expires_at": "2099-01-01T00:00:00Z",
             "operator_approval_ref": ref,
         }, base_dir=self.tools))
+
+    def test_breaker_resets_and_evidence_quarantine(self) -> None:
+        from aria_kernel import circuit_breaker, cost_budget
+
+        for index in range(3):
+            circuit_breaker.record_failure(base_dir=self.tools, kind="ci_red", materialize_event_id=f"EV-{index}")
+        cost_budget._trip_breaker(self.tools, cap_name="daily", amount=6.0, cap=5.0)
+        with circuit_breaker._failures_path(self.tools).open("a", encoding="utf-8") as ledger:
+            ledger.write('{"ts":"2020-01\n')
+        self._assert_refused(lambda ref: circuit_breaker.quarantine_breaker_evidence(
+            base_dir=self.tools, operator_approval_ref=ref, reason="damaged row",
+        ))
+        self._assert_refused(lambda ref: circuit_breaker.reset_breaker(
+            base_dir=self.tools, operator_approval_ref=ref, reason="investigated",
+        ))
+        self._assert_refused(lambda ref: cost_budget.reset_breaker(
+            base_dir=self.tools, operator_approval_ref=ref, reason="caps adjusted",
+        ))
+
+    def test_mcp_release(self) -> None:
+        from aria_kernel import mcp_client
+
+        # Only the kernel's own side=server outcomes quarantine (ARIA-MEDIUM-609),
+        # and a caller-caused fault class never counts.
+        for _ in range(mcp_client.QUARANTINE_MIN_CALLS):
+            mcp_client.record_mcp_call(tool_name="aria/search", ok=False, side="server",
+                                       error_class="RuntimeError", base_dir=self.tools)
+        self.assertIn("aria", mcp_client.quarantined_servers(self.tools))
+        self._assert_refused(lambda ref: mcp_client.release_quarantine("aria", base_dir=self.tools, operator_ref=ref))
 
 
 class LoweringSurfacesTakeAReason(unittest.TestCase):

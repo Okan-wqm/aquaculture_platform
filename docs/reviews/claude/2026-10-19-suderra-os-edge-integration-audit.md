@@ -20,7 +20,7 @@ P3 2027-03-31. Yan bulgular, uygulama paketine alınana kadar önemine göre P1 
 
 | Domain | CRITICAL | HIGH | MEDIUM | LOW | Toplam |
 |---|---|---|---|---|---|
-| EDGE | 4 | 26 | 37 | 15 | 82 |
+| EDGE | 4 | 26 | 38 | 15 | 83 |
 | INFRA | 1 | 1 | 17 | 2 | 21 |
 | SENSOR | 4 | 13 | 17 | 6 | 40 |
 
@@ -171,6 +171,7 @@ P3 2027-03-31. Yan bulgular, uygulama paketine alınana kadar önemine göre P1 
 | [SENSOR-LOW-237](#SENSOR-LOW-237) | LOW | P2 | Self-register power-loss recovery reads a device outside a transaction and then saves the whole stale entity, overwriting concurrent changes (revocation, lifecycle, token) with the snapshot |
 | [SENSOR-LOW-238](#SENSOR-LOW-238) | LOW | P2 | The provisioning controller validates device codes with four copies of ^[A-Z]{2,5}-[0-9A-F]{8}$, narrower than the contract's ^[A-Za-z0-9_-]{1,50}$ |
 | [SENSOR-LOW-239](#SENSOR-LOW-239) | LOW | P2 | Banned type escapes remain in the edge provisioning and MQTT adapter code, and edge-device.service.ts and automation.service.ts fail the repo's Prettier gate |
+| [EDGE-MEDIUM-141](#EDGE-MEDIUM-141) | MEDIUM | P1 | The activation request carries no deviceBinding or installedManifest, and the cloud checks no binding, although the contract requires both: a request built to the contract is refused with 400 by the DTO whitelist |
 
 ## Edge agent (sens-api-gateway)
 
@@ -2710,3 +2711,14 @@ ADR-048 P0 uygulaması ve doğrulaması sırasında kodun okunmasıyla bulunan v
 - **Kanıt (dosya:satır):** `apps/sensor-service/src/protocol/adapters/iot/mqtt.adapter.ts:150`, `apps/sensor-service/src/edge-device/provisioning.service.ts:218`, `apps/sensor-service/src/edge-device/provisioning.service.ts:219`, `apps/sensor-service/src/edge-device/edge-provisioning-manifest.service.ts:111`, `apps/sensor-service/src/edge-device/edge-provisioning-manifest.service.ts:113`, `apps/sensor-service/src/edge-device/edge-device.service.ts:1`, `apps/sensor-service/src/automation/automation.service.ts:1`
 - **Kök neden:** CLAUDE.md bans 'as unknown as X', 'as any' and defensive '?.'. mqtt.adapter.ts casts mqtt.connect() through unknown to MqttClientInstance; createProvisionedDevice catches 'error: any' and reads error?.code; the manifest parser asserts 'method as BindingMethod' and 'board as BoardProfile' after a runtime check instead of using a type guard. 'prettier --check' reports both edge-device.service.ts and automation.service.ts as unformatted, so any PR that touches them fails the format gate.
 - **Mimari düzeltme yönü:** Tier 1: use type guards (isBindingMethod, isBoardProfile) that narrow without casts; catch unknown and narrow to a QueryFailedError-style guard for the 23505 code; type the mqtt client through the library's own MqttClient type; run prettier --write on the two files and add the escape patterns to the existing lint ban so they fail CI.
+
+<a id="EDGE-MEDIUM-141"></a>
+
+### EDGE-MEDIUM-141 — The activation request carries no deviceBinding or installedManifest, and the cloud checks no binding, although the contract requires both: a request built to the contract is refused with 400 by the DTO whitelist
+
+- **Önem:** MEDIUM · **Faz:** P1 · **Son tarih:** 2026-11-30 · **Sahip:** @Okan-wqm · **Durum:** OPEN
+- **Bileşen:** edge agent activation request and sensor-service activation endpoint (provisioning.rs, provisioning.dto.ts, provisioning.service.ts)
+- **Köken:** sözleşme 1.1.0 incelemesi (CT1 review, activation binding)
+- **Kanıt (dosya:satır):** `sens-api-gateway/src/provisioning.rs:87`, `apps/sensor-service/src/edge-device/dto/provisioning.dto.ts:167`, `apps/sensor-service/src/edge-device/provisioning.service.ts:440`, `contracts/suderra-edge/v1/channels.json:44`, `contracts/suderra-edge/v1/schemas/edge-activation-request.schema.json:1`
+- **Kök neden:** contract 1.2.0 (channels.json activation.binding_rule, schemas/edge-activation-request.schema.json) requires the activation request to carry deviceBinding and permits installedManifest, and requires the cloud to refuse, without committing the activation, a binding that differs from the one the manifest reservation was made for. The agent's ActivationRequest sends only deviceId, token, fingerprint and agentVersion; the cloud's DeviceActivationRequest has neither member and activateDevice compares no binding, and the sensor-service ValidationPipe (whitelist, forbidNonWhitelisted) would answer a request built to the contract with 400. Without the check a token reserved for one device binding activates another's.
+- **Mimari düzeltme yönü:** Tier 1: agent adds deviceBinding (from identity.json) and installedManifest to ActivationRequest; cloud adds both members to DeviceActivationRequest and activateDevice compares the binding with the reservation's and refuses a mismatch before it commits or issues credentials; a contract test posts the schema's valid and invalid fixtures to the DTO.

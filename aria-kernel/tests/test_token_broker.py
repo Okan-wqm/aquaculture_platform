@@ -63,6 +63,12 @@ from aria_kernel.token_broker import (
     yama_scope_permits_isolation,
 )
 
+# ARIA-HIGH-138 — the seam(s) this file proves by a real process, per
+# the closed registry in tests/invariants/seam_registry.py.
+REAL_PROCESS_SEAMS = (
+    "aria-kernel/aria_kernel/token_broker.py",
+)
+
 _FIXTURE_APP_ID = "12345"
 _FIXTURE_INSTALLATION_ID = "67890"
 _FIXTURE_TOKEN = "ghs_brokered_fixture"

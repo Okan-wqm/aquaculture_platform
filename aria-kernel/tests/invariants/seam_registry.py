@@ -236,6 +236,11 @@ SEAM_REGISTRY: MappingProxyType[str, SeamEntry] = MappingProxyType(
             tests=("aria-kernel/tests/test_mcp_broker.py",),
             process="the MCP broker serving on a real unix socket",
         ),
+        "aria-kernel/aria_kernel/token_broker.py": SeamEntry(
+            tests=("aria-kernel/tests/test_token_broker.py",),
+            process="the GitHub App token broker started as a real subprocess (the PEM piped to its "
+            "stdin), serving mints on a real unix socket to a loopback provider fixture",
+        ),
         "aria-kernel/aria_kernel/signing_agent.py": SeamEntry(
             tests=("aria-kernel/tests/test_signing_agent.py",),
             process="a real ssh-agent with real ssh-add keys, signing real git commits",

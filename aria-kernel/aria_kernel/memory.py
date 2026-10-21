@@ -229,7 +229,7 @@ def rebuild_fates(
     from .evidence_validator import _canonical_evidence_path
     from .runtime_profile import enforce_profile_for_write
     from .tool_registry import append_tools_governance
-    from .workspace import default_actor
+    from .execution_spine import current_actor_record
     enforce_profile_for_write("tool_governance", base_dir=base_dir)
     root = ensure_tools_dir(base_dir)
     discovery_dir = root / "discovery" / cycle_id
@@ -273,7 +273,7 @@ def rebuild_fates(
     new_fates = dict(fates)
     new_fates["files"] = new_files
     fates_path.write_text(json.dumps(new_fates, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    actor = default_actor()
+    actor = current_actor_record()
     append_tools_governance(
         root,
         "memory_fates_rebuilt",
@@ -322,7 +322,8 @@ def reset_memory(
     import hashlib
     import shutil
     from .runtime_profile import enforce_profile_for_write
-    from .workspace import default_actor, record_workspace_governance, workspace_paths
+    from .execution_spine import current_actor_record
+    from .workspace import record_workspace_governance, workspace_paths
     enforce_profile_for_write("tool_governance", base_dir=base_dir)
     backup_path = Path(backup_to)
     if backup_path.exists():
@@ -355,7 +356,7 @@ def reset_memory(
     for ledger_path in paths.ledgers.values():
         ledger_path.parent.mkdir(parents=True, exist_ok=True)
         ledger_path.touch(exist_ok=True)
-    actor = default_actor()
+    actor = current_actor_record()
     # Audit row lands in WORKSPACE governance ledger, not tools.
     record_workspace_governance(
         paths,

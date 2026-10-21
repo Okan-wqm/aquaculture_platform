@@ -256,7 +256,13 @@ def produced_rows() -> list[tuple[str, str, dict[str, Any]]]:
     )
     with _frozen_producer_clock():
         rows = [
-            ("cycle.started", "cycles", cycle._started_cycle_row(cycle_id="cyc-producer")),
+            # ARIA-MEDIUM-029 declared meaning change: the started row
+            # carries the derived actor block + session id (additive v3
+            # fields; the fold's cycle_status projection and this pin are
+            # unchanged by them, which is exactly what the pin proves).
+            ("cycle.started", "cycles", cycle._started_cycle_row(
+                cycle_id="cyc-producer", execution=cycle.current_execution_identity(),
+            )),
             ("cycle.completed", "cycles", cycle._completed_event("cyc-producer", 2, git_head_sha_at_cycle=_PRODUCED_SHA)),
             ("cycle.failed", "cycles", cycle._failed_event("cyc-producer", git_head_sha_at_cycle=_PRODUCED_SHA)),
             ("cycle.stopped", "cycles", cycle._stopped_event("cyc-producer", git_head_sha_at_cycle=_PRODUCED_SHA)),

@@ -78,11 +78,16 @@ class BreakerEvidenceQuarantine(unittest.TestCase):
         self.ledger.write_text("".join(f"{line}\n" for line in lines), encoding="utf-8")
 
     def _quarantine(self) -> dict:
-        return quarantine_breaker_evidence(
-            base_dir=self.root,
-            operator_approval_ref="OPS-4711",
-            reason="artifact round-trip truncated the last row",
-        )
+        from tests._helpers.operator_acts import github_operator_acts
+
+        with github_operator_acts() as github:
+            return quarantine_breaker_evidence(
+                base_dir=self.root,
+                operator_approval_ref=github.approve(
+                    "breaker_evidence_quarantine", {"target": "breaker_evidence"},
+                ),
+                reason="artifact round-trip truncated the last row",
+            )
 
     def test_damage_blocks_forever_until_quarantined(self) -> None:
         """The state this operation exists to make exitable."""
@@ -147,7 +152,10 @@ class BreakerEvidenceQuarantine(unittest.TestCase):
         preserved = [json.loads(line).get("raw") for line in lines[1:]]
         self.assertEqual(preserved, [_TRUNCATED])
         header = json.loads(lines[0])
-        self.assertEqual(header["operator_approval_ref"], "OPS-4711")
+        self.assertTrue(
+            header["operator_approval_ref"].startswith("gh:"),
+            header["operator_approval_ref"],
+        )
         self.assertEqual(header["damaged_row_count"], 1)
         self.assertEqual(header["surviving_row_count"], 1)
 

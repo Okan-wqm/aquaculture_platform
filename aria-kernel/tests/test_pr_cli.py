@@ -105,11 +105,14 @@ def _seed_proposal_and_action(*, repo: Path, proposal_id: str = "PROP-CLI-01") -
         base_dir=tools,
     )
     pid = proposal["proposal_id"]
-    approve_proposal(
-        proposal_id=pid,
-        operator_approval_ref="operator-test:plan-019-phase-3",
-        base_dir=tools,
-    )
+    from tests._helpers.operator_acts import github_operator_acts
+
+    with github_operator_acts() as github:
+        approve_proposal(
+            proposal_id=pid,
+            operator_approval_ref=github.approve("proposal_approval", {"proposal": pid}),
+            base_dir=tools,
+        )
     action_row = {
         "schema_version": 1,
         "recorded_at": "2026-05-07T00:00:00Z",

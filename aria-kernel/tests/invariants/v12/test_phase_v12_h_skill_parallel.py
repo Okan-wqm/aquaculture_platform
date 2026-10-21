@@ -106,7 +106,17 @@ class CuratorProposesOnly(_Repo):
             sc.decide_curation(merge["proposal_id"], decision="accepted", operator_approval_ref="", base_dir=self.tools)
         with self.assertRaises(ValueError):
             sc.decide_curation(merge["proposal_id"], decision="maybe", operator_approval_ref="op", base_dir=self.tools)
-        sc.decide_curation(merge["proposal_id"], decision="rejected", operator_approval_ref="op-1", base_dir=self.tools, note="keep both")
+        from tests._helpers.operator_acts import github_operator_acts
+
+        with github_operator_acts() as github:
+            sc.decide_curation(
+                merge["proposal_id"], decision="rejected",
+                operator_approval_ref=github.approve(
+                    "skill_curation_decision",
+                    {"proposal": merge["proposal_id"], "decision": "rejected"},
+                ),
+                base_dir=self.tools, note="keep both",
+            )
         self.assertNotIn(merge["proposal_id"], {p["proposal_id"] for p in sc.list_curation_proposals(base_dir=self.tools, open_only=True)})
         with self.assertRaises(ValueError):
             sc.decide_curation(merge["proposal_id"], decision="accepted", operator_approval_ref="op-1", base_dir=self.tools)
@@ -131,22 +141,22 @@ class RollbackAndShadow(_Repo):
         tracked.write_text("materialized body\n", encoding="utf-8")
         self._materialize_row("draft-1", ".claude/skills/tracked.md")
         with self.assertRaises(GovernanceError):
-            sc.rollback_skill_materialization(draft_id="draft-1", base_dir=self.tools, operator_approval_ref="")
+            sc.rollback_skill_materialization(draft_id="draft-1", base_dir=self.tools, reason="")
         with self.assertRaises(GovernanceError):
-            sc.rollback_skill_materialization(draft_id="draft-nope", base_dir=self.tools, operator_approval_ref="op")
-        row = sc.rollback_skill_materialization(draft_id="draft-1", base_dir=self.tools, operator_approval_ref="op-1")
+            sc.rollback_skill_materialization(draft_id="draft-nope", base_dir=self.tools, reason="no such draft")
+        row = sc.rollback_skill_materialization(draft_id="draft-1", base_dir=self.tools, reason="incident: remove materialized skill")
         self.assertEqual((row["status"], row["rollback_action"]), ("rolled_back", "restored_from_head"))
         self.assertEqual(tracked.read_text(encoding="utf-8"), "original\n")
         with self.assertRaises(GovernanceError):
-            sc.rollback_skill_materialization(draft_id="draft-1", base_dir=self.tools, operator_approval_ref="op-1")
+            sc.rollback_skill_materialization(draft_id="draft-1", base_dir=self.tools, reason="incident: remove materialized skill")
         fresh = self.skill("fresh", "new skill\n")
         self._materialize_row("draft-2", ".claude/skills/fresh.md")
-        row = sc.rollback_skill_materialization(draft_id="draft-2", base_dir=self.tools, operator_approval_ref="op-1")
+        row = sc.rollback_skill_materialization(draft_id="draft-2", base_dir=self.tools, reason="incident: remove materialized skill")
         self.assertEqual(row["rollback_action"], "deleted_untracked")
         self.assertFalse(fresh.exists())
         self._materialize_row("draft-3", "apps/not-a-skill.md")
         with self.assertRaises(GovernanceError):
-            sc.rollback_skill_materialization(draft_id="draft-3", base_dir=self.tools, operator_approval_ref="op-1")
+            sc.rollback_skill_materialization(draft_id="draft-3", base_dir=self.tools, reason="out of skill scope")
         self.assertEqual(self.governance().count("skill_materialization_rolled_back"), 2)
 
     def test_I_V12_SKILL_03_shadow_verdicts_from_rows(self) -> None:

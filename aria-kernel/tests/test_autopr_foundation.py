@@ -191,11 +191,16 @@ class AutoPrFoundationTests(unittest.TestCase):
             status="ready_for_operator",
             base_dir=self.tools_dir,
         )
-        approved = approve_proposal(
-            proposal_id=proposal["proposal_id"],
-            operator_approval_ref="operator:test",
-            base_dir=self.tools_dir,
-        )
+        from tests._helpers.operator_acts import github_operator_acts
+
+        with github_operator_acts() as github:
+            approved = approve_proposal(
+                proposal_id=proposal["proposal_id"],
+                operator_approval_ref=github.approve(
+                    "proposal_approval", {"proposal": proposal["proposal_id"]},
+                ),
+                base_dir=self.tools_dir,
+            )
         self.assertEqual(approved["status"], "approved_for_apply")
         action = plan_apply_worktree(
             proposal_id=proposal["proposal_id"],

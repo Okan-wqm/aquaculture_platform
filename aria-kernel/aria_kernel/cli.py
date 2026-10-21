@@ -1227,7 +1227,10 @@ def build_parser() -> argparse.ArgumentParser:
     cost_reset = add_subparser(cost_sub, "reset")
     cost_reset.add_argument("--acknowledge", action="store_true")
     cost_reset.add_argument("--reason", required=True, type=_validate_reason)
-    cost_reset.add_argument("--operator-approval-ref", required=True)
+    cost_reset.add_argument(
+        "--operator-approval-ref", required=True,
+        help=_GITHUB_APPROVAL_HELP + " Surface: cost_breaker_reset target=cost_breaker.",
+    )
 
     breaker_parser = add_subparser(sub, "breaker")
     breaker_sub = breaker_parser.add_subparsers(dest="breaker_command", required=True)
@@ -1235,7 +1238,10 @@ def build_parser() -> argparse.ArgumentParser:
     breaker_reset = add_subparser(breaker_sub, "reset")
     breaker_reset.add_argument("--acknowledge", action="store_true")
     breaker_reset.add_argument("--reason", required=True, type=_validate_reason)
-    breaker_reset.add_argument("--operator-approval-ref", required=True)
+    breaker_reset.add_argument(
+        "--operator-approval-ref", required=True,
+        help=_GITHUB_APPROVAL_HELP + " Surface: circuit_breaker_reset target=breaker.",
+    )
     # RC-6 — `quarantine` is a DIFFERENT verb from `reset`, not a flag on it,
     # because the guarantees differ: reset discards the whole window and clears
     # the state, quarantine preserves every decodable row and clears nothing.
@@ -1246,7 +1252,10 @@ def build_parser() -> argparse.ArgumentParser:
     breaker_quarantine = add_subparser(breaker_sub, "quarantine")
     breaker_quarantine.add_argument("--acknowledge", action="store_true")
     breaker_quarantine.add_argument("--reason", required=True, type=_validate_reason)
-    breaker_quarantine.add_argument("--operator-approval-ref", required=True)
+    breaker_quarantine.add_argument(
+        "--operator-approval-ref", required=True,
+        help=_GITHUB_APPROVAL_HELP + " Surface: breaker_evidence_quarantine target=breaker_evidence.",
+    )
 
     tool_parser = add_subparser(sub, "tool")
     tool_sub = tool_parser.add_subparsers(dest="tool_command", required=True)
@@ -3144,7 +3153,10 @@ def build_parser() -> argparse.ArgumentParser:
     ack_init = add_subparser(ack_sub, "init",
         help="Mint the first HMAC key for autonomous acks (Plan ARIA-V3 §A5); operator acks need none.")
     ack_init.add_argument("--reason", required=True, type=_validate_reason)
-    ack_init.add_argument("--operator-approval-ref", required=True)
+    ack_init.add_argument(
+        "--operator-approval-ref", required=True,
+        help=_GITHUB_APPROVAL_HELP + " Surface: ack_key_operation operation=init|dr_regenerate.",
+    )
     ack_init.add_argument("--force", action="store_true",
         help="DR-regenerate over an existing key (see runbook §4).")
     # ARIA-MEDIUM-254 slice A — the ack's scope (intent, target path,
@@ -3187,7 +3199,10 @@ def build_parser() -> argparse.ArgumentParser:
     ack_rotate = add_subparser(ack_sub, "rotate-key",
         help="Append a new HMAC key, retire the previous head.")
     ack_rotate.add_argument("--reason", required=True, type=_validate_reason)
-    ack_rotate.add_argument("--operator-approval-ref", required=True)
+    ack_rotate.add_argument(
+        "--operator-approval-ref", required=True,
+        help=_GITHUB_APPROVAL_HELP + " Surface: ack_key_operation operation=rotate|emergency_rotate.",
+    )
     ack_rotate.add_argument("--emergency", action="store_true",
         help="Mark as emergency rotation (separate audit event).")
     # ARIA-LOW-598 — runbook §3 step 2: quarantine a compromised key now,
@@ -3600,11 +3615,15 @@ def build_parser() -> argparse.ArgumentParser:
     skill_decide = add_subparser(skill_sub, "decide")
     skill_decide.add_argument("--proposal-id", required=True)
     skill_decide.add_argument("--decision", choices=["accepted", "rejected"], required=True)
-    skill_decide.add_argument("--operator-approval-ref", required=True)
+    skill_decide.add_argument(
+        "--operator-approval-ref", required=True,
+        help=_GITHUB_APPROVAL_HELP
+        + " Surface: skill_curation_decision proposal=<id> decision=<accepted|rejected>.",
+    )
     skill_decide.add_argument("--note", default="")
     skill_rollback = add_subparser(skill_sub, "rollback")
     skill_rollback.add_argument("--draft-id", required=True)
-    skill_rollback.add_argument("--operator-approval-ref", required=True)
+    skill_rollback.add_argument("--reason", required=True, help=_LOWERING_REASON_HELP)
     skill_rollback.add_argument("--workspace-root", default=None)
     skill_shadow = add_subparser(skill_sub, "shadow-compare")
     skill_shadow.add_argument("--draft-id", required=True)
@@ -7266,7 +7285,7 @@ def _main(argv: list[str] | None = None) -> int:
             return 0
         if args.skill_command == "rollback":
             print(json.dumps(skill_curator.rollback_skill_materialization(draft_id=args.draft_id, base_dir=args.tools_dir,
-                                                                          operator_approval_ref=args.operator_approval_ref,
+                                                                          reason=args.reason,
                                                                           workspace_root=args.workspace_root), indent=2, sort_keys=True))
             return 0
         print(json.dumps(skill_curator.shadow_compare(draft_id=args.draft_id, workspace_root=args.workspace_root, base_dir=args.tools_dir), indent=2, sort_keys=True))

@@ -1,3 +1,4 @@
+import type { HrModuleCode } from '../../common/enums';
 import { AttendanceStatus, ApprovalStatus } from '../entities/attendance-record.entity';
 
 export class GetAttendanceRecordsQuery {
@@ -11,5 +12,7 @@ export class GetAttendanceRecordsQuery {
     public readonly endDate?: string,
     public readonly limit?: number,
     public readonly page?: number,
+    /** Only records of employees whose live department is in this module; absent = every module. */
+    public readonly moduleCode?: HrModuleCode,
   ) {}
 }

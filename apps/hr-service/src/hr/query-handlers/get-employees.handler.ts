@@ -4,6 +4,7 @@ import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 import { PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { GetEmployeesQuery } from '../queries/get-employees.query';
 import { Employee } from '../entities/employee.entity';
+import { employeeModuleWhere, isModuleScoped } from '../../common/module-scope';
 
 @QueryHandler(GetEmployeesQuery)
 export class GetEmployeesHandler implements IQueryHandler<GetEmployeesQuery, PaginatedQueryResult<Employee>> {
@@ -23,8 +24,12 @@ export class GetEmployeesHandler implements IQueryHandler<GetEmployeesQuery, Pag
     if (filter?.employmentType) {
       where.employmentType = filter.employmentType;
     }
-    if (filter?.department) {
-      where.department = filter.department;
+    if (filter?.departmentHrId) {
+      where.departmentHrId = filter.departmentHrId;
+    }
+    const moduleCode = filter?.moduleCode;
+    if (isModuleScoped(moduleCode)) {
+      where.departmentHr = employeeModuleWhere(moduleCode);
     }
     if (filter?.farmId) {
       where.farmId = filter.farmId;

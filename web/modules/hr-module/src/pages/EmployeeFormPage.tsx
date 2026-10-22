@@ -25,16 +25,18 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { useEmployee, useCreateEmployee, useUpdateEmployee, useDepartments } from '../hooks';
+import { useModuleScope } from '../hooks/useModuleScope';
+import { departmentLabel } from '../utils/departmentLabel';
 import type {
   CreateEmployeeInput,
+  Department,
   UpdateEmployeeInput,
   EmploymentType,
   ContactInfo,
   Address,
   PersonnelCategory,
-  Department,
 } from '../types';
-import { Spinner, PageHeader, Button, Input, Select } from '@aquaculture/shared-ui';
+import { Spinner, PageHeader, Button, Input, Select, useI18n } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Constants
@@ -60,19 +62,12 @@ const CURRENCY_OPTIONS = [
   { value: 'AUD', label: 'AUD - Australian Dollar' },
 ];
 
-/**
- * Map DepartmentHR type (from the departments entity) back to the legacy
- * department enum string that the employee entity expects.
- */
-function mapDepartmentType(dept: Department): string {
-  return dept.code || dept.name.toLowerCase();
-}
-
 // ============================================================================
 // Employee Form Page
 // ============================================================================
 
 const EmployeeFormPage: React.FC = () => {
+  const { t } = useI18n();
   const { employeeId } = useParams<{ employeeId: string }>();
   const navigate = useNavigate();
   const isEditing = Boolean(employeeId);
@@ -80,8 +75,30 @@ const EmployeeFormPage: React.FC = () => {
   // Fetch existing employee for edit mode
   const { data: employee, isLoading: loadingEmployee } = useEmployee(employeeId || '');
 
-  // Fetch departments from API
+  // Fetch departments from API — already narrowed to the workspace's module
   const { data: departments, isLoading: loadingDepartments } = useDepartments();
+
+  // WHY: an employee with no department belongs to no module, so in a module workspace the
+  // employee — new or edited — would vanish from the very team list the user is looking at. A
+  // module workspace therefore requires the department; Company may leave it empty. This is the
+  // one place the rule lives.
+  const scope = useModuleScope();
+  const departmentRequired = scope !== undefined;
+  const [departmentError, setDepartmentError] = useState<string | null>(null);
+
+  // The departments the reader may place someone in: the active ones of the workspace (Company: all).
+  // An edited employee's CURRENT department is always shown, even when it is inactive, so the field
+  // never claims they have none.
+  const currentDepartment = employee?.departmentHr ?? null;
+  const activeDepartments = (departments || []).filter((d) => d.isActive);
+  const selectableDepartments: ReadonlyArray<Pick<Department, 'id' | 'name' | 'moduleCode'>> =
+    currentDepartment && !activeDepartments.some((d) => d.id === currentDepartment.id)
+      ? [...activeDepartments, currentDepartment]
+      : activeDepartments;
+
+  // WHY: new tenants (or modules) won't have departments yet — show a helpful message instead of
+  // a broken empty dropdown that confuses users into thinking the form is broken.
+  const noDepartments = !loadingDepartments && selectableDepartments.length === 0;
 
   const createMutation = useCreateEmployee();
   const updateMutation = useUpdateEmployee();
@@ -113,7 +130,6 @@ const EmployeeFormPage: React.FC = () => {
     country: '',
     // Work
     departmentHrId: '',
-    department: '',
     position: '',
     hireDate: '',
     employmentType: 'FULL_TIME' as string,
@@ -144,7 +160,6 @@ const EmployeeFormPage: React.FC = () => {
         postalCode: employee.address?.postalCode || '',
         country: employee.address?.country || '',
         departmentHrId: employee.departmentHrId || '',
-        department: employee.department || '',
         position: employee.position || '',
         hireDate: employee.hireDate || '',
         employmentType: employee.employmentType || 'FULL_TIME',
@@ -172,22 +187,18 @@ const EmployeeFormPage: React.FC = () => {
     }
   };
 
-  /**
-   * When a department is selected from the dropdown, set both
-   * departmentHrId (the entity UUID) and department (the legacy enum string).
-   */
   const handleDepartmentChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const selectedId = e.target.value;
-    const dept = (departments || []).find((d) => d.id === selectedId);
-    setFormData((prev) => ({
-      ...prev,
-      departmentHrId: selectedId,
-      department: dept ? mapDepartmentType(dept) : '',
-    }));
+    setDepartmentError(null);
+    setFormData((prev) => ({ ...prev, departmentHrId: e.target.value }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (departmentRequired && !formData.departmentHrId) {
+      setDepartmentError('Choose the department this employee belongs to.');
+      return;
+    }
 
     const contactInfo: ContactInfo = {
       email: formData.contactEmail || formData.email,
@@ -205,6 +216,7 @@ const EmployeeFormPage: React.FC = () => {
     };
 
     if (isEditing && employeeId) {
+      const placement = formData.departmentHrId || null;
       const input: UpdateEmployeeInput = {
         id: employeeId,
         firstName: formData.firstName,
@@ -215,6 +227,8 @@ const EmployeeFormPage: React.FC = () => {
         currency: formData.currency || undefined,
         personnelCategory: (formData.personnelCategory as PersonnelCategory) || undefined,
         seaWorthy: formData.seaWorthy,
+        // Only a change moves the employee between module team lists; an untouched field is not resent.
+        ...(placement !== (employee?.departmentHrId ?? null) ? { departmentHrId: placement } : {}),
       };
       updateMutation.mutate(input, {
         onSuccess: () => navigate(`/hr/employees/${employeeId}`),
@@ -228,7 +242,6 @@ const EmployeeFormPage: React.FC = () => {
         nationalId: formData.nationalId,
         contactInfo,
         address,
-        department: formData.department || undefined,
         departmentHrId: formData.departmentHrId || undefined,
         position: formData.position || undefined,
         hireDate: formData.hireDate || new Date().toISOString().split('T')[0]!,
@@ -569,13 +582,9 @@ const EmployeeFormPage: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label htmlFor="employee-departmentHrId" className={labelClass}>
-                Department
+                Department {departmentRequired && <span className="text-error-500">*</span>}
               </label>
-              {/* WHY: Guard against empty department list — new tenants won't have departments yet.
-                  Show a helpful message instead of a broken empty dropdown that confuses users
-                  into thinking the form is broken. */}
-              {!loadingDepartments &&
-              (!departments || departments.filter((d) => d.isActive).length === 0) ? (
+              {noDepartments ? (
                 <div className="rounded-lg border border-warning-200 bg-warning-50 px-4 py-2.5 text-sm text-warning-700 dark:border-warning-800 dark:bg-warning-900/20 dark:text-warning-400">
                   No departments found. Please create a department first in the{' '}
                   <a href="/hr/departments" className="font-medium underline hover:no-underline">
@@ -589,20 +598,24 @@ const EmployeeFormPage: React.FC = () => {
                   name="departmentHrId"
                   value={formData.departmentHrId}
                   onChange={handleDepartmentChange}
-                  disabled={isEditing}
-                  className={isEditing ? inputDisabledClass : inputClass}
+                  aria-required={departmentRequired}
+                  aria-invalid={departmentError !== null}
+                  className={inputClass}
                 >
                   <option value="">
                     {loadingDepartments ? 'Loading departments...' : 'Select department'}
                   </option>
-                  {(departments || [])
-                    .filter((d) => d.isActive)
-                    .map((dept) => (
-                      <option key={dept.id} value={dept.id}>
-                        {dept.name} ({dept.code})
-                      </option>
-                    ))}
+                  {selectableDepartments.map((dept) => (
+                    <option key={dept.id} value={dept.id}>
+                      {departmentLabel(dept, t)}
+                    </option>
+                  ))}
                 </select>
+              )}
+              {departmentError && (
+                <p role="alert" className="mt-1 text-sm text-error-600 dark:text-error-400">
+                  {departmentError}
+                </p>
               )}
             </div>
             <div>

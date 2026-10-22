@@ -797,17 +797,43 @@ describe('Today\'s Attendance Query Tests', () => {
 
 describe('Daily Attendance Overview Query Tests', () => {
   let handler: GetDailyAttendanceOverviewHandler;
-  let mockDataSource: { query: jest.Mock };
+  // The handler counts employees and aggregates attendance through two query
+  // builders; each double is chainable and ends in the awaited call the
+  // handler uses (`getCount` / `getRawOne`).
+  let employeeQb: Record<string, jest.Mock>;
+  let attendanceQb: Record<string, jest.Mock>;
+
+  const chainable = (terminal: 'getCount' | 'getRawOne'): Record<string, jest.Mock> => {
+    const qb: Record<string, jest.Mock> = { [terminal]: jest.fn() };
+    for (const method of ['leftJoin', 'select', 'addSelect', 'where', 'andWhere']) {
+      qb[method] = jest.fn(() => qb);
+    }
+    return qb;
+  };
+
+  const attendanceStats = (counts: {
+    present: string;
+    late: string;
+    onLeave: string;
+    offshore: string;
+    recorded: string;
+  }): Record<string, string> => ({
+    presentCount: counts.present,
+    lateCount: counts.late,
+    onLeaveCount: counts.onLeave,
+    offshoreCount: counts.offshore,
+    recordedCount: counts.recorded,
+  });
 
   beforeEach(async () => {
-    mockDataSource = {
-      query: jest.fn(),
-    };
+    employeeQb = chainable('getCount');
+    attendanceQb = chainable('getRawOne');
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         GetDailyAttendanceOverviewHandler,
-        { provide: DataSource, useValue: mockDataSource },
+        { provide: getRepositoryToken(Employee), useValue: { createQueryBuilder: jest.fn(() => employeeQb) } },
+        { provide: getRepositoryToken(AttendanceRecord), useValue: { createQueryBuilder: jest.fn(() => attendanceQb) } },
       ],
     }).compile();
 
@@ -817,15 +843,10 @@ describe('Daily Attendance Overview Query Tests', () => {
   afterEach(() => jest.clearAllMocks());
 
   it('should return correct attendance overview', async () => {
-    mockDataSource.query
-      .mockResolvedValueOnce([{ totalCount: '100' }]) // Active employees
-      .mockResolvedValueOnce([{
-        presentCount: '70',
-        lateCount: '10',
-        onLeaveCount: '5',
-        offshoreCount: '15',
-        recordedCount: '85',
-      }]);
+    employeeQb['getCount']!.mockResolvedValue(100); // Active employees
+    attendanceQb['getRawOne']!.mockResolvedValue(
+      attendanceStats({ present: '70', late: '10', onLeave: '5', offshore: '15', recorded: '85' }),
+    );
 
     const query = new GetDailyAttendanceOverviewQuery(tenantId, '2026-03-08');
     const result = await handler.execute(query);
@@ -840,15 +861,10 @@ describe('Daily Attendance Overview Query Tests', () => {
   });
 
   it('should handle zero employees', async () => {
-    mockDataSource.query
-      .mockResolvedValueOnce([{ totalCount: '0' }])
-      .mockResolvedValueOnce([{
-        presentCount: '0',
-        lateCount: '0',
-        onLeaveCount: '0',
-        offshoreCount: '0',
-        recordedCount: '0',
-      }]);
+    employeeQb['getCount']!.mockResolvedValue(0);
+    attendanceQb['getRawOne']!.mockResolvedValue(
+      attendanceStats({ present: '0', late: '0', onLeave: '0', offshore: '0', recorded: '0' }),
+    );
 
     const query = new GetDailyAttendanceOverviewQuery(tenantId);
     const result = await handler.execute(query);
@@ -860,15 +876,10 @@ describe('Daily Attendance Overview Query Tests', () => {
 
   it('should calculate absent count correctly', async () => {
     // 50 employees, 30 recorded → 20 absent
-    mockDataSource.query
-      .mockResolvedValueOnce([{ totalCount: '50' }])
-      .mockResolvedValueOnce([{
-        presentCount: '25',
-        lateCount: '5',
-        onLeaveCount: '0',
-        offshoreCount: '0',
-        recordedCount: '30',
-      }]);
+    employeeQb['getCount']!.mockResolvedValue(50);
+    attendanceQb['getRawOne']!.mockResolvedValue(
+      attendanceStats({ present: '25', late: '5', onLeave: '0', offshore: '0', recorded: '30' }),
+    );
 
     const result = await handler.execute(new GetDailyAttendanceOverviewQuery(tenantId));
 
@@ -877,47 +888,39 @@ describe('Daily Attendance Overview Query Tests', () => {
   });
 
   it('should use today\'s date when no date provided', async () => {
-    mockDataSource.query
-      .mockResolvedValueOnce([{ totalCount: '0' }])
-      .mockResolvedValueOnce([{
-        presentCount: '0', lateCount: '0', onLeaveCount: '0',
-        offshoreCount: '0', recordedCount: '0',
-      }]);
+    employeeQb['getCount']!.mockResolvedValue(0);
+    attendanceQb['getRawOne']!.mockResolvedValue(
+      attendanceStats({ present: '0', late: '0', onLeave: '0', offshore: '0', recorded: '0' }),
+    );
 
     await handler.execute(new GetDailyAttendanceOverviewQuery(tenantId));
 
-    // Verify date was passed as parameter to attendance query
-    const attendanceCall = mockDataSource.query.mock.calls[1];
-    const dateParam = attendanceCall[1][1]; // Second param in array
-    expect(dateParam).toBeDefined();
+    // Verify the date was passed as a parameter to the attendance query
+    expect(attendanceQb['andWhere']).toHaveBeenCalledWith(
+      'ar.date = :targetDate',
+      { targetDate: new Date().toISOString().split('T')[0] },
+    );
   });
 
   it('should use tenant isolation', async () => {
-    mockDataSource.query
-      .mockResolvedValueOnce([{ totalCount: '0' }])
-      .mockResolvedValueOnce([{
-        presentCount: '0', lateCount: '0', onLeaveCount: '0',
-        offshoreCount: '0', recordedCount: '0',
-      }]);
+    employeeQb['getCount']!.mockResolvedValue(0);
+    attendanceQb['getRawOne']!.mockResolvedValue(
+      attendanceStats({ present: '0', late: '0', onLeave: '0', offshore: '0', recorded: '0' }),
+    );
 
     const specificTenant = 'specific-tenant-123';
     await handler.execute(new GetDailyAttendanceOverviewQuery(specificTenant));
 
     // Both queries should use the tenant ID
-    expect(mockDataSource.query.mock.calls[0][1][0]).toBe(specificTenant);
-    expect(mockDataSource.query.mock.calls[1][1][0]).toBe(specificTenant);
+    expect(employeeQb['where']).toHaveBeenCalledWith('employee.tenantId = :tenantId', { tenantId: specificTenant });
+    expect(attendanceQb['where']).toHaveBeenCalledWith('ar.tenantId = :tenantId', { tenantId: specificTenant });
   });
 
   it('should handle all-present scenario', async () => {
-    mockDataSource.query
-      .mockResolvedValueOnce([{ totalCount: '20' }])
-      .mockResolvedValueOnce([{
-        presentCount: '20',
-        lateCount: '0',
-        onLeaveCount: '0',
-        offshoreCount: '5',
-        recordedCount: '20',
-      }]);
+    employeeQb['getCount']!.mockResolvedValue(20);
+    attendanceQb['getRawOne']!.mockResolvedValue(
+      attendanceStats({ present: '20', late: '0', onLeave: '0', offshore: '5', recorded: '20' }),
+    );
 
     const result = await handler.execute(new GetDailyAttendanceOverviewQuery(tenantId));
 

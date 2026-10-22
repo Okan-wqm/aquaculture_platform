@@ -3,6 +3,8 @@ import { DataSource, QueryRunner } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { UpdateDepartmentCommand } from '../commands/update-department.command';
 import { DepartmentHR } from '../entities/department.entity';
+import { Employee } from '../entities/employee.entity';
+import { assertDepartmentCodeFree } from '../services/department-code';
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 
 @Injectable()
@@ -24,8 +26,11 @@ export class UpdateDepartmentHandler implements ICommandHandler<UpdateDepartment
     try {
       const repo = tenantManagerRepo(queryRunner.manager, DepartmentHR, tenantId);
 
+      // The write lock serializes this with a concurrent placement (assertAssignableDepartment holds a
+      // share lock on the same row), so the member count below cannot miss an employee being placed.
       const department = await repo.findOne({
         where: { tenantId, id: input.id },
+        lock: { mode: 'pessimistic_write' },
       });
 
       if (!department) {
@@ -34,12 +39,7 @@ export class UpdateDepartmentHandler implements ICommandHandler<UpdateDepartment
 
       // Check for duplicate code if code is being changed
       if (input.code && input.code !== department.code) {
-        const existing = await repo.findOne({
-          where: { tenantId, code: input.code, isDeleted: false },
-        });
-        if (existing) {
-          throw new ConflictException(`Department with code '${input.code}' already exists`);
-        }
+        await assertDepartmentCodeFree(queryRunner.manager, tenantId, input.code, department.id);
       }
 
       // Validate parent department if specified
@@ -55,8 +55,17 @@ export class UpdateDepartmentHandler implements ICommandHandler<UpdateDepartment
         }
       }
 
-      // Handle soft delete
+      // Handle soft delete. A department holds people and decides their module, so one that still
+      // has employees cannot be deleted: they would silently drop out of every module's Team list.
       if (input.isDeleted) {
+        const members = await tenantManagerRepo(queryRunner.manager, Employee, tenantId).count({
+          where: { tenantId, departmentHrId: department.id, isDeleted: false },
+        });
+        if (members > 0) {
+          throw new ConflictException(
+            `Department still has ${members} employees; move them to another department before deleting it`,
+          );
+        }
         department.isDeleted = true;
         department.deletedAt = new Date();
         department.deletedBy = userId;

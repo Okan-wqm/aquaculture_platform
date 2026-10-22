@@ -87,11 +87,17 @@ class Phase4AgentNetworkInvocationTests(unittest.TestCase):
         # `operator_migration_approval_ref`. This test still exercises the
         # path-mismatch rejection logic of the legacy helper, so it
         # carries the approval ref.
+        from tests._helpers.operator_acts import bind_github_operator_acts
+
+        if not hasattr(self, "_acts"):
+            self._acts = bind_github_operator_acts(self)
         rejected = _submit_legacy_invocation_result_internal(
             request_id=request["request_id"],
             output_path=wrong,
             base_dir=self.tools_dir,
-            operator_migration_approval_ref="OP-PHASE4-LEGACY-PATH-MISMATCH-TEST",
+            operator_migration_approval_ref=self._acts.approve(
+                "legacy_result_submit", {"request": request["request_id"]},
+            ),
         )
         self.assertEqual(rejected["reason"], "agent_invocation_path_mismatch")
         expected.parent.mkdir(parents=True)
@@ -101,7 +107,9 @@ class Phase4AgentNetworkInvocationTests(unittest.TestCase):
             output_path=expected,
             by="operator",
             base_dir=self.tools_dir,
-            operator_migration_approval_ref="OP-PHASE4-LEGACY-PATH-MISMATCH-TEST",
+            operator_migration_approval_ref=self._acts.approve(
+                "legacy_result_submit", {"request": request["request_id"]},
+            ),
         )
         self.assertEqual(accepted["status"], "completed")
         self.assertTrue(accepted["content_hash"].startswith("sha256:"))

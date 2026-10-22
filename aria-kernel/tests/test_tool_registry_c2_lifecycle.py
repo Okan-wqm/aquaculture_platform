@@ -240,13 +240,18 @@ class ParseWindowSignatureLifecycleTests(_LifecycleTestCase):
     def test_update_tool_scope_change_recomputes_signature(self) -> None:
         register_tool(_manifest(), base_dir=self.tools)
         before = get_tool("fake-adapter", self.tools)["parse_window_signature"]
-        update_tool(
-            "fake-adapter",
-            {"declared_scope": ["apps/**/*.ts", "libs/**/*.ts"]},
-            base_dir=self.tools,
-            operator_approval_ref="ops-e13-c11",
-            reason="widen parse window",
-        )
+        from tests._helpers.operator_acts import github_operator_acts
+
+        with github_operator_acts() as github:
+            update_tool(
+                "fake-adapter",
+                {"declared_scope": ["apps/**/*.ts", "libs/**/*.ts"]},
+                base_dir=self.tools,
+                operator_approval_ref=github.approve(
+                    "tool_update", {"tool": "fake-adapter", "fields": "declared_scope"},
+                ),
+                reason="widen parse window",
+            )
         after = get_tool("fake-adapter", self.tools)
         self.assertNotEqual(after["parse_window_signature"], before)
         self.assertEqual(after["parse_window_signature"], parse_window_signature(after))
@@ -254,16 +259,22 @@ class ParseWindowSignatureLifecycleTests(_LifecycleTestCase):
     def test_update_tool_with_explicitly_stale_signature_rejected(self) -> None:
         register_tool(_manifest(), base_dir=self.tools)
         with self.assertRaisesRegex(GovernanceError, "parse_window_signature_mismatch"):
-            update_tool(
-                "fake-adapter",
-                {
-                    "declared_scope": ["apps/**/*.ts", "libs/**/*.ts"],
-                    "parse_window_signature": "sha256:" + "0" * 64,
-                },
-                base_dir=self.tools,
-                operator_approval_ref="ops-e13-c11",
-                reason="widen parse window with stale sig",
-            )
+            from tests._helpers.operator_acts import github_operator_acts
+
+            with github_operator_acts() as github:
+                update_tool(
+                    "fake-adapter",
+                    {
+                        "declared_scope": ["apps/**/*.ts", "libs/**/*.ts"],
+                        "parse_window_signature": "sha256:" + "0" * 64,
+                    },
+                    base_dir=self.tools,
+                    operator_approval_ref=github.approve(
+                        "tool_update",
+                        {"tool": "fake-adapter", "fields": "declared_scope"},
+                    ),
+                    reason="widen parse window with stale sig",
+                )
 
 
 if __name__ == "__main__":

@@ -27,6 +27,11 @@ NOT RUN at authoring time (operator instruction 2026-09-03).
 """
 from __future__ import annotations
 
+# ARIA-HIGH-602 — the live partition: this module reads the live checkout
+# outside the kernel surface, so it runs in aria-kernel.yml's always-run
+# `workspace` job (aria_kernel.live_partition), never in a skippable shard.
+READS_LIVE_CHECKOUT = 'infrastructure/nginx/droplet.conf routes the ARIA gateway the unit and runbook describe'
+
 import hashlib
 import hmac
 import json
@@ -479,6 +484,26 @@ class Routing(_Store):
         self.assertIsNone(routed["wr-p"]["error"])
         refs = sorted(tuple(s["code_refs"]) for s in load_open_runtime_signals(base_dir=self.tools))
         self.assertEqual(refs, [(".github/workflows",), (".github/workflows/aria-kernel-fast.yml",)])
+
+    def test_I_V12_GW_03_a_resume_over_http_lifts_a_pause_only_on_the_operator_act(self) -> None:
+        """ARIA-HIGH-238 — the X-Aria-Actor header is self-declared, so it names
+        who asked and lifts nothing; the payload's ``operator_ref`` is the
+        operator's GitHub act for the standing pause, verified and consumed."""
+        from aria_kernel.control import resume_scope
+        from tests._helpers.operator_acts import github_operator_acts
+
+        self._ingest(gn.normalize_operator("op-p", {"verb": "pause", "reason": "deploy window"}, actor="okan"))
+        self._ingest(gn.normalize_operator("op-r1", {"verb": "resume", "reason": "done"}, actor="Okan-wqm"))
+        with github_operator_acts() as github:
+            routed = {r["delivery_id"]: r for r in gr.drain_inbox(base_dir=self.tools, workspace_root=self.ws)}
+            self.assertIn("control_resume_approval_unrecorded", routed["op-r1"]["error"])
+            self.assertTrue(effective_control(self.tools).paused_all)
+            ref = github.approve("control_resume", resume_scope(base_dir=self.tools))
+            self._ingest(gn.normalize_operator("op-r2", {"verb": "resume", "operator_ref": ref}, actor="okan"))
+            routed = {r["delivery_id"]: r for r in gr.drain_inbox(base_dir=self.tools, workspace_root=self.ws)}
+        self.assertEqual(routed["op-r2"]["action"], "operator_control")
+        self.assertIsNone(routed["op-r2"]["error"])
+        self.assertFalse(effective_control(self.tools).is_paused())
 
     def test_I_V12_GW_03_deterministic_closed_routes(self) -> None:
         self._ingest(gn.normalize_github("issues", "i-7", _issue_payload(7, ["aria"])))

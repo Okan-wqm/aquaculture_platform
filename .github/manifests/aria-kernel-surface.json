@@ -28,6 +28,10 @@
       "readers": "the selector's import graph; the lane's `npm run aria:docs:ssot` (aria-doc-runtime-ssot.spec.ts) drives the selector, which runs it"
     },
     {
+      "glob": "scripts/ci/aria_read_trace.py",
+      "readers": "the read tracer the suite, lane and state jobs install (ARIA-HIGH-602 S3)"
+    },
+    {
       "glob": "scripts/aria/**",
       "readers": "suite: test_t2_boundary_probe, test_doctor, test_runner_env_not_expression_context"
     },
@@ -41,7 +45,7 @@
     },
     {
       "glob": "tools/aria-poc/**",
-      "readers": "lane: tools/aria-poc invariant tests (Plan ARIA-V2 3.6)"
+      "readers": "workspace (always-run): tools/aria-poc invariant tests (Plan ARIA-V2 3.6); the drift bound walks the whole repo"
     },
     {
       "glob": "tools/shared/**",
@@ -53,7 +57,7 @@
     },
     {
       "glob": "tools/aria-acceptance/**",
-      "readers": "lane: `npm run test:aria-acceptance:unit` and `npm run test:aria-acceptance`"
+      "readers": "lane: `npm run test:aria-acceptance:unit`; workspace (always-run): `npm run test:aria-acceptance`, whose harness reads the whole repo"
     },
     {
       "glob": "tools/aria/**",
@@ -110,6 +114,70 @@
     {
       "glob": ".npmrc",
       "readers": "`npm ci` in the suite and lane jobs"
+    },
+    {
+      "glob": "tools/__init__.py",
+      "readers": "suite: test_jev_runtime's naming invariant scans the tools tree (nothing but system_one names the transport)"
+    },
+    {
+      "glob": "tools/runtime-signals/**",
+      "readers": "suite: test_jev_runtime's naming invariant scans the tools tree (nothing but system_one names the transport)"
+    },
+    {
+      "glob": ".claude/shared/**",
+      "readers": "suite: test_phase_v4_e_shared_fragments_tier_1, test_agent_routing (the shared review contract the agent definitions cite)"
+    },
+    {
+      "glob": ".claude/settings.json",
+      "readers": "suite: test_phase_v12_a_state_guard (the agent harness's deny rules)"
+    },
+    {
+      "glob": ".claude/settings.local.json",
+      "readers": "suite: test_phase_v12_a_state_guard (the agent harness's local permissions)"
+    },
+    {
+      "glob": ".codex",
+      "readers": "suite: test_model_fleet_and_codex, test_ci_executor_provider_undecided, test_ci_executor_live_path_smoke (the Codex runtime config)"
+    },
+    {
+      "glob": ".mcp.json",
+      "readers": "suite: test_phase_v12_g_mcp (the MCP server config)"
+    },
+    {
+      "glob": "infrastructure/aria/**",
+      "readers": "suite: test_phase_v12_e_ops, test_phase_v13_d_scope_lab_persona, test_phase_v13_f_proxy_probe_zap (ARIA's units and security lab)"
+    },
+    {
+      "glob": "infrastructure/monitoring/grafana/dashboards/aria-kernel-dashboard.json",
+      "readers": "suite: test_phase_v12_e_ops (ARIA's dashboard)"
+    },
+    {
+      "glob": "infrastructure/monitoring/prometheus/alerts/aria-alerts.yml",
+      "readers": "suite: test_phase_v12_e_ops (ARIA's alerts)"
+    },
+    {
+      "glob": "infrastructure/monitoring/droplet/rules/80-aria-t2-boundary.yml",
+      "readers": "suite: test_t2_boundary_probe (ARIA's T2 boundary rule)"
+    },
+    {
+      "glob": "docs/runbooks/aria-state-branch-bootstrap.md",
+      "readers": "aria_kernel/state_lineage.py's lineage refusals cite it; suite: test_state_single_writer pins what it documents"
+    },
+    {
+      "glob": "aria-tools/**",
+      "readers": "suite: test_cli_tools_dir_position_uniformity, test_cycle_status_field_invariant, test_daily_report_anchor_invariant (ARIA's committed tools dir: repo identity, daily reports)"
+    },
+    {
+      "glob": "aria-debts/**",
+      "readers": "suite: test_debt_lifecycle, test_cli_tools_dir_position_uniformity (ARIA's committed debt ledger)"
+    },
+    {
+      "glob": "scripts/ci/affected-target-policy.json",
+      "readers": "suite: test_merge_authority_pre_merge_perimeter, test_branch_update_lineage (the CI affected-target policy merge authority reads)"
+    },
+    {
+      "glob": "tools/gates/plan-import-witness.ts",
+      "readers": "aria_kernel/plan_import_resolution.py runs it; suite: test_plan_import_resolution"
     }
   ]
 }

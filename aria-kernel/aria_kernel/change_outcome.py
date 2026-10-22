@@ -55,7 +55,6 @@ nothing for ``unknown`` (absence of evidence is not evidence).
 """
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -79,6 +78,7 @@ from .tool_registry import (
     ensure_tools_dir,
     utc_now,
 )
+from .digest import sha256_digest, sha256_digest_text
 
 # The verdicts, in precedence order. A change with two readings that
 # disagree resolves to the WORST one that any ledger supports: a green
@@ -490,7 +490,7 @@ def _merge_record_for_change(
 
 def _inputs_digest(payload: dict[str, Any] | list[Any]) -> str:
     serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
-    return "sha256:" + hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+    return sha256_digest_text(serialized)
 
 
 def recompute_change_outcome(
@@ -867,7 +867,7 @@ def _capture_assessment_inputs(
                 "repo_identity": repo_identity, "relative_path": surface.path_pattern,
                 "presence": "present" if content is not None else "absent",
                 "prefix": {"byte_length": len(content or b""), "row_count": len(rows),
-                           "sha256": "sha256:" + hashlib.sha256(content or b"").hexdigest(),
+                           "sha256": sha256_digest(content or b""),
                            "tail_ledger_hash": tail},
                 "retained_prefix_ref": None,
             })
@@ -956,8 +956,8 @@ def _capture_assessment_inputs(
         "predecessor_assessment_id": previous["assessment_id"] if previous else None,
         "evidence_window": {"lower_exclusive": original["merged_at"], "upper_inclusive": evaluated_at.isoformat()},
         "source_snapshots": descriptors,
-        "binding_observation": {"identity_sha256": "sha256:" + hashlib.sha256(identity_bytes).hexdigest(),
-                                "contract_sha256": "sha256:" + hashlib.sha256(contract_bytes).hexdigest()},
+        "binding_observation": {"identity_sha256": sha256_digest(identity_bytes),
+                                "contract_sha256": sha256_digest(contract_bytes)},
     }
     return _AssessmentCapture(
         change_id=change_id, finding_id=planned["finding_id"], plan_id=planned["plan_id"],

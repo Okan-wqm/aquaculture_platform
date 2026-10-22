@@ -373,6 +373,22 @@ class CredentialTableTest(unittest.TestCase):
             [(row.name, row.detect.pattern) for row in shapes_in("harness")],
         )
 
+    def test_the_broker_reads_the_armour_shape_from_the_table(self) -> None:
+        # token_broker restated the BEGIN/END regexes (run 39744490984, shard
+        # 2); it now asks the table, which keeps its input check exact.
+        body = "MIIE" + "U3ludGhldGljS2V5Qm9keQ" * 3
+        rsa = "RSA PRIVATE" + " KEY"
+
+        def armour(begin: str, end: str) -> str:
+            return "\n".join((f"-----BEGIN {begin}-----", body, f"-----END {end}-----"))
+
+        self.assertTrue(secret_scrub.is_armoured_private_key(armour(rsa, rsa) + "\n"))
+        self.assertFalse(secret_scrub.is_armoured_private_key(armour(rsa, "EC PRIVATE" + " KEY")))
+        self.assertFalse(secret_scrub.is_armoured_private_key(armour("PGP PRIVATE" + " KEY BLOCK",
+                                                                     "PGP PRIVATE" + " KEY BLOCK")))
+        self.assertFalse(secret_scrub.is_armoured_private_key(armour(rsa, rsa).replace(body + "\n", "")))
+        self.assertFalse(secret_scrub.is_armoured_private_key("x\n" + armour(rsa, rsa)))
+
     def test_system_one_excludes_exactly_the_pii_rows(self) -> None:
         from aria_kernel.secret_scrub import pii_shape_names, shapes_in
 

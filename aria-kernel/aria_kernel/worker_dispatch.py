@@ -30,6 +30,7 @@ from .tool_registry import (
 )
 from .triage import derive_required_tests, resolve_target_agent
 from .workspace import WorkspacePaths
+from .digest import secret_matches_sha256_digest, sha256_digest_text
 
 
 DEFAULT_WORKTREE_TTL_DAYS = 7
@@ -498,10 +499,6 @@ def _claims_path(root: Path) -> Path:
     return root / "dispatch" / "claims.jsonl"
 
 
-def _hash_lease_token(token: str) -> str:
-    return "sha256:" + hashlib.sha256(token.encode("utf-8")).hexdigest()
-
-
 def _claim_id(assignment_id: str, agent_id: str, now: datetime) -> str:
     digest = hashlib.sha256(
         f"{assignment_id}|{agent_id}|{now.isoformat()}".encode("utf-8")
@@ -651,7 +648,7 @@ def claim_assignment(
             "pressure_event_id": (assignment or {}).get("pressure_event_id"),
             "agent_id": agent_id,
             "provider": provider,
-            "lease_token_hash": _hash_lease_token(lease_token),
+            "lease_token_hash": sha256_digest_text(lease_token),
             "lease_seconds": lease_seconds,
             "recorded_at": _iso(now),
             "claimed_at": _iso(now),
@@ -724,7 +721,7 @@ def release_claim_assignment(
         )
         if claim_event is None:
             raise GovernanceError(f"claim {claim_id} not found")
-        if claim_event.get("lease_token_hash") != _hash_lease_token(lease_token):
+        if not secret_matches_sha256_digest(lease_token, claim_event.get("lease_token_hash")):
             raise GovernanceError(
                 f"claim {claim_id} lease_token mismatch"
             )

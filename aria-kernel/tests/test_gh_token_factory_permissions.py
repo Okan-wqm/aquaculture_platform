@@ -188,5 +188,94 @@ class _FakeJwt:
         return "header.payload.signature"
 
 
+class TheNamedPermissionSetsAreTheClosedAllowlist(unittest.TestCase):
+    """ARIA-MEDIUM-583 — the broker mints NAMED sets, and the names resolve
+    to mappings this module owns. The delivery set carries no administration
+    at all: the branch-protection probe that needed ``administration: read``
+    is the readiness claim's, and the delivery only pushes a branch and opens
+    a PR."""
+
+    def test_the_sets_and_their_content(self) -> None:
+        sets = tf.INSTALLATION_TOKEN_PERMISSION_SETS
+        self.assertEqual(sorted(sets), ["DELIVERY", "MERGE_LANE", "READINESS", "RUNNER_STATUS"])
+        self.assertEqual(dict(sets["DELIVERY"]), {"contents": "write", "pull_requests": "write"})
+        self.assertNotIn("administration", dict(sets["DELIVERY"]))
+        self.assertEqual(dict(sets["READINESS"]), {
+            "pull_requests": "write", "contents": "write", "administration": "read",
+        })
+        self.assertEqual(dict(sets["MERGE_LANE"]), {
+            "pull_requests": "write", "contents": "write", "administration": "read",
+            "checks": "read", "statuses": "read", "issues": "read", "actions": "read",
+        })
+        self.assertEqual(dict(sets["RUNNER_STATUS"]), {"administration": "read"})
+
+    def test_the_legacy_names_are_the_table_itself(self) -> None:
+        # One source of truth: the pre-existing constants are the table's
+        # entries, not copies beside it.
+        self.assertIs(tf.DEFAULT_INSTALLATION_TOKEN_PERMISSIONS, tf.INSTALLATION_TOKEN_PERMISSION_SETS["READINESS"])
+        self.assertIs(tf.MERGE_LANE_INSTALLATION_TOKEN_PERMISSIONS, tf.INSTALLATION_TOKEN_PERMISSION_SETS["MERGE_LANE"])
+        self.assertIs(tf.RUNNER_STATUS_PERMISSIONS, tf.INSTALLATION_TOKEN_PERMISSION_SETS["RUNNER_STATUS"])
+
+    def test_an_unknown_set_name_is_refused_before_any_request(self) -> None:
+        posted: list[dict] = []
+
+        def urlopen(request, timeout):  # noqa: ANN001 — urlopen's shape
+            posted.append({"url": request.full_url})
+            return _Response({"token": "ghs_unreachable", "expires_at": "2026-10-20T11:05:00Z"})
+
+        with tempfile.TemporaryDirectory(prefix="aria-token-sets-") as scratch:
+            root = Path(scratch)
+            (root / "app.pem").write_text("-----BEGIN PRIVATE KEY-----\nfixture\n-----END PRIVATE KEY-----\n", encoding="utf-8")
+            with patch.dict(os.environ, {
+                "ARIA_GH_APP_INSTALLATION_ID": "12345", "ARIA_GH_APP_ID": "678",
+                "ARIA_GH_APP_PRIVATE_KEY_PATH": str(root / "app.pem"), "ARIA_REQUIRE_MODE_A": "true",
+            }), patch("urllib.request.urlopen", urlopen):  # allowlist-external-network: the opener is replaced by the in-process fake above; no request leaves the test
+                with self.assertRaisesRegex(ValueError, "SUPERUSER"):
+                    tf.mint_installation_token(
+                        cycle_id="permissions-fixture", workspace_root=root, permission_set="SUPERUSER",
+                    )
+        self.assertEqual(posted, [])
+
+
+class TheInProcessKeyPathIsRefusedWhenTheLaneRequiresTheBroker(unittest.TestCase):
+    """ARIA-MEDIUM-583 — under ``ARIA_REQUIRE_TOKEN_BROKER`` the mint refuses
+    to read the App key inside the calling (cycle/executor) process, even
+    with a perfectly readable PEM file at hand: the key belongs to the lane's
+    broker, and the narrowed token it hands out is all the process may
+    hold."""
+
+    def test_the_in_process_key_mint_is_refused_by_name(self) -> None:
+        posted: list[dict] = []
+
+        def urlopen(request, timeout):  # noqa: ANN001 — urlopen's shape
+            posted.append({"url": request.full_url})
+            return _Response({"token": "ghs_should_not_exist", "expires_at": "2026-10-20T11:05:00Z"})
+
+        with tempfile.TemporaryDirectory(prefix="aria-token-broker-refusal-") as scratch:
+            root = Path(scratch)
+            (root / "app.pem").write_text("-----BEGIN PRIVATE KEY-----\nfixture\n-----END PRIVATE KEY-----\n", encoding="utf-8")
+            env = patch.dict(os.environ, {
+                "ARIA_GH_APP_INSTALLATION_ID": "12345", "ARIA_GH_APP_ID": "678",
+                "ARIA_GH_APP_PRIVATE_KEY_PATH": str(root / "app.pem"), "ARIA_REQUIRE_MODE_A": "true",
+                "ARIA_REQUIRE_TOKEN_BROKER": "true",
+            }, clear=False)
+            with env, patch("urllib.request.urlopen", urlopen):  # allowlist-external-network: the opener is replaced by the in-process fake above; no request leaves the test
+                os.environ.pop("ARIA_GH_TOKEN_BROKER_SOCKET", None)
+                try:
+                    with self.assertRaisesRegex(RuntimeError, "ARIA_REQUIRE_TOKEN_BROKER") as refused:
+                        tf.mint_installation_token(cycle_id="refusal-fixture", workspace_root=root)
+                    self.assertIn("ARIA_GH_TOKEN_BROKER_SOCKET", str(refused.exception))
+                finally:
+                    os.environ.pop("ARIA_REQUIRE_TOKEN_BROKER", None)
+        self.assertEqual(posted, [])
+
+    def test_the_delivery_hold_names_the_delivery_set(self) -> None:
+        # The delivery credential is the cycle/executor process's one GitHub
+        # write seat: it names the narrowed DELIVERY set (no administration)
+        # instead of taking the default the probe lanes use.
+        source = Path(tf.__file__).resolve().parent / "delivery_credentials.py"
+        self.assertIn('permission_set="DELIVERY"', source.read_text(encoding="utf-8"))
+
+
 if __name__ == "__main__":
     unittest.main()

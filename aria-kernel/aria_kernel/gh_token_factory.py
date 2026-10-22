@@ -306,39 +306,59 @@ INSTALLATION_TOKEN_MINT_TIMEOUT_SECONDS = 30
 INSTALLATION_TOKEN_REVOKE_TIMEOUT_SECONDS = 10
 
 # The permission set a Mode A installation token is minted with when the
-# caller names none: the implementer's delivery scope (pull_requests:write +
-# contents:write on its own branch) plus administration:read, which the
-# readiness claim's branch-protection probe needs (ARIA-MEDIUM-021) and which
-# doubles as the tripwire that the operator ticked Administration: read-only
-# on the App (a permission the App was not granted fails the mint, HTTP 422).
-DEFAULT_INSTALLATION_TOKEN_PERMISSIONS: Mapping[str, str] = MappingProxyType({
-    "pull_requests": "write",
-    "contents": "write",
-    "administration": "read",
+# caller names none: the readiness claim's branch-protection probe scope
+# (pull_requests:write + contents:write plus administration:read, which
+# ARIA-MEDIUM-021's probe needs and which doubles as the tripwire that the
+# operator ticked Administration: read-only on the App — a permission the App
+# was not granted fails the mint, HTTP 422).
+#
+# ARIA-MEDIUM-583 — the sets are NAMED, in ONE closed table
+# (:data:`INSTALLATION_TOKEN_PERMISSION_SETS`), because the token broker
+# mints by name: a broker that accepted raw mappings would be a second
+# authority on what a lane may hold. The delivery set is the narrowed one —
+# a delivery pushes one branch and opens one PR, so it carries NO
+# administration at all; the probe lanes keep the administration read where
+# their probes live.
+INSTALLATION_TOKEN_PERMISSION_SETS: Mapping[str, Mapping[str, str]] = MappingProxyType({
+    "DELIVERY": MappingProxyType({"contents": "write", "pull_requests": "write"}),
+    "READINESS": MappingProxyType({
+        "pull_requests": "write",
+        "contents": "write",
+        "administration": "read",
+    }),
+    # ARIA-HIGH-208 — what aria-merge-runner.yml mints its merge token with:
+    # the readiness set plus the reads the merge gates make through the
+    # GitHub adapter (`auto_merge.GhCliGitHubAdapter`): open issues for the
+    # watchdog merge freeze (`watchdog_freeze`), and check runs + commit
+    # statuses for the required-checks gate. A token without them reads
+    # nothing there, so each gate refused as unreadable. Each is a permission
+    # the App must hold (a missing one fails the mint with HTTP 422, by
+    # name — docs/runbooks/aria-github-app-setup.md). ARIA-HIGH-218 — and
+    # actions:read: the readiness claim's rollback and retention proofs name
+    # a published Actions artifact, and the merge gate verifies them by
+    # downloading it (`actions_artifacts.fetch_actions_artifact`).
+    "MERGE_LANE": MappingProxyType({
+        "pull_requests": "write",
+        "contents": "write",
+        "administration": "read",
+        "checks": "read",
+        "statuses": "read",
+        "issues": "read",
+        "actions": "read",
+    }),
+    # A token that may only READ the repository's runner roster
+    # (GET /repos/{owner}/{repo}/actions/runners): what the hosted runner
+    # preflight mints. A GitHub-hosted job never holds a write scope on the
+    # repository it merely asks about.
+    "RUNNER_STATUS": MappingProxyType({"administration": "read"}),
 })
-# ARIA-HIGH-208 — what aria-merge-runner.yml mints its merge token with: the
-# default set plus the three reads the merge gates make through the GitHub
-# adapter (`auto_merge.GhCliGitHubAdapter`): open issues for the watchdog
-# merge freeze (`watchdog_freeze`), and check runs + commit statuses for the
-# required-checks gate. A
-# token without them reads nothing there, so each gate refused as
-# unreadable. Each is a permission the App must hold (a missing one fails
-# the mint with HTTP 422, by name — docs/runbooks/aria-github-app-setup.md).
-# ARIA-HIGH-218 — and actions:read: the readiness claim's rollback and
-# retention proofs name a published Actions artifact, and the merge gate
-# verifies them by downloading it (`actions_artifacts.fetch_actions_artifact`).
-MERGE_LANE_INSTALLATION_TOKEN_PERMISSIONS: Mapping[str, str] = MappingProxyType({
-    **DEFAULT_INSTALLATION_TOKEN_PERMISSIONS,
-    "checks": "read",
-    "statuses": "read",
-    "issues": "read",
-    "actions": "read",
-})
-# A token that may only READ the repository's runner roster
-# (GET /repos/{owner}/{repo}/actions/runners): what the hosted runner
-# preflight mints. A GitHub-hosted job never holds a write scope on the
-# repository it merely asks about.
-RUNNER_STATUS_PERMISSIONS: Mapping[str, str] = MappingProxyType({"administration": "read"})
+DEFAULT_INSTALLATION_TOKEN_PERMISSIONS: Mapping[str, str] = INSTALLATION_TOKEN_PERMISSION_SETS["READINESS"]
+MERGE_LANE_INSTALLATION_TOKEN_PERMISSIONS: Mapping[str, str] = INSTALLATION_TOKEN_PERMISSION_SETS["MERGE_LANE"]
+RUNNER_STATUS_PERMISSIONS: Mapping[str, str] = INSTALLATION_TOKEN_PERMISSION_SETS["RUNNER_STATUS"]
+# The provider's API root — a parameter of the mint only so the token
+# broker's tests can point the SAME mint flow at a loopback fixture; the
+# production value is the one true host.
+GITHUB_API_BASE_URL = "https://api.github.com"
 _PERMISSION_LEVELS: frozenset[str] = frozenset({"read", "write"})
 
 
@@ -1075,38 +1095,131 @@ def _restore_git_commit_signing(
     return SigningConfigRestoreReceipt(SigningConfigRestore.RESTORED)
 
 
+def _mint_installation_token_from_pem(
+    *,
+    app_id: str,
+    installation_id: str,
+    private_pem: str,
+    permissions: Mapping[str, str],
+    api_base_url: str = GITHUB_API_BASE_URL,
+) -> tuple[str, str]:
+    """ARIA-MEDIUM-583 — the ONE JWT mint: what the in-process Mode A path
+    and the token broker both run, so the two can never drift. The PEM comes
+    as MEMORY (the in-process path reads its file first; the broker holds
+    its copy in memory only and never writes it anywhere). Returns
+    ``(token, expires_at)`` — the provider's own horizon: GitHub expires the
+    token exactly one hour after the mint (the endpoint takes no
+    ``expires_in``), and a lease without it is local fiction (ARIA-AUDIT-017).
+    """
+    # Lazy import — keeps the factory import-cheap when Mode A
+    # is not used (Mode B fallback path doesn't need PyJWT).
+    try:
+        import jwt as _jwt
+    except ImportError as exc:
+        raise RuntimeError(
+            "mint_installation_token Mode A requires PyJWT "
+            "(pip install PyJWT[crypto]); not installed."
+        ) from exc
+    import json as _json
+    import time as _time
+    import urllib.error as _urllib_error
+    import urllib.request as _urllib_request
+
+    # JWT — 9-minute exp window per GitHub App auth contract.
+    now = int(_time.time())
+    payload = {"iat": now - 60, "exp": now + 540, "iss": app_id}
+    jwt_token = _jwt.encode(payload, private_pem, algorithm="RS256")
+
+    # POST /app/installations/<id>/access_tokens
+    req = _urllib_request.Request(
+        f"{api_base_url}/app/installations/{installation_id}/access_tokens",
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {jwt_token}",
+            "Accept": "application/vnd.github+json",
+            "Content-Type": "application/json",
+        },
+        data=_json.dumps({
+            # Exactly what the caller asked for (see the named sets at the
+            # top of this module for the vocabulary and why each permission
+            # is there). Nothing else: the endpoint takes `repositories`,
+            # `repository_ids` and `permissions` — the `expires_in` the mint
+            # sent until ARIA-HIGH-124 round 6 was not a field of it, GitHub
+            # ignored it, and the token lived the provider's hour whatever
+            # the local TTL said; the horizon the provider enforces comes
+            # back as `expires_at` and is carried on the lease
+            # (`provider_expiry`).
+            "permissions": dict(permissions),
+        }).encode("utf-8"),
+    )
+    try:
+        with _urllib_request.urlopen(req, timeout=INSTALLATION_TOKEN_MINT_TIMEOUT_SECONDS) as resp:
+            data = _json.loads(resp.read())
+    except _urllib_error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")[:300]
+        raise RuntimeError(
+            f"mint_installation_token Mode A HTTP {exc.code}: {body}"
+        ) from exc
+    token = data.get("token")
+    if not isinstance(token, str) or not token.strip():
+        raise RuntimeError(
+            "mint_installation_token Mode A: API response missing 'token'"
+        )
+    expires_at = data.get("expires_at")
+    if not isinstance(expires_at, str) or not expires_at.strip():
+        raise RuntimeError(
+            "mint_installation_token Mode A: API response missing "
+            "'expires_at' — a lease without provider expiry is local "
+            "fiction (ARIA-AUDIT-017)"
+        )
+    return token, expires_at.strip()
+
+
 def mint_installation_token(
     *,
     cycle_id: str,
     workspace_root: str | Path,
     ttl_seconds: int = 300,
-    permissions: Mapping[str, str] = DEFAULT_INSTALLATION_TOKEN_PERMISSIONS,
+    permissions: Mapping[str, str] | None = None,
+    permission_set: str | None = None,
     token_dir: str | Path | None = None,
 ) -> InstallationTokenLease:
     """Plan ARIA-V9.0-C code-only — installation-token factory.
 
-    Two operating modes:
+    Three operating modes:
 
-    Mode A (GH App configured, production-correct):
-        ``$ARIA_GH_APP_INSTALLATION_ID`` set → mints a 5-min TTL
-        scoped installation token via a direct POST to
+    Mode A via the token broker (ARIA-MEDIUM-583, the lane shape):
+        ``$ARIA_GH_TOKEN_BROKER_SOCKET`` set → the mint asks the lane's
+        broker over its private unix socket. The broker holds the App key in
+        memory (the cycle/executor process never sees it), mints ONLY the
+        closed allowlist of named sets (``permission_set`` — a raw mapping
+        is refused on this path: a broker that accepted mappings would be a
+        second authority on what a lane may hold), caps mints per night and
+        clamps every TTL to the job deadline. ``ARIA_REQUIRE_TOKEN_BROKER``
+        makes the absence of the socket a named refusal, so a lane that
+        declared the broker can never quietly fall back to reading the key
+        itself.
+
+    Mode A in-process (the short-lived probe lanes):
+        ``$ARIA_GH_APP_INSTALLATION_ID`` set → mints a 5-min TTL scoped
+        installation token via a direct POST to
         ``/app/installations/{id}/access_tokens`` with exactly
         ``permissions`` (``DEFAULT_INSTALLATION_TOKEN_PERMISSIONS`` unless
-        the caller narrows it — the hosted runner preflight passes
-        ``RUNNER_STATUS_PERMISSIONS`` so a GitHub-hosted job never holds a
-        write scope). Token written to ``<token_dir>/<cycle_id>.token``
-        mode 0600.
+        the caller names a ``permission_set`` or narrows the mapping — the
+        hosted runner preflight passes ``RUNNER_STATUS_PERMISSIONS`` so a
+        GitHub-hosted job never holds a write scope). Token written to
+        ``<token_dir>/<cycle_id>.token`` mode 0600.
 
     ``token_dir`` (ARIA-HIGH-124 round 5) is where the token file lives:
-    the executor's delivery hold passes a private 0700 directory OUTSIDE
-    the workspace (``delivery_credentials.hold_delivery_credentials``),
-    because every sandbox binds the workspace and the validation sandbox
-    exposed ``aria-debts/keys/<lease>.token`` to the agent's committed
-    suite. A directory that is not private — absent, inside the workspace,
-    readable by group or other — is refused by name
-    (:class:`TokenDirectoryUnusable`) before any token is fetched. Without
-    ``token_dir`` the file lands in the workspace keys dir, the shape the
-    hosted runner preflight (no sandbox, no agent) still uses.
+        the executor's delivery hold passes a private 0700 directory OUTSIDE
+        the workspace (``delivery_credentials.hold_delivery_credentials``),
+        because every sandbox binds the workspace and the validation sandbox
+        exposed ``aria-debts/keys/<lease>.token`` to the agent's committed
+        suite. A directory that is not private — absent, inside the workspace,
+        readable by group or other — is refused by name
+        (:class:`TokenDirectoryUnusable`) before any token is fetched. Without
+        ``token_dir`` the file lands in the workspace keys dir, the shape the
+        hosted runner preflight (no sandbox, no agent) still uses.
 
     Mode B (operator-PAT fallback, V9.0-C SHIM):
         ``$ARIA_GH_APP_INSTALLATION_ID`` absent → copies the operator
@@ -1123,7 +1236,24 @@ def mint_installation_token(
     the operator runbook is complete.
     """
     _validate_cycle_id(cycle_id)
-    requested_permissions = _validate_permissions(permissions)
+    if permission_set is not None and permissions is not None:
+        raise ValueError(
+            "mint_installation_token: name the permission source once — "
+            "permission_set (a name from INSTALLATION_TOKEN_PERMISSION_SETS) "
+            "or permissions (a mapping); both were given"
+        )
+    if permission_set is not None:
+        named = INSTALLATION_TOKEN_PERMISSION_SETS.get(permission_set)
+        if named is None:
+            raise ValueError(
+                f"mint_installation_token: unknown permission set {permission_set!r}; "
+                f"the closed allowlist is {sorted(INSTALLATION_TOKEN_PERMISSION_SETS)}"
+            )
+        requested_permissions = _validate_permissions(named)
+    else:
+        requested_permissions = _validate_permissions(
+            permissions if permissions is not None else DEFAULT_INSTALLATION_TOKEN_PERMISSIONS
+        )
     resolved_workspace = _resolve_workspace_root(workspace_root)
     if token_dir is None:
         keys_dir = signing_keys_dir(resolved_workspace)
@@ -1151,8 +1281,47 @@ def mint_installation_token(
         )
 
     installation_id = os.environ.get("ARIA_GH_APP_INSTALLATION_ID")
+    broker_socket = os.environ.get("ARIA_GH_TOKEN_BROKER_SOCKET")
 
-    if installation_id:
+    if broker_socket:
+        # ARIA-MEDIUM-583 — Mode A through the lane's token broker. The App
+        # key stays in the broker's memory; this process holds the socket
+        # path only, and every named-set / mint-cap / TTL-clamp rule is
+        # enforced there, at the credential's owner, not here at the spender.
+        if permission_set is None:
+            raise RuntimeError(
+                "mint_installation_token through the token broker must name "
+                "its permission set (INSTALLATION_TOKEN_PERMISSION_SETS: "
+                f"{', '.join(INSTALLATION_TOKEN_PERMISSION_SETS)}); a raw "
+                "permission mapping is the in-process key path the broker retires"
+            )
+        from . import token_broker as _token_broker
+
+        minted = _token_broker.mint_via_broker(
+            broker_socket,
+            lease_id=cycle_id,
+            permission_set_name=permission_set,
+            ttl_seconds=ttl_seconds,
+        )
+        token_path.write_text(minted["token"])
+        token_path.chmod(0o600)
+        fallback_active = False
+        provider_expiry: str | None = minted["expires_at"]
+        installation_id = minted["installation_id"]
+    elif os.environ.get("ARIA_REQUIRE_TOKEN_BROKER", "").lower() in ("true", "1", "yes"):
+        # A lane that declared the broker never falls back to reading the
+        # App key inside the cycle/executor process — the whole point of the
+        # broker (ARIA-MEDIUM-583) is that this process cannot spend the key
+        # itself, so narrowing the job token (ARIA-MEDIUM-555) finally means
+        # something. Refused by name, before any key is read.
+        raise RuntimeError(
+            "ARIA_REQUIRE_TOKEN_BROKER=true but ARIA_GH_TOKEN_BROKER_SOCKET is "
+            "unset: the in-process App-key mint (reading "
+            "ARIA_GH_APP_PRIVATE_KEY_PATH inside the calling process) is "
+            "forbidden on this lane; the lane's workflow starts the token "
+            "broker step that owns the key (ARIA-MEDIUM-583)"
+        )
+    elif installation_id:
         # Mode A — proper scoped installation token via direct GitHub
         # API call (V10.3-B prereq fix). The original V9.0-C code
         # assumed `gh` CLI 2.x would auto-mint a JWT from `GH_APP_*`
@@ -1185,71 +1354,16 @@ def mint_installation_token(
                 f"mint_installation_token Mode A: private key unreadable "
                 f"at {private_key_path!r}: {exc!s}"
             )
-        # Lazy import — keeps the factory import-cheap when Mode A
-        # is not used (Mode B fallback path doesn't need PyJWT).
-        try:
-            import jwt as _jwt
-        except ImportError as exc:
-            raise RuntimeError(
-                "mint_installation_token Mode A requires PyJWT "
-                "(pip install PyJWT[crypto]); not installed."
-            ) from exc
-        import json as _json
-        import time as _time
-        import urllib.error as _urllib_error
-        import urllib.request as _urllib_request
-
-        # JWT — 9-minute exp window per GitHub App auth contract.
-        now = int(_time.time())
-        payload = {"iat": now - 60, "exp": now + 540, "iss": app_id}
-        jwt_token = _jwt.encode(payload, private_pem, algorithm="RS256")
-
-        # POST /app/installations/<id>/access_tokens
-        req = _urllib_request.Request(
-            f"https://api.github.com/app/installations/{installation_id}/access_tokens",
-            method="POST",
-            headers={
-                "Authorization": f"Bearer {jwt_token}",
-                "Accept": "application/vnd.github+json",
-                "Content-Type": "application/json",
-            },
-            data=_json.dumps({
-                # Exactly what the caller asked for (see the constants at the
-                # top of this module for the two named sets and why each
-                # permission is there). Nothing else: the endpoint takes
-                # `repositories`, `repository_ids` and `permissions` — the
-                # `expires_in` the mint sent until ARIA-HIGH-124 round 6
-                # was not a field of it, GitHub ignored it, and the token
-                # lived the provider's hour whatever the local TTL said;
-                # the horizon the provider enforces comes back as
-                # `expires_at` and is carried on the lease (`provider_expiry`).
-                "permissions": requested_permissions,
-            }).encode("utf-8"),
+        token, expires_at = _mint_installation_token_from_pem(
+            app_id=app_id,
+            installation_id=installation_id,
+            private_pem=private_pem,
+            permissions=requested_permissions,
         )
-        try:
-            with _urllib_request.urlopen(req, timeout=INSTALLATION_TOKEN_MINT_TIMEOUT_SECONDS) as resp:
-                data = _json.loads(resp.read())
-        except _urllib_error.HTTPError as exc:
-            body = exc.read().decode("utf-8", errors="replace")[:300]
-            raise RuntimeError(
-                f"mint_installation_token Mode A HTTP {exc.code}: {body}"
-            ) from exc
-        token = data.get("token")
-        if not isinstance(token, str) or not token.strip():
-            raise RuntimeError(
-                "mint_installation_token Mode A: API response missing 'token'"
-            )
-        expires_at = data.get("expires_at")
-        if not isinstance(expires_at, str) or not expires_at.strip():
-            raise RuntimeError(
-                "mint_installation_token Mode A: API response missing "
-                "'expires_at' — a lease without provider expiry is local "
-                "fiction (ARIA-AUDIT-017)"
-            )
         token_path.write_text(token)
         token_path.chmod(0o600)
         fallback_active = False
-        provider_expiry: str | None = expires_at.strip()
+        provider_expiry = expires_at
     else:
         # Plan ARIA-V10.3-B prereq — ARIA_REQUIRE_MODE_A hard-fail gate
         # (closes audit SEC-CRIT-003). When the operator has declared

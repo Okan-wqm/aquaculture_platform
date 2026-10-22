@@ -12,6 +12,7 @@ the REST API returns, so the verifier's parsing is exercised, not bypassed.
 from __future__ import annotations
 
 import itertools
+import unittest
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -151,6 +152,20 @@ def github_operator_acts(
         yield fake
 
 
+def bind_github_operator_acts(case: unittest.TestCase) -> FakeGitHubActs:
+    """``github_operator_acts()`` entered for the life of a ``TestCase``.
+
+    For suites whose fixture seeds and their assertions verify in different
+    methods (a chain recorded in ``setUp``/helpers, the surface invoked in
+    the test body): one fake reader stays installed until the case cleans
+    up, so each surface verifies against the same acts.
+    """
+    context = github_operator_acts()
+    fake = context.__enter__()
+    case.addCleanup(context.__exit__, None, None, None)
+    return fake
+
+
 def operator_set_profile(
     profile: str,
     *,
@@ -180,6 +195,7 @@ __all__ = [
     "OPERATOR_LOGIN",
     "REPOSITORY",
     "FakeGitHubActs",
+    "bind_github_operator_acts",
     "github_operator_acts",
     "operator_set_profile",
 ]

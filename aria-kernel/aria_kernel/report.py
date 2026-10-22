@@ -30,12 +30,12 @@ the same on-disk content).
 
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 from typing import Any
 
 from .strict_jsonl_reader import read_strict_jsonl
+from .digest import sha256_digest
 
 
 def _safe_read_lines(path: Path) -> list[str]:
@@ -161,7 +161,7 @@ def _integrity_index_chain_root(path: Path) -> str | None:
         return None
     sorted_map = {k: ledger_hashes[k] for k in sorted(ledger_hashes)}
     payload = json.dumps(sorted_map, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return "sha256:" + hashlib.sha256(payload).hexdigest()
+    return sha256_digest(payload)
 
 
 def _workspace_governance_tail(workspace_root: Path) -> str | None:

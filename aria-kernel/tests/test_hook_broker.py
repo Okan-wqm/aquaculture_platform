@@ -49,6 +49,12 @@ from aria_kernel.socket_holders import HOOK_BROKER, prune_stale_socket_dirs
 from aria_kernel.tool_registry import ensure_tools_dir
 from aria_kernel.turn_budget import REASON_IMPLEMENTER_TURN_BUDGET_EXHAUSTED
 
+# ARIA-HIGH-138 — the seam(s) this file proves by a real process, per
+# the closed registry in tests/invariants/seam_registry.py.
+REAL_PROCESS_SEAMS = (
+    "aria-kernel/aria_kernel/hook_broker.py",
+)
+
 _KERNEL_ROOT = Path(__file__).resolve().parents[1]
 
 

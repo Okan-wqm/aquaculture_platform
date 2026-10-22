@@ -27,11 +27,8 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from aria_kernel.agent_invocations import (
-    _hash_lease_token,
-    heartbeat_claim,
-    submit_claim_result,
-)
+from aria_kernel.agent_invocations import heartbeat_claim, submit_claim_result
+from aria_kernel.digest import sha256_digest_text
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from tests._helpers.declared_fixtures import append_declared_fixture
 
@@ -80,7 +77,7 @@ class LeaseExpiryTests(unittest.TestCase):
                 "claim_id": claim_id,
                 "request_id": request_id,
                 "agent_id": agent_id,
-                "lease_token_hash": _hash_lease_token(lease_token),
+                "lease_token_hash": sha256_digest_text(lease_token),
                 "claimed_at": _iso(datetime.now(timezone.utc) - timedelta(hours=1)),
                 "lease_expires_at": _iso(lease_expires_at),
             },

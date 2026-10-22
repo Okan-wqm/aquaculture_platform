@@ -23,8 +23,13 @@
 //!   write the agent implements;
 //! * only an output (`DO`, `AO`) is written.
 //!
-//! [`write`] then performs the write through the hardware handles, which keep
-//! their own degraded-mode gate and force registry.
+//! [`write_tag`] checks the force registry first, for the tag of every backend
+//! (a forced tag is held at its forced value: a remote command or the HMI does not
+//! overwrite it, as OPC UA and the piControl handle never did), and [`write`] then
+//! performs the write through the hardware handles, which keep their own
+//! degraded-mode gate (the piControl handle checks the force registry once more).
+//! The safe-state pass does not come through here: a force never keeps an output
+//! from its safe value.
 
 use crate::AppState;
 use crate::config::{AgentConfig, ModbusDeviceConfig, ModbusRegisterConfig};
@@ -59,8 +64,25 @@ pub enum WriteTarget {
 }
 
 impl WriteTarget {
+    /// The kind of hardware the target is on (a row of the behaviour table).
+    pub fn backend(&self) -> crate::safe_state::behaviour::Backend {
+        use crate::safe_state::behaviour::Backend;
+        match self {
+            Self::Gpio { .. } => Backend::Gpio,
+            Self::ModbusCoil { .. } | Self::ModbusRegister { .. } => Backend::Modbus,
+            Self::I2c { .. } => Backend::I2c,
+            Self::PiControl { .. } => Backend::PiControl,
+        }
+    }
+
     /// The identity of the output, as the safe-state registry and the remote
     /// holds spell it; `None` for a target with no registered output.
+    ///
+    /// An I2C tag has none: it names a bus and an address, the registry's I2C
+    /// output a device and a register, nothing maps one to the other, and no
+    /// configuration registers an I2C output. A remote write to it therefore
+    /// records no hold, and the behaviour table says so for the I2C row of a
+    /// cloud communications loss (the test below keeps the two together).
     pub fn output_id(&self) -> Option<OutputId> {
         match self {
             Self::Gpio { pin, .. } => Some(OutputId::gpio_pin(*pin)),
@@ -168,7 +190,7 @@ pub fn resolve(config: &AgentConfig, tag: &TagConfig, value: f64) -> Result<Writ
         ),
         ProtocolConfig::I2c { .. } => Ok(WriteTarget::I2c {
             tag: tag.tag_name.clone(),
-            data: (value as u32).to_be_bytes().to_vec(),
+            data: raw_i2c(value)?.to_be_bytes().to_vec(),
         }),
         ProtocolConfig::PiControl { .. } => Ok(WriteTarget::PiControl {
             tag: tag.tag_name.clone(),
@@ -332,6 +354,26 @@ fn single_device(config: &AgentConfig, slave_id: u8) -> Result<&ModbusDeviceConf
     }
 }
 
+/// The 32-bit big-endian payload of a direct I2C write: the value rounded, and
+/// refused when it is not a number that fits. A bare `value as u32` saturated an
+/// oversize value to `u32::MAX` and clamped a negative one to 0, so a command for
+/// -5 drove the device to 0 and one for 1e12 to full scale, as the Modbus path
+/// never does.
+fn raw_i2c(value: f64) -> Result<u32, Refusal> {
+    let rounded = value.round();
+    let max = f64::from(u32::MAX);
+    if !rounded.is_finite() || rounded < 0.0 || rounded > max {
+        return Err(Refusal::OutOfRange {
+            value,
+            raw: value,
+            min: 0.0,
+            max,
+            data_type: "u32 (direct I2C write)".to_owned(),
+        });
+    }
+    Ok(rounded as u32)
+}
+
 /// An engineering value scaled back to the register's raw units, checked
 /// against what the data type holds.
 fn raw_register(
@@ -382,6 +424,16 @@ fn raw_register(
 /// (the HMI, the MQTT `set_output`) runs. The error says why in words an
 /// operator can act on.
 pub async fn write_tag(state: &AppState, tag: &TagConfig, value: f64) -> Result<Written, String> {
+    // A forced tag is held at its forced value (the live-debug force of
+    // `force_value`): neither a remote command nor the HMI overwrites it. Only
+    // the piControl handle used to ask; a write to a forced Modbus, GPIO or I2C
+    // tag went through and replaced the forced value in the process image.
+    if state.force_registry.is_forced(&tag.tag_name).await {
+        return Err(format!(
+            "write to '{}' refused: the tag holds a forced value (unforce it first)",
+            tag.tag_name
+        ));
+    }
     let target = resolve(&state.config, tag, value)
         .map_err(|refusal| format!("write to '{}' refused: {refusal}", tag.tag_name))?;
     let written = write(state, &target).await?;
@@ -870,5 +922,122 @@ mod tests {
             resolve(&cfg, &spi, 1.0),
             Err(Refusal::UnsupportedProtocol("SPI"))
         ));
+    }
+
+    /// A remote write records a hold only for a target whose output the
+    /// safe-state registry knows, and the behaviour table promises the
+    /// comms-loss supervisor will drive an output safe only for a kind of
+    /// hardware whose targets do. The two cannot disagree: an I2C tag has no
+    /// registered output, so its row says nothing drives it safe.
+    #[test]
+    fn the_table_promises_a_leased_drive_only_where_a_remote_write_records_a_hold() {
+        use crate::safe_state::behaviour::{AgentAct, Event, behaviour};
+        let targets = [
+            WriteTarget::Gpio {
+                pin: 17,
+                high: true,
+            },
+            WriteTarget::ModbusCoil {
+                device: "plc".into(),
+                address: 6,
+                on: true,
+            },
+            WriteTarget::ModbusRegister {
+                device: "plc".into(),
+                address: 7,
+                raw: 1,
+            },
+            WriteTarget::I2c {
+                tag: "dac".into(),
+                data: vec![0, 0, 1, 0],
+            },
+            WriteTarget::PiControl {
+                tag: "valve".into(),
+                value: 1.0,
+            },
+        ];
+        for target in targets {
+            let records_a_hold = target.output_id().is_some();
+            let promised = behaviour(Event::CloudCommsLoss, target.backend()).agent
+                == AgentAct::DriveSafeLeased;
+            assert_eq!(
+                records_a_hold, promised,
+                "{target:?}: a hold is recorded = {records_a_hold}, the table promises a leased drive = {promised}"
+            );
+        }
+    }
+
+    /// The I2C payload is refused outside what 32 bits hold, like a register
+    /// value outside its data type, and is rounded rather than truncated.
+    #[test]
+    fn an_i2c_value_outside_32_bits_is_refused_not_saturated() {
+        assert_eq!(raw_i2c(0.0), Ok(0));
+        assert_eq!(raw_i2c(4095.0), Ok(4095));
+        assert_eq!(raw_i2c(3.7), Ok(4), "rounded, as a register value is");
+        assert_eq!(raw_i2c(f64::from(u32::MAX)), Ok(u32::MAX));
+        for bad in [
+            -1.0,
+            -5.0,
+            1e12,
+            f64::from(u32::MAX) + 1.0,
+            f64::NAN,
+            f64::INFINITY,
+        ] {
+            assert!(
+                matches!(raw_i2c(bad), Err(Refusal::OutOfRange { .. })),
+                "{bad} is not a 32-bit payload"
+            );
+        }
+        let cfg = config(&device("plc", 1, &register("pump", 6, "coil", "u16", 1.0)));
+        let dac = TagConfig {
+            protocol_config: ProtocolConfig::I2c {
+                bus: 1,
+                address: 0x60,
+                driver_type: crate::process_image::I2cDriverType::GenericDirect { read_length: 1 },
+            },
+            ..tag("dac", IoType::AO, 0, 0, 0, "")
+        };
+        assert!(matches!(
+            resolve(&cfg, &dac, -5.0),
+            Err(Refusal::OutOfRange { .. })
+        ));
+        match resolve(&cfg, &dac, 2048.0).unwrap() {
+            WriteTarget::I2c { data, .. } => assert_eq!(data, 2048u32.to_be_bytes()),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// A forced tag is held: neither the HMI nor a remote command overwrites it,
+    /// on any backend.
+    #[tokio::test]
+    async fn a_write_to_a_forced_tag_is_refused_for_every_backend() {
+        use crate::process_image::TagQuality;
+        let cfg = config(&device("plc", 1, &register("pump", 6, "coil", "u16", 1.0)));
+        let state = AppState::new(cfg);
+        let forced = tag("pump", IoType::DO, 1, 6, 5, "coil");
+        let free = tag("fan", IoType::DO, 1, 7, 5, "coil");
+        // No hardware handle is configured, so a write that gets past the force
+        // check fails with "handle not available"; the force check answers first.
+        state
+            .force_registry
+            .apply(
+                "pump".to_owned(),
+                1.0,
+                TagQuality::Good,
+                "operator".to_owned(),
+                "commissioning".to_owned(),
+                60,
+                false,
+                &crate::runtime_safety::SystemClockAuthority::new(),
+            )
+            .await
+            .expect("the force is applied");
+        let refused = write_tag(&state, &forced, 0.0).await.unwrap_err();
+        assert!(refused.contains("forced value"), "{refused}");
+        let free = write_tag(&state, &free, 1.0).await.unwrap_err();
+        assert!(
+            !free.contains("forced value"),
+            "an unforced tag is not refused for a force: {free}"
+        );
     }
 }

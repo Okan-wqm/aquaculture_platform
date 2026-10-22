@@ -516,8 +516,20 @@ pub fn behaviour(event: Event, backend: Backend) -> Behaviour {
         // blanket zero: a life-support output fails ON) and latches the control
         // gate; a dead agent cannot stop anything, so there is no row for it.
         Event::EmergencyStop => drives_safe(plain.backend()),
-        // Remote commands lose their hold; local control continues.
-        Event::CloudCommsLoss => row(DriveSafeLeased, AgentSafeState, SafeValue, Automated),
+        // Remote commands lose their hold; local control continues. A remote
+        // write records a hold only for an output the safe-state registry knows
+        // (`tag_writer::WriteTarget::output_id`); an I2C tag is not one, so no
+        // hold is recorded for it and nothing drives it safe.
+        Event::CloudCommsLoss => match plain {
+            Modbus | Gpio => row(DriveSafeLeased, AgentSafeState, SafeValue, Automated),
+            I2c => Behaviour {
+                note: "a remote write to an I2C tag records no hold: an I2C tag is not a \
+                       registered safe-state output (tag_writer::output_id_of refuses it, and no \
+                       configuration registers one), so nothing drives it safe when the cloud \
+                       link is lost and the chip keeps the last value written (EDGE-LOW-139)",
+                ..row(Nothing, Latch, LastValue, Hardware)
+            },
+        },
         // The agent cannot write to what it cannot reach.
         Event::FieldbusCommsLoss => match plain {
             Modbus => row(Nothing, DeviceTimer, DeviceDefault, Commissioning),

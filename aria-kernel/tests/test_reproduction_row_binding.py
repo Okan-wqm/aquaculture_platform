@@ -140,6 +140,21 @@ class ReproductionRowBindsToARecordedRun(unittest.TestCase):
         )
         self.assertTrue(result["valid"], result["errors"])
 
+    def test_a_timeout_run_satisfies_neither_red_nor_green(self) -> None:
+        """ARIA-MEDIUM-688's own title: the row must agree with a run that
+        recorded red or green. A ``timeout`` is neither colour — the
+        finding-reproduction law refuses it as noise for red, and the
+        fix-verification law needs an ``ok`` run for green — so a recorded
+        timeout backs no expectation at all."""
+        _observe(self.tools, run_status="timeout")
+        for expected in ("red", "green"):
+            with self.subTest(expected=expected):
+                codes, result = self._codes(expected=expected, base_dir=self.tools)
+                self.assertFalse(result["valid"], result)
+                self.assertIn(
+                    "agent_matrix_reproduction_status_mismatch", codes, result["errors"]
+                )
+
     def test_an_unmatched_observation_proves_nothing(self) -> None:
         """The same law record_finding_reproduction applies: an observation
         that did not satisfy its contract is not a reproduction."""

@@ -892,6 +892,16 @@ def admissible_agent_evidence_refs(
     return AgentEvidenceAdmission(tuple(admitted), tuple(refused))
 
 
+# WP-J landing (ARIA-MEDIUM-688, port of fix2 3e559bf6b's map) — an R4
+# row's ``expected`` colour, mapped onto the ONE run status that proves it
+# (validation_runs_ledger.VALIDATION_RUN_STATUSES is ok|failed|timeout).
+# Red is a FAILED run — the finding-reproduction law refuses a timeout as
+# noise; green is an OK run — the fix-verification law. A ``timeout`` maps
+# from no colour, so a recorded timeout backs neither expectation. The
+# map's keys are the closed set of colours the binder grades.
+_REPRODUCTION_EXPECTED_RUN_STATUS: dict[str, str] = {"red": "failed", "green": "ok"}
+
+
 def _recorded_reproduction_run_status(
     recipe_id: str, *, base_dir: str | Path
 ) -> str | None:
@@ -1035,9 +1045,11 @@ def validate_agent_response_evidence(
     # bytes"); these are the bytes: a reproduction row resolves through the
     # recorded experiment observations — the same binding
     # finding.record_finding_reproduction reads at the outcome fold, applied
-    # BEFORE the verdict votes — and its expected red/green must agree with
-    # the recorded run's status. A recipe that exists nowhere and was never
-    # run is refused by name, never ranked as the top evidence class.
+    # BEFORE the verdict votes — and the recorded run's status must be the
+    # one its expected colour maps to (_REPRODUCTION_EXPECTED_RUN_STATUS:
+    # red -> failed, green -> ok; a timeout backs neither). A recipe that
+    # exists nowhere and was never run is refused by name, never ranked as
+    # the top evidence class.
     for entry in matrix if isinstance(matrix, list) else []:
         if not isinstance(entry, dict):
             continue
@@ -1046,7 +1058,7 @@ def validate_agent_response_evidence(
             continue
         recipe_id = str(reproduction.get("recipe_id") or "")
         expected = str(reproduction.get("expected") or "")
-        if not recipe_id or expected not in ("red", "green"):
+        if not recipe_id or expected not in _REPRODUCTION_EXPECTED_RUN_STATUS:
             continue  # the shape layer refuses malformed blocks by name
         where = {"id": entry.get("id"), "recipe_id": recipe_id, "expected": expected}
         if base_dir is None:
@@ -1056,8 +1068,7 @@ def validate_agent_response_evidence(
         if run_status is None:
             errors.append({"code": "agent_matrix_reproduction_unrecorded", **where})
             continue
-        recorded_red = run_status == "failed"
-        if (expected == "red") != recorded_red:
+        if run_status != _REPRODUCTION_EXPECTED_RUN_STATUS[expected]:
             errors.append({
                 "code": "agent_matrix_reproduction_status_mismatch",
                 "run_status": run_status,

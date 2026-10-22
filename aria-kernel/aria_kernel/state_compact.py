@@ -60,7 +60,6 @@ from __future__ import annotations
 
 import copy
 import gzip
-import hashlib
 import json
 import re
 import shutil
@@ -76,6 +75,7 @@ from .state_manifest import (memory_surfaces, resolve_surface_path, surface_by_n
                              surface_for_relative_path)
 from .state_snapshot import SNAPSHOT_MAX_SURFACE_BLOB_BYTES
 from .tool_registry import append_tools_governance, ensure_tools_dir, parse_utc_stamp, utc_now
+from .digest import sha256_digest_file
 
 # The governance event compaction records.
 COMPACTED_EVENT = "state_compacted"
@@ -388,7 +388,7 @@ def evict_to_cold(root: Path, staging: ColdStaging) -> dict[str, Any]:
             path.relative_to(root).as_posix() for path in directory.rglob("*") if not path.is_dir()
         ) if directory.is_dir() else []
         if on_disk and on_disk == sorted(staged) and all(
-            "sha256:" + hashlib.sha256((root / uri).read_bytes()).hexdigest() == staged[uri] for uri in on_disk
+            sha256_digest_file(root / uri) == staged[uri] for uri in on_disk
         ):
             evicting.append((directory, rows))
     by_month: dict[str, list[dict[str, Any]]] = {}

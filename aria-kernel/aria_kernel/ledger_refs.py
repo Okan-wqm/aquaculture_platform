@@ -5,6 +5,7 @@ from typing import Any
 
 from .ledger import load_declared_jsonl
 from .tool_registry import GovernanceError
+from .digest import is_sha256_digest
 
 
 SOURCE_LEDGER_REF_FIELDS: tuple[str, ...] = (
@@ -87,11 +88,7 @@ def _validate_source_ref_shape(ref: dict[str, Any]) -> None:
     if not isinstance(schema_version, int) or isinstance(schema_version, bool) or schema_version <= 0:
         raise GovernanceError("source_ledger_ref_invalid_field:schema_version")
     row_hash = str(ref["row_hash"])
-    if (
-        not row_hash.startswith("sha256:")
-        or len(row_hash) != len("sha256:") + 64
-        or any(ch not in "0123456789abcdef" for ch in row_hash[len("sha256:"):])
-    ):
+    if not is_sha256_digest(row_hash):
         raise GovernanceError("source_ledger_ref_row_hash_must_be_sha256")
 
 

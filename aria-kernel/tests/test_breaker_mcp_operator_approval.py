@@ -29,6 +29,7 @@ from unittest import mock
 
 from aria_kernel import circuit_breaker as cb
 from aria_kernel import cli
+from aria_kernel import control
 from aria_kernel import cost_budget
 from aria_kernel import mcp_client as mc
 from aria_kernel.operator_approval import (
@@ -440,6 +441,44 @@ class McpUnquarantine(_Store):
         self.assertEqual(self.github.reads, [])
 
 
+class ControlResume(_Store):
+    """ARIA-HIGH-238 — lifting an operator's pause, beyond the caller pin's cases."""
+
+    def test_a_frozen_kernel_refuses_before_the_act_is_spent_or_the_pause_lifted(self) -> None:
+        control.record_control("pause", base_dir=self.root, reason="deploy window")
+        ref = self.github.approve("control_resume", control.resume_scope(base_dir=self.root))
+        self.freeze()
+        self.assert_frozen_refusal(lambda: control.record_control("resume", base_dir=self.root, operator_ref=ref))
+        self.assertTrue(control.effective_control(self.root).paused_all)
+
+    def test_nothing_paused_is_refused_before_github_is_asked(self) -> None:
+        ref = f"gh:{REPOSITORY}#1/comment/9"
+        with self.assertRaisesRegex(GovernanceError, "control_resume_not_paused"):
+            control.record_control("resume", base_dir=self.root, operator_ref=ref)
+        control.record_control("pause", base_dir=self.root, request_id="AIR-7")
+        with self.assertRaisesRegex(GovernanceError, "control_resume_not_paused"):
+            control.record_control("resume", base_dir=self.root, request_id="AIR-8", operator_ref=ref)
+        self.assertEqual(self.github.reads, [])
+
+    def test_a_pause_recorded_while_the_act_is_verified_stays_in_force(self) -> None:
+        """The resume row names the pause it was approved for; the fold lifts
+        nothing when a newer pause stands by the time the row lands."""
+        first = control.record_control("pause", base_dir=self.root, reason="deploy window")
+        ref = self.github.approve("control_resume", control.resume_scope(base_dir=self.root))
+        verify = control.require_operator_act
+
+        def verify_while_paused_again(*args, **kwargs):
+            proof = verify(*args, **kwargs)
+            control.record_control("pause", base_dir=self.root, reason="incident while the act was read")
+            return proof
+
+        with mock.patch("aria_kernel.control.require_operator_act", side_effect=verify_while_paused_again):
+            row = control.record_control("resume", base_dir=self.root, operator_ref=ref)
+        self.assertEqual(row["pause_id"], first["command_id"])
+        self.assertTrue(control.effective_control(self.root).paused_all)
+        self.assertNotEqual(control.resume_scope(base_dir=self.root)["pause_id"], first["command_id"])
+
+
 class OperatorCommandLine(_Store):
     def run_cli(self, *argv: str) -> tuple[int, str, str]:
         out, err = io.StringIO(), io.StringIO()
@@ -486,6 +525,8 @@ class OperatorCommandLine(_Store):
         self.trip_autonomous()
         self.trip_cost()
         self.quarantine_mcp()
+        control.record_control("pause", base_dir=self.root, reason="deploy window")
+        control.record_control("pause", base_dir=self.root, request_id="AIR-7", reason="wrong plan")
         tools = ["--tools-dir", str(self.root)]
         for argv, line in (
             (["breaker", "reset", "--print-approval-line"], approval_line("breaker_reset", cb.trip_scope(self.root))),
@@ -495,6 +536,10 @@ class OperatorCommandLine(_Store):
              approval_line("breaker_reset", cost_budget.trip_scope(self.root))),
             (["mcp", "release", "--server", "aria", "--print-approval-line"],
              approval_line("mcp_unquarantine", mc.unquarantine_scope("aria", base_dir=self.root))),
+            (["control", "resume", "--print-approval-line"],
+             approval_line("control_resume", control.resume_scope(base_dir=self.root))),
+            (["control", "resume", "--request-id", "AIR-7", "--print-approval-line"],
+             approval_line("control_resume", control.resume_scope("AIR-7", base_dir=self.root))),
         ):
             with self.subTest(argv=argv):
                 code, out, _ = self.run_cli(*argv, *tools)
@@ -503,6 +548,7 @@ class OperatorCommandLine(_Store):
         self.assertEqual(cb.current_state(self.root), cb.BREAKER_STATE_TRIPPED)
         self.assertEqual(cost_budget.current_state(self.root), "tripped")
         self.assertIn("aria", mc.quarantined_servers(self.root))
+        self.assertTrue(control.effective_control(self.root).paused_all)
         self.assertEqual(self.github.reads, [])
 
     def test_the_verbs_act_on_a_verified_act(self) -> None:
@@ -517,6 +563,11 @@ class OperatorCommandLine(_Store):
         code, _, _ = self.run_cli("mcp", "release", "--server", "aria", "--operator-ref", ref, "--tools-dir", str(self.root))
         self.assertEqual(code, 0)
         self.assertNotIn("aria", mc.quarantined_servers(self.root))
+        control.record_control("pause", base_dir=self.root, reason="deploy window")
+        ref = self.github.approve("control_resume", control.resume_scope(base_dir=self.root))
+        code, _, _ = self.run_cli("control", "resume", "--operator-ref", ref, "--tools-dir", str(self.root))
+        self.assertEqual(code, 0)
+        self.assertFalse(control.effective_control(self.root).is_paused())
 
     def test_acting_needs_a_reference_and_a_reason(self) -> None:
         """Guard: --print-approval-line made the reference optional for printing only."""

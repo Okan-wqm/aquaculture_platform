@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +15,7 @@ from .change_paths import (
 )
 from .ledger import append_declared_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
+from .digest import sha256_digest_text
 
 
 RiskLane = Literal["L1", "L2", "L3", "blocked"]
@@ -93,7 +93,7 @@ def load_risk_policy(policy: dict[str, Any] | None = None) -> dict[str, Any]:
 def risk_policy_hash(policy: dict[str, Any] | None = None) -> str:
     payload = load_risk_policy(policy)
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-    return "sha256:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    return sha256_digest_text(raw)
 
 
 def classify_change(

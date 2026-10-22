@@ -475,13 +475,13 @@ def _evidence_refs_from_hunks(
 #   * performance-expert HIGH-008 — pattern_signature lookback bounded
 
 
-import hashlib
 import json
 import time
 from datetime import datetime, timezone
 
 from .evidence_trust import parse_evidence_ref
 from .plan_candidate_source import PlanCandidateSource
+from .digest import sha256_digest
 
 
 # Plan ARIA-V9.4 — closed enum of key_change_categories for
@@ -1817,4 +1817,4 @@ def compute_pattern_signature(plan_content: dict[str, Any]) -> str | None:
         "schema_version": 1,
     }
     raw = json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return "sha256:" + hashlib.sha256(raw).hexdigest()
+    return sha256_digest(raw)

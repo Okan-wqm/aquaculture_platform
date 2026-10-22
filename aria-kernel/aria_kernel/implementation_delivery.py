@@ -181,7 +181,6 @@ delivery credential in its environment.
 """
 from __future__ import annotations
 
-import hashlib
 import math
 import os
 import subprocess
@@ -223,6 +222,7 @@ from .validation import SpawnWrapper, parse_allowed_command
 from .validation_env import build_validation_env
 from .tool_registry import GovernanceError as GovernanceErrorType
 from .validation_suite import CANONICAL_VALIDATION_COMMANDS_EXECUTABLE
+from .digest import sha256_digest_text
 
 # The closed vocabulary of where a delivery can be refused, in the order the
 # stages run: the publication's facts (reads), the tip's IDENTITY (round 4:
@@ -565,7 +565,7 @@ def probe_validation_room(
     }
     try:
         argv = spawn_wrapper(["sh", "-c", ROOM_PROBE_SCRIPT], environment)
-        room["wrapped_argv_sha256"] = "sha256:" + hashlib.sha256("\0".join(argv).encode("utf-8")).hexdigest()
+        room["wrapped_argv_sha256"] = sha256_digest_text("\0".join(argv))
         done = subprocess.run(argv, cwd=str(workspace_root), env=dict(environment), capture_output=True, text=True,
                               timeout=ROOM_PROBE_TIMEOUT_SECONDS, check=False)
     except (OSError, subprocess.SubprocessError, GovernanceErrorType, SandboxUnavailable) as exc:
@@ -885,7 +885,7 @@ def deliver_implementation(
     diff = _git(["diff", base_sha, branch_tip_sha], cwd=workspace, env=git_env)
     if diff.returncode != 0:
         raise ImplementationDeliveryRefusal("change_ledger", f"diff_unresolvable:{_first_line(diff.stderr)}")
-    diff_hash = "sha256:" + hashlib.sha256(diff.stdout.encode("utf-8")).hexdigest()
+    diff_hash = sha256_digest_text(diff.stdout)
 
     # 1a. The patch's own secret scan (round 6): the branch's WHOLE diff,
     #     `base_sha..tip`, through the scanner whose docstring has promised

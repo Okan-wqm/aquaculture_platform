@@ -70,7 +70,16 @@ class Grant(unittest.TestCase):
                     dict(allowed_hosts=()), dict(profile_digest="md5:x")):
             with self.assertRaises(G.GrantError, msg=str(bad)):
                 self.signer.sign(_claims(**bad))
-        ok = self.signer.sign(_claims(risk_class="R3_HUMAN_REQUIRED", human_approval_ref="review-77", recipe_digest="sha256:" + "f" * 64))
+        from tests._helpers.operator_acts import github_operator_acts
+
+        with github_operator_acts() as github:
+            ok = self.signer.sign(_claims(
+                risk_class="R3_HUMAN_REQUIRED",
+                human_approval_ref=github.approve(
+                    "grant_human_approval", {"campaign": "run-1", "risk": "R3_HUMAN_REQUIRED"},
+                ),
+                recipe_digest="sha256:" + "f" * 64, base_dir=self.tools,
+            ))
         self.assertEqual(G.verify_grant(ok, self.pub).risk_class, "R3_HUMAN_REQUIRED")
         claims = _claims()
         token = self.signer.sign(claims)

@@ -24,6 +24,7 @@ from typing import Any
 from ..ledger import append_declared_jsonl, load_declared_jsonl
 from ..tool_registry import ensure_tools_dir, utc_now
 from .scope_policy import RISK_CLASSES
+from ..digest import sha256_digest
 
 GRANT_SURFACE = "security_grants"
 GRANT_RELPATH: tuple[str, ...] = ("security", "grants.jsonl")
@@ -152,9 +153,29 @@ def new_claims(*, campaign_run_id: str, lease_id: str, lab_attestation_digest: s
                pack_digests: tuple[str, ...], graph_digest: str, policy_digest: str, risk_class: str,
                lab_network: str, allowed_hosts: tuple[str, ...], minutes: int = MAX_GRANT_MINUTES,
                recipe_digest: str | None = None, human_approval_ref: str | None = None,
-               now: datetime | None = None) -> GrantClaims:
+               now: datetime | None = None, base_dir: str | Path | None = None) -> GrantClaims:
+    """Mint one grant's claims.
+
+    ARIA-HIGH-238 — ``human_approval_ref`` is the only human authority an
+    ``R3_HUMAN_REQUIRED`` grant may rest on, so when it is supplied it must
+    be the operator's own GitHub act (``operator_approval`` verifier) naming
+    the campaign and the risk class, consumed once; ``base_dir`` names the
+    tools store the consumption ledger lives in and is required with the
+    ref. Grants below R3 carry no human claim and need no act.
+    """
     stamp = now or datetime.now(timezone.utc)
     iat = int(stamp.timestamp())
+    if human_approval_ref:
+        from ..operator_approval import require_operator_act
+
+        if base_dir is None:
+            raise GrantError("human_approval_ref_requires_base_dir")
+        require_operator_act(
+            human_approval_ref,
+            surface="grant_human_approval",
+            scope={"campaign": campaign_run_id, "risk": risk_class},
+            base_dir=base_dir,
+        )
     return GrantClaims(jti="jti-" + uuid.uuid4().hex, campaign_run_id=campaign_run_id, lease_id=lease_id,
                        lab_attestation_digest=lab_attestation_digest, profile_digest=profile_digest,
                        pack_digests=tuple(pack_digests), graph_digest=graph_digest, policy_digest=policy_digest,
@@ -164,7 +185,7 @@ def new_claims(*, campaign_run_id: str, lease_id: str, lab_attestation_digest: s
 
 
 def grant_digest(token: str) -> str:
-    return "sha256:" + hashlib.sha256(token.encode("ascii")).hexdigest()
+    return sha256_digest(token.encode("ascii"))
 
 
 def verify_grant(token: str, public_key_raw: bytes, *, now: datetime | None = None,

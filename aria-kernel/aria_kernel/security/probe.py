@@ -8,12 +8,12 @@ and an assertion; a failed positive control is HARNESS_ERROR, never a clean resu
 """
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import dataclass, field
 from typing import Any
 
 from .scope_policy import RISK_CLASSES
+from ..digest import sha256_digest_text
 
 STEP_KINDS = ("http_request", "graphql_operation", "auth_token_mutation", "mqtt_publish", "assertion", "positive_control", "cleanup")
 MUTATING_STEPS = ("auth_token_mutation", "mqtt_publish")
@@ -75,7 +75,7 @@ class AttackRecipe:
     def digest(self) -> str:
         payload = {"recipe_id": self.recipe_id, "claim_type": self.claim_type, "risk_class": self.risk_class,
                    "steps": [{"kind": s.kind, "params": s.params} for s in self.steps]}
-        return "sha256:" + hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+        return sha256_digest_text(json.dumps(payload, sort_keys=True))
 
     def hosts(self) -> tuple[str, ...]:
         return tuple(sorted({str(s.params["host"]) for s in self.steps if s.params.get("host")}))

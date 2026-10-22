@@ -34,19 +34,37 @@ def request_kernel_change(
         raise GovernanceError("kernel change request requires full validation evidence refs")
     if not full_shadow_cycle_ref.strip() or not rollback_plan.strip():
         raise GovernanceError("kernel change request requires shadow cycle ref and rollback plan")
+    # ARIA-HIGH-238 — a kernel change request authorizes self-modification of
+    # the very code that enforces every rule, so the ref must be the
+    # operator's own GitHub act bound to the exact file set (digest below);
+    # `aria-kernel operator approval-template` prints the line to post.
+    import hashlib
+
+    change_digest = hashlib.sha256("\n".join(sorted(changed_files)).encode("utf-8")).hexdigest()
+    from .operator_approval import require_operator_act
+
+    root = ensure_tools_dir(base_dir)
+    approval = require_operator_act(
+        operator_approval_ref,
+        surface="kernel_change_request",
+        scope={"digest": change_digest},
+        base_dir=root,
+    )
     row = {
         "schema_version": 1,
         "recorded_at": utc_now(),
         "cycle_id": cycle_id,
         "changed_files": changed_files,
+        "changed_files_digest": change_digest,
         "operator_approval_ref": operator_approval_ref,
+        "operator_approval": approval,
         "validation_refs": validation_refs,
         "full_shadow_cycle_ref": full_shadow_cycle_ref,
         "rollback_plan": rollback_plan,
         "decision": "authorized_for_pr_only",
         "auto_merge_allowed": False,
     }
-    return append_declared_jsonl(ensure_tools_dir(base_dir) / "kernel-change" / "requests.jsonl", row, expected_surface="kernel_change_requests")
+    return append_declared_jsonl(root / "kernel-change" / "requests.jsonl", row, expected_surface="kernel_change_requests")
 
 
 def list_kernel_change_requests(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:

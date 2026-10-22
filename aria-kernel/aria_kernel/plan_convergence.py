@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-import hashlib
 import json
 import os
 import re
@@ -27,6 +26,7 @@ from .tool_registry import (
     parse_utc_stamp,
     utc_now,
 )
+from .digest import is_sha256_digest, sha256_digest, sha256_digest_text
 
 if TYPE_CHECKING:
     from .provider_clock import ProviderClock
@@ -464,13 +464,11 @@ def submit_cross_review_v8(
         ]
 
     def _direction_hash(direction: str) -> str:
-        return "sha256:" + hashlib.sha256(
-            _canonical_json({
-                "risks": _direction_risks(direction),
-                "reviewer_agent": reviewer_agent,
-                "review_direction": direction,
-            }).encode("utf-8")
-        ).hexdigest()
+        return sha256_digest_text(_canonical_json({
+            "risks": _direction_risks(direction),
+            "reviewer_agent": reviewer_agent,
+            "review_direction": direction,
+        }))
 
     # Z3-K2 — per-direction verdicts. The envelope may carry `verdicts`
     # ({direction: verdict}) for a reviewer that judges the two sides
@@ -500,7 +498,7 @@ def submit_cross_review_v8(
     tasks: list[dict[str, Any]] = []
     for direction in directions:
         packet_seed = f"{plan_id}|{target_revision_id}|{target_hash}|round={round_number}|dir={direction}"
-        packet_hash = "sha256:" + hashlib.sha256(packet_seed.encode("utf-8")).hexdigest()
+        packet_hash = sha256_digest_text(packet_seed)
         direction_short = "p2c" if direction == "primary_to_challenger" else "c2p"
         tasks.append({
             "task_id": f"v8-cr-{round_number}-{direction_short}-{target_revision_id[-8:]}",
@@ -946,7 +944,7 @@ def list_active_plans(*, base_dir: str | Path | None = None) -> list[str]:
     root = ensure_tools_dir(base_dir)
     path = events_path(root)
     raw = path.read_bytes() if path.exists() else b""
-    events_hash = "sha256:" + hashlib.sha256(raw).hexdigest()
+    events_hash = sha256_digest(raw)
     cache_path = root / "plans" / "active-plans-cache.json"
     if cache_path.exists():
         try:
@@ -2072,7 +2070,7 @@ def scan_orphan_implementation_requests(
 
 
 def content_hash(payload: Any) -> str:
-    return "sha256:" + hashlib.sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
+    return sha256_digest_text(_canonical_json(payload))
 
 
 def events_path(base_dir: str | Path | None = None) -> Path:
@@ -2149,7 +2147,7 @@ def _event_result(event: dict[str, Any], *, idempotent: bool) -> dict[str, Any]:
 
 def _idempotency_key(plan_id: str, command_name: str, canonical_payload: Any) -> str:
     raw = f"{plan_id}|{command_name}|{_canonical_json(canonical_payload)}"
-    return "sha256:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    return sha256_digest_text(raw)
 
 
 def _canonical_json(payload: Any) -> str:
@@ -3722,7 +3720,7 @@ def _require_non_empty(value: Any, field: str) -> str:
 
 def _require_hash(value: Any, field: str) -> str:
     value = _require_non_empty(value, field)
-    if not value.startswith("sha256:") or len(value) != len("sha256:") + 64:
+    if not is_sha256_digest(value):
         raise GovernanceError(f"{field} must be a sha256 hash")
     return value
 

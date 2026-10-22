@@ -172,6 +172,7 @@ from .state_store_lifecycle_arcs import (
     lifecycle_step_active,
     require_step_operation,
 )
+from .digest import sha256_digest
 
 # The store commits under its own identity, passed per-invocation rather
 # than read from ambient config. A runner without user.name set would
@@ -2244,7 +2245,7 @@ def _write_cold_blobs(
         digest = hashlib.sha256(data).hexdigest()
         cycles.setdefault(cycle_dir, []).append({
             "uri": path.relative_to(root).as_posix(), "surface": surface,
-            "cycle_id": cycle_dir.rsplit("/", 1)[1], "sha256": f"sha256:{digest}",
+            "cycle_id": cycle_dir.rsplit("/", 1)[1], "sha256": sha256_digest(data),
             "size": len(data), "git_blob": blob, "cold_path": f"sha256/{digest[:2]}/{digest}",
         })
     return {cycle_dir: tuple(rows) for cycle_dir, rows in cycles.items()}

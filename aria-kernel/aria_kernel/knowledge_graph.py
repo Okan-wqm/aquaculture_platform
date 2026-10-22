@@ -41,6 +41,7 @@ from dataclasses import MISSING, asdict, dataclass, field, fields
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterator
+from .digest import sha256_digest
 
 if TYPE_CHECKING:
     from .ledger import StateTransaction
@@ -151,10 +152,10 @@ def _row_hash(row: dict[str, Any]) -> str:
     field is EXCLUDED from the hash input (otherwise the chain would
     self-reference + every row would need recomputation on append)."""
     body = {k: v for k, v in row.items() if k != "prev_row_hash"}
-    return "sha256:" + hashlib.sha256(_canonical_json(body)).hexdigest()
+    return sha256_digest(_canonical_json(body))
 
 
-GENESIS_PREV_HASH: str = "sha256:" + hashlib.sha256(b"genesis").hexdigest()
+GENESIS_PREV_HASH: str = sha256_digest(b"genesis")
 
 
 def _read_jsonl_strict(path: Path) -> Iterator[dict[str, Any]]:

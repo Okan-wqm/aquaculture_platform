@@ -13,7 +13,7 @@ from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 from .model_fleet import dispatching_provider_for_model
 from .ledger import append_declared_jsonl, append_declared_jsonl_rows, append_jsonl as append_chained_jsonl
 from .finding_subject import normalize_finding_message
-from .ledger import sha256_of_canonical_json
+from .ledger import sha256_digest_of_canonical_json, sha256_of_canonical_json
 from .ledger import load_jsonl as load_chained_jsonl
 from .ledger import rewrite_jsonl as rewrite_chained_jsonl
 from .runtime_artifacts import resolve_finding_from_artifact, run_ledger_format
@@ -1565,7 +1565,7 @@ def finding_fingerprint(tool_id: str, finding: dict[str, Any]) -> str:
 def evidence_hash_for_finding(finding: dict[str, Any]) -> str:
     evidence = finding.get("evidence", [])
     stable = evidence if isinstance(evidence, list) else []
-    return "sha256:" + sha256_of_canonical_json(stable)
+    return sha256_digest_of_canonical_json(stable)
 
 
 def _select_findings(

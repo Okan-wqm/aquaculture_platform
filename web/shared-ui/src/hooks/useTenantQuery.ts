@@ -24,6 +24,7 @@
  */
 import {
   useQuery,
+  useQueries,
   useMutation,
   useQueryClient,
   type UseQueryOptions,
@@ -40,8 +41,12 @@ import {
   hasSameTenantSessionBoundary,
 } from '../utils/tenant-query-keys';
 
-export type TenantQueryOptions<TData, TError> = Omit<
-  UseQueryOptions<TData, TError, TData, readonly unknown[]>,
+/**
+ * `TQueryFnData` is what the fetcher returns (and what the cache holds); `TData` is
+ * what the hook hands back, which only differs when the caller passes `select`.
+ */
+export type TenantQueryOptions<TQueryFnData, TError, TData = TQueryFnData> = Omit<
+  UseQueryOptions<TQueryFnData, TError, TData, readonly unknown[]>,
   'queryKey' | 'queryFn' | 'placeholderData'
 > & {
   /**
@@ -57,17 +62,17 @@ export type TenantQueryOptions<TData, TError> = Omit<
  * epoch are added for you); `queryFn` is the fetcher. The query is enabled only when
  * an authenticated tenant session exists, ANDed with any caller-provided `enabled`.
  */
-export function useTenantQuery<TData = unknown, TError = Error>(
+export function useTenantQuery<TQueryFnData = unknown, TError = Error, TData = TQueryFnData>(
   segments: readonly unknown[],
-  queryFn: QueryFunction<TData, readonly unknown[]>,
-  options?: TenantQueryOptions<TData, TError>,
+  queryFn: QueryFunction<TQueryFnData, readonly unknown[]>,
+  options?: TenantQueryOptions<TQueryFnData, TError, TData>,
 ): UseQueryResult<TData, TError> {
   const { token, tenantId } = useAuth();
   const { keepPreviousData: keep = true, enabled, ...rest } = options ?? {};
   const authenticatedTenantId = token && tenantId ? tenantId : null;
   const queryKey = createTenantQueryKey(authenticatedTenantId, ...segments);
 
-  return useQuery<TData, TError, TData, readonly unknown[]>({
+  return useQuery<TQueryFnData, TError, TData, readonly unknown[]>({
     ...rest,
     queryKey,
     queryFn,
@@ -78,6 +83,38 @@ export function useTenantQuery<TData = unknown, TError = Error>(
             ? previousData
             : undefined
       : undefined,
+  });
+}
+
+/** One query of {@link useTenantQueries}: the domain segments, the fetcher, and what to hand back. */
+export interface TenantQueryDefinition<TQueryFnData, TData = TQueryFnData> {
+  readonly segments: readonly unknown[];
+  readonly queryFn: QueryFunction<TQueryFnData, readonly unknown[]>;
+  readonly select?: (data: TQueryFnData) => TData;
+  readonly enabled?: boolean;
+}
+
+/**
+ * Tenant-scoped useQueries — useTenantQuery for a list whose length varies (one query per visible
+ * week, per site, ...). Each key is prefixed exactly as useTenantQuery prefixes its own (tenant +
+ * session epoch), nothing is fetched before an authenticated tenant session exists, and a query
+ * never serves another key's data while it loads (no previous-data placeholder), so a scope or
+ * tenant change fails closed. Hand-assembling these three things per call site is what
+ * useTenantQuery exists to prevent.
+ */
+export function useTenantQueries<TQueryFnData, TData = TQueryFnData>(
+  definitions: ReadonlyArray<TenantQueryDefinition<TQueryFnData, TData>>,
+): UseQueryResult<TData, Error>[] {
+  const { token, tenantId } = useAuth();
+  const authenticatedTenantId = token && tenantId ? tenantId : null;
+
+  return useQueries({
+    queries: definitions.map((definition) => ({
+      queryKey: createTenantQueryKey(authenticatedTenantId, ...definition.segments),
+      queryFn: definition.queryFn,
+      ...(definition.select === undefined ? {} : { select: definition.select }),
+      enabled: authenticatedTenantId !== null && (definition.enabled ?? true),
+    })),
   });
 }
 

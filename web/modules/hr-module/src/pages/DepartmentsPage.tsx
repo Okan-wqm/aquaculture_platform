@@ -2,14 +2,44 @@
  * Departments Page
  *
  * Displays departments from the real backend API with create/edit modals.
+ * A department belongs to a module (or to none: company-wide). In a module
+ * workspace the list is that module's and a new department is born in it; the
+ * Company workspace sees every department and is the only place a department's
+ * module is chosen or changed.
  */
 
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Building2, Users, Plus, ChevronRight, Pencil } from 'lucide-react';
-import { Modal, colors, PageHeader, Button, Input, Textarea } from '@aquaculture/shared-ui';
-import { useDepartments, useCreateDepartment, useUpdateDepartment } from '../hooks';
+import {
+  Modal,
+  colors,
+  PageHeader,
+  Button,
+  Input,
+  Select,
+  Textarea,
+  useI18n,
+} from '@aquaculture/shared-ui';
+import type { HrModuleCode } from '@platform/shared-ui/generated/graphql-types';
+import {
+  useDepartments,
+  useCreateDepartment,
+  useIsWorkforceManager,
+  useUpdateDepartment,
+} from '../hooks';
+import { useModuleScope } from '../hooks/useModuleScope';
+import { ScopedDescription } from '../components/common';
+import { MODULE_CODES, moduleLabel } from '../utils/moduleLabels';
 import type { Department, CreateDepartmentInput, UpdateDepartmentInput } from '../types';
+
+/** The module select's "no module" option; '' is never sent as a module. */
+const COMPANY_WIDE = '';
+
+/** Narrows a select value to a module code; the company-wide option is no module. */
+function moduleOfSelection(value: string): HrModuleCode | null {
+  return MODULE_CODES.find((code) => code === value) ?? null;
+}
 
 // ============================================================================
 // Department Form Modal
@@ -21,15 +51,21 @@ interface DepartmentFormModalProps {
 }
 
 const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ department, onClose }) => {
+  const { t } = useI18n();
   const isEditing = !!department;
   const createMutation = useCreateDepartment();
   const updateMutation = useUpdateDepartment();
+  // WHY: a module workspace fixes the module (no selector); only Company chooses one.
+  const workspaceModule = useModuleScope();
 
   const [name, setName] = useState(department?.name || '');
   const [code, setCode] = useState(department?.code || '');
   const [description, setDescription] = useState(department?.description || '');
   const [budgetCode, setBudgetCode] = useState(department?.budgetCode || '');
   const [costCenter, setCostCenter] = useState(department?.costCenter || '');
+  const [moduleSelection, setModuleSelection] = useState<string>(
+    department?.moduleCode ?? COMPANY_WIDE,
+  );
   const [error, setError] = useState<string | null>(null);
 
   const isPending = createMutation.isPending || updateMutation.isPending;
@@ -52,6 +88,9 @@ const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ department, o
           description: description.trim() || undefined,
           budgetCode: budgetCode.trim() || undefined,
           costCenter: costCenter.trim() || undefined,
+          // Company may move the department to a module or back to company-wide (null);
+          // a module workspace leaves the module as it is.
+          ...(workspaceModule === undefined && { moduleCode: moduleOfSelection(moduleSelection) }),
         };
         await updateMutation.mutateAsync(input);
       } else {
@@ -61,6 +100,7 @@ const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ department, o
           description: description.trim() || undefined,
           budgetCode: budgetCode.trim() || undefined,
           costCenter: costCenter.trim() || undefined,
+          moduleCode: workspaceModule ?? moduleOfSelection(moduleSelection) ?? undefined,
         };
         await createMutation.mutateAsync(input);
       }
@@ -131,6 +171,27 @@ const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ department, o
           />
         </div>
 
+        {workspaceModule === undefined && (
+          <div>
+            <Select
+              fullWidth
+              id="department-module"
+              label={t('hr.departments.moduleLabel')}
+              value={moduleSelection}
+              onChange={(e) => setModuleSelection(e.target.value)}
+              options={[
+                { value: COMPANY_WIDE, label: t('hr.module.companyWide') },
+                ...MODULE_CODES.map((code) => ({ value: code, label: moduleLabel(code, t) })),
+              ]}
+            />
+            {isEditing && (
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {t('hr.departments.moduleMoveHint')}
+              </p>
+            )}
+          </div>
+        )}
+
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -180,7 +241,10 @@ const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ department, o
 // ============================================================================
 
 const DepartmentsPage: React.FC = () => {
+  const { t } = useI18n();
   const { data: departments, isLoading, error } = useDepartments();
+  // The service rejects department writes from everyone else, so they are not offered.
+  const canManage = useIsWorkforceManager();
   const [showModal, setShowModal] = useState(false);
   const [editingDepartment, setEditingDepartment] = useState<Department | null>(null);
 
@@ -204,11 +268,17 @@ const DepartmentsPage: React.FC = () => {
       {/* Header */}
       <PageHeader
         title="Departments"
-        description={<>{departments?.length ?? '-'} departments</>}
+        description={<ScopedDescription text={`${departments?.length ?? '-'} departments`} />}
         actions={
-          <Button variant="primary" leftIcon={<Plus className="h-4 w-4" />} onClick={handleCreate}>
-            New Department
-          </Button>
+          canManage ? (
+            <Button
+              variant="primary"
+              leftIcon={<Plus className="h-4 w-4" />}
+              onClick={handleCreate}
+            >
+              New Department
+            </Button>
+          ) : undefined
         }
       />
 
@@ -253,20 +323,22 @@ const DepartmentsPage: React.FC = () => {
                           {department.name}
                         </h3>
                         <p className="text-xs text-gray-500 dark:text-gray-400">
-                          {department.code}
+                          {department.code} · {moduleLabel(department.moduleCode, t)}
                         </p>
                       </div>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      iconOnly
-                      aria-label="Edit department"
-                      onClick={() => handleEdit(department)}
-                      title="Edit department"
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
+                    {canManage && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        iconOnly
+                        aria-label="Edit department"
+                        onClick={() => handleEdit(department)}
+                        title="Edit department"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                    )}
                   </div>
 
                   {department.description && (
@@ -307,9 +379,11 @@ const DepartmentsPage: React.FC = () => {
         <div className="flex h-48 flex-col items-center justify-center rounded-xl border border-dashed border-gray-300 bg-gray-50 text-center dark:border-gray-600 dark:bg-gray-800/50">
           <Building2 className="mb-3 h-10 w-10 text-gray-400 dark:text-gray-500" />
           <p className="text-gray-500 dark:text-gray-400">No departments found</p>
-          <Button variant="ghost" className="mt-3" onClick={handleCreate}>
-            Create your first department
-          </Button>
+          {canManage && (
+            <Button variant="ghost" className="mt-3" onClick={handleCreate}>
+              Create your first department
+            </Button>
+          )}
         </div>
       )}
 

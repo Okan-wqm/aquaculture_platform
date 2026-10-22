@@ -55,7 +55,10 @@ export const ORG_WORKSPACE: WorkspaceDef = {
       groups: [
         {
           id: 'org-workforce-main',
-          pages: [HR.dashboard, HR.today, HR.employees, HR.departments],
+          // Company is the all-modules view of the same people and
+          // organisation pages the module workspaces scope to their module; a
+          // tenant holding HR alone reaches the organization chart only here.
+          pages: [HR.dashboard, HR.today, HR.employees, HR.departments, HR.organizationChart],
         },
         {
           id: 'org-time',

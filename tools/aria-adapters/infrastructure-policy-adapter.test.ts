@@ -991,6 +991,246 @@ check('B1 a drop the owner sees under an unseen ancestor include stays a claim',
   );
 });
 
-assert.deepEqual(blockerFailures, [], 'the round-2 review blockers B1 and B2 are fixed');
+// ============================ 6. the round-3 review blockers (R1, R2, M2, M4)
+// kc/r12r2-review/REVIEW.txt, on 6d28cefab:
+//   R1  terraform-pins.ts masked four go-getter argument names, so an S3 presigned URL
+//       (X-Amz-Credential, X-Amz-Security-Token, X-Amz-Signature), an Azure SAS `sig=` and a
+//       `?token=` reached the finding subject and message verbatim;
+//   R2  a reader error quoted the text it failed on (hcl-blocks.ts `unexpected ${token.text}`),
+//       and that text became the infrastructure_parse_failure observation;
+//   M2  `USER $APP_USER` and compose `user: "${UID}"` read as non_root, so a user the file does
+//       not name passed as clean;
+//   M4  the guards every overlay patches into a base were unioned, so an overlay supplying the
+//       memory limit and a sibling supplying the probes together silenced the base's claim,
+//       although each deployment runs without part of its guards.
+// The checks are collected with section 5's, so one run names every contract still broken.
+const R3_TF_LITERALS = {
+  amzCredential: 'Ak2Vq7Lx4Np9Rw3T',
+  amzSecurityToken: 'St8Jm1Xc6Bv3Qz5H',
+  amzSignature: 'e4c19b7a2d6f03e85c1b9a7d4e2f6c08',
+  sasSignature: 'Sv6Fg3Hk8Lp1Zx4C',
+  githubToken: 'Gh5Rt2Yu7Io3Pa9S',
+  unknownArgument: 'Un4Mb8Vc1Xz6Lk2J',
+  privateToken: 'Pv9Hy3Gt6Fr1De8W',
+} as const;
+const R2_LITERAL = 'Wd3Kp8Zr5Qm1Tx7G';
+const M2_SHA = 'f'.repeat(64);
+const R3_PRESIGNED = 'infrastructure/terraform/presigned.tf';
+const R3_PARSE: Readonly<Record<string, string>> = {
+  'infrastructure/terraform/broken.tf': `module "a" {\n  source = "./x"\n}\n"${R2_LITERAL}"\n`,
+  'infrastructure/terraform/heredoc.tfvars': `<<EOT\n${R2_LITERAL}\nEOT\n`,
+  'infrastructure/docker/nginx/broken.conf': `server {\n  listen 80;\n}\n${R2_LITERAL}\n`,
+  'infrastructure/docker/nats/broken.conf': `authorization {\n  password: "${R2_LITERAL}\n}\n`,
+  'infrastructure/kubernetes/base/broken.yaml': `apiVersion: v1\nkind: Secret\nstringData:\n  token: *${R2_LITERAL}\n`,
+  'infrastructure/simulators/docker-compose.broken.yml': `services:\n  app:\n    environment:\n      DB_PASSWORD: "\\u${R2_LITERAL}"\n`,
+  'infrastructure/helm/broken/values.yaml': `auth:\n  password: |${R2_LITERAL}\n    x\n`,
+  'infrastructure/docker/Dockerfile.broken': `FROM node:22\n${R2_LITERAL}\n`,
+};
+const M2_DOCKERFILE = 'infrastructure/docker/Dockerfile.varuser';
+const M2_COMPOSE = 'infrastructure/simulators/docker-compose.varuser.yml';
+const M4_SPLIT = 'infrastructure/kubernetes/base/split.yaml';
+const M4_LONE = 'infrastructure/kubernetes/base/lone.yaml';
+const M4_SOLO = 'infrastructure/kubernetes/base/solo.yaml';
+const M4_GUARD_LINES = {
+  memory_limit: '                resources: { limits: { memory: 256Mi } }',
+  readiness_probe: '                readinessProbe: { httpGet: { path: /ready, port: 8080 } }',
+  liveness_probe: '                livenessProbe: { httpGet: { path: /live, port: 8080 } }',
+} as const;
+type M4Guard = keyof typeof M4_GUARD_LINES;
+const M4_ALL_GUARDS: readonly M4Guard[] = ['liveness_probe', 'memory_limit', 'readiness_probe'];
+/** A kustomization that deploys `base` and patches exactly `guards` into its one container. */
+const overlayFor = (base: string, workload: string, guards: readonly M4Guard[]): string =>
+  [
+    'resources:',
+    `  - ../../base/${base}`,
+    ...(guards.length === 0
+      ? []
+      : [...guardsPatch(workload).slice(0, 10), ...guards.map((guard) => M4_GUARD_LINES[guard])]),
+    '',
+  ].join('\n');
+/** A Deployment of one container that carries no guard of its own. */
+const unguardedBase = (workload: string): string =>
+  [
+    'apiVersion: apps/v1', //                                     1
+    'kind: Deployment', //                                        2
+    `metadata: { name: ${workload} }`, //                         3
+    'spec:', //                                                   4
+    '  template:', //                                             5
+    '    spec:', //                                               6
+    '      containers:', //                                       7
+    `        - name: ${workload}`, //                             8
+    `          image: ghcr.io/acme/${workload}@${DIGEST}`, //     9
+    '',
+  ].join('\n');
+const M4_CONTAINER_LINE = 8;
+const ROUND3_FILES: Readonly<Record<string, string>> = {
+  [R3_PRESIGNED]: [
+    `module "presigned" { source = "https://bucket.s3.amazonaws.com/mod.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=${R3_TF_LITERALS.amzCredential}%2F20261022%2Feu-west-1%2Fs3%2Faws4_request&X-Amz-Expires=3600&X-Amz-Security-Token=${R3_TF_LITERALS.amzSecurityToken}&X-Amz-Signature=${R3_TF_LITERALS.amzSignature}" }`, // 1
+    `module "sas" { source = "https://acct.blob.core.windows.net/c/mod.zip?sv=2022-11-02&sr=b&sig=${R3_TF_LITERALS.sasSignature}" }`, // 2
+    `module "github_raw" { source = "https://raw.githubusercontent.com/org/r/main/mod.zip?token=${R3_TF_LITERALS.githubToken}" }`, // 3
+    `module "unknown_argument" { source = "https://mirror.example/mod.zip?p=${R3_TF_LITERALS.unknownArgument}" }`, // 4
+    `module "git_token" { source = "git::https://gitlab.example.com/org/net.git?ref=main&depth=1&private_token=${R3_TF_LITERALS.privateToken}" }`, // 5
+    '',
+  ].join('\n'),
+  ...R3_PARSE,
+  [M2_DOCKERFILE]: [`FROM node:22@sha256:${M2_SHA}`, 'ARG APP_USER', 'USER $APP_USER', ''].join(
+    '\n',
+  ),
+  [M2_COMPOSE]: [
+    'services:', //                                  1
+    '  app:', //                                     2
+    `    image: busybox@${DIGEST}`, //               3
+    '    user: "${UID}:${GID}"', //                  4
+    '',
+  ].join('\n'),
+  // split.yaml is deployed by two overlays: one patches in only the memory limit, the other only
+  // the probes. Neither deployment runs with all three guards.
+  [M4_SPLIT]: unguardedBase('split'),
+  'infrastructure/kubernetes/overlays/split-memory/kustomization.yaml': overlayFor(
+    'split.yaml',
+    'split',
+    ['memory_limit'],
+  ),
+  'infrastructure/kubernetes/overlays/split-probes/kustomization.yaml': overlayFor(
+    'split.yaml',
+    'split',
+    ['readiness_probe', 'liveness_probe'],
+  ),
+  // lone.yaml is deployed by an overlay that supplies every guard and by one that supplies none.
+  [M4_LONE]: unguardedBase('lone'),
+  'infrastructure/kubernetes/overlays/lone-full/kustomization.yaml': overlayFor(
+    'lone.yaml',
+    'lone',
+    M4_ALL_GUARDS,
+  ),
+  'infrastructure/kubernetes/overlays/lone-bare/kustomization.yaml': overlayFor(
+    'lone.yaml',
+    'lone',
+    [],
+  ),
+  // The twin: solo.yaml is deployed only by an overlay that supplies every guard.
+  [M4_SOLO]: unguardedBase('solo'),
+  'infrastructure/kubernetes/overlays/solo-full/kustomization.yaml': overlayFor(
+    'solo.yaml',
+    'solo',
+    M4_ALL_GUARDS,
+  ),
+};
+const round3Workspace = makeFixtureTree('aria-infrastructure-policy-r3-');
+for (const [path, body] of Object.entries(ROUND3_FILES)) {
+  mkdirSync(dirname(join(round3Workspace, path)), { recursive: true });
+  writeFileSync(join(round3Workspace, path), body, 'utf8');
+}
+const round3Output = analyzeInfrastructurePolicy({ roots: ['infrastructure'] }, round3Workspace);
+/** The four-character windows of `literal` (case folded) that `text` contains. */
+const windowsOf = (text: string, literal: string): string[] => {
+  const folded = text.toLowerCase();
+  const found: string[] = [];
+  for (let i = 0; i + 4 <= literal.length; i += 1) {
+    const window = literal.slice(i, i + 4).toLowerCase();
+    if (folded.includes(window)) found.push(window);
+  }
+  return found;
+};
+
+check('R1 no presigned, SAS, token or unknown query value reaches any output', () => {
+  const text = JSON.stringify(round3Output);
+  assert.deepEqual(
+    Object.entries(R3_TF_LITERALS)
+      .filter(([, literal]) => windowsOf(text, literal).length > 0)
+      .map(([name]) => name),
+    [],
+  );
+});
+check('R1 the masked sources are still claimed and keep their host and allow-listed ref', () => {
+  const terraform = round3Output.findings
+    .filter((f) => f.rule === 'unpinned_terraform_source' && f.path === R3_PRESIGNED)
+    .sort((a, b) => a.line - b.line);
+  assert.deepEqual(
+    terraform.map((f) => [f.line, f.owner_rule_id]),
+    [
+      [1, 'archive'],
+      [2, 'archive'],
+      [3, 'archive'],
+      [4, 'archive'],
+      [5, 'git_branch_ref'],
+    ],
+  );
+  const [presigned, sas, github, unknown, gitToken] = terraform;
+  assert.ok(presigned?.subject.includes('bucket.s3.amazonaws.com/mod.zip'));
+  assert.ok(sas?.subject.includes('acct.blob.core.windows.net/c/mod.zip'));
+  assert.ok(github?.subject.includes('raw.githubusercontent.com/org/r/main/mod.zip'));
+  assert.ok(unknown?.subject.includes('mirror.example/mod.zip'));
+  assert.ok(gitToken?.subject.includes('gitlab.example.com/org/net.git'));
+  assert.ok(gitToken?.subject.includes('ref=main'), 'ref is an allow-listed argument');
+  assert.ok(gitToken?.subject.includes('depth=1'), 'depth is an allow-listed argument');
+});
+
+check('R2 every malformed file is a named parse failure', () => {
+  assert.deepEqual(
+    Object.keys(R3_PARSE).filter(
+      (path) =>
+        !round3Output.observations.some(
+          (candidate) =>
+            candidate.type === 'infrastructure_parse_failure' && candidate.path === path,
+        ),
+    ),
+    [],
+  );
+});
+check('R2 no parse failure carries any part of the text its reader failed on', () => {
+  const leaking = round3Output.observations
+    .filter((candidate) => candidate.type === 'infrastructure_parse_failure')
+    .filter((candidate) => windowsOf(JSON.stringify(candidate), R2_LITERAL).length > 0)
+    .map((candidate) => String(candidate.path))
+    .sort();
+  assert.deepEqual(leaking, []);
+  assert.equal(JSON.stringify(round3Output).includes(R2_LITERAL), false, 'the literal is output');
+});
+
+/** The privileged_runtime claims and unresolved records at `path`:`line`. */
+const userVerdictsAt = (path: string, line: number): { claimed: number; unresolved: number } => ({
+  claimed: round3Output.findings.filter(
+    (f) => f.rule === 'privileged_runtime' && f.path === path && f.line === line,
+  ).length,
+  unresolved: unresolvedAt(round3Output.observations, 'privileged_runtime', path).filter(
+    (details) => details.line === line,
+  ).length,
+});
+check('M2 a Dockerfile USER named by a variable is recorded unresolved, never clean', () => {
+  assert.deepEqual(userVerdictsAt(M2_DOCKERFILE, 3), { claimed: 0, unresolved: 1 });
+});
+check('M2 a compose user named by a variable is recorded unresolved, never clean', () => {
+  assert.deepEqual(userVerdictsAt(M2_COMPOSE, 4), { claimed: 0, unresolved: 1 });
+});
+
+/** The guards named by the missing_runtime_guard claims on a base's one container. */
+const claimedGuards = (path: string): string[] => [
+  ...new Set(
+    round3Output.findings
+      .filter(
+        (f) =>
+          f.rule === 'missing_runtime_guard' && f.path === path && f.line === M4_CONTAINER_LINE,
+      )
+      .flatMap((f) => f.owner_rule_id.split(',')),
+  ),
+];
+check('M4 guards split across sibling overlays do not silence the base claim', () => {
+  // The memory overlay's deployment runs without probes, the probe overlay's without a memory
+  // limit: every guard is missing from some deployment of split.yaml.
+  assert.deepEqual(claimedGuards(M4_SPLIT).sort(), [...M4_ALL_GUARDS]);
+});
+check('M4 an overlay that supplies every guard does not cover a sibling that supplies none', () => {
+  assert.deepEqual(claimedGuards(M4_LONE).sort(), [...M4_ALL_GUARDS]);
+});
+check('M4 the twin: a base whose only overlay supplies every guard is not claimed', () => {
+  assert.deepEqual(claimedGuards(M4_SOLO), []);
+});
+
+assert.deepEqual(
+  blockerFailures,
+  [],
+  'the round-2 (B1, B2) and round-3 (R1, R2, M2, M4) review blockers are fixed',
+);
 
 process.stdout.write('infrastructure-policy-adapter.test.ts OK\n');

@@ -26,7 +26,7 @@ import { test } from 'node:test';
 
 import { Alias } from 'yaml';
 
-import { classifyInfraFile, INFRA_FORMATS } from '../lib/infra/classify';
+import { classifyInfraFile, INFRA_FORMATS, type InfraFormat } from '../lib/infra/classify';
 import { readDockerfile } from '../lib/infra/dockerfile';
 import { readHclBlocks } from '../lib/infra/hcl-blocks';
 import { readNatsConf } from '../lib/infra/nats-conf';
@@ -69,6 +69,33 @@ import { MODULE_SOURCE_PINNING, moduleSourcePin, providerConstraints } from './t
 
 function repoFile(rel: string): string {
   return readFileSync(join(REPO_ROOT, rel), 'utf8');
+}
+
+/**
+ * The round-3 review of the ARIA-HIGH-012 landing (kc/r12r2-review/REVIEW.txt, on 6d28cefab)
+ * found blockers and fail-open minors the owners must fix. Each case written for one carries
+ * node:test's `todo` option until its fix lands, as the round-2 cases did: it runs and prints its
+ * failure without failing the pre-commit hook, and
+ * tools/aria-adapters/infrastructure-policy-adapter.test.ts, the regression ref that closes
+ * ARIA-HIGH-012, refuses any `todo` left in this file.
+ */
+function reviewBlocker(id: string): string {
+  return `ARIA-HIGH-012 round-3 review item ${id} (kc/r12r2-review/REVIEW.txt) is not fixed`;
+}
+
+/**
+ * The windows of `literal` (four characters, case folded) found in `text`. A parse error that
+ * upper-cases a Dockerfile keyword, or a YAML escape error that quotes four characters of a
+ * scalar, still hands part of a credential on; a whole-string match would miss both.
+ */
+function credentialWindowsIn(text: string, literal: string): string[] {
+  const folded = text.toLowerCase();
+  const found: string[] = [];
+  for (let i = 0; i + 4 <= literal.length; i += 1) {
+    const window = literal.slice(i, i + 4).toLowerCase();
+    if (folded.includes(window)) found.push(window);
+  }
+  return found;
 }
 
 /**
@@ -425,6 +452,61 @@ void test('dockerfileFinalUser follows stage references and treats an absent USE
   assert.equal(dockerfileFinalUser(root).line, 2);
 });
 
+void test(
+  'a runtime user named by a variable is unresolved, never non_root',
+  { todo: reviewBlocker('M2') },
+  () => {
+    // WHY: `USER $APP_USER` and compose `user: "${UID}"` take their value from a build argument or
+    // the environment at build or run time; the file does not say whether it is 0. userVerdict
+    // read every name that is not `root` or `0` as non_root, so the variable form passed as a
+    // safe runtime user (kc/r12-review M2, runtime-privilege.ts userVerdict). An owner that cannot
+    // tell reports unresolved, the way terraform-pins.ts reports an unclassifiable source.
+    const PIN = `FROM node:22@sha256:${'a'.repeat(64)}\n`;
+    const variableUsers: readonly string[] = [
+      '$APP_USER',
+      '${APP_USER}',
+      '${APP_UID:-1000}',
+      '$UID:$GID',
+      '${UID}:${GID}',
+    ];
+    for (const user of variableUsers) {
+      const final = dockerfileFinalUser(readDockerfile(`${PIN}ARG APP_USER\nUSER ${user}\n`));
+      assert.equal(final.verdict, 'unresolved', `Dockerfile USER ${user}`);
+      assert.equal(final.line, 3, `Dockerfile USER ${user} keeps its line`);
+      const service = nth(
+        composeServices(
+          nth(readYamlDocuments(`services:\n  app:\n    user: ${JSON.stringify(user)}\n`).docs, 0)
+            .value,
+        ),
+        0,
+      );
+      assert.equal(composeServiceUser(service).verdict, 'unresolved', `compose user ${user}`);
+    }
+    // A user the file names stays judged as written.
+    const judged: ReadonlyArray<readonly [string, string]> = [
+      ['node', 'non_root'],
+      ['1000:1000', 'non_root'],
+      ['root', 'root'],
+      ['0:0', 'root'],
+    ];
+    for (const [user, verdict] of judged) {
+      assert.equal(
+        dockerfileFinalUser(readDockerfile(`${PIN}USER ${user}\n`)).verdict,
+        verdict,
+        `Dockerfile USER ${user}`,
+      );
+      const service = nth(
+        composeServices(
+          nth(readYamlDocuments(`services:\n  app:\n    user: ${JSON.stringify(user)}\n`).docs, 0)
+            .value,
+        ),
+        0,
+      );
+      assert.equal(composeServiceUser(service).verdict, verdict, `compose user ${user}`);
+    }
+  },
+);
+
 // ---------------------------------------------------------------- HCL
 
 void test('readHclBlocks: nested blocks, heredocs, comment braces, template strings, objects', () => {
@@ -654,6 +736,90 @@ void test('terraform pins carry no credential: the source is judged whole and re
     'an scp-style SSH user is a login name, not a credential',
   );
 });
+
+void test(
+  'terraform pins report a query value only for an allow-listed go-getter argument: presigned, SAS, token and unknown arguments are masked',
+  { todo: reviewBlocker('R1') },
+  () => {
+    // WHY: the round-2 redaction is a deny list of four go-getter argument names, but the
+    // credential in an HTTP archive URL is whatever its server reads: an S3 presigned URL carries
+    // X-Amz-Credential, X-Amz-Security-Token and X-Amz-Signature, an Azure SAS URL `sig=`, a
+    // GitHub raw URL `token=`, and any server may name its own. All of them reached the finding
+    // subject and message (kc/r12r2-review probe-leak.log, ws/tf). The owner can name the
+    // arguments it knows carry no credential; every other value is masked, and so is an argument
+    // with no `=`, whose name is then its only content.
+    const literals = {
+      amzCredential: 'Kq3Xc8Vn2Bm7Lw5P',
+      amzSecurityToken: 'Tz4Rf6Hy1Uj9Ik3O',
+      amzSignature: 'b7e1c94d2a6f08e35d1c7a9b4f2e6d80',
+      sasSignature: 'Sg5Dh8Fj2Kl6Qw9E',
+      githubToken: 'Gt2Wq7Er4Ty8Ui1P',
+      unknownArgument: 'Uv9Bn3Mq6Xc1Za4S',
+      bareArgument: 'Ba7Ns2Dk5Lq8Wz3R',
+      privateToken: 'Pt6Yh1Gb4Nm9Jk2L',
+      gcsSignature: 'Gs3Lk8Jh5Fd2Sa7Q',
+      joinedToken: 'Jt8Qa3Zs6Wx1Ed4C',
+    };
+    const sha = 'c'.repeat(64);
+    const read = readHclBlocks(
+      [
+        'module "presigned" {',
+        `  source = "https://bucket.s3.amazonaws.com/mod.zip?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=${literals.amzCredential}%2F20261022%2Feu-west-1%2Fs3%2Faws4_request&X-Amz-Date=20261022T000000Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Security-Token=${literals.amzSecurityToken}&X-Amz-Signature=${literals.amzSignature}"`,
+        '}',
+        'module "sas" {',
+        `  source = "https://acct.blob.core.windows.net/c/mod.zip?sv=2022-11-02&sr=b&sp=r&se=2026-12-31T00%3A00%3A00Z&sig=${literals.sasSignature}%2B%3D"`,
+        '}',
+        `module "github_raw" { source = "https://raw.githubusercontent.com/org/r/main/mod.zip?token=${literals.githubToken}" }`,
+        `module "unknown_argument" { source = "https://mirror.example/mod.zip?p=${literals.unknownArgument}" }`,
+        `module "bare_argument" { source = "https://mirror.example/mod.zip?${literals.bareArgument}" }`,
+        `module "git_token" { source = "git::https://gitlab.example.com/org/net.git?ref=main&depth=1&private_token=${literals.privateToken}" }`,
+        `module "gcs" { source = "gcs::https://www.googleapis.com/storage/v1/bucket/mod.zip?GoogleAccessId=svc&Signature=${literals.gcsSignature}" }`,
+        `module "checksummed" { source = "https://mirror.example/mod.tgz?archive=tar.gz&checksum=sha256:${sha}" }`,
+        'module "joined" {',
+        `  source = join("", ["https://mirror.example/mod.zip?token=", "${literals.joinedToken}"])`,
+        '}',
+        '',
+      ].join('\n'),
+    );
+    assert.deepEqual(read.errors, []);
+    const pins = read.blocks
+      .filter((b) => b.type === 'module')
+      .map((block) => ({ module: block.labels[0], pin: moduleSourcePin(block) }));
+    // The verdict is still that of the whole address.
+    assert.deepEqual(
+      pins.map(({ module, pin }) => [module, pin.verdict]),
+      [
+        ['presigned', 'archive'],
+        ['sas', 'archive'],
+        ['github_raw', 'archive'],
+        ['unknown_argument', 'archive'],
+        ['bare_argument', 'archive'],
+        ['git_token', 'git_branch_ref'],
+        ['gcs', 'archive'],
+        ['checksummed', 'archive_checksummed'],
+        ['joined', 'unknown'],
+      ],
+    );
+    const serialised = JSON.stringify(pins);
+    const leaked = Object.entries(literals)
+      .filter(([, literal]) => credentialWindowsIn(serialised, literal).length > 0)
+      .map(([name]) => name);
+    assert.deepEqual(leaked, [], 'no credential value, or any part of one, is in a pin');
+    // What is not a credential stays readable: the host and path, and the allow-listed arguments.
+    const source = (module: string): string =>
+      present(pins.find((entry) => entry.module === module)?.pin.source, `${module} source`);
+    assert.ok(source('presigned').startsWith('https://bucket.s3.amazonaws.com/mod.zip?'));
+    assert.ok(source('sas').startsWith('https://acct.blob.core.windows.net/c/mod.zip?'));
+    assert.ok(
+      source('github_raw').startsWith('https://raw.githubusercontent.com/org/r/main/mod.zip'),
+    );
+    assert.ok(source('git_token').startsWith('git::https://gitlab.example.com/org/net.git?'));
+    assert.ok(source('git_token').includes('ref=main'), 'ref is allow-listed');
+    assert.ok(source('git_token').includes('depth=1'), 'depth is allow-listed');
+    assert.ok(source('checksummed').includes('archive=tar.gz'), 'archive is allow-listed');
+    assert.ok(source('checksummed').includes(`checksum=sha256:${sha}`), 'checksum is allow-listed');
+  },
+);
 
 // ---------------------------------------------------------------- nginx
 
@@ -1091,6 +1257,74 @@ void test('readers refuse nesting past a depth bound with a named error, never a
     );
   }
 });
+
+void test(
+  'a read error carries the position and the kind of what failed, never the text it failed on',
+  { todo: reviewBlocker('R2') },
+  () => {
+    // WHY: a read error becomes the adapter's infrastructure_parse_failure observation, which
+    // ARIA keeps in its state and evidence. hcl-blocks.ts built `unexpected ${token.text}`, so a
+    // malformed .tf with a credential on its own line put the credential there (kc/r12r2-review
+    // probe-leak.log, ws/tf4); the same holds for every reader that quotes what it could not read:
+    // an HCL block or attribute name, number, heredoc or heredoc delimiter, an nginx directive
+    // name, a Dockerfile instruction, escape directive or heredoc delimiter, a YAML alias, escape
+    // or block scalar header. Each format the classifier owns, except the Helm template no reader parses, has a
+    // case here; a new format without one fails the coverage check.
+    const S = 'Cr7Xv2Np9Lk4Wm8Q';
+    // A credential that is all digits (a PIN, an account number) is a number token in HCL.
+    const N = '48151623429071';
+    const cases: ReadonlyArray<readonly [InfraFormat, string]> = [
+      ['terraform', `module "a" {\n  source = "./x"\n}\n${S}\n`],
+      ['terraform', `module "a" {\n  "${S}"\n}\n`],
+      ['terraform', `access_key = "x"\nsecret = <<${S}\nbody\n`],
+      ['terraform', `${S} =\n`],
+      // A heredoc token's text is its whole body; a number token is the number.
+      ['terraform', `<<EOT\n${S}\nEOT\n`],
+      ['terraform', `module "a" <<EOT\n${S}\nEOT\n{\n}\n`],
+      ['terraform', `${N} = 1\n`],
+      ['terraform', `module "a" ${N} {\n}\n`],
+      ['nginx', `server {\n  listen 80;\n}\n${S}\n`],
+      ['nginx', `server {\n  auth_basic "${S}\n}\n`],
+      ['nats', `authorization {\n  password: "${S}\n}\n`],
+      ['nats', `port: 4222\n"${S}"\n`],
+      ['nats', `authorization {\n  token: ${S}\n`],
+      ['compose', `services:\n  app:\n    environment:\n      DB_PASSWORD: *${S}\n`],
+      ['compose', `services:\n  app:\n    environment:\n      DB_PASSWORD: "\\u${S}"\n`],
+      ['k8s', `apiVersion: v1\nkind: Secret\nstringData:\n  token: "\\u${S}"\n`],
+      ['k8s', `apiVersion: v1\nkind: Secret\nstringData:\n  token: *${S}\n`],
+      ['helm_values', `auth:\n  password: |${S}\n    x\n`],
+      ['helm_chart', `apiVersion: v2\nname: *${S}\n`],
+      ['dockerfile', `FROM node:22\n${S}\n`],
+      ['dockerfile', `# escape=${S}\nFROM node:22\n`],
+      ['dockerfile', `FROM node:22\nRUN <<${S}\necho\n`],
+    ];
+    assert.deepEqual(
+      INFRA_FORMATS.filter(
+        (format) => format !== 'helm_template' && !cases.some(([covered]) => covered === format),
+      ),
+      [],
+      'every format a reader reads has a case',
+    );
+    const leaks: string[] = [];
+    for (const [format, text] of cases) {
+      const { read } = readInfraFile(format, text);
+      assert.ok(read !== null, `${format} has a reader`);
+      const lines = text.split('\n').length;
+      assert.ok(read.errors.length > 0, `${format} ${JSON.stringify(text)} is a read failure`);
+      for (const error of read.errors) {
+        assert.ok(
+          Number.isInteger(error.line) && error.line >= 1 && error.line <= lines,
+          `${format}: the error keeps a line inside the file (${JSON.stringify(error)})`,
+        );
+        assert.ok(error.message.length > 0, `${format}: the error names what failed`);
+      }
+      const errorText = JSON.stringify(read.errors);
+      const windows = [S, N].flatMap((literal) => credentialWindowsIn(errorText, literal));
+      if (windows.length > 0) leaks.push(`${format} ${errorText}`);
+    }
+    assert.deepEqual(leaks, [], 'no read error carries any part of the text it failed on');
+  },
+);
 
 void test('natsCredentialAuth flags credential identity, not cert identity or comments', () => {
   const read = readNatsConf(

@@ -17,6 +17,12 @@ stdout all produce a ``verdict="environment_unable"`` payload — the evaluator
 escalates that to HUMAN_REQUIRED. An empty closure can never masquerade as
 "covered" because the witness itself distinguishes exit 0/1 (computed) from
 exit 2 (environment), and anything unparseable lands on the environment side.
+
+The same discipline runs the code-fact bridge (service-expertise PLAN §2, §3.3, SE-3):
+``compute_service_facts`` runs the two ``--facts`` entries on the diff's base tree through the
+one runner below (``run_ts_json_entry``), and any environment failure is a named
+``environment_unable`` with no partial facts, so the change is held instead of being routed as
+if its services produced and consumed nothing.
 """
 from __future__ import annotations
 
@@ -33,7 +39,10 @@ from .digest import sha256_digest
 
 WITNESS_RELPATH = "tools/gates/plan-coverage-witness.ts"
 WITNESS_TSCONFIG = "tools/gates/tsconfig.json"
+EVENT_FACTS_RELPATH = "tools/gates/event-consumer-index.ts"
+MODULE_FACTS_RELPATH = "tools/aria-adapters/module-schemas-source.ts"
 DEFAULT_TIMEOUT_SECONDS = 180
+HEAD_TIMEOUT_SECONDS = 30
 COVERAGE_DIR = "coverage"
 # Severity is "material" (not "blocking"): a coverage gap must block
 # convergence via the material gate AND remain addressable through the
@@ -53,6 +62,52 @@ def _default_runner(cmd: list[str], cwd: str, timeout_seconds: int) -> "subproce
         text=True,
         timeout=timeout_seconds,
     )
+
+
+def run_ts_json_entry(
+    run: Runner,
+    *,
+    tool: str,
+    args: list[str],
+    workspace: Path,
+    timeout_seconds: int,
+    ok_exit_codes: tuple[int, ...],
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    """Run one TypeScript JSON entry of ``workspace`` and read its one JSON object.
+
+    Returns ``(report, witness)``. ``report`` is None exactly when the run is an environment
+    failure, and ``witness["error"]`` then names it: ``toolchain_missing``, ``timeout_after_<n>s``,
+    ``witness_environment_exit_<code>`` (an exit outside ``ok_exit_codes``) or
+    ``witness_output_unparseable`` (stdout that is not one JSON object). Nothing is written.
+    """
+    cmd = ["npx", "ts-node", "--project", WITNESS_TSCONFIG, tool, *args]
+    started_at = utc_now()
+    try:
+        proc = run(cmd, str(workspace), timeout_seconds)
+    except FileNotFoundError as exc:
+        return None, {"tool": tool, "error": f"toolchain_missing: {exc}", "started_at": started_at}
+    except subprocess.TimeoutExpired:
+        return None, {"tool": tool, "error": f"timeout_after_{timeout_seconds}s", "started_at": started_at}
+    witness: dict[str, Any] = {
+        "tool": tool,
+        "exit_code": proc.returncode,
+        "started_at": started_at,
+        "finished_at": utc_now(),
+    }
+    stderr_tail = (proc.stderr or "")[-2000:]
+    if proc.returncode not in ok_exit_codes:
+        witness["error"] = f"witness_environment_exit_{proc.returncode}"
+        witness["stderr_tail"] = stderr_tail
+        return None, witness
+    try:
+        report = json.loads(proc.stdout)
+        if not isinstance(report, dict):
+            raise ValueError("witness output is not an object")
+    except (json.JSONDecodeError, ValueError) as exc:
+        witness["error"] = f"witness_output_unparseable: {exc}"
+        witness["stderr_tail"] = stderr_tail
+        return None, witness
+    return report, witness
 
 
 def build_synthetic_risk(node: dict[str, Any], *, round_number: int, closure_manifest_path: str) -> dict[str, Any]:
@@ -305,7 +360,7 @@ def compute_plan_coverage(
 
     computed_at_sha = "unknown"
     try:
-        sha_proc = run(["git", "rev-parse", "HEAD"], str(workspace), 30)
+        sha_proc = run(["git", "rev-parse", "HEAD"], str(workspace), HEAD_TIMEOUT_SECONDS)
         if sha_proc.returncode == 0:
             computed_at_sha = sha_proc.stdout.strip() or "unknown"
     except (OSError, subprocess.SubprocessError):
@@ -315,67 +370,15 @@ def compute_plan_coverage(
     input_path = coverage_dir / f"{plan_id}-r{round_number}-input.json"
     input_path.write_text(json.dumps(witness_input, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
-    cmd = [
-        "npx",
-        "ts-node",
-        "--project",
-        WITNESS_TSCONFIG,
-        WITNESS_RELPATH,
-        "--input",
-        str(input_path),
-    ]
-    started_at = utc_now()
-    try:
-        proc = run(cmd, str(workspace), timeout_seconds)
-        exit_code = proc.returncode
-        stdout = proc.stdout
-        stderr_tail = (proc.stderr or "")[-2000:]
-    except FileNotFoundError as exc:
-        return environment_unable_payload(
-            round_number=round_number,
-            target_revision_id=target_revision_id,
-            target_plan_content_hash=target_plan_content_hash,
-            manifest_relpath=manifest_relpath,
-            manifest_hash=sha256_digest(b""),
-            computed_at_sha=computed_at_sha,
-            witness={"tool": WITNESS_RELPATH, "error": f"toolchain_missing: {exc}", "started_at": started_at},
-        )
-    except subprocess.TimeoutExpired:
-        return environment_unable_payload(
-            round_number=round_number,
-            target_revision_id=target_revision_id,
-            target_plan_content_hash=target_plan_content_hash,
-            manifest_relpath=manifest_relpath,
-            manifest_hash=sha256_digest(b""),
-            computed_at_sha=computed_at_sha,
-            witness={"tool": WITNESS_RELPATH, "error": f"timeout_after_{timeout_seconds}s", "started_at": started_at},
-        )
-
-    witness_meta: dict[str, Any] = {
-        "tool": WITNESS_RELPATH,
-        "exit_code": exit_code,
-        "started_at": started_at,
-        "finished_at": utc_now(),
-    }
-    if exit_code not in (0, 1):
-        witness_meta["error"] = f"witness_environment_exit_{exit_code}"
-        witness_meta["stderr_tail"] = stderr_tail
-        return environment_unable_payload(
-            round_number=round_number,
-            target_revision_id=target_revision_id,
-            target_plan_content_hash=target_plan_content_hash,
-            manifest_relpath=manifest_relpath,
-            manifest_hash=sha256_digest(b""),
-            computed_at_sha=computed_at_sha,
-            witness=witness_meta,
-        )
-    try:
-        report = json.loads(stdout)
-        if not isinstance(report, dict):
-            raise ValueError("witness output is not an object")
-    except (json.JSONDecodeError, ValueError) as exc:
-        witness_meta["error"] = f"witness_output_unparseable: {exc}"
-        witness_meta["stderr_tail"] = stderr_tail
+    report, witness_meta = run_ts_json_entry(
+        run,
+        tool=WITNESS_RELPATH,
+        args=["--input", str(input_path)],
+        workspace=workspace,
+        timeout_seconds=timeout_seconds,
+        ok_exit_codes=(0, 1),
+    )
+    if report is None:
         return environment_unable_payload(
             round_number=round_number,
             target_revision_id=target_revision_id,
@@ -404,4 +407,70 @@ def compute_plan_coverage(
         "synthetic_risks": fields["synthetic_risks"],
         "computed_at_sha": computed_at_sha,
         "witness": witness_meta,
+    }
+
+
+def _service_facts_unavailable(base_sha: str, witness: dict[str, Any]) -> dict[str, Any]:
+    return {"verdict": "environment_unable", "base_sha": base_sha, "witness": witness}
+
+
+def compute_service_facts(
+    *,
+    workspace_root: str | Path,
+    base_sha: str,
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+    runner: Runner | None = None,
+) -> dict[str, Any]:
+    """The code facts of one change subject, computed on its base tree (service-expertise SE-3).
+
+    ``workspace_root`` is a checkout of the diff's base: its HEAD must be ``base_sha``, because
+    the facts are the pre-change contract the reviewer reads the diff against. Both ``--facts``
+    entries (``EVENT_FACTS_RELPATH``: per-application produced and consumed event sites, code x
+    code edges, ACL grants as permission facts, NATS identity, event definition sites;
+    ``MODULE_FACTS_RELPATH``: schema and table placement) run once, through the plan-coverage
+    runner, with the base tree as their cwd and repo root.
+
+    Success: ``{"verdict": "computed", "facts_sha", "event_facts", "module_facts", "witness"}``,
+    each facts object exactly as its entry printed it. Any failure, of the HEAD read or of either
+    entry, is ``{"verdict": "environment_unable", "base_sha", "witness": {"error": <named>}}``
+    with no facts at all: a partial result would route the change with fewer services. Nothing is
+    written; the facts live only in the request rows that carry them (PLAN SO-07).
+    """
+    run = runner or _default_runner
+    workspace = Path(workspace_root)
+    try:
+        head = run(["git", "rev-parse", "HEAD"], str(workspace), HEAD_TIMEOUT_SECONDS)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return _service_facts_unavailable(base_sha, {"error": f"head_unreadable: {exc}"})
+    head_sha = head.stdout.strip() if head.returncode == 0 else ""
+    if not head_sha:
+        return _service_facts_unavailable(
+            base_sha, {"error": f"head_unreadable: git exit {head.returncode}"}
+        )
+    if head_sha != base_sha:
+        return _service_facts_unavailable(
+            base_sha, {"error": f"tree_not_at_base: HEAD {head_sha} is not {base_sha}"}
+        )
+
+    facts: dict[str, dict[str, Any]] = {}
+    witnesses: dict[str, dict[str, Any]] = {}
+    for key, tool in (("event_facts", EVENT_FACTS_RELPATH), ("module_facts", MODULE_FACTS_RELPATH)):
+        report, witness = run_ts_json_entry(
+            run,
+            tool=tool,
+            args=["--facts", "--repo-root", str(workspace)],
+            workspace=workspace,
+            timeout_seconds=timeout_seconds,
+            ok_exit_codes=(0,),
+        )
+        if report is None:
+            return _service_facts_unavailable(base_sha, witness)
+        facts[key] = report
+        witnesses[key] = witness
+    return {
+        "verdict": "computed",
+        "facts_sha": base_sha,
+        "event_facts": facts["event_facts"],
+        "module_facts": facts["module_facts"],
+        "witness": witnesses,
     }

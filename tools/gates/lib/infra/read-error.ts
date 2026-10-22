@@ -43,6 +43,8 @@ export type ReadErrorMessage =
   | 'unterminated /* comment'
   | 'unterminated string'
   | 'unterminated template sequence'
+  | 'invalid escape sequence in a quoted string'
+  | 'block label is not a string literal'
   | 'malformed heredoc introducer'
   | 'unclosed block'
   | `unexpected ${ReadErrorTokenKind}`

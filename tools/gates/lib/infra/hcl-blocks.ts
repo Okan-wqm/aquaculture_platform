@@ -7,6 +7,15 @@
  * then builds a tree of blocks and attributes. It never evaluates an expression: attributes
  * keep their raw text, plus the literal when the value is a single string and the entries
  * when it is an object, which is all the pin rules need.
+ *
+ * A quoted string literal is read as its value, the string Terraform evaluates, not its token
+ * text: the escapes of HCL's native syntax (`\n`, `\r`, `\t`, `\"`, `\\`, `\uNNNN`,
+ * `\UNNNNNNNN`) are decoded and `$${` / `%%{` are a literal `${` / `%{`. A quoted string that
+ * holds a `${...}` interpolation or a `%{...}` directive is a template, which this reader does
+ * not evaluate, so it has no literal value. WHY the value: terraform-pins.ts judged and reported
+ * the token text, so an `@` written `\u0040` was no `@` to it while Terraform handed go-getter
+ * a userinfo, and the user was reported as a host (ARIA-HIGH-012 round-5 review R1 residual-2).
+ * Decoding here, in the one HCL reader, makes every consumer see what Terraform sees.
  */
 import {
   MAX_NESTING_DEPTH,
@@ -20,7 +29,10 @@ export interface HclAttribute {
   readonly line: number;
   /** Source text of the value expression. */
   readonly raw: string;
-  /** The value when it is exactly one string literal (template text kept verbatim). */
+  /**
+   * The evaluated value when the value is exactly one quoted string literal (escapes decoded);
+   * null for any other expression, a template with a `${...}` or `%{...}` sequence included.
+   */
   readonly string: string | null;
   /** The entries when the value is an object constructor `{ k = v, ... }`. */
   readonly object: Readonly<Record<string, HclAttribute>> | null;
@@ -61,6 +73,47 @@ interface Token {
   readonly line: number;
   readonly start: number;
   readonly end: number;
+  /**
+   * A `string` token's evaluated value when it is a literal; null for a template, a string with
+   * an invalid escape or an unterminated one, and for every other kind of token.
+   */
+  readonly literal: string | null;
+}
+
+/** The single-character escapes of a quoted HCL string and the character each one stands for. */
+const SIMPLE_ESCAPES: ReadonlyMap<string, string> = new Map([
+  ['n', '\n'],
+  ['r', '\r'],
+  ['t', '\t'],
+  ['"', '"'],
+  ['\\', '\\'],
+]);
+/** `\u` takes exactly four hex digits, `\U` exactly eight. */
+const UNICODE_ESCAPE_DIGITS: ReadonlyMap<string, number> = new Map([
+  ['u', 4],
+  ['U', 8],
+]);
+const HEX_DIGITS = /^[0-9A-Fa-f]+$/;
+
+/**
+ * The character an escape at `at` (the backslash) stands for and its length, or null when it is
+ * not one HCL decodes: an unknown selector, too few hex digits, or a code point UTF-8 cannot
+ * encode (a surrogate or one past U+10FFFF), each of which Terraform rejects.
+ */
+function readEscape(
+  s: string,
+  at: number,
+): { readonly value: string; readonly length: number } | null {
+  const selector = s.charAt(at + 1);
+  const simple = SIMPLE_ESCAPES.get(selector);
+  if (simple !== undefined) return { value: simple, length: 2 };
+  const digits = UNICODE_ESCAPE_DIGITS.get(selector);
+  if (digits === undefined) return null;
+  const hex = s.slice(at + 2, at + 2 + digits);
+  if (hex.length !== digits || !HEX_DIGITS.test(hex)) return null;
+  const codePoint = Number.parseInt(hex, 16);
+  if (codePoint > 0x10ffff || (codePoint >= 0xd800 && codePoint <= 0xdfff)) return null;
+  return { value: String.fromCodePoint(codePoint), length: 2 + digits };
 }
 
 const IDENT_START = /[A-Za-z_]/;
@@ -79,8 +132,15 @@ class Lexer {
     this.run();
   }
 
-  private push(kind: TokenKind, start: number, line: number): void {
-    this.tokens.push({ kind, text: this.src.slice(start, this.pos), line, start, end: this.pos });
+  private push(kind: TokenKind, start: number, line: number, literal: string | null = null): void {
+    this.tokens.push({
+      kind,
+      text: this.src.slice(start, this.pos),
+      line,
+      start,
+      end: this.pos,
+      literal,
+    });
   }
 
   private run(): void {
@@ -104,8 +164,8 @@ class Lexer {
         this.countLines(this.pos, end);
         this.pos = end;
       } else if (c === '"') {
-        this.readString(0);
-        this.push('string', start, line);
+        const literal = this.readString(0);
+        this.push('string', start, line, literal);
       } else if (
         c === '<' &&
         s[this.pos + 1] === '<' &&
@@ -133,40 +193,55 @@ class Lexer {
 
   /**
    * A quoted template: escapes, and `${ }` / `%{ }` sequences that may nest strings. `depth` counts
-   * the template sequences around this string; past MAX_NESTING_DEPTH the lexer stops.
+   * the template sequences around this string; past MAX_NESTING_DEPTH the lexer stops. Returns the
+   * string's evaluated value when it is a literal (see the file comment), else null.
    */
-  private readString(depth: number): void {
+  private readString(depth: number): string | null {
     const s = this.src;
     const line = this.line;
     if (depth > MAX_NESTING_DEPTH) {
       this.errors.push(nestingError(line));
       this.abandoned = true;
       this.pos = s.length;
-      return;
+      return null;
     }
     this.pos += 1;
+    let value: string | null = '';
     while (this.pos < s.length) {
       const c = s.charAt(this.pos);
       if (c === '\\') {
-        this.pos += 2;
+        const escape = readEscape(s, this.pos);
+        if (escape === null) {
+          // Terraform rejects the file; past the backslash, the rest is read as text.
+          this.errors.push({ line, message: 'invalid escape sequence in a quoted string' });
+          value = null;
+          this.pos += 1;
+        } else {
+          if (value !== null) value += escape.value;
+          this.pos += escape.length;
+        }
       } else if (c === '"') {
         this.pos += 1;
-        return;
+        return value;
       } else if (c === '\n') {
         this.errors.push({ line, message: 'newline in a quoted string' });
-        return;
+        return null;
+      } else if ((c === '$' || c === '%') && s[this.pos + 1] === c && s[this.pos + 2] === '{') {
+        // `$${` / `%%{` is a literal `${` / `%{`
+        if (value !== null) value += `${c}{`;
+        this.pos += 3;
       } else if ((c === '$' || c === '%') && s[this.pos + 1] === '{') {
-        if (s[this.pos - 1] === c) {
-          this.pos += 2; // `$${` / `%%{` is a literal escape
-        } else {
-          this.pos += 2;
-          this.readTemplateSequence(line, depth + 1);
-        }
+        // an interpolation or directive: a template, which has no literal value
+        value = null;
+        this.pos += 2;
+        this.readTemplateSequence(line, depth + 1);
       } else {
+        if (value !== null) value += c;
         this.pos += 1;
       }
     }
     if (!this.abandoned) this.errors.push({ line, message: 'unterminated string' });
+    return null;
   }
 
   private readTemplateSequence(line: number, depth: number): void {
@@ -303,8 +378,12 @@ class Parser {
         return { type: typeToken.text, labels, line: typeToken.line, attributes: {}, blocks: [] };
       }
       if (token.kind === 'punct' && token.text === '{') break;
-      if (token.kind === 'string') labels.push(unquote(token.text));
-      else if (token.kind === 'ident') labels.push(token.text);
+      if (token.kind === 'string') {
+        // A label is a literal in HCL; a template there is an error Terraform reports too.
+        if (token.literal === null)
+          this.errors.push({ line: token.line, message: 'block label is not a string literal' });
+        else labels.push(token.literal);
+      } else if (token.kind === 'ident') labels.push(token.text);
       else
         this.errors.push({
           line: token.line,
@@ -354,7 +433,7 @@ class Parser {
       name: nameToken.text,
       line: nameToken.line,
       raw,
-      string: only !== undefined && only.kind === 'string' ? unquote(only.text) : null,
+      string: only !== undefined && only.kind === 'string' ? only.literal : null,
       object: this.parseObject(valueTokens, depth),
     };
   }
@@ -395,15 +474,13 @@ class Parser {
       const key = this.peek();
       if (key === undefined) return entries;
       const sep = this.peek(1);
-      if (
-        (key.kind !== 'ident' && key.kind !== 'string') ||
-        sep === undefined ||
-        (sep.text !== '=' && sep.text !== ':')
-      ) {
+      // A quoted key that is a template is computed when Terraform evaluates the object; this
+      // reader does not, so the object has no entries it can read.
+      const name = key.kind === 'string' ? key.literal : key.kind === 'ident' ? key.text : null;
+      if (name === null || sep === undefined || (sep.text !== '=' && sep.text !== ':')) {
         return null;
       }
       this.i += 2;
-      const name = key.kind === 'string' ? unquote(key.text) : key.text;
       entries[name] = { ...this.parseAttributeValue(key, true, depth), name };
     }
   }
@@ -416,10 +493,6 @@ class Parser {
     const last = this.tokens[this.tokens.length - 1];
     return last === undefined ? 1 : last.line;
   }
-}
-
-function unquote(text: string): string {
-  return text.startsWith('"') && text.endsWith('"') && text.length >= 2 ? text.slice(1, -1) : text;
 }
 
 export function readHclBlocks(text: string): HclRead {

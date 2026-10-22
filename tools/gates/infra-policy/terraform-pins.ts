@@ -7,18 +7,24 @@
  * `terraform init`. These functions read blocks from hcl-blocks.ts and never evaluate HCL.
  * Source address forms follow https://developer.hashicorp.com/terraform/language/modules/sources.
  *
- * A pin's `source` is a ReportedSource, never the address as written: it becomes ARIA's finding
- * subject and message, kept long after a credential in it is rotated. The verdict is judged on
- * the whole address. The report is BUILT from the address's parts, each emitted only when it
- * passes its shape check and otherwise as a fixed placeholder; a userinfo, the scp login `git@`
- * included, is never emitted, only recorded as present. Three rounds derived the report by
- * masking the written text instead (a deny list of credential arguments, round-2 B2; an allow
- * list of argument names, round-3 R1; a userinfo mask over the whole address, round-4 R1
- * residual), and each leaked by a position the mask did not foresee: an `@` in a query value,
- * an allow-listed argument holding a nested URL, a token written as an scp user. A part that is
- * reported has a shape no credential can hide in beyond what that shape spells out. A source
- * that is not one string literal is an expression this owner does not evaluate, and reports a
- * fixed text.
+ * The address judged and reported is the source's value as Terraform evaluates it: hcl-blocks.ts
+ * returns a quoted literal with its HCL escapes decoded (`\u0040` is `@`), and a template with
+ * `${...}` or `%{...}` as no literal. A pin's `source` is a ReportedSource, never the address as
+ * written: it becomes ARIA's finding subject and message, kept long after a credential in it is
+ * rotated. The verdict is judged on the whole address. The report is BUILT from the address's
+ * parts, each emitted only when it passes its shape check and otherwise as a fixed placeholder;
+ * a userinfo, the scp login `git@` included, is never emitted, only recorded as present. Three
+ * rounds derived the report by masking the written text instead (a deny list of credential
+ * arguments, round-2 B2; an allow list of argument names, round-3 R1; a userinfo mask over the
+ * whole address, round-4 R1 residual), and each leaked by a position the mask did not foresee:
+ * an `@` in a query value, an allow-listed argument holding a nested URL, a token written as an
+ * scp user. A fourth checked the authority and a scheme-less head one half at a time, so a user
+ * whose `@` was percent-encoded or an HCL escape, or a user:password with no host, was reported
+ * as the host (round-5 R1 residual-2); each is now one part, reported whole or withheld whole.
+ * Percent-encoding is never decoded: `%` is outside every reported shape, so a part holding it
+ * is withheld. A part that is reported has a shape no credential can hide in beyond what that
+ * shape spells out. A source that is not one string literal is an expression this owner does
+ * not evaluate, and reports a fixed text.
  */
 import type { HclBlock } from '../lib/infra/hcl-blocks';
 
@@ -135,11 +141,19 @@ const URL_SCHEMES: ReadonlySet<string> = new Set([
   'file',
 ]);
 const PRINTABLE_ASCII = /^[\x21-\x7e]+$/;
-const HOSTNAME =
-  /^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*$/;
-const PORT = /^\d{1,5}$/;
-/** A path segment, a scheme-less head or an scp path start: no `@ : ; ? # = %` and no space. */
+/**
+ * A URL authority after its userinfo, as a whole: a hostname and an optional digit port, or
+ * empty (`file:///`). Anything else (`user:password`, `user:x-oauth-basic%40host`) is no host.
+ */
+const URL_HOST =
+  /^(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*(?::\d{1,5})?)?$/;
+/** A path segment or an scp path start: no `@ : ; ? # = %` and no space. */
 const SEGMENT = /^[A-Za-z0-9._~-]*$/;
+/**
+ * A scheme-less head as a whole: one SEGMENT (`github.com`, `.`, a registry namespace), or two
+ * joined by one `:` (the scp `host:org`).
+ */
+const SCHEMELESS_HEAD = /^[A-Za-z0-9._~-]*(?::[A-Za-z0-9._~-]*)?$/;
 const MODULE_LABEL = /^[A-Za-z_][A-Za-z0-9_-]*$/;
 
 /**
@@ -187,20 +201,14 @@ function segmentShape(text: string): string {
   return SEGMENT.test(text) ? text : WITHHELD;
 }
 
-/** A URL host with an optional port: a hostname (empty for `file:///`) and digits. */
+/** A URL authority after its userinfo: reported whole when it is URL_HOST, else withheld whole. */
 function urlHostShape(text: string): string {
-  const colon = text.lastIndexOf(':');
-  const host = colon < 0 ? text : text.slice(0, colon);
-  const port = colon < 0 ? null : text.slice(colon + 1);
-  const shownHost = host === '' || HOSTNAME.test(host) ? host : WITHHELD;
-  return port === null ? shownHost : `${shownHost}:${PORT.test(port) ? port : WITHHELD}`;
+  return URL_HOST.test(text) ? text : WITHHELD;
 }
 
-/** The first part of a scheme-less address: `github.com`, `.`, a registry namespace, `host:org`. */
+/** The first part of a scheme-less address: reported whole when it is SCHEMELESS_HEAD. */
 function schemelessHeadShape(text: string): string {
-  const colon = text.indexOf(':');
-  if (colon < 0) return segmentShape(text);
-  return `${segmentShape(text.slice(0, colon))}:${segmentShape(text.slice(colon + 1))}`;
+  return SCHEMELESS_HEAD.test(text) ? text : WITHHELD;
 }
 
 function argumentShape(text: string): string {
@@ -220,17 +228,18 @@ function argumentShape(text: string): string {
  * userinfo up to the authority's last `@`. Each part is then checked against its shape and
  * reported as itself only when it passes: the getter and scheme from a closed set, a hostname
  * and digit port, path segments of SEGMENT, an argument of REPORTED_ARGUMENTS whose value has
- * its shape. A userinfo is reported as USERINFO, a fragment as WITHHELD.
+ * its shape. A userinfo is reported as USERINFO, a fragment as WITHHELD. The authority after its
+ * userinfo, and a scheme-less head, is one part: it is reported whole or withheld whole.
  *
  * An `@` past the authority means a userinfo written with an unencoded `/`, `?` or `#` may have
  * ended the authority early: every part that starts before the last `@` may be the rest of it,
  * and is withheld whatever its shape (a GCS V2 GoogleAccessId=sa@… costs the host its report).
  */
-function reportedSource(written: string): ReportedSource {
-  if (!PRINTABLE_ASCII.test(written)) return asReported(UNPARSED);
-  const forced = /^([A-Za-z0-9]+)::/.exec(written);
+function reportedSource(value: string): ReportedSource {
+  if (!PRINTABLE_ASCII.test(value)) return asReported(UNPARSED);
+  const forced = /^([A-Za-z0-9]+)::/.exec(value);
   const getter = forced === null ? '' : `${fromClosedSet(forced[1] ?? '', FORCED_GETTERS)}::`;
-  const address = forced === null ? written : written.slice(forced[0].length);
+  const address = forced === null ? value : value.slice(forced[0].length);
 
   const hash = address.indexOf('#');
   const body = hash < 0 ? address : address.slice(0, hash);
@@ -279,7 +288,7 @@ export interface ModuleSourcePin {
   readonly verdict: ModuleSourceVerdict;
   /**
    * The source as reported (reportedSource), or NO_LITERAL when the module has no `source` or
-   * its value is not one string literal.
+   * its value is not one string literal (a template with `${...}` or `%{...}` included).
    */
   readonly source: ReportedSource;
   readonly line: number;
@@ -287,26 +296,33 @@ export interface ModuleSourcePin {
 
 export function moduleSourcePin(block: HclBlock): ModuleSourcePin {
   const { verdict, line } = judgeModuleSource(block);
-  const written = block.attributes.source?.string;
+  const value = block.attributes.source?.string;
   return {
     verdict,
-    source:
-      written === undefined || written === null ? asReported(NO_LITERAL) : reportedSource(written),
+    source: value === undefined || value === null ? asReported(NO_LITERAL) : reportedSource(value),
     line,
   };
 }
 
 /**
- * The claim message for a module whose source does not pin its content: its labels when they
- * have a label's shape, and its reported source. Built here so the adapter's message, like its
- * subject, takes a type only this owner constructs.
+ * A module block's labels as reported: each one with a label's shape as itself, any other as
+ * WITHHELD. The one formatter of module labels: the claim message and the adapter's unresolved
+ * observation both take it.
+ */
+export function reportedModuleLabels(block: HclBlock): string {
+  return block.labels.map((label) => (MODULE_LABEL.test(label) ? label : WITHHELD)).join(' ');
+}
+
+/**
+ * The claim message for a module whose source does not pin its content: its reported labels and
+ * its reported source. Built here so the adapter's message, like its subject, takes a type only
+ * this owner constructs.
  */
 export function unpinnedSourceMessage(
   block: HclBlock,
   pin: ModuleSourcePin,
 ): ReportedSourceMessage {
-  const labels = block.labels.map((label) => (MODULE_LABEL.test(label) ? label : WITHHELD));
-  const message = `module ${labels.join(' ')} sources \`${pin.source}\` (${pin.verdict}): its content can change under an unchanged .tf file`;
+  const message = `module ${reportedModuleLabels(block)} sources \`${pin.source}\` (${pin.verdict}): its content can change under an unchanged .tf file`;
   return message as ReportedSourceMessage;
 }
 

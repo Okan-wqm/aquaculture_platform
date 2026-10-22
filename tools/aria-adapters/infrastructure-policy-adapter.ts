@@ -81,6 +81,7 @@ import {
 import {
   MODULE_SOURCE_PINNING,
   moduleSourcePin,
+  reportedModuleLabels,
   type ReportedSource,
   type ReportedSourceMessage,
   unpinnedSourceMessage,
@@ -883,7 +884,7 @@ export function analyzeInfrastructurePolicy(
         recordUnresolved(RULES.unpinned_terraform_source, path, pin.line, {
           owner: OWNER.terraform,
           verdict: pin.verdict,
-          module: block.labels.join(' '),
+          module: reportedModuleLabels(block),
         });
       } else if (pinning === 'unpinned') {
         emit(

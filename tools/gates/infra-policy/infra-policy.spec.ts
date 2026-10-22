@@ -119,21 +119,6 @@ function present<T>(value: T | null | undefined, what: string): T {
   return value;
 }
 
-/**
- * ARIA-HIGH-012 round-5 review (kc/r12r4-review/REVIEW.txt, on 212a147e3) left one blocker, R1
- * residual-2: terraform-pins.ts checks an authority and a scheme-less head per half, so a
- * userinfo user whose `@` is percent-encoded or an HCL escape, or a user:password with no host,
- * is reported as the host; and it parses the token text, not the string Terraform evaluates,
- * because hcl-blocks.ts decodes no escape. Each case written for it carries node:test's `todo`
- * option until the fix lands, as the round-2 to round-4 cases did: it runs and prints its
- * failure without failing the pre-commit hook, and
- * tools/aria-adapters/infrastructure-policy-adapter.test.ts, the regression ref that closes
- * ARIA-HIGH-012, refuses any `todo` left in this file.
- */
-function reviewBlocker(id: string): string {
-  return `ARIA-HIGH-012 round-5 review item ${id} (kc/r12r4-review/REVIEW.txt) is not fixed`;
-}
-
 function trackedFiles(): string[] {
   return execFileSync('git', ['-C', REPO_ROOT, 'ls-files', '-z'], { encoding: 'utf8' })
     .split('\0')
@@ -562,104 +547,100 @@ void test('readHclBlocks: nested blocks, heredocs, comment braces, template stri
     'git::https://example.com/vpc.git?ref=main',
   );
   // A template is not a literal: `string` is its value only for a quoted literal with no
-  // interpolation. That expectation is the todo case 'readHclBlocks evaluates a quoted literal'.
+  // interpolation. That expectation is the case 'readHclBlocks evaluates a quoted literal'.
   assert.equal(present(vpc.attributes.name, 'name').raw, '"${var.project}-{x}"');
   assert.equal(vpc.attributes.version, undefined, 'version inside a heredoc is not an attribute');
   assert.equal(present(vpc.attributes.list, 'list').line, 16);
   assert.ok(readHclBlocks('a {\n  b = 1\n').errors.length > 0, 'an unclosed block is an error');
 });
 
-void test(
-  'readHclBlocks evaluates a quoted literal: escapes decode to their value, and a template with an interpolation is not a literal',
-  { todo: reviewBlocker('R1 residual-2') },
-  () => {
-    // WHY: Terraform reads a quoted string as its evaluated value (HCL native syntax: `\n`,
-    // `\r`, `\t`, `\"`, `\\`, `\uNNNN`, `\UNNNNNNNN`, and `$${` / `%%{` for a literal `${` /
-    // `%{`). The reader kept the token text, so `\u0040` reached terraform-pins.ts as six
-    // characters, not as `@`, and a userinfo the owner withholds when written `@` was parsed as
-    // a host (r12r4-review probes 2, 3). The one HCL reader returns the value, so every
-    // consumer sees what Terraform sees; a string holding a `${...}` or `%{...}` sequence is a
-    // template whose value this reader does not evaluate, so it is no literal (`string` null),
-    // and its raw text stays.
-    const read = readHclBlocks(
+void test('readHclBlocks evaluates a quoted literal: escapes decode to their value, and a template with an interpolation is not a literal', () => {
+  // WHY: Terraform reads a quoted string as its evaluated value (HCL native syntax: `\n`,
+  // `\r`, `\t`, `\"`, `\\`, `\uNNNN`, `\UNNNNNNNN`, and `$${` / `%%{` for a literal `${` /
+  // `%{`). The reader kept the token text, so `\u0040` reached terraform-pins.ts as six
+  // characters, not as `@`, and a userinfo the owner withholds when written `@` was parsed as
+  // a host (r12r4-review probes 2, 3). The one HCL reader returns the value, so every
+  // consumer sees what Terraform sees; a string holding a `${...}` or `%{...}` sequence is a
+  // template whose value this reader does not evaluate, so it is no literal (`string` null),
+  // and its raw text stays.
+  const read = readHclBlocks(
+    [
+      'locals {',
+      '  newline    = "a\\nb"',
+      '  carriage   = "a\\rb"',
+      '  tab        = "a\\tb"',
+      '  quote      = "a\\"b"',
+      '  backslash  = "a\\\\b"',
+      '  short      = "a\\u0040b"',
+      '  long       = "a\\U0001F600b"',
+      '  long_at    = "a\\U00000040b"',
+      '  all        = "\\\\u0040\\"\\u0067\\n"',
+      '  dollar     = "a$${b}"',
+      '  percent    = "a%%{b}"',
+      '  plain      = "a-b"',
+      '  interp     = "${var.a}"',
+      '  embedded   = "a-${var.a}-b"',
+      '  directive  = "%{ if var.a }x%{ endif }"',
+      '  nested     = "${"inner"}"',
+      '  after_esc  = "a\\u0040${var.a}"',
+      '  object     = { version = "~\\u003e 5.0", source = "hashicorp/${var.p}" }',
+      '}',
+      'module "vpc\\u005fa" {',
+      '  source = "./m"',
+      '}',
+      '',
+    ].join('\n'),
+  );
+  assert.deepEqual(read.errors, []);
+  const locals = nth(read.blocks, 0).attributes;
+  const value = (name: string): string | null => present(locals[name], name).string;
+  assert.deepEqual(
+    Object.fromEntries(
       [
-        'locals {',
-        '  newline    = "a\\nb"',
-        '  carriage   = "a\\rb"',
-        '  tab        = "a\\tb"',
-        '  quote      = "a\\"b"',
-        '  backslash  = "a\\\\b"',
-        '  short      = "a\\u0040b"',
-        '  long       = "a\\U0001F600b"',
-        '  long_at    = "a\\U00000040b"',
-        '  all        = "\\\\u0040\\"\\u0067\\n"',
-        '  dollar     = "a$${b}"',
-        '  percent    = "a%%{b}"',
-        '  plain      = "a-b"',
-        '  interp     = "${var.a}"',
-        '  embedded   = "a-${var.a}-b"',
-        '  directive  = "%{ if var.a }x%{ endif }"',
-        '  nested     = "${"inner"}"',
-        '  after_esc  = "a\\u0040${var.a}"',
-        '  object     = { version = "~\\u003e 5.0", source = "hashicorp/${var.p}" }',
-        '}',
-        'module "vpc\\u005fa" {',
-        '  source = "./m"',
-        '}',
-        '',
-      ].join('\n'),
-    );
-    assert.deepEqual(read.errors, []);
-    const locals = nth(read.blocks, 0).attributes;
-    const value = (name: string): string | null => present(locals[name], name).string;
-    assert.deepEqual(
-      Object.fromEntries(
-        [
-          'newline',
-          'carriage',
-          'tab',
-          'quote',
-          'backslash',
-          'short',
-          'long',
-          'long_at',
-          'all',
-          'dollar',
-          'percent',
-          'plain',
-        ].map((name) => [name, value(name)]),
-      ),
-      {
-        newline: 'a\nb',
-        carriage: 'a\rb',
-        tab: 'a\tb',
-        quote: 'a"b',
-        backslash: 'a\\b',
-        short: 'a@b',
-        long: 'a\u{1F600}b',
-        long_at: 'a@b',
-        all: '\\u0040"g\n',
-        dollar: 'a${b}',
-        percent: 'a%{b}',
-        plain: 'a-b',
-      },
-      'a quoted literal is its evaluated value',
-    );
-    assert.deepEqual(
-      ['interp', 'embedded', 'directive', 'nested', 'after_esc'].filter(
-        (name) => value(name) !== null,
-      ),
-      [],
-      'a string with a template interpolation or directive is not a literal',
-    );
-    assert.equal(present(locals.short, 'short').raw, '"a\\u0040b"', 'raw keeps the written text');
-    assert.equal(present(locals.interp, 'interp').raw, '"${var.a}"', 'raw keeps the template');
-    const entries = present(present(locals.object, 'object').object, 'object entries');
-    assert.equal(present(entries.version, 'version').string, '~> 5.0');
-    assert.equal(present(entries.source, 'object source').string, null);
-    assert.deepEqual(nth(read.blocks, 1).labels, ['vpc_a'], 'a quoted label is its value');
-  },
-);
+        'newline',
+        'carriage',
+        'tab',
+        'quote',
+        'backslash',
+        'short',
+        'long',
+        'long_at',
+        'all',
+        'dollar',
+        'percent',
+        'plain',
+      ].map((name) => [name, value(name)]),
+    ),
+    {
+      newline: 'a\nb',
+      carriage: 'a\rb',
+      tab: 'a\tb',
+      quote: 'a"b',
+      backslash: 'a\\b',
+      short: 'a@b',
+      long: 'a\u{1F600}b',
+      long_at: 'a@b',
+      all: '\\u0040"g\n',
+      dollar: 'a${b}',
+      percent: 'a%{b}',
+      plain: 'a-b',
+    },
+    'a quoted literal is its evaluated value',
+  );
+  assert.deepEqual(
+    ['interp', 'embedded', 'directive', 'nested', 'after_esc'].filter(
+      (name) => value(name) !== null,
+    ),
+    [],
+    'a string with a template interpolation or directive is not a literal',
+  );
+  assert.equal(present(locals.short, 'short').raw, '"a\\u0040b"', 'raw keeps the written text');
+  assert.equal(present(locals.interp, 'interp').raw, '"${var.a}"', 'raw keeps the template');
+  const entries = present(present(locals.object, 'object').object, 'object entries');
+  assert.equal(present(entries.version, 'version').string, '~> 5.0');
+  assert.equal(present(entries.source, 'object source').string, null);
+  assert.deepEqual(nth(read.blocks, 1).labels, ['vpc_a'], 'a quoted label is its value');
+});
 
 void test('terraform pins: module sources and provider constraints', () => {
   const read = readHclBlocks(
@@ -1060,174 +1041,161 @@ void test('terraform pins report no planted marker from any syntactic position o
   assert.deepEqual(leaking, [], `${leaking.length} probes leak a part of their marker`);
 });
 
-void test(
-  'terraform pins report no planted marker from an authority or scheme-less head that fails its shape as a whole',
-  { todo: reviewBlocker('R1 residual-2') },
-  () => {
-    // WHY: kc/r12r4-review 05-probe-leak.log. urlHostShape split the authority at its last `:`
-    // and reported the left half when it had a hostname's shape, though the right half was no
-    // port; schemelessHeadShape reported the left of `:` when the right failed SEGMENT; and
-    // the owner parsed the HCL token text, so an `@` written `\u0040` was no `@`. A userinfo
-    // user then sat in the host slot: (1) https://<token>:x-oauth-basic%40github.com/...,
-    // (2) git::https://<token>:x-oauth-basic\u0040github.com/... (GitHub's documented token
-    // form, valid Terraform), (3) ghp_<token>:x\u0040github.com/org/x.git, (17)
-    // https://<token>:<pw>/m.zip. The corpus plants the marker as that user under every
-    // forced prefix, with the `@` percent-encoded, HCL-escaped or absent; an authority is
-    // reported only when it is host(:digits)? as a whole, a scheme-less head only when head
-    // and the segment after its `:` both pass.
-    const leaking = leakingProbes(authorityProbes());
-    assert.deepEqual(leaking, [], `${leaking.length} probes leak a part of their marker`);
-  },
-);
+void test('terraform pins report no planted marker from an authority or scheme-less head that fails its shape as a whole', () => {
+  // WHY: kc/r12r4-review 05-probe-leak.log. urlHostShape split the authority at its last `:`
+  // and reported the left half when it had a hostname's shape, though the right half was no
+  // port; schemelessHeadShape reported the left of `:` when the right failed SEGMENT; and
+  // the owner parsed the HCL token text, so an `@` written `\u0040` was no `@`. A userinfo
+  // user then sat in the host slot: (1) https://<token>:x-oauth-basic%40github.com/...,
+  // (2) git::https://<token>:x-oauth-basic\u0040github.com/... (GitHub's documented token
+  // form, valid Terraform), (3) ghp_<token>:x\u0040github.com/org/x.git, (17)
+  // https://<token>:<pw>/m.zip. The corpus plants the marker as that user under every
+  // forced prefix, with the `@` percent-encoded, HCL-escaped or absent; an authority is
+  // reported only when it is host(:digits)? as a whole, a scheme-less head only when head
+  // and the segment after its `:` both pass.
+  const leaking = leakingProbes(authorityProbes());
+  assert.deepEqual(leaking, [], `${leaking.length} probes leak a part of their marker`);
+});
 
-void test(
-  'terraform pins report an authority whole or not at all, decode HCL escapes and never percent-encoding',
-  { todo: reviewBlocker('R1 residual-2') },
-  () => {
-    // WHY: the required design (r12r4-review): (ii) the authority is reported only when it
-    // matches host(:digits)? as a whole, else all of it is withheld, and a scheme-less head
-    // only when head and the following segment both pass; (iii) percent-encoded text is never
-    // decoded into a reported part, while an HCL escape is, by the reader, because Terraform
-    // decodes it before go-getter sees the address. A readable source keeps its host and port.
-    const read = readHclBlocks(
-      [
-        'module "host_port" { source = "https://example.com:8443/org/x.git?ref=main" }',
-        'module "scheme_less" { source = "github.com/org/x?ref=v1.2.3" }',
-        'module "scp_head" { source = "git::example.com:org/x.git?ref=main" }',
-        'module "user_port_percent" { source = "https://deployer:8443%40github.com/m.zip" }',
-        'module "user_port_hcl" { source = "https://deployer:8443\\u0040github.com/m.zip" }',
-        'module "user_no_host" { source = "https://deployer:secret/m.zip" }',
-        'module "head_fails" { source = "deployer:x;y/org/x.git" }',
-        'module "head_hcl_at" { source = "ghp_deployer:x\\u0040github.com/org/x.git" }',
-        'module "hcl_host" { source = "https://\\u0067ithub.com/org/x.git?ref=main" }',
-        'module "percent_host" { source = "https://%67ithub.com/org/x.git?ref=main" }',
-        'module "percent_path" { source = "https://example.com/a%2Fb/m.zip" }',
-        'module "percent_user" { source = "https://deployer%3Asecret%40example.com/m.zip" }',
-        '',
-      ].join('\n'),
-    );
-    assert.deepEqual(read.errors, []);
-    const pins = new Map(
-      read.blocks
-        .filter((b) => b.type === 'module')
-        .map((block) => [String(block.labels[0]), moduleSourcePin(block)]),
-    );
-    const source = (module: string): string =>
-      present(pins.get(module)?.source, `${module} source`);
-    const problems: string[] = [];
-    const expect = (module: string, holds: boolean, what: string): void => {
-      if (!holds) problems.push(`${module}: ${what} in ${source(module)}`);
-    };
-    // A well-formed authority and head stay readable, the port included.
-    expect('host_port', source('host_port').includes('example.com:8443/org/x.git'), 'host:port');
-    expect('host_port', source('host_port').includes('ref=main'), 'ref=main');
-    expect('scheme_less', source('scheme_less').includes('github.com/org/x'), 'head and path');
-    expect('scp_head', source('scp_head').includes('example.com:org/x.git'), 'host:path');
-    // An authority that is not host(:digits)? is withheld whole: no `:` and no half of it.
-    for (const module of ['user_port_percent', 'user_port_hcl', 'user_no_host']) {
-      expect(module, !source(module).includes('deployer'), 'no user');
-      expect(module, !source(module).includes('8443'), 'no password half');
-      expect(module, !source(module).includes('secret'), 'no password half');
-      expect(module, /^https:\/\/[^:/]*\/m\.zip$/.test(source(module)), 'one withheld authority');
-    }
-    // A scheme-less head whose segment after `:` fails is withheld whole.
-    for (const module of ['head_fails', 'head_hcl_at']) {
-      expect(module, !source(module).includes('deployer'), 'no user');
-      expect(module, /^[^:]*\/org\/x\.git$/.test(source(module)), 'one withheld head');
-    }
-    // An HCL escape is decoded by the reader: Terraform's address is https://github.com/...
-    expect('hcl_host', source('hcl_host').includes('https://github.com/org/x.git'), 'host');
-    // Percent-encoding is never decoded into a reported part.
-    expect('percent_host', !source('percent_host').includes('github.com'), 'no decoded host');
-    expect('percent_host', source('percent_host').includes('/org/x.git'), 'the path');
-    expect('percent_path', !source('percent_path').includes('a/b'), 'no decoded segment');
-    expect('percent_user', !source('percent_user').includes('example.com'), 'no decoded host');
-    expect('percent_user', !source('percent_user').includes('deployer'), 'no user');
-    assert.deepEqual(problems, []);
-  },
-);
+void test('terraform pins report an authority whole or not at all, decode HCL escapes and never percent-encoding', () => {
+  // WHY: the required design (r12r4-review): (ii) the authority is reported only when it
+  // matches host(:digits)? as a whole, else all of it is withheld, and a scheme-less head
+  // only when head and the following segment both pass; (iii) percent-encoded text is never
+  // decoded into a reported part, while an HCL escape is, by the reader, because Terraform
+  // decodes it before go-getter sees the address. A readable source keeps its host and port.
+  const read = readHclBlocks(
+    [
+      'module "host_port" { source = "https://example.com:8443/org/x.git?ref=main" }',
+      'module "scheme_less" { source = "github.com/org/x?ref=v1.2.3" }',
+      'module "scp_head" { source = "git::example.com:org/x.git?ref=main" }',
+      'module "user_port_percent" { source = "https://deployer:8443%40github.com/m.zip" }',
+      'module "user_port_hcl" { source = "https://deployer:8443\\u0040github.com/m.zip" }',
+      'module "user_no_host" { source = "https://deployer:secret/m.zip" }',
+      'module "head_fails" { source = "deployer:x;y/org/x.git" }',
+      'module "head_hcl_at" { source = "ghp_deployer:x\\u0040github.com/org/x.git" }',
+      'module "hcl_host" { source = "https://\\u0067ithub.com/org/x.git?ref=main" }',
+      'module "percent_host" { source = "https://%67ithub.com/org/x.git?ref=main" }',
+      'module "percent_path" { source = "https://example.com/a%2Fb/m.zip" }',
+      'module "percent_user" { source = "https://deployer%3Asecret%40example.com/m.zip" }',
+      '',
+    ].join('\n'),
+  );
+  assert.deepEqual(read.errors, []);
+  const pins = new Map(
+    read.blocks
+      .filter((b) => b.type === 'module')
+      .map((block) => [String(block.labels[0]), moduleSourcePin(block)]),
+  );
+  const source = (module: string): string => present(pins.get(module)?.source, `${module} source`);
+  const problems: string[] = [];
+  const expect = (module: string, holds: boolean, what: string): void => {
+    if (!holds) problems.push(`${module}: ${what} in ${source(module)}`);
+  };
+  // A well-formed authority and head stay readable, the port included.
+  expect('host_port', source('host_port').includes('example.com:8443/org/x.git'), 'host:port');
+  expect('host_port', source('host_port').includes('ref=main'), 'ref=main');
+  expect('scheme_less', source('scheme_less').includes('github.com/org/x'), 'head and path');
+  expect('scp_head', source('scp_head').includes('example.com:org/x.git'), 'host:path');
+  // An authority that is not host(:digits)? is withheld whole: no `:` and no half of it.
+  for (const module of ['user_port_percent', 'user_port_hcl', 'user_no_host']) {
+    expect(module, !source(module).includes('deployer'), 'no user');
+    expect(module, !source(module).includes('8443'), 'no password half');
+    expect(module, !source(module).includes('secret'), 'no password half');
+    expect(module, /^https:\/\/[^:/]*\/m\.zip$/.test(source(module)), 'one withheld authority');
+  }
+  // A scheme-less head whose segment after `:` fails is withheld whole.
+  for (const module of ['head_fails', 'head_hcl_at']) {
+    expect(module, !source(module).includes('deployer'), 'no user');
+    expect(module, /^[^:]*\/org\/x\.git$/.test(source(module)), 'one withheld head');
+  }
+  // An HCL escape is decoded by the reader: Terraform's address is https://github.com/...
+  expect('hcl_host', source('hcl_host').includes('https://github.com/org/x.git'), 'host');
+  // Percent-encoding is never decoded into a reported part.
+  expect('percent_host', !source('percent_host').includes('github.com'), 'no decoded host');
+  expect('percent_host', source('percent_host').includes('/org/x.git'), 'the path');
+  expect('percent_path', !source('percent_path').includes('a/b'), 'no decoded segment');
+  expect('percent_user', !source('percent_user').includes('example.com'), 'no decoded host');
+  expect('percent_user', !source('percent_user').includes('deployer'), 'no user');
+  assert.deepEqual(problems, []);
+});
 
-void test(
-  'terraform pins judge the value Terraform evaluates: an HCL escape is decoded, a template is no literal',
-  { todo: reviewBlocker('R1 residual-2') },
-  () => {
-    // WHY: the verdict, like the report, is of the address Terraform hands go-getter. Decoding
-    // in the reader moves a verdict only where a source's value differs from its raw text, and
-    // each such move is listed here with its reason:
-    //   - `\u002e/modules/vpc` is `./modules/vpc`: local, was unknown;
-    //   - `...m.zip\u003fchecksum=sha256:<hex>` has a query: archive_checksummed, was archive;
-    //   - `git::...x.git\u003fref=v1.2.3` has a ref: git_tag, was git_unpinned;
-    //   - `terraform-aws-modules\u002fvpc/aws` is a registry address: registry_unversioned,
-    //     was unknown;
-    //   - `\u0068ttps://example.com/m.zip` is an https archive: archive, was unknown;
-    //   - a source with `${...}` or `%{...}` is a template this owner does not evaluate, so it
-    //     is no literal: unknown (unresolved) and reported as one, was judged on its text
-    //     (git_branch_ref for `?ref=${var.ref}`, archive for `https://${var.host}/m.zip`).
-    // Each escaped source is also reported as its plain twin is: one value, one report.
-    const hex = CHECKSUM_HEX;
-    const pairs: ReadonlyArray<readonly [string, string, string]> = [
-      ['local', '\\u002e/modules/vpc', './modules/vpc'],
-      [
-        'checksum',
-        `https://example.com/m.zip\\u003fchecksum=sha256:${hex}`,
-        `https://example.com/m.zip?checksum=sha256:${hex}`,
-      ],
-      [
-        'ref',
-        'git::https://example.com/x.git\\u003fref=v1.2.3',
-        'git::https://example.com/x.git?ref=v1.2.3',
-      ],
-      ['registry', 'terraform-aws-modules\\u002fvpc/aws', 'terraform-aws-modules/vpc/aws'],
-      ['scheme', '\\u0068ttps://example.com/m.zip', 'https://example.com/m.zip'],
-      ['literal_dollar', './modules/$${x}', './modules/$${x}'],
-    ];
-    const read = readHclBlocks(
-      [
-        ...pairs.flatMap(([name, escaped, plain]) => [
-          `module "escaped_${name}" { source = "${escaped}" }`,
-          `module "plain_${name}" { source = "${plain}" }`,
-        ]),
-        'module "interpolated_ref" { source = "git::https://example.com/x.git?ref=${var.ref}" }',
-        'module "interpolated_host" { source = "https://${var.host}/m.zip" }',
-        'module "directive" { source = "%{ if var.a }./a%{ else }./b%{ endif }" }',
-        'module "expression" { source = var.source }',
-        '',
-      ].join('\n'),
-    );
-    assert.deepEqual(read.errors, []);
-    const pins = new Map(
-      read.blocks
-        .filter((b) => b.type === 'module')
-        .map((block) => [String(block.labels[0]), moduleSourcePin(block)]),
-    );
-    const pin = (module: string): ReturnType<typeof moduleSourcePin> =>
-      present(pins.get(module), module);
-    assert.deepEqual(
-      pairs.map(([name]) => [name, pin(`escaped_${name}`).verdict]),
-      [
-        ['local', 'local'],
-        ['checksum', 'archive_checksummed'],
-        ['ref', 'git_tag'],
-        ['registry', 'registry_unversioned'],
-        ['scheme', 'archive'],
-        ['literal_dollar', 'local'],
-      ],
-    );
-    assert.deepEqual(
-      pairs
-        .filter(([name]) => pin(`escaped_${name}`).source !== pin(`plain_${name}`).source)
-        .map(([name]) => `${name}: ${pin(`escaped_${name}`).source}`),
-      [],
-      'an escaped source is reported as its plain twin',
-    );
-    const notALiteral = pin('expression').source;
-    for (const module of ['interpolated_ref', 'interpolated_host', 'directive']) {
-      assert.equal(pin(module).verdict, 'unknown', `${module} is no literal`);
-      assert.equal(MODULE_SOURCE_PINNING[pin(module).verdict], 'unresolved');
-      assert.equal(pin(module).source, notALiteral, `${module} is reported as no literal`);
-    }
-  },
-);
+void test('terraform pins judge the value Terraform evaluates: an HCL escape is decoded, a template is no literal', () => {
+  // WHY: the verdict, like the report, is of the address Terraform hands go-getter. Decoding
+  // in the reader moves a verdict only where a source's value differs from its raw text, and
+  // each such move is listed here with its reason:
+  //   - `\u002e/modules/vpc` is `./modules/vpc`: local, was unknown;
+  //   - `...m.zip\u003fchecksum=sha256:<hex>` has a query: archive_checksummed, was archive;
+  //   - `git::...x.git\u003fref=v1.2.3` has a ref: git_tag, was git_unpinned;
+  //   - `terraform-aws-modules\u002fvpc/aws` is a registry address: registry_unversioned,
+  //     was unknown;
+  //   - `\u0068ttps://example.com/m.zip` is an https archive: archive, was unknown;
+  //   - a source with `${...}` or `%{...}` is a template this owner does not evaluate, so it
+  //     is no literal: unknown (unresolved) and reported as one, was judged on its text
+  //     (git_branch_ref for `?ref=${var.ref}`, archive for `https://${var.host}/m.zip`).
+  // Each escaped source is also reported as its plain twin is: one value, one report.
+  const hex = CHECKSUM_HEX;
+  const pairs: ReadonlyArray<readonly [string, string, string]> = [
+    ['local', '\\u002e/modules/vpc', './modules/vpc'],
+    [
+      'checksum',
+      `https://example.com/m.zip\\u003fchecksum=sha256:${hex}`,
+      `https://example.com/m.zip?checksum=sha256:${hex}`,
+    ],
+    [
+      'ref',
+      'git::https://example.com/x.git\\u003fref=v1.2.3',
+      'git::https://example.com/x.git?ref=v1.2.3',
+    ],
+    ['registry', 'terraform-aws-modules\\u002fvpc/aws', 'terraform-aws-modules/vpc/aws'],
+    ['scheme', '\\u0068ttps://example.com/m.zip', 'https://example.com/m.zip'],
+    ['literal_dollar', './modules/$${x}', './modules/$${x}'],
+  ];
+  const read = readHclBlocks(
+    [
+      ...pairs.flatMap(([name, escaped, plain]) => [
+        `module "escaped_${name}" { source = "${escaped}" }`,
+        `module "plain_${name}" { source = "${plain}" }`,
+      ]),
+      'module "interpolated_ref" { source = "git::https://example.com/x.git?ref=${var.ref}" }',
+      'module "interpolated_host" { source = "https://${var.host}/m.zip" }',
+      'module "directive" { source = "%{ if var.a }./a%{ else }./b%{ endif }" }',
+      'module "expression" { source = var.source }',
+      '',
+    ].join('\n'),
+  );
+  assert.deepEqual(read.errors, []);
+  const pins = new Map(
+    read.blocks
+      .filter((b) => b.type === 'module')
+      .map((block) => [String(block.labels[0]), moduleSourcePin(block)]),
+  );
+  const pin = (module: string): ReturnType<typeof moduleSourcePin> =>
+    present(pins.get(module), module);
+  assert.deepEqual(
+    pairs.map(([name]) => [name, pin(`escaped_${name}`).verdict]),
+    [
+      ['local', 'local'],
+      ['checksum', 'archive_checksummed'],
+      ['ref', 'git_tag'],
+      ['registry', 'registry_unversioned'],
+      ['scheme', 'archive'],
+      ['literal_dollar', 'local'],
+    ],
+  );
+  assert.deepEqual(
+    pairs
+      .filter(([name]) => pin(`escaped_${name}`).source !== pin(`plain_${name}`).source)
+      .map(([name]) => `${name}: ${pin(`escaped_${name}`).source}`),
+    [],
+    'an escaped source is reported as its plain twin',
+  );
+  const notALiteral = pin('expression').source;
+  for (const module of ['interpolated_ref', 'interpolated_host', 'directive']) {
+    assert.equal(pin(module).verdict, 'unknown', `${module} is no literal`);
+    assert.equal(MODULE_SOURCE_PINNING[pin(module).verdict], 'unresolved');
+    assert.equal(pin(module).source, notALiteral, `${module} is reported as no literal`);
+  }
+});
 
 void test('terraform pins report a userinfo as present, never its text, and keep the readable parts', () => {
   // WHY: the reported source names where a module comes from, so a finding stays useful: the

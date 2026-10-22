@@ -13,6 +13,11 @@ import { DepartmentHR } from './entities/department.entity';
 import { Employee } from './entities/employee.entity';
 import { PayrollAudit } from './entities/payroll-audit.entity';
 import { Payroll } from './entities/payroll.entity';
+import { DepartmentHeadCountDataLoader } from './dataloaders/department-head-count.dataloader';
+import { DepartmentManagerNameDataLoader } from './dataloaders/department-manager-name.dataloader';
+import { EmployeeDepartmentDataLoader } from './dataloaders/employee-department.dataloader';
+import { DepartmentFieldsResolver } from './department-fields.resolver';
+import { EmployeeFieldsResolver } from './employee-fields.resolver';
 import { HRResolver } from './hr.resolver';
 import { EmployeeErasureService } from './services/employee-erasure.service';
 
@@ -71,7 +76,17 @@ const QueryHandlers = [
     // there is no DI cycle.
     HrFinanceModule,
   ],
-  providers: [HRResolver, ...CommandHandlers, ...QueryHandlers, EmployeeErasureService],
+  providers: [
+    HRResolver,
+    EmployeeFieldsResolver,
+    DepartmentFieldsResolver,
+    DepartmentHeadCountDataLoader,
+    DepartmentManagerNameDataLoader,
+    EmployeeDepartmentDataLoader,
+    ...CommandHandlers,
+    ...QueryHandlers,
+    EmployeeErasureService,
+  ],
   controllers: [InternalHrContactController],
   exports: [TypeOrmModule, EmployeeErasureService],
 })

@@ -43,6 +43,7 @@ export {
   type ActiveEntry,
   type MatchableWorkspace,
 } from './workspaceForPath';
+export { workforceScopeOf } from './workforceScope';
 export { CONSOLE_WORKSPACES } from './workspaces';
 export { findNavPage } from './findNavPage';
 export { workspaceHome, type HomeableWorkspace } from './workspaceHome';

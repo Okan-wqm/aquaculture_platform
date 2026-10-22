@@ -8,12 +8,14 @@ import {
   Index,
 } from 'typeorm';
 import { ObjectType, Field, ID, Int } from '@nestjs/graphql';
+import { HrModuleCode } from '../../common/enums';
 
 @ObjectType()
 @Entity('departments_hr')
 @Index(['tenantId', 'code'], { unique: true })
 @Index(['tenantId', 'isDeleted'])
 @Index(['tenantId', 'siteId'])
+@Index('IDX_departments_hr_tenant_module', ['tenantId', 'moduleCode'])
 export class DepartmentHR {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
@@ -27,6 +29,11 @@ export class DepartmentHR {
   @Field({ nullable: true })
   @Column({ nullable: true })
   siteId?: string;
+
+  /** Owning module; null = company-wide. Employees inherit it through their department. */
+  @Field(() => HrModuleCode, { nullable: true })
+  @Column({ type: 'enum', enum: HrModuleCode, nullable: true })
+  moduleCode?: HrModuleCode;
 
   @Field({ nullable: true })
   @Column({ nullable: true })

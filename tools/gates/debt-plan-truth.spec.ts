@@ -206,6 +206,37 @@ void test('the reconcile lane retires a resolved CRITICAL row into Resolved Evid
   assert.deepEqual(retireResolvedRows(contents, resolved), { contents, retired: [] });
 });
 
+void test('a retired row continues a bullet list, and starts its own list after a paragraph', () => {
+  const resolved = deriveRegistrySnapshot(
+    registry(
+      BASE_ROWS.map((row) =>
+        row.id === 'ARIA-CRITICAL-003'
+          ? { ...row, state: 'RESOLVED' as const, closing_commits: ['fedcba9876543210'] }
+          : row,
+      ),
+    ),
+  );
+  // After a bullet the new bullet is the next list item: no blank line between them.
+  const afterBullet = retireResolvedRows(TRUTH_TABLE, resolved).contents;
+  assert.match(afterBullet, /- `OLD-CRITICAL-000`: resolved long ago\.\n- `ARIA-CRITICAL-003`:/);
+
+  // After a paragraph a list needs a blank line before it (markdownlint MD032, which docs-check enforces).
+  const paragraphTail = TRUTH_TABLE.replace(
+    '- `OLD-CRITICAL-000`: resolved long ago.',
+    'Updated 2026-10-19: `OLD-CRITICAL-000` closed by 44bb256a2 on main.',
+  );
+  const afterParagraph = retireResolvedRows(paragraphTail, resolved).contents;
+  assert.match(
+    afterParagraph,
+    /closed by 44bb256a2 on main\.\n\n- `ARIA-CRITICAL-003`: registry state is `RESOLVED`/,
+  );
+  // Idempotent: a second run adds nothing and does not insert another blank line.
+  assert.deepEqual(retireResolvedRows(afterParagraph, resolved), {
+    contents: afterParagraph,
+    retired: [],
+  });
+});
+
 void test('the reconcile lane refuses rather than guess, before writing anything', () => {
   const missing = deriveRegistrySnapshot(
     registry([...BASE_ROWS, { id: 'ADMIN-CRITICAL-008', severity: 'CRITICAL', state: 'OPEN' }]),

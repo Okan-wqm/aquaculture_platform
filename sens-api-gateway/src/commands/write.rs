@@ -33,8 +33,16 @@ use serde_json::{Value, json};
 use tracing::{error, info, warn};
 
 use super::CommandHandler;
+use crate::safe_state::OutputId;
 
 impl CommandHandler {
+    /// A remote command wrote `output`: it is held as commanded while the
+    /// cloud link is up and driven to its safe value when the link has been
+    /// down for the hold (ADR-048 DEC-13.3, `safe_state::comms_loss`).
+    pub(super) async fn hold_remote(&self, output: OutputId) {
+        self.state.read().await.remote_holds.record(output);
+    }
+
     /// Write to Modbus register.
     ///
     /// WHY BOUNDS-CHECK: Modbus holding registers are 16-bit by
@@ -120,6 +128,8 @@ impl CommandHandler {
         match handle.write_register(device_name, address, value).await {
             Ok(()) => {
                 info!("Wrote {} to register {} on {}", value, address, device_name);
+                self.hold_remote(OutputId::modbus_register(device_name, address))
+                    .await;
                 (
                     true,
                     json!({"device": device_name, "address": address, "value": value}),
@@ -204,6 +214,7 @@ impl CommandHandler {
         match gpio_handle.write_pin(pin, pin_value).await {
             Ok(()) => {
                 info!("Set GPIO pin {} to {}", pin, state_value);
+                self.hold_remote(OutputId::gpio_pin(pin)).await;
                 (true, json!({"pin": pin, "state": state_value}), None)
             }
             Err(e) => {

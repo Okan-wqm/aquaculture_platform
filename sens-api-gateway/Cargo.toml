@@ -1090,6 +1090,13 @@ path = "tests/invariants/safe_state_write_path.rs"
 name = "gpio_outputs_persist"
 path = "tests/invariants/gpio_outputs_persist.rs"
 
+# ADR-048 DEC-13.3 / EDGE-HIGH-060, EDGE-HIGH-065 — the safe-state passes run from
+# the behaviour table over the live configuration, and remote writes are holds
+# a supervisor drives safe when the cloud link is gone.
+[[test]]
+name = "safe_state_event_table"
+path = "tests/invariants/safe_state_event_table.rs"
+
 # =============================================================================
 # RUST-CVE-001: rumqttc 0.25.1 vendored fork (../crates/local-rumqttc)
 # =============================================================================

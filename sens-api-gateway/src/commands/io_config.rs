@@ -59,6 +59,32 @@ use crate::process_image::{AtlasEzoType, I2cDriverType, IoType, TagConfig, TagSo
 use crate::process_image::{ProtocolConfig, TagQuality};
 
 use super::CommandHandler;
+use crate::safe_state::OutputId;
+
+/// The safe-state identity of the output a `set_output` wrote, when the
+/// registry has one (a protocol with no registered outputs has no safe value to
+/// drive, so a write to it is no remote hold).
+fn remote_output_id(
+    protocol: &ProtocolConfig,
+    tag_name: &str,
+    state: &crate::AppState,
+) -> Option<OutputId> {
+    match protocol {
+        ProtocolConfig::Gpio { pin, .. } => Some(OutputId::gpio_pin(*pin)),
+        ProtocolConfig::Modbus {
+            slave_id, register, ..
+        } => state
+            .config
+            .modbus
+            .iter()
+            .find(|device| device.slave_id == *slave_id)
+            .map(|device| OutputId::modbus_coil(&device.name, *register)),
+        ProtocolConfig::PiControl { .. } => Some(OutputId::picontrol(tag_name)),
+        ProtocolConfig::I2c { .. } | ProtocolConfig::Spi { .. } | ProtocolConfig::Uart { .. } => {
+            None
+        }
+    }
+}
 
 impl CommandHandler {
     /// Suderra OS: the I/O map is signed site material (ADR-048
@@ -246,6 +272,12 @@ impl CommandHandler {
 
         match write_result {
             Ok(()) => {
+                // The output a remote command wrote is held while the cloud link
+                // is up and driven safe when the hold runs out (DEC-13.3). The
+                // identity is the one the safe-state registry uses.
+                if let Some(output) = remote_output_id(&config.protocol_config, &tag_name, &state) {
+                    state.remote_holds.record(output);
+                }
                 if !config.protocol_config.is_picontrol() {
                     state
                         .process_image

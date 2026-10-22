@@ -54,6 +54,7 @@
       "default": []
     },
     "picontrol": { "$ref": "#/$defs/PiControlConfig" },
+    "safe_state": { "$ref": "#/$defs/SafeStateConfig" },
     "scripting": { "$ref": "#/$defs/ScriptingConfig" },
     "runtime": { "$ref": "#/$defs/RuntimeConfig" },
     "cache": { "$ref": "#/$defs/CacheConfig" },
@@ -225,6 +226,20 @@
         "pull": { "type": "string", "enum": ["up", "down", "none"], "default": "none" },
         "invert": { "type": "boolean", "default": false },
         "debounce_ms": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    },
+    "SafeStateConfig": {
+      "type": "object",
+      "description": "Safe-state supervision (ADR-048 DEC-13.3). Per-output policies arrive with the signed site config; until then every output follows the default force-safe policy.",
+      "additionalProperties": false,
+      "properties": {
+        "cloud_loss_hold_secs": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 86400,
+          "default": 300,
+          "description": "Seconds the MQTT link may be down before the outputs a remote command last wrote are driven to their safe value. There is no value for 'hold for ever'."
+        }
       }
     },
     "PiControlConfig": {

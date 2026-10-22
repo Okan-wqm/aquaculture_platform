@@ -25,6 +25,7 @@ Evidence: `src/config.rs:144-221`.
 | `gpio` | `GpioConfig[]` | no | `[]` | See [GPIO Configuration](#gpio-configuration) |
 | `i2c` | `I2cDeviceConfig[]` | no | `[]` | I2C device list (see `src/i2c.rs`) |
 | `picontrol` | `PiControlConfig` | no | absent | RevPi process-image points (feature `revpi-io`); see [piControl Configuration](#picontrol-configuration) |
+| `safe_state` | `SafeStateConfig` | no | defaults | See [Safe-state Configuration](#safe-state-configuration) |
 | `scripting` | `ScriptingConfig` | no | defaults | See [Scripting Configuration](#scripting-configuration) |
 | `runtime` | `RuntimeConfig` | no | defaults | See [Runtime Configuration](#runtime-configuration) |
 | `cache` | `CacheConfig` | no | defaults | See [Cache Configuration](#cache-configuration) |
@@ -174,6 +175,18 @@ Evidence: `src/config.rs:1116-1137`.
 | `pull` | string | no | `"none"` | `"up"`, `"down"`, `"none"` |
 | `invert` | boolean | no | `false` | Invert read/write value |
 | `debounce_ms` | integer (u64) | no | — | Debounce window (input only) |
+
+## Safe-state Configuration
+
+Evidence: `src/config.rs` (`SafeStateConfig`), `src/safe_state/comms_loss.rs`. ADR-048 DEC-13.3, EDGE-HIGH-065.
+
+The agent drives every registered output to its configured safe value at every start (before READY) and at every graceful stop; the table of what each event leaves on each kind of output, and which layer decides it, is reported by `get_config` (`safe_state.output_behaviour`). Per-output policies (hold-last, force-safe, must-stay-on) arrive with the signed site config; until then every output follows the default force-safe policy. Crash, watchdog reset and power loss are not the agent's to handle (a dead process runs nothing): the table names the layer that is (piControl output watchdog, module default, a Modbus device's communications-loss timer, wiring).
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `cloud_loss_hold_secs` | integer (u32) | no | `300` | Seconds the MQTT link may be down before the outputs a remote command last wrote are driven to their safe value (10 to 86400). Local control, alarms and the HMI do not depend on the link. |
+
+A Modbus device that sets `security.allow_writes: true` and keeps the default read-only function-code whitelist gets FC5 and FC6 added to it; a whitelist that names a write code is taken as written, and the safe-state outputs are exactly the registers the write policy permits.
 
 ## piControl Configuration
 

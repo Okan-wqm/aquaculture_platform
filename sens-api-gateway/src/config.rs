@@ -193,6 +193,11 @@ pub struct AgentConfig {
     #[serde(default)]
     pub health: HealthServerConfig,
 
+    /// Safe-state supervision (ADR-048 DEC-13.3): how long a remote command's
+    /// outputs are held when the cloud link is gone.
+    #[serde(default)]
+    pub safe_state: SafeStateConfig,
+
     /// Offline queue configuration (Batch 15 ARC-002).
     /// Default: disabled. Per plan §5 Faz 1 Step 1.3 — SQLCipher-backed
     /// durable queue for telemetry across broker outages. Enable via
@@ -629,6 +634,51 @@ pub struct HealthServerConfig {
     /// default is intentionally non-routable per SL-2 defense-in-depth.
     #[serde(default = "default_health_bind")]
     pub bind: String,
+}
+
+/// Safe-state supervision settings (ADR-048 DEC-13.3, EDGE-HIGH-065).
+///
+/// The per-output policies of DEC-13.2 (hold-last, force-safe, must-stay-on,
+/// range and rate limits) arrive with the signed site config; until then every
+/// output follows the default policy and this is the one knob: how long the
+/// outputs a remote command last wrote stay as commanded once the cloud link is
+/// down. There is no value for "for ever".
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SafeStateConfig {
+    /// Seconds the MQTT link may be down before the outputs a remote command
+    /// last wrote are driven to their safe value
+    /// ([`crate::safe_state::comms_loss::MIN_HOLD_SECS`] to
+    /// [`crate::safe_state::comms_loss::MAX_HOLD_SECS`]).
+    #[serde(default = "default_cloud_loss_hold_secs")]
+    pub cloud_loss_hold_secs: u32,
+}
+
+fn default_cloud_loss_hold_secs() -> u32 {
+    crate::safe_state::comms_loss::DEFAULT_HOLD_SECS
+}
+
+impl Default for SafeStateConfig {
+    fn default() -> Self {
+        Self {
+            cloud_loss_hold_secs: default_cloud_loss_hold_secs(),
+        }
+    }
+}
+
+impl SafeStateConfig {
+    /// Reject a hold outside the supervisor's bounds.
+    pub fn validate(&self) -> Result<(), String> {
+        use crate::safe_state::comms_loss::{MAX_HOLD_SECS, MIN_HOLD_SECS};
+        if !(MIN_HOLD_SECS..=MAX_HOLD_SECS).contains(&self.cloud_loss_hold_secs) {
+            return Err(format!(
+                "safe_state.cloud_loss_hold_secs must be {MIN_HOLD_SECS} to {MAX_HOLD_SECS} \
+                 seconds, got {}: a shorter hold would drive outputs safe on a broker \
+                 reconnect, and no hold may last for ever",
+                self.cloud_loss_hold_secs
+            ));
+        }
+        Ok(())
+    }
 }
 
 fn default_health_bind() -> String {
@@ -3759,6 +3809,9 @@ impl AgentConfig {
             }
         }
 
+        // ADR-048 DEC-13.3: the comms-loss hold has a floor and a ceiling.
+        self.safe_state.validate().map_err(|e| anyhow::anyhow!(e))?;
+
         // ADR-048 DEC-8.8: the RevPi process-image grant.
         if let Some(picontrol) = &self.picontrol {
             picontrol
@@ -5590,5 +5643,44 @@ mod modbus_write_policy_tests {
         };
         assert!(security.permits_write(5, 1) && security.permits_write(6, 1));
         assert!(security.check_write_policy("plc").is_ok());
+    }
+}
+
+#[cfg(test)]
+mod safe_state_config_tests {
+    use super::*;
+    use crate::safe_state::comms_loss::{DEFAULT_HOLD_SECS, MAX_HOLD_SECS, MIN_HOLD_SECS};
+
+    fn config(extra: &str) -> AgentConfig {
+        let yaml = format!(
+            "device_id: \"123e4567-e89b-42d3-a456-426614174000\"\ndevice_code: \"EDGE-1\"\n\
+             api_url: \"https://api.example.test\"\nmqtt:\n  broker: \"localhost\"\n  port: 1883\n{extra}"
+        );
+        serde_yaml::from_str(&yaml).unwrap()
+    }
+
+    #[test]
+    fn the_default_hold_is_five_minutes() {
+        let c = config("");
+        assert_eq!(c.safe_state.cloud_loss_hold_secs, DEFAULT_HOLD_SECS);
+        assert!(c.validate().is_ok());
+    }
+
+    #[test]
+    fn a_configured_hold_inside_the_bounds_is_taken() {
+        for secs in [MIN_HOLD_SECS, 600, MAX_HOLD_SECS] {
+            let c = config(&format!("safe_state:\n  cloud_loss_hold_secs: {secs}\n"));
+            assert_eq!(c.safe_state.cloud_loss_hold_secs, secs);
+            assert!(c.validate().is_ok(), "{secs}");
+        }
+    }
+
+    #[test]
+    fn a_hold_outside_the_bounds_is_refused() {
+        for secs in [0, MIN_HOLD_SECS - 1, MAX_HOLD_SECS + 1, u32::MAX] {
+            let c = config(&format!("safe_state:\n  cloud_loss_hold_secs: {secs}\n"));
+            let err = c.validate().unwrap_err().to_string();
+            assert!(err.contains("cloud_loss_hold_secs"), "{secs}: {err}");
+        }
     }
 }

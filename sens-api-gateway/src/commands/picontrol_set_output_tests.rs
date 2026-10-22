@@ -203,3 +203,27 @@ async fn a_build_without_a_handle_refuses() {
     assert!(!ok);
     assert!(err.unwrap().contains("piControl handle not available"));
 }
+
+/// ADR-048 DEC-13.3: an output a remote command wrote is a remote hold (driven
+/// safe when the cloud link has been down for the hold); a write that did not
+/// happen holds nothing.
+#[tokio::test]
+async fn a_remote_write_that_landed_is_a_hold_and_one_that_failed_is_not() {
+    let mut r = rig().await;
+    let holds = r.state.read().await.remote_holds.clone();
+
+    let (ok, _, _) = r
+        .handler
+        .cmd_set_output(&json!({"tag_name": "no_such_tag", "value": 1}))
+        .await;
+    assert!(!ok);
+    assert!(holds.is_empty(), "a refused write holds nothing");
+
+    let (ok, _, err) = r
+        .handler
+        .cmd_set_output(&json!({"tag_name": "pump", "value": 1}))
+        .await;
+    assert!(ok, "{err:?}");
+    let held: Vec<String> = holds.take().iter().map(ToString::to_string).collect();
+    assert_eq!(held, ["piControl output pump"]);
+}

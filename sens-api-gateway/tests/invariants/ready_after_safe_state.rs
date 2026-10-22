@@ -68,8 +68,7 @@ fn position(body: &str, needle: &str) -> usize {
 #[test]
 fn ready_comes_after_safe_state_and_the_first_control_cycle() {
     let body = run_agent_body();
-    let safe_state = position(&body, "safe_state_manager");
-    let apply = safe_state + position(&body[safe_state..], ".apply(");
+    let apply = position(&body, "safe_state::apply_event(");
     let first_cycles = position(&body, "first_cycles(");
     let ready = position(&body, "notifier.ready(");
     assert!(
@@ -144,8 +143,7 @@ fn main_fn_body(name: &str) -> String {
 #[test]
 fn stores_start_after_the_boot_safe_state_and_before_ready() {
     let body = run_agent_body();
-    let safe_state = position(&body, "safe_state_manager");
-    let apply = safe_state + position(&body[safe_state..], ".apply(");
+    let apply = position(&body, "safe_state::apply_event(");
     let stores = position(&body, "init_boot_dependencies(");
     let first_cycles = position(&body, "first_cycles(");
     assert!(

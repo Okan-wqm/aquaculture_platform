@@ -157,7 +157,14 @@ pub struct ModbusServer {
 
 impl ModbusServer {
     pub fn start() -> Self {
-        let listener = TcpListener::bind("127.0.0.1:0").expect("bind modbus");
+        Self::start_on(0)
+    }
+
+    /// Listen on `port` (0 = any free port); a device that comes up after the
+    /// agent started is a server started later on a port the agent already
+    /// knows (`closed_port`).
+    pub fn start_on(port: u16) -> Self {
+        let listener = TcpListener::bind(("127.0.0.1", port)).expect("bind modbus");
         let port = listener.local_addr().expect("addr").port();
         let writes = Arc::new(Mutex::new(Vec::new()));
         let image = Arc::new(Mutex::new(Image::default()));

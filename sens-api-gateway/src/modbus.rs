@@ -586,6 +586,37 @@ pub struct ModbusWriteReceipt {
     pub readback_value: Option<u16>,
 }
 
+/// A request found the channel not connected yet (rodbus `NoConnection`).
+///
+/// A rodbus channel connects in the background after `enable()`; a request
+/// that reaches it before the TCP handshake (or after a drop, until the retry
+/// strategy reconnects) fails at once. The condition is transient by nature,
+/// so it is a type of its own: the safe-state pass waits for it
+/// ([`crate::safe_state`]) instead of counting the first output of a device as
+/// failed and booting degraded (found as a load-dependent failure of the boot
+/// tests), while any other error stays final.
+#[derive(Debug)]
+pub struct ChannelNotConnected;
+
+impl std::fmt::Display for ChannelNotConnected {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("no connection to the Modbus device yet")
+    }
+}
+
+impl std::error::Error for ChannelNotConnected {}
+
+/// The error of a failed write request: `NoConnection` is the typed transient
+/// condition, everything else the request's own error.
+fn write_request_error(what: &str, error: rodbus::RequestError) -> anyhow::Error {
+    match error {
+        rodbus::RequestError::NoConnection => {
+            anyhow::Error::new(ChannelNotConnected).context(format!("Failed to write {what}"))
+        }
+        other => anyhow::anyhow!("Failed to write {what}: {other:?}"),
+    }
+}
+
 /// Start a rodbus channel's communication.
 ///
 /// rodbus 1.x creates every client channel *disabled*: until `enable()` is
@@ -1293,7 +1324,7 @@ impl ModbusClient {
         channel
             .write_single_register(params, indexed_value)
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to write register: {:?}", e))?;
+            .map_err(|e| write_request_error("register", e))?;
 
         let mut receipt = ModbusWriteReceipt {
             device_name: self.config.name.clone(),
@@ -1403,7 +1434,7 @@ impl ModbusClient {
         channel
             .write_single_coil(params, indexed_value)
             .await
-            .map_err(|e| anyhow::anyhow!("Failed to write coil: {:?}", e))?;
+            .map_err(|e| write_request_error("coil", e))?;
 
         // v1.2.6: Enhanced Modbus write logging
         info!(

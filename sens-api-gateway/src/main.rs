@@ -270,7 +270,6 @@ use crate::modbus::ModbusHandle;
 use crate::mqtt::MqttClient;
 use crate::process_image::ProcessImage;
 use crate::provisioning::ProvisioningClient;
-use crate::safe_state::SafeStateManager;
 use crate::scripting::{ScriptEngine, ScriptStorage};
 use crate::shutdown::ShutdownCoordinator;
 use crate::telemetry::TelemetryCollector;
@@ -464,6 +463,11 @@ pub struct AppState {
     /// RevPi process-image backend (ADR-048 DEC-8.8): `Some` once the
     /// `picontrol:` section is configured and its device opened and verified.
     pub picontrol_handle: Option<crate::picontrol::PiControlHandle>,
+
+    /// The outputs a remote command last wrote (ADR-048 DEC-13.3): the comms-loss
+    /// supervisor drives them to their safe value when the cloud link has been
+    /// down for the hold. Every remote actuator write records its output here.
+    pub remote_holds: crate::safe_state::comms_loss::RemoteHolds,
 
     /// Suderra OS: the `revpi/config.rsc` bytes whose digest the verified site
     /// config named (`SiteTrust::site_file`), the one source the piControl
@@ -997,6 +1001,7 @@ impl AppState {
             modbus_handle: None,
             gpio_handle: None,
             picontrol_handle: None,
+            remote_holds: crate::safe_state::comms_loss::RemoteHolds::default(),
             picontrol_rsc: None,
             i2c_handle: None,
             process_image: ProcessImage::new(),
@@ -5469,12 +5474,9 @@ async fn run_agent(
         degraded.enter(reason);
     }
 
-    // Step 2: Build safe-state manager from config (LIFE-SAFETY)
-    // This must happen after hardware init so we know which outputs exist.
-    let safe_state_manager = {
-        let state_guard = state.read().await;
-        SafeStateManager::from_config(&state_guard.config)
-    };
+    // Step 2: the boot safe-state (LIFE-SAFETY). It must happen after hardware
+    // init so we know which outputs exist; the registry is built from the
+    // configuration as it is for this pass only (EDGE-HIGH-060).
 
     // ── LIFE-SAFETY: Apply safe-state BEFORE any control runtime starts ──
     // CRITICAL-001: driving actuator outputs to a known fail-safe state comes
@@ -5488,14 +5490,12 @@ async fn run_agent(
     // they work even after a backend failure already disabled control.
     {
         let state_guard = state.read().await;
-        let modbus_ref = state_guard.modbus_handle.as_ref();
-        let gpio_ref = state_guard.gpio_handle.as_ref();
-        let i2c_ref = state_guard.i2c_handle.as_ref();
-        let picontrol_ref = state_guard.picontrol_handle.as_ref();
-
-        let report = safe_state_manager
-            .apply(modbus_ref, gpio_ref, i2c_ref, picontrol_ref)
-            .await;
+        let report = crate::safe_state::apply_event(
+            &state_guard.config,
+            crate::safe_state::Event::AgentStart,
+            crate::safe_state::OutputHandles::of(&state_guard),
+        )
+        .await;
         degraded.record_safe_state(report.summary());
         match report.degraded_reason() {
             Some(reason) => degraded.enter(reason),
@@ -6521,6 +6521,24 @@ async fn run_agent(
         let connectivity_handle =
             tokio::task::spawn_local(run_connectivity(state.clone(), connectivity_shutdown));
         shutdown_coordinator.register_task("connectivity", connectivity_handle);
+
+        // ADR-048 DEC-13.3 (EDGE-HIGH-065): the outputs a remote command wrote
+        // are driven to their safe value when the cloud link stays down past
+        // the hold. It runs beside the command plane that records them.
+        let (remote_holds, cloud_loss_hold) = {
+            let s = state.read().await;
+            (
+                s.remote_holds.clone(),
+                Duration::from_secs(u64::from(s.config.safe_state.cloud_loss_hold_secs)),
+            )
+        };
+        let comms_loss_handle = tokio::spawn(crate::safe_state::comms_loss::run_supervisor(
+            state.clone(),
+            remote_holds,
+            cloud_loss_hold,
+            shutdown_coordinator.subscribe(),
+        ));
+        shutdown_coordinator.register_task("comms_loss_supervisor", comms_loss_handle);
     } else {
         warn!(
             "Connectivity NOT started: a boot dependency failed (degraded mode); no broker, \
@@ -6732,14 +6750,16 @@ async fn run_agent(
     );
     {
         let state_guard = state.read().await;
-        let modbus_ref = state_guard.modbus_handle.as_ref();
-        let gpio_ref = state_guard.gpio_handle.as_ref();
-        let i2c_ref = state_guard.i2c_handle.as_ref();
         let picontrol_ref = state_guard.picontrol_handle.as_ref();
 
-        let report = safe_state_manager
-            .apply(modbus_ref, gpio_ref, i2c_ref, picontrol_ref)
-            .await;
+        // The outputs of the configuration as it is NOW: a device provisioned or
+        // an output a reload granted since boot is driven too (EDGE-HIGH-060).
+        let report = crate::safe_state::apply_event(
+            &state_guard.config,
+            crate::safe_state::behaviour::GRACEFUL_STOP,
+            crate::safe_state::OutputHandles::of(&state_guard),
+        )
+        .await;
 
         // ADR-048 DEC-6.7: the driver zeroes the outputs of a descriptor that
         // closes with its watchdog armed. Disarm it only now that every safe

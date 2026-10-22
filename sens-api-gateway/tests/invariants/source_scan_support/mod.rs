@@ -7,6 +7,7 @@
 //! build compiles. A literal path in a doc comment or a unit test is not a
 //! write path; a literal in production code is.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// A string literal of production code.
@@ -41,6 +42,59 @@ impl Scanned {
         }
         lines
     }
+}
+
+/// Every `fn <name>` of the code with its body (the text between the braces
+/// that follow the signature). Several functions may share a name (the
+/// handle's and the client's `write_coil`).
+#[allow(dead_code)]
+pub fn functions(code: &str) -> BTreeMap<String, Vec<String>> {
+    let bytes = code.as_bytes();
+    let mut out: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut from = 0;
+    while let Some(pos) = code[from..].find("fn ") {
+        let at = from + pos;
+        from = at + 3;
+        if at > 0 && (bytes[at - 1].is_ascii_alphanumeric() || bytes[at - 1] == b'_') {
+            continue;
+        }
+        let name: String = code[at + 3..]
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+            .collect();
+        if name.is_empty() {
+            continue;
+        }
+        // The body opens at the first `{` after the signature; a trait
+        // method declaration ends at `;` first.
+        let rest = &code[at..];
+        let (Some(open), semi) = (rest.find('{'), rest.find(';')) else {
+            continue;
+        };
+        if semi.is_some_and(|s| s < open) {
+            continue;
+        }
+        let mut depth = 0usize;
+        let mut end = None;
+        for (i, b) in rest.bytes().enumerate().skip(open) {
+            match b {
+                b'{' => depth += 1,
+                b'}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = Some(i);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let end = end.unwrap_or_else(|| panic!("unbalanced braces in fn {name}"));
+        out.entry(name)
+            .or_default()
+            .push(rest[open..=end].to_string());
+    }
+    out
 }
 
 /// The crate root (`sens-api-gateway/`).

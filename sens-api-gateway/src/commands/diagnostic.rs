@@ -131,6 +131,14 @@ impl CommandHandler {
             "logging": {
                 "level": state.config.logging.level,
             },
+            // ADR-048 DEC-13.3: the comms-loss hold and the behaviour table the
+            // running agent follows (what each event leaves on each kind of
+            // output and which layer decides it); the commissioning checklist
+            // reads it from here.
+            "safe_state": {
+                "cloud_loss_hold_secs": state.config.safe_state.cloud_loss_hold_secs,
+                "output_behaviour": crate::safe_state::behaviour::table_json(),
+            },
             // Batch 27: mTLS rollout stage visibility.
             "mtls": {
                 "mode": format!("{:?}", state.config.mtls.mode).to_lowercase(),

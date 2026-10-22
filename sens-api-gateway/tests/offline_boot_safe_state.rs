@@ -22,7 +22,8 @@ mod boot_support;
 #[cfg(not(feature = "suderra-os"))]
 mod generic {
     use super::boot_support::{
-        Device, DeviceConfig, ModbusServer, ModbusWrite, modbus_output_device, modbus_relay_bank,
+        Device, DeviceConfig, ModbusServer, ModbusWrite, closed_port, modbus_output_device,
+        modbus_relay_bank,
     };
     use std::time::Duration;
 
@@ -72,6 +73,36 @@ mod generic {
             "activation never attempted:\n{log}"
         );
         assert_eq!(device.health()["degraded"], false);
+        let exit = device.stop().expect("running");
+        assert!(exit.success(), "{exit}\n{}", device.log());
+    }
+
+    /// A device that starts listening after the agent did: the boot pass's
+    /// first write meets a channel that is still connecting (rodbus fails such
+    /// a request at once). The pass waits for the connection, so the outputs
+    /// are driven safe before READY and the agent does not boot degraded. On a
+    /// slow link or a loaded board the same race used to cost the first output
+    /// of a device (a load-dependent failure of the boot tests).
+    #[test]
+    fn a_device_that_connects_after_the_agent_started_is_driven_safe_before_ready() {
+        let port = closed_port();
+        let mut device = Device::new(&DeviceConfig {
+            activated: true,
+            extra_yaml: format!("modbus:\n{}", modbus_output_device("plc", port)),
+        });
+        device.start(Duration::from_secs(10));
+        // The agent has already tried (and been refused) when the device
+        // appears; the channel's own retry connects it a moment later.
+        std::thread::sleep(Duration::from_millis(1500));
+        let plc = ModbusServer::start_on(port);
+        let ready = device.wait_ready(Duration::from_secs(90));
+        assert_safe_before(&plc, ready.at, &device);
+        assert_eq!(
+            device.health()["degraded"],
+            false,
+            "the pass waited for the connection, so nothing is left unsafe:\n{}",
+            device.log()
+        );
         let exit = device.stop().expect("running");
         assert!(exit.success(), "{exit}\n{}", device.log());
     }

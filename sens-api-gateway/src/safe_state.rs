@@ -1,12 +1,42 @@
 //! Safe-State Manager for Actuator Outputs (LIFE-SAFETY)
 //!
-//! On shutdown (SIGTERM, SIGINT, crash, OOM-kill), all actuator outputs must be
-//! driven to a deterministic fail-safe position **before** hardware interfaces
-//! are disconnected.  Without this, actuators remain in their last commanded
-//! position, which can cause:
+//! Actuators left in their last commanded position cause:
 //!   - Stuck-open feeder → overfeeding → fish mortality
 //!   - Stuck-off aerator → oxygen depletion → mass mortality
 //!   - Stuck-open valve → tank overflow / chemical overdose
+//!
+//! # What this module guarantees, and what it cannot
+//!
+//! It drives every registered output to its configured safe value
+//! (ADR-048 DEC-13, [`behaviour`]):
+//!   - **at every start, before READY**, so no control runtime starts on an
+//!     output that is not safe ([`Event::AgentStart`]);
+//!   - **at every graceful stop** (SIGTERM or SIGINT: a restart, an update, the
+//!     first half of an OS-update reboot), before the buses are released
+//!     ([`Event::AgentRestart`], [`Event::AgentUpdate`],
+//!     [`Event::OsUpdateReboot`]);
+//!   - **for outputs a remote command last wrote**, when the cloud link stays
+//!     down past the supervisor's hold ([`comms_loss`]).
+//!
+//! It cannot act while the process is dead. A crash, an out-of-memory kill, a
+//! SIGKILL, a panic under `panic = "abort"`, a watchdog reset and a power loss
+//! all stop the agent without running any of its code, so what the output does
+//! then is decided by the layers below it: the piControl output watchdog, a
+//! module's default, a Modbus device's own communications-loss timer, the pin
+//! latch, a normally-open relay. The table in [`behaviour`] names the layer
+//! for every event and every kind of output, and says which rows only a
+//! person at the installation can prove (DEC-13.1, the commissioning
+//! checklist). The next start always runs the boot pass.
+//!
+//! # No snapshot
+//!
+//! The set of outputs is derived from the configuration **as it is when the
+//! pass runs** ([`apply_event`] takes the live `AgentConfig`; the registry
+//! type cannot be built outside this module and is never stored). A Modbus
+//! device provisioned at runtime or an output a SIGHUP reload granted is
+//! therefore driven at the next stop like any other (EDGE-HIGH-060); the
+//! piControl outputs come from the handle's proven registry for the same
+//! reason.
 //!
 //! # Fail-Safe Convention
 //! | Output Type          | Safe Value           | Rationale                      |
@@ -15,6 +45,9 @@
 //! | Analog Output  (AO)  | `0`  (0 V / 0 mA)   | Drive to zero output           |
 //! | GPIO output pin      | `false` (LOW)        | Pin driven LOW                 |
 //!
+//! A life-support output names its own safe value (`safe_state_value` /
+//! `safe_state_level`, EDGE-HIGH-012): an aerator fails ON.
+//!
 //! # Timeout
 //! Each output gets up to `PER_DEVICE_TIMEOUT` (longer than the Modbus
 //! layer's own in-flight bound) to acknowledge the write.
@@ -22,8 +55,15 @@
 //! A stuck device must never block the rest of the shutdown sequence.
 //!
 //! # IEC 62443 SL2 FR7 (Availability)
-//! This module directly addresses the requirement that a control system must
-//! fail to a safe state upon loss of communication or software failure.
+//! The agent is not a safety function (DEC-13.1): this module is the part of
+//! the answer to "fail to a safe state upon loss of communication or software
+//! failure" that software running on the board can give; the rest is wiring
+//! and module defaults.
+
+pub mod behaviour;
+pub mod comms_loss;
+
+pub use behaviour::{AgentAct, Backend as OutputBackend, Event};
 
 use std::time::Duration;
 use tracing::{debug, error, info, warn};
@@ -107,41 +147,89 @@ impl SafeStateReport {
 }
 
 impl OutputTag {
-    /// Short description for logs and reports.
+    /// Short description for logs and reports (the output's identity).
     pub fn describe(&self) -> String {
+        self.id().to_string()
+    }
+
+    /// The output's identity, as a remote write records it.
+    pub fn id(&self) -> OutputId {
         match self {
             Self::ModbusCoil {
                 device_name,
                 address,
                 ..
-            } => format!("modbus coil {device_name}/{address}"),
+            } => OutputId::modbus_coil(device_name, *address),
             Self::ModbusRegister {
                 device_name,
                 address,
                 ..
-            } => format!("modbus register {device_name}/{address}"),
-            Self::GpioPin { pin, .. } => format!("gpio pin {pin}"),
+            } => OutputId::modbus_register(device_name, *address),
+            Self::GpioPin { pin, .. } => OutputId::gpio_pin(*pin),
             Self::I2cOutput {
                 device_name,
                 register,
                 ..
-            } => format!("i2c {device_name}/0x{register:02X}"),
-            Self::PiControl { tag } => format!("piControl output {tag}"),
+            } => OutputId::i2c(device_name, *register),
+            Self::PiControl { tag } => OutputId::picontrol(tag),
+        }
+    }
+
+    /// The connection the output goes through, when connecting is a step of
+    /// its own (a Modbus device's channel): outputs that share it share the
+    /// wait for it.
+    fn connection_key(&self) -> Option<&str> {
+        match self {
+            Self::ModbusCoil { device_name, .. } | Self::ModbusRegister { device_name, .. } => {
+                Some(device_name)
+            }
+            Self::GpioPin { .. } | Self::I2cOutput { .. } | Self::PiControl { .. } => None,
+        }
+    }
+
+    /// Which kind of hardware holds the output (the row of the behaviour
+    /// table).
+    pub fn backend(&self) -> OutputBackend {
+        match self {
+            Self::ModbusCoil { .. } | Self::ModbusRegister { .. } => OutputBackend::Modbus,
+            Self::GpioPin { .. } => OutputBackend::Gpio,
+            Self::I2cOutput { .. } => OutputBackend::I2c,
+            Self::PiControl { .. } => OutputBackend::PiControl,
         }
     }
 }
+
+/// How long the pass waits, once per device, for a channel that is still
+/// connecting.
+///
+/// A rodbus channel connects in the background after it is enabled and a
+/// request that reaches it earlier fails with `NoConnection`
+/// ([`crate::modbus::ChannelNotConnected`]). The boot pass starts right after
+/// the channels are enabled, so its first write to a device used to race the
+/// TCP handshake: on a slow link or a loaded board the first output failed and
+/// the agent booted degraded with the outputs of that device not driven. The
+/// wait covers the strategy's first retry (2 s); a device that is still not
+/// connected after it is unreachable, and its other outputs fail at once
+/// instead of each waiting again.
+const CONNECT_WAIT: Duration = Duration::from_secs(5);
 
 /// Maximum time to wait for one output's safe-state write.
 ///
 /// LIFE-SAFETY: derived from the slowest backend's own bound — a Modbus
 /// write and its read-back ([`crate::modbus::WRITE_IN_FLIGHT_BOUND`]) — plus
-/// a second, so a write is never counted as failed while it can still land.
+/// the connect wait and a second, so a write is never counted as failed while
+/// it can still land.
 /// The earlier fixed 2 s was shorter than the 5 s Modbus request timeout: on
 /// a slow bus the agent reported an output unsafe (and went degraded) while
 /// the write then reached the device. A dead bus still fails fast: a
-/// request on an unconnected channel is refused at once.
-const PER_DEVICE_TIMEOUT: Duration =
-    Duration::from_secs(crate::modbus::WRITE_IN_FLIGHT_BOUND.as_secs() + 1);
+/// request on an unconnected channel is refused at once, and only the first
+/// output of a device waits for its connection.
+const PER_DEVICE_TIMEOUT: Duration = Duration::from_secs(
+    CONNECT_WAIT.as_secs() + crate::modbus::WRITE_IN_FLIGHT_BOUND.as_secs() + 1,
+);
+
+/// Pause between attempts while a channel is connecting.
+const CONNECT_RETRY_PAUSE: Duration = Duration::from_millis(100);
 
 // Make it impossible to shorten the bound below an in-flight write again.
 const _: () = assert!(
@@ -193,14 +281,167 @@ pub enum OutputTag {
 // Safe-State Manager
 // ============================================================================
 
+/// The hardware handles a pass can drive. A pass over an output whose handle
+/// is `None` fails that output by name: an output the agent cannot reach is
+/// not made safe.
+#[derive(Clone, Copy, Default)]
+pub struct OutputHandles<'a> {
+    pub modbus: Option<&'a ModbusHandle>,
+    pub gpio: Option<&'a GpioHandle>,
+    pub i2c: Option<&'a I2cHandle>,
+    pub picontrol: Option<&'a PiControlHandle>,
+}
+
+impl<'a> OutputHandles<'a> {
+    /// The handles `state` holds right now.
+    pub fn of(state: &'a crate::AppState) -> Self {
+        Self {
+            modbus: state.modbus_handle.as_ref(),
+            gpio: state.gpio_handle.as_ref(),
+            i2c: state.i2c_handle.as_ref(),
+            picontrol: state.picontrol_handle.as_ref(),
+        }
+    }
+}
+
+/// Run the pass the behaviour table prescribes for `event` over the outputs of
+/// `config` as it is now (ADR-048 DEC-13.3).
+///
+/// Every output whose row says [`AgentAct::DriveSafe`] is driven to its safe
+/// value; the others are left alone (the table says why). The registry is
+/// built from `config` for this one pass and dropped with it, so there is no
+/// boot-time snapshot to go stale (EDGE-HIGH-060). Returns a report; the boot
+/// sequence enters degraded mode unless it is complete.
+pub async fn apply_event(
+    config: &AgentConfig,
+    event: Event,
+    handles: OutputHandles<'_>,
+) -> SafeStateReport {
+    let manager = SafeStateManager::from_config(config);
+    let outputs: Vec<OutputTag> = manager
+        .outputs_now(handles.picontrol)
+        .into_iter()
+        .filter(|tag| {
+            matches!(
+                behaviour::behaviour(event, tag.backend()).agent,
+                AgentAct::DriveSafe
+            )
+        })
+        .collect();
+    info!(
+        event = event.name(),
+        outputs = outputs.len(),
+        "safe-state pass for {}",
+        event.name()
+    );
+    SafeStateManager::drive(&outputs, handles).await
+}
+
+/// Drive the outputs a remote command last wrote (`leased`) to their safe
+/// values, because the link to the commander stayed down past the hold
+/// ([`Event::CloudCommsLoss`], [`comms_loss`]). Outputs the table does not
+/// give to the supervisor, and leased ids that are not registered outputs
+/// (they have no safe value), are not driven; the latter are returned so the
+/// caller can say so.
+pub async fn apply_leased(
+    config: &AgentConfig,
+    leased: &[OutputId],
+    handles: OutputHandles<'_>,
+) -> (SafeStateReport, Vec<OutputId>) {
+    let manager = SafeStateManager::from_config(config);
+    let registry = manager.outputs_now(handles.picontrol);
+    let known: std::collections::HashSet<OutputId> = registry.iter().map(OutputTag::id).collect();
+    let unregistered: Vec<OutputId> = leased
+        .iter()
+        .filter(|id| !known.contains(id))
+        .cloned()
+        .collect();
+    let outputs: Vec<OutputTag> = registry
+        .into_iter()
+        .filter(|tag| leased.contains(&tag.id()))
+        .filter(|tag| {
+            matches!(
+                behaviour::behaviour(Event::CloudCommsLoss, tag.backend()).agent,
+                AgentAct::DriveSafeLeased
+            )
+        })
+        .collect();
+    (
+        SafeStateManager::drive(&outputs, handles).await,
+        unregistered,
+    )
+}
+
+/// Run `attempt`, again while a channel is still connecting (up to
+/// [`CONNECT_WAIT`]) when `patient`; any other failure is final at once.
+async fn retry_while_connecting<F, Fut>(
+    patient: bool,
+    wait: Duration,
+    mut attempt: F,
+) -> anyhow::Result<()>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = anyhow::Result<()>>,
+{
+    let give_up_at = tokio::time::Instant::now() + wait;
+    loop {
+        match attempt().await {
+            Err(e)
+                if patient
+                    && e.downcast_ref::<crate::modbus::ChannelNotConnected>()
+                        .is_some()
+                    && tokio::time::Instant::now() < give_up_at =>
+            {
+                debug!("safe-state: {e:#}; waiting for the channel to connect");
+                tokio::time::sleep(CONNECT_RETRY_PAUSE).await;
+            }
+            result => return result,
+        }
+    }
+}
+
+/// The identity of an output: what a remote write records and the registry
+/// matches against. One constructor per kind of output, so a writer and the
+/// registry cannot spell the same output two ways.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct OutputId(String);
+
+impl OutputId {
+    pub fn modbus_coil(device: &str, address: u16) -> Self {
+        Self(format!("modbus coil {device}/{address}"))
+    }
+
+    pub fn modbus_register(device: &str, address: u16) -> Self {
+        Self(format!("modbus register {device}/{address}"))
+    }
+
+    pub fn gpio_pin(pin: u8) -> Self {
+        Self(format!("gpio pin {pin}"))
+    }
+
+    pub fn i2c(device: &str, register: u8) -> Self {
+        Self(format!("i2c {device}/0x{register:02X}"))
+    }
+
+    pub fn picontrol(tag: &str) -> Self {
+        Self(format!("piControl output {tag}"))
+    }
+}
+
+impl std::fmt::Display for OutputId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
 /// Knows every actuator output on this edge node and can drive them all to
 /// their fail-safe value in a single pass.
 ///
-/// Constructed once at startup from the agent configuration.  The shutdown
-/// sequence calls [`SafeStateManager::apply`] before disconnecting any
-/// hardware bus.
-pub struct SafeStateManager {
-    /// All registered output tags that need safe-state on shutdown.
+/// A value of this type lives for one pass ([`apply_event`], [`apply_leased`]):
+/// it cannot be built outside this module, so no caller can keep a registry
+/// across a configuration change.
+struct SafeStateManager {
+    /// All registered output tags.
     outputs: Vec<OutputTag>,
 }
 
@@ -209,7 +450,7 @@ impl SafeStateManager {
     ///
     /// Scans Modbus devices for writable coil/holding registers, GPIO for
     /// output pins, and I2C for known DAC/relay devices.
-    pub fn from_config(config: &AgentConfig) -> Self {
+    fn from_config(config: &AgentConfig) -> Self {
         let mut outputs = Vec::new();
 
         // ── Modbus outputs ──
@@ -250,23 +491,14 @@ impl SafeStateManager {
         Self { outputs }
     }
 
-    /// Drive **every** registered output to its fail-safe value.
+    /// Drive **every** output of `outputs` to its fail-safe value.
     ///
     /// # LIFE-SAFETY
     /// - Errors on individual devices are logged but do NOT abort the loop.
     /// - Each write is bounded by `PER_DEVICE_TIMEOUT`.
     /// - Works while control is disabled: the writes use the
     ///   [`SafeStateWrite`] capability, not the gated actuator path.
-    /// - Returns a report; the boot sequence enters degraded mode unless it
-    ///   is complete.
-    pub async fn apply(
-        &self,
-        modbus: Option<&ModbusHandle>,
-        gpio: Option<&GpioHandle>,
-        i2c: Option<&I2cHandle>,
-        picontrol: Option<&PiControlHandle>,
-    ) -> SafeStateReport {
-        let outputs = self.outputs_now(picontrol);
+    async fn drive(outputs: &[OutputTag], handles: OutputHandles<'_>) -> SafeStateReport {
         if outputs.is_empty() {
             info!("SafeStateManager: no output tags registered — nothing to safe-state");
             return SafeStateReport {
@@ -285,13 +517,27 @@ impl SafeStateManager {
 
         let mut success_count: usize = 0;
         let mut failures = Vec::new();
+        // Devices that did not connect within `CONNECT_WAIT`: their other
+        // outputs are tried once, not waited for again.
+        let mut unreachable: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-        for tag in &outputs {
+        for tag in outputs {
+            let patient = tag
+                .connection_key()
+                .is_none_or(|device| !unreachable.contains(device));
             let result = tokio::time::timeout(
                 PER_DEVICE_TIMEOUT,
-                Self::apply_single(tag, modbus, gpio, i2c, picontrol, &token),
+                retry_while_connecting(patient, CONNECT_WAIT, || {
+                    Self::apply_single(tag, handles, &token)
+                }),
             )
             .await;
+            if let (Some(device), Ok(Err(e))) = (tag.connection_key(), &result)
+                && e.downcast_ref::<crate::modbus::ChannelNotConnected>()
+                    .is_some()
+            {
+                unreachable.insert(device.to_owned());
+            }
 
             match result {
                 Ok(Ok(())) => {
@@ -365,7 +611,8 @@ impl SafeStateManager {
     }
 
     /// Return the total number of registered output tags.
-    pub fn output_count(&self) -> usize {
+    #[cfg(test)]
+    fn output_count(&self) -> usize {
         self.outputs.len()
     }
 
@@ -441,12 +688,15 @@ impl SafeStateManager {
     /// Write the safe-state value for a single output tag.
     async fn apply_single(
         tag: &OutputTag,
-        modbus: Option<&ModbusHandle>,
-        gpio: Option<&GpioHandle>,
-        i2c: Option<&I2cHandle>,
-        picontrol: Option<&PiControlHandle>,
+        handles: OutputHandles<'_>,
         token: &SafeStateWrite,
     ) -> anyhow::Result<()> {
+        let OutputHandles {
+            modbus,
+            gpio,
+            i2c,
+            picontrol,
+        } = handles;
         match tag {
             OutputTag::ModbusCoil {
                 device_name,
@@ -507,6 +757,15 @@ impl SafeStateManager {
                     .map_err(anyhow::Error::new)
             }
         }
+    }
+}
+
+#[cfg(test)]
+impl SafeStateManager {
+    /// A pass over every registered output (the tests' stand-in for the
+    /// events whose row says drive-safe).
+    async fn apply(&self, handles: OutputHandles<'_>) -> SafeStateReport {
+        Self::drive(&self.outputs_now(handles.picontrol), handles).await
     }
 }
 
@@ -784,11 +1043,207 @@ registers:
         let config = test_config(vec![ro], vec![gpio_input(22)]);
         let mgr = SafeStateManager::from_config(&config);
 
-        let report = mgr.apply(None, None, None, None).await;
+        let report = mgr.apply(OutputHandles::default()).await;
         assert_eq!(report.registered, 0);
         assert_eq!(report.applied, 0);
         assert!(report.is_complete());
         assert!(report.degraded_reason().is_none());
+    }
+
+    fn not_connected() -> anyhow::Error {
+        anyhow::Error::new(crate::modbus::ChannelNotConnected).context("Failed to write coil")
+    }
+
+    /// A channel that is still connecting is waited for, and the write then
+    /// lands: the first output of a device no longer races the TCP handshake.
+    #[tokio::test]
+    async fn a_channel_that_connects_within_the_wait_is_written() {
+        let attempts = std::sync::atomic::AtomicU32::new(0);
+        let result = retry_while_connecting(true, Duration::from_secs(5), || {
+            let n = attempts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            async move { if n < 3 { Err(not_connected()) } else { Ok(()) } }
+        })
+        .await;
+        assert!(result.is_ok());
+        assert_eq!(attempts.load(std::sync::atomic::Ordering::SeqCst), 4);
+    }
+
+    /// Any other failure is final at once: a refused write, a stale layout, a
+    /// missing handle are not waited for.
+    #[tokio::test]
+    async fn another_failure_is_final_at_once() {
+        let attempts = std::sync::atomic::AtomicU32::new(0);
+        let result = retry_while_connecting(true, Duration::from_secs(5), || {
+            attempts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            async { Err(anyhow::anyhow!("the device refused the write")) }
+        })
+        .await;
+        assert!(result.is_err());
+        assert_eq!(attempts.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    /// A device that did not connect within the wait is unreachable: the
+    /// attempt gives up with the typed error, and an impatient attempt (the
+    /// device's other outputs) does not wait at all.
+    #[tokio::test]
+    async fn a_channel_that_never_connects_gives_up_after_the_wait() {
+        let started = std::time::Instant::now();
+        let attempts = std::sync::atomic::AtomicU32::new(0);
+        let err = retry_while_connecting(true, Duration::from_millis(350), || {
+            attempts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            async { Err(not_connected()) }
+        })
+        .await
+        .unwrap_err();
+        assert!(
+            err.downcast_ref::<crate::modbus::ChannelNotConnected>()
+                .is_some()
+        );
+        assert!(started.elapsed() >= Duration::from_millis(350));
+        assert!(attempts.load(std::sync::atomic::Ordering::SeqCst) > 1);
+
+        let impatient = std::sync::atomic::AtomicU32::new(0);
+        let started = std::time::Instant::now();
+        let err = retry_while_connecting(false, Duration::from_secs(5), || {
+            impatient.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            async { Err(not_connected()) }
+        })
+        .await
+        .unwrap_err();
+        assert!(
+            err.downcast_ref::<crate::modbus::ChannelNotConnected>()
+                .is_some()
+        );
+        assert_eq!(impatient.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert!(started.elapsed() < Duration::from_secs(1));
+    }
+
+    /// EDGE-HIGH-060: the registry is derived from the configuration the pass
+    /// is given, so an output that exists in the live configuration but did
+    /// not at boot (a Modbus device provisioned at runtime, a reload) is
+    /// driven by the next pass.
+    #[tokio::test]
+    async fn the_pass_registers_the_outputs_of_the_config_it_is_given() {
+        let at_boot = test_config(vec![modbus_device_with_outputs("PLC-001")], vec![]);
+        let mut live = at_boot.clone();
+        live.modbus.push(modbus_device_with_outputs("PLC-NEW"));
+        live.gpio.push(gpio_output(17));
+
+        let boot = apply_event(&at_boot, Event::AgentRestart, OutputHandles::default()).await;
+        assert_eq!(boot.registered, 2);
+        let now = apply_event(&live, Event::AgentRestart, OutputHandles::default()).await;
+        assert_eq!(
+            now.registered, 5,
+            "the provisioned device and the pin are outputs now"
+        );
+        let names: Vec<&str> = now.failures.iter().map(|f| f.output.as_str()).collect();
+        assert!(names.contains(&"modbus coil PLC-NEW/100"), "{names:?}");
+        assert!(names.contains(&"gpio pin 17"), "{names:?}");
+    }
+
+    /// An event the agent cannot act on (it is not running, or cannot reach
+    /// the output) or has nothing to drive for drives nothing, and says so
+    /// with a complete empty report instead of failing outputs it never tried.
+    #[tokio::test]
+    async fn events_the_agent_cannot_act_on_drive_nothing() {
+        let config = test_config(
+            vec![modbus_device_with_outputs("PLC-001")],
+            vec![gpio_output(17)],
+        );
+        for event in [
+            Event::AgentCrash,
+            Event::WatchdogReset,
+            Event::PowerLoss,
+            Event::DegradedMode,
+            Event::CloudCommsLoss,
+            Event::FieldbusCommsLoss,
+        ] {
+            let report = apply_event(&config, event, OutputHandles::default()).await;
+            assert_eq!(report.registered, 0, "{event:?}");
+            assert!(report.is_complete(), "{event:?}");
+        }
+        for event in [Event::AgentStart, Event::AgentRestart, Event::AgentUpdate] {
+            let report = apply_event(&config, event, OutputHandles::default()).await;
+            assert_eq!(report.registered, 3, "{event:?}");
+        }
+    }
+
+    /// The comms-loss pass drives only the outputs a remote command wrote,
+    /// and names a written address that is not a safe-state output (it has no
+    /// safe value).
+    #[tokio::test]
+    async fn the_comms_loss_pass_drives_only_the_leased_registered_outputs() {
+        let config = test_config(
+            vec![modbus_device_with_outputs("PLC-001")],
+            vec![gpio_output(17)],
+        );
+        let leased = [
+            OutputId::modbus_coil("PLC-001", 100),
+            OutputId::modbus_register("PLC-001", 999),
+        ];
+        let (report, unregistered) = apply_leased(&config, &leased, OutputHandles::default()).await;
+        assert_eq!(
+            report.registered, 1,
+            "the coil only: not the register, not the pin"
+        );
+        assert_eq!(report.failures.len(), 1);
+        assert_eq!(report.failures[0].output, "modbus coil PLC-001/100");
+        assert_eq!(
+            unregistered,
+            vec![OutputId::modbus_register("PLC-001", 999)]
+        );
+
+        let (nothing, none) = apply_leased(&config, &[], OutputHandles::default()).await;
+        assert_eq!(nothing.registered, 0);
+        assert!(none.is_empty());
+    }
+
+    /// A writer and the registry spell an output the same way.
+    #[test]
+    fn an_output_has_one_identity_for_the_registry_and_the_writers() {
+        let tags = [
+            (
+                OutputTag::ModbusCoil {
+                    device_name: "plc".into(),
+                    address: 7,
+                    safe_value: false,
+                },
+                OutputId::modbus_coil("plc", 7),
+            ),
+            (
+                OutputTag::ModbusRegister {
+                    device_name: "plc".into(),
+                    address: 7,
+                    safe_value: 0,
+                },
+                OutputId::modbus_register("plc", 7),
+            ),
+            (
+                OutputTag::GpioPin {
+                    pin: 5,
+                    safe_level: false,
+                },
+                OutputId::gpio_pin(5),
+            ),
+            (
+                OutputTag::I2cOutput {
+                    device_name: "dac".into(),
+                    register: 0x10,
+                    safe_value: vec![0],
+                },
+                OutputId::i2c("dac", 0x10),
+            ),
+            (
+                OutputTag::PiControl { tag: "pump".into() },
+                OutputId::picontrol("pump"),
+            ),
+        ];
+        let mut seen = std::collections::HashSet::new();
+        for (tag, id) in tags {
+            assert_eq!(tag.id(), id);
+            assert_eq!(tag.describe(), id.to_string());
+            assert!(seen.insert(id), "identities are distinct");
+        }
     }
 
     /// EDGE-MEDIUM-075: when only some outputs reach safe-state the report
@@ -802,7 +1257,7 @@ registers:
         let mgr = SafeStateManager::from_config(&config);
 
         // No handle at all: all three outputs fail, each by name.
-        let report = mgr.apply(None, None, None, None).await;
+        let report = mgr.apply(OutputHandles::default()).await;
         assert_eq!(report.registered, 3);
         assert_eq!(report.applied, 0);
         assert!(!report.is_complete());
@@ -902,7 +1357,10 @@ points:
             assert_eq!(kernel.peek(122) & 0b11, 0b01);
 
             let report = SafeStateManager::from_config(&config())
-                .apply(None, None, None, Some(&handle))
+                .apply(OutputHandles {
+                    picontrol: Some(&handle),
+                    ..OutputHandles::default()
+                })
                 .await;
             assert!(report.is_complete(), "{:?}", report.failures);
             assert_eq!((report.registered, report.applied), (2, 2));
@@ -950,7 +1408,12 @@ points:
             handle.write_output("aerator", 0.0).await.unwrap();
             assert_eq!(kernel.peek(122) & 0b10, 0);
 
-            let report = manager.apply(None, None, None, Some(&handle)).await;
+            let report = manager
+                .apply(OutputHandles {
+                    picontrol: Some(&handle),
+                    ..OutputHandles::default()
+                })
+                .await;
             assert!(report.is_complete(), "{:?}", report.failures);
             assert_eq!((report.registered, report.applied), (2, 2));
             assert_eq!(
@@ -963,7 +1426,7 @@ points:
         #[tokio::test]
         async fn without_the_handle_the_outputs_fail_by_name() {
             let report = SafeStateManager::from_config(&config())
-                .apply(None, None, None, None)
+                .apply(OutputHandles::default())
                 .await;
             let names: Vec<&str> = report.failures.iter().map(|f| f.output.as_str()).collect();
             assert_eq!(names, ["piControl output pump", "piControl output aerator"]);
@@ -987,7 +1450,10 @@ points:
             }
             kernel.clear_written_ranges();
             let report = SafeStateManager::from_config(&config())
-                .apply(None, None, None, Some(&handle))
+                .apply(OutputHandles {
+                    picontrol: Some(&handle),
+                    ..OutputHandles::default()
+                })
                 .await;
             assert_eq!(report.applied, 0);
             assert!(

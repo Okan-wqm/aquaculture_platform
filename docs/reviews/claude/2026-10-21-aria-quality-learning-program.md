@@ -748,3 +748,65 @@ consumer
   - `aria-kernel/aria_kernel/state_compact.py:20-26`
   - `aria-kernel/aria_kernel/state_manifest.py:612`
 - Rule: PLAN-v2 L6 'Arşiv replay'i'; memory is never lost (the ARIA-HIGH-263 rule).
+
+## CONTRACT-MEDIUM-013
+
+TelemetryCapacityEntitlementChangedEvent does not extend BaseEvent, and billing-service spreads it
+over createBaseEvent's result, so the entitlement's own `version` overwrites the event schema
+version on the wire
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-3-R2 (the emit-has-interface invariant folded onto the one definition rule).
+- Evidence:
+  - `libs/event-contracts/src/billing/telemetry-capacity.ts:87`
+  - `apps/billing-service/src/billing/services/telemetry-capacity.service.ts:206`
+- Rule: CLAUDE.md Event Contract Rules: a new event's interface extends BaseEvent; event objects
+  conform exactly to @platform/event-contracts interfaces. Exempted by id in
+  `tests/invariants/event-contract-emit-has-interface.spec.ts` KNOWN_EXEMPT until closed.
+
+## CONTRACT-MEDIUM-014
+
+Two producer sites build their event type at run time, so no contract can be checked for them: the
+audit-log interceptor emits `audit.<action>` events (with a nested metadata bag) that no
+event-contracts interface defines, and the security event service reads its type from a
+Record<SecurityEventType, string>
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-3-R2 (scanEventProducers reports both as unresolved).
+- Evidence:
+  - `libs/backend-common/src/audit/audit-log.interceptor.ts:285`
+  - `libs/backend-common/src/security/security-event.service.ts:168`
+  - `libs/backend-common/src/security/security-event.service.ts:209`
+- Rule: CLAUDE.md Event Contract Rules and ADR-006 (flat events). Listed by id in the
+  emit-has-interface invariant's KNOWN_UNRESOLVED until closed.
+
+## PLAT-MEDIUM-932
+
+No application constructs NatsMigrationEventSink (MigrationRunnerModule defaults to a no-op sink
+and no service passes one), so SchemaMigrationStarted/Applied/Failed/Skipped are never published
+while observability-service subscribes `events.platform.schema-migration.>`
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-3-R2 (scanEventProducers reports the four sites as unattributed).
+- Evidence:
+  - `libs/backend-common/src/database/migration-runner/migration-runner.module.ts:187-197`
+  - `libs/backend-common/src/database/nats-migration-event-sink.ts:121`
+  - `apps/observability-service/src/migration-audit/consumers/schema-migration-events.consumer.ts:63`
+- Rule: a consumed event has a producer; dead publisher code is wired or deleted. Listed by id in
+  the emit-has-interface invariant's KNOWN_UNATTRIBUTED until closed.
+
+## ARIA-MEDIUM-789
+
+The code-fact producer scan attributes no application to a library class constructed only inside a
+library function (ErrorCaptureInterceptor, built in createServiceApp behind bootstrapService), so
+the bridge lists no producer of ServiceErrorCaptured although every service emits it
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-13.
+- Raised by: SE-3 review round 1 (single-owner reviewer, non-blocking observation).
+- Evidence:
+  - `tools/gates/event-consumer-index.ts:707-752`
+  - `libs/backend-common/src/bootstrap/create-service-app.ts:872`
+  - `libs/backend-common/src/observability/error-capture.interceptor.ts:194`
+- Rule: service-expertise PLAN §3.1/§3.2: events_produced comes from scanEventProducers and a missing
+  result is never silent; SE-4 ranks impacted services on these facts. Listed by id in the
+  emit-has-interface invariant's KNOWN_UNATTRIBUTED until closed.

@@ -569,6 +569,31 @@ class ReadTracerTest(unittest.TestCase):
         self.assertNotEqual(verify.returncode, 0, verify.stdout + verify.stderr)
         self.assertIn("apps/x.ts", verify.stdout + verify.stderr)
 
+    def test_a_git_run_in_another_directory_names_that_directory_s_files(self) -> None:
+        # A suite test that runs `git show HEAD:apps/x.ts` with cwd= a temp
+        # fixture repo reads the FIXTURE, not the live checkout. The reader
+        # resolved the token against the calling process's cwd and blamed the
+        # live checkout's apps/x.ts (run 39753472319: dozens of such phantom
+        # reads, e.g. apps/farm-service/src/main.ts).
+        fixture = self.tmp / "fixture-repo"
+        subprocess.run(["git", "clone", "--quiet", str(self.repo), str(fixture)], env=self.env,
+                       check=True, capture_output=True)
+        self.assertEqual(self._install().returncode, 0)
+        child = self._child(
+            "import subprocess, sys\n"
+            f"raise SystemExit(subprocess.run(['git', 'show', 'HEAD:apps/x.ts'], cwd={str(fixture)!r},\n"
+            "                                capture_output=True).returncode)\n",
+        )
+        self.assertEqual(child.returncode, 0, child.stderr)
+        child = self._child(
+            "import subprocess, sys\n"
+            f"raise SystemExit(subprocess.run(['git', '-C', {str(fixture)!r}, 'show', 'HEAD:apps/x.ts'],\n"
+            "                                capture_output=True).returncode)\n",
+        )
+        self.assertEqual(child.returncode, 0, child.stderr)
+        verify = self._verify()
+        self.assertEqual(verify.returncode, 0, verify.stdout + verify.stderr)
+
     def test_a_directory_listing_is_reported_but_does_not_gate(self) -> None:
         self.assertEqual(self._install().returncode, 0)
         child = self._child("import os\nos.listdir('apps')\n")

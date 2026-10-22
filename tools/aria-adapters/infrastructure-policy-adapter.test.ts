@@ -8,6 +8,12 @@ import ts from 'typescript';
 import { makeFixtureTree } from '../gates/fixture-tree';
 import { natsCredentialAuth } from '../gates/infra-policy/nats-identity';
 import { composeServicePrivilege } from '../gates/infra-policy/runtime-privilege';
+import { MODULE_SOURCE_PINNING } from '../gates/infra-policy/terraform-pins';
+import {
+  probesAsTerraform,
+  reviewerProbes,
+  terraformSourceProbes,
+} from '../gates/infra-policy/terraform-source-probes';
 import { classifyInfraFile } from '../gates/lib/infra/classify';
 import { readNatsConf } from '../gates/lib/infra/nats-conf';
 import { composeServices } from '../gates/lib/infra/workloads';
@@ -43,6 +49,10 @@ import { analyzeInfrastructurePolicy } from './infrastructure-policy-adapter';
 //      map comes from the header owner, an include it cannot see is carried
 //      down to the levels under it, and a Terraform credential never reaches
 //      the output.
+//   6. The round-3 review blockers (kc/r12r2-review/REVIEW.txt).
+//   7. The round-4 review blocker R1 residual (kc/r12r3-review/REVIEW.txt): a
+//      Terraform source is reported only from parts that pass a shape check,
+//      through a type only terraform-pins.ts constructs.
 //
 // The workspace is built at run time, as workflow-shell-safety's is: a
 // committed fixture holding an alias bomb or a nesting bomb would be read by
@@ -1227,10 +1237,154 @@ check('M4 the twin: a base whose only overlay supplies every guard is not claime
   assert.deepEqual(claimedGuards(M4_SOLO), []);
 });
 
+// ======================== 7. the round-4 review blocker (R1 residual)
+// kc/r12r3-review/REVIEW.txt, on e7e14ff83: terraform-pins.ts still derives the reported source
+// by masking the written address, the third round in which that leaked by a new path:
+//   (a) the last `@` of the whole address is taken before the query and fragment are split, so
+//       a GCS V2 signed URL's GoogleAccessId=sa@... swallows the `?` and Signature= is output,
+//       and so are ?password=pre@X, ?token=a@X and #x@X;
+//   (b) an allow-listed argument keeps whatever value it holds: checksum=file:<presigned URL>,
+//       ref=x?token=X, ref=v1;token=X;
+//   (c) a scheme-less user without `:` is kept for any user: ghp_X@github.com/org/x.git.
+// The corpus (tools/gates/infra-policy/terraform-source-probes.ts) plants a distinct marker in
+// every position of a module source under every go-getter forced prefix; the owner spec holds
+// the same corpus.
+const R4_PROBES = 'infrastructure/terraform/probes.tf';
+const R4_READABLE = 'infrastructure/terraform/readable.tf';
+const R4_TOKEN = 'Hx4Qw8Zk2Jv6Nm9T';
+const round4Probes = [...terraformSourceProbes(), ...reviewerProbes()];
+const ROUND4_FILES: Readonly<Record<string, string>> = {
+  [R4_PROBES]: probesAsTerraform(round4Probes),
+  [R4_READABLE]: [
+    `module "git_https" { source = "git::https://ghp_${R4_TOKEN}@github.com/org/net.git?ref=main&depth=1&private_token=${R4_TOKEN}" }`, // 1
+    'module "scp" { source = "git@github.com:org/m.git?ref=main" }', // 2
+    '',
+  ].join('\n'),
+};
+const round4Workspace = makeFixtureTree('aria-infrastructure-policy-r4-');
+for (const [path, body] of Object.entries(ROUND4_FILES)) {
+  mkdirSync(dirname(join(round4Workspace, path)), { recursive: true });
+  writeFileSync(join(round4Workspace, path), body, 'utf8');
+}
+const round4Output = analyzeInfrastructurePolicy({ roots: ['infrastructure'] }, round4Workspace);
+
+check('R1r no part of a marker planted in any source position reaches any output', () => {
+  const text = JSON.stringify(round4Output);
+  const leaking = round4Probes
+    .filter((probe) => windowsOf(text, probe.marker).length > 0)
+    .map((probe) => probe.name);
+  assert.deepEqual(leaking, [], `${leaking.length} probes leak a part of their marker`);
+  assert.deepEqual(windowsOf(text, R4_TOKEN), [], 'the readable.tf token is output');
+});
+check(
+  'R1r every probe keeps its claim: unpinned claimed with its verdict, unresolved recorded, pinned silent',
+  () => {
+    // The verdict is judged on the parsed source, so rebuilding the reported form moves no claim.
+    const moved: string[] = [];
+    round4Probes.forEach((probe, index) => {
+      const line = index + 1;
+      const claims = round4Output.findings
+        .filter(
+          (f) => f.rule === 'unpinned_terraform_source' && f.path === R4_PROBES && f.line === line,
+        )
+        .map((f) => f.owner_rule_id);
+      const recorded = unresolvedAt(
+        round4Output.observations,
+        'unpinned_terraform_source',
+        R4_PROBES,
+      ).some((details) => details.line === line);
+      const pinning = MODULE_SOURCE_PINNING[probe.verdict];
+      const expected =
+        pinning === 'unpinned'
+          ? { claims: [probe.verdict], recorded: false }
+          : { claims: [], recorded: pinning === 'unresolved' };
+      if (JSON.stringify({ claims, recorded }) !== JSON.stringify(expected)) {
+        moved.push(`${probe.name} (line ${line}): ${JSON.stringify({ claims, recorded })}`);
+      }
+    });
+    assert.deepEqual(moved, []);
+  },
+);
+check('R1r a claim names the host, path, ref and depth, and no user', () => {
+  const subjectAt = (line: number): string => {
+    const claim = round4Output.findings.find(
+      (f) => f.rule === 'unpinned_terraform_source' && f.path === R4_READABLE && f.line === line,
+    );
+    assert.ok(claim, `readable.tf:${line} is claimed`);
+    return claim.subject;
+  };
+  const gitHttps = subjectAt(1);
+  for (const part of ['github.com', 'org/net.git', 'ref=main', 'depth=1']) {
+    assert.ok(gitHttps.includes(part), `${part} is readable in ${JSON.stringify(gitHttps)}`);
+  }
+  assert.equal(gitHttps.includes('ghp_'), false, `no user in ${gitHttps}`);
+  const scp = subjectAt(2);
+  for (const part of ['github.com', 'org/m.git', 'ref=main']) {
+    assert.ok(scp.includes(part), `${part} is readable in ${JSON.stringify(scp)}`);
+  }
+  assert.equal(scp.includes('git@'), false, `the scp login is userinfo, not reported: ${scp}`);
+});
+check('R1r the Terraform finding subject and message take only the reported-source type', () => {
+  // WHY (tier 1): the adapter prints a Terraform source only through terraform-pins.ts's
+  // reported-source type, so passing the written address, or a template that embeds it, to the
+  // finding's subject or message is a compile error. Read with the type checker on the adapter:
+  // at every call that emits unpinned_terraform_source, a plain string is not assignable to the
+  // argument given for the `subject` or the `message` parameter.
+  const program = ts.createProgram([ADAPTER_SOURCE], {
+    strict: true,
+    noEmit: true,
+    skipLibCheck: true,
+    esModuleInterop: true,
+    resolveJsonModule: true,
+    target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.CommonJS,
+    moduleResolution: ts.ModuleResolutionKind.Node10,
+    types: ['node'],
+  });
+  const checker = program.getTypeChecker();
+  const source = program.getSourceFile(ADAPTER_SOURCE);
+  assert.ok(source, 'the adapter is in the program');
+  const emits: ts.CallExpression[] = [];
+  const findEmits = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      node.expression.getText(source) !== 'recordUnresolved' &&
+      node.arguments.some((arg) => arg.getText(source) === 'RULES.unpinned_terraform_source')
+    ) {
+      emits.push(node);
+    }
+    ts.forEachChild(node, findEmits);
+  };
+  findEmits(source);
+  assert.ok(emits.length > 0, 'the adapter emits unpinned_terraform_source');
+  const stringType = checker.getStringType();
+  const accepting: string[] = [];
+  for (const call of emits) {
+    const signature = checker.getResolvedSignature(call);
+    assert.ok(signature, `${call.expression.getText(source)} resolves to a signature`);
+    const names = signature.getParameters().map((parameter) => parameter.name);
+    for (const name of ['subject', 'message']) {
+      const index = names.indexOf(name);
+      const argument = index < 0 ? undefined : call.arguments[index];
+      if (argument === undefined) {
+        accepting.push(`${call.expression.getText(source)} has no ${name} argument`);
+        continue;
+      }
+      const type = checker.getTypeAtLocation(argument);
+      if (checker.isTypeAssignableTo(stringType, type)) {
+        accepting.push(
+          `${name} is ${checker.typeToString(type)}: ${argument.getText(source).slice(0, 80)}`,
+        );
+      }
+    }
+  }
+  assert.deepEqual(accepting, []);
+});
+
 assert.deepEqual(
   blockerFailures,
   [],
-  'the round-2 (B1, B2) and round-3 (R1, R2, M2, M4) review blockers are fixed',
+  'the round-2 (B1, B2), round-3 (R1, R2, M2, M4) and round-4 (R1 residual) review blockers are fixed',
 );
 
 process.stdout.write('infrastructure-policy-adapter.test.ts OK\n');

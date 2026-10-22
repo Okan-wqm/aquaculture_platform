@@ -431,6 +431,158 @@ export function reviewerProbes(): TerraformSourceProbe[] {
   });
 }
 
+/**
+ * HCL escapes as written in a `.tf` file. Terraform evaluates `@` and `\U00000040` to `@`,
+ * `:` to `:`, `?` to `?` and `#` to `#` (HCL native syntax, quoted template
+ * escapes), so an address written with them is, to Terraform, the address with those characters.
+ */
+const HCL_AT = '\\u0040';
+const HCL_AT_LONG = '\\U00000040';
+const HCL_COLON = '\\u003a';
+const HCL_QUESTION = '\\u003f';
+const HCL_HASH = '\\u0023';
+
+/** Verdicts for a source ending in `.git?ref=main`: every prefix reads it as a git branch ref. */
+const GIT_BRANCH = [
+  'git_branch_ref',
+  'git_branch_ref',
+  'git_branch_ref',
+  'git_branch_ref',
+  'git_branch_ref',
+] as const;
+/** Verdicts for a scheme-less source ending in `.git` with no `ref`. */
+const GIT_UNPINNED = [
+  'git_unpinned',
+  'git_unpinned',
+  'git_unpinned',
+  'git_unpinned',
+  'git_unpinned',
+] as const;
+
+/**
+ * The round-5 review's positions (ARIA-HIGH-012 R1 residual-2, kc/r12r4-review/REVIEW.txt and
+ * 05-probe-leak.log, on 212a147e3): an authority or scheme-less head checked per half. The owner
+ * split the authority at its last `:` and reported the left half whenever it had a hostname's
+ * shape, though the right half failed the port's, and split a scheme-less head at its first `:`
+ * the same way; and it parsed the token text, not the value Terraform evaluates. So a userinfo
+ * whose `@` is written `%40` or as an HCL escape, or a user:password with no host at all, put
+ * the user in the host slot. Each position plants the marker as that user (GitHub's documented
+ * `https://<token>:x-oauth-basic@github.com` form among them), with the `@` percent-encoded,
+ * HCL-escaped (`@`, `\U00000040`), or absent so only the port shape fails. The siblings
+ * carry a `?` or `#` written as an HCL escape: once the reader decodes it, the part after it is
+ * a query argument or a fragment and is withheld as one.
+ */
+const AUTHORITY_POSITIONS: ReadonlyArray<{
+  readonly position: string;
+  readonly at: (m: string) => string;
+  readonly verdicts: VerdictsByPrefix;
+}> = [
+  // r12r4 probe 1: the `@` percent-encoded, so the user is left of the last `:`
+  {
+    position: 'authority_user_percent_at',
+    at: (m) => `https://${m}:x-oauth-basic%40github.com/org/x.git?ref=main`,
+    verdicts: GIT_BRANCH,
+  },
+  // r12r4 probe 2: the `@` written as an HCL escape; Terraform evaluates it to `@`
+  {
+    position: 'authority_user_hcl_at',
+    at: (m) => `https://${m}:x-oauth-basic${HCL_AT}github.com/org/x.git?ref=main`,
+    verdicts: GIT_BRANCH,
+  },
+  {
+    position: 'authority_user_hcl_long_at',
+    at: (m) => `https://${m}:x-oauth-basic${HCL_AT_LONG}github.com/org/x.git?ref=main`,
+    verdicts: GIT_BRANCH,
+  },
+  {
+    position: 'authority_user_hcl_colon_at',
+    at: (m) => `https://${m}${HCL_COLON}x-oauth-basic${HCL_AT}github.com/org/x.git?ref=main`,
+    verdicts: GIT_BRANCH,
+  },
+  {
+    position: 'authority_user_percent_colon_at',
+    at: (m) => `https://${m}%3Ax-oauth-basic%40github.com/org/x.git?ref=main`,
+    verdicts: GIT_BRANCH,
+  },
+  // r12r4 probe 17: user:password and no host; the left half is a hostname, the right no port
+  { position: 'authority_port_not_digits', at: (m) => `https://${m}:pw/m.zip`, verdicts: PLAIN },
+  { position: 'authority_port_empty', at: (m) => `https://${m}:/m.zip`, verdicts: PLAIN },
+  {
+    position: 'authority_port_percent_at',
+    at: (m) => `https://${m}:8443%40example.com/m.zip`,
+    verdicts: PLAIN,
+  },
+  {
+    position: 'authority_port_hcl_at',
+    at: (m) => `https://${m}:8443${HCL_AT}example.com/m.zip`,
+    verdicts: PLAIN,
+  },
+  // r12r4 probe 3: a scheme-less token user, the `@` an HCL escape; SEGMENT allows `_`
+  {
+    position: 'schemeless_user_hcl_at',
+    at: (m) => `ghp_${m}:x${HCL_AT}github.com/org/x.git`,
+    verdicts: GIT_UNPINNED,
+  },
+  {
+    position: 'schemeless_user_hcl_long_at',
+    at: (m) => `ghp_${m}:x${HCL_AT_LONG}github.com/org/x.git`,
+    verdicts: GIT_UNPINNED,
+  },
+  {
+    position: 'schemeless_user_percent_at',
+    at: (m) => `ghp_${m}:x%40github.com/org/x.git`,
+    verdicts: GIT_UNPINNED,
+  },
+  // a scheme-less head whose segment after `:` fails SEGMENT outright
+  {
+    position: 'schemeless_head_segment_fails',
+    at: (m) => `${m}:x;y/org/x.git`,
+    verdicts: GIT_UNPINNED,
+  },
+  // the scp form with its `@` encoded or escaped
+  {
+    position: 'schemeless_scp_percent_at',
+    at: (m) => `${m}%40github.com:org/x.git?ref=main`,
+    verdicts: GIT_BRANCH,
+  },
+  {
+    position: 'schemeless_scp_hcl_at',
+    at: (m) => `${m}${HCL_AT}github.com:org/x.git?ref=main`,
+    verdicts: GIT_BRANCH,
+  },
+  // a `?` or `#` written as an HCL escape: after it, a query argument or a fragment
+  {
+    position: 'query_hcl_question',
+    at: (m) => `${ARCHIVE}${HCL_QUESTION}token=${m}`,
+    verdicts: PLAIN,
+  },
+  { position: 'fragment_hcl_hash', at: (m) => `${ARCHIVE}${HCL_HASH}${m}`, verdicts: PLAIN },
+];
+
+/**
+ * The round-5 corpus: every AUTHORITY_POSITIONS entry under every forced prefix. Its markers are
+ * drawn from index 300 on, clear of terraformSourceProbes (from 0) and reviewerProbes (from 500).
+ * The verdict is the one terraform-pins.ts gives the value Terraform evaluates; for these
+ * sources it equals the verdict on the written text, so decoding moves none of them.
+ */
+export function authorityProbes(): TerraformSourceProbe[] {
+  const probes: TerraformSourceProbe[] = [];
+  for (const { position, at, verdicts } of AUTHORITY_POSITIONS) {
+    FORCED_PREFIXES.forEach((prefix, column) => {
+      const marker = plantedMarker(300 + probes.length);
+      const verdict = verdicts[column];
+      if (verdict === undefined) throw new RangeError(`${position} has no verdict for ${prefix}`);
+      probes.push({
+        name: `${prefixLabel(prefix)}_${position}`,
+        source: `${prefix}${at(marker)}`,
+        marker,
+        verdict,
+      });
+    });
+  }
+  return probes;
+}
+
 /** `probes` as one `.tf` file, one module per line (line `i + 1` holds probe `i`). */
 export function probesAsTerraform(probes: readonly TerraformSourceProbe[]): string {
   return `${probes.map((probe) => `module "${probe.name}" { source = "${probe.source}" }`).join('\n')}\n`;

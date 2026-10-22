@@ -10,6 +10,7 @@ import { natsCredentialAuth } from '../gates/infra-policy/nats-identity';
 import { composeServicePrivilege } from '../gates/infra-policy/runtime-privilege';
 import { MODULE_SOURCE_PINNING } from '../gates/infra-policy/terraform-pins';
 import {
+  authorityProbes,
   probesAsTerraform,
   reviewerProbes,
   terraformSourceProbes,
@@ -1248,11 +1249,13 @@ check('M4 the twin: a base whose only overlay supplies every guard is not claime
 //   (c) a scheme-less user without `:` is kept for any user: ghp_X@github.com/org/x.git.
 // The corpus (tools/gates/infra-policy/terraform-source-probes.ts) plants a distinct marker in
 // every position of a module source under every go-getter forced prefix; the owner spec holds
-// the same corpus.
+// the same corpus. Round 5 (kc/r12r4-review, R1 residual-2) adds authorityProbes: a userinfo
+// user whose `@` is percent-encoded or an HCL escape, or a user:password with no host, reached
+// the finding subject and message as the host (05-probe-leak.log probes 1, 2, 3, 17).
 const R4_PROBES = 'infrastructure/terraform/probes.tf';
 const R4_READABLE = 'infrastructure/terraform/readable.tf';
 const R4_TOKEN = 'Hx4Qw8Zk2Jv6Nm9T';
-const round4Probes = [...terraformSourceProbes(), ...reviewerProbes()];
+const round4Probes = [...terraformSourceProbes(), ...reviewerProbes(), ...authorityProbes()];
 const ROUND4_FILES: Readonly<Record<string, string>> = {
   [R4_PROBES]: probesAsTerraform(round4Probes),
   [R4_READABLE]: [

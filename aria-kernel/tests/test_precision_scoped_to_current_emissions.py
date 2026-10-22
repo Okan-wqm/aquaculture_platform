@@ -134,6 +134,8 @@ class _Ledgers(unittest.TestCase):
                     {"judge_id": "aria-adversarial-judge", "model": "glm-5.3"},
                     {"judge_id": "aria-consensus-arbiter", "model": "claude-opus-5"},
                 ][: judges or 0],
+                # WP-J fix round — an anchor stands on a non-empty union.
+                "evidence_refs": ["apps/hr-service/x.ts:10"],
             }
         record_operator_feedback(
             tool_id=TOOL, run_id=run_id, finding_id=str(finding["id"]), verdict=verdict,

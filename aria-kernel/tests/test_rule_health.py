@@ -93,6 +93,13 @@ class RuleHealthTests(unittest.TestCase):
                     if source == "ai_consensus" and judges >= 3
                     else None
                 ),
+                # WP-J fix round — the anchor's evidence leg, stamped
+                # where it is load-bearing (anchor grade only).
+                evidence_refs=(
+                    ["apps/hr-service/x.ts:10"]
+                    if source == "ai_consensus" and judges >= 3
+                    else None
+                ),
                 base_dir=self.tools,
             )
 

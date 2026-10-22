@@ -161,6 +161,7 @@ class ScoringAgainstTheLedger(unittest.TestCase):
             confidence=0.9, judgment_group_id="g1", judge_count=3, judges_voted=3,
             observers=[{"judge_id": "judge-a", "model": "opus"}, {"judge_id": "judge-b", "model": "glm-5.3"},
                        {"judge_id": "judge-c", "model": "opus"}],
+            evidence_refs=["apps/hr-service/x.ts:10"],
             base_dir=self.tools,
         )
         by_id = {j["judge_id"]: j for j in score_judges(base_dir=self.tools)["judges"]}

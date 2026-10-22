@@ -4,6 +4,8 @@ declare function createVitestTestPolicy(): {
   readonly coverage: {
     readonly provider: 'v8';
     readonly reporter: ['text', 'lcov'];
+    readonly include: ['src/**/*.{ts,tsx,js,jsx}'];
+    readonly exclude: ['**/*.d.ts', '**/__tests__/**'];
   };
 };
 

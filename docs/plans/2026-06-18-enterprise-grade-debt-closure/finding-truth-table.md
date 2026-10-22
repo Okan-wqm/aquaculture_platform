@@ -313,7 +313,6 @@ deadline 2026-11-17.
 | `ALERT-CRITICAL-009` | OPEN | 2026-09-29 | alert-engine-expert | real-open |
 | `SENSOR-CRITICAL-173` | OPEN | 2026-10-08 | claude | real-open |
 | `PLAT-CRITICAL-925` | OPEN | 2026-10-18 | claude | real-open |
-| `SUPPLY-CRITICAL-026` | OPEN | 2026-10-22 | claude | real-open |
 | `SUPPLY-CRITICAL-027` | OPEN | 2026-10-22 | claude | real-open |
 
 Updated 2026-10-17 (lost-work re-land, PR #2007): one active CRITICAL added.
@@ -1154,3 +1153,7 @@ tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
 Updated 2026-10-19: `PLAT-CRITICAL-931` (production date-column serialization
 crash) closed by 44bb256a2 on main — left the active table from bucket
 `already-fixed-needs-close`.
+
+- `SUPPLY-CRITICAL-026`: registry state is `RESOLVED` with closing commit
+  `36558f753`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `real-open`.

@@ -3,7 +3,8 @@
 WHY this module exists
 ----------------------
 The four runtime-dispatched judge/worker agents (aria-evidence-judge,
-aria-adversarial-judge, aria-cross-reviewer, aria-worker) used to cold-read
+aria-adversarial-judge, aria-cross-reviewer, aria-worker; WP-J's three panel
+method seats joined them later) used to cold-read
 four full docs via their ``.md`` preambles on every spawn: SPEC.md (43,191 B)
 + CONTRACTS.md (70,488 B) + PIPELINES.md (5,937 B) + layer-1-aria.md (6,119 B)
 = 125,735 bytes, replaced here by an 8.5KB digest. That cost was invisible to
@@ -218,7 +219,8 @@ def render_judge_digest(repo_root: str | Path) -> str:
         "",
         f"source_hash: {sha256_digest_from_hex(source_hash)}",
         "",
-        "Preamble digest for the four runtime-dispatched judge/worker agents. Every",
+        "Preamble digest for the runtime-dispatched judge, panel-seat and worker",
+        "agents. Every",
         "passage below is extracted VERBATIM from the `judge-digest` marked sections",
         "of the full contract docs — the sources stay SSoT, this file is a render.",
         "",

@@ -4,14 +4,16 @@ WHY these tests exist
 ---------------------
 docs/aria/generated/JUDGE-DIGEST.md is a committed render of the
 ``judge-digest`` marked sections of SPEC.md + CONTRACTS.md + PIPELINES.md.
-Four runtime agent preambles (aria-evidence-judge, aria-adversarial-judge,
-aria-cross-reviewer, aria-worker) read the digest instead of the full docs
+The runtime agent preambles (aria-evidence-judge, aria-adversarial-judge,
+aria-cross-reviewer, aria-worker, and WP-J's panel method seats
+aria-bug-hunter, aria-impact-assessor, aria-test-writer) read the digest
+instead of the full docs
 (125,735 bytes of @-refs pre-E17-a). Three failure modes are pinned here:
 
 1. Digest drift — a marked source edited without regenerating the digest
    would silently feed judges stale law text (byte-for-byte + source_hash
    tests).
-2. Preamble regression — a full-doc @-ref reappearing in one of the four
+2. Preamble regression — a full-doc @-ref reappearing in one of these
    agent .md files silently restores the cold-read cost (reference tests).
 3. Cap erosion — the digest regrowing past 10KB defeats its purpose
    (deliberate-break ValueError test).
@@ -42,6 +44,12 @@ JUDGE_DIGEST_AGENT_FILES = (
     ".claude/agents/aria-adversarial-judge.md",
     ".claude/agents/aria-cross-reviewer.md",
     ".claude/agents/aria-worker.md",
+    # WP-J method seats of the judging panel (0a87da08c). They judge one
+    # finding each, like the judges above, so they read the ONE digest this
+    # module pins — never the full SPEC/CONTRACTS reference set.
+    ".claude/agents/aria-bug-hunter.md",
+    ".claude/agents/aria-impact-assessor.md",
+    ".claude/agents/aria-test-writer.md",
 )
 
 DIGEST_LAW_SENTENCE = (
@@ -95,7 +103,7 @@ class JudgeDigestSourceHashInvariant(unittest.TestCase):
 
 
 class JudgeDigestAgentPreambleInvariant(unittest.TestCase):
-    """(c) the four runtime agent preambles consume the digest, not the full docs."""
+    """(c) the runtime agent preambles consume the digest, not the full docs."""
 
     def test_agents_reference_digest_and_law_sentence(self):
         for rel in JUDGE_DIGEST_AGENT_FILES:

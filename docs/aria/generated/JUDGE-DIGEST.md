@@ -8,7 +8,8 @@
 
 source_hash: sha256:409e98cf644db83abe0d8e43b62978b557e4a5b4254d6a022d51f794cae21b3e
 
-Preamble digest for the four runtime-dispatched judge/worker agents. Every
+Preamble digest for the runtime-dispatched judge, panel-seat and worker
+agents. Every
 passage below is extracted VERBATIM from the `judge-digest` marked sections
 of the full contract docs — the sources stay SSoT, this file is a render.
 

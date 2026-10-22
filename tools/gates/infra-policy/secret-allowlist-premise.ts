@@ -143,7 +143,8 @@ export interface AllowlistSet {
 export interface EnvSecretRule {
   readonly id: string;
   readonly regex: RegExp;
-  readonly secretGroup: number;
+  /** The rule's `secretGroup`; null when it sets none and gitleaks' default applies (secretOf). */
+  readonly secretGroup: number | null;
   readonly keywords: readonly string[];
   readonly entropy: number | null;
   readonly ruleAllowlists: readonly AllowlistSet[];
@@ -192,7 +193,7 @@ export function loadEnvSecretRule(tomlText: string): EnvSecretRule {
   return {
     id: ENV_SECRET_RULE_ID,
     regex: translateRe2(rule.regex),
-    secretGroup: typeof rule.secretGroup === 'number' ? rule.secretGroup : 0,
+    secretGroup: typeof rule.secretGroup === 'number' ? rule.secretGroup : null,
     keywords: strings(rule.keywords).map((k) => k.toLowerCase()),
     entropy: typeof rule.entropy === 'number' ? rule.entropy : null,
     ruleAllowlists: allowlistsOf(rule).map((l, i) =>
@@ -236,6 +237,19 @@ function shannonEntropy(text: string): number {
   return entropy;
 }
 
+/**
+ * The secret of a match, as gitleaks v8 reads it (detect.go): the `secretGroup` capture when the
+ * rule sets one; otherwise the first non-empty capture group, or the whole match when the regex
+ * has no group or every group is empty. Reading group 0 by default tested value-shaped allowlists
+ * against `KEY=value`, so they never suppressed, and reported the match length as the secret's
+ * (ARIA-HIGH-012 landing fix 7).
+ */
+function secretOf(match: RegExpExecArray, secretGroup: number | null): string | undefined {
+  if (secretGroup !== null) return match[secretGroup];
+  const firstGroup = match.slice(1).find((group) => group !== undefined && group.length > 0);
+  return firstGroup === undefined ? match[0] : firstGroup;
+}
+
 function suppressedByValue(
   lists: readonly AllowlistSet[],
   secret: string,
@@ -274,7 +288,7 @@ export function secretsHiddenByPathAllowlist(
       continue;
     const match = rule.regex.exec(line);
     if (match === null) continue;
-    const secret = match[rule.secretGroup];
+    const secret = secretOf(match, rule.secretGroup);
     if (secret === undefined || secret.length === 0) continue;
     if (rule.entropy !== null && shannonEntropy(secret) < rule.entropy) continue;
     const allLists = [...rule.ruleAllowlists, ...rule.globalAllowlists];

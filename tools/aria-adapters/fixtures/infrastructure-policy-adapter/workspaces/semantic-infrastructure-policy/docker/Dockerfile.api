@@ -1,0 +1,3 @@
+# SAFE TWIN (privileged_runtime, floating_artifact): a pinned base that drops root.
+FROM gcr.io/distroless/nodejs22-debian12@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+USER 65532

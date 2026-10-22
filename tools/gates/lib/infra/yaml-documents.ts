@@ -10,6 +10,7 @@
  * configuration a tool like docker compose or kubectl sees.
  */
 import {
+  type Alias,
   type Document,
   isAlias,
   isMap,
@@ -42,6 +43,30 @@ export interface YamlRead {
 
 type NodeLike = Node | null;
 
+/**
+ * The context `Alias.resolve` accepts (yaml's ToJSContext, which the package does not export by
+ * name). Without one, every resolve walks the whole document to find the anchor; with one, the
+ * first walk is cached on it (`aliasResolveCache`) and every later alias of the document reuses it.
+ */
+type AliasResolveContext = NonNullable<Parameters<Alias['resolve']>[1]>;
+
+/**
+ * One resolve context per document: resolving every alias and merge source of a document costs
+ * one document walk, not one walk per alias (yaml@2.9.0 walks per call without it: a 110 KB
+ * compose file with 4000 merge keys took 46 s, ARIA-HIGH-012 landing fix 5).
+ */
+function aliasResolveContext(doc: Document): AliasResolveContext {
+  return {
+    anchors: new Map(),
+    doc,
+    keep: false,
+    mapAsMap: false,
+    mapKeyWarned: false,
+    // Alias.resolve refuses only at 0; the alias budget is toJS's, which keeps its own context.
+    maxAliasCount: -1,
+  };
+}
+
 function isMergeKey(key: unknown): boolean {
   if (!isScalar(key)) return false;
   // `yaml` represents a merge key as the string '<<' or as Symbol('<<') when merge is on;
@@ -53,9 +78,9 @@ function keyMatches(key: unknown, segment: string | number): boolean {
   return isScalar(key) && String(key.value) === String(segment);
 }
 
-function deref(doc: Document, node: unknown): NodeLike {
+function deref(doc: Document, node: unknown, aliases: AliasResolveContext): NodeLike {
   if (isAlias(node)) {
-    const target = node.resolve(doc);
+    const target = node.resolve(doc, aliases);
     return target === undefined ? null : target;
   }
   return isMap(node) || isSeq(node) || isScalar(node) ? node : null;
@@ -64,6 +89,7 @@ function deref(doc: Document, node: unknown): NodeLike {
 /** Find the pair for `segment` in a map, following merge keys in YAML merge order. */
 function findPair(
   doc: Document,
+  aliases: AliasResolveContext,
   map: NodeLike,
   segment: string | number,
   depth: number,
@@ -71,15 +97,15 @@ function findPair(
   if (!isMap(map) || depth > 64) return null;
   for (const item of map.items) {
     if (isPair(item) && !isMergeKey(item.key) && keyMatches(item.key, segment)) {
-      return { key: item.key as Node, value: deref(doc, item.value) };
+      return { key: item.key as Node, value: deref(doc, item.value, aliases) };
     }
   }
   for (const item of map.items) {
     if (!isPair(item) || !isMergeKey(item.key)) continue;
-    const source = deref(doc, item.value);
-    const sources = isSeq(source) ? source.items.map((s) => deref(doc, s)) : [source];
+    const source = deref(doc, item.value, aliases);
+    const sources = isSeq(source) ? source.items.map((s) => deref(doc, s, aliases)) : [source];
     for (const merged of sources) {
-      const found = findPair(doc, merged, segment, depth + 1);
+      const found = findPair(doc, aliases, merged, segment, depth + 1);
       if (found !== null) return found;
     }
   }
@@ -98,8 +124,13 @@ const EXPANSION_BUDGET = 100_000;
  * Nodes `toJS` builds for `node`: an alias or merge source counts at its target's size. Memoised
  * per node, so the count costs one pass over the document however far it would expand.
  */
-function expandedSize(doc: Document, node: unknown, memo: Map<unknown, number>): number {
-  const target = isAlias(node) ? node.resolve(doc) : node;
+function expandedSize(
+  doc: Document,
+  aliases: AliasResolveContext,
+  node: unknown,
+  memo: Map<unknown, number>,
+): number {
+  const target = isAlias(node) ? node.resolve(doc, aliases) : node;
   if (target === undefined || target === null) return 1;
   const known = memo.get(target);
   if (known !== undefined) return known;
@@ -107,10 +138,11 @@ function expandedSize(doc: Document, node: unknown, memo: Map<unknown, number>):
   let size = 1;
   if (isMap(target)) {
     for (const item of target.items) {
-      size += expandedSize(doc, item.key, memo) + expandedSize(doc, item.value, memo);
+      size +=
+        expandedSize(doc, aliases, item.key, memo) + expandedSize(doc, aliases, item.value, memo);
     }
   } else if (isSeq(target)) {
-    for (const item of target.items) size += expandedSize(doc, item, memo);
+    for (const item of target.items) size += expandedSize(doc, aliases, item, memo);
   }
   memo.set(target, size);
   return size;
@@ -122,16 +154,20 @@ function lineAt(lineCounter: LineCounter, node: Node): number | null {
   return lineCounter.linePos(range[0]).line;
 }
 
-function makeLineOf(doc: Document, lineCounter: LineCounter): (path: YamlPath) => number | null {
+function makeLineOf(
+  doc: Document,
+  aliases: AliasResolveContext,
+  lineCounter: LineCounter,
+): (path: YamlPath) => number | null {
   return (path) => {
-    let node: NodeLike = deref(doc, doc.contents);
+    let node: NodeLike = deref(doc, doc.contents, aliases);
     let keyNode: Node | null = null;
     for (const segment of path) {
       keyNode = null;
       if (isSeq(node) && typeof segment === 'number') {
-        node = deref(doc, node.items[segment]);
+        node = deref(doc, node.items[segment], aliases);
       } else if (isMap(node)) {
-        const pair = findPair(doc, node, segment, 0);
+        const pair = findPair(doc, aliases, node, segment, 0);
         if (pair === null) return null;
         keyNode = pair.key;
         node = pair.value;
@@ -157,13 +193,14 @@ export function readYamlDocuments(text: string): YamlRead {
       }
       return;
     }
+    const aliases = aliasResolveContext(doc);
     let value: unknown;
     try {
       // An alias or merge-key bomb is a read error, not a value graph that grows tenfold per
       // level for every caller that walks it. The expansion budget covers both before any value
       // is built; the library's own alias budget (maxAliasCount 100) stays on behind it. Real
       // files stay far inside both; infra-policy.spec.ts reads every tracked one.
-      const size = expandedSize(doc, doc.contents, new Map());
+      const size = expandedSize(doc, aliases, doc.contents, new Map());
       if (size > EXPANSION_BUDGET) {
         throw new Error(
           `the document expands through aliases and merge keys to ${size} nodes (budget ${EXPANSION_BUDGET})`,
@@ -184,7 +221,7 @@ export function readYamlDocuments(text: string): YamlRead {
       index,
       line: lineCounter.linePos(start).line,
       value,
-      lineOf: makeLineOf(doc, lineCounter),
+      lineOf: makeLineOf(doc, aliases, lineCounter),
     });
   });
   return { docs, errors };

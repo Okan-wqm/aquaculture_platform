@@ -9,7 +9,7 @@
  * Values keep their raw text and whether they were quoted: an unquoted `$NAME` is a variable
  * reference the server substitutes, a quoted "$NAME" is a literal string.
  */
-import type { ReadError } from './read-error';
+import { MAX_NESTING_DEPTH, nestingError, type ReadError } from './read-error';
 
 export type NatsValue =
   | {
@@ -36,8 +36,17 @@ class NatsParser {
   readonly errors: ReadError[] = [];
   private pos = 0;
   private line = 1;
+  /** Set once a nesting past MAX_NESTING_DEPTH stopped the read: the unread rest is not "unclosed". */
+  private abandoned = false;
 
   constructor(private readonly src: string) {}
+
+  /** Stop reading: record the nesting error once and move to the end of the input. */
+  private abandon(line: number): void {
+    this.errors.push(nestingError(line));
+    this.abandoned = true;
+    this.pos = this.src.length;
+  }
 
   private get ch(): string | undefined {
     return this.src[this.pos];
@@ -70,13 +79,15 @@ class NatsParser {
     }
   }
 
-  parseEntries(closer: '}' | null, openLine: number): NatsEntry[] {
+  /** `depth` counts the maps and arrays around these entries (0 at the top level). */
+  parseEntries(closer: '}' | null, openLine: number, depth: number): NatsEntry[] {
     const entries: NatsEntry[] = [];
     for (;;) {
       this.skip(true);
       const c = this.ch;
       if (c === undefined) {
-        if (closer !== null) this.errors.push({ line: openLine, message: 'map is not closed' });
+        if (closer !== null && !this.abandoned)
+          this.errors.push({ line: openLine, message: 'map is not closed' });
         return entries;
       }
       if (c === '}') {
@@ -97,7 +108,7 @@ class NatsParser {
         this.advance();
         this.skip(false);
       }
-      entries.push({ key, value: this.readValue(line), line });
+      entries.push({ key, value: this.readValue(line, depth), line });
     }
   }
 
@@ -131,15 +142,19 @@ class NatsParser {
     return value;
   }
 
-  private readValue(line: number): NatsValue {
+  private readValue(line: number, depth: number): NatsValue {
     const c = this.ch;
+    if ((c === '{' || c === '[') && depth >= MAX_NESTING_DEPTH) {
+      this.abandon(line);
+      return c === '{' ? { kind: 'map', entries: [], line } : { kind: 'array', items: [], line };
+    }
     if (c === '{') {
       this.advance();
-      return { kind: 'map', entries: this.parseEntries('}', line), line };
+      return { kind: 'map', entries: this.parseEntries('}', line, depth + 1), line };
     }
     if (c === '[') {
       this.advance();
-      return { kind: 'array', items: this.readArray(line), line };
+      return { kind: 'array', items: this.readArray(line, depth + 1), line };
     }
     if (c === '"' || c === "'")
       return { kind: 'scalar', raw: this.readQuoted(), quoted: true, line };
@@ -159,13 +174,13 @@ class NatsParser {
     return { kind: 'scalar', raw, quoted: false, line };
   }
 
-  private readArray(openLine: number): NatsValue[] {
+  private readArray(openLine: number, depth: number): NatsValue[] {
     const items: NatsValue[] = [];
     for (;;) {
       this.skip(true);
       const c = this.ch;
       if (c === undefined) {
-        this.errors.push({ line: openLine, message: 'array is not closed' });
+        if (!this.abandoned) this.errors.push({ line: openLine, message: 'array is not closed' });
         return items;
       }
       if (c === ']') {
@@ -179,13 +194,13 @@ class NatsParser {
         this.advance();
         continue;
       }
-      items.push(this.readValue(this.line));
+      items.push(this.readValue(this.line, depth));
     }
   }
 }
 
 export function readNatsConf(text: string): NatsRead {
   const parser = new NatsParser(text);
-  const tree = parser.parseEntries(null, 1);
+  const tree = parser.parseEntries(null, 1, 0);
   return { tree, errors: parser.errors };
 }

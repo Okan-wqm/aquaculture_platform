@@ -8,7 +8,7 @@
  * keep their raw text, plus the literal when the value is a single string and the entries
  * when it is an object, which is all the pin rules need.
  */
-import type { ReadError } from './read-error';
+import { MAX_NESTING_DEPTH, nestingError, type ReadError } from './read-error';
 
 export interface HclAttribute {
   readonly name: string;
@@ -54,6 +54,8 @@ class Lexer {
   readonly errors: ReadError[] = [];
   private pos = 0;
   private line = 1;
+  /** Set once a template nesting past MAX_NESTING_DEPTH stopped the lexer at the end of input. */
+  private abandoned = false;
 
   constructor(private readonly src: string) {
     this.run();
@@ -84,7 +86,7 @@ class Lexer {
         this.countLines(this.pos, end);
         this.pos = end;
       } else if (c === '"') {
-        this.readString();
+        this.readString(0);
         this.push('string', start, line);
       } else if (
         c === '<' &&
@@ -111,10 +113,19 @@ class Lexer {
     for (let i = from; i < to; i += 1) if (this.src[i] === '\n') this.line += 1;
   }
 
-  /** A quoted template: escapes, and `${ }` / `%{ }` sequences that may nest strings. */
-  private readString(): void {
+  /**
+   * A quoted template: escapes, and `${ }` / `%{ }` sequences that may nest strings. `depth` counts
+   * the template sequences around this string; past MAX_NESTING_DEPTH the lexer stops.
+   */
+  private readString(depth: number): void {
     const s = this.src;
     const line = this.line;
+    if (depth > MAX_NESTING_DEPTH) {
+      this.errors.push(nestingError(line));
+      this.abandoned = true;
+      this.pos = s.length;
+      return;
+    }
     this.pos += 1;
     while (this.pos < s.length) {
       const c = s.charAt(this.pos);
@@ -131,30 +142,31 @@ class Lexer {
           this.pos += 2; // `$${` / `%%{` is a literal escape
         } else {
           this.pos += 2;
-          this.readTemplateSequence(line);
+          this.readTemplateSequence(line, depth + 1);
         }
       } else {
         this.pos += 1;
       }
     }
-    this.errors.push({ line, message: 'unterminated string' });
+    if (!this.abandoned) this.errors.push({ line, message: 'unterminated string' });
   }
 
-  private readTemplateSequence(line: number): void {
+  private readTemplateSequence(line: number, depth: number): void {
     const s = this.src;
-    let depth = 1;
-    while (this.pos < s.length && depth > 0) {
+    let braces = 1;
+    while (this.pos < s.length && braces > 0) {
       const c = s.charAt(this.pos);
       if (c === '"') {
-        this.readString();
+        this.readString(depth);
         continue;
       }
-      if (c === '{') depth += 1;
-      else if (c === '}') depth -= 1;
+      if (c === '{') braces += 1;
+      else if (c === '}') braces -= 1;
       else if (c === '\n') this.line += 1;
       this.pos += 1;
     }
-    if (depth > 0) this.errors.push({ line, message: 'unterminated template sequence' });
+    if (braces > 0 && !this.abandoned)
+      this.errors.push({ line, message: 'unterminated template sequence' });
   }
 
   private readHeredoc(): void {
@@ -187,6 +199,22 @@ class Lexer {
 const OPEN = new Set(['{', '[', '(']);
 const CLOSE = new Set(['}', ']', ')']);
 
+/**
+ * Nesting state shared by a parser and the sub-parsers it builds for object values: the depth
+ * error goes to the file's errors (a sub-parser's own errors are discarded) and is reported once.
+ */
+interface Nesting {
+  readonly errors: ReadError[];
+  /** Set once a block past MAX_NESTING_DEPTH stopped the read: the unread rest is not "unclosed". */
+  abandoned: boolean;
+  reported: boolean;
+}
+
+function refuseNesting(nesting: Nesting, line: number): void {
+  if (!nesting.reported) nesting.errors.push(nestingError(line));
+  nesting.reported = true;
+}
+
 class Parser {
   private i = 0;
 
@@ -194,6 +222,7 @@ class Parser {
     private readonly src: string,
     private readonly tokens: readonly Token[],
     readonly errors: ReadError[],
+    private readonly nesting: Nesting,
   ) {}
 
   private peek(offset = 0): Token | undefined {
@@ -204,15 +233,22 @@ class Parser {
     for (let t = this.peek(); t !== undefined && t.kind === 'newline'; t = this.peek()) this.i += 1;
   }
 
-  /** body := (attribute | block | newline)* until `}` (closed) or EOF (top level). */
-  parseBody(closer: '}' | null): { attributes: Record<string, HclAttribute>; blocks: HclBlock[] } {
+  /**
+   * body := (attribute | block | newline)* until `}` (closed) or EOF (top level). `depth` counts
+   * the blocks and objects around this body (0 at the top level).
+   */
+  parseBody(
+    closer: '}' | null,
+    depth: number,
+  ): { attributes: Record<string, HclAttribute>; blocks: HclBlock[] } {
     const attributes: Record<string, HclAttribute> = {};
     const blocks: HclBlock[] = [];
     for (;;) {
       this.skipNewlines();
       const token = this.peek();
       if (token === undefined) {
-        if (closer !== null) this.errors.push({ line: this.lastLine(), message: 'unclosed block' });
+        if (closer !== null && !this.nesting.abandoned)
+          this.errors.push({ line: this.lastLine(), message: 'unclosed block' });
         return { attributes, blocks };
       }
       if (token.kind === 'punct' && token.text === '}') {
@@ -229,14 +265,14 @@ class Parser {
       const next = this.peek(1);
       if (next !== undefined && next.kind === 'punct' && next.text === '=') {
         this.i += 2;
-        attributes[token.text] = this.parseAttributeValue(token, false);
+        attributes[token.text] = this.parseAttributeValue(token, false, depth);
         continue;
       }
-      blocks.push(this.parseBlock(token));
+      blocks.push(this.parseBlock(token, depth));
     }
   }
 
-  private parseBlock(typeToken: Token): HclBlock {
+  private parseBlock(typeToken: Token, depth: number): HclBlock {
     this.i += 1;
     const labels: string[] = [];
     for (;;) {
@@ -253,27 +289,34 @@ class Parser {
       this.i += 1;
     }
     this.i += 1;
-    const body = this.parseBody('}');
+    if (depth >= MAX_NESTING_DEPTH) {
+      // The whole rest of the token stream is left unread; no "unclosed" error follows for it.
+      refuseNesting(this.nesting, typeToken.line);
+      this.nesting.abandoned = true;
+      this.i = this.tokens.length;
+      return { type: typeToken.text, labels, line: typeToken.line, attributes: {}, blocks: [] };
+    }
+    const body = this.parseBody('}', depth + 1);
     return { type: typeToken.text, labels, line: typeToken.line, ...body };
   }
 
   /** Value tokens up to a newline (or `,` / `}` inside an object) at bracket depth 0. */
-  private parseAttributeValue(nameToken: Token, inObject: boolean): HclAttribute {
+  private parseAttributeValue(nameToken: Token, inObject: boolean, depth: number): HclAttribute {
     const first = this.peek();
     const startIndex = this.i;
-    let depth = 0;
+    let brackets = 0;
     for (;;) {
       const token = this.peek();
       if (token === undefined) break;
-      if (depth === 0 && token.kind === 'newline') break;
+      if (brackets === 0 && token.kind === 'newline') break;
       if (
-        depth === 0 &&
+        brackets === 0 &&
         token.kind === 'punct' &&
         (token.text === '}' || (inObject && token.text === ','))
       )
         break;
-      if (token.kind === 'punct' && OPEN.has(token.text)) depth += 1;
-      if (token.kind === 'punct' && CLOSE.has(token.text)) depth -= 1;
+      if (token.kind === 'punct' && OPEN.has(token.text)) brackets += 1;
+      if (token.kind === 'punct' && CLOSE.has(token.text)) brackets -= 1;
       this.i += 1;
     }
     const valueTokens = this.tokens.slice(startIndex, this.i).filter((t) => t.kind !== 'newline');
@@ -288,12 +331,18 @@ class Parser {
       line: nameToken.line,
       raw,
       string: only !== undefined && only.kind === 'string' ? unquote(only.text) : null,
-      object: this.parseObject(valueTokens),
+      object: this.parseObject(valueTokens, depth),
     };
   }
 
-  /** Parse `{ k = v, k2: v2 }` value tokens into entries; null for anything else. */
-  private parseObject(valueTokens: readonly Token[]): Record<string, HclAttribute> | null {
+  /**
+   * Parse `{ k = v, k2: v2 }` value tokens into entries; null for anything else, and for an object
+   * nested past MAX_NESTING_DEPTH (the file then carries the nesting error; its raw text stays).
+   */
+  private parseObject(
+    valueTokens: readonly Token[],
+    depth: number,
+  ): Record<string, HclAttribute> | null {
     const open = valueTokens[0];
     const close = valueTokens[valueTokens.length - 1];
     if (open === undefined || close === undefined || open.text !== '{' || close.text !== '}')
@@ -301,12 +350,16 @@ class Parser {
     const firstInner = valueTokens[1];
     if (firstInner !== undefined && firstInner.kind === 'ident' && firstInner.text === 'for')
       return null;
+    if (depth >= MAX_NESTING_DEPTH) {
+      refuseNesting(this.nesting, open.line);
+      return null;
+    }
     const inner = this.tokens.slice(this.tokens.indexOf(open) + 1, this.tokens.indexOf(close));
-    const sub = new Parser(this.src, inner, []);
-    return sub.parseObjectEntries();
+    const sub = new Parser(this.src, inner, [], this.nesting);
+    return sub.parseObjectEntries(depth + 1);
   }
 
-  private parseObjectEntries(): Record<string, HclAttribute> | null {
+  private parseObjectEntries(depth: number): Record<string, HclAttribute> | null {
     const entries: Record<string, HclAttribute> = {};
     for (;;) {
       for (
@@ -327,7 +380,7 @@ class Parser {
       }
       this.i += 2;
       const name = key.kind === 'string' ? unquote(key.text) : key.text;
-      entries[name] = { ...this.parseAttributeValue(key, true), name };
+      entries[name] = { ...this.parseAttributeValue(key, true, depth), name };
     }
   }
 
@@ -348,7 +401,8 @@ function unquote(text: string): string {
 export function readHclBlocks(text: string): HclRead {
   const lexer = new Lexer(text);
   const errors = [...lexer.errors];
-  const parser = new Parser(text, lexer.tokens, errors);
-  const body = parser.parseBody(null);
+  const nesting: Nesting = { errors, abandoned: false, reported: false };
+  const parser = new Parser(text, lexer.tokens, errors, nesting);
+  const body = parser.parseBody(null, 0);
   return { attributes: body.attributes, blocks: body.blocks, errors };
 }

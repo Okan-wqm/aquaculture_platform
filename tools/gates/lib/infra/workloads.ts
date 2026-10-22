@@ -213,6 +213,8 @@ export interface KustomizePatchTarget {
   readonly name: string | null;
   /** Repo-relative patch file, or null for an inline patch. */
   readonly file: string | null;
+  /** The inline patch's YAML text, or null for a patch file. */
+  readonly inline: string | null;
   readonly path: YamlPath;
 }
 
@@ -246,6 +248,7 @@ export function kustomizePatchTargets(
         kind: target === null ? fromInline.kind : asString(target.kind),
         name: target === null ? fromInline.name : asString(target.name),
         file: file === null ? null : posix.normalize(posix.join(dir, file)),
+        inline,
         path: [field, index],
       });
     });
@@ -260,8 +263,31 @@ export function kustomizePatchTargets(
       kind: fromInline.kind,
       name: fromInline.name,
       file: isInline ? null : posix.normalize(posix.join(dir, text)),
+      inline: isInline ? text : null,
       path: ['patchesStrategicMerge', index],
     });
   });
   return out;
+}
+
+/** A remote kustomize resource (a git or http URL): not a file of this checkout. */
+const REMOTE_RESOURCE =
+  /^(?:[a-z][a-z0-9+.-]*:\/\/|git@|github\.com\/|gitlab\.com\/|bitbucket\.org\/)/i;
+
+/**
+ * Repo-relative paths a kustomization lists under `resources:` (and the deprecated `bases:`):
+ * each a manifest file or a directory holding another kustomization. Remote resources are not
+ * files of this checkout and are left out.
+ */
+export function kustomizeResources(doc: unknown, kustomizationRelPath: string): string[] {
+  const map = asMap(doc);
+  if (map === null) return [];
+  const dir = posix.dirname(kustomizationRelPath);
+  return (['resources', 'bases'] as const).flatMap((field) =>
+    asList(map[field]).flatMap((item) => {
+      const entry = asString(item);
+      if (entry === null || REMOTE_RESOURCE.test(entry)) return [];
+      return [posix.normalize(posix.join(dir, entry)).replace(/\/+$/, '')];
+    }),
+  );
 }

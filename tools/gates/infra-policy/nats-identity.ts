@@ -12,23 +12,42 @@
  */
 import type { NatsEntry, NatsValue } from '../lib/infra/nats-conf';
 
-export type NatsCredentialKind =
-  | 'password'
-  | 'token'
-  | 'nkey'
-  | 'interpolated_user'
-  | 'non_cert_user';
+/** Keys that authenticate a client by something it holds: a password, a token or an nkey. */
+export type NatsCredentialKeyKind = 'password' | 'token' | 'nkey';
+/** A user identity that is not a literal certificate DN. */
+export type NatsUserKind = 'interpolated_user' | 'non_cert_user';
+export type NatsCredentialKind = NatsCredentialKeyKind | NatsUserKind;
 
-export interface NatsCredentialHit {
-  readonly kind: NatsCredentialKind;
+/**
+ * A credential key, located and never copied. A hit becomes the e2e failure message (a CI log)
+ * and, through the infrastructure-policy adapter, an ARIA finding, its evidence and state that
+ * outlive rotating the credential, so it carries no field that holds the value: path and line
+ * locate it, the length tells a reader it is a real value without repeating it. This is the rule
+ * secret-allowlist-premise.ts's HiddenSecret follows (ARIA-HIGH-012 landing fix 2).
+ */
+export interface NatsCredentialKeyHit {
+  readonly kind: NatsCredentialKeyKind;
   readonly key: string;
-  readonly value: string;
   readonly line: number;
+  /** Characters of the value; 0 when the value is a map or an array, which holds no credential string. */
+  readonly secretLength: number;
+  /** The value is an unquoted `$NAME`: the server substitutes it from its environment. */
+  readonly fromVariable: boolean;
 }
+
+/** A user name or certificate DN is not a secret: the hit keeps it, so a reader sees which user. */
+export interface NatsUserHit {
+  readonly kind: NatsUserKind;
+  readonly key: string;
+  readonly line: number;
+  readonly value: string;
+}
+
+export type NatsCredentialHit = NatsCredentialKeyHit | NatsUserHit;
 
 // Keys as nats-server reads them: lower-cased, with its aliases (server/opts.go
 // parseAuthorization / parseUsers: `case "user", "username"`, `case "pass", "password"`).
-const SECRET_KEYS: Readonly<Record<string, NatsCredentialKind>> = {
+const SECRET_KEYS: Readonly<Record<string, NatsCredentialKeyKind>> = {
   password: 'password',
   pass: 'password',
   token: 'token',
@@ -36,21 +55,19 @@ const SECRET_KEYS: Readonly<Record<string, NatsCredentialKind>> = {
 };
 const USER_KEYS: ReadonlySet<string> = new Set(['user', 'username']);
 
-function scalarText(value: NatsValue): string {
-  return value.kind === 'scalar' ? value.raw : value.kind;
-}
-
 /** Credential keys of one user map (or of an authorization map's single-user form). */
 function scanUserMap(entries: readonly NatsEntry[], hits: NatsCredentialHit[]): void {
   for (const entry of entries) {
     const key = entry.key.toLowerCase();
     const secretKind = SECRET_KEYS[key];
     if (secretKind !== undefined) {
+      const { value } = entry;
       hits.push({
         kind: secretKind,
         key: entry.key,
-        value: scalarText(entry.value),
         line: entry.line,
+        secretLength: value.kind === 'scalar' ? value.raw.length : 0,
+        fromVariable: value.kind === 'scalar' && !value.quoted && value.raw.startsWith('$'),
       });
     } else if (USER_KEYS.has(key) && entry.value.kind === 'scalar') {
       const { raw, quoted } = entry.value;

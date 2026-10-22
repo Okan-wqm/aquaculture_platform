@@ -163,11 +163,10 @@ function composeVolumeSource(volume: ComposeVolume): string {
 }
 
 /**
- * Credential-identity hits inside the GENERATED block: the whole nats.conf is parsed (the
- * block alone is a fragment of the `users: [...]` list, not a config) and hits are kept by
- * line between the BEGIN/END sentinels.
+ * nats.conf and the 1-based lines of its BEGIN/END GENERATED sentinels, located once for every
+ * check of the generated block (scripts/nats/generate-nats-conf.py writes both sentinels).
  */
-function generatedBlockCredentialHits(): NatsCredentialHit[] {
+function generatedBlockRange(): { content: string; begin: number; end: number } {
   const path = join(REPO_ROOT, 'infrastructure', 'docker', 'nats', 'nats.conf');
   const content = readFileSync(path, 'utf-8');
   const lines = content.split('\n');
@@ -179,6 +178,16 @@ function generatedBlockCredentialHits(): NatsCredentialHit[] {
         '`scripts/nats/generate-nats-conf.py` to regenerate.',
     );
   }
+  return { content, begin, end };
+}
+
+/**
+ * Credential-identity hits inside the GENERATED block: the whole nats.conf is parsed (the
+ * block alone is a fragment of the `users: [...]` list, not a config) and hits are kept by
+ * line between the BEGIN/END sentinels.
+ */
+function generatedBlockCredentialHits(): NatsCredentialHit[] {
+  const { content, begin, end } = generatedBlockRange();
   const parsed = readNatsConf(content);
   if (parsed.errors.length > 0) {
     throw new Error(`nats.conf does not parse: ${JSON.stringify(parsed.errors)}`);
@@ -208,18 +217,13 @@ function credentialFieldFailure(secrets: readonly NatsCredentialHit[]): string |
   );
 }
 
+/** The GENERATED block's text, from its BEGIN sentinel line up to its END sentinel line. */
 function loadNatsConfAuthBlock(): string {
-  const path = join(REPO_ROOT, 'infrastructure', 'docker', 'nats', 'nats.conf');
-  const content = readFileSync(path, 'utf-8');
-  const begin = content.indexOf('# BEGIN GENERATED');
-  const end = content.indexOf('# END GENERATED');
-  if (begin < 0 || end < 0) {
-    throw new Error(
-      'nats.conf is missing BEGIN/END GENERATED sentinels. Run ' +
-        '`scripts/nats/generate-nats-conf.py` to regenerate.',
-    );
-  }
-  return content.substring(begin, end);
+  const { content, begin, end } = generatedBlockRange();
+  return content
+    .split('\n')
+    .slice(begin - 1, end - 1)
+    .join('\n');
 }
 
 /**

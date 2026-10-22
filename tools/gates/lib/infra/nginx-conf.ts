@@ -7,7 +7,7 @@
  * start of a token, single and double quotes group an argument and honour backslash escapes,
  * `${name}` is part of a word, and every directive ends in `;` or opens a `{}` block.
  */
-import type { ReadError } from './read-error';
+import { MAX_NESTING_DEPTH, nestingError, type ReadError } from './read-error';
 
 export interface NginxDirective {
   readonly name: string;
@@ -110,6 +110,8 @@ export function readNginx(text: string): NginxRead {
   const errors: ReadError[] = [];
   const tokens = tokenize(text, errors);
   let i = 0;
+  // Set once a block past MAX_NESTING_DEPTH stopped the read: the unread rest is not "unclosed".
+  let abandoned = false;
 
   function reportUnterminated(words: readonly Token[]): void {
     const [head] = words;
@@ -117,14 +119,17 @@ export function readNginx(text: string): NginxRead {
       errors.push({ line: head.line, message: `directive ${head.text} has no ; or {` });
   }
 
-  function parseBlock(closing: boolean, openLine: number): NginxDirective[] {
+  /** `depth` counts the blocks around this one (0 at the top level). */
+  function parseBlock(closing: boolean, openLine: number, depth: number): NginxDirective[] {
     const out: NginxDirective[] = [];
     let words: Token[] = [];
     for (;;) {
       const token = tokens[i];
       if (token === undefined) {
-        reportUnterminated(words);
-        if (closing) errors.push({ line: openLine, message: 'block is not closed' });
+        if (!abandoned) {
+          reportUnterminated(words);
+          if (closing) errors.push({ line: openLine, message: 'block is not closed' });
+        }
         return out;
       }
       i += 1;
@@ -142,9 +147,15 @@ export function readNginx(text: string): NginxRead {
           });
         words = [];
       } else if (token.kind === '{') {
+        if (depth >= MAX_NESTING_DEPTH) {
+          errors.push(nestingError(token.line));
+          abandoned = true;
+          i = tokens.length;
+          return out;
+        }
         const [head, ...rest] = words;
         words = [];
-        const block = parseBlock(true, token.line);
+        const block = parseBlock(true, token.line, depth + 1);
         if (head === undefined)
           errors.push({ line: token.line, message: 'block without a directive name' });
         else out.push({ name: head.text, args: rest.map((w) => w.text), line: head.line, block });
@@ -160,6 +171,6 @@ export function readNginx(text: string): NginxRead {
     }
   }
 
-  const tree = parseBlock(false, 1);
+  const tree = parseBlock(false, 1, 0);
   return { tree, errors };
 }

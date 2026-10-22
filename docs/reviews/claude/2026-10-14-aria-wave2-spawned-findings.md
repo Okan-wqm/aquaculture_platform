@@ -1404,9 +1404,9 @@ duplicate `lint-changed-files`. The real residual is INFRA-MEDIUM-224.
 - **Raised by:** the wave-3 `G017-012-rules` fix round 1 ("New findings"); re-read by the ARIA
   order chain on the landing branch from origin/main 95c452105.
 - **Problem:** `tools/gates/lib/infra` is the one reader for nginx, NATS and compose files
-  (ARIA-HIGH-012), but specs keep their own: `nats-invariants.spec.ts:170-219` locates the GENERATED
-  sentinels twice and reads users by regex; `parseNginxLocations`
-  (`nginx-route-resolution.spec.ts:89`), `parseLocations`
+  (ARIA-HIGH-012), but specs keep their own: `nats-invariants.spec.ts:169-251` locates the GENERATED
+  sentinels by text (once since the ARIA-HIGH-012 landing) and reads users by regex;
+  `parseNginxLocations` (`nginx-route-resolution.spec.ts:89`), `parseLocations`
   (`mobile-static-asset-fail-closed.spec.ts:35`) and `blockBody` (`mobile-csp-headers.spec.ts:40`)
   count braces over raw text; seven compose environment readers
   (`action-link-origin-deployment-contract.spec.ts:96`,

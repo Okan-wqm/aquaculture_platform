@@ -9,7 +9,9 @@
  * securityContext field of the same name; privileged, allowPrivilegeEscalation and
  * capabilities exist only per container; host namespaces only per pod.
  */
-import type { DockerfileRead } from '../lib/infra/dockerfile';
+import { posix } from 'node:path';
+
+import type { DockerfileRead, DockerStage } from '../lib/infra/dockerfile';
 import {
   asMap,
   type ComposeService,
@@ -24,10 +26,33 @@ export type PrivilegeReason =
   | 'privileged'
   | 'capability'
   | 'host_namespace'
+  /** A container runtime socket (docker, containerd, CRI-O) or a directory above one. */
   | 'docker_socket'
   | 'privilege_escalation'
   /** seccomp or AppArmor confinement switched off. */
-  | 'unconfined';
+  | 'unconfined'
+  /**
+   * A host bind whose source this owner cannot place: a relative path that climbs out of the
+   * compose project directory, a `~` or `$VAR` path, or a non-absolute hostPath. Where it lands
+   * depends on the checkout and the environment, so it is reported, never read as safe.
+   */
+  | 'unresolved_bind';
+
+/**
+ * Whether each reason is a proven privilege or a bind this owner could not place. A Record over
+ * the union: a new reason without an entry does not compile, so none can default to either.
+ */
+export const PRIVILEGE_REASON_VERDICT: Readonly<
+  Record<PrivilegeReason, 'privileged' | 'unresolved'>
+> = {
+  privileged: 'privileged',
+  capability: 'privileged',
+  host_namespace: 'privileged',
+  docker_socket: 'privileged',
+  privilege_escalation: 'privileged',
+  unconfined: 'privileged',
+  unresolved_bind: 'unresolved',
+};
 
 export interface PrivilegeHit {
   readonly reason: PrivilegeReason;
@@ -48,22 +73,46 @@ export const DANGEROUS_CAPABILITIES: ReadonlySet<string> = new Set([
   'DAC_READ_SEARCH', // open_by_handle_at: read any host file ("shocker")
   'BPF', // load eBPF programs
 ]);
-const DOCKER_SOCKETS: readonly string[] = ['/var/run/docker.sock', '/run/docker.sock'];
+/**
+ * Container runtime sockets: whoever reaches one starts containers on the host. Both spellings of
+ * each (`/var/run` is `/run` on every current distribution).
+ */
+const RUNTIME_SOCKETS: readonly string[] = [
+  '/var/run/docker.sock',
+  '/run/docker.sock',
+  '/var/run/containerd/containerd.sock',
+  '/run/containerd/containerd.sock',
+  '/var/run/crio/crio.sock',
+  '/run/crio/crio.sock',
+];
 
 /**
- * A host path that exposes the docker socket: the socket itself or any directory above it
- * (`/`, `/var/run`, `/run`). A read-only bind does not help, connect() on a unix socket is not
- * a write. Trailing and repeated slashes are normalised away.
+ * An absolute host path that exposes a runtime socket: the socket itself or any directory above
+ * it (`/`, `/var/run`, `/run`, `/run/containerd`). A read-only bind does not help, connect() on a
+ * unix socket is not a write. The path is normalised as the kernel resolves it (`.`, `..`,
+ * repeated and trailing slashes), so `/./` and `/var/lib/../run` are what they name.
  */
-function exposesDockerSocket(hostPath: string): boolean {
-  if (!hostPath.startsWith('/')) return false;
-  const normal = `/${hostPath
-    .split('/')
-    .filter((part) => part.length > 0)
-    .join('/')}`;
-  return DOCKER_SOCKETS.some(
+function exposesRuntimeSocket(absoluteHostPath: string): boolean {
+  const normal = posix.normalize(absoluteHostPath).replace(/(.)\/+$/, '$1');
+  return RUNTIME_SOCKETS.some(
     (socket) => socket === normal || normal === '/' || socket.startsWith(`${normal}/`),
   );
+}
+
+/**
+ * What a compose bind source names. compose resolves a source that starts with `.` against the
+ * project directory (the checkout): one that stays inside it is project content, one that climbs
+ * out depends on where the checkout lives. `~` and `$VAR` depend on the environment. A source
+ * with none of these shapes is a named volume (https://docs.docker.com/reference/compose-file/services/#volumes).
+ */
+function composeBindSource(source: string): 'host' | 'project' | 'volume' | 'unresolved' {
+  if (source.startsWith('/')) return 'host';
+  if (source.startsWith('~') || source.includes('$')) return 'unresolved';
+  if (source.startsWith('.')) {
+    const normal = posix.normalize(source);
+    return normal === '..' || normal.startsWith('../') ? 'unresolved' : 'project';
+  }
+  return 'volume';
 }
 
 /** compose-spec types booleans as boolean | string; the CLI reads these strings as true. */
@@ -112,8 +161,11 @@ export function composeServicePrivilege(service: ComposeService): PrivilegeHit[]
   }
   list(spec.volumes).forEach((volume, index) => {
     const source = volumeSource(volume);
-    if (source !== null && exposesDockerSocket(source))
+    if (source === null) return;
+    const place = composeBindSource(source);
+    if (place === 'host' && exposesRuntimeSocket(source))
       hit('docker_socket', `mounts ${source}`, 'volumes', index);
+    else if (place === 'unresolved') hit('unresolved_bind', `mounts ${source}`, 'volumes', index);
   });
   list(spec.security_opt).forEach((option, index) => {
     // `seccomp:unconfined`, `seccomp=unconfined`, `apparmor:unconfined`, `apparmor=unconfined`.
@@ -157,7 +209,7 @@ export function composeServiceUser(
 export function dockerfileFinalUser(
   read: DockerfileRead,
 ): RuntimeUser & { readonly line: number | null; readonly stageIndex: number | null } {
-  let stage = read.stages[read.stages.length - 1];
+  let stage: DockerStage | undefined = read.stages[read.stages.length - 1];
   const seen = new Set<number>();
   while (stage !== undefined && !seen.has(stage.index)) {
     seen.add(stage.index);
@@ -217,13 +269,16 @@ export function podSpecPrivilege(workload: K8sWorkload): PrivilegeHit[] {
   }
   list(pod.volumes).forEach((volume, index) => {
     const hostPath = asMap(yamlAt(volume, ['hostPath']));
-    if (
-      hostPath !== null &&
-      typeof hostPath.path === 'string' &&
-      exposesDockerSocket(hostPath.path)
-    ) {
+    if (hostPath === null || typeof hostPath.path !== 'string') return;
+    // The API requires an absolute hostPath; any other spelling is not a path this owner can place.
+    const reason = !hostPath.path.startsWith('/')
+      ? 'unresolved_bind'
+      : exposesRuntimeSocket(hostPath.path)
+        ? 'docker_socket'
+        : null;
+    if (reason !== null) {
       hits.push({
-        reason: 'docker_socket',
+        reason,
         detail: `hostPath ${hostPath.path}`,
         path: [...workload.podSpecPath, 'volumes', index],
         container: null,

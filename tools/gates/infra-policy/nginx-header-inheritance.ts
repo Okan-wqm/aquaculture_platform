@@ -11,12 +11,24 @@
  * An include therefore re-applies only what it actually contains; one that misses a header the
  * parent set outside the snippet (HSTS at the TLS edge) still drops it. Callers decide which
  * drops matter (mobile-csp-headers filters Cache-Control overrides; the adapter keeps drops that
- * hit the security set). An include target missing from `includedHeaders` counts as adding none.
+ * hit the security set).
+ *
+ * A file that includes a known snippet anywhere adopts that snippet's headers as its response
+ * policy. A serving level (location, if, limit_except) that sets headers of its own serves only
+ * those, so it drops each adopted header it does not carry, whatever its parent sets: with the
+ * server-level include gone, a Cache-Control location without the include still serves without
+ * the CSP, and that is what main's guard caught (ARIA-HIGH-012 landing fix 1). http and server
+ * levels set defaults rather than serve, so only inheritance decides what they drop.
+ *
+ * An include target missing from `includedHeaders` adds no known header; the level lists it in
+ * `unresolvedIncludes`, so a caller can tell "sets nothing" from "sets what this owner cannot see".
  */
 import type { NginxDirective } from '../lib/infra/nginx-conf';
 
 /** Contexts that form an add_header inheritance level. */
 const LEVELS: ReadonlySet<string> = new Set(['http', 'server', 'location', 'if', 'limit_except']);
+/** Levels that answer requests, where the file's adopted header sets must be carried. */
+const SERVING_LEVELS: ReadonlySet<string> = new Set(['location', 'if', 'limit_except']);
 
 export interface HeaderInheritanceOptions {
   /** Headers each known include target adds (an include is textual, so its headers count). */
@@ -31,8 +43,14 @@ export interface HeaderLevel {
   readonly line: number;
   /** Headers the level sets itself: its add_header lines, then those of known includes. */
   readonly declared: readonly string[];
-  /** Inherited headers the level loses because it sets headers of its own (case-insensitive). */
+  /**
+   * Headers the level's responses lose because it sets headers of its own (case-insensitive):
+   * the inherited headers it does not set, then, at a serving level, the adopted headers it does
+   * not carry.
+   */
   readonly dropped: readonly string[];
+  /** `include` targets of this level that `includedHeaders` does not know. */
+  readonly unresolvedIncludes: readonly string[];
 }
 
 /** Header names set by `add_header` directly in these directives (snippet files, levels). */
@@ -42,14 +60,49 @@ export function addHeaderNames(directives: readonly NginxDirective[]): string[] 
   );
 }
 
-function ownHeaders(block: readonly NginxDirective[], options: HeaderInheritanceOptions): string[] {
+/** `names` with case-insensitive duplicates removed, the first spelling kept. */
+function distinct(names: readonly string[]): string[] {
+  const seen = new Set<string>();
+  return names.filter((name) => {
+    const lower = name.toLowerCase();
+    if (seen.has(lower)) return false;
+    seen.add(lower);
+    return true;
+  });
+}
+
+function ownHeaders(
+  block: readonly NginxDirective[],
+  options: HeaderInheritanceOptions,
+): { names: string[]; unresolved: string[] } {
   const names = addHeaderNames(block);
+  const unresolved: string[] = [];
   for (const d of block) {
     if (d.name !== 'include' || d.args[0] === undefined) continue;
     const included = options.includedHeaders.get(d.args[0]);
-    if (included !== undefined) names.push(...included);
+    if (included === undefined) unresolved.push(d.args[0]);
+    else names.push(...included);
   }
-  return names;
+  return { names, unresolved };
+}
+
+/** The headers of every known include the tree applies anywhere, in first-include order. */
+function adoptedHeaders(
+  tree: readonly NginxDirective[],
+  options: HeaderInheritanceOptions,
+): string[] {
+  const adopted: string[] = [];
+  const visit = (directives: readonly NginxDirective[]): void => {
+    for (const d of directives) {
+      if (d.name === 'include' && d.args[0] !== undefined) {
+        const included = options.includedHeaders.get(d.args[0]);
+        if (included !== undefined) adopted.push(...included);
+      }
+      if (d.block !== null) visit(d.block);
+    }
+  };
+  visit(tree);
+  return distinct(adopted);
 }
 
 /** Every inheritance level in source order, whether it drops headers or not. */
@@ -57,30 +110,37 @@ export function headerLevels(
   tree: readonly NginxDirective[],
   options: HeaderInheritanceOptions,
 ): HeaderLevel[] {
+  const adopted = adoptedHeaders(tree, options);
   const levels: HeaderLevel[] = [];
   const visit = (directives: readonly NginxDirective[], inherited: readonly string[]): void => {
     for (const d of directives) {
       if (d.block === null) continue;
       if (!LEVELS.has(d.name)) continue;
       const own = ownHeaders(d.block, options);
-      const ownLower = new Set(own.map((h) => h.toLowerCase()));
-      // A level that sets any header (directly or through a known include) inherits none.
-      const dropped = own.length > 0 ? inherited.filter((h) => !ownLower.has(h.toLowerCase())) : [];
+      const ownLower = new Set(own.names.map((h) => h.toLowerCase()));
+      // A level that sets any header (directly or through a known include) inherits none, and a
+      // serving level that does so serves only its own: it must carry the adopted set itself.
+      const expected = SERVING_LEVELS.has(d.name) ? [...inherited, ...adopted] : inherited;
+      const dropped =
+        own.names.length > 0
+          ? distinct(expected).filter((h) => !ownLower.has(h.toLowerCase()))
+          : [];
       levels.push({
         context: d.name,
         location: d.args.join(' '),
         line: d.line,
-        declared: own,
+        declared: own.names,
         dropped,
+        unresolvedIncludes: own.unresolved,
       });
-      visit(d.block, own.length > 0 ? own : inherited);
+      visit(d.block, own.names.length > 0 ? own.names : inherited);
     }
   };
   visit(tree, []);
   return levels;
 }
 
-/** The levels that drop at least one inherited header. */
+/** The levels that drop at least one inherited or adopted header. */
 export function headerInheritanceDrops(
   tree: readonly NginxDirective[],
   options: HeaderInheritanceOptions,

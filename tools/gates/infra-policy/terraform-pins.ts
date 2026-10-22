@@ -17,14 +17,22 @@ export type ModuleSourceVerdict =
   | 'git_unpinned'
   | 'registry_versioned'
   | 'registry_unversioned'
+  /** An http(s), s3 or gcs archive with a go-getter `checksum=` (the bytes are verified). */
+  | 'archive_checksummed'
+  /** An http(s), s3 or gcs archive without one: the object behind the URL can be replaced. */
   | 'archive'
+  /** No `source`, a non-literal one, or an address form this owner does not classify. */
   | 'unknown';
 
 /**
- * Whether each verdict's module content can change without the `.tf` file changing. A Record
- * over the union: a new verdict without an entry does not compile.
+ * Whether each verdict's module content can change without the `.tf` file changing: `pinned`,
+ * `unpinned`, or `unresolved` when this owner cannot tell (it never counts as pinned, the way
+ * image-reference.ts counts `malformed` as mutable). A Record over the union: a new verdict
+ * without an entry does not compile, so none can default to pinned (ARIA-HIGH-012 landing fix 3).
  */
-export const MODULE_SOURCE_PINNING: Readonly<Record<ModuleSourceVerdict, 'pinned' | 'unpinned'>> = {
+export const MODULE_SOURCE_PINNING: Readonly<
+  Record<ModuleSourceVerdict, 'pinned' | 'unpinned' | 'unresolved'>
+> = {
   local: 'pinned',
   git_commit: 'pinned',
   git_tag: 'pinned',
@@ -32,8 +40,9 @@ export const MODULE_SOURCE_PINNING: Readonly<Record<ModuleSourceVerdict, 'pinned
   git_unpinned: 'unpinned',
   registry_versioned: 'pinned',
   registry_unversioned: 'unpinned',
-  archive: 'pinned',
-  unknown: 'pinned',
+  archive_checksummed: 'pinned',
+  archive: 'unpinned',
+  unknown: 'unresolved',
 };
 
 const REGISTRY_ADDRESS =
@@ -51,12 +60,15 @@ function isGitSource(source: string): boolean {
   );
 }
 
-function gitRef(source: string): string | null {
+/** The value of a go-getter query argument (`?ref=`, `?checksum=`), or null when absent or empty. */
+function queryArgument(source: string, name: string): string | null {
   const query = source.indexOf('?');
   if (query < 0) return null;
   for (const pair of source.slice(query + 1).split('&')) {
-    const [key, value] = pair.split('=');
-    if (key === 'ref' && value !== undefined && value.length > 0) return value;
+    const eq = pair.indexOf('=');
+    if (eq < 0 || pair.slice(0, eq) !== name) continue;
+    const value = pair.slice(eq + 1);
+    if (value.length > 0) return value;
   }
   return null;
 }
@@ -81,7 +93,7 @@ export function moduleSourcePin(block: HclBlock): ModuleSourcePin {
   if (source.startsWith('./') || source.startsWith('../'))
     return { verdict: 'local', source, line };
   if (isGitSource(source)) {
-    const ref = gitRef(source);
+    const ref = queryArgument(source, 'ref');
     if (ref === null) return { verdict: 'git_unpinned', source, line };
     if (COMMIT_SHA.test(ref)) return { verdict: 'git_commit', source, line };
     return { verdict: VERSION_TAG.test(ref) ? 'git_tag' : 'git_branch_ref', source, line };
@@ -94,8 +106,15 @@ export function moduleSourcePin(block: HclBlock): ModuleSourcePin {
       line,
     };
   }
-  if (/^(?:https?|s3|gcs|hg)::|^https?:\/\//.test(source))
-    return { verdict: 'archive', source, line };
+  if (/^(?:https?|s3|gcs|hg)::|^https?:\/\//.test(source)) {
+    // go-getter verifies `checksum=<type>:<value>` before it unpacks the archive.
+    const checksum = queryArgument(source, 'checksum');
+    return {
+      verdict: checksum !== null && checksum.includes(':') ? 'archive_checksummed' : 'archive',
+      source,
+      line,
+    };
+  }
   return { verdict: 'unknown', source, line };
 }
 

@@ -66,18 +66,6 @@ import {
 } from './secret-allowlist-premise';
 import { MODULE_SOURCE_PINNING, moduleSourcePin, providerConstraints } from './terraform-pins';
 
-/**
- * The ARIA-HIGH-012 landing's test-first cases (high-012-compare.md §5, fixes 2-7) are written
- * before their fixes. The pre-commit hook runs this spec through run-all.mjs, so each such case
- * carries node:test's `todo` option: it runs and prints its failure without failing the hook. The
- * fix that turns a case green deletes its option. tools/aria-adapters/infrastructure-policy-
- * adapter.test.ts, the regression ref that closes ARIA-HIGH-012, refuses any `todo` left in this
- * file, so no case can stay a printed failure once the finding closes.
- */
-function landingFix(item: number): string {
-  return `ARIA-HIGH-012 landing fix ${item} (high-012-compare.md section 5) is not implemented`;
-}
-
 function repoFile(rel: string): string {
   return readFileSync(join(REPO_ROOT, rel), 'utf8');
 }
@@ -202,52 +190,43 @@ void test('readYamlDocuments: multi-document, anchors, merge keys, positions, er
   assert.ok(Date.now() - started < 500, 'the budget refuses before the expansion runs');
 });
 
-void test(
-  'readYamlDocuments resolves aliases once per document, not once per alias',
-  { todo: landingFix(5) },
-  () => {
-    // yaml@2.9.0's Alias.resolve(doc) walks the whole document unless it is handed the toJS
-    // cache, so resolving each alias on its own costs O(aliases x nodes): a 110 KB compose file
-    // with 4000 merge keys took 46 s in readYamlDocuments (verify-security-1 yaml-quadratic).
-    // The cost is counted, not timed: an uncached resolve is one full-document walk.
-    const fullWalks = (services: number): number => {
-      const lines = [
-        'x-base: &base',
-        '  restart: unless-stopped',
-        '  mem_limit: 256m',
-        'services:',
-      ];
-      const merged: YamlPath[] = [];
-      for (let index = 0; index < services; index += 1) {
-        lines.push(`  s${index}:`, '    <<: *base', `    image: "redis:7.${index}.0"`);
-        merged.push(['services', `s${index}`, 'mem_limit']);
-      }
-      const resolve = Alias.prototype.resolve;
-      let walks = 0;
-      Alias.prototype.resolve = function countedResolve(
-        this: Alias,
-        ...args: Parameters<typeof resolve>
-      ): ReturnType<typeof resolve> {
-        if (args[1]?.aliasResolveCache === undefined) walks += 1;
-        return resolve.apply(this, args);
-      };
-      try {
-        const read = readYamlDocuments(lines.join('\n'));
-        assert.deepEqual(read.errors, []);
-        const doc = nth(read.docs, 0);
-        // lineOf follows the merge key through the alias too (the second per-alias walk today).
-        for (const path of merged) assert.equal(doc.lineOf(path), 3);
-      } finally {
-        Alias.prototype.resolve = resolve;
-      }
-      return walks;
+void test('readYamlDocuments resolves aliases once per document, not once per alias', () => {
+  // yaml@2.9.0's Alias.resolve(doc) walks the whole document unless it is handed the toJS
+  // cache, so resolving each alias on its own costs O(aliases x nodes): a 110 KB compose file
+  // with 4000 merge keys took 46 s in readYamlDocuments (verify-security-1 yaml-quadratic).
+  // The cost is counted, not timed: an uncached resolve is one full-document walk.
+  const fullWalks = (services: number): number => {
+    const lines = ['x-base: &base', '  restart: unless-stopped', '  mem_limit: 256m', 'services:'];
+    const merged: YamlPath[] = [];
+    for (let index = 0; index < services; index += 1) {
+      lines.push(`  s${index}:`, '    <<: *base', `    image: "redis:7.${index}.0"`);
+      merged.push(['services', `s${index}`, 'mem_limit']);
+    }
+    const resolve = Alias.prototype.resolve;
+    let walks = 0;
+    Alias.prototype.resolve = function countedResolve(
+      this: Alias,
+      ...args: Parameters<typeof resolve>
+    ): ReturnType<typeof resolve> {
+      if (args[1]?.aliasResolveCache === undefined) walks += 1;
+      return resolve.apply(this, args);
     };
-    const few = fullWalks(20);
-    const many = fullWalks(200);
-    assert.ok(many <= 2, `${many} full-document walks for one document with 200 aliases`);
-    assert.equal(many, few, 'the walk count does not grow with the number of aliases');
-  },
-);
+    try {
+      const read = readYamlDocuments(lines.join('\n'));
+      assert.deepEqual(read.errors, []);
+      const doc = nth(read.docs, 0);
+      // lineOf follows the merge key through the alias too (the second per-alias walk today).
+      for (const path of merged) assert.equal(doc.lineOf(path), 3);
+    } finally {
+      Alias.prototype.resolve = resolve;
+    }
+    return walks;
+  };
+  const few = fullWalks(20);
+  const many = fullWalks(200);
+  assert.ok(many <= 2, `${many} full-document walks for one document with 200 aliases`);
+  assert.equal(many, few, 'the walk count does not grow with the number of aliases');
+});
 
 void test('workloads: compose services, env forms, build Dockerfile; k8s pod specs; kustomize targets', () => {
   const compose = nth(
@@ -535,74 +514,70 @@ void test('terraform pins: module sources and provider constraints', () => {
   );
 });
 
-void test(
-  'terraform pins fail closed: an archive is unpinned unless checksummed, an unknown source is unresolved',
-  { todo: landingFix(3) },
-  () => {
-    // An http(s)/s3/gcs archive changes when the object behind the URL is overwritten, and a source
-    // the owner cannot classify must not count as pinned (image-reference.ts: `malformed` is
-    // mutable). The checksum form is go-getter's `?checksum=<type>:<value>`.
-    const read = readHclBlocks(
-      [
-        'module "git_unpinned" { source = "git::https://e.com/m.git" }',
-        'module "git_branch" { source = "git::https://e.com/m.git?ref=main" }',
-        'module "git_commit" { source = "git::https://e.com/m.git?ref=' + 'b'.repeat(40) + '" }',
-        'module "git_tag" { source = "github.com/org/m?ref=v1.2.3" }',
-        'module "registry_bare" { source = "terraform-aws-modules/vpc/aws" }',
-        'module "registry_versioned" {',
-        '  source  = "terraform-aws-modules/vpc/aws"',
-        '  version = "5.1.2"',
-        '}',
-        'module "local" { source = "../modules/vpc" }',
-        'module "https_archive" { source = "https://e.com/vpc.zip" }',
-        'module "s3_archive" { source = "s3::https://bucket.s3.amazonaws.com/vpc.zip" }',
-        'module "gcs_archive" { source = "gcs::https://www.googleapis.com/storage/v1/b/vpc.zip" }',
-        'module "checksummed" { source = "https://e.com/vpc.zip?checksum=sha256:' +
-          'e'.repeat(64) +
-          '" }',
-        'module "odd_scheme" { source = "ftp-mirror:vpc" }',
-        'module "no_source" { version = "1.0.0" }',
-        '',
-      ].join('\n'),
-    );
-    assert.deepEqual(read.errors, []);
-    // The pinning is read through the Record, so it is the owner's answer and nobody else's.
-    const pinning = (block: (typeof read.blocks)[number]): string =>
-      MODULE_SOURCE_PINNING[moduleSourcePin(block).verdict];
-    assert.deepEqual(
-      read.blocks.filter((b) => b.type === 'module').map((m) => [m.labels[0], pinning(m)]),
-      [
-        ['git_unpinned', 'unpinned'],
-        ['git_branch', 'unpinned'],
-        ['git_commit', 'pinned'],
-        ['git_tag', 'pinned'],
-        ['registry_bare', 'unpinned'],
-        ['registry_versioned', 'pinned'],
-        ['local', 'pinned'],
-        ['https_archive', 'unpinned'],
-        ['s3_archive', 'unpinned'],
-        ['gcs_archive', 'unpinned'],
-        ['checksummed', 'pinned'],
-        ['odd_scheme', 'unresolved'],
-        ['no_source', 'unresolved'],
-      ],
-    );
-    // A Record over the verdict union: a new verdict without an entry does not compile, and the
-    // verdicts that do not pin are listed here, so none can default to pinned.
-    const verdictsWith = (outcome: string): string[] =>
-      Object.entries(MODULE_SOURCE_PINNING)
-        .filter(([, value]) => value === outcome)
-        .map(([verdict]) => verdict)
-        .sort();
-    assert.deepEqual(verdictsWith('unpinned'), [
-      'archive',
-      'git_branch_ref',
-      'git_unpinned',
-      'registry_unversioned',
-    ]);
-    assert.deepEqual(verdictsWith('unresolved'), ['unknown']);
-  },
-);
+void test('terraform pins fail closed: an archive is unpinned unless checksummed, an unknown source is unresolved', () => {
+  // An http(s)/s3/gcs archive changes when the object behind the URL is overwritten, and a source
+  // the owner cannot classify must not count as pinned (image-reference.ts: `malformed` is
+  // mutable). The checksum form is go-getter's `?checksum=<type>:<value>`.
+  const read = readHclBlocks(
+    [
+      'module "git_unpinned" { source = "git::https://e.com/m.git" }',
+      'module "git_branch" { source = "git::https://e.com/m.git?ref=main" }',
+      'module "git_commit" { source = "git::https://e.com/m.git?ref=' + 'b'.repeat(40) + '" }',
+      'module "git_tag" { source = "github.com/org/m?ref=v1.2.3" }',
+      'module "registry_bare" { source = "terraform-aws-modules/vpc/aws" }',
+      'module "registry_versioned" {',
+      '  source  = "terraform-aws-modules/vpc/aws"',
+      '  version = "5.1.2"',
+      '}',
+      'module "local" { source = "../modules/vpc" }',
+      'module "https_archive" { source = "https://e.com/vpc.zip" }',
+      'module "s3_archive" { source = "s3::https://bucket.s3.amazonaws.com/vpc.zip" }',
+      'module "gcs_archive" { source = "gcs::https://www.googleapis.com/storage/v1/b/vpc.zip" }',
+      'module "checksummed" { source = "https://e.com/vpc.zip?checksum=sha256:' +
+        'e'.repeat(64) +
+        '" }',
+      'module "odd_scheme" { source = "ftp-mirror:vpc" }',
+      'module "no_source" { version = "1.0.0" }',
+      '',
+    ].join('\n'),
+  );
+  assert.deepEqual(read.errors, []);
+  // The pinning is read through the Record, so it is the owner's answer and nobody else's.
+  const pinning = (block: (typeof read.blocks)[number]): string =>
+    MODULE_SOURCE_PINNING[moduleSourcePin(block).verdict];
+  assert.deepEqual(
+    read.blocks.filter((b) => b.type === 'module').map((m) => [m.labels[0], pinning(m)]),
+    [
+      ['git_unpinned', 'unpinned'],
+      ['git_branch', 'unpinned'],
+      ['git_commit', 'pinned'],
+      ['git_tag', 'pinned'],
+      ['registry_bare', 'unpinned'],
+      ['registry_versioned', 'pinned'],
+      ['local', 'pinned'],
+      ['https_archive', 'unpinned'],
+      ['s3_archive', 'unpinned'],
+      ['gcs_archive', 'unpinned'],
+      ['checksummed', 'pinned'],
+      ['odd_scheme', 'unresolved'],
+      ['no_source', 'unresolved'],
+    ],
+  );
+  // A Record over the verdict union: a new verdict without an entry does not compile, and the
+  // verdicts that do not pin are listed here, so none can default to pinned.
+  const verdictsWith = (outcome: string): string[] =>
+    Object.entries(MODULE_SOURCE_PINNING)
+      .filter(([, value]) => value === outcome)
+      .map(([verdict]) => verdict)
+      .sort();
+  assert.deepEqual(verdictsWith('unpinned'), [
+    'archive',
+    'git_branch_ref',
+    'git_unpinned',
+    'registry_unversioned',
+  ]);
+  assert.deepEqual(verdictsWith('unresolved'), ['unknown']);
+});
 
 // ---------------------------------------------------------------- nginx
 
@@ -844,45 +819,41 @@ void test('readNatsConf returns on every input: a stray } inside an array is an 
   }
 });
 
-void test(
-  'readers refuse nesting past a depth bound with a named error, never a stack overflow',
-  { todo: landingFix(4) },
-  () => {
-    // The NATS, nginx and HCL readers descend recursively. 5000 levels (20 KB) overflowed the
-    // stack, so a RangeError escaped readers whose contract is to return errors (read-error.ts):
-    // the corpus test failed naming no file, and an adapter scan would abort instead of recording
-    // one parse_error.
-    const DEEP = 10_000;
-    const SHALLOW = 32;
-    const nested: Array<[string, (depth: number) => { readonly errors: readonly ReadError[] }]> = [
-      ['nats map', (d) => readNatsConf(`${'a {'.repeat(d)}${'}'.repeat(d)}`)],
-      ['nats array', (d) => readNatsConf(`a: ${'['.repeat(d)}${']'.repeat(d)}`)],
-      ['nginx block', (d) => readNginx(`${'http {'.repeat(d)}${'}'.repeat(d)}`)],
-      ['hcl block', (d) => readHclBlocks(`${'a {\n'.repeat(d)}${'}\n'.repeat(d)}`)],
-      ['hcl object', (d) => readHclBlocks(`a = ${'{ b = '.repeat(d)}1${' }'.repeat(d)}\n`)],
-    ];
-    const outcome = (read: () => { readonly errors: readonly ReadError[] }): string[] | string => {
-      try {
-        return read().errors.map((error) => error.message);
-      } catch (error) {
-        return `threw ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`;
-      }
-    };
-    for (const [label, read] of nested) {
-      assert.deepEqual(
-        outcome(() => read(SHALLOW)),
-        [],
-        `${label}: ${SHALLOW} levels read clean`,
-      );
-      const deep = outcome(() => read(DEEP));
-      assert.ok(Array.isArray(deep), `${label}: ${DEEP} levels ${String(deep)}`);
-      assert.ok(
-        deep.some((message) => /nest|depth/i.test(message)),
-        `${label}: ${DEEP} levels return a read error that names the nesting (${JSON.stringify(deep)})`,
-      );
+void test('readers refuse nesting past a depth bound with a named error, never a stack overflow', () => {
+  // The NATS, nginx and HCL readers descend recursively. 5000 levels (20 KB) overflowed the
+  // stack, so a RangeError escaped readers whose contract is to return errors (read-error.ts):
+  // the corpus test failed naming no file, and an adapter scan would abort instead of recording
+  // one parse_error.
+  const DEEP = 10_000;
+  const SHALLOW = 32;
+  const nested: Array<[string, (depth: number) => { readonly errors: readonly ReadError[] }]> = [
+    ['nats map', (d) => readNatsConf(`${'a {'.repeat(d)}${'}'.repeat(d)}`)],
+    ['nats array', (d) => readNatsConf(`a: ${'['.repeat(d)}${']'.repeat(d)}`)],
+    ['nginx block', (d) => readNginx(`${'http {'.repeat(d)}${'}'.repeat(d)}`)],
+    ['hcl block', (d) => readHclBlocks(`${'a {\n'.repeat(d)}${'}\n'.repeat(d)}`)],
+    ['hcl object', (d) => readHclBlocks(`a = ${'{ b = '.repeat(d)}1${' }'.repeat(d)}\n`)],
+  ];
+  const outcome = (read: () => { readonly errors: readonly ReadError[] }): string[] | string => {
+    try {
+      return read().errors.map((error) => error.message);
+    } catch (error) {
+      return `threw ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`;
     }
-  },
-);
+  };
+  for (const [label, read] of nested) {
+    assert.deepEqual(
+      outcome(() => read(SHALLOW)),
+      [],
+      `${label}: ${SHALLOW} levels read clean`,
+    );
+    const deep = outcome(() => read(DEEP));
+    assert.ok(Array.isArray(deep), `${label}: ${DEEP} levels ${String(deep)}`);
+    assert.ok(
+      deep.some((message) => /nest|depth/i.test(message)),
+      `${label}: ${DEEP} levels return a read error that names the nesting (${JSON.stringify(deep)})`,
+    );
+  }
+});
 
 void test('natsCredentialAuth flags credential identity, not cert identity or comments', () => {
   const read = readNatsConf(
@@ -932,62 +903,58 @@ void test('natsCredentialAuth flags credential identity, not cert identity or co
   );
 });
 
-void test(
-  'natsCredentialAuth locates a password, token or nkey and never carries its value',
-  { todo: landingFix(2) },
-  () => {
-    // A hit becomes the e2e failure message (CI log) and, through the infrastructure-policy
-    // adapter, an ARIA finding, evidence and state that outlive rotating the credential. The
-    // sibling owner already rules this: HiddenSecret (secret-allowlist-premise.ts) carries the
-    // length, never the value. A user name or certificate DN is not a secret and keeps its value.
-    const literals = {
-      password: 'Pw-literal-91827364',
-      pass: 'Ps-literal-55501234',
-      token: 'Tk-literal-10293847',
-      nkey: 'UAXNKEYLITERAL4Q5R6S7T8U9V0W1X2Y3Z4A5B6C7D8E9F0G1H2',
-    } as const;
-    const read = readNatsConf(
-      [
-        'authorization {', //                                                  1
-        `  password: "${literals.password}"`, //                               2
-        `  token: ${literals.token}`, //                                       3
-        `  users = [ { user: admin, pass: "${literals.pass}" }, { nkey: ${literals.nkey} } ]`, // 4
-        '}', //                                                                5
-        '',
-      ].join('\n'),
-    );
-    assert.deepEqual(read.errors, []);
-    const hits = natsCredentialAuth(read.tree);
-    const secretKinds: ReadonlySet<string> = new Set(['password', 'token', 'nkey']);
-    const secrets = hits.filter((hit) => secretKinds.has(hit.kind));
-    assert.deepEqual(
-      secrets.map((hit) => [hit.kind, hit.key, hit.line]),
-      [
-        ['password', 'password', 2],
-        ['token', 'token', 3],
-        ['password', 'pass', 4],
-        ['nkey', 'nkey', 4],
-      ],
-      'every credential is still found',
-    );
-    const serialised = JSON.stringify(hits);
-    for (const [key, literal] of Object.entries(literals)) {
-      assert.equal(serialised.includes(literal), false, `the ${key} literal is in the hits`);
-    }
-    assert.deepEqual(
-      secrets.map((hit) => ('secretLength' in hit ? hit.secretLength : null)),
-      [literals.password.length, literals.token.length, literals.pass.length, literals.nkey.length],
-      'a secret hit carries the length of the value instead (as HiddenSecret does)',
-    );
-    assert.deepEqual(
-      hits
-        .filter((hit) => !secretKinds.has(hit.kind))
-        .map((hit) => [hit.kind, 'value' in hit ? hit.value : null]),
-      [['non_cert_user', 'admin']],
-      'a user name is not a secret: it keeps its value',
-    );
-  },
-);
+void test('natsCredentialAuth locates a password, token or nkey and never carries its value', () => {
+  // A hit becomes the e2e failure message (CI log) and, through the infrastructure-policy
+  // adapter, an ARIA finding, evidence and state that outlive rotating the credential. The
+  // sibling owner already rules this: HiddenSecret (secret-allowlist-premise.ts) carries the
+  // length, never the value. A user name or certificate DN is not a secret and keeps its value.
+  const literals = {
+    password: 'Pw-literal-91827364',
+    pass: 'Ps-literal-55501234',
+    token: 'Tk-literal-10293847',
+    nkey: 'UAXNKEYLITERAL4Q5R6S7T8U9V0W1X2Y3Z4A5B6C7D8E9F0G1H2',
+  } as const;
+  const read = readNatsConf(
+    [
+      'authorization {', //                                                  1
+      `  password: "${literals.password}"`, //                               2
+      `  token: ${literals.token}`, //                                       3
+      `  users = [ { user: admin, pass: "${literals.pass}" }, { nkey: ${literals.nkey} } ]`, // 4
+      '}', //                                                                5
+      '',
+    ].join('\n'),
+  );
+  assert.deepEqual(read.errors, []);
+  const hits = natsCredentialAuth(read.tree);
+  const secretKinds: ReadonlySet<string> = new Set(['password', 'token', 'nkey']);
+  const secrets = hits.filter((hit) => secretKinds.has(hit.kind));
+  assert.deepEqual(
+    secrets.map((hit) => [hit.kind, hit.key, hit.line]),
+    [
+      ['password', 'password', 2],
+      ['token', 'token', 3],
+      ['password', 'pass', 4],
+      ['nkey', 'nkey', 4],
+    ],
+    'every credential is still found',
+  );
+  const serialised = JSON.stringify(hits);
+  for (const [key, literal] of Object.entries(literals)) {
+    assert.equal(serialised.includes(literal), false, `the ${key} literal is in the hits`);
+  }
+  assert.deepEqual(
+    secrets.map((hit) => ('secretLength' in hit ? hit.secretLength : null)),
+    [literals.password.length, literals.token.length, literals.pass.length, literals.nkey.length],
+    'a secret hit carries the length of the value instead (as HiddenSecret does)',
+  );
+  assert.deepEqual(
+    hits
+      .filter((hit) => !secretKinds.has(hit.kind))
+      .map((hit) => [hit.kind, 'value' in hit ? hit.value : null]),
+    [['non_cert_user', 'admin']],
+    'a user name is not a secret: it keeps its value',
+  );
+});
 
 // ---------------------------------------------------------------- image references
 
@@ -1278,96 +1245,88 @@ void test('pod privilege, user precedence and guards', () => {
   );
 });
 
-void test(
-  'privilege: socket paths normalised, containerd and CRI-O sockets, binds that climb out are unresolved',
-  { todo: landingFix(6) },
-  () => {
-    // exposesDockerSocket dropped only empty segments and knew docker.sock alone, and a relative
-    // bind source returned "safe": each bind below gives the container a runtime socket and none
-    // was reported (verify-security-1 socket-probe). compose resolves a relative source against
-    // the project directory, the repository checkout: one that stays inside it is project
-    // content, one that climbs out of it depends on where the checkout lives, so it is reported
-    // unresolved instead of safe.
-    const doc = nth(
+void test('privilege: socket paths normalised, containerd and CRI-O sockets, binds that climb out are unresolved', () => {
+  // exposesDockerSocket dropped only empty segments and knew docker.sock alone, and a relative
+  // bind source returned "safe": each bind below gives the container a runtime socket and none
+  // was reported (verify-security-1 socket-probe). compose resolves a relative source against
+  // the project directory, the repository checkout: one that stays inside it is project
+  // content, one that climbs out of it depends on where the checkout lives, so it is reported
+  // unresolved instead of safe.
+  const doc = nth(
+    readYamlDocuments(
+      [
+        'services:',
+        '  dots:',
+        '    volumes: ["/./:/rootfs:ro", "/var/run/./docker.sock:/s", "/var/lib/../run:/r"]',
+        '  runtimes:',
+        '    volumes:',
+        '      - /run/containerd/containerd.sock:/c',
+        '      - /var/run/crio/crio.sock:/o',
+        '      - /run/containerd:/d',
+        '  climbs:',
+        '    volumes:',
+        '      - ../../../../../../var/run/docker.sock:/s',
+        '      - { type: bind, source: ../shared, target: /x }',
+        '  project:',
+        '    volumes: ["./config:/etc/app:ro", "./a/../b:/b", "pgdata:/var/lib/postgresql/data"]',
+        '',
+      ].join('\n'),
+    ).docs,
+    0,
+  ).value;
+  const reasons = (name: string): [string, string][] =>
+    composeServicePrivilege(
+      present(
+        composeServices(doc).find((s) => s.name === name),
+        name,
+      ),
+    ).map((h) => [h.reason, h.detail]);
+  assert.deepEqual(reasons('dots'), [
+    ['docker_socket', 'mounts /./'],
+    ['docker_socket', 'mounts /var/run/./docker.sock'],
+    ['docker_socket', 'mounts /var/lib/../run'],
+  ]);
+  assert.deepEqual(reasons('runtimes'), [
+    ['docker_socket', 'mounts /run/containerd/containerd.sock'],
+    ['docker_socket', 'mounts /var/run/crio/crio.sock'],
+    ['docker_socket', 'mounts /run/containerd'],
+  ]);
+  assert.deepEqual(reasons('climbs'), [
+    ['unresolved_bind', 'mounts ../../../../../../var/run/docker.sock'],
+    ['unresolved_bind', 'mounts ../shared'],
+  ]);
+  assert.deepEqual(reasons('project'), [], 'project content and a named volume are not host paths');
+
+  const [node] = k8sWorkloads(
+    nth(
       readYamlDocuments(
         [
-          'services:',
-          '  dots:',
-          '    volumes: ["/./:/rootfs:ro", "/var/run/./docker.sock:/s", "/var/lib/../run:/r"]',
-          '  runtimes:',
-          '    volumes:',
-          '      - /run/containerd/containerd.sock:/c',
-          '      - /var/run/crio/crio.sock:/o',
-          '      - /run/containerd:/d',
-          '  climbs:',
-          '    volumes:',
-          '      - ../../../../../../var/run/docker.sock:/s',
-          '      - { type: bind, source: ../shared, target: /x }',
-          '  project:',
-          '    volumes: ["./config:/etc/app:ro", "./a/../b:/b", "pgdata:/var/lib/postgresql/data"]',
+          'kind: DaemonSet',
+          'metadata: { name: node-agent }',
+          'spec:',
+          '  template:',
+          '    spec:',
+          '      volumes:',
+          '        - { name: c, hostPath: { path: /run/containerd/containerd.sock } }',
+          '        - { name: o, hostPath: { path: /var/run/crio/crio.sock } }',
+          '        - { name: r, hostPath: { path: /var/lib/../run } }',
+          '      containers: [ { name: a } ]',
           '',
         ].join('\n'),
       ).docs,
       0,
-    ).value;
-    const reasons = (name: string): [string, string][] =>
-      composeServicePrivilege(
-        present(
-          composeServices(doc).find((s) => s.name === name),
-          name,
-        ),
-      ).map((h) => [h.reason, h.detail]);
-    assert.deepEqual(reasons('dots'), [
-      ['docker_socket', 'mounts /./'],
-      ['docker_socket', 'mounts /var/run/./docker.sock'],
-      ['docker_socket', 'mounts /var/lib/../run'],
-    ]);
-    assert.deepEqual(reasons('runtimes'), [
-      ['docker_socket', 'mounts /run/containerd/containerd.sock'],
-      ['docker_socket', 'mounts /var/run/crio/crio.sock'],
-      ['docker_socket', 'mounts /run/containerd'],
-    ]);
-    assert.deepEqual(reasons('climbs'), [
-      ['unresolved_bind', 'mounts ../../../../../../var/run/docker.sock'],
-      ['unresolved_bind', 'mounts ../shared'],
-    ]);
-    assert.deepEqual(
-      reasons('project'),
-      [],
-      'project content and a named volume are not host paths',
-    );
-
-    const [node] = k8sWorkloads(
-      nth(
-        readYamlDocuments(
-          [
-            'kind: DaemonSet',
-            'metadata: { name: node-agent }',
-            'spec:',
-            '  template:',
-            '    spec:',
-            '      volumes:',
-            '        - { name: c, hostPath: { path: /run/containerd/containerd.sock } }',
-            '        - { name: o, hostPath: { path: /var/run/crio/crio.sock } }',
-            '        - { name: r, hostPath: { path: /var/lib/../run } }',
-            '      containers: [ { name: a } ]',
-            '',
-          ].join('\n'),
-        ).docs,
-        0,
-      ).value,
-    );
-    assert.ok(node);
-    assert.deepEqual(
-      podSpecPrivilege(node).map((h) => [h.reason, h.detail]),
-      [
-        ['docker_socket', 'hostPath /run/containerd/containerd.sock'],
-        ['docker_socket', 'hostPath /var/run/crio/crio.sock'],
-        ['docker_socket', 'hostPath /var/lib/../run'],
-      ],
-    );
-  },
-);
+    ).value,
+  );
+  assert.ok(node);
+  assert.deepEqual(
+    podSpecPrivilege(node).map((h) => [h.reason, h.detail]),
+    [
+      ['docker_socket', 'hostPath /run/containerd/containerd.sock'],
+      ['docker_socket', 'hostPath /var/run/crio/crio.sock'],
+      ['docker_socket', 'hostPath /var/lib/../run'],
+    ],
+  );
+});
 
 // ---------------------------------------------------------------- secret premise
 
@@ -1425,58 +1384,54 @@ void test('secretsHiddenByPathAllowlist reports what the env-secret rule would r
   );
 });
 
-void test(
-  'without secretGroup the secret is the first non-empty capture group, as gitleaks reads it',
-  { todo: landingFix(7) },
-  () => {
-    // gitleaks v8 (detect.go): with capture groups and no secretGroup, the secret is the first
-    // non-empty group; without capture groups it is the whole match. Defaulting to group 0 tested
-    // value-shaped allowlists against `KEY=value`, so they never suppressed, and reported the
-    // match length as the secret's. tests/invariants/gitleaks-allowlist-reachable.spec.ts
-    // documents the same gitleaks rule.
-    const toml = (regex: string): string =>
-      [
-        '[[rules]]',
-        `id = "${ENV_SECRET_RULE_ID}"`,
-        `regex = '''${regex}'''`,
-        '[rules.allowlist]',
-        String.raw`paths = ['''(?i)docker-compose[^/]*\.ya?ml$''']`,
-        "regexes = ['''^aquaculture-sample-value$''']",
-        '',
-      ].join('\n');
-    const entry = (line: number, key: string, value: string): StructuredEnvEntry => ({
-      path: 'docker-compose.yml',
-      line,
-      key,
-      value,
-    });
-    const entries = [
-      entry(1, 'JWT_SECRET', 'Q7vLm2Xp9TzR4wKd'),
-      entry(2, 'POSTGRES_PASSWORD', '"Hb4Rn8Wc2Ys6Jt0M"'),
-      entry(3, 'POSTGRES_PASSWORD', 'aquaculture-sample-value'),
-    ];
-    // The quoted and the bare spelling capture in different groups; neither is group 1 for both.
-    const grouped = loadEnvSecretRule(
-      toml(
-        String.raw`(?i)(?:JWT_SECRET|POSTGRES_PASSWORD)\s*[=:]\s*(?:"([^"\s]{12,})"|([A-Za-z0-9+/=_-]{12,}))`,
-      ),
-    );
-    assert.deepEqual(
-      secretsHiddenByPathAllowlist(entries, grouped).map((h) => [h.line, h.key, h.secretLength]),
-      [
-        [1, 'JWT_SECRET', 16],
-        [2, 'POSTGRES_PASSWORD', 16],
-      ],
-      'the value is the secret: its length is reported and the value allowlist suppresses line 3',
-    );
-    // No capture group: the whole match is the secret, as before.
-    const whole = loadEnvSecretRule(toml(String.raw`(?i)JWT_SECRET\s*[=:]\s*[A-Za-z0-9]{12,}`));
-    assert.deepEqual(
-      secretsHiddenByPathAllowlist(entries, whole).map((h) => [h.line, h.secretLength]),
-      [[1, 'JWT_SECRET=Q7vLm2Xp9TzR4wKd'.length]],
-    );
-  },
-);
+void test('without secretGroup the secret is the first non-empty capture group, as gitleaks reads it', () => {
+  // gitleaks v8 (detect.go): with capture groups and no secretGroup, the secret is the first
+  // non-empty group; without capture groups it is the whole match. Defaulting to group 0 tested
+  // value-shaped allowlists against `KEY=value`, so they never suppressed, and reported the
+  // match length as the secret's. tests/invariants/gitleaks-allowlist-reachable.spec.ts
+  // documents the same gitleaks rule.
+  const toml = (regex: string): string =>
+    [
+      '[[rules]]',
+      `id = "${ENV_SECRET_RULE_ID}"`,
+      `regex = '''${regex}'''`,
+      '[rules.allowlist]',
+      String.raw`paths = ['''(?i)docker-compose[^/]*\.ya?ml$''']`,
+      "regexes = ['''^aquaculture-sample-value$''']",
+      '',
+    ].join('\n');
+  const entry = (line: number, key: string, value: string): StructuredEnvEntry => ({
+    path: 'docker-compose.yml',
+    line,
+    key,
+    value,
+  });
+  const entries = [
+    entry(1, 'JWT_SECRET', 'Q7vLm2Xp9TzR4wKd'),
+    entry(2, 'POSTGRES_PASSWORD', '"Hb4Rn8Wc2Ys6Jt0M"'),
+    entry(3, 'POSTGRES_PASSWORD', 'aquaculture-sample-value'),
+  ];
+  // The quoted and the bare spelling capture in different groups; neither is group 1 for both.
+  const grouped = loadEnvSecretRule(
+    toml(
+      String.raw`(?i)(?:JWT_SECRET|POSTGRES_PASSWORD)\s*[=:]\s*(?:"([^"\s]{12,})"|([A-Za-z0-9+/=_-]{12,}))`,
+    ),
+  );
+  assert.deepEqual(
+    secretsHiddenByPathAllowlist(entries, grouped).map((h) => [h.line, h.key, h.secretLength]),
+    [
+      [1, 'JWT_SECRET', 16],
+      [2, 'POSTGRES_PASSWORD', 16],
+    ],
+    'the value is the secret: its length is reported and the value allowlist suppresses line 3',
+  );
+  // No capture group: the whole match is the secret, as before.
+  const whole = loadEnvSecretRule(toml(String.raw`(?i)JWT_SECRET\s*[=:]\s*[A-Za-z0-9]{12,}`));
+  assert.deepEqual(
+    secretsHiddenByPathAllowlist(entries, whole).map((h) => [h.line, h.secretLength]),
+    [[1, 'JWT_SECRET=Q7vLm2Xp9TzR4wKd'.length]],
+  );
+});
 
 // ---------------------------------------------------------------- real corpus
 

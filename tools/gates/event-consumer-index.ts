@@ -44,6 +44,26 @@
  * `eventConsumersFor` is the one consumer-set function: the code sites for an event type, united
  * with the subscribe grants that name it (a grant is still the only source for a non-TypeScript
  * consumer); catch-all grants are returned separately as permissions.
+ *
+ * `scanEventProducers` is the one owner of "who produces event T" in code (service-expertise PLAN
+ * §2, SE-3). Every event is built through `createBaseEvent` (the branded EventId makes it the only
+ * construction path), so a producer site is a call the checker resolves to that declaration in
+ * libs/event-contracts, whatever the callee is spelled. Its first argument is folded exactly as a
+ * subscription value is; a value that does not fold is `unresolved`, never dropped. Attribution is
+ * the consumers' rule, over-attribution included: a library site whose argument folds to a union
+ * (the tenant-erasure executor's per-target outcome types) is a fact of every wiring app for every
+ * member. ACL publish grants are permission, not production, and are never read as producers.
+ *
+ * `--facts --repo-root <tree>` (`eventFacts`) is the code-fact bridge entry the kernel runs on a
+ * diff's base tree (`K/plan_coverage.py` `compute_service_facts`): per application, the produced
+ * and consumed event sites, code producer x code subscription edges, the services.yaml grants as
+ * permission facts with their lines (never edges, SK-09), the NATS identity, and the event
+ * definition sites in libs/event-contracts. Every input is read under the given tree. A
+ * services.yaml its schema refuses exits 2 with nothing on stdout, so the kernel holds the change
+ * by name instead of reading empty facts.
+ *
+ * Invoke via:
+ *   ts-node --project tools/gates/tsconfig.json tools/gates/event-consumer-index.ts --facts --repo-root <tree>
  */
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -56,7 +76,11 @@ import {
   eventSubjectsFor,
   filtersOverlap,
   type GrantMatch,
+  loadNatsServicesLocated,
+  NATS_SERVICES_YAML,
   type NatsServiceEntry,
+  NatsServicesInvalid,
+  type NatsServiceSourceLines,
 } from './nats-services';
 
 /** What a subscription's argument names: an event type (the bus builds the subject) or a subject. */
@@ -144,6 +168,11 @@ const SUBJECT_BUILDERS: ReadonlySet<string> = new Set([
   'buildRoutedWildcardSubject',
 ]);
 const MAX_FOLD_DEPTH = 8;
+/** The one event constructor (libs/event-contracts/src/base-event.ts) and where it is declared. */
+const EVENT_CONSTRUCTOR = 'createBaseEvent';
+const EVENT_CONTRACTS_DECLARATION = /[\\/]libs[\\/]event-contracts[\\/]src[\\/]/;
+const PRODUCER_CANDIDATE_TEXT = /\bcreateBaseEvent\b/;
+const EVENT_CONTRACTS_SOURCES = 'libs/event-contracts/src/';
 
 const toPosix = (path: string): string => path.split(sep).join('/');
 
@@ -240,6 +269,18 @@ interface Folded {
 
 const plain = (values: readonly string[]): Folded => ({ values, eventTypes: false });
 
+/** The values of a string-literal type or a union of them; null for any other type. */
+function stringLiteralValues(type: ts.Type): string[] | null {
+  const parts = type.isUnion() ? type.types : [type];
+  if (parts.length === 0) return null;
+  const values: string[] = [];
+  for (const part of parts) {
+    if (!part.isStringLiteral()) return null;
+    values.push(part.value);
+  }
+  return values;
+}
+
 /** Static values of subscription arguments, through the type checker (see the module header). */
 class ValueFolder {
   constructor(private readonly checker: ts.TypeChecker) {}
@@ -250,7 +291,7 @@ class ValueFolder {
     if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
       return plain([node.text]);
     }
-    const typed = this.literalValues(this.checker.getTypeAtLocation(node));
+    const typed = stringLiteralValues(this.checker.getTypeAtLocation(node));
     if (typed !== null) return plain(typed);
     if (ts.isTemplateExpression(node)) return this.foldTemplate(node, depth);
     if (ts.isConditionalExpression(node)) {
@@ -262,17 +303,6 @@ class ValueFolder {
     }
     if (ts.isIdentifier(node)) return this.foldIdentifier(node, depth);
     return null;
-  }
-
-  private literalValues(type: ts.Type): string[] | null {
-    const parts = type.isUnion() ? type.types : [type];
-    if (parts.length === 0) return null;
-    const values: string[] = [];
-    for (const part of parts) {
-      if (!part.isStringLiteral()) return null;
-      values.push(part.value);
-    }
-    return values;
   }
 
   private foldTemplate(node: ts.TemplateExpression, depth: number): Folded | null {
@@ -350,14 +380,14 @@ class ValueFolder {
       const elements = this.checker.getTypeArguments(type as ts.TypeReference);
       const values: string[] = [];
       for (const element of elements) {
-        const literal = this.literalValues(element);
+        const literal = stringLiteralValues(element);
         if (literal === null) return null;
         values.push(...literal);
       }
       if (values.length > 0) return plain(values);
     } else if (this.checker.isArrayType(type)) {
       const element = this.checker.getIndexTypeOfType(type, ts.IndexKind.Number);
-      const literal = element === undefined ? null : this.literalValues(element);
+      const literal = element === undefined ? null : stringLiteralValues(element);
       if (literal !== null) return plain(literal);
     }
     if (ts.isIdentifier(node)) {
@@ -725,39 +755,82 @@ export function compareSites(a: string, b: string): number {
   return fileA.localeCompare(fileB) || Number(lineA) - Number(lineB);
 }
 
-/** Scan `repoRoot`'s TypeScript sources for event consumers (see the module header). */
-export function scanEventConsumers(repoRoot: string): EventConsumerIndex {
-  const root = resolve(repoRoot);
-  const allFiles = sourceFiles(root, SOURCE_ROOTS);
-  const candidates = allFiles.filter((path) => CANDIDATE_TEXT.test(readFileSync(path, 'utf8')));
-  const program = ts.createProgram(candidates, compilerOptions(root));
-  const checker = program.getTypeChecker();
-  const folder = new ValueFolder(checker);
-  const appNames = applicationNames(root);
+/**
+ * One type-checked view of the repository's TypeScript sources, shared by the consumer scan, the
+ * producer scan and the event definitions: the program over the given candidate files, the value
+ * folder, and attribution of a site to the applications it runs in.
+ */
+class SourceScan {
+  readonly root: string;
+  readonly allFiles: readonly string[];
+  readonly program: ts.Program;
+  readonly checker: ts.TypeChecker;
+  readonly folder: ValueFolder;
+  /** apps/<dir> -> nx project name, for every application directory. */
+  readonly applications: ReadonlyMap<string, string>;
+  private readonly attribution: LibraryAttribution;
 
-  const appOf = (file: string): string | null => {
-    const match = /^apps\/([^/]+)\/src\//.exec(file);
-    return match?.[1] === undefined ? null : (appNames.get(match[1]) ?? match[1]);
-  };
-  const appFiles = new Map<string, string[]>();
-  const libraryFiles: string[] = [];
-  for (const path of allFiles) {
-    const application = appOf(toPosix(relative(root, path)));
-    if (application === null) libraryFiles.push(path);
-    else appFiles.set(application, [...(appFiles.get(application) ?? []), path]);
+  /** `root` is resolved; `programFiles` are the absolute files the checker is built over. */
+  constructor(root: string, allFiles: readonly string[], programFiles: readonly string[]) {
+    this.root = root;
+    this.allFiles = allFiles;
+    this.program = ts.createProgram([...programFiles], compilerOptions(root));
+    this.checker = this.program.getTypeChecker();
+    this.folder = new ValueFolder(this.checker);
+    this.applications = applicationNames(this.root);
+    const appFiles = new Map<string, string[]>();
+    const libraryFiles: string[] = [];
+    for (const path of this.allFiles) {
+      const application = this.appOf(this.relative(path));
+      if (application === null) libraryFiles.push(path);
+      else appFiles.set(application, [...(appFiles.get(application) ?? []), path]);
+    }
+    this.attribution = new LibraryAttribution(libraryFiles, appFiles);
   }
-  const attribution = new LibraryAttribution(libraryFiles, appFiles);
 
+  relative(path: string): string {
+    return toPosix(relative(this.root, path));
+  }
+
+  /** The application owning a repo-relative file under apps/<app>/src, else null (a library). */
+  appOf(file: string): string | null {
+    const match = /^apps\/([^/]+)\/src\//.exec(file);
+    return match?.[1] === undefined ? null : (this.applications.get(match[1]) ?? match[1]);
+  }
+
+  /** The applications a site runs in: its own app, else every app wiring its library class. */
+  applicationsFor(file: string, node: ts.Node): string[] {
+    const application = this.appOf(file);
+    if (application !== null) return [application];
+    const owner = enclosingClassName(node);
+    return owner === null ? [] : this.attribution.applicationsWiring(owner);
+  }
+
+  sourceFile(path: string): ts.SourceFile {
+    const sourceFile = this.program.getSourceFile(path);
+    if (sourceFile === undefined) throw new Error(`event-consumer-index: ${path} not in program`);
+    return sourceFile;
+  }
+}
+
+const textMatches =
+  (pattern: RegExp) =>
+  (path: string): boolean =>
+    pattern.test(readFileSync(path, 'utf8'));
+
+const bySite = (a: { site: string }, b: { site: string }): number => compareSites(a.site, b.site);
+
+/** The consumer index of the candidate files of `scan` (see the module header). */
+function consumerIndex(scan: SourceScan, candidates: readonly string[]): EventConsumerIndex {
   const sites: ScannedSite[] = [];
   const entries: EventConsumerEntry[] = [];
   const unresolved: UnresolvedConsumerSite[] = [];
   const unattributed: string[] = [];
   for (const path of candidates) {
-    const sourceFile = program.getSourceFile(path);
-    if (sourceFile === undefined) throw new Error(`event-consumer-index: ${path} not in program`);
-    const file = toPosix(relative(root, path));
-    for (const raw of sitesIn(sourceFile, checker, file)) {
-      const folded = raw.argument === undefined ? null : folder.fold(raw.argument);
+    const sourceFile = scan.sourceFile(path);
+    const file = scan.relative(path);
+    for (const raw of sitesIn(sourceFile, scan.checker, file)) {
+      const folded = raw.argument === undefined ? null : scan.folder.fold(raw.argument);
       const kind = folded?.eventTypes === true ? 'event_type' : raw.kind;
       const site: ScannedSite = {
         site: `${file}:${raw.line}`,
@@ -771,17 +844,16 @@ export function scanEventConsumers(repoRoot: string): EventConsumerIndex {
       };
       sites.push(site);
       if (site.forwarding) continue;
-      const application = appOf(file);
       if (site.values === null) {
-        unresolved.push({ application, site: site.site, api: site.api, form: site.form });
+        unresolved.push({
+          application: scan.appOf(file),
+          site: site.site,
+          api: site.api,
+          form: site.form,
+        });
         continue;
       }
-      let applications: string[];
-      if (application !== null) applications = [application];
-      else {
-        const owner = enclosingClassName(raw.node);
-        applications = owner === null ? [] : attribution.applicationsWiring(owner);
-      }
+      const applications = scan.applicationsFor(file, raw.node);
       if (applications.length === 0) unattributed.push(site.site);
       for (const app of applications) {
         for (const value of site.values) {
@@ -790,7 +862,6 @@ export function scanEventConsumers(repoRoot: string): EventConsumerIndex {
       }
     }
   }
-  const bySite = (a: { site: string }, b: { site: string }): number => compareSites(a.site, b.site);
   return {
     entries: entries.sort(
       (a, b) =>
@@ -803,6 +874,122 @@ export function scanEventConsumers(repoRoot: string): EventConsumerIndex {
     sites: sites.sort(bySite),
     filesScanned: candidates.length,
   };
+}
+
+/** Scan `repoRoot`'s TypeScript sources for event consumers (see the module header). */
+export function scanEventConsumers(repoRoot: string): EventConsumerIndex {
+  const root = resolve(repoRoot);
+  const allFiles = sourceFiles(root, SOURCE_ROOTS);
+  const candidates = allFiles.filter(textMatches(CANDIDATE_TEXT));
+  return consumerIndex(new SourceScan(root, allFiles, candidates), candidates);
+}
+
+/** One event construction site, attributed to an application. */
+export interface EventProducerEntry {
+  readonly application: string;
+  readonly eventType: string;
+  readonly site: string;
+}
+
+export interface UnresolvedProducerSite {
+  /** The owning application, or null for a library site. */
+  readonly application: string | null;
+  readonly site: string;
+  readonly form: string;
+}
+
+export interface EventProducerIndex {
+  readonly entries: readonly EventProducerEntry[];
+  readonly unresolved: readonly UnresolvedProducerSite[];
+  /** Library construction sites no application wires. */
+  readonly unattributed: readonly string[];
+  readonly filesScanned: number;
+}
+
+/** A `createBaseEvent(` call, by its resolved declaration in libs/event-contracts. */
+function producerSitesIn(
+  sourceFile: ts.SourceFile,
+  checker: ts.TypeChecker,
+): { readonly line: number; readonly call: ts.CallExpression }[] {
+  const sites: { readonly line: number; readonly call: ts.CallExpression }[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node)) {
+      // An identifier callee may be an import alias of the constructor; a property callee is a
+      // namespace import (`contracts.createBaseEvent`). The declaration decides, not the name.
+      const callee = ts.isPropertyAccessExpression(node.expression)
+        ? node.expression.name
+        : node.expression;
+      const candidate =
+        ts.isIdentifier(callee) &&
+        (!ts.isPropertyAccessExpression(node.expression) || callee.text === EVENT_CONSTRUCTOR);
+      const resolved = candidate ? resolvedCallee(checker, callee) : null;
+      if (resolved?.name === EVENT_CONSTRUCTOR && EVENT_CONTRACTS_DECLARATION.test(resolved.file)) {
+        const line =
+          sourceFile.getLineAndCharacterOfPosition(node.expression.getStart(sourceFile)).line + 1;
+        sites.push({ line, call: node });
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return sites;
+}
+
+/** The producer index of the candidate files of `scan`. */
+function producerIndex(scan: SourceScan, candidates: readonly string[]): EventProducerIndex {
+  const entries: EventProducerEntry[] = [];
+  const unresolved: UnresolvedProducerSite[] = [];
+  const unattributed: string[] = [];
+  for (const path of candidates) {
+    const sourceFile = scan.sourceFile(path);
+    const file = scan.relative(path);
+    for (const { line, call } of producerSitesIn(sourceFile, scan.checker)) {
+      const site = `${file}:${line}`;
+      const [argument] = call.arguments;
+      const folded = argument === undefined ? null : scan.folder.fold(argument);
+      if (folded === null || folded.eventTypes) {
+        unresolved.push({
+          application: scan.appOf(file),
+          site,
+          form: argument?.getText(sourceFile) ?? '<no argument>',
+        });
+        continue;
+      }
+      const applications = scan.applicationsFor(file, call);
+      if (applications.length === 0) unattributed.push(site);
+      for (const application of applications) {
+        for (const eventType of new Set(folded.values)) {
+          entries.push({ application, eventType, site });
+        }
+      }
+    }
+  }
+  return {
+    entries: entries.sort(
+      (a, b) =>
+        a.application.localeCompare(b.application) ||
+        a.eventType.localeCompare(b.eventType) ||
+        bySite(a, b),
+    ),
+    unresolved: unresolved.sort(bySite),
+    unattributed: unattributed.sort(compareSites),
+    filesScanned: candidates.length,
+  };
+}
+
+/**
+ * Scan `repoRoot`'s TypeScript sources for event producers: the one owner of "who produces event
+ * T" in code (service-expertise PLAN §2). An event is built through `createBaseEvent` (the branded
+ * EventId makes it the construction path), so a producer site is a call that resolves to that
+ * declaration. Its event type is the folded first argument, with the same folding as consumer
+ * values; a value that does not fold is `unresolved`, never dropped. A library site belongs to the
+ * apps that wire its class, as for consumers. ACL publish grants are permission, not production.
+ */
+export function scanEventProducers(repoRoot: string): EventProducerIndex {
+  const root = resolve(repoRoot);
+  const allFiles = sourceFiles(root, SOURCE_ROOTS);
+  const candidates = allFiles.filter(textMatches(PRODUCER_CANDIDATE_TEXT));
+  return producerIndex(new SourceScan(root, allFiles, candidates), candidates);
 }
 
 export type ConsumerSource = 'code_subscription' | 'acl_grant';
@@ -898,4 +1085,264 @@ export function eventConsumersFor(
       }),
     );
   return { subjects, consumers, aclCatchAll };
+}
+
+// --- The code-fact bridge (`--facts`, service-expertise PLAN §3.2, §8 SE-3) ----------------------
+
+/** An event type and the code line that names it: a production, consumption or definition site. */
+export interface EventSiteFact {
+  readonly event_type: string;
+  readonly site: string;
+}
+
+/** A code producer x code subscription edge between two applications; `ref` is the producer site. */
+export interface EventEdgeFact {
+  readonly kind: 'event';
+  readonly to: string;
+  readonly subject: string;
+  readonly ref: string;
+  /** The first subscription site of `to` for the event. */
+  readonly to_ref: string;
+}
+
+/** A services.yaml grant: permission to publish or receive, never an edge (SK-09). */
+export interface AclGrantFact {
+  readonly subject: string;
+  readonly direction: 'publish' | 'subscribe';
+  readonly ref: string;
+}
+
+export interface ServiceEventFacts {
+  readonly service: string;
+  readonly events_produced: readonly EventSiteFact[];
+  readonly events_consumed: readonly EventSiteFact[];
+  readonly edges: readonly EventEdgeFact[];
+  readonly acl_grants: readonly AclGrantFact[];
+  /** The certificate identity whose services.yaml `application` is this service, or null. */
+  readonly nats_identity: { readonly name: string; readonly ref: string } | null;
+}
+
+export interface EventDefinitionFact extends EventSiteFact {
+  /** The interface or type alias that declares the `eventType` member, or null when anonymous. */
+  readonly declaration: string | null;
+}
+
+export interface EventFacts {
+  readonly schema: 'aria/event_facts/v1';
+  /** One entry per application (nx project under apps/); a library is never a service. */
+  readonly services: readonly ServiceEventFacts[];
+  readonly event_definitions: readonly EventDefinitionFact[];
+  /** Sites whose event type or subject does not fold: an unknown fact, reported by name. */
+  readonly unresolved: {
+    readonly produced: readonly UnresolvedProducerSite[];
+    readonly consumed: readonly UnresolvedConsumerSite[];
+  };
+  /** Library sites no application wires. */
+  readonly unattributed: {
+    readonly produced: readonly string[];
+    readonly consumed: readonly string[];
+  };
+  /** services.yaml identities whose `application` is no directory under apps/ (a script, a tool). */
+  readonly nats_identities_without_application: readonly {
+    readonly name: string;
+    readonly application: string;
+    readonly ref: string;
+  }[];
+}
+
+/**
+ * Each `eventType` member with a string-literal type declared in libs/event-contracts, at the line
+ * of the member. The checker reads the type, so an alias or an indexed access names its values.
+ */
+function eventDefinitions(scan: SourceScan, files: readonly string[]): EventDefinitionFact[] {
+  const definitions: EventDefinitionFact[] = [];
+  for (const path of files) {
+    const sourceFile = scan.sourceFile(path);
+    const file = scan.relative(path);
+    const visit = (node: ts.Node): void => {
+      if (
+        ts.isPropertySignature(node) &&
+        node.type !== undefined &&
+        node.name.getText(sourceFile) === 'eventType'
+      ) {
+        const values = stringLiteralValues(scan.checker.getTypeFromTypeNode(node.type));
+        const owner = node.parent;
+        const declaration = ts.isInterfaceDeclaration(owner)
+          ? owner.name.text
+          : ts.isTypeLiteralNode(owner) && ts.isTypeAliasDeclaration(owner.parent)
+            ? owner.parent.name.text
+            : null;
+        const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+        for (const eventType of values ?? []) {
+          definitions.push({ event_type: eventType, site: `${file}:${line}`, declaration });
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sourceFile);
+  }
+  return definitions.sort((a, b) => a.event_type.localeCompare(b.event_type) || bySite(a, b));
+}
+
+const NATS_SERVICES_REF = toPosix(NATS_SERVICES_YAML);
+
+/**
+ * The code facts of the tree at `repoRoot`, per application: produced and consumed event sites,
+ * code x code edges, ACL grants as permission facts, the NATS identity, and the event definition
+ * sites. Every input is read from `repoRoot` (the diff's base tree), so the facts are the tree's
+ * own; nothing is written. A services.yaml the SSoT refuses throws NatsServicesInvalid.
+ */
+export function eventFacts(repoRoot: string): EventFacts {
+  const root = resolve(repoRoot);
+  const nats = loadNatsServicesLocated(join(root, NATS_SERVICES_YAML));
+  const allFiles = sourceFiles(root, SOURCE_ROOTS);
+  const consumerFiles = allFiles.filter(textMatches(CANDIDATE_TEXT));
+  const producerFiles = allFiles.filter(textMatches(PRODUCER_CANDIDATE_TEXT));
+  const contractFiles = allFiles.filter((path) =>
+    toPosix(relative(root, path)).startsWith(EVENT_CONTRACTS_SOURCES),
+  );
+  // One program serves the three readings, so the checker is built once.
+  const scan = new SourceScan(root, allFiles, [
+    ...new Set([...consumerFiles, ...producerFiles, ...contractFiles]),
+  ]);
+  const consumers = consumerIndex(scan, consumerFiles);
+  const producers = producerIndex(scan, producerFiles);
+  const definitions = eventDefinitions(scan, contractFiles);
+
+  const services = [...new Set(scan.applications.values())].sort();
+  const eventTypes = new Set<string>([
+    ...definitions.map((definition) => definition.event_type),
+    ...producers.entries.map((entry) => entry.eventType),
+    ...consumers.entries.filter((entry) => entry.kind === 'event_type').map((entry) => entry.value),
+  ]);
+  // Code subscriptions per event type, through the one consumer-set function; grants are not
+  // consumption, so only code sites become consumed facts and edge targets.
+  const consumed = new Map<string, EventSiteFact[]>();
+  const codeConsumers = new Map<string, ConsumerMatch[]>();
+  for (const eventType of [...eventTypes].sort()) {
+    const matches = eventConsumersFor(eventType, consumers, nats.services).consumers.filter(
+      (match) => match.sources.includes('code_subscription'),
+    );
+    codeConsumers.set(eventType, matches);
+    for (const match of matches) {
+      const list = consumed.get(match.application) ?? [];
+      for (const site of match.codeSites) list.push({ event_type: eventType, site });
+      consumed.set(match.application, list);
+    }
+  }
+
+  const identityByApplication = new Map(
+    nats.services.map((service) => [service.application, service] as const),
+  );
+  const lineRef = (line: number): string => `${NATS_SERVICES_REF}:${line}`;
+  const linesOf = (name: string): NatsServiceSourceLines => {
+    const lines = nats.lines.get(name);
+    if (lines === undefined) throw new Error(`event-consumer-index: no source lines for ${name}`);
+    return lines;
+  };
+  const codeConsumersOf = (eventType: string): readonly ConsumerMatch[] => {
+    const matches = codeConsumers.get(eventType);
+    if (matches === undefined)
+      throw new Error(`event-consumer-index: ${eventType} was not indexed`);
+    return matches;
+  };
+  const natsFacts = (
+    identity: NatsServiceEntry,
+  ): Pick<ServiceEventFacts, 'acl_grants' | 'nats_identity'> => {
+    const lines = linesOf(identity.name);
+    const grants = (direction: 'publish' | 'subscribe'): AclGrantFact[] =>
+      identity[direction].map((grant, index) => {
+        const line = lines[direction][index];
+        if (line === undefined) {
+          throw new Error(
+            `event-consumer-index: ${identity.name}.${direction}[${index}] has no line`,
+          );
+        }
+        return { subject: grant, direction, ref: lineRef(line) };
+      });
+    return {
+      acl_grants: [...grants('publish'), ...grants('subscribe')],
+      nats_identity: { name: identity.name, ref: lineRef(lines.name) },
+    };
+  };
+
+  const serviceFacts = services.map((service): ServiceEventFacts => {
+    const produced = producers.entries.filter((entry) => entry.application === service);
+    const edges = new Map<string, EventEdgeFact>();
+    for (const entry of produced) {
+      for (const match of codeConsumersOf(entry.eventType)) {
+        const key = `${match.application}\u0000${entry.eventType}`;
+        if (match.application === service || edges.has(key)) continue;
+        const [toRef] = match.codeSites;
+        if (toRef === undefined) {
+          throw new Error(`event-consumer-index: ${match.application} has no code site for ${key}`);
+        }
+        edges.set(key, {
+          kind: 'event',
+          to: match.application,
+          subject: entry.eventType,
+          ref: entry.site,
+          to_ref: toRef,
+        });
+      }
+    }
+    const identity = identityByApplication.get(service);
+    return {
+      service,
+      events_produced: produced.map((entry) => ({ event_type: entry.eventType, site: entry.site })),
+      events_consumed: (consumed.get(service) ?? []).sort(
+        (a, b) => a.event_type.localeCompare(b.event_type) || bySite(a, b),
+      ),
+      edges: [...edges.values()].sort(
+        (a, b) => a.subject.localeCompare(b.subject) || a.to.localeCompare(b.to),
+      ),
+      ...(identity === undefined ? { acl_grants: [], nats_identity: null } : natsFacts(identity)),
+    };
+  });
+
+  const known = new Set(services);
+  return {
+    schema: 'aria/event_facts/v1',
+    services: serviceFacts,
+    event_definitions: definitions,
+    unresolved: { produced: producers.unresolved, consumed: consumers.unresolved },
+    unattributed: { produced: producers.unattributed, consumed: consumers.unattributed },
+    nats_identities_without_application: nats.services
+      .filter((service) => !known.has(service.application))
+      .map((service) => ({
+        name: service.name,
+        application: service.application,
+        ref: lineRef(linesOf(service.name).name),
+      })),
+  };
+}
+
+const FACTS_USAGE = 'usage: event-consumer-index.ts --facts --repo-root <tree>\n';
+
+/**
+ * `--facts --repo-root <tree>`: the code facts of the tree as one JSON object on stdout, exit 0.
+ * A services.yaml its schema refuses, or a bad invocation, is an environment failure: exit 2 and
+ * nothing on stdout, so the kernel holds the change by name instead of reading empty facts.
+ */
+function main(argv: readonly string[]): number {
+  const rootFlag = argv.indexOf('--repo-root');
+  const repoRoot = rootFlag === -1 ? undefined : argv[rootFlag + 1];
+  if (!argv.includes('--facts') || repoRoot === undefined || argv.length !== 3) {
+    process.stderr.write(FACTS_USAGE);
+    return 2;
+  }
+  let facts: EventFacts;
+  try {
+    facts = eventFacts(repoRoot);
+  } catch (error) {
+    if (!(error instanceof NatsServicesInvalid)) throw error;
+    process.stderr.write(`event-consumer-index --facts: services.yaml ${error.message}\n`);
+    return 2;
+  }
+  process.stdout.write(`${JSON.stringify(facts)}\n`);
+  return 0;
+}
+
+if (require.main === module) {
+  process.exit(main(process.argv.slice(2)));
 }

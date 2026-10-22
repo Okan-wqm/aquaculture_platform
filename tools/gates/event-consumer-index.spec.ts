@@ -467,13 +467,6 @@ void test('live: every catch-all grant belongs to an app the scan reads', () => 
 // event definition sites. The kernel runs the entry as a subprocess on the diff's base tree
 // (plan_coverage's runner), so these cases run it the same way and read only its JSON. The
 // entry reads the tree under --repo-root, its services.yaml included: facts are computed at base.
-//
-// Each case carries node:test's `todo` option until SE-3 lands (the convention of the gate
-// suites: it runs and prints its failure without failing the pre-commit hook). The implementer
-// removes every SE3_PENDING marker in the same change that makes the cases pass.
-
-const SE3_PENDING =
-  'SE-3 (service-expertise PLAN §8): the --facts entry and scanEventProducers are not implemented';
 
 const FACTS_BUS = [
   'export interface IEventBus {',
@@ -731,142 +724,114 @@ void test('facts fixture: its services.yaml passes the SSoT schema; the consumer
   ]);
 });
 
-void test(
-  'facts (i): A emits T and B subscribes -> A produces T@site, B consumes T@site, edge A->B (event, T)',
-  { todo: SE3_PENDING },
-  () => {
-    assert.deepEqual(serviceFacts('a-service').events_produced, [
-      { event_type: 'FixtureShipped', site: SHIPPED_PRODUCER },
-    ]);
-    assert.deepEqual(eventSites(serviceFacts('b-service').events_consumed, 'FixtureShipped'), [
-      { event_type: 'FixtureShipped', site: SHIPPED_CONSUMER },
-    ]);
-    assert.deepEqual(eventEdges(serviceFacts('a-service').edges, 'FixtureShipped'), [
-      { kind: 'event', to: 'b-service', subject: 'FixtureShipped' },
-    ]);
-    // The edge's evidence is one of its two code sites, never a grant.
-    for (const edge of serviceFacts('a-service').edges) {
-      assert.ok([SHIPPED_PRODUCER, SHIPPED_CONSUMER].includes(edge.ref), edge.ref);
-    }
-  },
-);
+void test('facts (i): A emits T and B subscribes -> A produces T@site, B consumes T@site, edge A->B (event, T)', () => {
+  assert.deepEqual(serviceFacts('a-service').events_produced, [
+    { event_type: 'FixtureShipped', site: SHIPPED_PRODUCER },
+  ]);
+  assert.deepEqual(eventSites(serviceFacts('b-service').events_consumed, 'FixtureShipped'), [
+    { event_type: 'FixtureShipped', site: SHIPPED_CONSUMER },
+  ]);
+  assert.deepEqual(eventEdges(serviceFacts('a-service').edges, 'FixtureShipped'), [
+    { kind: 'event', to: 'b-service', subject: 'FixtureShipped' },
+  ]);
+  // The edge's evidence is one of its two code sites, never a grant.
+  for (const edge of serviceFacts('a-service').edges) {
+    assert.ok([SHIPPED_PRODUCER, SHIPPED_CONSUMER].includes(edge.ref), edge.ref);
+  }
+});
 
-void test(
-  'facts (ii): a grant-only consumer is a permission fact and no edge',
-  { todo: SE3_PENDING },
-  () => {
-    const holder = serviceFacts('c-service');
-    assert.deepEqual(eventSites(holder.events_consumed, 'FixtureShipped'), []);
-    assert.ok(
-      holder.acl_grants.some(
-        (grant) =>
-          grant.subject === 'events.*.FixtureShipped' &&
-          grant.direction === 'subscribe' &&
-          grant.ref ===
-            `${NATS_REF}:${lineAfter(FACTS_SERVICES_YAML, 'name: c_service', 'events.*.FixtureShipped')}`,
-      ),
-      JSON.stringify(holder.acl_grants),
+void test('facts (ii): a grant-only consumer is a permission fact and no edge', () => {
+  const holder = serviceFacts('c-service');
+  assert.deepEqual(eventSites(holder.events_consumed, 'FixtureShipped'), []);
+  assert.ok(
+    holder.acl_grants.some(
+      (grant) =>
+        grant.subject === 'events.*.FixtureShipped' &&
+        grant.direction === 'subscribe' &&
+        grant.ref ===
+          `${NATS_REF}:${lineAfter(FACTS_SERVICES_YAML, 'name: c_service', 'events.*.FixtureShipped')}`,
+    ),
+    JSON.stringify(holder.acl_grants),
+  );
+  assert.ok(
+    serviceFacts('a-service').acl_grants.some(
+      (grant) =>
+        grant.subject === 'events.*.FixtureShipped' &&
+        grant.direction === 'publish' &&
+        grant.ref ===
+          `${NATS_REF}:${lineAfter(FACTS_SERVICES_YAML, 'name: a_service', 'events.*.FixtureShipped')}`,
+    ),
+    JSON.stringify(serviceFacts('a-service').acl_grants),
+  );
+  for (const entry of facts().services) {
+    assert.deepEqual(
+      entry.edges.filter((edge) => edge.to === 'c-service'),
+      [],
+      `${entry.service} has an edge to the grant-only holder`,
     );
-    assert.ok(
-      serviceFacts('a-service').acl_grants.some(
-        (grant) =>
-          grant.subject === 'events.*.FixtureShipped' &&
-          grant.direction === 'publish' &&
-          grant.ref ===
-            `${NATS_REF}:${lineAfter(FACTS_SERVICES_YAML, 'name: a_service', 'events.*.FixtureShipped')}`,
-      ),
-      JSON.stringify(serviceFacts('a-service').acl_grants),
-    );
-    for (const entry of facts().services) {
-      assert.deepEqual(
-        entry.edges.filter((edge) => edge.to === 'c-service'),
-        [],
-        `${entry.service} has an edge to the grant-only holder`,
-      );
-    }
-  },
-);
+  }
+});
 
-void test(
-  'facts (iii): a tree the entry cannot read is an environment failure (exit 2), never empty facts',
-  { todo: SE3_PENDING },
-  () => {
-    // services.yaml without `application:` is refused by its schema (nats-services.ts).
-    const refused = FACTS_SERVICES_YAML.replace('    application: c-service\n', '');
-    assert.notEqual(refused, FACTS_SERVICES_YAML);
-    const run = runFactsEntry(factsRepo(refused));
-    assert.equal(run.exitCode, 2, `exit ${run.exitCode}, stdout ${JSON.stringify(run.stdout)}`);
-    assert.ok(!run.stdout.trim().startsWith('{'), `facts printed on failure: ${run.stdout}`);
-  },
-);
+void test('facts (iii): a tree the entry cannot read is an environment failure (exit 2), never empty facts', () => {
+  // services.yaml without `application:` is refused by its schema (nats-services.ts).
+  const refused = FACTS_SERVICES_YAML.replace('    application: c-service\n', '');
+  assert.notEqual(refused, FACTS_SERVICES_YAML);
+  const run = runFactsEntry(factsRepo(refused));
+  assert.equal(run.exitCode, 2, `exit ${run.exitCode}, stdout ${JSON.stringify(run.stdout)}`);
+  assert.ok(!run.stdout.trim().startsWith('{'), `facts printed on failure: ${run.stdout}`);
+});
 
-void test(
-  'facts (iv): a library site wired by two apps -> two app-keyed facts with the library site as ref',
-  { todo: SE3_PENDING },
-  () => {
-    for (const app of ['d-service', 'e-service']) {
-      assert.deepEqual(eventSites(serviceFacts(app).events_consumed, 'FixtureLibEvent'), [
-        { event_type: 'FixtureLibEvent', site: LIB_CONSUMER },
-      ]);
-      assert.deepEqual(eventSites(serviceFacts(app).events_produced, 'FixtureLibProduced'), [
-        { event_type: 'FixtureLibProduced', site: LIB_PRODUCER },
-      ]);
-      assert.deepEqual(eventEdges(serviceFacts(app).edges, 'FixtureLibProduced'), [
-        { kind: 'event', to: 'b-service', subject: 'FixtureLibProduced' },
-      ]);
-    }
-    // A library is never a service key and never an edge endpoint.
-    const services = facts().services.map((entry) => entry.service);
-    assert.deepEqual([...services].sort(), [...FACTS_APPS]);
-    for (const entry of facts().services) {
-      for (const edge of entry.edges) assert.ok(services.includes(edge.to), edge.to);
-    }
-  },
-);
+void test('facts (iv): a library site wired by two apps -> two app-keyed facts with the library site as ref', () => {
+  for (const app of ['d-service', 'e-service']) {
+    assert.deepEqual(eventSites(serviceFacts(app).events_consumed, 'FixtureLibEvent'), [
+      { event_type: 'FixtureLibEvent', site: LIB_CONSUMER },
+    ]);
+    assert.deepEqual(eventSites(serviceFacts(app).events_produced, 'FixtureLibProduced'), [
+      { event_type: 'FixtureLibProduced', site: LIB_PRODUCER },
+    ]);
+    assert.deepEqual(eventEdges(serviceFacts(app).edges, 'FixtureLibProduced'), [
+      { kind: 'event', to: 'b-service', subject: 'FixtureLibProduced' },
+    ]);
+  }
+  // A library is never a service key and never an edge endpoint.
+  const services = facts().services.map((entry) => entry.service);
+  assert.deepEqual([...services].sort(), [...FACTS_APPS]);
+  for (const entry of facts().services) {
+    for (const edge of entry.edges) assert.ok(services.includes(edge.to), edge.to);
+  }
+});
 
-void test(
-  'facts: the NATS identity of each app is its services.yaml name, with its line',
-  { todo: SE3_PENDING },
-  () => {
-    for (const app of FACTS_APPS) {
-      const name = app.replace(/-/g, '_');
-      assert.deepEqual(serviceFacts(app).nats_identity, {
-        name,
-        ref: `${NATS_REF}:${lineOf(FACTS_SERVICES_YAML, `- name: ${name}`)}`,
-      });
-    }
-  },
-);
+void test('facts: the NATS identity of each app is its services.yaml name, with its line', () => {
+  for (const app of FACTS_APPS) {
+    const name = app.replace(/-/g, '_');
+    assert.deepEqual(serviceFacts(app).nats_identity, {
+      name,
+      ref: `${NATS_REF}:${lineOf(FACTS_SERVICES_YAML, `- name: ${name}`)}`,
+    });
+  }
+});
 
-void test(
-  'facts: each event interface in libs/event-contracts is listed with its definition site',
-  { todo: SE3_PENDING },
-  () => {
-    for (const eventType of ['FixtureShipped', 'FixtureLibEvent', 'FixtureLibProduced']) {
-      assert.deepEqual(eventSites(facts().event_definitions, eventType), [
-        {
-          event_type: eventType,
-          site: `libs/event-contracts/src/fixture-events.ts:${lineOf(FIXTURE_EVENTS, `'${eventType}'`)}`,
-        },
-      ]);
-    }
-  },
-);
+void test('facts: each event interface in libs/event-contracts is listed with its definition site', () => {
+  for (const eventType of ['FixtureShipped', 'FixtureLibEvent', 'FixtureLibProduced']) {
+    assert.deepEqual(eventSites(facts().event_definitions, eventType), [
+      {
+        event_type: eventType,
+        site: `libs/event-contracts/src/fixture-events.ts:${lineOf(FIXTURE_EVENTS, `'${eventType}'`)}`,
+      },
+    ]);
+  }
+});
 
-void test(
-  'one owner of "who produces event T": scanEventProducers is defined once, in this module',
-  { todo: SE3_PENDING },
-  () => {
-    // service-expertise PLAN §2: the producer scan lives inside event-consumer-index.ts (readonly,
-    // CODEOWNED); tools/ripple-tracer, which takes producers from ACL grants, is not a source.
-    const tracked = execFileSync('git', ['-C', REPO_ROOT, 'ls-files', '-z', '--', 'tools'], {
-      encoding: 'utf8',
-    })
-      .split('\0')
-      .filter((path) => /\.ts$/.test(path) && !/\.(?:spec|test)\.ts$/.test(path));
-    const owners = tracked.filter((path) =>
-      /\bfunction\s+scanEventProducers\b/.test(readFileSync(join(REPO_ROOT, path), 'utf8')),
-    );
-    assert.deepEqual(owners, ['tools/gates/event-consumer-index.ts']);
-  },
-);
+void test('one owner of "who produces event T": scanEventProducers is defined once, in this module', () => {
+  // service-expertise PLAN §2: the producer scan lives inside event-consumer-index.ts (readonly,
+  // CODEOWNED); tools/ripple-tracer, which takes producers from ACL grants, is not a source.
+  const tracked = execFileSync('git', ['-C', REPO_ROOT, 'ls-files', '-z', '--', 'tools'], {
+    encoding: 'utf8',
+  })
+    .split('\0')
+    .filter((path) => /\.ts$/.test(path) && !/\.(?:spec|test)\.ts$/.test(path));
+  const owners = tracked.filter((path) =>
+    /\bfunction\s+scanEventProducers\b/.test(readFileSync(join(REPO_ROOT, path), 'utf8')),
+  );
+  assert.deepEqual(owners, ['tools/gates/event-consumer-index.ts']);
+});

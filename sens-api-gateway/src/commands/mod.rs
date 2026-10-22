@@ -66,13 +66,13 @@ mod program;
 #[cfg(test)]
 mod picontrol_set_output_tests;
 // EDGE-MEDIUM-135 / EDGE-MEDIUM-077: payloads through the real commands arm.
-#[cfg(test)]
-mod refusal_dispatch_tests;
 mod provision;
 mod rbac;
 mod read;
 mod refresh_license;
 mod refusal;
+#[cfg(test)]
+mod refusal_dispatch_tests;
 #[cfg(feature = "suderra-os")]
 mod request_update;
 pub(crate) mod required_permission;

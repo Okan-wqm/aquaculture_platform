@@ -42,9 +42,16 @@ mod process_hardening;
 // mutable-state table; in the generic profile the legacy layout with the
 // SUDERRA_CONFIG / SUDERRA_DATA_DIR / SUDERRA_DB_KEY_PATH overrides.
 mod paths;
-mod picontrol; // ADR-048 DEC-8.8: RevPi process-image backend (/dev/piControl0)
-mod tag_writer; // ADR-048 DEC-9.7: the one place a tag becomes a write to hardware
-mod emergency; // ADR-048 DEC-9.7: the device-wide emergency stop (latch in the control gate)
+
+// ADR-048 DEC-9.7: the device-wide emergency stop (latch in the control gate).
+mod emergency;
+
+// ADR-048 DEC-8.8: RevPi process-image backend (/dev/piControl0).
+mod picontrol;
+
+// ADR-048 DEC-9.7: the one place a tag becomes a write to hardware.
+mod tag_writer;
+
 // ADR-048 DEC-19: the only reader of security-relevant environment
 // variables. Not compiled in the `suderra-os` profile, so no Suderra OS code
 // path can consult one (tests/invariants/no_security_env_in_suderra_os.rs).
@@ -103,8 +110,6 @@ mod mqtt;
 // ADR-048 DEC-27: which broker acknowledgement belongs to which QoS 1 publish.
 mod mqtt_acks;
 // ADR-048 DEC-27: root's typed results, republished to the cloud (Suderra OS).
-#[cfg(feature = "suderra-os")]
-mod results;
 mod mqtt_failover; // v1.3.4: MQTT broker failover for high availability
 mod offline_queue;
 mod plc_programming; // v1.3.0: PLC programming protocols (ST upload)
@@ -112,6 +117,8 @@ mod process_image;
 mod provisioning;
 mod pwm; // v1.2.4: PWM support for motor/servo control
 mod resilience;
+#[cfg(feature = "suderra-os")]
+mod results;
 mod safe_state;
 mod scripting;
 mod security; // v1.2.2: Security hardening utilities

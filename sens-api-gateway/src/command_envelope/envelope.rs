@@ -44,7 +44,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::canonical::{canonical_params, CanonicalParamsError, CmdHash};
+use super::canonical::{CanonicalParamsError, CmdHash, canonical_params};
 use super::jti::{InvalidJti, Jti};
 use crate::authz::policy::Ed25519SignatureBytes;
 use crate::commands::catalog::unsigned_envelope_permitted;

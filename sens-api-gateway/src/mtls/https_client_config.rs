@@ -152,7 +152,7 @@ fn add_image_cloud_ca(store: &mut RootCertStore, path: &std::path::Path) -> Resu
             return Err(format!(
                 "cannot read the image's cloud CA {}: {e}",
                 path.display()
-            ))
+            ));
         }
     };
     let blocks = pem::parse_many(&text)

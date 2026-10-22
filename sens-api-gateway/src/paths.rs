@@ -776,12 +776,14 @@ mod tests {
     #[test]
     fn suderra_os_accepts_writes_only_below_the_writable_dirs() {
         let p = AgentPaths::suderra_os();
-        assert!(p
-            .check_agent_writable(Path::new("/var/lib/suderra/state/x.db"))
-            .is_ok());
-        assert!(p
-            .check_agent_writable(Path::new("/var/log/suderra/audit.log"))
-            .is_ok());
+        assert!(
+            p.check_agent_writable(Path::new("/var/lib/suderra/state/x.db"))
+                .is_ok()
+        );
+        assert!(
+            p.check_agent_writable(Path::new("/var/log/suderra/audit.log"))
+                .is_ok()
+        );
         for bad in [
             "/etc/suderra/x.db",
             "/var/lib/suderra/x.db",

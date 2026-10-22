@@ -44,6 +44,14 @@ const CHANNEL_SEND_RETRY_DELAY_MS: u64 = 10;
 use crate::config::{AgentConfig, ResolvedTopics};
 use crate::error::AgentError;
 
+/// How long the event loop waits between reconnection attempts: the bounds of
+/// its exponential backoff (`runtime.mqtt_reconnect_{min,max}_secs`).
+#[derive(Debug, Clone, Copy)]
+struct ReconnectBackoff {
+    min_secs: u64,
+    max_secs: u64,
+}
+
 /// MQTT client wrapper
 pub struct MqttClient {
     client: AsyncClient,
@@ -62,6 +70,9 @@ pub struct MqttClient {
     /// None = no-op (HC-1 backward compat + test paths that
     /// don't spin up the health server).
     health_state: Option<crate::health::HealthState>,
+    /// Attributes the broker's PubAcks to QoS 1 publishes: every QoS 1 request
+    /// is put in the channel through its lane (ADR-048 DEC-27).
+    acks: Arc<crate::mqtt_acks::AckTracker>,
 }
 
 /// Incoming message from MQTT
@@ -324,6 +335,10 @@ impl MqttClient {
 
         // Create client (v1.2.6: use constant for buffer size)
         let (client, mut eventloop) = AsyncClient::new(options, INTERNAL_MQTT_BUFFER_SIZE);
+        // Which PubAck belongs to which QoS 1 publish (ADR-048 DEC-27): every
+        // QoS 1 request goes through this tracker's lane, and the event loop
+        // below feeds it the broker's side.
+        let acks = Arc::new(crate::mqtt_acks::AckTracker::default());
 
         // Create message channel (v1.2.3: increased capacity)
         let (message_tx, message_rx) = mpsc::channel(MESSAGE_CHANNEL_CAPACITY);
@@ -331,21 +346,24 @@ impl MqttClient {
         // Spawn event loop handler with exponential backoff config (v1.2.6: track handle)
         let topics_clone = topics.clone();
         let client_clone = client.clone();
-        let min_backoff = config.runtime.mqtt_reconnect_min_secs;
-        let max_backoff = config.runtime.mqtt_reconnect_max_secs;
+        let backoff = ReconnectBackoff {
+            min_secs: config.runtime.mqtt_reconnect_min_secs,
+            max_secs: config.runtime.mqtt_reconnect_max_secs,
+        };
         // Batch 102: clone the HealthState Arc into the event-
         // loop task so ConnAck/Disconnect/Publish events update
         // the gauge + counters without a separate IPC channel.
         let health_state_for_task = health_state.clone();
+        let acks_for_task = acks.clone();
         let event_loop_handle = tokio::spawn(async move {
             Self::handle_events(
                 &mut eventloop,
                 message_tx,
                 client_clone,
                 topics_clone,
-                min_backoff,
-                max_backoff,
+                backoff,
                 health_state_for_task,
+                acks_for_task,
             )
             .await;
         });
@@ -359,6 +377,7 @@ impl MqttClient {
             message_rx,
             event_loop_handle: Some(event_loop_handle),
             health_state,
+            acks,
         };
 
         // Subscribe to command and config topics
@@ -394,10 +413,14 @@ impl MqttClient {
         message_tx: mpsc::Sender<IncomingMessage>,
         client: AsyncClient,
         topics: ResolvedTopics,
-        min_backoff_secs: u64,
-        max_backoff_secs: u64,
+        backoff: ReconnectBackoff,
         health_state: Option<crate::health::HealthState>,
+        acks: Arc<crate::mqtt_acks::AckTracker>,
     ) {
+        let ReconnectBackoff {
+            min_secs: min_backoff_secs,
+            max_secs: max_backoff_secs,
+        } = backoff;
         let mut consecutive_errors: u32 = 0;
         let mut first_connect = true;
 
@@ -514,6 +537,7 @@ impl MqttClient {
                         "🟢 MQTT CONNECTED: code={:?}, session_present={}",
                         connack.code, connack.session_present
                     );
+                    acks.on_connected();
 
                     // Batch 102: flip the connection gauge ON
                     // + bump mqtt_last_connected timestamp via
@@ -553,6 +577,7 @@ impl MqttClient {
                 Ok(Event::Incoming(Packet::Disconnect)) => {
                     // v1.2.6: Log disconnection events
                     warn!("🔴 MQTT DISCONNECTED by broker");
+                    acks.on_disconnected();
 
                     // Batch 102: flip the connection gauge
                     // OFF. Reconnect attempts hit the
@@ -561,7 +586,13 @@ impl MqttClient {
                         hs.set_mqtt_connected(false);
                     }
                 }
+                Ok(Event::Incoming(Packet::PubAck(ack))) => {
+                    acks.on_puback(ack.pkid);
+                }
                 Ok(Event::Outgoing(outgoing)) => {
+                    if let rumqttc::Outgoing::Publish(pkid) = outgoing {
+                        acks.on_outgoing_publish(pkid);
+                    }
                     // v1.2.6: Log outgoing events at trace level
                     trace!("📤 MQTT outgoing event: {:?}", outgoing);
                 }
@@ -570,6 +601,7 @@ impl MqttClient {
                     trace!("MQTT event: {:?}", event);
                 }
                 Err(e) => {
+                    acks.on_disconnected();
                     consecutive_errors = consecutive_errors.saturating_add(1);
 
                     // Exponential backoff with jitter: base * 2^(errors-1), capped at max.
@@ -644,8 +676,12 @@ impl MqttClient {
         let payload = serde_json::to_vec(&message)?;
         let payload_len = payload.len();
 
-        self.client
-            .publish(&self.topics.status, QoS::AtLeastOnce, true, payload)
+        self.acks
+            .enqueue(
+                true,
+                self.client
+                    .publish(&self.topics.status, QoS::AtLeastOnce, true, payload),
+            )
             .await
             .context("Failed to publish status")?;
         self.record_publish();
@@ -679,8 +715,12 @@ impl MqttClient {
         // QoS::AtLeastOnce (1) ensures telemetry is acknowledged by the broker.
         // QoS 0 ("fire-and-forget") drops silently during broker reconnect, causing
         // data gaps in TimescaleDB that are invisible to the monitoring stack.
-        self.client
-            .publish(&self.topics.telemetry, QoS::AtLeastOnce, false, payload)
+        self.acks
+            .enqueue(
+                true,
+                self.client
+                    .publish(&self.topics.telemetry, QoS::AtLeastOnce, false, payload),
+            )
             .await
             .context("Failed to publish telemetry")?;
         self.record_publish();
@@ -700,8 +740,12 @@ impl MqttClient {
         let command_id = response.command_id.clone();
         let success = response.success;
 
-        self.client
-            .publish(&self.topics.responses, QoS::AtLeastOnce, false, payload)
+        self.acks
+            .enqueue(
+                true,
+                self.client
+                    .publish(&self.topics.responses, QoS::AtLeastOnce, false, payload),
+            )
             .await
             .context("Failed to publish response")?;
         self.record_publish();
@@ -727,8 +771,12 @@ impl MqttClient {
     /// Publish alarm events (QoS 1, not retained - must be delivered)
     pub async fn publish_alarms(&self, payload: &impl serde::Serialize) -> Result<()> {
         let data = serde_json::to_vec(payload)?;
-        self.client
-            .publish(&self.topics.alarms, rumqttc::QoS::AtLeastOnce, false, data)
+        self.acks
+            .enqueue(
+                true,
+                self.client
+                    .publish(&self.topics.alarms, rumqttc::QoS::AtLeastOnce, false, data),
+            )
             .await?;
         self.record_publish();
         Ok(())
@@ -754,8 +802,11 @@ impl MqttClient {
     /// Used for one-off publishes that don't fit the standard topic patterns
     /// (e.g. boot-time capabilities report to a dynamic topic).
     pub async fn publish_raw(&self, topic: &str, payload: &[u8]) -> Result<()> {
-        self.client
-            .publish(topic, QoS::AtLeastOnce, false, payload)
+        self.acks
+            .enqueue(
+                true,
+                self.client.publish(topic, QoS::AtLeastOnce, false, payload),
+            )
             .await
             .with_context(|| format!("Failed to publish to {}", topic))?;
         self.record_publish();
@@ -816,6 +867,7 @@ impl MqttClient {
 pub struct MqttPublishAdapter {
     client: AsyncClient,
     health_state: Option<crate::health::HealthState>,
+    acks: Arc<crate::mqtt_acks::AckTracker>,
 }
 
 impl MqttClient {
@@ -829,6 +881,7 @@ impl MqttClient {
         MqttPublishAdapter {
             client: self.client.clone(),
             health_state: self.health_state.clone(),
+            acks: self.acks.clone(),
         }
     }
 }
@@ -872,13 +925,58 @@ impl crate::outbound_publisher::MqttPublishSink for MqttPublishAdapter {
         //   AFTER that check are genuine transport faults
         //   (payload too large, eventloop dropped, etc.) — those
         //   should surface to caller, not silently get queued.
-        match self.client.publish(topic, qos_enum, retain, payload).await {
+        match self
+            .acks
+            .enqueue(
+                qos_enum != QoS::AtMostOnce,
+                self.client.publish(topic, qos_enum, retain, payload),
+            )
+            .await
+        {
             Ok(()) => {
                 self.record_publish();
                 Ok(())
             }
             Err(e) => Err(PublishSinkError::Transport(e.to_string())),
         }
+    }
+}
+
+/// The broker as the result publisher sees it (ADR-048 DEC-27): one publish at
+/// a time, returned once the broker acknowledged THAT publish.
+#[cfg(feature = "suderra-os")]
+pub struct MqttResultSink {
+    client: AsyncClient,
+    acks: Arc<crate::mqtt_acks::AckTracker>,
+}
+
+#[cfg(feature = "suderra-os")]
+impl MqttClient {
+    /// The sink root's results are published through.
+    pub fn result_sink(&self) -> MqttResultSink {
+        MqttResultSink {
+            client: self.client.clone(),
+            acks: self.acks.clone(),
+        }
+    }
+}
+
+#[cfg(feature = "suderra-os")]
+#[async_trait::async_trait]
+impl crate::results::ResultSink for MqttResultSink {
+    fn is_connected(&self) -> bool {
+        self.acks.is_connected()
+    }
+
+    async fn publish_acknowledged(
+        &self,
+        topic: &str,
+        payload: Vec<u8>,
+        within: Duration,
+    ) -> Result<(), crate::mqtt_acks::AckError> {
+        self.acks
+            .publish_acknowledged(&self.client, topic, payload, within)
+            .await
     }
 }
 

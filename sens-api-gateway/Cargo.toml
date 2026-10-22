@@ -1117,6 +1117,12 @@ path = "tests/invariants/emergency_stop_latch.rs"
 name = "clock_gated_freshness"
 path = "tests/invariants/clock_gated_freshness.rs"
 
+# ADR-048 DEC-27 — the broker's acknowledgement of a result is attributed to that
+# result: every QoS 1 request goes through the ack lane.
+[[test]]
+name = "qos1_goes_through_the_ack_lane"
+path = "tests/invariants/qos1_goes_through_the_ack_lane.rs"
+
 # ADR-048 DEC-21 — the agent's TPM constants stay inside the agent's blocks of the
 # TPM resource registry.
 [[test]]

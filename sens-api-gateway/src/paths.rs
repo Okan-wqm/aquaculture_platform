@@ -106,6 +106,10 @@ pub mod suderra_os {
     pub const LOG_DIR: &str = "/var/log/suderra";
     /// Health document read by the root health check (DEC-6.3).
     pub const AGENT_HEALTH_DIR: &str = "/run/suderra/agent-health";
+    /// The typed results root's workers write, one file per result: the agent
+    /// republishes them on the results topic (`suderra.result.v1`, DEC-27).
+    /// Read-only to the agent.
+    pub const RESULTS_DIR: &str = "/run/suderra/results";
 
     /// Every directory the agent may write below, exactly the agent
     /// `read-write` entries of the contract's mutable-state table and the
@@ -145,6 +149,11 @@ pub mod generic {
 
 /// Name of the activation-state document inside the state directory.
 const ACTIVATION_STATE_FILENAME: &str = "activation.json";
+/// Name of the result publication cursor inside the state directory: the
+/// highest result `seq` the broker acknowledged (contract mutable-state.json
+/// `/var/lib/suderra/state` contents, channels.json `result_telemetry`).
+#[cfg(feature = "suderra-os")]
+const RESULT_CURSOR_FILENAME: &str = "results-cursor.json";
 /// Name of the device secret inside the secrets directory.
 const DB_KEY_FILENAME: &str = "db.key";
 /// Name of the agent health view (contract mutable-state.json,
@@ -450,6 +459,18 @@ impl AgentPaths {
     #[cfg(feature = "suderra-os")]
     pub fn time_state_file(&self) -> PathBuf {
         PathBuf::from(suderra_os::TIME_STATE_FILE)
+    }
+
+    /// The directory of root's typed results (DEC-27), read-only to the agent.
+    #[cfg(feature = "suderra-os")]
+    pub fn results_dir(&self) -> PathBuf {
+        PathBuf::from(suderra_os::RESULTS_DIR)
+    }
+
+    /// The result publication cursor (DEC-27): the agent's own state.
+    #[cfg(feature = "suderra-os")]
+    pub fn result_cursor_file(&self) -> PathBuf {
+        self.state_dir().join(RESULT_CURSOR_FILENAME)
     }
 
     /// The image's extra provisioning-API CA (dev and QEMU images only).

@@ -100,6 +100,11 @@ mod lifecycle_auth; // Batch 129 Sprint 6.6: HMAC auth for lifecycle endpoint
 mod liveness; // ADR-048 DEC-6.4: control-loop liveness drives the systemd watchdog
 mod modbus;
 mod mqtt;
+// ADR-048 DEC-27: which broker acknowledgement belongs to which QoS 1 publish.
+mod mqtt_acks;
+// ADR-048 DEC-27: root's typed results, republished to the cloud (Suderra OS).
+#[cfg(feature = "suderra-os")]
+mod results;
 mod mqtt_failover; // v1.3.4: MQTT broker failover for high availability
 mod offline_queue;
 mod plc_programming; // v1.3.0: PLC programming protocols (ST upload)
@@ -5629,6 +5634,47 @@ async fn run_agent(
         shutdown_coordinator.subscribe(),
     ));
     shutdown_coordinator.register_task("health_view_refresh", health_refresh_handle);
+
+    // ADR-048 DEC-27: root's typed results (install, update, rollback, lockdown,
+    // health gate, data unlock, time) are republished on the device's results
+    // topic, each until the broker acknowledged it. Lockdown ends the
+    // technician's SSH session, so this is the only record of an install that
+    // outlives it.
+    #[cfg(feature = "suderra-os")]
+    {
+        let (tenant_id, device_id, sink) = {
+            let s = state.read().await;
+            (
+                s.tenant_id.clone(),
+                s.config.device_id.clone(),
+                s.mqtt_client.as_ref().map(|m| m.result_sink()),
+            )
+        };
+        match (tenant_id, sink) {
+            (Some(tenant_id), Some(sink)) => {
+                let agent_paths = paths::AgentPaths::current();
+                let publisher = results::ResultPublisher::new(
+                    agent_paths.results_dir(),
+                    results::ResultPublisher::<mqtt::MqttResultSink>::topic_for(
+                        &tenant_id, &device_id,
+                    ),
+                    results::ResultCursor::load(agent_paths.result_cursor_file()),
+                    Arc::new(sink),
+                    results::ACK_WAIT,
+                );
+                let results_shutdown = shutdown_coordinator.subscribe();
+                let results_handle = tokio::spawn(shutdown::run_until_shutdown(
+                    publisher.run(),
+                    results_shutdown,
+                ));
+                shutdown_coordinator.register_task("result_publisher", results_handle);
+            }
+            _ => warn!(
+                "Result publisher not started: the device has no tenant binding or no broker \
+                 connection object, so root's results stay on the device"
+            ),
+        }
+    }
 
     // Step 6: Start telemetry collector with shutdown awareness
     let telemetry_collector = TelemetryCollector::new(state.clone());

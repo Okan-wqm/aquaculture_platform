@@ -372,6 +372,21 @@ fn trust_inputs_are_root_owned_read_only_contract_locations() {
     assert_eq!(time_state.parent(), identity.parent());
     let name = time_state.file_name().expect("file name").to_string_lossy();
     assert!(strings(&run["contents"]).contains(name.as_ref()));
+    // DEC-27: root's typed results are a read-only directory of its own; the
+    // agent's cursor over them is state, which it may write.
+    let results = p.results_dir();
+    assert!(p.check_agent_writable(&results.join("0000000000000001-lockdown.json")).is_err());
+    let results_entry = entry(results.to_str().expect("utf-8 path"));
+    assert_eq!(results_entry["writer"], "os-root");
+    assert_eq!(results_entry["agent_access"], "read");
+    let cursor = p.result_cursor_file();
+    assert!(p.check_agent_writable(&cursor).is_ok());
+    assert!(
+        strings(&entry(paths::suderra_os::STATE_DIR)["contents"])
+            .iter()
+            .any(|c| c.starts_with("result publication cursor")),
+        "the contract's state directory names the result publication cursor"
+    );
     // The receipt and the lifecycle request are named state contents.
     let state = strings(&entry(paths::suderra_os::STATE_DIR)["contents"]);
     for file in [p.activation_receipt_file(), p.lifecycle_request_file()] {

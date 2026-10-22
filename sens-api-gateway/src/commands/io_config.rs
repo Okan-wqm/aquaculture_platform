@@ -212,6 +212,32 @@ impl CommandHandler {
                     Err("I2C handle not available".to_string())
                 }
             }
+            ProtocolConfig::PiControl { .. } => {
+                // The backend checks the degraded gate, the force registry, its
+                // output grant and the layout; the value is range-checked
+                // against the variable, never saturated.
+                if let Some(ref handle) = state.picontrol_handle {
+                    match handle.write_output(&tag_name, value).await {
+                        Ok(written) => {
+                            // The value read back, in raw units: storing the
+                            // commanded value would apply the tag's scaling twice.
+                            state
+                                .process_image
+                                .update_tag_notifying(
+                                    &tag_name,
+                                    written.value,
+                                    TagQuality::Good,
+                                    config.source,
+                                )
+                                .await;
+                            Ok(())
+                        }
+                        Err(e) => Err(format!("piControl write failed: {e}")),
+                    }
+                } else {
+                    Err("piControl handle not available".to_string())
+                }
+            }
             _ => Err(format!(
                 "Write not supported for protocol {:?}",
                 config.protocol_config
@@ -220,10 +246,12 @@ impl CommandHandler {
 
         match write_result {
             Ok(()) => {
-                state
-                    .process_image
-                    .update_tag(&tag_name, value, TagQuality::Good, config.source)
-                    .await;
+                if !config.protocol_config.is_picontrol() {
+                    state
+                        .process_image
+                        .update_tag(&tag_name, value, TagQuality::Good, config.source)
+                        .await;
+                }
                 info!("Output set: {} = {}", tag_name, value);
                 (true, json!({ "tag_name": tag_name, "value": value }), None)
             }

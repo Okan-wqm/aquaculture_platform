@@ -62,6 +62,8 @@ mod program;
 // Runtime Modbus device provisioning (Slice 3.5 / SENSOR-CRITICAL-007):
 // cmd_provision_modbus_device / cmd_decommission_modbus_device hot-add/remove a
 // tenant-added VFD on the live Modbus actor + persist it into config.modbus.
+#[cfg(test)]
+mod picontrol_set_output_tests;
 mod provision;
 mod rbac;
 mod read;

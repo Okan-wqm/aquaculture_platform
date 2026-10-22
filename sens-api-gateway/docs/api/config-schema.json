@@ -53,6 +53,7 @@
       "items": { "type": "object", "additionalProperties": true },
       "default": []
     },
+    "picontrol": { "$ref": "#/$defs/PiControlConfig" },
     "scripting": { "$ref": "#/$defs/ScriptingConfig" },
     "runtime": { "$ref": "#/$defs/RuntimeConfig" },
     "cache": { "$ref": "#/$defs/CacheConfig" },
@@ -224,6 +225,55 @@
         "pull": { "type": "string", "enum": ["up", "down", "none"], "default": "none" },
         "invert": { "type": "boolean", "default": false },
         "debounce_ms": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    },
+    "PiControlConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["points"],
+      "description": "RevPi process-image points (feature revpi-io, ADR-048 DEC-8.8): the agent's own grant on /dev/piControl0.",
+      "properties": {
+        "points": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/PiControlPoint" }
+        },
+        "output_watchdog_ms": {
+          "type": "integer",
+          "minimum": 200,
+          "maximum": 60000,
+          "description": "KB_SET_OUTPUT_WATCHDOG period; default max(2000, 4 x telemetry.io_data_interval_ms)."
+        },
+        "config_rsc": {
+          "type": "string",
+          "description": "Generic profile only: the PiCtory file the driver loaded (default /etc/revpi/config.rsc). Refused on Suderra OS."
+        }
+      }
+    },
+    "PiControlPoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["variable"],
+      "properties": {
+        "variable": { "type": "string", "minLength": 1, "maxLength": 31, "pattern": "^[!-~]+$" },
+        "tag": { "type": "string" },
+        "direction": { "enum": ["input", "output"], "default": "input" },
+        "data_type": { "enum": ["bool", "uint8", "int8", "uint16", "int16", "uint32", "int32"] },
+        "safe_state_value": {
+          "type": "integer",
+          "description": "Outputs only; must equal the default config.rsc declares for the variable."
+        },
+        "raw_min": { "type": "number" },
+        "raw_max": { "type": "number" },
+        "eng_min": { "type": "number" },
+        "eng_max": { "type": "number" },
+        "eng_unit": { "type": "string" }
+      },
+      "dependentRequired": {
+        "raw_min": ["raw_max", "eng_min", "eng_max"],
+        "raw_max": ["raw_min", "eng_min", "eng_max"],
+        "eng_min": ["raw_min", "raw_max", "eng_max"],
+        "eng_max": ["raw_min", "raw_max", "eng_min"]
       }
     },
     "ScriptingConfig": {

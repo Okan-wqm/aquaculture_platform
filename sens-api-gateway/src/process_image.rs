@@ -115,6 +115,10 @@ pub enum TagSource {
     /// OpcUaClient write + the script overwrite so
     /// operators see the chain.
     OpcUaClient,
+    /// A RevPi process-image variable read through `/dev/piControl0`
+    /// (ADR-048 DEC-8.8, `src/picontrol`).
+    #[serde(rename = "picontrol")]
+    PiControl,
 }
 
 /// I/O type (IEC 61131-3)
@@ -204,6 +208,21 @@ pub enum ProtocolConfig {
     Uart {
         port: String,
     },
+    /// A variable of the RevPi process image, named as PiCtory's
+    /// `config.rsc` names it. The `picontrol:` section of the signed
+    /// configuration owns these tags: it resolves the variable to its address,
+    /// grants the writes and drives the safe state (`src/picontrol`), so an
+    /// I/O map replacement (`set_configs`) keeps them.
+    PiControl {
+        variable: String,
+    },
+}
+
+impl ProtocolConfig {
+    /// Whether the `picontrol:` section, not the I/O map, owns the tag.
+    pub fn is_picontrol(&self) -> bool {
+        matches!(self, Self::PiControl { .. })
+    }
 }
 
 /// Tag configuration (how to read/write a tag)
@@ -346,6 +365,37 @@ impl ProcessImage {
         );
     }
 
+    /// [`Self::update_tag`] that also fans a [`TagChange`] out when the stored
+    /// value or quality is not what it was: an event-driven task wakes on a
+    /// change of a RevPi input or output, not on every poll. The timestamp is
+    /// refreshed either way, so a consumer still sees a live tag.
+    pub async fn update_tag_notifying(
+        &self,
+        name: &str,
+        value: f64,
+        quality: TagQuality,
+        source: TagSource,
+    ) {
+        let before = self.get_tag(name).await;
+        self.update_tag(name, value, quality, source).await;
+        let Some(after) = self.get_tag(name).await else {
+            return;
+        };
+        let unchanged = before.as_ref().is_some_and(|b| {
+            b.quality == after.quality
+                && (b.value == after.value || (b.value.is_nan() && after.value.is_nan()))
+        });
+        if !unchanged {
+            let _ = self.change_tx.send(TagChange {
+                tag_name: name.to_string(),
+                new_value: after.value,
+                quality: after.quality,
+                source,
+                timestamp: after.timestamp,
+            });
+        }
+    }
+
     /// Update a tag with a pre-scaled value (no scaling applied)
     pub async fn update_tag_raw(
         &self,
@@ -398,10 +448,34 @@ impl ProcessImage {
         inner.tags.clone()
     }
 
-    /// Replace all tag configs
+    /// Replace the I/O map's tag configs. Tags the `picontrol:` section owns
+    /// ([`ProtocolConfig::PiControl`]) stay: they come from the signed
+    /// configuration, not from the I/O map, and an I/O map that names one of
+    /// them does not replace it.
     pub async fn set_configs(&self, configs: Vec<TagConfig>) {
         let mut inner = self.inner.write().await;
-        inner.configs.clear();
+        inner
+            .configs
+            .retain(|_, config| config.protocol_config.is_picontrol());
+        for config in configs {
+            if inner
+                .configs
+                .get(&config.tag_name)
+                .is_some_and(|owned| owned.protocol_config.is_picontrol())
+            {
+                continue;
+            }
+            inner.configs.insert(config.tag_name.clone(), config);
+        }
+    }
+
+    /// Make `configs` the tags the `picontrol:` section owns: the earlier ones
+    /// are removed, these are added, and the I/O map's tags are untouched.
+    pub async fn set_picontrol_configs(&self, configs: Vec<TagConfig>) {
+        let mut inner = self.inner.write().await;
+        inner
+            .configs
+            .retain(|_, config| !config.protocol_config.is_picontrol());
         for config in configs {
             inner.configs.insert(config.tag_name.clone(), config);
         }
@@ -559,6 +633,152 @@ mod tag_change_tests {
             tokio::time::timeout(std::time::Duration::from_millis(10), rx.recv(),)
                 .await
                 .is_err()
+        );
+    }
+}
+
+#[cfg(test)]
+mod picontrol_ownership_tests {
+    //! The `picontrol:` section's tags survive an I/O map replacement, and a
+    //! change of a RevPi point (not a refresh) is what wakes a subscriber.
+
+    #![allow(clippy::expect_used, clippy::unwrap_used)]
+
+    use super::*;
+
+    fn cfg(name: &str, protocol: ProtocolConfig) -> TagConfig {
+        TagConfig {
+            tag_name: name.into(),
+            io_type: IoType::DO,
+            data_type: "bool".into(),
+            source: TagSource::Gpio,
+            poll_interval_ms: None,
+            raw_min: None,
+            raw_max: None,
+            eng_min: None,
+            eng_max: None,
+            eng_unit: None,
+            invert: false,
+            alarm_hh: None,
+            alarm_h: None,
+            alarm_l: None,
+            alarm_ll: None,
+            deadband: None,
+            protocol_config: protocol,
+        }
+    }
+
+    fn gpio(name: &str) -> TagConfig {
+        cfg(
+            name,
+            ProtocolConfig::Gpio {
+                pin: 17,
+                direction: "output".into(),
+            },
+        )
+    }
+
+    fn revpi(name: &str, variable: &str) -> TagConfig {
+        cfg(
+            name,
+            ProtocolConfig::PiControl {
+                variable: variable.into(),
+            },
+        )
+    }
+
+    async fn names(pi: &ProcessImage) -> Vec<String> {
+        let mut n: Vec<String> = pi
+            .get_configs()
+            .await
+            .into_iter()
+            .map(|c| c.tag_name)
+            .collect();
+        n.sort();
+        n
+    }
+
+    #[tokio::test]
+    async fn an_io_map_replacement_keeps_the_tags_the_picontrol_section_owns() {
+        let pi = ProcessImage::new();
+        pi.set_picontrol_configs(vec![revpi("pump", "O_1")]).await;
+        pi.set_configs(vec![gpio("fan")]).await;
+        assert_eq!(names(&pi).await, ["fan", "pump"]);
+        pi.set_configs(vec![gpio("heater")]).await;
+        assert_eq!(
+            names(&pi).await,
+            ["heater", "pump"],
+            "the old map's tag is replaced"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_io_map_that_names_a_picontrol_tag_does_not_replace_it() {
+        let pi = ProcessImage::new();
+        pi.set_picontrol_configs(vec![revpi("pump", "O_1")]).await;
+        pi.set_configs(vec![gpio("pump")]).await;
+        let pump = pi.get_config("pump").await.unwrap();
+        assert!(pump.protocol_config.is_picontrol());
+    }
+
+    #[tokio::test]
+    async fn replacing_the_picontrol_tags_drops_the_ones_no_longer_granted() {
+        let pi = ProcessImage::new();
+        pi.set_configs(vec![gpio("fan")]).await;
+        pi.set_picontrol_configs(vec![revpi("a", "O_1"), revpi("b", "O_2")])
+            .await;
+        pi.set_picontrol_configs(vec![revpi("b", "O_2")]).await;
+        assert_eq!(names(&pi).await, ["b", "fan"]);
+    }
+
+    #[tokio::test]
+    async fn only_a_changed_value_or_quality_is_announced() {
+        let pi = ProcessImage::new();
+        let mut rx = pi.subscribe_changes();
+        pi.update_tag_notifying("t", 1.0, TagQuality::Good, TagSource::PiControl)
+            .await;
+        assert_eq!(
+            rx.try_recv().unwrap().new_value,
+            1.0,
+            "a new tag is a change"
+        );
+        pi.update_tag_notifying("t", 1.0, TagQuality::Good, TagSource::PiControl)
+            .await;
+        assert!(
+            rx.try_recv().is_err(),
+            "the same value is a refresh, not a change"
+        );
+        pi.update_tag_notifying("t", 0.0, TagQuality::Good, TagSource::PiControl)
+            .await;
+        assert_eq!(rx.try_recv().unwrap().new_value, 0.0);
+        pi.update_tag_notifying("t", 0.0, TagQuality::CommFailure, TagSource::PiControl)
+            .await;
+        let c = rx.try_recv().unwrap();
+        assert_eq!(
+            c.quality,
+            TagQuality::CommFailure,
+            "a quality change is announced"
+        );
+        assert_eq!(c.new_value, 0.0, "and keeps the last value");
+    }
+
+    #[tokio::test]
+    async fn a_refresh_still_moves_the_timestamp() {
+        let pi = ProcessImage::new();
+        pi.update_tag_notifying("t", 1.0, TagQuality::Good, TagSource::PiControl)
+            .await;
+        let first = pi.get_tag("t").await.unwrap().timestamp;
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        pi.update_tag_notifying("t", 1.0, TagQuality::Good, TagSource::PiControl)
+            .await;
+        assert!(pi.get_tag("t").await.unwrap().timestamp > first);
+    }
+
+    #[test]
+    fn the_picontrol_source_serializes_without_a_camel_case_surprise() {
+        assert_eq!(
+            serde_json::to_string(&TagSource::PiControl).unwrap(),
+            "\"picontrol\""
         );
     }
 }

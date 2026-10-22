@@ -57,6 +57,12 @@ pub mod suderra_os {
     /// The site-config statement that names every site file by digest
     /// (`suderra.site-config.v1`, DEC-4.10, DEC-4.12).
     pub const SITE_CONFIG_FILE: &str = "/var/lib/suderra-site/site-config.dsse";
+    /// PiCtory's `config.rsc`, signed site material (contract mutable-state.json
+    /// site directory contents `revpi/config.rsc`, DEC-4.12, DEC-8.8). The
+    /// agent receives the digest-verified bytes through the site trust;
+    /// the constant names the file for the contract invariant and the
+    /// hardware scan.
+    pub const REVPI_CONFIG_RSC: &str = "/var/lib/suderra-site/revpi/config.rsc";
     /// The RBAC manifest statement the root installer delivered (DEC-4.12).
     pub const RBAC_MANIFEST_FILE: &str = "/var/lib/suderra-site/rbac-manifest.dsse";
     /// The fleet-root signed trust-anchors bundle the root installer
@@ -126,6 +132,10 @@ pub mod generic {
     pub const LOG_DIR: &str = "/var/log/suderra";
     /// Legacy application log file default of `logging.file`.
     pub const LEGACY_APP_LOG_FILE: &str = "/var/log/suderra-agent.log";
+    /// PiCtory's `config.rsc`, the file the KUNBUS piControl driver loads
+    /// itself on a Revolution Pi (ADR-048 DEC-8.8). A read-only anchor: the
+    /// agent only reads it, and `picontrol.config_rsc` may name another file.
+    pub const REVPI_CONFIG_RSC: &str = "/etc/revpi/config.rsc";
 }
 
 /// Name of the activation-state document inside the state directory.
@@ -319,6 +329,20 @@ impl AgentPaths {
     #[cfg(feature = "suderra-os")]
     pub fn site_dir(&self) -> PathBuf {
         PathBuf::from(suderra_os::SITE_DIR)
+    }
+
+    /// PiCtory's `config.rsc` in the site directory (DEC-4.12, DEC-8.8).
+    #[cfg(feature = "suderra-os")]
+    pub fn revpi_config_rsc(&self) -> PathBuf {
+        PathBuf::from(suderra_os::REVPI_CONFIG_RSC)
+    }
+
+    /// PiCtory's `config.rsc`: the file the KUNBUS driver loaded, which the
+    /// agent reads (never writes) when the configuration names no other
+    /// (DEC-8.8).
+    #[cfg(not(feature = "suderra-os"))]
+    pub fn revpi_config_rsc(&self) -> PathBuf {
+        PathBuf::from(generic::REVPI_CONFIG_RSC)
     }
 
     /// The site-config statement (DEC-4.10).

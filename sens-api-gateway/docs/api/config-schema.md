@@ -24,6 +24,7 @@ Evidence: `src/config.rs:144-221`.
 | `modbus` | `ModbusDeviceConfig[]` | no | `[]` | See [Modbus Configuration](#modbus-configuration) |
 | `gpio` | `GpioConfig[]` | no | `[]` | See [GPIO Configuration](#gpio-configuration) |
 | `i2c` | `I2cDeviceConfig[]` | no | `[]` | I2C device list (see `src/i2c.rs`) |
+| `picontrol` | `PiControlConfig` | no | absent | RevPi process-image points (feature `revpi-io`); see [piControl Configuration](#picontrol-configuration) |
 | `scripting` | `ScriptingConfig` | no | defaults | See [Scripting Configuration](#scripting-configuration) |
 | `runtime` | `RuntimeConfig` | no | defaults | See [Runtime Configuration](#runtime-configuration) |
 | `cache` | `CacheConfig` | no | defaults | See [Cache Configuration](#cache-configuration) |
@@ -173,6 +174,60 @@ Evidence: `src/config.rs:1116-1137`.
 | `pull` | string | no | `"none"` | `"up"`, `"down"`, `"none"` |
 | `invert` | boolean | no | `false` | Invert read/write value |
 | `debounce_ms` | integer (u64) | no | — | Debounce window (input only) |
+
+## piControl Configuration
+
+Evidence: `src/picontrol/config.rs`, `src/picontrol/registry.rs`. ADR-048 DEC-8.8.
+
+The RevPi Connect 4 reads and drives its PiBridge expansion modules (DIO, DI, DO, AIO, MIO, RO)
+through `/dev/piControl0`. The device gives its opener the whole process image; this section is
+the agent's own, narrower grant. It is part of the signed site `config.yaml` on Suderra OS, so
+widening it needs a signed site config and the local approval root asks for. Builds without the
+`revpi-io` feature start in degraded mode when the section is present (outputs held in their safe
+state, control disabled).
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `points` | `PiControlPoint[]` | yes | — | The variables the agent reads, and the outputs it may write. Nothing else is read or written |
+| `output_watchdog_ms` | integer (u32) | no | `max(2000, 4 x telemetry.io_data_interval_ms)` | `KB_SET_OUTPUT_WATCHDOG` period, 200 to 60000, at least 3 polling intervals when there are outputs. A control loop that stops ticking has every PiBridge output zeroed within it |
+| `config_rsc` | string | no | `/etc/revpi/config.rsc` | Generic profile only: the PiCtory file the driver loaded. Refused on Suderra OS, where the path is fixed and the file is signed site material (`revpi/config.rsc`) |
+
+### piControl Point
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `variable` | string | yes | — | PiCtory variable name, as `config.rsc` declares it (at most 31 printable ASCII bytes) |
+| `tag` | string | no | the variable name | Tag the value is published under; unique across GPIO, Modbus and piControl tags |
+| `direction` | string | no | `"input"` | `"input"` or `"output"`. An output must be an `out` variable of an I/O expansion module, not exported in PiCtory; the base module's outputs (LEDs, X2, the Connect/Connect SE board watchdog bit) can never be listed |
+| `data_type` | string | no | unsigned type of the variable's width | `bool`, `uint8`, `int8`, `uint16`, `int16`, `uint32`, `int32`; must match the width |
+| `safe_state_value` | integer | no | `0` | Outputs only: the raw value the safe-state pass drives. It must equal the default `config.rsc` declares for the variable, which the driver restores on a reset |
+| `raw_min`, `raw_max`, `eng_min`, `eng_max` | number | all or none | — | Linear scaling, as for the other protocols |
+| `eng_unit` | string | no | — | Unit label |
+
+```yaml
+picontrol:
+  points:
+    - tag: pump_1_run
+      variable: O_1
+      direction: output
+    - tag: aerator_1
+      variable: O_2
+      direction: output
+      safe_state_value: 1        # PiCtory default of O_2 is 1 (life-support output)
+    - variable: InputValue_1
+      raw_min: 0
+      raw_max: 10000
+      eng_min: 0
+      eng_max: 10
+      eng_unit: V
+```
+
+What an output reads after each event (agent restart, crash, stalled loop, degraded mode, driver
+reset, reboot, power loss, module communication loss) is the DEC-13.3 table in
+`src/picontrol/behaviour_table.rs`; the parts the agent and the driver own are tested against a
+fake kernel in `cargo test` and on a real RevPi by `tests/hil/output_behaviour_table.rs` (feature
+`hil`); the rest is module firmware and wiring and belongs on the installation's commissioning
+checklist (DEC-13.1).
 
 ## Scripting Configuration
 

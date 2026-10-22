@@ -165,6 +165,9 @@ pub struct SiteTrust {
     site: Verified<SiteConfig>,
     rbac: Verified<RbacManifest>,
     config_yaml: Vec<u8>,
+    /// The other site files the site config named, with the bytes whose
+    /// digest and size it verified.
+    files: SiteFiles,
 }
 
 impl SiteTrust {
@@ -258,6 +261,7 @@ impl SiteTrust {
             site,
             rbac,
             config_yaml,
+            files,
         })
     }
 
@@ -274,6 +278,14 @@ impl SiteTrust {
     /// The `config.yaml` bytes whose digest and size the site config names.
     pub fn config_yaml(&self) -> &[u8] {
         &self.config_yaml
+    }
+
+    /// The bytes of another site file (`revpi/config.rsc`, `io-config.yaml`,
+    /// ...) whose digest and size the site config named and the verifier
+    /// checked; `None` when the site delivered no such file. The agent parses
+    /// these bytes, never a second read of the file.
+    pub fn site_file(&self, path: SitePath) -> Option<&[u8]> {
+        self.files.get(&path).map(Vec::as_slice)
     }
 
     /// The accepted `update_seq`.

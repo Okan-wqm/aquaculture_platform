@@ -50,6 +50,8 @@ pub enum Backend {
     I2c,
     Spi,
     Pwm,
+    /// The RevPi process image behind `/dev/piControl0` (ADR-048 DEC-8.8).
+    PiControl,
 }
 
 impl Backend {
@@ -59,6 +61,15 @@ impl Backend {
             Self::I2c => "i2c",
             Self::Spi => "spi",
             Self::Pwm => "pwm",
+            Self::PiControl => "picontrol",
+        }
+    }
+
+    /// The cargo feature that compiles this backend's driver.
+    pub fn feature(self) -> &'static str {
+        match self {
+            Self::Gpio | Self::I2c | Self::Spi | Self::Pwm => "gpio",
+            Self::PiControl => "revpi-io",
         }
     }
 }
@@ -74,10 +85,11 @@ impl std::fmt::Display for BackendNotCompiled {
         write!(
             f,
             "{} is configured but this agent build has no {} driver (built without the \
-             `gpio` feature or not for Linux); the backend is unavailable and the agent \
+             `{}` feature or not for Linux); the backend is unavailable and the agent \
              runs in degraded mode (ADR-048 DEC-6.3)",
             self.0.name(),
-            self.0.name()
+            self.0.name(),
+            self.0.feature()
         )
     }
 }
@@ -121,6 +133,15 @@ impl DegradedReason {
                 Backend::I2c => "i2c-backend-unavailable",
                 Backend::Spi => "spi-backend-unavailable",
                 Backend::Pwm => "pwm-backend-unavailable",
+                // The health vocabulary of contract 1.2.0 (agent-health
+                // `reasons[].code`) has no code for the piControl backend, and
+                // this crate may not widen it. A piControl device that is
+                // absent, refused or does not match the signed config.rsc is a
+                // dependency of the full operation that failed at boot, which is
+                // what `boot-dependency-failed` says; the detail names piControl.
+                // CONTRACT GAP: `picontrol-backend-unavailable` is the code a
+                // contract revision should add; the agent then returns it here.
+                Backend::PiControl => "boot-dependency-failed",
             },
             Self::SafeStateIncomplete { .. } => "safe-state-incomplete",
             Self::IoBudgetExceeded { .. } => "io-budget-exceeded",
@@ -654,5 +675,29 @@ mod tests {
         d.set_phase(Phase::Running);
         let mode = std::fs::metadata(&file).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o640);
+    }
+
+    #[test]
+    fn the_picontrol_backend_reports_a_code_the_contract_defines() {
+        // contracts/suderra-edge/v1/schemas/agent-health.schema.json
+        // `reasons[].code` has no piControl code: the nearest the contract
+        // defines is a boot dependency that failed. The detail names piControl.
+        let r = DegradedReason::BackendUnavailable {
+            backend: Backend::PiControl,
+            detail: "piControl is absent".into(),
+        };
+        assert_eq!(r.code(), "boot-dependency-failed");
+        assert_eq!(r.detail(), "piControl is absent");
+        assert_eq!(Backend::PiControl.feature(), "revpi-io");
+        assert!(
+            BackendNotCompiled(Backend::PiControl)
+                .to_string()
+                .contains("`revpi-io` feature")
+        );
+        assert!(
+            BackendNotCompiled(Backend::Gpio)
+                .to_string()
+                .contains("`gpio` feature")
+        );
     }
 }

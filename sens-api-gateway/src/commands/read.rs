@@ -14,8 +14,8 @@
 //! - `cmd_scan_hardware` — full I/O enumeration via
 //!   `HardwareScanner`. Platform-specific discovery:
 //!   Revolution Pi piControl / RPi BCM GPIO / generic sysfs.
-//!   Wrapped in `tokio::task::spawn_blocking` because piTest
-//!   subprocess + sysfs reads block the tokio runtime.
+//!   Wrapped in `tokio::task::spawn_blocking` because the piControl
+//!   ioctls and sysfs reads block the tokio runtime.
 //! - `cmd_read_modbus` — parallel reads across all configured
 //!   Modbus devices via `read_all_parallel()`.
 //! - `cmd_read_gpio` — actor-pattern read via `gpio_handle.
@@ -143,27 +143,37 @@ impl CommandHandler {
     /// device.
     ///
     /// Platform-specific discovery:
-    /// - Revolution Pi: piControl process image (piTest -d).
+    /// - Revolution Pi: the piControl device list and PiCtory's config.rsc.
     /// - Raspberry Pi: BCM GPIO 2-27 enumeration.
     /// - Generic Linux: /sys/class/gpio/gpiochip* sysfs.
     ///
     /// Returns a list of `DiscoveredIo` channels that can be bulk-
     /// imported via the platform's "Auto-Detect I/O" feature.
     ///
-    /// WHY spawn_blocking: `piTest` is a subprocess fork+exec and
-    /// sysfs reads are synchronous syscalls — both would stall the
-    /// tokio worker thread. Offloading to the blocking pool keeps
-    /// the command handler responsive.
+    /// WHY spawn_blocking: the piControl ioctls and the sysfs reads are
+    /// synchronous syscalls that would stall the tokio worker thread.
+    /// Offloading to the blocking pool keeps the command handler
+    /// responsive.
     pub(super) async fn cmd_scan_hardware(&self) -> (bool, Value, Option<String>) {
         info!("Executing scan_hardware command — full I/O enumeration");
 
-        let platform = {
+        let (platform, rsc) = {
             let state = self.state.read().await;
-            state.config.gpio_platform()
+            (
+                state.config.gpio_platform(),
+                crate::picontrol::scan_source(
+                    state
+                        .config
+                        .picontrol
+                        .as_ref()
+                        .and_then(|p| p.config_rsc.as_deref()),
+                    state.picontrol_rsc.clone(),
+                ),
+            )
         };
 
         let result = match tokio::task::spawn_blocking(move || {
-            let scanner = HardwareScanner::new(platform);
+            let scanner = HardwareScanner::new(platform).with_rsc(rsc);
             scanner.scan()
         })
         .await

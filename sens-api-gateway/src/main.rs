@@ -42,6 +42,7 @@ mod process_hardening;
 // mutable-state table; in the generic profile the legacy layout with the
 // SUDERRA_CONFIG / SUDERRA_DATA_DIR / SUDERRA_DB_KEY_PATH overrides.
 mod paths;
+mod picontrol; // ADR-048 DEC-8.8: RevPi process-image backend (/dev/piControl0)
 // ADR-048 DEC-19: the only reader of security-relevant environment
 // variables. Not compiled in the `suderra-os` profile, so no Suderra OS code
 // path can consult one (tests/invariants/no_security_env_in_suderra_os.rs).
@@ -459,6 +460,16 @@ pub struct AppState {
 
     /// I2C handle (actor pattern - thread-safe)
     pub i2c_handle: Option<I2cHandle>,
+
+    /// RevPi process-image backend (ADR-048 DEC-8.8): `Some` once the
+    /// `picontrol:` section is configured and its device opened and verified.
+    pub picontrol_handle: Option<crate::picontrol::PiControlHandle>,
+
+    /// Suderra OS: the `revpi/config.rsc` bytes whose digest the verified site
+    /// config named (`SiteTrust::site_file`), the one source the piControl
+    /// backend builds its registry from. `None` on the generic profile and
+    /// when the site delivered none.
+    pub picontrol_rsc: Option<std::sync::Arc<[u8]>>,
 
     /// Process image holding all tag values
     pub process_image: ProcessImage,
@@ -976,6 +987,8 @@ impl AppState {
             mqtt_client: None,
             modbus_handle: None,
             gpio_handle: None,
+            picontrol_handle: None,
+            picontrol_rsc: None,
             i2c_handle: None,
             process_image: ProcessImage::new(),
             alarm_manager: Arc::new(RwLock::new(AlarmManager::new())),
@@ -1968,6 +1981,11 @@ impl AppState {
         );
         self.tenant_id = Some(trust.device().identity.tenant_id.clone());
         self.trust_anchors = Some(trust);
+        // The verified PiCtory file the piControl backend resolves its
+        // variables from (DEC-8.8): the same bytes the digest covered.
+        self.picontrol_rsc = site
+            .site_file(crate::edge_contract::registry::SitePath::RevpiConfigRsc)
+            .map(std::sync::Arc::<[u8]>::from);
         if let Err(e) = self.rbac_manifest_store.install_contract(site.rbac()) {
             error!(
                 "RBAC manifest {} verified but not usable: {}. Every permissioned command is \
@@ -4879,6 +4897,8 @@ async fn reload_configuration(state: &Arc<RwLock<AppState>>) {
         state_guard.audit_sink.clone()
     };
 
+    reload_picontrol(state).await;
+
     #[cfg(feature = "lorawan")]
     if let Some(old_lora_handle) = lora_restart {
         info!("LoRa yapilandirmasi degisti — actor yeniden baslatiliyor...");
@@ -5471,9 +5491,10 @@ async fn run_agent(
         let modbus_ref = state_guard.modbus_handle.as_ref();
         let gpio_ref = state_guard.gpio_handle.as_ref();
         let i2c_ref = state_guard.i2c_handle.as_ref();
+        let picontrol_ref = state_guard.picontrol_handle.as_ref();
 
         let report = safe_state_manager
-            .apply(modbus_ref, gpio_ref, i2c_ref)
+            .apply(modbus_ref, gpio_ref, i2c_ref, picontrol_ref)
             .await;
         degraded.record_safe_state(report.summary());
         match report.degraded_reason() {
@@ -6332,6 +6353,29 @@ async fn run_agent(
                                 Err("I2C unavailable".to_string())
                             }
                         }
+                        ProtocolConfig::PiControl { .. } => {
+                            // The backend checks the degraded gate, the force
+                            // registry, its output grant and the layout, and
+                            // stores the value it read back in the process image.
+                            if let Some(ref handle) = s.picontrol_handle {
+                                match handle.write_output(&cmd.tag, cmd.value).await {
+                                    Ok(written) => {
+                                        s.process_image
+                                            .update_tag_notifying(
+                                                &cmd.tag,
+                                                written.value,
+                                                TagQuality::Good,
+                                                config.source,
+                                            )
+                                            .await;
+                                        Ok(())
+                                    }
+                                    Err(e) => Err(format!("piControl: {e}")),
+                                }
+                            } else {
+                                Err("piControl unavailable".to_string())
+                            }
+                        }
                         _ => Err(format!(
                             "Write unsupported for {:?}",
                             config.protocol_config
@@ -6340,9 +6384,19 @@ async fn run_agent(
 
                     match write_result {
                         Ok(()) => {
-                            s.process_image
-                                .update_tag(&cmd.tag, cmd.value, TagQuality::Good, config.source)
-                                .await;
+                            // A piControl write already stored the value it read
+                            // back, in raw units; storing the commanded value
+                            // again would apply the tag's scaling twice.
+                            if !config.protocol_config.is_picontrol() {
+                                s.process_image
+                                    .update_tag(
+                                        &cmd.tag,
+                                        cmd.value,
+                                        TagQuality::Good,
+                                        config.source,
+                                    )
+                                    .await;
+                            }
                             info!("SCADA command executed: {} = {}", cmd.tag, cmd.value);
                             Ok(cmd.value)
                         }
@@ -6681,10 +6735,19 @@ async fn run_agent(
         let modbus_ref = state_guard.modbus_handle.as_ref();
         let gpio_ref = state_guard.gpio_handle.as_ref();
         let i2c_ref = state_guard.i2c_handle.as_ref();
+        let picontrol_ref = state_guard.picontrol_handle.as_ref();
 
         let report = safe_state_manager
-            .apply(modbus_ref, gpio_ref, i2c_ref)
+            .apply(modbus_ref, gpio_ref, i2c_ref, picontrol_ref)
             .await;
+
+        // ADR-048 DEC-6.7: the driver zeroes the outputs of a descriptor that
+        // closes with its watchdog armed. Disarm it only now that every safe
+        // value is in place; with an incomplete pass it stays armed and the
+        // driver's zeroing is the fallback.
+        if let Some(picontrol) = picontrol_ref {
+            picontrol.release(report.is_complete());
+        }
 
         if report.is_complete() {
             info!(
@@ -6828,6 +6891,119 @@ async fn run_agent(
     Ok(())
 }
 
+/// Open the RevPi process-image backend when the configuration grants one
+/// (ADR-048 DEC-8.8): resolve the signed `config.rsc`, open `/dev/piControl0`,
+/// prove the file against the driver, register the points' tags. The reason
+/// it could not is returned as a degraded-mode reason.
+async fn init_picontrol(state: &Arc<RwLock<AppState>>) -> Option<crate::degraded::DegradedReason> {
+    use crate::degraded::{Backend, DegradedReason};
+    let (config, rsc, gate, force, io_interval_ms, process_image) = {
+        let s = state.read().await;
+        let config = s.config.picontrol.clone()?;
+        (
+            config,
+            s.picontrol_rsc.clone(),
+            s.degraded.control_gate(),
+            s.force_registry.clone(),
+            s.config.telemetry.io_data_interval_ms,
+            s.process_image.clone(),
+        )
+    };
+    let unavailable = |detail: String| DegradedReason::BackendUnavailable {
+        backend: Backend::PiControl,
+        detail,
+    };
+    let source = match picontrol::rsc_source(&config, rsc) {
+        Ok(source) => source,
+        Err(e) => return Some(unavailable(format!("piControl is not usable: {e}"))),
+    };
+    let handle = match picontrol::PiControlHandle::open(
+        &config,
+        io_interval_ms,
+        source,
+        gate,
+        force,
+        picontrol::production_opener(),
+    ) {
+        Ok(handle) => handle,
+        Err(e) => {
+            return Some(unavailable(format!(
+                "piControl initialization failed: {e:#}"
+            )));
+        }
+    };
+    process_image
+        .set_picontrol_configs(handle.tag_configs())
+        .await;
+    info!(
+        "piControl initialized: {} points ({} outputs) verified against the driver",
+        config.points.len(),
+        config
+            .points
+            .iter()
+            .filter(|p| p.direction == picontrol::config::Direction::Output)
+            .count()
+    );
+    state.write().await.picontrol_handle = Some(handle);
+    None
+}
+
+/// A verified SIGHUP reload reached the `picontrol:` section or the signed
+/// `config.rsc` (ADR-048 DEC-4.12: a site config update that changes it makes
+/// root load the new file into the driver, then reload the agent). The backend
+/// proves the new grant and file against the driver; a reload it cannot prove,
+/// or a section that was removed, is degraded mode (control disabled, outputs
+/// held in their safe state) until the agent is restarted: an agent that cannot
+/// say where its outputs live does not drive them.
+#[cfg(unix)]
+async fn reload_picontrol(state: &Arc<RwLock<AppState>>) {
+    use crate::degraded::{Backend, DegradedReason};
+    let (handle, config, rsc, io_interval_ms, degraded, process_image) = {
+        let s = state.read().await;
+        (
+            s.picontrol_handle.clone(),
+            s.config.picontrol.clone(),
+            s.picontrol_rsc.clone(),
+            s.config.telemetry.io_data_interval_ms,
+            s.degraded.clone(),
+            s.process_image.clone(),
+        )
+    };
+    let unavailable = |detail: String| DegradedReason::BackendUnavailable {
+        backend: Backend::PiControl,
+        detail,
+    };
+    match (handle, config) {
+        (Some(handle), Some(config)) => {
+            let reloaded = picontrol::rsc_source(&config, rsc)
+                .map_err(anyhow::Error::msg)
+                .and_then(|source| handle.reload(&config, io_interval_ms, source));
+            match reloaded {
+                Ok(()) => {
+                    process_image
+                        .set_picontrol_configs(handle.tag_configs())
+                        .await;
+                    info!("piControl grant reloaded and verified against the driver");
+                }
+                Err(e) => degraded.enter(unavailable(format!(
+                    "piControl reload not proven: {e:#}; restart the agent once the site's \
+                     config.rsc and the driver agree"
+                ))),
+            }
+        }
+        (Some(_), None) => degraded.enter(unavailable(
+            "the reloaded configuration removed the picontrol section; restart the agent to \
+             release the device"
+                .to_owned(),
+        )),
+        (None, Some(_)) => warn!(
+            "the reloaded configuration adds a picontrol section; it takes effect at the next \
+             agent restart"
+        ),
+        (None, None) => {}
+    }
+}
+
 /// Initialize hardware interfaces (Modbus, GPIO) v2.0
 ///
 /// Uses actor pattern for both Modbus and GPIO.
@@ -6894,6 +7070,13 @@ async fn init_hardware(state: &Arc<RwLock<AppState>>) -> Vec<crate::degraded::De
         }
     } else {
         debug!("No I2C devices configured");
+    }
+
+    // RevPi process image (ADR-048 DEC-8.8). A configured `picontrol:`
+    // section whose device is absent, refused, not compiled in or not
+    // matching the signed config.rsc is a degraded mode, never a simulation.
+    if let Some(reason) = init_picontrol(state).await {
+        degraded_reasons.push(reason);
     }
 
     // Connect to Modbus devices via handle
@@ -7262,5 +7445,79 @@ mod boot_tests {
             state.tenant_id.as_deref(),
             Some(identity.tenant_id.as_str())
         );
+    }
+}
+
+#[cfg(test)]
+mod picontrol_boot_tests {
+    //! The boot step that opens the RevPi process-image backend (ADR-048
+    //! DEC-8.8): a section that cannot be served is a degraded-mode reason, never
+    //! a simulation and never an exit.
+
+    #![allow(clippy::expect_used, clippy::unwrap_used, clippy::indexing_slicing)]
+
+    use super::*;
+    use crate::degraded::{Backend, DegradedReason};
+
+    fn state(section: &str) -> Arc<RwLock<AppState>> {
+        let yaml = format!(
+            "device_id: \"123e4567-e89b-42d3-a456-426614174000\"\ndevice_code: \"REVPI-1\"\n\
+             api_url: \"https://api.example.test\"\nmqtt:\n  broker: \"localhost\"\n  port: 1883\n{section}"
+        );
+        Arc::new(RwLock::new(AppState::new(
+            serde_yaml::from_str(&yaml).unwrap(),
+        )))
+    }
+
+    #[tokio::test]
+    async fn without_a_section_there_is_no_backend_and_nothing_to_report() {
+        let state = state("");
+        assert!(init_picontrol(&state).await.is_none());
+        assert!(state.read().await.picontrol_handle.is_none());
+    }
+
+    #[tokio::test]
+    async fn a_section_the_device_cannot_serve_is_a_degraded_reason() {
+        let state = state(
+            "picontrol:\n  points:\n    - tag: pump\n      variable: O_1\n      direction: output\n",
+        );
+        let reason = init_picontrol(&state).await.expect("a reason");
+        match reason {
+            DegradedReason::BackendUnavailable { backend, detail } => {
+                assert_eq!(backend, Backend::PiControl);
+                assert!(detail.contains("piControl"), "{detail}");
+            }
+            other => panic!("{other:?}"),
+        }
+        let s = state.read().await;
+        assert!(s.picontrol_handle.is_none());
+        assert!(
+            s.process_image.get_configs().await.is_empty(),
+            "no tag is registered for a backend that did not open"
+        );
+    }
+
+    #[cfg(not(feature = "revpi-io"))]
+    #[tokio::test]
+    async fn a_build_without_the_driver_says_which_feature_is_missing() {
+        let state = state("picontrol:\n  points:\n    - variable: I_1\n");
+        let DegradedReason::BackendUnavailable { detail, .. } =
+            init_picontrol(&state).await.expect("a reason")
+        else {
+            panic!("not a backend reason");
+        };
+        assert!(detail.contains("`revpi-io` feature"), "{detail}");
+    }
+
+    #[cfg(feature = "suderra-os")]
+    #[tokio::test]
+    async fn suderra_os_without_the_signed_file_does_not_guess_a_path() {
+        let state = state("picontrol:\n  points:\n    - variable: I_1\n");
+        let DegradedReason::BackendUnavailable { detail, .. } =
+            init_picontrol(&state).await.expect("a reason")
+        else {
+            panic!("not a backend reason");
+        };
+        assert!(detail.contains("delivered no revpi/config.rsc"), "{detail}");
     }
 }

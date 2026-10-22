@@ -117,6 +117,14 @@ impl GpioPlatform {
 fn detect_gpio_platform() -> GpioPlatform {
     use std::path::Path;
 
+    // A `revpi-io` build is the RevPi Connect 4 build (contract boards.json): the
+    // platform is a fact of the binary, not something /proc/device-tree/model,
+    // which the unit's ProcSubset= hides and which no RevPi image fills with a
+    // reliable board identity (ADR-048 DEC-8.2), can tell it.
+    if cfg!(feature = "revpi-io") {
+        return GpioPlatform::RevolutionPi;
+    }
+
     // Check for Raspberry Pi
     if Path::new("/proc/device-tree/model").exists() {
         if let Ok(model) = std::fs::read_to_string("/proc/device-tree/model") {
@@ -231,6 +239,12 @@ pub struct AgentConfig {
     /// I2C device configuration
     #[serde(default)]
     pub i2c: Vec<I2cDeviceConfig>,
+
+    /// RevPi process-image points (ADR-048 DEC-8.8): the variables of
+    /// PiCtory's `config.rsc` the agent reads, and the outputs it may write.
+    /// The agent's own grant on `/dev/piControl0`; see [`crate::picontrol`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub picontrol: Option<crate::picontrol::PiControlConfig>,
 
     /// Scripting configuration
     #[serde(default)]
@@ -3646,6 +3660,40 @@ impl AgentConfig {
             }
         }
 
+        // ADR-048 DEC-8.8: the RevPi process-image grant.
+        if let Some(picontrol) = &self.picontrol {
+            picontrol
+                .validate(self.telemetry.io_data_interval_ms)
+                .map_err(|e| anyhow::anyhow!(e))?;
+            #[cfg(feature = "suderra-os")]
+            if picontrol.config_rsc.is_some() {
+                anyhow::bail!(
+                    "picontrol.config_rsc is not configurable in the suderra-os profile: the \
+                     path is a compile-time constant and the file is signed site material \
+                     (ADR-048 DEC-4.12, DEC-19)"
+                );
+            }
+            let taken: std::collections::HashSet<&str> = self
+                .gpio
+                .iter()
+                .map(|g| g.name.as_str())
+                .chain(
+                    self.modbus
+                        .iter()
+                        .flat_map(|d| d.registers.iter().map(|r| r.name.as_str())),
+                )
+                .collect();
+            for point in &picontrol.points {
+                if taken.contains(point.tag_name()) {
+                    anyhow::bail!(
+                        "picontrol point tag '{}' is also a GPIO or Modbus tag name; tag names \
+                         are unique across the process image",
+                        point.tag_name()
+                    );
+                }
+            }
+        }
+
         // 2026-04-29 PLC command endpoint inventory validation:
         // Direct PLC write commands use connection names as stable
         // authorization/audit targets. Duplicate names would make the command
@@ -5285,5 +5333,88 @@ mode: disabled
         let c: FirmwareUpdateConfig = serde_yaml::from_str(yaml).unwrap();
         assert!(matches!(c.bootloader_backend, BootloaderBackend::Noop));
         assert!(c.tryboot_autoboot_path.is_none());
+    }
+
+    // ---- the picontrol section (ADR-048 DEC-8.8) --------------------------
+
+    fn config_with_picontrol(extra: &str) -> AgentConfig {
+        let yaml = format!(
+            "device_id: \"123e4567-e89b-42d3-a456-426614174000\"\ndevice_code: \"REVPI-1\"\n\
+             api_url: \"https://api.example.test\"\nmqtt:\n  broker: \"localhost\"\n  port: 1883\n{extra}"
+        );
+        serde_yaml::from_str(&yaml).unwrap()
+    }
+
+    #[test]
+    fn a_valid_picontrol_section_passes_validation() {
+        let c = config_with_picontrol(
+            "picontrol:\n  points:\n    - tag: pump\n      variable: O_1\n      direction: output\n",
+        );
+        c.validate().unwrap();
+        assert_eq!(c.picontrol.as_ref().unwrap().points.len(), 1);
+    }
+
+    #[test]
+    fn an_empty_picontrol_section_is_refused() {
+        let c = config_with_picontrol("picontrol:\n  points: []\n");
+        assert!(
+            c.validate()
+                .unwrap_err()
+                .to_string()
+                .contains("lists no points")
+        );
+    }
+
+    #[test]
+    fn a_picontrol_tag_may_not_reuse_a_gpio_or_modbus_tag_name() {
+        let c = config_with_picontrol(
+            "gpio:\n  - name: pump\n    pin: 17\n    direction: output\n\
+             picontrol:\n  points:\n    - tag: pump\n      variable: O_1\n      direction: output\n",
+        );
+        let e = c.validate().unwrap_err().to_string();
+        assert!(e.contains("unique across the process image"), "{e}");
+    }
+
+    #[test]
+    fn the_watchdog_must_span_three_polling_intervals() {
+        let c = config_with_picontrol(
+            "telemetry:\n  io_data_interval_ms: 2000\npicontrol:\n  output_watchdog_ms: 3000\n  points:\n    - variable: O_1\n      direction: output\n",
+        );
+        assert!(
+            c.validate()
+                .unwrap_err()
+                .to_string()
+                .contains("3 polling intervals")
+        );
+    }
+
+    #[cfg(feature = "suderra-os")]
+    #[test]
+    fn suderra_os_refuses_a_site_that_names_the_config_rsc_path() {
+        let c = config_with_picontrol(
+            "picontrol:\n  config_rsc: /etc/elsewhere.rsc\n  points:\n    - variable: I_1\n",
+        );
+        assert!(
+            c.validate()
+                .unwrap_err()
+                .to_string()
+                .contains("compile-time constant")
+        );
+    }
+
+    #[cfg(not(feature = "suderra-os"))]
+    #[test]
+    fn the_generic_profile_may_name_the_config_rsc_path() {
+        let c = config_with_picontrol(
+            "picontrol:\n  config_rsc: /data/revpi/config.rsc\n  points:\n    - variable: I_1\n",
+        );
+        c.validate().unwrap();
+    }
+
+    #[test]
+    fn a_revpi_io_build_is_the_revolution_pi_platform_by_construction() {
+        if cfg!(feature = "revpi-io") {
+            assert_eq!(detect_gpio_platform(), GpioPlatform::RevolutionPi);
+        }
     }
 }

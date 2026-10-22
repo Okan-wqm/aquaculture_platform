@@ -71,6 +71,9 @@ pub async fn io_poll_loop(
     let mut interval = time::interval(time::Duration::from_millis(interval_ms));
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
+    // The RevPi process-image backend, when the configuration grants one.
+    let picontrol = state.read().await.picontrol_handle.clone();
+
     loop {
         crate::liveness::tick_while_waiting(&heartbeat, interval.tick()).await;
 
@@ -81,6 +84,13 @@ pub async fn io_poll_loop(
         }
         // The cycle completed: nothing is in flight.
         heartbeat.tick();
+        // ADR-048 DEC-6.7: the same tick feeds the piControl output watchdog,
+        // also in degraded mode (the safe values stay driven, not zeroed). A
+        // loop that stops reaching this line has the PiBridge outputs zeroed by
+        // the driver within the watchdog period.
+        if let Some(picontrol) = &picontrol {
+            picontrol.feed();
+        }
     }
 }
 
@@ -106,6 +116,7 @@ async fn poll_cycle(
         i2c_handle,
         alarm_manager,
         health_state,
+        picontrol_handle,
     ) = {
         let s = state.read().await;
         (
@@ -116,6 +127,7 @@ async fn poll_cycle(
             s.i2c_handle.clone(),
             s.alarm_manager.clone(),
             s.health_state.clone(),
+            s.picontrol_handle.clone(),
         )
     };
     #[cfg(feature = "scada-display")]
@@ -214,6 +226,44 @@ async fn poll_cycle(
                         }
                     }
                 }
+            }
+        }
+    }
+
+    // --- RevPi process image (one snapshot of /dev/piControl0) ---
+    if let Some(ref picontrol) = picontrol_handle {
+        let outcome = picontrol.poll();
+        heartbeat.progress();
+        for reading in &outcome.readings {
+            let quality = if reading.good {
+                TagQuality::Good
+            } else {
+                // An absent module, a reset in progress or an unproven layout:
+                // the stale bytes are not a reading.
+                TagQuality::CommFailure
+            };
+            if force_registry.is_forced(&reading.tag).await {
+                continue;
+            }
+            process_image
+                .update_tag_notifying(&reading.tag, reading.value, quality, TagSource::PiControl)
+                .await;
+        }
+        for change in &outcome.changes {
+            if change.external {
+                // An output moved without a write of this agent: the output
+                // watchdog or a driver reset zeroed or restored it, a module
+                // changed it, or another process wrote the process image.
+                warn!(
+                    "piControl output {} ({}) changed from {} to {} without a write of this \
+                     agent",
+                    change.tag, change.variable, change.old, change.new
+                );
+            } else {
+                debug!(
+                    "piControl {} ({}): {} -> {}",
+                    change.tag, change.variable, change.old, change.new
+                );
             }
         }
     }
@@ -533,6 +583,199 @@ fn bytes_to_f64(data: &[u8]) -> f64 {
         _ => {
             warn!("Unexpected I2C data length: {}", data.len());
             0.0
+        }
+    }
+}
+
+#[cfg(test)]
+mod picontrol_tests {
+    //! The RevPi read pass and the watchdog feed of the poll loop
+    //! (ADR-048 DEC-8.8, DEC-6.7), against the fake piControl kernel.
+
+    #![allow(clippy::expect_used, clippy::unwrap_used, clippy::indexing_slicing)]
+
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    use super::*;
+    use crate::picontrol::PiControlHandle;
+    use crate::picontrol::RscSource;
+    use crate::picontrol::device::Opener;
+    use crate::picontrol::fake::FakeKernel;
+    use crate::picontrol::rsc::sample;
+    use crate::process_image::TagChange;
+
+    const GRANT: &str = r#"
+output_watchdog_ms: 1000
+points:
+  - tag: pump
+    variable: O_1
+    direction: output
+  - tag: in_1
+    variable: I_1
+  - tag: level
+    variable: InputValue_1
+    raw_min: 0
+    raw_max: 10000
+    eng_min: 0
+    eng_max: 10
+    eng_unit: V
+"#;
+
+    struct Rig {
+        kernel: Arc<FakeKernel>,
+        state: Arc<RwLock<AppState>>,
+        heartbeat: crate::liveness::Heartbeat,
+    }
+
+    async fn rig(io_interval_ms: u64) -> Rig {
+        let config: crate::config::AgentConfig = serde_yaml::from_str(&format!(
+            "device_id: \"123e4567-e89b-42d3-a456-426614174000\"\ndevice_code: \"REVPI-1\"\n\
+             api_url: \"https://api.example.test\"\nmqtt:\n  broker: \"localhost\"\n  port: 1883\n\
+             telemetry:\n  io_data_interval_ms: {io_interval_ms}\n"
+        ))
+        .unwrap();
+        let mut app = AppState::new(config);
+        let kernel = FakeKernel::sample();
+        let opener: Opener = {
+            let k = kernel.clone();
+            Arc::new(move || Ok(k.open()))
+        };
+        let handle = PiControlHandle::open(
+            &serde_yaml::from_str(GRANT).unwrap(),
+            io_interval_ms,
+            RscSource::Verified(sample::rsc().into_bytes().into()),
+            app.degraded.control_gate(),
+            app.force_registry.clone(),
+            opener,
+        )
+        .unwrap();
+        app.process_image
+            .set_picontrol_configs(handle.tag_configs())
+            .await;
+        app.picontrol_handle = Some(handle);
+        let heartbeat = app.liveness.register(crate::liveness::LoopId::IoPoll);
+        Rig {
+            kernel,
+            state: Arc::new(RwLock::new(app)),
+            heartbeat,
+        }
+    }
+
+    async fn tag(r: &Rig, name: &str) -> crate::process_image::TagValue {
+        r.state
+            .read()
+            .await
+            .process_image
+            .get_tag(name)
+            .await
+            .unwrap_or_else(|| panic!("no tag {name}"))
+    }
+
+    #[tokio::test]
+    async fn a_poll_publishes_every_point_with_the_tags_scaling() {
+        let r = rig(250).await;
+        r.kernel.poke(100, 1);
+        r.kernel.poke(200, 0x88);
+        r.kernel.poke(201, 0x13); // 0x1388 = 5000 raw
+        poll_cycle(&r.state, &r.heartbeat).await.unwrap();
+        let level = tag(&r, "level").await;
+        assert_eq!(level.value, 5.0, "5000 raw of 0..10000 is 5 V");
+        assert_eq!(level.quality, TagQuality::Good);
+        assert_eq!(level.source, TagSource::PiControl);
+        assert_eq!(tag(&r, "in_1").await.value, 1.0);
+        assert_eq!(tag(&r, "pump").await.value, 0.0);
+    }
+
+    #[tokio::test]
+    async fn an_absent_module_is_a_communication_failure_that_keeps_the_last_value() {
+        let r = rig(250).await;
+        r.kernel.poke(200, 0x88);
+        r.kernel.poke(201, 0x13);
+        poll_cycle(&r.state, &r.heartbeat).await.unwrap();
+        r.kernel.set_module_active(33, false);
+        r.kernel.poke(200, 0);
+        r.kernel.poke(201, 0);
+        poll_cycle(&r.state, &r.heartbeat).await.unwrap();
+        let level = tag(&r, "level").await;
+        assert_eq!(level.quality, TagQuality::CommFailure);
+        assert_eq!(
+            level.value, 5.0,
+            "the bytes of an absent module are not a reading"
+        );
+        assert_eq!(tag(&r, "in_1").await.quality, TagQuality::Good);
+    }
+
+    #[tokio::test]
+    async fn only_a_change_wakes_a_subscriber() {
+        let r = rig(250).await;
+        let mut changes = r.state.read().await.process_image.subscribe_changes();
+        poll_cycle(&r.state, &r.heartbeat).await.unwrap();
+        let first: Vec<TagChange> = std::iter::from_fn(|| changes.try_recv().ok()).collect();
+        assert_eq!(first.len(), 3, "each tag is new on the first poll");
+        poll_cycle(&r.state, &r.heartbeat).await.unwrap();
+        assert!(
+            changes.try_recv().is_err(),
+            "an unchanged poll sends nothing"
+        );
+        r.kernel.poke(100, 1);
+        poll_cycle(&r.state, &r.heartbeat).await.unwrap();
+        let change = changes.try_recv().unwrap();
+        assert_eq!((change.tag_name.as_str(), change.new_value), ("in_1", 1.0));
+        assert!(changes.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn a_forced_tag_keeps_its_forced_value() {
+        let r = rig(250).await;
+        let force = r.state.read().await.force_registry.clone();
+        force
+            .apply(
+                "in_1".into(),
+                1.0,
+                TagQuality::Good,
+                "operator".into(),
+                "commissioning".into(),
+                60,
+                false,
+                &crate::runtime_safety::system_clock::SystemClockAuthority::new(),
+            )
+            .await
+            .unwrap();
+        r.state
+            .read()
+            .await
+            .process_image
+            .update_tag_raw("in_1", 1.0, TagQuality::Good, TagSource::Force)
+            .await;
+        r.kernel.poke(100, 0);
+        poll_cycle(&r.state, &r.heartbeat).await.unwrap();
+        let t = tag(&r, "in_1").await;
+        assert_eq!((t.value, t.source), (1.0, TagSource::Force));
+    }
+
+    #[tokio::test]
+    async fn the_poll_loop_feeds_the_output_watchdog_also_when_polling_is_not_allowed() {
+        for polling_allowed in [true, false] {
+            let r = rig(20).await;
+            assert!(r.kernel.armed_watchdogs().iter().all(|w| *w == 0));
+            let loop_heartbeat = r
+                .state
+                .read()
+                .await
+                .liveness
+                .register(crate::liveness::LoopId::ScriptEngine);
+            let task = tokio::spawn(io_poll_loop(
+                r.state.clone(),
+                loop_heartbeat,
+                polling_allowed,
+            ));
+            let start = Instant::now();
+            while !r.kernel.armed_watchdogs().contains(&1000) {
+                assert!(start.elapsed() < Duration::from_secs(5), "never fed");
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+            task.abort();
         }
     }
 }

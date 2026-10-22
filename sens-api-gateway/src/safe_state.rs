@@ -33,6 +33,7 @@ use crate::degraded::{DegradedReason, SafeStateSummary};
 use crate::gpio::GpioHandle;
 use crate::i2c::I2cHandle;
 use crate::modbus::ModbusHandle;
+use crate::picontrol::PiControlHandle;
 
 /// Capability to drive an output to its safe value while control is
 /// disabled (ADR-048 DEC-6.3).
@@ -44,6 +45,13 @@ use crate::modbus::ModbusHandle;
 /// the bypass, and the safe-state writer is the only actuator writer in
 /// degraded mode (tier 1).
 pub struct SafeStateWrite(());
+
+/// A capability for the tests of the hardware handles, which drive their
+/// `*_safe_state` methods directly; production code cannot call this.
+#[cfg(test)]
+pub(crate) fn test_capability() -> SafeStateWrite {
+    SafeStateWrite(())
+}
 
 /// One output the safe-state pass could not drive.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -118,6 +126,7 @@ impl OutputTag {
                 register,
                 ..
             } => format!("i2c {device_name}/0x{register:02X}"),
+            Self::PiControl { tag } => format!("piControl output {tag}"),
         }
     }
 }
@@ -174,6 +183,10 @@ pub enum OutputTag {
         register: u8,
         safe_value: Vec<u8>,
     },
+    /// A RevPi process-image output (ADR-048 DEC-8.8). The safe value is the
+    /// registry's: the `config.rsc` default of the variable, which the driver
+    /// restores on a reset (`Registry::build` refuses any other).
+    PiControl { tag: String },
 }
 
 // ============================================================================
@@ -209,6 +222,17 @@ impl SafeStateManager {
             Self::collect_gpio_outputs(gpio, &mut outputs);
         }
 
+        // ── RevPi process-image outputs ──
+        if let Some(picontrol) = &config.picontrol {
+            for point in &picontrol.points {
+                if point.direction == crate::picontrol::config::Direction::Output {
+                    outputs.push(OutputTag::PiControl {
+                        tag: point.tag_name().to_owned(),
+                    });
+                }
+            }
+        }
+
         // ── I2C outputs ──
         // I2C devices are heterogeneous; we cannot generically know which
         // registers are outputs.  A future config field `safe_state_register`
@@ -240,8 +264,10 @@ impl SafeStateManager {
         modbus: Option<&ModbusHandle>,
         gpio: Option<&GpioHandle>,
         i2c: Option<&I2cHandle>,
+        picontrol: Option<&PiControlHandle>,
     ) -> SafeStateReport {
-        if self.outputs.is_empty() {
+        let outputs = self.outputs_now(picontrol);
+        if outputs.is_empty() {
             info!("SafeStateManager: no output tags registered — nothing to safe-state");
             return SafeStateReport {
                 registered: 0,
@@ -254,16 +280,16 @@ impl SafeStateManager {
         info!(
             // LIFE-SAFETY: loud marker so log analysis tools can find this event
             "LIFE-SAFETY: applying safe-state to {} actuator outputs",
-            self.outputs.len()
+            outputs.len()
         );
 
         let mut success_count: usize = 0;
         let mut failures = Vec::new();
 
-        for tag in &self.outputs {
+        for tag in &outputs {
             let result = tokio::time::timeout(
                 PER_DEVICE_TIMEOUT,
-                Self::apply_single(tag, modbus, gpio, i2c, &token),
+                Self::apply_single(tag, modbus, gpio, i2c, picontrol, &token),
             )
             .await;
 
@@ -293,7 +319,7 @@ impl SafeStateManager {
             }
         }
 
-        if success_count == self.outputs.len() {
+        if success_count == outputs.len() {
             info!(
                 "LIFE-SAFETY: all {} outputs set to safe-state successfully",
                 success_count
@@ -302,16 +328,40 @@ impl SafeStateManager {
             warn!(
                 "LIFE-SAFETY: {}/{} outputs set to safe-state ({} FAILED)",
                 success_count,
-                self.outputs.len(),
-                self.outputs.len() - success_count
+                outputs.len(),
+                outputs.len() - success_count
             );
         }
 
         SafeStateReport {
-            registered: self.outputs.len(),
+            registered: outputs.len(),
             applied: success_count,
             failures,
         }
+    }
+
+    /// The outputs to drive now: the boot snapshot, with the RevPi outputs
+    /// taken from the handle's proven registry when there is one. A SIGHUP
+    /// reload can grant an output after boot (and the driver's reset restored
+    /// the defaults of any it dropped), so the registry, not the snapshot, is
+    /// what the agent can write and therefore what it must make safe. Without
+    /// a handle the configured RevPi outputs stay in the list and fail by
+    /// name: an output the agent cannot reach is not made safe.
+    fn outputs_now(&self, picontrol: Option<&PiControlHandle>) -> Vec<OutputTag> {
+        let Some(handle) = picontrol else {
+            return self.outputs.clone();
+        };
+        self.outputs
+            .iter()
+            .filter(|o| !matches!(o, OutputTag::PiControl { .. }))
+            .cloned()
+            .chain(
+                handle
+                    .output_tags()
+                    .into_iter()
+                    .map(|tag| OutputTag::PiControl { tag }),
+            )
+            .collect()
     }
 
     /// Return the total number of registered output tags.
@@ -381,6 +431,7 @@ impl SafeStateManager {
         modbus: Option<&ModbusHandle>,
         gpio: Option<&GpioHandle>,
         i2c: Option<&I2cHandle>,
+        picontrol: Option<&PiControlHandle>,
         token: &SafeStateWrite,
     ) -> anyhow::Result<()> {
         match tag {
@@ -430,6 +481,17 @@ impl SafeStateManager {
                 handle
                     .write_register_safe_state(device_name, *register, safe_value, token)
                     .await
+            }
+            OutputTag::PiControl { tag } => {
+                let handle = picontrol.ok_or_else(|| {
+                    anyhow::anyhow!("piControl handle unavailable for the output safe-state")
+                })?;
+                // The safe value is the registry's (the config.rsc default);
+                // a stale layout refuses the drive rather than guess an address.
+                handle
+                    .drive_safe(tag, token)
+                    .map(|_| ())
+                    .map_err(anyhow::Error::new)
             }
         }
     }
@@ -664,7 +726,7 @@ registers:
         let config = test_config(vec![ro], vec![gpio_input(22)]);
         let mgr = SafeStateManager::from_config(&config);
 
-        let report = mgr.apply(None, None, None).await;
+        let report = mgr.apply(None, None, None, None).await;
         assert_eq!(report.registered, 0);
         assert_eq!(report.applied, 0);
         assert!(report.is_complete());
@@ -682,7 +744,7 @@ registers:
         let mgr = SafeStateManager::from_config(&config);
 
         // No handle at all: all three outputs fail, each by name.
-        let report = mgr.apply(None, None, None).await;
+        let report = mgr.apply(None, None, None, None).await;
         assert_eq!(report.registered, 3);
         assert_eq!(report.applied, 0);
         assert!(!report.is_complete());
@@ -714,5 +776,171 @@ registers:
         pin.direction = "OUT".to_string();
         let config = test_config(vec![], vec![pin]);
         assert_eq!(SafeStateManager::from_config(&config).output_count(), 1);
+    }
+
+    // ---- RevPi process-image outputs (ADR-048 DEC-8.8) ---------------------
+
+    mod picontrol {
+        use std::sync::Arc;
+
+        use super::*;
+        use crate::degraded::DegradedMode;
+        use crate::picontrol::device::Opener;
+        use crate::picontrol::fake::FakeKernel;
+        use crate::picontrol::rsc::sample;
+        use crate::picontrol::{PiControlConfig, PiControlHandle, RscSource};
+        use crate::scripting::force_registry::ForceRegistry;
+
+        const GRANT: &str = r#"
+output_watchdog_ms: 1000
+points:
+  - tag: pump
+    variable: O_1
+    direction: output
+  - tag: aerator
+    variable: O_2
+    direction: output
+    safe_state_value: 1
+  - tag: in_1
+    variable: I_1
+"#;
+
+        fn config() -> AgentConfig {
+            let mut config = test_config(vec![], vec![]);
+            config.picontrol = Some(serde_yaml::from_str(GRANT).unwrap());
+            config
+        }
+
+        fn handle(kernel: &Arc<FakeKernel>, dir: &std::path::Path) -> PiControlHandle {
+            let degraded = DegradedMode::new(dir.join("health.json"));
+            let k = kernel.clone();
+            let opener: Opener = Arc::new(move || Ok(k.open()));
+            let grant: PiControlConfig = serde_yaml::from_str(GRANT).unwrap();
+            PiControlHandle::open(
+                &grant,
+                250,
+                RscSource::Verified(sample::rsc().into_bytes().into()),
+                degraded.control_gate(),
+                Arc::new(ForceRegistry::new()),
+                opener,
+            )
+            .unwrap()
+        }
+
+        #[test]
+        fn only_the_outputs_of_the_section_are_registered() {
+            let mgr = SafeStateManager::from_config(&config());
+            assert_eq!(mgr.output_count(), 2, "the input point is not an output");
+        }
+
+        #[tokio::test]
+        async fn the_pass_drives_every_output_to_the_default_config_rsc_restores() {
+            let dir = tempfile::tempdir().unwrap();
+            let kernel = FakeKernel::sample();
+            let handle = handle(&kernel, dir.path());
+            // The agent drove pump on and aerator off: the opposite of both safe values.
+            handle.write_output("pump", 1.0).await.unwrap();
+            handle.write_output("aerator", 0.0).await.unwrap();
+            assert_eq!(kernel.peek(122) & 0b11, 0b01);
+
+            let report = SafeStateManager::from_config(&config())
+                .apply(None, None, None, Some(&handle))
+                .await;
+            assert!(report.is_complete(), "{:?}", report.failures);
+            assert_eq!((report.registered, report.applied), (2, 2));
+            assert_eq!(
+                kernel.peek(122) & 0b11,
+                0b10,
+                "pump off, the life-support aerator on"
+            );
+        }
+
+        #[tokio::test]
+        async fn an_output_a_reload_granted_after_boot_is_driven_too() {
+            let dir = tempfile::tempdir().unwrap();
+            let kernel = FakeKernel::sample();
+            // Booted with `pump` alone: the manager's snapshot lists one output.
+            let boot: PiControlConfig = serde_yaml::from_str(
+                "output_watchdog_ms: 1000\npoints:\n  - tag: pump\n    variable: O_1\n    direction: output\n",
+            )
+            .unwrap();
+            let degraded = DegradedMode::new(dir.path().join("health.json"));
+            let k = kernel.clone();
+            let opener: Opener = Arc::new(move || Ok(k.open()));
+            let handle = PiControlHandle::open(
+                &boot,
+                250,
+                RscSource::Verified(sample::rsc().into_bytes().into()),
+                degraded.control_gate(),
+                Arc::new(ForceRegistry::new()),
+                opener,
+            )
+            .unwrap();
+            let mut snapshot = test_config(vec![], vec![]);
+            snapshot.picontrol = Some(boot);
+            let manager = SafeStateManager::from_config(&snapshot);
+            assert_eq!(manager.output_count(), 1);
+
+            // A verified reload grants the life-support aerator as well.
+            handle
+                .reload(
+                    &serde_yaml::from_str(GRANT).unwrap(),
+                    250,
+                    RscSource::Verified(sample::rsc().into_bytes().into()),
+                )
+                .unwrap();
+            handle.write_output("aerator", 0.0).await.unwrap();
+            assert_eq!(kernel.peek(122) & 0b10, 0);
+
+            let report = manager.apply(None, None, None, Some(&handle)).await;
+            assert!(report.is_complete(), "{:?}", report.failures);
+            assert_eq!((report.registered, report.applied), (2, 2));
+            assert_eq!(
+                kernel.peek(122) & 0b10,
+                0b10,
+                "the aerator the boot snapshot never listed is on"
+            );
+        }
+
+        #[tokio::test]
+        async fn without_the_handle_the_outputs_fail_by_name() {
+            let report = SafeStateManager::from_config(&config())
+                .apply(None, None, None, None)
+                .await;
+            let names: Vec<&str> = report.failures.iter().map(|f| f.output.as_str()).collect();
+            assert_eq!(names, ["piControl output pump", "piControl output aerator"]);
+            assert!(!report.is_complete());
+        }
+
+        #[tokio::test]
+        async fn an_unproven_layout_refuses_to_guess_an_address() {
+            let dir = tempfile::tempdir().unwrap();
+            let kernel = FakeKernel::sample();
+            let handle = handle(&kernel, dir.path());
+            // The driver is reset to a layout the signed file does not describe.
+            let moved = sample::rsc().replace("\"offset\": 100", "\"offset\": 104");
+            kernel.reset_driver_with(
+                &crate::picontrol::rsc::ProcessMap::parse(moved.as_bytes()).unwrap(),
+            );
+            let start = std::time::Instant::now();
+            while handle.stale_reason().is_none() {
+                assert!(start.elapsed() < std::time::Duration::from_secs(5));
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+            kernel.clear_written_ranges();
+            let report = SafeStateManager::from_config(&config())
+                .apply(None, None, None, Some(&handle))
+                .await;
+            assert_eq!(report.applied, 0);
+            assert!(
+                report.failures[0].error.contains("not verified"),
+                "{:?}",
+                report.failures
+            );
+            assert!(
+                kernel.written_ranges().is_empty(),
+                "nothing was written to a guessed address"
+            );
+        }
     }
 }

@@ -452,6 +452,23 @@ suderra-os = ["os-managed-updates"]
 # INVARIANT: tests/invariants/os_managed_updates_no_updater.rs
 os-managed-updates = []
 gpio = ["rppal"]
+# ADR-048 DEC-8.8 / EDGE-HIGH-053: the RevPi Connect 4 I/O backend. The agent
+# opens /dev/piControl0 and reads and drives the PiBridge expansion modules
+# (DIO, AIO, ...) through the KUNBUS piControl driver's process image, behind
+# its own point list, output allow-list, force registry and degraded-mode gate
+# (src/picontrol). It needs only libc, which the crate already links; the
+# `revpi-connect4` row of contracts/suderra-edge/v1/boards.json builds with it
+# and without `gpio` (the PiBridge and relay lines belong to the kernel's
+# pibridge node, and a /dev/gpiomem user would race it).
+# WHAT: without the feature a `picontrol:` section is a configured backend with
+#       no driver: the agent starts in degraded mode (outputs held in their
+#       safe state, control disabled), never against a simulation.
+# INVARIANT: tests/invariants/picontrol_backend.rs
+revpi-io = []
+# Hardware-in-the-loop tests (tests/hil/): need a RevPi Connect 4 with a DIO
+# module and the piControl driver. Never part of a release: no board of
+# contracts/suderra-edge/v1/boards.json names it.
+hil = ["revpi-io"]
 # HTTP health check endpoint (uses axum)
 health = ["axum"]
 # OpenTelemetry distributed tracing
@@ -1038,6 +1055,22 @@ path = "tests/invariants/mtls_ca_anchored.rs"
 [[test]]
 name = "os_managed_updates_no_updater"
 path = "tests/invariants/os_managed_updates_no_updater.rs"
+
+# ADR-048 DEC-8.8 — the RevPi process-image backend gives the agent exactly the
+# access it needs: six requests, one device node, one writing file, the
+# actuator writers behind the handle's gate; no helper process.
+[[test]]
+name = "picontrol_backend"
+path = "tests/invariants/picontrol_backend.rs"
+
+# ADR-048 DEC-13.3 / DEC-8.8 — the RevPi output behaviour table on real hardware
+# (feature `hil`; skipped by cargo when the feature is off, so `--all-targets`
+# on CI neither builds nor runs it). The same rows run against a fake kernel in
+# `cargo test` (src/picontrol/behaviour_tests.rs).
+[[test]]
+name = "hil_output_behaviour_table"
+path = "tests/hil/output_behaviour_table.rs"
+required-features = ["hil"]
 
 # ADR-048 DEC-28 — the frozen generic-Linux release names: release workflow,
 # cloud installer and contract agree, and the agent consumes none of them.

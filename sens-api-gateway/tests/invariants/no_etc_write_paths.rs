@@ -46,13 +46,22 @@ use std::path::Path;
 
 /// `/etc/...` literals production code may name, each with the reason it
 /// is not a write path. Paths are matched as prefixes of the literal.
-const ETC_LITERAL_ALLOWLIST: &[(&str, &str, &str)] = &[(
-    "src/paths.rs",
-    "/etc/suderra",
-    "generic-profile read-only operator directory (config.yaml, legacy db.key, keystore \
-     material, legacy RBAC manifest and scripts); the contract's generic unit mounts it \
-     ReadOnlyPaths= and the agent only reads it (DEC-28)",
-)];
+const ETC_LITERAL_ALLOWLIST: &[(&str, &str, &str)] = &[
+    (
+        "src/paths.rs",
+        "/etc/suderra",
+        "generic-profile read-only operator directory (config.yaml, legacy db.key, keystore \
+         material, legacy RBAC manifest and scripts); the contract's generic unit mounts it \
+         ReadOnlyPaths= and the agent only reads it (DEC-28)",
+    ),
+    (
+        "src/paths.rs",
+        "/etc/revpi/config.rsc",
+        "generic-profile PiCtory file the KUNBUS piControl driver loaded; the agent only \
+         reads it to resolve its signed point list against the driver (DEC-8.8). Under \
+         Suderra OS the file is signed site material and no /etc path is named",
+    ),
+];
 
 /// Files outside the path SSoT that may still name an agent data path,
 /// with the reason. Starts empty.

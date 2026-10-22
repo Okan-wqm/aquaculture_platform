@@ -55,12 +55,14 @@ qemu-x86_64 = ["CONFIG_SECCOMP_FILTER"]
 revpi-connect4 = ["CONFIG_SECCOMP_FILTER"]
 rpi4-cm4 = ["CONFIG_I2C_CHARDEV", "CONFIG_SECCOMP_FILTER", "CONFIG_SPI_SPIDEV"]
 
-# A boards.json board whose cargo features this source does not define yet.
-# The plan builds no release for it, and fails as soon as every feature the
-# board needs exists, so an entry cannot outlive its reason.
-[suderra_os.unbuildable.revpi-connect4]
-blocked_by = "EI-032"
-reason = "The revpi-io piControl backend (ADR-048 DEC-8.8) arrives with the KUNBUS kernel at P1; a revpi-connect4 build without it would have no I/O backend."
+# A boards.json board whose cargo features this source does not define yet
+# would be recorded here as [suderra_os.unbuildable.<board_profile>] with
+# `blocked_by` (the finding that tracks the missing feature) and `reason`. The
+# plan builds no release for such a board, and fails as soon as every feature
+# the board needs exists, so an entry cannot outlive its reason. There is none
+# now: the `revpi-io` backend (src/picontrol, ADR-048 DEC-8.8) defines the last
+# feature the revpi-connect4 row names, so that board builds. Its image side
+# (the KUNBUS kernel and the piControl module, EI-032) is the OS repository's.
 
 [generic_channel]
 # DEC-28: the frozen generic-Linux channel ships the v1.6.0 fleet's tier, the

@@ -248,15 +248,17 @@ fn only_the_actuator_writers_call_the_handles_write_methods() {
     let writers = files_with(&files, ".write_output(");
     assert!(
         writers.is_subset(&set(&[
-            "src/commands/io_config.rs", // MQTT set_output: after the envelope gate
-            "src/main.rs",               // the SCADA command executor
+            // Every tag-routed write: the MQTT set_output (after the envelope
+            // gate) and the SCADA command executor both go through it
+            // (ADR-048 DEC-9.7; tests/invariants/tag_writes_route_through_the_writer.rs).
+            "src/tag_writer.rs",
             "src/picontrol/handle.rs",
             "src/picontrol/backend.rs",
         ])),
         "{writers:?} write RevPi outputs; the handle's gate, force registry and grant apply \
          to every writer, so a new writer is a decision for this list"
     );
-    assert!(writers.contains("src/commands/io_config.rs") && writers.contains("src/main.rs"));
+    assert!(writers.contains("src/tag_writer.rs"));
 
     // The safe-state drive needs the capability only the safe-state pass holds.
     let safe = files_with(&files, ".drive_safe(");

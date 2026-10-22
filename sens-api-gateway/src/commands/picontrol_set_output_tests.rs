@@ -227,3 +227,71 @@ async fn a_remote_write_that_landed_is_a_hold_and_one_that_failed_is_not() {
     let held: Vec<String> = holds.take().iter().map(ToString::to_string).collect();
     assert_eq!(held, ["piControl output pump"]);
 }
+
+/// EDGE-HIGH-057 / EDGE-HIGH-067 through the agent's emergency control: the
+/// stop latches the control gate (the MQTT command is refused too, not just the
+/// HMI), drives the outputs to their safe values, and an authenticated reset
+/// reopens the gate.
+#[tokio::test]
+async fn the_emergency_stop_refuses_every_writer_and_a_reset_reopens_the_gate() {
+    use crate::emergency::{AppEmergency, EmergencyControl};
+
+    let mut r = rig().await;
+    let latch = r.state.read().await.degraded.emergency();
+    let control = AppEmergency::new(r.state.clone(), latch.clone());
+
+    let (ok, _, err) = r
+        .handler
+        .cmd_set_output(&json!({"tag_name": "pump", "value": 1}))
+        .await;
+    assert!(ok, "{err:?}");
+    assert_eq!(r.kernel.peek(122) & 1, 1);
+
+    let outcome = control.stop(&[], "test").await;
+    assert!(outcome.success(), "{:?}", outcome.problem());
+    assert!(outcome.durable || outcome.latched);
+    assert!(control.is_latched());
+    assert_eq!(r.kernel.peek(122) & 1, 0, "the pump is at its safe value");
+
+    let (ok, _, err) = r
+        .handler
+        .cmd_set_output(&json!({"tag_name": "pump", "value": 1}))
+        .await;
+    assert!(!ok, "the command path is refused while the stop is latched");
+    assert!(
+        err.as_deref()
+            .unwrap_or_default()
+            .contains("emergency stop"),
+        "{err:?}"
+    );
+    assert_eq!(r.kernel.peek(122) & 1, 0);
+
+    control.reset("test").await.unwrap();
+    assert!(!control.is_latched());
+    let (ok, _, err) = r
+        .handler
+        .cmd_set_output(&json!({"tag_name": "pump", "value": 1}))
+        .await;
+    assert!(ok, "{err:?}");
+}
+
+/// A stop scoped to a tag that is no output, or to one that does not exist, is
+/// a failure that names it; a scope that names a real output drives it.
+#[tokio::test]
+async fn a_scoped_emergency_stop_names_what_it_could_not_resolve() {
+    use crate::emergency::{AppEmergency, EmergencyControl};
+
+    let r = rig().await;
+    let latch = r.state.read().await.degraded.emergency();
+    let control = AppEmergency::new(r.state.clone(), latch);
+
+    let outcome = control
+        .stop(&["pump".into(), "in_1".into(), "ghost".into()], "test")
+        .await;
+    assert!(!outcome.success());
+    assert_eq!((outcome.registered, outcome.applied), (1, 1), "the pump");
+    let failed = outcome.failed.join(" | ");
+    assert!(failed.contains("in_1"), "{failed}");
+    assert!(failed.contains("ghost"), "{failed}");
+    assert!(outcome.latched, "the stop is in force whatever the scope");
+}

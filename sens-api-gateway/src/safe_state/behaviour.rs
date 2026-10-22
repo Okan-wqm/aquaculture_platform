@@ -66,6 +66,9 @@ pub enum Event {
     /// The agent loses the bus to the device that holds the output (a Modbus
     /// device, a PiBridge module, an I2C chip).
     FieldbusCommsLoss,
+    /// An operator triggers the emergency stop (DEC-9.7): the agent latches
+    /// the stop and drives the outputs in scope to their safe values.
+    EmergencyStop,
 }
 
 /// The event the shutdown sequence runs. It cannot tell a restart from an
@@ -76,7 +79,7 @@ pub const GRACEFUL_STOP: Event = Event::AgentRestart;
 
 impl Event {
     /// Every event, in declaration order.
-    pub const ALL: [Event; 10] = [
+    pub const ALL: [Event; 11] = [
         Event::AgentStart,
         Event::AgentRestart,
         Event::AgentUpdate,
@@ -87,6 +90,7 @@ impl Event {
         Event::DegradedMode,
         Event::CloudCommsLoss,
         Event::FieldbusCommsLoss,
+        Event::EmergencyStop,
     ];
 
     /// The name used in logs and reports.
@@ -102,6 +106,7 @@ impl Event {
             Event::DegradedMode => "degraded-mode",
             Event::CloudCommsLoss => "cloud-comms-loss",
             Event::FieldbusCommsLoss => "fieldbus-comms-loss",
+            Event::EmergencyStop => "emergency-stop",
         }
     }
 }
@@ -353,6 +358,10 @@ pub const fn behaviour(event: Event, backend: Backend) -> Behaviour {
         // Degraded mode is entered only after the boot pass, and the gate
         // refuses writes since: the output is at its safe value and stays.
         Event::DegradedMode => row(HoldSafe, ControlGate, SafeValue, Automated),
+        // The stop drives every output in scope to its safe value (never a
+        // blanket zero: a life-support output fails ON) and latches the control
+        // gate; a dead agent cannot stop anything, so there is no row for it.
+        Event::EmergencyStop => drives_safe(backend),
         // Remote commands lose their hold; local control continues.
         Event::CloudCommsLoss => row(DriveSafeLeased, AgentSafeState, SafeValue, Automated),
         // The agent cannot write to what it cannot reach.
@@ -461,6 +470,7 @@ mod tests {
                 Event::DegradedMode => 7,
                 Event::CloudCommsLoss => 8,
                 Event::FieldbusCommsLoss => 9,
+                Event::EmergencyStop => 10,
             }
         }
         const fn backend_index(b: Backend) -> usize {

@@ -285,10 +285,10 @@ struct ScadaStateInner {
     calibration_engine: tokio::sync::Mutex<CalibrationEngine>,
     /// Command channel for WS → I/O routing
     command_tx: Option<tokio::sync::mpsc::Sender<ScadaCommand>>,
-    /// Emergency stop state
-    emergency_active: AtomicBool,
-    /// Tags affected by emergency stop
-    emergency_tags: RwLock<Vec<String>>,
+    /// The emergency stop (ADR-048 DEC-9.7): a device-wide latch in the
+    /// output layer, not a flag of this server. `None` only for a server built
+    /// without the runtime (it has no outputs to stop).
+    emergency: Option<Arc<dyn crate::emergency::EmergencyControl>>,
     /// Global PIN lockout state (persists across WS reconnections)
     /// WHY: tokio::sync::Mutex — held across .await (PIN validation may check DB)
     pin_lockout: tokio::sync::Mutex<PinLockoutState>,
@@ -312,8 +312,7 @@ impl ScadaState {
                 trend_engine: tokio::sync::Mutex::new(None),
                 calibration_engine: tokio::sync::Mutex::new(CalibrationEngine::new(None)),
                 command_tx: None,
-                emergency_active: AtomicBool::new(false),
-                emergency_tags: RwLock::new(Vec::new()),
+                emergency: None,
                 pin_lockout: tokio::sync::Mutex::new(PinLockoutState::new()),
             }),
         }
@@ -324,6 +323,7 @@ impl ScadaState {
         process_image: ProcessImage,
         db: Arc<ScadaDb>,
         command_tx: tokio::sync::mpsc::Sender<ScadaCommand>,
+        emergency: Arc<dyn crate::emergency::EmergencyControl>,
     ) -> Self {
         let (broadcast_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
         let db_clone = Arc::clone(&db);
@@ -362,8 +362,7 @@ impl ScadaState {
                 trend_engine: tokio::sync::Mutex::new(trend_engine),
                 calibration_engine: tokio::sync::Mutex::new(calibration_engine),
                 command_tx: Some(command_tx),
-                emergency_active: AtomicBool::new(false),
-                emergency_tags: RwLock::new(Vec::new()),
+                emergency: Some(emergency),
                 pin_lockout: tokio::sync::Mutex::new(PinLockoutState::new()),
             }),
         }
@@ -422,6 +421,20 @@ impl ScadaState {
 
     /// Deploy a full SCADA package
     pub async fn deploy_package(&self, package: ScadaPackage) -> Result<(), String> {
+        // ADR-048 DEC-9.7 / EDGE-HIGH-057: an emergency stop that names no tag
+        // would de-energise nothing, which is what an empty scope used to do
+        // while reporting success. A package either omits `emergencyStop`
+        // (the stop covers every registered output) or narrows it to tags.
+        if let Some(stop) = package.control_permissions.emergency_stop.as_ref()
+            && stop.affected_tags.is_empty()
+        {
+            return Err(
+                "emergencyStop.affectedTags must name at least one tag: omit \
+                        emergencyStop to stop every registered output"
+                    .to_string(),
+            );
+        }
+
         // Persist to SQLite
         if let Some(ref db) = self.inner.db {
             let json = serde_json::to_string(&package)
@@ -694,9 +707,18 @@ impl ScadaState {
         }
     }
 
-    /// Check if emergency stop is active
+    /// Alarms of the display's engine that are active now (the update gate
+    /// reads it, ADR-048 DEC-13.4).
+    pub async fn active_alarm_count(&self) -> usize {
+        self.inner.alarm_engine.lock().await.active_count()
+    }
+
+    /// Check if emergency stop is active (the device-wide latch).
     pub fn is_emergency_active(&self) -> bool {
-        self.inner.emergency_active.load(Ordering::Acquire)
+        self.inner
+            .emergency
+            .as_ref()
+            .is_some_and(|emergency| emergency.is_latched())
     }
 }
 
@@ -1283,7 +1305,7 @@ async fn handle_scada_ws(mut socket: WebSocket, state: ScadaState) {
 
     // 4. Send emergency state
     {
-        let is_emergency = state.inner.emergency_active.load(Ordering::Acquire);
+        let is_emergency = state.is_emergency_active();
         let msg = serde_json::json!({
             "type": "emergency",
             "active": is_emergency,
@@ -1411,7 +1433,7 @@ async fn handle_command_or_setpoint(
     value: f64,
 ) {
     // Check emergency stop
-    if state.inner.emergency_active.load(Ordering::Acquire) {
+    if state.is_emergency_active() {
         let msg = serde_json::json!({
             "type": "commandResult",
             "tag": tag,
@@ -1893,84 +1915,44 @@ async fn handle_emergency_stop(
     );
 }
 
-/// Execute the actual emergency stop after confirmation
+/// Execute the actual emergency stop after confirmation.
+///
+/// The stop is the output layer's, not this server's (ADR-048 DEC-9.7): the
+/// control gate latches (every writer of the device is refused, across
+/// restarts), then the outputs in scope are driven to their configured safe
+/// values; a life-support output is never de-energised. The scope is every
+/// registered output unless the package names tags, and a stop that resolved
+/// no output does not report success.
 async fn execute_emergency_stop(socket: &mut WebSocket, state: &ScadaState) {
-    info!("EMERGENCY STOP activated via WebSocket (confirmed)");
+    info!("EMERGENCY STOP requested via WebSocket (confirmed)");
 
-    // Release ordering ensures all prior writes are visible before the flag is seen
-    state.inner.emergency_active.store(true, Ordering::Release);
+    let scope_tags: Vec<String> = state
+        .inner
+        .package
+        .read()
+        .await
+        .as_ref()
+        .and_then(|pkg| pkg.control_permissions.emergency_stop.as_ref())
+        .map(|es| es.affected_tags.clone())
+        .unwrap_or_default();
 
-    // Get affected tags from package
-    let affected_tags = if let Some(ref pkg) = *state.inner.package.read().await {
-        pkg.control_permissions
-            .emergency_stop
-            .as_ref()
-            .map(|es| es.affected_tags.clone())
-            .unwrap_or_default()
-    } else {
-        Vec::new()
+    let outcome = match state.inner.emergency.as_ref() {
+        Some(emergency) => emergency.stop(&scope_tags, "hmi").await,
+        None => crate::emergency::StopOutcome {
+            latched: false,
+            durable: false,
+            registered: 0,
+            applied: 0,
+            failed: vec!["this display has no output layer to stop".to_string()],
+        },
     };
-
-    // Store emergency tags
-    *state.inner.emergency_tags.write().await = affected_tags.clone();
-
-    // Send commands to set all affected tags to 0, await each response
-    let mut failed_tags: Vec<String> = Vec::new();
-    let mut success_count: usize = 0;
-
-    if let Some(ref cmd_tx) = state.inner.command_tx {
-        for tag in &affected_tags {
-            let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-            let command = ScadaCommand {
-                tag: tag.clone(),
-                value: 0.0,
-                source_ip: None,
-                response_tx: resp_tx,
-            };
-            if let Err(e) = cmd_tx.send(command).await {
-                warn!("Failed to send emergency stop command for {}: {}", tag, e);
-                failed_tags.push(tag.clone());
-                continue;
-            }
-
-            // Wait for command result with 5-second timeout
-            match tokio::time::timeout(std::time::Duration::from_secs(5), resp_rx).await {
-                Ok(Ok(Ok(_))) => {
-                    info!("Emergency stop: tag '{}' set to 0 successfully", tag);
-                    success_count += 1;
-                }
-                Ok(Ok(Err(e))) => {
-                    warn!("Emergency stop: tag '{}' command failed: {}", tag, e);
-                    failed_tags.push(tag.clone());
-                }
-                Ok(Err(_)) => {
-                    warn!("Emergency stop: tag '{}' command handler dropped", tag);
-                    failed_tags.push(tag.clone());
-                }
-                Err(_) => {
-                    warn!("Emergency stop: tag '{}' command timed out (5s)", tag);
-                    failed_tags.push(tag.clone());
-                }
-            }
-        }
-    }
-
-    if !failed_tags.is_empty() {
-        error!(
-            "EMERGENCY STOP: {}/{} tags failed: {:?}",
-            failed_tags.len(),
-            affected_tags.len(),
-            failed_tags,
-        );
+    let problem = outcome.problem();
+    if let Some(ref problem) = problem {
+        error!("EMERGENCY STOP: {problem}");
     }
 
     // Audit
     if let Some(ref db) = state.inner.db {
-        let error_detail = if failed_tags.is_empty() {
-            None
-        } else {
-            Some(format!("Failed tags: {:?}", failed_tags))
-        };
         let _ = db.insert_audit(
             None,
             "emergency_stop",
@@ -1978,18 +1960,21 @@ async fn execute_emergency_stop(socket: &mut WebSocket, state: &ScadaState) {
             None,
             None,
             false,
-            failed_tags.is_empty(),
-            error_detail.as_deref(),
+            outcome.success(),
+            problem.as_deref(),
         );
     }
 
     // Notify the requesting client about results
     let result_msg = serde_json::json!({
         "type": "emergencyStopResult",
-        "success": failed_tags.is_empty(),
-        "totalTags": affected_tags.len(),
-        "successCount": success_count,
-        "failedTags": failed_tags,
+        "success": outcome.success(),
+        "latched": outcome.latched,
+        "durable": outcome.durable,
+        "totalTags": outcome.registered,
+        "successCount": outcome.applied,
+        "failedTags": outcome.failed,
+        "error": problem,
     });
     if let Ok(json) = serde_json::to_string(&result_msg) {
         let _ = socket.send(Message::Text(json.into())).await;
@@ -1998,7 +1983,7 @@ async fn execute_emergency_stop(socket: &mut WebSocket, state: &ScadaState) {
     // Broadcast emergency state to all clients
     let msg = serde_json::json!({
         "type": "emergency",
-        "active": true,
+        "active": state.is_emergency_active(),
     });
     state.broadcast_json(&msg);
 }
@@ -2039,8 +2024,46 @@ async fn handle_emergency_reset(
     let pin_hash = match pin_hash {
         Some(h) => h,
         None => {
-            // No PIN configured, allow reset
-            do_emergency_reset(state).await;
+            // No PIN is configured. The reset is the authenticated path
+            // (ADR-048 DEC-9.7): without a PIN it is allowed only when the
+            // package says so explicitly (`resetRequiresPin: false`), and
+            // refused otherwise. A stop must not be clearable by whoever can
+            // reach the display.
+            let opted_out = state
+                .inner
+                .package
+                .read()
+                .await
+                .as_ref()
+                .and_then(|pkg| pkg.control_permissions.emergency_stop.as_ref())
+                .is_some_and(|es| !es.reset_requires_pin);
+            if opted_out {
+                do_emergency_reset(socket, state).await;
+            } else {
+                let msg = serde_json::json!({
+                    "type": "commandResult",
+                    "tag": "",
+                    "success": false,
+                    "error": "Emergency reset needs a PIN and none is configured: deploy a \
+                              package with a PIN (or one that explicitly allows a reset \
+                              without it)",
+                });
+                if let Ok(json) = serde_json::to_string(&msg) {
+                    let _ = socket.send(Message::Text(json.into())).await;
+                }
+                if let Some(ref db) = state.inner.db {
+                    let _ = db.insert_audit(
+                        None,
+                        "emergency_reset_failed",
+                        None,
+                        None,
+                        None,
+                        true,
+                        false,
+                        Some("no PIN configured and no explicit opt-out"),
+                    );
+                }
+            }
             return;
         }
     };
@@ -2068,7 +2091,7 @@ async fn handle_emergency_reset(
             lockout_until: None,
         });
 
-        do_emergency_reset(state).await;
+        do_emergency_reset(socket, state).await;
     } else {
         // Track failure in global state
         {
@@ -2102,22 +2125,47 @@ async fn handle_emergency_reset(
     }
 }
 
-/// Execute emergency reset
-async fn do_emergency_reset(state: &ScadaState) {
-    info!("EMERGENCY STOP cleared via WebSocket");
-
-    state.inner.emergency_active.store(false, Ordering::Release);
-    state.inner.emergency_tags.write().await.clear();
+/// Execute emergency reset: the output layer clears the latch (and its
+/// durable record); a record that cannot be removed keeps the stop latched and
+/// the requester is told.
+async fn do_emergency_reset(socket: &mut WebSocket, state: &ScadaState) {
+    let result = match state.inner.emergency.as_ref() {
+        Some(emergency) => emergency.reset("hmi").await,
+        None => Err("this display has no output layer".to_string()),
+    };
+    if let Err(ref why) = result {
+        error!("EMERGENCY STOP could not be cleared: {why}");
+        let msg = serde_json::json!({
+            "type": "commandResult",
+            "tag": "",
+            "success": false,
+            "error": format!("Emergency reset failed: {why}"),
+        });
+        if let Ok(json) = serde_json::to_string(&msg) {
+            let _ = socket.send(Message::Text(json.into())).await;
+        }
+    } else {
+        info!("EMERGENCY STOP cleared via WebSocket (authenticated)");
+    }
 
     // Audit
     if let Some(ref db) = state.inner.db {
-        let _ = db.insert_audit(None, "emergency_reset", None, None, None, true, true, None);
+        let _ = db.insert_audit(
+            None,
+            "emergency_reset",
+            None,
+            None,
+            None,
+            true,
+            result.is_ok(),
+            result.as_ref().err().map(String::as_str),
+        );
     }
 
     // Broadcast to all clients
     let msg = serde_json::json!({
         "type": "emergency",
-        "active": false,
+        "active": state.is_emergency_active(),
     });
     state.broadcast_json(&msg);
 }
@@ -2445,4 +2493,47 @@ async fn save_persistent_process(process: &ScadaProcess) -> Result<(), String> {
 
     debug!("SCADA process persisted to {}", path.display());
     Ok(())
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
+mod emergency_stop_tests {
+    use super::*;
+
+    fn package(emergency_stop: serde_json::Value) -> ScadaPackage {
+        serde_json::from_value(serde_json::json!({
+            "meta": {},
+            "screens": [],
+            "controlPermissions": {
+                "securityLevels": {},
+                "emergencyStop": emergency_stop,
+            },
+        }))
+        .unwrap()
+    }
+
+    /// EDGE-HIGH-057: an emergency stop that names no tag would de-energise
+    /// nothing (while reporting success); it is refused when the package is
+    /// deployed. A package that wants every registered output omits the section.
+    #[tokio::test]
+    async fn a_package_whose_emergency_stop_names_no_tag_is_refused() {
+        let state = ScadaState::new();
+        let err = state
+            .deploy_package(package(serde_json::json!({
+                "holdDuration": 0,
+                "affectedTags": [],
+                "resetRequiresPin": true,
+            })))
+            .await
+            .unwrap_err();
+        assert!(err.contains("affectedTags"), "{err}");
+        assert!(state.get_package().await.is_none(), "nothing was installed");
+    }
+
+    /// A display built without the runtime has no output layer: its stop is not
+    /// latched and never claims to be.
+    #[test]
+    fn a_display_without_an_output_layer_has_no_stop_latched() {
+        assert!(!ScadaState::new().is_emergency_active());
+    }
 }

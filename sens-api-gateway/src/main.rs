@@ -44,6 +44,7 @@ mod process_hardening;
 mod paths;
 mod picontrol; // ADR-048 DEC-8.8: RevPi process-image backend (/dev/piControl0)
 mod tag_writer; // ADR-048 DEC-9.7: the one place a tag becomes a write to hardware
+mod emergency; // ADR-048 DEC-9.7: the device-wide emergency stop (latch in the control gate)
 // ADR-048 DEC-19: the only reader of security-relevant environment
 // variables. Not compiled in the `suderra-os` profile, so no Suderra OS code
 // path can consult one (tests/invariants/no_security_env_in_suderra_os.rs).
@@ -5467,6 +5468,15 @@ async fn run_agent(
         warn!("STATUS= could not be sent: {}", e);
     }
 
+    // ADR-048 DEC-9.7 (EDGE-HIGH-067): an emergency stop latched before this
+    // start is latched again before any hardware is initialised, so a restart,
+    // an update or a reboot does not clear it. The control gate every hardware
+    // handle carries refuses actuator writes while it is latched; the boot
+    // safe-state below still drives the outputs to their safe values.
+    degraded
+        .emergency()
+        .attach_store(paths::AgentPaths::current().emergency_stop_file());
+
     // Step 1: Initialize hardware interfaces. A configured backend that is
     // not compiled in, not present or fails init puts the agent in degraded
     // mode (DEC-6.3, INFRA-CRITICAL-236) — no simulation, no exit.
@@ -6250,7 +6260,12 @@ async fn run_agent(
 
         // Create SCADA state with full runtime (only if DB is available)
         if let Some(db) = scada_db.clone() {
-            let scada_state = scada_server::ScadaState::new_with_runtime(process_image, db, cmd_tx);
+            let emergency = Arc::new(crate::emergency::AppEmergency::new(
+                state.clone(),
+                degraded.emergency(),
+            ));
+            let scada_state =
+                scada_server::ScadaState::new_with_runtime(process_image, db, cmd_tx, emergency);
             let _scada_handle = scada_server::start_scada_server(scada_state.clone()).await;
 
             // Store in app state
@@ -7464,6 +7479,14 @@ mod picontrol_boot_tests {
     #[tokio::test]
     async fn a_build_without_the_driver_says_which_feature_is_missing() {
         let state = state("picontrol:\n  points:\n    - variable: I_1\n");
+        // On Suderra OS the signed file is resolved before the device is
+        // opened; deliver it, so the missing driver is what is left to report.
+        #[cfg(feature = "suderra-os")]
+        {
+            state.write().await.picontrol_rsc = Some(std::sync::Arc::<[u8]>::from(
+                crate::picontrol::rsc::sample::rsc().into_bytes(),
+            ));
+        }
         let DegradedReason::BackendUnavailable { detail, .. } =
             init_picontrol(&state).await.expect("a reason")
         else {

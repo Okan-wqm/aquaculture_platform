@@ -1103,6 +1103,13 @@ path = "tests/invariants/safe_state_event_table.rs"
 name = "tag_writes_route_through_the_writer"
 path = "tests/invariants/tag_writes_route_through_the_writer.rs"
 
+# ADR-048 DEC-9.7 / DEC-13.6 / EDGE-HIGH-057, EDGE-HIGH-067 — the emergency stop is
+# a durable latch in the control gate, drives safe values, and clears only by an
+# authenticated reset.
+[[test]]
+name = "emergency_stop_latch"
+path = "tests/invariants/emergency_stop_latch.rs"
+
 # =============================================================================
 # RUST-CVE-001: rumqttc 0.25.1 vendored fork (../crates/local-rumqttc)
 # =============================================================================

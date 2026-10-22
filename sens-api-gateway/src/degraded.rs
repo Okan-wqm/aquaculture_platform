@@ -214,6 +214,10 @@ struct View {
 #[derive(Debug)]
 struct Shared {
     control_disabled: AtomicBool,
+    /// The device-wide emergency stop (ADR-048 DEC-9.7). It lives in the
+    /// state the gate shares so that every hardware handle, each of which
+    /// carries a gate, refuses actuator writes while it is latched.
+    emergency: crate::emergency::EmergencyLatch,
     generation: AtomicU64,
     view: Mutex<View>,
     health_file: PathBuf,
@@ -232,28 +236,50 @@ pub struct ControlGate {
     shared: Arc<Shared>,
 }
 
-/// The write was refused: control is disabled.
+/// The write was refused: control is disabled, by degraded mode or by the
+/// emergency stop.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ControlDisabled {
     reasons: Vec<&'static str>,
+    emergency_stop: bool,
+}
+
+impl ControlDisabled {
+    /// The emergency stop is what refused the write.
+    pub fn is_emergency_stop(&self) -> bool {
+        self.emergency_stop
+    }
 }
 
 impl std::fmt::Display for ControlDisabled {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "control is disabled: the agent is in degraded mode ({}); outputs are held in \
-             their safe state (ADR-048 DEC-6.3)",
-            self.reasons.join(", ")
-        )
+        if self.emergency_stop {
+            f.write_str(
+                "the emergency stop is latched: outputs are held in their safe state until an \
+                 authenticated reset (ADR-048 DEC-9.7)",
+            )
+        } else {
+            write!(
+                f,
+                "control is disabled: the agent is in degraded mode ({}); outputs are held in \
+                 their safe state (ADR-048 DEC-6.3)",
+                self.reasons.join(", ")
+            )
+        }
     }
 }
 
 impl std::error::Error for ControlDisabled {}
 
 impl ControlGate {
-    /// `Ok` while control is enabled.
+    /// `Ok` while control is enabled and no emergency stop is latched.
     pub fn permit(&self) -> Result<(), ControlDisabled> {
+        if self.shared.emergency.is_latched() {
+            return Err(ControlDisabled {
+                reasons: Vec::new(),
+                emergency_stop: true,
+            });
+        }
         if self.shared.control_disabled.load(Ordering::Acquire) {
             Err(ControlDisabled {
                 reasons: lock(&self.shared.view)
@@ -261,6 +287,7 @@ impl ControlGate {
                     .iter()
                     .map(DegradedReason::code)
                     .collect(),
+                emergency_stop: false,
             })
         } else {
             Ok(())
@@ -282,6 +309,7 @@ impl DegradedMode {
         Self {
             shared: Arc::new(Shared {
                 control_disabled: AtomicBool::new(false),
+                emergency: crate::emergency::EmergencyLatch::volatile(),
                 generation: AtomicU64::new(0),
                 view: Mutex::new(View {
                     phase: Phase::Starting,
@@ -293,6 +321,13 @@ impl DegradedMode {
                 health_file,
             }),
         }
+    }
+
+    /// The emergency-stop latch this state's gate refuses writes on. The agent
+    /// attaches its durable store to it at boot, before any hardware is
+    /// initialised.
+    pub fn emergency(&self) -> crate::emergency::EmergencyLatch {
+        self.shared.emergency.clone()
     }
 
     /// The gate handed to the hardware handles.

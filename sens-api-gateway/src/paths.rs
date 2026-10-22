@@ -496,6 +496,14 @@ impl AgentPaths {
         self.store_dir("state").join("program.json")
     }
 
+    /// The emergency-stop record (ADR-048 DEC-9.7): written (and fsynced) when
+    /// a stop is latched, removed by an authenticated reset, read at boot
+    /// before the hardware is initialised so a stop survives a restart. It sits
+    /// in the agent's own state directory on both profiles.
+    pub fn emergency_stop_file(&self) -> PathBuf {
+        self.state_dir().join("emergency-stop.json")
+    }
+
     /// SQLCipher license cache.
     pub fn license_cache_db(&self) -> PathBuf {
         self.store_dir("state").join("license_cache.sqlite")

@@ -125,6 +125,8 @@ pub enum Refusal {
     },
     #[error("a write to a {0} tag is not supported")]
     UnsupportedProtocol(&'static str),
+    #[error("a {0} tag has no safe-state output: the agent has no safe value to drive for it")]
+    NoSafeStateOutput(&'static str),
 }
 
 /// The kind of register a Modbus write goes to.
@@ -177,15 +179,23 @@ pub fn resolve(config: &AgentConfig, tag: &TagConfig, value: f64) -> Result<Writ
     }
 }
 
-fn resolve_modbus(
-    config: &AgentConfig,
+/// The device and register a Modbus tag names, and what kind of register it
+/// is: the part of the resolution that does not depend on a value.
+struct Located<'a> {
+    device: &'a ModbusDeviceConfig,
+    configured: Option<&'a ModbusRegisterConfig>,
+    kind: Kind,
+    address: u16,
+}
+
+fn locate_modbus<'a>(
+    config: &'a AgentConfig,
     tag: &TagConfig,
     slave_id: u8,
     register: u16,
     function: u8,
     register_type: &str,
-    value: f64,
-) -> Result<WriteTarget, Refusal> {
+) -> Result<Located<'a>, Refusal> {
     // The configured register that carries the tag's name is how reads reach
     // the tag, so it is the register the tag means.
     let named: Vec<(&ModbusDeviceConfig, &ModbusRegisterConfig)> = config
@@ -234,22 +244,73 @@ fn resolve_modbus(
             function,
         });
     }
+    Ok(Located {
+        device,
+        configured,
+        kind,
+        address: register,
+    })
+}
 
-    match kind {
+fn resolve_modbus(
+    config: &AgentConfig,
+    tag: &TagConfig,
+    slave_id: u8,
+    register: u16,
+    function: u8,
+    register_type: &str,
+    value: f64,
+) -> Result<WriteTarget, Refusal> {
+    let located = locate_modbus(config, tag, slave_id, register, function, register_type)?;
+    match located.kind {
         Kind::Coil => Ok(WriteTarget::ModbusCoil {
-            device: device.name.clone(),
-            address: register,
+            device: located.device.name.clone(),
+            address: located.address,
             on: value != 0.0,
         }),
         Kind::Holding => {
-            let data_type = configured.map_or(tag.data_type.as_str(), |c| c.data_type.as_str());
-            let raw = raw_register(tag, configured, data_type, value)?;
+            let data_type = located
+                .configured
+                .map_or(tag.data_type.as_str(), |c| c.data_type.as_str());
+            let raw = raw_register(tag, located.configured, data_type, value)?;
             Ok(WriteTarget::ModbusRegister {
-                device: device.name.clone(),
-                address: register,
+                device: located.device.name.clone(),
+                address: located.address,
                 raw,
             })
         }
+    }
+}
+
+/// The identity of the output `tag` is, as the safe-state registry spells it,
+/// without a value to write (the emergency stop scopes itself to tags this
+/// way). A tag that is not an output, or has no registered output, is refused.
+pub fn output_id_of(config: &AgentConfig, tag: &TagConfig) -> Result<OutputId, Refusal> {
+    if !matches!(tag.io_type, IoType::DO | IoType::AO) {
+        return Err(Refusal::NotAnOutput {
+            tag: tag.tag_name.clone(),
+            io_type: tag.io_type,
+        });
+    }
+    match &tag.protocol_config {
+        ProtocolConfig::Gpio { pin, .. } => Ok(OutputId::gpio_pin(*pin)),
+        ProtocolConfig::Modbus {
+            slave_id,
+            register,
+            function,
+            register_type,
+        } => {
+            let located =
+                locate_modbus(config, tag, *slave_id, *register, *function, register_type)?;
+            Ok(match located.kind {
+                Kind::Coil => OutputId::modbus_coil(&located.device.name, located.address),
+                Kind::Holding => OutputId::modbus_register(&located.device.name, located.address),
+            })
+        }
+        ProtocolConfig::PiControl { .. } => Ok(OutputId::picontrol(&tag.tag_name)),
+        ProtocolConfig::I2c { .. } => Err(Refusal::NoSafeStateOutput("I2C")),
+        ProtocolConfig::Spi { .. } => Err(Refusal::UnsupportedProtocol("SPI")),
+        ProtocolConfig::Uart { .. } => Err(Refusal::UnsupportedProtocol("UART")),
     }
 }
 
@@ -727,6 +788,42 @@ mod tests {
             // The configured register's own type wins over the tag's.
             Ok(WriteTarget::ModbusCoil { .. })
         ));
+    }
+
+    /// The emergency stop scopes itself to tags through the same resolution
+    /// (and its identity is the registry's): routed by the register's owner,
+    /// refused for what has no safe-state output.
+    #[test]
+    fn a_tag_has_the_identity_of_the_output_the_registry_drives() {
+        let cfg = config(&format!(
+            "{}{}",
+            device("plc-a", 1, &register("pump_a", 10, "coil", "u16", 1.0)),
+            device("plc-b", 1, &register("speed_b", 11, "holding", "u16", 1.0)),
+        ));
+        assert_eq!(
+            output_id_of(&cfg, &tag("pump_a", IoType::DO, 1, 10, 1, "coil")),
+            Ok(OutputId::modbus_coil("plc-a", 10))
+        );
+        assert_eq!(
+            output_id_of(&cfg, &tag("speed_b", IoType::AO, 1, 11, 3, "holding")),
+            Ok(OutputId::modbus_register("plc-b", 11))
+        );
+        assert!(matches!(
+            output_id_of(&cfg, &tag("level", IoType::AI, 1, 12, 4, "input")),
+            Err(Refusal::NotAnOutput { .. })
+        ));
+        let i2c = TagConfig {
+            protocol_config: ProtocolConfig::I2c {
+                bus: 1,
+                address: 0x40,
+                driver_type: crate::process_image::I2cDriverType::GenericDirect { read_length: 1 },
+            },
+            ..tag("dac", IoType::AO, 0, 0, 0, "")
+        };
+        assert_eq!(
+            output_id_of(&cfg, &i2c),
+            Err(Refusal::NoSafeStateOutput("I2C"))
+        );
     }
 
     /// The other protocols resolve to their own target; the identity of the

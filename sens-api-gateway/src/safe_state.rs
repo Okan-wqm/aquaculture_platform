@@ -348,32 +348,53 @@ pub async fn apply_leased(
     leased: &[OutputId],
     handles: OutputHandles<'_>,
 ) -> (SafeStateReport, Vec<OutputId>) {
+    apply_scoped(config, Event::CloudCommsLoss, Some(leased), handles).await
+}
+
+/// Run `event`'s pass over the registered outputs of `config` that are in
+/// `scope` (every output when `scope` is `None`), for the events whose row
+/// says the agent drives an output safe ([`AgentAct::DriveSafe`] or
+/// [`AgentAct::DriveSafeLeased`]). Ids in `scope` that are not registered
+/// outputs have no safe value and are returned, not skipped silently.
+pub async fn apply_scoped(
+    config: &AgentConfig,
+    event: Event,
+    scope: Option<&[OutputId]>,
+    handles: OutputHandles<'_>,
+) -> (SafeStateReport, Vec<OutputId>) {
     let manager = SafeStateManager::from_config(config);
     let registry = manager.outputs_now(handles.picontrol);
     let known: std::collections::HashSet<OutputId> = registry.iter().map(OutputTag::id).collect();
-    let unregistered: Vec<OutputId> = leased
-        .iter()
+    let unregistered: Vec<OutputId> = scope
+        .into_iter()
+        .flatten()
         .filter(|id| !known.contains(id))
         .cloned()
         .collect();
     let outputs: Vec<OutputTag> = registry
         .into_iter()
-        .filter(|tag| leased.contains(&tag.id()))
+        .filter(|tag| scope.is_none_or(|ids| ids.contains(&tag.id())))
         .filter(|tag| {
             matches!(
-                behaviour::behaviour(Event::CloudCommsLoss, tag.backend()).agent,
-                AgentAct::DriveSafeLeased
+                behaviour::behaviour(event, tag.backend()).agent,
+                AgentAct::DriveSafe | AgentAct::DriveSafeLeased
             )
         })
         .collect();
+    info!(
+        event = event.name(),
+        outputs = outputs.len(),
+        "scoped safe-state pass for {}",
+        event.name()
+    );
     (
         SafeStateManager::drive(&outputs, handles).await,
         unregistered,
     )
 }
 
-/// Run `attempt`, again while a channel is still connecting (up to
-/// [`CONNECT_WAIT`]) when `patient`; any other failure is final at once.
+/// Run `attempt`, again while a channel is still connecting (up to `wait`)
+/// when `patient`; any other failure is final at once.
 async fn retry_while_connecting<F, Fut>(
     patient: bool,
     wait: Duration,
@@ -1338,6 +1359,89 @@ points:
                 opener,
             )
             .unwrap()
+        }
+
+        /// EDGE-HIGH-067 / EDGE-HIGH-057: the stop latches the gate every handle
+        /// carries (no writer gets past it), then drives the outputs to their
+        /// safe values: the life-support aerator ends ON, not at zero.
+        #[tokio::test]
+        async fn the_emergency_stop_latches_every_writer_and_drives_safe_values_not_zeros() {
+            let dir = tempfile::tempdir().unwrap();
+            let kernel = FakeKernel::sample();
+            let degraded = DegradedMode::new(dir.path().join("health.json"));
+            let k = kernel.clone();
+            let opener: Opener = Arc::new(move || Ok(k.open()));
+            let handle = PiControlHandle::open(
+                &serde_yaml::from_str::<PiControlConfig>(GRANT).unwrap(),
+                250,
+                RscSource::Verified(sample::rsc().into_bytes().into()),
+                degraded.control_gate(),
+                Arc::new(ForceRegistry::new()),
+                opener,
+            )
+            .unwrap();
+            let handles = OutputHandles {
+                picontrol: Some(&handle),
+                ..OutputHandles::default()
+            };
+            // The operator had the pump on and the aerator off.
+            handle.write_output("pump", 1.0).await.unwrap();
+            handle.write_output("aerator", 0.0).await.unwrap();
+
+            degraded
+                .emergency()
+                .latch(&crate::emergency::Record::new("test", vec![]))
+                .unwrap();
+            let refused = handle.write_output("pump", 0.0).await.unwrap_err();
+            assert!(
+                refused.to_string().contains("emergency stop"),
+                "every writer is refused while the stop is latched: {refused}"
+            );
+
+            let (report, unregistered) =
+                apply_scoped(&config(), Event::EmergencyStop, None, handles).await;
+            assert!(unregistered.is_empty());
+            assert!(report.is_complete(), "{:?}", report.failures);
+            assert_eq!((report.registered, report.applied), (2, 2));
+            assert_eq!(
+                kernel.peek(122) & 0b11,
+                0b10,
+                "pump off, the life-support aerator ON: a stop is not a blanket zero"
+            );
+
+            degraded.emergency().clear().unwrap();
+            handle.write_output("pump", 1.0).await.unwrap();
+        }
+
+        /// A stop scoped to named outputs drives those; a scoped id that is no
+        /// safe-state output is returned, never skipped silently.
+        #[tokio::test]
+        async fn a_scoped_stop_drives_only_the_named_outputs_and_names_the_unregistered() {
+            let dir = tempfile::tempdir().unwrap();
+            let kernel = FakeKernel::sample();
+            let handle = handle(&kernel, dir.path());
+            handle.write_output("pump", 1.0).await.unwrap();
+            handle.write_output("aerator", 0.0).await.unwrap();
+
+            let scope = [OutputId::picontrol("pump"), OutputId::picontrol("ghost")];
+            let (report, unregistered) = apply_scoped(
+                &config(),
+                Event::EmergencyStop,
+                Some(&scope),
+                OutputHandles {
+                    picontrol: Some(&handle),
+                    ..OutputHandles::default()
+                },
+            )
+            .await;
+            assert_eq!((report.registered, report.applied), (1, 1));
+            assert_eq!(unregistered, vec![OutputId::picontrol("ghost")]);
+            assert_eq!(
+                kernel.peek(122) & 0b11,
+                0b00,
+                "the pump is off; the aerator (off, as the operator left it) is not in scope \
+                 and was not driven to its safe value ON"
+            );
         }
 
         #[test]

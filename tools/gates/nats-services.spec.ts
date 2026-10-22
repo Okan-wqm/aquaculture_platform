@@ -23,6 +23,7 @@ import {
   eventSubjectsFor,
   filtersOverlap,
   loadNatsServices,
+  loadNatsServicesLocated,
   NATS_SERVICES_YAML,
   type NatsServiceEntry,
   NatsServicesInvalid,
@@ -105,6 +106,29 @@ void test('the live services.yaml loads whole: every service, every grant, each 
   );
   for (const entry of loaded)
     assert.ok(entry.application.length > 0, `${entry.name} has no application`);
+});
+
+void test('the located read cites the line of every live identity and grant', () => {
+  // SE-3: a fact citing services.yaml cites the line it came from. The oracle is the raw text.
+  const lines = readFileSync(join(REPO_ROOT, NATS_SERVICES_YAML), 'utf8').split('\n');
+  const located = loadNatsServicesLocated(join(REPO_ROOT, NATS_SERVICES_YAML));
+  assert.deepEqual(located.services, loadNatsServices());
+  const textAt = (line: number | undefined): string => lines[(line ?? 0) - 1] ?? '';
+  for (const service of located.services) {
+    const at = located.lines.get(service.name);
+    assert.ok(at, `${service.name} has source lines`);
+    assert.match(textAt(at.name), new RegExp(`name:\\s*['"]?${service.name}['"]?\\s*$`));
+    for (const permission of ['publish', 'subscribe'] as const) {
+      assert.equal(
+        at[permission].length,
+        service[permission].length,
+        `${service.name}.${permission}`,
+      );
+      service[permission].forEach((grant, index) => {
+        assert.ok(textAt(at[permission][index]).includes(grant), `${service.name} ${grant}`);
+      });
+    }
+  }
 });
 
 void test('quoted and unquoted list items parse identically', () => {

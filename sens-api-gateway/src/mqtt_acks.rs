@@ -58,6 +58,9 @@ pub enum AckError {
     NotSent,
     /// It was sent; no acknowledgement came in time.
     Timeout,
+    /// The publish does not fit the client's packet limit, so it never entered
+    /// the channel (the codec would refuse it after the state machine took it).
+    TooLarge { payload: usize },
 }
 
 impl std::fmt::Display for AckError {
@@ -67,6 +70,11 @@ impl std::fmt::Display for AckError {
             Self::Enqueue(reason) => write!(f, "the client refused the publish: {reason}"),
             Self::NotSent => f.write_str("the event loop did not send the publish"),
             Self::Timeout => f.write_str("the broker did not acknowledge the publish"),
+            Self::TooLarge { payload } => write!(
+                f,
+                "a {payload}-byte payload exceeds the {}-byte packet limit",
+                crate::mqtt::MAX_PACKET_BYTES
+            ),
         }
     }
 }
@@ -219,6 +227,11 @@ impl AckTracker {
         payload: Vec<u8>,
         within: Duration,
     ) -> Result<(), AckError> {
+        if !crate::mqtt::publish_fits(topic, payload.len()) {
+            return Err(AckError::TooLarge {
+                payload: payload.len(),
+            });
+        }
         let lane = self.lane.lock().await;
         // Every request enqueued before this one has been sent: this request's
         // identifier is the next first-time one.
@@ -450,6 +463,126 @@ mod tests {
         assert_eq!(ours.await.expect("the publisher"), Ok(()));
         // The two requests really are in the client's channel.
         let _ = &mut eventloop;
+    }
+
+    /// An identifier the broker has acknowledged is free again, and the next
+    /// publish may get it. The acknowledgement of its previous use must not
+    /// acknowledge the new publish: the cursor would move past a result the
+    /// broker never received.
+    #[tokio::test]
+    async fn a_reused_identifier_is_not_acknowledged_by_the_ack_of_its_previous_use() {
+        let (client, _eventloop) =
+            AsyncClient::new(rumqttc::MqttOptions::new("ack-test", "localhost", 1883), 8);
+        let tracker = tracker();
+        // The first use of identifier 7: sent and acknowledged.
+        tracker
+            .enqueue(
+                true,
+                client.publish("first", QoS::AtLeastOnce, false, b"a".to_vec()),
+            )
+            .await
+            .expect("enqueued");
+        process(&tracker, 7);
+        tracker.on_puback(7);
+
+        let ours = {
+            let tracker = tracker.clone();
+            let client = client.clone();
+            tokio::spawn(async move {
+                tracker
+                    .publish_acknowledged(&client, "results", b"b".to_vec(), Duration::from_secs(5))
+                    .await
+            })
+        };
+        assert!(
+            tracker
+                .wait_until(Duration::from_secs(2), |s| s.enqueued == 2)
+                .await
+        );
+        // The event loop assigns the freed identifier 7 to our publish.
+        process(&tracker, 7);
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        assert!(
+            !ours.is_finished(),
+            "the ack of identifier 7's first use acknowledged its second"
+        );
+        tracker.on_puback(7);
+        assert_eq!(ours.await.expect("the publisher"), Ok(()));
+    }
+
+    /// A request the event loop processes late (a packet-identifier collision
+    /// makes it wait for an ack) is not lost: the counters converge when its
+    /// event arrives, and the next publish goes through.
+    #[tokio::test]
+    async fn a_request_the_event_loop_processes_late_does_not_poison_the_lane() {
+        let (client, _eventloop) =
+            AsyncClient::new(rumqttc::MqttOptions::new("ack-test", "localhost", 1883), 8);
+        let tracker = Arc::new(AckTracker::with_settle(Duration::from_millis(60)));
+        let first = tracker
+            .publish_acknowledged(&client, "results", b"1".to_vec(), Duration::from_secs(1))
+            .await;
+        assert_eq!(
+            first,
+            Err(AckError::NotSent),
+            "the loop has not processed it"
+        );
+        // Now it has (and the broker acknowledges it).
+        process(&tracker, 1);
+        tracker.on_puback(1);
+
+        let second = {
+            let tracker = tracker.clone();
+            let client = client.clone();
+            tokio::spawn(async move {
+                tracker
+                    .publish_acknowledged(&client, "results", b"2".to_vec(), Duration::from_secs(5))
+                    .await
+            })
+        };
+        assert!(
+            tracker
+                .wait_until(Duration::from_secs(2), |s| s.enqueued == 2)
+                .await
+        );
+        process(&tracker, 2);
+        tracker.on_puback(2);
+        assert_eq!(second.await.expect("the publisher"), Ok(()));
+    }
+
+    /// A payload over the packet limit never enters the channel: the codec
+    /// would refuse it only after the state machine kept it for retransmission,
+    /// and the lane would wait for an event that never comes.
+    #[tokio::test]
+    async fn a_payload_over_the_packet_limit_is_refused_before_the_channel() {
+        let (client, _eventloop) =
+            AsyncClient::new(rumqttc::MqttOptions::new("ack-test", "localhost", 1883), 8);
+        let tracker = tracker();
+        let result = tracker
+            .publish_acknowledged(
+                &client,
+                "results",
+                vec![0u8; crate::mqtt::MAX_PACKET_BYTES],
+                Duration::from_millis(50),
+            )
+            .await;
+        assert_eq!(
+            result,
+            Err(AckError::TooLarge {
+                payload: crate::mqtt::MAX_PACKET_BYTES
+            })
+        );
+        assert_eq!(
+            tracker.state().enqueued,
+            0,
+            "nothing was put in the channel"
+        );
+        // The lane is not poisoned: the same topic with a payload that fits goes
+        // through the normal path (it waits for the event loop here).
+        assert!(crate::mqtt::publish_fits("results", 16 * 1024));
+        assert!(!crate::mqtt::publish_fits(
+            "results",
+            crate::mqtt::MAX_PACKET_BYTES - 10
+        ));
     }
 
     #[tokio::test]

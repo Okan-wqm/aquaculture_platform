@@ -120,3 +120,40 @@ async fn a_publish_while_the_broker_is_down_is_queued_and_drains_on_the_reconnec
     })
     .await;
 }
+
+/// A payload over the packet limit would be taken by the state machine, kept
+/// for retransmission and refused by the codec at every reconnect: the
+/// connection would flap on it for good and the ack lane would wait for an event
+/// that never comes. It is refused before it enters the channel, and neither the
+/// connection nor the lane is harmed.
+#[tokio::test]
+async fn an_oversized_publish_is_refused_and_the_connection_and_the_ack_lane_are_unharmed() {
+    use crate::outbound_publisher::{MqttPublishSink, PublishSinkError};
+
+    let broker = FakeBroker::start().await;
+    let client = connected(&broker, None).await;
+    let adapter = client.publish_adapter();
+
+    let big = vec![b'x'; super::MAX_PACKET_BYTES];
+    let refused = adapter
+        .publish_to_broker("t/big", &big, 1, false)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(refused, PublishSinkError::Transport(_)),
+        "{refused:?}"
+    );
+
+    // The connection is the one it was, and the lane still delivers and
+    // attributes the broker's acknowledgement.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(client.is_connected());
+    assert_eq!(broker.connects(), 1, "the connection never flapped");
+    client
+        .acks
+        .publish_acknowledged(&client.client, "t/ok", b"ok".to_vec(), WITHIN)
+        .await
+        .expect("a publish that fits is acknowledged");
+    assert!(broker.published().iter().all(|p| p.topic != "t/big"));
+    assert!(broker.published().iter().any(|p| p.topic == "t/ok"));
+}

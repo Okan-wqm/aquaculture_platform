@@ -52,6 +52,29 @@ struct ReconnectBackoff {
     max_secs: u64,
 }
 
+/// The largest MQTT packet the client sends or accepts: a larger incoming one
+/// is a pre-authentication memory-exhaustion vector, and the codec refuses a
+/// larger outgoing one.
+pub const MAX_PACKET_BYTES: usize = 1_048_576;
+
+/// The bytes a PUBLISH adds to its topic and payload: the fixed header, the
+/// longest remaining-length field, the topic length and the packet identifier.
+const PUBLISH_OVERHEAD: usize = 1 + 4 + 2 + 2;
+
+/// Whether a PUBLISH of `topic` and `payload_len` bytes is within
+/// [`MAX_PACKET_BYTES`]. A request that is not never enters the client's
+/// channel: the codec would refuse it only AFTER the state machine took the
+/// request (and kept a QoS 1 one for retransmission), so the connection would
+/// fail on it again at every reconnect, and the ack lane would count a request
+/// the event loop never reports sent.
+pub fn publish_fits(topic: &str, payload_len: usize) -> bool {
+    topic
+        .len()
+        .saturating_add(payload_len)
+        .saturating_add(PUBLISH_OVERHEAD)
+        <= MAX_PACKET_BYTES
+}
+
 /// The broker connection came up (a CONNACK).
 ///
 /// `link_up` and `link_down` are the ONLY writers of the link state, and the
@@ -315,7 +338,7 @@ impl MqttClient {
         // pre-authentication OOM DoS via oversized PUBLISH packets. Without this
         // limit, a malicious broker or MITM can send an arbitrarily large packet
         // that exhausts memory on the constrained edge device.
-        options.set_max_packet_size(1_048_576, 1_048_576);
+        options.set_max_packet_size(MAX_PACKET_BYTES, MAX_PACKET_BYTES);
 
         // Configure TLS transport if enabled (IEC 62443 SL2 FR4)
         #[cfg(not(feature = "suderra-os"))]
@@ -968,6 +991,12 @@ impl crate::outbound_publisher::MqttPublishSink for MqttPublishAdapter {
         retain: bool,
     ) -> Result<(), crate::outbound_publisher::PublishSinkError> {
         use crate::outbound_publisher::PublishSinkError;
+        if !publish_fits(topic, payload.len()) {
+            return Err(PublishSinkError::Transport(format!(
+                "a {}-byte payload exceeds the {MAX_PACKET_BYTES}-byte packet limit",
+                payload.len()
+            )));
+        }
         let qos_enum = MqttClient::qos_from_u8(qos);
 
         // rumqttc 0.24 ClientError variants don't expose a

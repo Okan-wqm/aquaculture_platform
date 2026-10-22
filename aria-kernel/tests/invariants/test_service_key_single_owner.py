@@ -1,4 +1,5 @@
-"""SE-1 — a repository path is attributed to a service by ONE function.
+"""SE-1 — a repository path is attributed to a service by ONE function, over
+ONE fingerprint-checked map.
 
 WHY. Two kernel functions answered "which service owns this path" in two
 vocabularies. ``impact_graph.project_for_path`` names nx projects over the
@@ -14,20 +15,44 @@ row "Path → service/project key", owner decision Q9) keeps
 ``project_for_path`` and deletes the second implementation with every caller
 migrated, no wrapper, no string fallback.
 
+SE-1 round 2 (review-r1-blockers.md). The round-1 invariant matched function
+NAMES only (``^_?(service|project)s?_(for|of)_paths?$``), so a live second
+owner with another name passed it: ``security/assess.py`` ``_asset_of`` maps
+``apps/<dir>`` to ``service:<dir>``. Round 1 also added a second map ACCESSOR,
+``published_project_roots``, which reads the published cache file without
+the fingerprint check ``cached_service_analysis_order`` applies, and the
+reviewers proved the two accessors file one finding under two names.
+
 WHAT THIS PINS.
-  * No kernel module defines a path→service/project function other than the
-    owner (``impact_graph.project_for_path``) and its shape adapter
-    (``impact_graph._project_for_path``, which calls the owner).
+  * Detection is STRUCTURAL as well as by name: a top-level kernel function
+    (or method) outside ``impact_graph`` is a path→project attribution when it
+      - splits a path on ``/``, tests a leading segment against a project
+        family (``apps``, ``libs``, ``platform``, ``web``, or a prefix such as
+        ``apps/``) and reads a later segment (``parts[1]``, ``parts[:2]``) —
+        the shape of ``service_for_path``, ``_asset_of`` and every
+        convention-based copy; or
+      - reads a ``project.json`` ``name`` — naming a project is the map
+        builder's job (``impact_graph._declared_project_name``), and a second
+        reader builds a second map.
+    No such function exists outside the owner, except the holdouts another
+    tracked package removes, each named below with that package. An entry
+    stays only while the function still exists AND is still detected, so the
+    allowance cannot grow silent entries or keep stale ones.
   * ``service_dimension`` no longer exports ``service_for_path``,
     ``services_for_paths`` or ``service_dimension``; ``services_for_finding_row``
-    stays as the ROW reader.
-  * No kernel module imports those deleted names.
+    stays as the ROW reader. No kernel module imports the deleted names.
+  * ONE map accessor: the published cache file
+    (``tools/impact/service-order-cache.json``) is read only by
+    ``impact_graph.cached_service_analysis_order``, which checks the graph
+    fingerprint against the workspace before trusting it. No other function
+    reads the file, so no caller can be handed a stale map.
 
-``recursive_impact._project_for_path`` is a third implementation the plan
-tombstones with its whole module in F0.9b (PLAN.md §2, same row, item 3), not
-in SE-1. It is named here with that owner so this invariant does not grow a
-silent exception: when F0.9b deletes it, the stale-entry check below goes red
-until the entry is removed.
+Holdouts tombstoned elsewhere (PLAN.md §2, row "Path → service/project key",
+item 3; SO-17): ``recursive_impact`` (whole module, incl. ``_project_for_path``)
+and ``impact.plan_impact`` (with its helper ``_affected_projects_hint``) go in
+F0.9b; ``security.assess._asset_of`` is the per-path twin of
+``security/profile.py`` ``_detect_services``, which the same row tombstones in
+F0.9b, and goes with it (review-r1 BLOCKER-2 REQUIRED FIX).
 """
 from __future__ import annotations
 
@@ -38,18 +63,32 @@ from pathlib import Path
 
 _KERNEL = Path(__file__).resolve().parents[2] / "aria_kernel"
 
-# The one owner and its shape adapter (the adapter calls the owner).
-_OWNER = {("impact_graph", "project_for_path"), ("impact_graph", "_project_for_path")}
+# The module that owns the key: ``project_for_path``, its shape adapter
+# ``_project_for_path`` and the map builder (``_discover_projects``,
+# ``_declared_project_name``) all live here.
+_OWNER_MODULE = "impact_graph"
 
 # Implementations another tracked package removes, with that package.
-_TOMBSTONED_ELSEWHERE = {("recursive_impact", "_project_for_path"): "F0.9b"}
+_TOMBSTONED_ELSEWHERE = {
+    ("recursive_impact", "_project_for_path"): "F0.9b",
+    ("impact", "_affected_projects_hint"): "F0.9b",
+    ("security.assess", "_asset_of"): "F0.9b",
+}
 
 # A path -> service/project attribution, by the names this kernel has used
 # for one: service_for_path, services_for_paths, project_for_path,
 # _project_for_path, services_of_path, ...
 _ATTRIBUTION_NAME = re.compile(r"^_?(service|project)s?_(for|of)_paths?$")
 
+# Leading path segments that name a project family in this repository.
+_PROJECT_FAMILIES = frozenset({"apps", "libs", "platform", "web"})
+
 _DELETED_FROM_SERVICE_DIMENSION = ("service_for_path", "services_for_paths", "service_dimension")
+
+# The one function allowed to read the published map file.
+_MAP_READER = ("impact_graph", "cached_service_analysis_order")
+_MAP_FILE_NAMES = frozenset({"_read_service_order_cache", "_SERVICE_ORDER_CACHE"})
+_MAP_FILE_LITERAL = "service-order-cache"
 
 
 def _module_name(path: Path) -> str:
@@ -60,32 +99,212 @@ def _kernel_sources() -> list[Path]:
     return sorted(p for p in _KERNEL.rglob("*.py") if "__pycache__" not in p.parts)
 
 
-def _top_level_functions(path: Path) -> list[str]:
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    return [
-        node.name
-        for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-    ]
+def _functions(tree: ast.Module) -> list[tuple[str, ast.AST]]:
+    """Top-level functions and class methods, by qualified name. A nested
+    function is part of the function that encloses it."""
+    found: list[tuple[str, ast.AST]] = []
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            found.append((node.name, node))
+        elif isinstance(node, ast.ClassDef):
+            found.extend(
+                (f"{node.name}.{member.name}", member)
+                for member in node.body
+                if isinstance(member, (ast.FunctionDef, ast.AsyncFunctionDef))
+            )
+    return found
+
+
+def _string_literals(node: ast.AST) -> list[str]:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return [node.value]
+    if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+        return [
+            element.value
+            for element in node.elts
+            if isinstance(element, ast.Constant) and isinstance(element.value, str)
+        ]
+    return []
+
+
+def _names_a_project_family(literal: str) -> bool:
+    head, sep, _ = literal.partition("/")
+    return literal in _PROJECT_FAMILIES or (bool(sep) and head in _PROJECT_FAMILIES)
+
+
+def _is_slash_split(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "split"
+        and bool(node.args)
+        and isinstance(node.args[0], ast.Constant)
+        and node.args[0].value == "/"
+    )
+
+
+def _split_path_names(fn: ast.AST) -> set[str]:
+    """Local names bound to a path split on ``/`` (directly or through a
+    comprehension over the split)."""
+    names: set[str] = set()
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Assign) and any(_is_slash_split(n) for n in ast.walk(node.value)):
+            names.update(t.id for t in node.targets if isinstance(t, ast.Name))
+    return names
+
+
+def _tests_a_project_family(fn: ast.AST) -> bool:
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Compare):
+            for operand in (node.left, *node.comparators):
+                if any(_names_a_project_family(v) for v in _string_literals(operand)):
+                    return True
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in ("startswith", "removeprefix")
+        ):
+            for arg in node.args:
+                if any(_names_a_project_family(v) for v in _string_literals(arg)):
+                    return True
+    return False
+
+
+def _reads_a_later_segment(fn: ast.AST, split_names: set[str]) -> bool:
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name):
+            if node.value.id not in split_names:
+                continue
+            index = node.slice
+            if isinstance(index, ast.Slice):
+                return True
+            if isinstance(index, ast.Constant) and isinstance(index.value, int) and index.value >= 1:
+                return True
+    return False
+
+
+def _reads_a_project_json_name(fn: ast.AST) -> bool:
+    mentions_manifest = any(
+        isinstance(node, ast.Constant) and node.value == "project.json" for node in ast.walk(fn)
+    )
+    reads_name = any(
+        (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "get"
+            and bool(node.args)
+            and isinstance(node.args[0], ast.Constant)
+            and node.args[0].value == "name"
+        )
+        or (
+            isinstance(node, ast.Subscript)
+            and isinstance(node.slice, ast.Constant)
+            and node.slice.value == "name"
+        )
+        for node in ast.walk(fn)
+    )
+    return mentions_manifest and reads_name
+
+
+def _attribution_reasons(name: str, fn: ast.AST) -> list[str]:
+    """Why ``fn`` is a path→project attribution (empty: it is not one)."""
+    reasons: list[str] = []
+    if _ATTRIBUTION_NAME.match(name.rsplit(".", 1)[-1]):
+        reasons.append("name")
+    split_names = _split_path_names(fn)
+    if split_names and _tests_a_project_family(fn) and _reads_a_later_segment(fn, split_names):
+        reasons.append("path-segment attribution")
+    if _reads_a_project_json_name(fn):
+        reasons.append("project.json name")
+    return reasons
+
+
+def _attributions_in(source: str, module: str) -> dict[tuple[str, str], list[str]]:
+    tree = ast.parse(source)
+    found: dict[tuple[str, str], list[str]] = {}
+    for name, fn in _functions(tree):
+        reasons = _attribution_reasons(name, fn)
+        if reasons:
+            found[(module, name)] = reasons
+    return found
+
+
+def _kernel_attributions() -> dict[tuple[str, str], list[str]]:
+    found: dict[tuple[str, str], list[str]] = {}
+    for path in _kernel_sources():
+        found.update(_attributions_in(path.read_text(encoding="utf-8"), _module_name(path)))
+    return found
+
+
+class TheDetectorSeesEveryKnownShape(unittest.TestCase):
+    """The structural detector is not vacuous: it flags the shapes the review
+    found (and the round-1 regex missed), and leaves a plain path test alone."""
+
+    def test_the_deleted_string_vocabulary_is_detected(self) -> None:
+        source = (
+            "def service_key(path):\n"
+            "    parts = [p for p in path.split('/') if p]\n"
+            "    if len(parts) >= 2 and parts[0] == 'apps':\n"
+            "        return parts[1]\n"
+            "    if len(parts) >= 3 and parts[0] == 'platform' and parts[1] == 'libs':\n"
+            "        return f'shared:{parts[2]}'\n"
+            "    return None\n"
+        )
+        self.assertIn(("m", "service_key"), _attributions_in(source, "m"))
+
+    def test_an_asset_of_shaped_function_is_detected(self) -> None:
+        source = (
+            "def _asset_of(code_ref):\n"
+            "    parts = str(code_ref).split('/')\n"
+            "    if len(parts) >= 2 and parts[0] == 'apps' and parts[1]:\n"
+            "        return f'service:{parts[1]}'\n"
+            "    return None\n"
+        )
+        self.assertIn(("m", "_asset_of"), _attributions_in(source, "m"))
+
+    def test_a_prefix_grouping_is_detected(self) -> None:
+        source = (
+            "class Splitter:\n"
+            "    def group(self, path):\n"
+            "        if path.startswith('libs/'):\n"
+            "            parts = path.split('/')\n"
+            "            return '/'.join(parts[:2])\n"
+            "        return path\n"
+        )
+        self.assertIn(("m", "Splitter.group"), _attributions_in(source, "m"))
+
+    def test_a_second_project_json_name_reader_is_detected(self) -> None:
+        source = (
+            "import json\n"
+            "def nearest(root, rel):\n"
+            "    manifest = root / rel / 'project.json'\n"
+            "    return json.loads(manifest.read_text()).get('name')\n"
+        )
+        self.assertIn(("m", "nearest"), _attributions_in(source, "m"))
+
+    def test_a_path_class_test_that_names_no_project_is_not_flagged(self) -> None:
+        source = (
+            "def is_runtime(path):\n"
+            "    return path.startswith(('apps/', 'libs/')) and '/src/' in path\n"
+        )
+        self.assertEqual(_attributions_in(source, "m"), {})
 
 
 class OnePathToServiceImplementation(unittest.TestCase):
     def test_only_impact_graph_attributes_a_path_to_a_service(self) -> None:
-        found = {
-            (_module_name(path), name)
-            for path in _kernel_sources()
-            for name in _top_level_functions(path)
-            if _ATTRIBUTION_NAME.match(name)
-        }
+        found = _kernel_attributions()
         second_owners = sorted(
-            f"{module}.{name}"
-            for module, name in found - _OWNER - set(_TOMBSTONED_ELSEWHERE)
+            f"{module}.{name} ({', '.join(reasons)})"
+            for (module, name), reasons in found.items()
+            if module != _OWNER_MODULE and (module, name) not in _TOMBSTONED_ELSEWHERE
         )
         self.assertEqual(
             second_owners,
             [],
-            "a second path->service implementation exists in aria_kernel; the one "
-            "owner is impact_graph.project_for_path over the cached project_roots map",
+            "a second path->service/project implementation exists in aria_kernel; the one "
+            "owner is impact_graph.project_for_path over the fingerprint-checked project_roots "
+            "map (fold it into the owner, or name the tracked package that removes it in "
+            "_TOMBSTONED_ELSEWHERE)",
         )
 
     def test_the_owner_is_still_there(self) -> None:
@@ -93,14 +312,66 @@ class OnePathToServiceImplementation(unittest.TestCase):
 
         self.assertTrue(callable(getattr(impact_graph, "project_for_path", None)))
 
-    def test_entries_tombstoned_elsewhere_are_not_stale(self) -> None:
+    def test_entries_tombstoned_elsewhere_are_live_and_detected(self) -> None:
+        found = _kernel_attributions()
         for (module, name), package in _TOMBSTONED_ELSEWHERE.items():
-            path = _KERNEL / (module.replace(".", "/") + ".py")
-            present = path.is_file() and name in _top_level_functions(path)
-            self.assertTrue(
-                present,
-                f"{module}.{name} is gone ({package} landed): drop its entry here",
+            self.assertIn(
+                (module, name),
+                found,
+                f"{module}.{name} is gone or no longer attributes a path ({package} landed, "
+                "or it was folded): drop its entry here",
             )
+
+
+class OneFingerprintCheckedMapAccessor(unittest.TestCase):
+    """review-r1 B1 / BLOCKER-1: ``published_project_roots`` read the published
+    map without the fingerprint check, so a mint in the cycle's 'tools' phase
+    (before 'service_examination' refreshes the map) and any mint after a
+    ``project.json`` rename stamped a stale name, while ``emit_finding``,
+    through the checked accessor, stamped the current one."""
+
+    def test_only_the_fingerprint_checked_writer_reads_the_published_map(self) -> None:
+        readers: list[str] = []
+        for path in _kernel_sources():
+            module = _module_name(path)
+            source = path.read_text(encoding="utf-8")
+            tree = ast.parse(source, filename=str(path))
+            for name, fn in _functions(tree):
+                if (module, name) == _MAP_READER:
+                    continue
+                touches = sorted(
+                    {
+                        node.id
+                        for node in ast.walk(fn)
+                        if isinstance(node, ast.Name) and node.id in _MAP_FILE_NAMES
+                    }
+                    | {
+                        node.attr
+                        for node in ast.walk(fn)
+                        if isinstance(node, ast.Attribute) and node.attr in _MAP_FILE_NAMES
+                    }
+                    | {
+                        _MAP_FILE_LITERAL
+                        for node in ast.walk(fn)
+                        if isinstance(node, ast.Constant)
+                        and isinstance(node.value, str)
+                        and _MAP_FILE_LITERAL in node.value
+                        and not _is_docstring_of(node, fn)
+                    }
+                )
+                if touches:
+                    readers.append(f"{module}.{name} ({', '.join(touches)})")
+        self.assertEqual(
+            readers,
+            [],
+            "the published project map is read without the graph-fingerprint check; the one "
+            "accessor is impact_graph.cached_service_analysis_order",
+        )
+
+
+def _is_docstring_of(node: ast.AST, fn: ast.AST) -> bool:
+    body = getattr(fn, "body", [])
+    return bool(body) and isinstance(body[0], ast.Expr) and body[0].value is node
 
 
 class ServiceDimensionKeepsOnlyTheRowReader(unittest.TestCase):

@@ -22,6 +22,12 @@
  * (`scanEventConsumers(...).entries[].application`, the public face of `applicationNames`) equals
  * `project_for_path("apps/<dir>/src/...", project_roots)` from the kernel's own cache writer.
  * Lib sites are attributed to each wiring app and are never an endpoint; that rule is SE-3's (iv).
+ *
+ * SE-1 round 2 (review-r1 note (b)): the two sides read an edge-case `project.json` by two rules.
+ * The kernel stripped whitespace from `name` and fell back to the directory name on malformed
+ * JSON; the TS side keeps the raw name and throws. The reviewer's probe got `spaced` from one side
+ * and ` spaced ` from the other. Both sides follow ONE rule: for every edge-case manifest below
+ * they give the same outcome — the same name, or both refuse.
  */
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -127,4 +133,68 @@ describe('SE-1 (iii) — applicationNames(apps) == project_roots(apps)', () => {
     }
     expect(kernel).toEqual(ts);
   }, 120_000);
+});
+
+/** apps/<dir> -> the raw text of its `project.json` (edge cases of the identity rule). */
+const EDGE_MANIFESTS: Record<string, string> = {
+  'spaced-svc': JSON.stringify({ name: ' spaced-ingest ' }),
+  'malformed-svc': '{"name": "malformed-ingest",',
+};
+
+type Outcome = { name: string | null } | { refused: true };
+
+function outcomeOf(read: () => string | null): Outcome {
+  try {
+    return { name: read() };
+  } catch {
+    return { refused: true };
+  }
+}
+
+describe('SE-1 round 2 — both sides read an edge-case project.json by one rule', () => {
+  it.each(Object.keys(EDGE_MANIFESTS))(
+    '%s: the kernel and the TS scan give the same outcome',
+    (dir) => {
+      const repo = makeFixtureTree('se1-r2-manifest-repo-');
+      const tools = makeFixtureTree('se1-r2-manifest-tools-');
+      try {
+        writeTree(repo, {
+          'platform/libs/event-bus/src/event-bus.ts': BUS,
+          [subscriberPath(dir)]: SUBSCRIBER(`${dir}-happened`),
+          [`apps/${dir}/project.json`]: EDGE_MANIFESTS[dir],
+        });
+        const ts = outcomeOf(() => {
+          const index = scanEventConsumers(repo);
+          const entry = index.entries.find((e) => e.site.startsWith(`${subscriberPath(dir)}:`));
+          return entry?.application ?? null;
+        });
+        const kernel = outcomeOf(() => {
+          const script = [
+            'import json, sys',
+            'from aria_kernel.impact_graph import cached_service_analysis_order, project_for_path',
+            'repo, tools, path = sys.argv[1], sys.argv[2], sys.argv[3]',
+            'roots = cached_service_analysis_order(workspace_root=repo, base_dir=tools)["project_roots"]',
+            'print(json.dumps(project_for_path(path, roots)))',
+          ].join('\n');
+          return JSON.parse(
+            execFileSync('python3', ['-c', script, repo, tools, subscriberPath(dir)], {
+              cwd: REPO_ROOT,
+              encoding: 'utf8',
+              stdio: ['ignore', 'pipe', 'pipe'],
+              env: { ...process.env, PYTHONPATH: 'aria-kernel', PYTHONDONTWRITEBYTECODE: '1' },
+            }),
+          ) as string | null;
+        });
+        // A side that read the tree but filed the site under no application is neither a name
+        // nor a refusal; letting two such reads agree would make the parity vacuous.
+        expect(ts).not.toEqual({ name: null });
+        expect(kernel).not.toEqual({ name: null });
+        expect(kernel).toEqual(ts);
+      } finally {
+        removeFixtureTree(repo);
+        removeFixtureTree(tools);
+      }
+    },
+    120_000,
+  );
 });

@@ -19,15 +19,30 @@ workspace whose map the real cache writer produced:
 
 Expected names are computed through ``project_for_path`` itself, so the tests
 pin "the one owner decides", not a naming convention.
+
+SE-1 round 2 (review-r1 B3). The stamp ``nx_project/v1`` claims the stored
+names are nx project names (Q9: "the finding dimension adopts nx project
+names"), but the kernel map named 18 of this repository's 59
+``project.json``-bearing roots differently from their ``project.json`` name
+(``platform/libs/event-bus`` -> ``platform-event-bus`` vs ``event-bus``,
+``libs/farm-shared`` -> ``farm-shared`` vs ``@aquaculture/farm-shared``,
+``web/shell`` -> ``web-shell`` vs ``shell``, every web module). The REQUIRED
+FIX allows either of two cures, and ``StampNamesTheKeyItCarries`` holds under
+both and fails only the untruthful state: a row stamped ``nx_project/v1``
+carries the ``project.json`` name of every root it cites. Keying every root
+by its ``project.json`` name satisfies it; so does a stamp that names the key
+truthfully (not ``nx_project/v1``) together with the tracked finding the
+review requires for the lib/web divergence.
 """
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
 from aria_kernel.impact_graph import cached_service_analysis_order, project_for_path
-from aria_kernel.tool_registry import ensure_tools_dir
+from aria_kernel.tool_registry import ensure_tools_binding, ensure_tools_dir
 
 NX_VOCABULARY = "nx_project/v1"
 LIB_PATH = "libs/storage/src/object-store.ts"
@@ -53,6 +68,9 @@ class _CachedMapCase(unittest.TestCase):
         tmp = Path(self._tmp.name)
         self.tools = ensure_tools_dir(tmp / "aria-tools")
         workspace = _workspace(tmp / "repo")
+        # The store declares its workspace (SE-1 round 2, review-r1 B2): a
+        # store that can produce no map refuses to attribute.
+        ensure_tools_binding(self.tools, workspace_root=workspace)
         # The real writer publishes the map the mint and the reader consume.
         roots = cached_service_analysis_order(workspace_root=workspace, base_dir=self.tools)[
             "project_roots"
@@ -129,6 +147,61 @@ class MintWithoutWorkspaceRootReceivesTheCachedMap(_CachedMapCase):
         self.assertEqual(rows["f-two"]["services"], sorted([self.app, self.platform_lib]))
         self.assertIsNone(rows["f-two"]["service"])
         self.assertEqual(rows["f-two"]["service_vocabulary"], NX_VOCABULARY)
+
+
+# Roots whose ``project.json`` name differs from the name the conventional
+# layout gives them, one per family the review measured (probe_map.py).
+_DECLARED = {
+    "apps/ingest-svc": "sensor-ingest",
+    "libs/farm-shared": "@aquaculture/farm-shared",
+    "platform/libs/event-bus": "event-bus",
+    "web/shell": "shell",
+    "web/modules/dashboard": "dashboard",
+}
+
+
+class StampNamesTheKeyItCarries(unittest.TestCase):
+    def test_a_row_stamped_nx_project_carries_project_json_names(self) -> None:
+        from aria_kernel.feedback_store import list_findings, record_findings_for_run
+
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp) / "repo"
+            for root, name in _DECLARED.items():
+                source = workspace / root / "src" / "index.ts"
+                source.parent.mkdir(parents=True, exist_ok=True)
+                source.write_text("export const x = 1;\n", encoding="utf-8")
+                (workspace / root / "project.json").write_text(
+                    json.dumps({"name": name}), encoding="utf-8"
+                )
+            tools = ensure_tools_dir(Path(tmp) / "aria-tools")
+            ensure_tools_binding(tools, workspace_root=workspace)
+            cached_service_analysis_order(workspace_root=workspace, base_dir=tools)
+            record_findings_for_run(
+                {
+                    "tool_id": "t",
+                    "run_id": "run-b3",
+                    "emitted_findings": [
+                        {"id": root, "path": f"{root}/src/index.ts", "message": "m"}
+                        for root in _DECLARED
+                    ],
+                },
+                base_dir=tools,
+            )
+            rows = {row["finding_id"]: row for row in list_findings(base_dir=tools)}
+
+        mislabelled = {
+            root: rows[root].get("services")
+            for root, name in _DECLARED.items()
+            if rows[root].get("service_vocabulary") == NX_VOCABULARY
+            and rows[root].get("services") != [name]
+        }
+        self.assertEqual(
+            mislabelled,
+            {},
+            "rows stamped nx_project/v1 carry names that are not the project.json name of "
+            "the root they cite (Q9); key every root by project.json, or stamp the key "
+            "the map really uses",
+        )
 
 
 if __name__ == "__main__":

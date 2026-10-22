@@ -9,7 +9,16 @@ stand on. Since SE-1 the axis is the nx project name that
 map. These pin the mint fields, the row reader, both mint points' use of
 the map, the read filter and the candidate linkage. The vocabulary
 contract itself (legacy re-derivation, lib vs platform-lib, the
-mint-without-workspace map) is pinned in ``test_service_key_nx_vocabulary``.
+mint-without-workspace map) is pinned in ``test_service_key_nx_vocabulary``;
+attribution over the CURRENT map (fingerprint) in
+``test_service_key_map_freshness``.
+
+SE-1 round 2 (review-r1 B2): a store that can produce no map is a named
+refusal (``service_key_map_unavailable``), never an empty dimension. "Cannot
+attribute" and "attributed to nothing" were the same answer: the mint wrote no
+dimension, and the filter and the task candidates answered "no services" for
+every unstamped row. Fixtures that mint therefore bind their store to the
+workspace they publish the map from.
 """
 from __future__ import annotations
 
@@ -25,9 +34,11 @@ from aria_kernel.service_dimension import (
     services_for_finding_row,
 )
 
-# A project_roots map in the shape `cached_service_analysis_order`
-# publishes. ``event-bus`` is the nx name of platform/libs/event-bus — a
-# value the retired string vocabulary (``shared:event-bus``) never produced.
+# A hand-written map in the SHAPE `cached_service_analysis_order` publishes
+# (name -> root). The names are fixture names for these unit tests; they are
+# not a claim about the name the real writer gives any root (review-r1 B3:
+# that is pinned against the writer itself, in
+# ``test_service_key_nx_vocabulary.StampNamesTheKeyItCarries``).
 ROOTS = {
     "auth-service": "apps/auth-service",
     "billing-service": "apps/billing-service",
@@ -74,11 +85,6 @@ class MintFieldsTests(unittest.TestCase):
         self.assertEqual(fields["services"], [])
         self.assertIsNone(fields["service"])
 
-    def test_a_store_without_a_map_mints_no_dimension(self) -> None:
-        # No map is not "attributed to nothing": the row is left for the
-        # reader to derive, instead of being stamped as measured-empty.
-        self.assertEqual(finding_service_fields(["apps/hr-service/src/a.ts"], None), {})
-
 
 class RowReaderTests(unittest.TestCase):
     def test_dimension_paths_cover_both_finding_shapes(self) -> None:
@@ -106,7 +112,6 @@ class RowReaderTests(unittest.TestCase):
             "finding": {"path": "apps/hr-service/src/a.ts"},
         }
         self.assertEqual(services_for_finding_row(row, ROOTS), ["auth-service"])
-        self.assertEqual(services_for_finding_row(row, None), ["auth-service"])
 
     def test_an_unstamped_row_is_re_derived_not_string_mapped(self) -> None:
         row = {
@@ -114,7 +119,6 @@ class RowReaderTests(unittest.TestCase):
             "finding": {"path": "libs/backend-common/src/rls.ts"},
         }
         self.assertEqual(services_for_finding_row(row, ROOTS), ["backend-common"])
-        self.assertEqual(services_for_finding_row(row, None), [])
 
 
 class OwnershipMapTests(unittest.TestCase):
@@ -139,13 +143,14 @@ class ToolFindingMintTests(unittest.TestCase):
     def test_record_findings_for_run_mints_the_dimension(self) -> None:
         from aria_kernel.feedback_store import list_findings, record_findings_for_run
         from aria_kernel.impact_graph import cached_service_analysis_order
-        from aria_kernel.tool_registry import ensure_tools_dir
+        from aria_kernel.tool_registry import ensure_tools_binding, ensure_tools_dir
 
         with tempfile.TemporaryDirectory() as tmp:
             root = ensure_tools_dir(Path(tmp) / "aria-tools")
             workspace = _fixture_workspace(
                 Path(tmp) / "repo", "apps/farm-service", "apps/auth-service"
             )
+            ensure_tools_binding(root, workspace_root=workspace)
             cached_service_analysis_order(workspace_root=workspace, base_dir=root)
             record_findings_for_run(
                 {
@@ -174,32 +179,77 @@ class ToolFindingMintTests(unittest.TestCase):
                 len(list_findings(service="auth-service", base_dir=root)), 0
             )
 
-    def test_a_store_with_no_map_defers_attribution_to_the_reader(self) -> None:
+    def test_a_store_that_cannot_produce_a_map_refuses_the_mint(self) -> None:
+        # Was test_a_store_without_a_map_mints_no_dimension: a mint with no
+        # map wrote no dimension and left the row to a reader that, with no
+        # map either, answered "no services". The store declares no workspace
+        # and holds no publication, so it is refused by name, and nothing is
+        # written.
         from aria_kernel.feedback_store import list_findings, record_findings_for_run
-        from aria_kernel.impact_graph import cached_service_analysis_order
-        from aria_kernel.tool_registry import ensure_tools_dir
+        from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 
         with tempfile.TemporaryDirectory() as tmp:
             root = ensure_tools_dir(Path(tmp) / "aria-tools")
-            record_findings_for_run(
+            with self.assertRaisesRegex(GovernanceError, "service_key_map_unavailable"):
+                record_findings_for_run(
+                    {
+                        "tool_id": "t",
+                        "run_id": "r",
+                        "emitted_findings": [
+                            {"id": "f-1", "path": "apps/messaging-service/src/channel.ts",
+                             "message": "m"}
+                        ],
+                    },
+                    base_dir=root,
+                )
+            self.assertEqual(list_findings(base_dir=root), [])
+
+    def test_a_store_that_cannot_produce_a_map_refuses_the_service_filter(self) -> None:
+        # Was test_a_store_with_no_map_defers_attribution_to_the_reader: the
+        # filter answered [] for every unstamped row, the same answer as "no
+        # finding cites that service".
+        from aria_kernel.feedback_store import append_jsonl, findings_path, list_findings
+        from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = ensure_tools_dir(Path(tmp) / "aria-tools")
+            append_jsonl(
+                findings_path(root),
                 {
+                    "schema_version": 1,
                     "tool_id": "t",
                     "run_id": "r",
-                    "emitted_findings": [
-                        {"id": "f-1", "path": "apps/messaging-service/src/channel.ts", "message": "m"}
-                    ],
+                    "finding_id": "legacy-1",
+                    "status": "open",
+                    "finding": {"id": "legacy-1", "path": "apps/messaging-service/src/channel.ts"},
                 },
-                base_dir=root,
             )
-            (row,) = list_findings(base_dir=root)
-            self.assertNotIn("services", row)
-            self.assertNotIn("service_vocabulary", row)
-            # Once the store holds a map, the reader derives the dimension
-            # from the row's own paths.
-            workspace = _fixture_workspace(Path(tmp) / "repo", "apps/messaging-service")
-            cached_service_analysis_order(workspace_root=workspace, base_dir=root)
-            rows = list_findings(service="messaging-service", base_dir=root)
-            self.assertEqual([r["finding_id"] for r in rows], ["f-1"])
+            # Reading the ledger needs no attribution; filtering by service does.
+            self.assertEqual([r["finding_id"] for r in list_findings(base_dir=root)], ["legacy-1"])
+            with self.assertRaisesRegex(GovernanceError, "service_key_map_unavailable"):
+                list_findings(service="messaging-service", base_dir=root)
+
+    def test_a_store_that_cannot_produce_a_map_refuses_finding_candidates(self) -> None:
+        from aria_kernel.feedback_store import append_jsonl, findings_path
+        from aria_kernel.task import generate_task_candidates
+        from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = ensure_tools_dir(Path(tmp) / "aria-tools")
+            append_jsonl(
+                findings_path(root),
+                {
+                    "schema_version": 1,
+                    "tool_id": "t",
+                    "run_id": "r",
+                    "finding_id": "legacy-1",
+                    "status": "open",
+                    "finding": {"id": "legacy-1", "message": "m",
+                                "path": "apps/messaging-service/src/channel.ts"},
+                },
+            )
+            with self.assertRaisesRegex(GovernanceError, "service_key_map_unavailable"):
+                generate_task_candidates(cycle_id="cycle-se1-r2", base_dir=root)
 
 
 class CandidateLinkageTests(unittest.TestCase):

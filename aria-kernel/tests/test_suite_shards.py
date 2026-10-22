@@ -541,9 +541,10 @@ class LiveDeclarationsInTheSuiteTests(unittest.TestCase):
     def test_the_typeorm_adapter_integration_reads_the_live_checkout_by_declaration(self) -> None:
         # It runs the real adapter over apps/farm-service/src and asserts what
         # it read there: product code, which is no kernel surface (ARIA-HIGH-602).
+        from aria_kernel.live_partition import live_declaration
         from tests import test_typeorm_adapter_integration as module
 
-        reason = shards.live_declaration(module)
+        reason = live_declaration(module)
         self.assertIsNotNone(reason)
         self.assertIn("apps/farm-service", str(reason))
 

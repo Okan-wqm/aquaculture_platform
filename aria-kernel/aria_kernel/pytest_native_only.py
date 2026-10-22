@@ -15,8 +15,9 @@ declares ``READS_LIVE_CHECKOUT`` reads the live checkout outside the kernel
 surface, so it runs in aria-kernel.yml's always-run ``workspace`` job and
 never in the skippable lanes. By default this plugin deselects those modules'
 items; ``--aria-live-only`` selects only them. The declaration and its
-validation have one owner, ``tests/_helpers/suite_shards.py``, which
-partitions the unittest half the same way.
+validation have one owner, ``aria_kernel.live_partition``, which
+``tests/_helpers/suite_shards.py`` reads to partition the unittest half the
+same way.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ import unittest
 
 import pytest
 
+from .live_partition import LiveDeclarationError, live_declaration
 from .sandbox_pin_skip import is_sandbox_pin_skip
 
 _REFUSE_OPTION = "--refuse-sandbox-skips"
@@ -42,8 +44,6 @@ def _is_unittest_test_case(item: pytest.Item) -> bool:
 
 def _reads_live_checkout(item: pytest.Item) -> bool:
     """Return whether ``item``'s module declares the live partition."""
-
-    from tests._helpers.suite_shards import LiveDeclarationError, live_declaration
 
     module_collector = item.getparent(pytest.Module)
     if module_collector is None:

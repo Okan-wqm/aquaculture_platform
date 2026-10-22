@@ -68,16 +68,18 @@ import time
 import unittest
 from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
-from types import ModuleType
 from typing import Any, TextIO
+
+# The live-partition declaration (READS_LIVE_CHECKOUT) has one owner, shared
+# with the pytest plugin: aria_kernel.live_partition. It is imported inside the
+# functions that read it, like every aria_kernel name here: run as a script,
+# this module puts the kernel root on sys.path only in its __main__ guard.
 
 # v3 (ARIA-HIGH-602): every report names its partition and the declared live set.
 REPORT_SCHEMA = "aria-suite-shard-report/v3"
 HERMETIC = "hermetic"
 LIVE = "live"
 PARTITIONS = (HERMETIC, LIVE)
-# The module constant a test module sets to the live property it asserts.
-LIVE_DECLARATION = "READS_LIVE_CHECKOUT"
 KERNEL_ROOT = Path(__file__).resolve().parents[2]
 WEIGHTS_PATH = Path(__file__).with_name("suite_shard_weights.json")
 DISCOVERY_PATTERN = "*test*.py"
@@ -122,34 +124,14 @@ def discover_modules(kernel_root: Path = KERNEL_ROOT) -> dict[str, unittest.Test
     return modules
 
 
-class LiveDeclarationError(ValueError):
-    """A module declares ``READS_LIVE_CHECKOUT`` without naming what it reads live."""
-
-
-def live_declaration(module: ModuleType) -> str | None:
-    """The live property ``module`` declares it asserts, or None for a hermetic module.
-
-    The declaration is the reason the module runs in the always-run job: an
-    empty or non-text one would move a module out of the shards with nothing
-    saying why, so it is refused by name.
-    """
-    if not hasattr(module, LIVE_DECLARATION):
-        return None
-    reason = getattr(module, LIVE_DECLARATION)
-    if not isinstance(reason, str) or not reason.strip():
-        raise LiveDeclarationError(
-            f"{module.__name__} declares {LIVE_DECLARATION} without naming the live property it asserts "
-            f"(got {reason!r}); set it to that property, or make the module hermetic"
-        )
-    return reason.strip()
-
-
 def live_declarations(modules: Mapping[str, unittest.TestSuite]) -> dict[str, str]:
     """``{module: live property}`` for every discovered module that declares it.
 
     Discovery imported each module under its dotted name; a module that failed
     to import declares nothing and stays hermetic, where its shard fails it.
     """
+    from aria_kernel.live_partition import live_declaration
+
     declared: dict[str, str] = {}
     for name in sorted(modules):
         module = sys.modules.get(name)
@@ -269,6 +251,8 @@ def _run_modules(
 
 
 def _discover_partitioned(kernel_root: Path) -> tuple[dict[str, unittest.TestSuite], dict[str, int], dict[str, str]]:
+    from aria_kernel.live_partition import LiveDeclarationError
+
     modules = discover_modules(kernel_root)
     counts = {name: suite.countTestCases() for name, suite in modules.items()}
     try:
@@ -348,6 +332,8 @@ def verify_reports(
             problems.append(f"shards disagree on {key}: {', '.join(values)}")
     if problems:
         return problems
+    from aria_kernel.live_partition import LIVE_DECLARATION
+
     live = reports[0]["live"]
     for name, reason in sorted(live.items()):
         if not isinstance(reason, str) or not reason.strip():
@@ -425,6 +411,8 @@ def measured_seconds(reports: Sequence[Mapping[str, Any]]) -> dict[str, float]:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    from aria_kernel.live_partition import LIVE_DECLARATION
+
     parser = argparse.ArgumentParser(prog="suite_shards", description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
     run = commands.add_parser("run", help="run one hermetic shard, or the live partition, and write its report")

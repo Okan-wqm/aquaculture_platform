@@ -78,7 +78,13 @@ import {
   secretsHiddenByPathAllowlist,
   type StructuredEnvEntry,
 } from '../gates/infra-policy/secret-allowlist-premise';
-import { MODULE_SOURCE_PINNING, moduleSourcePin } from '../gates/infra-policy/terraform-pins';
+import {
+  MODULE_SOURCE_PINNING,
+  moduleSourcePin,
+  type ReportedSource,
+  type ReportedSourceMessage,
+  unpinnedSourceMessage,
+} from '../gates/infra-policy/terraform-pins';
 import { classifyInfraFile, type InfraFormat } from '../gates/lib/infra/classify';
 import type { DockerfileRead } from '../gates/lib/infra/dockerfile';
 import type { HclRead } from '../gates/lib/infra/hcl-blocks';
@@ -235,9 +241,25 @@ interface Projection {
  * (aria-kernel/tests/test_rule_contract_manifests.py) reads the emitted
  * vocabulary from this source.
  */
-type RuleProjection = Projection & { readonly rule: InfrastructureRule };
+type RuleProjection<R extends InfrastructureRule = InfrastructureRule> = Projection & {
+  readonly rule: R;
+};
 
-const RULES: Readonly<Record<InfrastructureRule, RuleProjection>> = {
+/**
+ * What a claim of rule R prints as its subject and message. A Terraform source is printed only
+ * as terraform-pins.ts reports it (ReportedSource, ReportedSourceMessage): a plain string, the
+ * address as written or a template around it, does not compile there (ARIA-HIGH-012 round-4
+ * review R1 residual). The check is `rule extends R`, so a projection widened to every rule
+ * demands the Terraform types too rather than slipping past them.
+ */
+type ClaimSubject<R extends InfrastructureRule> = 'unpinned_terraform_source' extends R
+  ? ReportedSource
+  : string;
+type ClaimMessage<R extends InfrastructureRule> = 'unpinned_terraform_source' extends R
+  ? ReportedSourceMessage
+  : string;
+
+const RULES: { readonly [R in InfrastructureRule]: RuleProjection<R> } = {
   floating_artifact: {
     rule: 'floating_artifact',
     severity: 'high',
@@ -391,14 +413,14 @@ export function analyzeInfrastructurePolicy(
 
   // ----------------------------------------------------------- the claims
   const occurrences = new Map<string, number>();
-  const emit = (
-    projection: RuleProjection,
+  const emit = <R extends InfrastructureRule>(
+    projection: RuleProjection<R>,
     owner: string,
     ownerRuleId: string,
     path: string,
     line: number,
-    subject: string,
-    message: string,
+    subject: ClaimSubject<R>,
+    message: ClaimMessage<R>,
     extraEvidence: readonly EvidenceRef[] = [],
   ): void => {
     const key = [projection.rule, path, ownerRuleId, subject.replace(/\s+/g, ' ').trim()].join(
@@ -857,7 +879,6 @@ export function analyzeInfrastructurePolicy(
       if (block.type !== 'module') continue;
       const pin = moduleSourcePin(block);
       const pinning = MODULE_SOURCE_PINNING[pin.verdict];
-      const subject = pin.source === null ? `module ${block.labels.join(' ')}` : pin.source;
       if (pinning === 'unresolved') {
         recordUnresolved(RULES.unpinned_terraform_source, path, pin.line, {
           owner: OWNER.terraform,
@@ -871,8 +892,8 @@ export function analyzeInfrastructurePolicy(
           pin.verdict,
           path,
           pin.line,
-          subject,
-          `module ${block.labels.join(' ')} sources \`${subject}\` (${pin.verdict}): its content can change under an unchanged .tf file`,
+          pin.source,
+          unpinnedSourceMessage(block, pin),
         );
       }
     }

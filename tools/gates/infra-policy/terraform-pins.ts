@@ -7,16 +7,18 @@
  * `terraform init`. These functions read blocks from hcl-blocks.ts and never evaluate HCL.
  * Source address forms follow https://developer.hashicorp.com/terraform/language/modules/sources.
  *
- * A pin's `source` is reported, never the address as written: a reported source becomes ARIA's
- * finding subject and message, kept long after a credential in it is rotated. The verdict is
- * judged on the whole address; the report keeps the scheme, host and path, masks the URL userinfo
- * as `***`, and keeps a query value only for an argument in REPORTED_ARGUMENTS. A deny list of
- * go-getter's own credential arguments (round-2 review B2) left every credential a server names
- * itself in the output: an S3 presigned URL's X-Amz-Credential, X-Amz-Security-Token and
- * X-Amz-Signature, an Azure SAS `sig=`, a `?token=` (ARIA-HIGH-012 round-3 review R1). The
- * arguments that carry no credential are few and known; every other one is not. An scp-style
- * `git@host:path` user is a login name, not a credential, and stays. A source that is not one
- * string literal is an expression this owner does not evaluate, and is not reported at all.
+ * A pin's `source` is a ReportedSource, never the address as written: it becomes ARIA's finding
+ * subject and message, kept long after a credential in it is rotated. The verdict is judged on
+ * the whole address. The report is BUILT from the address's parts, each emitted only when it
+ * passes its shape check and otherwise as a fixed placeholder; a userinfo, the scp login `git@`
+ * included, is never emitted, only recorded as present. Three rounds derived the report by
+ * masking the written text instead (a deny list of credential arguments, round-2 B2; an allow
+ * list of argument names, round-3 R1; a userinfo mask over the whole address, round-4 R1
+ * residual), and each leaked by a position the mask did not foresee: an `@` in a query value,
+ * an allow-listed argument holding a nested URL, a token written as an scp user. A part that is
+ * reported has a shape no credential can hide in beyond what that shape spells out. A source
+ * that is not one string literal is an expression this owner does not evaluate, and reports a
+ * fixed text.
  */
 import type { HclBlock } from '../lib/infra/hcl-blocks';
 
@@ -85,73 +87,201 @@ function queryArgument(source: string, name: string): string | null {
 }
 
 /**
- * The query arguments whose value is reported: go-getter's own arguments that select what is
- * fetched (git `ref`, hg `rev`, git `depth`, `archive` type, `checksum`, `filename`) and carry no
- * credential. Every other argument keeps its name and loses its value, `sshkey` and the
- * aws_access_* arguments among them, and an argument with no `=` is masked whole, since its name
- * is then its only content.
+ * A module source as this owner reports it. Only this file constructs one, and only in
+ * reportedSource, from the parts of the written address that pass their shape check; a plain
+ * string is not assignable to it. The adapter's Terraform finding subject takes this type, so
+ * printing the address as written is a compile error (ARIA-HIGH-012 round-4 review R1 residual:
+ * three rounds of masking the written address each leaked by a new path).
  */
-const REPORTED_ARGUMENTS: ReadonlySet<string> = new Set([
-  'ref',
-  'rev',
-  'depth',
-  'archive',
-  'checksum',
-  'filename',
-]);
+export type ReportedSource = string & { readonly __brand: unique symbol };
 
-const MASK = '***';
+/** The claim message for an unpinned module, built from a ReportedSource and checked labels. */
+export type ReportedSourceMessage = string & { readonly __brand: unique symbol };
+
+/** The one place a text becomes a ReportedSource: every caller passes fixed or checked parts. */
+function asReported(text: string): ReportedSource {
+  return text as ReportedSource;
+}
+
+/** A part that fails its shape check is reported as this fixed text, never as itself. */
+const WITHHELD = '<withheld>';
+/** A userinfo is never reported, the scp login `git@` included; that one was present is. */
+const USERINFO = '<userinfo>';
+/** A literal source that is not printable ASCII is not parsed, and so reports nothing of itself. */
+const UNPARSED = '<unparsed source>';
+/** A module with no `source`, or one that is not one string literal (an expression). */
+const NO_LITERAL = '<no literal source>';
+
+/** go-getter's forced getters (`git::`); any other prefix is withheld. */
+const FORCED_GETTERS: ReadonlySet<string> = new Set([
+  'git',
+  'hg',
+  's3',
+  'gcs',
+  'http',
+  'https',
+  'file',
+]);
+/** The URL schemes a module source names; any other scheme is withheld. */
+const URL_SCHEMES: ReadonlySet<string> = new Set([
+  'https',
+  'http',
+  'ssh',
+  'git',
+  's3',
+  'gcs',
+  'ftp',
+  'ftps',
+  'file',
+]);
+const PRINTABLE_ASCII = /^[\x21-\x7e]+$/;
+const HOSTNAME =
+  /^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*$/;
+const PORT = /^\d{1,5}$/;
+/** A path segment, a scheme-less head or an scp path start: no `@ : ; ? # = %` and no space. */
+const SEGMENT = /^[A-Za-z0-9._~-]*$/;
+const MODULE_LABEL = /^[A-Za-z_][A-Za-z0-9_-]*$/;
 
 /**
- * `address` with its userinfo masked. With a `scheme://`, everything from there to the last `@`
- * goes: a password with an unencoded `/`, `?` or `#` is not a valid URL, but it is still written
- * in the file, and masking a path or query that holds an `@` hides more than needed, never less.
- * Without one, an scp-style `user@host:path` keeps its login name; a `user:password@` does not.
+ * go-getter's arguments that select what is fetched and carry no credential, each with the
+ * shape its value must have to be reported: git `ref` and hg `rev` a ref name, `depth` digits,
+ * `archive` a known type, `checksum` `<type>:<hex>`, `filename` a plain name. A value off its
+ * shape (`ref=x?token=…`, `checksum=file:<URL>`) is withheld; every other argument, `sshkey`,
+ * `token`, a presigned URL's or an unknown server's own, is withheld whole, its name included,
+ * since a bare argument's name is its only content.
  */
-function maskUserinfo(address: string): string {
-  // go-getter's forced getter prefix, `git::` or `s3::`, is not part of the URL.
-  const forced = /^[A-Za-z0-9]+::/.exec(address);
-  const start = forced === null ? 0 : forced[0].length;
-  const scheme = address.indexOf('://', start);
-  const at = address.lastIndexOf('@');
-  if (scheme >= 0) {
-    return at > scheme ? `${address.slice(0, scheme + 3)}${MASK}${address.slice(at)}` : address;
+const REPORTED_ARGUMENTS: ReadonlyMap<string, RegExp> = new Map([
+  ['ref', /^[A-Za-z0-9._/-]+$/],
+  ['rev', /^[A-Za-z0-9._/-]+$/],
+  ['depth', /^\d+$/],
+  [
+    'archive',
+    /^(?:zip|tar|tar\.gz|tgz|tar\.bz2|tbz2|tar\.xz|txz|tar\.zst|tzst|gz|bz2|xz|zst|false)$/,
+  ],
+  ['checksum', /^(?:md5|sha1|sha256|sha512):[0-9A-Fa-f]+$/],
+  ['filename', /^[A-Za-z0-9._-]+$/],
+]);
+
+/** One part of the address and the offset it starts at. */
+interface AddressPart {
+  readonly text: string;
+  readonly at: number;
+}
+
+function partsOf(text: string, offset: number, separator: string): AddressPart[] {
+  const parts: AddressPart[] = [];
+  let at = offset;
+  for (const part of text.split(separator)) {
+    parts.push({ text: part, at });
+    at += part.length + separator.length;
   }
-  return at > start && address.slice(start, at).includes(':')
-    ? `${address.slice(0, start)}${MASK}${address.slice(at)}`
-    : address;
+  return parts;
+}
+
+function fromClosedSet(name: string, allowed: ReadonlySet<string>): string {
+  const folded = name.toLowerCase();
+  return allowed.has(folded) ? folded : WITHHELD;
+}
+
+function segmentShape(text: string): string {
+  return SEGMENT.test(text) ? text : WITHHELD;
+}
+
+/** A URL host with an optional port: a hostname (empty for `file:///`) and digits. */
+function urlHostShape(text: string): string {
+  const colon = text.lastIndexOf(':');
+  const host = colon < 0 ? text : text.slice(0, colon);
+  const port = colon < 0 ? null : text.slice(colon + 1);
+  const shownHost = host === '' || HOSTNAME.test(host) ? host : WITHHELD;
+  return port === null ? shownHost : `${shownHost}:${PORT.test(port) ? port : WITHHELD}`;
+}
+
+/** The first part of a scheme-less address: `github.com`, `.`, a registry namespace, `host:org`. */
+function schemelessHeadShape(text: string): string {
+  const colon = text.indexOf(':');
+  if (colon < 0) return segmentShape(text);
+  return `${segmentShape(text.slice(0, colon))}:${segmentShape(text.slice(colon + 1))}`;
+}
+
+function argumentShape(text: string): string {
+  const eq = text.indexOf('=');
+  if (eq < 0) return WITHHELD;
+  const name = text.slice(0, eq);
+  const shape = REPORTED_ARGUMENTS.get(name);
+  if (shape === undefined) return WITHHELD;
+  const value = text.slice(eq + 1);
+  return `${name}=${shape.test(value) ? value : WITHHELD}`;
 }
 
 /**
- * `address` as reported: userinfo masked, a query value kept only for REPORTED_ARGUMENTS, and a
- * fragment masked (go-getter reads none, so whatever follows `#` is not part of the address).
+ * The source as reported, built from parts and never by masking the written text. The address
+ * is split as go-getter's URL parser splits it: the forced getter, then the fragment at the
+ * first `#`, the query at the first `?`, the scheme, the authority up to the first `/` and its
+ * userinfo up to the authority's last `@`. Each part is then checked against its shape and
+ * reported as itself only when it passes: the getter and scheme from a closed set, a hostname
+ * and digit port, path segments of SEGMENT, an argument of REPORTED_ARGUMENTS whose value has
+ * its shape. A userinfo is reported as USERINFO, a fragment as WITHHELD.
+ *
+ * An `@` past the authority means a userinfo written with an unencoded `/`, `?` or `#` may have
+ * ended the authority early: every part that starts before the last `@` may be the rest of it,
+ * and is withheld whatever its shape (a GCS V2 GoogleAccessId=sa@… costs the host its report).
  */
-function reportedAddress(address: string): string {
-  const masked = maskUserinfo(address);
-  const hash = masked.indexOf('#');
-  const withoutFragment = hash < 0 ? masked : `${masked.slice(0, hash)}#${MASK}`;
-  const query = withoutFragment.indexOf('?');
-  if (query < 0) return withoutFragment;
-  const end = hash < 0 ? withoutFragment.length : withoutFragment.indexOf('#');
-  const pairs = withoutFragment
-    .slice(query + 1, end)
-    .split('&')
-    .map((pair) => {
-      const eq = pair.indexOf('=');
-      if (eq < 0) return pair.length === 0 ? pair : MASK;
-      const name = pair.slice(0, eq);
-      return REPORTED_ARGUMENTS.has(name) ? pair : `${name}=${MASK}`;
-    });
-  return `${withoutFragment.slice(0, query + 1)}${pairs.join('&')}${withoutFragment.slice(end)}`;
+function reportedSource(written: string): ReportedSource {
+  if (!PRINTABLE_ASCII.test(written)) return asReported(UNPARSED);
+  const forced = /^([A-Za-z0-9]+)::/.exec(written);
+  const getter = forced === null ? '' : `${fromClosedSet(forced[1] ?? '', FORCED_GETTERS)}::`;
+  const address = forced === null ? written : written.slice(forced[0].length);
+
+  const hash = address.indexOf('#');
+  const body = hash < 0 ? address : address.slice(0, hash);
+  const question = body.indexOf('?');
+  const location = question < 0 ? body : body.slice(0, question);
+  const scheme = /^([A-Za-z][A-Za-z0-9+.-]*):\/\//.exec(location);
+  const authorityAt = scheme === null ? 0 : scheme[0].length;
+  const slash = location.indexOf('/', authorityAt);
+  const authorityEnd = slash < 0 ? location.length : slash;
+  const authority = location.slice(authorityAt, authorityEnd);
+  const userinfoEnd = authority.lastIndexOf('@');
+
+  const lastAt = address.lastIndexOf('@');
+  const ambiguousUntil = lastAt >= authorityEnd ? lastAt : -1;
+  const shown = (part: AddressPart, shape: (text: string) => string): string =>
+    part.at < ambiguousUntil ? WITHHELD : shape(part.text);
+
+  const host = shown(
+    { text: authority.slice(userinfoEnd + 1), at: authorityAt + userinfoEnd + 1 },
+    scheme === null ? schemelessHeadShape : urlHostShape,
+  );
+  const path = partsOf(location.slice(authorityEnd), authorityEnd, '/')
+    .map((segment) => (segment.text === '' ? '' : shown(segment, segmentShape)))
+    .join('/');
+  const query =
+    question < 0
+      ? ''
+      : `?${partsOf(body.slice(question + 1), question + 1, '&')
+          .filter((argument) => argument.text !== '')
+          .map((argument) => shown(argument, argumentShape))
+          .join('&')}`;
+  return asReported(
+    [
+      getter,
+      scheme === null ? '' : `${fromClosedSet(scheme[1] ?? '', URL_SCHEMES)}://`,
+      userinfoEnd < 0 ? '' : `${USERINFO}@`,
+      host,
+      path,
+      query,
+      hash < 0 ? '' : `#${WITHHELD}`,
+    ].join(''),
+  );
 }
 
 export interface ModuleSourcePin {
   readonly verdict: ModuleSourceVerdict;
   /**
-   * The source address as reported (see the file comment), or null when the module has no
-   * `source` or its value is not one string literal.
+   * The source as reported (reportedSource), or NO_LITERAL when the module has no `source` or
+   * its value is not one string literal.
    */
-  readonly source: string | null;
+  readonly source: ReportedSource;
   readonly line: number;
 }
 
@@ -160,9 +290,24 @@ export function moduleSourcePin(block: HclBlock): ModuleSourcePin {
   const written = block.attributes.source?.string;
   return {
     verdict,
-    source: written === undefined || written === null ? null : reportedAddress(written),
+    source:
+      written === undefined || written === null ? asReported(NO_LITERAL) : reportedSource(written),
     line,
   };
+}
+
+/**
+ * The claim message for a module whose source does not pin its content: its labels when they
+ * have a label's shape, and its reported source. Built here so the adapter's message, like its
+ * subject, takes a type only this owner constructs.
+ */
+export function unpinnedSourceMessage(
+  block: HclBlock,
+  pin: ModuleSourcePin,
+): ReportedSourceMessage {
+  const labels = block.labels.map((label) => (MODULE_LABEL.test(label) ? label : WITHHELD));
+  const message = `module ${labels.join(' ')} sources \`${pin.source}\` (${pin.verdict}): its content can change under an unchanged .tf file`;
+  return message as ReportedSourceMessage;
 }
 
 /** The verdict on the whole source address, credentials included, and the line it sits on. */

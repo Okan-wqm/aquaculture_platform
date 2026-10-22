@@ -82,20 +82,6 @@ function repoFile(rel: string): string {
 }
 
 /**
- * The round-4 review of the ARIA-HIGH-012 landing (kc/r12r3-review/REVIEW.txt, on e7e14ff83)
- * left one blocker, R1 residual: terraform-pins.ts still derives the reported source by masking
- * the written address, and an `@` in a query value or fragment, an allow-listed argument whose
- * value carries a nested URL, `?` or `;`, and a scheme-less token user each hand a credential
- * on. Each case written for it carries node:test's `todo` option until the fix lands, as the
- * round-2 and round-3 cases did: it runs and prints its failure without failing the pre-commit
- * hook, and tools/aria-adapters/infrastructure-policy-adapter.test.ts, the regression ref that
- * closes ARIA-HIGH-012, refuses any `todo` left in this file.
- */
-function reviewBlocker(id: string): string {
-  return `ARIA-HIGH-012 round-4 review item ${id} (kc/r12r3-review/REVIEW.txt) is not fixed`;
-}
-
-/**
  * The windows of `literal` (four characters, case folded) found in `text`. A parse error that
  * upper-cases a Dockerfile keyword, or a YAML escape error that quotes four characters of a
  * scalar, still hands part of a credential on; a whole-string match would miss both.
@@ -740,7 +726,7 @@ void test('terraform pins carry no credential: the source is judged whole and re
   assert.ok(source('ftp').includes('mirror.example/vpc.zip'));
   // The scp-style login is userinfo like any other: the round-4 review (R1 residual c) found a
   // token written in its place kept verbatim, so no user is reported, `git@` included. That
-  // expectation is the todo case 'terraform pins report a userinfo as present, never its text'.
+  // expectation is the case 'terraform pins report a userinfo as present, never its text'.
   assert.ok(source('scp').includes('github.com'));
   assert.ok(source('scp').includes('org/m.git'));
   assert.ok(source('scp').includes('ref=v1.2.3'));
@@ -925,163 +911,140 @@ void test('terraform pins keep their verdicts on the probe corpus, which covers 
   assert.deepEqual(clashes, [], 'every marker window points at one probe');
 });
 
-void test(
-  "terraform pins report none of the round-4 reviewer's leaking sources with any part of the planted credential",
-  { todo: reviewBlocker('R1 residual') },
-  () => {
-    // WHY: kc/r12r3-review probe-leak-1..3.log. (a) maskUserinfo takes the last `@` of the whole
-    // address before the query and fragment are split, so a GCS V2 signed URL's
-    // GoogleAccessId=sa@proj... swallows the `?` and Signature= is kept, and so are
-    // ?password=pre@X, ?token=a@X and #x@X. (b) an allow-listed argument keeps its value whatever
-    // it holds: checksum=file:<presigned URL>, ref=x?token=X, ref=v1;token=X. (c) a scheme-less
-    // user without `:` is kept for any user: ghp_X@github.com/org/x.git. Each source carries a
-    // fresh marker where the reviewer planted LEAK...; none of it may be in the pin.
-    assert.deepEqual(leakingProbes(reviewerProbes()), []);
-  },
-);
+void test("terraform pins report none of the round-4 reviewer's leaking sources with any part of the planted credential", () => {
+  // WHY: kc/r12r3-review probe-leak-1..3.log. (a) maskUserinfo takes the last `@` of the whole
+  // address before the query and fragment are split, so a GCS V2 signed URL's
+  // GoogleAccessId=sa@proj... swallows the `?` and Signature= is kept, and so are
+  // ?password=pre@X, ?token=a@X and #x@X. (b) an allow-listed argument keeps its value whatever
+  // it holds: checksum=file:<presigned URL>, ref=x?token=X, ref=v1;token=X. (c) a scheme-less
+  // user without `:` is kept for any user: ghp_X@github.com/org/x.git. Each source carries a
+  // fresh marker where the reviewer planted LEAK...; none of it may be in the pin.
+  assert.deepEqual(leakingProbes(reviewerProbes()), []);
+});
 
-void test(
-  'terraform pins report no planted marker from any syntactic position of a module source',
-  { todo: reviewBlocker('R1 residual') },
-  () => {
-    // WHY: three rounds of masking the written address each leaked through a position the
-    // previous round did not try. A reported source built only from parts that pass a strict
-    // shape check (forced getter and scheme from a closed set, a hostname-shaped host, path
-    // segments of a safe class, an allow-listed argument only when its value has that
-    // argument's shape, no userinfo ever) has no such position. The corpus plants a distinct
-    // marker in every position: URL userinfo, a user without a password, host, port, path, each
-    // query argument name and value (allow-listed ones included), nested `?`, `;`, `@` and `#`
-    // inside values, the fragment and a checksum-file URL, under '', git::, s3::, gcs:: and
-    // hg::, plus the scp-style, shorthand, ssh, s3-userinfo and registry forms. A marker that
-    // sits in a readable position rides on a character that position's shape refuses.
-    const leaking = leakingProbes(terraformSourceProbes());
-    assert.deepEqual(leaking, [], `${leaking.length} probes leak a part of their marker`);
-  },
-);
+void test('terraform pins report no planted marker from any syntactic position of a module source', () => {
+  // WHY: three rounds of masking the written address each leaked through a position the
+  // previous round did not try. A reported source built only from parts that pass a strict
+  // shape check (forced getter and scheme from a closed set, a hostname-shaped host, path
+  // segments of a safe class, an allow-listed argument only when its value has that
+  // argument's shape, no userinfo ever) has no such position. The corpus plants a distinct
+  // marker in every position: URL userinfo, a user without a password, host, port, path, each
+  // query argument name and value (allow-listed ones included), nested `?`, `;`, `@` and `#`
+  // inside values, the fragment and a checksum-file URL, under '', git::, s3::, gcs:: and
+  // hg::, plus the scp-style, shorthand, ssh, s3-userinfo and registry forms. A marker that
+  // sits in a readable position rides on a character that position's shape refuses.
+  const leaking = leakingProbes(terraformSourceProbes());
+  assert.deepEqual(leaking, [], `${leaking.length} probes leak a part of their marker`);
+});
 
-void test(
-  'terraform pins report a userinfo as present, never its text, and keep the readable parts',
-  { todo: reviewBlocker('R1 residual') },
-  () => {
-    // WHY: the reported source names where a module comes from, so a finding stays useful: the
-    // forced getter, scheme, host, path, a ref with a ref's shape, a digit depth, an archive
-    // type and a <type>:<hex> checksum. A userinfo is never one of those parts, not even the
-    // scp login `git@` (a token written in its place was kept verbatim, R1 residual c); the
-    // owner records that one was present, so the reported pin of a source with a userinfo
-    // differs from the pin of the same source without one.
-    const token = 'Wz7Kq3Vx9Jm2Lp5R';
-    const read = readHclBlocks(
-      [
-        `module "git_https" { source = "git::https://ghp_${token}@github.com/org/net.git?ref=v1.2.3&depth=1&private_token=${token}" }`,
-        `module "archive" { source = "https://mirror.example/mod.tgz?archive=tar.gz&checksum=sha256:${CHECKSUM_HEX}&token=${token}" }`,
-        'module "scp" { source = "git@github.com:org/m.git?ref=v1.2.3" }',
-        'module "ssh" { source = "git::ssh://git@example.com/org/m.git?ref=main" }',
-        'module "with_user" { source = "git::https://deploy@github.com/org/m.git?ref=v1.2.3" }',
-        'module "without_user" { source = "git::https://github.com/org/m.git?ref=v1.2.3" }',
-        'module "s3" { source = "s3::https://s3.amazonaws.com/bucket/mod.zip" }',
-        '',
-      ].join('\n'),
-    );
-    assert.deepEqual(read.errors, []);
-    const pins = new Map(
-      read.blocks
-        .filter((b) => b.type === 'module')
-        .map((block) => [String(block.labels[0]), moduleSourcePin(block)]),
-    );
-    const source = (module: string): string =>
-      present(pins.get(module)?.source, `${module} source`);
-    assert.deepEqual(credentialWindowsIn(JSON.stringify([...pins.values()]), token), []);
+void test('terraform pins report a userinfo as present, never its text, and keep the readable parts', () => {
+  // WHY: the reported source names where a module comes from, so a finding stays useful: the
+  // forced getter, scheme, host, path, a ref with a ref's shape, a digit depth, an archive
+  // type and a <type>:<hex> checksum. A userinfo is never one of those parts, not even the
+  // scp login `git@` (a token written in its place was kept verbatim, R1 residual c); the
+  // owner records that one was present, so the reported pin of a source with a userinfo
+  // differs from the pin of the same source without one.
+  const token = 'Wz7Kq3Vx9Jm2Lp5R';
+  const read = readHclBlocks(
+    [
+      `module "git_https" { source = "git::https://ghp_${token}@github.com/org/net.git?ref=v1.2.3&depth=1&private_token=${token}" }`,
+      `module "archive" { source = "https://mirror.example/mod.tgz?archive=tar.gz&checksum=sha256:${CHECKSUM_HEX}&token=${token}" }`,
+      'module "scp" { source = "git@github.com:org/m.git?ref=v1.2.3" }',
+      'module "ssh" { source = "git::ssh://git@example.com/org/m.git?ref=main" }',
+      'module "with_user" { source = "git::https://deploy@github.com/org/m.git?ref=v1.2.3" }',
+      'module "without_user" { source = "git::https://github.com/org/m.git?ref=v1.2.3" }',
+      'module "s3" { source = "s3::https://s3.amazonaws.com/bucket/mod.zip" }',
+      '',
+    ].join('\n'),
+  );
+  assert.deepEqual(read.errors, []);
+  const pins = new Map(
+    read.blocks
+      .filter((b) => b.type === 'module')
+      .map((block) => [String(block.labels[0]), moduleSourcePin(block)]),
+  );
+  const source = (module: string): string => present(pins.get(module)?.source, `${module} source`);
+  assert.deepEqual(credentialWindowsIn(JSON.stringify([...pins.values()]), token), []);
 
-    const gitHttps = source('git_https');
-    assert.ok(gitHttps.startsWith('git::https://'), `forced getter and scheme: ${gitHttps}`);
-    for (const part of ['github.com', '/org/net.git', 'ref=v1.2.3', 'depth=1']) {
-      assert.ok(gitHttps.includes(part), `${part} is readable in ${gitHttps}`);
-    }
-    const archive = source('archive');
-    for (const part of [
-      'mirror.example',
-      '/mod.tgz',
-      'archive=tar.gz',
-      `checksum=sha256:${CHECKSUM_HEX}`,
-    ]) {
-      assert.ok(archive.includes(part), `${part} is readable in ${archive}`);
-    }
-    assert.ok(source('s3').startsWith('s3::https://s3.amazonaws.com/bucket/mod.zip'));
+  const gitHttps = source('git_https');
+  assert.ok(gitHttps.startsWith('git::https://'), `forced getter and scheme: ${gitHttps}`);
+  for (const part of ['github.com', '/org/net.git', 'ref=v1.2.3', 'depth=1']) {
+    assert.ok(gitHttps.includes(part), `${part} is readable in ${gitHttps}`);
+  }
+  const archive = source('archive');
+  for (const part of [
+    'mirror.example',
+    '/mod.tgz',
+    'archive=tar.gz',
+    `checksum=sha256:${CHECKSUM_HEX}`,
+  ]) {
+    assert.ok(archive.includes(part), `${part} is readable in ${archive}`);
+  }
+  assert.ok(source('s3').startsWith('s3::https://s3.amazonaws.com/bucket/mod.zip'));
 
-    for (const module of ['scp', 'ssh', 'with_user']) {
-      assert.equal(
-        source(module).includes('git@'),
-        false,
-        `${module}: no git@ in ${source(module)}`,
-      );
-      assert.equal(
-        source(module).includes('deploy'),
-        false,
-        `${module}: no user in ${source(module)}`,
-      );
-    }
-    for (const part of ['github.com', 'org/m.git', 'ref=v1.2.3']) {
-      assert.ok(source('scp').includes(part), `${part} is readable in ${source('scp')}`);
-    }
-    assert.ok(source('ssh').includes('example.com'), source('ssh'));
-    const withoutLine = (module: string): string =>
-      JSON.stringify({ ...present(pins.get(module), module), line: 0 });
-    assert.notEqual(
-      withoutLine('with_user'),
-      withoutLine('without_user'),
-      'a userinfo is recorded as present',
-    );
-  },
-);
-
-void test(
-  'terraform pins: a reported source is a type only terraform-pins.ts constructs',
-  { todo: reviewBlocker('R1 residual') },
-  () => {
-    // WHY (tier 1): a reported source that is a plain string can be filled from the written
-    // address by any later edit, which is how each round's leak came back. The pin's `source`
-    // is a branded type a raw string is not assignable to, and no file but the owner casts to
-    // it, so printing a raw source is a compile error and not a review finding.
-    const ownerPath = join(REPO_ROOT, 'tools/gates/infra-policy/terraform-pins.ts');
-    const program = ts.createProgram([ownerPath], {
-      strict: true,
-      noEmit: true,
-      skipLibCheck: true,
-      target: ts.ScriptTarget.ES2022,
-      module: ts.ModuleKind.CommonJS,
-      moduleResolution: ts.ModuleResolutionKind.Node10,
-      types: [],
-    });
-    const checker = program.getTypeChecker();
-    const ownerFile = present(program.getSourceFile(ownerPath), 'terraform-pins.ts');
-    const ownerModule = present(checker.getSymbolAtLocation(ownerFile), 'owner module symbol');
-    const pinSymbol = present(
-      checker.getExportsOfModule(ownerModule).find((symbol) => symbol.name === 'ModuleSourcePin'),
-      'ModuleSourcePin export',
-    );
-    const sourceProperty = present(
-      checker.getDeclaredTypeOfSymbol(pinSymbol).getProperty('source'),
-      'ModuleSourcePin.source',
-    );
-    const reported = checker.getNonNullableType(checker.getTypeOfSymbol(sourceProperty));
+  for (const module of ['scp', 'ssh', 'with_user']) {
+    assert.equal(source(module).includes('git@'), false, `${module}: no git@ in ${source(module)}`);
     assert.equal(
-      checker.isTypeAssignableTo(checker.getStringType(), reported),
+      source(module).includes('deploy'),
       false,
-      `ModuleSourcePin.source is ${checker.typeToString(reported)}: a raw string fits it`,
+      `${module}: no user in ${source(module)}`,
     );
-    const brand = reported.aliasSymbol?.name ?? reported.getSymbol()?.name ?? '';
-    assert.match(brand, /^[A-Za-z_]\w*$/, 'the reported source type has a name');
-    const castsElsewhere = execFileSync('git', ['-C', REPO_ROOT, 'ls-files', '-z', '--', 'tools'], {
-      encoding: 'utf8',
-    })
-      .split('\0')
-      .filter(
-        (path) => path.endsWith('.ts') && path !== 'tools/gates/infra-policy/terraform-pins.ts',
-      )
-      .filter((path) => new RegExp(`\\bas\\s+${brand}\\b|<${brand}>`).test(repoFile(path)));
-    assert.deepEqual(castsElsewhere, [], `only terraform-pins.ts makes a ${brand}`);
-  },
-);
+  }
+  for (const part of ['github.com', 'org/m.git', 'ref=v1.2.3']) {
+    assert.ok(source('scp').includes(part), `${part} is readable in ${source('scp')}`);
+  }
+  assert.ok(source('ssh').includes('example.com'), source('ssh'));
+  const withoutLine = (module: string): string =>
+    JSON.stringify({ ...present(pins.get(module), module), line: 0 });
+  assert.notEqual(
+    withoutLine('with_user'),
+    withoutLine('without_user'),
+    'a userinfo is recorded as present',
+  );
+});
+
+void test('terraform pins: a reported source is a type only terraform-pins.ts constructs', () => {
+  // WHY (tier 1): a reported source that is a plain string can be filled from the written
+  // address by any later edit, which is how each round's leak came back. The pin's `source`
+  // is a branded type a raw string is not assignable to, and no file but the owner casts to
+  // it, so printing a raw source is a compile error and not a review finding.
+  const ownerPath = join(REPO_ROOT, 'tools/gates/infra-policy/terraform-pins.ts');
+  const program = ts.createProgram([ownerPath], {
+    strict: true,
+    noEmit: true,
+    skipLibCheck: true,
+    target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.CommonJS,
+    moduleResolution: ts.ModuleResolutionKind.Node10,
+    types: [],
+  });
+  const checker = program.getTypeChecker();
+  const ownerFile = present(program.getSourceFile(ownerPath), 'terraform-pins.ts');
+  const ownerModule = present(checker.getSymbolAtLocation(ownerFile), 'owner module symbol');
+  const pinSymbol = present(
+    checker.getExportsOfModule(ownerModule).find((symbol) => symbol.name === 'ModuleSourcePin'),
+    'ModuleSourcePin export',
+  );
+  const sourceProperty = present(
+    checker.getDeclaredTypeOfSymbol(pinSymbol).getProperty('source'),
+    'ModuleSourcePin.source',
+  );
+  const reported = checker.getNonNullableType(checker.getTypeOfSymbol(sourceProperty));
+  assert.equal(
+    checker.isTypeAssignableTo(checker.getStringType(), reported),
+    false,
+    `ModuleSourcePin.source is ${checker.typeToString(reported)}: a raw string fits it`,
+  );
+  const brand = reported.aliasSymbol?.name ?? reported.getSymbol()?.name ?? '';
+  assert.match(brand, /^[A-Za-z_]\w*$/, 'the reported source type has a name');
+  const castsElsewhere = execFileSync('git', ['-C', REPO_ROOT, 'ls-files', '-z', '--', 'tools'], {
+    encoding: 'utf8',
+  })
+    .split('\0')
+    .filter((path) => path.endsWith('.ts') && path !== 'tools/gates/infra-policy/terraform-pins.ts')
+    .filter((path) => new RegExp(`\\bas\\s+${brand}\\b|<${brand}>`).test(repoFile(path)));
+  assert.deepEqual(castsElsewhere, [], `only terraform-pins.ts makes a ${brand}`);
+});
 
 // ---------------------------------------------------------------- nginx
 

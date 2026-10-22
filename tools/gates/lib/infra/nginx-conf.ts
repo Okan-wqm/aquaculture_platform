@@ -115,8 +115,7 @@ export function readNginx(text: string): NginxRead {
 
   function reportUnterminated(words: readonly Token[]): void {
     const [head] = words;
-    if (head !== undefined)
-      errors.push({ line: head.line, message: `directive ${head.text} has no ; or {` });
+    if (head !== undefined) errors.push({ line: head.line, message: 'directive has no ; or {' });
   }
 
   /** `depth` counts the blocks around this one (0 at the top level). */

@@ -7,13 +7,16 @@
  * `terraform init`. These functions read blocks from hcl-blocks.ts and never evaluate HCL.
  * Source address forms follow https://developer.hashicorp.com/terraform/language/modules/sources.
  *
- * A pin's `source` is reported, never the address as written: go-getter takes credentials in the
- * URL userinfo and in the aws_access_key_id, aws_access_key_secret, aws_access_token and sshkey
- * query arguments, and a reported source becomes ARIA's finding subject and message, kept long
- * after the credential is rotated (ARIA-HIGH-012 round-2 review B2). The verdict is judged on the
- * whole address; the report masks each credential value as `***`, the way nats-identity.ts reports
- * a password's length and never its value. An scp-style `git@host:path` user is a login name, not
- * a credential, and stays.
+ * A pin's `source` is reported, never the address as written: a reported source becomes ARIA's
+ * finding subject and message, kept long after a credential in it is rotated. The verdict is
+ * judged on the whole address; the report keeps the scheme, host and path, masks the URL userinfo
+ * as `***`, and keeps a query value only for an argument in REPORTED_ARGUMENTS. A deny list of
+ * go-getter's own credential arguments (round-2 review B2) left every credential a server names
+ * itself in the output: an S3 presigned URL's X-Amz-Credential, X-Amz-Security-Token and
+ * X-Amz-Signature, an Azure SAS `sig=`, a `?token=` (ARIA-HIGH-012 round-3 review R1). The
+ * arguments that carry no credential are few and known; every other one is not. An scp-style
+ * `git@host:path` user is a login name, not a credential, and stays. A source that is not one
+ * string literal is an expression this owner does not evaluate, and is not reported at all.
  */
 import type { HclBlock } from '../lib/infra/hcl-blocks';
 
@@ -81,44 +84,85 @@ function queryArgument(source: string, name: string): string | null {
   return null;
 }
 
-/** go-getter query arguments whose value is a credential. */
-const CREDENTIAL_ARGUMENTS: ReadonlySet<string> = new Set([
-  'aws_access_key_id',
-  'aws_access_key_secret',
-  'aws_access_token',
-  'sshkey',
+/**
+ * The query arguments whose value is reported: go-getter's own arguments that select what is
+ * fetched (git `ref`, hg `rev`, git `depth`, `archive` type, `checksum`, `filename`) and carry no
+ * credential. Every other argument keeps its name and loses its value, `sshkey` and the
+ * aws_access_* arguments among them, and an argument with no `=` is masked whole, since its name
+ * is then its only content.
+ */
+const REPORTED_ARGUMENTS: ReadonlySet<string> = new Set([
+  'ref',
+  'rev',
+  'depth',
+  'archive',
+  'checksum',
+  'filename',
 ]);
 
-/** `address` with every URL userinfo and credential query argument value masked as `***`. */
-function withoutCredentials(address: string): string {
-  // `scheme://userinfo@host`: everything between `://` and the last `@` before the path.
-  const masked = address.replace(/(:\/\/)[^/?#\s]*@/g, '$1***@');
-  const query = masked.indexOf('?');
-  if (query < 0) return masked;
-  const pairs = masked
-    .slice(query + 1)
+const MASK = '***';
+
+/**
+ * `address` with its userinfo masked. With a `scheme://`, everything from there to the last `@`
+ * goes: a password with an unencoded `/`, `?` or `#` is not a valid URL, but it is still written
+ * in the file, and masking a path or query that holds an `@` hides more than needed, never less.
+ * Without one, an scp-style `user@host:path` keeps its login name; a `user:password@` does not.
+ */
+function maskUserinfo(address: string): string {
+  // go-getter's forced getter prefix, `git::` or `s3::`, is not part of the URL.
+  const forced = /^[A-Za-z0-9]+::/.exec(address);
+  const start = forced === null ? 0 : forced[0].length;
+  const scheme = address.indexOf('://', start);
+  const at = address.lastIndexOf('@');
+  if (scheme >= 0) {
+    return at > scheme ? `${address.slice(0, scheme + 3)}${MASK}${address.slice(at)}` : address;
+  }
+  return at > start && address.slice(start, at).includes(':')
+    ? `${address.slice(0, start)}${MASK}${address.slice(at)}`
+    : address;
+}
+
+/**
+ * `address` as reported: userinfo masked, a query value kept only for REPORTED_ARGUMENTS, and a
+ * fragment masked (go-getter reads none, so whatever follows `#` is not part of the address).
+ */
+function reportedAddress(address: string): string {
+  const masked = maskUserinfo(address);
+  const hash = masked.indexOf('#');
+  const withoutFragment = hash < 0 ? masked : `${masked.slice(0, hash)}#${MASK}`;
+  const query = withoutFragment.indexOf('?');
+  if (query < 0) return withoutFragment;
+  const end = hash < 0 ? withoutFragment.length : withoutFragment.indexOf('#');
+  const pairs = withoutFragment
+    .slice(query + 1, end)
     .split('&')
     .map((pair) => {
       const eq = pair.indexOf('=');
-      return eq >= 0 && CREDENTIAL_ARGUMENTS.has(pair.slice(0, eq))
-        ? `${pair.slice(0, eq)}=***`
-        : pair;
+      if (eq < 0) return pair.length === 0 ? pair : MASK;
+      const name = pair.slice(0, eq);
+      return REPORTED_ARGUMENTS.has(name) ? pair : `${name}=${MASK}`;
     });
-  return `${masked.slice(0, query + 1)}${pairs.join('&')}`;
+  return `${withoutFragment.slice(0, query + 1)}${pairs.join('&')}${withoutFragment.slice(end)}`;
 }
 
 export interface ModuleSourcePin {
   readonly verdict: ModuleSourceVerdict;
-  /** The source address without its credentials (see the file comment), or null when absent. */
+  /**
+   * The source address as reported (see the file comment), or null when the module has no
+   * `source` or its value is not one string literal.
+   */
   readonly source: string | null;
   readonly line: number;
 }
 
 export function moduleSourcePin(block: HclBlock): ModuleSourcePin {
   const { verdict, line } = judgeModuleSource(block);
-  const attr = block.attributes.source;
-  const written = attr === undefined ? null : (attr.string ?? attr.raw);
-  return { verdict, source: written === null ? null : withoutCredentials(written), line };
+  const written = block.attributes.source?.string;
+  return {
+    verdict,
+    source: written === undefined || written === null ? null : reportedAddress(written),
+    line,
+  };
 }
 
 /** The verdict on the whole source address, credentials included, and the line it sits on. */

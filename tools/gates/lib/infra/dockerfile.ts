@@ -94,7 +94,7 @@ function readEscape(lines: readonly string[]): { escape: string; errors: ReadErr
     const [, name, value] = match;
     if (name !== undefined && name.toLowerCase() === 'escape') {
       if (value === '\\' || value === '`') escape = value;
-      else errors.push({ line: index + 1, message: `invalid escape directive: ${String(value)}` });
+      else errors.push({ line: index + 1, message: 'invalid escape directive' });
     }
   }
   return { escape, errors };
@@ -141,7 +141,7 @@ function readInstructions(text: string): {
     const keyword = (space < 0 ? trimmed : trimmed.slice(0, space)).toUpperCase();
     const args = space < 0 ? '' : trimmed.slice(space).trim();
     if (!KEYWORDS.has(keyword)) {
-      errors.push({ line: startLine, message: `unknown instruction: ${keyword}` });
+      errors.push({ line: startLine, message: 'unknown instruction' });
       continue;
     }
     const heredocs: string[] = [];
@@ -161,8 +161,7 @@ function readInstructions(text: string): {
           }
           body.push(candidate);
         }
-        if (!closed)
-          errors.push({ line: startLine, message: `unterminated heredoc <<${delimiter}` });
+        if (!closed) errors.push({ line: startLine, message: 'unterminated heredoc' });
         heredocs.push(body.join('\n'));
       }
     }
@@ -253,7 +252,7 @@ export function readDockerfile(text: string): DockerfileRead {
         const [argName, value] = parseArg(args);
         globalArgs.set(argName, value);
       } else {
-        errors.push({ line, message: `${keyword} before the first FROM` });
+        errors.push({ line, message: 'instruction before the first FROM' });
       }
       continue;
     }

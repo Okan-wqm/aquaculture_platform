@@ -22,7 +22,7 @@ import {
   parseAllDocuments,
 } from 'yaml';
 
-import type { ReadError } from './read-error';
+import type { ReadError, ReadErrorMessage } from './read-error';
 
 export type YamlPath = readonly (string | number)[];
 
@@ -189,30 +189,36 @@ export function readYamlDocuments(text: string): YamlRead {
   parsed.forEach((doc, index) => {
     if (doc.errors.length > 0) {
       for (const error of doc.errors) {
-        errors.push({ line: lineCounter.linePos(error.pos[0]).line, message: error.message });
+        // The code, never the library's message: that quotes the scalar, alias or escape it
+        // failed on (read-error.ts, ARIA-HIGH-012 round-3 R2).
+        errors.push({
+          line: lineCounter.linePos(error.pos[0]).line,
+          message: `YAML ${error.code}` as const,
+        });
       }
       return;
     }
     const aliases = aliasResolveContext(doc);
     let value: unknown;
+    let failure: ReadErrorMessage | null = null;
     try {
       // An alias or merge-key bomb is a read error, not a value graph that grows tenfold per
       // level for every caller that walks it. The expansion budget covers both before any value
       // is built; the library's own alias budget (maxAliasCount 100) stays on behind it. Real
       // files stay far inside both; infra-policy.spec.ts reads every tracked one.
-      const size = expandedSize(doc, aliases, doc.contents, new Map());
-      if (size > EXPANSION_BUDGET) {
-        throw new Error(
-          `the document expands through aliases and merge keys to ${size} nodes (budget ${EXPANSION_BUDGET})`,
-        );
+      if (expandedSize(doc, aliases, doc.contents, new Map()) > EXPANSION_BUDGET) {
+        failure = 'the document expands through aliases and merge keys past the expansion budget';
+      } else {
+        value = doc.toJS();
       }
-      value = doc.toJS();
-    } catch (error) {
-      const range = doc.range;
-      errors.push({
-        line: lineCounter.linePos(range[0]).line,
-        message: error instanceof Error ? error.message : String(error),
-      });
+    } catch {
+      // What toJS throws on a document without parse errors is an alias it cannot resolve, the
+      // library's alias budget, or a merge source that is not a map. Its message names the alias
+      // or quotes the node, so only the fixed text is kept (read-error.ts).
+      failure = 'an alias or merge key does not resolve to a value';
+    }
+    if (failure !== null) {
+      errors.push({ line: lineCounter.linePos(doc.range[0]).line, message: failure });
       return;
     }
     const contents = doc.contents;

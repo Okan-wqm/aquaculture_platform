@@ -39,15 +39,17 @@
 // No silent skip: a file that does not read is a named parse failure, a Helm
 // template (no reader parses one unrendered) is an excluded observation, a file
 // over the byte cap is a refusal, and a verdict an owner reports as unresolved
-// (a bind source it cannot place, a module source it cannot classify, an nginx
-// include it cannot see, or a level that sets headers under one) is an
+// (a bind source it cannot place, a runtime user named by a variable, a module
+// source it cannot classify, an nginx include it cannot see, or a level that
+// sets headers under one) is an
 // observation, never a clean result. A credential is located by path, line and
 // key, never copied into the output.
 //
 // A kustomize overlay that patches resources and probes into a base workload it
 // deploys supplies that guard: the composition is recorded as evidence instead
 // of a claim. A patch in an overlay that does not deploy the base supplies
-// nothing to it.
+// nothing to it, and a guard counts only when every deployment of the base
+// (each kustomization no other one lists) supplies it.
 import { createHash } from 'node:crypto';
 import { join, posix, relative } from 'node:path';
 
@@ -511,6 +513,15 @@ export function analyzeInfrastructurePolicy(
     );
   };
 
+  /** A runtime user named by a variable: the owner cannot tell whether it is root. */
+  const recordUnresolvedUser = (path: string, line: number, detail: string): void => {
+    recordUnresolved(RULES.privileged_runtime, path, line, {
+      owner: OWNER.privilege,
+      reason: 'unresolved_user',
+      detail,
+    });
+  };
+
   // --------------------------------------------------------- reading pass
   const formatCounts: Record<string, number> = {};
   const parseFailures: string[] = [];
@@ -602,10 +613,12 @@ export function analyzeInfrastructurePolicy(
     }
     return deployed;
   };
-  const supplied = new Map<string, { overlays: string[]; guards: Set<string> }>();
-  for (const kustomization of [...yamlByPath.keys()].filter(isKustomization)) {
+  const kustomizationReads = [...yamlByPath].filter(([path]) => isKustomization(path));
+  // The guards each kustomization's own patches supply, per workload container.
+  const ownCompositions = new Map<string, Composition[]>();
+  for (const [kustomization, read] of kustomizationReads) {
     const compositions: Composition[] = [];
-    for (const doc of yamlByPath.get(kustomization)?.docs ?? []) {
+    for (const doc of read.docs) {
       for (const target of kustomizePatchTargets(doc.value, kustomization)) {
         const bodies =
           target.inline !== null
@@ -638,14 +651,58 @@ export function analyzeInfrastructurePolicy(
         }
       }
     }
-    if (compositions.length === 0) continue;
-    for (const file of deployedBy(kustomization, new Set())) {
-      for (const composition of compositions) {
-        const key = guardKey(file, composition.kind, composition.name, composition.container);
-        const entry = supplied.get(key) ?? { overlays: [], guards: new Set<string>() };
-        if (!entry.overlays.includes(composition.overlay)) entry.overlays.push(composition.overlay);
-        for (const guard of composition.supplied) entry.guards.add(guard);
-        supplied.set(key, entry);
+    ownCompositions.set(kustomization, compositions);
+  }
+  // The kustomizations each one lists among its resources, as a file or as the
+  // kustomization of a listed directory.
+  const listedIn = new Map<string, string[]>();
+  for (const [kustomization, read] of kustomizationReads) {
+    const listed: string[] = [];
+    for (const doc of read.docs) {
+      for (const resource of kustomizeResources(doc.value, kustomization)) {
+        if (yamlByPath.has(resource)) {
+          if (isKustomization(resource)) listed.push(resource);
+          continue;
+        }
+        const nested = kustomizationIn(resource);
+        if (nested !== null) listed.push(nested);
+      }
+    }
+    listedIn.set(kustomization, listed);
+  }
+  // A deployment is a kustomization no other kustomization lists: what
+  // `kustomize build` is run on. Its build applies the patches of every
+  // kustomization it reaches, and only those, to the bases it deploys. A base
+  // deployed by several (dev, staging, production) runs once per deployment,
+  // so a guard counts as supplied only when every deployment of the base
+  // supplies it: the guards of sibling overlays are never unioned (ARIA-HIGH-012
+  // round-3 review M4).
+  const listed = new Set([...listedIn.values()].flat());
+  const deploymentsOf = new Map<string, string[]>();
+  const suppliedBy = new Map<string, Map<string, Set<string>>>();
+  for (const [deployment] of kustomizationReads.filter(([path]) => !listed.has(path))) {
+    for (const file of deployedBy(deployment, new Set())) {
+      deploymentsOf.set(file, [...(deploymentsOf.get(file) ?? []), deployment]);
+    }
+    const reached = new Set<string>();
+    const pending = [deployment];
+    for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
+      if (reached.has(next)) continue;
+      reached.add(next);
+      pending.push(...(listedIn.get(next) ?? []));
+    }
+    for (const kustomization of reached) {
+      const compositions = ownCompositions.get(kustomization) ?? [];
+      if (compositions.length === 0) continue;
+      for (const file of deployedBy(kustomization, new Set())) {
+        for (const composition of compositions) {
+          const key = guardKey(file, composition.kind, composition.name, composition.container);
+          const byDeployment = suppliedBy.get(key) ?? new Map<string, Set<string>>();
+          const guards = byDeployment.get(deployment) ?? new Set<string>();
+          for (const guard of composition.supplied) guards.add(guard);
+          byDeployment.set(deployment, guards);
+          suppliedBy.set(key, byDeployment);
+        }
       }
     }
   }
@@ -665,6 +722,12 @@ export function analyzeInfrastructurePolicy(
           path,
           lineAt(doc, user.path),
           'root',
+          `service ${service.name} user ${String(user.user)}`,
+        );
+      } else if (user.verdict === 'unresolved') {
+        recordUnresolvedUser(
+          path,
+          lineAt(doc, user.path),
           `service ${service.name} user ${String(user.user)}`,
         );
       }
@@ -711,19 +774,32 @@ export function analyzeInfrastructurePolicy(
         const composed =
           container.name === null
             ? undefined
-            : supplied.get(guardKey(path, workload.kind, name, container.name));
-        const remaining = missing.filter(
-          (gap) => composed === undefined || !composed.guards.has(gap),
+            : suppliedBy.get(guardKey(path, workload.kind, name, container.name));
+        const deployments = [...(deploymentsOf.get(path) ?? [])].sort();
+        const suppliedIn = (deployment: string): string[] => {
+          const guards = composed === undefined ? undefined : composed.get(deployment);
+          return missing.filter((gap) => guards !== undefined && guards.has(gap));
+        };
+        // Supplied only when every deployment of this base supplies it.
+        const supplied = missing.filter(
+          (gap) =>
+            deployments.length > 0 &&
+            deployments.every((deployment) => suppliedIn(deployment).includes(gap)),
         );
+        const remaining = missing.filter((gap) => !supplied.includes(gap));
         if (composed !== undefined && container.name !== null) {
           observations.push({
             id: `${TOOL_ID}:composition:${guardKey(path, workload.kind, name, container.name)}`,
             type: 'infrastructure_composition',
             path,
             details: {
-              overlays: [...composed.overlays].sort(),
-              supplied: missing.filter((gap) => composed.guards.has(gap)),
+              overlays: deployments,
+              supplied,
               remaining,
+              deployments: deployments.map((deployment) => ({
+                overlay: deployment,
+                supplied: suppliedIn(deployment),
+              })),
             },
           });
         }
@@ -752,6 +828,10 @@ export function analyzeInfrastructurePolicy(
     const lastStage = read.stages[read.stages.length - 1];
     const line =
       final.line === null ? (lastStage === undefined ? 1 : lastStage.fromLine) : final.line;
+    if (final.verdict === 'unresolved') {
+      recordUnresolvedUser(path, line, `USER ${String(final.user)}`);
+      return;
+    }
     if (postgresManifest !== null && path === postgresManifest.dockerfile) {
       // The WAL-G derivative must read and write the physical PGDATA backup
       // boundary; postgres-image-uniformity.spec.ts pins `USER root` on the

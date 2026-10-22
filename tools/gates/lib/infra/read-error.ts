@@ -5,10 +5,76 @@
  * swallows the problem drops the file silently. Returning errors next to the partial result
  * lets the caller record the file as `parse_error` and keep going (ARIA-HIGH-012).
  */
+import type { ErrorCode as YamlErrorCode } from 'yaml';
+
+/**
+ * The kind of token a reader stopped on, named in a message instead of the token's text.
+ */
+export type ReadErrorTokenKind =
+  | 'identifier'
+  | 'string'
+  | 'heredoc'
+  | 'number'
+  | 'punctuation'
+  | 'newline';
+
+/**
+ * Every message a reader may give: a closed set of fixed texts whose only variable parts are
+ * closed unions (a token kind, a yaml error code), never text taken from the file.
+ *
+ * WHY closed: a read error becomes the adapter's infrastructure_parse_failure observation, which
+ * ARIA keeps in its state and evidence. Messages that quoted what the reader failed on
+ * (`unexpected ${token.text}`, `directive ${name} has no ; or {`, `unknown instruction: ${word}`,
+ * the yaml library's own messages) put a credential written on a malformed line there (ARIA-HIGH-012
+ * round-3 review R2, kc/r12r2-review probe-leak.log ws/tf4). A template literal with a `string` or
+ * `number` hole is not assignable to this type, so a reader that copies file text into an error
+ * does not compile. Never add a member with such a hole: an all-digit credential is a number.
+ * The position the reader stopped at is the error's `line`.
+ */
+export type ReadErrorMessage =
+  // every reader that descends into nested structures
+  | `nesting deeper than ${typeof MAX_NESTING_DEPTH} levels is not read`
+  // more than one reader
+  | 'newline in a quoted string'
+  | 'unterminated quoted string'
+  | 'unterminated heredoc'
+  | 'unexpected }'
+  // HCL (hcl-blocks.ts)
+  | 'unterminated /* comment'
+  | 'unterminated string'
+  | 'unterminated template sequence'
+  | 'malformed heredoc introducer'
+  | 'unclosed block'
+  | `unexpected ${ReadErrorTokenKind}`
+  | `unexpected ${ReadErrorTokenKind} in block header`
+  | 'block has no body'
+  | 'attribute has no value'
+  // nginx (nginx-conf.ts)
+  | 'directive has no ; or {'
+  | 'block is not closed'
+  | 'empty directive'
+  | 'block without a directive name'
+  // NATS (nats-conf.ts)
+  | 'map is not closed'
+  | 'entry without a key'
+  | 'missing value'
+  | 'array is not closed'
+  | 'unexpected } in array'
+  // Dockerfile (dockerfile.ts)
+  | 'invalid escape directive'
+  | 'unknown instruction'
+  | 'FROM without a base'
+  | 'instruction before the first FROM'
+  | 'no FROM instruction'
+  // YAML (yaml-documents.ts): the library's error code, never its message
+  | `YAML ${YamlErrorCode}`
+  | 'the document expands through aliases and merge keys past the expansion budget'
+  | 'an alias or merge key does not resolve to a value';
+
 export interface ReadError {
   /** 1-based line the problem was detected on. */
   readonly line: number;
-  readonly message: string;
+  readonly message: ReadErrorMessage;
 }
 
 /**
@@ -29,5 +95,5 @@ export const MAX_NESTING_DEPTH = 256;
  * text and loses only its entries.
  */
 export function nestingError(line: number): ReadError {
-  return { line, message: `nesting deeper than ${MAX_NESTING_DEPTH} levels is not read` };
+  return { line, message: `nesting deeper than ${MAX_NESTING_DEPTH} levels is not read` as const };
 }

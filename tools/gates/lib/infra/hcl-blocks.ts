@@ -8,7 +8,12 @@
  * keep their raw text, plus the literal when the value is a single string and the entries
  * when it is an object, which is all the pin rules need.
  */
-import { MAX_NESTING_DEPTH, nestingError, type ReadError } from './read-error';
+import {
+  MAX_NESTING_DEPTH,
+  nestingError,
+  type ReadError,
+  type ReadErrorTokenKind,
+} from './read-error';
 
 export interface HclAttribute {
   readonly name: string;
@@ -36,6 +41,19 @@ export interface HclRead {
 }
 
 type TokenKind = 'ident' | 'string' | 'heredoc' | 'number' | 'punct' | 'newline';
+
+/**
+ * How an error names a token: by its kind, never its text. A heredoc token's text is its whole
+ * body and a number may be an all-digit credential (read-error.ts, ARIA-HIGH-012 round-3 R2).
+ */
+const TOKEN_KIND_NAME: Readonly<Record<TokenKind, ReadErrorTokenKind>> = {
+  ident: 'identifier',
+  string: 'string',
+  heredoc: 'heredoc',
+  number: 'number',
+  punct: 'punctuation',
+  newline: 'newline',
+};
 
 interface Token {
   readonly kind: TokenKind;
@@ -192,7 +210,7 @@ class Lexer {
       this.pos = eol < 0 ? s.length : eol + 1;
       if (eol >= 0) this.line += 1;
     }
-    this.errors.push({ line, message: `unterminated heredoc <<${delimiter}` });
+    this.errors.push({ line, message: 'unterminated heredoc' });
   }
 }
 
@@ -258,7 +276,10 @@ class Parser {
         continue;
       }
       if (token.kind !== 'ident') {
-        this.errors.push({ line: token.line, message: `unexpected ${token.text}` });
+        this.errors.push({
+          line: token.line,
+          message: `unexpected ${TOKEN_KIND_NAME[token.kind]}` as const,
+        });
         this.skipLine();
         continue;
       }
@@ -278,14 +299,17 @@ class Parser {
     for (;;) {
       const token = this.peek();
       if (token === undefined || token.kind === 'newline') {
-        this.errors.push({ line: typeToken.line, message: `block ${typeToken.text} has no body` });
+        this.errors.push({ line: typeToken.line, message: 'block has no body' });
         return { type: typeToken.text, labels, line: typeToken.line, attributes: {}, blocks: [] };
       }
       if (token.kind === 'punct' && token.text === '{') break;
       if (token.kind === 'string') labels.push(unquote(token.text));
       else if (token.kind === 'ident') labels.push(token.text);
       else
-        this.errors.push({ line: token.line, message: `unexpected ${token.text} in block header` });
+        this.errors.push({
+          line: token.line,
+          message: `unexpected ${TOKEN_KIND_NAME[token.kind]} in block header` as const,
+        });
       this.i += 1;
     }
     this.i += 1;
@@ -324,7 +348,7 @@ class Parser {
     const raw =
       first === undefined || last === undefined ? '' : this.src.slice(first.start, last.end).trim();
     if (valueTokens.length === 0)
-      this.errors.push({ line: nameToken.line, message: `${nameToken.text} has no value` });
+      this.errors.push({ line: nameToken.line, message: 'attribute has no value' });
     const only = valueTokens.length === 1 ? valueTokens[0] : undefined;
     return {
       name: nameToken.text,

@@ -99,7 +99,7 @@ class NatsParser {
       const line = this.line;
       const key = this.readKey();
       if (key.length === 0) {
-        this.errors.push({ line, message: `unexpected ${c}` });
+        this.errors.push({ line, message: 'entry without a key' });
         this.skipComment();
         continue;
       }

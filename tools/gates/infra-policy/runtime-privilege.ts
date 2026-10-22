@@ -175,16 +175,34 @@ export function composeServicePrivilege(service: ComposeService): PrivilegeHit[]
   return hits;
 }
 
-export type RuntimeUserVerdict = 'root' | 'non_root' | 'unset';
+export type RuntimeUserVerdict =
+  | 'root'
+  | 'non_root'
+  | 'unset'
+  /**
+   * A user named by a variable (`USER $APP_USER`, compose `user: "${UID}:${GID}"`): a build
+   * argument or the environment decides it when the image is built or the service runs, so this
+   * owner cannot tell whether it is 0. Reported, never read as non_root (ARIA-HIGH-012 round-3
+   * M2), the way an unplaceable bind is `unresolved_bind`.
+   */
+  | 'unresolved';
 
 export interface RuntimeUser {
   readonly verdict: RuntimeUserVerdict;
   readonly user: string | null;
 }
 
+/**
+ * The verdict on a Dockerfile USER or compose `user:` value, `user[:group]`; only the user decides
+ * whether the process runs as root. Both files expand `$NAME` and `${NAME...}` in it (Dockerfile
+ * from ARG/ENV, compose from the environment), so a user with a `$` is unresolved, a `${UID:-0}`
+ * default included: the default is only a fallback. A `${UID:-1000}` user has a `:` inside its
+ * braces; the part before the first `:` still holds its `$`, so it is unresolved as a whole.
+ */
 function userVerdict(user: string): RuntimeUserVerdict {
   const colon = user.indexOf(':');
   const name = (colon < 0 ? user : user.slice(0, colon)).trim();
+  if (name.includes('$')) return 'unresolved';
   return name === 'root' || name === '0' ? 'root' : 'non_root';
 }
 

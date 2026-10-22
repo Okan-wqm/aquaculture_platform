@@ -2,6 +2,8 @@ import { posix } from 'node:path';
 
 import ts from 'typescript';
 
+import { applicationNames } from '../gates/event-consumer-index';
+
 import {
   containedWorkspace,
   isWorkspaceRelativePath,
@@ -48,9 +50,12 @@ import {
  * `--facts --repo-root <tree>` (`moduleFacts`) is the module entry of the
  * code-fact bridge (service-expertise PLAN §3.2, SE-3; SO-19): per service, its
  * schema and table placement, joined to the owning service by SCHEMA_REGISTRY
- * (apps/db-migrate/src/schema-registry.ts, read as source text too). The kernel
- * runs it on a diff's base tree (`K/plan_coverage.py` `compute_service_facts`);
- * registries it cannot read completely exit 2 with nothing on stdout.
+ * (apps/db-migrate/src/schema-registry.ts, read as source text too). Each owner
+ * is keyed by the SE-1 service key, read by the event entry's one reader
+ * (`applicationNames`, tools/gates/event-consumer-index.ts), so both entries
+ * name a service the same way. The kernel runs it on a diff's base tree
+ * (`K/plan_coverage.py` `compute_service_facts`); registries it cannot read
+ * completely, or whose ownership is ambiguous, exit 2 with nothing on stdout.
  */
 export const MODULE_SCHEMAS_SOURCE_PATH =
   'libs/backend-common/src/database/schema-manager.service.ts';
@@ -922,10 +927,51 @@ export class ModuleFactsUnavailable extends Error {
 }
 
 /**
+ * The schema -> owning service map of SCHEMA_REGISTRY, or the named reasons it is not one.
+ *
+ * Every owner must be an nx application of the tree, by the SE-1 key (`applicationNames`); a
+ * schema claimed by two services, or a service listed twice, has no single owner. Keeping the
+ * last entry would drop a service from the facts with exit 0, so each is an error by name.
+ */
+function schemaOwnership(
+  workspaceRoot: string,
+  owners: readonly SchemaOwnerRecord[],
+): { readonly ownerOf: ReadonlyMap<string, string>; readonly errors: readonly string[] } {
+  const applications = new Set(applicationNames(workspaceRoot).values());
+  const errors: string[] = [];
+  const grouped = (key: (owner: SchemaOwnerRecord) => string): Map<string, SchemaOwnerRecord[]> => {
+    const groups = new Map<string, SchemaOwnerRecord[]>();
+    for (const owner of owners) groups.set(key(owner), [...(groups.get(key(owner)) ?? []), owner]);
+    return groups;
+  };
+  const at = (claims: readonly SchemaOwnerRecord[]): string =>
+    claims.map((claim) => `${claim.service} (${claim.path}:${claim.line})`).join(', ');
+  for (const [schema, claims] of grouped((owner) => owner.schema)) {
+    if (claims.length > 1) errors.push(`schema '${schema}' is claimed by ${at(claims)}`);
+  }
+  for (const [service, claims] of grouped((owner) => owner.service)) {
+    if (claims.length > 1)
+      errors.push(`service '${service}' is listed ${claims.length} times: ${at(claims)}`);
+  }
+  for (const owner of owners) {
+    if (!applications.has(owner.service)) {
+      errors.push(
+        `owner '${owner.service}' (${owner.path}:${owner.line}) is not an nx application under apps/`,
+      );
+    }
+  }
+  return {
+    ownerOf: new Map(owners.map((owner) => [owner.schema, owner.service] as const)),
+    errors,
+  };
+}
+
+/**
  * The schema and table placement of each service of the tree at `workspaceRoot` (the diff's base
  * tree): MODULE_SCHEMAS and TENANT_SCOPED_MODULES through this module's one reading, joined to the
- * owning service by SCHEMA_REGISTRY. A registry that is absent or read with named errors throws
- * ModuleFactsUnavailable: partial placement facts are never returned.
+ * owning service by SCHEMA_REGISTRY. A registry that is absent, read with named errors, or whose
+ * ownership is ambiguous or names no nx application throws ModuleFactsUnavailable: partial
+ * placement facts are never returned.
  */
 export function moduleFacts(workspaceRoot: string): ModuleFacts {
   const workspace = containedWorkspace(workspaceRoot);
@@ -944,7 +990,13 @@ export function moduleFacts(workspaceRoot: string): ModuleFacts {
   if (scoped === null) {
     throw new ModuleFactsUnavailable(`${source.path} declares no TENANT_SCOPED_MODULES set`);
   }
-  const ownerOf = new Map(registry.owners.map((owner) => [owner.schema, owner.service] as const));
+  const ownership = schemaOwnership(workspaceRoot, registry.owners);
+  if (ownership.errors.length > 0) {
+    throw new ModuleFactsUnavailable(
+      `${SCHEMA_REGISTRY_SOURCE_PATH}: ${ownership.errors.join('; ')}`,
+    );
+  }
+  const { ownerOf } = ownership;
   const services: ServiceTenantFacts[] = [];
   const unowned: { module: string; schema: string; ref: string }[] = [];
   for (const module of source.modules) {

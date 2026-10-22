@@ -204,8 +204,13 @@ function sourceFiles(repoRoot: string, bases: readonly string[]): string[] {
   return files.sort();
 }
 
-/** apps/<dir> -> its nx project name (project.json `name`, else the directory). */
-function applicationNames(repoRoot: string): Map<string, string> {
+/**
+ * apps/<dir> -> its nx project name (project.json `name`, else the directory): the one TypeScript
+ * reader of the SE-1 service key. The module entry of the code-fact bridge
+ * (tools/aria-adapters/module-schemas-source.ts) resolves its owners through it too, so both
+ * entries key services in one vocabulary.
+ */
+export function applicationNames(repoRoot: string): Map<string, string> {
   const names = new Map<string, string>();
   const appsDir = join(repoRoot, 'apps');
   if (!existsSync(appsDir)) return names;

@@ -542,12 +542,11 @@ pub struct AppState {
     /// server reads from. Keeping it on AppState lets Sprint 6.2+ wire
     /// the push-paths via `state.health_state.as_ref()`.
     ///
-    /// WHAT: `None` when the `health` feature is disabled at compile
-    /// time OR when `config.health.enabled == false` at runtime. On a
-    /// default build (health feature ON by default per Batch 14) + default
-    /// config (health.enabled=false) the field stays None — zero cost.
-    /// Operator opt-in via `config.yaml::health.enabled = true` triggers
-    /// construction in `init_health_server()`.
+    /// WHAT: `None` only before `init_health_server()` ran (and when the
+    /// `health` feature is compiled out). It is built whether or not
+    /// `config.health.enabled` is set: the outbound publisher reads its
+    /// connectivity flag (EDGE-HIGH-133); `health.enabled` only decides
+    /// whether the HTTP listener serves it.
     ///
     /// OBS-14-001 (session-observations.md): push-paths from MQTT/modbus/
     /// script engine are NOT WIRED yet. Counters will report 0 at runtime
@@ -982,6 +981,16 @@ impl AppState {
             .with_legacy_import_dir(paths::AgentPaths::current().legacy_scripts_dir());
 
         Self {
+            // EDGE-HIGH-132 / ADR-048 DEC-9.9: the tenant this device is
+            // bound to is known the moment the configuration is: on the
+            // generic profile it is the stored credential's (config.yaml or
+            // the activation document that overlays it), on Suderra OS the
+            // verified site installs the root-recorded identity's right
+            // after (`install_site`). Binding it here, not in the
+            // connectivity task, is what keeps every boot-time loader (RBAC
+            // manifest, license cache, lifecycle cell, health labels) from
+            // reading a half-initialised field after a restart.
+            tenant_id: config.tenant_id.clone(),
             config,
             is_shutting_down: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             mqtt_client: None,
@@ -1010,16 +1019,14 @@ impl AppState {
             #[cfg(feature = "opc-ua-server")]
             opc_ua_server: None,
             is_activated: false,
-            tenant_id: None,
             // BATCH-001-CI-FIX-007: None-init; Batch 13 (Faz 1 ARC-001)
             // wires the actual FailoverManager from config.mqtt.failover
             // settings via `init_failover_manager()`.
             failover_manager: None,
             // BATCH-14 ARC-003: None-init; `init_health_server()` below
-            // constructs HealthState + spawns the HTTP server iff
-            // config.health.enabled == true. None when feature OFF or
-            // config disabled — matches the plan's zero-cost-when-unused
-            // pattern for optional orchestrator endpoints.
+            // constructs HealthState (always: the connectivity state of the
+            // outbound publisher) and spawns the HTTP server iff
+            // config.health.enabled == true.
             #[cfg(feature = "health")]
             health_state: None,
             // BATCH-15 ARC-002: None-init; `init_offline_queue()` below
@@ -1274,9 +1281,10 @@ impl AppState {
     ///   silently drop the endpoint.
     ///
     /// INVARIANTS:
-    /// - AppState.health_state is populated ONLY when server actually
-    ///   spawned. Downstream push-paths (Sprint 6.2) can `match`
-    ///   `self.health_state.as_ref()` and no-op cleanly when disabled.
+    /// - AppState.health_state is populated by every successful call,
+    ///   whether or not the HTTP listener is enabled: it carries the MQTT
+    ///   connectivity state the outbound publisher and the offline-queue
+    ///   drain read (EDGE-HIGH-133), so it cannot depend on a listener.
     /// - Server bind is default localhost:8080 per the HealthServerConfig
     ///   Default impl — operator must explicitly open to routable
     ///   interfaces (SL-2 defense-in-depth).
@@ -1291,20 +1299,9 @@ impl AppState {
     pub async fn init_health_server(
         &mut self,
     ) -> Result<Option<tokio::task::JoinHandle<()>>, String> {
-        if !self.config.health.enabled {
-            return Ok(None);
-        }
-
-        let addr: std::net::SocketAddr = match self.config.health.bind.parse() {
-            Ok(a) => a,
-            Err(e) => {
-                return Err(format!(
-                    "health.bind `{}` is not a valid SocketAddr: {}",
-                    self.config.health.bind, e
-                ));
-            }
-        };
-
+        // EDGE-HIGH-133: the connectivity state the outbound publisher and
+        // its drain task read lives in `HealthState`, so it exists whether or
+        // not the HTTP listener does. Only the listener is optional.
         let health_state = crate::health::HealthState::new();
         health_state.set_config_loaded(true);
 
@@ -1320,6 +1317,21 @@ impl AppState {
         if let Some(ref tenant) = self.tenant_id {
             health_state.set_tenant_id(tenant);
         }
+        self.health_state = Some(health_state.clone());
+
+        if !self.config.health.enabled {
+            return Ok(None);
+        }
+
+        let addr: std::net::SocketAddr = match self.config.health.bind.parse() {
+            Ok(a) => a,
+            Err(e) => {
+                return Err(format!(
+                    "health.bind `{}` is not a valid SocketAddr: {}",
+                    self.config.health.bind, e
+                ));
+            }
+        };
 
         // The auth cell is empty here; init_health_auth_cell() sets it
         // once the HMAC key is loaded. Until then a sensitive endpoint
@@ -1345,13 +1357,12 @@ impl AppState {
         // Arc<HealthStateInner> (HealthState::Clone is Arc-cheap).
         let server_handle = crate::health::start_health_server(
             addr,
-            health_state.clone(),
+            health_state,
             auth_cell,
             #[cfg(not(feature = "os-managed-updates"))]
             Some(lifecycle_cell),
         )
         .await;
-        self.health_state = Some(health_state);
 
         info!("HealthServer wired: bind={}", addr);
         Ok(Some(server_handle))
@@ -1855,15 +1866,11 @@ impl AppState {
             return Ok(());
         }
 
-        // EDGE-HIGH-059: on every boot after activation the bound tenant is
-        // in the loaded configuration (the activation document overlays
-        // it); `self.tenant_id` is set later, by the connectivity task, so
-        // reading only it skipped the boot load on every restart.
-        let tenant_str = match self
-            .tenant_id
-            .as_deref()
-            .or(self.config.tenant_id.as_deref())
-        {
+        // EDGE-HIGH-059, EDGE-HIGH-132: `AppState::new` binds the tenant of
+        // the loaded configuration, so after an activation (and a restart)
+        // this is already set; only a device that is not activated yet has
+        // none.
+        let tenant_str = match self.tenant_id.as_deref() {
             Some(t) => t,
             None => {
                 info!(
@@ -5255,17 +5262,10 @@ async fn run_connectivity(
         }
     } else {
         info!("Device already activated, using stored credentials");
-        let mut state_guard = state.write().await;
-        state_guard.is_activated = true;
-        // Generic: the stored credential's tenant (config.yaml or the
-        // activation document) is the tenant the MQTT topics already use.
-        // Suderra OS: the binding is the root-recorded identity's, set with
-        // the verified site, and the configuration's tenant was checked
-        // against it (`AgentConfig::from_site`, ADR-048 DEC-3.6).
-        #[cfg(not(feature = "suderra-os"))]
-        {
-            state_guard.tenant_id = state_guard.config.tenant_id.clone();
-        }
+        // The tenant is already bound: `AppState::new` took it from the
+        // stored credential (generic) and `install_site` from the
+        // root-recorded identity (Suderra OS, ADR-048 DEC-3.6).
+        state.write().await.is_activated = true;
     }
 
     // Step 2: the MQTT client. It connects and reconnects in the background
@@ -7444,6 +7444,57 @@ mod boot_tests {
         assert_eq!(
             state.tenant_id.as_deref(),
             Some(identity.tenant_id.as_str())
+        );
+    }
+
+    /// EDGE-HIGH-132: the boot loaders (license cache, RBAC manifest store,
+    /// lifecycle cell, health labels) read `AppState.tenant_id` before the
+    /// connectivity task runs. After a restart of an activated device the
+    /// tenant is the stored credential's, so it is bound when the state is
+    /// built; a device that was never activated has none, and the loaders
+    /// keep their pre-provisioning behaviour.
+    #[test]
+    fn the_tenant_of_a_stored_credential_is_bound_when_the_state_is_built() {
+        const TENANT: &str = "7e570000-0000-4000-8000-000000000001";
+        let activated: AgentConfig = serde_yaml::from_str(&format!(
+            "device_id: \"dev-1\"\ndevice_code: \"EDGE-0001\"\napi_url: \"https://api.example.test\"\n\
+             tenant_id: \"{TENANT}\"\nmqtt:\n  broker: \"broker.site.test\"\n  port: 8883\n  \
+             username: \"device\"\n  password: \"TEST-ONLY-password\"\n"
+        ))
+        .unwrap();
+        assert!(!needs_activation(&activated));
+        assert_eq!(AppState::new(activated).tenant_id.as_deref(), Some(TENANT));
+
+        let fresh: AgentConfig = serde_yaml::from_str(
+            "device_id: \"dev-2\"\ndevice_code: \"EDGE-0002\"\napi_url: \"https://api.example.test\"\n\
+             mqtt:\n  port: 8883\n",
+        )
+        .unwrap();
+        assert!(needs_activation(&fresh));
+        assert_eq!(AppState::new(fresh).tenant_id, None);
+    }
+
+    /// EDGE-HIGH-133: the outbound publisher and the offline-queue drain read
+    /// MQTT connectivity from the health state. With the default
+    /// configuration (health server disabled) there is no listener, and the
+    /// state they need must exist anyway — otherwise the publisher is never
+    /// built and an outage loses every message the queue was meant to hold.
+    #[cfg(feature = "health")]
+    #[tokio::test]
+    async fn the_connectivity_state_exists_without_the_health_listener() {
+        let config: AgentConfig = serde_yaml::from_str(
+            "device_id: \"dev-3\"\ndevice_code: \"EDGE-0003\"\napi_url: \"https://api.example.test\"\n\
+             mqtt:\n  port: 8883\n",
+        )
+        .unwrap();
+        assert!(!config.health.enabled, "the default is no listener");
+        let mut state = AppState::new(config);
+        assert!(state.health_state.is_none());
+        let handle = state.init_health_server().await.unwrap();
+        assert!(handle.is_none(), "no listener without health.enabled");
+        assert!(
+            state.health_state.is_some(),
+            "the publisher's connectivity state is built regardless"
         );
     }
 }

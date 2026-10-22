@@ -90,7 +90,20 @@ mod generic {
         std::thread::sleep(Duration::from_secs(3));
         assert!(device.alive(), "agent exited:\n{}", device.log());
         assert_eq!(device.health()["degraded"], false);
+        // EDGE-HIGH-133: the default configuration has no health listener, and
+        // the outbound publisher (the offline queue's only producer) is built
+        // anyway; before, every default boot logged "health_state must be
+        // initialized first" and published straight into the outage.
+        let log = device.log();
+        assert!(
+            log.contains("Outbound publisher initialized"),
+            "no outbound publisher was built with the default configuration:\n{log}"
+        );
+        assert!(
+            !log.contains("Outbound publisher not started"),
+            "the outbound publisher refused to start:\n{log}"
+        );
         let exit = device.stop().expect("running");
-        assert!(exit.success(), "{exit}\n{}", device.log());
+        assert!(exit.success(), "{exit}\n{log}");
     }
 }

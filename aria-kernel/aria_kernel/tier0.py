@@ -82,6 +82,18 @@ TIER0_REFUSAL_REASONS: tuple[str, ...] = (
 NOTE_NO_ANCHOR = "tier0_unverified_no_anchor"
 NOTE_GIT_UNAVAILABLE = "tier0_unverified_git_unavailable"
 
+# F0.3 landing (N2) — the gate could not COMPUTE a verdict for the item.
+# Neither a refusal of the claim (``TIER0_REFUSAL_REASONS``: the claim's own
+# citations failed) nor the tri-state pass note (the probe could not run, the
+# paid tiers still verify): an item whose identity the ONE fingerprint owner
+# cannot derive has nothing the dedup, the verdict cache or the routing rows
+# can key on, and a gate that crashed decided nothing. Either is HELD under
+# its own name — never a second, hand-made identity, never a pass.
+TIER0_FAILED = "failed"
+TIER0_FINGERPRINT_UNCOMPUTABLE = "tier0_fingerprint_uncomputable"
+TIER0_GATE_CRASHED = "tier0_gate_crashed"
+TIER0_FAILURE_REASONS: tuple[str, ...] = (TIER0_FINGERPRINT_UNCOMPUTABLE, TIER0_GATE_CRASHED)
+
 
 def _reject(reason: str, note: str | None, fingerprint: str, checks: list[str]) -> dict[str, Any]:
     return {
@@ -97,23 +109,34 @@ def _pass(note: str | None, fingerprint: str, checks: list[str]) -> dict[str, An
     }
 
 
+def tier0_failure(reason: str, note: str | None, checks: Sequence[str] = ()) -> dict[str, Any]:
+    """The verdict shape for a gate that could not compute (F0.3 N2).
+
+    One constructor for both failure names, so the funnel's crash record and
+    the gate's own uncomputable-identity record cannot drift apart. Carries
+    no fingerprint: the ONE owner produced none, and no other identity is
+    made up in its place.
+    """
+    if reason not in TIER0_FAILURE_REASONS:
+        raise ValueError(f"unknown tier0 failure reason: {reason!r}")
+    return {
+        "status": TIER0_FAILED, "reason": reason, "note": note,
+        "fingerprint": "", "checks": list(checks),
+    }
+
+
 def _item_fingerprint(item: Mapping[str, Any], contract: Any) -> str:
     """The item's finding fingerprint, from its ONE owner.
 
     ``feedback_store.finding_fingerprint`` reads rule/path/evidence/message
     off the finding dict and is the same fingerprint the sampler and the
-    re-mint derive; a shape it cannot read degrades to a canonical hash of
-    the item rather than raising into the gate (the funnel's law: tier-0
-    never blocks the lane it guards).
+    re-mint derive. Its failures are the caller's to NAME (``tier0_gate``
+    records ``TIER0_FINGERPRINT_UNCOMPUTABLE``); there is no second identity.
     """
     from .feedback_store import finding_fingerprint
-    from .ledger import sha256_of_canonical_json
 
     tool_id = str(item.get("tool_id") or (getattr(contract, "tool_id", "") or ""))
-    try:
-        return finding_fingerprint(tool_id, dict(item))
-    except Exception:  # noqa: BLE001 — never block the lane; degrade, named
-        return "finding:sha256:" + sha256_of_canonical_json(dict(item))[:64]
+    return finding_fingerprint(tool_id, dict(item))
 
 
 def _item_recipe(item: Mapping[str, Any]) -> bool:
@@ -193,16 +216,26 @@ def tier0_gate(
 ) -> dict[str, Any]:
     """Pure mechanical verdict for one sampled finding. Zero LLM calls.
 
-    Returns ``{"status": "pass"|"reject", "reason": str|None, "note": str|None,
-    "fingerprint": str, "checks": [str, ...]}``. A reject means the claim's
-    own citations, quotes or declared observable fail against the tree the
-    judges would be anchored to — the funnel refuses to pay for judging it
-    (and records the named refusal). Writes nothing.
+    Returns ``{"status": "pass"|"reject"|"failed", "reason": str|None,
+    "note": str|None, "fingerprint": str, "checks": [str, ...]}``. A reject
+    means the claim's own citations, quotes or declared observable fail
+    against the tree the judges would be anchored to — the funnel refuses to
+    pay for judging it (and records the named refusal). ``failed`` means the
+    gate could not compute (``TIER0_FAILURE_REASONS``): the funnel holds the
+    item by that name. Writes nothing.
     """
     checks: list[str] = []
     if not isinstance(item, Mapping):
         return _pass("tier0_item_unreadable", "", checks)
-    fingerprint = _item_fingerprint(item, contract)
+    try:
+        fingerprint = _item_fingerprint(item, contract)
+    except (TypeError, ValueError) as exc:
+        # The owner's canonical encoding refuses this item's shape
+        # (json.dumps: TypeError for an unencodable value, ValueError for a
+        # circular one). Named and held (F0.3 N2), never re-identified.
+        return tier0_failure(
+            TIER0_FINGERPRINT_UNCOMPUTABLE, f"{type(exc).__name__}: {exc}"[:300], checks,
+        )
 
     # 1. Falsifiability (needs no repository): a contract that states no
     # observable, for an item with no recipe, states nothing a mechanical
@@ -330,8 +363,13 @@ __all__ = [
     "NOTE_NO_ANCHOR",
     "REJECT_CITED_PATH_ABSENT",
     "REJECT_EVIDENCE_REF_ABSENT",
+    "TIER0_FAILED",
+    "TIER0_FAILURE_REASONS",
+    "TIER0_FINGERPRINT_UNCOMPUTABLE",
+    "TIER0_GATE_CRASHED",
     "TIER0_PASS",
     "TIER0_REJECT",
     "TIER0_REFUSAL_REASONS",
+    "tier0_failure",
     "tier0_gate",
 ]

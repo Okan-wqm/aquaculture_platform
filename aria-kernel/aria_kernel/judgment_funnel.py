@@ -202,15 +202,22 @@ def _tier0_verdict(
     repo_root: str | Path | None,
     target_sha: str | None,
 ) -> dict[str, Any]:
-    """Slice A's tier-0 law, called before any mint. Never raises into the
-    funnel: the gate is pure; a shape it cannot read is a pass with its
-    note (tri-state), and the paid tiers still verify."""
-    from .tier0 import TIER0_PASS, tier0_gate
+    """Slice A's tier-0 law, called before any mint.
+
+    F0.3 landing (N2): a gate that crashed decided nothing, so its crash is
+    never a pass. It is recorded under tier-0's own failure name
+    (``TIER0_GATE_CRASHED``, built by the gate's one failure constructor)
+    and the router HOLDS the item: nothing is dispatched, the routing row
+    and the tier-0 governance row name the failure, and the item stays
+    sampleable for the next cycle — the router itself keeps running for the
+    rest of the sample.
+    """
+    from .tier0 import TIER0_GATE_CRASHED, tier0_failure, tier0_gate
 
     try:
         return tier0_gate(item, None, repo_root, target_sha)
-    except Exception:  # noqa: BLE001 — tier-0 never blocks the lane it guards
-        return {"status": TIER0_PASS, "reason": None, "note": "tier0_gate_unreadable"}
+    except Exception as exc:  # noqa: BLE001 — a crash is held by name, never routed (N2)
+        return tier0_failure(TIER0_GATE_CRASHED, f"{type(exc).__name__}: {exc}"[:300])
 
 
 def _today_start(now: datetime) -> str:
@@ -375,6 +382,9 @@ def route_judgment_sample(
     routed_tiers: list[int] = []
     routed_calibration: list[bool] = []
     tier0_refused: list[dict[str, Any]] = []
+    # F0.3 N2 — items tier-0 could not compute a verdict for: held by the
+    # failure's name, never routed.
+    tier0_failed: list[dict[str, Any]] = []
     cache_hits: list[dict[str, Any]] = []
     hold_reason: str | None = None
     # The tier ladder, BEFORE any seat is planned or asked for:
@@ -464,6 +474,17 @@ def route_judgment_sample(
                     "detail": verdict.get("note"),
                 })
                 continue
+            if verdict.get("status") != "pass":
+                # F0.3 N2 — only a PASS routes. A verdict tier-0 could not
+                # compute (TIER0_FAILED, named by TIER0_FAILURE_REASONS)
+                # holds the item under that name and pays nothing.
+                tier0_failed.append({
+                    "item": item,
+                    "finding_id": str(item.get("finding_id") or ""),
+                    "reason": str(verdict.get("reason")),
+                    "detail": verdict.get("note"),
+                })
+                continue
             # THE VERDICT CACHE (slice C-2): a settled verdict pinned to
             # byte-identical cited code is reused, never re-paid. A hit
             # mints nothing; unknown blob state is a miss (tri-state law).
@@ -510,19 +531,27 @@ def route_judgment_sample(
     _append_routing_rows(
         root, sample, routed,
         held + [{"item": entry["item"], "reason": f"tier0:{entry['reason']}"} for entry in tier0_refused]
+        + [{"item": entry["item"], "reason": f"tier0:{entry['reason']}"} for entry in tier0_failed]
         + [{"item": entry["item"], "reason": "cache_hit"} for entry in cache_hits],
         tiers=routed_tiers, calibration=routed_calibration, tier1=tier1,
         target_sha=target_sha, now=now,
     )
-    if tier0_refused:
+    if tier0_refused or tier0_failed:
         # MEASURE mode (the WP-J falsifiability rollout): one governance row
-        # per route call carrying every named refusal, before enforcement.
+        # per route call carrying every named refusal, before enforcement —
+        # and, apart from them (F0.3 N2), every item the gate could not
+        # compute a verdict for, under its failure name.
         append_tools_governance(root, TIER0_REJECTED_KIND, {
             "cycle_key": str(sample.get("cycle_id") or ""),
             "refused": [
                 {"finding_id": entry["finding_id"], "reason": entry["reason"],
                  "detail": entry.get("detail")}
                 for entry in tier0_refused
+            ],
+            "failed": [
+                {"finding_id": entry["finding_id"], "reason": entry["reason"],
+                 "detail": entry.get("detail")}
+                for entry in tier0_failed
             ],
         })
     if held:
@@ -553,12 +582,14 @@ def route_judgment_sample(
         "routed": routed,
         "held": held,
         "tier0_refused": tier0_refused,
+        "tier0_failed": tier0_failed,
         "summary": {
             "funnel": "on",
             "items_in": len(items),
             "items_routed": len(routed),
             "items_held": len(held),
             "items_tier0_refused": len(tier0_refused),
+            "items_tier0_failed": len(tier0_failed),
             "items_cache_hit": len(cache_hits),
             "tier4_quota_used": sum(1 for t in routed_tiers if t == 4),
             "derivation": derivation,

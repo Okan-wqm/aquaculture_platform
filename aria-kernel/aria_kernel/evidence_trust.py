@@ -11,7 +11,7 @@ from .canonical_path import matches_repo_glob, resolve_repo_relpath
 from .evidence_probe import BaselineResolution, GitProbeSession
 from .ledger import sha256_digest_of_canonical_json
 from .tool_registry import GovernanceError
-from .digest import sha256_digest, sha256_digest_file
+from .digest import sha256_digest, sha256_digest_file, sha256_digest_text
 
 
 SELF_OUTPUT_PREFIXES: tuple[str, ...] = (
@@ -629,9 +629,12 @@ def cited_blobs_code_hash(
     Tri-state on purpose: ``None`` when there is no anchor, no repo, or a
     git that did not answer inside the session's bounds — the cache treats
     unknown as a MISS (fail toward minting), never as a verdict.
-    """
-    import hashlib
 
+    Both digests compose through the label's one owner (``digest.py``,
+    ARIA-LOW-517; F0.3 landing N1): the key's bytes are exactly the
+    hand-spelled form this function wrote before, so cached verdicts keep
+    hitting (pinned by ``test_wpj_landing_named_resolutions``).
+    """
     if not isinstance(target_sha, str) or not target_sha.strip():
         return None
     probe = session if session is not None else GitProbeSession()
@@ -647,9 +650,8 @@ def cited_blobs_code_hash(
         if outcome.returncode != 0:
             pairs.append(f"{rel}:absent")
             continue
-        pairs.append(f"{rel}:sha256:{hashlib.sha256(outcome.stdout).hexdigest()}")
-    digest = hashlib.sha256("\n".join(sorted(pairs)).encode("utf-8")).hexdigest()
-    return f"sha256:{digest}"
+        pairs.append(f"{rel}:{sha256_digest(outcome.stdout)}")
+    return sha256_digest_text("\n".join(sorted(pairs)))
 
 
 __all__ = [

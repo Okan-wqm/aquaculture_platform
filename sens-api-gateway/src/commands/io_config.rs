@@ -55,8 +55,9 @@ use tracing::warn;
 #[cfg(not(feature = "suderra-os"))]
 use crate::alarms::{AlarmDefinition, AlarmPriority};
 #[cfg(not(feature = "suderra-os"))]
-use crate::process_image::{AtlasEzoType, I2cDriverType, IoType, TagConfig, TagSource};
-use crate::process_image::ProtocolConfig;
+use crate::process_image::{
+    AtlasEzoType, I2cDriverType, IoType, ProtocolConfig, TagConfig, TagSource,
+};
 
 use super::CommandHandler;
 

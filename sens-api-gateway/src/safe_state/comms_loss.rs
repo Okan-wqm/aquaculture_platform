@@ -51,6 +51,14 @@ pub const MAX_HOLD_SECS: u32 = 86_400;
 /// life-support dosing output's `HoldLastKnownGood`.
 pub const DEFAULT_HOLD_SECS: u32 = 300;
 
+// The bounds are checked when the crate compiles: no floor of zero, no ceiling
+// that reads as "for ever", and a default that lies between them.
+const _: () = {
+    assert!(MIN_HOLD_SECS > 0);
+    assert!(MAX_HOLD_SECS < u32::MAX);
+    assert!(MIN_HOLD_SECS <= DEFAULT_HOLD_SECS && DEFAULT_HOLD_SECS <= MAX_HOLD_SECS);
+};
+
 /// How often the supervisor looks at the link.
 const TICK: Duration = Duration::from_secs(1);
 
@@ -384,12 +392,5 @@ mod tests {
         // kept; pin 18 is no output: dropped.
         let kept: Vec<String> = holds.take().iter().map(ToString::to_string).collect();
         assert_eq!(kept, ["gpio pin 17"]);
-    }
-
-    #[test]
-    fn the_bounds_leave_no_value_that_holds_for_ever() {
-        assert!(MIN_HOLD_SECS > 0);
-        assert!(MAX_HOLD_SECS < u32::MAX);
-        assert!((MIN_HOLD_SECS..=MAX_HOLD_SECS).contains(&DEFAULT_HOLD_SECS));
     }
 }

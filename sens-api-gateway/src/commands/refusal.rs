@@ -72,7 +72,10 @@ pub(super) enum Refusal {
     /// An envelope a verification gate rejected (the gate's stable name).
     EnvelopeInvalid(String),
     /// The device has no tenant to bind an envelope to yet (provisioning, or the
-    /// trust root, is not complete). Retryable once it is.
+    /// trust root, is not complete). Retryable once it is. Not compiled on the
+    /// generic profile, which binds the tenant when the state is built and
+    /// parses a legacy command while there is none.
+    #[cfg(feature = "suderra-os")]
     NoTenantBinding,
     /// The command names a device or register the configuration does not have.
     TargetUnresolved(String),
@@ -113,6 +116,7 @@ impl Refusal {
             #[cfg(not(feature = "suderra-os"))]
             Self::UnsignedForbidden(_) => "unsigned-command-forbidden",
             Self::EnvelopeInvalid(_) => "envelope-invalid",
+            #[cfg(feature = "suderra-os")]
             Self::NoTenantBinding => "no-tenant-binding",
             Self::TargetUnresolved(_) => "target-unresolved",
             Self::NotAuthorized(_) => "not-authorized",
@@ -143,7 +147,12 @@ impl Refusal {
     /// itself (the clock synchronizes, provisioning completes). A refusal for a
     /// stale timestamp, a bad signature or a missing permission is not.
     pub(super) fn retryable(&self) -> bool {
-        matches!(self, Self::ClockUnsynced(_) | Self::NoTenantBinding)
+        match self {
+            Self::ClockUnsynced(_) => true,
+            #[cfg(feature = "suderra-os")]
+            Self::NoTenantBinding => true,
+            _ => false,
+        }
     }
 
     /// Whether the sender is told. A duplicate's answer is already on its way,
@@ -304,7 +313,6 @@ mod tests {
             Refusal::ClockFault("monotonic_backward".into()),
             Refusal::NotAnEnvelope,
             Refusal::EnvelopeInvalid("signature_invalid".into()),
-            Refusal::NoTenantBinding,
             Refusal::TargetUnresolved("no such device".into()),
             Refusal::NotAuthorized("role lacks the permission".into()),
             Refusal::Timestamp(CommandTimestampRejection::Malformed),
@@ -318,6 +326,8 @@ mod tests {
             Refusal::Unparseable,
             Refusal::UnsignedForbidden("denied".into()),
         ]);
+        #[cfg(feature = "suderra-os")]
+        all.push(Refusal::NoTenantBinding);
         all
     }
 
@@ -388,7 +398,14 @@ mod tests {
             .filter(|r| r.retryable())
             .map(Refusal::code)
             .collect();
-        assert_eq!(retryable, ["clock-unsynced", "no-tenant-binding"]);
+        // The tenant binding exists on suderra-os only (the generic profile
+        // binds the tenant when the state is built).
+        let expected: &[&str] = if cfg!(feature = "suderra-os") {
+            &["clock-unsynced", "no-tenant-binding"]
+        } else {
+            &["clock-unsynced"]
+        };
+        assert_eq!(retryable, expected);
     }
 
     /// A duplicate is answered by the first execution, a retained message has no
@@ -480,7 +497,6 @@ mod tests {
         let mut failures = vec![
             Refusal::ClockUnsynced("x".into()),
             Refusal::Duplicate,
-            Refusal::NoTenantBinding,
             Refusal::Timestamp(CommandTimestampRejection::Stale),
         ];
         #[cfg(not(feature = "suderra-os"))]
@@ -488,6 +504,8 @@ mod tests {
             denials.push(Refusal::UnsignedForbidden("x".into()));
             failures.push(Refusal::Unparseable);
         }
+        #[cfg(feature = "suderra-os")]
+        failures.push(Refusal::NoTenantBinding);
         for denial in denials {
             assert_eq!(denial.audit_outcome(), AuditOutcome::AuthorizationDenied);
         }

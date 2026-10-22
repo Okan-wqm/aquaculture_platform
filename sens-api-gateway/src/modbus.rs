@@ -463,7 +463,7 @@ impl ModbusActor {
                         let mut client = client_arc.lock().await;
                         client.write_register_safe_state(address, value).await
                     } else {
-                        Err(anyhow::anyhow!("Device not found: {}", device_name))
+                        Err(anyhow::anyhow!("Device not found: {device_name}"))
                     };
                     if response.send(result).is_err() {
                         warn!("Modbus SafeStateWriteRegister response receiver dropped");
@@ -481,7 +481,7 @@ impl ModbusActor {
                         let mut client = client_arc.lock().await;
                         client.write_coil_safe_state(address, value).await
                     } else {
-                        Err(anyhow::anyhow!("Device not found: {}", device_name))
+                        Err(anyhow::anyhow!("Device not found: {device_name}"))
                     };
                     if response.send(result).is_err() {
                         warn!("Modbus SafeStateWriteCoil response receiver dropped");

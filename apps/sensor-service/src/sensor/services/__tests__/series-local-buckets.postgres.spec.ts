@@ -81,18 +81,25 @@ describe('sensor series in the site time zone (real TimescaleDB)', () => {
     return rows.map((row) => new Date(row.start));
   }
 
-  /** The most recent local date in the last year whose day lasts `hours` hours. */
+  /**
+   * The most recent local date, at least three days back, whose day lasts
+   * `hours` hours. DST changes fall on a weekday-anchored date (Oslo: the last
+   * Sunday of October), and two consecutive ones are 364 or 371 days apart.
+   * The window therefore has to be longer than 371 days. The earlier 357-day
+   * window missed the 2025-10-26 Oslo day on 2026-10-22, while the next one
+   * was still in the future (SENSOR-HIGH-200). 378 days always holds one.
+   */
   async function lastDayLasting(zone: string, hours: number): Promise<string> {
     const rows = (await admin.query(
       `SELECT d::date::text AS day
-         FROM generate_series(now()::date - 360, now()::date - 3, interval '1 day') AS d
+         FROM generate_series(now()::date - 380, now()::date - 3, interval '1 day') AS d
         WHERE ((d::date + 1)::timestamp AT TIME ZONE $1) - ((d::date)::timestamp AT TIME ZONE $1)
               = make_interval(hours => $2)
         ORDER BY d DESC LIMIT 1`,
       [zone, hours],
     )) as Array<{ day: string }>;
     const day = rows[0]?.day;
-    if (day === undefined) throw new Error(`No ${hours}-hour day in ${zone} in the last year`);
+    if (day === undefined) throw new Error(`No ${hours}-hour day in ${zone} in the last 378 days`);
     return day;
   }
 

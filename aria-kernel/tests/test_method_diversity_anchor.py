@@ -1,22 +1,26 @@
-"""WP-J B-1 — method diversity is the single-provider anchor leg.
+"""WP-J B-1 — the method receipt is a seat receipt for the ONE seat law.
 
 Operator decision 2026-10-18: diversity comes from PERSPECTIVE and METHOD,
 not from the provider; ``ANCHOR_MIN_DISTINCT_MODELS`` must not block ground
-truth when only one provider exists. G-2 (ORPHAN-HIGH-760) survives the swap
-unchanged: a receipt that can answer NEITHER the method question NOR the
-model question is never green.
+truth when only one provider exists. G-2 (ORPHAN-HIGH-760) survives
+unchanged: a receipt that names neither a model nor a method is not a
+receipt of anything and is never green.
 
-The leg is HYBRID because the ledger already holds truth:
+F0.3 landing (N3) — main's WP-P recast made distinct judge SEATS
+(``feedback_store.consensus_distinct_seats >= ANCHOR_MIN_JUDGE_COUNT``) the
+ONE anchor diversity gate. WP-J's method receipt and evidence leg are legs
+of that same function, and ``observation_span`` is a descriptor, not a
+second gate. The pins below that asserted a distinct-METHODS floor
+(``ANCHOR_MIN_DISTINCT_METHODS``) are re-pinned to the seat law:
 
 * the 16 live anchors (aria/state 2026-10-16) carry model-only observer
-  receipts — they keep the model leg and stay ground truth, replayed here
-  from a fixture captured read-only off ``origin/aria/state``;
-* rows minted after this change carry the seat's METHOD on the receipt
-  (stamped mint-first, the ORPHAN-HIGH-781 doctrine), and their diversity
-  is counted in methods — three unanimous judges on ONE model spanning two
-  methods IS ground truth, which the model leg can never express;
-* a receipt set that spans neither leg (mixed, or judge_id-only) fails
-  closed.
+  receipts and stay ground truth, replayed here from a fixture captured
+  read-only off ``origin/aria/state``;
+* rows minted after WP-J B-1 carry the seat's METHOD on the receipt
+  (stamped mint-first, the ORPHAN-HIGH-781 doctrine); a method-only or
+  mixed receipt counts as a seat;
+* three distinct seats anchor whatever their method; one seat voting
+  thrice, judge_id-only receipts and an empty evidence union never do.
 """
 from __future__ import annotations
 
@@ -114,14 +118,17 @@ class SingleProviderAnchorTests(_LedgerCase):
             sorted((judge_id, method) for judge_id, method in _METHOD_SEATS.items()),
         )
 
-    def test_one_method_wearing_three_names_is_not_an_anchor(self) -> None:
-        """Method diversity is not a spelling trick: three seats of ONE
-        method on one model remain one observation with two receipts."""
+    def test_three_distinct_seats_of_one_method_are_an_anchor(self) -> None:
+        """F0.3 N3 re-pin (was: one method wearing three names is not an
+        anchor). The ONE seat law counts distinct judge SEATS: three seats
+        that practised one method are three observations, and the
+        laundering G-2 hunts — one seat voting thrice — stays refused by
+        the same function (test_jj1_anchor_consensus)."""
         for index, judge_id in enumerate(_METHOD_SEATS):
             self._judge(f"{judge_id}-{index}", method="static_trace",
                         evidence_refs=["src/app.ts:10"])
         row = generate_ai_consensus(tool_id="tool-a", base_dir=self.tools)["consensus"][0]
-        self.assertFalse(is_ground_truth_row(row))
+        self.assertTrue(is_ground_truth_row(row))
 
     def test_a_judge_row_refuses_an_unknown_method(self) -> None:
         with self.assertRaisesRegex(GovernanceError, "unknown feedback method"):
@@ -146,12 +153,16 @@ class HybridLegPredicateTests(unittest.TestCase):
             }),
         )
 
-    def test_method_receipts_of_one_method_are_not_ground_truth(self) -> None:
-        self.assertFalse(
+    def test_method_receipts_of_one_method_on_distinct_seats_are_ground_truth(self) -> None:
+        """F0.3 N3 re-pin (was: one method is not ground truth — a
+        distinct-METHODS floor beside the seat law). The seat function is
+        the one gate; the row cites code so only the seat leg is varied."""
+        self.assertTrue(
             is_ground_truth_row({
                 "source_type": "ai_consensus",
                 "judge_count": ANCHOR_MIN_JUDGE_COUNT,
                 "judges_voted": ANCHOR_MIN_JUDGE_COUNT,
+                "evidence_refs": ["src/app.ts:10"],
                 "observers": [
                     {"judge_id": name, "model": "glm-5.3", "method": "static_trace"}
                     for name in "abc"
@@ -159,24 +170,29 @@ class HybridLegPredicateTests(unittest.TestCase):
             }),
         )
 
-    def test_a_receipt_set_that_answers_neither_leg_fails_closed(self) -> None:
-        """G-2 preserved: mixed legs and judge_id-only receipts are unknown,
-        and unknown is never green."""
+    def test_mixed_receipts_are_seats_and_anonymous_receipts_fail_closed(self) -> None:
+        """F0.3 N3 re-pin (was: a mixed receipt set answers neither leg and
+        fails closed). Under the ONE seat law a receipt naming a model OR a
+        method is a seat, so a mixed set of three distinct seats anchors;
+        G-2 is preserved where it lives — judge_id-only receipts name
+        nothing, count as no seat, and are never green."""
         mixed = {
             "source_type": "ai_consensus",
             "judge_count": ANCHOR_MIN_JUDGE_COUNT,
             "judges_voted": ANCHOR_MIN_JUDGE_COUNT,
+            "evidence_refs": ["src/app.ts:10"],
             "observers": [
                 {"judge_id": "a", "model": "glm-5.3", "method": "static_trace"},
                 {"judge_id": "b", "model": "glm-5.3", "method": "bug_hunt"},
                 {"judge_id": "c", "model": "fable"},
             ],
         }
-        self.assertFalse(is_ground_truth_row(mixed))
+        self.assertTrue(is_ground_truth_row(mixed))
         anonymous = {
             "source_type": "ai_consensus",
             "judge_count": ANCHOR_MIN_JUDGE_COUNT,
             "judges_voted": ANCHOR_MIN_JUDGE_COUNT,
+            "evidence_refs": ["src/app.ts:10"],
             "observers": [{"judge_id": name} for name in "abc"],
         }
         self.assertFalse(is_ground_truth_row(anonymous))
@@ -250,9 +266,9 @@ class AnchorEvidenceLegTests(_LedgerCase):
 
 
 class CalibratedQuorumMethodLegTests(_LedgerCase):
-    """The closing authority's twin swap: under ``enforce`` the calibrated
-    quorum is two calibrated judges of distinct METHODS (the model leg
-    remains for legacy calibration rows that cannot name a method).
+    """The closing authority under ``enforce``: two calibrated judge SEATS
+    (main's WP-P recast; F0.3 N3 — the quorum asks the same seat question
+    as the anchor, never a distinct-METHODS or distinct-MODELS count).
 
     The consensus engine takes the caller's flat status mapping — the exact
     shape the cycle builds at its ``_gate_for_consensus`` — so the METHOD
@@ -274,7 +290,10 @@ class CalibratedQuorumMethodLegTests(_LedgerCase):
         self.assertEqual(result["consensus_count"], 1)
         self.assertTrue(is_ground_truth_row(result["consensus"][0]))
 
-    def test_enforce_refuses_a_quorum_of_one_method(self) -> None:
+    def test_enforce_closes_on_two_calibrated_seats_of_one_method(self) -> None:
+        """F0.3 N3 re-pin (was: enforce refuses a quorum of one method).
+        Two calibrated SEATS close whatever method they practised; the
+        attendance floor below still refuses a single calibrated seat."""
         calibrated = {"a": "calibrated", "b": "calibrated"}
         for judge_id, method in (("a", "static_trace"), ("b", "static_trace")):
             self._judge(judge_id, method=method)
@@ -284,10 +303,8 @@ class CalibratedQuorumMethodLegTests(_LedgerCase):
             judge_calibration=calibrated,
             calibration_gate="enforce",
         )
-        self.assertEqual(result["consensus_count"], 0)
-        self.assertEqual(
-            [u["reason"] for u in result["uncertainties"]], ["confidence_uncalibrated"],
-        )
+        self.assertEqual(result["consensus_count"], 1)
+        self.assertEqual(result["uncertainties"], [])
 
     def test_the_enforce_quorum_still_requires_the_judge_count(self) -> None:
         """The method leg widens DIVERSITY, not ATTENDANCE: one calibrated

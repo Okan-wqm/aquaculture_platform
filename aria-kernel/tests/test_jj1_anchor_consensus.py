@@ -126,6 +126,9 @@ class GroundTruthPredicateTests(unittest.TestCase):
                 "source_type": "ai_consensus",
                 "judge_count": ANCHOR_MIN_JUDGE_COUNT,
                 "judges_voted": ANCHOR_MIN_JUDGE_COUNT,
+                # F0.3 N3 — the seat law's evidence leg (WP-J ce6a53541):
+                # the row cites code so only the seat leg is varied here.
+                "evidence_refs": ["src/app.ts:10"],
                 "observers": [
                     {"judge_id": f"judge-{n}", "model": "glm-5.3"}
                     for n in range(ANCHOR_MIN_JUDGE_COUNT)
@@ -147,6 +150,9 @@ class GroundTruthPredicateTests(unittest.TestCase):
                 "source_type": "ai_consensus",
                 "judge_count": ANCHOR_MIN_JUDGE_COUNT,
                 "judges_voted": ANCHOR_MIN_JUDGE_COUNT,
+                # Cites code, so the refusal is the SEAT leg's, not the
+                # evidence leg's (F0.3 N3: both are legs of one function).
+                "evidence_refs": ["src/app.ts:10"],
                 "observers": [
                     {"judge_id": "judge-same", "model": model}
                     for model in ("glm-5.3", "claude-opus-5", "fable")

@@ -135,7 +135,10 @@ class OutcomeTruthBase(unittest.TestCase):
         append_declared_fixture(
             path,
             {"schema_version": 1, "recorded_at": _iso(self.now - timedelta(hours=2)),
-             "event": "pr_open", "pr_number": pr_number,
+             # The writer's binding event (pr_manager writes `opened`;
+             # main's merge_record.PR_BINDING_EVENT binds a PR to a change
+             # through that row alone — merge-delivery-1).
+             "event": "opened", "pr_number": pr_number,
              "change_id": planned["change_id"]},
             expected_surface="pr_lifecycle",
         )

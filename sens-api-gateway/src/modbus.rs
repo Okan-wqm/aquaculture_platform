@@ -51,6 +51,18 @@ const MODBUS_TIMEOUT: Duration = Duration::from_secs(MODBUS_TIMEOUT_SECS);
 /// long (`safe_state::PER_DEVICE_TIMEOUT`), so it never counts a write as
 /// failed that can still reach the device.
 pub const WRITE_IN_FLIGHT_BOUND: Duration = Duration::from_secs(2 * MODBUS_TIMEOUT_SECS);
+/// How long `read_all_parallel` lets one device's read run before it counts it
+/// as failed.
+pub const DEVICE_READ_TIMEOUT: Duration = Duration::from_secs(10);
+/// The longest `read_all_parallel` can take, which is the longest blocking call
+/// of the I/O cycle: a device's client lock may be held by one write in flight
+/// ([`WRITE_IN_FLIGHT_BOUND`]) before the read starts, the read is bounded by
+/// [`DEVICE_READ_TIMEOUT`], and recording the failure waits for the lock once
+/// more. Devices are read in parallel, so it is the slowest one, not the sum.
+/// The piControl output watchdog is fed for as long as this (`io_poll`).
+pub const READ_ALL_BOUND: Duration = WRITE_IN_FLIGHT_BOUND
+    .saturating_add(DEVICE_READ_TIMEOUT)
+    .saturating_add(WRITE_IN_FLIGHT_BOUND);
 /// Default connection timeout
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Circuit breaker failure threshold
@@ -1650,7 +1662,7 @@ impl ModbusManager {
                     // IMPORTANT: the lock is dropped before record_failure() to avoid
                     // holding it for the full timeout duration and blocking other reads.
                     let result = tokio::time::timeout(
-                        Duration::from_secs(10), // Per-device timeout
+                        DEVICE_READ_TIMEOUT, // Per-device timeout
                         client.read_all(),
                     )
                     .await;

@@ -19,6 +19,20 @@
 //! table gets its policy dimension then. Until then a row is the behaviour of
 //! a force-safe output.
 //!
+//! # One definition for the RevPi
+//!
+//! What the piControl layers do to an output (the driver's output watchdog, its
+//! default image, the module firmware, the wiring) is defined once, in
+//! `crate::picontrol::behaviour_table`, which the mock-backed tests and the
+//! hardware test play. This table does not carry a second opinion about the
+//! RevPi: its `PiControl` column is [`picontrol`], which takes the layer, the
+//! outcome, the proof and the note from that table for every event the piControl
+//! layers have a say in. An earlier version wrote its own row for a crash
+//! (`DeviceDefault`, "the PiCtory default") while the table the hardware test
+//! plays says the driver ZEROES the outputs: `piControlRelease()` and
+//! `revpi_check_timeout()` write literal 0 to every active module's output range,
+//! so a fail-ON output goes OFF when an armed agent dies.
+//!
 //! # Where the agent can and cannot act
 //!
 //! * **Before and after a process:** every start drives every output to its
@@ -39,6 +53,8 @@
 //!   ([`AgentAct::DriveSafeLeased`], [`super::comms_loss`]); local control, the
 //!   alarms and the safe-state itself never depend on the cloud.
 
+use crate::picontrol::behaviour_table as pt;
+
 /// An event that happens to a running installation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Event {
@@ -55,6 +71,12 @@ pub enum Event {
     OsUpdateReboot,
     /// SIGKILL, an out-of-memory kill, a panic under `panic = "abort"`.
     AgentCrash,
+    /// The process is alive but its control loop makes no progress: a task
+    /// wedged in a blocking call, or a call that has not returned within the
+    /// longest bound any call has. systemd's watchdog restarts it after
+    /// `WatchdogSec`, which is then a crash; until then the agent acts on
+    /// nothing.
+    AgentStall,
     /// The board's hardware watchdog resets it (a hung kernel or agent).
     WatchdogReset,
     /// The supply drops.
@@ -66,6 +88,15 @@ pub enum Event {
     /// The agent loses the bus to the device that holds the output (a Modbus
     /// device, a PiBridge module, an I2C chip).
     FieldbusCommsLoss,
+    /// A call of the I/O loop to ANOTHER field-bus device stays in flight (a
+    /// Modbus device that does not answer, a row of slow I2C probes) while the
+    /// loop is alive. The device that does not answer is
+    /// [`Event::FieldbusCommsLoss`].
+    FieldbusStall,
+    /// Root loads a new `config.rsc` into the piControl driver (a site config
+    /// update): the PiBridge starts again and the process image is rebuilt from
+    /// the PiCtory defaults. Only a RevPi has the driver.
+    DriverReset,
     /// An operator triggers the emergency stop (DEC-9.7): the agent latches
     /// the stop and drives the outputs in scope to their safe values.
     EmergencyStop,
@@ -79,17 +110,20 @@ pub const GRACEFUL_STOP: Event = Event::AgentRestart;
 
 impl Event {
     /// Every event, in declaration order.
-    pub const ALL: [Event; 11] = [
+    pub const ALL: [Event; 14] = [
         Event::AgentStart,
         Event::AgentRestart,
         Event::AgentUpdate,
         Event::OsUpdateReboot,
         Event::AgentCrash,
+        Event::AgentStall,
         Event::WatchdogReset,
         Event::PowerLoss,
         Event::DegradedMode,
         Event::CloudCommsLoss,
         Event::FieldbusCommsLoss,
+        Event::FieldbusStall,
+        Event::DriverReset,
         Event::EmergencyStop,
     ];
 
@@ -101,11 +135,14 @@ impl Event {
             Event::AgentUpdate => "agent-update",
             Event::OsUpdateReboot => "os-update-reboot",
             Event::AgentCrash => "agent-crash",
+            Event::AgentStall => "agent-stall",
             Event::WatchdogReset => "watchdog-reset",
             Event::PowerLoss => "power-loss",
             Event::DegradedMode => "degraded-mode",
             Event::CloudCommsLoss => "cloud-comms-loss",
             Event::FieldbusCommsLoss => "fieldbus-comms-loss",
+            Event::FieldbusStall => "fieldbus-stall",
+            Event::DriverReset => "driver-reset",
             Event::EmergencyStop => "emergency-stop",
         }
     }
@@ -181,6 +218,9 @@ pub enum Layer {
     AgentSafeState,
     /// The agent's control gate (degraded mode refuses every write).
     ControlGate,
+    /// The agent's I/O loop, which keeps feeding the output watchdog while it is
+    /// alive.
+    ControlLoop,
     /// The level the pin or device keeps without anything driving it.
     Latch,
     /// The piControl driver's output watchdog or default image.
@@ -200,6 +240,7 @@ impl Layer {
         match self {
             Layer::AgentSafeState => "agent-safe-state",
             Layer::ControlGate => "control-gate",
+            Layer::ControlLoop => "control-loop",
             Layer::Latch => "latch",
             Layer::PiControlDriver => "picontrol-driver",
             Layer::DeviceTimer => "device-timer",
@@ -219,6 +260,15 @@ pub enum Outcome {
     /// Whatever the device or module does by itself (its default, its
     /// timer): not observable by the agent.
     DeviceDefault,
+    /// Every bit 0: the piControl driver's output watchdog or its release of a
+    /// descriptor zeroed the module's outputs. NOT the PiCtory default: a
+    /// fail-ON output goes OFF.
+    Zero,
+    /// What the piControl driver restores after a reset: the `config.rsc`
+    /// default, which the registry keeps equal to the configured safe value.
+    DriverDefault,
+    /// What control last wrote: the event does not reach the output.
+    Unchanged,
     /// The pin is an input again: the wiring decides.
     Floating,
     /// No supply, no drive.
@@ -235,6 +285,9 @@ impl Outcome {
             Outcome::SafeValue => "safe-value",
             Outcome::LastValue => "last-value",
             Outcome::DeviceDefault => "device-default",
+            Outcome::Zero => "zero",
+            Outcome::DriverDefault => "driver-default",
+            Outcome::Unchanged => "unchanged",
             Outcome::Floating => "floating",
             Outcome::DeEnergised => "de-energised",
             Outcome::Unaffected => "unaffected",
@@ -273,6 +326,9 @@ pub struct Behaviour {
     pub layer: Layer,
     pub outcome: Outcome,
     pub proof: Proof,
+    /// What a commissioning engineer needs to know about the row (empty when
+    /// the row says it all).
+    pub note: &'static str,
 }
 
 const fn row(agent: AgentAct, layer: Layer, outcome: Outcome, proof: Proof) -> Behaviour {
@@ -281,6 +337,79 @@ const fn row(agent: AgentAct, layer: Layer, outcome: Outcome, proof: Proof) -> B
         layer,
         outcome,
         proof,
+        note: "",
+    }
+}
+
+/// No layer acts: the event does not reach this kind of output.
+const fn unaffected() -> Behaviour {
+    row(
+        AgentAct::Nothing,
+        Layer::Latch,
+        Outcome::Unaffected,
+        Proof::Automated,
+    )
+}
+
+/// The row the PiControl table defines for `event`, with the agent's own act.
+fn derived(agent: AgentAct, event: pt::Event) -> Behaviour {
+    let r = pt::row(event);
+    Behaviour {
+        agent,
+        layer: match r.layer {
+            pt::Layer::AgentSafeState => Layer::AgentSafeState,
+            pt::Layer::ControlGate => Layer::ControlGate,
+            pt::Layer::ControlLoop => Layer::ControlLoop,
+            pt::Layer::PiControlWatchdog | pt::Layer::PiControlDefaults => Layer::PiControlDriver,
+            pt::Layer::ModuleFirmware => Layer::ModuleFirmware,
+            pt::Layer::Wiring => Layer::Wiring,
+        },
+        outcome: match r.outcome {
+            pt::Outcome::SafeValue => Outcome::SafeValue,
+            pt::Outcome::Zero => Outcome::Zero,
+            pt::Outcome::PiCtoryDefault => Outcome::DriverDefault,
+            pt::Outcome::ModuleDefault => Outcome::DeviceDefault,
+            pt::Outcome::DeEnergised => Outcome::DeEnergised,
+            pt::Outcome::Unchanged => Outcome::Unchanged,
+        },
+        proof: match r.proof {
+            // The fake kernel proves the model, the rig proves the driver.
+            pt::Proof::MockAndHil => Proof::Hardware,
+            pt::Proof::Commissioning => Proof::Commissioning,
+        },
+        note: r.note,
+    }
+}
+
+/// The `PiControl` column of the table, the one place it is defined: from the
+/// PiControl table (`crate::picontrol::behaviour_table`) wherever its layers
+/// decide the output, from the agent's own act where the agent does.
+fn picontrol(event: Event) -> Behaviour {
+    use AgentAct::{DriveSafe, DriveSafeLeased, HoldSafe, Nothing};
+    use pt::Event as P;
+    match event {
+        Event::AgentStart | Event::EmergencyStop => drives_safe(Backend::PiControl),
+        Event::CloudCommsLoss => row(
+            DriveSafeLeased,
+            Layer::AgentSafeState,
+            Outcome::SafeValue,
+            Proof::Automated,
+        ),
+        // A graceful stop: safe values first, then the watchdog is disarmed,
+        // then the descriptor closes.
+        Event::AgentRestart | Event::AgentUpdate => derived(DriveSafe, P::AgentGracefulRestart),
+        // The first half is that stop; the second is the modules losing their
+        // PiBridge supply, which the module firmware decides until the next
+        // boot pass.
+        Event::OsUpdateReboot => derived(DriveSafe, P::OsRebootGraceful),
+        Event::AgentCrash => derived(Nothing, P::AgentCrash),
+        Event::AgentStall => derived(Nothing, P::AgentStall),
+        Event::WatchdogReset => derived(Nothing, P::HardwareWatchdogReset),
+        Event::PowerLoss => derived(Nothing, P::PowerLoss),
+        Event::DegradedMode => derived(HoldSafe, P::DegradedEntered),
+        Event::DriverReset => derived(Nothing, P::DriverReset),
+        Event::FieldbusStall => derived(Nothing, P::FieldbusStall),
+        Event::FieldbusCommsLoss => derived(Nothing, P::ModuleCommsLoss),
     }
 }
 
@@ -301,77 +430,106 @@ const fn drives_safe(backend: Backend) -> Behaviour {
     )
 }
 
+/// The backends whose column [`behaviour`] writes itself: `PiControl`'s is
+/// [`picontrol`], so no arm below can give it a row of its own.
+#[derive(Clone, Copy)]
+enum Plain {
+    Modbus,
+    Gpio,
+    I2c,
+}
+
+impl Plain {
+    const fn of(backend: Backend) -> Option<Self> {
+        match backend {
+            Backend::Modbus => Some(Self::Modbus),
+            Backend::Gpio => Some(Self::Gpio),
+            Backend::I2c => Some(Self::I2c),
+            Backend::PiControl => None,
+        }
+    }
+
+    const fn backend(self) -> Backend {
+        match self {
+            Self::Modbus => Backend::Modbus,
+            Self::Gpio => Backend::Gpio,
+            Self::I2c => Backend::I2c,
+        }
+    }
+}
+
 /// What the table says about `event` on an output held by `backend` (the
 /// default force-safe policy).
-pub const fn behaviour(event: Event, backend: Backend) -> Behaviour {
-    use AgentAct::{DriveSafe, DriveSafeLeased, HoldSafe, Nothing};
-    use Backend::{Gpio, I2c, Modbus, PiControl};
-    use Layer::{
-        AgentSafeState, ControlGate, DeviceTimer, Latch, ModuleFirmware, PiControlDriver, Wiring,
-    };
+pub fn behaviour(event: Event, backend: Backend) -> Behaviour {
+    use AgentAct::{DriveSafe, DriveSafeLeased, Nothing};
+    use Layer::{AgentSafeState, DeviceTimer, Latch, Wiring};
     use Outcome::{DeEnergised, DeviceDefault, Floating, LastValue, SafeValue, Unaffected};
+    use Plain::{Gpio, I2c, Modbus};
     use Proof::{Automated, Commissioning, Hardware};
 
+    let Some(plain) = Plain::of(backend) else {
+        return picontrol(event);
+    };
     match event {
         // Every start, whatever preceded it.
-        Event::AgentStart => drives_safe(backend),
+        Event::AgentStart => drives_safe(plain.backend()),
         // A graceful stop drives everything safe before the buses are
         // released; restart, update and the OS-update reboot's first half are
         // that stop. What the reboot does next to the output is the board's.
-        Event::AgentRestart | Event::AgentUpdate => drives_safe(backend),
-        Event::OsUpdateReboot => match backend {
+        Event::AgentRestart | Event::AgentUpdate => drives_safe(plain.backend()),
+        Event::OsUpdateReboot => match plain {
             // The device is outside the board: it keeps what the stop left.
-            Modbus => drives_safe(backend),
+            Modbus => drives_safe(plain.backend()),
             // The SoC resets its pins: inputs until the next start drives
             // them, so the wiring decides in the gap.
             Gpio => row(DriveSafe, Wiring, Floating, Hardware),
-            I2c => drives_safe(backend),
-            // The driver comes back with the PiCtory defaults, which the
-            // registry keeps equal to the safe values.
-            PiControl => drives_safe(backend),
+            I2c => drives_safe(plain.backend()),
         },
         // The agent cannot act; the layers below do.
-        Event::AgentCrash => match backend {
+        Event::AgentCrash => match plain {
             Modbus => row(Nothing, DeviceTimer, DeviceDefault, Commissioning),
             // The latch keeps the last commanded level (the reset on drop is
             // off, and a killed process never runs its drop anyway).
-            Gpio => row(Nothing, Latch, LastValue, Hardware),
-            I2c => row(Nothing, Latch, LastValue, Hardware),
-            // Closing the descriptor of an armed output watchdog zeroes the
-            // module's outputs (piControlRelease): the PiCtory default.
-            PiControl => row(Nothing, PiControlDriver, DeviceDefault, Hardware),
+            Gpio | I2c => row(Nothing, Latch, LastValue, Hardware),
         },
-        Event::WatchdogReset => match backend {
+        // A stalled agent acts on nothing, as a dead one: systemd's watchdog
+        // ends it after `WatchdogSec`, which is a crash.
+        Event::AgentStall => match plain {
+            Modbus => row(Nothing, DeviceTimer, DeviceDefault, Commissioning),
+            Gpio | I2c => row(Nothing, Latch, LastValue, Hardware),
+        },
+        Event::WatchdogReset => match plain {
             // The device does not reset with the board.
             Modbus => row(Nothing, DeviceTimer, DeviceDefault, Commissioning),
             Gpio => row(Nothing, Wiring, Floating, Hardware),
             I2c => row(Nothing, Latch, LastValue, Hardware),
-            PiControl => row(Nothing, ModuleFirmware, DeviceDefault, Hardware),
         },
-        Event::PowerLoss => match backend {
+        Event::PowerLoss => match plain {
             // An external device has its own supply and its own timer.
             Modbus => row(Nothing, DeviceTimer, DeviceDefault, Commissioning),
-            Gpio => row(Nothing, Wiring, DeEnergised, Commissioning),
-            I2c => row(Nothing, Wiring, DeEnergised, Commissioning),
-            PiControl => row(Nothing, ModuleFirmware, DeEnergised, Commissioning),
+            Gpio | I2c => row(Nothing, Wiring, DeEnergised, Commissioning),
         },
         // Degraded mode is entered only after the boot pass, and the gate
         // refuses writes since: the output is at its safe value and stays.
-        Event::DegradedMode => row(HoldSafe, ControlGate, SafeValue, Automated),
+        Event::DegradedMode => row(AgentAct::HoldSafe, Layer::ControlGate, SafeValue, Automated),
         // The stop drives every output in scope to its safe value (never a
         // blanket zero: a life-support output fails ON) and latches the control
         // gate; a dead agent cannot stop anything, so there is no row for it.
-        Event::EmergencyStop => drives_safe(backend),
+        Event::EmergencyStop => drives_safe(plain.backend()),
         // Remote commands lose their hold; local control continues.
         Event::CloudCommsLoss => row(DriveSafeLeased, AgentSafeState, SafeValue, Automated),
         // The agent cannot write to what it cannot reach.
-        Event::FieldbusCommsLoss => match backend {
+        Event::FieldbusCommsLoss => match plain {
             Modbus => row(Nothing, DeviceTimer, DeviceDefault, Commissioning),
             // No bus between the agent and the pin.
             Gpio => row(Nothing, Latch, Unaffected, Automated),
             I2c => row(Nothing, Latch, LastValue, Hardware),
-            PiControl => row(Nothing, ModuleFirmware, DeviceDefault, Hardware),
         },
+        // The loop is alive: nothing acts on any other output, and nothing
+        // changes it.
+        Event::FieldbusStall => row(Nothing, Layer::ControlLoop, Outcome::Unchanged, Automated),
+        // Only a RevPi has the driver.
+        Event::DriverReset => unaffected(),
     }
 }
 
@@ -413,14 +571,18 @@ pub fn table_json() -> serde_json::Value {
         .flat_map(|&event| {
             Backend::ALL.iter().map(move |&backend| {
                 let b = behaviour(event, backend);
-                serde_json::json!({
+                let mut row = serde_json::json!({
                     "event": event.name(),
                     "output": backend.name(),
                     "agent": b.agent.name(),
                     "layer": b.layer.name(),
                     "outcome": b.outcome.name(),
                     "proof": b.proof.name(),
-                })
+                });
+                if !b.note.is_empty() {
+                    row["note"] = serde_json::Value::from(b.note);
+                }
+                row
             })
         })
         .collect();
@@ -452,6 +614,71 @@ mod tests {
             .unwrap();
         assert_eq!(crash["layer"], "picontrol-driver");
         assert_eq!(crash["agent"], "nothing");
+        // What the commissioning engineer reads: the driver ZEROES the outputs
+        // of a dead process, it does not restore the PiCtory default.
+        assert_eq!(crash["outcome"], "zero");
+        assert!(
+            crash["note"].as_str().unwrap().contains("fail-ON output"),
+            "the row carries the PiControl table's own note: {crash}"
+        );
+    }
+
+    /// What the piControl driver does is defined once. Every row of the PiControl
+    /// table (`crate::picontrol::behaviour_table`, the one the mock-backed and
+    /// the hardware tests play) is the PiControl column of an event of this
+    /// table, carrying that table's own text; the published column cannot say
+    /// anything the table the hardware proves does not.
+    #[test]
+    fn the_picontrol_column_is_the_picontrol_table() {
+        for r in pt::TABLE {
+            // A graceful restart whose safe-state pass failed is the restart row's
+            // failure variant (a degraded reason of its own), not an event.
+            if r.event == pt::Event::AgentRestartSafeStateIncomplete {
+                continue;
+            }
+            let published: Vec<Event> = Event::ALL
+                .into_iter()
+                .filter(|e| behaviour(*e, Backend::PiControl).note == r.note)
+                .collect();
+            assert!(
+                !published.is_empty(),
+                "{:?} of the PiControl table is the column of no event",
+                r.event
+            );
+            for e in published {
+                let b = behaviour(e, Backend::PiControl);
+                assert_eq!(
+                    matches!(b.outcome, Outcome::Zero),
+                    matches!(r.outcome, pt::Outcome::Zero),
+                    "{e:?}: {b:?} against {r:?}"
+                );
+            }
+        }
+    }
+
+    /// An armed agent that dies, or stalls past the longest bound, has the
+    /// driver write 0 to every active module's outputs
+    /// (`piControlRelease()`, `revpi_check_timeout()`): a fail-ON output goes
+    /// OFF. The table says so for both.
+    #[test]
+    fn a_dead_or_stalled_agent_zeroes_a_picontrol_output() {
+        for event in [Event::AgentCrash, Event::AgentStall] {
+            let b = behaviour(event, Backend::PiControl);
+            assert_eq!(b.outcome, Outcome::Zero, "{event:?}");
+            assert_eq!(b.layer, Layer::PiControlDriver, "{event:?}");
+            assert_eq!(b.agent, AgentAct::Nothing, "{event:?}");
+        }
+    }
+
+    /// A slow device on another bus changes no output on any backend, and does
+    /// not make the driver zero the RevPi's.
+    #[test]
+    fn a_stalled_field_bus_call_changes_no_output() {
+        for backend in Backend::ALL {
+            let b = behaviour(Event::FieldbusStall, backend);
+            assert_eq!(b.outcome, Outcome::Unchanged, "{backend:?}");
+            assert_eq!(b.layer, Layer::ControlLoop, "{backend:?}");
+        }
     }
 
     /// `ALL` lists every variant: the exhaustive matches fail to compile when
@@ -465,12 +692,15 @@ mod tests {
                 Event::AgentUpdate => 2,
                 Event::OsUpdateReboot => 3,
                 Event::AgentCrash => 4,
-                Event::WatchdogReset => 5,
-                Event::PowerLoss => 6,
-                Event::DegradedMode => 7,
-                Event::CloudCommsLoss => 8,
-                Event::FieldbusCommsLoss => 9,
-                Event::EmergencyStop => 10,
+                Event::AgentStall => 5,
+                Event::WatchdogReset => 6,
+                Event::PowerLoss => 7,
+                Event::DegradedMode => 8,
+                Event::CloudCommsLoss => 9,
+                Event::FieldbusCommsLoss => 10,
+                Event::FieldbusStall => 11,
+                Event::DriverReset => 12,
+                Event::EmergencyStop => 13,
             }
         }
         const fn backend_index(b: Backend) -> usize {
@@ -607,7 +837,10 @@ mod tests {
                     assert!(
                         matches!(
                             b.layer,
-                            Layer::AgentSafeState | Layer::ControlGate | Layer::Latch
+                            Layer::AgentSafeState
+                                | Layer::ControlGate
+                                | Layer::ControlLoop
+                                | Layer::Latch
                         ),
                         "{event:?}/{backend:?}: an automated proof of a layer outside the agent: {b:?}"
                     );

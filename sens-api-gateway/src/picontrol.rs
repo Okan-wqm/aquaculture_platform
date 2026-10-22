@@ -16,7 +16,7 @@
 //! | [`registry`] | the grant resolved against `config.rsc`, every unsafe grant refused, and proven against the driver |
 //! | [`backend`] | reads, writes, the output watchdog, layout changes, change detection |
 //! | [`handle`] | the handle the agent holds: degraded-mode gate, force registry, safe-state capability |
-//! | `behaviour_table` | DEC-13.3 for the RevPi layers: what each event leaves on an output, shared by the mock tests and the hardware test (test-only; `tests/hil/` includes the file) |
+//! | `behaviour_table` | DEC-13.3 for the RevPi layers: what each event leaves on an output, the single definition: the agent's `safe_state::behaviour` table takes its PiControl column from it, and the mock tests and the hardware test (`tests/hil/` includes the file) play it |
 //!
 //! # The decisions that make it safe
 //!
@@ -44,7 +44,6 @@
 
 pub mod abi;
 pub mod backend;
-#[cfg(test)]
 pub mod behaviour_table;
 #[cfg(test)]
 mod behaviour_tests;
@@ -52,6 +51,7 @@ pub mod config;
 pub mod device;
 #[cfg(test)]
 pub(crate) mod fake;
+pub mod feed;
 pub mod handle;
 pub mod registry;
 pub mod rsc;

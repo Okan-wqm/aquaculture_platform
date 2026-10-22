@@ -128,6 +128,10 @@ async fn observe(event: Event) -> Option<Bits> {
             r.kernel.advance_ms(1001);
             Some(bits(&r.kernel))
         }
+        Event::FieldbusStall => {
+            let r = running().await;
+            Some(stalled_call(&r, FEEDING).await)
+        }
         Event::DegradedEntered => {
             let r = running().await;
             safe_state(&r);
@@ -167,8 +171,41 @@ async fn observe(event: Event) -> Option<Bits> {
     }
 }
 
+/// How long the loop has made no progress, as the feeder sees it.
+type Stalled = fn() -> Duration;
+
+/// A loop that has made progress just now.
+const FEEDING: Stalled = || Duration::ZERO;
+/// A loop whose call has outlived every bound.
+const PAST_THE_BOUND: Stalled = || Duration::from_secs(3600);
+
+/// One call of the I/O loop stays in flight for four watchdog periods of the
+/// fake kernel's clock (ten steps of 400 ms, each a real 20 ms), and the loop
+/// feeds the way `io_poll` does. Returns the outputs afterwards.
+async fn stalled_call(r: &Rig, stalled_for: Stalled) -> Bits {
+    let kernel = r.kernel.clone();
+    let handle = r.handle.clone();
+    let call = async move {
+        for _ in 0..10 {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            kernel.advance_ms(400);
+        }
+    };
+    super::feed::while_feeding(
+        call,
+        Duration::from_millis(5),
+        Duration::from_secs(60),
+        stalled_for,
+        || handle.feed(),
+    )
+    .await;
+    bits(&r.kernel)
+}
+
 fn expected(outcome: Outcome) -> Bits {
     match outcome {
+        // What control last wrote: the opposite of the safe values.
+        Outcome::Unchanged => (1, 0),
         // pump safe 0, aerator (life support) safe 1.
         Outcome::SafeValue | Outcome::PiCtoryDefault => (0, 1),
         Outcome::Zero => (0, 0),
@@ -201,6 +238,16 @@ async fn every_row_the_agent_and_the_driver_own_behaves_as_the_table_says() {
             ),
         }
     }
+}
+
+/// The stall test has teeth: with the feed withheld (a call past every bound)
+/// the same four periods zero the outputs, which is what a loop that fed only
+/// when a cycle completed did to a healthy agent whenever a Modbus device did
+/// not answer.
+#[tokio::test]
+async fn a_call_past_the_bound_is_not_fed_and_the_driver_zeroes_the_outputs() {
+    let r = running().await;
+    assert_eq!(stalled_call(&r, PAST_THE_BOUND).await, (0, 0));
 }
 
 #[tokio::test]

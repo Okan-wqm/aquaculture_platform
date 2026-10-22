@@ -75,24 +75,49 @@ pub async fn io_poll_loop(
     let picontrol = state.read().await.picontrol_handle.clone();
 
     loop {
-        crate::liveness::tick_while_waiting(&heartbeat, interval.tick()).await;
+        // One pass of the loop: wait for the next cycle, run it, tick.
+        let pass = async {
+            crate::liveness::tick_while_waiting(&heartbeat, interval.tick()).await;
 
-        if polling_allowed {
-            if let Err(e) = poll_cycle(&state, &heartbeat).await {
-                warn!("I/O poll cycle error: {}", e);
+            if polling_allowed {
+                if let Err(e) = poll_cycle(&state, &heartbeat).await {
+                    warn!("I/O poll cycle error: {}", e);
+                }
             }
-        }
-        // The cycle completed: nothing is in flight.
-        heartbeat.tick();
-        // ADR-048 DEC-6.7: the same tick feeds the piControl output watchdog,
-        // also in degraded mode (the safe values stay driven, not zeroed). A
-        // loop that stops reaching this line has the PiBridge outputs zeroed by
-        // the driver within the watchdog period.
-        if let Some(picontrol) = &picontrol {
-            picontrol.feed();
+            // The cycle completed: nothing is in flight.
+            heartbeat.tick();
+        };
+        match &picontrol {
+            // ADR-048 DEC-6.7: the piControl output watchdog is fed for as long
+            // as the pass is alive, also in degraded mode (the safe values stay
+            // driven, not zeroed), and not only when a cycle completes: a cycle
+            // awaits its field buses, and a Modbus device that does not answer
+            // would otherwise get the outputs of a healthy agent zeroed every
+            // period. A loop that is not polled, or whose call has not returned
+            // within the longest bound a call has, is not fed, and the driver
+            // zeroes the PiBridge outputs within the watchdog period.
+            Some(picontrol) => {
+                crate::picontrol::feed::while_feeding(
+                    pass,
+                    picontrol.feed_every(),
+                    OUTPUT_FEED_CALL_BOUND,
+                    || heartbeat.stalled_for(),
+                    || picontrol.feed(),
+                )
+                .await
+            }
+            None => pass.await,
         }
     }
 }
+
+/// The longest a single blocking call of the I/O loop may take, which is the
+/// Modbus phase of the cycle (every other call is shorter), and a margin. The
+/// piControl output watchdog is fed while a call is within it: a bounded call
+/// is not a stalled loop. Past it the call is not bounded after all and the
+/// feed stops.
+const OUTPUT_FEED_CALL_BOUND: std::time::Duration =
+    crate::modbus::READ_ALL_BOUND.saturating_add(std::time::Duration::from_secs(2));
 
 /// One I/O cycle. `heartbeat.progress()` follows every blocking read, so
 /// the watchdog's freshness window bounds one read, not the whole cycle

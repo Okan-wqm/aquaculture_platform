@@ -1346,13 +1346,33 @@ matrisi build'de belirlenir, yani bir feature'ın yokluğu çalışma anında de
   ve safe-state reddedilir, yeni imzalı dosya SIGHUP ile `reload` edilir. Süreç imajı `lseek` +
   `read`/`write` ile erişilir (tek `read` tutarlı bir anlık görüntüdür); tek bit `KB_SET_VALUE` ile
   yazılır (sürücünün kilidi altında oku-değiştir-yaz), daha geniş değer yalnız kendi baytlarıyla.
-  Çıkış watchdog'u (madde 6.7) açılışta değil döngünün ilk tick'inde kurulur ve her tick'te aynı
-  ioctl'le beslenir (süreç imajına yazmadan): açılışla döngü başlangıcı arasındaki saniyeler,
-  periyottan kısa bir watchdog'un başlayan agent'ın çıkışlarını sıfırlamasına yol açardı. Sürücü,
+  Çıkış watchdog'u (madde 6.7) açılışta değil döngünün ilk tick'inde kurulur ve aynı ioctl'le
+  beslenir (süreç imajına yazmadan): açılışla döngü başlangıcı arasındaki saniyeler, periyottan kısa
+  bir watchdog'un başlayan agent'ın çıkışlarını sıfırlamasına yol açardı. Besleme döngünün
+  canlılığını izler (`picontrol::feed::while_feeding`), bir döngü turunun tamamlanmasını değil:
+  tur saha yollarını bekler ve yanıt vermeyen bir Modbus cihazı onu 30 saniyeye kadar tutabilir
+  (yazma 10 s + cihaz okuması 10 s + hata kaydı için kilit 10 s, hepsi sınırlı), oysa varsayılan
+  periyot 4 saniyedir; turun sonunda beslemek, sağlıklı bir agent'ın çıkışlarını (fail-ON olanlar
+  dahil) cihaz dönene kadar her periyotta sıfırlamak demekti. Sınırlı bir çağrı sürerken
+  (döngü `select!` içinde yoklanıyor), besleme sürer; döngü hiç yoklanmıyorsa (bloklayan bir
+  çağrıya takılmış görev, durmuş runtime) besleyemez; ve bir çağrı döngünün son ilerlemesinden
+  itibaren en uzun sınırı (Modbus aşaması + 2 s pay) aşarsa besleme durur ve sürücü bir periyot
+  sonra sıfırlar. Dolayısıyla "döngü durursa 0" iki biçimde geçerlidir: yoklanmayan döngüde bir
+  periyot içinde, sınırı aşan çağrıda sınır + bir periyot içinde (her durumda systemd'nin 60 s'lik
+  watchdog'undan önce). Sürücü,
   watchdog'u kurulu bir descriptor kapanınca tüm çıkışları sıfırladığı için agent watchdog'u yalnız
   safe-state tamamlandıktan sonra kapatır: zarif yeniden başlatma güvenli değerleri korur, çökme
   çıkışları sıfırlar (DEC-13.3 tablosu `src/picontrol/behaviour_table.rs`; sahte çekirdekle
-  `cargo test`te, gerçek donanımda `tests/hil/output_behaviour_table.rs` ile). Safe-state geçişi
+  `cargo test`te, gerçek donanımda `tests/hil/output_behaviour_table.rs` ile). "Sıfırlar" burada
+  gerçek 0'dır: `piControlRelease()` ve `revpi_check_timeout()` her etkin modülün çıkış aralığına
+  literal 0 yazar, PiCtory varsayılanını geri yüklemez (varsayılanı geri yükleyen yol sürücü
+  reset'idir, `PiBridgeMaster_setDefaults`); kurulu watchdog'lu bir agent çöktüğünde fail-ON bir
+  çıkış (havalandırma) KAPANIR. Agent'ın yayımladığı davranış tablosu
+  (`get_config` `safe_state.output_behaviour`, `src/safe_state/behaviour.rs`) bu satırı kendi
+  yazmaz: RevPi sütununu bu tablodan türetir (tek tanım), böylece yayımlanan tablo ile donanım
+  testinin oynadığı tablo ayrışamaz. Çıkış başına "watchdog'a bağla ya da bağlama" kararı DEC-13.2
+  çıkış politikasıdır (P2) ve EDGE-HIGH-065 altında izlenir; o zamana dek watchdog'lu her çıkış için
+  devreye alma kayıtlarına bağımsız fail-safe kablolama (DEC-13.1) yazılır. Safe-state geçişi
   çıkış listesini açılıştaki yapılandırma anlık görüntüsünden değil sürücüye karşı kanıtlanmış kayıt
   defterinden alır: SIGHUP yeniden yüklemesiyle sonradan verilen bir çıkış da güvenli değerine
   sürülür (aksi halde `release` watchdog'u kapatır ve o çıkış son değerinde kalırdı); yeniden

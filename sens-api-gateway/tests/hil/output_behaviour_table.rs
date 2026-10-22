@@ -41,9 +41,10 @@
 //! # Rows
 //!
 //! The rows marked `MockAndHil` in the table are automated below:
-//! graceful restart, restart with an incomplete safe state, crash, stall,
-//! degraded (the control loop keeps feeding after the safe state), driver
-//! reset. The rows marked `Commissioning` (OS reboot, hardware watchdog reset,
+//! graceful restart, restart with an incomplete safe state, crash, stall (the
+//! loop stops being fed), a stalled field-bus call (the loop is alive and keeps
+//! feeding), degraded (the control loop keeps feeding after the safe state),
+//! driver reset. The rows marked `Commissioning` (OS reboot, hardware watchdog reset,
 //! power loss, module communication loss) need a person to cut power or pull
 //! the PiBridge cable; no test can, and `commissioning_rows_are_listed` prints
 //! them as the checklist for the installation record (DEC-13.1). What those
@@ -77,6 +78,8 @@ mod config;
 mod device;
 #[path = "../../src/picontrol/fake.rs"]
 mod fake;
+#[path = "../../src/picontrol/feed.rs"]
+mod feed;
 #[path = "../../src/picontrol/registry.rs"]
 mod registry;
 #[path = "../../src/picontrol/rsc.rs"]
@@ -172,6 +175,8 @@ impl Rig {
 
 fn expected(outcome: Outcome) -> (u8, u8) {
     match outcome {
+        // What the agent last drove: the opposite of the safe values.
+        Outcome::Unchanged => (1, 0),
         // pump safe 0, aerator (life support) safe 1.
         Outcome::SafeValue | Outcome::PiCtoryDefault => (0, 1),
         Outcome::Zero => (0, 0),
@@ -210,6 +215,24 @@ fn child_entry() {
         "safe-state-incomplete" => backend.release(false),
         "crash" => std::process::abort(),
         "stall" => std::thread::sleep(Duration::from_secs(120)),
+        "fieldbus-stall" => {
+            // One call of the I/O loop stays in flight for five watchdog
+            // periods (a Modbus device that does not answer); the loop is alive
+            // and feeds the way `io_poll` does.
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_time()
+                .build()
+                .expect("runtime");
+            runtime.block_on(feed::while_feeding(
+                tokio::time::sleep(Duration::from_millis(u64::from(WATCHDOG_MS) * 5)),
+                backend.feed_every(),
+                Duration::from_secs(60),
+                || Duration::ZERO,
+                || {
+                    backend.feed().expect("feed");
+                },
+            ));
+        }
         "degraded" => {
             backend.drive_safe("pump").expect("safe pump");
             backend.drive_safe("aerator").expect("safe aerator");
@@ -253,7 +276,7 @@ fn run_to_end(scenario: &str) -> std::process::ExitStatus {
 }
 
 fn assert_outcome(event: Event, observed: (u8, u8)) {
-    let row = behaviour_table::row(event).expect("row");
+    let row = behaviour_table::row(event);
     assert_eq!(
         row.proof,
         Proof::MockAndHil,
@@ -359,6 +382,22 @@ fn a_stalled_loop_is_zeroed_within_the_watchdog_period() {
     assert!(zeroed, "not zeroed within 3 x {WATCHDOG_MS} ms");
     eprintln!("stall zeroed the outputs after {:?}", started.elapsed());
     assert_outcome(Event::AgentStall, (0, 0));
+}
+
+/// An unrelated device that does not answer holds one call of the I/O loop for
+/// longer than the watchdog period. The loop is alive and feeds, so the driver
+/// neither zeroes the outputs nor does anything else to them. (Before the feed
+/// followed the loop's liveness instead of the cycle's end, this zeroed the
+/// outputs of a healthy agent every period.)
+#[test]
+fn a_stalled_field_bus_call_neither_zeroes_nor_changes_the_outputs() {
+    let rig = Rig::from_env();
+    let mut child = spawn_child("fieldbus-stall");
+    wait_ready(&mut child);
+    // Three periods pass with the call still in flight (it lasts five).
+    std::thread::sleep(Duration::from_millis(u64::from(WATCHDOG_MS) * 3));
+    assert_outcome(Event::FieldbusStall, rig.bits());
+    assert!(child.wait().expect("child").success());
 }
 
 #[test]
@@ -553,6 +592,16 @@ fn commissioning_rows_are_listed() {
     eprintln!("Commissioning checklist (DEC-13.1): record the observed behaviour per installation");
     for row in TABLE.iter().filter(|r| r.proof == Proof::Commissioning) {
         eprintln!("  [ ] {:?} ({:?}): {}", row.event, row.layer, row.note);
+    }
+    // What the automated rows imply for the installation record.
+    for event in [Event::AgentCrash, Event::AgentStall] {
+        let row = behaviour_table::row(event);
+        eprintln!(
+            "  [ ] {:?}: the driver ZEROES every PiBridge output (a fail-ON output goes OFF). \
+             Record, per output, whether it is under the output watchdog at all (DEC-13.2, \
+             tracked under EDGE-HIGH-065) and its independent fail-safe wiring (DEC-13.1): {}",
+            row.event, row.note
+        );
     }
     assert!(TABLE.iter().any(|r| r.proof == Proof::Commissioning));
 }

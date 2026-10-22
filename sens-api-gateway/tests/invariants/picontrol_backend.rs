@@ -32,22 +32,18 @@ mod source_scan_support;
 
 use std::collections::BTreeSet;
 
-use source_scan_support::{Scanned, crate_root, scan_src};
+use source_scan_support::{Scanned, crate_root, functions, scan_src};
 
 /// The files of `src/picontrol/` that exist only under `cfg(test)`: the scanner
 /// judges a file, not the `#[cfg(test)] mod` line that includes it.
-const TEST_ONLY: [&str; 3] = [
-    "src/picontrol/fake.rs",
-    "src/picontrol/behaviour_tests.rs",
-    "src/picontrol/behaviour_table.rs",
-];
+const TEST_ONLY: [&str; 2] = ["src/picontrol/fake.rs", "src/picontrol/behaviour_tests.rs"];
 
 /// What a release build compiles: every source file but the test-only ones,
 /// after checking that `picontrol.rs` really gates them.
 fn scan_production() -> Vec<Scanned> {
     let root =
         std::fs::read_to_string(crate_root().join("src/picontrol.rs")).expect("picontrol.rs");
-    for gated in ["behaviour_tests", "fake", "behaviour_table"] {
+    for gated in ["behaviour_tests", "fake"] {
         assert!(
             ["mod", "pub mod", "pub(crate) mod"]
                 .iter()
@@ -354,4 +350,37 @@ fn the_revpi_io_feature_has_no_dependency_and_is_not_a_default() {
             "boards.json names the feature {f}, which Cargo.toml does not define"
         );
     }
+}
+
+/// ADR-048 DEC-6.7: the output watchdog is fed for as long as the I/O loop is
+/// alive, not once per completed cycle. A cycle awaits its field buses, and a
+/// Modbus device that does not answer holds it for longer than the watchdog's
+/// default period: feeding after the cycle zeroed the outputs of a healthy
+/// agent, fail-ON ones included, for as long as the device stayed away.
+#[test]
+fn the_io_loop_feeds_the_output_watchdog_while_a_call_is_pending() {
+    let files = scan_production();
+    let io = file(&files, "src/io_poll.rs");
+    assert!(
+        !io.code_lines_with("while_feeding(").is_empty(),
+        "io_poll_loop must run each pass under while_feeding"
+    );
+    assert_eq!(
+        io.code_lines_with(".feed()").len(),
+        1,
+        "the only feed in io_poll.rs is the closure handed to while_feeding, not a call after the cycle"
+    );
+    assert!(
+        io.code.contains("crate::modbus::READ_ALL_BOUND"),
+        "the feed bound is the Modbus phase's, the longest blocking call of the cycle"
+    );
+    // The bound is the code's own: the per-device timeout is the constant it is
+    // computed from, not a second literal.
+    let modbus = file(&files, "src/modbus.rs");
+    let read_all = functions(&modbus.code)
+        .remove("read_all_parallel")
+        .expect("read_all_parallel")
+        .join("\n");
+    assert!(read_all.contains("DEVICE_READ_TIMEOUT"), "{read_all}");
+    assert!(!read_all.contains("from_secs(10)"), "{read_all}");
 }

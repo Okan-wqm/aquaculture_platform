@@ -407,6 +407,16 @@ impl Backend {
             .ok_or_else(|| WriteError::NotAnOutput(tag.to_owned()))
     }
 
+    /// How often the control loop feeds the watchdog while it is alive: four
+    /// times per period, so three feeds in a row can be late before the driver
+    /// zeroes the outputs, and no more often than the driver can be asked
+    /// usefully.
+    pub fn feed_every(&self) -> Duration {
+        let inner = lock(&self.shared.inner);
+        let ms = u64::from(inner.config.watchdog_ms(inner.io_interval_ms)) / 4;
+        Duration::from_millis(ms.clamp(50, 1_000))
+    }
+
     /// The control loop is alive: arm the output watchdog on the first call
     /// and restart its period on every call. Only a grant with outputs has a
     /// watchdog to feed.

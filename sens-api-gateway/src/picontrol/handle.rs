@@ -145,6 +145,12 @@ impl PiControlHandle {
         self.backend.drive_safe(tag)
     }
 
+    /// How often [`PiControlHandle::feed`] is called while the loop is alive
+    /// (see [`super::feed::while_feeding`]).
+    pub fn feed_every(&self) -> std::time::Duration {
+        self.backend.feed_every()
+    }
+
     /// The control loop is alive (arms and feeds the output watchdog). A
     /// failed feed is logged: if the driver cannot be fed the watchdog does
     /// what it is for.

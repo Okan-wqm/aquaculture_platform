@@ -69,6 +69,8 @@ struct Slot {
     /// (a completed cycle, a completed I/O call, idle time); NEVER before the
     /// first.
     last_tick_ms: AtomicU64,
+    /// Milliseconds since the registry origin at which the loop registered.
+    registered_ms: u64,
     /// Completed cycles.
     cycles: AtomicU64,
     exited: AtomicBool,
@@ -124,6 +126,28 @@ impl Heartbeat {
     /// Which loop this is.
     pub fn id(&self) -> LoopId {
         self.slot.id
+    }
+
+    /// How long ago the loop last showed a sign of progress (a completed
+    /// cycle, a completed blocking call, idle time), or, before its first, how
+    /// long ago it registered. The same notion of "stalled" the systemd
+    /// watchdog's verdict uses, as a duration: the piControl output watchdog is
+    /// fed while a bounded call is in flight and left to expire once the loop
+    /// has made no progress for longer than the longest such call.
+    pub fn stalled_for(&self) -> Duration {
+        self.stalled_for_at(Instant::now())
+    }
+
+    fn stalled_for_at(&self, now: Instant) -> Duration {
+        let now_ms = u64::try_from(now.saturating_duration_since(self.origin).as_millis())
+            .unwrap_or(NEVER - 1);
+        let last = self.slot.last_tick_ms.load(Ordering::Acquire);
+        let since = if last == NEVER {
+            self.slot.registered_ms
+        } else {
+            last
+        };
+        Duration::from_millis(now_ms.saturating_sub(since))
     }
 
     /// A tick at a chosen instant (tests drive the clock explicitly).
@@ -196,6 +220,8 @@ impl Liveness {
         let slot = Arc::new(Slot {
             id,
             last_tick_ms: AtomicU64::new(NEVER),
+            registered_ms: u64::try_from(self.inner.origin.elapsed().as_millis())
+                .unwrap_or(NEVER - 1),
             cycles: AtomicU64::new(0),
             exited: AtomicBool::new(false),
         });
@@ -419,6 +445,31 @@ mod tests {
         // The I/O loop completes its cycle: live again.
         io.tick_at(t0 + Duration::from_secs(31));
         assert!(l.verdict_at(t0 + Duration::from_secs(31), window).live);
+    }
+
+    /// `stalled_for` is the verdict's staleness as a duration: from the last
+    /// sign of progress, or from registration before the first.
+    #[test]
+    fn a_loop_is_stalled_for_the_time_since_its_last_progress() {
+        let l = Liveness::new();
+        let io = l.register(LoopId::IoPoll);
+        let t0 = Instant::now();
+        // Never ticked: counted from registration.
+        let registered = io.stalled_for_at(t0 + Duration::from_secs(5));
+        assert!(
+            registered >= Duration::from_secs(5) && registered < Duration::from_secs(6),
+            "{registered:?}"
+        );
+        // A tick restarts the count.
+        io.tick_at(t0 + Duration::from_secs(10));
+        assert_eq!(io.stalled_for_at(t0 + Duration::from_secs(12)).as_secs(), 2);
+        io.tick_at(t0 + Duration::from_secs(13));
+        assert_eq!(
+            io.stalled_for_at(t0 + Duration::from_secs(13)),
+            Duration::ZERO
+        );
+        // A clock earlier than the last tick is no negative age.
+        assert_eq!(io.stalled_for_at(t0), Duration::ZERO);
     }
 
     #[test]

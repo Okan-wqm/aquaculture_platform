@@ -44,8 +44,14 @@ pub enum Event {
     AgentRestartSafeStateIncomplete,
     /// SIGKILL, an OOM kill, a panic under `panic = "abort"`.
     AgentCrash,
-    /// The process lives, the control loop does not tick: no feed.
+    /// The process lives, the control loop does not tick: no feed (the loop
+    /// task is wedged, or a call has not returned within the longest bound any
+    /// call has).
     AgentStall,
+    /// A call of the I/O loop to a field-bus device stays in flight (a Modbus
+    /// device that does not answer, a row of slow I2C probes) while the loop
+    /// itself is alive: the watchdog keeps being fed.
+    FieldbusStall,
     /// The agent enters degraded mode and stays up.
     DegradedEntered,
     /// Root loads a new `config.rsc` into the driver (a site config update).
@@ -63,8 +69,13 @@ pub enum Event {
 /// What decides the state of the output.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Layer {
-    /// The agent's safe-state pass (and the degraded-mode gate).
+    /// The agent's safe-state pass.
     AgentSafeState,
+    /// The agent's control gate: degraded mode refuses every writer but the
+    /// safe-state pass.
+    ControlGate,
+    /// The agent's I/O loop, which feeds the output watchdog while it is alive.
+    ControlLoop,
     /// The driver's per-descriptor output watchdog (timeout or close).
     PiControlWatchdog,
     /// The driver's default image (`config.rsc` defaults).
@@ -88,6 +99,8 @@ pub enum Outcome {
     ModuleDefault,
     /// No supply, no drive.
     DeEnergised,
+    /// What control last wrote: the event does not reach the output.
+    Unchanged,
 }
 
 /// How a row is proven.
@@ -136,18 +149,35 @@ pub const TABLE: &[Row] = &[
         layer: Layer::PiControlWatchdog,
         outcome: Outcome::Zero,
         proof: Proof::MockAndHil,
-        note: "the kernel closes the descriptor of a dead process while the watchdog is armed",
+        note: "the kernel closes the descriptor of a dead process while the watchdog is armed, \
+               and piControlRelease() zeroes every active module's outputs: ZERO, not the \
+               PiCtory default, so a fail-ON output (an aerator) goes OFF. Arming the watchdog \
+               is what makes a crash zero the outputs; a life-support output needs independent \
+               fail-safe wiring (DEC-13.1), and whether an output is under the watchdog at all \
+               is a per-output decision (DEC-13.2, tracked under EDGE-HIGH-065)",
     },
     Row {
         event: Event::AgentStall,
         layer: Layer::PiControlWatchdog,
         outcome: Outcome::Zero,
         proof: Proof::MockAndHil,
-        note: "within output_watchdog_ms of the last feed, independent of systemd's 60 s watchdog",
+        note: "within output_watchdog_ms of the last feed, independent of systemd's 60 s watchdog; \
+               the feed stops when the loop task is not polled at all, and when a call has made \
+               no progress for longer than the longest bound a call has (the Modbus phase of the \
+               cycle, plus a margin)",
+    },
+    Row {
+        event: Event::FieldbusStall,
+        layer: Layer::ControlLoop,
+        outcome: Outcome::Unchanged,
+        proof: Proof::MockAndHil,
+        note: "the loop feeds the watchdog while a bounded call is in flight, so an unrelated \
+               device that does not answer neither zeroes the outputs of a healthy agent nor \
+               changes them; a call that outlives its bound is an AgentStall",
     },
     Row {
         event: Event::DegradedEntered,
-        layer: Layer::AgentSafeState,
+        layer: Layer::ControlGate,
         outcome: Outcome::SafeValue,
         proof: Proof::MockAndHil,
         note: "the loop keeps feeding the watchdog while degraded, so the safe values are held \
@@ -194,9 +224,23 @@ pub const TABLE: &[Row] = &[
     },
 ];
 
-/// The row of an event.
-pub fn row(event: Event) -> Option<&'static Row> {
-    TABLE.iter().find(|r| r.event == event)
+/// The row of an event. Exhaustive over [`Event`]: an event without a row does
+/// not compile, so the lookup cannot fail (the test below pins that each index
+/// is the row of its own event).
+pub const fn row(event: Event) -> &'static Row {
+    match event {
+        Event::AgentGracefulRestart => &TABLE[0],
+        Event::AgentRestartSafeStateIncomplete => &TABLE[1],
+        Event::AgentCrash => &TABLE[2],
+        Event::AgentStall => &TABLE[3],
+        Event::FieldbusStall => &TABLE[4],
+        Event::DegradedEntered => &TABLE[5],
+        Event::DriverReset => &TABLE[6],
+        Event::OsRebootGraceful => &TABLE[7],
+        Event::HardwareWatchdogReset => &TABLE[8],
+        Event::PowerLoss => &TABLE[9],
+        Event::ModuleCommsLoss => &TABLE[10],
+    }
 }
 
 #[cfg(test)]
@@ -210,6 +254,7 @@ mod tests {
             Event::AgentRestartSafeStateIncomplete,
             Event::AgentCrash,
             Event::AgentStall,
+            Event::FieldbusStall,
             Event::DegradedEntered,
             Event::DriverReset,
             Event::OsRebootGraceful,
@@ -219,7 +264,7 @@ mod tests {
         ];
         for e in events {
             assert_eq!(TABLE.iter().filter(|r| r.event == e).count(), 1, "{e:?}");
-            assert_eq!(row(e).map(|r| r.event), Some(e), "{e:?}");
+            assert_eq!(row(e).event, e, "{e:?}");
         }
         assert_eq!(TABLE.len(), events.len());
     }
@@ -229,7 +274,11 @@ mod tests {
         for r in TABLE {
             let owned = matches!(
                 r.layer,
-                Layer::AgentSafeState | Layer::PiControlWatchdog | Layer::PiControlDefaults
+                Layer::AgentSafeState
+                    | Layer::ControlGate
+                    | Layer::ControlLoop
+                    | Layer::PiControlWatchdog
+                    | Layer::PiControlDefaults
             );
             assert_eq!(
                 r.proof == Proof::MockAndHil,

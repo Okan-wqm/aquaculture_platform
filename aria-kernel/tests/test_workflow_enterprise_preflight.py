@@ -36,13 +36,25 @@ def _write_runtime_workflow(root: Path, workflow_id: str) -> None:
 
 
 class WorkflowEnterprisePreflightTests(unittest.TestCase):
-    def test_upload_artifact_action_pins_live_v7_0_1_sha(self) -> None:
-        # D4 (ADR-036) — the registry verifier must enforce the REAL live pin
-        # (043fb46d… v7.0.1), not the canonical's stale ea165f8d… pin.
-        self.assertEqual(
-            UPLOAD_ARTIFACT_ACTION,
-            "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
-        )
+    def test_upload_artifact_action_is_the_sha_pin_the_live_workflows_use(self) -> None:
+        # D4 (ADR-036) — the registry verifier must enforce the REAL live pin,
+        # not a stale one (the canonical blob once carried ea165f8d…). The
+        # constant is the one owner of that pin; restating its SHA here made
+        # every upload-artifact bump (#1939, v7.0.2) a second edit, so the test
+        # asks the live ARIA workflows instead of a literal.
+        import yaml  # local import: the verifier owns the dependency
+
+        self.assertRegex(UPLOAD_ARTIFACT_ACTION, r"^actions/upload-artifact@[0-9a-f]{40}$")
+        repo = Path(__file__).resolve().parents[2]
+        live_pins = set()
+        for path in discover_aria_workflows(repo).values():
+            workflow = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+            for job in (workflow.get("jobs") or {}).values():
+                for step in job.get("steps") or []:
+                    uses = str(step.get("uses") or "")
+                    if uses.startswith("actions/upload-artifact@"):
+                        live_pins.add(uses)
+        self.assertEqual(live_pins, {UPLOAD_ARTIFACT_ACTION})
 
     def test_global_kill_switch_is_hard_failure(self) -> None:
         # Security assertion #1 (preserved from main's 9) — kill switch is a
@@ -348,7 +360,7 @@ jobs:
       - name: Run observe burn-in proof
         run: python3 -m aria_kernel autonomy burn-in observe --cycles 30
       - name: Upload ARIA operational proof
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: """ + UPLOAD_ARTIFACT_ACTION + """
         with:
           name: aria-operational-proof-${{ github.sha }}
           path: ${{ runner.temp }}/aria-operational-proof/
@@ -426,7 +438,7 @@ jobs:
       - name: Run observe burn-in proof
         run: npm run aria:test:unit
       - name: Upload ARIA operational proof
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: """ + UPLOAD_ARTIFACT_ACTION + """
         with:
           name: aria-operational-proof-${{ github.sha }}
           path: ${{ runner.temp }}/aria-operational-proof/
@@ -482,7 +494,7 @@ jobs:
       - name: Run observe burn-in proof
         run: npm run aria:test:unit
       - name: Upload ARIA operational proof
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: """ + UPLOAD_ARTIFACT_ACTION + """
         with:
           name: aria-operational-proof-${{ github.sha }}
           path: ${{ runner.temp }}/aria-operational-proof/

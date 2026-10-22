@@ -13,24 +13,59 @@
 //! pin behavior at the documentation layer while runtime assertion
 //! awaits lib-split (Sprint 6.x).
 
+#[path = "source_scan_support/mod.rs"]
+mod source_scan_support;
+
+use source_scan_support::{functions, scan_src};
+
 #[test]
-fn signature_mode_default_is_disabled() {
-    // HC-1 BACKWARD COMPAT CONTRACT: operators running pre-
-    // Batch-45 configs (no signature_mode field) MUST get the
-    // de-facto v1.6.0 behavior. SignatureMode::default() MUST
-    // be Disabled — any envelope accepted, no verification.
+fn signature_mode_default_is_permissive_on_generic_and_enforcing_on_suderra_os() {
+    // HC-1 BACKWARD COMPAT CONTRACT (ADR-048 DEC-9.10, DEC-28): a
+    // configuration that names no `signature_mode` (every v1.6.0
+    // configuration) must load in a release build. The old default,
+    // Disabled, is what a release build refuses
+    // (`check_release_posture`), so the whole fleet's configurations
+    // failed to load (SENSOR-CRITICAL-203). The generic profile's default
+    // is therefore Permissive: unsigned mutating commands are logged,
+    // every signed envelope is still verified. The suderra-os profile
+    // compiles Enforcing alone and makes it the default. Disabled is
+    // never a default of either profile.
     //
-    // When Sprint 6.4 wires the actual envelope verify path,
-    // Disabled still accepts everything; Permissive logs+accepts;
-    // Enforcing rejects unsigned mutating. The default staying
-    // Disabled until an explicit opt-in is the rollout-safety
-    // guarantee.
-    //
-    // Full runtime assertion (requires lib-split):
-    //   use suderra_agent::command_envelope::envelope::SignatureMode;
-    //   assert_eq!(SignatureMode::default(), SignatureMode::Disabled);
-    let _contract = "SignatureMode::default() returns Disabled for HC-1 backward compat";
-    assert!(!_contract.is_empty());
+    // Read from the enum's source, because the check has to see the
+    // `#[default]` of the profile that is not being compiled.
+    let src = std::fs::read_to_string("src/command_envelope/envelope.rs")
+        .expect("invariant runs from the sens-api-gateway/ working dir per cargo convention");
+    let start = src
+        .find("pub enum SignatureMode")
+        .expect("SignatureMode must exist in command_envelope/envelope.rs");
+    let open = start + src[start..].find('{').expect("the enum has a body");
+    let close = open + src[open..].find("\n}").expect("the enum body is closed");
+    let body = &src[open..close];
+
+    let after_default = body
+        .split_once("#[default]")
+        .expect("the generic profile's default variant carries #[default]")
+        .1;
+    let generic_default: String = after_default
+        .trim_start()
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+        .collect();
+    assert_eq!(
+        generic_default, "Permissive",
+        "SENSOR-CRITICAL-203: the generic profile's SignatureMode default must be Permissive \
+         (Disabled is refused by a release build, so a v1.6.0 configuration would not load)"
+    );
+
+    let enforcing = body
+        .find("    Enforcing,")
+        .expect("SignatureMode::Enforcing must exist in both profiles");
+    assert!(
+        body[..enforcing]
+            .trim_end()
+            .ends_with("#[cfg_attr(feature = \"suderra-os\", default)]"),
+        "DEC-9.1: Enforcing must be the suderra-os profile's default"
+    );
 }
 
 #[test]
@@ -65,9 +100,9 @@ fn signature_mode_serde_uses_snake_case() {
     // `#[serde(rename_all = "snake_case")]` so the wire
     // representation in config.yaml is lowercase:
     //
-    //   signature_mode: disabled    # default
-    //   signature_mode: permissive
-    //   signature_mode: enforcing
+    //   signature_mode: disabled    # generic profile, debug builds only
+    //   signature_mode: permissive  # generic profile default
+    //   signature_mode: enforcing   # suderra-os profile (the only mode)
     //
     // Changing the serde representation (e.g., to PascalCase)
     // would break every deployed config.yaml. Plan Sprint
@@ -117,36 +152,68 @@ fn signature_mode_hc6_rollout_ordering_discipline() {
 #[test]
 fn release_build_rejects_disabled_signature_mode_and_legacy_mtls() {
     // EDGE-HIGH-010 WIRE-STATUS INVARIANT: the fail-open
-    // security-posture defaults (SignatureMode::Disabled,
-    // MtlsMode::Legacy) stay the `#[default]` for debug builds
-    // and staged rollouts, but a RELEASE build MUST fail to boot
-    // rather than silently accept unsigned commands / log-only
-    // pinning. `validate_faz2_security_coherence` carries a
-    // `#[cfg(not(debug_assertions))]` gate that bails on both.
+    // security-posture modes (SignatureMode::Disabled, MtlsMode::Legacy
+    // with a pin configured) stay available to debug builds and staged
+    // rollouts, but a RELEASE build MUST fail to boot rather than silently
+    // accept unsigned commands / log-only pinning.
     //
-    // Why grep (Tier-3): the gate is compiled OUT of debug/test
-    // builds, so a runtime assertion here cannot exercise it —
-    // a source-read is the detection that catches the
-    // silent-regression class (someone deletes the release gate).
-    let src = std::fs::read_to_string("src/config.rs").expect(
-        "release-gate invariant runs from the sens-api-gateway/ working dir per cargo convention",
+    // The refusal is `AgentConfig::check_release_posture` (a function of its
+    // own so a test can run any configuration, the v1.6.0 fleet's included,
+    // through the release posture from a debug build);
+    // `validate_faz2_security_coherence` calls it behind
+    // `!cfg!(debug_assertions)`. This test holds both halves: what the
+    // posture refuses, and that the validation reaches it in a release
+    // build.
+    //
+    // Why a source read (Tier-3): the call is compiled OUT of debug/test
+    // builds, so a runtime assertion here cannot exercise it — a source-read
+    // is the detection that catches the silent-regression class (someone
+    // deletes the release gate or empties the posture).
+    let config = scan_src()
+        .into_iter()
+        .find(|f| f.rel == "src/config.rs")
+        .expect("src/config.rs is scanned");
+    let fns = functions(&config.code);
+    let body_of = |name: &str| -> String {
+        fns.get(name)
+            .and_then(|bodies| bodies.first())
+            .unwrap_or_else(|| panic!("{name} must exist in src/config.rs"))
+            .clone()
+    };
+
+    let posture = body_of("check_release_posture");
+    assert!(
+        posture.contains("SignatureMode::Disabled"),
+        "EDGE-HIGH-010: the release posture no longer rejects signature_mode=disabled."
     );
-    let coherence_idx = src
-        .find("fn validate_faz2_security_coherence")
-        .expect("validate_faz2_security_coherence must exist — it is the security-posture gate");
-    let coherence = &src[coherence_idx..];
+    assert!(
+        posture.contains("MtlsMode::Legacy"),
+        "EDGE-HIGH-010: the release posture no longer rejects mtls.mode=legacy."
+    );
+    assert!(
+        posture.matches("bail!").count() >= 2,
+        "EDGE-HIGH-010: the release posture must refuse (bail) for each of the two postures."
+    );
+
+    let coherence = body_of("validate_faz2_security_coherence");
+    let call = coherence.find("self.check_release_posture()").expect(
+        "EDGE-HIGH-010 regression: validate_faz2_security_coherence no longer runs the \
+             release posture — fail-open defaults could ship in a release binary.",
+    );
+    let gate = coherence[..call]
+        .rfind("debug_assertions")
+        .expect("the release posture must be gated on debug_assertions");
+    assert!(
+        coherence[..gate].ends_with("!cfg!(") && !coherence[gate..call].contains('}'),
+        "EDGE-HIGH-010 regression: the release posture must run directly under \
+         `if !cfg!(debug_assertions)` — debug builds keep the dev-rollout modes, a \
+         release build must not."
+    );
 
     assert!(
-        coherence.contains("#[cfg(not(debug_assertions))]"),
-        "EDGE-HIGH-010 regression: validate_faz2_security_coherence lost its \
-         release-build gate — fail-open defaults could ship in a release binary."
-    );
-    assert!(
-        coherence.contains("SignatureMode::Disabled"),
-        "EDGE-HIGH-010: release gate no longer rejects signature_mode=disabled."
-    );
-    assert!(
-        coherence.contains("MtlsMode::Legacy"),
-        "EDGE-HIGH-010: release gate no longer rejects mtls.mode=legacy."
+        fns.values()
+            .flatten()
+            .any(|body| body.contains("self.validate_faz2_security_coherence()")),
+        "EDGE-HIGH-010 regression: nothing calls validate_faz2_security_coherence."
     );
 }

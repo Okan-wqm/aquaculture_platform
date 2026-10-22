@@ -33,6 +33,7 @@ use serde_json::{Value, json};
 use tracing::{error, info, warn};
 
 use super::CommandHandler;
+use super::write_target::ModbusWriteTarget;
 use crate::safe_state::OutputId;
 
 impl CommandHandler {
@@ -54,38 +55,19 @@ impl CommandHandler {
     pub(super) async fn cmd_write_modbus(&self, params: &Value) -> (bool, Value, Option<String>) {
         info!("Executing write_modbus command");
 
-        let device_name = match params.get("device").and_then(|v| v.as_str()) {
-            Some(d) => d,
-            None => {
-                return (
-                    false,
-                    json!(null),
-                    Some("Missing 'device' parameter".to_string()),
-                );
+        // The device and register this command writes: the same resolution the
+        // permission was derived from (ADR-048 DEC-9.7, EDGE-HIGH-063), done
+        // here again from the configuration so no path to this handler can
+        // name a different device than the one authorized.
+        let target = {
+            let state = self.state.read().await;
+            match ModbusWriteTarget::resolve(params, &state.config.modbus) {
+                Ok(target) => target,
+                Err(e) => return (false, json!(null), Some(e.to_string())),
             }
         };
-
-        let address = match params.get("address").and_then(|v| v.as_u64()) {
-            Some(a) if a <= u16::MAX as u64 => a as u16,
-            Some(a) => {
-                return (
-                    false,
-                    json!(null),
-                    Some(format!(
-                        "Address {} exceeds maximum u16 value ({})",
-                        a,
-                        u16::MAX
-                    )),
-                );
-            }
-            None => {
-                return (
-                    false,
-                    json!(null),
-                    Some("Missing 'address' parameter".to_string()),
-                );
-            }
-        };
+        let device_name = target.device.as_str();
+        let address = target.address;
 
         let value = match params.get("value").and_then(|v| v.as_u64()) {
             Some(v) if v <= u16::MAX as u64 => v as u16,

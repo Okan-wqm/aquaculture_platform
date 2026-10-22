@@ -56,35 +56,9 @@ use tracing::warn;
 use crate::alarms::{AlarmDefinition, AlarmPriority};
 #[cfg(not(feature = "suderra-os"))]
 use crate::process_image::{AtlasEzoType, I2cDriverType, IoType, TagConfig, TagSource};
-use crate::process_image::{ProtocolConfig, TagQuality};
+use crate::process_image::ProtocolConfig;
 
 use super::CommandHandler;
-use crate::safe_state::OutputId;
-
-/// The safe-state identity of the output a `set_output` wrote, when the
-/// registry has one (a protocol with no registered outputs has no safe value to
-/// drive, so a write to it is no remote hold).
-fn remote_output_id(
-    protocol: &ProtocolConfig,
-    tag_name: &str,
-    state: &crate::AppState,
-) -> Option<OutputId> {
-    match protocol {
-        ProtocolConfig::Gpio { pin, .. } => Some(OutputId::gpio_pin(*pin)),
-        ProtocolConfig::Modbus {
-            slave_id, register, ..
-        } => state
-            .config
-            .modbus
-            .iter()
-            .find(|device| device.slave_id == *slave_id)
-            .map(|device| OutputId::modbus_coil(&device.name, *register)),
-        ProtocolConfig::PiControl { .. } => Some(OutputId::picontrol(tag_name)),
-        ProtocolConfig::I2c { .. } | ProtocolConfig::Spi { .. } | ProtocolConfig::Uart { .. } => {
-            None
-        }
-    }
-}
 
 impl CommandHandler {
     /// Suderra OS: the I/O map is signed site material (ADR-048
@@ -183,107 +157,21 @@ impl CommandHandler {
             }
         };
 
-        let write_result = match &config.protocol_config {
-            ProtocolConfig::Gpio { pin, .. } => {
-                if let Some(ref handle) = state.gpio_handle {
-                    let bool_value = value != 0.0;
-                    match handle.write_pin(*pin, bool_value).await {
-                        Ok(()) => Ok(()),
-                        Err(e) => Err(format!("GPIO write failed: {}", e)),
-                    }
-                } else {
-                    Err("GPIO handle not available".to_string())
-                }
-            }
-            ProtocolConfig::Modbus {
-                slave_id,
-                register,
-                function: _,
-                register_type: _,
-            } => {
-                if let Some(ref handle) = state.modbus_handle {
-                    let bool_value = value != 0.0;
-                    if let Some(device) = state
-                        .config
-                        .modbus
-                        .iter()
-                        .find(|device| device.slave_id == *slave_id)
-                    {
-                        match handle.write_coil(&device.name, *register, bool_value).await {
-                            Ok(()) => Ok(()),
-                            Err(e) => Err(format!("Modbus write failed: {}", e)),
-                        }
-                    } else {
-                        Err(format!(
-                            "No Modbus device configured for slave_id {}",
-                            slave_id
-                        ))
-                    }
-                } else {
-                    Err("Modbus handle not available".to_string())
-                }
-            }
-            ProtocolConfig::I2c {
-                bus: _,
-                address: _,
-                driver_type: _,
-            } => {
-                if let Some(ref handle) = state.i2c_handle {
-                    let data = (value as u32).to_be_bytes().to_vec();
-                    match handle.write_direct(&tag_name, &data).await {
-                        Ok(()) => Ok(()),
-                        Err(e) => Err(format!("I2C write failed: {}", e)),
-                    }
-                } else {
-                    Err("I2C handle not available".to_string())
-                }
-            }
-            ProtocolConfig::PiControl { .. } => {
-                // The backend checks the degraded gate, the force registry, its
-                // output grant and the layout; the value is range-checked
-                // against the variable, never saturated.
-                if let Some(ref handle) = state.picontrol_handle {
-                    match handle.write_output(&tag_name, value).await {
-                        Ok(written) => {
-                            // The value read back, in raw units: storing the
-                            // commanded value would apply the tag's scaling twice.
-                            state
-                                .process_image
-                                .update_tag_notifying(
-                                    &tag_name,
-                                    written.value,
-                                    TagQuality::Good,
-                                    config.source,
-                                )
-                                .await;
-                            Ok(())
-                        }
-                        Err(e) => Err(format!("piControl write failed: {e}")),
-                    }
-                } else {
-                    Err("piControl handle not available".to_string())
-                }
-            }
-            _ => Err(format!(
-                "Write not supported for protocol {:?}",
-                config.protocol_config
-            )),
-        };
+        // One resolution of the tag to a device, a function and a value for
+        // every ingress path (ADR-048 DEC-9.7, EDGE-HIGH-062): the tag's own
+        // register type decides FC05 or FC06, the device is the one that owns
+        // the register, and a value the register cannot hold is refused.
+        let write_result = crate::tag_writer::write_tag(&state, &config, value).await;
 
         match write_result {
-            Ok(()) => {
+            Ok(written) => {
                 // The output a remote command wrote is held while the cloud link
                 // is up and driven safe when the hold runs out (DEC-13.3). The
                 // identity is the one the safe-state registry uses.
-                if let Some(output) = remote_output_id(&config.protocol_config, &tag_name, &state) {
+                if let Some(output) = written.target.as_ref().and_then(|t| t.output_id()) {
                     state.remote_holds.record(output);
                 }
-                if !config.protocol_config.is_picontrol() {
-                    state
-                        .process_image
-                        .update_tag(&tag_name, value, TagQuality::Good, config.source)
-                        .await;
-                }
+                crate::tag_writer::record(&state, &config, value, &written).await;
                 info!("Output set: {} = {}", tag_name, value);
                 (true, json!({ "tag_name": tag_name, "value": value }), None)
             }

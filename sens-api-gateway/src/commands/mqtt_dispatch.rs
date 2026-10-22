@@ -190,7 +190,29 @@ impl super::CommandHandler {
                             }
                         }
                     }
-                    envelope_adapter::AdapterOutcome::Verified(adapted) => {
+                    envelope_adapter::AdapterOutcome::Verified(mut adapted) => {
+                        // ADR-048 DEC-9.7 / EDGE-HIGH-063: a command that names a
+                        // Modbus device is resolved against the configuration
+                        // once, here; the permission below and the handler's
+                        // write then read the same device and register.
+                        let resolved = {
+                            let state_guard = self.state.read().await;
+                            super::write_target::canonicalise(
+                                &adapted.command,
+                                &adapted.params,
+                                &state_guard.config.modbus,
+                            )
+                        };
+                        match resolved {
+                            Ok(params) => adapted.params = params,
+                            Err(reason) => {
+                                warn!(
+                                    "Rejecting command '{}' (id {}): {}",
+                                    adapted.command, adapted.command_id, reason
+                                );
+                                return Ok(());
+                            }
+                        }
                         // EDGE-HIGH-009: the signature proved WHO signed
                         // (authN); now enforce that the actor's manifest
                         // role HOLDS the required permission (authZ).

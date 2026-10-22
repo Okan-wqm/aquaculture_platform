@@ -43,6 +43,7 @@ mod process_hardening;
 // SUDERRA_CONFIG / SUDERRA_DATA_DIR / SUDERRA_DB_KEY_PATH overrides.
 mod paths;
 mod picontrol; // ADR-048 DEC-8.8: RevPi process-image backend (/dev/piControl0)
+mod tag_writer; // ADR-048 DEC-9.7: the one place a tag becomes a write to hardware
 // ADR-048 DEC-19: the only reader of security-relevant environment
 // variables. Not compiled in the `suderra-os` profile, so no Suderra OS code
 // path can consult one (tests/invariants/no_security_env_in_suderra_os.rs).
@@ -6274,8 +6275,6 @@ async fn run_agent(
         let cmd_state = state.clone();
         let mut exec_shutdown = shutdown_coordinator.subscribe();
         let exec_handle = tokio::spawn(async move {
-            use crate::process_image::{ProtocolConfig, TagQuality};
-
             loop {
                 let cmd = tokio::select! {
                     biased;
@@ -6303,100 +6302,14 @@ async fn run_agent(
                         .await
                         .ok_or_else(|| format!("Tag '{}' not found", cmd.tag))?;
 
-                    let write_result = match &config.protocol_config {
-                        ProtocolConfig::Gpio { pin, .. } => {
-                            if let Some(ref handle) = s.gpio_handle {
-                                handle
-                                    .write_pin(*pin, cmd.value != 0.0)
-                                    .await
-                                    .map_err(|e| format!("GPIO: {}", e))
-                            } else {
-                                Err("GPIO unavailable".to_string())
-                            }
-                        }
-                        ProtocolConfig::Modbus { register, .. } => {
-                            if let Some(ref handle) = s.modbus_handle {
-                                if let Some(device) = s.config.modbus.first() {
-                                    // Determine write type based on IoType
-                                    if matches!(config.io_type, crate::process_image::IoType::DO) {
-                                        handle
-                                            .write_coil(&device.name, *register, cmd.value != 0.0)
-                                            .await
-                                            .map_err(|e| format!("Modbus coil: {}", e))
-                                    } else {
-                                        // Analog output: reverse-scale and write register
-                                        let raw_value = reverse_scale(cmd.value, &config);
-                                        handle
-                                            .write_register(
-                                                &device.name,
-                                                *register,
-                                                raw_value as u16,
-                                            )
-                                            .await
-                                            .map_err(|e| format!("Modbus register: {}", e))
-                                    }
-                                } else {
-                                    Err("No Modbus devices".to_string())
-                                }
-                            } else {
-                                Err("Modbus unavailable".to_string())
-                            }
-                        }
-                        ProtocolConfig::I2c { .. } => {
-                            if let Some(ref handle) = s.i2c_handle {
-                                let data = (cmd.value as u32).to_be_bytes().to_vec();
-                                handle
-                                    .write_direct(&cmd.tag, &data)
-                                    .await
-                                    .map_err(|e| format!("I2C: {}", e))
-                            } else {
-                                Err("I2C unavailable".to_string())
-                            }
-                        }
-                        ProtocolConfig::PiControl { .. } => {
-                            // The backend checks the degraded gate, the force
-                            // registry, its output grant and the layout, and
-                            // stores the value it read back in the process image.
-                            if let Some(ref handle) = s.picontrol_handle {
-                                match handle.write_output(&cmd.tag, cmd.value).await {
-                                    Ok(written) => {
-                                        s.process_image
-                                            .update_tag_notifying(
-                                                &cmd.tag,
-                                                written.value,
-                                                TagQuality::Good,
-                                                config.source,
-                                            )
-                                            .await;
-                                        Ok(())
-                                    }
-                                    Err(e) => Err(format!("piControl: {e}")),
-                                }
-                            } else {
-                                Err("piControl unavailable".to_string())
-                            }
-                        }
-                        _ => Err(format!(
-                            "Write unsupported for {:?}",
-                            config.protocol_config
-                        )),
-                    };
-
-                    match write_result {
-                        Ok(()) => {
-                            // A piControl write already stored the value it read
-                            // back, in raw units; storing the commanded value
-                            // again would apply the tag's scaling twice.
-                            if !config.protocol_config.is_picontrol() {
-                                s.process_image
-                                    .update_tag(
-                                        &cmd.tag,
-                                        cmd.value,
-                                        TagQuality::Good,
-                                        config.source,
-                                    )
-                                    .await;
-                            }
+                    // One resolution of the tag to a device, a function and a
+                    // value for every ingress path (ADR-048 DEC-9.7, EDGE-HIGH-062):
+                    // the PLC that owns the register, not `modbus.first()`, and an
+                    // analog value the register cannot hold is refused, not
+                    // saturated.
+                    match crate::tag_writer::write_tag(&s, &config, cmd.value).await {
+                        Ok(written) => {
+                            crate::tag_writer::record(&s, &config, cmd.value, &written).await;
                             info!("SCADA command executed: {} = {}", cmd.tag, cmd.value);
                             Ok(cmd.value)
                         }
@@ -7250,27 +7163,6 @@ async fn publish_capabilities(state: &AppState) {
         Err(e) => {
             warn!("Failed to serialize capabilities: {}", e);
         }
-    }
-}
-
-/// Reverse-scale an engineering value back to raw for Modbus AO writes
-#[cfg(feature = "scada-display")]
-fn reverse_scale(eng_value: f64, config: &crate::process_image::TagConfig) -> f64 {
-    match (
-        config.raw_min,
-        config.raw_max,
-        config.eng_min,
-        config.eng_max,
-    ) {
-        (Some(raw_min), Some(raw_max), Some(eng_min), Some(eng_max)) => {
-            let eng_range = eng_max - eng_min;
-            if eng_range.abs() < f64::EPSILON {
-                return eng_value;
-            }
-            let raw_range = raw_max - raw_min;
-            raw_min + (eng_value - eng_min) * raw_range / eng_range
-        }
-        _ => eng_value,
     }
 }
 

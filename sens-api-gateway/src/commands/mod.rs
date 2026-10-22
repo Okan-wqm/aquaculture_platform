@@ -82,6 +82,7 @@ mod user_token;
 #[cfg(not(feature = "os-managed-updates"))]
 mod verify_signed_manifest;
 mod write;
+mod write_target;
 // Batch #299 ORPHAN-HIGH-020 closure: cmd_deploy_st_source —
 // operator-signed ST source MQTT command handler. Parallel to
 // deploy_bytecode_program but takes raw .st source via

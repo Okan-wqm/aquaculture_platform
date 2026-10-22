@@ -1097,6 +1097,12 @@ path = "tests/invariants/gpio_outputs_persist.rs"
 name = "safe_state_event_table"
 path = "tests/invariants/safe_state_event_table.rs"
 
+# ADR-048 DEC-9.7 / EDGE-HIGH-062, EDGE-HIGH-063 — a tag becomes a hardware write
+# in one place, and a write_modbus names its target once.
+[[test]]
+name = "tag_writes_route_through_the_writer"
+path = "tests/invariants/tag_writes_route_through_the_writer.rs"
+
 # =============================================================================
 # RUST-CVE-001: rumqttc 0.25.1 vendored fork (../crates/local-rumqttc)
 # =============================================================================

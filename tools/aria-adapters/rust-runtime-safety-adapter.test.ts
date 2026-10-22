@@ -374,18 +374,32 @@ assert.deepEqual(
   ]),
   'the real-repo baseline pins every rule at the production claims outside test code',
 );
-// The repository carries real uncontracted unsafe code (the FFI boundary),
-// detached spawns and cancellation-free async loops: the observation is not
-// decorative. Measured at the corpus landing: 34 unsafe, 12 detached, 18
-// loops — floors, not exact pins, so a Rust PR that fixes sites moves them
-// without touching this test.
+// The fixture judge (aria_kernel fixture_runner) reads each pinned
+// `details.findings.<rule>` from the summary itself, so a rule with no finding
+// must be a counted zero there, not an absent key: the baseline pins
+// `unbounded_external_io: 0`.
+assert.deepEqual(
+  realSummary.findings,
+  Object.fromEntries(
+    manifestRules.map((rule) => [rule, baselineSummary[`details.findings.${rule}`]]),
+  ),
+  'the summary counts every contracted rule, zero included, as the baseline pins it',
+);
+// The repository carries real uncontracted unsafe code (the FFI boundary of
+// sensorprotocols/wasm-decoder-template), detached spawns and long-lived
+// async loops with no shutdown path: the observation is not decorative.
+// Measured outside test code at the ARIA-HIGH-010 review-round-2 fix: 3
+// unsafe, 12 detached, 11 loops (the landing's 34 unsafe and 18 loops
+// counted 31 unsafe and 1 loop inside #[cfg(test)] items, and 6 loops that
+// are not long-lived). Floors, not exact pins: the baseline case above pins
+// the exact counts.
 assert.ok(
-  real.findings.filter((finding) => finding.rule === 'unsafe_without_safety_contract').length >= 20,
+  real.findings.filter((finding) => finding.rule === 'unsafe_without_safety_contract').length >= 1,
   'the known FFI unsafe sites are observed',
 );
 assert.ok(real.findings.filter((finding) => finding.rule === 'detached_task').length >= 5);
 assert.ok(
-  real.findings.filter((finding) => finding.rule === 'uncancellable_long_lived_loop').length >= 10,
+  real.findings.filter((finding) => finding.rule === 'uncancellable_long_lived_loop').length >= 5,
 );
 // Every path-form external I/O entry point on this tree is bounded
 // (`with_timeout`, `tokio::time::timeout`, a builder `.timeout(…)`): the
@@ -538,6 +552,347 @@ assert.ok(
     reached.findings.filter((finding) => finding.path === CAP_BIG).map((finding) => finding.rule),
     [],
     'nothing is claimed in bytes the cap refused',
+  );
+}
+
+// ------------------------------------------ loop bounds the corpus does not reach
+// The loop rule's remaining premises, as twins in a scratch crate: a `while`
+// on a deadline fixed before it against one the loop moves, a deadline break
+// against a deadline re-bound each round and a break that leaves only a
+// nested `for`, a counter cap against a counter every round advances but a
+// success resets and a cap the loop may grow, an async block handed to a call that is not a
+// timeout, and an awaiting drain in a select! shutdown arm (with an `, if`
+// precondition) against the same drain in a data arm and in a data arm whose
+// precondition names shutdown. A bound counts only when every round that goes
+// around again passes it: a deadline or error-count check one `match` arm
+// holds, or one a `continue` skips, against the same check on every round
+// (after the `match`, in the only arm that goes around, or in the `else` of
+// an `if let` over `timeout_at`). A `while let Ok(…)` over a timeout ends when
+// a wait elapses; a `while let Err(…)` goes on. A `while let` struct pattern's
+// braces are not the loop body. Each loop line carries a CLAIM or FREE marker
+// comment: the lexer strips comments, so a marker is never evidence. A
+// macro_rules! template carries a would-be finding of three rules on its
+// TEMPLATE lines: a template is code only once expanded.
+{
+  const loopRoot = realpathSync(makeFixtureTree('aria-rust-runtime-loops-'));
+  const LOOP_CRATE = 'loop-bounds';
+  const LOOP_LIB = `${LOOP_CRATE}/src/lib.rs`;
+  const source = [
+    'use std::time::Duration;',
+    'use tokio::sync::{mpsc, watch};',
+    'use tokio::time::Instant;',
+    '',
+    'const MAX_ATTEMPTS: u32 = 5;',
+    'const WAIT: Duration = Duration::from_millis(10);',
+    '',
+    'async fn tick() -> bool {',
+    '    true',
+    '}',
+    '',
+    'pub async fn until_fixed_deadline() {',
+    '    let deadline = Instant::now() + WAIT;',
+    '    while Instant::now() < deadline { // FREE',
+    '        tick().await;',
+    '    }',
+    '}',
+    '',
+    'pub async fn until_moving_deadline() {',
+    '    let mut deadline = Instant::now() + WAIT;',
+    '    while Instant::now() < deadline { // CLAIM',
+    '        tick().await;',
+    '        deadline = Instant::now() + WAIT;',
+    '    }',
+    '}',
+    '',
+    'pub async fn break_on_rebound_deadline() {',
+    '    loop { // CLAIM',
+    '        let deadline = Instant::now() + WAIT;',
+    '        tick().await;',
+    '        if Instant::now() >= deadline {',
+    '            break;',
+    '        }',
+    '    }',
+    '}',
+    '',
+    'pub async fn deadline_break_leaves_only_the_for() {',
+    '    let deadline = Instant::now() + WAIT;',
+    '    loop { // CLAIM',
+    '        for _ in 0..3 {',
+    '            if Instant::now() >= deadline {',
+    '                break;',
+    '            }',
+    '        }',
+    '        tick().await;',
+    '    }',
+    '}',
+    '',
+    'pub async fn retry_until_cap() {',
+    '    let mut attempts = 0u32;',
+    '    loop { // FREE',
+    '        attempts = attempts.saturating_add(1);',
+    '        if attempts >= MAX_ATTEMPTS {',
+    '            break;',
+    '        }',
+    '        tick().await;',
+    '    }',
+    '}',
+    '',
+    'pub async fn while_under_cap() {',
+    '    let mut attempts = 0;',
+    '    while attempts < MAX_ATTEMPTS { // FREE',
+    '        tick().await;',
+    '        attempts += 1;',
+    '    }',
+    '}',
+    '',
+    'pub async fn cap_on_a_counter_success_resets() {',
+    '    let mut failures = 0u32;',
+    '    loop { // CLAIM',
+    '        failures += 1;',
+    '        if failures >= MAX_ATTEMPTS {',
+    '            break;',
+    '        }',
+    '        if tick().await {',
+    '            failures = 0;',
+    '        }',
+    '    }',
+    '}',
+    '',
+    'pub async fn cap_on_a_growing_buffer(mut buf: Vec<u8>) {',
+    '    let mut read = 0usize;',
+    '    loop { // CLAIM',
+    '        read += 1;',
+    '        if read >= buf.len() {',
+    '            break;',
+    '        }',
+    '        buf.push(0);',
+    '        tick().await;',
+    '    }',
+    '}',
+    '',
+    'pub async fn forever_in_a_spawned_block() {',
+    '    let handle = tokio::spawn(async move {',
+    '        loop { // CLAIM',
+    '            tick().await;',
+    '        }',
+    '    });',
+    '    let _ = handle.await;',
+    '}',
+    '',
+    'pub async fn drain_in_the_shutdown_arm(',
+    '    mut rx: mpsc::Receiver<u32>,',
+    '    mut shutdown_rx: watch::Receiver<()>,',
+    '    armed: bool,',
+    ') {',
+    '    loop { // FREE',
+    '        tokio::select! {',
+    '            biased;',
+    '            _ = shutdown_rx.changed(), if armed => {',
+    '                while let Some(value) = rx.recv().await { // FREE',
+    '                    let _ = value;',
+    '                }',
+    '                return;',
+    '            }',
+    '            Some(value) = rx.recv() => {',
+    '                let _ = value;',
+    '            }',
+    '        }',
+    '    }',
+    '}',
+    '',
+    'pub async fn drain_in_a_data_arm(',
+    '    mut rx: mpsc::Receiver<u32>,',
+    '    mut more: mpsc::Receiver<u32>,',
+    '    mut shutdown_rx: watch::Receiver<()>,',
+    ') {',
+    '    loop { // FREE',
+    '        tokio::select! {',
+    '            _ = shutdown_rx.changed() => return,',
+    '            Some(first) = more.recv() => {',
+    '                while let Some(value) = rx.recv().await { // CLAIM',
+    '                    let _ = (first, value);',
+    '                }',
+    '            }',
+    '        }',
+    '    }',
+    '}',
+    '',
+    'pub async fn drain_in_a_guarded_data_arm(',
+    '    mut rx: mpsc::Receiver<u32>,',
+    '    mut more: mpsc::Receiver<u32>,',
+    '    mut shutdown_rx: watch::Receiver<()>,',
+    '    shutdown_seen: bool,',
+    ') {',
+    '    loop { // FREE',
+    '        tokio::select! {',
+    '            _ = shutdown_rx.changed() => return,',
+    '            Some(first) = more.recv(), if !shutdown_seen => {',
+    '                while let Some(value) = rx.recv().await { // CLAIM',
+    '                    let _ = (first, value);',
+    '                }',
+    '            }',
+    '        }',
+    '    }',
+    '}',
+    '',
+    'pub async fn deadline_checked_in_one_arm(mut rx: mpsc::Receiver<u32>) {',
+    '    let deadline = Instant::now() + WAIT;',
+    '    loop { // CLAIM',
+    '        match rx.recv().await {',
+    '            Some(value) => {',
+    '                let _ = value;',
+    '            }',
+    '            None => {',
+    '                if Instant::now() >= deadline {',
+    '                    break;',
+    '                }',
+    '            }',
+    '        }',
+    '    }',
+    '}',
+    '',
+    'pub async fn deadline_checked_every_round(mut rx: mpsc::Receiver<u32>) {',
+    '    let deadline = Instant::now() + WAIT;',
+    '    loop { // FREE',
+    '        match rx.recv().await {',
+    '            Some(value) => {',
+    '                let _ = value;',
+    '            }',
+    '            None => return,',
+    '        }',
+    '        if Instant::now() >= deadline {',
+    '            break;',
+    '        }',
+    '    }',
+    '}',
+    '',
+    'pub async fn errors_counted_in_one_arm(mut rx: mpsc::Receiver<u32>) {',
+    '    let mut errors = 0u32;',
+    '    loop { // CLAIM',
+    '        match tokio::time::timeout(WAIT, rx.recv()).await {',
+    '            Ok(Some(value)) => {',
+    '                let _ = value;',
+    '            }',
+    '            Ok(None) | Err(_) => {',
+    '                errors += 1;',
+    '                if errors >= MAX_ATTEMPTS {',
+    '                    break;',
+    '                }',
+    '            }',
+    '        }',
+    '    }',
+    '}',
+    '',
+    'pub async fn retry_while_the_channel_is_full(tx: mpsc::Sender<u32>) {',
+    '    let mut attempts = 0u32;',
+    '    loop { // FREE',
+    '        match tx.try_send(1) {',
+    '            Ok(()) => break,',
+    '            Err(mpsc::error::TrySendError::Full(_)) => {',
+    '                attempts = attempts.saturating_add(1);',
+    '                if attempts >= MAX_ATTEMPTS {',
+    '                    break;',
+    '                }',
+    '                tick().await;',
+    '            }',
+    '            Err(mpsc::error::TrySendError::Closed(_)) => return,',
+    '        }',
+    '    }',
+    '}',
+    '',
+    'pub async fn continue_skips_the_deadline(mut rx: mpsc::Receiver<u32>) {',
+    '    let deadline = Instant::now() + WAIT;',
+    '    loop { // CLAIM',
+    '        let Some(value) = rx.recv().await else {',
+    '            continue;',
+    '        };',
+    '        if Instant::now() >= deadline {',
+    '            break;',
+    '        }',
+    '        let _ = value;',
+    '    }',
+    '}',
+    '',
+    'pub async fn else_leaves_at_the_deadline(mut rx: mpsc::Receiver<u32>) {',
+    '    let deadline = Instant::now() + WAIT;',
+    '    loop { // FREE',
+    '        if let Ok(Some(value)) = tokio::time::timeout_at(deadline, rx.recv()).await {',
+    '            let _ = value;',
+    '        } else {',
+    '            break;',
+    '        }',
+    '    }',
+    '}',
+    '',
+    'pub async fn receive_until_idle(mut rx: mpsc::Receiver<u32>) {',
+    '    while let Ok(Some(value)) = tokio::time::timeout(WAIT, rx.recv()).await { // FREE',
+    '        let _ = value;',
+    '    }',
+    '}',
+    '',
+    'pub async fn retry_until_a_receive_completes(mut rx: mpsc::Receiver<u32>) {',
+    '    while let Err(_) = tokio::time::timeout(WAIT, rx.recv()).await { // CLAIM',
+    '        tick().await;',
+    '    }',
+    '}',
+    '',
+    'pub enum Event {',
+    '    Frame { id: u32 },',
+    '    Stop,',
+    '}',
+    '',
+    'async fn next_event() -> Event {',
+    '    Event::Stop',
+    '}',
+    '',
+    'pub async fn frames_until_stop() {',
+    '    while let Event::Frame { id } = next_event().await { // CLAIM',
+    '        let _ = id;',
+    '    }',
+    '}',
+    '',
+    'macro_rules! forever_template {',
+    '    ($rx:expr) => {',
+    '        tokio::spawn(async move { // TEMPLATE',
+    '            loop { // TEMPLATE',
+    '                $rx.recv().await;',
+    '            }',
+    '        });',
+    '        let _ = unsafe { core::ptr::read(&0u8) }; // TEMPLATE',
+    '    };',
+    '}',
+    '',
+  ].join('\n');
+  mkdirSync(join(loopRoot, LOOP_CRATE, 'src'), { recursive: true });
+  writeFileSync(
+    join(loopRoot, LOOP_CRATE, 'Cargo.toml'),
+    '[package]\nname = "loop-bounds"\nversion = "0.1.0"\nedition = "2021"\npublish = false\n\n[lib]\npath = "src/lib.rs"\n',
+    'utf8',
+  );
+  writeFileSync(join(loopRoot, LOOP_LIB), source, 'utf8');
+  const loopScan = analyzeRustRuntimeSafety({ roots: [LOOP_CRATE] }, loopRoot);
+  const marked = (marker: string): number[] =>
+    source.split('\n').flatMap((text, index) => (text.includes(`// ${marker}`) ? [index + 1] : []));
+  const loopScanSummary =
+    loopScan.observations.find((o) => o.id === 'rust-runtime-safety-adapter:summary')?.details ??
+    {};
+  assert.equal(loopScanSummary.production_files, 1, 'the scratch crate is production code');
+  assert.equal(loopScanSummary.parse_failures, 0, 'the scratch crate lexes');
+  assert.deepEqual(
+    loopScan.findings
+      .filter((finding) => finding.rule === 'uncancellable_long_lived_loop')
+      .map((finding) => finding.line)
+      .sort((a, b) => a - b),
+    marked('CLAIM'),
+    'exactly the CLAIM loops are claimed: no FREE loop, and nothing inside the template',
+  );
+  assert.ok(marked('FREE').length === 11 && marked('TEMPLATE').length === 3);
+  assert.deepEqual(
+    loopScan.findings
+      .filter((finding) => marked('TEMPLATE').includes(finding.line))
+      .map((finding) => `${finding.rule}:${finding.line}`),
+    [],
+    'no rule claims a macro_rules! template',
   );
 }
 

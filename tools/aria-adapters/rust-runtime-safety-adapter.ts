@@ -25,12 +25,25 @@
 //     `.await`, `.join()`, `.abort()` or a tail return). The handle drops,
 //     and with it the only way to join or cancel the work.
 //   uncancellable_long_lived_loop
-//     A `loop` or `while` in async code (an async fn's body, an async
-//     block) whose span — keyword to the loop body's closing brace — holds
-//     no cancellation evidence: no `select!`, no identifier naming shutdown
-//     or cancellation (`shutdown_rx`, `CancellationToken`, …), no `abort`.
-//     A sync loop is out: it never waits on the executor. `for` is out: an
-//     iterator bounds it.
+//     A long-lived `loop` or `while` in async code (an async fn's body, an
+//     async block): its span — keyword to the loop body's closing brace —
+//     holds an `.await`, so it waits on the executor, and nothing ends it.
+//     No cancellation evidence in the span: no `select!`, no identifier
+//     naming shutdown or cancellation (`shutdown_rx`, `CancellationToken`,
+//     …), no `abort`. Nothing bounds its rounds: the `while` condition names
+//     no deadline the loop never moves and is no `while let Ok(…)` over a
+//     timeout call (an elapsed wait ends that `while`); and not every round
+//     that goes around again passes an exit check (an `if` one branch of
+//     which leaves the loop on every path) on such a deadline, or a counter
+//     the loop only advances, advanced and checked against a fixed cap. A
+//     check one `match` arm or one branch holds, or one a `continue` skips,
+//     bounds only the rounds that reach it. No timeout call takes the async
+//     block it runs in as an argument (`tokio::time::timeout(d, async { …
+//     })`). And it is not the handler of a `select!` arm whose future names
+//     shutdown or cancellation: that drain runs once the task has observed
+//     the shutdown. A loop no `.await` drives (a parse, a `try_recv` drain)
+//     and a sync loop never wait on the executor; `for` is out: an iterator
+//     bounds it.
 //   unsafe_without_safety_contract
 //     An `unsafe` block or `unsafe impl` with no `SAFETY:` comment ending
 //     on the line directly above it (the convention clippy's
@@ -56,8 +69,11 @@
 // summary, never a silent skip. Harness files (tests, benches, examples,
 // build scripts, fuzz, cfg(test) modules) are read and classified but
 // never claimed; upstream bytes of the vendored fork are read and never
-// claimed. Bounds: files, bytes per file, total bytes and cost units are
-// capped, and a cap that fires is an observation, never a hole.
+// claimed; inside a production file, nothing in the spans the one reader's
+// testSpans marks (its own `#[cfg(test)]` items, `#[test]` fns,
+// `macro_rules!` templates) is claimed. Bounds: files, bytes per file, total
+// bytes and cost units are capped, and a cap that fires is an observation,
+// never a hole.
 import { createHash } from 'node:crypto';
 import { join, relative } from 'node:path';
 
@@ -78,6 +94,7 @@ import {
   type RustFileContext,
   type RustToken,
   type RustWorkspaceIo,
+  testSpans,
   workspaceRustIo,
 } from './rust-source';
 
@@ -114,9 +131,10 @@ interface AdapterInput {
   readonly repo_snapshot?: RepoSnapshot & { readonly base_commit_sha?: string | null };
 }
 
+/** Every claim cites the line it is about: the evidence line is never absent. */
 interface EvidenceRef {
   readonly path: string;
-  readonly line?: number;
+  readonly line: number;
 }
 
 interface AdapterObservation {
@@ -283,15 +301,60 @@ function statementSpan(
   return { start, end };
 }
 
-/** Whether the statement around `anchor` names a call with `timeout` in it. */
-function statementBoundsTimeout(tokens: readonly RustToken[], anchor: number): boolean {
-  const { start, end } = statementSpan(tokens, anchor);
-  for (let j = start; j <= end; j += 1) {
+/**
+ * Whether tokens `from..to` (inclusive) name a call with `timeout` in it:
+ * `tokio::time::timeout(`, `timeout_at(`, `with_timeout(`, `.timeout(`,
+ * `connection_timeout(`. The one timeout vocabulary of both the I/O and the
+ * loop rule.
+ */
+function namesTimeoutCall(tokens: readonly RustToken[], from: number, to: number): boolean {
+  for (let j = from; j <= to; j += 1) {
     const token = tokens[j];
     if (token === undefined) continue;
     if (token.kind === 'ident' && /timeout/i.test(token.text) && isCallName(tokens, j)) return true;
   }
   return false;
+}
+
+/** Whether the statement around `anchor` names a call with `timeout` in it. */
+function statementBoundsTimeout(tokens: readonly RustToken[], anchor: number): boolean {
+  const { start, end } = statementSpan(tokens, anchor);
+  return namesTimeoutCall(tokens, start, end);
+}
+
+/** A delimited group: its open token's index, its partner's index and its symbol. */
+interface TokenGroup {
+  readonly open: number;
+  readonly close: number;
+  readonly text: string;
+}
+
+/**
+ * The innermost group enclosing token `index`, or null at file level.
+ * Walking back jumps over every balanced group that closes before `index`,
+ * so the first open token reached is one `index` sits inside.
+ */
+function enclosingGroup(tokens: readonly RustToken[], index: number): TokenGroup | null {
+  for (let j = index - 1; j >= 0; j -= 1) {
+    const token = tokens[j];
+    if (token === undefined) return null;
+    if (token.kind === 'close') j = token.match;
+    else if (token.kind === 'open') return { open: j, close: token.match, text: token.text };
+  }
+  return null;
+}
+
+/** The groups enclosing token `index`, innermost first. */
+function enclosingGroups(tokens: readonly RustToken[], index: number): TokenGroup[] {
+  const groups: TokenGroup[] = [];
+  for (
+    let group = enclosingGroup(tokens, index);
+    group !== null;
+    group = enclosingGroup(tokens, group.open)
+  ) {
+    groups.push(group);
+  }
+  return groups;
 }
 
 // ------------------------------------------------- the async scope machinery
@@ -465,32 +528,811 @@ function hasCancellationEvidence(tokens: readonly RustToken[], from: number, to:
 }
 
 /**
- * The `loop`/`while` token indices whose span runs to their body's close.
- * `for` is excluded (an iterator bounds it); `while` includes its condition.
+ * A `loop`, `while` or `for`: its keyword, the `{` that opens its body,
+ * that body's `}` and the loop's label (`'outer`), if any. The span runs
+ * keyword to close; a `while` condition or a `for` head sits between the
+ * keyword and the body.
  */
-function loopKeywords(tokens: readonly RustToken[]): readonly { keyword: number; close: number }[] {
-  const found: { keyword: number; close: number }[] = [];
+interface LoopSite {
+  readonly kind: 'loop' | 'while' | 'for';
+  readonly keyword: number;
+  readonly open: number;
+  readonly close: number;
+  readonly label: string | null;
+}
+
+function isLoopKind(text: string): text is LoopSite['kind'] {
+  return text === 'loop' || text === 'while' || text === 'for';
+}
+
+/**
+ * The `{` that opens the block of the `if` / `while` / `match` / `for` /
+ * `loop` keyword at `keyword`: the first `{` at its own level after it. The
+ * `(…)` / `[…]` groups between are skipped (a closure argument's braces sit
+ * in them), and so are a `let` pattern up to its `=` and a `for` pattern up
+ * to `in`, because a struct pattern (`let Frame { id, .. } = …`) holds
+ * braces. Null when a `;` or the enclosing group's close comes first.
+ */
+function blockOpenAfter(tokens: readonly RustToken[], keyword: number): number | null {
+  let inPattern = isIdent(tokens, keyword, 'for');
+  for (let j = keyword + 1; j < tokens.length; j += 1) {
+    const token = tokens[j];
+    if (token === undefined) return null;
+    if (token.kind === 'open') {
+      if (token.text === '{' && !inPattern) return j;
+      j = token.match;
+      continue;
+    }
+    if (token.kind === 'close' || (token.kind === 'punct' && token.text === ';')) return null;
+    if (isIdent(tokens, j, 'let')) inPattern = true;
+    else if (inPattern && (isPunct(tokens, j, '=') || isIdent(tokens, j, 'in'))) inPattern = false;
+  }
+  return null;
+}
+
+/**
+ * Every `loop`, `while` and `for` expression. Only `loop`/`while` can be
+ * claimed (an iterator bounds a `for`); every kind is a loop that a
+ * `continue` in its body goes around. A `for` counts only where an
+ * expression starts (after `;`, `{`, `}`, `=>` or a label's `:`), never
+ * `impl Trait for Type` or a `for<'a>` bound.
+ */
+function loopSites(tokens: readonly RustToken[]): readonly LoopSite[] {
+  const found: LoopSite[] = [];
   for (let i = 0; i < tokens.length; i += 1) {
     const token = tokens[i];
     if (token === undefined || token.kind !== 'ident' || token.raw) continue;
-    if (token.text !== 'loop' && token.text !== 'while') continue;
+    const kind = token.text;
+    if (!isLoopKind(kind)) continue;
     // `loop` as a type or a method name (`fn loop(`, `.loop(`) is not this.
     if (isCallName(tokens, i)) continue;
     const before = tokens[i - 1];
     if (before !== undefined && before.kind === 'punct' && before.text === '.') continue;
     if (before !== undefined && before.kind === 'ident' && before.text === 'fn') continue;
-    for (let j = i + 1; j < tokens.length; j += 1) {
-      const body = tokens[j];
-      if (body === undefined) break;
-      if (body.kind === 'open' && body.text === '{') {
-        found.push({ keyword: i, close: body.match });
-        break;
-      }
-      // A `;` before any `{` (a malformed or non-block construct) ends it.
-      if (body.kind === 'punct' && body.text === ';') break;
+    if (kind === 'for') {
+      if (isPunct(tokens, i + 1, '<')) continue;
+      const startsExpression =
+        before === undefined ||
+        (before.kind === 'punct' && [';', '=>', ':'].includes(before.text)) ||
+        (before.kind === 'open' && before.text === '{') ||
+        (before.kind === 'close' && before.text === '}');
+      if (!startsExpression) continue;
     }
+    const open = blockOpenAfter(tokens, i);
+    const body = open === null ? undefined : tokens[open];
+    if (open === null || body === undefined) continue;
+    const labelToken = tokens[i - 2];
+    const label =
+      isPunct(tokens, i - 1, ':') && labelToken !== undefined && labelToken.kind === 'lifetime'
+        ? labelToken.text
+        : null;
+    found.push({ kind, keyword: i, open, close: body.match, label });
   }
   return found;
+}
+
+/**
+ * The first `.await` in the loop's span, or null. A loop with none never
+ * yields to the executor: it is a computation over values already in hand
+ * (a parse, a `try_recv` drain), not a wait that can outlive shutdown.
+ */
+function firstAwait(tokens: readonly RustToken[], loop: LoopSite): number | null {
+  for (let j = loop.keyword + 1; j < loop.close; j += 1) {
+    if (isIdent(tokens, j, 'await') && isPunct(tokens, j - 1, '.')) return j;
+  }
+  return null;
+}
+
+/** Compound-assignment operators: `name <op>= …` (the lexer joins no `=` pair). */
+const COMPOUND_ASSIGNMENT = new Set(['+', '-', '*', '/', '%', '&', '|', '^']);
+
+/**
+ * What the occurrence of `name` at token `j` does to it: `advance` adds to
+ * it (`name += …`, `name = name + …`, `name = name.saturating_add(…)`),
+ * `other` binds or assigns it any other way (`let name`, `let mut name`,
+ * `name = …`, `name -= …`), `none` only reads it (`name == …` and `name >= …`
+ * are comparisons: the lexer joins no `=` pair).
+ */
+function writeOf(
+  tokens: readonly RustToken[],
+  j: number,
+  name: string,
+): 'advance' | 'other' | 'none' {
+  if (
+    isIdent(tokens, j - 1, 'let') ||
+    (isIdent(tokens, j - 1, 'mut') && isIdent(tokens, j - 2, 'let'))
+  ) {
+    return 'other';
+  }
+  const operator = tokens[j + 1];
+  if (operator === undefined || operator.kind !== 'punct') return 'none';
+  if (COMPOUND_ASSIGNMENT.has(operator.text) && isPunct(tokens, j + 2, '=')) {
+    return operator.text === '+' ? 'advance' : 'other';
+  }
+  if (operator.text !== '=' || isPunct(tokens, j + 2, '=')) return 'none';
+  if (!isIdent(tokens, j + 2, name)) return 'other';
+  if (isPunct(tokens, j + 3, '+')) return 'advance';
+  const method = tokens[j + 4];
+  return isPunct(tokens, j + 3, '.') &&
+    method !== undefined &&
+    method.kind === 'ident' &&
+    /^(saturating_|wrapping_|checked_)?add$/.test(method.text) &&
+    isCallName(tokens, j + 4)
+    ? 'advance'
+    : 'other';
+}
+
+/** The writes the loop's span makes to `name`. */
+function loopWrites(
+  tokens: readonly RustToken[],
+  loop: LoopSite,
+  name: string,
+): ReadonlySet<'advance' | 'other'> {
+  const writes = new Set<'advance' | 'other'>();
+  for (let j = loop.keyword; j <= loop.close; j += 1) {
+    if (!isIdent(tokens, j, name)) continue;
+    const write = writeOf(tokens, j, name);
+    if (write !== 'none') writes.add(write);
+  }
+  return writes;
+}
+
+/**
+ * Whether the loop's span binds or assigns `name` at all: a deadline or cap
+ * the loop moves on every round bounds one wait, never the loop.
+ */
+function loopMoves(tokens: readonly RustToken[], loop: LoopSite, name: string): boolean {
+  return loopWrites(tokens, loop, name).size > 0;
+}
+
+/**
+ * Whether the loop only ever advances `name` by addition: a counter that
+ * grows every time it is written and is never reset.
+ */
+function loopAdvances(tokens: readonly RustToken[], loop: LoopSite, name: string): boolean {
+  const writes = loopWrites(tokens, loop, name);
+  return writes.has('advance') && !writes.has('other');
+}
+
+/**
+ * Whether tokens `from..to` name a deadline (an identifier with `deadline`
+ * in it) the loop never moves.
+ */
+function namesFixedDeadline(
+  tokens: readonly RustToken[],
+  loop: LoopSite,
+  from: number,
+  to: number,
+): boolean {
+  for (let j = from; j <= to; j += 1) {
+    const token = tokens[j];
+    if (token === undefined || token.kind !== 'ident' || token.raw) continue;
+    if (/deadline/i.test(token.text) && !loopMoves(tokens, loop, token.text)) return true;
+  }
+  return false;
+}
+
+/**
+ * The counters tokens `from..to` compare with a cap the loop never moves,
+ * where the loop only ever advances the counter: `n >= CAP` / `n > CAP`
+ * (`operator` `>`, true once the cap is reached) or `n < CAP` / `n <= CAP`
+ * (`operator` `<`, true while it is not). The cap is a number or a plain
+ * path (`MAX_RETRIES`, `Self::MAX`, `max_chunks`); a call or field read
+ * (`frame.len()`) is a value the loop may change.
+ */
+function cappedCounters(
+  tokens: readonly RustToken[],
+  loop: LoopSite,
+  from: number,
+  to: number,
+  operator: '<' | '>',
+): readonly string[] {
+  const counters: string[] = [];
+  for (let j = from; j + 2 <= to; j += 1) {
+    const counter = tokens[j];
+    if (counter === undefined || counter.kind !== 'ident' || counter.raw) continue;
+    if (!isPunct(tokens, j + 1, operator)) continue;
+    const capStart = isPunct(tokens, j + 2, '=') ? j + 3 : j + 2;
+    const cap = tokens[capStart];
+    if (cap === undefined || capStart > to) continue;
+    let capEnd = capStart;
+    if (cap.kind === 'ident') {
+      while (isPunct(tokens, capEnd + 1, '::') && tokens[capEnd + 2]?.kind === 'ident') capEnd += 2;
+    } else if (cap.kind !== 'literal' || cap.literal !== 'number') {
+      continue;
+    }
+    if (isPunct(tokens, capEnd + 1, '.') || isPunct(tokens, capEnd + 1, '(')) continue;
+    const capName = tokens[capEnd];
+    const capFixed =
+      capName !== undefined &&
+      (capName.kind === 'literal' || !loopMoves(tokens, loop, capName.text));
+    if (capFixed && loopAdvances(tokens, loop, counter.text)) counters.push(counter.text);
+  }
+  return counters;
+}
+
+// ------------------------------------------- what every round of a loop passes
+//
+// A deadline or counter check bounds a loop only when every round that goes
+// around again passes it: a check in one branch of a `match`, or behind a
+// `continue`, leaves the other rounds unbounded (an error counter that only
+// the error arm advances never ends a loop whose receives succeed). The
+// round walk reads the loop body statement by statement, branch by branch,
+// and carries what every path has passed.
+
+/** One `if` / `else if` of a chain: its condition and its block. */
+interface IfLink {
+  readonly condition: { readonly from: number; readonly to: number };
+  readonly open: number;
+  readonly close: number;
+}
+
+/**
+ * One statement-level construct of a run of loop-body tokens. `leave` is a
+ * `break` or `return`; `block` a block every path runs (`optional`: a
+ * `let … else` block, which one path runs); `opaque` a group the walk does
+ * not enter (a nested loop's body, a closure, an async block, a macro's
+ * tokens, call arguments); `advance` an addition to a counter.
+ */
+type BodyItem =
+  | { readonly kind: 'leave' }
+  | { readonly kind: 'continue'; readonly at: number }
+  | { readonly kind: 'advance'; readonly name: string }
+  | {
+      readonly kind: 'block';
+      readonly open: number;
+      readonly close: number;
+      readonly optional: boolean;
+    }
+  | { readonly kind: 'opaque'; readonly open: number; readonly close: number }
+  | {
+      readonly kind: 'if';
+      readonly from: number;
+      readonly to: number;
+      readonly links: readonly IfLink[];
+      readonly otherwise: { readonly open: number; readonly close: number } | null;
+    }
+  | {
+      readonly kind: 'match';
+      readonly from: number;
+      readonly to: number;
+      readonly arms: readonly { readonly from: number; readonly to: number }[];
+    };
+
+/**
+ * Whether the `{` at `index` opens a block statement or block expression the
+ * walk enters: it follows a statement boundary (`;`, `{`, `}`, `=>`), an `=`
+ * or `unsafe`. After any other token it is a loop body, a closure, an async
+ * block, a struct literal, a macro's tokens or a labeled block, all opaque.
+ */
+function opensBlock(tokens: readonly RustToken[], index: number): boolean {
+  const before = tokens[index - 1];
+  if (before === undefined) return true;
+  if (before.kind === 'open' || before.kind === 'close')
+    return before.text === '{' || before.text === '}';
+  if (before.kind === 'punct') return [';', '=', '=>'].includes(before.text);
+  return before.kind === 'ident' && !before.raw && before.text === 'unsafe';
+}
+
+/** The `if … else if … else …` chain at `start`, and its last token. */
+function ifChainAt(
+  tokens: readonly RustToken[],
+  start: number,
+): { readonly item: BodyItem & { readonly kind: 'if' }; readonly end: number } | null {
+  const links: IfLink[] = [];
+  for (let at = start; ; ) {
+    const open = blockOpenAfter(tokens, at);
+    const block = open === null ? undefined : tokens[open];
+    if (open === null || block === undefined) return null;
+    links.push({ condition: { from: at + 1, to: open - 1 }, open, close: block.match });
+    if (!isIdent(tokens, block.match + 1, 'else')) {
+      return {
+        item: { kind: 'if', from: start, to: block.match, links, otherwise: null },
+        end: block.match,
+      };
+    }
+    if (isIdent(tokens, block.match + 2, 'if')) {
+      at = block.match + 2;
+      continue;
+    }
+    const otherwise = tokens[block.match + 2];
+    if (otherwise === undefined || otherwise.kind !== 'open' || otherwise.text !== '{') return null;
+    return {
+      item: {
+        kind: 'if',
+        from: start,
+        to: otherwise.match,
+        links,
+        otherwise: { open: block.match + 2, close: otherwise.match },
+      },
+      end: otherwise.match,
+    };
+  }
+}
+
+/**
+ * The last token of a block-like expression at `start` (`{ … }`, `if`,
+ * `match`, `loop`, `while`, `for`, `unsafe { … }`), or null when `start`
+ * opens none. A match arm whose body is one needs no `,` after it.
+ */
+function blockLikeEnd(tokens: readonly RustToken[], start: number): number | null {
+  const token = tokens[start];
+  if (token === undefined) return null;
+  if (token.kind === 'open' && token.text === '{') return token.match;
+  if (isIdent(tokens, start, 'if')) {
+    const chain = ifChainAt(tokens, start);
+    return chain === null ? null : chain.end;
+  }
+  if (isIdent(tokens, start, 'unsafe')) return blockLikeEnd(tokens, start + 1);
+  if (!['match', 'loop', 'while', 'for'].some((keyword) => isIdent(tokens, start, keyword))) {
+    return null;
+  }
+  const open = blockOpenAfter(tokens, start);
+  const block = open === null ? undefined : tokens[open];
+  return block === undefined ? null : block.match;
+}
+
+/** The arms of the `match` at `start` (each arm's body as a token range), and its last token. */
+function matchAt(
+  tokens: readonly RustToken[],
+  start: number,
+): { readonly item: BodyItem & { readonly kind: 'match' }; readonly end: number } | null {
+  const open = blockOpenAfter(tokens, start);
+  const body = open === null ? undefined : tokens[open];
+  if (open === null || body === undefined) return null;
+  const arms: { from: number; to: number }[] = [];
+  for (let j = open + 1; j < body.match; ) {
+    // The arm's `=>`: its pattern and any `if` guard sit before it.
+    let arrow = -1;
+    for (let k = j; k < body.match; k += 1) {
+      const token = tokens[k];
+      if (token === undefined) break;
+      if (token.kind === 'open') {
+        k = token.match;
+        continue;
+      }
+      if (isPunct(tokens, k, '=>')) {
+        arrow = k;
+        break;
+      }
+    }
+    if (arrow < 0) break;
+    const from = arrow + 1;
+    // A block-like body ends at its block unless `.` or `?` continues it;
+    // any other body ends before the `,` that separates it from the next arm.
+    let to = blockLikeEnd(tokens, from);
+    if (to === null || isPunct(tokens, to + 1, '.') || isPunct(tokens, to + 1, '?')) {
+      to = body.match - 1;
+      for (let k = from; k < body.match; k += 1) {
+        const token = tokens[k];
+        if (token === undefined) break;
+        if (token.kind === 'open') {
+          k = token.match;
+          continue;
+        }
+        if (isPunct(tokens, k, ',')) {
+          to = k - 1;
+          break;
+        }
+      }
+    }
+    arms.push({ from, to });
+    j = isPunct(tokens, to + 1, ',') ? to + 2 : to + 1;
+  }
+  return { item: { kind: 'match', from: start, to: body.match, arms }, end: body.match };
+}
+
+/** The statement-level constructs of tokens `from..to` (inclusive). */
+function bodyItems(tokens: readonly RustToken[], from: number, to: number): readonly BodyItem[] {
+  const items: BodyItem[] = [];
+  for (let j = from; j <= to; j += 1) {
+    const token = tokens[j];
+    if (token === undefined) break;
+    if (token.kind === 'open') {
+      if (token.text === '{' && (j === from || opensBlock(tokens, j))) {
+        items.push({ kind: 'block', open: j, close: token.match, optional: false });
+      } else if (token.text === '{' && isIdent(tokens, j - 1, 'else')) {
+        items.push({ kind: 'block', open: j, close: token.match, optional: true });
+      } else {
+        items.push({ kind: 'opaque', open: j, close: token.match });
+      }
+      j = token.match;
+      continue;
+    }
+    if (token.kind !== 'ident' || token.raw) continue;
+    if (token.text === 'break' || token.text === 'return') {
+      items.push({ kind: 'leave' });
+    } else if (token.text === 'continue') {
+      items.push({ kind: 'continue', at: j });
+    } else if (token.text === 'if' || token.text === 'match') {
+      const construct = token.text === 'if' ? ifChainAt(tokens, j) : matchAt(tokens, j);
+      if (construct === null) continue;
+      items.push(construct.item);
+      j = construct.end;
+    } else if (writeOf(tokens, j, token.text) === 'advance') {
+      items.push({ kind: 'advance', name: token.text });
+    }
+  }
+  return items;
+}
+
+/**
+ * What every path through part of a loop body has passed. `bounded`: a
+ * complete bound — an exit check on a fixed deadline, or a capped counter's
+ * advance and its exit check. `advanced` / `checked`: the counters every path
+ * has advanced / passed the exit check of.
+ */
+interface RoundState {
+  readonly bounded: boolean;
+  readonly advanced: ReadonlySet<string>;
+  readonly checked: ReadonlySet<string>;
+}
+
+/**
+ * Where the paths through a run of loop-body tokens go. `live`: the state of
+ * the paths that reach the run's end, null when none does (each left the
+ * loop or went around it). `leaked`: some path went around the loop again (a
+ * `continue`) before it passed a bound.
+ */
+interface RoundFlow {
+  readonly live: RoundState | null;
+  readonly leaked: boolean;
+}
+
+/** The facts two sets of paths share. */
+function meet(a: RoundState, b: RoundState): RoundState {
+  return {
+    bounded: a.bounded && b.bounded,
+    advanced: new Set([...a.advanced].filter((name) => b.advanced.has(name))),
+    checked: new Set([...a.checked].filter((name) => b.checked.has(name))),
+  };
+}
+
+/** The paths of several flows together: a fact holds after them when it holds on each. */
+function mergeFlows(flows: readonly RoundFlow[]): RoundFlow {
+  let live: RoundState | null = null;
+  let leaked = false;
+  for (const flow of flows) {
+    leaked = leaked || flow.leaked;
+    if (flow.live !== null) live = live === null ? flow.live : meet(live, flow.live);
+  }
+  return { live, leaked };
+}
+
+function withAdvance(state: RoundState, name: string): RoundState {
+  return {
+    bounded: state.bounded || state.checked.has(name),
+    advanced: new Set([...state.advanced, name]),
+    checked: state.checked,
+  };
+}
+
+function withCheck(state: RoundState, name: string): RoundState {
+  return {
+    bounded: state.bounded || state.advanced.has(name),
+    advanced: state.advanced,
+    checked: new Set([...state.checked, name]),
+  };
+}
+
+/** One loop's round walk: its tokens, the `continue`s that go around it, and memoized runs. */
+interface RoundWalk {
+  readonly tokens: readonly RustToken[];
+  readonly loop: LoopSite;
+  readonly continues: ReadonlySet<number>;
+  readonly items: Map<number, readonly BodyItem[]>;
+  readonly leaves: Map<number, boolean>;
+}
+
+/**
+ * The `continue` tokens in the loop's body that go around this loop: the
+ * innermost loop around an unlabeled `continue`, or the innermost one with
+ * the label a labeled `continue` names, is this one.
+ */
+function continuesOf(
+  tokens: readonly RustToken[],
+  loops: readonly LoopSite[],
+  loop: LoopSite,
+): ReadonlySet<number> {
+  const found = new Set<number>();
+  for (let j = loop.open + 1; j < loop.close; j += 1) {
+    if (!isIdent(tokens, j, 'continue')) continue;
+    const labelToken = tokens[j + 1];
+    const label =
+      labelToken !== undefined && labelToken.kind === 'lifetime' ? labelToken.text : null;
+    let target: LoopSite | null = null;
+    for (const candidate of loops) {
+      if (!(candidate.open < j && j < candidate.close)) continue;
+      if (label !== null && candidate.label !== label) continue;
+      if (target === null || candidate.open > target.open) target = candidate;
+    }
+    if (target !== null && target.keyword === loop.keyword) found.add(j);
+  }
+  return found;
+}
+
+function itemsOf(walk: RoundWalk, from: number, to: number): readonly BodyItem[] {
+  const known = walk.items.get(from);
+  if (known !== undefined) return known;
+  const items = bodyItems(walk.tokens, from, to);
+  walk.items.set(from, items);
+  return items;
+}
+
+/** Whether a `continue` that goes around this loop sits inside tokens `start..end`. */
+function holdsContinue(walk: RoundWalk, start: number, end: number): boolean {
+  return [...walk.continues].some((at) => start < at && at < end);
+}
+
+/**
+ * Whether every path through tokens `from..to` leaves the loop (`break`,
+ * `return`, a `continue` to an outer loop) before it reaches the run's end
+ * or goes around this loop again. A construct holding a `continue` that goes
+ * around this loop leaves on no path the walk can vouch for.
+ */
+function leavesEveryPath(walk: RoundWalk, from: number, to: number): boolean {
+  const known = walk.leaves.get(from);
+  if (known !== undefined) return known;
+  let leaves = false;
+  for (const item of itemsOf(walk, from, to)) {
+    if (item.kind === 'leave' || item.kind === 'continue') {
+      leaves = item.kind === 'leave' || !walk.continues.has(item.at);
+      break;
+    }
+    if (item.kind === 'advance') continue;
+    const span =
+      item.kind === 'block' || item.kind === 'opaque'
+        ? { start: item.open, end: item.close }
+        : { start: item.from, end: item.to };
+    if (holdsContinue(walk, span.start, span.end)) break;
+    if (item.kind === 'block' && !item.optional) {
+      leaves = leavesEveryPath(walk, item.open + 1, item.close - 1);
+    } else if (item.kind === 'if' && item.otherwise !== null) {
+      const { otherwise } = item;
+      leaves =
+        item.links.every((link) => leavesEveryPath(walk, link.open + 1, link.close - 1)) &&
+        leavesEveryPath(walk, otherwise.open + 1, otherwise.close - 1);
+    } else if (item.kind === 'match') {
+      leaves =
+        item.arms.length > 0 && item.arms.every((arm) => leavesEveryPath(walk, arm.from, arm.to));
+    }
+    if (leaves) break;
+  }
+  walk.leaves.set(from, leaves);
+  return leaves;
+}
+
+/**
+ * The state on the branch of an `if` that stays in the loop, once the other
+ * branch leaves it on every path: a condition on a fixed deadline completes
+ * a bound, and a condition on a capped counter is its exit check — `n >= CAP`
+ * (`>`) when the `if` block leaves, `n < CAP` (`<`) when the `else` does.
+ */
+function passedExitCheck(
+  walk: RoundWalk,
+  state: RoundState,
+  link: IfLink,
+  operator: '<' | '>',
+): RoundState {
+  const { tokens, loop } = walk;
+  const { from, to } = link.condition;
+  let next = namesFixedDeadline(tokens, loop, from, to) ? { ...state, bounded: true } : state;
+  for (const name of cappedCounters(tokens, loop, from, to, operator)) next = withCheck(next, name);
+  return next;
+}
+
+/** The paths through tokens `from..to` from `entry`, statement by statement. */
+function walkRun(walk: RoundWalk, from: number, to: number, entry: RoundState): RoundFlow {
+  let state = entry;
+  let leaked = false;
+  for (const item of itemsOf(walk, from, to)) {
+    let flow: RoundFlow;
+    switch (item.kind) {
+      case 'leave':
+        return { live: null, leaked };
+      case 'continue':
+        return { live: null, leaked: leaked || (walk.continues.has(item.at) && !state.bounded) };
+      case 'advance':
+        state = withAdvance(state, item.name);
+        continue;
+      case 'opaque': {
+        // Its tokens are not walked, so its `break`s are not counted; a
+        // `continue` in it that goes around this loop is a round that may
+        // not have passed a bound.
+        leaked = leaked || (holdsContinue(walk, item.open, item.close) && !state.bounded);
+        continue;
+      }
+      case 'block': {
+        const inner = walkRun(walk, item.open + 1, item.close - 1, state);
+        flow = item.optional ? mergeFlows([inner, { live: state, leaked: false }]) : inner;
+        break;
+      }
+      case 'if': {
+        const flows: RoundFlow[] = [];
+        let rest = state;
+        for (const [index, link] of item.links.entries()) {
+          // Only the last link has the chain's `else`; an earlier link's
+          // else is the next `else if`.
+          const otherwise = index === item.links.length - 1 ? item.otherwise : null;
+          const thenLeaves = leavesEveryPath(walk, link.open + 1, link.close - 1);
+          const elseLeaves =
+            otherwise !== null && leavesEveryPath(walk, otherwise.open + 1, otherwise.close - 1);
+          const thenEntry = elseLeaves ? passedExitCheck(walk, rest, link, '<') : rest;
+          rest = thenLeaves ? passedExitCheck(walk, rest, link, '>') : rest;
+          flows.push(walkRun(walk, link.open + 1, link.close - 1, thenEntry));
+          if (otherwise !== null) {
+            flows.push(walkRun(walk, otherwise.open + 1, otherwise.close - 1, rest));
+          }
+        }
+        // No `else`: the paths that took no block go on with the checks they passed.
+        if (item.otherwise === null) flows.push({ live: rest, leaked: false });
+        flow = mergeFlows(flows);
+        break;
+      }
+      case 'match':
+        flow = mergeFlows(item.arms.map((arm) => walkRun(walk, arm.from, arm.to, state)));
+        break;
+    }
+    leaked = leaked || flow.leaked;
+    if (flow.live === null) return { live: null, leaked };
+    state = flow.live;
+  }
+  return { live: state, leaked };
+}
+
+/**
+ * Whether the loop's rounds are bounded, by time or by count. Its `while`
+ * condition names a fixed deadline, or is a `while let Ok(…)` over a timeout
+ * call (an elapsed wait ends the `while`); or every round that goes around
+ * again passes a bound: an exit check on a fixed deadline (an `if` one of
+ * whose branches leaves the loop on every path), or a counter the loop only
+ * advances — advanced, and checked against a fixed cap in the `while`
+ * condition or in such an exit check.
+ */
+function exitBounded(
+  tokens: readonly RustToken[],
+  loops: readonly LoopSite[],
+  loop: LoopSite,
+): boolean {
+  let entry: RoundState = { bounded: false, advanced: new Set(), checked: new Set() };
+  if (loop.kind === 'while') {
+    const from = loop.keyword + 1;
+    const to = loop.open - 1;
+    const elapsedEnds =
+      isIdent(tokens, from, 'let') &&
+      isIdent(tokens, from + 1, 'Ok') &&
+      namesTimeoutCall(tokens, from, to);
+    if (elapsedEnds || namesFixedDeadline(tokens, loop, from, to)) return true;
+    for (const name of cappedCounters(tokens, loop, from, to, '<')) entry = withCheck(entry, name);
+  }
+  const walk: RoundWalk = {
+    tokens,
+    loop,
+    continues: continuesOf(tokens, loops, loop),
+    items: new Map(),
+    leaves: new Map(),
+  };
+  const flow = walkRun(walk, loop.open + 1, loop.close - 1, entry);
+  return !flow.leaked && (flow.live === null || flow.live.bounded);
+}
+
+/**
+ * Whether the loop runs whole inside a timeout: the nearest async block
+ * around it (no fn body between) is an argument of a timeout call
+ * (`tokio::time::timeout(d, async { … })`), which ends that future and the
+ * loop in it.
+ */
+function runsInsideTimeout(
+  tokens: readonly RustToken[],
+  frameByOpen: ReadonlyMap<number, BlockFrame>,
+  loop: LoopSite,
+): boolean {
+  for (const group of enclosingGroups(tokens, loop.keyword)) {
+    const frame = frameByOpen.get(group.open);
+    if (frame === undefined) continue;
+    if (frame.isFnBody) return false;
+    if (!frame.declaredAsync) continue;
+    const asyncKeyword = isIdent(tokens, group.open - 1, 'move') ? group.open - 2 : group.open - 1;
+    const call = enclosingGroup(tokens, asyncKeyword);
+    return (
+      call !== null && call.text === '(' && namesTimeoutCall(tokens, call.open - 1, call.open - 1)
+    );
+  }
+  return false;
+}
+
+/**
+ * The future (`pattern = future`, before any `, if precondition`) of the arm
+ * of the `select!` body `select` whose handler holds token `index`, or null
+ * (an `else =>` arm has none).
+ */
+function selectArmFuture(
+  tokens: readonly RustToken[],
+  select: TokenGroup,
+  index: number,
+): { readonly start: number; readonly end: number } | null {
+  const { open, close } = select;
+  let armStart = open + 1;
+  for (let j = open + 1; j < close; j += 1) {
+    const token = tokens[j];
+    if (token === undefined) return null;
+    if (token.kind === 'open') {
+      j = token.match;
+      continue;
+    }
+    // `biased;`, and the `,` that separates one arm from the next (a `,`
+    // inside a header belongs to its `, if precondition`).
+    if (isPunct(tokens, j, ';') || (isPunct(tokens, j, ',') && j === armStart)) {
+      armStart = j + 1;
+      continue;
+    }
+    if (!isPunct(tokens, j, '=>')) continue;
+    const handler = tokens[j + 1];
+    let handlerEnd = close - 1;
+    if (handler !== undefined && handler.kind === 'open' && handler.text === '{') {
+      handlerEnd = handler.match;
+    } else {
+      for (let k = j + 1; k < close; k += 1) {
+        const inner = tokens[k];
+        if (inner === undefined) break;
+        if (inner.kind === 'open') {
+          k = inner.match;
+          continue;
+        }
+        if (isPunct(tokens, k, ',')) {
+          handlerEnd = k - 1;
+          break;
+        }
+      }
+    }
+    if (j < index && index <= handlerEnd) {
+      // The header's own-level `=` ends the pattern (a pattern holds none);
+      // its own-level `,` starts the precondition.
+      let assign = -1;
+      let end = j - 1;
+      for (let k = armStart; k < j; k += 1) {
+        const inner = tokens[k];
+        if (inner === undefined) break;
+        if (inner.kind === 'open') {
+          k = inner.match;
+          continue;
+        }
+        if (assign < 0 && isPunct(tokens, k, '=')) assign = k;
+        else if (assign >= 0 && isPunct(tokens, k, ',')) {
+          end = k - 1;
+          break;
+        }
+      }
+      return assign < 0 ? null : { start: assign + 1, end };
+    }
+    j = handlerEnd;
+    armStart = handlerEnd + 1;
+  }
+  return null;
+}
+
+/**
+ * Whether the loop is the handler of a `select!` arm whose future names
+ * shutdown or cancellation (no async block or fn body between): it runs once
+ * the task has observed the shutdown, as that shutdown's drain, so it is the
+ * shutdown path rather than a loop that never observes one. A pattern or a
+ * precondition naming shutdown does not make a data arm the shutdown arm.
+ */
+function inShutdownArm(
+  tokens: readonly RustToken[],
+  frameByOpen: ReadonlyMap<number, BlockFrame>,
+  loop: LoopSite,
+): boolean {
+  for (const group of enclosingGroups(tokens, loop.keyword)) {
+    const frame = frameByOpen.get(group.open);
+    if (frame !== undefined && (frame.isFnBody || frame.declaredAsync)) return false;
+    if (!isPunct(tokens, group.open - 1, '!') || !isIdent(tokens, group.open - 2, 'select')) {
+      continue;
+    }
+    const future = selectArmFuture(tokens, group, loop.keyword);
+    return future !== null && hasCancellationEvidence(tokens, future.start, future.end);
+  }
+  return false;
 }
 
 /** External I/O entry points whose bound must be local to their statement. */
@@ -721,9 +1563,20 @@ export function analyzeRustRuntimeSafety(
     }
     const tokens = file.lex.tokens;
     const frames = blockFrames(tokens);
+    const frameByOpen = new Map(frames.map((frame) => [frame.open, frame]));
+    // The file context says only that the file ships. Inside it, the one
+    // Rust reader's testSpans marks what does not: the file's own
+    // `#[cfg(test)]` items, `#[test]` / `#[<path>::test]` fns, and
+    // `macro_rules!` templates (code only once expanded, where the expansion
+    // site decides the async context and statement boundaries every rule
+    // reads). No rule claims an anchor inside one of those spans.
+    const notShipped = testSpans(tokens);
+    const ships = (index: number): boolean =>
+      !notShipped.some((span) => span.start <= index && index <= span.end);
 
     // ------------------------------------------------------ detached_task
     for (const site of spawnSites(tokens)) {
+      if (!ships(site.pathStart)) continue;
       if (!isDetached(tokens, site)) continue;
       const line = tokens[site.pathStart]?.line ?? 1;
       emit(
@@ -742,12 +1595,27 @@ export function analyzeRustRuntimeSafety(
     }
 
     // ------------------------------------------- uncancellable_long_lived_loop
-    for (const { keyword, close } of loopKeywords(tokens)) {
+    // Long-lived means the loop waits on the executor (an `.await` in its
+    // span) and nothing ends it: no cancellation evidence in the span; no
+    // bound its rounds pass (a fixed deadline or a `while let Ok(…)` timeout
+    // in the `while` condition, or on every round that goes around again an
+    // exit check on a fixed deadline or a capped counter it advances); no
+    // timeout around the async block it runs in; and it is not the drain a
+    // select! shutdown arm runs once the task has observed the shutdown.
+    const loops = loopSites(tokens);
+    for (const loop of loops) {
+      const { kind, keyword, close } = loop;
+      if (kind === 'for' || !ships(keyword)) continue;
       const frame = enclosingFrame(frames, keyword);
       if (frame !== null && !frame.asyncContext) continue;
+      const awaitAt = firstAwait(tokens, loop);
+      if (awaitAt === null) continue;
       if (hasCancellationEvidence(tokens, keyword, close)) continue;
-      const kind = tokens[keyword]?.text ?? 'loop';
+      if (exitBounded(tokens, loops, loop)) continue;
+      if (runsInsideTimeout(tokens, frameByOpen, loop)) continue;
+      if (inShutdownArm(tokens, frameByOpen, loop)) continue;
       const line = tokens[keyword]?.line ?? 1;
+      const awaitLine = tokens[awaitAt]?.line ?? line;
       const endLine = tokens[close]?.endLine ?? line;
       emit(
         RULES.uncancellable_long_lived_loop,
@@ -756,8 +1624,12 @@ export function analyzeRustRuntimeSafety(
         endLine,
         kind,
         kind,
-        `\`${kind}\` at line ${line} runs in async code with no cancellation evidence: ` +
-          `no select!, no shutdown or cancellation token, no abort between the keyword and line ${endLine}.`,
+        `\`${kind}\` at line ${line} waits on the executor (\`.await\` on line ${awaitLine}) in async ` +
+          `code with no cancellation evidence: no select!, no shutdown or cancellation token, no abort ` +
+          `between the keyword and line ${endLine}. Nothing bounds its rounds: no fixed deadline or ` +
+          'elapsed timeout ends its `while`, no exit check on a fixed deadline or a capped counter is ' +
+          'passed on every round that goes around again, no timeout wraps the async block it runs in, ' +
+          'and it is no select! shutdown arm.',
         'Give the loop a shutdown path: select! over a shutdown channel or CancellationToken, ' +
           'or check a shutdown flag between iterations.',
       );
@@ -784,7 +1656,7 @@ export function analyzeRustRuntimeSafety(
       }
     };
     for (let i = 0; i + 1 < tokens.length; i += 1) {
-      if (!isIdent(tokens, i, 'unsafe')) continue;
+      if (!isIdent(tokens, i, 'unsafe') || !ships(i)) continue;
       const next = tokens[i + 1];
       if (next === undefined) continue;
       const isBlock = next.kind === 'open' && next.text === '{';
@@ -813,6 +1685,7 @@ export function analyzeRustRuntimeSafety(
 
     // ------------------------------------------------- unbounded_external_io
     for (const site of ioSites(tokens)) {
+      if (!ships(site.anchor)) continue;
       if (site.requiresAsync) {
         const frame = enclosingFrame(frames, site.anchor);
         if (frame !== null && !frame.asyncContext) continue;
@@ -864,9 +1737,15 @@ export function analyzeRustRuntimeSafety(
     }
   }
 
-  const findingCounts: Record<string, number> = {};
-  for (const finding of findings)
-    findingCounts[finding.rule] = (findingCounts[finding.rule] ?? 0) + 1;
+  // One count per contracted rule, zero included: a rule with no finding is
+  // an observed zero (the real-repo baseline pins `unbounded_external_io: 0`),
+  // never an absent key the fixture judge cannot tell from a missing rule.
+  const findingCounts = new Map<RustRuntimeRule, number>(
+    Object.values(RULES).map((projection) => [projection.rule, 0]),
+  );
+  for (const finding of findings) {
+    findingCounts.set(finding.rule, (findingCounts.get(finding.rule) ?? 0) + 1);
+  }
   observations.push({
     id: `${TOOL_ID}:summary`,
     type: 'rust_runtime_summary',
@@ -885,7 +1764,7 @@ export function analyzeRustRuntimeSafety(
         parseFailures.length === 0 &&
         classified.issues.unclassifiedTargets.length === 0 &&
         classified.issues.refused.length === 0,
-      findings: findingCounts,
+      findings: Object.fromEntries(findingCounts),
       bytes_read: totalBytes,
       dependency_locks: dependencyLocks,
       authorities,

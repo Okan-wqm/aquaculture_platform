@@ -60,7 +60,7 @@
       "premises": [
         "The cited call path ends in tokio::spawn, tokio::task::spawn, tokio::spawn_blocking, std::thread::spawn or thread::spawn (a receiver-based spawn like SubscriptionBridge::spawn is not a task spawn).",
         "The call forms an expression statement by itself: the token before the path is a statement boundary (not a binding `=`, an argument, `return` or a match-arm value), and the token after the call group is `;` (not `.await`, `.join()`, `.abort()` or a block tail).",
-        "The file is production Rust (a harness or vendored-upstream file is never claimed)."
+        "The file is production Rust (a harness or vendored-upstream file is never claimed), and the cited construct sits outside every span rust-source.ts testSpans marks in it: the file's own #[cfg(test)] items, #[test] / #[<path>::test] fns and macro_rules! templates."
       ]
     },
     "uncancellable_long_lived_loop": {
@@ -69,8 +69,11 @@
       "defect_claim": "A long-lived loop in async code has no shutdown path, so the task holding it never observes a shutdown or cancellation and the process cannot drain it.",
       "premises": [
         "The cited `loop` or `while` sits in async code (an async fn body or async block; a sync fn resets the context, and `for` is iterator-bounded).",
+        "The loop waits on the executor: its span, from the keyword to the body's closing brace, holds an `.await`. A loop no `.await` drives (a parse over a buffer in hand, a `try_recv` drain) is not claimed.",
         "From the keyword to the loop body's closing brace there is no cancellation evidence: no `select!`, no identifier naming shutdown or cancellation, no `abort()` call.",
-        "The file is production Rust (a harness or vendored-upstream file is never claimed)."
+        "Nothing bounds the loop's rounds by time or count. Its `while` condition names no deadline the loop never re-binds or assigns, and is no `while let Ok(…)` over a timeout call (an elapsed wait would end that `while`). And not every round that goes around again passes a bound: an exit check (an `if` one branch of which leaves the loop on every path) on such a deadline, or a counter the loop only ever advances, advanced and checked against a cap the loop never moves (a number or a plain path) in the `while` condition or in such an exit check. A check only one `match` arm or `if` branch reaches, or one a `continue` skips, bounds only the rounds that reach it.",
+        "No timeout call takes the async block the loop runs in as an argument (`tokio::time::timeout(d, async { … })` ends the block and the loop with it), and the loop is not the handler of a `select!` arm whose future names shutdown or cancellation (that drain runs once the task has observed the shutdown; a pattern or an `, if` precondition naming shutdown does not make a data arm the shutdown arm).",
+        "The file is production Rust (a harness or vendored-upstream file is never claimed), and the cited construct sits outside every span rust-source.ts testSpans marks in it: the file's own #[cfg(test)] items, #[test] / #[<path>::test] fns and macro_rules! templates."
       ]
     },
     "unsafe_without_safety_contract": {
@@ -80,7 +83,7 @@
       "premises": [
         "The cited `unsafe {` block or `unsafe impl` has no comment containing `SAFETY:` whose last line is the line directly above the `unsafe` token (a blank line between, or a string literal, is not a contract).",
         "An `unsafe fn` declaration is not claimed: the contract is owed at its call sites, where the unsafe block appears.",
-        "The file is production Rust (a harness or vendored-upstream file is never claimed)."
+        "The file is production Rust (a harness or vendored-upstream file is never claimed), and the cited construct sits outside every span rust-source.ts testSpans marks in it: the file's own #[cfg(test)] items, #[test] / #[<path>::test] fns and macro_rules! templates."
       ]
     },
     "unbounded_external_io": {
@@ -91,7 +94,7 @@
         "The cited call is a path-form entry point that creates its primitive in the same statement: `TcpStream::connect`, an `async_nats::connect…` free function, `reqwest::get`, or a `reqwest::Client::builder` / `reqwest::Client::new` constructor.",
         "The maximal statement around the call (walked out over balanced parentheses to its terminator) names no call with `timeout` in it: no `tokio::time::timeout`, `with_timeout`, `.timeout(…)` or `connection_timeout(…)`.",
         "A method call on a stored value (`.connect(…)` on options, a request method on a stored client) is not claimed: its bound is set by whatever built the receiver in a different statement — an options builder's `connection_timeout(…)`, a client builder's `.timeout(…)` — which a per-statement evidence window cannot see.",
-        "The call is in async code (except a client constructor, which a sync constructor function may build), and the file is production Rust (a harness or vendored-upstream file is never claimed)."
+        "The call is in async code (except a client constructor, which a sync constructor function may build), the file is production Rust (a harness or vendored-upstream file is never claimed), and the call sits outside every span rust-source.ts testSpans marks in it: the file's own #[cfg(test)] items, #[test] / #[<path>::test] fns and macro_rules! templates."
       ]
     }
   },

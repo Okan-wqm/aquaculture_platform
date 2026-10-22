@@ -37,7 +37,14 @@ export function moduleOverviewArea(id: string, dashboard: NavPageDef): NavAreaDe
   };
 }
 
-/** The team a module workspace works with: today, shifts, leave, the crew list and its organisation. */
+/**
+ * The team a module workspace works with: today, shifts, leave and the team
+ * list, then its organisation — departments, the organization chart, roles.
+ * The people pages here (today, shifts, leave, team list, departments, the
+ * organization chart) narrow themselves to the workspace's module (the shell's
+ * WorkforceScopeProvider); roles are tenant-wide, and the offshore crew
+ * assignments are not module-scoped and stay in Company.
+ */
 export function teamArea(id: string): NavAreaDef {
   return {
     id,
@@ -46,12 +53,12 @@ export function teamArea(id: string): NavAreaDef {
     groups: [
       {
         id: `${id}-main`,
-        pages: [HR_PAGES.today, HR_PAGES.scheduling, HR_PAGES.leaves, HR_PAGES.crew],
+        pages: [HR_PAGES.today, HR_PAGES.scheduling, HR_PAGES.leaves, HR_PAGES.employees],
       },
       {
         id: `${id}-organisation`,
         labelKey: 'nav.group.organisation',
-        pages: [HR_PAGES.departments, TENANT_PAGES.roles],
+        pages: [HR_PAGES.departments, HR_PAGES.organizationChart, TENANT_PAGES.roles],
       },
     ],
   };

@@ -12,7 +12,7 @@ vi.mock('./useAuth', () => ({
   useAuth: () => ({ token: auth.token, tenantId: auth.tenantId }),
 }));
 
-import { useTenantQuery, useTenantMutation } from './useTenantQuery';
+import { useTenantQuery, useTenantQueries, useTenantMutation } from './useTenantQuery';
 import { createTenantQueryKey } from '../utils/tenant-query-keys';
 import { bumpSessionEpoch } from '../utils/session-epoch';
 
@@ -43,6 +43,18 @@ describe('useTenantQuery', () => {
     expect(key[0]).toBe('tenant');
     expect(key[1]).toBe('tenant-A'); // tenant prefix isolates the cache
     expect(key).toContain('dash');
+  });
+
+  it('hands back the selected part while the cache keeps the whole response', async () => {
+    const fn = vi.fn().mockResolvedValue({ items: [1, 2, 3], total: 3 });
+    const { result } = renderHook(
+      () => useTenantQuery(['dash', 'list'], fn, { select: (response) => response.items }),
+      { wrapper: makeWrapper(qc) },
+    );
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toEqual([1, 2, 3]);
+    expect(qc.getQueryCache().getAll()[0].state.data).toEqual({ items: [1, 2, 3], total: 3 });
   });
 
   it('does NOT fire without a tenant context (enabled gate)', () => {
@@ -153,6 +165,77 @@ describe('useTenantQuery', () => {
     expect(result.current.isPlaceholderData).toBe(false);
     expect(result.current.fetchStatus).toBe('idle');
     expect(fn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('useTenantQueries', () => {
+  let qc: QueryClient;
+  beforeEach(() => {
+    qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    auth.token = 'tok';
+    auth.tenantId = 'tenant-A';
+  });
+
+  it('runs one tenant-prefixed query per definition and hands back each selected part', async () => {
+    const weeks = ['2026-10-05', '2026-10-12'];
+    const { result } = renderHook(
+      () =>
+        useTenantQueries(
+          weeks.map((week) => ({
+            segments: ['plans', 'week', week],
+            queryFn: async () => ({ week, rows: [1, 2] }),
+            select: (response: { week: string; rows: number[] }) => response.rows.length,
+          })),
+        ),
+      { wrapper: makeWrapper(qc) },
+    );
+
+    await waitFor(() => expect(result.current.every((query) => query.isSuccess)).toBe(true));
+    expect(result.current.map((query) => query.data)).toEqual([2, 2]);
+    const keys = qc
+      .getQueryCache()
+      .getAll()
+      .map((query) => query.queryKey as readonly unknown[]);
+    expect(keys).toHaveLength(2);
+    for (const key of keys) {
+      expect(key.slice(0, 3)).toEqual(['tenant', 'tenant-A', 'plans']);
+    }
+  });
+
+  it('fetches nothing before an authenticated tenant session exists', () => {
+    auth.token = null;
+    const queryFn = vi.fn().mockResolvedValue({});
+    const { result } = renderHook(() => useTenantQueries([{ segments: ['plans', 'a'], queryFn }]), {
+      wrapper: makeWrapper(qc),
+    });
+
+    expect(result.current[0].fetchStatus).toBe('idle');
+    expect(queryFn).not.toHaveBeenCalled();
+  });
+
+  it('ANDs a definition-level enabled:false', () => {
+    const queryFn = vi.fn().mockResolvedValue({});
+    const { result } = renderHook(
+      () => useTenantQueries([{ segments: ['plans', 'a'], queryFn, enabled: false }]),
+      { wrapper: makeWrapper(qc) },
+    );
+
+    expect(result.current[0].fetchStatus).toBe('idle');
+    expect(queryFn).not.toHaveBeenCalled();
+  });
+
+  it('does not expose the previous tenant’s data when the tenant changes', async () => {
+    const queryFn = vi.fn(async () => ({ owner: auth.tenantId }));
+    const { result, rerender } = renderHook(
+      () => useTenantQueries([{ segments: ['plans', 'a'], queryFn }]),
+      { wrapper: makeWrapper(qc) },
+    );
+    await waitFor(() => expect(result.current[0].data).toEqual({ owner: 'tenant-A' }));
+
+    auth.tenantId = 'tenant-B';
+    rerender();
+
+    expect(result.current[0].data).toBeUndefined();
   });
 });
 

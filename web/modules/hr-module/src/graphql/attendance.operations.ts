@@ -48,6 +48,7 @@ export const GET_ATTENDANCE_RECORDS = gql`
     $endDate: String
     $page: Int
     $limit: Int
+    $moduleCode: HRModuleCode
   ) {
     attendanceRecords(
       employeeId: $employeeId
@@ -58,6 +59,7 @@ export const GET_ATTENDANCE_RECORDS = gql`
       endDate: $endDate
       page: $page
       limit: $limit
+      moduleCode: $moduleCode
     ) {
       items {
         ...AttendanceRecordFull
@@ -119,8 +121,8 @@ export const GET_ATTENDANCE_SUMMARY = gql`
 `;
 
 export const GET_DAILY_ATTENDANCE_OVERVIEW = gql`
-  query GetDailyAttendanceOverview($date: String) {
-    dailyAttendanceOverview(date: $date) {
+  query GetDailyAttendanceOverview($date: String, $moduleCode: HRModuleCode) {
+    dailyAttendanceOverview(date: $date, moduleCode: $moduleCode) {
       totalEmployees
       present
       absent
@@ -133,8 +135,8 @@ export const GET_DAILY_ATTENDANCE_OVERVIEW = gql`
 `;
 
 export const GET_TODAYS_ATTENDANCE = gql`
-  query GetTodaysAttendance($employeeId: ID) {
-    todaysAttendance(employeeId: $employeeId) {
+  query GetTodaysAttendance($employeeId: ID, $moduleCode: HRModuleCode) {
+    todaysAttendance(employeeId: $employeeId, moduleCode: $moduleCode) {
       ...AttendanceRecordFull
     }
   }

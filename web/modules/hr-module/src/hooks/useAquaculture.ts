@@ -408,20 +408,24 @@ export function useCrewAssignments() {
  * Uses currentlyOffshore + employees queries instead of a dedicated
  * seaLandSplit backend query (which does not exist).
  *
+ * With a `departmentId` the employees come from the server-side `departmentHrId`
+ * filter; `currentlyOffshore` has no department argument, so its crew is narrowed
+ * to the same department by the `departmentHrId` it returns.
+ *
  * Categories:
  * - offshore: employees returned by currentlyOffshore query
  * - onLeave: employees with status ON_LEAVE
  * - onshore: all remaining active employees
  * - inTransit: currently empty (no transit status available from backend)
  */
-export function useSeaLandSplit(_departmentId?: string) {
+export function useSeaLandSplit(departmentId?: string) {
   const offshoreQuery = useCurrentlyOffshore();
-  // Backend EmployeeFilterInput does not support departmentHrId; fetch all
-  // employees and rely on the offshore query for the split.
-  const employeesQuery = useEmployees();
+  const employeesQuery = useEmployees(departmentId ? { departmentHrId: departmentId } : undefined);
 
   const data = useMemo(() => {
-    const offshoreEmployees = offshoreQuery.data ?? [];
+    const offshoreEmployees = (offshoreQuery.data ?? []).filter(
+      (e) => !departmentId || e.departmentHrId === departmentId,
+    );
     const allEmployees = employeesQuery.data?.items ?? [];
     const offshoreIds = new Set(offshoreEmployees.map((e) => e.id));
 
@@ -458,7 +462,7 @@ export function useSeaLandSplit(_departmentId?: string) {
       inTransit: { count: inTransit.length, employees: inTransit },
       onLeave: { count: onLeave.length, employees: onLeave },
     };
-  }, [offshoreQuery.data, employeesQuery.data]);
+  }, [offshoreQuery.data, employeesQuery.data, departmentId]);
 
   return {
     data,

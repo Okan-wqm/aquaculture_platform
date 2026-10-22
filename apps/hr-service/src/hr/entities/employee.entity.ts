@@ -32,17 +32,6 @@ export enum EmploymentType {
   SEASONAL = 'seasonal',
 }
 
-export enum Department {
-  OPERATIONS = 'operations',
-  MAINTENANCE = 'maintenance',
-  FEEDING = 'feeding',
-  QUALITY_CONTROL = 'quality_control',
-  ADMINISTRATION = 'administration',
-  MANAGEMENT = 'management',
-  LOGISTICS = 'logistics',
-  SECURITY = 'security',
-}
-
 // Aquaculture-specific: Personnel Category for offshore/onshore classification
 export enum PersonnelCategory {
   OFFSHORE = 'offshore',
@@ -72,7 +61,6 @@ import { WorkAreaType } from '../../common/enums';
 
 registerEnumType(EmployeeStatus, { name: 'EmployeeStatus' });
 registerEnumType(EmploymentType, { name: 'EmploymentType' });
-registerEnumType(Department, { name: 'HRDepartment' });
 registerEnumType(PersonnelCategory, { name: 'PersonnelCategory' });
 registerEnumType(LaborCategory, { name: 'LaborCategory' });
 // WorkAreaType is registered in common/enums.ts
@@ -171,7 +159,6 @@ export class EmergencyInfo {
 @Index('idx_employee_department', ['departmentHrId'])
 // Composite indexes for common query patterns
 @Index('idx_employee_status_tenant', ['status', 'tenantId'])
-@Index(['tenantId', 'department'])
 @Index(['tenantId', 'departmentHrId'])
 @Index(['tenantId', 'farmId'])
 @Index(['tenantId', 'personnelCategory'])
@@ -240,10 +227,6 @@ export class Employee {
   @Field(() => EmploymentType)
   @Column({ type: 'enum', enum: EmploymentType })
   employmentType!: EmploymentType;
-
-  @Field(() => Department)
-  @Column({ type: 'enum', enum: Department })
-  department!: Department;
 
   @Field()
   @Column()
@@ -335,9 +318,10 @@ export class Employee {
   @Column({ nullable: true })
   positionId?: string;
 
-  @Field({ nullable: true })
-  @Column({ nullable: true })
-  departmentHrId?: string;
+  /** NULL = not placed in a department. The column is uuid (FK to departments_hr). */
+  @Field(() => String, { nullable: true })
+  @Column({ type: 'uuid', nullable: true })
+  departmentHrId?: string | null;
 
   @Field(() => DepartmentHR, { nullable: true })
   @ManyToOne(() => DepartmentHR, { nullable: true })
@@ -391,10 +375,6 @@ export class Employee {
   @Field()
   @Column({ default: false })
   isDeleted!: boolean;
-
-  @Field()
-  @Column({ default: false })
-  isFarmWorker!: boolean;
 
   /**
    * Sanitize and normalize data before insert.

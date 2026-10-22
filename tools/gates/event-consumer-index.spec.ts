@@ -7,12 +7,15 @@
  * ways the scan attributes. The live cases run the scan on this checkout and compare it to
  * independent reads: a regex count of the subscription forms, the source of
  * TRIGGER_EVENT_MAP and the erasure-target registry, and the apps that wire library modules.
+ * The `--facts` cases (SE-3, service-expertise PLAN §8) run the module's one JSON entry as the
+ * kernel runs it, as a subprocess on a fixture tree, and read only its JSON.
  *
  * Invoke via:
  *   ts-node --project tools/gates/tsconfig.json tools/gates/event-consumer-index.spec.ts
  */
 
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
@@ -455,3 +458,415 @@ void test('live: every catch-all grant belongs to an app the scan reads', () => 
     );
   }
 });
+
+// --- SE-3: the code-fact bridge (`--facts`) -----------------------------------------------------
+//
+// service-expertise PLAN §8 SE-3: `scanEventProducers` and one JSON entry (`--facts`) in this
+// module give, per application, the produced and consumed event sites, code producer x code
+// subscription edges, ACL grants as permission facts (never edges), the NATS identity, and the
+// event definition sites. The kernel runs the entry as a subprocess on the diff's base tree
+// (plan_coverage's runner), so these cases run it the same way and read only its JSON. The
+// entry reads the tree under --repo-root, its services.yaml included: facts are computed at base.
+//
+// Each case carries node:test's `todo` option until SE-3 lands (the convention of the gate
+// suites: it runs and prints its failure without failing the pre-commit hook). The implementer
+// removes every SE3_PENDING marker in the same change that makes the cases pass.
+
+const SE3_PENDING =
+  'SE-3 (service-expertise PLAN §8): the --facts entry and scanEventProducers are not implemented';
+
+const FACTS_BUS = [
+  'export interface IEventBus {',
+  '  publish<TEvent extends { readonly eventType: string }>(event: TEvent): Promise<void>;',
+  '  subscribeWildcard(eventType: string, handler: object): Promise<void>;',
+  '}',
+  '',
+].join('\n');
+
+const BASE_EVENT = [
+  'export interface BaseEvent {',
+  '  readonly eventId: string;',
+  '  readonly eventType: string;',
+  '  readonly tenantId: string;',
+  '}',
+  'export function createBaseEvent<T extends BaseEvent>(',
+  "  eventType: T['eventType'],",
+  '  tenantId: string,',
+  "): BaseEvent & { readonly eventType: T['eventType'] } {",
+  "  return { eventId: 'fixture-id', eventType, tenantId };",
+  '}',
+  '',
+].join('\n');
+
+const FIXTURE_EVENTS = [
+  "import type { BaseEvent } from './base-event';",
+  "export interface FixtureShippedEvent extends BaseEvent { readonly eventType: 'FixtureShipped'; readonly lot: string }",
+  "export interface FixtureLibEventEvent extends BaseEvent { readonly eventType: 'FixtureLibEvent' }",
+  "export interface FixtureLibProducedEvent extends BaseEvent { readonly eventType: 'FixtureLibProduced' }",
+  '',
+].join('\n');
+
+// Producer and its event construction share one line, so the site is the same whichever of the
+// two the scan reads.
+const SHIPPER = [
+  "import type { IEventBus } from '../../../platform/libs/event-bus/src/event-bus';",
+  "import { createBaseEvent } from '../../../libs/event-contracts/src/base-event';",
+  "import type { FixtureShippedEvent } from '../../../libs/event-contracts/src/fixture-events';",
+  'export class Shipper {',
+  '  constructor(private readonly bus: IEventBus) {}',
+  '  async ship(tenantId: string): Promise<void> {',
+  "    await this.bus.publish<FixtureShippedEvent>({ ...createBaseEvent<FixtureShippedEvent>('FixtureShipped', tenantId), lot: 'L1' });",
+  '  }',
+  '}',
+  '',
+].join('\n');
+
+const LISTENER = [
+  "import type { IEventBus } from '../../../platform/libs/event-bus/src/event-bus';",
+  'export class Listener {',
+  '  constructor(private readonly bus: IEventBus) {}',
+  '  async start(): Promise<void> {',
+  "    await this.bus.subscribeWildcard('FixtureShipped', this);",
+  "    await this.bus.subscribeWildcard('FixtureLibProduced', this);",
+  '  }',
+  '}',
+  '',
+].join('\n');
+
+// A library class that both consumes and produces; d-service and e-service wire it.
+const LIB_RELAY = [
+  "import type { IEventBus } from '../../../platform/libs/event-bus/src/event-bus';",
+  "import { createBaseEvent } from '../../event-contracts/src/base-event';",
+  "import type { FixtureLibProducedEvent } from '../../event-contracts/src/fixture-events';",
+  'export class LibRelay {',
+  '  constructor(private readonly bus: IEventBus) {}',
+  '  async start(): Promise<void> {',
+  "    await this.bus.subscribeWildcard('FixtureLibEvent', this);",
+  '  }',
+  '  async relay(tenantId: string): Promise<void> {',
+  "    await this.bus.publish<FixtureLibProducedEvent>({ ...createBaseEvent<FixtureLibProducedEvent>('FixtureLibProduced', tenantId) });",
+  '  }',
+  '}',
+  '',
+].join('\n');
+
+const RELAY_MODULE = [
+  "import { LibRelay } from '../../../libs/shared/src/lib-relay';",
+  MODULE_DECL,
+  '@Module({ providers: [LibRelay] })',
+  'export class AppModule {}',
+  '',
+].join('\n');
+
+/** One services.yaml entry: the schema's grant minimums plus the given event grants. */
+function natsEntry(
+  name: string,
+  description: string,
+  publish: readonly string[],
+  subscribe: readonly string[],
+): string {
+  const inbox = `_INBOX${name.toUpperCase()}.>`;
+  return [
+    `  - name: ${name}`,
+    `    application: ${name.replace(/_/g, '-')}`,
+    `    description: ${description}`,
+    '    publish:',
+    ...[...publish, '$JS.API.>', '$JS.ACK.>', '_INBOX.>'].map((grant) => `      - ${grant}`),
+    '    subscribe:',
+    ...[...subscribe, '$JS.API.>', inbox].map((grant) => `      - ${grant}`),
+  ].join('\n');
+}
+
+const FACTS_SERVICES_YAML = [
+  'version: 1',
+  'services:',
+  natsEntry('a_service', 'fixture shipper of FixtureShipped', ['events.*.FixtureShipped'], []),
+  natsEntry('b_service', 'fixture code subscriber', [], []),
+  // c_service may receive FixtureShipped but no code of c-service subscribes to it.
+  natsEntry('c_service', 'fixture grant-only holder', [], ['events.*.FixtureShipped']),
+  natsEntry('d_service', 'fixture wiring of LibRelay', ['events.*.FixtureLibProduced'], []),
+  natsEntry('e_service', 'fixture wiring of LibRelay', ['events.*.FixtureLibProduced'], []),
+  '',
+].join('\n');
+
+const FACTS_APPS = ['a-service', 'b-service', 'c-service', 'd-service', 'e-service'] as const;
+
+function factsRepo(servicesYaml: string): string {
+  const files: Record<string, string> = {
+    'platform/libs/event-bus/src/event-bus.ts': FACTS_BUS,
+    'libs/event-contracts/src/base-event.ts': BASE_EVENT,
+    'libs/event-contracts/src/fixture-events.ts': FIXTURE_EVENTS,
+    'libs/shared/src/lib-relay.ts': LIB_RELAY,
+    'apps/a-service/src/shipper.ts': SHIPPER,
+    'apps/b-service/src/listener.ts': LISTENER,
+    'apps/c-service/src/main.ts': 'export const started = true;\n',
+    'apps/d-service/src/app.module.ts': RELAY_MODULE,
+    'apps/e-service/src/app.module.ts': RELAY_MODULE,
+    'infrastructure/nats/services.yaml': servicesYaml,
+  };
+  for (const app of FACTS_APPS) files[`apps/${app}/project.json`] = JSON.stringify({ name: app });
+  return writeTree(mkdtempSync(join(scratch, 'facts-')), files);
+}
+
+/** 1-based line of the first line containing `needle` at or after the first containing `anchor`. */
+function lineAfter(text: string, anchor: string, needle: string): number {
+  const lines = text.split('\n');
+  const start = lines.findIndex((line) => line.includes(anchor));
+  assert.ok(start >= 0, anchor);
+  const offset = lines.slice(start).findIndex((line) => line.includes(needle));
+  assert.ok(offset >= 0, `${needle} after ${anchor}`);
+  return start + offset + 1;
+}
+
+interface FactsRun {
+  readonly exitCode: number;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
+/** The `--facts` entry as the kernel runs it: a subprocess, its JSON on stdout. */
+function runFactsEntry(repoRoot: string): FactsRun {
+  const args = [
+    '--project',
+    join(REPO_ROOT, 'tools', 'gates', 'tsconfig.json'),
+    join(REPO_ROOT, 'tools', 'gates', 'event-consumer-index.ts'),
+    '--facts',
+    '--repo-root',
+    repoRoot,
+  ];
+  try {
+    const stdout = execFileSync(join(REPO_ROOT, 'node_modules', '.bin', 'ts-node'), args, {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    return { exitCode: 0, stdout, stderr: '' };
+  } catch (error) {
+    const failed = error as { status?: number | null; stdout?: string; stderr?: string };
+    return {
+      exitCode: failed.status ?? -1,
+      stdout: failed.stdout ?? '',
+      stderr: failed.stderr ?? '',
+    };
+  }
+}
+
+interface EventFact {
+  readonly event_type: string;
+  readonly site: string;
+}
+interface EdgeFact {
+  readonly kind: string;
+  readonly to: string;
+  readonly subject: string;
+  readonly ref: string;
+}
+interface GrantFact {
+  readonly subject: string;
+  readonly direction: string;
+  readonly ref: string;
+}
+interface ServiceFacts {
+  readonly service: string;
+  readonly events_produced: readonly EventFact[];
+  readonly events_consumed: readonly EventFact[];
+  readonly edges: readonly EdgeFact[];
+  readonly acl_grants: readonly GrantFact[];
+  readonly nats_identity: { readonly name: string; readonly ref: string } | null;
+}
+interface EventFacts {
+  readonly services: readonly ServiceFacts[];
+  readonly event_definitions: readonly EventFact[];
+}
+
+// One subprocess for every case that reads the fixture's facts.
+let factsRun: FactsRun | null = null;
+function facts(): EventFacts {
+  factsRun ??= runFactsEntry(factsRepo(FACTS_SERVICES_YAML));
+  const run = factsRun;
+  assert.equal(run.exitCode, 0, `--facts exited ${run.exitCode}: ${run.stderr}`);
+  assert.ok(run.stdout.trim().startsWith('{'), `--facts printed no JSON object: ${run.stdout}`);
+  return JSON.parse(run.stdout) as EventFacts;
+}
+
+function serviceFacts(name: string): ServiceFacts {
+  const found = facts().services.filter((entry) => entry.service === name);
+  assert.equal(found.length, 1, `exactly one facts entry for ${name}`);
+  const [only] = found;
+  assert.ok(only !== undefined);
+  return only;
+}
+
+const eventSites = (list: readonly EventFact[], eventType: string): EventFact[] =>
+  list
+    .filter((fact) => fact.event_type === eventType)
+    .map((fact) => ({ event_type: fact.event_type, site: fact.site }));
+
+const eventEdges = (list: readonly EdgeFact[], subject: string): Omit<EdgeFact, 'ref'>[] =>
+  list
+    .filter((edge) => edge.kind === 'event' && edge.subject === subject)
+    .map((edge) => ({ kind: edge.kind, to: edge.to, subject: edge.subject }));
+
+const SHIPPED_PRODUCER = `apps/a-service/src/shipper.ts:${lineOf(SHIPPER, "('FixtureShipped', tenantId)")}`;
+const SHIPPED_CONSUMER = `apps/b-service/src/listener.ts:${lineOf(LISTENER, "('FixtureShipped'")}`;
+const LIB_CONSUMER = `libs/shared/src/lib-relay.ts:${lineOf(LIB_RELAY, "('FixtureLibEvent'")}`;
+const LIB_PRODUCER = `libs/shared/src/lib-relay.ts:${lineOf(LIB_RELAY, "('FixtureLibProduced'")}`;
+const NATS_REF = 'infrastructure/nats/services.yaml';
+
+// The fixture is valid today, so the cases below are red for the missing entry, not the fixture.
+void test('facts fixture: its services.yaml passes the SSoT schema; the consumer scan reads it', () => {
+  const repo = factsRepo(FACTS_SERVICES_YAML);
+  const services = loadNatsServices(join(repo, NATS_REF));
+  assert.deepEqual(services.map((service) => service.application).sort(), [...FACTS_APPS]);
+  const index = scanEventConsumers(repo);
+  assert.deepEqual(index.unresolved, []);
+  const consumers = (value: string): string[][] =>
+    index.entries
+      .filter((entry) => entry.value === value)
+      .map((entry) => [entry.application, entry.site]);
+  assert.deepEqual(consumers('FixtureShipped'), [['b-service', SHIPPED_CONSUMER]]);
+  assert.deepEqual(consumers('FixtureLibEvent'), [
+    ['d-service', LIB_CONSUMER],
+    ['e-service', LIB_CONSUMER],
+  ]);
+});
+
+void test(
+  'facts (i): A emits T and B subscribes -> A produces T@site, B consumes T@site, edge A->B (event, T)',
+  { todo: SE3_PENDING },
+  () => {
+    assert.deepEqual(serviceFacts('a-service').events_produced, [
+      { event_type: 'FixtureShipped', site: SHIPPED_PRODUCER },
+    ]);
+    assert.deepEqual(eventSites(serviceFacts('b-service').events_consumed, 'FixtureShipped'), [
+      { event_type: 'FixtureShipped', site: SHIPPED_CONSUMER },
+    ]);
+    assert.deepEqual(eventEdges(serviceFacts('a-service').edges, 'FixtureShipped'), [
+      { kind: 'event', to: 'b-service', subject: 'FixtureShipped' },
+    ]);
+    // The edge's evidence is one of its two code sites, never a grant.
+    for (const edge of serviceFacts('a-service').edges) {
+      assert.ok([SHIPPED_PRODUCER, SHIPPED_CONSUMER].includes(edge.ref), edge.ref);
+    }
+  },
+);
+
+void test(
+  'facts (ii): a grant-only consumer is a permission fact and no edge',
+  { todo: SE3_PENDING },
+  () => {
+    const holder = serviceFacts('c-service');
+    assert.deepEqual(eventSites(holder.events_consumed, 'FixtureShipped'), []);
+    assert.ok(
+      holder.acl_grants.some(
+        (grant) =>
+          grant.subject === 'events.*.FixtureShipped' &&
+          grant.direction === 'subscribe' &&
+          grant.ref ===
+            `${NATS_REF}:${lineAfter(FACTS_SERVICES_YAML, 'name: c_service', 'events.*.FixtureShipped')}`,
+      ),
+      JSON.stringify(holder.acl_grants),
+    );
+    assert.ok(
+      serviceFacts('a-service').acl_grants.some(
+        (grant) =>
+          grant.subject === 'events.*.FixtureShipped' &&
+          grant.direction === 'publish' &&
+          grant.ref ===
+            `${NATS_REF}:${lineAfter(FACTS_SERVICES_YAML, 'name: a_service', 'events.*.FixtureShipped')}`,
+      ),
+      JSON.stringify(serviceFacts('a-service').acl_grants),
+    );
+    for (const entry of facts().services) {
+      assert.deepEqual(
+        entry.edges.filter((edge) => edge.to === 'c-service'),
+        [],
+        `${entry.service} has an edge to the grant-only holder`,
+      );
+    }
+  },
+);
+
+void test(
+  'facts (iii): a tree the entry cannot read is an environment failure (exit 2), never empty facts',
+  { todo: SE3_PENDING },
+  () => {
+    // services.yaml without `application:` is refused by its schema (nats-services.ts).
+    const refused = FACTS_SERVICES_YAML.replace('    application: c-service\n', '');
+    assert.notEqual(refused, FACTS_SERVICES_YAML);
+    const run = runFactsEntry(factsRepo(refused));
+    assert.equal(run.exitCode, 2, `exit ${run.exitCode}, stdout ${JSON.stringify(run.stdout)}`);
+    assert.ok(!run.stdout.trim().startsWith('{'), `facts printed on failure: ${run.stdout}`);
+  },
+);
+
+void test(
+  'facts (iv): a library site wired by two apps -> two app-keyed facts with the library site as ref',
+  { todo: SE3_PENDING },
+  () => {
+    for (const app of ['d-service', 'e-service']) {
+      assert.deepEqual(eventSites(serviceFacts(app).events_consumed, 'FixtureLibEvent'), [
+        { event_type: 'FixtureLibEvent', site: LIB_CONSUMER },
+      ]);
+      assert.deepEqual(eventSites(serviceFacts(app).events_produced, 'FixtureLibProduced'), [
+        { event_type: 'FixtureLibProduced', site: LIB_PRODUCER },
+      ]);
+      assert.deepEqual(eventEdges(serviceFacts(app).edges, 'FixtureLibProduced'), [
+        { kind: 'event', to: 'b-service', subject: 'FixtureLibProduced' },
+      ]);
+    }
+    // A library is never a service key and never an edge endpoint.
+    const services = facts().services.map((entry) => entry.service);
+    assert.deepEqual([...services].sort(), [...FACTS_APPS]);
+    for (const entry of facts().services) {
+      for (const edge of entry.edges) assert.ok(services.includes(edge.to), edge.to);
+    }
+  },
+);
+
+void test(
+  'facts: the NATS identity of each app is its services.yaml name, with its line',
+  { todo: SE3_PENDING },
+  () => {
+    for (const app of FACTS_APPS) {
+      const name = app.replace(/-/g, '_');
+      assert.deepEqual(serviceFacts(app).nats_identity, {
+        name,
+        ref: `${NATS_REF}:${lineOf(FACTS_SERVICES_YAML, `- name: ${name}`)}`,
+      });
+    }
+  },
+);
+
+void test(
+  'facts: each event interface in libs/event-contracts is listed with its definition site',
+  { todo: SE3_PENDING },
+  () => {
+    for (const eventType of ['FixtureShipped', 'FixtureLibEvent', 'FixtureLibProduced']) {
+      assert.deepEqual(eventSites(facts().event_definitions, eventType), [
+        {
+          event_type: eventType,
+          site: `libs/event-contracts/src/fixture-events.ts:${lineOf(FIXTURE_EVENTS, `'${eventType}'`)}`,
+        },
+      ]);
+    }
+  },
+);
+
+void test(
+  'one owner of "who produces event T": scanEventProducers is defined once, in this module',
+  { todo: SE3_PENDING },
+  () => {
+    // service-expertise PLAN §2: the producer scan lives inside event-consumer-index.ts (readonly,
+    // CODEOWNED); tools/ripple-tracer, which takes producers from ACL grants, is not a source.
+    const tracked = execFileSync('git', ['-C', REPO_ROOT, 'ls-files', '-z', '--', 'tools'], {
+      encoding: 'utf8',
+    })
+      .split('\0')
+      .filter((path) => /\.ts$/.test(path) && !/\.(?:spec|test)\.ts$/.test(path));
+    const owners = tracked.filter((path) =>
+      /\bfunction\s+scanEventProducers\b/.test(readFileSync(join(REPO_ROOT, path), 'utf8')),
+    );
+    assert.deepEqual(owners, ['tools/gates/event-consumer-index.ts']);
+  },
+);

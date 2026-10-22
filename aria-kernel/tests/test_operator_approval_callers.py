@@ -45,6 +45,7 @@ nothing cannot write the event without failing CI.
 from __future__ import annotations
 
 import ast
+import json
 import os
 import re
 import shutil
@@ -54,13 +55,14 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest import mock
 
 import aria_kernel
 from aria_kernel.circuit_breaker import BREAKER_EVIDENCE_QUARANTINED_EVENT, BREAKER_RESET_EVENT
 from aria_kernel.control import CONTROL_RECORDED_EVENT
 from aria_kernel.cost_budget import COST_BREAKER_RESET_EVENT
 from aria_kernel.mcp_client import MCP_RELEASED_EVENT, QUARANTINE_SURFACE, RELEASE_ROW_EVENT
-from aria_kernel.operator_approval import AUTHORITY_RAISING_SURFACES, RECORD_SURFACES
+from aria_kernel.operator_approval import APPROVAL_CONSUMED_EVENT, AUTHORITY_RAISING_SURFACES, RECORD_SURFACES
 from aria_kernel.report_ingestion import read_registry_view
 from aria_kernel.tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
 from tests._helpers.operator_acts import github_operator_acts, operator_set_profile
@@ -650,6 +652,19 @@ class CallerClassificationTests(unittest.TestCase):
         for path in sorted(KERNEL.rglob("*.py")):
             self.assertNotIn("verify_operator_approval_ref", path.read_text(encoding="utf-8"), msg=str(path))
 
+    def test_every_raising_entry_verifies_and_resume_is_a_declared_surface(self) -> None:
+        """ARIA-HIGH-238 closes with no RAISING entry left unverified.
+
+        ``control.record_control`` was the last one: a ``resume`` lifts an
+        operator's pause, so it is the declared surface ``control_resume``,
+        scoped to what is lifted (``target``: ``all`` or the request id) and to
+        the standing pause it lifts (``pause_id``: that pause row's id).
+        """
+        self.assertEqual(UNVERIFIED_UNTIL, {}, "ARIA-HIGH-238 cannot close with a RAISING entry unverified")
+        self.assertEqual(APPROVAL_FUNCTIONS[("control", "record_control")], raising_or_lowering("control_resume"))
+        self.assertIn("control_resume", AUTHORITY_RAISING_SURFACES)
+        self.assertEqual(AUTHORITY_RAISING_SURFACES["control_resume"], ("target", "pause_id"))
+
 
 class VerifiedApprovalSurfaces(unittest.TestCase):
     """ARIA-HIGH-238 — one red per surface: a free string is not an approval.
@@ -852,6 +867,148 @@ class VerifiedApprovalSurfaces(unittest.TestCase):
             )
             self.assertEqual(row["to_state"], "REJECTED")
             self.assertEqual(github.reads, [])
+
+
+class ControlResumeSurface(unittest.TestCase):
+    """ARIA-HIGH-238 — lifting an operator's pause is an operator act.
+
+    ``control.record_control("resume", ...)`` lifts a standing pause, so ARIA
+    runs again: it widens authority exactly as a breaker reset does. Its
+    ``operator_ref`` was a free string nothing read (the gateway passes the
+    event actor), so ARIA could resume itself. Like the breaker and MCP stops,
+    the act binds to the INSTANCE being undone — the standing pause row's id,
+    the latest one when several stand — so an act minted for one pause can
+    never lift a later one, even one recorded in the same second. Pausing
+    and cancelling narrow authority and take no act.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = Path(tempfile.mkdtemp(prefix="aria-opa-238-control-"))
+        self.addCleanup(lambda: shutil.rmtree(self._tmp, ignore_errors=True))
+        self.tools = ensure_tools_dir(self._tmp / "aria-tools")
+
+    def _governance(self, kind: str) -> list[dict]:
+        path = self.tools / "governance.jsonl"
+        if not path.exists():
+            return []
+        rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        return [row for row in rows if row.get("kind") == kind]
+
+    def _commands_bytes(self) -> bytes:
+        from aria_kernel.control import commands_path
+
+        path = commands_path(self.tools)
+        return path.read_bytes() if path.exists() else b""
+
+    def _assert_unchanged(self, before_commands: bytes, before_state: dict, before_recorded: int) -> None:
+        from aria_kernel.control import effective_control
+
+        self.assertEqual(self._commands_bytes(), before_commands, "a refused resume wrote a command row")
+        self.assertEqual(effective_control(self.tools).to_dict(), before_state)
+        self.assertEqual(len(self._governance(CONTROL_RECORDED_EVENT)), before_recorded)
+        self.assertEqual(self._governance(APPROVAL_CONSUMED_EVENT), [])
+
+    def test_a_free_string_does_not_lift_a_pause_and_changes_nothing(self) -> None:
+        """(a) — every reference ARIA could author itself is refused, all and per request."""
+        from aria_kernel.control import effective_control, record_control
+
+        record_control("pause", base_dir=self.tools, reason="deploy window")
+        record_control("pause", base_dir=self.tools, request_id="AIR-7", reason="wrong plan")
+        before = (self._commands_bytes(), effective_control(self.tools).to_dict(),
+                  len(self._governance(CONTROL_RECORDED_EVENT)))
+        event = append_tools_governance(self.tools, "operator_action", {"action": "approve"})
+        doc = self._tmp / "review.md"
+        doc.write_text("## OP-1\n", encoding="utf-8")
+        os.environ["ARIA_TEST_ACK_238_CONTROL"] = "yes"
+        self.addCleanup(os.environ.pop, "ARIA_TEST_ACK_238_CONTROL", None)
+        refs = ("ok", "Okan-wqm", "incident: back to work", None, "",
+                f"gov:{event['event_id']}", f"review:{doc}#OP-1", "ack-env:ARIA_TEST_ACK_238_CONTROL")
+        with github_operator_acts():
+            for request_id in (None, "AIR-7"):
+                for ref in refs:
+                    with self.subTest(request_id=request_id, ref=ref):
+                        with self.assertRaisesRegex(GovernanceError, "control_resume_approval_unrecorded"):
+                            record_control("resume", base_dir=self.tools, request_id=request_id, operator_ref=ref)
+                        self._assert_unchanged(*before)
+        state = effective_control(self.tools)
+        self.assertTrue(state.paused_all)
+        self.assertIn("AIR-7", state.paused_requests)
+
+    def test_an_operator_act_bound_to_the_pause_lifts_it_once(self) -> None:
+        """(b) — the GitHub act for this pause lifts it and is consumed exactly once."""
+        from aria_kernel.control import effective_control, record_control
+
+        pause = record_control("pause", base_dir=self.tools, reason="deploy window")
+        with github_operator_acts() as github:
+            ref = github.approve("control_resume", {"target": "all", "pause_id": pause["command_id"]})
+            row = record_control("resume", base_dir=self.tools, operator_ref=ref, reason="window closed")
+        self.assertEqual(row["verb"], "resume")
+        self.assertFalse(effective_control(self.tools).is_paused())
+        consumed = self._governance(APPROVAL_CONSUMED_EVENT)
+        self.assertEqual(len(consumed), 1)
+        self.assertEqual(consumed[0]["details"]["surface"], "control_resume")
+        self.assertEqual(consumed[0]["details"]["scope"], {"target": "all", "pause_id": pause["command_id"]})
+
+    def test_an_operator_act_bound_to_a_request_pause_lifts_only_that_request(self) -> None:
+        """(b) — per request: the act names the request and its standing pause."""
+        from aria_kernel.control import effective_control, record_control
+
+        pause_7 = record_control("pause", base_dir=self.tools, request_id="AIR-7", reason="wrong plan")
+        record_control("pause", base_dir=self.tools, request_id="AIR-8", reason="wrong plan")
+        with github_operator_acts() as github:
+            ref = github.approve("control_resume", {"target": "AIR-7", "pause_id": pause_7["command_id"]})
+            record_control("resume", base_dir=self.tools, request_id="AIR-7", operator_ref=ref)
+            # The same act names AIR-7's pause: it lifts nothing else.
+            with self.assertRaisesRegex(GovernanceError, "control_resume_approval_unrecorded"):
+                record_control("resume", base_dir=self.tools, request_id="AIR-8", operator_ref=ref)
+        state = effective_control(self.tools)
+        self.assertFalse(state.is_paused("AIR-7"))
+        self.assertTrue(state.is_paused("AIR-8"))
+        self.assertEqual(len(self._governance(APPROVAL_CONSUMED_EVENT)), 1)
+
+    def test_an_act_minted_for_one_pause_does_not_lift_a_later_one(self) -> None:
+        """(c) — not after the first pause was lifted, and not over a newer pause on top.
+
+        Both pauses are recorded at the same clock stamp: a pause's identity
+        cannot be the second it was recorded in, or an unspent act minted for
+        one pause would lift every later pause recorded in that second.
+        """
+        from aria_kernel import control
+        from aria_kernel.tool_registry import utc_now
+
+        stamp = utc_now()
+        with mock.patch("aria_kernel.control.utc_now", return_value=stamp), github_operator_acts() as github:
+            first = control.record_control("pause", base_dir=self.tools, reason="deploy window")
+            stale = github.approve("control_resume", {"target": "all", "pause_id": first["command_id"]})
+            fresh = github.approve("control_resume", {"target": "all", "pause_id": first["command_id"]})
+            control.record_control("resume", base_dir=self.tools, operator_ref=fresh)
+            second = control.record_control("pause", base_dir=self.tools, reason="another deploy window")
+            self.assertNotEqual(second["command_id"], first["command_id"], "two pauses, one identity")
+            with self.assertRaisesRegex(GovernanceError, "control_resume_approval_unrecorded"):
+                control.record_control("resume", base_dir=self.tools, operator_ref=stale)
+            self.assertTrue(control.effective_control(self.tools).paused_all)
+
+            # A newer pause on top of a standing one: the act minted before it is stale.
+            on_top = github.approve("control_resume", {"target": "all", "pause_id": second["command_id"]})
+            control.record_control("pause", base_dir=self.tools, reason="re-paused for a new incident")
+            with self.assertRaisesRegex(GovernanceError, "control_resume_approval_unrecorded"):
+                control.record_control("resume", base_dir=self.tools, operator_ref=on_top)
+            self.assertTrue(control.effective_control(self.tools).paused_all)
+        self.assertEqual(len(self._governance(APPROVAL_CONSUMED_EVENT)), 1)
+
+    def test_pausing_and_cancelling_need_no_act(self) -> None:
+        """(d) — the LOWERING half: a reason is enough, GitHub is never asked."""
+        from aria_kernel.control import effective_control, record_control
+
+        with github_operator_acts() as github:
+            record_control("pause", base_dir=self.tools, operator_ref="incident: deploy window")
+            record_control("pause", base_dir=self.tools, request_id="AIR-9")
+            record_control("cancel", base_dir=self.tools, request_id="AIR-9", operator_ref="ok", reason="wrong plan")
+            self.assertEqual(github.reads, [])
+        state = effective_control(self.tools)
+        self.assertTrue(state.paused_all)
+        self.assertTrue(state.is_cancelled("AIR-9"))
+        self.assertEqual(self._governance(APPROVAL_CONSUMED_EVENT), [])
 
 
 class RaisingSurfacesRefuseRecordedReferences(unittest.TestCase):

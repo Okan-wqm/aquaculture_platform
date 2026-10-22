@@ -10,7 +10,13 @@ from typing import Any
 from .agent_routing import load_routing_table, recommended_agents_for_project
 from .canonical_path import lexical_repo_path
 from .ledger import append_declared_jsonl, load_declared_jsonl
-from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
+from .tool_registry import (
+    GovernanceError,
+    declared_bound_repo_root,
+    ensure_tools_dir,
+    tools_dir,
+    utc_now,
+)
 
 
 IMPORT_RE = re.compile(r"""from\s+['"]([^'"]+)['"]|import\s+[^'"]*['"]([^'"]+)['"]""")
@@ -211,19 +217,42 @@ def plan_service_analysis_order(
 
 
 def _graph_fingerprint(root: Path) -> str:
-    """A cheap fingerprint of the project dependency graph's INPUTS (project dir
-    layout + the tsconfig alias SSoT) — does NOT read any ``*.ts`` file, so it is
-    fast enough to compute every cycle to decide whether the cached order is
-    still valid. The order only changes when projects are added/removed or the
-    tsconfig path aliases change; both are captured here."""
-    roots = sorted(meta["root"] for meta in _discover_projects(root).values())
+    """A cheap fingerprint of the project dependency graph's INPUTS (project
+    names and dir layout + the tsconfig alias SSoT) — does NOT read any
+    ``*.ts`` file, so it is fast enough to compute every cycle to decide
+    whether the cached order is still valid. The order only changes when
+    projects are added/removed/renamed or the tsconfig path aliases change;
+    all are captured here."""
+    # Name AND root: a project's identity is part of the published map
+    # (`project_roots`), so a ``project.json`` rename with the directory
+    # unchanged must invalidate the cache like a moved root does.
+    entries = sorted(f"{name}={meta['root']}" for name, meta in _discover_projects(root).items())
     tsconfig = root / "tsconfig.base.json"
     ts = tsconfig.read_text(encoding="utf-8") if tsconfig.exists() else ""
     digest = hashlib.sha256()
-    digest.update("\0".join(roots).encode("utf-8"))
+    digest.update("\0".join(entries).encode("utf-8"))
     digest.update(b"\0")
     digest.update(ts.encode("utf-8"))
     return digest.hexdigest()
+
+
+_SERVICE_ORDER_CACHE = Path("impact") / "service-order-cache.json"
+
+
+def _read_service_order_cache(cache_file: Path) -> dict[str, Any] | None:
+    """The published service order, or None when there is none to read.
+
+    Absent and unreadable are the same answer on purpose: both mean the
+    writer (`cached_service_analysis_order`) has to run before anyone can
+    read a map, and the writer overwrites an unreadable file.
+    """
+    if not cache_file.is_file():
+        return None
+    try:
+        cached = json.loads(cache_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return cached if isinstance(cached, dict) else None
 
 
 def cached_service_analysis_order(
@@ -237,15 +266,11 @@ def cached_service_analysis_order(
     change. Cache is a plain JSON file (not a declared ledger) under
     ``tools/impact/service-order-cache.json`` — read-through, write-back."""
     root = Path(workspace_root).resolve()
-    cache_file = ensure_tools_dir(base_dir) / "impact" / "service-order-cache.json"
+    cache_file = ensure_tools_dir(base_dir) / _SERVICE_ORDER_CACHE
     fingerprint = _graph_fingerprint(root)
-    if cache_file.exists():
-        try:
-            cached = json.loads(cache_file.read_text(encoding="utf-8"))
-            if isinstance(cached, dict) and cached.get("graph_fingerprint") == fingerprint:
-                return cached
-        except (OSError, ValueError):
-            pass
+    cached = _read_service_order_cache(cache_file)
+    if cached is not None and cached.get("graph_fingerprint") == fingerprint:
+        return cached
     graph = _project_graph(root=root, nx_graph_file=Path(nx_graph_file) if nx_graph_file else None)
     plan = build_service_analysis_order(graph)
     payload = {
@@ -264,6 +289,43 @@ def cached_service_analysis_order(
     except OSError:
         pass
     return payload
+
+
+def cached_project_roots(*, workspace_root: str | Path, base_dir: str | Path | None) -> dict[str, str]:
+    """The ``project_roots`` map `project_for_path` attributes against, for a
+    caller that holds the workspace: the cache's answer for it
+    (`cached_service_analysis_order` — fingerprint-checked, rebuilt when the
+    project layout changed)."""
+    cache = cached_service_analysis_order(workspace_root=workspace_root, base_dir=base_dir)
+    return dict(cache["project_roots"])
+
+
+def published_project_roots(*, base_dir: str | Path | None) -> dict[str, str] | None:
+    """The ``project_roots`` map this store's impact cache PUBLISHED, for a
+    caller handed a store and no workspace — the mint-time tool-finding
+    writer and the findings-ledger readers.
+
+    Every cycle refreshes the publication (`cycle_service_examination`), so
+    a mint files a finding under the same project names the cycle's
+    impacted set and missions use. A store with no publication yet that
+    declares its workspace (`tool_registry.declared_bound_repo_root`)
+    publishes one now.
+
+    None means this store can attribute nothing: it declares no workspace
+    and nothing was ever published into it. The layout convention
+    (``<workspace>/aria-tools``) is deliberately NOT guessed here — a scratch
+    store's parent is a temp directory, and a project graph of ``/tmp`` is
+    not a map of anything. Callers treat None as "attribute at read": the mint
+    writes no dimension and the row reader derives it from the row's paths
+    once the store holds a map (`service_dimension.services_for_finding_row`).
+    """
+    published = _read_service_order_cache(tools_dir(base_dir) / _SERVICE_ORDER_CACHE)
+    if published is not None:
+        return dict(published["project_roots"])
+    declared = declared_bound_repo_root(base_dir)
+    if declared is None:
+        return None
+    return cached_project_roots(workspace_root=declared, base_dir=base_dir)
 
 
 def cycle_service_examination(
@@ -441,9 +503,16 @@ def _discover_projects(root: Path) -> dict[str, dict[str, str]]:
     be renamed or re-rooted by a marker appearing next to it.
     """
     projects: dict[str, dict[str, str]] = {}
-    for parent in ("apps", "libs"):
-        for child in _children(root / parent):
-            projects[child.name] = {"root": child.relative_to(root).as_posix()}
+    # An application is named by its nx identity (``project.json`` ``name``,
+    # else its directory) — the name the TypeScript code-fact side
+    # (`tools/gates/event-consumer-index.ts` ``applicationNames``) files every
+    # app's event sites under. Two sides naming one app differently drop the
+    # fact the bridge hands across (SE-1 parity, PLAN §2).
+    for child in _children(root / "apps"):
+        name = _declared_project_name(child) or child.name
+        projects[name] = {"root": child.relative_to(root).as_posix()}
+    for child in _children(root / "libs"):
+        projects[child.name] = {"root": child.relative_to(root).as_posix()}
     for child in _children(root / "platform" / "libs"):
         projects[f"platform-{child.name}"] = {"root": child.relative_to(root).as_posix()}
     for child in _children(root / "web" / "modules"):
@@ -511,15 +580,19 @@ def _marker_project_name(directory: Path, rel: str) -> str:
     not the repository's name for the directory, so those fall back to the
     repo-relative path.
     """
+    return _declared_project_name(directory) or rel.replace("/", "-")
+
+
+def _declared_project_name(directory: Path) -> str | None:
+    """``project.json``'s ``name`` — nx's identity for the directory — or None."""
     manifest = directory / "project.json"
-    if manifest.is_file():
-        try:
-            declared = json.loads(manifest.read_text(encoding="utf-8")).get("name")
-        except (OSError, ValueError):
-            declared = None
-        if isinstance(declared, str) and declared.strip():
-            return declared.strip()
-    return rel.replace("/", "-")
+    if not manifest.is_file():
+        return None
+    try:
+        declared = json.loads(manifest.read_text(encoding="utf-8")).get("name")
+    except (OSError, ValueError):
+        return None
+    return declared.strip() if isinstance(declared, str) and declared.strip() else None
 
 
 def _scan_project_dependencies(
@@ -575,18 +648,23 @@ def project_for_path(path: str, project_roots: Mapping[str, str]) -> str | None:
     """THE path -> project attribution, over the ``project_roots`` map that
     `cached_service_analysis_order` publishes: longest matching root prefix.
 
-    Public because a second caller appeared and answered the same question in
-    a different vocabulary. `cycle._phase_service_mission_seed` decides which
-    services get a hardening mission from targets that ARE nx project names
-    (this function named them), then attributed the supporting evidence with
-    `service_dimension.service_for_path`, which emits ``shared:<lib>`` /
-    ``web:<app>`` / ``None``. Measured against this repository: 54 of 71
-    projects have an nx name that vocabulary can never produce, so the seeder
-    disclosed "no derivable evidence" for the very paths that had selected
-    them. `service_for_path` is still the right answer to a different
-    question (which service dimension does a finding belong to, for routing
-    and for the findings-list axis); it is not an answer to "which project
-    owns this path", and that answer lives here, once.
+    The kernel's ONE service key (service-expertise plan SE-1, owner decision
+    Q9). The finding dimension, the impacted set, missions and routing all
+    name a project through this function, in nx project names. Callers get
+    the map from `cached_project_roots` / `published_project_roots` (or the
+    cache payload they already hold); there is no string mapping to fall back on.
+
+    It used to have a twin. ``service_dimension.service_for_path`` attributed
+    findings in a vocabulary of its own (``apps/<dir>``, ``shared:<lib>``,
+    ``web:<app>``): measured against this repository, 54 of 71 nx project
+    names were values it could never produce, and ``libs/X`` and
+    ``platform/libs/X`` collapsed into one ``shared:X``. A finding filed in
+    one vocabulary and looked up in the other landed under a service no
+    impacted set contains — `cycle._phase_service_mission_seed` wrote "no
+    derivable evidence" about the very paths that had selected a project.
+    SE-1 deleted the twin and moved every caller here; rows minted before
+    that carry no ``service_vocabulary`` and are re-derived from their paths
+    at read time, never string-mapped.
     """
     normalized = _normalize_path(path)
     candidates = sorted(project_roots.items(), key=lambda item: len(item[1]), reverse=True)

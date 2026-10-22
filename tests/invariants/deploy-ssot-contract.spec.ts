@@ -3,6 +3,8 @@ import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
+import { REGISTRY_IMAGE_COMPOSES } from '../../tools/gates/compose-registry-images';
+import { uncommentedLines } from '../../tools/gates/config-executable-lines';
 import { removeFixtureTree } from '../../tools/gates/fixture-tree';
 
 import { runCapacityAutoGcScenario } from './helpers/capacity-gc-harness';
@@ -42,13 +44,6 @@ function validatorVerdictFor(line: string): ValidatorResult {
   } finally {
     removeFixtureTree(root);
   }
-}
-
-function uncommentedLines(text: string): string[] {
-  return text
-    .split('\n')
-    .map((line) => line.trimEnd())
-    .filter((line) => !line.trimStart().startsWith('#'));
 }
 
 /**
@@ -110,7 +105,7 @@ describe('deploy SSOT contract', () => {
   });
 
   it('keeps production/staging compose on registry images only', () => {
-    for (const path of ['docker-compose.droplet.yml', 'docker-compose.staging.yml']) {
+    for (const path of REGISTRY_IMAGE_COMPOSES) {
       const lines = uncommentedLines(read(path));
 
       expect(lines.filter((line) => /^\s+build:\s*/.test(line))).toEqual([]);

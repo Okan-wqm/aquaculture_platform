@@ -5585,6 +5585,17 @@ async fn run_agent(
     // Step 5: Create shutdown coordinator for graceful termination
     let mut shutdown_coordinator = ShutdownCoordinator::new();
 
+    // ADR-048 DEC-13.4: the health view root's maintenance gate reads is
+    // rewritten every few seconds with the update blockers (active alarm, forced
+    // output), in every mode: an active agent whose view goes stale blocks
+    // every update.
+    let health_refresh_handle = tokio::spawn(degraded::run_health_refresh(
+        state.clone(),
+        degraded::HEALTH_REFRESH,
+        shutdown_coordinator.subscribe(),
+    ));
+    shutdown_coordinator.register_task("health_view_refresh", health_refresh_handle);
+
     // Step 6: Start telemetry collector with shutdown awareness
     let telemetry_collector = TelemetryCollector::new(state.clone());
     let telemetry_shutdown = shutdown_coordinator.subscribe();

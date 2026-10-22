@@ -202,12 +202,41 @@ pub enum Phase {
     Stopping,
 }
 
+/// What stops root from starting an `edge-update`, an `os-update` or a
+/// `site-config` right now (ADR-048 DEC-13.4, contract `channels.json`
+/// `update_channel.maintenance.blockers`): an alarm that is active, an output
+/// that holds a forced value. Only a running control loop can hold either, so
+/// it is the agent that reports them.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct UpdateBlockers {
+    /// An alarm is active.
+    pub active_alarm: bool,
+    /// An output holds a forced value.
+    pub forced_output: bool,
+}
+
+impl UpdateBlockers {
+    /// The members of `update_blockers` in the health view: the contract's
+    /// two-value vocabulary, unique by construction.
+    pub fn names(self) -> Vec<&'static str> {
+        let mut names = Vec::new();
+        if self.active_alarm {
+            names.push("active-alarm");
+        }
+        if self.forced_output {
+            names.push("forced-output");
+        }
+        names
+    }
+}
+
 #[derive(Debug)]
 struct View {
     phase: Phase,
     reasons: Vec<DegradedReason>,
     safe_state: Option<SafeStateSummary>,
     liveness: Option<Verdict>,
+    update_blockers: UpdateBlockers,
     write_failed: bool,
 }
 
@@ -316,6 +345,7 @@ impl DegradedMode {
                     reasons: Vec::new(),
                     safe_state: None,
                     liveness: None,
+                    update_blockers: UpdateBlockers::default(),
                     write_failed: false,
                 }),
                 health_file,
@@ -452,6 +482,14 @@ impl DegradedMode {
         })
     }
 
+    /// Publish the current update blockers and rewrite the view, whether or not
+    /// anything changed: root treats a view that is not rewritten at least
+    /// every `refresh_seconds` as stale, because a view written only on change
+    /// cannot prove it is current (`channels.json`).
+    pub fn refresh(&self, blockers: UpdateBlockers) {
+        self.update(|v| v.update_blockers = blockers);
+    }
+
     fn update(&self, change: impl FnOnce(&mut View)) {
         let mut v = lock(&self.shared.view);
         change(&mut v);
@@ -527,6 +565,7 @@ fn document(v: &View, degraded: bool) -> serde_json::Value {
         "reasons": reason_views(&v.reasons),
         "safe_state": v.safe_state,
         "loops": v.liveness,
+        "update_blockers": v.update_blockers.names(),
         "status": status_line(v, degraded),
         "updated_at": chrono::Utc::now().to_rfc3339(),
     })
@@ -561,6 +600,50 @@ fn write_atomic(path: &Path, doc: &serde_json::Value) -> std::io::Result<()> {
         std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o640))?;
     }
     std::fs::rename(&tmp, path)
+}
+
+/// How often the health view is rewritten while the agent runs: well inside
+/// the contract's 15 s `refresh_seconds`, so a missed tick does not make the
+/// view stale (60 s) in root's eyes.
+pub const HEALTH_REFRESH: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// What blocks an update now, read from the agent's live state.
+pub async fn update_blockers_of(state: &crate::AppState) -> UpdateBlockers {
+    #[allow(unused_mut)]
+    let mut active_alarm = state.alarm_manager.read().await.active_count() > 0;
+    #[cfg(feature = "scada-display")]
+    if !active_alarm && let Some(scada) = &state.scada_state {
+        active_alarm = scada.active_alarm_count().await > 0;
+    }
+    UpdateBlockers {
+        active_alarm,
+        forced_output: state.force_registry.active_count().await > 0,
+    }
+}
+
+/// Rewrite the health view every [`HEALTH_REFRESH`] with the blockers of the
+/// moment, until shutdown. It runs in every mode (degraded included): an
+/// active agent that says nothing blocks every update (the gate cannot tell
+/// that no alarm is active).
+pub async fn run_health_refresh(
+    state: std::sync::Arc<tokio::sync::RwLock<crate::AppState>>,
+    interval: std::time::Duration,
+    mut shutdown: tokio::sync::broadcast::Receiver<()>,
+) {
+    let mut ticker = tokio::time::interval(interval);
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        tokio::select! {
+            biased;
+            _ = shutdown.recv() => break,
+            _ = ticker.tick() => {}
+        }
+        let (degraded, blockers) = {
+            let s = state.read().await;
+            (s.degraded.clone(), update_blockers_of(&s).await)
+        };
+        degraded.refresh(blockers);
+    }
 }
 
 #[cfg(test)]
@@ -733,6 +816,181 @@ mod tests {
             BackendNotCompiled(Backend::Gpio)
                 .to_string()
                 .contains("`gpio` feature")
+        );
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+mod update_blockers_tests {
+    use super::*;
+
+    fn contract_schema() -> serde_json::Value {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../contracts/suderra-edge/v1/schemas/agent-health.schema.json");
+        serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+    }
+
+    fn degraded() -> (tempfile::TempDir, DegradedMode) {
+        let dir = tempfile::tempdir().unwrap();
+        let mode = DegradedMode::new(dir.path().join("health.json"));
+        (dir, mode)
+    }
+
+    /// ADR-048 DEC-13.4: the view carries every member the contract requires,
+    /// `update_blockers` included (an agent that omitted it looked unavailable
+    /// to root's maintenance gate and blocked every update while it ran).
+    #[test]
+    fn the_view_carries_every_member_the_contract_requires() {
+        let schema = contract_schema();
+        let (_dir, mode) = degraded();
+        let doc = mode.health_document();
+        for member in schema["required"].as_array().unwrap() {
+            let member = member.as_str().unwrap();
+            assert!(
+                doc.get(member).is_some(),
+                "the health view lacks `{member}`"
+            );
+        }
+        assert_eq!(doc["update_blockers"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn the_blockers_use_the_contracts_vocabulary_and_are_unique() {
+        let schema = contract_schema();
+        let vocabulary: Vec<&str> = schema["properties"]["update_blockers"]["items"]["enum"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        let (_dir, mode) = degraded();
+        for (blockers, expected) in [
+            (UpdateBlockers::default(), vec![]),
+            (
+                UpdateBlockers {
+                    active_alarm: true,
+                    forced_output: false,
+                },
+                vec!["active-alarm"],
+            ),
+            (
+                UpdateBlockers {
+                    active_alarm: false,
+                    forced_output: true,
+                },
+                vec!["forced-output"],
+            ),
+            (
+                UpdateBlockers {
+                    active_alarm: true,
+                    forced_output: true,
+                },
+                vec!["active-alarm", "forced-output"],
+            ),
+        ] {
+            mode.refresh(blockers);
+            let doc = mode.health_document();
+            let names: Vec<&str> = doc["update_blockers"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_str().unwrap())
+                .collect();
+            assert_eq!(names, expected);
+            for name in names {
+                assert!(vocabulary.contains(&name), "{name} is not in the contract");
+            }
+        }
+    }
+
+    /// A refresh rewrites the view with a new `updated_at` even when nothing
+    /// changed: a view written only on change cannot prove it is current.
+    #[test]
+    fn a_refresh_rewrites_the_view_even_when_nothing_changed() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("health.json");
+        let mode = DegradedMode::new(file.clone());
+        mode.refresh(UpdateBlockers::default());
+        let first = std::fs::read_to_string(&file).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        mode.refresh(UpdateBlockers::default());
+        let second = std::fs::read_to_string(&file).unwrap();
+        assert_ne!(first, second, "the `updated_at` moved");
+        let at = |text: &str| {
+            let doc: serde_json::Value = serde_json::from_str(text).unwrap();
+            chrono::DateTime::parse_from_rfc3339(doc["updated_at"].as_str().unwrap()).unwrap()
+        };
+        assert!(at(&second) > at(&first));
+    }
+
+    /// The refresh interval is well inside the contract's.
+    #[test]
+    fn the_refresh_interval_is_inside_the_contracts() {
+        let channels: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../contracts/suderra-edge/v1/channels.json"),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let view = &channels["update_channel"]["maintenance"]["blockers"]["health_view"];
+        let refresh = view["refresh_seconds"].as_u64().unwrap();
+        let max_age = view["max_age_seconds"].as_u64().unwrap();
+        assert!(HEALTH_REFRESH.as_secs() < refresh);
+        assert!(refresh < max_age);
+    }
+
+    /// What blocks an update is read from the live state: an alarm that needs
+    /// attention, a forced output.
+    #[tokio::test]
+    async fn the_blockers_are_read_from_the_live_alarms_and_forces() {
+        let config: crate::config::AgentConfig = serde_yaml::from_str(
+            "device_id: \"dev-1\"\ndevice_code: \"EDGE-1\"\napi_url: \"https://api.example.test\"\n\
+             mqtt:\n  port: 8883\n",
+        )
+        .unwrap();
+        let state = crate::AppState::new(config);
+        assert_eq!(update_blockers_of(&state).await, UpdateBlockers::default());
+
+        {
+            let mut alarms = state.alarm_manager.write().await;
+            alarms.register(crate::alarms::AlarmDefinition::high_limit(
+                "tank-high",
+                "tank",
+                10.0,
+            ));
+            alarms.process_value("tank-high", 12.0);
+        }
+        assert_eq!(
+            update_blockers_of(&state).await,
+            UpdateBlockers {
+                active_alarm: true,
+                forced_output: false
+            }
+        );
+
+        state
+            .force_registry
+            .apply(
+                "pump".into(),
+                1.0,
+                crate::process_image::TagQuality::Good,
+                "operator".into(),
+                "maintenance".into(),
+                60,
+                false,
+                &crate::runtime_safety::system_clock::SystemClockAuthority::new(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            update_blockers_of(&state).await,
+            UpdateBlockers {
+                active_alarm: true,
+                forced_output: true
+            }
         );
     }
 }

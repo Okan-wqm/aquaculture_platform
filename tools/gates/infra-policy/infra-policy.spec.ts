@@ -48,6 +48,7 @@ import { REPO_ROOT } from '../lib/repo-root';
 import { imagePinVerdict, parseImageReference, PIN_MUTABILITY } from './image-reference';
 import { natsCredentialAuth } from './nats-identity';
 import { addHeaderNames, headerInheritanceDrops, headerLevels } from './nginx-header-inheritance';
+import * as headerOwner from './nginx-header-inheritance';
 import { composeGuards, podGuards } from './runtime-guards';
 import {
   composeServicePrivilege,
@@ -68,6 +69,27 @@ import { MODULE_SOURCE_PINNING, moduleSourcePin, providerConstraints } from './t
 
 function repoFile(rel: string): string {
   return readFileSync(join(REPO_ROOT, rel), 'utf8');
+}
+
+/**
+ * The round-2 review of the ARIA-HIGH-012 landing (kc/r12-review/REVIEW.txt) found blockers the
+ * owners must fix. Each case written for one carries node:test's `todo` option until its fix
+ * lands, as the section-5 landing cases did: it runs and prints its failure without failing the
+ * pre-commit hook, and tools/aria-adapters/infrastructure-policy-adapter.test.ts, the regression ref
+ * that closes ARIA-HIGH-012, refuses any `todo` left in this file.
+ */
+function reviewBlocker(id: string): string {
+  return `ARIA-HIGH-012 round-2 review blocker ${id} (kc/r12-review/REVIEW.txt) is not fixed`;
+}
+
+/**
+ * An export of nginx-header-inheritance.ts that the B1 fix adds. Looked up by name so the spec
+ * compiles before the export exists and the case fails on its absence, not on a type error.
+ */
+function headerOwnerExport(name: string): unknown {
+  const found = Object.entries(headerOwner).find(([key]) => key === name);
+  assert.ok(found !== undefined, `nginx-header-inheritance.ts exports ${name}`);
+  return found[1];
 }
 
 /** The item at `index`; a missing item fails the test here instead of as a TypeError later. */
@@ -579,6 +601,75 @@ void test('terraform pins fail closed: an archive is unpinned unless checksummed
   assert.deepEqual(verdictsWith('unresolved'), ['unknown']);
 });
 
+void test(
+  'terraform pins carry no credential: the source is judged whole and reported without userinfo or credential arguments',
+  { todo: reviewBlocker('B2') },
+  () => {
+    // WHY: the pin's source is the adapter's finding subject and message, which ARIA keeps in its
+    // state and evidence long after the credential is rotated; the round-2 review found an oauth2
+    // token and an S3 secret copied there verbatim (kc/r12-review probe-leak3.log). go-getter
+    // takes credentials in the URL userinfo and in the aws_access_key_id, aws_access_key_secret,
+    // aws_access_token and sshkey query arguments. The owner judges the address with them and
+    // reports it without them, as nats-identity.ts reports a password's length and never its value.
+    const literals = {
+      oauthToken: 'Rt5Wq8Zm3Kx1Vb7N',
+      bareToken: 'Pn2Hd6Js9Lc4Fg0Y',
+      keyId: 'Kid4Ux7Ob1Ea3Ip9',
+      keySecret: 'Ms8Tq2Wv5Yz1Ac6D',
+      sessionToken: 'Ss3Gh7Jk0Lq4Np8R',
+      sshKey: 'U3NoS2V5Rml4dHVyZQ',
+      ftpPassword: 'Fp6Xc9Vb2Nm5Qw8E',
+    };
+    const read = readHclBlocks(
+      [
+        `module "oauth" { source = "git::https://oauth2:${literals.oauthToken}@gitlab.example.com/org/net.git" }`,
+        `module "bare_token" { source = "git::https://${literals.bareToken}@github.com/org/m.git?ref=v1.2.3" }`,
+        'module "s3_keys" {',
+        `  source = "s3::https://s3.amazonaws.com/bucket/mod.zip?aws_access_key_id=${literals.keyId}&aws_access_key_secret=${literals.keySecret}&aws_access_token=${literals.sessionToken}"`,
+        '}',
+        `module "ssh_key" { source = "git::ssh://git@example.com/org/m.git?ref=main&sshkey=${literals.sshKey}" }`,
+        `module "ftp" { source = "ftp://deploy:${literals.ftpPassword}@mirror.example/vpc.zip" }`,
+        'module "scp" { source = "git@github.com:org/m.git?ref=v1.2.3" }',
+        '',
+      ].join('\n'),
+    );
+    assert.deepEqual(read.errors, []);
+    const pins = read.blocks
+      .filter((b) => b.type === 'module')
+      .map((block) => ({ module: block.labels[0], pin: moduleSourcePin(block) }));
+    // The verdict is that of the whole address: redaction does not change what pins.
+    assert.deepEqual(
+      pins.map(({ module, pin }) => [module, pin.verdict]),
+      [
+        ['oauth', 'git_unpinned'],
+        ['bare_token', 'git_tag'],
+        ['s3_keys', 'archive'],
+        ['ssh_key', 'git_branch_ref'],
+        ['ftp', 'unknown'],
+        ['scp', 'git_tag'],
+      ],
+    );
+    const serialised = JSON.stringify(pins);
+    for (const [name, literal] of Object.entries(literals)) {
+      assert.equal(serialised.includes(literal), false, `the ${name} is not in any pin`);
+    }
+    // What is not a credential stays, so a finding still names where the module comes from.
+    const source = (module: string): string =>
+      present(pins.find((entry) => entry.module === module)?.pin.source, `${module} source`);
+    assert.ok(source('oauth').includes('gitlab.example.com/org/net.git'));
+    assert.ok(source('bare_token').includes('github.com/org/m.git?ref=v1.2.3'));
+    assert.ok(source('s3_keys').startsWith('s3::https://s3.amazonaws.com/bucket/mod.zip'));
+    assert.ok(source('ssh_key').includes('example.com/org/m.git'));
+    assert.ok(source('ssh_key').includes('ref=main'));
+    assert.ok(source('ftp').includes('mirror.example/vpc.zip'));
+    assert.equal(
+      source('scp'),
+      'git@github.com:org/m.git?ref=v1.2.3',
+      'an scp-style SSH user is a login name, not a credential',
+    );
+  },
+);
+
 // ---------------------------------------------------------------- nginx
 
 void test('readNginx: comments, quotes, variables, nesting, line numbers', () => {
@@ -755,6 +846,182 @@ void test('headerInheritanceDrops on droplet.conf: /remotes/dashboard/ drops the
   assert.ok(mobile.declared.includes('Strict-Transport-Security'));
   assert.equal(mobile.dropped.includes('Strict-Transport-Security'), false);
 });
+
+// The round-2 review found the include map with a second owner and an unresolved include that
+// stopped at its own level (B1, kc/r12-review/REVIEW.txt). These cases pin the fix.
+const SECURITY_INCLUDE = '/etc/nginx/snippets/security-headers.conf';
+const SECURITY_SNIPPET = 'infrastructure/docker/nginx/snippets/security-headers.conf';
+
+void test(
+  'the nginx include map has one owner: the snippet an image delivers, its headers read from the snippet text',
+  { todo: reviewBlocker('B1') },
+  () => {
+    // WHY: the include target to snippet map lived only in mobile-csp-headers.spec.ts, and the
+    // adapter passed an empty map, so ARIA saw every security-headers include as unresolved and a
+    // location that lost its include as clean. The owner holds the map once and callers ask it.
+    // It does no I/O: the caller passes the reader (the adapter reads through adapter-fs.ts).
+    const includes = headerOwnerExport('SNIPPET_INCLUDES');
+    assert.ok(
+      includes instanceof Map,
+      'SNIPPET_INCLUDES maps each include target to its repo path',
+    );
+    assert.equal(includes.get(SECURITY_INCLUDE), SECURITY_SNIPPET);
+    // Each pairing is what an image does: a tracked Dockerfile COPYs the snippet to the target,
+    // so the map cannot name a target nginx never reads or a snippet no image ships.
+    const escape = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const dockerfileTexts = trackedFiles()
+      .filter((path) => classifyInfraFile(path) === 'dockerfile')
+      .map((path) => repoFile(path));
+    for (const [target, snippet] of includes) {
+      assert.equal(typeof target, 'string');
+      assert.equal(typeof snippet, 'string');
+      const copy = new RegExp(
+        `^\\s*COPY\\s+(?:--\\S+\\s+)*${escape(String(snippet))}\\s+${escape(String(target))}\\s*$`,
+        'm',
+      );
+      assert.ok(
+        dockerfileTexts.some((text) => copy.test(text)),
+        `a tracked Dockerfile COPYs ${String(snippet)} to ${String(target)}`,
+      );
+    }
+
+    const build = headerOwnerExport('includedHeadersFrom');
+    assert.equal(typeof build, 'function', 'includedHeadersFrom(readRepoFile) builds the map');
+    if (typeof build !== 'function') return;
+    /** includedHeadersFrom(readRepoFile): the reader returns a repo file's text, or null. */
+    const includedHeadersFrom = (readRepoFile: (path: string) => string | null): unknown =>
+      Reflect.apply(build, undefined, [readRepoFile]);
+    const asked: string[] = [];
+    const fromRepo = includedHeadersFrom((path: string): string => {
+      asked.push(path);
+      return repoFile(path);
+    });
+    assert.ok(fromRepo instanceof Map);
+    assert.deepEqual(asked.sort(), [...includes.values()].map(String).sort(), 'each snippet, once');
+    assert.deepEqual([...fromRepo.keys()].sort(), [...includes.keys()].sort());
+    assert.deepEqual(
+      fromRepo.get(SECURITY_INCLUDE),
+      addHeaderNames(readNginx(repoFile(SECURITY_SNIPPET)).tree),
+    );
+    // Derived, not restated: the headers are whatever the snippet text sets.
+    const other = includedHeadersFrom((): string => 'add_header X-Only-This "1" always;\n');
+    assert.ok(other instanceof Map);
+    assert.deepEqual(other.get(SECURITY_INCLUDE), ['X-Only-This']);
+    // Fail closed: a snippet that cannot be read, or reads with errors, is not known, so its
+    // include stays unresolved instead of counting as one that adds nothing.
+    const unreadable = includedHeadersFrom((): null => null);
+    assert.ok(unreadable instanceof Map);
+    assert.equal(unreadable.has(SECURITY_INCLUDE), false, 'an unreadable snippet is not known');
+    const broken = includedHeadersFrom((): string => 'add_header X-Half "1"\n');
+    assert.ok(broken instanceof Map);
+    assert.equal(broken.has(SECURITY_INCLUDE), false, 'a snippet with read errors is not known');
+  },
+);
+
+void test(
+  'every caller of the header owner takes the include map from it and builds none of its own',
+  { todo: reviewBlocker('B1') },
+  () => {
+    // A caller that builds its own map is the second owner B1 names (mobile-csp-headers.spec.ts
+    // :30,72-74); one that passes an empty map is the adapter's fail-open (adapter.ts:800). This
+    // spec builds synthetic maps on purpose and is not a caller.
+    const OWNER_FILE = 'tools/gates/infra-policy/nginx-header-inheritance.ts';
+    const callers = trackedFiles().filter(
+      (path) =>
+        path.endsWith('.ts') &&
+        path !== OWNER_FILE &&
+        path !== 'tools/gates/infra-policy/infra-policy.spec.ts' &&
+        /infra-policy\/nginx-header-inheritance['"]/.test(repoFile(path)) &&
+        /\b(?:headerLevels|headerInheritanceDrops)\s*\(/.test(repoFile(path)),
+    );
+    for (const known of [
+      'tests/invariants/mobile-csp-headers.spec.ts',
+      'tools/aria-adapters/infrastructure-policy-adapter.ts',
+    ]) {
+      assert.ok(callers.includes(known), `${known} asks the header owner`);
+    }
+    for (const caller of callers) {
+      const text = repoFile(caller);
+      assert.equal(
+        /includedHeaders\s*:\s*new Map\b/.test(text),
+        false,
+        `${caller} builds its own include map`,
+      );
+      assert.ok(/\bincludedHeadersFrom\s*\(/.test(text), `${caller} takes the map from the owner`);
+    }
+  },
+);
+
+void test(
+  'an include the owner cannot see is inherited, as unresolved, by every level under it',
+  { todo: reviewBlocker('B1') },
+  () => {
+    // WHY: what an unseen include adds is unknown, and a level under it inherits that unknown:
+    // with nothing known, aquamobil.conf's server include (:45) left /assets/ and /health reading
+    // clean, though each sets its own header and so drops whatever the include adds. A parent's
+    // unseen include can only add to what a child that sets its own headers loses, so the drops
+    // the owner does see stay certain (droplet.conf's http-level mime.types include must not
+    // silence /remotes/dashboard/).
+    const UNSEEN = '/etc/nginx/unseen.conf';
+    const UNSEEN_C = '/etc/nginx/unseen-c.conf';
+    const tree = readNginx(
+      [
+        'server {', //                                                1
+        '  add_header X-Frame-Options DENY always;', //               2
+        `  include ${UNSEEN};`, //                                    3
+        '  location /a/ { add_header Cache-Control "no-store"; }', // 4
+        '  location /b/ { try_files $uri =404; }', //                 5
+        '  location /c/ {', //                                        6
+        `    include ${UNSEEN_C};`, //                                7
+        '    location /d/ { add_header X-D 1; }', //                  8
+        '  }', //                                                     9
+        '}', //                                                       10
+        'server {', //                                                11
+        '  location /e/ { add_header Cache-Control "no-store"; }', // 12
+        '}', //                                                       13
+        '',
+      ].join('\n'),
+    ).tree;
+    const inherited = (level: headerOwner.HeaderLevel): unknown =>
+      'inheritedUnresolvedIncludes' in level ? level.inheritedUnresolvedIncludes : 'absent';
+    assert.deepEqual(
+      headerLevels(tree, { includedHeaders: new Map() }).map((level) => [
+        level.line,
+        level.location,
+        level.unresolvedIncludes,
+        inherited(level),
+        level.dropped,
+      ]),
+      [
+        [1, '', [UNSEEN], [], []],
+        [4, '/a/', [], [UNSEEN], ['X-Frame-Options']],
+        [5, '/b/', [], [UNSEEN], []],
+        [6, '/c/', [UNSEEN_C], [UNSEEN], []],
+        // Outermost first: /d/ sits under the server's include and /c/'s.
+        [8, '/d/', [], [UNSEEN, UNSEEN_C], ['X-Frame-Options']],
+        [11, '', [], [], []],
+        [12, '/e/', [], [], []],
+      ],
+    );
+
+    // aquamobil.conf with nothing known: the server's include reaches /health (:48) and every
+    // location under the server, so none of them reads as clean.
+    const levels = headerLevels(
+      readNginx(repoFile('infrastructure/docker/nginx/aquamobil.conf')).tree,
+      { includedHeaders: new Map() },
+    );
+    const health = present(
+      levels.find((level) => level.location === '/health'),
+      'aquamobil.conf /health level',
+    );
+    assert.equal(health.line, 48);
+    assert.deepEqual(inherited(health), [SECURITY_INCLUDE]);
+    for (const level of levels.filter((l) => l.context !== 'server')) {
+      const all = [...level.unresolvedIncludes, ...[inherited(level)].flat()];
+      assert.ok(all.includes(SECURITY_INCLUDE), `${level.location} sees the unseen include`);
+    }
+  },
+);
 
 // ---------------------------------------------------------------- NATS
 

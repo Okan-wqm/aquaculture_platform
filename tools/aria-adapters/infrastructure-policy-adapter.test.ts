@@ -39,6 +39,10 @@ import { analyzeInfrastructurePolicy } from './infrastructure-policy-adapter';
 //   4. The real repository: every infrastructure file the classifier owner
 //      knows under the manifest's roots is observed, the production cAdvisor
 //      socket binds and the password NATS config are claimed.
+//   5. The round-2 review blockers (kc/r12-review/REVIEW.txt): the nginx include
+//      map comes from the header owner, an include it cannot see is carried
+//      down to the levels under it, and a Terraform credential never reaches
+//      the output.
 //
 // The workspace is built at run time, as workflow-shell-safety's is: a
 // committed fixture holding an alias bomb or a nesting bomb would be read by
@@ -766,5 +770,227 @@ assert.deepEqual(
   [],
   'the WAL-G derivative keeps its manifest-sanctioned root user',
 );
+
+// ============================ 5. the round-2 review blockers (B1, B2)
+// kc/r12-review/REVIEW.txt, on 78d38a761:
+//   B1  the adapter passed headerLevels an empty include map (the map lived only in
+//       mobile-csp-headers.spec.ts), and an unseen include stopped at its own level, so with
+//       aquamobil.conf's /assets/ include removed ARIA claimed nothing, and /health (:48), which
+//       drops the whole security set, was neither claimed nor recorded;
+//   B2  a Terraform module source went verbatim into the finding subject and message, oauth2
+//       token and S3 secret included.
+// Each check below runs and its failure is collected, so one run names every contract that is
+// still broken instead of stopping at the first.
+const blockerFailures: string[] = [];
+const check = (name: string, body: () => void): void => {
+  try {
+    body();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    blockerFailures.push(`${name}: ${message.replace(/\s+/g, ' ').slice(0, 400)}`);
+  }
+};
+
+check('B1 the adapter takes the include map from the header owner', () => {
+  assert.ok(importedNames.includes('includedHeadersFrom'), 'it imports includedHeadersFrom');
+  assert.equal(
+    /includedHeaders\s*:\s*new Map\b/.test(adapterText),
+    false,
+    'it builds no include map of its own',
+  );
+});
+
+const SECURITY_INCLUDE = '/etc/nginx/snippets/security-headers.conf';
+const SECURITY_SNIPPET = 'infrastructure/docker/nginx/snippets/security-headers.conf';
+const AQUAMOBIL = 'infrastructure/docker/nginx/aquamobil.conf';
+const aquamobil = readFileSync(join(REPO_ROOT, AQUAMOBIL), 'utf8');
+/** `text` with `from` replaced by `to`; the anchor must exist, so a mutation is never vacuous. */
+const mutate = (text: string, from: string, to: string): string => {
+  assert.ok(text.includes(from), `mutation anchor present: ${JSON.stringify(from)}`);
+  return text.replace(from, to);
+};
+/** The 1-based line of the first line of `text` that contains `needle`. */
+const lineOf = (text: string, needle: string): number => {
+  const index = text.split('\n').findIndex((line) => line.includes(needle));
+  assert.ok(index >= 0, `${needle} is in the text`);
+  return index + 1;
+};
+const ASSETS_CACHE = '        add_header Cache-Control "public, immutable, max-age=31536000";\n';
+const ASSETS_INCLUDE = `        include ${SECURITY_INCLUDE}; # SEC-MEDIUM-052\n`;
+const SERVER_INCLUDE = `\n    include ${SECURITY_INCLUDE};\n`;
+const withoutAssetsInclude = mutate(aquamobil, `${ASSETS_CACHE}${ASSETS_INCLUDE}`, ASSETS_CACHE);
+const withoutBothIncludes = mutate(withoutAssetsInclude, SERVER_INCLUDE, '\n');
+
+const MOBILE = 'infrastructure/docker/nginx/mobile.conf';
+const MOBILE_NO_ASSETS = 'infrastructure/docker/nginx/mobile-no-assets-include.conf';
+const MOBILE_NO_INCLUDES = 'infrastructure/docker/nginx/mobile-no-includes.conf';
+const UNSEEN = 'infrastructure/docker/nginx/unseen-include.conf';
+const UNSEEN_TARGET = '/etc/nginx/conf.d/extra-headers.conf';
+const TERRAFORM_CREDENTIALS = 'infrastructure/terraform/credentials.tf';
+const TF_LITERALS = {
+  oauthToken: 'Rt5Wq8Zm3Kx1Vb7N',
+  keyId: 'Kid4Ux7Ob1Ea3Ip9',
+  keySecret: 'Ms8Tq2Wv5Yz1Ac6D',
+  sessionToken: 'Ss3Gh7Jk0Lq4Np8R',
+  sshKey: 'U3NoS2V5Rml4dHVyZQ',
+  ftpPassword: 'Fp6Xc9Vb2Nm5Qw8E',
+};
+const BLOCKER_FILES: Readonly<Record<string, string>> = {
+  // The snippet sits at its repo path, where the header owner's map says the include comes from.
+  [SECURITY_SNIPPET]: readFileSync(join(REPO_ROOT, SECURITY_SNIPPET), 'utf8'),
+  [MOBILE]: aquamobil,
+  [MOBILE_NO_ASSETS]: withoutAssetsInclude,
+  [MOBILE_NO_INCLUDES]: withoutBothIncludes,
+  [UNSEEN]: [
+    'server {', //                                               1
+    `  include ${UNSEEN_TARGET};`, //                            2
+    '  location /x/ { add_header Cache-Control "no-store"; }', // 3
+    '  location /y/ { try_files $uri =404; }', //                4
+    '}', //                                                      5
+    '',
+  ].join('\n'),
+  [TERRAFORM_CREDENTIALS]: [
+    `module "oauth" { source = "git::https://oauth2:${TF_LITERALS.oauthToken}@gitlab.example.com/org/net.git" }`, // 1
+    'module "s3_keys" {', //                                                                                      2
+    `  source = "s3::https://s3.amazonaws.com/bucket/mod.zip?aws_access_key_id=${TF_LITERALS.keyId}&aws_access_key_secret=${TF_LITERALS.keySecret}&aws_access_token=${TF_LITERALS.sessionToken}"`, // 3
+    '}', //                                                                                                       4
+    `module "ssh_key" { source = "git::ssh://git@example.com/org/m.git?ref=main&sshkey=${TF_LITERALS.sshKey}" }`, // 5
+    `module "ftp" { source = "ftp://deploy:${TF_LITERALS.ftpPassword}@mirror.example/vpc.zip" }`, //               6
+    '',
+  ].join('\n'),
+};
+const blockerWorkspace = makeFixtureTree('aria-infrastructure-policy-r2-');
+for (const [path, body] of Object.entries(BLOCKER_FILES)) {
+  mkdirSync(dirname(join(blockerWorkspace, path)), { recursive: true });
+  writeFileSync(join(blockerWorkspace, path), body, 'utf8');
+}
+const blockerOutput = analyzeInfrastructurePolicy({ roots: ['infrastructure'] }, blockerWorkspace);
+const headerClaimLines = (path: string): number[] =>
+  blockerOutput.findings
+    .filter((f) => f.rule === 'security_header_inheritance_drop' && f.path === path)
+    .map((f) => f.line)
+    .sort((a, b) => a - b);
+const unresolvedAt = (
+  observations: typeof blockerOutput.observations,
+  rule: string,
+  path: string,
+): Record<string, unknown>[] =>
+  observations
+    .filter(
+      (candidate) =>
+        candidate.type === 'infrastructure_unresolved_verdict' &&
+        candidate.path === path &&
+        candidate.details?.rule === rule,
+    )
+    .map((candidate) => candidate.details ?? {});
+
+check('B1 aquamobil.conf as committed: only /health (:48) is claimed', () => {
+  assert.deepEqual(headerClaimLines(MOBILE), [48]);
+});
+check('B1 the /assets/ include removed (aquamobil.conf:101): /assets/ is claimed', () => {
+  assert.deepEqual(headerClaimLines(MOBILE_NO_ASSETS), [
+    48,
+    lineOf(withoutAssetsInclude, 'location /assets/'),
+  ]);
+});
+check('B1 the server include and the /assets/ include removed: /assets/ is still claimed', () => {
+  assert.deepEqual(headerClaimLines(MOBILE_NO_INCLUDES), [
+    lineOf(withoutBothIncludes, 'location /health'),
+    lineOf(withoutBothIncludes, 'location /assets/'),
+  ]);
+});
+check('B1 the owner knows the security-headers include: it is never unresolved', () => {
+  for (const path of [MOBILE, MOBILE_NO_ASSETS, MOBILE_NO_INCLUDES]) {
+    assert.deepEqual(
+      unresolvedAt(blockerOutput.observations, 'security_header_inheritance_drop', path).filter(
+        (details) => JSON.stringify(details).includes(SECURITY_INCLUDE),
+      ),
+      [],
+      `${path} records the security-headers include as unseen`,
+    );
+  }
+});
+check(
+  'B1 a location under an unseen include that sets its own header is recorded, not clean',
+  () => {
+    // /x/ drops whatever the server's unseen include adds: the adapter cannot claim it and must
+    // not read it as clean.
+    assert.ok(
+      unresolvedAt(blockerOutput.observations, 'security_header_inheritance_drop', UNSEEN).some(
+        (details) => details.line === 3,
+      ),
+      'unseen-include.conf /x/ (line 3) is recorded unresolved',
+    );
+    assert.deepEqual(headerClaimLines(UNSEEN), []);
+  },
+);
+
+check('B2 no Terraform credential reaches any output', () => {
+  const text = JSON.stringify(blockerOutput);
+  for (const [name, literal] of Object.entries(TF_LITERALS)) {
+    assert.equal(text.includes(literal), false, `the ${name} is in the output`);
+  }
+});
+check('B2 the redacted sources are still claimed and still name where they come from', () => {
+  const terraform = blockerOutput.findings
+    .filter((f) => f.rule === 'unpinned_terraform_source' && f.path === TERRAFORM_CREDENTIALS)
+    .sort((a, b) => a.line - b.line);
+  assert.deepEqual(
+    terraform.map((f) => [f.line, f.owner_rule_id]),
+    [
+      [1, 'git_unpinned'],
+      [3, 'archive'],
+      [5, 'git_branch_ref'],
+    ],
+  );
+  const [oauth, s3, ssh] = terraform;
+  assert.ok(oauth?.subject.includes('gitlab.example.com/org/net.git'));
+  assert.ok(s3?.subject.includes('s3.amazonaws.com/bucket/mod.zip'));
+  assert.ok(ssh?.subject.includes('example.com/org/m.git'));
+  assert.ok(
+    unresolvedAt(
+      blockerOutput.observations,
+      'unpinned_terraform_source',
+      TERRAFORM_CREDENTIALS,
+    ).some((details) => details.line === 6),
+    'the ftp source the owner cannot classify is recorded unresolved',
+  );
+});
+
+// The real repository: aquamobil.conf's /health drops the security set (it sets Content-Type).
+check('B1 the real aquamobil.conf /health (:48) is claimed or recorded', () => {
+  const claimed = real.findings.some(
+    (f) => f.rule === 'security_header_inheritance_drop' && f.path === AQUAMOBIL && f.line === 48,
+  );
+  const recorded = unresolvedAt(
+    real.observations,
+    'security_header_inheritance_drop',
+    AQUAMOBIL,
+  ).some((details) => details.line === 48);
+  assert.ok(claimed || recorded, 'aquamobil.conf:48 is neither claimed nor recorded');
+});
+check('B1 the real aquamobil.conf security-headers include is known, never unresolved', () => {
+  assert.deepEqual(
+    unresolvedAt(real.observations, 'security_header_inheritance_drop', AQUAMOBIL).filter(
+      (details) => JSON.stringify(details).includes(SECURITY_INCLUDE),
+    ),
+    [],
+  );
+});
+check('B1 a drop the owner sees under an unseen ancestor include stays a claim', () => {
+  // droplet.conf includes mime.types at http level (:49); /remotes/dashboard/ drops the CSP and
+  // HSTS whatever mime.types adds, so carrying the unseen include down must not silence it.
+  assert.ok(
+    real.findings.some(
+      (f) =>
+        f.rule === 'security_header_inheritance_drop' &&
+        f.path === 'infrastructure/nginx/droplet.conf' &&
+        f.subject === 'location /remotes/dashboard/',
+    ),
+    'droplet.conf /remotes/dashboard/ is claimed',
+  );
+});
+
+assert.deepEqual(blockerFailures, [], 'the round-2 review blockers B1 and B2 are fixed');
 
 process.stdout.write('infrastructure-policy-adapter.test.ts OK\n');

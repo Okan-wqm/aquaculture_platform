@@ -748,3 +748,25 @@ consumer
   - `aria-kernel/aria_kernel/state_compact.py:20-26`
   - `aria-kernel/aria_kernel/state_manifest.py:612`
 - Rule: PLAN-v2 L6 'Arşiv replay'i'; memory is never lost (the ARIA-HIGH-263 rule).
+
+## ARIA-MEDIUM-774
+
+ARIA's infrastructure-policy adapter observes compose runtime guards and the production compose
+scope nowhere: missing_runtime_guard covers Kubernetes pods only, and every compose file is judged
+alike instead of by service-catalog activeDropletComposeServices
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-18.
+- Raised by: the ARIA-HIGH-012 landing (landing/aria-high-012), as the part of the G017 PR-2 design
+  that landing does not do. The nginx include map the landing's first stub also listed is fixed in
+  that landing (round-2 review B1) and is not part of this finding.
+- Evidence:
+  - `tools/aria-adapters/infrastructure-policy-adapter.tool.json` (missing_runtime_guard premise 3:
+    'Compose services are not this rule's surface')
+  - `tools/gates/infra-policy/runtime-guards.ts` (composeGuards has no caller)
+  - `infrastructure/deploy/service-catalog.generated.json` (activeDropletComposeServices, read by
+    nothing in the adapter)
+- Rule: G017 PR-2 design (wave2/design/G017.md step 4): production scope from service-catalog
+  activeDropletComposeServices, and composeGuards with composition through build: -> Dockerfile
+  HEALTHCHECK.
+- Failure scenario: a droplet compose service loses its healthcheck or mem_limit and ARIA records
+  nothing; a dev-only compose service's floating tag is weighed like a production one.

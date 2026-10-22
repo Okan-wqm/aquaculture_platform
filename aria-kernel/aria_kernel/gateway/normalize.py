@@ -124,10 +124,13 @@ def normalize_alertmanager(delivery_id: str, payload: Mapping[str, Any]) -> list
 
 
 def normalize_operator(delivery_id: str, payload: Mapping[str, Any], *, actor: str | None) -> NormalizedEvent:
+    """``operator_ref`` is the operator's GitHub act a ``resume`` presents
+    (ARIA-HIGH-238); the actor header names who asked and proves nothing."""
     verb = str(payload.get("verb") or "")
     return _event(
         "operator.command", delivery_id, "operator", occurred_at=payload.get("issued_at"), actor=actor, payload=payload,
-        subject={"verb": verb, "request_id": payload.get("request_id"), "reason": str(payload.get("reason") or "")[:200]},
+        subject={"verb": verb, "request_id": payload.get("request_id"), "reason": str(payload.get("reason") or "")[:200],
+                 "operator_ref": str(payload.get("operator_ref") or "")},
     )
 
 

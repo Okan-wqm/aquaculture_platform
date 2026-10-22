@@ -77,8 +77,9 @@ GITHUB_REF_GRAMMAR = (
 # includes a reset while nothing is tripped. The raising module owns the
 # function that reads the instance from its own state
 # (`circuit_breaker.trip_scope`, `cost_budget.trip_scope`,
-# `mcp_client.unquarantine_scope`, each through `recorded_instance`), and its
-# CLI verb prints the line from that state (`--print-approval-line`).
+# `mcp_client.unquarantine_scope`, each through `recorded_instance`;
+# `control.resume_scope`, whose instance is the pause row's unique id), and
+# its CLI verb prints the line from that state (`--print-approval-line`).
 AUTHORITY_RAISING_SURFACES: Mapping[str, tuple[str, ...]] = MappingProxyType({
     "merge_lane_grant": ("lane", "expires"),
     "runtime_profile": ("profile", "ceiling"),
@@ -93,6 +94,11 @@ AUTHORITY_RAISING_SURFACES: Mapping[str, tuple[str, ...]] = MappingProxyType({
     "breaker_reset": ("breaker", "tripped_at"),
     "breaker_evidence_quarantine": ("breaker", "tripped_at"),
     "mcp_unquarantine": ("server", "quarantined_at"),
+    # Lifting an operator's pause: `target` is `all` or the request id, and
+    # `pause_id` is the command id of the newest standing pause that resume
+    # lifts (`control.resume_scope`), so an act minted for one pause lifts
+    # neither a later pause nor a newer one recorded on top of it.
+    "control_resume": ("target", "pause_id"),
     # ARIA-HIGH-238 — the surfaces beyond unit O's four, landed with their
     # verifier call sites (one cluster per commit). Scope carries the
     # identifiers of the grant; a constant target still means one act

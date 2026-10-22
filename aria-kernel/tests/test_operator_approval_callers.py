@@ -216,9 +216,7 @@ APPROVAL_FUNCTIONS: dict[tuple[str, str], Klass] = {
 }
 
 # RAISING entries whose verification lands in a later slice of ARIA-HIGH-238.
-UNVERIFIED_UNTIL: dict[tuple[str, str], str] = {
-    ("control", "record_control"): "ARIA-HIGH-238",
-}
+UNVERIFIED_UNTIL: dict[tuple[str, str], str] = {}
 
 # P5 — the writes that record an authority raise.
 RAISING_GOVERNANCE_KINDS: frozenset[str] = frozenset({

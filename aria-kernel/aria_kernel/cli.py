@@ -3574,11 +3574,23 @@ def build_parser() -> argparse.ArgumentParser:
     # Plan 032 Faz 032e — operator control plane, notifications, live progress.
     control_parser = add_subparser(sub, "control")
     control_sub = control_parser.add_subparsers(dest="control_command", required=True)
+    # ARIA-HIGH-238 — pause and cancel narrow authority (the ref is who asked);
+    # resume lifts a pause, so it takes the operator's GitHub act for the pause
+    # it lifts, or prints the line to post for it.
     for verb in ("pause", "resume", "cancel"):
         verb_parser = add_subparser(control_sub, verb)
         verb_parser.add_argument("--request-id", default=None, required=(verb == "cancel"))
         verb_parser.add_argument("--reason", default="")
-        verb_parser.add_argument("--operator-ref", default=None)
+        if verb == "resume":
+            _add_raising_ref_arguments(
+                verb_parser, "--operator-ref",
+                surface="control_resume target=<all|request id> pause_id=<the standing pause>", reason=False,
+            )
+        else:
+            verb_parser.add_argument(
+                "--operator-ref", default=None,
+                help="who asked, on the record; pausing and cancelling narrow authority and need no operator act",
+            )
     add_subparser(control_sub, "status")
     notify_parser = add_subparser(sub, "notify")
     notify_sub = notify_parser.add_subparsers(dest="notify_command", required=True)
@@ -7656,11 +7668,13 @@ def _main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "control":
-        from .control import effective_control, record_control
+        from .control import effective_control, record_control, resume_scope
 
         if args.control_command == "status":
             print(json.dumps(effective_control(args.tools_dir).to_dict(), indent=2, sort_keys=True))
             return 0
+        if args.control_command == "resume" and args.print_approval_line:
+            return _print_approval_line("control_resume", resume_scope(args.request_id, base_dir=args.tools_dir))
         row = record_control(args.control_command, base_dir=args.tools_dir, request_id=args.request_id,
                              operator_ref=args.operator_ref, reason=args.reason)
         print(json.dumps({"command": row, "effective": effective_control(args.tools_dir).to_dict()}, indent=2, sort_keys=True))

@@ -46,13 +46,16 @@ from .workflow_contract_registry import (
 )
 
 
-# D4 (ADR-036) — main's live YAMLs pin actions/upload-artifact at v7.0.1
-# (043fb46d…), verified via `gh api`. The canonical 13b94c505 blob carried the
-# stale ea165f8d… pin which would reject every live workflow; we unify on the
-# real v7.0.1 SHA. The trailing "# v7.0.1" comment in the YAML `uses:` scalar is
-# part of the parsed value under yaml.safe_load, so the comparison normalizes
-# the inline comment before matching (see ``_uses_action_id``).
-UPLOAD_ARTIFACT_ACTION = "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+# D4 (ADR-036) — the one owner of the approved actions/upload-artifact pin:
+# v7.0.2, cf430e03…, the commit the v7.0.2 tag points at (verified via
+# `gh api repos/actions/upload-artifact/git/ref/tags/v7.0.2`). The registry
+# verifier (``_verify_upload_artifact_step``) holds every ARIA workflow to it,
+# and tests/invariants/ci-full-trigger-contract.spec.ts reads this literal
+# through Python's ``ast`` instead of keeping its own copy. Dependabot rewrites
+# only the YAML, so an upload-artifact bump edits this line in the same PR.
+# The comparison strips an inline ``# vX.Y.Z`` from the ``uses:`` value first
+# (see ``_uses_action_id``).
+UPLOAD_ARTIFACT_ACTION = "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9"
 
 
 @dataclass(frozen=True)

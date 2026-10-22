@@ -503,11 +503,15 @@ jobs:
     # no `if`: it runs on every PR and on every push, whatever the surface
     # decision said. The verdict requires its success unconditionally.
     runs-on: ubuntu-22.04
-    # 20 (G001): the moved lane steps were ~1.4 min after the suite step on
-    # run 36386654289 attempt 2, plus the live partition (one suite module
-    # today) and ~1.5 min of setup. A hang guard at many times that. The
-    # image is the one the discovery sandbox needs (see `suite`).
-    timeout-minutes: 20
+    # 30 (G001): the job took ~4 min with a one-module live partition (run
+    # 39753472319). The first traced runs of PR #2060 moved 28 more modules
+    # here, because they read the live checkout outside the surface. The
+    # 29-module partition ran in 18.5 min on the shared droplet, which runs
+    # the suite ~1.4x slower than a runner, so it should take ~13 min on a
+    # runner. The job total is ~17 min; the guard sits above it and below an
+    # hour-long hang. The image is the one the discovery sandbox needs (see
+    # `suite`).
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

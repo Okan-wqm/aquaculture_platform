@@ -389,7 +389,9 @@ class WorkspaceJobTest(unittest.TestCase):
         self.assertNotIn("if", job, "the workspace job must run on every PR")
         # The image the discovery sandbox needs (see `suite`), and a hang guard.
         self.assertEqual(job["runs-on"], "ubuntu-22.04")
-        self.assertLessEqual(int(job["timeout-minutes"]), 20)
+        # A hang guard above the measured ~17 min run (aria-kernel.yml's
+        # comment): the live partition is 29 modules.
+        self.assertLessEqual(int(job["timeout-minutes"]), 30)
 
     def test_the_whole_checkout_checks_live_only_in_workspace(self) -> None:
         workspace = _run_lines(self.workflow["jobs"].get("workspace") or {})

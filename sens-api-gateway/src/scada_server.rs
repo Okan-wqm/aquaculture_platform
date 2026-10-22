@@ -1904,7 +1904,8 @@ async fn handle_emergency_stop(
         "type": "confirmRequest",
         "requestId": request_id,
         "tag": "__emergency_stop__",
-        "text": "ACIL DURDURMA: Tum kontrol cikislari sifirlanacak. Onayliyor musunuz?",
+        "text": "ACIL DURDURMA: Tum kontrol cikislari guvenli degerlerine surulecek ve kontrol \
+                 kilitlenecek (yasam destegi cikislari acik kalir). Onayliyor musunuz?",
     });
     if let Ok(json) = serde_json::to_string(&msg) {
         let _ = socket.send(Message::Text(json.into())).await;
@@ -1988,139 +1989,174 @@ async fn execute_emergency_stop(socket: &mut WebSocket, state: &ScadaState) {
     state.broadcast_json(&msg);
 }
 
+/// Where a handler's answers to the client go: the WebSocket in production, a
+/// recorder in the tests, so the handlers of the emergency reset can be driven
+/// without a socket.
+#[async_trait::async_trait]
+trait Outbound: Send {
+    async fn send_json(&mut self, value: serde_json::Value);
+}
+
+#[async_trait::async_trait]
+impl Outbound for WebSocket {
+    async fn send_json(&mut self, value: serde_json::Value) {
+        if let Ok(json) = serde_json::to_string(&value) {
+            let _ = self.send(Message::Text(json.into())).await;
+        }
+    }
+}
+
+/// Why an emergency reset was refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResetDenial {
+    /// Too many wrong PINs since the last good one (the lockout is global, not
+    /// per connection).
+    LockedOut,
+    /// No PIN is configured and the package does not say the reset may go
+    /// without one.
+    NoPinAndNoOptOut,
+    /// The PIN does not verify.
+    WrongPin,
+}
+
+/// What lets an emergency reset through.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResetBasis {
+    /// The PIN verifies against the package's hash.
+    PinVerified,
+    /// No PIN is configured and the package says so explicitly
+    /// (`resetRequiresPin: false`).
+    PackageOptOut,
+}
+
+/// The one decision whether an emergency reset may clear the stop (ADR-048
+/// DEC-9.7: the reset is the authenticated path; a stop must not be clearable
+/// by whoever can reach the display). Pure, so every combination is a test:
+///
+/// * a locked-out display refuses, even a right PIN and an opt-out;
+/// * without a configured PIN the reset goes through only on the package's
+///   explicit opt-out;
+/// * with a configured PIN only a verifying PIN goes through, and the opt-out
+///   never bypasses it.
+fn decide_reset(
+    locked_out: bool,
+    pin_hash: Option<&str>,
+    opted_out: bool,
+    pin: &str,
+) -> Result<ResetBasis, ResetDenial> {
+    if locked_out {
+        return Err(ResetDenial::LockedOut);
+    }
+    match pin_hash {
+        None if opted_out => Ok(ResetBasis::PackageOptOut),
+        None => Err(ResetDenial::NoPinAndNoOptOut),
+        Some(hash) if verify_pin(pin, hash) => Ok(ResetBasis::PinVerified),
+        Some(_) => Err(ResetDenial::WrongPin),
+    }
+}
+
 /// Handle emergency reset (requires PIN)
-async fn handle_emergency_reset(
-    socket: &mut WebSocket,
+async fn handle_emergency_reset<O: Outbound>(
+    socket: &mut O,
     state: &ScadaState,
     session: &mut WsSession,
     pin: &str,
 ) {
-    // Check global lockout before attempting PIN verification
-    {
-        let lockout = state.inner.pin_lockout.lock().await;
-        if lockout.is_locked_out() {
-            let msg = serde_json::json!({
-                "type": "commandResult",
-                "tag": "",
-                "success": false,
-                "error": "Too many failed PIN attempts. Try again later.",
-            });
-            if let Ok(json) = serde_json::to_string(&msg) {
-                let _ = socket.send(Message::Text(json.into())).await;
-            }
-            return;
-        }
-    }
+    let locked_out = state.inner.pin_lockout.lock().await.is_locked_out();
+    let (pin_hash, opted_out) = {
+        let package = state.inner.package.read().await;
+        let permissions = package.as_ref().map(|pkg| &pkg.control_permissions);
+        (
+            permissions.and_then(|p| p.pin_hash.clone()),
+            permissions
+                .and_then(|p| p.emergency_stop.as_ref())
+                .is_some_and(|es| !es.reset_requires_pin),
+        )
+    };
 
-    // Get pin_hash from package
-    let pin_hash = state
-        .inner
-        .package
-        .read()
-        .await
-        .as_ref()
-        .and_then(|pkg| pkg.control_permissions.pin_hash.clone());
+    match decide_reset(locked_out, pin_hash.as_deref(), opted_out, pin) {
+        Ok(ResetBasis::PackageOptOut) => do_emergency_reset(socket, state).await,
+        Ok(ResetBasis::PinVerified) => {
+            // Reset global lockout on success
+            state.inner.pin_lockout.lock().await.reset();
 
-    let pin_hash = match pin_hash {
-        Some(h) => h,
-        None => {
-            // No PIN is configured. The reset is the authenticated path
-            // (ADR-048 DEC-9.7): without a PIN it is allowed only when the
-            // package says so explicitly (`resetRequiresPin: false`), and
-            // refused otherwise. A stop must not be clearable by whoever can
-            // reach the display.
-            let opted_out = state
+            // Establish PIN session as well
+            let timeout = state
                 .inner
                 .package
                 .read()
                 .await
                 .as_ref()
-                .and_then(|pkg| pkg.control_permissions.emergency_stop.as_ref())
-                .is_some_and(|es| !es.reset_requires_pin);
-            if opted_out {
-                do_emergency_reset(socket, state).await;
-            } else {
-                let msg = serde_json::json!({
+                .and_then(|pkg| pkg.control_permissions.pin_timeout)
+                .unwrap_or(PIN_SESSION_TIMEOUT_SECS as u32);
+            session.pin_session = Some(PinSession {
+                valid_until: chrono::Utc::now() + chrono::Duration::seconds(timeout as i64),
+                failed_attempts: 0,
+                lockout_until: None,
+            });
+
+            do_emergency_reset(socket, state).await;
+        }
+        Err(ResetDenial::LockedOut) => {
+            socket
+                .send_json(serde_json::json!({
+                    "type": "commandResult",
+                    "tag": "",
+                    "success": false,
+                    "error": "Too many failed PIN attempts. Try again later.",
+                }))
+                .await;
+        }
+        Err(ResetDenial::NoPinAndNoOptOut) => {
+            socket
+                .send_json(serde_json::json!({
                     "type": "commandResult",
                     "tag": "",
                     "success": false,
                     "error": "Emergency reset needs a PIN and none is configured: deploy a \
                               package with a PIN (or one that explicitly allows a reset \
                               without it)",
-                });
-                if let Ok(json) = serde_json::to_string(&msg) {
-                    let _ = socket.send(Message::Text(json.into())).await;
-                }
-                if let Some(ref db) = state.inner.db {
-                    let _ = db.insert_audit(
-                        None,
-                        "emergency_reset_failed",
-                        None,
-                        None,
-                        None,
-                        true,
-                        false,
-                        Some("no PIN configured and no explicit opt-out"),
-                    );
-                }
+                }))
+                .await;
+            if let Some(ref db) = state.inner.db {
+                let _ = db.insert_audit(
+                    None,
+                    "emergency_reset_failed",
+                    None,
+                    None,
+                    None,
+                    true,
+                    false,
+                    Some("no PIN configured and no explicit opt-out"),
+                );
             }
-            return;
         }
-    };
+        Err(ResetDenial::WrongPin) => {
+            // Track failure in global state
+            state.inner.pin_lockout.lock().await.record_failure();
 
-    if verify_pin(pin, &pin_hash) {
-        // Reset global lockout on success
-        {
-            let mut lockout = state.inner.pin_lockout.lock().await;
-            lockout.reset();
-        }
+            socket
+                .send_json(serde_json::json!({
+                    "type": "commandResult",
+                    "tag": "",
+                    "success": false,
+                    "error": "Invalid PIN — emergency reset denied",
+                }))
+                .await;
 
-        // Establish PIN session as well
-        let timeout = state
-            .inner
-            .package
-            .read()
-            .await
-            .as_ref()
-            .and_then(|pkg| pkg.control_permissions.pin_timeout)
-            .unwrap_or(PIN_SESSION_TIMEOUT_SECS as u32);
-
-        session.pin_session = Some(PinSession {
-            valid_until: chrono::Utc::now() + chrono::Duration::seconds(timeout as i64),
-            failed_attempts: 0,
-            lockout_until: None,
-        });
-
-        do_emergency_reset(socket, state).await;
-    } else {
-        // Track failure in global state
-        {
-            let mut lockout = state.inner.pin_lockout.lock().await;
-            lockout.record_failure();
-        }
-
-        let msg = serde_json::json!({
-            "type": "commandResult",
-            "tag": "",
-            "success": false,
-            "error": "Invalid PIN — emergency reset denied",
-        });
-        if let Ok(json) = serde_json::to_string(&msg) {
-            let _ = socket.send(Message::Text(json.into())).await;
-        }
-
-        // Audit
-        if let Some(ref db) = state.inner.db {
-            let _ = db.insert_audit(
-                None,
-                "emergency_reset_failed",
-                None,
-                None,
-                None,
-                true,
-                false,
-                Some("Invalid PIN"),
-            );
+            // Audit
+            if let Some(ref db) = state.inner.db {
+                let _ = db.insert_audit(
+                    None,
+                    "emergency_reset_failed",
+                    None,
+                    None,
+                    None,
+                    true,
+                    false,
+                    Some("Invalid PIN"),
+                );
+            }
         }
     }
 }
@@ -2128,22 +2164,21 @@ async fn handle_emergency_reset(
 /// Execute emergency reset: the output layer clears the latch (and its
 /// durable record); a record that cannot be removed keeps the stop latched and
 /// the requester is told.
-async fn do_emergency_reset(socket: &mut WebSocket, state: &ScadaState) {
+async fn do_emergency_reset<O: Outbound>(socket: &mut O, state: &ScadaState) {
     let result = match state.inner.emergency.as_ref() {
         Some(emergency) => emergency.reset("hmi").await,
         None => Err("this display has no output layer".to_string()),
     };
     if let Err(ref why) = result {
         error!("EMERGENCY STOP could not be cleared: {why}");
-        let msg = serde_json::json!({
-            "type": "commandResult",
-            "tag": "",
-            "success": false,
-            "error": format!("Emergency reset failed: {why}"),
-        });
-        if let Ok(json) = serde_json::to_string(&msg) {
-            let _ = socket.send(Message::Text(json.into())).await;
-        }
+        socket
+            .send_json(serde_json::json!({
+                "type": "commandResult",
+                "tag": "",
+                "success": false,
+                "error": format!("Emergency reset failed: {why}"),
+            }))
+            .await;
     } else {
         info!("EMERGENCY STOP cleared via WebSocket (authenticated)");
     }
@@ -2535,5 +2570,239 @@ mod emergency_stop_tests {
     #[test]
     fn a_display_without_an_output_layer_has_no_stop_latched() {
         assert!(!ScadaState::new().is_emergency_active());
+    }
+
+    // ---- the authenticated reset (EDGE-HIGH-067) --------------------------
+
+    const PIN: &str = "2468";
+
+    fn legacy_hash(pin: &str) -> String {
+        use sha2::{Digest, Sha256};
+        format!("{:x}", Sha256::digest(pin.as_bytes()))
+    }
+
+    /// Every combination of the reset decision. A reset that accepted any PIN,
+    /// that skipped the PIN a package asks for, or that let an opt-out override
+    /// a configured PIN would fail one of these rows.
+    #[test]
+    fn the_reset_decision_table() {
+        let argon = hash_pin(PIN).expect("argon2id hash");
+        let sha = legacy_hash(PIN);
+        for hash in [argon.as_str(), sha.as_str()] {
+            // A configured PIN: only the right one, and the opt-out never helps.
+            for opted_out in [false, true] {
+                assert_eq!(
+                    decide_reset(false, Some(hash), opted_out, PIN),
+                    Ok(ResetBasis::PinVerified),
+                    "{hash}"
+                );
+                for wrong in ["", "0000", "2469", "24680", " 2468", "2468 "] {
+                    assert_eq!(
+                        decide_reset(false, Some(hash), opted_out, wrong),
+                        Err(ResetDenial::WrongPin),
+                        "pin {wrong:?} against {hash}, opted_out={opted_out}"
+                    );
+                }
+                // A lockout beats a right PIN.
+                assert_eq!(
+                    decide_reset(true, Some(hash), opted_out, PIN),
+                    Err(ResetDenial::LockedOut)
+                );
+            }
+        }
+        // A hash the verifier cannot read accepts nothing, whatever is typed.
+        for malformed in ["$argon2id$not-a-phc-string", "", "not hex"] {
+            assert_eq!(
+                decide_reset(false, Some(malformed), true, malformed),
+                Err(ResetDenial::WrongPin),
+                "{malformed:?}"
+            );
+        }
+        // No PIN configured: only the package's explicit opt-out lets it through.
+        assert_eq!(
+            decide_reset(false, None, true, ""),
+            Ok(ResetBasis::PackageOptOut)
+        );
+        assert_eq!(
+            decide_reset(false, None, false, PIN),
+            Err(ResetDenial::NoPinAndNoOptOut)
+        );
+        // And a lockout beats the opt-out too.
+        assert_eq!(
+            decide_reset(true, None, true, ""),
+            Err(ResetDenial::LockedOut)
+        );
+    }
+
+    /// The output layer of a display under test: counts the resets it is asked
+    /// for.
+    struct FakeEmergency {
+        latched: std::sync::atomic::AtomicBool,
+        resets: std::sync::atomic::AtomicUsize,
+    }
+
+    #[async_trait::async_trait]
+    impl crate::emergency::EmergencyControl for FakeEmergency {
+        fn is_latched(&self) -> bool {
+            self.latched.load(std::sync::atomic::Ordering::Acquire)
+        }
+        async fn stop(&self, _: &[String], _: &str) -> crate::emergency::StopOutcome {
+            self.latched
+                .store(true, std::sync::atomic::Ordering::Release);
+            crate::emergency::StopOutcome {
+                latched: true,
+                durable: true,
+                registered: 0,
+                applied: 0,
+                failed: Vec::new(),
+            }
+        }
+        async fn reset(&self, _: &str) -> Result<(), String> {
+            self.resets
+                .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+            self.latched
+                .store(false, std::sync::atomic::Ordering::Release);
+            Ok(())
+        }
+    }
+
+    impl FakeEmergency {
+        fn resets(&self) -> usize {
+            self.resets.load(std::sync::atomic::Ordering::Acquire)
+        }
+        fn is_latched_for_test(&self) -> bool {
+            use crate::emergency::EmergencyControl;
+            self.is_latched()
+        }
+    }
+
+    /// The client's end of the socket.
+    #[derive(Default)]
+    struct Recorder(Vec<serde_json::Value>);
+
+    #[async_trait::async_trait]
+    impl Outbound for Recorder {
+        async fn send_json(&mut self, value: serde_json::Value) {
+            self.0.push(value);
+        }
+    }
+
+    impl Recorder {
+        fn errors(&self) -> Vec<String> {
+            self.0
+                .iter()
+                .filter_map(|m| m["error"].as_str().map(str::to_owned))
+                .collect()
+        }
+    }
+
+    /// A display whose package has `pin_hash` and `resetRequiresPin` as given,
+    /// with a stop latched.
+    async fn display(
+        pin_hash: Option<&str>,
+        reset_requires_pin: bool,
+    ) -> (ScadaState, Arc<FakeEmergency>) {
+        let fake = Arc::new(FakeEmergency {
+            latched: std::sync::atomic::AtomicBool::new(true),
+            resets: std::sync::atomic::AtomicUsize::new(0),
+        });
+        let mut state = ScadaState::new();
+        Arc::get_mut(&mut state.inner).expect("one owner").emergency = Some(fake.clone());
+        let mut pkg = package(serde_json::json!({
+            "holdDuration": 0,
+            "affectedTags": ["pump"],
+            "resetRequiresPin": reset_requires_pin,
+        }));
+        pkg.control_permissions.pin_hash = pin_hash.map(str::to_owned);
+        *state.inner.package.write().await = Some(pkg);
+        (state, fake)
+    }
+
+    #[tokio::test]
+    async fn a_wrong_pin_does_not_reset_and_counts_toward_the_lockout() {
+        let (state, fake) = display(Some(&legacy_hash(PIN)), true).await;
+        let (mut out, mut session) = (Recorder::default(), WsSession::new());
+        handle_emergency_reset(&mut out, &state, &mut session, "1111").await;
+        assert_eq!(fake.resets(), 0, "a wrong PIN cleared the stop");
+        assert!(fake.is_latched_for_test());
+        assert!(out.errors().iter().any(|e| e.contains("Invalid PIN")));
+        assert_eq!(state.inner.pin_lockout.lock().await.failed_attempts, 1);
+        assert!(
+            session.pin_session.is_none(),
+            "no PIN session on a wrong PIN"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_right_pin_resets_once_clears_the_lockout_and_opens_a_pin_session() {
+        let (state, fake) = display(Some(&hash_pin(PIN).expect("hash")), true).await;
+        let (mut out, mut session) = (Recorder::default(), WsSession::new());
+        // One earlier failure is forgotten on success.
+        handle_emergency_reset(&mut out, &state, &mut session, "1111").await;
+        handle_emergency_reset(&mut out, &state, &mut session, PIN).await;
+        assert_eq!(fake.resets(), 1);
+        assert!(!fake.is_latched_for_test());
+        assert_eq!(state.inner.pin_lockout.lock().await.failed_attempts, 0);
+        assert!(session.pin_session.is_some());
+    }
+
+    #[tokio::test]
+    async fn a_locked_out_display_refuses_even_the_right_pin() {
+        let (state, fake) = display(Some(&legacy_hash(PIN)), true).await;
+        let (mut out, mut session) = (Recorder::default(), WsSession::new());
+        for _ in 0..MAX_PIN_FAILURES {
+            handle_emergency_reset(&mut out, &state, &mut session, "1111").await;
+        }
+        handle_emergency_reset(&mut out, &state, &mut session, PIN).await;
+        assert_eq!(
+            fake.resets(),
+            0,
+            "the lockout was bypassed by the right PIN"
+        );
+        assert!(
+            out.errors()
+                .last()
+                .is_some_and(|e| e.contains("Too many failed PIN attempts"))
+        );
+    }
+
+    #[tokio::test]
+    async fn without_a_pin_the_reset_needs_the_packages_explicit_opt_out() {
+        // Not opted out: refused, whatever is typed.
+        let (state, fake) = display(None, true).await;
+        let (mut out, mut session) = (Recorder::default(), WsSession::new());
+        handle_emergency_reset(&mut out, &state, &mut session, "").await;
+        handle_emergency_reset(&mut out, &state, &mut session, PIN).await;
+        assert_eq!(
+            fake.resets(),
+            0,
+            "a stop was cleared with no PIN and no opt-out"
+        );
+        assert!(out.errors().iter().all(|e| e.contains("needs a PIN")));
+
+        // Opted out: the reset goes through.
+        let (state, fake) = display(None, false).await;
+        let (mut out, mut session) = (Recorder::default(), WsSession::new());
+        handle_emergency_reset(&mut out, &state, &mut session, "").await;
+        assert_eq!(fake.resets(), 1);
+    }
+
+    /// An opt-out does not override a PIN the package configures.
+    #[tokio::test]
+    async fn an_opt_out_does_not_bypass_a_configured_pin() {
+        let (state, fake) = display(Some(&legacy_hash(PIN)), false).await;
+        let (mut out, mut session) = (Recorder::default(), WsSession::new());
+        handle_emergency_reset(&mut out, &state, &mut session, "1111").await;
+        assert_eq!(fake.resets(), 0);
+    }
+
+    /// What the client is asked to confirm says what the stop now does: the
+    /// outputs go to their safe values (a life-support output stays on) and
+    /// control is locked. It used to say "all control outputs will be zeroed".
+    #[test]
+    fn the_confirm_text_says_what_the_stop_does() {
+        let source = include_str!("scada_server.rs");
+        assert!(!source.contains(concat!("Tum kontrol cikislari ", "sifirlanacak")));
+        assert!(source.contains("guvenli degerlerine surulecek"));
     }
 }

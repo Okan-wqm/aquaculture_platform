@@ -136,9 +136,23 @@ fn only_the_authenticated_reset_clears_the_latch() {
             );
         }
     }
+    // The decision is one pure function (table-tested in src/scada_server.rs,
+    // and driven through the real handler there): the handler asks it, and it
+    // is the place the PIN is verified and the opt-out and the lockout count.
     let reset = &fns["handle_emergency_reset"][0];
     assert!(
-        reset.contains("verify_pin(") && reset.contains("reset_requires_pin"),
-        "the reset must verify a PIN or an explicit package opt-out"
+        reset.contains("decide_reset(") && reset.contains("reset_requires_pin"),
+        "the reset must be decided by decide_reset from the PIN or the package's explicit opt-out"
+    );
+    let decide = &fns["decide_reset"][0];
+    assert!(
+        decide.contains("verify_pin(") && decide.contains("locked_out"),
+        "decide_reset must verify the PIN and honour the lockout"
+    );
+    assert_eq!(
+        reset.matches("do_emergency_reset(").count(),
+        2,
+        "the reset is cleared on exactly two outcomes of the decision: a verified PIN and the \
+         package's opt-out"
     );
 }

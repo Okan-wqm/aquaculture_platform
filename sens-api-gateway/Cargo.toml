@@ -1117,6 +1117,12 @@ path = "tests/invariants/emergency_stop_latch.rs"
 name = "clock_gated_freshness"
 path = "tests/invariants/clock_gated_freshness.rs"
 
+# ADR-048 DEC-21 — the agent's TPM constants stay inside the agent's blocks of the
+# TPM resource registry.
+[[test]]
+name = "tpm_registry_constants"
+path = "tests/invariants/tpm_registry_constants.rs"
+
 # =============================================================================
 # RUST-CVE-001: rumqttc 0.25.1 vendored fork (../crates/local-rumqttc)
 # =============================================================================

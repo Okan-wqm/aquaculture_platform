@@ -35,8 +35,9 @@
 //! parent finding for the full arc):
 //!
 //! - **Batch #309 — `RealTpmDevice` impl.** The `tss-esapi`
-//!   v7-backed device that talks to `/dev/tpm0` /
-//!   `/dev/tpmrm0` via the kernel TPM driver. Behind
+//!   v7-backed device that talks to `/dev/tpmrm0`, the kernel's
+//!   resource manager (`/dev/tpm0` is never given to the agent,
+//!   ADR-048 DEC-21), via the kernel TPM driver. Behind
 //!   `#[cfg(feature = "tpm")]`. Requires a build environment
 //!   with `libtss2-dev` and a real or simulator TPM
 //!   (`swtpm` for CI).
@@ -49,7 +50,7 @@
 //!
 //! The TPM FFI is irreducibly platform-coupled: tss-esapi
 //! panics or returns hardware errors when run without
-//! `/dev/tpm0`. A test suite that depends on the FFI cannot
+//! a TPM device. A test suite that depends on the FFI cannot
 //! run in the default `cargo test` invocation that every
 //! contributor uses + every CI runner uses.
 //!
@@ -238,6 +239,19 @@ impl TpmSealedBlob {
     }
 }
 
+/// First NV index of the agent's block of the TPM NV space (ADR-048 DEC-21).
+///
+/// The OS (LUKS seal, rollback-floor mirror, the lifecycle's provisioned bit and
+/// counter) and the agent share one TPM. The resource registry (Suderra-OS
+/// `docs/security/tpm-resource-registry.md`, registry_version 1) gives the agent
+/// `0x01500000..=0x015000FF` and the OS the block next to it
+/// (`0x01500100..=0x015001FF`); an index outside the agent's block is a resource
+/// the OS would not know to avoid. `tests/invariants/tpm_registry_constants.rs`
+/// pins these numbers to the registry.
+pub const AGENT_NV_FIRST: u32 = 0x0150_0000;
+/// Last NV index of the agent's block (see [`AGENT_NV_FIRST`]).
+pub const AGENT_NV_LAST: u32 = 0x0150_00FF;
+
 /// Full configuration for a `TpmKeystore`. Validated at
 /// construction time via `validate()`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -286,16 +300,19 @@ impl TpmKeystoreConfig {
                 self.master_nv_index
             ));
         }
-        // TPM 2.0 user-defined NV range: 0x01000000..0x01FFFFFF.
+        // The agent's block of the TPM 2.0 user-defined NV range
+        // (0x01000000..0x01FFFFFF): ADR-048 DEC-21, resource registry. The OS's
+        // block starts at 0x01500100; an operator override that lands there, or
+        // anywhere else in the user space, is refused before a TPM is opened.
         for (label, idx) in [
             ("master_nv_index", self.master_nv_index),
             ("counter_nv_index", self.counter_nv_index),
         ] {
-            if !(0x0100_0000..=0x01FF_FFFF).contains(&idx) {
+            if !(AGENT_NV_FIRST..=AGENT_NV_LAST).contains(&idx) {
                 return Err(format!(
-                    "{} 0x{:08x} outside the TPM 2.0 user-defined NV range \
-                     (0x01000000..0x01FFFFFF)",
-                    label, idx
+                    "{label} 0x{idx:08x} outside the agent's block \
+                     (0x{AGENT_NV_FIRST:08x}..0x{AGENT_NV_LAST:08x}) of the TPM 2.0 \
+                     user-defined NV range (ADR-048 DEC-21 resource registry)"
                 ));
             }
         }
@@ -1040,6 +1057,51 @@ mod tests {
             "expected NV-range rejection: {}",
             err
         );
+    }
+
+    /// ADR-048 DEC-21: the agent's indices stay in its block of the registry;
+    /// the OS's block next to it, the rest of the user space and the handle
+    /// space are refused, whichever of the two indices carries them.
+    #[test]
+    fn config_validate_holds_both_indices_to_the_agents_nv_block() {
+        let defaults = TpmKeystoreConfig::production_default();
+        assert_eq!(defaults.validate(), Ok(()));
+        for in_block in [AGENT_NV_FIRST, AGENT_NV_LAST, 0x0150_0016, 0x0150_0017] {
+            let mut cfg = defaults.clone();
+            cfg.master_nv_index = in_block;
+            cfg.counter_nv_index = if in_block == AGENT_NV_FIRST {
+                AGENT_NV_FIRST + 1
+            } else {
+                AGENT_NV_FIRST
+            };
+            assert_eq!(cfg.validate(), Ok(()), "0x{in_block:08x}");
+        }
+        for outside in [
+            // the OS block: lifecycle provisioned bit, counter, rollback floor
+            0x0150_0100,
+            0x0150_0101,
+            0x0150_0110,
+            0x0150_01FF,
+            // the rest of the user-defined space
+            0x0100_0000,
+            0x014F_FFFF,
+            0x01FF_FFFF,
+            // a persistent handle is not an NV index at all
+            0x8100_0001,
+            0x817F_0001,
+        ] {
+            let mut master = defaults.clone();
+            master.master_nv_index = outside;
+            let mut counter = defaults.clone();
+            counter.counter_nv_index = outside;
+            for cfg in [master, counter] {
+                let err = cfg.validate().unwrap_err();
+                assert!(
+                    err.contains("agent's block") && err.contains("0x01500000..0x015000ff"),
+                    "0x{outside:08x}: {err}"
+                );
+            }
+        }
     }
 
     #[test]

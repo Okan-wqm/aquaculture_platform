@@ -839,13 +839,6 @@ void test('one owner of "who produces event T": scanEventProducers is defined on
 });
 
 // --- SE-3 review round 1 blockers (build/SE-3/review-r1-blockers.md), pinned before round 2 ----
-//
-// The pre-commit hook runs this suite, so each round-2 case carries node:test's `todo` option
-// (the gate suites' convention, as SE3_PENDING did in round 1); the implementer removes every
-// SE3R2_PENDING marker in the change that makes its case pass.
-
-const SE3R2_PENDING =
-  'SE-3-R2 (build/SE-3/review-r1-blockers.md): round-2 fix of the code-fact bridge not implemented';
 
 // Architecture B2: a code subscription to a subject that names no known event type was dropped
 // (live: admin-api-service events.security.events.auth.login.*, observability-service
@@ -1039,73 +1032,65 @@ function regexTexts(source: ts.SourceFile): string[] {
   });
 }
 
-void test(
-  'one owner of "who produces event T": the emit invariant reads scanEventProducers and has no producer regex',
-  { todo: SE3R2_PENDING },
-  () => {
-    const source = parsedSource(EMIT_INVARIANT);
-    const importsOwner = source.statements.some(
-      (statement) =>
-        ts.isImportDeclaration(statement) &&
-        ts.isStringLiteral(statement.moduleSpecifier) &&
-        /(?:^|\/)tools\/gates\/event-consumer-index$/.test(statement.moduleSpecifier.text) &&
-        statement.importClause?.namedBindings !== undefined &&
-        ts.isNamedImports(statement.importClause.namedBindings) &&
-        statement.importClause.namedBindings.elements.some(
-          (element) => element.name.text === 'scanEventProducers',
-        ),
-    );
-    assert.ok(importsOwner, `${EMIT_INVARIANT} does not import scanEventProducers from its owner`);
-    assert.deepEqual(
-      regexTexts(source).filter((text) => text.includes('createBaseEvent')),
-      [],
-      `${EMIT_INVARIANT} still discovers producer sites with its own regex`,
-    );
-    // Sites the scan cannot fold or attribute fail the invariant by name, never pass silently.
-    const accessed = new Set(
-      nodesOf(source)
-        .filter(ts.isPropertyAccessExpression)
-        .map((node) => node.name.text),
-    );
-    for (const name of ['unresolved', 'unattributed']) {
-      assert.ok(accessed.has(name), `${EMIT_INVARIANT} never reads the scan's ${name} sites`);
-    }
-  },
-);
-
-void test(
-  'one reader of "where event T is defined": one eventType-definition reader in tools/, and the emit invariant has no interface regex',
-  { todo: SE3R2_PENDING },
-  () => {
-    const tracked = execFileSync('git', ['-C', REPO_ROOT, 'ls-files', '-z', '--', 'tools'], {
-      encoding: 'utf8',
-    })
-      .split('\0')
-      .filter((path) => /\.ts$/.test(path) && !/\.(?:spec|test|d)\.ts$/.test(path));
-    // A definition reader compares a member name with the literal 'eventType'.
-    const readers = tracked.filter((path) =>
-      nodesOf(parsedSource(path)).some(
-        (node) =>
-          ts.isBinaryExpression(node) &&
-          [
-            ts.SyntaxKind.EqualsEqualsEqualsToken,
-            ts.SyntaxKind.ExclamationEqualsEqualsToken,
-            ts.SyntaxKind.EqualsEqualsToken,
-            ts.SyntaxKind.ExclamationEqualsToken,
-          ].includes(node.operatorToken.kind) &&
-          [node.left, node.right].some(
-            (side) => ts.isStringLiteralLike(side) && side.text === 'eventType',
-          ),
+void test('one owner of "who produces event T": the emit invariant reads scanEventProducers and has no producer regex', () => {
+  const source = parsedSource(EMIT_INVARIANT);
+  const importsOwner = source.statements.some(
+    (statement) =>
+      ts.isImportDeclaration(statement) &&
+      ts.isStringLiteral(statement.moduleSpecifier) &&
+      /(?:^|\/)tools\/gates\/event-consumer-index$/.test(statement.moduleSpecifier.text) &&
+      statement.importClause?.namedBindings !== undefined &&
+      ts.isNamedImports(statement.importClause.namedBindings) &&
+      statement.importClause.namedBindings.elements.some(
+        (element) => element.name.text === 'scanEventProducers',
       ),
-    );
-    assert.ok(
-      readers.length <= 1,
-      `more than one reader of event definitions: ${readers.join(', ')}`,
-    );
-    assert.deepEqual(
-      regexTexts(parsedSource(EMIT_INVARIANT)).filter((text) => text.includes('interface')),
-      [],
-      `${EMIT_INVARIANT} still discovers declared interfaces with its own regex`,
-    );
-  },
-);
+  );
+  assert.ok(importsOwner, `${EMIT_INVARIANT} does not import scanEventProducers from its owner`);
+  assert.deepEqual(
+    regexTexts(source).filter((text) => text.includes('createBaseEvent')),
+    [],
+    `${EMIT_INVARIANT} still discovers producer sites with its own regex`,
+  );
+  // Sites the scan cannot fold or attribute fail the invariant by name, never pass silently.
+  const accessed = new Set(
+    nodesOf(source)
+      .filter(ts.isPropertyAccessExpression)
+      .map((node) => node.name.text),
+  );
+  for (const name of ['unresolved', 'unattributed']) {
+    assert.ok(accessed.has(name), `${EMIT_INVARIANT} never reads the scan's ${name} sites`);
+  }
+});
+
+void test('one reader of "where event T is defined": one eventType-definition reader in tools/, and the emit invariant has no interface regex', () => {
+  const tracked = execFileSync('git', ['-C', REPO_ROOT, 'ls-files', '-z', '--', 'tools'], {
+    encoding: 'utf8',
+  })
+    .split('\0')
+    .filter((path) => /\.ts$/.test(path) && !/\.(?:spec|test|d)\.ts$/.test(path));
+  // A definition reader compares a member name with the literal 'eventType'.
+  const readers = tracked.filter((path) =>
+    nodesOf(parsedSource(path)).some(
+      (node) =>
+        ts.isBinaryExpression(node) &&
+        [
+          ts.SyntaxKind.EqualsEqualsEqualsToken,
+          ts.SyntaxKind.ExclamationEqualsEqualsToken,
+          ts.SyntaxKind.EqualsEqualsToken,
+          ts.SyntaxKind.ExclamationEqualsToken,
+        ].includes(node.operatorToken.kind) &&
+        [node.left, node.right].some(
+          (side) => ts.isStringLiteralLike(side) && side.text === 'eventType',
+        ),
+    ),
+  );
+  assert.ok(
+    readers.length <= 1,
+    `more than one reader of event definitions: ${readers.join(', ')}`,
+  );
+  assert.deepEqual(
+    regexTexts(parsedSource(EMIT_INVARIANT)).filter((text) => text.includes('interface')),
+    [],
+    `${EMIT_INVARIANT} still discovers declared interfaces with its own regex`,
+  );
+});

@@ -906,8 +906,17 @@ export interface UnresolvedProducerSite {
   readonly form: string;
 }
 
+/** One recognised event construction site, before attribution. */
+export interface ProducerSite {
+  readonly site: string;
+  /** The folded event types, or null when the argument does not fold (then also `unresolved`). */
+  readonly eventTypes: readonly string[] | null;
+}
+
 export interface EventProducerIndex {
   readonly entries: readonly EventProducerEntry[];
+  /** Every recognised construction site, attributed or not, with its event types. */
+  readonly sites: readonly ProducerSite[];
   readonly unresolved: readonly UnresolvedProducerSite[];
   /** Library construction sites no application wires. */
   readonly unattributed: readonly string[];
@@ -946,6 +955,7 @@ function producerSitesIn(
 /** The producer index of the candidate files of `scan`. */
 function producerIndex(scan: SourceScan, candidates: readonly string[]): EventProducerIndex {
   const entries: EventProducerEntry[] = [];
+  const sites: ProducerSite[] = [];
   const unresolved: UnresolvedProducerSite[] = [];
   const unattributed: string[] = [];
   for (const path of candidates) {
@@ -956,6 +966,7 @@ function producerIndex(scan: SourceScan, candidates: readonly string[]): EventPr
       const [argument] = call.arguments;
       const folded = argument === undefined ? null : scan.folder.fold(argument);
       if (folded === null || folded.eventTypes) {
+        sites.push({ site, eventTypes: null });
         unresolved.push({
           application: scan.appOf(file),
           site,
@@ -963,10 +974,12 @@ function producerIndex(scan: SourceScan, candidates: readonly string[]): EventPr
         });
         continue;
       }
+      const eventTypes = [...new Set(folded.values)].sort();
+      sites.push({ site, eventTypes });
       const applications = scan.applicationsFor(file, call);
       if (applications.length === 0) unattributed.push(site);
       for (const application of applications) {
-        for (const eventType of new Set(folded.values)) {
+        for (const eventType of eventTypes) {
           entries.push({ application, eventType, site });
         }
       }
@@ -979,6 +992,7 @@ function producerIndex(scan: SourceScan, candidates: readonly string[]): EventPr
         a.eventType.localeCompare(b.eventType) ||
         bySite(a, b),
     ),
+    sites: sites.sort(bySite),
     unresolved: unresolved.sort(bySite),
     unattributed: unattributed.sort(compareSites),
     filesScanned: candidates.length,
@@ -1170,9 +1184,10 @@ export interface ServiceEventFacts {
   readonly state: ServiceFactsState;
 }
 
+/** A defined event type (`eventDefinitionsIn`), at the line of its interface's `eventType` member. */
 export interface EventDefinitionFact extends EventSiteFact {
-  /** The interface or type alias that declares the `eventType` member, or null when anonymous. */
-  readonly declaration: string | null;
+  /** The event contract interface that defines it. */
+  readonly declaration: string;
 }
 
 export interface EventFacts {
@@ -1198,38 +1213,131 @@ export interface EventFacts {
   }[];
 }
 
+/** Where `BaseEvent`, the root of every event contract, is declared. */
+const BASE_EVENT_DECLARATION = /[\\/]libs[\\/]event-contracts[\\/]src[\\/]base-event\.ts$/;
+
+/** One event definition: an event contract interface and the event types it defines. */
+export interface EventDefinitionDeclaration {
+  /** The interface name. */
+  readonly declaration: string;
+  /** The 1-based line of the interface declaration. */
+  readonly line: number;
+  /** The 1-based line of its own `eventType` member, or null when it declares none. */
+  readonly memberLine: number | null;
+  /** The string-literal values of that member's type; empty when it has none (a shared base). */
+  readonly eventTypes: readonly string[];
+}
+
+/** True when `type` has BaseEvent among its base types, directly or through other interfaces. */
+function extendsBaseEvent(
+  checker: ts.TypeChecker,
+  type: ts.InterfaceType,
+  seen: Set<ts.Type> = new Set(),
+): boolean {
+  for (const base of checker.getBaseTypes(type)) {
+    const target =
+      (base.flags & ts.TypeFlags.Object) !== 0 &&
+      ((base as ts.ObjectType).objectFlags & ts.ObjectFlags.Reference) !== 0
+        ? (base as ts.TypeReference).target
+        : base;
+    if (seen.has(target)) continue;
+    seen.add(target);
+    const symbol = target.getSymbol();
+    if (
+      symbol?.getName() === 'BaseEvent' &&
+      (symbol.getDeclarations() ?? []).some((declaration) =>
+        BASE_EVENT_DECLARATION.test(declaration.getSourceFile().fileName),
+      )
+    ) {
+      return true;
+    }
+    if (target.isClassOrInterface() && extendsBaseEvent(checker, target, seen)) return true;
+  }
+  return false;
+}
+
 /**
- * Each `eventType` member with a string-literal type declared in libs/event-contracts, at the line
- * of the member. The checker reads the type, so an alias or an indexed access names its values.
+ * The one rule for "where is event T defined" (SE-3 review round 1, single-owner B2). An event
+ * definition is an interface declared in libs/event-contracts/src whose type has `BaseEvent`
+ * (libs/event-contracts/src/base-event.ts) among its base types, directly or through other
+ * interfaces, as the type checker resolves them; the event types it defines are the
+ * string-literal values of its own `eventType` member, read through the checker, so an alias or a
+ * union names each value. An interface that merely carries an `eventType` literal (a validator
+ * catalog's shape under schemas/, a registry row, a resolution record) is not a definition, and
+ * neither is a type literal. A base interface with no literal `eventType` is returned with no
+ * event types. The code-fact entry's `event_definitions`, the event-contracts adapter's
+ * `event_interface` observations and the emit-has-interface invariant all read this function.
  */
+export function eventDefinitionsIn(
+  sourceFile: ts.SourceFile,
+  checker: ts.TypeChecker,
+): EventDefinitionDeclaration[] {
+  if (!EVENT_CONTRACTS_DECLARATION.test(sourceFile.fileName)) return [];
+  const lineOf = (node: ts.Node): number =>
+    sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+  const definitions: EventDefinitionDeclaration[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isInterfaceDeclaration(node)) {
+      const symbol = checker.getSymbolAtLocation(node.name);
+      const type = symbol === undefined ? undefined : checker.getDeclaredTypeOfSymbol(symbol);
+      if (type !== undefined && type.isClassOrInterface() && extendsBaseEvent(checker, type)) {
+        const member = node.members.find(
+          (candidate): candidate is ts.PropertySignature =>
+            ts.isPropertySignature(candidate) &&
+            candidate.type !== undefined &&
+            (ts.isIdentifier(candidate.name) || ts.isStringLiteral(candidate.name)) &&
+            candidate.name.text === 'eventType',
+        );
+        const values =
+          member?.type === undefined
+            ? null
+            : stringLiteralValues(checker.getTypeFromTypeNode(member.type));
+        definitions.push({
+          declaration: node.name.text,
+          line: lineOf(node),
+          memberLine: member === undefined ? null : lineOf(member),
+          eventTypes: values ?? [],
+        });
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return definitions;
+}
+
+/** The event definitions of the given files, one fact per defined event type, at its member line. */
 function eventDefinitions(scan: SourceScan, files: readonly string[]): EventDefinitionFact[] {
   const definitions: EventDefinitionFact[] = [];
   for (const path of files) {
-    const sourceFile = scan.sourceFile(path);
     const file = scan.relative(path);
-    const visit = (node: ts.Node): void => {
-      if (
-        ts.isPropertySignature(node) &&
-        node.type !== undefined &&
-        node.name.getText(sourceFile) === 'eventType'
-      ) {
-        const values = stringLiteralValues(scan.checker.getTypeFromTypeNode(node.type));
-        const owner = node.parent;
-        const declaration = ts.isInterfaceDeclaration(owner)
-          ? owner.name.text
-          : ts.isTypeLiteralNode(owner) && ts.isTypeAliasDeclaration(owner.parent)
-            ? owner.parent.name.text
-            : null;
-        const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
-        for (const eventType of values ?? []) {
-          definitions.push({ event_type: eventType, site: `${file}:${line}`, declaration });
-        }
+    for (const definition of eventDefinitionsIn(scan.sourceFile(path), scan.checker)) {
+      for (const eventType of definition.eventTypes) {
+        definitions.push({
+          event_type: eventType,
+          site: `${file}:${definition.memberLine ?? definition.line}`,
+          declaration: definition.declaration,
+        });
       }
-      ts.forEachChild(node, visit);
-    };
-    visit(sourceFile);
+    }
   }
   return definitions.sort((a, b) => a.event_type.localeCompare(b.event_type) || bySite(a, b));
+}
+
+const isContractFile =
+  (root: string) =>
+  (path: string): boolean =>
+    toPosix(relative(root, path)).startsWith(EVENT_CONTRACTS_SOURCES);
+
+/**
+ * The event definitions of `repoRoot` (`eventDefinitionsIn` over libs/event-contracts/src), for a
+ * reader that needs only them, such as the emit-has-interface invariant.
+ */
+export function scanEventDefinitions(repoRoot: string): EventDefinitionFact[] {
+  const root = resolve(repoRoot);
+  const allFiles = sourceFiles(root, SOURCE_ROOTS);
+  const contractFiles = allFiles.filter(isContractFile(root));
+  return eventDefinitions(new SourceScan(root, allFiles, contractFiles), contractFiles);
 }
 
 const NATS_SERVICES_REF = toPosix(NATS_SERVICES_YAML);
@@ -1246,9 +1354,7 @@ export function eventFacts(repoRoot: string): EventFacts {
   const allFiles = sourceFiles(root, SOURCE_ROOTS);
   const consumerFiles = allFiles.filter(textMatches(CANDIDATE_TEXT));
   const producerFiles = allFiles.filter(textMatches(PRODUCER_CANDIDATE_TEXT));
-  const contractFiles = allFiles.filter((path) =>
-    toPosix(relative(root, path)).startsWith(EVENT_CONTRACTS_SOURCES),
-  );
+  const contractFiles = allFiles.filter(isContractFile(root));
   // One program serves the three readings, so the checker is built once.
   const scan = new SourceScan(root, allFiles, [
     ...new Set([...consumerFiles, ...producerFiles, ...contractFiles]),

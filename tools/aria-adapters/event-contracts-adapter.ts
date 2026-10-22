@@ -3,6 +3,8 @@ import { relative } from 'node:path';
 
 import ts from 'typescript';
 
+import { eventDefinitionsIn } from '../gates/event-consumer-index';
+
 import {
   collectFiles,
   filterFilesBySnapshot,
@@ -91,7 +93,6 @@ interface SourceUnit {
 
 interface AnalysisContext {
   readonly checker: ts.TypeChecker;
-  readonly baseEventSymbol?: ts.Symbol;
 }
 
 const DEFAULT_ROOT = 'libs/event-contracts/src';
@@ -124,10 +125,7 @@ export function analyzeEventContracts(
   // to nothing: workspace content alone must establish the inheritance.
   const program = createContainedProgram(workspaceRoot, files);
   const units = files.map((file) => readSourceUnit(file, workspaceRoot, program));
-  const context: AnalysisContext = {
-    checker: program.getTypeChecker(),
-    baseEventSymbol: findBaseEventSymbol(units, program.getTypeChecker()),
-  };
+  const context: AnalysisContext = { checker: program.getTypeChecker() };
   const result: AnalysisResult = {
     observations: [],
     findings: [],
@@ -256,29 +254,36 @@ function analyzeBaseEvent(units: readonly SourceUnit[], result: AnalysisResult):
   }
 }
 
+/**
+ * One `event_interface` observation per event contract interface and defined event type, by the
+ * one definition rule (`eventDefinitionsIn`, tools/gates/event-consumer-index.ts), which the
+ * code-fact entry's `event_definitions` reads too: an interface extending BaseEvent, directly or
+ * through other interfaces, with the literal values of its own `eventType`. A base interface with
+ * no literal `eventType` is observed without one; an interface defining several types (a union)
+ * gives one observation per type.
+ */
 function analyzeEventInterfaces(
   units: readonly SourceUnit[],
   result: AnalysisResult,
   context: AnalysisContext,
 ): void {
   for (const unit of units) {
-    if (unit.relativePath.includes('/schemas/') || unit.relativePath.endsWith('/base-event.ts')) {
-      continue;
-    }
-    visit(unit.sourceFile, (node) => {
-      if (!ts.isInterfaceDeclaration(node) || !extendsBaseEvent(node, context)) {
-        return;
-      }
-      const eventType = readEventTypeLiteral(node);
-      result.observations.push({
-        id: `event-interface:${unit.relativePath}:${node.name.text}`,
+    for (const definition of eventDefinitionsIn(unit.sourceFile, context.checker)) {
+      const id = `event-interface:${unit.relativePath}:${definition.declaration}`;
+      const observed = {
         type: 'event_interface',
         path: unit.relativePath,
-        line: lineOf(unit.sourceFile, node),
-        name: node.name.text,
-        eventType: eventType ?? undefined,
-      });
-    });
+        line: definition.line,
+        name: definition.declaration,
+      };
+      if (definition.eventTypes.length <= 1) {
+        result.observations.push({ id, ...observed, eventType: definition.eventTypes[0] });
+        continue;
+      }
+      for (const eventType of definition.eventTypes) {
+        result.observations.push({ id: `${id}:${eventType}`, ...observed, eventType });
+      }
+    }
   }
 }
 
@@ -401,26 +406,6 @@ function readSourceUnit(path: string, workspaceRoot: string, program: ts.Program
   };
 }
 
-function findBaseEventSymbol(
-  units: readonly SourceUnit[],
-  checker: ts.TypeChecker,
-): ts.Symbol | undefined {
-  for (const unit of units) {
-    if (
-      !unit.relativePath.endsWith('/base-event.ts') &&
-      unit.relativePath !== 'libs/event-contracts/src/base-event.ts'
-    ) {
-      continue;
-    }
-    const baseEvent = findInterface(unit, 'BaseEvent');
-    if (!baseEvent) {
-      return undefined;
-    }
-    return checker.getSymbolAtLocation(baseEvent.name);
-  }
-  return undefined;
-}
-
 function findTypeAlias(unit: SourceUnit, name: string): ts.TypeAliasDeclaration | undefined {
   let found: ts.TypeAliasDeclaration | undefined;
   visit(unit.sourceFile, (node) => {
@@ -449,35 +434,6 @@ function findFunction(unit: SourceUnit, name: string): ts.FunctionDeclaration | 
     }
   });
   return found;
-}
-
-function extendsBaseEvent(node: ts.InterfaceDeclaration, context: AnalysisContext): boolean {
-  return Boolean(
-    node.heritageClauses?.some((clause) =>
-      clause.types.some((typeNode) => {
-        if (context.baseEventSymbol) {
-          const symbol = resolvedSymbolAt(context.checker, typeNode.expression);
-          if (sameSymbol(symbol, context.baseEventSymbol)) {
-            return true;
-          }
-        }
-        const expressionText = typeNode.expression.getText();
-        return expressionText === 'BaseEvent' || expressionText.endsWith('.BaseEvent');
-      }),
-    ),
-  );
-}
-
-function readEventTypeLiteral(node: ts.InterfaceDeclaration): string | null {
-  for (const member of node.members) {
-    if (!ts.isPropertySignature(member) || member.name.getText() !== 'eventType' || !member.type) {
-      continue;
-    }
-    if (ts.isLiteralTypeNode(member.type) && ts.isStringLiteral(member.type.literal)) {
-      return member.type.literal.text;
-    }
-  }
-  return null;
 }
 
 function interfaceProperties(node: ts.InterfaceDeclaration): ReadonlySet<string> {
@@ -582,31 +538,6 @@ function isRuntimeIdentifier(node: ts.Identifier): boolean {
     current = parent;
   }
   return true;
-}
-
-function resolvedSymbolAt(checker: ts.TypeChecker, node: ts.Node): ts.Symbol | undefined {
-  const symbol = checker.getSymbolAtLocation(node);
-  if (!symbol) {
-    return undefined;
-  }
-  if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) {
-    return checker.getAliasedSymbol(symbol);
-  }
-  return symbol;
-}
-
-function sameSymbol(left: ts.Symbol | undefined, right: ts.Symbol | undefined): boolean {
-  if (!left || !right) {
-    return false;
-  }
-  if (left === right) {
-    return true;
-  }
-  const leftDeclarations = left.getDeclarations() ?? [];
-  const rightDeclarations = right.getDeclarations() ?? [];
-  return leftDeclarations.some((leftDeclaration) =>
-    rightDeclarations.some((rightDeclaration) => leftDeclaration === rightDeclaration),
-  );
 }
 
 function compareById(a: { readonly id: string }, b: { readonly id: string }): number {

@@ -172,6 +172,7 @@ P3 2027-03-31. Yan bulgular, uygulama paketine alınana kadar önemine göre P1 
 | [SENSOR-LOW-238](#SENSOR-LOW-238) | LOW | P2 | The provisioning controller validates device codes with four copies of ^[A-Z]{2,5}-[0-9A-F]{8}$, narrower than the contract's ^[A-Za-z0-9_-]{1,50}$ |
 | [SENSOR-LOW-239](#SENSOR-LOW-239) | LOW | P2 | Banned type escapes remain in the edge provisioning and MQTT adapter code, and edge-device.service.ts and automation.service.ts fail the repo's Prettier gate |
 | [EDGE-MEDIUM-141](#EDGE-MEDIUM-141) | MEDIUM | P1 | The activation request carries no deviceBinding or installedManifest, and the cloud checks no binding, although the contract requires both: a request built to the contract is refused with 400 by the DTO whitelist |
+| [EDGE-MEDIUM-142](#EDGE-MEDIUM-142) | MEDIUM | P1b | x86 industrial-PC package set (USB installer image, Windows conversion and Secure Boot ownership runbook, qualification checker, driver set, signed PCR 7+11 policy) is deliberately P1b: it starts only after the operator selects the x86 model, and SG-3 stays closed until it is done |
 
 ## Edge agent (sens-api-gateway)
 
@@ -2722,3 +2723,16 @@ ADR-048 P0 uygulaması ve doğrulaması sırasında kodun okunmasıyla bulunan v
 - **Kanıt (dosya:satır):** `sens-api-gateway/src/provisioning.rs:87`, `apps/sensor-service/src/edge-device/dto/provisioning.dto.ts:167`, `apps/sensor-service/src/edge-device/provisioning.service.ts:440`, `contracts/suderra-edge/v1/channels.json:44`, `contracts/suderra-edge/v1/schemas/edge-activation-request.schema.json:1`
 - **Kök neden:** contract 1.2.0 (channels.json activation.binding_rule, schemas/edge-activation-request.schema.json) requires the activation request to carry deviceBinding and permits installedManifest, and requires the cloud to refuse, without committing the activation, a binding that differs from the one the manifest reservation was made for. The agent's ActivationRequest sends only deviceId, token, fingerprint and agentVersion; the cloud's DeviceActivationRequest has neither member and activateDevice compares no binding, and the sensor-service ValidationPipe (whitelist, forbidNonWhitelisted) would answer a request built to the contract with 400. Without the check a token reserved for one device binding activates another's.
 - **Mimari düzeltme yönü:** Tier 1: agent adds deviceBinding (from identity.json) and installedManifest to ActivationRequest; cloud adds both members to DeviceActivationRequest and activateDevice compares the binding with the reservation's and refuses a mismatch before it commits or issues credentials; a contract test posts the schema's valid and invalid fixtures to the DTO.
+
+## P1 kararı: x86 paketi P1b'ye alındı
+
+<a id="EDGE-MEDIUM-142"></a>
+
+### EDGE-MEDIUM-142 — x86 industrial-PC package set (USB installer image, Windows conversion and Secure Boot ownership runbook, qualification checker, driver set, signed PCR 7+11 policy) is deliberately P1b: it starts only after the operator selects the x86 model, and SG-3 stays closed until it is done
+
+- **Önem:** MEDIUM · **Faz:** P1b · **Son tarih:** 2026-12-31 · **Sahip:** @Okan-wqm · **Durum:** OPEN
+- **Köken:** ADR-048 P1 kapsam kararı (2026-10-22), operatör yetki devriyle
+- **Kanıt (dosya:satır):** `docs/adr/048-suderra-os-edge-agent-integration-contract.md:2662`
+- **Kök neden:** x86 modeli seçilmedi (ADR-048 Soru 1). Sürücü kümesi, qualification kaydı ve Microsoft UEFI CA kararı model olmadan verilemez; model seçilmeden yazılan runbook ve testler tahmine dayanır.
+- **Mimari düzeltme yönü:** Modelden bağımsız parçalar P1'de kalır (x86 çekirdek sürüm ve kaynak-hash sabitlemesi EI-028/EI-051, `/data` kurtarma slotu, TPM kaynak kaydı, EI-078). Model seçilince P1b paketleri ADR-048 P1 x86 maddesine göre yazılır. Seçim 2026-12-31'den sonra gelirse son tarih seçimden 30 gün sonrasına çekilir.
+- **Not:** P1b bitmeden SG-3 kapalıdır: sahaya x86 birimi kurulmaz.

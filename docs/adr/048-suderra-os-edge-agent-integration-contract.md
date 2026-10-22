@@ -1312,6 +1312,48 @@ matrisi build'de belirlenir, yani bir feature'ın yokluğu çalışma anında de
   `sens-api-gateway/src/picontrol.rs` (yeni); `src/hardware_scanner.rs`; `src/config.rs` (kart
   tespiti); `apps/sensor-service/src/edge-device/entities/edge-device.entity.ts` (`DeviceModel` →
   board profile).
+- RevPi backend'i, P1 agent uygulaması (`sens-api-gateway/src/picontrol/`; sürücü, OS'un pinlediği
+  KUNBUS piControl v2.6.2'dir (`Suderra-OS/package/revpi-picontrol/revpi-picontrol.{mk,hash}`):
+  etiket `v2.6.2`, commit `7acf6e9110dd558b434b57f50ee5d4b5d54b5d91`,
+  `https://gitlab.com/revolutionpi/piControl/-/archive/7acf6e9110dd558b434b57f50ee5d4b5d54b5d91/piControl-7acf6e9110dd558b434b57f50ee5d4b5d54b5d91.tar.gz`,
+  indirilen arşivin sha256'sı `7ea4192156c3a98b4a21df67aa37ffe2dff098088d30c967a81d86da12849349`.
+  Davranış sorusunun cevabı o etiketteki `src/piControlMain.c`'dir. İstek numaraları ve yapı
+  boyutları başlık dosyası gerçek `_IO()` makrosuyla derlenerek alındı ve v2.8.2 ile (etiket
+  `v2.8.2`, commit `7980b36f361a8c31680dbd1cbc8d567a7afa4a38`, arşiv sha256'sı
+  `ea6b8277c70d066068b3f4e359ad73730c3b9af93cb89ce23b3f77c26959e437`) karşılaştırıldı: ikisinde de
+  aynıdır; watchdog, kapanışta sıfırlama, reset olayı, varsayılan imaj ve ofset aritmetiği de iki
+  sürümde aynıdır. İki davranış farkı agent'ta karşılanır: v2.6.2 bilinmeyen değişken adı için
+  `KB_FIND_VARIABLE`'dan `ENOENT` değil `EFAULT` döndürür, ve `KB_WAIT_FOR_EVENT` bir sinyalle
+  kesilince `EFAULT` döndürür; agent birincisini "değişken yok", ikincisini "yeniden dene" sayar).
+  Çıkış allowlist'i `config.yaml`'ın imzalı `picontrol:` bölümüdür (noktalar, yön,
+  `safe_state_value`); taban modülün çıkışları (LED'ler, Connect 4 X2 çıkışı ve Connect/Connect SE'de
+  kart watchdog tetik biti `PICONTROL_WD_TRIGGER` = 0x80) allowlist'e giremez, yani kart watchdog
+  bitine dokunmamak bir özen kuralı değil yapı gereğidir. Bir çıkışın güvenli değeri `config.rsc`'nin
+  o değişken için bildirdiği varsayılana eşit olmak zorundadır, çünkü sürücü PiBridge başlangıcında
+  varsayılan imajı süreç imajının üzerine kopyalar (`PiBridgeMaster_setDefaults`): reset ve yeniden
+  başlatma çıkışı o değere düşürür. Agent değişken adlarını imzalı `config.rsc`'den çözer, her adı
+  sürücüye `KB_FIND_VARIABLE` ile doğrulatır ve her yazmadan önce soruyu tekrarlar; sürücü reset
+  olayı (`KB_EVENT_RESET`) ya da cihaz listesinin dosyayla uyuşmaması düzeni "kanıtsız" yapar, yazma
+  ve safe-state reddedilir, yeni imzalı dosya SIGHUP ile `reload` edilir. Süreç imajı `lseek` +
+  `read`/`write` ile erişilir (tek `read` tutarlı bir anlık görüntüdür); tek bit `KB_SET_VALUE` ile
+  yazılır (sürücünün kilidi altında oku-değiştir-yaz), daha geniş değer yalnız kendi baytlarıyla.
+  Çıkış watchdog'u (madde 6.7) açılışta değil döngünün ilk tick'inde kurulur ve her tick'te aynı
+  ioctl'le beslenir (süreç imajına yazmadan): açılışla döngü başlangıcı arasındaki saniyeler,
+  periyottan kısa bir watchdog'un başlayan agent'ın çıkışlarını sıfırlamasına yol açardı. Sürücü,
+  watchdog'u kurulu bir descriptor kapanınca tüm çıkışları sıfırladığı için agent watchdog'u yalnız
+  safe-state tamamlandıktan sonra kapatır: zarif yeniden başlatma güvenli değerleri korur, çökme
+  çıkışları sıfırlar (DEC-13.3 tablosu `src/picontrol/behaviour_table.rs`; sahte çekirdekle
+  `cargo test`te, gerçek donanımda `tests/hil/output_behaviour_table.rs` ile). Safe-state geçişi
+  çıkış listesini açılıştaki yapılandırma anlık görüntüsünden değil sürücüye karşı kanıtlanmış kayıt
+  defterinden alır: SIGHUP yeniden yüklemesiyle sonradan verilen bir çıkış da güvenli değerine
+  sürülür (aksi halde `release` watchdog'u kapatır ve o çıkış son değerinde kalırdı); yeniden
+  yüklemede kaldırılan çıkışı sürücünün sıfırlaması zaten PiCtory varsayılanına döndürmüştür.
+  Genel (generic) profilin sabit unit'i (`DevicePolicy=closed`, DEC-28) `/dev/piControl0`'a izin
+  vermez; o profilde `revpi-io` bir operatör drop-in'i gerektirir, Suderra OS'ta izin
+  `revpi-connect4` drop-in'inden gelir. Sağlık görünümü
+  sözleşmesinin `reasons[].code` listesi piControl için kod tanımlamaz; agent en yakın tanımlı kodu
+  (`boot-dependency-failed`) kullanır, ayrıntı piControl'ü adlandırır. Bir sözleşme revizyonu
+  `picontrol-backend-unavailable` kodunu eklemelidir.
 - Kapatılan bulgular: INFRA-CRITICAL-236, SENSOR-MEDIUM-224, EI-009, EI-018, EI-020, EI-021, EI-043,
   EI-023 (dev imajına doğrulayıcı ve anahtarlar) (P0); EI-024, EI-028, EI-029, EI-032, EI-045,
   EI-047, EI-048, EI-051, EI-065, EDGE-HIGH-053, EDGE-MEDIUM-120 (Soru 3 kararı ve bulutun
@@ -2400,7 +2442,7 @@ profilde imzalı komut zorunluluğu (HC-1 göçüyle) ve yukarıdaki bulguların
 - OTP secure boot fuse'u geri dönüşsüzdür (Soru 7).
 - Saha devreye alması (kablolama, çıkış politikası, ağ rolleri, NTS) uzar.
 - P2 çıkışına kadar sahalar yalnız izleme amaçlıdır ve TPI sınıfı uzak komut yoktur (SG-1, DEC-9.4);
-  P1 çıkışına kadar x86 birimi kurulmaz (SG-3).
+  P1b çıkışına kadar x86 birimi kurulmaz (SG-3).
 
 **Nötr / ödünleşimler.**
 
@@ -2448,7 +2490,7 @@ bunların hepsini birlikte çözer.
 |---|---|---|---|
 | SG-1 | P2 çıkışından önce canlı stoklu veya fiziksel aktüasyonlu bir sahaya dağıtım yapılmaz; o zamana kadar dağıtımlar yalnız izleme amaçlı (salt okunur) pilotlardır ve P1 seremonisinden sonra build edilen üretim imajlarıyla yapılır (DEC-3.9); dev imajı sahaya kurulmaz | P2 çıkışı: HMI yetkilendirmesi ve tag başına cihaz yönlendirmesi (DEC-9.7; EDGE-HIGH-069, EDGE-HIGH-070), e-stop kapsamı ve kalıcılığı (EDGE-HIGH-057, EDGE-HIGH-067), DEC-13 çıkış başına politika ve yerel uygulama katmanı | Bulut: `site-config-manifest.service.ts`, SG-1 açılana kadar yazılabilir çıkış içeren site config'i imzalamaz (contract testi) |
 | SG-2 | Hiçbir kart için P3 çıkışından ve donanım kanıtından önce SL2 iddia edilmez | P3 çıkışı ve kart başına kanıt: RevPi'de OTP secure boot + measured boot + ADR-0007 G4/G5; x86'da model qualification + SB sahipliği + imzalı PCR politikası + recovery yolu | Güvenlik vakası (`Suderra-OS/docs/security/security-architecture.md`) ve müşteri dokümanları |
-| SG-3 | P1 çıkışından önce sahaya x86 birimi kurulmaz | P1 çıkışı: SB sahipliği, imzalı PCR 7 + 11 politikası, recovery yolu, dönüşüm runbook'u, model qualification (DEC-8.9, DEC-14.1); x86 prod imajı P1 seremonisinin üretim anahtarlarıyla build edilmiştir (DEC-3.9). Kurulan x86 birimi SG-1'e de tabidir | Bulut: provisioning manifesti P1 çıkışından önce `x86-ipc-*` board profile'ı için üretilmez |
+| SG-3 | P1b çıkışından önce sahaya x86 birimi kurulmaz | P1b çıkışı (x86 modeli seçildikten sonra): SB sahipliği, imzalı PCR 7 + 11 politikası, recovery yolu, dönüşüm runbook'u, model qualification (DEC-8.9, DEC-14.1); x86 prod imajı P1 seremonisinin üretim anahtarlarıyla build edilmiştir (DEC-3.9). Kurulan x86 birimi SG-1'e de tabidir | Bulut: provisioning manifesti P1 çıkışından önce `x86-ipc-*` board profile'ı için üretilmez |
 
 İzleme amaçlı (salt okunur) dağıtım: imzalı site config'te yazılabilir çıkış yoktur (Modbus
 `allow_writes: false`; GPIO/piControl çıkışı, OPC UA ve S7 yazma hedefi tanımlı değildir); HMI ve
@@ -2617,10 +2659,15 @@ DEC-27 (yerel sonuç dosyaları), DEC-28 (P0).
   backend'i ve revpi profili. Çıkış: CI FIT DTB kapısı yeşil; ADR-0007 G4 HIL'de `config.rsc`
   yüklenir, bir DIO/AIO modülü listelenir, output watchdog çıkışları düşürür, TPM seal/unseal ve RTC
   hctosys çalışır, P0 e2e testinin donanım varyantı geçer.
-- x86 (DEC-8, DEC-14): USB installer imajı, SB sahiplik runbook'u, sürücü kümesi, imzalı PCR 7 + 11
-  politikası ve recovery yolu. Çıkış: operatörün seçtiği modelde runbook uçtan uca uygulanmış,
-  imzalı politikayla unseal bir A/B güncellemesinden sonra çalışır, PCR 7 değişikliği recovery
-  yoluna düşer, chipsec kanıtı ve qualification contract testi yeşil. Bu çıkış SG-3'ü açar.
+- x86 (DEC-8, DEC-14) — P1b: USB installer imajı, SB sahiplik runbook'u, sürücü kümesi, imzalı PCR 7 + 11
+  politikası ve recovery yolu. **Bu paket seti, operatör x86 modelini seçene kadar başlamaz** (Soru 1;
+  model seçilmeden sürücü kümesi, qualification kaydı ve Microsoft UEFI CA kararı verilemez). Takip:
+  EDGE-MEDIUM-142, sahip @Okan-wqm, son tarih 2026-12-31 (seçim bu tarihten sonra gelirse tarih
+  seçimden 30 gün sonrasına çekilir ve bulgu güncellenir). Modelden bağımsız parçalar P1'de kalır:
+  x86 çekirdeğinin sürüm ve kaynak-hash sabitlemesi (EI-028, EI-051), `/data` kurtarma slotu, TPM kaynak
+  kaydı ve EI-078. P1b çıkışı: operatörün seçtiği modelde runbook uçtan uca uygulanmış, imzalı
+  politikayla unseal bir A/B güncellemesinden sonra çalışır, PCR 7 değişikliği recovery yoluna düşer,
+  chipsec kanıtı ve qualification contract testi yeşil. Bu çıkış SG-3'ü açar; P1b bitmeden SG-3 kapalıdır.
 - Güven (DEC-3.9): üretim anahtar seremonisi (operatör eylemi, Soru 9) yapılmıştır. fleet-root ve
   edge-release anahtarları seremoni kökenli ve offline'dır; online anahtarlar (edge-provisioning,
   device-lifecycle, command, config-integrity, rbac-manifest) seremonide üretilmiş ve sensor-service

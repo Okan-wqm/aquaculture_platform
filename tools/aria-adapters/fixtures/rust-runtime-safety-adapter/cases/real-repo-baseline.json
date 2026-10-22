@@ -1,0 +1,44 @@
+{
+  "name": "real-repo-baseline",
+  "lane": "real_repo_baseline",
+  "input": {
+    "roots": ["sens-api-gateway", "apps/sensor-ingestion", "crates", "sensorprotocols"]
+  },
+  "expected": {
+    "status": "ok",
+    "required_observations": ["rust_runtime_summary", "rust_runtime_file"],
+    "required_observation_values": [
+      {
+        "type": "rust_runtime_summary",
+        "details.parse_failures": 0,
+        "details.clean": true,
+        "details.authorities_complete": true,
+        "details.production_files": 296,
+        "details.findings.unsafe_without_safety_contract": 3,
+        "details.findings.detached_task": 12,
+        "details.findings.uncancellable_long_lived_loop": 11,
+        "details.findings.unbounded_external_io": 0
+      }
+    ],
+    "max_findings": 52
+  },
+  "curation": {
+    "curator": "claude/ARIA-HIGH-010 (rust-runtime-safety-adapter, session 2026-10-20; re-measured 2026-10-22 with the test-span and long-lived-loop rules)",
+    "gold_set": {
+      "true_positive_count": 26,
+      "known_false_positive_count": 172,
+      "false_positive_classes": [
+        "harness_files_never_claimed",
+        "vendored_upstream_files_never_claimed",
+        "inline_test_item_never_claimed",
+        "safety_commented_unsafe",
+        "stored_joined_or_awaited_handles",
+        "cancellation_aware_loops",
+        "loop_without_await",
+        "loop_bounded_by_timeout_deadline_or_counter_cap",
+        "statement_local_timeout_bounds"
+      ]
+    },
+    "notes": "Measured on this checkout at the ARIA-HIGH-010 review-round-2 fix (2026-10-22): 436 Rust files classified (296 production, 88 harness, 46 vendored upstream of crates/local-rumqttc, 6 unreached), 16 crates, zero parse failures, zero unclassified cargo targets, zero refused paths. The 26 findings are shipped code only: 3 uncontracted unsafe blocks (the FFI boundary of sensorprotocols/wasm-decoder-template/src/lib.rs), 12 detached spawns, 11 long-lived async loops with no shutdown path (5 timer-paced, 4 channel-receive, 1 accept and 1 MQTT event-poll loop), and zero unbounded path-form I/O (every connect/get/builder on this tree carries with_timeout, tokio::time::timeout or a builder .timeout). The adapter's landing measured 64 and called the 34 unsafe sites an FFI boundary; 32 of the 64 sat in production files' own test code (31 unsafe blocks around std::env set_var / remove_var in #[cfg(test)] mods, 1 loop in a #[tokio::test] fn, sens-api-gateway/src/shutdown.rs:308), and 6 loops were not long-lived: 3 await nothing (apps/sensor-ingestion/src/batch.rs:162, sens-api-gateway/src/plc_programming/codesys.rs:694, sens-api-gateway/src/opc_ua_sens_node_manager.rs:1093), 1 is a while let Ok(...) over timeout_at on a fixed deadline (sens-api-gateway/src/scripting/parallel.rs:278), and 2 pass a retry or chunk cap on every round that goes around again (sens-api-gateway/src/mqtt.rs:447, sens-api-gateway/src/plc_programming/opcua.rs:1629). Those 38 sites, the 88 harness files and the 46 upstream files carry would-be sites and are never claimed (172 known false positives). max_findings 52 is the ratchet ceiling, twice the measured count, so the nightly refresh flags a Rust change that adds a wave of unsafe sites without silently absorbing it."
+  }
+}

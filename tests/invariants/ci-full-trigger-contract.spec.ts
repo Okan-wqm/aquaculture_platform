@@ -180,7 +180,7 @@ describe('CI Full scheduled and release contract', () => {
     const rootVitest = packageJson.devDependencies?.vitest;
     const rootCoverage = packageJson.devDependencies?.['@vitest/coverage-v8'];
 
-    const expectedVitestVersion = '3.2.7';
+    const expectedVitestVersion = '4.1.12';
     expect(rootVitest).toBe(expectedVitestVersion);
     expect(rootCoverage).toBe(rootVitest);
     expect(packageLock.packages?.['']?.devDependencies?.['@vitest/coverage-v8']).toBe(rootVitest);

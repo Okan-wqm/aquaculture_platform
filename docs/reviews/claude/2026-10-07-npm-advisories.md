@@ -77,6 +77,36 @@ After the change, the gate's verdict per leg:
 - Fix: move the web modules to vitest 4. Owner: claude. Deadline: 2026-11-07.
   The exception expires the same day.
 
+## SUPPLY-CRITICAL-026 — @vitest/mocker 3.2.7: critical code injection, no 3.x patch (2026-10-22)
+
+- GHSA-qxg6-89mg-rqv8, published 2026-10-21T19:54Z: "Vitest: Code injection
+  via unauthenticated manual mock registration". Affected `@vitest/mocker`
+  ranges: `>=2.1.0-beta.7 <4.1.12` and `>=5.0.0-beta.1 <5.0.3`. Patched:
+  4.1.12.
+- The repository pinned vitest 3.2.7. No 3.x release is patched, and the gate
+  had no exception for it, so the root-full leg of the required
+  `security-audit` job turned red. Every push to main has been red on
+  `CI - Affected` (and `build-status`) since 2026-10-21 22:47Z.
+- Not excepted: a fixed release exists.
+- Fix: vitest and every `@vitest/*` package to 4.1.12 in every workspace
+  manifest and in the root lockfile. This is the vitest 4 move SUPPLY-HIGH-019
+  was waiting for, so its three exceptions are removed in the same change
+  (vitest 4 no longer depends on tinypool).
+- Vitest 4 adaptations:
+  - The shared policy (`libs/testing/src/vitest-test-policy.js`) names
+    `coverage.include` (`src`), because `coverage.all` is gone and LCOV would
+    otherwise drop every untested module.
+  - Two sensor-module specs stood in for `new IntersectionObserver` and
+    `new FileReader` with `vi.fn` arrow factories, which Vitest 4 refuses to
+    construct. They now use real classes via `vi.stubGlobal`.
+  - Vitest 3 put `@types/node` into every program that imported it; Vitest 4
+    does not. The AquaMobil, farm-module and messaging-module programs
+    type-check specs that read files with `node:fs` and use `Array#at`, so
+    their tsconfigs now name `node` in `types` instead of inheriting it.
+  - Two AquaMobil specs typed their mocks as `ReturnType<typeof vi.fn>`, which
+    Vitest 4 widens to `Procedure | Constructable`. They now declare the mocked
+    signature (`Mock<() => Promise<boolean>>`, `Mock<(message: unknown) => void>`).
+
 ## SUPPLY-MEDIUM-020 — tailwind 3 postcss-selector-parser is quadratic (open, excepted)
 
 - `postcss-selector-parser` below 7.1.6 (GHSA-rj75-hqrm-r3gf), reached through

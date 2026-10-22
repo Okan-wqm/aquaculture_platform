@@ -1084,6 +1084,12 @@ path = "tests/invariants/generic_channel_contract.rs"
 name = "safe_state_write_path"
 path = "tests/invariants/safe_state_write_path.rs"
 
+# ADR-048 DEC-13 / EDGE-HIGH-058 — every GPIO output pin is built at its safe
+# level with rppal's reset-on-drop off, so the safe level outlives the agent.
+[[test]]
+name = "gpio_outputs_persist"
+path = "tests/invariants/gpio_outputs_persist.rs"
+
 # =============================================================================
 # RUST-CVE-001: rumqttc 0.25.1 vendored fork (../crates/local-rumqttc)
 # =============================================================================

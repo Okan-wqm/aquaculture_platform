@@ -377,6 +377,30 @@ impl GpioHandle {
 // GPIO Actor Implementation
 // ============================================================================
 
+/// The only way this crate makes a pin an output: already at its safe level,
+/// and one that keeps that level when the agent lets go of it.
+///
+/// ADR-048 DEC-13 / EDGE-HIGH-058: rppal's `OutputPin` returns the pin to its
+/// previous mode when it is dropped (`reset_on_drop`, on by default). The
+/// shutdown sequence drives every output to its safe level and then drops the
+/// actor, so with the default every pin went back to an input a moment after
+/// it was made safe: a relay board then follows its own pull resistors, and a
+/// fail-ON aerator can fall off. With the reset off the safe level stays
+/// latched in the pin after the process has exited; what follows (a restart
+/// re-acquires the pin at the same level, a reboot is the platform's) is the
+/// DEC-13.3 behaviour table. `tests/invariants/gpio_outputs_persist.rs` keeps
+/// every other way of building an output pin out of the crate.
+#[cfg(all(target_os = "linux", feature = "gpio"))]
+fn output_at_safe_level(pin: rppal::gpio::Pin, high: bool) -> rppal::gpio::OutputPin {
+    let mut output_pin = if high {
+        pin.into_output_high()
+    } else {
+        pin.into_output_low()
+    };
+    output_pin.set_reset_on_drop(false);
+    output_pin
+}
+
 /// GPIO actor that owns the non-Send rppal types.
 ///
 /// ADR-048 DEC-6.3 / INFRA-CRITICAL-236: there is no simulation backend. A
@@ -515,12 +539,7 @@ impl GpioActor {
                         config.name,
                         if high { "HIGH" } else { "LOW" }
                     );
-                    let output_pin = if high {
-                        pin.into_output_high()
-                    } else {
-                        pin.into_output_low()
-                    };
-                    output_pins.insert(config.pin, output_pin);
+                    output_pins.insert(config.pin, output_at_safe_level(pin, high));
                 }
                 None => {
                     anyhow::bail!(

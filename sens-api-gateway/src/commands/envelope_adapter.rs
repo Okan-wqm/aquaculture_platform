@@ -121,6 +121,11 @@ pub(super) enum AdapterOutcome {
 ///   returns None from lookup_operator_pubkey → signature
 ///   verify closure returns false → Gate 7 rejects.
 ///
+/// - `now_unix_secs` — the instant envelope freshness (Gate 4) is judged
+///   at. It comes from the clock authority (`freshness::fresh_now`): the
+///   adapter never reads a clock itself, so a command is never judged fresh
+///   against a wall clock nobody vouched for (ADR-048 DEC-7.5, EDGE-MEDIUM-077).
+///
 /// OUTPUT:
 /// - AdapterOutcome::NotEnvelopeFormat if JSON doesn't parse
 ///   as CommandEnvelope.
@@ -128,20 +133,6 @@ pub(super) enum AdapterOutcome {
 /// - AdapterOutcome::VerifyFailed(err) if envelope parsed but
 ///   verify rejected.
 pub(super) fn try_parse_and_verify(
-    payload: &[u8],
-    expected_tenant: [u8; 16],
-    mode: SignatureMode,
-    rbac_store: &RbacManifestStore,
-) -> AdapterOutcome {
-    let now_unix_secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-    try_parse_and_verify_at(payload, expected_tenant, mode, rbac_store, now_unix_secs)
-}
-
-/// [`try_parse_and_verify`] at an explicit time (envelope freshness Gate 4).
-pub(super) fn try_parse_and_verify_at(
     payload: &[u8],
     expected_tenant: [u8; 16],
     mode: SignatureMode,
@@ -247,16 +238,24 @@ pub(super) fn try_parse_and_verify_at(
             // side gate (cmd_force_value etc.) reads this flag.
             let verified_co_approver =
                 env.co_approver_actor.is_some() && env.co_approver_signature.is_some();
+            // The envelope's iat as the command's RFC 3339 timestamp; the
+            // replay window in handle_message judges it at the clock
+            // authority's instant. An iat that is no calendar time cannot be
+            // a freshness window at all: it is refused as one, never replaced
+            // by a clock reading.
+            let Some(issued_at) =
+                chrono::DateTime::<chrono::Utc>::from_timestamp(env.iat_unix_secs, 0)
+            else {
+                return AdapterOutcome::VerifyFailed(EnvelopeVerifyError::InvalidFreshnessWindow {
+                    iat: env.iat_unix_secs,
+                    exp: env.exp_unix_secs,
+                });
+            };
             AdapterOutcome::Verified(AdaptedCommand {
                 command_id: jti.as_str().to_string(),
                 command: env.cmd.clone(),
                 params: env.params.clone(),
-                // Use envelope's iat as RFC3339-equivalent
-                // timestamp. Age-check in handle_message will
-                // apply.
-                timestamp: chrono::DateTime::<chrono::Utc>::from_timestamp(env.iat_unix_secs, 0)
-                    .map(|dt| dt.to_rfc3339())
-                    .unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
+                timestamp: issued_at.to_rfc3339(),
                 verified_co_approver,
                 actor: env.actor,
                 claimed_policy_version: env.claimed_policy_version,
@@ -289,16 +288,11 @@ pub(super) fn try_parse_and_verify_at(
 ///
 /// Returns `Err(reason)` when the command must be rejected (deny or
 /// engine error → fail closed).
+///
+/// `now` is the instant the manifest and role windows are judged at; like the
+/// envelope's freshness it comes from the clock authority
+/// (`freshness::fresh_now`), never from a clock read here (ADR-048 DEC-7.5).
 pub(super) async fn authorize_adapted(
-    adapted: &AdaptedCommand,
-    tenant_bytes: [u8; 16],
-    rbac_store: Arc<RbacManifestStore>,
-) -> Result<(), String> {
-    authorize_adapted_at(adapted, tenant_bytes, rbac_store, SystemTime::now()).await
-}
-
-/// [`authorize_adapted`] at an explicit time (manifest and role windows).
-pub(super) async fn authorize_adapted_at(
     adapted: &AdaptedCommand,
     tenant_bytes: [u8; 16],
     rbac_store: Arc<RbacManifestStore>,
@@ -452,7 +446,13 @@ mod tests {
     fn not_envelope_format_on_legacy_payload() {
         let legacy = br#"{"command_id":"c1","command":"ping","timestamp":"2026-04-21T00:00:00Z","params":{}}"#;
         let store = RbacManifestStore::new();
-        let outcome = try_parse_and_verify(legacy, [0u8; 16], SignatureMode::default(), &store);
+        let outcome = try_parse_and_verify(
+            legacy,
+            [0u8; 16],
+            SignatureMode::default(),
+            &store,
+            1_700_000_000,
+        );
         assert!(matches!(outcome, AdapterOutcome::NotEnvelopeFormat));
     }
 
@@ -460,7 +460,13 @@ mod tests {
     fn malformed_json_returns_not_envelope_format() {
         let junk = b"not json at all";
         let store = RbacManifestStore::new();
-        let outcome = try_parse_and_verify(junk, [0u8; 16], SignatureMode::default(), &store);
+        let outcome = try_parse_and_verify(
+            junk,
+            [0u8; 16],
+            SignatureMode::default(),
+            &store,
+            1_700_000_000,
+        );
         assert!(matches!(outcome, AdapterOutcome::NotEnvelopeFormat));
     }
 
@@ -566,7 +572,8 @@ mod tests {
                 continue;
             }
             refused += 1;
-            let res = authorize_adapted(&adapted, [0u8; 16], store.clone()).await;
+            let res =
+                authorize_adapted(&adapted, [0u8; 16], store.clone(), SystemTime::now()).await;
             assert!(
                 matches!(&res, Err(reason) if reason.contains("two-person-integrity")),
                 "{cmd} must be refused, got {res:?}"
@@ -584,7 +591,10 @@ mod tests {
             super::super::catalog::permission_for_command("get_config", &read.params),
             Some(Permission::ReadTag)
         );
-        assert_eq!(authorize_adapted(&read, [0u8; 16], store).await, Ok(()));
+        assert_eq!(
+            authorize_adapted(&read, [0u8; 16], store, SystemTime::now()).await,
+            Ok(())
+        );
     }
 
     #[tokio::test]
@@ -593,7 +603,8 @@ mod tests {
         // role required, so authorize short-circuits to Ok even with
         // an empty (no-manifest) store.
         let store = Arc::new(RbacManifestStore::new());
-        let res = authorize_adapted(&make_adapted("ping"), [0u8; 16], store).await;
+        let res =
+            authorize_adapted(&make_adapted("ping"), [0u8; 16], store, SystemTime::now()).await;
         assert!(
             res.is_ok(),
             "anonymous command must be permitted: {:?}",
@@ -608,7 +619,13 @@ mod tests {
         // role — fail closed (deny or engine-unavailable both reject).
         // Before this wiring it dispatched with no role check at all.
         let store = Arc::new(RbacManifestStore::new()); // empty — no manifest
-        let res = authorize_adapted(&make_adapted("rotate_master"), [0u8; 16], store).await;
+        let res = authorize_adapted(
+            &make_adapted("rotate_master"),
+            [0u8; 16],
+            store,
+            SystemTime::now(),
+        )
+        .await;
         assert!(
             res.is_err(),
             "permissioned command must be denied without a manifest, got {:?}",
@@ -856,7 +873,7 @@ mod contract_envelope_tests {
     }
 
     fn verify(payload: &[u8], store: &RbacManifestStore) -> AdapterOutcome {
-        try_parse_and_verify_at(
+        try_parse_and_verify(
             payload,
             uuid(TENANT),
             SignatureMode::Enforcing,
@@ -869,7 +886,7 @@ mod contract_envelope_tests {
         let (_root, store) = loaded_store();
         match verify(&envelope(cmd, signer), &store) {
             AdapterOutcome::Verified(adapted) => {
-                authorize_adapted_at(&adapted, uuid(TENANT), store, now()).await
+                authorize_adapted(&adapted, uuid(TENANT), store, now()).await
             }
             AdapterOutcome::VerifyFailed(e) => Err(format!("verify: {e:?}")),
             AdapterOutcome::NotEnvelopeFormat => Err("not an envelope".to_owned()),

@@ -38,6 +38,8 @@ use crate::audit::{
 };
 use crate::authz::permission::TenantId;
 
+use super::refusal::Refusal;
+
 /// Map a command name to its semantic AuditAction. Unknown /
 /// non-matching commands fall back to `CommandExecuted` /
 /// `CommandRejected` depending on the phase + outcome.
@@ -249,6 +251,51 @@ pub(super) fn emit_post_event(
         warn!(
             "Audit post-event append failed (non-fatal — result returned, Phase 2 / Batch 80 flips to fail-closed): cmd={} err={}",
             cmd, e
+        );
+    }
+}
+
+/// Construct the audit entry of a refused command (EDGE-MEDIUM-135): a single
+/// post-phase `CommandRejected` entry, whatever the command was called — the
+/// name is a claim of a payload that may never have verified, so it labels the
+/// resource and never selects the action taxonomy.
+pub(super) fn build_refusal_entry(
+    cmd: &str,
+    command_id: &str,
+    device_id: &str,
+    tenant: TenantId,
+    refusal: &Refusal,
+) -> AuditEntry {
+    let mut entry = build_entry(
+        AuditPhase::Post,
+        cmd,
+        command_id,
+        device_id,
+        tenant,
+        refusal.audit_outcome(),
+        &refusal.audit_detail(),
+    );
+    entry.action = AuditAction::CommandRejected;
+    entry
+}
+
+/// Emit the audit entry of a refused command. No-op when sink is None.
+pub(super) fn emit_refusal_event(
+    sink: Option<&Arc<AuditSink>>,
+    cmd: &str,
+    command_id: &str,
+    device_id: &str,
+    tenant: TenantId,
+    refusal: &Refusal,
+) {
+    let Some(sink) = sink else { return };
+    let entry = build_refusal_entry(cmd, command_id, device_id, tenant, refusal);
+    if let Err(e) = sink.append(entry) {
+        warn!(
+            "Audit refusal-event append failed (non-fatal — the sender is still answered): cmd={} code={} err={}",
+            cmd,
+            refusal.code(),
+            e
         );
     }
 }
@@ -478,6 +525,40 @@ mod tests {
             &huge_detail,
         );
         assert_eq!(entry.detail.len(), crate::audit::entry::MAX_DETAIL_BYTES);
+    }
+
+    /// EDGE-MEDIUM-135: a refusal is one `CommandRejected` entry whatever the
+    /// refused command was called, and its detail names the refusal.
+    #[test]
+    fn a_refusal_is_one_command_rejected_entry_whatever_the_command_claims_to_be() {
+        let tenant = TenantId::new_from_verified([0x42u8; 16]);
+        for claimed in ["write_modbus", "update_policy", "ping", "unknown"] {
+            let entry = build_refusal_entry(
+                claimed,
+                "cid-9",
+                "dev-1",
+                tenant,
+                &Refusal::EnvelopeInvalid("signature_invalid".into()),
+            );
+            assert!(
+                matches!(entry.action, AuditAction::CommandRejected),
+                "{claimed}: {:?}",
+                entry.action
+            );
+            assert!(matches!(entry.phase, AuditPhase::Post));
+            assert_eq!(entry.outcome, AuditOutcome::AuthorizationDenied);
+            assert_eq!(entry.correlation_id, "cid-9");
+            assert_eq!(
+                entry.detail,
+                "refused=envelope-invalid detail=signature_invalid"
+            );
+            assert!(
+                entry.canonical_bytes().is_ok(),
+                "the entry must be one the chain can sign"
+            );
+        }
+        let clock = build_refusal_entry("ping", "c", "d", tenant, &Refusal::Duplicate);
+        assert_eq!(clock.outcome, AuditOutcome::Failure);
     }
 
     #[test]

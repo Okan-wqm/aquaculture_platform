@@ -1110,6 +1110,13 @@ path = "tests/invariants/tag_writes_route_through_the_writer.rs"
 name = "emergency_stop_latch"
 path = "tests/invariants/emergency_stop_latch.rs"
 
+# ADR-048 DEC-7.5 / EDGE-MEDIUM-077, EDGE-MEDIUM-135 — freshness is judged at an
+# instant the clock authority vouches for; a command the agent does not run is
+# refused out loud.
+[[test]]
+name = "clock_gated_freshness"
+path = "tests/invariants/clock_gated_freshness.rs"
+
 # =============================================================================
 # RUST-CVE-001: rumqttc 0.25.1 vendored fork (../crates/local-rumqttc)
 # =============================================================================

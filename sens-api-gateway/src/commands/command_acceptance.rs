@@ -48,6 +48,7 @@ pub(super) fn decode_command(
     tenant_bytes: Option<[u8; 16]>,
     signature_mode: SignatureMode,
     rbac_store: &RbacManifestStore,
+    now_unix_secs: i64,
 ) -> Result<CommandMessage, CommandDecodeRejection> {
     let tenant_bytes = match tenant_bytes {
         Some(tenant_bytes) => tenant_bytes,
@@ -62,8 +63,13 @@ pub(super) fn decode_command(
         None => return Err(CommandDecodeRejection::TenantUnavailable),
     };
 
-    match envelope_adapter::try_parse_and_verify(payload, tenant_bytes, signature_mode, rbac_store)
-    {
+    match envelope_adapter::try_parse_and_verify(
+        payload,
+        tenant_bytes,
+        signature_mode,
+        rbac_store,
+        now_unix_secs,
+    ) {
         AdapterOutcome::Verified(adapted) => Ok(CommandMessage {
             command_id: adapted.command_id,
             command: adapted.command,
@@ -155,7 +161,8 @@ mod tests {
                 LEGACY_COMMAND,
                 Some([0u8; 16]),
                 SignatureMode::Enforcing,
-                &store
+                &store,
+                fixed_now().timestamp()
             ),
             Err(CommandDecodeRejection::LegacyPayloadForbidden)
         ));
@@ -166,7 +173,13 @@ mod tests {
         let store = RbacManifestStore::new();
 
         assert!(matches!(
-            decode_command(LEGACY_COMMAND, None, SignatureMode::Enforcing, &store),
+            decode_command(
+                LEGACY_COMMAND,
+                None,
+                SignatureMode::Enforcing,
+                &store,
+                fixed_now().timestamp()
+            ),
             Err(CommandDecodeRejection::TenantUnavailable)
         ));
     }
@@ -181,7 +194,8 @@ mod tests {
                 LEGACY_COMMAND,
                 tenant_bytes,
                 SignatureMode::Enforcing,
-                &store
+                &store,
+                fixed_now().timestamp()
             ),
             Err(CommandDecodeRejection::TenantUnavailable)
         ));
@@ -231,8 +245,14 @@ mod tests {
         ));
         let payload = serde_json::to_vec(&envelope).expect("serializable envelope fixture");
 
-        let command = decode_command(&payload, Some(tenant), SignatureMode::Enforcing, &store)
-            .expect("signed envelope must verify");
+        let command = decode_command(
+            &payload,
+            Some(tenant),
+            SignatureMode::Enforcing,
+            &store,
+            now_unix_secs,
+        )
+        .expect("signed envelope must verify");
 
         assert_eq!(command.command_id, "projected-jti");
         assert_eq!(command.command, "ping");
@@ -256,7 +276,8 @@ mod tests {
                 LEGACY_COMMAND,
                 Some([0u8; 16]),
                 SignatureMode::Permissive,
-                &store
+                &store,
+                fixed_now().timestamp()
             )
             .is_ok()
         );
@@ -272,7 +293,8 @@ mod tests {
                 LEGACY_COMMAND,
                 Some([0u8; 16]),
                 SignatureMode::Disabled,
-                &store
+                &store,
+                fixed_now().timestamp()
             )
             .is_ok()
         );

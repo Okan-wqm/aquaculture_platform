@@ -47,6 +47,7 @@ mod deploy_bytecode_program;
 mod diagnostic;
 mod envelope_adapter;
 mod failover;
+mod freshness;
 mod helpers;
 mod ide_deploy;
 mod io_config;
@@ -64,10 +65,14 @@ mod program;
 // tenant-added VFD on the live Modbus actor + persist it into config.modbus.
 #[cfg(test)]
 mod picontrol_set_output_tests;
+// EDGE-MEDIUM-135 / EDGE-MEDIUM-077: payloads through the real commands arm.
+#[cfg(test)]
+mod refusal_dispatch_tests;
 mod provision;
 mod rbac;
 mod read;
 mod refresh_license;
+mod refusal;
 #[cfg(feature = "suderra-os")]
 mod request_update;
 pub(crate) mod required_permission;
@@ -160,6 +165,11 @@ pub struct CommandHandler {
     /// Tracks recently executed command_ids to prevent MQTT QoS 1 re-delivery
     /// from triggering safety-critical commands twice (pump toggle, VFD start/stop).
     executed_command_ids: VecDeque<String>,
+    /// What `refuse` handed to the response publisher, as the cloud receives it
+    /// (the broker is not in a unit test): the dispatch tests read it to assert
+    /// that every answered refusal sends exactly one response.
+    #[cfg(test)]
+    refusal_responses: std::sync::Mutex<Vec<serde_json::Value>>,
 }
 
 impl CommandHandler {
@@ -188,6 +198,8 @@ impl CommandHandler {
             program_state_path,
             deploy_lock: Mutex::new(()),
             executed_command_ids: VecDeque::with_capacity(1000),
+            #[cfg(test)]
+            refusal_responses: std::sync::Mutex::default(),
         }
     }
 

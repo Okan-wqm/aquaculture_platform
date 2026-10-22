@@ -6,6 +6,14 @@
  * an unchanged `.tf` file; a provider without a version constraint does the same on the next
  * `terraform init`. These functions read blocks from hcl-blocks.ts and never evaluate HCL.
  * Source address forms follow https://developer.hashicorp.com/terraform/language/modules/sources.
+ *
+ * A pin's `source` is reported, never the address as written: go-getter takes credentials in the
+ * URL userinfo and in the aws_access_key_id, aws_access_key_secret, aws_access_token and sshkey
+ * query arguments, and a reported source becomes ARIA's finding subject and message, kept long
+ * after the credential is rotated (ARIA-HIGH-012 round-2 review B2). The verdict is judged on the
+ * whole address; the report masks each credential value as `***`, the way nats-identity.ts reports
+ * a password's length and never its value. An scp-style `git@host:path` user is a login name, not
+ * a credential, and stays.
  */
 import type { HclBlock } from '../lib/infra/hcl-blocks';
 
@@ -73,36 +81,68 @@ function queryArgument(source: string, name: string): string | null {
   return null;
 }
 
+/** go-getter query arguments whose value is a credential. */
+const CREDENTIAL_ARGUMENTS: ReadonlySet<string> = new Set([
+  'aws_access_key_id',
+  'aws_access_key_secret',
+  'aws_access_token',
+  'sshkey',
+]);
+
+/** `address` with every URL userinfo and credential query argument value masked as `***`. */
+function withoutCredentials(address: string): string {
+  // `scheme://userinfo@host`: everything between `://` and the last `@` before the path.
+  const masked = address.replace(/(:\/\/)[^/?#\s]*@/g, '$1***@');
+  const query = masked.indexOf('?');
+  if (query < 0) return masked;
+  const pairs = masked
+    .slice(query + 1)
+    .split('&')
+    .map((pair) => {
+      const eq = pair.indexOf('=');
+      return eq >= 0 && CREDENTIAL_ARGUMENTS.has(pair.slice(0, eq))
+        ? `${pair.slice(0, eq)}=***`
+        : pair;
+    });
+  return `${masked.slice(0, query + 1)}${pairs.join('&')}`;
+}
+
 export interface ModuleSourcePin {
   readonly verdict: ModuleSourceVerdict;
+  /** The source address without its credentials (see the file comment), or null when absent. */
   readonly source: string | null;
   readonly line: number;
 }
 
 export function moduleSourcePin(block: HclBlock): ModuleSourcePin {
+  const { verdict, line } = judgeModuleSource(block);
+  const attr = block.attributes.source;
+  const written = attr === undefined ? null : (attr.string ?? attr.raw);
+  return { verdict, source: written === null ? null : withoutCredentials(written), line };
+}
+
+/** The verdict on the whole source address, credentials included, and the line it sits on. */
+function judgeModuleSource(block: HclBlock): {
+  verdict: ModuleSourceVerdict;
+  line: number;
+} {
   const attr = block.attributes.source;
   if (attr === undefined || attr.string === null) {
-    return {
-      verdict: 'unknown',
-      source: attr === undefined ? null : attr.raw,
-      line: attr === undefined ? block.line : attr.line,
-    };
+    return { verdict: 'unknown', line: attr === undefined ? block.line : attr.line };
   }
   const source = attr.string;
   const line = attr.line;
-  if (source.startsWith('./') || source.startsWith('../'))
-    return { verdict: 'local', source, line };
+  if (source.startsWith('./') || source.startsWith('../')) return { verdict: 'local', line };
   if (isGitSource(source)) {
     const ref = queryArgument(source, 'ref');
-    if (ref === null) return { verdict: 'git_unpinned', source, line };
-    if (COMMIT_SHA.test(ref)) return { verdict: 'git_commit', source, line };
-    return { verdict: VERSION_TAG.test(ref) ? 'git_tag' : 'git_branch_ref', source, line };
+    if (ref === null) return { verdict: 'git_unpinned', line };
+    if (COMMIT_SHA.test(ref)) return { verdict: 'git_commit', line };
+    return { verdict: VERSION_TAG.test(ref) ? 'git_tag' : 'git_branch_ref', line };
   }
   if (REGISTRY_ADDRESS.test(source)) {
     const version = block.attributes.version;
     return {
       verdict: version === undefined ? 'registry_unversioned' : 'registry_versioned',
-      source,
       line,
     };
   }
@@ -111,11 +151,10 @@ export function moduleSourcePin(block: HclBlock): ModuleSourcePin {
     const checksum = queryArgument(source, 'checksum');
     return {
       verdict: checksum !== null && checksum.includes(':') ? 'archive_checksummed' : 'archive',
-      source,
       line,
     };
   }
-  return { verdict: 'unknown', source, line };
+  return { verdict: 'unknown', line };
 }
 
 export interface ProviderConstraint {

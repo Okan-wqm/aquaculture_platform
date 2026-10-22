@@ -26,7 +26,8 @@
 //                                     env-secret rule of .gitleaks.toml
 //   nats_password_identity            nats-identity.ts (natsCredentialAuth)
 //   missing_runtime_guard             runtime-guards.ts (podGuards)
-//   security_header_inheritance_drop  nginx-header-inheritance.ts (headerLevels)
+//   security_header_inheritance_drop  nginx-header-inheritance.ts (headerLevels
+//                                     over includedHeadersFrom's include map)
 //   unpinned_terraform_source         terraform-pins.ts (moduleSourcePin,
 //                                     MODULE_SOURCE_PINNING)
 //
@@ -39,8 +40,9 @@
 // template (no reader parses one unrendered) is an excluded observation, a file
 // over the byte cap is a refusal, and a verdict an owner reports as unresolved
 // (a bind source it cannot place, a module source it cannot classify, an nginx
-// include it cannot see) is an observation, never a clean result. A credential
-// is located by path, line and key, never copied into the output.
+// include it cannot see, or a level that sets headers under one) is an
+// observation, never a clean result. A credential is located by path, line and
+// key, never copied into the output.
 //
 // A kustomize overlay that patches resources and probes into a base workload it
 // deploys supplies that guard: the composition is recorded as evidence instead
@@ -56,7 +58,7 @@ import {
   PIN_MUTABILITY,
 } from '../gates/infra-policy/image-reference';
 import { natsCredentialAuth, type NatsCredentialHit } from '../gates/infra-policy/nats-identity';
-import { headerLevels } from '../gates/infra-policy/nginx-header-inheritance';
+import { headerLevels, includedHeadersFrom } from '../gates/infra-policy/nginx-header-inheritance';
 import { podGuards } from '../gates/infra-policy/runtime-guards';
 import {
   composeServicePrivilege,
@@ -796,8 +798,21 @@ export function analyzeInfrastructurePolicy(
     }
   };
 
+  // The headers each snippet an image delivers adds, read once and only when an nginx file is
+  // scanned. The snippet is read like a premise: within the snapshot, the byte cap and the budget;
+  // one that cannot be read leaves its include unresolved wherever it appears.
+  let includedHeaders: ReadonlyMap<string, readonly string[]> | null = null;
+  const nginxIncludes = (): ReadonlyMap<string, readonly string[]> => {
+    includedHeaders ??= includedHeadersFrom((snippet) =>
+      allowed(snippet) && workspaceFileBytes(workspaceRoot, snippet) <= MAX_FILE_BYTES
+        ? budgetedRead(snippet)
+        : null,
+    );
+    return includedHeaders;
+  };
+
   const scanNginx = (path: string, read: NginxRead): void => {
-    for (const level of headerLevels(read.tree, { includedHeaders: new Map() })) {
+    for (const level of headerLevels(read.tree, { includedHeaders: nginxIncludes() })) {
       const subject = `${level.context} ${level.location}`.trim();
       if (level.unresolvedIncludes.length > 0) {
         // What the include adds is unknown here, so the level's drops are too.
@@ -805,10 +820,23 @@ export function analyzeInfrastructurePolicy(
           owner: OWNER.headers,
           level: subject,
           includes: level.unresolvedIncludes,
+          inherited_includes: level.inheritedUnresolvedIncludes,
         });
         continue;
       }
-      if (level.dropped.length === 0) continue;
+      if (level.dropped.length === 0) {
+        // A level that sets headers under an unseen include drops whatever that include adds:
+        // not clean, and not a claim this adapter can make.
+        if (level.declared.length > 0 && level.inheritedUnresolvedIncludes.length > 0) {
+          recordUnresolved(RULES.security_header_inheritance_drop, path, level.line, {
+            owner: OWNER.headers,
+            level: subject,
+            inherited_includes: level.inheritedUnresolvedIncludes,
+          });
+        }
+        continue;
+      }
+      // A drop the owner sees is certain: an unseen include above can only add to it.
       emit(
         RULES.security_header_inheritance_drop,
         OWNER.headers,

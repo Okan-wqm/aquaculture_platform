@@ -22,8 +22,52 @@
  *
  * An include target missing from `includedHeaders` adds no known header; the level lists it in
  * `unresolvedIncludes`, so a caller can tell "sets nothing" from "sets what this owner cannot see".
+ * What an unseen include adds is unknown at every level under it too, so each level also lists the
+ * unseen includes of its enclosing levels in `inheritedUnresolvedIncludes`, outermost first. A
+ * parent's unseen include can only add to what a child that sets its own headers loses, so the
+ * drops this owner does see stay certain; a child that sets headers and drops nothing it can see
+ * still drops whatever those includes add, which is the caller's to record as unresolved.
+ *
+ * The include map has this one owner (ARIA-HIGH-012 round-2 review B1): `SNIPPET_INCLUDES` names
+ * the repo snippet each include target is, and `includedHeadersFrom` reads the headers from the
+ * snippet text through the caller's reader, so no caller restates either and none passes an empty
+ * map that makes every snippet include unseen.
  */
-import type { NginxDirective } from '../lib/infra/nginx-conf';
+import { readNginx, type NginxDirective } from '../lib/infra/nginx-conf';
+
+/**
+ * Include target (the path nginx reads in the image) to the repo snippet an image delivers there.
+ * Each pairing is a tracked Dockerfile's COPY (Dockerfile.aquamobil delivers the security set);
+ * infra-policy.spec.ts holds every entry to such a COPY, so the map cannot name a target nginx
+ * never reads or a snippet no image ships.
+ */
+export const SNIPPET_INCLUDES: ReadonlyMap<string, string> = new Map([
+  [
+    '/etc/nginx/snippets/security-headers.conf',
+    'infrastructure/docker/nginx/snippets/security-headers.conf',
+  ],
+]);
+
+/**
+ * The headers each known include target adds, read from its snippet's text. `readRepoFile` returns
+ * a repo file's text, or null when the caller cannot read it (the adapter reads through
+ * adapter-fs.ts, a spec from the checkout); this owner does no I/O. A snippet that is unreadable
+ * or reads with errors is left out, so its include stays unresolved instead of counting as one
+ * that adds nothing.
+ */
+export function includedHeadersFrom(
+  readRepoFile: (path: string) => string | null,
+): Map<string, string[]> {
+  const included = new Map<string, string[]>();
+  for (const [target, snippet] of SNIPPET_INCLUDES) {
+    const text = readRepoFile(snippet);
+    if (text === null) continue;
+    const read = readNginx(text);
+    if (read.errors.length > 0) continue;
+    included.set(target, addHeaderNames(read.tree));
+  }
+  return included;
+}
 
 /** Contexts that form an add_header inheritance level. */
 const LEVELS: ReadonlySet<string> = new Set(['http', 'server', 'location', 'if', 'limit_except']);
@@ -51,6 +95,8 @@ export interface HeaderLevel {
   readonly dropped: readonly string[];
   /** `include` targets of this level that `includedHeaders` does not know. */
   readonly unresolvedIncludes: readonly string[];
+  /** Unknown `include` targets of every enclosing level, outermost first. */
+  readonly inheritedUnresolvedIncludes: readonly string[];
 }
 
 /** Header names set by `add_header` directly in these directives (snippet files, levels). */
@@ -112,7 +158,11 @@ export function headerLevels(
 ): HeaderLevel[] {
   const adopted = adoptedHeaders(tree, options);
   const levels: HeaderLevel[] = [];
-  const visit = (directives: readonly NginxDirective[], inherited: readonly string[]): void => {
+  const visit = (
+    directives: readonly NginxDirective[],
+    inherited: readonly string[],
+    unseenAbove: readonly string[],
+  ): void => {
     for (const d of directives) {
       if (d.block === null) continue;
       if (!LEVELS.has(d.name)) continue;
@@ -132,11 +182,15 @@ export function headerLevels(
         declared: own.names,
         dropped,
         unresolvedIncludes: own.unresolved,
+        inheritedUnresolvedIncludes: unseenAbove,
       });
-      visit(d.block, own.names.length > 0 ? own.names : inherited);
+      visit(d.block, own.names.length > 0 ? own.names : inherited, [
+        ...unseenAbove,
+        ...own.unresolved,
+      ]);
     }
   };
-  visit(tree, []);
+  visit(tree, [], []);
   return levels;
 }
 

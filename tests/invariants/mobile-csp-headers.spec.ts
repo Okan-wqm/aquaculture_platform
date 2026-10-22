@@ -14,12 +14,14 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-// nginx add_header inheritance has one owner, shared with ARIA's infrastructure-policy
-// adapter (ARIA-HIGH-012); this spec keeps its own Cache-Control filter on top of it.
+// nginx add_header inheritance and its include map have one owner, shared with ARIA's
+// infrastructure-policy adapter (ARIA-HIGH-012); this spec keeps its own Cache-Control filter on
+// top of it and takes the include target and the snippet's headers from it.
 import { readNginx } from '../../tools/gates/lib/infra/nginx-conf';
 import {
-  addHeaderNames,
   headerLevels,
+  includedHeadersFrom,
+  SNIPPET_INCLUDES,
 } from '../../tools/gates/infra-policy/nginx-header-inheritance';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
@@ -27,14 +29,24 @@ const SNIPPET = 'infrastructure/docker/nginx/snippets/security-headers.conf';
 const AQUAMOBIL_CONF = 'infrastructure/docker/nginx/aquamobil.conf';
 const DOCKERFILE = 'infrastructure/docker/Dockerfile.aquamobil';
 const DROPLET_CONF = 'infrastructure/nginx/droplet.conf';
-const SNIPPET_INCLUDE_PATH = '/etc/nginx/snippets/security-headers.conf';
-const INCLUDE_DIRECTIVE = `include ${SNIPPET_INCLUDE_PATH}`;
 
 function read(rel: string): string {
   const path = resolve(REPO_ROOT, rel);
   if (!existsSync(path)) throw new Error(`${rel} does not exist`);
   return readFileSync(path, 'utf8');
 }
+
+/** The include target the header owner maps to SNIPPET: the path every include must name. */
+function snippetIncludePath(): string {
+  const targets = [...SNIPPET_INCLUDES].filter(([, snippet]) => snippet === SNIPPET);
+  if (targets.length !== 1 || targets[0] === undefined) {
+    throw new Error(`the header owner maps ${SNIPPET} to ${targets.length} include targets`);
+  }
+  return targets[0][0];
+}
+
+const SNIPPET_INCLUDE_PATH = snippetIncludePath();
+const INCLUDE_DIRECTIVE = `include ${SNIPPET_INCLUDE_PATH}`;
 
 /** Return the brace-balanced body of the first `{...}` after a header match. */
 function blockBody(conf: string, header: RegExp): string {
@@ -63,14 +75,13 @@ function blockBody(conf: string, header: RegExp): string {
  * landing fix 1, high-012-compare.md section 5).
  */
 function cacheControlOffenders(conf: string): string[] {
-  const snippetRead = readNginx(read(SNIPPET));
+  const includedHeaders = includedHeadersFrom(read);
   const confRead = readNginx(conf);
-  // A misread file yields a partial tree, on which "no offenders" would mean nothing.
-  expect(snippetRead.errors).toEqual([]);
+  // A misread file yields a partial tree, and an unread snippet an include that adds nothing, on
+  // either of which "no offenders" would mean nothing.
+  expect(includedHeaders.has(SNIPPET_INCLUDE_PATH)).toBe(true);
   expect(confRead.errors).toEqual([]);
-  const levels = headerLevels(confRead.tree, {
-    includedHeaders: new Map([[SNIPPET_INCLUDE_PATH, addHeaderNames(snippetRead.tree)]]),
-  });
+  const levels = headerLevels(confRead.tree, { includedHeaders });
   const cacheControlLevels = levels.filter((level) => level.declared.includes('Cache-Control'));
   // Non-vacuous: the tree holds one level per `add_header Cache-Control` line of the file.
   const cacheControlLines = conf
@@ -179,7 +190,8 @@ describe('mobile PWA security headers (SEC-MEDIUM-052)', () => {
 
     it('a location that declares the whole set itself, in any case, is not an offender', () => {
       // nginx header names are case-insensitive; the guard compares them that way.
-      const snippetHeaders = addHeaderNames(readNginx(read(SNIPPET)).tree);
+      const snippetHeaders = includedHeadersFrom(read).get(SNIPPET_INCLUDE_PATH);
+      if (snippetHeaders === undefined) throw new Error(`${SNIPPET} does not read cleanly`);
       const ownSet = snippetHeaders
         .map((header) => `        add_header ${header.toLowerCase()} "x" always;\n`)
         .join('');

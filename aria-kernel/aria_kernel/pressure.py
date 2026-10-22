@@ -12,7 +12,8 @@ from .runs_reader import read_runs_rows, run_path_citations
 from .state_manifest import surface_for_path
 from .tool_health import runs_path
 from .tool_registry import GovernanceError, ensure_tools_dir, list_tools, utc_now
-from .workspace import WorkspacePaths, default_actor
+from .execution_spine import current_actor_record
+from .workspace import WorkspacePaths
 
 SOURCE_WEIGHTS: dict[str, int] = {
     "tool_quarantine": 90,
@@ -128,6 +129,17 @@ def record_weight_override(
     if not operator_approval_ref.strip():
         raise GovernanceError("operator_approval_ref is required")
     root = ensure_tools_dir(base_dir)
+    # ARIA-HIGH-238 — an override changes how strongly every source pulls the
+    # next cycle's targeting, so the ref must be the operator's own GitHub
+    # act naming the source and the exact weight.
+    from .operator_approval import require_operator_act
+
+    approval = require_operator_act(
+        operator_approval_ref,
+        surface="pressure_weight_override",
+        scope={"source": source, "weight": str(weight)},
+        base_dir=root,
+    )
     path = root.joinpath(*WEIGHT_OVERRIDES_PATH)
     path.parent.mkdir(parents=True, exist_ok=True)
     import json as _json
@@ -139,6 +151,7 @@ def record_weight_override(
         "previous_effective": effective_source_weights(base_dir)[source],
         "reason": reason.strip(),
         "operator_approval_ref": operator_approval_ref.strip(),
+        "operator_approval": approval,
     }
     with path.open("a", encoding="utf-8") as fh:
         fh.write(_json.dumps(row, sort_keys=True) + "\n")
@@ -967,7 +980,7 @@ def append_pressure_state_event(
         "reason": reason,
         "cycle_id": cycle_id,
         "ts": _format_dt(now or _utcnow_dt()),
-        "actor": default_actor(),
+        "actor": current_actor_record(),
         "evidence_refs": sorted(evidence_refs or []),
         "feedback_event_ids": sorted(feedback_event_ids or []),
         "details": details or {},

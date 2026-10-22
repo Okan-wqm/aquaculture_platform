@@ -32,7 +32,6 @@ to the broker by the spawner (``claude_runtime``) from that same document.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 from typing import Any, Mapping
@@ -41,6 +40,7 @@ from .command_policy import claude_permission_rules
 from .hook_client import HOOK_VERBS as HOOK_CLIENT_VERBS
 from .runtime_profiles import RuntimeProfile, disallowed_tools_for
 from .turn_budget import BUDGETED_TOOL_NAMES, turn_budget_for
+from .digest import sha256_digest
 
 SETTINGS_SCHEMA_NOTE = "aria/claude-settings/v1"
 HOOK_TIMEOUT_SECONDS = 60
@@ -177,7 +177,7 @@ def build_settings(
 
 def settings_hash(settings: Mapping[str, Any]) -> str:
     canonical = json.dumps(settings, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return "sha256:" + hashlib.sha256(canonical).hexdigest()
+    return sha256_digest(canonical)
 
 
 def write_settings_file(settings: Mapping[str, Any], *, directory: str | Path, request_id: str) -> Path:

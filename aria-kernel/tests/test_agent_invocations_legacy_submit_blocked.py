@@ -151,12 +151,18 @@ class LegacySubmitBlockedTests(unittest.TestCase):
         expected_path.write_text("ok\n", encoding="utf-8")
         gov = self.tools_dir / "governance.jsonl"
         before_rows = load_jsonl(gov) if gov.exists() else []
-        result = _submit_legacy_invocation_result_internal(
-            request_id=request["request_id"],
-            output_path=expected_path,
-            base_dir=self.tools_dir,
-            operator_migration_approval_ref="OP-PLAN-024-B1-TEST",
-        )
+        from tests._helpers.operator_acts import github_operator_acts
+
+        with github_operator_acts() as github:
+            _ref = github.approve(
+                "legacy_result_submit", {"request": request["request_id"]},
+            )
+            result = _submit_legacy_invocation_result_internal(
+                request_id=request["request_id"],
+                output_path=expected_path,
+                base_dir=self.tools_dir,
+                operator_migration_approval_ref=_ref,
+            )
         self.assertEqual(result["status"], "completed")
         after_rows = load_jsonl(gov)
         new_rows = after_rows[len(before_rows):]
@@ -167,7 +173,7 @@ class LegacySubmitBlockedTests(unittest.TestCase):
         )
         details = invoked[0].get("details") or {}
         self.assertEqual(
-            details.get("operator_migration_approval_ref"), "OP-PLAN-024-B1-TEST")
+            details.get("operator_migration_approval_ref"), _ref)
         self.assertEqual(details.get("request_id"), request["request_id"])
 
     def test_is_legacy_decided_request_flags_legacy_terminal_row(self) -> None:
@@ -189,12 +195,17 @@ class LegacySubmitBlockedTests(unittest.TestCase):
             request_id=rid, base_dir=self.tools_dir))
         expected_path = Path(request["expected_output_path"])
         expected_path.write_text("ok\n", encoding="utf-8")
-        _submit_legacy_invocation_result_internal(
-            request_id=rid,
-            output_path=expected_path,
-            base_dir=self.tools_dir,
-            operator_migration_approval_ref="OP-PLAN-024-B1-TEST",
-        )
+        from tests._helpers.operator_acts import github_operator_acts
+
+        with github_operator_acts() as github:
+            _submit_legacy_invocation_result_internal(
+                request_id=rid,
+                output_path=expected_path,
+                base_dir=self.tools_dir,
+                operator_migration_approval_ref=github.approve(
+                    "legacy_result_submit", {"request": rid},
+                ),
+            )
         # Legacy result row written without claim_id -> flagged.
         self.assertTrue(is_legacy_decided_request(
             request_id=rid, base_dir=self.tools_dir))

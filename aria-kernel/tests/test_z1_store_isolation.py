@@ -8,11 +8,21 @@ the loss was SILENT. Today a single-slot runner is the only thing
 serializing the four self-hosted lanes — an accident of runner count, not
 a property of the repo.
 
+ARIA-MEDIUM-277 moved the serialization OFF the shared concurrency group
+(a GitHub group holds ONE pending slot and an arriving run evicts the
+queued one, so the shared group let each lane's dispatch silently cancel
+another lane's pending run) and ONTO the host workspace lock: a flock on
+the workspace directory, held for the job's lifetime by
+.github/actions/selfhosted-workspace-lock. The no-shared-group half of
+the new rule is pinned in tests/invariants/selfhosted-lane-concurrency
+.spec.ts; THIS file pins the workspace half.
+
 Deliberate-breakage pins:
-- every self-hosted workflow shares ONE concurrency group (adding a second
-  runner service can never reopen the mid-run wipe window);
-- the watchdog checks out into its own subdirectory (its clean can never
-  touch the store path again);
+- every self-hosted job that checks out the workspace ROOT takes the host
+  workspace lock first and releases it last under `if: always()` (adding
+  a second runner service can never reopen the mid-run wipe window);
+- the lanes exempt from the lock earn it with a subdirectory checkout
+  (their clean can never touch the store path again);
 - a registered-but-missing store re-materializes LOUDLY (governance row on
   the freshly restored store, published with the next push).
 """
@@ -27,23 +37,23 @@ import yaml
 _REPO = Path(__file__).resolve().parents[2]
 _WF = _REPO / ".github" / "workflows"
 
-_SELF_HOSTED_GROUP = "aria-selfhosted-workspace"
+_LOCK_ACTION = "./.github/actions/selfhosted-workspace-lock"
 
 # ORPHAN-713 — the exemption is EARNED structurally, not declared: a GitHub
 # concurrency group holds ONE pending slot and an arriving run evicts the
 # queued one, so the hourly watchdog inside the shared group cancelled the
-# queued nightly executor three times on 2026-08-18. It may leave the group
-# ONLY because its checkout is scoped to a subdirectory (verified below) —
-# its clean can never reach the store, and a read-only probe needs no
-# workspace serialization beyond the runner itself.
+# queued nightly executor three times on 2026-08-18. It may skip the
+# workspace lock ONLY because its checkout is scoped to a subdirectory
+# (verified below) — its clean can never reach the store, and a read-only
+# probe needs no workspace serialization beyond the runner itself.
 _PATH_ISOLATED_EXEMPT = {
     "dataflow-integrity-watchdog.yml",
     # ORPHAN-HIGH-736 — the report lane joined the self-hosted runner for
     # its PAT identity alone (a PR opened with the job token parks every
     # check in action_required). It touches ARIA's state not at all, so it
     # checks out into `report-checkout/` and keeps its own group: taking a
-    # slot in the shared group would let a two-minute report evict a queued
-    # drain, which is the harm ORPHAN-713 removed for the watchdog.
+    # slot in another lane's group would let a two-minute report evict a
+    # queued drain, which is the harm ORPHAN-713 removed for the watchdog.
     "aria-daily-report.yml",
 }
 
@@ -61,45 +71,102 @@ def _workflows_with_selfhosted() -> list[Path]:
     return hits
 
 
-class SharedWorkspaceGroupPins(unittest.TestCase):
-    def test_every_selfhosted_workflow_shares_the_group(self) -> None:
+def _selfhosted_jobs(doc: dict) -> list[tuple[str, dict]]:
+    return [
+        (name, job)
+        for name, job in (doc.get("jobs") or {}).items()
+        if isinstance(job.get("runs-on"), list)
+        and "self-hosted" in job["runs-on"]
+    ]
+
+
+def _checkouts_at_workspace_root(job: dict) -> bool:
+    """A checkout without `path` cleans at the persistent workspace root."""
+    for step in job.get("steps") or []:
+        if str(step.get("uses", "")).startswith("actions/checkout"):
+            if not (step.get("with") or {}).get("path"):
+                return True
+    return False
+
+
+class SharedWorkspaceLockPins(unittest.TestCase):
+    def test_root_checkout_jobs_take_the_workspace_lock_first(self) -> None:
         paths = _workflows_with_selfhosted()
         self.assertGreaterEqual(len(paths), 4, [p.name for p in paths])
+        checked = 0
         for path in paths:
             doc = yaml.safe_load(path.read_text(encoding="utf-8"))
-            group = (doc.get("concurrency") or {}).get("group")
-            if path.name in _PATH_ISOLATED_EXEMPT:
-                self.assertNotEqual(
-                    group, _SELF_HOSTED_GROUP,
-                    f"{path.name}: exempt lane must not occupy the shared "
-                    "group's single pending slot (it evicts queued lanes)",
-                )
-                self.assertTrue(
-                    group,
-                    f"{path.name}: exempt lane still needs its own group",
-                )
-            else:
+            for job_name, job in _selfhosted_jobs(doc):
+                if not _checkouts_at_workspace_root(job):
+                    continue
+                checked += 1
+                steps = job.get("steps") or []
+                first = steps[0] if steps else {}
                 self.assertEqual(
-                    group, _SELF_HOSTED_GROUP,
-                    f"{path.name}: self-hosted lane outside the shared workspace group",
+                    str(first.get("uses", "")), _LOCK_ACTION,
+                    f"{path.name}:{job_name}: a job that checks out the "
+                    "workspace root must take the host workspace lock as "
+                    "its FIRST step (ARIA-MEDIUM-277) — the reset and the "
+                    "checkout below it are the wipe vectors",
                 )
+                self.assertNotEqual(
+                    (first.get("with") or {}).get("mode"), "release",
+                    f"{path.name}:{job_name}: the first lock step must be "
+                    "the acquire",
+                )
+                self.assertNotIn(
+                    "if", first,
+                    f"{path.name}:{job_name}: the acquire must run "
+                    "unconditionally",
+                )
+                last = steps[-1] if steps else {}
+                self.assertEqual(
+                    str(last.get("uses", "")), _LOCK_ACTION,
+                    f"{path.name}:{job_name}: the lock must be released by "
+                    "the job's LAST step",
+                )
+                self.assertEqual(
+                    (last.get("with") or {}).get("mode"), "release",
+                    f"{path.name}:{job_name}: the last lock step must be "
+                    "the release",
+                )
+                self.assertIn(
+                    "always()", str(last.get("if", "")),
+                    f"{path.name}:{job_name}: the release must run even "
+                    "when the job failed, or one red lane starves them all",
+                )
+        self.assertGreaterEqual(
+            checked, 3,
+            "the cycle, the executor and the capability probe must be "
+            "among the lock takers",
+        )
+
+    def test_every_selfhosted_workflow_declares_its_own_group(self) -> None:
+        for path in _workflows_with_selfhosted():
+            doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+            concurrency = doc.get("concurrency") or {}
+            self.assertTrue(
+                concurrency.get("group"),
+                f"{path.name}: a self-hosted lane still needs a concurrency "
+                "group (its own duplicate is the one eviction it may take)",
+            )
             self.assertFalse(
-                (doc.get("concurrency") or {}).get("cancel-in-progress", False),
+                concurrency.get("cancel-in-progress", False),
                 f"{path.name}: cancel-in-progress would kill a running cycle",
             )
 
     def test_exempt_lanes_earned_it_with_a_scoped_checkout(self) -> None:
         """The exemption is earned by the jobs that can actually reach the store.
 
-        The property being protected is that a lane outside the shared
-        group never checks out — and therefore never cleans — at the
+        The property being protected is that a lane without the workspace
+        lock never checks out — and therefore never cleans — at the
         persistent workspace root. That is reachable ONLY from the
         self-hosted runner: a github-hosted job gets a fresh VM, so its
         unscoped checkout cannot touch ARIA's state. Scoping the check to
         self-hosted jobs is what the rule always meant; requiring it of
         every job would have forced a hosted job to adopt a subdirectory
-        for a danger it structurally does not have (ORPHAN-HIGH-736 —
-        the report lane's read-only generate job).
+        for a danger it structurally does not have (ORPHAN-HIGH-736 — the
+        report lane's read-only generate job).
         """
         checked = 0
         for name in _PATH_ISOLATED_EXEMPT:
@@ -113,9 +180,9 @@ class SharedWorkspaceGroupPins(unittest.TestCase):
                         checked += 1
                         self.assertTrue(
                             (step.get("with") or {}).get("path"),
-                            f"{name}:{job_name}: group exemption requires a "
-                            "subdirectory checkout — an unscoped clean could "
-                            "wipe the store",
+                            f"{name}:{job_name}: the lock exemption requires "
+                            "a subdirectory checkout — an unscoped clean "
+                            "could wipe the store",
                         )
         self.assertGreater(
             checked, 0,

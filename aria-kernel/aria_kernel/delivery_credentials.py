@@ -304,7 +304,15 @@ def issue_delivery_credentials(
     profile_id = getattr(profile, "profile_id", None)
     minter = mint or mint_installation_token
     try:
-        lease = minter(cycle_id=lease_id, workspace_root=workspace_root, ttl_seconds=ttl, token_dir=token_dir)
+        # ARIA-MEDIUM-583 — the delivery NAMES its set: on a broker lane the
+        # mint goes through the lane's token broker, which serves the closed
+        # allowlist only; DELIVERY is the narrowed set (contents:write +
+        # pull_requests:write, no administration) — exactly what a delivery
+        # spends (push one branch, open one PR) and nothing more.
+        lease = minter(
+            cycle_id=lease_id, workspace_root=workspace_root, ttl_seconds=ttl,
+            token_dir=token_dir, permission_set="DELIVERY",
+        )
         token = Path(lease.token_file).read_text(encoding="utf-8").strip()
         # (round 5) the token is HELD IN MEMORY from here: the file has no
         # reader left (the push and the `gh` subprocess take the value from

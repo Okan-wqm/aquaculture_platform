@@ -124,12 +124,17 @@ class AgentGenesisFoundationTests(unittest.TestCase):
         # Plan 026R §E.2 — synthetic-sandbox approve_agent_pr now
         # requires operator_synthetic_override=True; this test
         # exercises the synthetic-fixture happy path.
-        approved = approve_agent_pr(
-            draft_id=draft["draft_id"],
-            operator_approval_ref="operator:test",
-            base_dir=self.tools_dir,
-            operator_synthetic_override=True,
-        )
+        from tests._helpers.operator_acts import github_operator_acts
+
+        with github_operator_acts() as github:
+            approved = approve_agent_pr(
+                draft_id=draft["draft_id"],
+                operator_approval_ref=github.approve(
+                    "agent_pr_approval", {"draft": draft["draft_id"]},
+                ),
+                base_dir=self.tools_dir,
+                operator_synthetic_override=True,
+            )
         self.assertEqual(approved["status"], "approved_for_agent_pr")
         self.assertEqual(list_agent_drafts(base_dir=self.tools_dir)[-1]["blocked_by"], [])
 

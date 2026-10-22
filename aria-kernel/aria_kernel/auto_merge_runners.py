@@ -601,9 +601,9 @@ __all__ = [
 # was removed rather than kept as a second, unreachable CI reader.
 
 
-import hashlib
 import json
 from dataclasses import dataclass
+from .digest import sha256_digest
 
 
 @dataclass(frozen=True)
@@ -658,7 +658,7 @@ def compute_v9_idempotency_key(
         "branch_tip_sha": branch_tip_sha,
     }
     raw = json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return "sha256:" + hashlib.sha256(raw).hexdigest()
+    return sha256_digest(raw)
 
 
 def evaluate_v9_implementation_merge(

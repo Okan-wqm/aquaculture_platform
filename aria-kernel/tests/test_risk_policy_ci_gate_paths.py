@@ -24,6 +24,11 @@ they are refused as ``risk_unknown_path``.
 """
 from __future__ import annotations
 
+# ARIA-HIGH-602 — the live partition: this module reads the live checkout
+# outside the kernel surface, so it runs in aria-kernel.yml's always-run
+# `workspace` job (aria_kernel.live_partition), never in a skippable shard.
+READS_LIVE_CHECKOUT = "the live repository's CI gate paths (project, jest and tooling files across apps, libs, tests and tools)"
+
 import json
 import re
 import subprocess

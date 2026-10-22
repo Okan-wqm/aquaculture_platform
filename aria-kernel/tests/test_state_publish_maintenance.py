@@ -45,6 +45,12 @@ from aria_kernel.state_store import (
 from tests.test_state_store import REPO_HASH, StateStoreTestCase, _EnvPatch, _git
 from tests._helpers.writer_lease import holding_writer_lease
 
+# ARIA-HIGH-138 — the seam(s) this file proves by a real process, per
+# the closed registry in tests/invariants/seam_registry.py.
+REAL_PROCESS_SEAMS = (
+    "aria-kernel/aria_kernel/state_store.py",
+)
+
 
 def _old_stamp(days: int) -> str:
     return (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y%m%dT%H%M%SZ")

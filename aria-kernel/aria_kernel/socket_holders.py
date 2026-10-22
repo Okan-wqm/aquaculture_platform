@@ -78,6 +78,12 @@ HOOK_BROKER = SocketHolder(name="hook_brokers", prefix="aria-hb-", socket_names=
 MCP_BROKER = SocketHolder(name="mcp_brokers", prefix="aria-mb-", socket_names=("sock",))
 # One socket per room route, named by the route's key (ARIA-MEDIUM-563).
 EGRESS_PROXY = SocketHolder(name="egress_proxies", prefix="aria-ep-", socket_names=ROOM_ROUTE_KEYS)
+# ARIA-MEDIUM-583 — the GitHub App token broker a LANE starts (a sibling of
+# the cycle/executor process, not their child), so it is swept like every
+# other holder even though its holder process is the workflow step's, not
+# the orchestrator's: a broker the runner fails to reap leaves a socket
+# directory whose socket no longer answers.
+TOKEN_BROKER = SocketHolder(name="token_brokers", prefix="aria-tb-", socket_names=("sock",))
 
 SOCKET_HOLDERS: tuple[SocketHolder, ...] = tuple(
     value for value in tuple(globals().values()) if isinstance(value, SocketHolder)
@@ -137,6 +143,7 @@ __all__ = [
     "MCP_BROKER",
     "SIGNING_AGENT",
     "SOCKET_HOLDERS",
+    "TOKEN_BROKER",
     "SocketHolder",
     "prune_stale_holder_sockets",
     "prune_stale_socket_dirs",

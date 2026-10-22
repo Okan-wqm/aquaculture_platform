@@ -69,6 +69,7 @@ from .state_manifest import (
     surface_path_matches,
     validate_state_surface_patterns,
 )
+from .digest import sha256_digest_text
 
 SNAPSHOT_SCHEMA = "aria/state-snapshot/v1"
 MAX_SNAPSHOT_JSON_BYTES = 4 * 1024 * 1024
@@ -417,7 +418,7 @@ def compute_manifest_root(manifest: dict[str, Any]) -> str:
     genuine snapshots.
     """
     payload = {k: v for k, v in manifest.items() if k not in {"manifest_root", "signature"}}
-    return "sha256:" + hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
+    return sha256_digest_text(canonical_json(payload))
 
 
 def verify_manifest_root(manifest: dict[str, Any]) -> bool:

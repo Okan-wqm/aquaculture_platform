@@ -56,16 +56,22 @@ The ack-ledger HMAC key lives at `aria-tools/secrets/ack_hmac.key` on the operat
 
 - Retains the **last 5 keys** for historical signature verification (locked by `I-V3-19e`).
 
-If `aria-tools/secrets/ack_hmac.key` does not exist, `aria-kernel ack init --reason <text> --operator-approval-ref <ref>` mints the first key and creates the file. The reason text is validated via `_validate_reason` (Plan ARIA-V2 §AUDITTRAIL-HIGH-005).
+If `aria-tools/secrets/ack_hmac.key` does not exist, `aria-kernel ack init --reason <text>
+--operator-approval-ref <gh-ref>` mints the first key and creates the file. The ref is the
+operator's GitHub act (`ARIA-APPROVE surface=ack_key_operation operation=init`, posted by a
+listed operator; ARIA-HIGH-238) — `aria-kernel operator approval-template` prints the line.
+The reason text is validated via `_validate_reason` (Plan ARIA-V2 §AUDITTRAIL-HIGH-005).
 
 ---
 
 ## 2. Scheduled rotation (every 90 days)
 
 ```bash
+# --operator-approval-ref is the operator's GitHub act approving
+#   surface=ack_key_operation operation=rotate (ARIA-HIGH-238).
 aria-kernel ack rotate-key \
   --reason "scheduled-90-day-rotation-cycle-$(date -u +%Y-Q%q)" \
-  --operator-approval-ref RFC-XXXX
+  --operator-approval-ref gh:Okan-wqm/aquaculture_platform#1/comment/<id>
 ```
 
 Effect:
@@ -95,14 +101,14 @@ If the key file leaks (e.g., committed accidentally, exposed in a backup, observ
 # Step 1 — rotate immediately
 aria-kernel ack rotate-key \
   --reason "emergency-rotation-suspected-leak-$(date -u +%FT%T)" \
-  --operator-approval-ref INC-XXXX \
+  --operator-approval-ref gh:Okan-wqm/aquaculture_platform#1/comment/<id> \
   --emergency
 
 # Step 2 — quarantine the previous key WITHOUT retaining it for verification
 aria-kernel ack revoke-key \
   --key-id <leaked_key_id> \
   --reason "leaked-rotated-out" \
-  --operator-approval-ref INC-XXXX
+  --operator-approval-ref gh:Okan-wqm/aquaculture_platform#1/comment/<id>
 ```
 
 `--emergency` flag:

@@ -60,6 +60,12 @@ from aria_kernel.containment_probe import (
 from aria_kernel.git_containment import GitContainment, QuarantinePublication
 from tests._helpers.sandbox_pins import require_bwrap_namespaces
 
+# ARIA-HIGH-138 — the seam(s) this file proves by a real process, per
+# the closed registry in tests/invariants/seam_registry.py.
+REAL_PROCESS_SEAMS = (
+    "aria-kernel/aria_kernel/containment_probe.py",
+)
+
 
 def _builder(*, provider: str | None = None, drop_ro_binds: tuple[str, ...] = ()):
     def build(command: list[str], workspace: Path, containment: GitContainment) -> list[str]:
@@ -207,14 +213,47 @@ class ProbeTests(_NeedsBwrap):
 
     def test_a_git_below_the_proven_floor_is_named_before_any_repository_is_made(self) -> None:
         self.assertEqual(GIT_PROVEN_FLOOR, (2, 43))
-        import subprocess
-        below = subprocess.CompletedProcess(["git", "--version"], 0, stdout="git version 2.34.1\n", stderr="")
-        with mock.patch.object(probe_module.subprocess, "run", return_value=below) as run:
-            self.assertEqual(probe_git_containment(_real_builder), "git_below_proven_floor:2.34.1")
-            self.assertEqual(run.call_count, 1, "nothing after the version check")
-        unreadable = subprocess.CompletedProcess(["git", "--version"], 0, stdout="git version unknown\n", stderr="")
-        with mock.patch.object(probe_module.subprocess, "run", return_value=unreadable):
-            self.assertEqual(probe_git_containment(_real_builder), "git_version_unreadable:git version unknown")
+        # ARIA-HIGH-138 — the refusal is proven through a REAL subprocess: a
+        # fixture git first on PATH (the declared-substitute pattern, like
+        # the executor identity suite's fixture gh), never a mock of the
+        # probe's own subprocess. The fixture logs its argv, so "nothing ran
+        # after the version check" is a fact about a process that ran, not a
+        # mock's call count.
+        import shlex
+        import tempfile
+        with tempfile.TemporaryDirectory(prefix="aria-probe-floor-") as tmp:
+            root = Path(tmp)
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            calls = root / "git-calls"
+
+            def _fixture_git(version_line: str) -> None:
+                (bin_dir / "git").write_text(
+                    "#!/bin/sh\n"
+                    f"printf '%s\\n' {shlex.quote(version_line)}\n"
+                    f"printf '%s\\n' \"$*\" >> {shlex.quote(str(calls))}\n",
+                    encoding="utf-8",
+                )
+                (bin_dir / "git").chmod(0o755)
+
+            def _probe_with_fixture_git() -> str:
+                import contextlib
+                with contextlib.ExitStack() as stack:
+                    stack.enter_context(
+                        mock.patch.dict(os.environ, {"PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"})
+                    )
+                    return probe_git_containment(_real_builder)
+
+            _fixture_git("git version 2.34.1")
+            self.assertEqual(_probe_with_fixture_git(), "git_below_proven_floor:2.34.1")
+            self.assertEqual(
+                calls.read_text(encoding="utf-8").splitlines(),
+                ["--version"],
+                "nothing after the version check",
+            )
+            _fixture_git("git version unknown")
+            calls.unlink()
+            self.assertEqual(_probe_with_fixture_git(), "git_version_unreadable:git version unknown")
         self.assertIsNone(probe_module._git_version_below_floor(probe_module.probe_git_environment()),
                           "this host's git meets the floor")
 

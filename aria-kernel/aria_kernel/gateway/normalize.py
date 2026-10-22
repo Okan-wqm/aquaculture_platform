@@ -1,10 +1,10 @@
 """Closed event vocabulary + normalizers for the three ingress families."""
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import asdict, dataclass, field
 from typing import Any, Mapping
+from ..digest import sha256_fingerprint
 
 EVENT_KINDS: tuple[str, ...] = (
     "github.issue_opened",
@@ -38,7 +38,7 @@ class NormalizedEvent:
 
 
 def payload_digest(payload: Any) -> str:
-    return "sha256:" + hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:32]
+    return sha256_fingerprint(json.dumps(payload, sort_keys=True, default=str).encode("utf-8"), hex_chars=32)
 
 
 def _event(kind: str, delivery_id: str, source: str, *, occurred_at: Any, actor: Any, subject: dict[str, Any], payload: Any) -> NormalizedEvent:
@@ -124,10 +124,13 @@ def normalize_alertmanager(delivery_id: str, payload: Mapping[str, Any]) -> list
 
 
 def normalize_operator(delivery_id: str, payload: Mapping[str, Any], *, actor: str | None) -> NormalizedEvent:
+    """``operator_ref`` is the operator's GitHub act a ``resume`` presents
+    (ARIA-HIGH-238); the actor header names who asked and proves nothing."""
     verb = str(payload.get("verb") or "")
     return _event(
         "operator.command", delivery_id, "operator", occurred_at=payload.get("issued_at"), actor=actor, payload=payload,
-        subject={"verb": verb, "request_id": payload.get("request_id"), "reason": str(payload.get("reason") or "")[:200]},
+        subject={"verb": verb, "request_id": payload.get("request_id"), "reason": str(payload.get("reason") or "")[:200],
+                 "operator_ref": str(payload.get("operator_ref") or "")},
     )
 
 

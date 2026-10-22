@@ -41,6 +41,9 @@ import {
  * dropped: a registry that is silently partial is the defect this module
  * exists to remove. All file access goes through `containedWorkspace`
  * (adapter-fs), so a symlinked import target is refused, never followed.
+ *
+ * The same reading carries `TENANT_SCOPED_MODULES` (formerly a second parser in
+ * typeorm-entity-schema-adapter.ts, which dropped a non-literal element).
  */
 export const MODULE_SCHEMAS_SOURCE_PATH =
   'libs/backend-common/src/database/schema-manager.service.ts';
@@ -71,6 +74,11 @@ export interface ModuleSchemasSource {
   /** The SSoT file the registry was read from (workspace-relative). */
   readonly path: string;
   readonly modules: readonly ModuleSchemaSourceRecord[];
+  /**
+   * TENANT_SCOPED_MODULES from the same file: the modules whose `tables` are cloned into every
+   * `tenant_<uuid>` schema (ADR-011). Null when the declaration is absent, so callers fail closed.
+   */
+  readonly tenantScopedModules: ReadonlySet<string> | null;
   readonly errors: readonly ModuleSchemaSourceError[];
   /**
    * Every workspace file the reading touched, workspace-relative and sorted:
@@ -622,15 +630,18 @@ function readStringProperty(
   return null;
 }
 
-/** The MODULE_SCHEMAS declaration's array literal, or null when absent. */
-function findModuleSchemasArray(sourceFile: ts.SourceFile): ts.ArrayLiteralExpression | null {
+/** The array literal a declaration `name` is bound to (MODULE_SCHEMAS…), or null when absent. */
+function findArrayDeclaration(
+  sourceFile: ts.SourceFile,
+  name: string,
+): ts.ArrayLiteralExpression | null {
   let found: ts.ArrayLiteralExpression | null = null;
   visit(sourceFile, (node) => {
     if (
       found !== null ||
       !ts.isVariableDeclaration(node) ||
       !ts.isIdentifier(node.name) ||
-      node.name.text !== 'MODULE_SCHEMAS'
+      node.name.text !== name
     ) {
       return;
     }
@@ -638,6 +649,55 @@ function findModuleSchemasArray(sourceFile: ts.SourceFile): ts.ArrayLiteralExpre
     if (initializer !== undefined && ts.isArrayLiteralExpression(initializer)) {
       found = initializer;
     }
+  });
+  return found;
+}
+
+/**
+ * TENANT_SCOPED_MODULES (`new Set(['farm', …])`) out of the SSoT source. Null when the declaration
+ * is absent; an element that is not a string literal is a named error, never dropped.
+ */
+function readTenantScopedModules(
+  sourceFile: ts.SourceFile,
+  path: string,
+  errors: ModuleSchemaSourceError[],
+): ReadonlySet<string> | null {
+  let found: Set<string> | null = null;
+  visit(sourceFile, (node) => {
+    if (
+      found !== null ||
+      !ts.isVariableDeclaration(node) ||
+      !ts.isIdentifier(node.name) ||
+      node.name.text !== 'TENANT_SCOPED_MODULES'
+    ) {
+      return;
+    }
+    const initializer = unwrapExpression(node.initializer);
+    if (
+      initializer === undefined ||
+      !ts.isNewExpression(initializer) ||
+      !ts.isIdentifier(initializer.expression) ||
+      initializer.expression.text !== 'Set'
+    ) {
+      return;
+    }
+    const firstArg = initializer.arguments?.[0];
+    if (firstArg === undefined || !ts.isArrayLiteralExpression(firstArg)) {
+      return;
+    }
+    const modules = new Set<string>();
+    for (const element of firstArg.elements) {
+      if (ts.isStringLiteralLike(element)) {
+        modules.add(element.text);
+        continue;
+      }
+      errors.push({
+        message: `TENANT_SCOPED_MODULES element is not a string literal (${element.getText(sourceFile)})`,
+        path,
+        line: sourceFile.getLineAndCharacterOfPosition(element.getStart(sourceFile)).line + 1,
+      });
+    }
+    found = modules;
   });
   return found;
 }
@@ -672,7 +732,8 @@ export function readModuleSchemasSource(
   const sourceFile = ts.createSourceFile(ssotPath, ssotText, ts.ScriptTarget.Latest, true);
   const valueResolver = new ValueResolver(resolver, errors);
 
-  const arrayLiteral = findModuleSchemasArray(sourceFile);
+  const arrayLiteral = findArrayDeclaration(sourceFile, 'MODULE_SCHEMAS');
+  const tenantScopedModules = readTenantScopedModules(sourceFile, ssotPath, errors);
 
   const modules: ModuleSchemaSourceRecord[] = [];
   if (arrayLiteral === null) {
@@ -681,7 +742,13 @@ export function readModuleSchemasSource(
       path: ssotPath,
       line: 1,
     });
-    return { path: ssotPath, modules, errors, readPaths: resolver.observedReadPaths() };
+    return {
+      path: ssotPath,
+      modules,
+      tenantScopedModules,
+      errors,
+      readPaths: resolver.observedReadPaths(),
+    };
   }
 
   for (const element of arrayLiteral.elements) {
@@ -740,5 +807,11 @@ export function readModuleSchemasSource(
     });
   }
 
-  return { path: ssotPath, modules, errors, readPaths: resolver.observedReadPaths() };
+  return {
+    path: ssotPath,
+    modules,
+    tenantScopedModules,
+    errors,
+    readPaths: resolver.observedReadPaths(),
+  };
 }

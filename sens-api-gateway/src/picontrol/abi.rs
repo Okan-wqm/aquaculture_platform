@@ -1,19 +1,36 @@
 //! The piControl character-device ABI (`/dev/piControl0`).
 //!
-//! Source of truth: KUNBUS `piControl` v2.8.2 — tag `v2.8.2`, commit
-//! `7980b36f361a8c31680dbd1cbc8d567a7afa4a38`
-//! (<https://gitlab.com/revolutionpi/piControl/-/archive/v2.8.2/piControl-v2.8.2.tar.gz>,
+//! Source of truth: the KUNBUS `piControl` the Suderra OS image builds, v2.6.2 —
+//! commit `7acf6e9110dd558b434b57f50ee5d4b5d54b5d91`
+//! (`Suderra-OS/package/revpi-picontrol/revpi-picontrol.{mk,hash}`;
+//! <https://gitlab.com/revolutionpi/piControl/-/archive/7acf6e9110dd558b434b57f50ee5d4b5d54b5d91/piControl-7acf6e9110dd558b434b57f50ee5d4b5d54b5d91.tar.gz>,
 //! sha256 of the downloaded archive
-//! `ea6b8277c70d066068b3f4e359ad73730c3b9af93cb89ce23b3f77c26959e437`): the
-//! uapi header `src/piControl.h` (MIT), the ioctl handler `piControlIoctl()` and
-//! the file operations in `src/piControlMain.c` (GPL-2.0, read, not copied),
-//! `src/piConfig.c` (the `config.rsc` parser whose offset arithmetic
-//! [`super::rsc`] reproduces) and the man pages under `doc/`.
+//! `7ea4192156c3a98b4a21df67aa37ffe2dff098088d30c967a81d86da12849349`, the
+//! value in the package's hash file): the uapi header `src/piControl.h` (MIT),
+//! the ioctl handler `piControlIoctl()`, `piControlRelease()` and
+//! `piControlWrite()` in `src/piControlMain.c`, `revpi_check_timeout()` in
+//! `src/revpi_common.c` (GPL-2.0, read, not copied), `src/piConfig.c` (the
+//! `config.rsc` parser whose offset arithmetic [`super::rsc`] reproduces) and
+//! the man pages under `src/`. The image cannot take a newer release: piControl
+//! 2.8.2 calls PiBridge serdev symbols the 6.12 KUNBUS kernel does not export.
+//!
+//! The agent also runs against v2.8.2 (tag `v2.8.2`, commit
+//! `7980b36f361a8c31680dbd1cbc8d567a7afa4a38`, archive sha256
+//! `ea6b8277c70d066068b3f4e359ad73730c3b9af93cb89ce23b3f77c26959e437`), the
+//! release a newer image will carry, so where the two differ the agent's calls
+//! are valid for both and the difference is named here:
+//!
+//! | what | v2.6.2 (the image) | v2.8.2 |
+//! |---|---|---|
+//! | `KB_SET_OUTPUT_WATCHDOG` argument | `unsigned long` (`get_user(.., (unsigned long __user *)..)`: 4 bytes on a 32-bit kernel, 8 on aarch64) | `unsigned int` (4 bytes) |
+//! | `KB_FIND_VARIABLE`, unknown name | `EFAULT` (`status` is never set; the "not found" defaults are copied back) | `ENOENT` |
+//! | `KB_WAIT_FOR_EVENT`, interrupted by a signal | `EFAULT` (`status` is never set) | the `wait_event_interruptible` error (`EINTR`/`ERESTARTSYS`) |
+//! | `SDeviceInfo` bytes 40..42 | reserved (zero) | `i16uFeatures` |
 //!
 //! The request numbers and the structure sizes below are not typed from
 //! memory: the vendor header was compiled with the real `_IO()` macro (gcc,
 //! Linux uapi headers) and its `sizeof`/`offsetof` printed; the unit tests pin
-//! exactly those values.
+//! exactly those values. Both releases give the same numbers and sizes.
 //!
 //! # What is deliberately not here
 //!
@@ -86,7 +103,9 @@ pub enum Request {
     /// driver loaded (`SPIVariable`).
     FindVariable,
     /// `KB_SET_OUTPUT_WATCHDOG`: arm (or, with 0, disarm) the per-descriptor
-    /// output watchdog (`unsigned int *`, milliseconds).
+    /// output watchdog (milliseconds). The kernel reads a C `unsigned long`
+    /// from the pointer on v2.6.2 and an `unsigned int` on v2.8.2: the argument
+    /// is [`WATCHDOG_ARG_LEN`] bytes built by [`watchdog_arg`], valid for both.
     SetOutputWatchdog,
     /// `KB_WAIT_FOR_EVENT`: block until the driver emits an event (`int *`).
     WaitForEvent,
@@ -125,7 +144,8 @@ impl Request {
             Self::GetDeviceInfoList => MAX_DEVICES * DeviceInfo::WIRE_LEN,
             Self::GetValue | Self::SetValue => ValueArg::WIRE_LEN,
             Self::FindVariable => VariableArg::WIRE_LEN,
-            Self::SetOutputWatchdog | Self::WaitForEvent => 4,
+            Self::SetOutputWatchdog => WATCHDOG_ARG_LEN,
+            Self::WaitForEvent => 4,
         }
     }
 
@@ -144,6 +164,29 @@ impl Request {
 /// `_IO('K', nr)` for `_IOC_NONE == 0`.
 const fn io(nr: u8) -> u32 {
     ((b'K' as u32) << 8) | nr as u32
+}
+
+/// Bytes the kernel may read through the `KB_SET_OUTPUT_WATCHDOG` pointer: a C
+/// `unsigned long` (v2.6.2), the widest the two releases read.
+pub const WATCHDOG_ARG_LEN: usize = std::mem::size_of::<std::ffi::c_ulong>();
+
+// The value sits in the first four bytes, little-endian, which is the value of
+// the whole `unsigned long` and of the `unsigned int` alike only on a
+// little-endian machine. Every board the agent runs on is (x86-64, AArch64,
+// 32-bit ARM, RISC-V); a big-endian target would read the high half first and
+// arm nothing, or disarm.
+#[cfg(target_endian = "big")]
+compile_error!("the piControl watchdog argument is laid out for little-endian targets");
+
+/// The argument of `KB_SET_OUTPUT_WATCHDOG` for `ms` milliseconds (0 disarms):
+/// the value in the low four bytes and the rest zero, so the kernel reads `ms`
+/// whether it takes an `unsigned long` (v2.6.2, eight bytes on AArch64: four
+/// bytes of the caller's stack beside a 4-byte buffer would arm a garbage
+/// period, or fail to disarm) or an `unsigned int` (v2.8.2).
+pub fn watchdog_arg(ms: u32) -> [u8; WATCHDOG_ARG_LEN] {
+    let mut arg = [0u8; WATCHDOG_ARG_LEN];
+    arg[..4].copy_from_slice(&ms.to_le_bytes());
+    arg
 }
 
 /// A buffer the kernel structure does not fit, or a field that does not.
@@ -457,6 +500,11 @@ pub enum Errno {
     Permission,
     /// `EINTR`: the call was interrupted.
     Interrupted,
+    /// `EFAULT`. With a valid buffer (the agent's always is) the only way the
+    /// driver answers it is v2.6.2's "no such variable" for `KB_FIND_VARIABLE`
+    /// and "interrupted by a signal" for `KB_WAIT_FOR_EVENT`, which never set
+    /// their status; whoever knows the request reads it.
+    BadAddress,
     /// Anything else.
     Other(i32),
 }
@@ -471,6 +519,7 @@ impl Errno {
             libc::ENODEV | libc::ENXIO => Self::NoDevice,
             libc::EACCES | libc::EPERM => Self::Permission,
             libc::EINTR => Self::Interrupted,
+            libc::EFAULT => Self::BadAddress,
             other => Self::Other(other),
         }
     }
@@ -537,8 +586,9 @@ mod tests {
 
     use super::*;
 
-    /// Values printed by compiling the vendor `piControl.h` (v2.8.2) with gcc
-    /// against the Linux uapi headers and its real `_IO()` macro.
+    /// Values printed by compiling the vendor `piControl.h` (v2.6.2, and the
+    /// same in v2.8.2) with gcc against the Linux uapi headers and its real
+    /// `_IO()` macro.
     #[test]
     fn request_numbers_are_the_vendor_header_numbers() {
         assert_eq!(Request::GetDeviceInfoList.number(), 0x4B0D);
@@ -568,6 +618,30 @@ mod tests {
         for forbidden in [0x4B0Cu32, 0x4B13, 0x4B16, 0x4018_4BC8] {
             assert!(Request::ALL.iter().all(|r| r.number() != forbidden));
         }
+    }
+
+    /// v2.6.2 `piControlIoctl()` reads `get_user(priv->tTimeoutDurationMs,
+    /// (unsigned long __user *) usr_addr)`: a C `unsigned long`, eight bytes
+    /// on AArch64 (the Connect 4), four on 32-bit ARM (Core 3). v2.8.2 reads an
+    /// `unsigned int`. The argument is as wide as the wider one, the value in
+    /// its low four bytes and every other byte zero, so either release reads
+    /// the period it was given and a stray byte cannot lengthen it or turn an
+    /// arm into a disarm.
+    #[test]
+    fn the_watchdog_argument_is_as_wide_as_the_kernels_unsigned_long() {
+        assert_eq!(WATCHDOG_ARG_LEN, std::mem::size_of::<std::ffi::c_ulong>());
+        assert_eq!(Request::SetOutputWatchdog.arg_len(), WATCHDOG_ARG_LEN);
+        // The kernel's reading of it on this target.
+        for ms in [0u32, 1, 1000, 4000, 86_400_000, u32::MAX] {
+            let arg = watchdog_arg(ms);
+            assert_eq!(arg.len(), std::mem::size_of::<std::ffi::c_ulong>());
+            let as_ulong = std::ffi::c_ulong::from_ne_bytes(arg);
+            assert_eq!(u64::from(ms), u64::from(as_ulong), "unsigned long read");
+            let as_uint = u32::from_ne_bytes(arg[..4].try_into().unwrap());
+            assert_eq!(ms, as_uint, "unsigned int read");
+        }
+        // Not the 4-byte buffer the first version passed.
+        assert!(WATCHDOG_ARG_LEN >= 4);
     }
 
     #[test]
@@ -685,6 +759,7 @@ mod tests {
         assert_eq!(Errno::classify(libc::ENODEV), Errno::NoDevice);
         assert_eq!(Errno::classify(libc::EACCES), Errno::Permission);
         assert_eq!(Errno::classify(libc::EINTR), Errno::Interrupted);
+        assert_eq!(Errno::classify(libc::EFAULT), Errno::BadAddress);
         assert_eq!(Errno::classify(libc::EIO), Errno::Other(libc::EIO));
     }
 

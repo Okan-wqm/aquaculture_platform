@@ -14,7 +14,7 @@
 //! declares for it (the registry refuses any other, so an output's safe value
 //! and the driver's reset default are one number).
 //!
-//! # Where each outcome comes from (piControl v2.8.2)
+//! # Where each outcome comes from (piControl v2.6.2, the release the image builds)
 //!
 //! * `piControlRelease()` zeroes every active module's output range when a
 //!   descriptor with an armed output watchdog closes. A process that dies has

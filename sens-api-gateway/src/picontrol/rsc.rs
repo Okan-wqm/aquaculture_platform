@@ -8,7 +8,8 @@
 //! `/var/lib/suderra-site/revpi/config.rsc` (contract mutable-state.json,
 //! DEC-4.12, DEC-8.8): root loads it into the driver, and the agent receives
 //! the same verified bytes. This parser reproduces the arithmetic of the
-//! driver's own parser (`piConfigParse()` in `piConfig.c`, piControl v2.8.2),
+//! driver's own parser (`piConfigParse()` in `piConfig.c`, piControl v2.6.2,
+//! the release the image builds; the arithmetic below is unchanged in v2.8.2),
 //! so the agent can name every variable's process-image location from the
 //! signed file; [`super::registry`] then proves, request by request
 //! (`KB_FIND_VARIABLE`), that the driver loaded the same layout.

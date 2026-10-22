@@ -3,8 +3,11 @@
 //! [`FakeKernel`] plays `/dev/piControl0` at the level the real thing is
 //! used: [`super::device::RawDevice`], the raw bytes of the ioctl arguments
 //! and the process image. It is written from the driver's source
-//! (`piControlMain.c`, piControl v2.8.2), not from this crate's codec, so a
-//! structure laid out wrongly in [`super::abi`] fails against it:
+//! (`piControlMain.c`, `revpi_common.c`), not from this crate's codec, so a
+//! structure laid out wrongly in [`super::abi`] fails against it. The default
+//! driver is [`Driver::V2_6_2`], the release the Suderra OS image builds
+//! (commit `7acf6e9110dd558b434b57f50ee5d4b5d54b5d91`, see [`super::abi`]);
+//! [`Driver::V2_8_2`] plays the newer one where the two differ:
 //!
 //! * every request but `KB_RESET` answers `EAGAIN` while the driver is not
 //!   running (`isRunning()`), and so do `read` and `write`;
@@ -13,13 +16,19 @@
 //! * `KB_SET_VALUE` of a bit is a read-modify-write of one byte; a bit of 8 or
 //!   more writes the whole byte; an address of 4096 or more is `EINVAL`;
 //! * `KB_FIND_VARIABLE` copies at most 31 bytes of the name, fills
-//!   `0xFFFF`/`0xFF`/`0xFFFF` and answers `ENOENT` for an unknown name;
+//!   `0xFFFF`/`0xFF`/`0xFFFF` and answers `EFAULT` (v2.6.2) or `ENOENT`
+//!   (v2.8.2) for an unknown name;
+//! * `KB_SET_OUTPUT_WATCHDOG` reads a C `unsigned long` from the argument
+//!   (v2.6.2: eight bytes on a 64-bit kernel, so a four-byte buffer is a
+//!   read past it) or an `unsigned int` (v2.8.2);
 //! * the output watchdog belongs to the descriptor: a write, a bit or byte
 //!   set and a re-arm restart its period; when it expires every active
 //!   module's output range is zeroed and the period restarts; closing an armed
 //!   descriptor zeroes the outputs too (`piControlRelease()`);
 //! * a driver reset (`KB_RESET` by another process) queues one `KB_EVENT_RESET`
-//!   on every descriptor, and `KB_WAIT_FOR_EVENT` blocks until one is queued.
+//!   on every descriptor, and `KB_WAIT_FOR_EVENT` blocks until one is queued;
+//!   a signal ends the wait with `EFAULT` (v2.6.2, which never sets the status
+//!   on that path) or `EINTR` (v2.8.2).
 //!
 //! Time is explicit ([`FakeKernel::advance_ms`]): the real driver checks the
 //! watchdog from its I/O thread every cycle.
@@ -37,6 +46,16 @@ use super::abi::{
 use super::device::RawDevice;
 use super::rsc::{ProcessMap, sample};
 
+/// Which piControl release the fake plays.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Driver {
+    /// The release the Suderra OS image builds.
+    #[default]
+    V2_6_2,
+    /// The release a newer image carries.
+    V2_8_2,
+}
+
 struct Var {
     name: String,
     address: u16,
@@ -47,7 +66,8 @@ struct Var {
 }
 
 struct Fd {
-    watchdog_ms: u32,
+    /// What the driver stored: `tTimeoutDurationMs`, an `unsigned long`.
+    watchdog_ms: u64,
     deadline_ms: u64,
     events: VecDeque<i32>,
 }
@@ -64,6 +84,9 @@ struct Inner {
     writes: Vec<(usize, usize)>,
     write_error: Option<i32>,
     waiter_error: Option<i32>,
+    /// A signal is pending for the next `KB_WAIT_FOR_EVENT`.
+    interrupt: bool,
+    driver: Driver,
 }
 
 /// A fake `/dev/piControl0`.
@@ -122,6 +145,8 @@ impl FakeKernel {
                 writes: Vec::new(),
                 write_error: None,
                 waiter_error: None,
+                interrupt: false,
+                driver: Driver::default(),
             }),
             events: Condvar::new(),
         })
@@ -241,6 +266,18 @@ impl FakeKernel {
         self.events.notify_all();
     }
 
+    /// Play another piControl release (the default is [`Driver::V2_6_2`]).
+    pub fn set_driver(&self, driver: Driver) {
+        self.lock().driver = driver;
+    }
+
+    /// A signal reaches the thread blocked in `KB_WAIT_FOR_EVENT` (or the next
+    /// one to block): the wait ends once, with the release's answer.
+    pub fn interrupt_waiter(&self) {
+        self.lock().interrupt = true;
+        self.events.notify_all();
+    }
+
     /// Make every waiting and future `KB_WAIT_FOR_EVENT` fail with `errno`.
     pub fn fail_waiters(&self, errno: i32) {
         self.lock().waiter_error = Some(errno);
@@ -268,7 +305,7 @@ impl FakeKernel {
         if let Some(id) = expired {
             zero_outputs(&mut g);
             if let Some(fd) = g.fds.get_mut(&id) {
-                fd.deadline_ms = now + u64::from(fd.watchdog_ms);
+                fd.deadline_ms = now.saturating_add(fd.watchdog_ms);
             }
         }
     }
@@ -283,8 +320,9 @@ impl FakeKernel {
         self.lock().writes.clear();
     }
 
-    /// Armed watchdog of the descriptors, in milliseconds (0 = disarmed).
-    pub fn armed_watchdogs(&self) -> Vec<u32> {
+    /// Armed watchdog of the descriptors, in milliseconds (0 = disarmed), as the
+    /// driver stored it (`tTimeoutDurationMs`).
+    pub fn armed_watchdogs(&self) -> Vec<u64> {
         self.lock().fds.values().map(|f| f.watchdog_ms).collect()
     }
 }
@@ -344,7 +382,7 @@ fn feed(g: &mut Inner, id: u32) {
     let now = g.now_ms;
     if let Some(fd) = g.fds.get_mut(&id) {
         if fd.watchdog_ms != 0 {
-            fd.deadline_ms = now + u64::from(fd.watchdog_ms);
+            fd.deadline_ms = now.saturating_add(fd.watchdog_ms);
         }
     }
 }
@@ -371,8 +409,9 @@ impl Drop for FakeFd {
 
 impl RawDevice for FakeFd {
     fn ioctl(&self, request: Request, arg: &mut [u8]) -> io::Result<i32> {
+        // The watchdog argument's width is the release's own business (below).
         assert!(
-            arg.len() >= request.arg_len(),
+            request == Request::SetOutputWatchdog || arg.len() >= request.arg_len(),
             "{} needs {} bytes of argument",
             request.name(),
             request.arg_len()
@@ -448,7 +487,12 @@ impl RawDevice for FakeFd {
                         answer.length = v.length;
                         Ok(0)
                     }
-                    None => Err(io::Error::from_raw_os_error(libc::ENOENT)),
+                    // v2.6.2 never sets the status of a miss (it starts as
+                    // -EFAULT); v2.8.2 sets -ENOENT. Both copy the defaults back.
+                    None => Err(io::Error::from_raw_os_error(match g.driver {
+                        Driver::V2_6_2 => libc::EFAULT,
+                        Driver::V2_8_2 => libc::ENOENT,
+                    })),
                 };
                 arg.get_mut(..VariableArg::WIRE_LEN)
                     .expect("len")
@@ -456,11 +500,32 @@ impl RawDevice for FakeFd {
                 result
             }
             Request::SetOutputWatchdog => {
-                let ms = u32::from_ne_bytes(arg.get(..4).expect("len").try_into().expect("4"));
+                // v2.6.2: get_user(.., (unsigned long __user *) usr_addr);
+                // v2.8.2: get_user(.., (unsigned int __user *) usr_addr).
+                let width = match g.driver {
+                    Driver::V2_6_2 => std::mem::size_of::<std::ffi::c_ulong>(),
+                    Driver::V2_8_2 => 4,
+                };
+                let ms = match arg.get(..width) {
+                    Some(bytes) if width == 4 => {
+                        u64::from(u32::from_ne_bytes(bytes.try_into().expect("4 bytes")))
+                    }
+                    Some(bytes) => {
+                        let mut wide = [0u8; 8];
+                        wide[..width].copy_from_slice(bytes);
+                        u64::from_ne_bytes(wide)
+                    }
+                    None => panic!(
+                        "piControl {:?} reads {width} bytes of the watchdog argument; the \
+                         caller's buffer holds {}: the kernel would read what sits beside it",
+                        g.driver,
+                        arg.len()
+                    ),
+                };
                 let now = g.now_ms;
                 if let Some(fd) = g.fds.get_mut(&self.id) {
                     fd.watchdog_ms = ms;
-                    fd.deadline_ms = now + u64::from(ms);
+                    fd.deadline_ms = now.saturating_add(ms);
                 }
                 Ok(0)
             }
@@ -510,6 +575,15 @@ impl FakeFd {
         loop {
             if let Some(errno) = g.waiter_error {
                 return Err(io::Error::from_raw_os_error(errno));
+            }
+            if g.interrupt {
+                g.interrupt = false;
+                // wait_event_interruptible() returned non-zero: v2.6.2 leaves
+                // the initial -EFAULT, v2.8.2 returns the wait's error.
+                return Err(io::Error::from_raw_os_error(match g.driver {
+                    Driver::V2_6_2 => libc::EFAULT,
+                    Driver::V2_8_2 => libc::EINTR,
+                }));
             }
             if let Some(event) = g.fds.get_mut(&self.id).and_then(|fd| fd.events.pop_front()) {
                 arg.get_mut(..4)

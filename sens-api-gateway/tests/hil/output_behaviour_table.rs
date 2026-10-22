@@ -411,6 +411,99 @@ fn a_driver_reset_is_reproven_and_leaves_the_pictory_defaults() {
     assert_outcome(Event::DriverReset, rig.bits());
 }
 
+/// The output watchdog on the real module, through the agent's own device layer
+/// and the real kernel: armed with the period asked, kept alive by the feed,
+/// expiring within that period when it is not fed, and disarmed by the agent's
+/// disarm call (the property a graceful restart depends on).
+///
+/// This is the test the unit tests cannot be: the fake kernel reads the watchdog
+/// argument the way the vendor source says, and only the real driver proves the
+/// agent's argument is the width and value it reads. piControl v2.6.2 (what the
+/// image builds) reads a C `unsigned long`; a 4-byte buffer arms whatever sits
+/// beside it and may fail to disarm, and `piControlRelease()` then zeroes every
+/// output when the descriptor closes.
+///
+/// It needs the rig of the module documentation (the pump output, nothing else
+/// writing the image) and the `suderra-io` or root rights to open the node for
+/// writing.
+#[test]
+fn the_output_watchdog_arms_is_fed_expires_and_disarms_on_the_module() {
+    let rig = Rig::from_env();
+    let map = rig.map();
+    let pump = map
+        .variable(&VariableName::new(&rig.pump).expect("name"))
+        .expect("the pump variable is in config.rsc");
+    let pump_on = |on: bool, pi: &PiControl| {
+        pi.set_bit(pump.address, pump.bit, on)
+            .expect("KB_SET_VALUE")
+    };
+    let pump_bit = || rig.bits().0;
+    let open_writer = || {
+        PiControl::new(Arc::new(
+            LibcDevice::open(Path::new(DEVICE_PATH)).expect("open /dev/piControl0 for writing"),
+        ))
+    };
+    let period = Duration::from_millis(u64::from(WATCHDOG_MS));
+
+    // Armed and fed: the output stays on for three periods.
+    let writer = open_writer();
+    pump_on(true, &writer);
+    writer.set_output_watchdog(WATCHDOG_MS).expect("arm");
+    let fed_until = Instant::now() + period * 3;
+    while Instant::now() < fed_until {
+        std::thread::sleep(period / 4);
+        writer.set_output_watchdog(WATCHDOG_MS).expect("feed");
+        assert_eq!(
+            pump_bit(),
+            1,
+            "the output went off while the watchdog was fed"
+        );
+    }
+
+    // No longer fed: the driver zeroes the outputs once the period passed, and
+    // not long after it. A period the driver read wrongly (the upper half of an
+    // `unsigned long` left to chance) would not expire in this window.
+    let last_feed = Instant::now();
+    let zeroed_at = loop {
+        std::thread::sleep(Duration::from_millis(20));
+        if pump_bit() == 0 {
+            break last_feed.elapsed();
+        }
+        assert!(
+            last_feed.elapsed() < period + Duration::from_millis(2500),
+            "the watchdog did not zero the output within the period (armed with {WATCHDOG_MS} ms)"
+        );
+    };
+    assert!(
+        zeroed_at >= period.mul_f64(0.9),
+        "zeroed after {zeroed_at:?}, before the {period:?} period: the driver read another period"
+    );
+
+    // Disarmed: the output stays on across more than a period without any
+    // feed, and closing the descriptor leaves it on (a disarm the driver did not
+    // read as 0 would zero it here, at the latest on close).
+    pump_on(true, &writer);
+    writer.set_output_watchdog(WATCHDOG_MS).expect("arm again");
+    writer.set_output_watchdog(0).expect("disarm");
+    std::thread::sleep(period * 2);
+    assert_eq!(
+        pump_bit(),
+        1,
+        "the output went off with the watchdog disarmed"
+    );
+    drop(writer);
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(
+        pump_bit(),
+        1,
+        "closing a disarmed descriptor zeroed the output: the disarm was not read as zero"
+    );
+
+    // Leave the rig as it was found.
+    let cleanup = open_writer();
+    pump_on(false, &cleanup);
+}
+
 #[test]
 fn the_base_module_outputs_are_never_written() {
     let rig = Rig::from_env();

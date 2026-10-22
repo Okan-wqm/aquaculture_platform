@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use super::abi::{
     AbiError, DeviceInfo, Errno, PROCESS_IMAGE_LEN, Request, VARIABLE_NOT_FOUND_ADDRESS, ValueArg,
-    VariableArg, VariableName,
+    VariableArg, VariableName, watchdog_arg,
 };
 
 /// What crosses into the kernel. A fake implements this to play the driver.
@@ -86,9 +86,16 @@ impl DeviceError {
         )
     }
 
-    /// The call was interrupted by a signal.
+    /// The call was interrupted by a signal. v2.8.2 says `EINTR`; v2.6.2's
+    /// `KB_WAIT_FOR_EVENT` never sets a status when `wait_event_interruptible`
+    /// returns, so its answer to a signal is the initial `EFAULT` (our buffer
+    /// is valid, which is the only other way to get one).
     pub fn is_interrupted(&self) -> bool {
-        matches!(&self.kind, DeviceErrorKind::Errno(Errno::Interrupted, _))
+        match &self.kind {
+            DeviceErrorKind::Errno(Errno::Interrupted, _) => true,
+            DeviceErrorKind::Errno(Errno::BadAddress, _) => self.op == Request::WaitForEvent.name(),
+            _ => false,
+        }
     }
 }
 
@@ -164,13 +171,18 @@ impl PiControl {
 
     /// `KB_FIND_VARIABLE`: where the driver's loaded configuration puts
     /// `name`. `None` when it has no such variable (or no configuration).
+    ///
+    /// The driver says "no such variable" as `ENOENT` in v2.8.2 and as `EFAULT`
+    /// in v2.6.2 (its handler never sets the status of a miss, which starts as
+    /// `-EFAULT`, and copies the "not found" defaults back). The agent's buffer
+    /// is always valid, so an `EFAULT` of this request is a miss, not a fault.
     pub fn find_variable(&self, name: &VariableName) -> Result<Option<Located>, DeviceError> {
         let op = Request::FindVariable.name();
         let mut arg = VariableArg::lookup(name.clone()).encode();
         match self.request(Request::FindVariable, &mut arg) {
             Ok(_) => {}
             Err(DeviceError {
-                kind: DeviceErrorKind::Errno(Errno::NotFound, _),
+                kind: DeviceErrorKind::Errno(Errno::NotFound | Errno::BadAddress, _),
                 ..
             }) => return Ok(None),
             Err(e) => return Err(e),
@@ -226,8 +238,13 @@ impl PiControl {
     /// `KB_SET_OUTPUT_WATCHDOG`: all outputs are zeroed when this descriptor
     /// is not written for `ms`; 0 disarms. Re-issuing it with the same value
     /// restarts the period without touching the process image.
+    ///
+    /// The argument is as wide as the kernel's `unsigned long` ([`watchdog_arg`]):
+    /// v2.6.2 reads that many bytes, and a 4-byte buffer would let the driver
+    /// arm whatever sits beside it, or fail to disarm and then zero every
+    /// output when the descriptor closes.
     pub fn set_output_watchdog(&self, ms: u32) -> Result<(), DeviceError> {
-        let mut arg = ms.to_ne_bytes();
+        let mut arg = watchdog_arg(ms);
         self.request(Request::SetOutputWatchdog, &mut arg)
             .map(|_| ())
     }
@@ -325,9 +342,10 @@ mod libc_device {
             // duration of the call; `arg` is a live, exclusively borrowed
             // buffer of at least `request.arg_len()` bytes, which is exactly
             // what piControlIoctl() copies from and to user space for this
-            // request (piControl v2.8.2, `piControl.h` and the man page of
-            // the request). The request is one of the six allow-listed
-            // numbers of `Request`.
+            // request (piControl v2.6.2, `piControl.h` and `piControlMain.c`;
+            // the watchdog request's `unsigned long` is why its argument is
+            // `WATCHDOG_ARG_LEN` bytes, see `abi::watchdog_arg`). The request
+            // is one of the six allow-listed numbers of `Request`.
             let rc = unsafe {
                 libc::ioctl(
                     self.file.as_raw_fd(),
@@ -362,7 +380,7 @@ mod libc_device {
 mod tests {
     #![allow(clippy::expect_used, clippy::unwrap_used, clippy::indexing_slicing)]
 
-    use super::super::fake::FakeKernel;
+    use super::super::fake::{Driver, FakeKernel};
     use super::*;
 
     fn name(n: &str) -> VariableName {
@@ -512,6 +530,93 @@ mod tests {
         );
     }
 
+    const BOTH_DRIVERS: [Driver; 2] = [Driver::V2_6_2, Driver::V2_8_2];
+
+    /// The period the driver stored is the period asked, on the release the
+    /// image builds (an `unsigned long` read) and on the newer one.
+    #[test]
+    fn the_watchdog_is_armed_with_the_period_asked_and_disarmed_with_zero() {
+        for driver in BOTH_DRIVERS {
+            let kernel = FakeKernel::sample();
+            kernel.set_driver(driver);
+            let pi = PiControl::new(kernel.open());
+            pi.set_output_watchdog(1000).unwrap();
+            assert_eq!(kernel.armed_watchdogs(), [1000], "{driver:?}");
+            pi.set_output_watchdog(4000).unwrap();
+            assert_eq!(kernel.armed_watchdogs(), [4000], "{driver:?}");
+            pi.set_output_watchdog(0).unwrap();
+            assert_eq!(kernel.armed_watchdogs(), [0], "disarmed on {driver:?}");
+        }
+    }
+
+    /// The disarm is what keeps a graceful restart from zeroing the outputs it
+    /// just drove safe: after it, closing the descriptor leaves them alone.
+    #[test]
+    fn a_disarmed_descriptor_leaves_the_outputs_alone_on_close_on_both_drivers() {
+        for driver in BOTH_DRIVERS {
+            let kernel = FakeKernel::sample();
+            kernel.set_driver(driver);
+            let pi = PiControl::new(kernel.open());
+            pi.write_bytes(120, &[0xFF]).unwrap();
+            pi.set_output_watchdog(500).unwrap();
+            pi.set_output_watchdog(0).unwrap();
+            drop(pi);
+            assert_eq!(kernel.peek(120), 0xFF, "{driver:?}");
+        }
+    }
+
+    /// A four-byte argument is a read past the caller's buffer on the v2.6.2
+    /// kernel (`unsigned long`, eight bytes on AArch64): the fake refuses it
+    /// loudly, where the real kernel would arm whatever sat beside the buffer.
+    /// On v2.8.2 (`unsigned int`) four bytes are enough.
+    #[cfg(target_pointer_width = "64")]
+    #[test]
+    #[should_panic(expected = "reads 8 bytes of the watchdog argument")]
+    fn a_four_byte_watchdog_argument_is_a_read_past_the_buffer_on_v2_6_2() {
+        let kernel = FakeKernel::sample();
+        let fd = kernel.open();
+        let _ = fd.ioctl(Request::SetOutputWatchdog, &mut 1000u32.to_ne_bytes());
+    }
+
+    #[test]
+    fn a_four_byte_watchdog_argument_suffices_on_v2_8_2() {
+        let kernel = FakeKernel::sample();
+        kernel.set_driver(Driver::V2_8_2);
+        let fd = kernel.open();
+        fd.ioctl(Request::SetOutputWatchdog, &mut 1000u32.to_ne_bytes())
+            .unwrap();
+        assert_eq!(kernel.armed_watchdogs(), [1000]);
+    }
+
+    /// v2.6.2 answers `EFAULT` for a variable it does not know, v2.8.2 `ENOENT`:
+    /// either is "no such variable", never a device failure.
+    #[test]
+    fn an_unknown_variable_is_not_found_on_both_drivers() {
+        for driver in BOTH_DRIVERS {
+            let kernel = FakeKernel::sample();
+            kernel.set_driver(driver);
+            let pi = PiControl::new(kernel.open());
+            assert_eq!(pi.find_variable(&name("No_Such_Variable")).unwrap(), None);
+            assert!(pi.find_variable(&name("O_1")).unwrap().is_some());
+        }
+    }
+
+    /// A signal ends `KB_WAIT_FOR_EVENT` with `EINTR` (v2.8.2) or `EFAULT`
+    /// (v2.6.2); both are "interrupted". An `EFAULT` of any other request is not.
+    #[test]
+    fn a_signal_interrupts_the_wait_on_both_drivers() {
+        for driver in BOTH_DRIVERS {
+            let kernel = FakeKernel::sample();
+            kernel.set_driver(driver);
+            let waiter = PiControl::new(kernel.open());
+            kernel.interrupt_waiter();
+            let e = waiter.wait_for_event().unwrap_err();
+            assert!(e.is_interrupted(), "{driver:?}: {e}");
+        }
+        let fault = io::Error::from_raw_os_error(libc::EFAULT);
+        assert!(!DeviceError::errno(Request::GetValue.name(), fault).is_interrupted());
+    }
+
     #[test]
     fn closing_a_descriptor_with_the_watchdog_armed_zeroes_the_outputs() {
         let kernel = FakeKernel::sample();
@@ -587,9 +692,21 @@ mod tests {
         #[test]
         fn an_ioctl_on_something_that_is_not_the_driver_is_enotty() {
             let (_dir, dev) = file_with_image();
-            let mut arg = [0u8; 4];
+            let mut arg = watchdog_arg(1000);
             let e = dev.ioctl(Request::SetOutputWatchdog, &mut arg).unwrap_err();
             assert_eq!(e.raw_os_error(), Some(libc::ENOTTY));
+        }
+
+        /// The watchdog's argument is as wide as the kernel's `unsigned long`;
+        /// the real descriptor refuses a narrower buffer before the ioctl, so
+        /// the kernel never reads past it.
+        #[cfg(target_pointer_width = "64")]
+        #[test]
+        fn a_four_byte_watchdog_buffer_never_reaches_the_kernel() {
+            let (_dir, dev) = file_with_image();
+            let mut arg = 1000u32.to_ne_bytes();
+            let e = dev.ioctl(Request::SetOutputWatchdog, &mut arg).unwrap_err();
+            assert_eq!(e.kind(), io::ErrorKind::InvalidInput);
         }
 
         #[test]

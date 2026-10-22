@@ -9,7 +9,7 @@
 //!
 //! | file | what it holds |
 //! |---|---|
-//! | [`abi`] | the ioctl numbers and structures, from the vendor header (piControl v2.8.2); only the six requests DEC-8.8 allows exist |
+//! | [`abi`] | the ioctl numbers and structures, from the vendor header (piControl v2.6.2, the image's release, and v2.8.2); only the six requests DEC-8.8 allows exist |
 //! | [`rsc`] | the `config.rsc` parser, reproducing the driver's offset arithmetic |
 //! | [`device`] | the raw descriptor behind a trait ([`device::RawDevice`]) and the typed operations on it; the real descriptor is a thin libc wrapper |
 //! | [`config`] | the `picontrol:` section of `config.yaml`: the agent's own grant |

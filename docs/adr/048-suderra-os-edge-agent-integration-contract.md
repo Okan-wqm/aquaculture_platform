@@ -1321,10 +1321,19 @@ matrisi build'de belirlenir, yani bir feature'ın yokluğu çalışma anında de
   boyutları başlık dosyası gerçek `_IO()` makrosuyla derlenerek alındı ve v2.8.2 ile (etiket
   `v2.8.2`, commit `7980b36f361a8c31680dbd1cbc8d567a7afa4a38`, arşiv sha256'sı
   `ea6b8277c70d066068b3f4e359ad73730c3b9af93cb89ce23b3f77c26959e437`) karşılaştırıldı: ikisinde de
-  aynıdır; watchdog, kapanışta sıfırlama, reset olayı, varsayılan imaj ve ofset aritmetiği de iki
-  sürümde aynıdır. İki davranış farkı agent'ta karşılanır: v2.6.2 bilinmeyen değişken adı için
-  `KB_FIND_VARIABLE`'dan `ENOENT` değil `EFAULT` döndürür, ve `KB_WAIT_FOR_EVENT` bir sinyalle
-  kesilince `EFAULT` döndürür; agent birincisini "değişken yok", ikincisini "yeniden dene" sayar).
+  aynıdır; kapanışta sıfırlama, reset olayı, varsayılan imaj ve ofset aritmetiği de iki sürümde
+  aynıdır. Üç davranış farkı agent'ta karşılanır ve her biri iki sürüme karşı sınanır (sahte
+  çekirdek varsayılan olarak v2.6.2'dir, `Driver::V2_8_2` ile v2.8.2 oynar): (1)
+  `KB_SET_OUTPUT_WATCHDOG` v2.6.2'de bir C `unsigned long` okur (`get_user(...,
+  (unsigned long __user *) usr_addr)`: AArch64'te 8 bayt, 32 bit ARM'de 4), v2.8.2'de
+  `unsigned int` (4 bayt); agent argümanı `unsigned long` genişliğinde verir, değer alt dört
+  baytta, kalanı sıfır (`abi::watchdog_arg`): 4 baytlık bir tampon sürücünün tamponun yanındaki
+  baytları okuyup çöp bir periyot kurmasına ya da kapatmanın (0) başarısız olmasına, o zaman da
+  descriptor kapanırken tüm çıkışların sıfırlanmasına yol açardı; (2) v2.6.2 bilinmeyen değişken
+  adı için `KB_FIND_VARIABLE`'dan `ENOENT` değil `EFAULT` döndürür (durum hiç atanmaz, "bulunamadı"
+  varsayılanları geri kopyalanır); agent bunu "değişken yok" sayar, yani yerleşim kanıtsızdır;
+  (3) `KB_WAIT_FOR_EVENT` bir sinyalle kesilince v2.6.2 `EFAULT`, v2.8.2 `EINTR` döndürür; agent
+  ikisini de "yeniden bekle" sayar, olay iş parçacığı bitmez).
   Çıkış allowlist'i `config.yaml`'ın imzalı `picontrol:` bölümüdür (noktalar, yön,
   `safe_state_value`); taban modülün çıkışları (LED'ler, Connect 4 X2 çıkışı ve Connect/Connect SE'de
   kart watchdog tetik biti `PICONTROL_WD_TRIGGER` = 0x80) allowlist'e giremez, yani kart watchdog

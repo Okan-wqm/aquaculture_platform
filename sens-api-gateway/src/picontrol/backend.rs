@@ -638,7 +638,7 @@ fn spawn_event_thread(shared: Weak<Shared>, waiter: PiControl) -> std::io::Resul
 mod tests {
     #![allow(clippy::expect_used, clippy::unwrap_used, clippy::indexing_slicing)]
 
-    use super::super::fake::FakeKernel;
+    use super::super::fake::{Driver, FakeKernel};
     use super::super::rsc::sample;
     use super::*;
 
@@ -1088,6 +1088,47 @@ points:
             b.write_output("pump", 1.0).unwrap_err(),
             WriteError::Stale(_)
         ));
+    }
+
+    /// A signal (SIGHUP is how a new site is applied) that lands on the thread
+    /// blocked in `KB_WAIT_FOR_EVENT` ends the wait with `EFAULT` on the driver
+    /// the image builds (v2.6.2) and `EINTR` on the next one. It is no failure
+    /// of the descriptor: the thread waits again and the next reset is seen.
+    #[test]
+    fn a_signal_in_the_wait_does_not_end_the_event_thread() {
+        for driver in [Driver::V2_6_2, Driver::V2_8_2] {
+            let (kernel, b) = backend();
+            kernel.set_driver(driver);
+            kernel.interrupt_waiter();
+            // The interrupted wait must not have staled the layout or ended the
+            // thread: a reset after it is still noticed and re-proven.
+            let before = b.generation();
+            kernel.reset_driver();
+            wait_until("the reset after the signal to be re-proven", || {
+                b.generation() >= before + 2
+            });
+            assert!(b.stale_reason().is_none(), "{driver:?}");
+        }
+    }
+
+    /// An unknown variable on either driver is a moved layout (the signed file
+    /// names a variable the driver does not have), not an I/O error.
+    #[test]
+    fn a_variable_the_driver_lacks_is_a_moved_layout_on_both_drivers() {
+        for driver in [Driver::V2_6_2, Driver::V2_8_2] {
+            let kernel = FakeKernel::sample();
+            let b = Backend::open(&config(), 250, source(), opener(&kernel)).unwrap();
+            kernel.set_driver(driver);
+            // The driver restarts with a configuration that lacks the pump's variable.
+            let without = sample::rsc().replace("O_1", "O_9");
+            kernel.reset_driver_with(&ProcessMap::parse(without.as_bytes()).unwrap());
+            let e = b.write_output("pump", 1.0).unwrap_err();
+            assert!(
+                matches!(e, WriteError::LayoutMoved(_) | WriteError::Stale(_)),
+                "{driver:?}: {e}"
+            );
+            assert!(b.stale_reason().is_some(), "{driver:?}");
+        }
     }
 
     #[test]

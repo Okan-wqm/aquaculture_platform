@@ -71,6 +71,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .secret_scrub import is_armoured_private_key
 from .socket_holders import TOKEN_BROKER as _SOCKET_HOLDER
 
 # Linux `sun_path` is 108 bytes including the terminator.
@@ -166,18 +167,6 @@ def yama_scope_permits_isolation(scope: int | None) -> bool:
     keep the kernel-run process, a sibling of the broker, out of its memory.
     """
     return scope is not None and scope >= 1
-
-
-def _looks_like_pem(pem: str) -> bool:
-    text = pem.strip()
-    lines = text.splitlines()
-    if len(lines) < 3:
-        return False
-    begin, end = lines[0].strip(), lines[-1].strip()
-    return (
-        re.fullmatch(r"-----BEGIN [A-Z ]*PRIVATE KEY-----", begin) is not None
-        and re.fullmatch(r"-----END [A-Z ]*PRIVATE KEY-----", end) is not None
-    )
 
 
 def _utc_now() -> str:
@@ -279,7 +268,7 @@ def start_broker(
     """
     from . import gh_token_factory
 
-    if not _looks_like_pem(pem):
+    if not is_armoured_private_key(pem):
         raise TokenBrokerUnavailable("pem_not_recognized")
     if not isinstance(app_id, str) or not app_id.strip():
         raise TokenBrokerUnavailable("app_id_missing")
@@ -526,7 +515,7 @@ def _serve(args: argparse.Namespace) -> int:
     except (TimeoutError, ValueError) as exc:
         _startup_refusal(str(exc))
         return 5
-    if not _looks_like_pem(pem):
+    if not is_armoured_private_key(pem):
         _startup_refusal("pem_not_recognized")
         return 5
     # From here the process holds the key: stderr becomes the ledger (mode

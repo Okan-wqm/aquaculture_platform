@@ -5291,10 +5291,50 @@ async fn activate(
     }
 }
 
+/// Start the DEC-27 result publisher: root's result documents in `dir`,
+/// republished on the device's results topic through the MQTT client's sink,
+/// the highest acknowledged `seq` kept in `cursor_file`. `None` (and a warning)
+/// when the device has no tenant binding or no client yet: root's results then
+/// stay on the device. The task ends with `shutdown`.
+#[cfg(feature = "suderra-os")]
+async fn spawn_result_publisher(
+    state: &Arc<RwLock<AppState>>,
+    dir: std::path::PathBuf,
+    cursor_file: std::path::PathBuf,
+    shutdown: tokio::sync::broadcast::Receiver<()>,
+) -> Option<tokio::task::JoinHandle<()>> {
+    let (tenant_id, device_id, sink) = {
+        let s = state.read().await;
+        (
+            s.tenant_id.clone(),
+            s.config.device_id.clone(),
+            s.mqtt_client.as_ref().map(|m| m.result_sink()),
+        )
+    };
+    let (Some(tenant_id), Some(sink)) = (tenant_id, sink) else {
+        warn!(
+            "Result publisher not started: the device has no tenant binding or no MQTT client, \
+             so root's results stay on the device"
+        );
+        return None;
+    };
+    let publisher = results::ResultPublisher::new(
+        dir,
+        results::ResultPublisher::<mqtt::MqttResultSink>::topic_for(&tenant_id, &device_id),
+        results::ResultCursor::load(cursor_file),
+        Arc::new(sink),
+        results::ACK_WAIT,
+    );
+    Some(tokio::spawn(shutdown::run_until_shutdown(
+        publisher.run(),
+        shutdown,
+    )))
+}
+
 /// The agent's network side, as one background task (ADR-048 DEC-6.2):
-/// activation, the MQTT client, the outbound publisher, the Online (or
-/// degraded) status, the capabilities report and the watch-session
-/// publisher.
+/// activation, the MQTT client, the outbound publisher, the result publisher
+/// (Suderra OS), the Online (or degraded) status, the capabilities report and
+/// the watch-session publisher.
 ///
 /// Nothing here is fatal and nothing here gates READY: every failure is
 /// logged and retried with backoff while the outputs stay safe and the local
@@ -5400,6 +5440,24 @@ async fn run_connectivity(
         }
     }
 
+    // Step 3b (ADR-048 DEC-27): root's typed results (install, update, rollback,
+    // lockdown, health gate, data unlock, time) are republished on the device's
+    // results topic, each until the broker acknowledged it. Lockdown ends the
+    // technician's SSH session, so this is the only record of an install that
+    // outlives it. It starts here because here, and only here, the MQTT client
+    // exists: started before the connectivity task it never had a broker.
+    #[cfg(feature = "suderra-os")]
+    let results_task = {
+        let agent_paths = paths::AgentPaths::current();
+        spawn_result_publisher(
+            &state,
+            agent_paths.results_dir(),
+            agent_paths.result_cursor_file(),
+            shutdown.resubscribe(),
+        )
+        .await
+    };
+
     // Step 4: initial status (Batch #268, ORPHAN-MEDIUM-022) through the
     // queue-aware dispatcher, carrying the degraded-mode report (DEC-6.3
     // alarm to the cloud), then the hardware capabilities report.
@@ -5487,6 +5545,11 @@ async fn run_connectivity(
             info!("Watch-session publisher NOT started: tenant_id unresolved");
             let _ = shutdown.recv().await;
         }
+    }
+    // The shutdown that ended the wait above also ends the result publisher.
+    #[cfg(feature = "suderra-os")]
+    if let Some(task) = results_task {
+        let _ = task.await;
     }
 }
 
@@ -5645,47 +5708,6 @@ async fn run_agent(
         shutdown_coordinator.subscribe(),
     ));
     shutdown_coordinator.register_task("health_view_refresh", health_refresh_handle);
-
-    // ADR-048 DEC-27: root's typed results (install, update, rollback, lockdown,
-    // health gate, data unlock, time) are republished on the device's results
-    // topic, each until the broker acknowledged it. Lockdown ends the
-    // technician's SSH session, so this is the only record of an install that
-    // outlives it.
-    #[cfg(feature = "suderra-os")]
-    {
-        let (tenant_id, device_id, sink) = {
-            let s = state.read().await;
-            (
-                s.tenant_id.clone(),
-                s.config.device_id.clone(),
-                s.mqtt_client.as_ref().map(|m| m.result_sink()),
-            )
-        };
-        match (tenant_id, sink) {
-            (Some(tenant_id), Some(sink)) => {
-                let agent_paths = paths::AgentPaths::current();
-                let publisher = results::ResultPublisher::new(
-                    agent_paths.results_dir(),
-                    results::ResultPublisher::<mqtt::MqttResultSink>::topic_for(
-                        &tenant_id, &device_id,
-                    ),
-                    results::ResultCursor::load(agent_paths.result_cursor_file()),
-                    Arc::new(sink),
-                    results::ACK_WAIT,
-                );
-                let results_shutdown = shutdown_coordinator.subscribe();
-                let results_handle = tokio::spawn(shutdown::run_until_shutdown(
-                    publisher.run(),
-                    results_shutdown,
-                ));
-                shutdown_coordinator.register_task("result_publisher", results_handle);
-            }
-            _ => warn!(
-                "Result publisher not started: the device has no tenant binding or no broker \
-                 connection object, so root's results stay on the device"
-            ),
-        }
-    }
 
     // Step 6: Start telemetry collector with shutdown awareness
     let telemetry_collector = TelemetryCollector::new(state.clone());
@@ -7501,6 +7523,100 @@ mod boot_tests {
         .unwrap();
         assert!(needs_activation(&fresh));
         assert_eq!(AppState::new(fresh).tenant_id, None);
+    }
+
+    /// ADR-048 DEC-27: the result publisher is started from what the connectivity
+    /// task has (a tenant binding and the MQTT client) and delivers root's
+    /// results to the broker. It used to be started before the connectivity
+    /// task created the client, so it never had one and root's results never
+    /// left the device; the log blamed a missing tenant.
+    #[cfg(feature = "suderra-os")]
+    #[tokio::test]
+    async fn the_result_publisher_starts_with_a_tenant_and_a_client_and_delivers() {
+        use crate::mqtt::MqttClient;
+        use crate::mqtt::fake_broker::{FakeBroker, eventually};
+
+        const TENANT: &str = "7e570000-0000-4000-8000-000000000001";
+        let within = std::time::Duration::from_secs(15);
+        let dir = tempfile::tempdir().unwrap();
+        let results = dir.path().join("results");
+        std::fs::create_dir(&results).unwrap();
+        let document = serde_json::to_vec(&serde_json::json!({
+            "_type": results::RESULT_TYPE, "seq": 1, "kind": "edge-install", "outcome": "ok",
+            "occurred_at": "2026-10-22T12:00:00Z", "time_state": "synced-nts",
+            "board_profile": "qemu-x86_64", "os_version": "0.1.0",
+        }))
+        .unwrap();
+        std::fs::write(
+            results.join("0000000000000001-edge-install.json"),
+            &document,
+        )
+        .unwrap();
+        let cursor_file = dir.path().join("results-cursor.json");
+
+        let broker = FakeBroker::start().await;
+        let client = MqttClient::connect_plain_for_test(broker.port(), None);
+        eventually("the broker connection", within, || client.is_connected()).await;
+        let mut app = AppState::new(activated_config(TENANT));
+        app.tenant_id = Some(TENANT.to_string());
+        app.mqtt_client = Some(client);
+        let state = Arc::new(RwLock::new(app));
+
+        let (stop, shutdown) = tokio::sync::broadcast::channel(1);
+        let task = spawn_result_publisher(&state, results, cursor_file.clone(), shutdown)
+            .await
+            .expect("a tenant binding and a client: the publisher is spawned");
+
+        let topic = format!("tenants/{TENANT}/devices/dev-1/results");
+        eventually("the result at the broker", within, || {
+            broker
+                .published()
+                .iter()
+                .any(|p| p.topic == topic && p.payload == document && p.qos == 1)
+        })
+        .await;
+        eventually("the cursor to move past it", within, || {
+            results::ResultCursor::load(cursor_file.clone()).acknowledged() == 1
+        })
+        .await;
+
+        stop.send(()).unwrap();
+        task.await.unwrap();
+    }
+
+    /// Without a tenant binding, or without a client, nothing is spawned and
+    /// root's results stay on the device.
+    #[cfg(feature = "suderra-os")]
+    #[tokio::test]
+    async fn no_tenant_or_no_client_means_no_result_publisher() {
+        use crate::mqtt::MqttClient;
+        use crate::mqtt::fake_broker::FakeBroker;
+
+        let dir = tempfile::tempdir().unwrap();
+        let spawn = |state: Arc<RwLock<AppState>>| {
+            let (_stop, shutdown) = tokio::sync::broadcast::channel(1);
+            let dir = dir.path().to_path_buf();
+            async move {
+                spawn_result_publisher(&state, dir.clone(), dir.join("cursor.json"), shutdown).await
+            }
+        };
+
+        let fresh: AgentConfig = serde_yaml::from_str(
+            "device_id: \"dev-2\"\ndevice_code: \"EDGE-0002\"\napi_url: \"https://api.example.test\"\n\
+             mqtt:\n  port: 8883\n",
+        )
+        .unwrap();
+        let no_client = Arc::new(RwLock::new(AppState::new(fresh)));
+        assert!(spawn(no_client).await.is_none(), "no tenant, no client");
+
+        let broker = FakeBroker::start().await;
+        let mut app = AppState::new(activated_config("7e570000-0000-4000-8000-000000000001"));
+        app.tenant_id = None;
+        app.mqtt_client = Some(MqttClient::connect_plain_for_test(broker.port(), None));
+        assert!(
+            spawn(Arc::new(RwLock::new(app))).await.is_none(),
+            "a client without a tenant binding"
+        );
     }
 
     /// A cached license manifest for `tenant`, signed by the key `seed` names,

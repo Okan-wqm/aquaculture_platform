@@ -1118,6 +1118,12 @@ path = "tests/invariants/emergency_stop_latch.rs"
 name = "mqtt_link_single_writer"
 path = "tests/invariants/mqtt_link_single_writer.rs"
 
+# ADR-048 DEC-27 — root's results are published by a task started where the MQTT
+# client exists (run_connectivity), not before it.
+[[test]]
+name = "result_publisher_wiring"
+path = "tests/invariants/result_publisher_wiring.rs"
+
 # ADR-048 DEC-7.5 / EDGE-MEDIUM-077, EDGE-MEDIUM-135 — freshness is judged at an
 # instant the clock authority vouches for; a command the agent does not run is
 # refused out loud.

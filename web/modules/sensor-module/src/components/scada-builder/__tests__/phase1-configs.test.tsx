@@ -20,6 +20,7 @@
 import React from 'react';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { Mock } from 'vitest';
 import { TransformConfig } from '../widget-configs/TransformConfig';
 import { StrokeConfig } from '../widget-configs/StrokeConfig';
 import { SvgMarkerDefs, buildMarkerId } from '../SvgMarkerDefs';
@@ -33,10 +34,10 @@ import type { SvgTransform } from '../../../types/scada-transform.types';
 /* ------------------------------------------------------------------ */
 
 describe('TransformConfig', () => {
-  let onChange: ReturnType<typeof vi.fn>;
+  let onChange: Mock<(updates: Partial<SvgTransform>) => void>;
 
   beforeEach(() => {
-    onChange = vi.fn();
+    onChange = vi.fn<(updates: Partial<SvgTransform>) => void>();
   });
 
   it('renders rotation input after expanding', () => {
@@ -216,10 +217,10 @@ describe('SvgMarkerDefs', () => {
 /* ------------------------------------------------------------------ */
 
 describe('RasterImageConfig', () => {
-  let onChange: ReturnType<typeof vi.fn>;
+  let onChange: Mock<(updates: Record<string, unknown>) => void>;
 
   beforeEach(() => {
-    onChange = vi.fn();
+    onChange = vi.fn<(updates: Record<string, unknown>) => void>();
   });
 
   it('rejects non-image files via MIME type validation', async () => {

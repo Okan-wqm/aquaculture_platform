@@ -6815,10 +6815,14 @@ async fn run_agent(
 
         // ADR-048 DEC-6.7: the driver zeroes the outputs of a descriptor that
         // closes with its watchdog armed. Disarm it only now that every safe
-        // value is in place; with an incomplete pass it stays armed and the
-        // driver's zeroing is the fallback.
+        // value of the RevPi's own outputs is in place; with one of those
+        // missing it stays armed and the driver's zeroing is the fallback. A
+        // failed pass over another kind of hardware (a Modbus device that did
+        // not answer) is no reason to zero the PiBridge outputs that were just
+        // driven safe.
         if let Some(picontrol) = picontrol_ref {
-            picontrol.release(report.is_complete());
+            picontrol
+                .release(report.is_complete_for(crate::safe_state::behaviour::Backend::PiControl));
         }
 
         if report.is_complete() {

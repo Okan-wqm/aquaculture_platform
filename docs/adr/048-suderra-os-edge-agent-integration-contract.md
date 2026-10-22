@@ -1107,7 +1107,18 @@ izleme amaçlı dağıtım vardır (SG-1).
    `synced-unauthenticated` yeter, `unsynced` yetmez (`clock-unsynced`); `synced-unauthenticated`
    yalnız imzalı site politikası düz bir NTP kaynağını işaretlediğinde oluşabildiğinden ve zaman
    tabanı (madde 2) geri adımı sınırladığından kabul edilir, düz NTP'ye güvenmeyen bir kurulum
-   kaynak işaretlemez. Yerel kontrol her durumda çalışır. `time-state` belgesi en az 30 s'de bir
+   kaynak işaretlemez. Agent'ın tazeliğe bağlı aktüasyonu açıkça şudur: buluttan gelen mutating
+   komutlar VE bir OPC UA istemcisinin yazması. İkincisi yerel bir arayüzden gelir, ama yetkisi RBAC
+   politikasının tazeliğine bağlıdır (`engine.authorize` politika sürümünün geçerlilik penceresini
+   güvenilir bir `received_at` ile karşılaştırır; operatörün oynayabildiği bir duvar saati süresi
+   dolmuş bir politikayı taze, ya da geçerli bir politikayı bayat gösterebilir), bu yüzden saat
+   `unsynced` iken reddedilir (OPC UA'nın kendi hatası; log `clock unhealthy`): rolü saat
+   güvenilirliğine bağlayan tek yol budur ve sessiz bir politika atlatması ya da DoS yerine tercih
+   edilir (Batch #325 D-9). Yerel kontrol bundan etkilenmez: script motoru, bytecode tarama
+   döngüsü, HMI/SCADA ekranı ve alarm motoru politika tazeliğine sormaz. Sonuç: udp/123'ü
+   engelleyen bir saha, site NTS sunucusu ya da imzalı `synced-unauthenticated` kaynağı yoksa OPC UA
+   YAZMALARINI (okumaları değil) kaybeder; bu kabul edilmiş bir bedeldir ve kurulum kaydına yazılır.
+   Yerel kontrol her durumda çalışır. `time-state` belgesi en az 30 s'de bir
    yeniden yazılır; `updated_at`'i okuyanın saatinden 120 s'den fazla uzak, yok veya bozuk bir
    belge `unsynced` sayılır.
 6. JTI dedup tutma süresi ≥ maksimum envelope geçerliliği + izin verilen sapmadır; anahtar

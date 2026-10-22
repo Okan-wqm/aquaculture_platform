@@ -96,6 +96,8 @@ pub(crate) fn test_capability() -> SafeStateWrite {
 /// One output the safe-state pass could not drive.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SafeStateFailure {
+    /// Which kind of hardware holds the output.
+    pub backend: OutputBackend,
     /// Which output (`modbus coil PLC-1/100`, `gpio pin 17`, ...).
     pub output: String,
     /// Why (handle missing, write error, timeout).
@@ -118,6 +120,16 @@ impl SafeStateReport {
     /// Every registered output reached its safe value.
     pub fn is_complete(&self) -> bool {
         self.failures.is_empty() && self.applied == self.registered
+    }
+
+    /// Every registered output held by `backend` reached its safe value, whatever
+    /// became of the others. A failed pass over a Modbus device says nothing
+    /// about the PiBridge outputs: the piControl watchdog is disarmed on the
+    /// piControl outputs' own result, because an armed one zeroes every RevPi
+    /// output when the descriptor closes, the fail-ON ones just driven safe
+    /// included.
+    pub fn is_complete_for(&self, backend: OutputBackend) -> bool {
+        self.failures.iter().all(|f| f.backend != backend)
     }
 
     /// The reported summary.
@@ -603,6 +615,7 @@ impl SafeStateManager {
                     // LIFE-SAFETY: log at error level so alerting picks it up
                     error!("LIFE-SAFETY: failed to safe-state {:?}: {}", tag, e);
                     failures.push(SafeStateFailure {
+                        backend: tag.backend(),
                         output: tag.describe(),
                         error: format!("{e:#}"),
                     });
@@ -614,6 +627,7 @@ impl SafeStateManager {
                         PER_DEVICE_TIMEOUT.as_secs()
                     );
                     failures.push(SafeStateFailure {
+                        backend: tag.backend(),
                         output: tag.describe(),
                         error: format!("timeout after {}s", PER_DEVICE_TIMEOUT.as_secs()),
                     });
@@ -830,6 +844,46 @@ impl SafeStateManager {
 mod tests {
     use super::*;
     use crate::config::{AgentConfig, GpioConfig, ModbusDeviceConfig};
+
+    /// The piControl watchdog is disarmed on the piControl outputs' own result:
+    /// a Modbus device the agent could not reach must not leave it armed, because
+    /// the driver then zeroes every RevPi output (the fail-ON ones included) when
+    /// the descriptor closes.
+    #[test]
+    fn the_verdict_for_one_backend_ignores_the_failures_of_the_others() {
+        let failure = |backend: OutputBackend, output: &str| SafeStateFailure {
+            backend,
+            output: output.to_owned(),
+            error: "unreachable".to_owned(),
+        };
+        let modbus_down = SafeStateReport {
+            registered: 3,
+            applied: 2,
+            failures: vec![failure(OutputBackend::Modbus, "modbus coil plc/1")],
+        };
+        assert!(!modbus_down.is_complete());
+        assert!(modbus_down.is_complete_for(OutputBackend::PiControl));
+        assert!(!modbus_down.is_complete_for(OutputBackend::Modbus));
+
+        let both = SafeStateReport {
+            registered: 3,
+            applied: 1,
+            failures: vec![
+                failure(OutputBackend::Modbus, "modbus coil plc/1"),
+                failure(OutputBackend::PiControl, "piControl output valve"),
+            ],
+        };
+        assert!(!both.is_complete_for(OutputBackend::PiControl));
+
+        let clean = SafeStateReport {
+            registered: 0,
+            applied: 0,
+            failures: vec![],
+        };
+        for backend in OutputBackend::ALL {
+            assert!(clean.is_complete_for(backend));
+        }
+    }
 
     /// Helper: build a minimal AgentConfig with the given Modbus devices and GPIO pins.
     fn test_config(modbus: Vec<ModbusDeviceConfig>, gpio: Vec<GpioConfig>) -> AgentConfig {

@@ -28,6 +28,15 @@
 //! clock and run in every state; the agent never exits because the clock is
 //! unsynced (DEC-7.5).
 //!
+//! An OPC UA write is the one local-looking path that is refused while the clock
+//! is `unsynced`. That is a decision of DEC-7.5, not an accident: the write comes
+//! from a local interface, but its authorization is the RBAC policy's freshness
+//! window, which needs a trusted `received_at` (a wall clock anyone can move would
+//! pass an expired policy or fail a valid one), and the ADR records it as part of
+//! the agent's freshness-dependent actuation. A site that blocks udp/123 loses OPC
+//! UA writes (not reads, not scripts, not the HMI) until it has a site NTS server
+//! or a signed plain-NTP source.
+//!
 //! `SystemTime::now()` appears here and nowhere in a freshness decision: this
 //! is the one place that compares the helper's `updated_at` with the agent's
 //! own clock, which the contract's stale rule requires.

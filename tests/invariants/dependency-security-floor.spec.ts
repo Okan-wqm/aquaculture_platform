@@ -6,7 +6,7 @@ import * as YAML from 'yaml';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const NX_VERSION = '22.7.12';
-const VITEST_VERSION = '3.2.7';
+const VITEST_VERSION = '4.1.12';
 const ROUTER_VERSION = '7.18.2';
 const API_EXTRACTOR_VERSION = '7.59.0';
 const E2E_SECURITY_FLOORS = {
@@ -567,7 +567,7 @@ describe('JavaScript dependency security floor', () => {
       '@testing-library/react': '^16.3.2',
       '@testing-library/user-event': '^14.5.2',
       jsdom: '^24.0.0',
-      vitest: '^3.2.7',
+      vitest: `^${VITEST_VERSION}`,
     });
     expect(vite).toContain("import { defineConfig } from 'vitest/config';");
     expect(vite).toContain("environment: 'jsdom'");

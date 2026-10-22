@@ -22,7 +22,7 @@ mod boot_support;
 #[cfg(not(feature = "suderra-os"))]
 mod generic {
     use super::boot_support::{
-        Device, DeviceConfig, ModbusServer, ModbusWrite, modbus_output_device,
+        Device, DeviceConfig, ModbusServer, ModbusWrite, modbus_output_device, modbus_relay_bank,
     };
     use std::time::Duration;
 
@@ -72,6 +72,47 @@ mod generic {
             "activation never attempted:\n{log}"
         );
         assert_eq!(device.health()["degraded"], false);
+        let exit = device.stop().expect("running");
+        assert!(exit.success(), "{exit}\n{}", device.log());
+    }
+
+    /// EDGE-HIGH-131: a relay bank with more outputs than the operator write
+    /// limiter's burst (4) is driven fully safe before READY. The safe-state
+    /// pass writes every output back to back; behind the operator limiter
+    /// outputs 5-12 failed with "Write rate limit exceeded" and the agent
+    /// booted degraded with half the bank left as it was. The device is
+    /// configured the way operators do it (default function-code whitelist),
+    /// which EDGE-MEDIUM-134 made a working combination.
+    #[test]
+    fn a_twelve_output_relay_bank_is_driven_fully_safe_before_ready() {
+        const COILS: u16 = 12;
+        let plc = ModbusServer::start();
+        let mut device = Device::new(&DeviceConfig {
+            activated: true,
+            extra_yaml: format!("modbus:\n{}", modbus_relay_bank("relays", plc.port, COILS)),
+        });
+        device.start(Duration::from_secs(6));
+        let ready = device.wait_ready(Duration::from_secs(90));
+        let writes = plc.writes();
+        for i in 0..COILS {
+            let expected = ModbusWrite::Coil {
+                address: 30 + i,
+                value: i % 2 == 0,
+            };
+            assert!(
+                writes
+                    .iter()
+                    .any(|w| w.write == expected && w.at <= ready.at),
+                "{expected:?} not driven safe before READY: {writes:?}\n{}",
+                device.log()
+            );
+        }
+        assert_eq!(
+            device.health()["degraded"],
+            false,
+            "every output reached its safe value, so the agent is not degraded:\n{}",
+            device.log()
+        );
         let exit = device.stop().expect("running");
         assert!(exit.success(), "{exit}\n{}", device.log());
     }

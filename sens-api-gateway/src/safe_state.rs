@@ -26,7 +26,7 @@
 //! fail to a safe state upon loss of communication or software failure.
 
 use std::time::Duration;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::config::{AgentConfig, GpioConfig, ModbusDeviceConfig};
 use crate::degraded::{DegradedReason, SafeStateSummary};
@@ -377,6 +377,12 @@ impl SafeStateManager {
     ///
     /// Coil registers are digital outputs (safe = false).
     /// Holding registers that are writable are analog outputs (safe = 0).
+    ///
+    /// An output is a register the agent can write: it is registered only
+    /// when the device's own write policy lets that write through
+    /// (`ModbusSecurityConfig::permits_write`), so a registered output is
+    /// writable by construction and the pass cannot report a device degraded
+    /// for an output the policy never allowed (EDGE-MEDIUM-134).
     fn collect_modbus_outputs(device: &ModbusDeviceConfig, outputs: &mut Vec<OutputTag>) {
         // SECURITY: only include registers whose type implies an output
         if !device.security.allow_writes {
@@ -384,32 +390,39 @@ impl SafeStateManager {
         }
 
         for reg in &device.registers {
-            let reg_type = reg.register_type.to_lowercase();
-            match reg_type.as_str() {
-                "coil" => {
-                    // EDGE-HIGH-012: non-zero safe_state_value = energise
-                    // (fail-ON, e.g. life-support aeration); default OFF.
-                    outputs.push(OutputTag::ModbusCoil {
+            let (function_code, tag) = match reg.register_type.to_lowercase().as_str() {
+                // EDGE-HIGH-012: non-zero safe_state_value = energise
+                // (fail-ON, e.g. life-support aeration); default OFF.
+                "coil" => (
+                    crate::modbus::FC_WRITE_SINGLE_COIL,
+                    OutputTag::ModbusCoil {
                         device_name: device.name.clone(),
                         address: reg.address,
                         safe_value: reg.safe_state_value.map(|v| v != 0).unwrap_or(false),
-                    });
-                }
-                "holding" => {
-                    // Only holding registers on write-enabled devices are
-                    // considered outputs.  Input/discrete registers are
-                    // read-only by Modbus spec.
-                    // EDGE-HIGH-012: safe_state_value = raw fail-safe
-                    // register value; default 0.
-                    outputs.push(OutputTag::ModbusRegister {
+                    },
+                ),
+                // Only holding registers on write-enabled devices are
+                // outputs; input/discrete registers are read-only by Modbus
+                // spec. EDGE-HIGH-012: safe_state_value = raw fail-safe
+                // register value; default 0.
+                "holding" => (
+                    crate::modbus::FC_WRITE_SINGLE_REGISTER,
+                    OutputTag::ModbusRegister {
                         device_name: device.name.clone(),
                         address: reg.address,
                         safe_value: reg.safe_state_value.unwrap_or(0),
-                    });
-                }
-                _ => {
-                    // "input" and "discrete" are read-only — skip
-                }
+                    },
+                ),
+                _ => continue,
+            };
+            if device.security.permits_write(function_code, reg.address) {
+                outputs.push(tag);
+            } else {
+                debug!(
+                    "Modbus {}/{}: the write policy does not permit FC{} here; not a \
+                     safe-state output",
+                    device.name, reg.address, function_code
+                );
             }
         }
     }
@@ -543,7 +556,10 @@ registers:
         );
         let mut device: ModbusDeviceConfig =
             serde_yaml::from_str(&yaml).expect("parse modbus device");
+        // A valid write policy (`AgentConfig::validate`): writes on, every
+        // address opted in.
         device.security.allow_writes = true;
+        device.security.allow_all_write_addresses = true;
         device
     }
 
@@ -600,6 +616,7 @@ registers:
 "#;
         let mut device: ModbusDeviceConfig = serde_yaml::from_str(yaml).expect("parse device");
         device.security.allow_writes = true;
+        device.security.allow_all_write_addresses = true;
 
         let gpio_on = GpioConfig {
             name: "life_support_pump".to_string(),
@@ -683,6 +700,47 @@ registers:
         let mgr = SafeStateManager::from_config(&config);
 
         assert_eq!(mgr.output_count(), 0);
+    }
+
+    /// EDGE-MEDIUM-134: an output is registered only when the device's write
+    /// policy lets the write through, so every registered output is writable
+    /// by construction (an address outside the allowed ranges is not one the
+    /// agent can move, hence not one it must make safe).
+    #[test]
+    fn only_registers_the_write_policy_permits_are_outputs() {
+        let mut device = modbus_device_with_outputs("PLC-RANGE");
+        device.security.allow_all_write_addresses = false;
+        device.security.allowed_write_ranges = vec![(100, 110)];
+        let mgr = SafeStateManager::from_config(&test_config(vec![device], vec![]));
+        // coil 100 is inside the range; holding 200 is outside it.
+        assert_eq!(mgr.output_count(), 1);
+        assert!(matches!(
+            mgr.outputs.first(),
+            Some(OutputTag::ModbusCoil { address: 100, .. })
+        ));
+    }
+
+    #[test]
+    fn an_explicit_whitelist_without_fc5_registers_no_coil() {
+        let mut device = modbus_device_with_outputs("PLC-FC6");
+        device.security.allowed_function_codes = vec![1, 2, 3, 4, 6];
+        let mgr = SafeStateManager::from_config(&test_config(vec![device], vec![]));
+        assert_eq!(mgr.output_count(), 1);
+        assert!(matches!(
+            mgr.outputs.first(),
+            Some(OutputTag::ModbusRegister { address: 200, .. })
+        ));
+    }
+
+    /// The default (read-only) whitelist with `allow_writes: true` registers
+    /// both kinds: the write policy completes it (the combination that used
+    /// to register outputs it could never write).
+    #[test]
+    fn allow_writes_with_the_default_whitelist_registers_both_kinds() {
+        let device = modbus_device_with_outputs("PLC-DEFAULT");
+        assert_eq!(device.security.allowed_function_codes, vec![1, 2, 3, 4]);
+        let mgr = SafeStateManager::from_config(&test_config(vec![device], vec![]));
+        assert_eq!(mgr.output_count(), 2);
     }
 
     #[test]

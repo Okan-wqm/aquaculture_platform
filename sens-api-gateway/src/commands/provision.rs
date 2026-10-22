@@ -261,27 +261,10 @@ impl CommandHandler {
 /// Returns `Some(error)` when the device is rejected, `None` when it is safe.
 #[cfg(not(feature = "suderra-os"))]
 fn validate_provision_write_authz(config: &ModbusDeviceConfig) -> Option<String> {
-    let sec = &config.security;
-    if !sec.enabled || !sec.allow_writes {
-        return None;
-    }
-    if sec.allowed_write_ranges.is_empty() && !sec.allow_all_write_addresses {
-        return Some(format!(
-            "Modbus device '{}': allow_writes=true requires non-empty allowed_write_ranges or explicit allow_all_write_addresses=true",
-            config.name
-        ));
-    }
-    // Reject malformed ranges (start > end). A silently-empty range would deny
-    // every write, masking a config error as a security posture.
-    for &(start, end) in &sec.allowed_write_ranges {
-        if start > end {
-            return Some(format!(
-                "Modbus device '{}': invalid allowed_write_ranges entry {}..{} (start must be <= end)",
-                config.name, start, end
-            ));
-        }
-    }
-    None
+    // The same check the load-time validation runs (EDGE-MEDIUM-134), so a
+    // device provisioned at runtime cannot carry a policy the boot would
+    // refuse.
+    config.security.check_write_policy(&config.name).err()
 }
 
 #[cfg(all(test, not(feature = "suderra-os")))]

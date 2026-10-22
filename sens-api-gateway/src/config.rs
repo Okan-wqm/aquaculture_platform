@@ -1658,6 +1658,105 @@ impl Default for ModbusSecurityConfig {
     }
 }
 
+/// Modbus function codes that write (FC5 coil, FC6 register, FC15/FC16 the
+/// multiple-write forms, which the agent does not implement).
+const MODBUS_WRITE_FUNCTION_CODES: [u8; 4] = [5, 6, 15, 16];
+
+impl ModbusSecurityConfig {
+    /// Whether the whitelist names any function code that writes.
+    fn names_a_write_code(&self) -> bool {
+        self.allowed_function_codes
+            .iter()
+            .any(|code| MODBUS_WRITE_FUNCTION_CODES.contains(code))
+    }
+
+    /// Whether a request with `function_code` passes the whitelist.
+    ///
+    /// Write authority is spread over three settings (`allow_writes`, the
+    /// whitelist, the address policy). `allow_writes: true` is the operator's
+    /// explicit decision to write, and the default whitelist is read-only, so
+    /// a list that names no write code at all is completed with the single
+    /// writes the agent implements; a list that names a write code is
+    /// explicit and is taken as written. Without this, a device with
+    /// `allow_writes: true` and the default list registered safe-state outputs
+    /// it could never write and booted degraded every time (EDGE-MEDIUM-134).
+    pub fn function_code_permitted(&self, function_code: u8) -> bool {
+        self.allowed_function_codes.contains(&function_code)
+            || (self.allow_writes && !self.names_a_write_code() && matches!(function_code, 5 | 6))
+    }
+
+    /// Whether a write may target `address`: inside an allowed range, or
+    /// anywhere when the operator named that explicitly.
+    pub fn write_address_permitted(&self, address: u16) -> bool {
+        if self.allowed_write_ranges.is_empty() {
+            return self.allow_all_write_addresses;
+        }
+        self.allowed_write_ranges
+            .iter()
+            .any(|&(start, end)| address >= start && address <= end)
+    }
+
+    /// Whether a write with `function_code` to `address` passes this device's
+    /// whole policy. The one decision the Modbus client enforces per write and
+    /// the safe-state registry derives its outputs from, so a registered
+    /// output is writable by construction.
+    pub fn permits_write(&self, function_code: u8, address: u16) -> bool {
+        !self.enabled
+            || (self.allow_writes
+                && self.function_code_permitted(function_code)
+                && self.write_address_permitted(address))
+    }
+
+    /// Reject a write policy that can never let a write through, or that is
+    /// malformed. Called by the load-time validation and by runtime device
+    /// provisioning, so the two cannot disagree.
+    pub fn check_write_policy(&self, device_name: &str) -> Result<(), String> {
+        if !self.enabled || !self.allow_writes {
+            return Ok(());
+        }
+        // 2026-04-29 enterprise Modbus write policy: write-enabled devices
+        // declare bounded address ranges or opt into all-address writes.
+        if self.allowed_write_ranges.is_empty() && !self.allow_all_write_addresses {
+            return Err(format!(
+                "Modbus device '{device_name}': allow_writes=true requires non-empty \
+                 allowed_write_ranges or explicit allow_all_write_addresses=true"
+            ));
+        }
+        let mut ranges = self.allowed_write_ranges.clone();
+        ranges.sort_unstable_by_key(|(start, end)| (*start, *end));
+        let mut previous_end: Option<u16> = None;
+        for (start, end) in ranges {
+            // A silently empty range would deny every write and mask a
+            // configuration error as a security posture.
+            if start > end {
+                return Err(format!(
+                    "Modbus device '{device_name}': invalid allowed_write_ranges entry \
+                     {start}..{end} (start must be <= end)"
+                ));
+            }
+            if previous_end.is_some_and(|previous| start <= previous) {
+                return Err(format!(
+                    "Modbus device '{device_name}': overlapping allowed_write_ranges around \
+                     {start}..{end}"
+                ));
+            }
+            previous_end = Some(end);
+        }
+        // EDGE-MEDIUM-134: an explicit whitelist with write codes but neither
+        // FC5 nor FC6 lets no write through whatever allow_writes says.
+        if !self.function_code_permitted(crate::modbus::FC_WRITE_SINGLE_COIL)
+            && !self.function_code_permitted(crate::modbus::FC_WRITE_SINGLE_REGISTER)
+        {
+            return Err(format!(
+                "Modbus device '{device_name}': allow_writes=true but allowed_function_codes \
+                 {:?} permits neither FC5 (write coil) nor FC6 (write register)",
+                self.allowed_function_codes
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// Modbus TLS configuration (v1.2.0 - IEC 62443 SL2 FR4: Data Confidentiality)
 ///
 /// Enables encrypted Modbus/TCP communication using TLS.
@@ -3754,45 +3853,12 @@ impl AgentConfig {
                 anyhow::bail!("Modbus device '{}' has empty address", device.name);
             }
 
-            // 2026-04-29 enterprise Modbus write policy:
-            // Write-enabled devices must either declare bounded address ranges
-            // or explicitly opt into all-address writes. This removes the
-            // legacy accidental "empty whitelist means all registers" posture.
-            if device.security.enabled && device.security.allow_writes {
-                if device.security.allowed_write_ranges.is_empty()
-                    && !device.security.allow_all_write_addresses
-                {
-                    anyhow::bail!(
-                        "Modbus device '{}': allow_writes=true requires non-empty allowed_write_ranges or explicit allow_all_write_addresses=true",
-                        device.name
-                    );
-                }
-
-                let mut ranges = device.security.allowed_write_ranges.clone();
-                ranges.sort_unstable_by_key(|(start, end)| (*start, *end));
-                let mut previous_end: Option<u16> = None;
-                for (start, end) in ranges {
-                    if start > end {
-                        anyhow::bail!(
-                            "Modbus device '{}': invalid allowed_write_ranges entry {}..{} (start must be <= end)",
-                            device.name,
-                            start,
-                            end
-                        );
-                    }
-                    if let Some(prev_end) = previous_end {
-                        if start <= prev_end {
-                            anyhow::bail!(
-                                "Modbus device '{}': overlapping allowed_write_ranges around {}..{}",
-                                device.name,
-                                start,
-                                end
-                            );
-                        }
-                    }
-                    previous_end = Some(end);
-                }
-            }
+            // Write policy (allow_writes, whitelist, address ranges): one
+            // check shared with runtime provisioning (EDGE-MEDIUM-134).
+            device
+                .security
+                .check_write_policy(&device.name)
+                .map_err(|reason| anyhow::anyhow!(reason))?;
 
             // Validate Modbus TLS configuration (v1.2.0 - IEC 62443 SL2 FR4)
             if device.tls.enabled {
@@ -5416,5 +5482,113 @@ mode: disabled
         if cfg!(feature = "revpi-io") {
             assert_eq!(detect_gpio_platform(), GpioPlatform::RevolutionPi);
         }
+    }
+}
+
+/// EDGE-MEDIUM-134: write authority is spread over `allow_writes`, the
+/// function-code whitelist and the address policy; these tests pin the one
+/// decision the Modbus client enforces and the safe-state registry derives
+/// its outputs from.
+#[cfg(test)]
+mod modbus_write_policy_tests {
+    use super::*;
+
+    fn writable(codes: Option<Vec<u8>>) -> ModbusSecurityConfig {
+        let mut security = ModbusSecurityConfig {
+            allow_writes: true,
+            allow_all_write_addresses: true,
+            ..Default::default()
+        };
+        if let Some(codes) = codes {
+            security.allowed_function_codes = codes;
+        }
+        security
+    }
+
+    /// The default whitelist is read-only; `allow_writes: true` completes it
+    /// with the single writes, so the combination the field uses most does
+    /// not boot degraded with outputs it can never write.
+    #[test]
+    fn allow_writes_completes_a_whitelist_that_names_no_write_code() {
+        let security = writable(None);
+        assert_eq!(security.allowed_function_codes, vec![1, 2, 3, 4]);
+        assert!(security.function_code_permitted(5));
+        assert!(security.function_code_permitted(6));
+        assert!(security.permits_write(5, 10));
+        assert!(security.permits_write(6, 10));
+        assert!(security.check_write_policy("plc").is_ok());
+    }
+
+    #[test]
+    fn a_read_only_device_permits_no_write() {
+        let security = ModbusSecurityConfig::default();
+        assert!(!security.function_code_permitted(5));
+        assert!(!security.function_code_permitted(6));
+        assert!(!security.permits_write(5, 10));
+        assert!(!security.permits_write(6, 10));
+    }
+
+    /// A whitelist that names a write code is explicit: it is not widened.
+    #[test]
+    fn an_explicit_write_whitelist_is_taken_as_written() {
+        let only_registers = writable(Some(vec![1, 2, 3, 4, 6]));
+        assert!(only_registers.permits_write(6, 10));
+        assert!(
+            !only_registers.permits_write(5, 10),
+            "FC5 was not listed: allow_writes must not add it"
+        );
+        assert!(only_registers.check_write_policy("plc").is_ok());
+    }
+
+    /// Write codes that are not implemented (FC15/16) let nothing through.
+    #[test]
+    fn a_whitelist_that_permits_neither_implemented_write_is_rejected() {
+        let security = writable(Some(vec![1, 2, 3, 4, 16]));
+        assert!(!security.permits_write(5, 10) && !security.permits_write(6, 10));
+        let err = security.check_write_policy("plc").unwrap_err();
+        assert!(err.contains("neither FC5") && err.contains("plc"), "{err}");
+    }
+
+    #[test]
+    fn the_address_policy_applies_to_every_write_code() {
+        let mut security = writable(None);
+        security.allow_all_write_addresses = false;
+        security.allowed_write_ranges = vec![(100, 110)];
+        assert!(security.permits_write(5, 100) && security.permits_write(6, 110));
+        assert!(!security.permits_write(5, 99) && !security.permits_write(6, 111));
+        security.allowed_write_ranges.clear();
+        assert!(!security.permits_write(5, 100), "no range, no opt-in");
+        assert!(security.check_write_policy("plc").is_err());
+    }
+
+    #[test]
+    fn malformed_and_overlapping_ranges_are_rejected() {
+        let mut security = writable(None);
+        security.allow_all_write_addresses = false;
+        security.allowed_write_ranges = vec![(50, 40)];
+        assert!(
+            security
+                .check_write_policy("plc")
+                .unwrap_err()
+                .contains("start must be <= end")
+        );
+        security.allowed_write_ranges = vec![(1, 10), (10, 20)];
+        assert!(
+            security
+                .check_write_policy("plc")
+                .unwrap_err()
+                .contains("overlapping")
+        );
+    }
+
+    /// With the security layer off every check passes, as the client does.
+    #[test]
+    fn a_device_with_security_off_permits_every_write() {
+        let security = ModbusSecurityConfig {
+            enabled: false,
+            ..Default::default()
+        };
+        assert!(security.permits_write(5, 1) && security.permits_write(6, 1));
+        assert!(security.check_write_policy("plc").is_ok());
     }
 }

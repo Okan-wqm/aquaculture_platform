@@ -349,6 +349,33 @@ pub fn modbus_output_device(name: &str, port: u16) -> String {
     )
 }
 
+/// YAML for a Modbus-TCP relay bank at `port` with `coils` coil outputs
+/// (addresses 30.., every other one fail-ON), configured the way an operator
+/// does: `allow_writes` and the all-address opt-in, and the default
+/// function-code whitelist (EDGE-HIGH-131, EDGE-MEDIUM-134).
+pub fn modbus_relay_bank(name: &str, port: u16, coils: u16) -> String {
+    let mut yaml = format!(
+        r#"  - name: "{name}"
+    connection_type: tcp
+    address: "127.0.0.1:{port}"
+    slave_id: 1
+    security:
+      allow_writes: true
+      allow_all_write_addresses: true
+    registers:
+"#
+    );
+    for i in 0..coils {
+        yaml.push_str(&format!(
+            "      - name: relay_{i}\n        address: {}\n        register_type: coil\n        \
+             data_type: u16\n        safe_state_value: {}\n",
+            30 + i,
+            u8::from(i % 2 == 0)
+        ));
+    }
+    yaml
+}
+
 // ---------------------------------------------------------------------------
 // Device + agent process
 // ---------------------------------------------------------------------------

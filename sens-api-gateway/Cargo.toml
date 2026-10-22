@@ -1078,6 +1078,12 @@ required-features = ["hil"]
 name = "generic_channel_contract"
 path = "tests/invariants/generic_channel_contract.rs"
 
+# ADR-048 DEC-13 / EDGE-HIGH-131 — no safe-state call chain reaches an
+# operator-write guard (write limiter, whitelist, address policy).
+[[test]]
+name = "safe_state_write_path"
+path = "tests/invariants/safe_state_write_path.rs"
+
 # =============================================================================
 # RUST-CVE-001: rumqttc 0.25.1 vendored fork (../crates/local-rumqttc)
 # =============================================================================

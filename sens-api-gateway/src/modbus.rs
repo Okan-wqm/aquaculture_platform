@@ -68,9 +68,9 @@ const FC_READ_HOLDING_REGISTERS: u8 = 3;
 /// FC 4: Read Input Registers
 const FC_READ_INPUT_REGISTERS: u8 = 4;
 /// FC 5: Write Single Coil
-const FC_WRITE_SINGLE_COIL: u8 = 5;
+pub(crate) const FC_WRITE_SINGLE_COIL: u8 = 5;
 /// FC 6: Write Single Register
-const FC_WRITE_SINGLE_REGISTER: u8 = 6;
+pub(crate) const FC_WRITE_SINGLE_REGISTER: u8 = 6;
 /// v1.2.6: Maximum errors to collect per read operation (prevents unbounded growth)
 const MAX_ERRORS_PER_READ: usize = 50;
 // FC 15, 16 (Write Multiple) not implemented - use single writes
@@ -105,6 +105,23 @@ pub enum ModbusCommand {
     },
     /// Write a coil value
     WriteCoil {
+        device_name: String,
+        address: u16,
+        value: bool,
+        response: oneshot::Sender<Result<()>>,
+    },
+    /// Write a holding register's fail-safe value (ADR-048 DEC-13,
+    /// EDGE-HIGH-131). Its own command, so the actor never routes it through
+    /// the operator write path and its rate limiter, function-code whitelist
+    /// and address policy.
+    SafeStateWriteRegister {
+        device_name: String,
+        address: u16,
+        value: u16,
+        response: oneshot::Sender<Result<ModbusWriteReceipt>>,
+    },
+    /// Write a coil's fail-safe value; see [`Self::SafeStateWriteRegister`].
+    SafeStateWriteCoil {
         device_name: String,
         address: u16,
         value: bool,
@@ -221,8 +238,18 @@ impl ModbusHandle {
         value: u16,
         _: &crate::safe_state::SafeStateWrite,
     ) -> Result<()> {
-        self.send_register_write(device_name, address, value)
-            .await
+        let (tx, rx) = oneshot::channel();
+        let _ = self
+            .sender
+            .send(ModbusCommand::SafeStateWriteRegister {
+                device_name: device_name.to_string(),
+                address,
+                value,
+                response: tx,
+            })
+            .await;
+        rx.await
+            .map_err(|_| anyhow::anyhow!("Actor disconnected"))?
             .map(|_| ())
     }
 
@@ -268,7 +295,18 @@ impl ModbusHandle {
         value: bool,
         _: &crate::safe_state::SafeStateWrite,
     ) -> Result<()> {
-        self.send_coil_write(device_name, address, value).await
+        let (tx, rx) = oneshot::channel();
+        let _ = self
+            .sender
+            .send(ModbusCommand::SafeStateWriteCoil {
+                device_name: device_name.to_string(),
+                address,
+                value,
+                response: tx,
+            })
+            .await;
+        rx.await
+            .map_err(|_| anyhow::anyhow!("Actor disconnected"))?
     }
 
     async fn send_coil_write(&self, device_name: &str, address: u16, value: bool) -> Result<()> {
@@ -411,6 +449,42 @@ impl ModbusActor {
                     };
                     if response.send(result).is_err() {
                         warn!("Modbus WriteCoil response receiver dropped");
+                    }
+                }
+                ModbusCommand::SafeStateWriteRegister {
+                    device_name,
+                    address,
+                    value,
+                    response,
+                } => {
+                    let result = if let Some(client_arc) =
+                        self.manager.get_client_by_name(&device_name).await
+                    {
+                        let mut client = client_arc.lock().await;
+                        client.write_register_safe_state(address, value).await
+                    } else {
+                        Err(anyhow::anyhow!("Device not found: {}", device_name))
+                    };
+                    if response.send(result).is_err() {
+                        warn!("Modbus SafeStateWriteRegister response receiver dropped");
+                    }
+                }
+                ModbusCommand::SafeStateWriteCoil {
+                    device_name,
+                    address,
+                    value,
+                    response,
+                } => {
+                    let result = if let Some(client_arc) =
+                        self.manager.get_client_by_name(&device_name).await
+                    {
+                        let mut client = client_arc.lock().await;
+                        client.write_coil_safe_state(address, value).await
+                    } else {
+                        Err(anyhow::anyhow!("Device not found: {}", device_name))
+                    };
+                    if response.send(result).is_err() {
+                        warn!("Modbus SafeStateWriteCoil response receiver dropped");
                     }
                 }
                 ModbusCommand::DeviceCount { response } => {
@@ -586,11 +660,7 @@ impl ModbusClient {
             return Ok(());
         }
 
-        if self
-            .security
-            .allowed_function_codes
-            .contains(&function_code)
-        {
+        if self.security.function_code_permitted(function_code) {
             Ok(())
         } else {
             warn!(
@@ -642,13 +712,7 @@ impl ModbusClient {
             ));
         }
 
-        let allowed = self
-            .security
-            .allowed_write_ranges
-            .iter()
-            .any(|&(start, end)| address >= start && address <= end);
-
-        if allowed {
+        if self.security.write_address_permitted(address) {
             Ok(())
         } else {
             warn!(
@@ -1194,6 +1258,28 @@ impl ModbusClient {
         self.validate_function_code(FC_WRITE_SINGLE_REGISTER)?;
         self.acquire_write_rate_limit()?;
 
+        self.transmit_register(address, value).await
+    }
+
+    /// Write a holding register's fail-safe value (ADR-048 DEC-13).
+    ///
+    /// The safe-state pass writes every output the configuration registered,
+    /// so the output set is its authorisation: the per-write checks of an
+    /// operator write do not apply. The write limiter above all must not — it
+    /// is a runaway-script guard (burst 4, 2 ops/s) and a device with more
+    /// than four outputs could not be driven safe at boot or shutdown
+    /// (EDGE-HIGH-131). `tests/invariants/safe_state_write_path.rs` keeps the
+    /// checks of `write_register` out of this call chain.
+    pub async fn write_register_safe_state(
+        &mut self,
+        address: u16,
+        value: u16,
+    ) -> Result<ModbusWriteReceipt> {
+        self.transmit_register(address, value).await
+    }
+
+    /// The FC6 request and its read-back; no policy check (see the callers).
+    async fn transmit_register(&mut self, address: u16, value: u16) -> Result<ModbusWriteReceipt> {
         let channel = self
             .channel
             .as_mut()
@@ -1293,6 +1379,17 @@ impl ModbusClient {
         self.validate_function_code(FC_WRITE_SINGLE_COIL)?;
         self.acquire_write_rate_limit()?;
 
+        self.transmit_coil(address, value).await
+    }
+
+    /// Write a coil's fail-safe value (ADR-048 DEC-13); see
+    /// [`Self::write_register_safe_state`] for why no per-write check applies.
+    pub async fn write_coil_safe_state(&mut self, address: u16, value: bool) -> Result<()> {
+        self.transmit_coil(address, value).await
+    }
+
+    /// The FC5 request; no policy check (see the callers).
+    async fn transmit_coil(&mut self, address: u16, value: bool) -> Result<()> {
         let channel = self
             .channel
             .as_mut()

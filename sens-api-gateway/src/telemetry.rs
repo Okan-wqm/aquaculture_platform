@@ -14,6 +14,34 @@ use crate::gpio::PinState;
 use crate::interning::{intern_register_name, resolve};
 use crate::mqtt::{GpioPinData, ModbusDeviceData, ModbusRegisterData, TelemetryMetrics};
 
+/// The posture of a device the fleet console tracks (ADR-048 DEC-28): the
+/// architecture, which agent profile runs, and the command-signature mode it
+/// runs in. The generic channel ends only once the fleet reports its
+/// architecture and board, and P2's cut-off of unsigned commands is safe only for
+/// devices that already moved to signed ones: "the migration state is watched per
+/// device by telemetry". Carried in every status message, the retained
+/// online/offline view of the device.
+pub fn fleet_posture(
+    config: &crate::config::AgentConfig,
+) -> serde_json::Map<String, serde_json::Value> {
+    let mut posture = serde_json::Map::new();
+    posture.insert("arch".into(), std::env::consts::ARCH.into());
+    posture.insert(
+        "profile".into(),
+        if cfg!(feature = "suderra-os") {
+            "suderra-os"
+        } else {
+            "generic"
+        }
+        .into(),
+    );
+    posture.insert(
+        "signature_mode".into(),
+        serde_json::to_value(config.signature_mode).unwrap_or(serde_json::Value::Null),
+    );
+    posture
+}
+
 /// Telemetry collector
 pub struct TelemetryCollector {
     state: Arc<RwLock<AppState>>,
@@ -198,7 +226,7 @@ impl TelemetryCollector {
             Some(m) => m,
             None => return Ok(()),
         };
-        let payload = serde_json::json!({
+        let mut payload = serde_json::json!({
             "device_id": mqtt.device_id(),
             "device_code": mqtt.device_code(),
             "status": DeviceStatus::Online,
@@ -206,6 +234,9 @@ impl TelemetryCollector {
             "agent_version": env!("CARGO_PKG_VERSION"),
             "uptime_seconds": uptime,
         });
+        if let Some(fields) = payload.as_object_mut() {
+            fields.extend(fleet_posture(&state.config));
+        }
         crate::publish_helpers::publish_status(&state, &payload).await;
         debug!("Status published");
 
@@ -339,6 +370,30 @@ impl TelemetryCollector {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_fleet_posture_names_the_arch_the_profile_and_the_signature_mode() {
+        let config: crate::config::AgentConfig = serde_yaml::from_str(
+            "device_id: \"123e4567-e89b-42d3-a456-426614174000\"\ndevice_code: \"D-1\"\n\
+             api_url: \"https://api.example.test\"\nmqtt:\n  broker: \"localhost\"\n  port: 1883\n",
+        )
+        .expect("a minimal configuration");
+        let posture = super::fleet_posture(&config);
+        assert_eq!(posture["arch"], std::env::consts::ARCH);
+        #[cfg(feature = "suderra-os")]
+        {
+            assert_eq!(posture["profile"], "suderra-os");
+            assert_eq!(posture["signature_mode"], "enforcing");
+        }
+        #[cfg(not(feature = "suderra-os"))]
+        {
+            assert_eq!(posture["profile"], "generic");
+            // The default of a configuration that names none (DEC-9.10): the
+            // migration the fleet console watches is away from this value.
+            assert_eq!(posture["signature_mode"], "permissive");
+        }
+        assert_eq!(posture.len(), 3, "exactly the posture, nothing else");
+    }
+
     use super::*;
 
     #[test]

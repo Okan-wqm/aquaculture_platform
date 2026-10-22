@@ -5403,6 +5403,9 @@ async fn run_connectivity(
                 "agent_version": env!("CARGO_PKG_VERSION"),
                 "uptime_seconds": 0,
             });
+            if let Some(fields) = payload.as_object_mut() {
+                fields.extend(telemetry::fleet_posture(&state_guard.config));
+            }
             if let (Some(fields), serde_json::Value::Object(report)) =
                 (payload.as_object_mut(), state_guard.degraded.cloud_report())
             {

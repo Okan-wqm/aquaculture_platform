@@ -40,6 +40,7 @@ from .finding import (
     find_by_evidence_chain_id,
     show_finding,
 )
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id, is_object_id_prefix
 from .ledger import (
     append_declared_jsonl,
     append_declared_jsonl_rows,
@@ -80,9 +81,24 @@ DEBT_TRANSITIONS: dict[str, tuple[str, ...]] = {
 # the open count.
 UNRESOLVED_DEBT_STATUSES = ("OPEN", "IN_PROGRESS", "OVERDUE")
 CLOSED_DEBT_STATUSES = ("RESOLVED", "WITHDRAWN")
-_COMMIT_REF_RE = re.compile(r"^commit:([0-9a-f]{7,40})$")
 _OPERATOR_ACT_RE = re.compile(r"^(manual:operator|operator:[A-Za-z0-9._-]+)$")
-_MERGE_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+# `by` names a commit as `commit:<id or abbreviation git resolves>`; a fix
+# merge sha is a full id git produced. Both rules are git_object_id's
+# (ARIA-LOW-518), in whichever object format the repository uses.
+_COMMIT_REF_PREFIX = "commit:"
+_COMMIT_REF_MIN_DIGITS = 7
+
+
+def _is_commit_ref(by: str) -> bool:
+    return by.startswith(_COMMIT_REF_PREFIX) and is_object_id_prefix(
+        by[len(_COMMIT_REF_PREFIX):], formats=ANY_OBJECT_FORMAT, min_digits=_COMMIT_REF_MIN_DIGITS,
+    )
+
+
+def _is_merge_sha(value: object) -> bool:
+    return is_object_id(value, formats=ANY_OBJECT_FORMAT)
+
+
 SEVERITY_DUE_DAYS = {
     "HIGH": 60,
     "MEDIUM": 90,
@@ -483,16 +499,17 @@ def transition_debt(
         if note is not None:
             _check_banned_phrases(note, field="note")
         if to_status == "IN_PROGRESS":
-            if not (_COMMIT_REF_RE.match(by) or _OPERATOR_ACT_RE.match(by)):
+            if not (_is_commit_ref(by) or _OPERATOR_ACT_RE.match(by)):
                 raise GovernanceError(
                     "OPEN -> IN_PROGRESS needs an operator act or a commit ref "
                     f"as `by` (e.g. 'commit:<40-hex>', 'manual:operator'), got {by!r}"
                 )
         if to_status == "RESOLVED":
-            if not isinstance(fix_merge_sha, str) or not _MERGE_SHA_RE.match(fix_merge_sha):
+            if not _is_merge_sha(fix_merge_sha):
                 raise GovernanceError(
-                    "RESOLVED is fix-shipped: fix_merge_sha must be the 40-hex "
-                    "merge sha that shipped the permanent fix"
+                    "RESOLVED is fix-shipped: fix_merge_sha must be the full merge sha "
+                    "(a 40-hex SHA-1 or 64-hex SHA-256 git object id) that shipped "
+                    "the permanent fix"
                 )
             _verify_originating_evidence_chain(repo_path, doc)
         if to_status == "WITHDRAWN":
@@ -803,7 +820,7 @@ def _apply_status_event(
             raise GovernanceError(
                 f"debt event {event.get('event_id')!r} withdraws {debt_id} without a withdrawn_reason"
             )
-        if to_status == "RESOLVED" and not _MERGE_SHA_RE.match(str(event.get("resolved_by_commit") or "")):
+        if to_status == "RESOLVED" and not _is_merge_sha(event.get("resolved_by_commit")):
             raise GovernanceError(
                 f"debt event {event.get('event_id')!r} resolves {debt_id} without a fix merge sha"
             )

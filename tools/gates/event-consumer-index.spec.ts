@@ -28,6 +28,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { after, test } from 'node:test';
 
+import ts from 'typescript';
+
 import { TENANT_ERASURE_OUTCOME_EVENT_TYPES_BY_TARGET } from '../../libs/event-contracts/src/tenant-erasure-targets';
 
 import {
@@ -835,3 +837,283 @@ void test('one owner of "who produces event T": scanEventProducers is defined on
   );
   assert.deepEqual(owners, ['tools/gates/event-consumer-index.ts']);
 });
+
+// --- SE-3 review round 1 blockers (build/SE-3/review-r1-blockers.md), pinned before round 2 ----
+//
+// The pre-commit hook runs this suite, so each round-2 case carries node:test's `todo` option
+// (the gate suites' convention, as SE3_PENDING did in round 1); the implementer removes every
+// SE3R2_PENDING marker in the change that makes its case pass.
+
+const SE3R2_PENDING =
+  'SE-3-R2 (build/SE-3/review-r1-blockers.md): round-2 fix of the code-fact bridge not implemented';
+
+// Architecture B2: a code subscription to a subject that names no known event type was dropped
+// (live: admin-api-service events.security.events.auth.login.*, observability-service
+// events.platform.schema-migration.>). Architecture B3: an app the TypeScript scan cannot read
+// (sensor-ingestion, Rust) was listed with empty lists, which reads as "produces nothing".
+const SUBJECT_BUS = [
+  'export interface ISubjectBus {',
+  '  subscribeTo(topic: string, handler: object): Promise<void>;',
+  '}',
+  '',
+].join('\n');
+
+const LOGIN_SUBJECT = 'events.security.events.auth.login.*';
+const MIGRATION_SUBJECT = 'events.platform.schema-migration.>';
+const SUBJECT_LISTENER = [
+  "import type { ISubjectBus } from '../../../platform/libs/event-bus/src/subject-bus';",
+  'export class SecurityListener {',
+  '  constructor(private readonly bus: ISubjectBus) {}',
+  '  async start(): Promise<void> {',
+  `    await this.bus.subscribeTo('${LOGIN_SUBJECT}', this);`,
+  `    await this.bus.subscribeTo('${MIGRATION_SUBJECT}', this);`,
+  '  }',
+  '}',
+  '',
+].join('\n');
+const SUBJECT_APP = 'f-service';
+const SUBJECT_SITES: readonly (readonly [string, string])[] = [
+  [
+    LOGIN_SUBJECT,
+    `apps/${SUBJECT_APP}/src/security-listener.ts:${lineOf(SUBJECT_LISTENER, 'auth.login')}`,
+  ],
+  [
+    MIGRATION_SUBJECT,
+    `apps/${SUBJECT_APP}/src/security-listener.ts:${lineOf(SUBJECT_LISTENER, 'schema-migration')}`,
+  ],
+];
+const UNSCANNED_APP = 'g-ingest';
+
+/** The round-1 facts fixture plus a subject-only subscriber and an app with no TypeScript. */
+function roundTwoRepo(): string {
+  return writeTree(factsRepo(FACTS_SERVICES_YAML), {
+    'platform/libs/event-bus/src/subject-bus.ts': SUBJECT_BUS,
+    [`apps/${SUBJECT_APP}/project.json`]: JSON.stringify({ name: SUBJECT_APP }),
+    [`apps/${SUBJECT_APP}/src/security-listener.ts`]: SUBJECT_LISTENER,
+    [`apps/${UNSCANNED_APP}/project.json`]: JSON.stringify({ name: UNSCANNED_APP }),
+    [`apps/${UNSCANNED_APP}/Cargo.toml`]: '[package]\nname = "g-ingest"\nversion = "0.1.0"\n',
+    [`apps/${UNSCANNED_APP}/src/main.rs`]:
+      'fn main() { publish("events.tenant.SensorReading"); }\nfn publish(_subject: &str) {}\n',
+  });
+}
+
+let roundTwoRun: FactsRun | null = null;
+function roundTwoFacts(): Record<string, unknown> {
+  roundTwoRun ??= runFactsEntry(roundTwoRepo());
+  const run = roundTwoRun;
+  assert.equal(run.exitCode, 0, `--facts exited ${run.exitCode}: ${run.stderr}`);
+  const parsed: unknown = JSON.parse(run.stdout);
+  assert.ok(typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed));
+  return parsed as Record<string, unknown>;
+}
+
+/** Every object inside `value`, with the `services[i].service` it lies under (or null). */
+function objectsIn(
+  value: unknown,
+  service: string | null = null,
+  out: { readonly holder: Record<string, unknown>; readonly service: string | null }[] = [],
+): { readonly holder: Record<string, unknown>; readonly service: string | null }[] {
+  if (Array.isArray(value)) {
+    for (const item of value) objectsIn(item, service, out);
+  } else if (typeof value === 'object' && value !== null) {
+    const holder = value as Record<string, unknown>;
+    out.push({ holder, service });
+    for (const child of Object.values(holder)) objectsIn(child, service, out);
+  }
+  return out;
+}
+
+/** Every string inside `value`. */
+function stringsIn(value: unknown): string[] {
+  if (typeof value === 'string') return [value];
+  if (Array.isArray(value)) return value.flatMap(stringsIn);
+  if (typeof value === 'object' && value !== null) return Object.values(value).flatMap(stringsIn);
+  return [];
+}
+
+function serviceEntry(facts: Record<string, unknown>, service: string): unknown {
+  const services = facts.services;
+  assert.ok(Array.isArray(services));
+  const found = services.filter(
+    (entry: unknown) =>
+      typeof entry === 'object' &&
+      entry !== null &&
+      (entry as { service?: unknown }).service === service,
+  );
+  assert.equal(found.length, 1, `exactly one facts entry for ${service}`);
+  return found[0];
+}
+
+/** Top-level keys of the round-1 output; a new top-level list may name what the scan could not read. */
+const ROUND_ONE_TOP_LEVEL: ReadonlySet<string> = new Set([
+  'schema',
+  'services',
+  'event_definitions',
+  'unresolved',
+  'unattributed',
+  'nats_identities_without_application',
+]);
+
+/** True when the facts name `app` as not scanned: an `unavailable:<reason>` state in its own entry, or a new top-level list naming it. */
+function namedUnscanned(facts: Record<string, unknown>, app: string): boolean {
+  if (stringsIn(serviceEntry(facts, app)).some((text) => text.startsWith('unavailable:')))
+    return true;
+  return Object.entries(facts).some(
+    ([key, value]) => !ROUND_ONE_TOP_LEVEL.has(key) && stringsIn(value).includes(app),
+  );
+}
+
+void test(
+  'facts: a code subscription to a subject that names no known event type is a fact of its app, never dropped',
+  { todo: SE3R2_PENDING },
+  () => {
+    const facts = roundTwoFacts();
+    for (const [subject, site] of SUBJECT_SITES) {
+      const holders = objectsIn(facts.services).map(({ holder }) => holder);
+      const attributed = [
+        // inside f-service's own entry
+        ...objectsIn(serviceEntry(facts, SUBJECT_APP), SUBJECT_APP),
+        // or in a named top-level list, keyed by the application
+        ...Object.entries(facts)
+          .filter(([key]) => key !== 'services')
+          .flatMap(([, value]) => objectsIn(value))
+          .filter(({ holder }) => Object.values(holder).includes(SUBJECT_APP)),
+      ].filter(
+        ({ holder }) =>
+          Object.values(holder).includes(site) && Object.values(holder).includes(subject),
+      );
+      assert.ok(
+        attributed.length > 0,
+        `${subject} at ${site} is in no facts entry of ${SUBJECT_APP} (objects under services: ${holders.length})`,
+      );
+    }
+  },
+);
+
+void test(
+  'facts: an app the TypeScript scan cannot read is named unavailable, never listed as producing nothing',
+  { todo: SE3R2_PENDING },
+  () => {
+    const facts = roundTwoFacts();
+    assert.ok(
+      namedUnscanned(facts, UNSCANNED_APP),
+      JSON.stringify(serviceEntry(facts, UNSCANNED_APP)),
+    );
+    // A TypeScript app is read, whether or not it has event code.
+    for (const app of ['a-service', 'c-service', SUBJECT_APP]) {
+      assert.equal(namedUnscanned(facts, app), false, `${app} is a TypeScript app the scan reads`);
+    }
+  },
+);
+
+// Single-owner blockers 1 and 2: a second producer-site scanner (the emit invariant's
+// `createBaseEvent('…')` regex) and a second and third reader of "where event T is defined"
+// (event-contracts-adapter's readEventTypeLiteral, the invariant's `export interface …Event`
+// regex) lived beside the owners in this module.
+
+const EMIT_INVARIANT = 'tests/invariants/event-contract-emit-has-interface.spec.ts';
+
+function parsedSource(path: string): ts.SourceFile {
+  return ts.createSourceFile(
+    path,
+    readFileSync(join(REPO_ROOT, path), 'utf8'),
+    ts.ScriptTarget.Latest,
+    true,
+  );
+}
+
+function nodesOf(source: ts.SourceFile): ts.Node[] {
+  const nodes: ts.Node[] = [];
+  const visit = (node: ts.Node): void => {
+    nodes.push(node);
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return nodes;
+}
+
+/** Regex literals, and string literals handed to the RegExp constructor. */
+function regexTexts(source: ts.SourceFile): string[] {
+  return nodesOf(source).flatMap((node): string[] => {
+    if (node.kind === ts.SyntaxKind.RegularExpressionLiteral) return [node.getText(source)];
+    if (
+      (ts.isNewExpression(node) || ts.isCallExpression(node)) &&
+      node.expression.getText(source) === 'RegExp'
+    ) {
+      const [pattern] = node.arguments ?? [];
+      return pattern !== undefined && ts.isStringLiteralLike(pattern) ? [pattern.text] : [];
+    }
+    return [];
+  });
+}
+
+void test(
+  'one owner of "who produces event T": the emit invariant reads scanEventProducers and has no producer regex',
+  { todo: SE3R2_PENDING },
+  () => {
+    const source = parsedSource(EMIT_INVARIANT);
+    const importsOwner = source.statements.some(
+      (statement) =>
+        ts.isImportDeclaration(statement) &&
+        ts.isStringLiteral(statement.moduleSpecifier) &&
+        /(?:^|\/)tools\/gates\/event-consumer-index$/.test(statement.moduleSpecifier.text) &&
+        statement.importClause?.namedBindings !== undefined &&
+        ts.isNamedImports(statement.importClause.namedBindings) &&
+        statement.importClause.namedBindings.elements.some(
+          (element) => element.name.text === 'scanEventProducers',
+        ),
+    );
+    assert.ok(importsOwner, `${EMIT_INVARIANT} does not import scanEventProducers from its owner`);
+    assert.deepEqual(
+      regexTexts(source).filter((text) => text.includes('createBaseEvent')),
+      [],
+      `${EMIT_INVARIANT} still discovers producer sites with its own regex`,
+    );
+    // Sites the scan cannot fold or attribute fail the invariant by name, never pass silently.
+    const accessed = new Set(
+      nodesOf(source)
+        .filter(ts.isPropertyAccessExpression)
+        .map((node) => node.name.text),
+    );
+    for (const name of ['unresolved', 'unattributed']) {
+      assert.ok(accessed.has(name), `${EMIT_INVARIANT} never reads the scan's ${name} sites`);
+    }
+  },
+);
+
+void test(
+  'one reader of "where event T is defined": one eventType-definition reader in tools/, and the emit invariant has no interface regex',
+  { todo: SE3R2_PENDING },
+  () => {
+    const tracked = execFileSync('git', ['-C', REPO_ROOT, 'ls-files', '-z', '--', 'tools'], {
+      encoding: 'utf8',
+    })
+      .split('\0')
+      .filter((path) => /\.ts$/.test(path) && !/\.(?:spec|test|d)\.ts$/.test(path));
+    // A definition reader compares a member name with the literal 'eventType'.
+    const readers = tracked.filter((path) =>
+      nodesOf(parsedSource(path)).some(
+        (node) =>
+          ts.isBinaryExpression(node) &&
+          [
+            ts.SyntaxKind.EqualsEqualsEqualsToken,
+            ts.SyntaxKind.ExclamationEqualsEqualsToken,
+            ts.SyntaxKind.EqualsEqualsToken,
+            ts.SyntaxKind.ExclamationEqualsToken,
+          ].includes(node.operatorToken.kind) &&
+          [node.left, node.right].some(
+            (side) => ts.isStringLiteralLike(side) && side.text === 'eventType',
+          ),
+      ),
+    );
+    assert.ok(
+      readers.length <= 1,
+      `more than one reader of event definitions: ${readers.join(', ')}`,
+    );
+    assert.deepEqual(
+      regexTexts(parsedSource(EMIT_INVARIANT)).filter((text) => text.includes('interface')),
+      [],
+      `${EMIT_INVARIANT} still discovers declared interfaces with its own regex`,
+    );
+  },
+);

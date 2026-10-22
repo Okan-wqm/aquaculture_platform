@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { eventFacts } from '../gates/event-consumer-index';
 import { makeFixtureTree } from '../gates/fixture-tree';
 
 import { analyzeEventContracts } from './event-contracts-adapter';
@@ -215,5 +216,89 @@ assert.equal(
   badOutput.findings.some((finding) => finding.rule === 'create_base_event_missing'),
   true,
 );
+
+// --- SE-3 review round 1, single-owner blocker 2 (build/SE-3/review-r1-blockers.md) -----------
+//
+// "Where is event T defined" had three readers with three rules: this adapter's event_interface
+// observations (an interface extending BaseEvent, outside schemas/ and base-event.ts), the
+// code-fact entry's event_definitions in tools/gates/event-consumer-index.ts (any `eventType`
+// member with a literal type: 408 live sites for 288 types, schema catalogs, registries and
+// erasure targets included) and the emit invariant's `export interface …Event` regex. One
+// definition function, with one explicit rule, serves all of them: on the same tree the adapter's
+// observations and the facts' definitions are the same set, and a schema catalog or a registry
+// type that merely carries an `eventType` literal is not a definition.
+const definitionsTree = makeFixtureTree('aria-event-definitions-');
+const definitionFiles: Record<string, string> = {
+  'libs/event-contracts/src/base-event.ts': [
+    'export interface BaseEvent {',
+    '  readonly eventId: string;',
+    '  readonly eventType: string;',
+    '  readonly tenantId: string;',
+    '}',
+    '',
+  ].join('\n'),
+  'libs/event-contracts/src/farm-events.ts': [
+    "import type { BaseEvent } from './base-event';",
+    'export interface BatchCreatedEvent extends BaseEvent {',
+    "  readonly eventType: 'BatchCreated';",
+    '  readonly batchId: string;',
+    '}',
+    '',
+  ].join('\n'),
+  // A validator catalog's shape, not a definition.
+  'libs/event-contracts/src/schemas/farm-events.schema.ts': [
+    'export interface BatchCreatedSchemaShape {',
+    "  readonly eventType: 'BatchCreated';",
+    '}',
+    '',
+  ].join('\n'),
+  // A registry row type, not a definition: it does not extend BaseEvent.
+  'libs/event-contracts/src/event-registry.ts': [
+    'export interface RegistryRow {',
+    "  readonly eventType: 'RegistryOnly';",
+    '  readonly stream: string;',
+    '}',
+    '',
+  ].join('\n'),
+  'infrastructure/nats/services.yaml': [
+    'version: 1',
+    'services:',
+    '  - name: farm_service',
+    '    application: farm-service',
+    '    description: fixture identity',
+    '    publish:',
+    '      - $JS.API.>',
+    '      - $JS.ACK.>',
+    '      - _INBOX.>',
+    '    subscribe:',
+    '      - $JS.API.>',
+    '      - _INBOXFARM_SERVICE.>',
+    '',
+  ].join('\n'),
+};
+for (const [path, text] of Object.entries(definitionFiles)) {
+  mkdirSync(join(definitionsTree, path, '..'), { recursive: true });
+  writeFileSync(join(definitionsTree, path), text, 'utf8');
+}
+const adapterDefinitions = analyzeEventContracts(
+  { root: 'libs/event-contracts/src', checks: ['event_interfaces'] },
+  definitionsTree,
+)
+  .observations.filter(
+    (observation) => observation.type === 'event_interface' && observation.eventType !== undefined,
+  )
+  .map((observation) => `${observation.eventType} @ ${observation.path}`)
+  .sort();
+const factDefinitions = eventFacts(definitionsTree)
+  .event_definitions.map(
+    (definition) => `${definition.event_type} @ ${definition.site.replace(/:\d+$/, '')}`,
+  )
+  .sort();
+assert.deepEqual(
+  factDefinitions,
+  adapterDefinitions,
+  'the code-fact definitions and the adapter observations disagree: two definition rules',
+);
+assert.deepEqual(factDefinitions, ['BatchCreated @ libs/event-contracts/src/farm-events.ts']);
 
 process.stdout.write('event-contracts-adapter tests passed\n');

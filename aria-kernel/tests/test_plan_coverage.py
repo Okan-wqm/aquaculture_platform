@@ -115,6 +115,18 @@ class PlanCoverageWrapperTests(unittest.TestCase):
         self.assertEqual(payload["synthetic_risks"], [])
         self.assertEqual(payload["closure_summary"]["waived"], 1)
 
+    def test_witness_runs_the_tree_own_ts_node_never_npx(self):
+        # SE-3 review r1 security B2: the one runner (shared with the code-fact bridge) ran
+        # `npx ts-node`; on a tree without node_modules npx fetches an unpinned ts-node from the
+        # registry instead of failing. The tree's own binary fails as FileNotFoundError, which
+        # is the toolchain_missing case below.
+        clean = {**WITNESS_REPORT, "verdict": "covered_with_waivers", "uncovered": []}
+        runner = _FakeRunner(subprocess.CompletedProcess([], 0, stdout=json.dumps(clean), stderr=""))
+        self.compute(runner)
+        witness_call = runner.calls[-1]
+        self.assertNotIn("npx", witness_call)
+        self.assertEqual(self.workspace / witness_call[0], self.workspace / "node_modules" / ".bin" / "ts-node")
+
     def test_missing_toolchain_is_environment_unable(self):
         payload = self.compute(_FakeRunner(FileNotFoundError("npx not found")))
         self.assertEqual(payload["verdict"], "environment_unable")

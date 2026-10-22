@@ -39,9 +39,27 @@ const REGISTRY = [
   '',
 ].join('\n');
 
+/**
+ * The nx applications of the fixture tree (apps/<dir>/project.json). SE-3-R2: each
+ * SCHEMA_REGISTRY owner resolves through the SE-1 key reader, so the owners are applications;
+ * farm-service's directory differs from its nx name, so the key is the name, not the directory.
+ */
+const APPLICATIONS: Readonly<Record<string, string>> = {
+  'apps/farm/project.json': JSON.stringify({ name: 'farm-service', projectType: 'application' }),
+  'apps/billing-service/project.json': JSON.stringify({
+    name: 'billing-service',
+    projectType: 'application',
+  }),
+  'apps/config-service/project.json': JSON.stringify({
+    name: 'config-service',
+    projectType: 'application',
+  }),
+};
+
 function tree(scoped: string, registry: string | null = REGISTRY): string {
   const root = makeFixtureTree('aria-module-facts-');
   const files: Record<string, string> = {
+    ...APPLICATIONS,
     [MODULE_SCHEMAS_SOURCE_PATH]: `${MODULE_SCHEMAS}\nexport const TENANT_SCOPED_MODULES: ReadonlySet<string> = new Set([${scoped}]);\n`,
   };
   if (registry !== null) files[SCHEMA_REGISTRY_SOURCE_PATH] = registry;
@@ -132,4 +150,83 @@ void test('registries the reader cannot read completely: exit 2, no facts printe
   const computed = runEntry(tree("'farm'"));
   assert.equal(computed.status, 0);
   assert.equal((JSON.parse(computed.stdout) as { schema: string }).schema, 'aria/module_facts/v1');
+});
+
+// --- SE-3 review round 1 blockers (build/SE-3/review-r1-blockers.md), pinned before round 2 ----
+
+/** A SCHEMA_REGISTRY source with the given `[service, schema]` entries. */
+function registryOf(entries: readonly (readonly [string, string])[]): string {
+  return [
+    'export const SCHEMA_REGISTRY = [',
+    ...entries.map(
+      ([service, schema]) =>
+        `  { service: '${service}', schema: '${schema}', migrationsGlob: [], reason: 'fixture' },`,
+    ),
+    '];',
+    '',
+  ].join('\n');
+}
+
+/** moduleFacts refuses the tree with ModuleFactsUnavailable naming every `names`, and the entry exits 2 printing nothing. */
+function assertRefused(root: string, names: readonly string[]): void {
+  assert.throws(
+    () => moduleFacts(root),
+    (error: unknown) => {
+      assert.ok(error instanceof ModuleFactsUnavailable, String(error));
+      for (const name of names)
+        assert.ok(error.message.includes(name), `${error.message} names ${name}`);
+      return true;
+    },
+  );
+  const run = runEntry(root);
+  assert.equal(run.status, 2, `exit ${run.status}, stdout ${JSON.stringify(run.stdout)}`);
+  assert.equal(run.stdout, '');
+}
+
+void test('architecture B4: two SCHEMA_REGISTRY services claiming one schema refuse the facts by name', () => {
+  // Round 1 kept the last owner in a Map and dropped billing-service with exit 0.
+  assertRefused(
+    tree(
+      "'farm'",
+      registryOf([
+        ['farm-service', 'farm'],
+        ['billing-service', 'billing'],
+        ['config-service', 'billing'],
+      ]),
+    ),
+    ['billing-service', 'config-service'],
+  );
+});
+
+void test('architecture B4: one SCHEMA_REGISTRY service listed twice refuses the facts by name', () => {
+  assertRefused(
+    tree(
+      "'farm'",
+      registryOf([
+        ['farm-service', 'farm'],
+        ['farm-service', 'billing'],
+      ]),
+    ),
+    ['farm-service'],
+  );
+});
+
+void test('single-owner B3: an owner that is not an nx application refuses the facts by name', () => {
+  // The module entry keys services by the SE-1 key (the nx project name of an apps/ project),
+  // read by the one reader the event entry uses; SCHEMA_REGISTRY.service is never trusted as a
+  // key on its own. A library project of that name is not an application either.
+  const root = tree(
+    "'farm'",
+    registryOf([
+      ['farm-service', 'farm'],
+      ['ghost-service', 'billing'],
+    ]),
+  );
+  mkdirSync(join(root, 'libs', 'ghost-service'), { recursive: true });
+  writeFileSync(
+    join(root, 'libs', 'ghost-service', 'project.json'),
+    JSON.stringify({ name: 'ghost-service', projectType: 'library' }),
+    'utf8',
+  );
+  assertRefused(root, ['ghost-service']);
 });

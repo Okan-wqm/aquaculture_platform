@@ -963,48 +963,40 @@ function namedUnscanned(facts: Record<string, unknown>, app: string): boolean {
   );
 }
 
-void test(
-  'facts: a code subscription to a subject that names no known event type is a fact of its app, never dropped',
-  { todo: SE3R2_PENDING },
-  () => {
-    const facts = roundTwoFacts();
-    for (const [subject, site] of SUBJECT_SITES) {
-      const holders = objectsIn(facts.services).map(({ holder }) => holder);
-      const attributed = [
-        // inside f-service's own entry
-        ...objectsIn(serviceEntry(facts, SUBJECT_APP), SUBJECT_APP),
-        // or in a named top-level list, keyed by the application
-        ...Object.entries(facts)
-          .filter(([key]) => key !== 'services')
-          .flatMap(([, value]) => objectsIn(value))
-          .filter(({ holder }) => Object.values(holder).includes(SUBJECT_APP)),
-      ].filter(
-        ({ holder }) =>
-          Object.values(holder).includes(site) && Object.values(holder).includes(subject),
-      );
-      assert.ok(
-        attributed.length > 0,
-        `${subject} at ${site} is in no facts entry of ${SUBJECT_APP} (objects under services: ${holders.length})`,
-      );
-    }
-  },
-);
-
-void test(
-  'facts: an app the TypeScript scan cannot read is named unavailable, never listed as producing nothing',
-  { todo: SE3R2_PENDING },
-  () => {
-    const facts = roundTwoFacts();
-    assert.ok(
-      namedUnscanned(facts, UNSCANNED_APP),
-      JSON.stringify(serviceEntry(facts, UNSCANNED_APP)),
+void test('facts: a code subscription to a subject that names no known event type is a fact of its app, never dropped', () => {
+  const facts = roundTwoFacts();
+  for (const [subject, site] of SUBJECT_SITES) {
+    const holders = objectsIn(facts.services).map(({ holder }) => holder);
+    const attributed = [
+      // inside f-service's own entry
+      ...objectsIn(serviceEntry(facts, SUBJECT_APP), SUBJECT_APP),
+      // or in a named top-level list, keyed by the application
+      ...Object.entries(facts)
+        .filter(([key]) => key !== 'services')
+        .flatMap(([, value]) => objectsIn(value))
+        .filter(({ holder }) => Object.values(holder).includes(SUBJECT_APP)),
+    ].filter(
+      ({ holder }) =>
+        Object.values(holder).includes(site) && Object.values(holder).includes(subject),
     );
-    // A TypeScript app is read, whether or not it has event code.
-    for (const app of ['a-service', 'c-service', SUBJECT_APP]) {
-      assert.equal(namedUnscanned(facts, app), false, `${app} is a TypeScript app the scan reads`);
-    }
-  },
-);
+    assert.ok(
+      attributed.length > 0,
+      `${subject} at ${site} is in no facts entry of ${SUBJECT_APP} (objects under services: ${holders.length})`,
+    );
+  }
+});
+
+void test('facts: an app the TypeScript scan cannot read is named unavailable, never listed as producing nothing', () => {
+  const facts = roundTwoFacts();
+  assert.ok(
+    namedUnscanned(facts, UNSCANNED_APP),
+    JSON.stringify(serviceEntry(facts, UNSCANNED_APP)),
+  );
+  // A TypeScript app is read, whether or not it has event code.
+  for (const app of ['a-service', 'c-service', SUBJECT_APP]) {
+    assert.equal(namedUnscanned(facts, app), false, `${app} is a TypeScript app the scan reads`);
+  }
+});
 
 // Single-owner blockers 1 and 2: a second producer-site scanner (the emit invariant's
 // `createBaseEvent('…')` regex) and a second and third reader of "where event T is defined"

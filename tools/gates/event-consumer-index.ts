@@ -58,9 +58,12 @@
  * diff's base tree (`K/plan_coverage.py` `compute_service_facts`): per application, the produced
  * and consumed event sites, code producer x code subscription edges, the services.yaml grants as
  * permission facts with their lines (never edges, SK-09), the NATS identity, and the event
- * definition sites in libs/event-contracts. Every input is read under the given tree. A
- * services.yaml its schema refuses exits 2 with nothing on stdout, so the kernel holds the change
- * by name instead of reading empty facts.
+ * definition sites in libs/event-contracts. A code subscription whose subject names no known event
+ * type is listed under its application's `subjects_consumed`, never dropped. Each entry carries a
+ * per-section `state`: an application without TypeScript sources (a Rust app) has its code
+ * sections `unavailable:no_typescript_sources`, so its empty lists never read as "produces
+ * nothing". Every input is read under the given tree. A services.yaml its schema refuses exits 2
+ * with nothing on stdout, so the kernel holds the change by name instead of reading empty facts.
  *
  * Invoke via:
  *   ts-node --project tools/gates/tsconfig.json tools/gates/event-consumer-index.ts --facts --repo-root <tree>
@@ -1020,9 +1023,24 @@ export interface EventConsumers {
 }
 
 /**
- * The one consumer set of an event type: code subscriptions (event-type equality, or a subscribed
- * subject overlapping one of the event's subjects) united with the subscribe grants that name the
- * event. Catch-all grants are returned apart.
+ * The subject on which a code subscription consumes `eventType` (whose subjects are `subjects`),
+ * or undefined when it does not: an event-type subscription names the type itself, and the bus
+ * subscribes it on the event's first declared subject (tools cannot load the bus's route registry);
+ * a subject subscription consumes the event when its filter overlaps one of the event's subjects.
+ * The one matching rule of `eventConsumersFor` and of the facts entry's subject-only sites.
+ */
+function consumedSubject(
+  entry: EventConsumerEntry,
+  eventType: string,
+  subjects: readonly string[],
+): string | undefined {
+  if (entry.kind === 'event_type') return entry.value === eventType ? subjects[0] : undefined;
+  return subjects.find((candidate) => filtersOverlap(entry.value, candidate));
+}
+
+/**
+ * The one consumer set of an event type: code subscriptions (`consumedSubject`) united with the
+ * subscribe grants that name the event. Catch-all grants are returned apart.
  */
 export function eventConsumersFor(
   eventType: string,
@@ -1030,10 +1048,7 @@ export function eventConsumersFor(
   services: readonly NatsServiceEntry[],
   subjects: readonly string[] = eventSubjectsFor(eventType, services).subjects,
 ): EventConsumers {
-  // The bus subscribes an event type on the subject its route registry derives; tools cannot load
-  // that registry, so an event-type match is reported on the event's first declared subject.
-  const [defaultSubject] = subjects;
-  if (defaultSubject === undefined) {
+  if (subjects.length === 0) {
     throw new Error(`eventConsumersFor(${eventType}): an event travels on at least one subject`);
   }
   interface Draft {
@@ -1053,12 +1068,7 @@ export function eventConsumersFor(
     return draft;
   };
   for (const entry of index.entries) {
-    let subject: string | undefined;
-    if (entry.kind === 'event_type') {
-      if (entry.value === eventType) subject = defaultSubject;
-    } else {
-      subject = subjects.find((candidate) => filtersOverlap(entry.value, candidate));
-    }
+    const subject = consumedSubject(entry, eventType, subjects);
     if (subject === undefined) continue;
     const draft = draftFor(entry.application, subject);
     draft.sources.add('code_subscription');
@@ -1110,6 +1120,16 @@ export interface EventEdgeFact {
   readonly to_ref: string;
 }
 
+/**
+ * A code subscription whose subject names no event type the tree knows (no definition, producer or
+ * event-type subscription matches it), e.g. `events.security.events.auth.login.*`. It is still a
+ * consumption fact of its application, with its site; it can be the target of no edge.
+ */
+export interface SubjectSiteFact {
+  readonly subject: string;
+  readonly site: string;
+}
+
 /** A services.yaml grant: permission to publish or receive, never an edge (SK-09). */
 export interface AclGrantFact {
   readonly subject: string;
@@ -1117,14 +1137,37 @@ export interface AclGrantFact {
   readonly ref: string;
 }
 
+/** Whether a section of a service's facts was read: an empty list is "nothing", not "unknown". */
+export type SectionState = 'available' | `unavailable:${string}`;
+
+/**
+ * The state of the code sections of an application the TypeScript scan cannot read: one with no
+ * TypeScript source under apps/<dir>/src (sensor-ingestion is Rust). Its empty code lists mean
+ * "not read", never "produces and consumes nothing" (PLAN §3.1).
+ */
+export const NO_TYPESCRIPT_SOURCES: SectionState = 'unavailable:no_typescript_sources';
+
+export interface ServiceFactsState {
+  readonly events_produced: SectionState;
+  readonly events_consumed: SectionState;
+  readonly subjects_consumed: SectionState;
+  readonly edges: SectionState;
+  readonly acl_grants: SectionState;
+  readonly nats_identity: SectionState;
+}
+
 export interface ServiceEventFacts {
   readonly service: string;
   readonly events_produced: readonly EventSiteFact[];
   readonly events_consumed: readonly EventSiteFact[];
+  /** Code subscriptions to subjects that name no known event type; never dropped. */
+  readonly subjects_consumed: readonly SubjectSiteFact[];
   readonly edges: readonly EventEdgeFact[];
   readonly acl_grants: readonly AclGrantFact[];
   /** The certificate identity whose services.yaml `application` is this service, or null. */
   readonly nats_identity: { readonly name: string; readonly ref: string } | null;
+  /** Per section: read (`available`) or not read, with the reason. */
+  readonly state: ServiceFactsState;
 }
 
 export interface EventDefinitionFact extends EventSiteFact {
@@ -1220,14 +1263,24 @@ export function eventFacts(repoRoot: string): EventFacts {
     ...producers.entries.map((entry) => entry.eventType),
     ...consumers.entries.filter((entry) => entry.kind === 'event_type').map((entry) => entry.value),
   ]);
+  const subjectsOf = new Map(
+    [...eventTypes]
+      .sort()
+      .map(
+        (eventType) => [eventType, eventSubjectsFor(eventType, nats.services).subjects] as const,
+      ),
+  );
   // Code subscriptions per event type, through the one consumer-set function; grants are not
   // consumption, so only code sites become consumed facts and edge targets.
   const consumed = new Map<string, EventSiteFact[]>();
   const codeConsumers = new Map<string, ConsumerMatch[]>();
-  for (const eventType of [...eventTypes].sort()) {
-    const matches = eventConsumersFor(eventType, consumers, nats.services).consumers.filter(
-      (match) => match.sources.includes('code_subscription'),
-    );
+  for (const [eventType, subjects] of subjectsOf) {
+    const matches = eventConsumersFor(
+      eventType,
+      consumers,
+      nats.services,
+      subjects,
+    ).consumers.filter((match) => match.sources.includes('code_subscription'));
     codeConsumers.set(eventType, matches);
     for (const match of matches) {
       const list = consumed.get(match.application) ?? [];
@@ -1235,6 +1288,28 @@ export function eventFacts(repoRoot: string): EventFacts {
       consumed.set(match.application, list);
     }
   }
+
+  // A code subscription no known event type matches is still its application's fact, never
+  // dropped. Only a subject subscription can be one: an event-type subscription's value is in
+  // `eventTypes` by construction.
+  const subjectsConsumed = new Map<string, SubjectSiteFact[]>();
+  for (const entry of consumers.entries) {
+    if (entry.kind !== 'subject') continue;
+    const matched = [...subjectsOf].some(
+      ([eventType, subjects]) => consumedSubject(entry, eventType, subjects) !== undefined,
+    );
+    if (matched) continue;
+    const list = subjectsConsumed.get(entry.application) ?? [];
+    list.push({ subject: entry.value, site: entry.site });
+    subjectsConsumed.set(entry.application, list);
+  }
+  // The applications the TypeScript scan read: those with a TypeScript source under apps/<dir>/src.
+  const scanned = new Set(
+    allFiles.flatMap((path) => {
+      const application = scan.appOf(scan.relative(path));
+      return application === null ? [] : [application];
+    }),
+  );
 
   const identityByApplication = new Map(
     nats.services.map((service) => [service.application, service] as const),
@@ -1292,16 +1367,29 @@ export function eventFacts(repoRoot: string): EventFacts {
       }
     }
     const identity = identityByApplication.get(service);
+    const codeState: SectionState = scanned.has(service) ? 'available' : NO_TYPESCRIPT_SOURCES;
     return {
       service,
       events_produced: produced.map((entry) => ({ event_type: entry.eventType, site: entry.site })),
       events_consumed: (consumed.get(service) ?? []).sort(
         (a, b) => a.event_type.localeCompare(b.event_type) || bySite(a, b),
       ),
+      subjects_consumed: (subjectsConsumed.get(service) ?? []).sort(
+        (a, b) => a.subject.localeCompare(b.subject) || bySite(a, b),
+      ),
       edges: [...edges.values()].sort(
         (a, b) => a.subject.localeCompare(b.subject) || a.to.localeCompare(b.to),
       ),
       ...(identity === undefined ? { acl_grants: [], nats_identity: null } : natsFacts(identity)),
+      // The code sections come from the TypeScript scan; the services.yaml sections are always read.
+      state: {
+        events_produced: codeState,
+        events_consumed: codeState,
+        subjects_consumed: codeState,
+        edges: codeState,
+        acl_grants: 'available',
+        nats_identity: 'available',
+      },
     };
   });
 

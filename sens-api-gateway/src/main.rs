@@ -2388,9 +2388,40 @@ impl AppState {
     /// READ TIME as the sentinel age, not at init. Boot
     /// continues regardless.
     pub fn init_clock_authority(&mut self) {
+        let threshold = self.config.clock.nts_sync_max_skew_secs;
+
+        // ADR-048 DEC-7.3: on Suderra OS the agent's clock authority is root's
+        // time document and nothing else — no `chronyc` query (the agent has no
+        // chrony socket), no trusting baseline, and no configuration knob: the
+        // unit does not let a config file choose its own clock.
+        #[cfg(feature = "suderra-os")]
+        {
+            let document = paths::AgentPaths::current().time_state_file();
+            info!(
+                "Clock authority: TimeStateClockAuthority document={} (ADR-048 DEC-7.3); \
+                 freshness-dependent commands are refused with clock-unsynced while it is not synced",
+                document.display()
+            );
+            self.clock_authority = std::sync::Arc::new(
+                crate::runtime_safety::time_state_clock::TimeStateClockAuthority::new(
+                    document, threshold,
+                ),
+            );
+        }
+
+        #[cfg(not(feature = "suderra-os"))]
+        {
+            self.init_generic_clock_authority(threshold);
+        }
+    }
+
+    /// The generic profile's clock authority (HC-1): the chrony query when the
+    /// operator enabled it, otherwise the trusting baseline of every v1.6.0
+    /// device.
+    #[cfg(not(feature = "suderra-os"))]
+    fn init_generic_clock_authority(&mut self, threshold: u64) {
         use crate::runtime_safety::{ChronyNtsClockAuthority, SystemClockAuthority};
 
-        let threshold = self.config.clock.nts_sync_max_skew_secs;
         if self.config.clock.enable_chrony_query {
             info!(
                 "Clock authority: ChronyNtsClockAuthority threshold={}s (Sprint 6.7 real NTS query)",

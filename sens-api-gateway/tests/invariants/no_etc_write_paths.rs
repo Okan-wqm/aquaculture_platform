@@ -365,6 +365,13 @@ fn trust_inputs_are_root_owned_read_only_contract_locations() {
     assert_eq!(run["agent_access"], "read");
     let name = identity.file_name().expect("file name").to_string_lossy();
     assert!(strings(&run["contents"]).contains(name.as_ref()));
+    // DEC-7.3: root's clock state is the agent's only clock authority, a
+    // read-only file of the same tmpfs.
+    let time_state = p.time_state_file();
+    assert!(p.check_agent_writable(&time_state).is_err());
+    assert_eq!(time_state.parent(), identity.parent());
+    let name = time_state.file_name().expect("file name").to_string_lossy();
+    assert!(strings(&run["contents"]).contains(name.as_ref()));
     // The receipt and the lifecycle request are named state contents.
     let state = strings(&entry(paths::suderra_os::STATE_DIR)["contents"]);
     for file in [p.activation_receipt_file(), p.lifecycle_request_file()] {

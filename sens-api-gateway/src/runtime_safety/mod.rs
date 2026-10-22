@@ -43,9 +43,15 @@ pub mod system_clock;
 // Sprint-6.7 SystemClockAuthority left open (always-trusting
 // 0-age) per plan D-7 + IEC 62443 SL-2 FR4.
 pub mod chrony_clock;
+// ADR-048 DEC-7.3 / DEC-7.5: the Suderra OS profile's clock authority — root's
+// time helper writes /run/suderra/time-state, the agent reads it and nothing
+// else. The generic profile has no such helper and keeps the chrony and system
+// authorities above.
+#[cfg(feature = "suderra-os")]
+pub mod time_state_clock;
 
 pub use chrony_clock::{CHRONY_QUERY_FAILED_AGE_SENTINEL, ChronyNtsClockAuthority};
-pub use clock::{ClockAuthority, ClockError, MonotonicAnchor, WallClockReading};
+pub use clock::{ClockAuthority, ClockError, MonotonicAnchor, UnsyncedCause, WallClockReading};
 pub use retained_msg::{RetainedMsgRejectionReason, is_retained_command_rejected};
 pub use shutdown_phase::{DrainState, ShutdownPhase, ShutdownTransition, ShutdownTransitionError};
 pub use system_clock::{DEFAULT_NTS_SYNC_MAX_SKEW_SECS, SystemClockAuthority};

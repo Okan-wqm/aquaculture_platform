@@ -75,6 +75,11 @@ pub mod suderra_os {
     /// provisioned, tenant and device (DEC-3.6). Root writes it; the agent
     /// only reads it.
     pub const IDENTITY_FILE: &str = "/run/suderra/identity.json";
+    /// What root knows about the clock: written by the root time helper from
+    /// chrony's tracking data and the time floor, at least every 30 seconds.
+    /// The agent's only clock authority (`suderra.time-state.v1`, DEC-7.3);
+    /// it cannot read `adjtimex` under `ProtectClock`.
+    pub const TIME_STATE_FILE: &str = "/run/suderra/time-state";
     /// The image's extra provisioning-API CA. Only dev images and the QEMU
     /// targets ship it (Suderra-OS package/suderra-keys installs the dev/CI
     /// `edge/cloud-ca` there, for the QEMU fake cloud); root's provisioning
@@ -439,6 +444,12 @@ impl AgentPaths {
     #[cfg(feature = "suderra-os")]
     pub fn identity_file(&self) -> PathBuf {
         PathBuf::from(suderra_os::IDENTITY_FILE)
+    }
+
+    /// Root's clock state (DEC-7.3): the agent's only clock authority.
+    #[cfg(feature = "suderra-os")]
+    pub fn time_state_file(&self) -> PathBuf {
+        PathBuf::from(suderra_os::TIME_STATE_FILE)
     }
 
     /// The image's extra provisioning-API CA (dev and QEMU images only).

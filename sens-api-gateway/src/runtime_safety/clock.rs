@@ -153,6 +153,42 @@ pub enum ClockError {
     /// Wall clock is before UNIX_EPOCH. Pre-provisioning power-on with RTC
     /// battery drained scenario. Fail-closed for regulated-action paths.
     PreEpochWallClock,
+
+    /// The authority does not vouch for the wall clock: the Suderra OS time
+    /// document says the clock is not synchronized, or cannot be trusted to say
+    /// so (ADR-048 DEC-7.3, DEC-7.5). Freshness-dependent actuation is refused
+    /// with the retryable `clock-unsynced`; local control, safe-state and
+    /// alarms never ask the wall clock and are not affected.
+    #[cfg_attr(not(feature = "suderra-os"), allow(dead_code))]
+    Unsynced(UnsyncedCause),
+}
+
+/// Why a time-state authority does not vouch for the wall clock. Every cause is
+/// "unsynced" to a consumer (contract channels.json `time.stale_rule`); the
+/// cause says which one to an operator who reads the journal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnsyncedCause {
+    /// The document is absent, unreadable or larger than the contract allows.
+    Unreadable,
+    /// The document does not conform to `schemas/time-state.schema.json`.
+    NonConforming,
+    /// `updated_at` is more than `time.max_age_seconds` from the reader's clock
+    /// in either direction: the helper stopped writing, or the clock jumped.
+    Stale,
+    /// The root helper reports the state `unsynced`.
+    ReportedUnsynced,
+}
+
+impl UnsyncedCause {
+    /// The stable lower-case name logs and audit entries carry.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Unreadable => "unreadable",
+            Self::NonConforming => "non-conforming",
+            Self::Stale => "stale",
+            Self::ReportedUnsynced => "reported-unsynced",
+        }
+    }
 }
 
 impl std::fmt::Display for ClockError {
@@ -162,6 +198,7 @@ impl std::fmt::Display for ClockError {
             Self::MonotonicBackward => f.write_str("monotonic_backward"),
             Self::MonotonicOverflow => f.write_str("monotonic_overflow"),
             Self::PreEpochWallClock => f.write_str("pre_epoch_wall_clock"),
+            Self::Unsynced(_) => f.write_str("clock_unsynced"),
         }
     }
 }
@@ -344,17 +381,20 @@ impl MonotonicDeadline {
     /// common pattern "TTL=N seconds" where the caller knows the
     /// duration but doesn't have a SystemTime to anchor against.
     ///
-    /// Uses the same trustworthy_wall_clock() fail-closed gate at
-    /// construction — keeps the architectural property that a
-    /// stale-NTS clock cannot mint a deadline.
+    /// Reads the MONOTONIC clock only. A duration from now names no instant of
+    /// the wall clock, so there is nothing a stale or unsynchronized wall clock
+    /// could corrupt, and the deadline is as immune to a rollback as every
+    /// `MonotonicDeadline`. Local control (a forced output with a TTL) must not
+    /// stop working because the clock is unsynced (ADR-048 DEC-7.5); only a
+    /// deadline taken from a WALL-CLOCK target ([`Self::from_wallclock_target`])
+    /// asks the authority to vouch for the wall clock.
     pub async fn from_duration_now(
         duration_from_now: StdDuration,
         clock: &dyn ClockAuthority,
     ) -> Result<Self, MonotonicDeadlineError> {
-        let now_reading = clock.trustworthy_wall_clock().await?;
+        let now = clock.monotonic_now()?;
         let delta_nanos = duration_from_now.as_nanos();
-        let target_nanos = now_reading
-            .monotonic_anchor
+        let target_nanos = now
             .nanos_since_process_epoch()
             .checked_add(delta_nanos)
             .ok_or(MonotonicDeadlineError::DurationOverflow)?;
@@ -742,6 +782,46 @@ mod tests {
         assert!(!deadline.is_past_now(&clock).expect("ok"));
         clock.advance_monotonic(11 * 1_000_000_000);
         assert!(deadline.is_past_now(&clock).expect("ok"));
+    }
+
+    /// ADR-048 DEC-7.5: a duration from now names no wall-clock instant, so a
+    /// clock whose wall reading is untrustworthy (stale NTS, unsynced) still
+    /// mints it — a forced output's TTL is local control and must not depend on
+    /// the wall clock. A wall-clock TARGET still needs the vouched reading.
+    #[tokio::test]
+    async fn a_duration_deadline_needs_no_trustworthy_wall_clock() {
+        let now_wall = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        let clock = ProgrammableMockClock::new(now_wall, 1_000_000_000);
+        clock.set_force_nts_stale(true);
+        let deadline = MonotonicDeadline::from_duration_now(Duration::from_secs(10), &clock)
+            .await
+            .expect("a duration deadline reads the monotonic clock only");
+        assert!(!deadline.is_past_now(&clock).expect("ok"));
+        clock.advance_monotonic(11 * 1_000_000_000);
+        assert!(deadline.is_past_now(&clock).expect("ok"));
+        assert!(
+            MonotonicDeadline::from_wallclock_target(now_wall + Duration::from_secs(10), &clock)
+                .await
+                .is_err(),
+            "a wall-clock target still needs a trustworthy wall clock"
+        );
+    }
+
+    #[test]
+    fn unsynced_has_stable_names() {
+        assert_eq!(
+            ClockError::Unsynced(UnsyncedCause::Stale).to_string(),
+            "clock_unsynced"
+        );
+        let causes = [
+            (UnsyncedCause::Unreadable, "unreadable"),
+            (UnsyncedCause::NonConforming, "non-conforming"),
+            (UnsyncedCause::Stale, "stale"),
+            (UnsyncedCause::ReportedUnsynced, "reported-unsynced"),
+        ];
+        for (cause, name) in causes {
+            assert_eq!(cause.as_str(), name);
+        }
     }
 
     /// remaining_now returns Duration::ZERO past deadline.

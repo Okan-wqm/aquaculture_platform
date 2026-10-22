@@ -55,7 +55,7 @@ pub struct Record {
     pub at: String,
     /// Who asked.
     pub by: String,
-    /// The outputs the stop was scoped to, empty for "every registered
+    /// The tags the stop was asked to cover, empty for "every registered
     /// output".
     pub scope: Vec<String>,
 }
@@ -95,6 +95,12 @@ struct Inner {
     /// The record file; `None` until [`EmergencyLatch::attach_store`] (a latch
     /// built for a test persists nothing).
     store: Mutex<Option<PathBuf>>,
+    /// Serialises [`EmergencyLatch::latch`] and [`EmergencyLatch::clear`]: the
+    /// flag and the record are one state, and a stop racing a reset must leave
+    /// both set or both cleared, never the flag cleared with the record on disk
+    /// (a stop that comes back at the next boot) or the flag set with the record
+    /// gone (a stop that does not survive one).
+    op: Mutex<()>,
 }
 
 /// The device-wide emergency-stop state (cheap to clone; every clone is the
@@ -118,6 +124,7 @@ impl EmergencyLatch {
             inner: Arc::new(Inner {
                 latched: AtomicBool::new(false),
                 store: Mutex::new(None),
+                op: Mutex::new(()),
             }),
         }
     }
@@ -134,10 +141,37 @@ impl EmergencyLatch {
         }
     }
 
+    fn op(&self) -> std::sync::MutexGuard<'_, ()> {
+        match self.inner.op.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
     /// Back the latch with `file` and restore a stop that was pending: run at
     /// boot, before the hardware is initialised.
+    ///
+    /// The directory of the record is created when it does not exist (a first
+    /// boot): the absence of a record then means no stop was pending. A directory
+    /// that cannot be created, or a record's place that cannot be read (an
+    /// unmounted or read-only data volume), is [`Restored::Unreadable`] and
+    /// latches: the agent cannot tell that no stop was pending, and a stop it is
+    /// asked for could not be made durable either.
     pub fn attach_store(&self, file: PathBuf) -> Restored {
-        let restored = match std::fs::read(&file) {
+        let directory = match file.parent() {
+            Some(dir) if !dir.as_os_str().is_empty() => std::fs::create_dir_all(dir)
+                .map_err(|e| format!("its directory {} is not available: {e}", dir.display())),
+            _ => Ok(()),
+        };
+        let restored = match directory {
+            Err(why) => Restored::Unreadable(why),
+            Ok(()) => Self::read_record(&file),
+        };
+        self.finish_attach(file, restored)
+    }
+
+    fn read_record(file: &std::path::Path) -> Restored {
+        match std::fs::read(file) {
             Ok(bytes) => match serde_json::from_slice::<Record>(&bytes) {
                 Ok(record) if record.schema == RECORD_SCHEMA && record.latched => {
                     Restored::Latched(record)
@@ -150,7 +184,10 @@ impl EmergencyLatch {
             },
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Restored::Clear,
             Err(e) => Restored::Unreadable(format!("unreadable: {e}")),
-        };
+        }
+    }
+
+    fn finish_attach(&self, file: PathBuf, restored: Restored) -> Restored {
         *self.store() = Some(file);
         match &restored {
             Restored::Clear => {}
@@ -178,6 +215,11 @@ impl EmergencyLatch {
     /// An error means the stop is in force but would not survive a restart.
     pub fn latch(&self, record: &Record) -> Result<(), NotDurable> {
         self.inner.latched.store(true, Ordering::Release);
+        let _op = self.op();
+        // A reset that ran between the store above and the lock cleared the flag
+        // and the record: this stop was requested after it began, so it is the
+        // later of the two and stands.
+        self.inner.latched.store(true, Ordering::Release);
         warn!(
             "ALARM emergency-stop latched by {}: every actuator write is refused until an \
              authenticated reset",
@@ -197,6 +239,7 @@ impl EmergencyLatch {
     /// cannot be removed keeps the stop latched (it would come back at the next
     /// boot anyway).
     pub fn clear(&self) -> Result<(), NotDurable> {
+        let _op = self.op();
         if let Some(file) = self.store().clone() {
             match std::fs::remove_file(&file) {
                 Ok(()) => {
@@ -328,6 +371,14 @@ impl EmergencyControl for AppEmergency {
     }
 
     async fn stop(&self, scope_tags: &[String], requested_by: &str) -> StopOutcome {
+        // Latch first, before anything that can wait: the AppState lock below
+        // queues behind a pending writer, which queues behind the readers that
+        // are in a field-bus call, so a latch taken after it would not refuse the
+        // writers for as long as a Modbus timeout. The latch needs no state; the
+        // record names the tags the stop was asked for.
+        let record = Record::new(requested_by, scope_tags.to_vec());
+        let durable = self.latch.latch(&record).is_ok();
+
         let state = self.state.read().await;
 
         // The scope: named tags resolve to outputs; none named is everything.
@@ -342,13 +393,6 @@ impl EmergencyControl for AppEmergency {
                 },
             }
         }
-
-        // Latch first: from here on no writer gets past the gate.
-        let record = Record::new(
-            requested_by,
-            scope.iter().map(ToString::to_string).collect(),
-        );
-        let durable = self.latch.latch(&record).is_ok();
 
         let handles = crate::safe_state::OutputHandles::of(&state);
         let scoped = (!scope_tags.is_empty()).then_some(scope.as_slice());
@@ -461,8 +505,11 @@ mod tests {
     fn a_record_that_cannot_be_written_still_stops_the_writers() {
         let dir = tempfile::tempdir().unwrap();
         let latch = EmergencyLatch::volatile();
-        // The parent directory does not exist.
-        let _ = latch.attach_store(dir.path().join("missing/emergency-stop.json"));
+        // The place of the record is a directory: it can be neither read as a
+        // record nor replaced by one.
+        let file = dir.path().join("emergency-stop.json");
+        std::fs::create_dir(&file).unwrap();
+        let _ = latch.attach_store(file);
         let result = latch.latch(&record());
         assert!(result.is_err(), "not durable");
         assert!(latch.is_latched(), "but in force");
@@ -533,5 +580,77 @@ mod tests {
         };
         assert!(!volatile.success());
         assert!(volatile.problem().unwrap().contains("durable"));
+    }
+
+    /// A first boot: the directory of the record does not exist yet, which is no
+    /// pending stop. It is created, and a stop is then durable.
+    #[test]
+    fn a_missing_state_directory_is_a_first_boot_not_a_pending_stop() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("state/emergency-stop.json");
+        let latch = EmergencyLatch::volatile();
+        assert_eq!(latch.attach_store(file.clone()), Restored::Clear);
+        assert!(!latch.is_latched());
+        latch.latch(&record()).unwrap();
+        assert!(
+            file.exists(),
+            "the stop is durable in the directory just made"
+        );
+    }
+
+    /// A data volume the agent cannot use (here a file where the directory
+    /// should be, as an unmounted or read-only volume leaves it) cannot be
+    /// searched for a pending stop: the agent cannot tell that none was pending,
+    /// so it latches, as it does for a record it cannot read.
+    #[test]
+    fn a_state_directory_that_cannot_be_made_latches() {
+        let dir = tempfile::tempdir().unwrap();
+        let blocker = dir.path().join("state");
+        std::fs::write(&blocker, b"not a directory").unwrap();
+        let latch = EmergencyLatch::volatile();
+        match latch.attach_store(blocker.join("emergency-stop.json")) {
+            Restored::Unreadable(why) => assert!(why.contains("not available"), "{why}"),
+            other => panic!("{other:?}"),
+        }
+        assert!(latch.is_latched());
+    }
+
+    /// A stop racing a reset leaves the flag and the record in one state: the
+    /// flag set with the record on disk, or both cleared. Run many times, because
+    /// the failure is an interleaving.
+    #[test]
+    fn a_stop_racing_a_reset_leaves_the_flag_and_the_record_in_one_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("emergency-stop.json");
+        for round in 0..300 {
+            let latch = EmergencyLatch::volatile();
+            let _ = latch.attach_store(file.clone());
+            latch.latch(&record()).unwrap();
+            let barrier = Arc::new(std::sync::Barrier::new(2));
+            let stop = {
+                let (latch, barrier) = (latch.clone(), barrier.clone());
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    latch.latch(&record()).unwrap();
+                })
+            };
+            let reset = {
+                let (latch, barrier) = (latch.clone(), barrier);
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    latch.clear().unwrap();
+                })
+            };
+            stop.join().unwrap();
+            reset.join().unwrap();
+            assert_eq!(
+                latch.is_latched(),
+                file.exists(),
+                "round {round}: the flag says {} and the record is {}",
+                latch.is_latched(),
+                if file.exists() { "on disk" } else { "gone" }
+            );
+            let _ = std::fs::remove_file(&file);
+        }
     }
 }

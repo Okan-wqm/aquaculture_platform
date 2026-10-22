@@ -37,9 +37,9 @@ use std::time::Duration;
 
 use tokio::sync::{RwLock, broadcast};
 use tokio::time::Instant;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
-use super::{OutputHandles, OutputId, apply_leased};
+use super::{OutputId, OwnedOutputHandles, apply_leased};
 use crate::AppState;
 
 /// The shortest hold (seconds): below it a broker reconnect would drive
@@ -157,43 +157,130 @@ fn link_is_up(state: &AppState) -> bool {
         .is_some_and(crate::mqtt::MqttClient::is_connected)
 }
 
-/// Drive the leased outputs safe: the work of one expired hold.
+/// How the supervisor retries a hold it could not drive safe: an output on a
+/// device the agent cannot reach fails again as long as the device is away, so a
+/// retry every tick would only repeat the failure, hold a field-bus timeout each
+/// time and fill the journal. It backs off from one tick to a minute, and the
+/// episode is announced once.
+#[derive(Debug)]
+struct Retry {
+    delay: Duration,
+    next: Option<Instant>,
+    attempts: u32,
+}
+
+impl Retry {
+    /// The longest wait between two attempts.
+    const MAX_DELAY: Duration = Duration::from_secs(60);
+
+    fn new() -> Self {
+        Self {
+            delay: TICK,
+            next: None,
+            attempts: 0,
+        }
+    }
+
+    /// Whether an attempt may be made at `now`.
+    fn due(&self, now: Instant) -> bool {
+        self.next.is_none_or(|at| now >= at)
+    }
+
+    /// Whether no attempt of this episode was made yet (the one that announces).
+    fn is_first(&self) -> bool {
+        self.attempts == 0
+    }
+
+    /// An attempt left outputs held.
+    fn failed(&mut self, now: Instant) {
+        self.attempts = self.attempts.saturating_add(1);
+        self.next = Some(now + self.delay);
+        self.delay = (self.delay * 2).min(Self::MAX_DELAY);
+    }
+
+    /// The episode is over (the link is back, or nothing is held).
+    fn reset(&mut self) {
+        *self = Self::new();
+    }
+}
+
+/// Drive the leased outputs safe: the work of one expired hold. Returns how
+/// many outputs are still held (could not be driven, to be tried again).
 ///
-/// Outputs that could not be driven are recorded again, so the next tick tries
-/// them once more; a leased id that is not a registered output has no safe
-/// value and is dropped with a warning.
-pub async fn expire_holds(state: &Arc<RwLock<AppState>>, holds: &RemoteHolds) {
+/// Outputs that could not be driven are recorded again, so the next attempt
+/// tries them once more; a leased id that is not a registered output has no safe
+/// value and is dropped with a warning. `announce` is true for the first attempt
+/// of an episode: only that one is logged above debug level.
+///
+/// The `AppState` lock is held only to copy what the pass needs (the
+/// configuration and clones of the handles): a device that does not answer
+/// must not keep it for the field-bus timeout.
+pub async fn expire_holds(
+    state: &Arc<RwLock<AppState>>,
+    holds: &RemoteHolds,
+    announce: bool,
+) -> usize {
     let leased = holds.take();
     if leased.is_empty() {
-        return;
+        return 0;
     }
-    // LIFE-SAFETY: loud marker so log analysis tools can find this event.
-    error!(
-        "LIFE-SAFETY: the cloud link is down past the hold; driving {} remotely commanded \
-         output(s) to their safe value",
-        leased.len()
-    );
-    let (report, unregistered) = {
+    if announce {
+        // LIFE-SAFETY: loud marker so log analysis tools can find this event.
+        error!(
+            "LIFE-SAFETY: the cloud link is down past the hold; driving {} remotely commanded \
+             output(s) to their safe value",
+            leased.len()
+        );
+    } else {
+        debug!(
+            "the cloud link is still down: driving {} remotely commanded output(s) to their safe \
+             value again",
+            leased.len()
+        );
+    }
+    let (config, handles) = {
         let s = state.read().await;
-        apply_leased(&s.config, &leased, OutputHandles::of(&s)).await
+        (s.config.clone(), OwnedOutputHandles::of(&s))
     };
+    let (report, unregistered) = apply_leased(&config, &leased, handles.handles()).await;
     for id in &unregistered {
         warn!(
             "{id} was written by a remote command but is not a safe-state output: no safe value is known for it"
         );
     }
+    let mut retained = 0;
     for id in &leased {
         let failed = report.failures.iter().any(|f| f.output == id.to_string());
         if failed {
             holds.record(id.clone());
+            retained += 1;
         }
     }
-    if report.is_complete() {
+    if retained > 0 {
+        let why: Vec<String> = report
+            .failures
+            .iter()
+            .map(|f| format!("{}: {}", f.output, f.error))
+            .collect();
+        if announce {
+            error!(
+                "LIFE-SAFETY: {retained} remotely commanded output(s) could not be driven to their \
+                 safe value and are tried again with backoff: {}",
+                why.join("; ")
+            );
+        } else {
+            debug!(
+                "{retained} output(s) still not at their safe value: {}",
+                why.join("; ")
+            );
+        }
+    } else if report.is_complete() {
         info!(
             "LIFE-SAFETY: {} remotely commanded output(s) are at their safe value",
             report.applied
         );
     }
+    retained
 }
 
 /// Run the supervisor until shutdown.
@@ -215,6 +302,7 @@ async fn supervise(
     mut shutdown: broadcast::Receiver<()>,
 ) {
     let mut watch = LinkWatch::new(hold, Instant::now());
+    let mut retry = Retry::new();
     let mut ticker = tokio::time::interval(tick);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
@@ -224,8 +312,18 @@ async fn supervise(
             _ = ticker.tick() => {}
         }
         let connected = link_is_up(&*state.read().await);
-        if watch.observe(connected, Instant::now()) == Verdict::HoldExpired {
-            expire_holds(&state, &holds).await;
+        let now = Instant::now();
+        if watch.observe(connected, now) == Verdict::HoldExpired {
+            if retry.due(now) {
+                let retained = expire_holds(&state, &holds, retry.is_first()).await;
+                if retained > 0 {
+                    retry.failed(Instant::now());
+                } else {
+                    retry.reset();
+                }
+            }
+        } else {
+            retry.reset();
         }
     }
     info!("Comms-loss supervisor stopped");
@@ -381,6 +479,63 @@ mod tests {
         task.await.unwrap();
     }
 
+    /// An output on a device the agent cannot reach fails again at every attempt:
+    /// the retries back off from one tick to a minute and only the first of an
+    /// episode announces; the episode is over when the link returns or nothing
+    /// is held.
+    #[test]
+    fn a_hold_that_cannot_be_driven_is_retried_with_backoff() {
+        let t0 = Instant::now();
+        let mut retry = Retry::new();
+        assert!(retry.due(t0) && retry.is_first());
+        // Attempt 1 fails: the next is one tick later, then 2 s, 4 s, ... a minute.
+        let mut at = t0;
+        let mut waits = Vec::new();
+        for _ in 0..9 {
+            retry.failed(at);
+            assert!(!retry.is_first(), "only the first attempt announces");
+            let next = retry.next.expect("scheduled");
+            assert!(!retry.due(at), "not due again at once");
+            assert!(retry.due(next), "due at the scheduled instant");
+            waits.push(next - at);
+            at = next;
+        }
+        let seconds: Vec<u64> = waits.iter().map(Duration::as_secs).collect();
+        assert_eq!(seconds, [1, 2, 4, 8, 16, 32, 60, 60, 60]);
+        // The link came back (or nothing is held): a fresh episode.
+        retry.reset();
+        assert!(retry.due(at) && retry.is_first());
+    }
+
+    /// The pass holds the `AppState` lock only to copy what it needs: a writer
+    /// is not queued behind the field-bus calls of an expired hold.
+    #[test]
+    fn the_pass_copies_what_it_needs_and_does_not_borrow_the_state_across_a_field_bus_call() {
+        let source = include_str!("comms_loss.rs");
+        let body = source
+            .split("pub async fn expire_holds(")
+            .nth(1)
+            .and_then(|rest| {
+                rest.split("\n/// Run the supervisor until shutdown.")
+                    .next()
+            })
+            .expect("expire_holds");
+        assert!(body.contains("OwnedOutputHandles::of(&s)"));
+        assert!(
+            !body.contains("OutputHandles::of(&s)") || body.contains("OwnedOutputHandles::of(&s)"),
+            "the handles are cloned out of the state"
+        );
+        // The guard `s` ends with the block that copies; the pass runs after it.
+        let copy_end = body
+            .find("};\n    let (report, unregistered)")
+            .expect("the copy block ends");
+        let pass = body.find("apply_leased(&config").expect("the pass");
+        assert!(
+            copy_end < pass,
+            "apply_leased runs after the state lock is released"
+        );
+    }
+
     /// An output that cannot be driven stays a hold, so the next tick tries it
     /// again; one that is not an output at all is dropped.
     #[tokio::test]
@@ -399,7 +554,7 @@ mod tests {
         holds.record(OutputId::gpio_pin(17));
         holds.record(OutputId::gpio_pin(18));
 
-        expire_holds(&state, &holds).await;
+        assert_eq!(expire_holds(&state, &holds, true).await, 1);
 
         // pin 17 is registered but there is no GPIO handle: it failed and is
         // kept; pin 18 is no output: dropped.

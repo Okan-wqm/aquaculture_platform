@@ -304,6 +304,41 @@ impl<'a> OutputHandles<'a> {
     }
 }
 
+/// The handles a pass can drive, owned: clones taken under the `AppState` lock
+/// and used after it is released. A pass that borrowed them from the state would
+/// hold the read lock across every field-bus call it makes, and a device that
+/// does not answer would keep it for a Modbus timeout, which queues every writer
+/// of the state (and, behind a pending writer, every new reader).
+#[derive(Clone, Default)]
+pub struct OwnedOutputHandles {
+    modbus: Option<ModbusHandle>,
+    gpio: Option<GpioHandle>,
+    i2c: Option<I2cHandle>,
+    picontrol: Option<PiControlHandle>,
+}
+
+impl OwnedOutputHandles {
+    /// Clones of the handles `state` holds right now.
+    pub fn of(state: &crate::AppState) -> Self {
+        Self {
+            modbus: state.modbus_handle.clone(),
+            gpio: state.gpio_handle.clone(),
+            i2c: state.i2c_handle.clone(),
+            picontrol: state.picontrol_handle.clone(),
+        }
+    }
+
+    /// The handles, for a pass.
+    pub fn handles(&self) -> OutputHandles<'_> {
+        OutputHandles {
+            modbus: self.modbus.as_ref(),
+            gpio: self.gpio.as_ref(),
+            i2c: self.i2c.as_ref(),
+            picontrol: self.picontrol.as_ref(),
+        }
+    }
+}
+
 /// Run the pass the behaviour table prescribes for `event` over the outputs of
 /// `config` as it is now (ADR-048 DEC-13.3).
 ///

@@ -19,3 +19,23 @@ export enum WorkAreaType {
 
 // Register enum once for GraphQL
 registerEnumType(WorkAreaType, { name: 'WorkAreaType' });
+
+/**
+ * The module a department belongs to — the workspaces whose Team area lists
+ * only their own people. A department with no module is company-wide.
+ *
+ * Values are tenant module codes (auth-service `ModuleCode`); the subset
+ * relation is pinned by `tests/invariants/hr-module-code-parity.spec.ts`.
+ * An employee carries no module of their own: it is read through their
+ * department, so the two cannot disagree.
+ */
+export enum HrModuleCode {
+  FARM = 'farm',
+  HYDROPONICS = 'hydroponics',
+  SENSOR = 'sensor',
+}
+
+registerEnumType(HrModuleCode, {
+  name: 'HRModuleCode',
+  description: 'Module a department belongs to; unset means company-wide',
+});

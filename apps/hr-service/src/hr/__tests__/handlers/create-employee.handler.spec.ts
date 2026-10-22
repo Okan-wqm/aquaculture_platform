@@ -19,7 +19,8 @@ import { DataSource, QueryRunner, EntityManager, Repository } from 'typeorm';
 
 import { CreateEmployeeCommand } from '../../commands/create-employee.command';
 import { CreateEmployeeHandler } from '../../handlers/create-employee.handler';
-import { Employee, EmployeeStatus, EmploymentType, Department, PersonnelCategory } from '../../entities/employee.entity';
+import { Employee, EmployeeStatus, EmploymentType, PersonnelCategory } from '../../entities/employee.entity';
+import { DepartmentHR } from '../../entities/department.entity';
 
 // ============================================================================
 // Mock Helpers
@@ -35,7 +36,6 @@ const buildMockEmployee = (overrides: Partial<Employee> = {}): Employee => {
     lastName: 'Yilmaz',
     email: 'ali@example.com',
     position: 'Fish Farm Operator',
-    department: Department.OPERATIONS,
     employmentType: EmploymentType.FULL_TIME,
     status: EmployeeStatus.ACTIVE,
     hireDate: new Date('2026-01-01'),
@@ -71,7 +71,6 @@ const validInput = {
   nationalId: '12345678901',
   baseSalary: 5000,
   position: 'Fish Farm Operator',
-  department: Department.OPERATIONS,
   employmentType: EmploymentType.FULL_TIME,
   hireDate: '2026-01-01',
   dateOfBirth: '1990-01-01',
@@ -87,6 +86,8 @@ const buildMockQueryRunner = (overrides?: {
   saveResult?: Employee;
   getCountResult?: number;
   shouldFailSave?: boolean;
+  /** What the DepartmentHR lookup answers: a live department, or null for "none". */
+  departmentResult?: DepartmentHR | null;
 }) => {
   const mockEmployeeRepo = {
     findOne: jest.fn().mockResolvedValue(overrides?.findOneResult ?? null),
@@ -102,8 +103,18 @@ const buildMockQueryRunner = (overrides?: {
     getCount: jest.fn().mockResolvedValue(overrides?.getCountResult ?? 0),
   };
 
+  // The department rule reads DepartmentHR through its own repository; the
+  // employee repository must never answer that lookup.
+  const mockDepartmentRepo = {
+    findOne: jest.fn().mockResolvedValue(overrides?.departmentResult ?? null),
+  };
+
+  const getRepository = jest
+    .fn()
+    .mockImplementation((entity: unknown) => (entity === DepartmentHR ? mockDepartmentRepo : mockEmployeeRepo));
+
   const mockManager: Partial<EntityManager> = {
-    getRepository: jest.fn().mockReturnValue(mockEmployeeRepo),
+    getRepository,
     createQueryBuilder: jest.fn().mockReturnValue(mockQB),
   };
 
@@ -116,7 +127,7 @@ const buildMockQueryRunner = (overrides?: {
     manager: mockManager as EntityManager,
   };
 
-  return { mockQR, mockEmployeeRepo };
+  return { mockQR, mockEmployeeRepo, mockDepartmentRepo, getRepository };
 };
 
 describe('CreateEmployeeHandler', () => {
@@ -211,5 +222,64 @@ describe('CreateEmployeeHandler', () => {
     await expect(handler.execute(command)).rejects.toThrow();
     // QueryRunner.release() must always be called to return connection to pool
     expect(mockQR.release).toHaveBeenCalled();
+  });
+
+  // ── Department placement (D1: Employee.departmentHrId is the one department) ──
+
+  describe('department placement', () => {
+    const departmentHrId = '3f1c2b8e-9d4a-4c61-8f0e-5a7b2d9c1e44';
+
+    const buildHandler = (mockQR: Partial<QueryRunner>): CreateEmployeeHandler => {
+      mockDataSource = { createQueryRunner: jest.fn().mockReturnValue(mockQR) };
+      return new CreateEmployeeHandler(
+        mockDataSource as DataSource,
+        mockOutboxPublisher as OutboxPublisher,
+        mockPayrollCostSettings as PayrollCostSettingsService,
+      );
+    };
+
+    it('accepts a live department and stores it on the employee', async () => {
+      const { mockQR, mockEmployeeRepo, mockDepartmentRepo } = buildMockQueryRunner({
+        departmentResult: new DepartmentHR(),
+      });
+
+      await buildHandler(mockQR).execute(
+        new CreateEmployeeCommand(tenantId, { ...validInput, departmentHrId }, userId),
+      );
+
+      expect(mockDepartmentRepo.findOne).toHaveBeenCalledWith({
+        where: { id: departmentHrId, isDeleted: false, isActive: true, tenantId },
+        lock: { mode: 'pessimistic_read' },
+      });
+      expect(mockEmployeeRepo.create).toHaveBeenCalledWith(expect.objectContaining({ departmentHrId }));
+      expect(mockQR.commitTransaction).toHaveBeenCalled();
+    });
+
+    it('rejects a department that is not live in the tenant, writing nothing', async () => {
+      const { mockQR, mockEmployeeRepo } = buildMockQueryRunner({ departmentResult: null });
+
+      await expect(
+        buildHandler(mockQR).execute(
+          new CreateEmployeeCommand(tenantId, { ...validInput, departmentHrId }, userId),
+        ),
+      ).rejects.toThrow(ConflictException);
+
+      expect(mockQR.rollbackTransaction).toHaveBeenCalled();
+      expect(mockQR.commitTransaction).not.toHaveBeenCalled();
+      expect(mockEmployeeRepo.save).not.toHaveBeenCalled();
+      expect(mockOutboxPublisher.enqueue).not.toHaveBeenCalled();
+    });
+
+    it('does not look a department up when none is given', async () => {
+      const { mockQR, mockEmployeeRepo, getRepository } = buildMockQueryRunner();
+
+      await buildHandler(mockQR).execute(new CreateEmployeeCommand(tenantId, validInput, userId));
+
+      expect(getRepository).not.toHaveBeenCalledWith(DepartmentHR);
+      expect(mockEmployeeRepo.create).toHaveBeenCalledWith(
+        expect.not.objectContaining({ departmentHrId: expect.anything() }),
+      );
+      expect(mockQR.commitTransaction).toHaveBeenCalled();
+    });
   });
 });

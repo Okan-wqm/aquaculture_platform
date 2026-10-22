@@ -253,6 +253,7 @@ export const GET_CURRENTLY_OFFSHORE = gql`
   query GetCurrentlyOffshore($workAreaId: ID) {
     currentlyOffshore(workAreaId: $workAreaId) {
       ...EmployeeBasic
+      departmentHrId
       personnelCategory
       seaWorthy
       currentRotationId

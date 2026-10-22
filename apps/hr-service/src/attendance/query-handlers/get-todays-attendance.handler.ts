@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 import { GetTodaysAttendanceQuery } from '../queries/get-todays-attendance.query';
+import { applyEmployeeModuleScope } from '../../common/module-scope';
 import { AttendanceRecord } from '../entities/attendance-record.entity';
 
 @Injectable()
@@ -14,7 +15,7 @@ export class GetTodaysAttendanceHandler implements IQueryHandler<GetTodaysAttend
   ) {}
 
   async execute(query: GetTodaysAttendanceQuery): Promise<AttendanceRecord[]> {
-    const { tenantId, employeeId } = query;
+    const { tenantId, employeeId, moduleCode } = query;
     const today = new Date().toISOString().split('T')[0];
 
     const qb = this.attendanceRepository.createQueryBuilder('ar')
@@ -28,6 +29,6 @@ export class GetTodaysAttendanceHandler implements IQueryHandler<GetTodaysAttend
       qb.andWhere('ar.employeeId = :employeeId', { employeeId });
     }
 
-    return qb.getMany();
+    return applyEmployeeModuleScope(qb, 'employee', moduleCode).getMany();
   }
 }

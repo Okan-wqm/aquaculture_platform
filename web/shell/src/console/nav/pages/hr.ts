@@ -23,9 +23,11 @@ export const HR_PAGES = {
     matchPaths: ['/hr/dashboard'],
   },
   today: { id: 'hr-today', labelKey: 'nav.page.todayAttendance', path: '/hr/today' },
+  // The people list: every module workspace's Team list and Company's workforce
+  // list are this one entry (the page narrows itself to the workspace's module).
   employees: {
     id: 'hr-employees',
-    labelKey: 'nav.employees',
+    labelKey: 'nav.page.teamList',
     path: '/hr/employees',
     matchPaths: [
       '/hr/employees/new',
@@ -34,6 +36,11 @@ export const HR_PAGES = {
     ],
   },
   departments: { id: 'hr-departments', labelKey: 'nav.departments', path: '/hr/departments' },
+  organizationChart: {
+    id: 'hr-organization-chart',
+    labelKey: 'nav.page.organizationChart',
+    path: '/hr/organization',
+  },
   // The weekly plan; two older URLs render the same page.
   scheduling: {
     id: 'hr-scheduling',
@@ -58,7 +65,8 @@ export const HR_PAGES = {
     path: '/hr/leaves',
     badge: 'leavePending',
   },
-  crew: { id: 'hr-crew', labelKey: 'nav.page.teamList', path: '/hr/crew' },
+  // Offshore crew assignments: not module-scoped, so Company lists it alone.
+  crew: { id: 'hr-crew', labelKey: 'nav.page.crewAssignments', path: '/hr/crew' },
   rotations: {
     id: 'hr-rotations',
     labelKey: 'nav.page.offshoreRotations',
@@ -152,12 +160,6 @@ export const HR_PLANNED_PAGES = {
     id: 'hr-planned-transport',
     labelKey: 'nav.page.transportSchedule',
     path: '/hr/crew/transport',
-    status: 'planned',
-  },
-  organization: {
-    id: 'hr-planned-organization',
-    labelKey: 'nav.page.organizationStructure',
-    path: '/hr/organization',
     status: 'planned',
   },
   positions: {

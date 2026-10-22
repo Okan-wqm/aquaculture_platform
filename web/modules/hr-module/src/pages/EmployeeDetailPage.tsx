@@ -19,26 +19,24 @@ import {
   GraduationCap,
   AlertTriangle,
 } from 'lucide-react';
-import { useAuth, Spinner, PageHeader } from '@aquaculture/shared-ui';
-import { useEmployee } from '../hooks';
+import { useI18n, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { useEmployee, useIsWorkforceManager } from '../hooks';
 import { EmployeeStatus } from '../types/employee.types';
+import { departmentLabel } from '../utils/departmentLabel';
 
 // ============================================================================
 // Employee Detail Page
 // ============================================================================
 
 const EmployeeDetailPage: React.FC = () => {
+  const { t } = useI18n();
   const { employeeId } = useParams<{ employeeId: string }>();
-  const { user } = useAuth();
 
   // CRIT-1 / BUG-001: fetch real employee data instead of mock object
   const { data: employee, isLoading, error } = useEmployee(employeeId || '');
 
-  // SEC-005: only payroll-admin/manager roles should see payroll shortcut
-  const isPayrollAdmin =
-    user?.role === 'SUPER_ADMIN' ||
-    user?.role === 'TENANT_ADMIN' ||
-    user?.role === 'MODULE_MANAGER';
+  // SEC-005: only workforce managers see the payroll shortcut and the edit action
+  const canManage = useIsWorkforceManager();
 
   if (isLoading) {
     return (
@@ -82,13 +80,15 @@ const EmployeeDetailPage: React.FC = () => {
           </Link>
         }
         actions={
-          <Link
-            to={`/hr/employees/${employeeId}/edit`}
-            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
-          >
-            <Edit className="w-4 h-4" />
-            Edit
-          </Link>
+          canManage ? (
+            <Link
+              to={`/hr/employees/${employeeId}/edit`}
+              className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+            >
+              <Edit className="w-4 h-4" />
+              Edit
+            </Link>
+          ) : undefined
         }
       />
 
@@ -129,10 +129,10 @@ const EmployeeDetailPage: React.FC = () => {
                 <span>{maskPhone(employee.contactInfo.phone)}</span>
               </div>
             )}
-            {employee.department && (
+            {employee.departmentHr && (
               <div className="flex items-center gap-3 text-gray-600 dark:text-gray-400">
                 <Building2 className="w-5 h-5" />
-                <span>{employee.department}</span>
+                <span>{departmentLabel(employee.departmentHr, t)}</span>
               </div>
             )}
             {employee.hireDate && (
@@ -167,7 +167,7 @@ const EmployeeDetailPage: React.FC = () => {
               <div>
                 <p className="text-sm text-gray-500 dark:text-gray-400">Department</p>
                 <p className="font-medium text-gray-900 dark:text-white">
-                  {employee.department || '-'}
+                  {employee.departmentHr ? departmentLabel(employee.departmentHr, t) : '-'}
                 </p>
               </div>
               <div>
@@ -202,7 +202,7 @@ const EmployeeDetailPage: React.FC = () => {
               <span className="text-sm font-medium text-gray-900 dark:text-white">Leaves</span>
             </Link>
             {/* SEC-005: only show payroll link to authorised roles */}
-            {isPayrollAdmin && (
+            {canManage && (
               <Link
                 to={`/hr/payroll?employee=${employeeId}`}
                 className="flex flex-col items-center p-4 bg-white rounded-xl border border-gray-100 hover:border-success-200 hover:bg-success-50 transition-all dark:border-gray-700 dark:bg-gray-800 dark:hover:border-success-800"

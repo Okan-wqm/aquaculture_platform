@@ -47,6 +47,23 @@ function createMockIframe(): HTMLIFrameElement {
   } as unknown as HTMLIFrameElement;
 }
 
+/** Reports every observed element as visible at once, so the iframe mounts. */
+class ImmediateIntersectionObserver implements IntersectionObserver {
+  readonly root: Element | Document | null = null;
+  readonly rootMargin = '0px';
+  readonly thresholds: ReadonlyArray<number> = [0];
+  constructor(private readonly callback: IntersectionObserverCallback) {}
+  observe(target: Element): void {
+    const entry: Partial<IntersectionObserverEntry> = { isIntersecting: true, target };
+    this.callback([entry as IntersectionObserverEntry], this);
+  }
+  unobserve(): void {}
+  disconnect(): void {}
+  takeRecords(): IntersectionObserverEntry[] {
+    return [];
+  }
+}
+
 /** FUXA SVG content with export variables for testing */
 const SAMPLE_FUXA_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
   <script>
@@ -409,67 +426,35 @@ describe('FuxaWidgetRenderer', () => {
 
   // Test 3: Renderer renders iframe with sandbox attribute
   it('renders iframe container in runtime mode (with IntersectionObserver)', () => {
-    // Mock IntersectionObserver to trigger visibility immediately
-    const observeMock = vi.fn();
-    const disconnectMock = vi.fn();
-    const OriginalObserver = window.IntersectionObserver;
+    // The renderer constructs `new IntersectionObserver(...)`; a real class
+    // stands in for it (a vi.fn arrow factory is not constructible under
+    // Vitest 4) and reports the container as visible at once.
+    vi.stubGlobal('IntersectionObserver', ImmediateIntersectionObserver);
 
-    window.IntersectionObserver = vi.fn((callback) => ({
-      observe: (el: Element) => {
-        observeMock(el);
-        // Trigger the callback as if element is visible
-        callback(
-          [{ isIntersecting: true, target: el } as IntersectionObserverEntry],
-          {} as IntersectionObserver,
-        );
-      },
-      disconnect: disconnectMock,
-      unobserve: vi.fn(),
-      root: null,
-      rootMargin: '',
-      thresholds: [],
-      takeRecords: () => [],
-    })) as unknown as typeof IntersectionObserver;
+    try {
+      render(
+        <FuxaWidgetRenderer
+          config={{ svgContent: SAMPLE_FUXA_SVG, variables: {} }}
+          width={240}
+          height={200}
+          isEditing={false}
+        />,
+      );
 
-    render(
-      <FuxaWidgetRenderer
-        config={{ svgContent: SAMPLE_FUXA_SVG, variables: {} }}
-        width={240}
-        height={200}
-        isEditing={false}
-      />,
-    );
+      const container = screen.getByTestId('fuxa-container');
+      expect(container).toBeDefined();
 
-    const container = screen.getByTestId('fuxa-container');
-    expect(container).toBeDefined();
-
-    // iframe should be rendered because IntersectionObserver triggered visibility
-    const iframe = screen.getByTestId('fuxa-iframe');
-    expect(iframe).toBeDefined();
-    expect(iframe.getAttribute('sandbox')).toBe('allow-scripts');
-
-    // Restore original
-    window.IntersectionObserver = OriginalObserver;
+      // iframe should be rendered because IntersectionObserver triggered visibility
+      const iframe = screen.getByTestId('fuxa-iframe');
+      expect(iframe).toBeDefined();
+      expect(iframe.getAttribute('sandbox')).toBe('allow-scripts');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('binds each configured variable to its tag on the runtime bus: the current value at load, every publish after', () => {
     vi.useFakeTimers();
-    /** Reports every observed element as visible at once, so the iframe mounts. */
-    class ImmediateIntersectionObserver implements IntersectionObserver {
-      readonly root: Element | Document | null = null;
-      readonly rootMargin = '0px';
-      readonly thresholds: ReadonlyArray<number> = [0];
-      constructor(private readonly callback: IntersectionObserverCallback) {}
-      observe(target: Element): void {
-        const entry: Partial<IntersectionObserverEntry> = { isIntersecting: true, target };
-        this.callback([entry as IntersectionObserverEntry], this);
-      }
-      unobserve(): void {}
-      disconnect(): void {}
-      takeRecords(): IntersectionObserverEntry[] {
-        return [];
-      }
-    }
     vi.stubGlobal('IntersectionObserver', ImmediateIntersectionObserver);
     const tagBus = new TagValueBus();
     tagBus.publish('plant.tank1.name', 'Tank 1');

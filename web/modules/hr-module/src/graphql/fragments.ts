@@ -9,6 +9,20 @@ import { gql } from 'graphql-tag';
 // Employee Fragments
 // =====================
 
+/**
+ * The department an employee is placed in — the one selection every employee
+ * view spreads, so "which department, which module" is asked for in one way.
+ * `moduleCode` is null for a company-wide department.
+ */
+export const EMPLOYEE_DEPARTMENT_FRAGMENT = gql`
+  fragment EmployeeDepartment on DepartmentHR {
+    id
+    name
+    code
+    moduleCode
+  }
+`;
+
 export const EMPLOYEE_BASIC_FRAGMENT = gql`
   fragment EmployeeBasic on Employee {
     id
@@ -38,15 +52,17 @@ export const EMPLOYEE_LIST_FRAGMENT = gql`
     email
     status
     employmentType
-    department
     position
     departmentHrId
+    departmentHr {
+      ...EmployeeDepartment
+    }
     positionId
     hireDate
     personnelCategory
     seaWorthy
-    isFarmWorker
   }
+  ${EMPLOYEE_DEPARTMENT_FRAGMENT}
 `;
 
 export const EMPLOYEE_FULL_FRAGMENT = gql`
@@ -65,9 +81,11 @@ export const EMPLOYEE_FULL_FRAGMENT = gql`
       postalCode
       country
     }
-    department
     position
     departmentHrId
+    departmentHr {
+      ...EmployeeDepartment
+    }
     positionId
     supervisorId
     farmId
@@ -82,7 +100,6 @@ export const EMPLOYEE_FULL_FRAGMENT = gql`
     seaWorthy
     currentRotationId
     timezone
-    isFarmWorker
     createdAt
     updatedAt
     createdBy
@@ -90,28 +107,48 @@ export const EMPLOYEE_FULL_FRAGMENT = gql`
     version
   }
   ${EMPLOYEE_BASIC_FRAGMENT}
+  ${EMPLOYEE_DEPARTMENT_FRAGMENT}
 `;
 
 // =====================
 // Department & Position Fragments
 // =====================
 
-// NOTE: Department is an enum in the backend (not a separate entity).
-// These fragments are kept as placeholders for future department/position entity support.
+/**
+ * A department as the Departments page edits it — the list query and both
+ * mutations return exactly this, so a created or edited card needs no refetch
+ * to look like the listed one.
+ */
 export const DEPARTMENT_FRAGMENT = gql`
-  fragment DepartmentFull on Employee {
+  fragment DepartmentFull on DepartmentHR {
     id
-    department
-    departmentHrId
+    name
+    code
+    description
+    siteId
+    parentDepartmentId
+    managerId
+    budgetCode
+    costCenter
+    moduleCode
+    isActive
+    sortOrder
   }
 `;
 
-export const POSITION_FRAGMENT = gql`
-  fragment PositionFull on Employee {
-    id
-    position
-    positionId
+/**
+ * A department as the organization chart reads it: the editable fields plus the
+ * two the server derives — its head count and its manager's name. The chart
+ * pays for the derived fields; the Departments page, which does not show them,
+ * does not.
+ */
+export const DEPARTMENT_ORGANIZATION_FRAGMENT = gql`
+  fragment DepartmentOrganization on DepartmentHR {
+    ...DepartmentFull
+    headCount
+    managerName
   }
+  ${DEPARTMENT_FRAGMENT}
 `;
 
 // =====================

@@ -5,8 +5,9 @@ import { Roles, Role, AuditLog, CurrentUser, CurrentUserPayload } from '@aquacul
 import { StandardPaginatedResponse, IStandardPaginatedResult, fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
 import { RolesGuard } from '@aquaculture/backend-common/guards';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
-import { Employee, EmployeeStatus, Department, ContactInfo, Address } from './entities/employee.entity';
+import { Employee, EmployeeStatus, ContactInfo, Address } from './entities/employee.entity';
 import { DepartmentHR } from './entities/department.entity';
+import { HrModuleCode } from '../common/enums';
 import { Payroll, PayrollStatus } from './entities/payroll.entity';
 import { CreateEmployeeInput } from './dto/create-employee.input';
 import { UpdateEmployeeInput } from './dto/update-employee.input';
@@ -153,39 +154,6 @@ export class HRResolver {
     return fromCqrsPaginated(result);
   }
 
-  @Query(() => [Employee], { name: 'employeesByDepartment' })
-  @UseGuards(RolesGuard)
-  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
-  async getEmployeesByDepartment(
-    @Args('department', { type: () => Department }) department: Department,
-    @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit: number,
-    @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page: number,
-    @Context() context: GraphQLContext,
-    @CurrentUser() viewer: CurrentUserPayload,
-  ): Promise<Employee[]> {
-    const tenantId = this.getTenantId(context);
-    const result = await this.queryBus.execute(
-      new GetEmployeesQuery(tenantId, { department }, { page, limit }),
-    );
-    return this.maskEmployeeList(result.data, viewer);
-  }
-
-  @Query(() => [Employee], { name: 'activeEmployees' })
-  @UseGuards(RolesGuard)
-  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
-  async getActiveEmployees(
-    @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit: number,
-    @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page: number,
-    @Context() context: GraphQLContext,
-    @CurrentUser() viewer: CurrentUserPayload,
-  ): Promise<Employee[]> {
-    const tenantId = this.getTenantId(context);
-    const result = await this.queryBus.execute(
-      new GetEmployeesQuery(tenantId, { status: EmployeeStatus.ACTIVE }, { page, limit }),
-    );
-    return this.maskEmployeeList(result.data, viewer);
-  }
-
   // Employee Mutations
   @Mutation(() => Employee)
   @UseGuards(RolesGuard)
@@ -197,9 +165,7 @@ export class HRResolver {
   ): Promise<Employee> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
-    return this.commandBus.execute(
-      new CreateEmployeeCommand(tenantId, input, userId),
-    );
+    return this.commandBus.execute(new CreateEmployeeCommand(tenantId, input, userId));
   }
 
   @Mutation(() => Employee)
@@ -212,25 +178,7 @@ export class HRResolver {
   ): Promise<Employee> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
-    return this.commandBus.execute(
-      new UpdateEmployeeCommand(tenantId, input, userId),
-    );
-  }
-
-  @Mutation(() => Employee)
-  @UseGuards(RolesGuard)
-  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
-  @AuditLog({ action: 'TOGGLE_FARM_WORKER', resource: 'Employee', description: 'Toggle farm worker status on employee' })
-  async toggleFarmWorker(
-    @Args('id', { type: () => ID }) id: string,
-    @Args('isFarmWorker') isFarmWorker: boolean,
-    @Context() context: GraphQLContext,
-  ): Promise<Employee> {
-    const tenantId = this.getTenantId(context);
-    const userId = this.getUserId(context);
-    return this.commandBus.execute(
-      new UpdateEmployeeCommand(tenantId, { id, isFarmWorker }, userId),
-    );
+    return this.commandBus.execute(new UpdateEmployeeCommand(tenantId, input, userId));
   }
 
   @Mutation(() => Employee)
@@ -330,9 +278,10 @@ export class HRResolver {
     @Context() context: GraphQLContext,
     @Args('siteId', { type: () => ID, nullable: true }) siteId?: string,
     @Args('isDeleted', { nullable: true, defaultValue: false }) isDeleted?: boolean,
+    @Args('moduleCode', { type: () => HrModuleCode, nullable: true }) moduleCode?: HrModuleCode,
   ): Promise<DepartmentHR[]> {
     const tenantId = this.getTenantId(context);
-    return this.queryBus.execute(new GetDepartmentsQuery(tenantId, siteId, isDeleted));
+    return this.queryBus.execute(new GetDepartmentsQuery(tenantId, siteId, isDeleted, moduleCode));
   }
 
   @Query(() => DepartmentHR, { name: 'hrDepartment' })

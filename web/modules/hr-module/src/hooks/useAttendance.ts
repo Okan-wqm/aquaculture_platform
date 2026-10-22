@@ -3,9 +3,17 @@
  * TanStack Query hooks for attendance operations
  */
 
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useFeedbackMutation } from '@aquaculture/shared-ui';
+import { useQueryClient, type QueryClient } from '@tanstack/react-query';
+import {
+  useAuth,
+  createTenantQueryKey,
+  createTenantInvalidationKey,
+  useFeedbackMutation,
+  useTenantQuery,
+} from '@aquaculture/shared-ui';
+import type { HrModuleCode } from '@platform/shared-ui/generated/graphql-types';
 import { useGraphQLClient, graphqlRequest } from './useGraphQL';
+import { useModuleScope } from './useModuleScope';
 import {
   GET_SHIFTS,
   GET_SHIFT,
@@ -34,7 +42,12 @@ import type {
   PaginatedResponse,
 } from '../types';
 
-// Query Keys
+// Query Keys — domain segments; every read gets its tenant prefix from useTenantQuery, and every
+// invalidation (createTenantInvalidationKey) and cache seed (createTenantQueryKey) wraps them
+// the same way, so no entry outlives a tenant switch and the workforce invalidation in
+// useEmployees reaches `attendanceKeys.all`.
+// WHY: every module-scoped read carries `{ moduleCode }` — the very value it sends — in its
+// key (see useModuleScope), so two workspaces can never share a cache entry.
 export const attendanceKeys = {
   all: ['attendance'] as const,
   shifts: () => [...attendanceKeys.all, 'shifts'] as const,
@@ -42,18 +55,45 @@ export const attendanceKeys = {
     [...attendanceKeys.shifts(), { filter }] as const,
   shiftDetail: (id: string) => [...attendanceKeys.shifts(), id] as const,
   records: () => [...attendanceKeys.all, 'records'] as const,
-  recordList: (filter?: AttendanceFilterInput, pagination?: PaginationInput) =>
-    [...attendanceKeys.records(), { filter, pagination }] as const,
+  recordList: (
+    filter: AttendanceFilterInput | undefined,
+    pagination: PaginationInput | undefined,
+    moduleCode: HrModuleCode | undefined,
+  ) => [...attendanceKeys.records(), { filter, pagination, moduleCode }] as const,
   recordDetail: (id: string) => [...attendanceKeys.records(), id] as const,
   myRecords: (filter?: AttendanceFilterInput, pagination?: PaginationInput) =>
     [...attendanceKeys.all, 'myRecords', { filter, pagination }] as const,
   summary: (employeeId: string, month: number, year: number) =>
     [...attendanceKeys.all, 'summary', employeeId, month, year] as const,
-  dailyOverview: (date: string) =>
-    [...attendanceKeys.all, 'dailyOverview', date] as const,
-  today: (employeeId?: string) =>
-    [...attendanceKeys.all, 'today', employeeId] as const,
+  dailyOverview: (date: string, moduleCode: HrModuleCode | undefined) =>
+    [...attendanceKeys.all, 'dailyOverview', date, { moduleCode }] as const,
+  /** Every "today" read — what a clock-in or clock-out invalidates. */
+  today: () => [...attendanceKeys.all, 'today'] as const,
+  /** One employee's own records of today (the clock widget); never module-scoped. */
+  todayOf: (employeeId?: string) => [...attendanceKeys.today(), 'employee', employeeId] as const,
+  /** The workspace's records of today (the Today page). */
+  todayTeam: (moduleCode: HrModuleCode | undefined) =>
+    [...attendanceKeys.today(), 'team', { moduleCode }] as const,
 };
+
+/**
+ * Refetches the tenant's mounted reads under each attendance key prefix.
+ *
+ * WHY the epoch-less prefix: a read is stored as `['tenant', tenantId, ...key, { epoch }]`, and
+ * only createTenantInvalidationKey left-prefix-matches every such entry whatever its trailing
+ * filter or epoch generation.
+ */
+function invalidateAttendanceReads(
+  queryClient: QueryClient,
+  tenantId: string | null | undefined,
+  ...prefixes: ReadonlyArray<readonly unknown[]>
+): void {
+  for (const prefix of prefixes) {
+    void queryClient.invalidateQueries({
+      queryKey: createTenantInvalidationKey(tenantId, ...prefix),
+    });
+  }
+}
 
 // =====================
 // Shift Queries
@@ -62,32 +102,35 @@ export const attendanceKeys = {
 export function useShifts(filter?: { isActive?: boolean; shiftType?: string }) {
   const client = useGraphQLClient();
 
-  return useQuery({
-    queryKey: attendanceKeys.shiftList(filter),
-    queryFn: () =>
+  return useTenantQuery(
+    attendanceKeys.shiftList(filter),
+    () =>
       graphqlRequest<{ shifts: { items: Shift[]; total: number } }, unknown>(
         client,
         GET_SHIFTS,
         { isActive: filter?.isActive, shiftType: filter?.shiftType, page: 1, limit: 100 }
       ),
-    select: (data) => data.shifts.items,
-  });
+    { select: (data) => data.shifts.items },
+  );
 }
 
 export function useShift(id: string) {
   const client = useGraphQLClient();
 
-  return useQuery({
-    queryKey: attendanceKeys.shiftDetail(id),
-    queryFn: () =>
+  return useTenantQuery(
+    attendanceKeys.shiftDetail(id),
+    () =>
       graphqlRequest<{ shift: Shift }, unknown>(
         client,
         GET_SHIFT,
         { id }
       ),
-    select: (data) => data.shift,
-    enabled: !!id,
-  });
+    {
+      select: (data) => data.shift, enabled: !!id,
+      // WHY: one record's or employee's data must never stand in for another's while it loads.
+      keepPreviousData: false,
+    },
+  );
 }
 
 // =====================
@@ -99,10 +142,11 @@ export function useAttendanceRecords(
   pagination?: PaginationInput
 ) {
   const client = useGraphQLClient();
+  const moduleCode = useModuleScope();
 
-  return useQuery({
-    queryKey: attendanceKeys.recordList(filter, pagination),
-    queryFn: () =>
+  return useTenantQuery(
+    attendanceKeys.recordList(filter, pagination, moduleCode),
+    () =>
       graphqlRequest<{ attendanceRecords: PaginatedResponse<AttendanceRecord> }, unknown>(
         client,
         GET_ATTENDANCE_RECORDS,
@@ -114,10 +158,15 @@ export function useAttendanceRecords(
           endDate: filter?.endDate,
           limit: pagination?.limit ?? 20,
           page: pagination?.page ?? 1,
+          moduleCode,
         }
       ),
-    select: (data) => data.attendanceRecords,
-  });
+    {
+      select: (data) => data.attendanceRecords,
+      // WHY: another workspace's people must never stand in while this one loads.
+      keepPreviousData: false,
+    },
+  );
 }
 
 export function useMyAttendanceRecords(
@@ -126,9 +175,9 @@ export function useMyAttendanceRecords(
 ) {
   const client = useGraphQLClient();
 
-  return useQuery({
-    queryKey: attendanceKeys.myRecords(filter, pagination),
-    queryFn: () =>
+  return useTenantQuery(
+    attendanceKeys.myRecords(filter, pagination),
+    () =>
       graphqlRequest<{ myAttendanceRecords: AttendanceRecord[] }, unknown>(
         client,
         GET_MY_ATTENDANCE_RECORDS,
@@ -138,58 +187,99 @@ export function useMyAttendanceRecords(
           limit: pagination?.limit ?? 30,
         }
       ),
-    select: (data) => data.myAttendanceRecords,
-  });
+    { select: (data) => data.myAttendanceRecords },
+  );
 }
 
 export function useAttendanceSummary(employeeId: string, month: number, year: number) {
   const client = useGraphQLClient();
 
-  return useQuery({
-    queryKey: attendanceKeys.summary(employeeId, month, year),
-    queryFn: () =>
+  return useTenantQuery(
+    attendanceKeys.summary(employeeId, month, year),
+    () =>
       graphqlRequest<{ attendanceSummary: AttendanceSummary }, unknown>(
         client,
         GET_ATTENDANCE_SUMMARY,
         { employeeId, month, year }
       ),
-    select: (data) => data.attendanceSummary,
-    enabled: !!employeeId && !!month && !!year,
-  });
+    {
+      select: (data) => data.attendanceSummary,
+      enabled: !!employeeId && !!month && !!year,
+      // WHY: one record's or employee's data must never stand in for another's while it loads.
+      keepPreviousData: false,
+    },
+  );
 }
 
 export function useDailyAttendanceOverview(date: string) {
   const client = useGraphQLClient();
+  const moduleCode = useModuleScope();
 
-  return useQuery({
-    queryKey: attendanceKeys.dailyOverview(date),
-    queryFn: () =>
+  return useTenantQuery(
+    attendanceKeys.dailyOverview(date, moduleCode),
+    () =>
       graphqlRequest<{ dailyAttendanceOverview: DailyAttendanceOverview }, unknown>(
         client,
         GET_DAILY_ATTENDANCE_OVERVIEW,
-        { date }
+        { date, moduleCode },
       ),
-    select: (data) => data.dailyAttendanceOverview,
-    enabled: !!date,
-  });
+    {
+      select: (data) => data.dailyAttendanceOverview,
+      enabled: !!date,
+      // WHY: another workspace's people must never stand in while this one loads.
+      keepPreviousData: false,
+    },
+  );
 }
 
-export function useTodaysAttendance(employeeId?: string) {
+/**
+ * The one minute-polled `todaysAttendance` read; the two hooks below differ only in key,
+ * variables and whether the previous data may stand in while a new key loads.
+ */
+function useTodaysAttendanceRead(
+  segments: readonly unknown[],
+  variables: { employeeId?: string; moduleCode?: HrModuleCode },
+) {
   const client = useGraphQLClient();
 
-  return useQuery({
-    queryKey: attendanceKeys.today(employeeId),
-    queryFn: () =>
+  return useTenantQuery(
+    segments,
+    () =>
       graphqlRequest<{ todaysAttendance: AttendanceRecord[] }, unknown>(
         client,
         GET_TODAYS_ATTENDANCE,
-        { employeeId }
+        variables,
       ),
-    select: (data) => data.todaysAttendance,
-    refetchInterval: 60000, // Refresh every minute
-    refetchIntervalInBackground: false, // PERF-003: don't poll when tab is hidden
-    enabled: true,
-  });
+    {
+      select: (data) => data.todaysAttendance,
+      refetchInterval: 60000, // Refresh every minute
+      refetchIntervalInBackground: false, // PERF-003: don't poll when tab is hidden
+      // WHY: another employee's or workspace's day must never stand in while this one loads.
+      keepPreviousData: false,
+    },
+  );
+}
+
+/**
+ * The caller's own records of today (the clock widget), or one employee's.
+ *
+ * WHY never module-scoped: the clock reads a single person's day, and that person must find
+ * their own record in every workspace — including one whose module their department is not in.
+ * The workspace's team list is `useTeamTodaysAttendance`.
+ */
+export function useTodaysAttendance(employeeId?: string) {
+  return useTodaysAttendanceRead(attendanceKeys.todayOf(employeeId), { employeeId });
+}
+
+/**
+ * Every record of today in the reader's workspace (managers; hr-service narrows other roles to
+ * their own record) — only the employees whose live department is in the workspace's module,
+ * everyone in Company.
+ */
+export function useTeamTodaysAttendance() {
+  const moduleCode = useModuleScope();
+  // WHY no previous data: another workspace's people must never stand in while this one loads.
+  return useTodaysAttendanceRead(attendanceKeys.todayTeam(moduleCode), { moduleCode });
 }
 
 // =====================
@@ -199,6 +289,7 @@ export function useTodaysAttendance(employeeId?: string) {
 export function useClockIn() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
 
   return useFeedbackMutation({
     feedback: { success: 'Clocked in' },
@@ -209,9 +300,13 @@ export function useClockIn() {
         { input }
       ),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: attendanceKeys.records() });
-      queryClient.invalidateQueries({ queryKey: attendanceKeys.myRecords() });
-      queryClient.invalidateQueries({ queryKey: attendanceKeys.today() });
+      invalidateAttendanceReads(
+        queryClient,
+        tenantId,
+        attendanceKeys.records(),
+        attendanceKeys.myRecords(),
+        attendanceKeys.today(),
+      );
     },
   });
 }
@@ -219,6 +314,7 @@ export function useClockIn() {
 export function useClockOut() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
 
   return useFeedbackMutation({
     feedback: { success: 'Clocked out' },
@@ -229,9 +325,13 @@ export function useClockOut() {
         { input }
       ),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: attendanceKeys.records() });
-      queryClient.invalidateQueries({ queryKey: attendanceKeys.myRecords() });
-      queryClient.invalidateQueries({ queryKey: attendanceKeys.today() });
+      invalidateAttendanceReads(
+        queryClient,
+        tenantId,
+        attendanceKeys.records(),
+        attendanceKeys.myRecords(),
+        attendanceKeys.today(),
+      );
     },
   });
 }
@@ -247,6 +347,7 @@ export function useClockOut() {
 export function useCreateManualAttendance() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
 
   return useFeedbackMutation({
     feedback: { success: 'Attendance recorded' },
@@ -264,7 +365,7 @@ export function useCreateManualAttendance() {
         { input }
       ),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: attendanceKeys.records() });
+      invalidateAttendanceReads(queryClient, tenantId, attendanceKeys.records());
     },
   });
 }
@@ -278,6 +379,7 @@ export function useCreateManualAttendance() {
 export function useApproveAttendance() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
 
   return useFeedbackMutation({
     feedback: { success: 'Attendance approved' },
@@ -288,7 +390,7 @@ export function useApproveAttendance() {
         { id, notes }
       ),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: attendanceKeys.records() });
+      invalidateAttendanceReads(queryClient, tenantId, attendanceKeys.records());
     },
   });
 }
@@ -300,6 +402,7 @@ export function useApproveAttendance() {
 export function useCreateShift() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
 
   return useFeedbackMutation({
     feedback: { success: 'Shift created' },
@@ -310,7 +413,7 @@ export function useCreateShift() {
         { input }
       ),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: attendanceKeys.shifts() });
+      invalidateAttendanceReads(queryClient, tenantId, attendanceKeys.shifts());
     },
   });
 }
@@ -318,6 +421,7 @@ export function useCreateShift() {
 export function useUpdateShift() {
   const client = useGraphQLClient();
   const queryClient = useQueryClient();
+  const { tenantId } = useAuth();
 
   return useFeedbackMutation({
     feedback: { success: 'Shift updated' },
@@ -328,10 +432,11 @@ export function useUpdateShift() {
         { input }
       ),
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: attendanceKeys.shifts() });
+      invalidateAttendanceReads(queryClient, tenantId, attendanceKeys.shifts());
+      // WHY: the detail query's `select` unwraps `shift`, so the cache holds the response shape.
       queryClient.setQueryData(
-        attendanceKeys.shiftDetail(data.updateShift.id),
-        data.updateShift
+        createTenantQueryKey(tenantId, ...attendanceKeys.shiftDetail(data.updateShift.id)),
+        { shift: data.updateShift }
       );
     },
   });

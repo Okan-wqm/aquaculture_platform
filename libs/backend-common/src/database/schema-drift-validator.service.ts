@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { DataSource, EntityMetadata } from 'typeorm';
 
 import { DRIFT_CLASSES, type DriftClassId } from './schema-drift/drift-classes';
+import { resolveEnumTypeName } from './schema-drift/enum-type-name';
 import {
   getEncryptedAtRestMetadata,
   type EncryptedAtRestMetadata,
@@ -449,7 +450,7 @@ export function createSchemaDriftValidator(
         // batched pg_enum lookup below. TypeORM exposes `column.enum`
         // (array of declared labels) and `column.enumName` (explicit
         // type name). When `enumName` is absent TypeORM auto-derives
-        // `{table}_{column}_enum` (see resolveEnumTypeName()).
+        // `{table}_{column}_enum` (see enum-type-name.ts).
         // Decorated columns are skipped here too (see Class J above).
         if (!isEncrypted && entityType === 'enum' && Array.isArray(column.enum)) {
           const declaredLabels = (column.enum as readonly unknown[])
@@ -457,7 +458,7 @@ export function createSchemaDriftValidator(
           if (declaredLabels.length > 0) {
             entityEnumColumns.push({
               dbName,
-              typeName: this.resolveEnumTypeName(
+              typeName: resolveEnumTypeName(
                 column.enumName,
                 tableName,
                 dbName,
@@ -591,23 +592,6 @@ export function createSchemaDriftValidator(
       } else {
         warningViolations.push(message);
       }
-    }
-
-    /**
-     * Canonical pg_enum type name for an entity column. When the entity
-     * explicitly sets `@Column({ enumName: 'foo' })` we use that;
-     * otherwise TypeORM auto-generates `{table}_{column}_enum`
-     * (lowercase, underscore-joined). Mirrors TypeORM's
-     * `PostgresQueryRunner.buildEnumName()` naming convention so the
-     * validator reads the same type identifier the schema-builder writes.
-     */
-    private resolveEnumTypeName(
-      enumName: string | undefined,
-      tableName: string,
-      columnDbName: string,
-    ): string {
-      if (enumName && typeof enumName === 'string') return enumName;
-      return `${tableName}_${columnDbName}_enum`;
     }
 
     /**

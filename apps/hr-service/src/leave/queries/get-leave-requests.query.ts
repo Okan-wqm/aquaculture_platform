@@ -1,3 +1,4 @@
+import type { HrModuleCode } from '../../common/enums';
 import { LeaveRequestStatus } from '../entities/leave-request.entity';
 
 export class GetLeaveRequestsQuery {
@@ -10,5 +11,7 @@ export class GetLeaveRequestsQuery {
     public readonly endDate?: string,
     public readonly limit?: number,
     public readonly page?: number,
+    /** Only requests of employees whose live department is in this module; absent = every module. */
+    public readonly moduleCode?: HrModuleCode,
   ) {}
 }

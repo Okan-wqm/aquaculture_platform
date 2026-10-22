@@ -78,7 +78,6 @@ describe('Payroll Lifecycle', () => {
           dateOfBirth: '1988-03-20',
           nationalId: 'TC22222222222',
           employmentType: 'FULL_TIME',
-          department: 'OPERATIONS',
           position: 'Site Manager',
           hireDate: '2023-06-01',
           baseSalary: 60000,

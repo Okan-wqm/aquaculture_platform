@@ -41,6 +41,8 @@ WITNESS_RELPATH = "tools/gates/plan-coverage-witness.ts"
 WITNESS_TSCONFIG = "tools/gates/tsconfig.json"
 EVENT_FACTS_RELPATH = "tools/gates/event-consumer-index.ts"
 MODULE_FACTS_RELPATH = "tools/aria-adapters/module-schemas-source.ts"
+# The workspace's own installed ts-node: no package-manager launcher, so no registry fallback.
+TS_NODE_RELPATH = "node_modules/.bin/ts-node"
 DEFAULT_TIMEOUT_SECONDS = 180
 HEAD_TIMEOUT_SECONDS = 30
 COVERAGE_DIR = "coverage"
@@ -79,8 +81,13 @@ def run_ts_json_entry(
     failure, and ``witness["error"]`` then names it: ``toolchain_missing``, ``timeout_after_<n>s``,
     ``witness_environment_exit_<code>`` (an exit outside ``ok_exit_codes``) or
     ``witness_output_unparseable`` (stdout that is not one JSON object). Nothing is written.
+
+    The entry runs on the workspace's own installed ``ts-node`` (``TS_NODE_RELPATH``), never through
+    ``npx``: on a tree without ``node_modules`` npx does not fail, it fetches an unpinned ts-node
+    from the package registry and runs it with the kernel's environment. The tree's own binary
+    either exists or raises FileNotFoundError, which is ``toolchain_missing`` (PLAN Risk 7).
     """
-    cmd = ["npx", "ts-node", "--project", WITNESS_TSCONFIG, tool, *args]
+    cmd = [str(workspace / TS_NODE_RELPATH), "--project", WITNESS_TSCONFIG, tool, *args]
     started_at = utc_now()
     try:
         proc = run(cmd, str(workspace), timeout_seconds)
@@ -414,6 +421,39 @@ def _service_facts_unavailable(base_sha: str, witness: dict[str, Any]) -> dict[s
     return {"verdict": "environment_unable", "base_sha": base_sha, "witness": witness}
 
 
+def _base_tree_error(run: Runner, workspace: Path, base_sha: str) -> str | None:
+    """None when ``workspace`` is a clean checkout of ``base_sha``; otherwise the named error.
+
+    Both entries read the working tree from disk, not the commit, so HEAD alone does not make the
+    facts the base's: a tracked change or an untracked file (an implementer writing into the
+    worktree, a leftover build artifact) would become a fact stamped ``facts_sha = base_sha`` whose
+    ``path:line`` does not resolve against the base commit (PLAN §3.1, §3.5, §3.6). Ignored files
+    (``node_modules``) are not part of the tree and do not count.
+    """
+    try:
+        head = run(["git", "rev-parse", "HEAD"], str(workspace), HEAD_TIMEOUT_SECONDS)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return f"head_unreadable: {exc}"
+    head_sha = head.stdout.strip() if head.returncode == 0 else ""
+    if not head_sha:
+        return f"head_unreadable: git exit {head.returncode}"
+    if head_sha != base_sha:
+        return f"tree_not_at_base: HEAD {head_sha} is not {base_sha}"
+    try:
+        status = run(
+            ["git", "status", "--porcelain", "--untracked-files=all"], str(workspace), HEAD_TIMEOUT_SECONDS
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return f"tree_status_unreadable: {exc}"
+    if status.returncode != 0:
+        return f"tree_status_unreadable: git exit {status.returncode}"
+    changed = [line for line in status.stdout.splitlines() if line.strip()]
+    if changed:
+        shown = "; ".join(changed[:5])
+        return f"tree_not_clean: {len(changed)} path(s) differ from {base_sha}: {shown}"
+    return None
+
+
 def compute_service_facts(
     *,
     workspace_root: str | Path,
@@ -423,34 +463,26 @@ def compute_service_facts(
 ) -> dict[str, Any]:
     """The code facts of one change subject, computed on its base tree (service-expertise SE-3).
 
-    ``workspace_root`` is a checkout of the diff's base: its HEAD must be ``base_sha``, because
-    the facts are the pre-change contract the reviewer reads the diff against. Both ``--facts``
-    entries (``EVENT_FACTS_RELPATH``: per-application produced and consumed event sites, code x
-    code edges, ACL grants as permission facts, NATS identity, event definition sites;
-    ``MODULE_FACTS_RELPATH``: schema and table placement) run once, through the plan-coverage
-    runner, with the base tree as their cwd and repo root.
+    ``workspace_root`` is a clean checkout of the diff's base: its HEAD must be ``base_sha`` and
+    ``git status`` must list nothing, before and after both runs, because the entries read the
+    working tree and the facts are the pre-change contract the reviewer reads the diff against.
+    Both ``--facts`` entries (``EVENT_FACTS_RELPATH``: per-application produced and consumed event
+    sites, code x code edges, ACL grants as permission facts, NATS identity, event definition
+    sites; ``MODULE_FACTS_RELPATH``: schema and table placement) run once, through the
+    plan-coverage runner, with the base tree as their cwd and repo root.
 
     Success: ``{"verdict": "computed", "facts_sha", "event_facts", "module_facts", "witness"}``,
-    each facts object exactly as its entry printed it. Any failure, of the HEAD read or of either
-    entry, is ``{"verdict": "environment_unable", "base_sha", "witness": {"error": <named>}}``
-    with no facts at all: a partial result would route the change with fewer services. Nothing is
-    written; the facts live only in the request rows that carry them (PLAN SO-07).
+    each facts object exactly as its entry printed it. Any failure, of the tree checks
+    (``head_unreadable``, ``tree_not_at_base``, ``tree_status_unreadable``, ``tree_not_clean``) or
+    of either entry, is ``{"verdict": "environment_unable", "base_sha", "witness": {"error":
+    <named>}}`` with no facts at all: a partial result would route the change with fewer services.
+    Nothing is written; the facts live only in the request rows that carry them (PLAN SO-07).
     """
     run = runner or _default_runner
     workspace = Path(workspace_root)
-    try:
-        head = run(["git", "rev-parse", "HEAD"], str(workspace), HEAD_TIMEOUT_SECONDS)
-    except (OSError, subprocess.SubprocessError) as exc:
-        return _service_facts_unavailable(base_sha, {"error": f"head_unreadable: {exc}"})
-    head_sha = head.stdout.strip() if head.returncode == 0 else ""
-    if not head_sha:
-        return _service_facts_unavailable(
-            base_sha, {"error": f"head_unreadable: git exit {head.returncode}"}
-        )
-    if head_sha != base_sha:
-        return _service_facts_unavailable(
-            base_sha, {"error": f"tree_not_at_base: HEAD {head_sha} is not {base_sha}"}
-        )
+    tree_error = _base_tree_error(run, workspace, base_sha)
+    if tree_error is not None:
+        return _service_facts_unavailable(base_sha, {"error": tree_error})
 
     facts: dict[str, dict[str, Any]] = {}
     witnesses: dict[str, dict[str, Any]] = {}
@@ -467,6 +499,11 @@ def compute_service_facts(
             return _service_facts_unavailable(base_sha, witness)
         facts[key] = report
         witnesses[key] = witness
+    # The tree the entries read must still be the base after they ran: a file written or a HEAD
+    # moved while they ran would otherwise be in the facts without being at base.
+    tree_error = _base_tree_error(run, workspace, base_sha)
+    if tree_error is not None:
+        return _service_facts_unavailable(base_sha, {"error": tree_error})
     return {
         "verdict": "computed",
         "facts_sha": base_sha,

@@ -44,6 +44,13 @@ import {
  *
  * The same reading carries `TENANT_SCOPED_MODULES` (formerly a second parser in
  * typeorm-entity-schema-adapter.ts, which dropped a non-literal element).
+ *
+ * `--facts --repo-root <tree>` (`moduleFacts`) is the module entry of the
+ * code-fact bridge (service-expertise PLAN §3.2, SE-3; SO-19): per service, its
+ * schema and table placement, joined to the owning service by SCHEMA_REGISTRY
+ * (apps/db-migrate/src/schema-registry.ts, read as source text too). The kernel
+ * runs it on a diff's base tree (`K/plan_coverage.py` `compute_service_facts`);
+ * registries it cannot read completely exit 2 with nothing on stdout.
  */
 export const MODULE_SCHEMAS_SOURCE_PATH =
   'libs/backend-common/src/database/schema-manager.service.ts';
@@ -814,4 +821,184 @@ export function readModuleSchemasSource(
     errors,
     readPaths: resolver.observedReadPaths(),
   };
+}
+
+// --- The module entry of the code-fact bridge (`--facts`, service-expertise PLAN §3.2, SE-3) ----
+
+/** Where SCHEMA_REGISTRY, the owner of "which service owns which schema", is declared. */
+export const SCHEMA_REGISTRY_SOURCE_PATH = 'apps/db-migrate/src/schema-registry.ts';
+
+/** One SCHEMA_REGISTRY entry: the service that owns a schema. */
+export interface SchemaOwnerRecord {
+  readonly service: string;
+  readonly schema: string;
+  readonly path: string;
+  readonly line: number;
+}
+
+/**
+ * SCHEMA_REGISTRY read as source text, as MODULE_SCHEMAS is: the workspace under analysis (a base
+ * tree, a fixture) is observed, never imported. An entry whose `service` or `schema` is not a
+ * string literal is a named error, never dropped.
+ */
+export function readSchemaOwners(workspaceRoot: string): {
+  readonly owners: readonly SchemaOwnerRecord[];
+  readonly errors: readonly ModuleSchemaSourceError[];
+} {
+  const path = SCHEMA_REGISTRY_SOURCE_PATH;
+  const sourceFile = ts.createSourceFile(
+    path,
+    containedWorkspace(workspaceRoot).readFile(path),
+    ts.ScriptTarget.Latest,
+    true,
+  );
+  const lineOf = (node: ts.Node): number =>
+    sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+  const registry = findArrayDeclaration(sourceFile, 'SCHEMA_REGISTRY');
+  const owners: SchemaOwnerRecord[] = [];
+  const errors: ModuleSchemaSourceError[] = [];
+  if (registry === null) {
+    errors.push({ message: 'SCHEMA_REGISTRY is not declared as an array literal', path, line: 1 });
+    return { owners, errors };
+  }
+  for (const element of registry.elements) {
+    const service = ts.isObjectLiteralExpression(element)
+      ? readStringProperty(element, 'service')
+      : null;
+    const schema = ts.isObjectLiteralExpression(element)
+      ? readStringProperty(element, 'schema')
+      : null;
+    if (
+      service === null ||
+      schema === null ||
+      !ts.isStringLiteralLike(service) ||
+      !ts.isStringLiteralLike(schema)
+    ) {
+      errors.push({
+        message: 'SCHEMA_REGISTRY entry has no literal service and schema',
+        path,
+        line: lineOf(element),
+      });
+      continue;
+    }
+    owners.push({ service: service.text, schema: schema.text, path, line: lineOf(element) });
+  }
+  return { owners, errors };
+}
+
+/** The tenant placement of one service's schema, from its MODULE_SCHEMAS entry. */
+export interface ServiceTenantFacts {
+  readonly service: string;
+  readonly module: string;
+  readonly schema: string;
+  /** In TENANT_SCOPED_MODULES: its `tables` are cloned into every `tenant_<uuid>` schema. */
+  readonly tenant_scoped: boolean;
+  /** Tables that live in `tenant_<uuid>` (the module's `tables` when tenant-scoped). */
+  readonly per_tenant_tables: readonly string[];
+  /** Tables that live in the named schema: `infrastructureTables`, plus `tables` when not scoped. */
+  readonly cross_tenant_tables: readonly string[];
+  readonly reference_data_tables: readonly string[];
+  /** The MODULE_SCHEMAS entry, `path:line`. */
+  readonly ref: string;
+}
+
+export interface ModuleFacts {
+  readonly schema: 'aria/module_facts/v1';
+  readonly services: readonly ServiceTenantFacts[];
+  /** MODULE_SCHEMAS entries whose schema no SCHEMA_REGISTRY service owns (e.g. `platform`). */
+  readonly modules_without_owner: readonly {
+    readonly module: string;
+    readonly schema: string;
+    readonly ref: string;
+  }[];
+}
+
+/** The tree's registries cannot give complete facts: the kernel holds the change by name. */
+export class ModuleFactsUnavailable extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ModuleFactsUnavailable';
+  }
+}
+
+/**
+ * The schema and table placement of each service of the tree at `workspaceRoot` (the diff's base
+ * tree): MODULE_SCHEMAS and TENANT_SCOPED_MODULES through this module's one reading, joined to the
+ * owning service by SCHEMA_REGISTRY. A registry that is absent or read with named errors throws
+ * ModuleFactsUnavailable: partial placement facts are never returned.
+ */
+export function moduleFacts(workspaceRoot: string): ModuleFacts {
+  const workspace = containedWorkspace(workspaceRoot);
+  for (const path of [MODULE_SCHEMAS_SOURCE_PATH, SCHEMA_REGISTRY_SOURCE_PATH]) {
+    if (workspace.entry(path) !== 'file') throw new ModuleFactsUnavailable(`${path} is not a file`);
+  }
+  const source = readModuleSchemasSource(workspaceRoot);
+  const registry = readSchemaOwners(workspaceRoot);
+  const errors = [...source.errors, ...registry.errors];
+  if (errors.length > 0) {
+    throw new ModuleFactsUnavailable(
+      errors.map((error) => `${error.path}:${error.line} ${error.message}`).join('; '),
+    );
+  }
+  const scoped = source.tenantScopedModules;
+  if (scoped === null) {
+    throw new ModuleFactsUnavailable(`${source.path} declares no TENANT_SCOPED_MODULES set`);
+  }
+  const ownerOf = new Map(registry.owners.map((owner) => [owner.schema, owner.service] as const));
+  const services: ServiceTenantFacts[] = [];
+  const unowned: { module: string; schema: string; ref: string }[] = [];
+  for (const module of source.modules) {
+    const ref = `${module.path}:${module.line}`;
+    const service = ownerOf.get(module.sourceSchema);
+    if (service === undefined) {
+      unowned.push({ module: module.moduleName, schema: module.sourceSchema, ref });
+      continue;
+    }
+    const tenantScoped = scoped.has(module.moduleName);
+    services.push({
+      service,
+      module: module.moduleName,
+      schema: module.sourceSchema,
+      tenant_scoped: tenantScoped,
+      per_tenant_tables: tenantScoped ? module.tables : [],
+      cross_tenant_tables: tenantScoped
+        ? module.infrastructureTables
+        : [...module.tables, ...module.infrastructureTables],
+      reference_data_tables: module.referenceDataTables,
+      ref,
+    });
+  }
+  return {
+    schema: 'aria/module_facts/v1',
+    services: services.sort((a, b) => a.service.localeCompare(b.service)),
+    modules_without_owner: unowned,
+  };
+}
+
+/**
+ * `--facts --repo-root <tree>`: the tree's tenant placement facts as one JSON object on stdout,
+ * exit 0. Registries that cannot give complete facts, or a bad invocation: exit 2, nothing on
+ * stdout, so the kernel holds the change by name instead of reading partial facts.
+ */
+function main(argv: readonly string[]): number {
+  const rootFlag = argv.indexOf('--repo-root');
+  const repoRoot = rootFlag === -1 ? undefined : argv[rootFlag + 1];
+  if (!argv.includes('--facts') || repoRoot === undefined || argv.length !== 3) {
+    process.stderr.write('usage: module-schemas-source.ts --facts --repo-root <tree>\n');
+    return 2;
+  }
+  let facts: ModuleFacts;
+  try {
+    facts = moduleFacts(repoRoot);
+  } catch (error) {
+    if (!(error instanceof ModuleFactsUnavailable)) throw error;
+    process.stderr.write(`module-schemas-source --facts: ${error.message}\n`);
+    return 2;
+  }
+  process.stdout.write(`${JSON.stringify(facts)}\n`);
+  return 0;
+}
+
+if (require.main === module) {
+  process.exit(main(process.argv.slice(2)));
 }

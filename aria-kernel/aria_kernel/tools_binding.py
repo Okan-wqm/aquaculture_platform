@@ -55,7 +55,8 @@ from .tool_registry import (
     tools_contract_version,
     update_tools_index,
 )
-from .workspace import canonical_identity, default_actor, repo_hash
+from .execution_spine import current_actor_record
+from .workspace import canonical_identity, repo_hash
 
 
 def bind_tools_root(
@@ -159,7 +160,7 @@ def _mint_host_identity(
             "tools_root_bound_to_host",
             {
                 "reason": reason,
-                "acknowledged_by": default_actor(),
+                "acknowledged_by": current_actor_record(),
                 "bound_canonical_identity": expected_identity,
                 "bound_repo_root": str(repo_root),
                 "contract_version": version,
@@ -200,7 +201,7 @@ def _delegate_to_migration(
         {
             "reason": reason,
             "trigger": trigger,
-            "acknowledged_by": default_actor(),
+            "acknowledged_by": current_actor_record(),
             "starting_version": result.get("starting_version"),
             "final_version": result.get("final_version"),
         },

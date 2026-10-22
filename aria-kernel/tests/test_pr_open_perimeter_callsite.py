@@ -110,11 +110,14 @@ class PrOpenPerimeterCallsiteTests(unittest.TestCase):
             base_dir=self.base_dir,
         )
         pid = proposal["proposal_id"]
-        approve_proposal(
-            proposal_id=pid,
-            operator_approval_ref="test-fixture",
-            base_dir=self.base_dir,
-        )
+        from tests._helpers.operator_acts import github_operator_acts
+
+        with github_operator_acts() as github:
+            approve_proposal(
+                proposal_id=pid,
+                operator_approval_ref=github.approve("proposal_approval", {"proposal": pid}),
+                base_dir=self.base_dir,
+            )
         append_declared_fixture(
             self.base_dir / "apply" / "actions.jsonl",
             {

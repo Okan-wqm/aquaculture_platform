@@ -47,12 +47,12 @@ one read the prompt renderer makes.
 """
 from __future__ import annotations
 
-import hashlib
 import re
 from typing import Any
 
 from .draft_intent import BANNED_PHRASES_DEFAULT
 from .tool_registry import GovernanceError
+from .digest import sha256_digest_from_hex, sha256_fingerprint, sha256_hex
 
 MUST_SATISFY_ID_FIELD = "id"
 MUST_SATISFY_TEXT_FIELD = "description"
@@ -320,11 +320,11 @@ def observed_plan_failure_obligation(
     role in its id, so one mode recurring for the plan and for the role is
     two obligations, never a duplicate id.
     """
-    digest = hashlib.sha256(failure_mode.encode("utf-8")).hexdigest()
+    digest = sha256_hex(failure_mode.encode("utf-8"))
     token = len(failure_mode) <= 64 and _REASON_CODE_RE.match(failure_mode) is not None
     role_part = "" if attributed_role == "drafter" else attributed_role + ":"
     return must_satisfy_item(
-        id="observed_plan_failure:" + role_part + (failure_mode if token else "sha256:" + digest[:16]),
+        id="observed_plan_failure:" + role_part + (failure_mode if token else sha256_fingerprint(failure_mode.encode("utf-8"), hex_chars=16)),
         kind=OBSERVED_PLAN_FAILURE_KIND,
         description=(
             "Recorded plans of this plan's origin class on overlapping affected surfaces ended "
@@ -334,7 +334,7 @@ def observed_plan_failure_obligation(
             "prevents that outcome."
         ),
         **({"failure_mode": failure_mode} if token else {}),
-        **{"failure_mode_sha256": "sha256:" + digest, "episodes": episodes, "plan_ids": list(plan_ids),
+        **{"failure_mode_sha256": sha256_digest_from_hex(digest), "episodes": episodes, "plan_ids": list(plan_ids),
            "attributed_role": attributed_role},
         **data,
     )

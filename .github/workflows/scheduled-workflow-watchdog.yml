@@ -87,9 +87,9 @@ jobs:
               );
               // A run cancelled BEFORE it ever created a job is not a verdict
               // about the lane — it is the concurrency group evicting a
-              // duplicate. Measured 2026-08-19: aria-auto-cycle ran 02:09→05:54
+              // pending run. Measured 2026-08-19: aria-auto-cycle ran 02:09→05:54
               // GREEN, a second schedule firing at 02:32 sat pending behind the
-              // shared aria-selfhosted-workspace group and was cancelled at
+              // then-shared aria-selfhosted-workspace group and was cancelled at
               // 03:25 when the executor arrived. The evicted run completed
               // FIRST, so it won `completedRuns[0]` and the watchdog reported a
               // healthy 3h45m cycle as an incident. Only `cancelled` runs are
@@ -112,6 +112,36 @@ jobs:
                 if (await ranJobs(candidate)) {
                   run = candidate;
                   break;
+                }
+              }
+              // ARIA-MEDIUM-277 — the eviction REPORT. "Not a verdict" was
+              // the right freshness logic but a silent one: the very event
+              // that starves a lane (its pending run cancelled before any
+              // job) stayed invisible, which is how the measured 3-7
+              // dataflow runs/day passed as a healthy hourly lane. For
+              // lanes the manifest marks `selfHostedRunner`, every
+              // cancelled-before-any-job run in the window becomes an
+              // incident line of its own, composed with the freshness
+              // verdict when both fire (`failure+evicted`); a hosted lane's
+              // cancelled run (its own dedup) is not a starvation event and
+              // stays unreported. Since 277 gave each lane its own group,
+              // a reported eviction is the lane evicting its own duplicate
+              // — worth an on-call look at what double-fired, no longer a
+              // cross-lane cancellation.
+              let evicted = null;
+              let evictedCount = 0;
+              if (watched.selfHostedRunner) {
+                for (const candidate of completedRuns) {
+                  if (candidate.conclusion !== 'cancelled') continue;
+                  if (await ranJobs(candidate)) continue;
+                  evictedCount += 1;
+                  if (
+                    !evicted ||
+                    new Date(candidate.created_at).getTime() >
+                      new Date(evicted.created_at).getTime()
+                  ) {
+                    evicted = candidate;
+                  }
                 }
               }
               const ageHours = run
@@ -173,21 +203,30 @@ jobs:
                   newest.length < watched.consecutiveFailuresForIncident ||
                   newest.some((candidate) => candidate.conclusion === 'success');
               }
-              if (
+              const staleIncident =
                 !run ||
                 (run.conclusion !== 'success' && !redRunTolerated) ||
                 ageHours > watched.maxAgeHours ||
-                !evidenceOk
-              ) {
-                incidents.push({
-                  workflow: watched.workflow,
-                  conclusion:
+                !evidenceOk;
+              if (staleIncident || evicted) {
+                let conclusion;
+                if (staleIncident) {
+                  conclusion =
                     run?.conclusion === 'success' && !evidenceOk
                       ? 'success-without-evidence'
-                      : run?.conclusion ?? 'missing',
+                      : run?.conclusion ?? 'missing';
+                  if (evicted) conclusion = `${conclusion}+evicted`;
+                } else {
+                  conclusion = `evicted (${evictedCount} run${
+                    evictedCount === 1 ? '' : 's'
+                  } cancelled before any job)`;
+                }
+                incidents.push({
+                  workflow: watched.workflow,
+                  conclusion,
                   ageHours: ageHours === null ? null : Math.round(ageHours * 10) / 10,
                   maxAgeHours: watched.maxAgeHours,
-                  runUrl: run?.html_url ?? null,
+                  runUrl: (staleIncident ? run?.html_url : null) ?? evicted?.html_url ?? null,
                 });
               }
             }

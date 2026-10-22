@@ -60,7 +60,6 @@ from __future__ import annotations
 
 import copy
 import gzip
-import hashlib
 import json
 import re
 import shutil
@@ -76,6 +75,7 @@ from .state_manifest import (memory_surfaces, resolve_surface_path, surface_by_n
                              surface_for_relative_path)
 from .state_snapshot import SNAPSHOT_MAX_SURFACE_BLOB_BYTES
 from .tool_registry import append_tools_governance, ensure_tools_dir, parse_utc_stamp, utc_now
+from .digest import sha256_digest_file
 
 # The governance event compaction records.
 COMPACTED_EVENT = "state_compacted"
@@ -388,7 +388,7 @@ def evict_to_cold(root: Path, staging: ColdStaging) -> dict[str, Any]:
             path.relative_to(root).as_posix() for path in directory.rglob("*") if not path.is_dir()
         ) if directory.is_dir() else []
         if on_disk and on_disk == sorted(staged) and all(
-            "sha256:" + hashlib.sha256((root / uri).read_bytes()).hexdigest() == staged[uri] for uri in on_disk
+            sha256_digest_file(root / uri) == staged[uri] for uri in on_disk
         ):
             evicting.append((directory, rows))
     by_month: dict[str, list[dict[str, Any]]] = {}
@@ -739,7 +739,11 @@ def _compact_runs(path: Path, root: Path, cutoff: datetime, dry_run: bool) -> tu
             ev = row.get("evidence_validation")
             strip_envelopes = isinstance(ev, dict) and isinstance(ev.get("evidence_envelopes"), list)
             rp = row.get("read_paths")
-            slim_read_paths = isinstance(rp, list) and len(rp) > 20
+            # A row whose writer already sampled its read set
+            # (``read_paths_spilled``, ledger_inline.sample_inline_list;
+            # ARIA-HIGH-617) is bounded, and its marker names the true total:
+            # sampling it again would record the sample's length as the total.
+            slim_read_paths = isinstance(rp, list) and len(rp) > 20 and "read_paths_spilled" not in row
             # ARIA-LOW-571 — ONE decision per row drives the archive, the
             # count and the rewrite: a row slimmed for either field is a
             # stripped row. The count used to follow the envelopes alone, so

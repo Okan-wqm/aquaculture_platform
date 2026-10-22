@@ -15,13 +15,14 @@ from .ledger import (
     file_hash,
     load_declared_jsonl,
     load_jsonl,
-    sha256_of_canonical_json,
+    sha256_digest_of_canonical_json,
 )
 from .runtime_profile import set_profile
 from .state_manifest import iter_surfaces, observe_disallowed_tool_surfaces
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_binding, utc_now
 from .workspace import ensure_workspace, workspace_paths
 from .worktree import is_runtime_path
+from .digest import is_sha256_digest, normalize_sha256_digest, sha256_digest_from_hex
 
 
 BURN_IN_SCHEMA_VERSION = "aria/autonomy-burn-in-report/v1"
@@ -341,7 +342,7 @@ def run_observe_burn_in(
     )
     validate_burn_in_report(report)
     atomic_write_json(report_path, report)
-    evidence_bundle["burn_in_report_hash"] = "sha256:" + file_hash(report_path)
+    evidence_bundle["burn_in_report_hash"] = sha256_digest_from_hex(file_hash(report_path))
     atomic_write_json(bundle_path, evidence_bundle)
     verify_burn_in_artifact_bundle(output_root)
     append_tools_governance(
@@ -742,7 +743,7 @@ def verify_burn_in_artifact_bundle(output_root: str | Path) -> dict[str, str]:
     expected_bundle_hash = _bundle_content_hash(bundle)
     if report.get("evidence_bundle_hash") != expected_bundle_hash:
         raise GovernanceError("burn_in_report_bundle_hash_mismatch")
-    report_hash = "sha256:" + file_hash(report_path)
+    report_hash = sha256_digest_from_hex(file_hash(report_path))
     if bundle.get("burn_in_report_hash") != report_hash:
         raise GovernanceError("burn_in_bundle_report_hash_mismatch")
     artifact_hashes = report.get("artifact_hashes")
@@ -912,17 +913,13 @@ def _bundle_content_hash(bundle: dict[str, Any]) -> str:
 
 
 def _is_sha256(value: str, *, allow_bare: bool = False) -> bool:
-    if allow_bare and len(value) == 64 and all(ch in "0123456789abcdef" for ch in value):
+    if allow_bare and normalize_sha256_digest(value) is not None:
         return True
-    return (
-        value.startswith("sha256:")
-        and len(value) == len("sha256:") + 64
-        and all(ch in "0123456789abcdef" for ch in value[len("sha256:"):])
-    )
+    return is_sha256_digest(value)
 
 
 def _stable_hash(payload: Any) -> str:
-    return "sha256:" + sha256_of_canonical_json(payload)
+    return sha256_digest_of_canonical_json(payload)
 
 
 def _safe_git(repo: Path, *args: str) -> str | None:

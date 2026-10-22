@@ -467,6 +467,41 @@ def _specialist_plan_context(
     return context, prompt
 
 
+def _specialist_plan_context_from_state(
+    *, plan_id: str, cycle_id: str, base_dir: Path,
+) -> dict[str, Any] | None:
+    """ARIA-HIGH-614 — the workspace-free twin of ``_specialist_plan_context``.
+
+    Derives the same citation box from the plan state the ledger holds:
+    the body's affected surfaces as the scope, its citable evidence refs,
+    its revision hash for binding. Returns ``None`` when no provable body
+    or no surfaces can be derived — the caller reports the gate
+    unavailable rather than minting an envelope whose only scope is the
+    ``cycle/<id>`` label no repository path can match.
+    """
+    from .plan_convergence import affected_surface_paths, plan_body_from_state, plan_status
+    from .pressure_evidence import split_citable_refs
+    from .tool_registry import GovernanceError
+
+    try:
+        body = plan_body_from_state(plan_status(plan_id=plan_id, base_dir=base_dir))
+    except GovernanceError:
+        return None
+    content = body["plan_content"]
+    paths = affected_surface_paths(content.get("affected_surfaces", []))
+    if not paths:
+        return None
+    return {
+        "allowed_scope": paths,
+        # ARIA-MEDIUM-385 — only the refs the agent law admits by shape;
+        # the rest are provenance the prompt's plan body already carries.
+        "evidence_refs": split_citable_refs(content.get("evidence_refs") or [])[0],
+        "plan_revision_hash": body["content_hash"],
+        "context_source_paths": paths,
+        "cycle_id": cycle_id,
+    }
+
+
 def run_specialist_review_runner(
     *,
     cycle_id: str,
@@ -522,16 +557,35 @@ def run_specialist_review_runner(
     # ARIA-MEDIUM-385 — the cycle rides on the request's cycle_id (as the
     # plan context below carries it), never as an evidence ref the
     # specialist would cite and the submit law refuse.
-    request_context: dict[str, Any] = {
-        "allowed_scope": [f"cycle/{cycle_id}"],
-        "cycle_id": cycle_id,
-    }
     plan_prompt = ""
     if workspace_root is not None:
         request_context, plan_prompt = _specialist_plan_context(
             plan_id=plan_id, cycle_id=cycle_id,
             workspace_root=workspace_root, base_dir=root,
         )
+    else:
+        # ARIA-HIGH-614 — without a workspace the plan state alone is the
+        # box: the same surfaces and citable refs ``_specialist_plan_context``
+        # derives, minus the workspace-bound facts (the store binding and the
+        # checkout's HEAD). ``cycle/<id>`` matches no repository path, and an
+        # envelope scoped only to it buys a refused answer; a plan record
+        # that cannot be read mints nothing and the gate reports
+        # ``specialists_unavailable`` instead.
+        request_context = _specialist_plan_context_from_state(
+            plan_id=plan_id, cycle_id=cycle_id, base_dir=root,
+        )
+        if request_context is None:
+            return SpecialistReviewResult(
+                cycle_id=cycle_id,
+                specialists_dispatched=[],
+                specialists_timed_out=[],
+                consolidated_verdict="specialists_unavailable",
+                findings_by_specialist={},
+                request_ids=[],
+                rounds_count=0,
+                token_cost_estimate=0,
+                profile=profile,
+            )
 
     request_ids: list[str] = []
     request_id_by_agent: dict[str, str] = {}

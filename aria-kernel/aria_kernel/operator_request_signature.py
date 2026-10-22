@@ -38,7 +38,6 @@ from __future__ import annotations
 
 import base64
 import binascii
-import hashlib
 import json
 import os
 import re
@@ -61,6 +60,7 @@ from .main_anchor import (
 )
 from .operator_request_terms import parse_utc
 from .tool_registry import GovernanceError
+from .digest import sha256_digest
 
 # ADR-0023 — the operator namespaces. Each is an entry of the committed
 # registry; a namespace the registry does not list verifies nothing.
@@ -314,7 +314,7 @@ class AllowedSigners:
 
 
 def _digest(content: bytes) -> str:
-    return "sha256:" + hashlib.sha256(content).hexdigest()
+    return sha256_digest(content)
 
 
 def _pair(allowed_signers: bytes, registry: bytes) -> dict[str, str]:
@@ -510,7 +510,7 @@ def allowed_signers_for_checkout(
 
 def request_subject_digest(row: dict[str, Any]) -> str:
     """``sha256:`` of the signed subject — the request's identity beyond its id."""
-    return "sha256:" + hashlib.sha256(request_signing_bytes(row)).hexdigest()
+    return sha256_digest(request_signing_bytes(row))
 
 
 def enrolled_principals(allowed_signers: bytes) -> frozenset[str]:

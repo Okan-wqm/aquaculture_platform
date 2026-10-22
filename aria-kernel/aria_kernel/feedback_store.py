@@ -11,9 +11,10 @@ from typing import Any
 from .confidence import confidence_in_unit_interval
 from .agent_surface import EXPERT_METHODS
 from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
+from .model_fleet import dispatching_provider_for_model
 from .ledger import append_declared_jsonl, append_declared_jsonl_rows, append_jsonl as append_chained_jsonl
 from .finding_subject import normalize_finding_message
-from .ledger import sha256_of_canonical_json
+from .ledger import sha256_digest_of_canonical_json, sha256_of_canonical_json
 from .ledger import load_jsonl as load_chained_jsonl
 from .ledger import rewrite_jsonl as rewrite_chained_jsonl
 from .runtime_artifacts import resolve_finding_from_artifact, run_ledger_format
@@ -95,15 +96,6 @@ CONSENSUS_UNCERTAINTY_REASONS = (
 # to calibrated judges of distinct models alone.
 CALIBRATION_GATES = ("measure_only", "enforce")
 CALIBRATED_QUORUM_MIN_JUDGES = 2
-CALIBRATED_QUORUM_MIN_MODELS = 2
-# WP-J B-1 — single-provider closing authority (operator decision
-# 2026-10-18): under `enforce` the calibrated quorum spans distinct METHODS
-# when the calibration rows can name them. Legacy calibration rows that
-# predate method receipts keep CALIBRATED_QUORUM_MIN_MODELS; the choice of
-# leg is the same hybrid law the anchor rule applies
-# (``observation_span``), so the gate and the anchor can never disagree
-# about what "diverse" means.
-CALIBRATED_QUORUM_MIN_DISTINCT_METHODS = 2
 FEEDBACK_SEVERITIES = ("low", "medium", "high", "critical")
 # WP-J D-1 — 'outcome' (the machine-verifiable outcome of a judged finding:
 # red-then-green same-recipe, merged, not reverted; outcome_truth.py) was
@@ -194,16 +186,28 @@ ANCHOR_MIN_JUDGE_COUNT = 3
 # constant edit. What the rule counts also changed with ORPHAN-HIGH-781:
 # the observers' model now comes from the dispatch record the executor
 # stamps (`details.agent_dispatch_model`), not from a judge's self-report.
+#
+# WP-P recast (operator decision 2026-10-18): the distinct-MODEL count is
+# a BONUS this ledger records, never a gate. "Sometimes there is a single
+# provider, that's fine; use different agents with different perspectives"
+# — on an only-Z.ai night every seat runs glm-5.3, and requiring a second
+# vendor would block ground truth exactly when the operator told the
+# system to keep working. The laundering defect G-2 hunted is real, so the
+# GATE moved one level down, to SEATS (`consensus_distinct_seats`): three
+# agreeing votes are an anchor only when three distinct judge seats
+# produced them. A second provider behind an anchor stays visible as the
+# `provider_span` the mint stamps beside `observers`.
 ANCHOR_MIN_DISTINCT_MODELS = 2
-# WP-J B-1 — operator decision 2026-10-18: diversity comes from PERSPECTIVE
-# and METHOD, not from the provider, so a single-provider fleet whose seats
-# span distinct methods must be able to anchor. The METHOD leg applies to
-# receipts that carry method (rows minted after EXPERT_METHODS landed);
-# model-only receipts — the 16 live anchors on aria/state, replayed as
-# fixtures in test_method_diversity_anchor — keep ANCHOR_MIN_DISTINCT_MODELS
-# and stay ground truth. Neither leg is re-derived from anything: a receipt
-# that cannot answer its leg fails closed (G-2 preserved).
-ANCHOR_MIN_DISTINCT_METHODS = 2
+# WP-P — the vendor span recorded on every consensus row that can name its
+# observers: "multi" when they dispatched through more than one provider,
+# "single" when one provider carried the whole panel. Recorded, not gated.
+PROVIDER_SPANS = ("single", "multi")
+# WP-J B-1 (operator decision 2026-10-18: diversity comes from PERSPECTIVE
+# and METHOD, not from the provider) is honoured by the ONE seat law, not by
+# a second gate beside it (F0.3 landing, N3): a method-only receipt is a
+# receipt (`consensus_observers`), so a single-provider panel of distinct
+# seats anchors; `observation_span` describes which leg a receipt set can
+# answer and gates nothing on the anchor path.
 
 JUDGMENT_SUBJECT_FINDING = "finding"
 JUDGMENT_SUBJECT_BELIEF = "belief"
@@ -286,43 +290,35 @@ def is_ground_truth_row(row: dict[str, Any]) -> bool:
     agreed = consensus_judge_count(row)
     if not (agreed >= ANCHOR_MIN_JUDGE_COUNT and consensus_judges_voted(row) == agreed):
         return False
-    # G-2, hybrid (WP-J B-1) — and the agreement must span a diversity leg
-    # the receipt can actually answer. Receipts that carry method are judged
-    # in methods (a single-provider fleet whose seats span distinct methods
-    # anchors); model-only receipts — every row written before method
-    # receipts existed, including the 16 live anchors — keep the model leg;
-    # a receipt set that can answer NEITHER (mixed legs, or judge_id-only
-    # entries) is not ground truth: unknown is never green.
-    leg, span = observation_span(consensus_observers(row))
-    if leg == "methods":
-        if span < ANCHOR_MIN_DISTINCT_METHODS:
-            return False
-    elif leg == "models":
-        if span < ANCHOR_MIN_DISTINCT_MODELS:
-            return False
-    else:
-        return False
-    # WP-J fix round — the evidence leg, beside the observation-span legs:
-    # an anchor must stand on a non-empty evidence union. The mint refuses
-    # an anchor-grade closing set whose union is empty under
-    # `anchor_evidence_empty`; this read leg keeps any row not written
-    # through that gate (older writers, hand-made rows) from acting as
-    # ground truth either — one law, both ends, like observation_span.
-    return bool(_optional_string_list(row.get("evidence_refs")))
+    # G-2, recast to SEATS (WP-P, operator decision 2026-10-18) — the
+    # agreement must span at least ANCHOR_MIN_JUDGE_COUNT distinct judge
+    # seats: the third credential that promotes a pair to an anchor is a
+    # third JUDGE, never the same judge asked again. A row written before
+    # `observers` existed cannot answer this question, so it is not ground
+    # truth: unknown is never green, and this ledger has exactly one such
+    # row (already non-anchor for other reasons, measured 2026-08-20). The
+    # MODELS behind the seats are recorded (`provider_span` at the mint),
+    # not gated: a single-provider panel of distinct seats anchors.
+    # WP-J's method receipt and evidence leg are legs OF this one function
+    # (F0.3 landing, N3), never a second gate beside it.
+    return consensus_distinct_seats(row) >= ANCHOR_MIN_JUDGE_COUNT
 
 
 def observation_span(receipts: tuple[dict[str, str], ...]) -> tuple[str, int]:
-    """The hybrid diversity law, ONE function for every consumer.
+    """Which diversity leg a receipt set can describe, and its span.
 
     Returns ``(leg, span)``: ``("methods", n)`` when every receipt carries a
     method, ``("models", n)`` when every receipt carries a model and none is
     needed to carry a method, ``("unknown", 0)`` otherwise (a mixed set, or
     receipts with neither field, cannot prove a span on either leg).
 
-    The anchor rule (``is_ground_truth_row``) and the calibrated quorum
-    (``generate_ai_consensus`` under ``enforce``) both ask this question; a
-    second copy of the leg choice is how the two would drift apart and let
-    a row the gate refused settle as truth.
+    A recorded DESCRIPTOR since the F0.3 landing (N3), never an anchor gate:
+    the anchor rule (``is_ground_truth_row``) and the calibrated closing
+    quorum (``generate_ai_consensus`` under ``enforce``) both ask the ONE
+    seat law (``consensus_distinct_seats``), so no second diversity count
+    can disagree with it about what an anchor is. The calibration-gate
+    downgrade (``genesis_policy.effective_calibration_gate``) records the
+    leg it reports as ``quorum_leg``; that consumer is PLAN-v2 item F0.8.
     """
     if not receipts:
         return "unknown", 0
@@ -376,13 +372,72 @@ def consensus_observers(row: dict[str, Any]) -> tuple[dict[str, str], ...]:
 
 
 def distinct_observer_models(row: dict[str, Any]) -> int:
-    """How many different MODELS stand behind this row."""
+    """How many different MODELS stand behind this row.
+
+    A recorded bonus since WP-P (operator decision 2026-10-18), never a
+    gate: single-provider anchors stand on seat independence, and the
+    model count is what the mint's `provider_span` collapses one step
+    further (models → providers). A method-only receipt (WP-J B-1) names no
+    model and adds none.
+    """
     return len({observer["model"] for observer in consensus_observers(row) if observer.get("model")})
 
 
-def distinct_observer_methods(row: dict[str, Any]) -> int:
-    """How many different METHODS stand behind this row (WP-J B-1)."""
-    return len({observer["method"] for observer in consensus_observers(row) if observer.get("method")})
+def consensus_distinct_seats(row: dict[str, Any]) -> int:
+    """How many distinct judge SEATS stand behind this row.
+
+    The anchor gate since WP-P (operator decision 2026-10-18): three
+    agreeing votes are three observations only when three distinct judge
+    ids produced them. The same seat appearing thrice — however many
+    models it names — is one observation with duplicate receipts, the
+    laundering defect G-2 hunted, restated at the level the ledger can
+    actually prove (the dispatcher mints the judge id; a judge's model
+    self-report was never trustworthy, ORPHAN-HIGH-781).
+
+    The ONE seat law carries WP-J's two legs (F0.3 landing, N3), so no
+    second diversity gate sits beside it:
+
+    * the RECEIPT leg — a seat counts when its receipt names a model OR a
+      method (``consensus_observers``, WP-J B-1): a single-provider panel
+      of distinct seats is three observations, whatever method each used;
+    * the EVIDENCE leg (WP-J ce6a53541) — a seat observes the code only
+      through what the row cites. An empty evidence union is agreement on
+      argument alone, so it is backed by zero seats: unfalsifiable truth is
+      not mintable (``anchor_evidence_empty`` refuses it at the mint, and
+      this leg keeps any row written past that gate from reading as truth).
+    """
+    if not _optional_string_list(row.get("evidence_refs")):
+        return 0
+    return len({observer["judge_id"] for observer in consensus_observers(row)})
+
+
+def provider_span_of(models: list[str]) -> str:
+    """The vendor span behind a set of dispatched models: ``multi``/``single``.
+
+    Provider identity comes from `model_fleet.dispatching_provider_for_
+    model` — the kernel's one binding of a model to the provider whose
+    quota and credential a dispatch on it lives under — so a self-reported
+    model can never pick its own provider. Unlisted tiers read as the
+    managed Anthropic session, exactly as every route resolver reads them.
+    """
+    providers = {
+        dispatching_provider_for_model(model)
+        for model in models
+        if str(model or "").strip()
+    }
+    return "multi" if len(providers) > 1 else "single"
+
+
+def consensus_provider_span(row: dict[str, Any]) -> str | None:
+    """The vendor span stamped at the mint, or None when the row predates it.
+
+    Reader-side view of `provider_span`: absent on rows written before the
+    field existed and on sub-anchor rows without observers, and never
+    re-derived here — the span is a fact about the mint, not a question a
+    later reader answers from partial data.
+    """
+    span = row.get("provider_span")
+    return span if span in PROVIDER_SPANS else None
 
 
 def judgment_subject_of(row: dict[str, Any]) -> str:
@@ -687,6 +742,7 @@ def record_operator_feedback(
     judges_voted: int | None = None,
     judgment_subject: str = JUDGMENT_SUBJECT_FINDING,
     observers: list[dict[str, str]] | None = None,
+    provider_span: str | None = None,
     confidence_source: str | None = None,
     evidence_selection: str | None = None,
     calibration_basis: dict[str, Any] | None = None,
@@ -797,6 +853,13 @@ def record_operator_feedback(
                 raise GovernanceError("each observer requires model or method")
             if str(observer.get("method") or "").strip() and str(observer.get("method")) not in EXPERT_METHODS.values():
                 raise GovernanceError(f"unknown observer method: {observer.get('method')!r}")
+    # WP-P — the vendor span is a fact about the observers, so a row that
+    # cannot name them cannot claim one; the value itself stays closed.
+    if provider_span is not None:
+        if provider_span not in PROVIDER_SPANS:
+            raise GovernanceError(f"unknown provider_span: {provider_span}")
+        if observers is None:
+            raise GovernanceError("provider_span requires observers")
     anchor_claimed = (
         source_type == "ai_consensus"
         and judge_count is not None
@@ -805,7 +868,7 @@ def record_operator_feedback(
     if anchor_claimed and observers is None:
         raise GovernanceError(
             "anchor-grade ai_consensus feedback requires observers — the "
-            "anchor rule asks how many distinct models agreed, and that is "
+            "anchor rule asks how many distinct seats agreed, and that is "
             "answered from the row or not at all. Required HERE and not on "
             "every consensus row because this is the only place it is "
             "load-bearing: a sub-anchor row can never be ground truth."
@@ -845,6 +908,10 @@ def record_operator_feedback(
             }
             for o in (observers or [])
         ] or None,
+        # WP-P — the vendor span behind those observers, stamped by the
+        # mint (`generate_ai_consensus`) and additive on rows written
+        # before it existed.
+        "provider_span": provider_span,
         # Additive (typed-judgment plan): absent on rows written before it,
         # which verify unchanged — the signature covers the bytes each row
         # actually carries.
@@ -1223,21 +1290,17 @@ def generate_ai_consensus(
         ) if judge_calibration is not None else []
         closing = agreeing
         if calibration_gate == "enforce":
-            # WP-J B-1 — the calibrated quorum asks the SAME hybrid question
-            # the anchor rule asks (one law, ``observation_span``): distinct
-            # METHODS when the calibrated rows carry method receipts, the
-            # legacy distinct-models leg when they carry model only, and a
-            # refusal when they can answer neither — a mixed set cannot
-            # prove a quorum on either leg.
-            leg, span = observation_span(tuple(calibrated_agreeing))
-            quorum = (
-                span >= CALIBRATED_QUORUM_MIN_DISTINCT_METHODS
-                if leg == "methods"
-                else span >= CALIBRATED_QUORUM_MIN_MODELS
-                if leg == "models"
-                else False
-            )
-            if len(calibrated_agreeing) < CALIBRATED_QUORUM_MIN_JUDGES or not quorum:
+            # WP-P recast (operator decision 2026-10-18): the closing quorum
+            # needs two calibrated judge SEATS, not two distinct MODELS —
+            # under a single provider every calibrated seat runs the one
+            # model that provider has, and the enforce gate would hold every
+            # verdict forever. A seat voting twice still counts once.
+            distinct_seats = {
+                str(row.get("judge_id") or "").strip()
+                for row in calibrated_agreeing
+                if str(row.get("judge_id") or "").strip()
+            }
+            if len(calibrated_agreeing) < CALIBRATED_QUORUM_MIN_JUDGES or len(distinct_seats) < CALIBRATED_QUORUM_MIN_JUDGES:
                 uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "confidence_uncalibrated"))
                 continue
             closing = calibrated_agreeing
@@ -1292,11 +1355,10 @@ def generate_ai_consensus(
         # observers escalates as an uncertainty instead of laundering
         # unknown provenance into repository truth.
         # WP-J B-1 — "naming its observers" is hybrid: a closing row needs a
-        # model OR a method (whichever leg its receipt answers). A judge row
-        # with neither is refused; a MIXED group still settles the precision
-        # lane but its receipt set answers no leg, so the anchor predicate
-        # fails closed at read time — exactly like a row written before
-        # `observers` existed.
+        # model OR a method (whichever its receipt carries). A judge row
+        # with neither is refused here; every receipt that names one is a
+        # seat for the ONE seat law (`consensus_distinct_seats`, F0.3 N3),
+        # whether the panel's receipts are uniform or mixed.
         if len(closing) >= ANCHOR_MIN_JUDGE_COUNT and any(
             not (
                 str(row.get("model") or "").strip()
@@ -1393,6 +1455,18 @@ def generate_ai_consensus(
                     for row in closing
                     if str(row.get("model") or "").strip() or str(row.get("method") or "").strip()
                 ] or None,
+                # WP-P — the multi-provider bonus, recorded beside the
+                # receipt it is computed from: the span of vendors the
+                # DISPATCHED models of the agreeing seats ran through. A
+                # single-provider panel is honest here ("single"), and the
+                # anchor rule never reads this field. Stamped only when the
+                # observers receipt exists — the span is a fact about the
+                # observers, and a group that cannot name them has none.
+                provider_span=(
+                    provider_span_of([str(row.get("model") or "") for row in closing])
+                    if any(str(row.get("model") or "").strip() for row in closing)
+                    else None
+                ),
                 confidence=round(avg_confidence, 3),
                 rationale="; ".join(str(row.get("rationale") or row.get("note") or "") for row in closing if row.get("rationale") or row.get("note"))[:2000],
                 evidence_refs=sorted({ref for row in closing for ref in _optional_string_list(row.get("evidence_refs"))}),
@@ -1730,7 +1804,7 @@ def finding_fingerprint(tool_id: str, finding: dict[str, Any]) -> str:
 def evidence_hash_for_finding(finding: dict[str, Any]) -> str:
     evidence = finding.get("evidence", [])
     stable = evidence if isinstance(evidence, list) else []
-    return "sha256:" + sha256_of_canonical_json(stable)
+    return sha256_digest_of_canonical_json(stable)
 
 
 def _select_findings(

@@ -1,0 +1,54 @@
+{
+  "name": "semantic-runtime-safety",
+  "lane": "semantic_regression",
+  "input": {
+    "roots": [
+      "tools/aria-adapters/fixtures/rust-runtime-safety-adapter/workspaces/semantic-runtime-safety"
+    ]
+  },
+  "expected": {
+    "status": "ok",
+    "required_findings": [
+      "detached_task",
+      "uncancellable_long_lived_loop",
+      "unsafe_without_safety_contract",
+      "unbounded_external_io"
+    ],
+    "findings_count": 17,
+    "required_observation_values": [
+      {
+        "type": "rust_runtime_summary",
+        "details.production_files": 1,
+        "details.harness_files": 1,
+        "details.parse_failures": 0,
+        "details.findings.detached_task": 3,
+        "details.findings.uncancellable_long_lived_loop": 7,
+        "details.findings.unsafe_without_safety_contract": 4,
+        "details.findings.unbounded_external_io": 3
+      }
+    ]
+  },
+  "curation": {
+    "curator": "claude/ARIA-HIGH-010 (rust-runtime-safety-adapter, session 2026-10-20; inline-test and long-lived-loop twins 2026-10-21)",
+    "gold_set": {
+      "true_positive_count": 17,
+      "known_false_positive_count": 38,
+      "false_positive_classes": [
+        "stored_or_joined_or_awaited_handle",
+        "select_or_shutdown_cancellation",
+        "sync_loop_outside_async_code",
+        "documented_safety_contract",
+        "statement_local_timeout_bound",
+        "comment_only_mention",
+        "string_literal_mention",
+        "blank_line_separated_safety_comment",
+        "harness_file_never_claimed",
+        "loop_without_await",
+        "loop_bounded_by_timeout_or_deadline",
+        "try_recv_drain_in_select_shutdown_arm",
+        "inline_test_item_never_claimed"
+      ]
+    },
+    "notes": "src/lib.rs carries a safe and an unsafe twin per claim plus decoys: the unsafe twins are the discarded spawn statements (44, 45, and 380 after the test items), the long-lived async loops (66, 73; 213 whose await sits in a nested block; 238 with a timeout on each receive; 261 with a timeout_at deadline re-armed each round; 286 pacing on a moving sleep_until deadline; 321 polling with try_recv and a sleep), the three uncontracted unsafe blocks plus the uncontracted unsafe impl (106, 119, 125, 134) and the three unwrapped I/O entry points (139, 157, 171). The safe twins (stored/aborted handle, joined thread, awaited task, select! loop, shutdown-conditioned while, sync busy-collect loop, SAFETY-commented block and impl, with_timeout/deadline/builder-timeout calls) and every decoy (comment mentions, string literals, a SAFETY comment a blank line away from its block) must not fire. Neither may the loops that are not long-lived: a loop no .await drives (202, and the try_recv drain at 322), a loop run whole inside tokio::time::timeout (226), a while-let on a fixed timeout_at deadline (252), a loop that breaks once its deadline passes (273), and a try_recv drain in the shutdown arm of a select! (304). The file's own test items are test code and never claimed: the #[cfg(test)] mod inline_tests (336-360) and the file-level #[test] and #[tokio::test] fns (362-376) carry a would-be finding of every rule (342, 343, 344, 350, 352, 359, 364, 365, 372, 373). src/diagnostics.rs is reached only through #[cfg(test)] and carries a would-be finding of three rules: harness, never claimed."
+  }
+}

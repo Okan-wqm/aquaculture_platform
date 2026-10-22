@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
-import hashlib
 import json
 import re
 from difflib import get_close_matches
@@ -24,6 +23,7 @@ from .phase2_utils import git_head
 from .pressure import close_pressures_from_signals
 from .tool_registry import GovernanceError
 from .workspace import WorkspacePaths, record_workspace_governance, require_workspace_v2
+from .digest import sha256_digest_text
 
 FEEDBACK_KINDS = {
     "missed_signal",
@@ -391,7 +391,7 @@ def normalize_feedback_event(
 
 def pressure_evidence_fingerprint(primitive: str, subtype: str, feedback_event_ids: list[str]) -> str:
     raw = primitive + "\x1f" + subtype + "\x1f" + "\x1e".join(sorted(set(feedback_event_ids)))
-    return "sha256:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    return sha256_digest_text(raw)
 
 
 def _normalize_evidence_refs(value: Any) -> list[str]:

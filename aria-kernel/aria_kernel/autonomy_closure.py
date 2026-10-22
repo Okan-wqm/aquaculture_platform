@@ -42,7 +42,6 @@ and the two-SHA discipline above.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 import subprocess
@@ -62,6 +61,7 @@ from .autonomy_evidence import (
     derive_autonomy_evidence_status,
 )
 from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
+from .digest import sha256_digest_text
 
 CLOSURE_REPORT_PATH = "docs/aria/ARIA_AUTONOMY_CLOSURE_EVIDENCE.md"
 # The closure plan's PR C: the report, the current-state boundary and the
@@ -134,7 +134,7 @@ def canonical_payload_digest(payload: Mapping[str, Any]) -> str:
     """sha256 over the payload's canonical JSON with its digest field excluded."""
     body = {key: value for key, value in payload.items() if key != PAYLOAD_DIGEST_FIELD}
     canonical = json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return sha256_digest_text(canonical)
 
 
 def derive_autonomy_closure_verdict(
@@ -280,9 +280,9 @@ def _closure_policy_resolved(
     name = "closure_policy_resolved_at_evidence_target"
     if not evidence_ok:
         return ClosurePredicate(name, False, ("evidence_target_unavailable",)), None
-    policy, blocker = _policy_at_target(repo, evidence)
-    if policy is None:
-        return ClosurePredicate(name, False, (blocker or "operator_prerequisite_policy_unavailable",)), None
+    policy = _policy_at_target(repo, evidence)
+    if isinstance(policy, str):
+        return ClosurePredicate(name, False, (policy,)), None
     shape = _operator_policy_shape(policy, repo_root=repo, target_sha=evidence)
     if not shape.valid:
         return ClosurePredicate(name, False, ("operator_prerequisite_policy_invalid",)), None

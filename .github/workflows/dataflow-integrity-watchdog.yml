@@ -15,16 +15,19 @@ on:
 permissions:
   contents: read
   actions: write
-# Z1 (ORPHAN-712) — the four self-hosted lanes share ONE workspace on a
-# single-slot runner today; the shared group makes that serialization a
-# REPO-enforced property instead of an accident of runner count, so adding
-# a second runner service can never reopen the mid-run wipe window.
-# WHY its own group: a GitHub concurrency group holds ONE pending slot and
-# a newly arriving run EVICTS the queued one — inside the shared workspace
-# group this hourly probe cancelled the queued nightly executor three times
-# on 2026-08-18 (ORPHAN-713). Path isolation (watchdog-checkout/) already
-# removed its store-wipe vector, so the single-slot runner is the only
-# serializer this read-only probe needs.
+# Z1 (ORPHAN-712) → ARIA-MEDIUM-277 — the self-hosted lanes share ONE
+# workspace on a single-slot runner today; that serialization is now a
+# REPO-enforced property of the host workspace lock
+# (.github/actions/selfhosted-workspace-lock, taken by the lanes that check
+# out the workspace root), not of a shared concurrency group, so adding a
+# second runner service can never reopen the mid-run wipe window.
+# WHY its own group (ORPHAN-713): a GitHub concurrency group holds ONE
+# pending slot and a newly arriving run EVICTS the queued one — inside the
+# shared workspace group this hourly probe cancelled the queued nightly
+# executor three times on 2026-08-18. Path isolation (watchdog-checkout/)
+# already removed its store-wipe vector, so the single-slot runner is the
+# only serializer this read-only probe needs, and in its own group the only
+# run its pending slot can evict is its own duplicate.
 concurrency:
   group: dataflow-integrity-watchdog
   cancel-in-progress: false
@@ -90,21 +93,50 @@ jobs:
           cat probe-evidence.json
           echo "exit_code=$status" >> "$GITHUB_OUTPUT"
 
+      # ARIA-MEDIUM-277 — the gap half of the lane's rule: run at the
+      # declared cadence OR report the gap. This probe may queue for hours
+      # behind a multi-hour cycle on the single self-hosted runner
+      # (measured: 3-7 runs/day, one wait of 11,853 s), and a run that
+      # finally executes owes the on-call an account of every hourly slot
+      # it skipped — not just a fresh green. The probes are credential-free
+      # by design, so the run list (the one call that needs the API) is
+      # fetched HERE and handed to the tool as a file; the tool appends
+      # `probe_missed_slots` to the textfile the probes own and writes the
+      # missed-slots.json uploaded with the evidence below. A gap is a
+      # report, never a probe failure: exit 0 stands.
+      - name: Report the hourly slots missed since the previous run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: watchdog-checkout
+        run: |
+          set -euo pipefail
+          gh run list --workflow dataflow-integrity-watchdog.yml --limit 10 \
+            --json databaseId,createdAt,status,conclusion \
+            > "$RUNNER_TEMP/missed-slots-runs.json"
+          node tools/watchdog/missed_slots.mjs \
+            --runs "$RUNNER_TEMP/missed-slots-runs.json" \
+            --textfile "$RUNNER_TEMP/aqua_probes.prom" \
+            --evidence missed-slots.json \
+            --cron '40 * * * *' \
+            --current-run-id "$GITHUB_RUN_ID"
+
       # The textfile is the only way these probe_* series reach Prometheus.
       # Publishing it as an artefact keeps the evidence auditable even on a
       # runner whose node_exporter textfile directory is not writable.
       - name: Upload probe metrics
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dataflow-probe-metrics-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/aqua_probes.prom
           if-no-files-found: error
           retention-days: 14
       - name: Upload evidence
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dataflow-probe-evidence-${{ github.run_id }}-${{ github.run_attempt }}
-          path: watchdog-checkout/probe-evidence.json
+          path: |
+            watchdog-checkout/probe-evidence.json
+            watchdog-checkout/missed-slots.json
           retention-days: 14
       # ARIA-MEDIUM-271 — this job used to ingest the signal into its own
       # checkout's aria-tools, thrown away with the job, and then dispatch a

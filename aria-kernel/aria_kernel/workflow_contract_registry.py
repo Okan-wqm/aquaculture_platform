@@ -37,14 +37,14 @@ root-cause fix, it is a misrepresentation of their write authority).
 """
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any, Mapping
 
-from .ledger import sha256_of_canonical_json
+from .ledger import sha256_digest_of_canonical_json
+from .digest import sha256_digest_file, sha256_digest_text
 
 
 @dataclass(frozen=True)
@@ -74,9 +74,10 @@ class WorkflowAbortGate:
     # contract gate still green.
     announce_step: str = ""
     # ARIA-HIGH-342 / GSEC-LOW-001 — idempotent cleanup that must run even
-    # while blocked: the aria/state writer-lease release. Exempt by NAME, and
-    # only with exactly `if: always()` and only as the release action, so the
-    # exemption cannot be borrowed by a worker step.
+    # while blocked: the aria/state writer-lease release and (ARIA-MEDIUM-277)
+    # the self-hosted workspace-lock release. Exempt by NAME, and only with
+    # exactly `if: always()` and only as one of the kernel's sanctioned
+    # cleanup actions, so the exemption cannot be borrowed by a worker step.
     cleanup_steps: tuple[str, ...] = ()
 
     @property
@@ -407,7 +408,12 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                     gate_step=_EXECUTOR_LEASE_STEP,
                     guard_output="steps.lease_check.outputs.blocked",
                     announce_step="Skip autonomous loop when local lease is fresh",
-                    cleanup_steps=("Release the aria/state writer lease",),
+                    cleanup_steps=(
+                        "Release the aria/state writer lease",
+                        # ARIA-MEDIUM-277 — same class: the workspace
+                        # flock release must run even while blocked.
+                        "Release the shared self-hosted workspace lock",
+                    ),
                 ),
             ),
         ),
@@ -544,7 +550,12 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                     gate_step=_CYCLE_LEASE_STEP,
                     guard_output="steps.lease_check.outputs.blocked",
                     announce_step="Skip when local lease is fresh",
-                    cleanup_steps=("Release the aria/state writer lease",),
+                    cleanup_steps=(
+                        "Release the aria/state writer lease",
+                        # ARIA-MEDIUM-277 — same class: the workspace
+                        # flock release must run even while blocked.
+                        "Release the shared self-hosted workspace lock",
+                    ),
                 ),
             ),
         ),
@@ -1068,12 +1079,12 @@ def uncontracted_write_scopes(actual: Mapping[str, Any], required: Mapping[str, 
 
 
 def workflow_hash(path: Path) -> str:
-    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+    return sha256_digest_file(path)
 
 
 def workflow_contract_hash(contract: WorkflowContract) -> str:
     payload = json.dumps(asdict(contract), sort_keys=True, separators=(",", ":"))
-    return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return sha256_digest_text(payload)
 
 
 def workflow_job_contract_hash(workflow_id: str, job_id: str) -> str | None:
@@ -1086,7 +1097,7 @@ def workflow_job_contract_hash(workflow_id: str, job_id: str) -> str | None:
         "workflow_file": contract.workflow_file,
         "job_contract": asdict(job),
     }
-    return "sha256:" + sha256_of_canonical_json(payload)
+    return sha256_digest_of_canonical_json(payload)
 
 
 # Minutes reserved between ARIA's self-imposed ceiling and the runner's hard

@@ -1346,10 +1346,28 @@ export function serviceDbRolePrefixes(): readonly string[] {
  * miss a service's real migration directory again.
  */
 export function tenantAwareMigrationGlobs(): readonly string[] {
+  return tenantAwareMigrationGlobsBySchema().map((entry) => entry.glob);
+}
+
+/**
+ * The same tenant-aware migration globs, each paired with the source schema
+ * the migrations fan out from. The tenant-aware qualified-DDL guard
+ * (tools/gates/tenant-aware-migration-ddl.ts) classifies a migration's DDL
+ * by that schema's MODULE_SCHEMAS entry, so the glob→schema join lives here,
+ * with the catalog data it is derived from — never copied at a consumer
+ * (ARIA-MEDIUM-588; the guard's first spelling carried its own hand-copied
+ * directory→schema map).
+ */
+export function tenantAwareMigrationGlobsBySchema(): readonly {
+  readonly glob: string;
+  readonly schema: string;
+}[] {
   const tenantSchemas = new Set(tenantAwareSchemas());
   return PLATFORM_SERVICE_CATALOG.filter(
     (entry) => entry.dbSchema !== undefined && tenantSchemas.has(entry.dbSchema),
-  ).flatMap((entry) => entry.migrationGlobs ?? []);
+  ).flatMap((entry) =>
+    (entry.migrationGlobs ?? []).map((glob) => ({ glob, schema: entry.dbSchema as string })),
+  );
 }
 
 export function readinessServices(): readonly { serviceId: string; port: number }[] {

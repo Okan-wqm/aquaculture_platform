@@ -23,6 +23,7 @@ from typing import Any
 
 from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
+from .digest import sha256_fingerprint
 
 SKILLS_RELDIR = ".claude/skills"
 AGENTS_RELDIR = ".claude/agents"
@@ -101,7 +102,7 @@ def list_curation_proposals(*, base_dir: str | Path | None = None, open_only: bo
 
 
 def _signature(kind: str, subjects: list[str]) -> str:
-    return "sha256:" + hashlib.sha256(f"{kind}|{'|'.join(sorted(subjects))}".encode("utf-8")).hexdigest()[:20]
+    return sha256_fingerprint(f"{kind}|{'|'.join(sorted(subjects))}".encode("utf-8"), hex_chars=20)
 
 
 def propose_curation(workspace_root: str | Path, *, base_dir: str | Path | None, similarity_threshold: float = DEFAULT_SIMILARITY,
@@ -155,8 +156,18 @@ def decide_curation(proposal_id: str, *, decision: str, operator_approval_ref: s
     open_ids = {p["proposal_id"] for p in list_curation_proposals(base_dir=root, open_only=True)}
     if proposal_id not in open_ids:
         raise ValueError(f"{proposal_id} is not an open proposal")
+    # ARIA-HIGH-238 — a curation decision merges or splits skills, so the
+    # ref must be the operator's own GitHub act naming proposal + decision.
+    from .operator_approval import require_operator_act
+
+    approval = require_operator_act(
+        operator_approval_ref,
+        surface="skill_curation_decision",
+        scope={"proposal": proposal_id, "decision": decision},
+        base_dir=root,
+    )
     row = {"schema_version": 1, "recorded_at": utc_now(), "event": "decided", "proposal_id": proposal_id, "decision": decision,
-           "operator_approval_ref": operator_approval_ref, "note": note[:500]}
+           "operator_approval_ref": operator_approval_ref, "operator_approval": approval, "note": note[:500]}
     append_declared_jsonl(proposals_path(root), row, expected_surface=CURATION_SURFACE)
     append_tools_governance(root, "skill_curation_decided", {"proposal_id": proposal_id, "decision": decision, "operator_approval_ref": operator_approval_ref})
     return row
@@ -168,10 +179,15 @@ def _materializations(root: Path) -> list[dict[str, Any]]:
     return load_jsonl(root.joinpath(*MATERIALIZATIONS_RELPATH))
 
 
-def rollback_skill_materialization(*, draft_id: str, base_dir: str | Path | None, operator_approval_ref: str, workspace_root: str | Path | None = None) -> dict[str, Any]:
-    """Put the materialized skill file back (tracked → `git restore`, new → delete); ledger + governance."""
-    if not operator_approval_ref.strip():
-        raise GovernanceError("skill_rollback_requires_operator_approval_ref")
+def rollback_skill_materialization(*, draft_id: str, base_dir: str | Path | None, reason: str, workspace_root: str | Path | None = None) -> dict[str, Any]:
+    """Put the materialized skill file back (tracked → `git restore`, new → delete); ledger + governance.
+
+    ARIA-HIGH-238 — LOWERING: a rollback removes a materialized skill, so a
+    reason on the record is enough; the parameter is named ``reason``
+    because it proves nothing about any operator act.
+    """
+    if not reason.strip():
+        raise GovernanceError("skill_rollback_requires_reason")
     root = ensure_tools_dir(base_dir)
     rows = [r for r in _materializations(root) if r.get("draft_id") == draft_id]
     if not rows:
@@ -199,10 +215,10 @@ def rollback_skill_materialization(*, draft_id: str, base_dir: str | Path | None
 
     row = {"schema_version": 1, "recorded_at": utc_now(), "draft_id": draft_id, "assignment_id": latest.get("assignment_id"),
            "worktree_path": worktree.as_posix(), "target_path": target_path, "status": "rolled_back", "rollback_action": action,
-           "rolled_back_from": latest.get("materialize_event_id"), "operator_approval_ref": operator_approval_ref}
+           "rolled_back_from": latest.get("materialize_event_id"), "reason": reason}
     stored = append_jsonl(root.joinpath(*MATERIALIZATIONS_RELPATH), row)
     append_tools_governance(root, "skill_materialization_rolled_back", {"draft_id": draft_id, "target_path": target_path, "action": action,
-                                                                         "operator_approval_ref": operator_approval_ref})
+                                                                         "reason": reason})
     return stored
 
 

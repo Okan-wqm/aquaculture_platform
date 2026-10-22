@@ -46,13 +46,16 @@ from .workflow_contract_registry import (
 )
 
 
-# D4 (ADR-036) — main's live YAMLs pin actions/upload-artifact at v7.0.1
-# (043fb46d…), verified via `gh api`. The canonical 13b94c505 blob carried the
-# stale ea165f8d… pin which would reject every live workflow; we unify on the
-# real v7.0.1 SHA. The trailing "# v7.0.1" comment in the YAML `uses:` scalar is
-# part of the parsed value under yaml.safe_load, so the comparison normalizes
-# the inline comment before matching (see ``_uses_action_id``).
-UPLOAD_ARTIFACT_ACTION = "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+# D4 (ADR-036) — the one owner of the approved actions/upload-artifact pin:
+# v7.0.2, cf430e03…, the commit the v7.0.2 tag points at (verified via
+# `gh api repos/actions/upload-artifact/git/ref/tags/v7.0.2`). The registry
+# verifier (``_verify_upload_artifact_step``) holds every ARIA workflow to it,
+# and tests/invariants/ci-full-trigger-contract.spec.ts reads this literal
+# through Python's ``ast`` instead of keeping its own copy. Dependabot rewrites
+# only the YAML, so an upload-artifact bump edits this line in the same PR.
+# The comparison strips an inline ``# vX.Y.Z`` from the ``uses:`` value first
+# (see ``_uses_action_id``).
+UPLOAD_ARTIFACT_ACTION = "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9"
 
 
 @dataclass(frozen=True)
@@ -587,7 +590,7 @@ def _verify_abort_gate(
         if (
             _step_label(step, index) in gate.cleanup_steps
             and condition == "always()"
-            and step.get("uses") == WRITER_LEASE_RELEASE_ACTION
+            and step.get("uses") in CLEANUP_ACTIONS
         ):
             continue
         if _step_is_gated(
@@ -604,6 +607,14 @@ def _verify_abort_gate(
 
 # ARIA-HIGH-342 — the one action a gate's cleanup step may be.
 WRITER_LEASE_RELEASE_ACTION = "./.github/actions/release-aria-state-lease"
+# ARIA-MEDIUM-277 — the workspace-lock release is the same class of
+# terminal, idempotent cleanup: it must run even while blocked (a lane
+# that yielded the lease still holds the workspace flock its first step
+# took) and it releases only the state that job itself acquired.
+WORKSPACE_LOCK_RELEASE_ACTION = "./.github/actions/selfhosted-workspace-lock"
+# The sanctioned cleanup actions: a step named in a gate's cleanup_steps
+# may run `if: always()` only as one of these.
+CLEANUP_ACTIONS = frozenset({WRITER_LEASE_RELEASE_ACTION, WORKSPACE_LOCK_RELEASE_ACTION})
 
 _BURN_IN_STEP_MARKER = "autonomy burn-in observe"
 # The burn-in branch of a mode-aware timeout expression, e.g.

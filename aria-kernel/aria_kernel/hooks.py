@@ -41,7 +41,6 @@ the agent cannot reach it.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -69,6 +68,7 @@ from .turn_budget import (
     parse_deadline_epoch,
     turn_budget_refusal,
 )
+from .digest import sha256_digest_text
 
 HOOK_DECISIONS_SURFACE = "hook_decisions"
 WORK_JOURNAL_SURFACE = "agent_work_journal"
@@ -277,7 +277,7 @@ def sanitize_journal_entry(payload: Mapping[str, Any]) -> dict[str, Any]:
             "command_family": family,
             "external_effect": external,
             "argv_redacted": redacted,
-            "command_hash": "sha256:" + hashlib.sha256(" ".join(argv).encode("utf-8")).hexdigest(),
+            "command_hash": sha256_digest_text(" ".join(argv)),
             "redaction_types": sorted(redaction_types),
         })
     elif tool.startswith("mcp__"):
@@ -286,7 +286,7 @@ def sanitize_journal_entry(payload: Mapping[str, Any]) -> dict[str, Any]:
 
         server, mcp_tool = split_mcp_tool(tool) or ("?", "?")
         entry.update({"command_family": "mcp", "mcp_server": server, "mcp_tool": mcp_tool,
-                      "input_hash": "sha256:" + hashlib.sha256(json.dumps(tool_input, sort_keys=True, default=str).encode("utf-8")).hexdigest()})
+                      "input_hash": sha256_digest_text(json.dumps(tool_input, sort_keys=True, default=str))})
     elif tool in WRITE_TOOL_NAMES or tool in {"Read"}:
         target = _write_target(payload)
         entry["files_touched"] = [target] if target else []

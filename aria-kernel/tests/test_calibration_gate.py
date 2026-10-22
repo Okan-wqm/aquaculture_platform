@@ -86,11 +86,17 @@ class TheGate(unittest.TestCase):
             self.assertEqual(row["judge_count"], 2)
             self.assertEqual(row["calibration_basis"], {"gate": "measure_only", "excluded_judges": ["j2"]})
 
-    def test_enforce_needs_two_calibrated_judges_of_distinct_models(self) -> None:
+    def test_enforce_needs_two_calibrated_judges_of_distinct_seats(self) -> None:
         cases = [
             # one calibrated beside an uncalibrated partner: the C2 path
             ({"j1": "calibrated", "j2": "provisional"}, ("opus", "glm"), "confidence_uncalibrated"),
-            ({"j1": "calibrated", "j2": "calibrated"}, ("opus", "opus"), "confidence_uncalibrated"),
+            # WP-P recast (operator decision 2026-10-18): two calibrated
+            # SEATS close even on one model — under a single provider every
+            # calibrated seat runs the one model that provider has, and the
+            # old distinct-MODEL wall would hold every contested verdict
+            # forever. A seat voting twice never reaches this gate: the
+            # mint's own single_judge uncertainty refuses it upstream.
+            ({"j1": "calibrated", "j2": "calibrated"}, ("opus", "opus"), None),
             ({"j1": "calibrated", "j2": "calibrated"}, ("opus", "glm"), None),
         ]
         for calibration, models, expected in cases:

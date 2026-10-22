@@ -47,6 +47,7 @@ from .agent_invocations import (
 )
 from .request_admission import admit_request
 from .tool_registry import ensure_tools_dir
+from .digest import sha256_digest_from_hex
 
 
 __all__ = [
@@ -159,19 +160,24 @@ def select_drafter(
             "aria-primary-drafter" if role == "primary_authoring"
             else "aria-challenger-drafter"
         )
+        # ARIA-HIGH-614 — the pack's own observations and surfaces are the
+        # envelope's box, and the pack rides in the prompt that names it.
+        pack_refs, pack_scope = _pack_box(evidence_pack)
         prompt = (
             f"V6.2 convergent_skill_authoring round {round_number} "
             f"for seed {seed_id}. Read the supplied evidence_pack + "
             f"must_satisfy contracts; produce an adapter draft "
             f"citing >=3 evidence_refs per rule that resolve at "
             f"the base_commit_sha. Peer audit on round >= 2."
-        )
+        ) + _pack_prompt_block(evidence_pack)
         envelope = create_agent_invocation_request(
             target_agent=target_agent,
             role=role,
             suggested_prompt=prompt,
             must_satisfy=list(must_satisfy or []),
             allowed_scope=[f"convergent/{seed_id}"],
+            evidence_refs=pack_refs,
+            evidence_scope=pack_scope,
             # ARIA-MEDIUM-385 — the seed is named in the prompt and the round
             # rides on its field; neither is a ref an agent can cite.
             round_number=round_number,
@@ -224,6 +230,10 @@ def select_judge(
             "aria-evidence-judge" if role == "evidence_judgment"
             else "aria-adversarial-judge"
         )
+        # ARIA-HIGH-614 — the judge grounds its verdict in the same pack the
+        # drafter cited from: its observations as refs, its scan surfaces as
+        # the read-only scope, its record in the prompt that names it.
+        pack_refs, pack_scope = _pack_box(evidence_pack)
         prompt = (
             f"V6.2 judge verdict for seed "
             f"{evidence_pack.get('seed_id', 'unknown')}; sandbox_result "
@@ -231,7 +241,7 @@ def select_judge(
             f"sandbox_result + primary_draft + evidence_pack; "
             f"return verdict in {{no_gaps, gaps_open}}. Ground "
             f"verdict ONLY in sandbox stdout/stderr + emitted findings."
-        )
+        ) + _pack_prompt_block(evidence_pack)
         envelope = create_agent_invocation_request(
             target_agent=target_agent,
             role=role,
@@ -244,6 +254,8 @@ def select_judge(
                 ),
             }],
             allowed_scope=[f"convergent/{evidence_pack.get('seed_id')}"],
+            evidence_refs=pack_refs,
+            evidence_scope=pack_scope,
             # ARIA-MEDIUM-385 — the seed and the sandbox precision are named
             # in the prompt; neither is a ref an agent can cite.
             base_dir=base_dir,
@@ -302,6 +314,92 @@ def select_sandbox_runner(config: DispatcherConfig | None = None):
 # ---------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------
+
+
+# ARIA-HIGH-614 — the drafter's and judge's envelopes cite inside the
+# evidence pack their own loop collected. The pack's observations are the
+# refs (``file:line``, the exact shape the cross-verify protocol re-checks
+# against ``base_commit_sha``) and its scan surfaces the read-only scope;
+# ``convergent/<seed>`` matches no repository path, and an envelope scoped
+# only to it buys a refused answer. The refs are bounded, deterministically
+# in the pack's own collection order: the scope glob already admits every
+# file under the pack's surfaces, so the list is the pack's anchor set, not
+# its ceiling.
+_ENVELOPE_OBSERVATION_REF_CAP = 50
+
+
+def _surface_glob(scope: Any) -> str | None:
+    """One ``declared_scope`` entry as the response law's glob grammar.
+
+    ``collect_evidence_pack`` accepts scan prefixes (``apps/x/``) and the
+    whole-workspace ``.``; the scope check matches globs (``apps/x/**``,
+    ``**``), so the translation happens here, at the producer that owns
+    the pack's vocabulary.
+    """
+    if not isinstance(scope, str) or not scope.strip():
+        return None
+    text = scope.strip()
+    if text in (".", "./"):
+        return "**"
+    if text.endswith("/"):
+        return text.rstrip("/") + "/**"
+    return text
+
+
+def _pack_box(evidence_pack: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """``(evidence_refs, evidence_scope)`` the pack's own record names."""
+    refs: list[str] = []
+    for observation in evidence_pack.get("observations") or []:
+        if not isinstance(observation, dict):
+            continue
+        file_path = observation.get("file_path")
+        line = observation.get("line")
+        if not isinstance(file_path, str) or not file_path.strip():
+            continue
+        if not isinstance(line, int) or isinstance(line, bool) or line <= 0:
+            continue
+        ref = f"{file_path}:{line}"
+        if ref not in refs:
+            refs.append(ref)
+    surfaces: list[str] = []
+    for scope in evidence_pack.get("declared_scope") or []:
+        glob = _surface_glob(scope)
+        if glob is not None and glob not in surfaces:
+            surfaces.append(glob)
+    return refs[:_ENVELOPE_OBSERVATION_REF_CAP], surfaces
+
+
+def _pack_prompt_block(evidence_pack: dict[str, Any]) -> str:
+    """The pack itself, bounded, as prompt data — the prompt names it, so it rides.
+
+    Phase 0 persists the pack in the store (a path no agent may cite,
+    ARIA-HIGH-354); the drafter and judge prompts both say "Read the
+    supplied evidence_pack", and before this nothing supplied it. The
+    observations travel as their ``file:line`` refs plus snippets, capped
+    with the envelope's own ref bound so a pathological scan cannot blow
+    the sealed prompt.
+    """
+    refs, surfaces = _pack_box(evidence_pack)
+    snippet_by_ref: dict[str, str] = {}
+    for observation in evidence_pack.get("observations") or []:
+        if not isinstance(observation, dict):
+            continue
+        file_path, line = observation.get("file_path"), observation.get("line")
+        snippet = observation.get("snippet")
+        if isinstance(file_path, str) and isinstance(line, int) and isinstance(snippet, str):
+            snippet_by_ref.setdefault(f"{file_path}:{line}", snippet[:200])
+    block = {
+        "seed_id": evidence_pack.get("seed_id"),
+        "base_commit_sha": evidence_pack.get("base_commit_sha"),
+        "declared_scope": evidence_pack.get("declared_scope"),
+        "claim_types": evidence_pack.get("claim_types"),
+        "evidence_scope": surfaces,
+        "observation_refs": refs,
+        "snippets": {ref: snippet_by_ref[ref] for ref in refs if ref in snippet_by_ref},
+    }
+    return "\nEvidence pack (Phase 0, bound to base_commit_sha):\n" + json.dumps(
+        block, sort_keys=True,
+    )
 
 
 def _poll_for_drafter_response(
@@ -401,7 +499,7 @@ def accepted_response(
     import hashlib as _hashlib
 
     digest = _hashlib.sha256(raw).hexdigest()
-    if expected_hash not in (digest, "sha256:" + digest):
+    if expected_hash not in (digest, sha256_digest_from_hex(digest)):
         return None
     try:
         payload = json.loads(raw.decode("utf-8"))

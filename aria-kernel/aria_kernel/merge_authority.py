@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 from .auto_merge import (
@@ -13,7 +13,6 @@ from .auto_merge import (
     evaluate_auto_merge,
     human_merge_decision,
     merge_outcome,
-    pr_change_binding,
 )
 from .autonomous_host_lease import release_remote_cas_lease
 from .autonomy_unlock import assert_autonomy_unlocked
@@ -32,7 +31,7 @@ from .incident_ledger import (
 )
 from .ledger import SEGMENTED_LEDGERS, load_declared_jsonl, load_segments, segment_paths
 from .merge_lane_merge_state import route_unmergeable_merge_state
-from .merge_record import LINEAGE_DELIVERED, MERGED_BY_MERGE_LANE, record_merge
+from .merge_record import LINEAGE_DELIVERED, MERGED_BY_MERGE_LANE, pr_change_binding, record_merge
 from .policy_approval import verify_policy_approval
 from .readiness_proofs import produce_remote_cas_proof
 from .risk_policy import first_present_string, record_risk_decision_for_pr
@@ -47,6 +46,7 @@ from .tool_registry import GovernanceError, append_tools_governance, ensure_tool
 from .self_merge_freeze import assert_self_merge_not_frozen
 from .system_one_points import shadow_merge
 from .watchdog_freeze import assert_merge_not_watchdog_frozen
+from .digest import sha256_digest, sha256_digest_text
 
 
 def merge_pr_if_ready(
@@ -1005,33 +1005,36 @@ def _capture_pre_merge_context(
             expected_surface="operator_feedback",
         )[1] if prefixes["operator_feedback"] is not None else []
         reason = "pr_change_join_unavailable"
-        observations = [row for row in rows["pr_lifecycle"] if row.get("pr_number") == number]
-        change_ids = {row.get("change_id") for row in observations if row.get("change_id")}
-        # ARIA-HIGH-521 — the change is bound by the row that carries it
-        # (`pr_change_binding`: the opener's row), never by the last row:
-        # the merge lane has just appended its own `observed` row from
-        # GitHub's view of the PR, which carries no change_id. The last row
-        # still has to be this PR at the live head and base.
-        binding = pr_change_binding(observations, number)
-        if len(change_ids) != 1 or binding is None:
-            raise GovernanceError(reason)
-        observed = observations[-1]
-        change_id = str(binding["change_id"])
+        # merge-delivery-1 (ARIA-HIGH-521, ARIA-MEDIUM-656) — the PR is bound
+        # to its change by the row that opened it (the one binding owner,
+        # merge_record.pr_change_binding), read from the captured prefix. The
+        # merge lane appends its own `observed` row of GitHub's payload before
+        # this runs; that row binds nothing, so it can neither unbind the PR
+        # nor re-bind it. The live head is the payload's; the opened row names
+        # the head the kernel delivered. No lifecycle row has to name the live
+        # head (the claim-time capture appends none): it is judged against the
+        # committed commit below, by the shared lineage verifier when it moved,
+        # and merge_pr_if_ready re-reads it before it merges.
+        binding = pr_change_binding(rows["pr_lifecycle"], pr_number=number)
         if (
-            observed.get("head_sha") != head_sha
-            or observed.get("base_branch") != context.base_branch
-            or binding.get("base_branch") != context.base_branch
-            or (pr.get("change_id") is not None and pr["change_id"] != change_id)
+            binding is None or binding.change_id is None
+            or binding.bound_change_ids != (binding.change_id,)
+            or binding.base_branch != context.base_branch
+            or (pr.get("change_id") is not None and pr["change_id"] != binding.change_id)
         ):
             raise GovernanceError(reason)
+        bound, change_id = binding.row, binding.change_id
         planned_rows = [row for row in rows["change_planned"] if row.get("change_id") == change_id]
         committed_rows = [row for row in rows["change_committed"] if row.get("change_id") == change_id]
         if len(planned_rows) != 1 or len(committed_rows) != 1:
             raise GovernanceError(reason)
         planned, committed = planned_rows[0], committed_rows[0]
+        if binding.delivered_head_sha != committed.get("commit_sha"):
+            raise GovernanceError(reason)
         if committed.get("commit_sha") != head_sha:
             # ARIA-HIGH-374 — the one verifier all three gates share; any
-            # other head stays `pr_change_join_unavailable`, named.
+            # other head stays `pr_change_join_unavailable`, named by the
+            # verifier's reason in the evidence.
             from .branch_update_lineage import BranchUpdateLineageRefused, verify_branch_update_lineage
 
             try:
@@ -1040,7 +1043,8 @@ def _capture_pre_merge_context(
                     delivered_sha=str(committed.get("commit_sha") or ""), live_base_sha=live_base_sha,
                 )
             except BranchUpdateLineageRefused as exc:
-                raise GovernanceError(f"{reason}:{exc.reason}") from exc
+                reason = f"{reason}:{exc.reason}"
+                raise GovernanceError(reason) from exc
             head_sha = str(committed["commit_sha"])
             base_sha = _git(workspace, "merge-base", live_base_sha, head_sha).strip()
             if not is_object_id(base_sha, formats=ANY_OBJECT_FORMAT):
@@ -1082,7 +1086,7 @@ def _capture_pre_merge_context(
 
         implementation, gaps = _join_pre_merge_implementation(
             tools=tools, workspace=workspace, rows=rows, state=state,
-            body=body, planned=planned, committed=committed, pr_binding=binding,
+            body=body, planned=planned, committed=committed, pr_binding=bound,
             pr=pr, base_sha=base_sha, head_sha=head_sha, diff_text=diff_text,
             merge_base_sha=merge_base_sha, merge_head_sha=merge_head_sha,
         )
@@ -1149,7 +1153,7 @@ def _capture_pre_merge_context(
             envelope={"affected_surfaces": list(changed_paths)},
             pre_merge_evidence=_pre_merge_evidence(
                 gaps, pr_number=number, change_id=change_id,
-                pr_row_hash=binding["ledger_hash"], planned_row_hash=planned["ledger_hash"],
+                pr_row_hash=bound["ledger_hash"], planned_row_hash=planned["ledger_hash"],
                 committed_row_hash=committed["ledger_hash"], plan_id=plan_id,
                 plan_revision_id=body["revision_id"], plan_content_hash=body["content_hash"],
                 repo_identity=repo_identity, base_sha=base_sha, head_sha=head_sha,
@@ -1250,7 +1254,7 @@ def _capture_pre_merge_coverage(
         if manifest_bytes is None:
             raise GovernanceError(reason)
         reason = "coverage_manifest_hash_mismatch"
-        manifest_hash = "sha256:" + _hashlib.sha256(manifest_bytes).hexdigest()
+        manifest_hash = sha256_digest(manifest_bytes)
         if manifest_hash != payload["closure_manifest_hash"]:
             raise GovernanceError(reason)
         observation["coverage_manifest_hash"] = manifest_hash
@@ -1417,7 +1421,7 @@ def _capture_pre_merge_expert_consensus(
             path = _invocations.resolve_output_artifact_path(tools, result["output_path"])
             path.resolve().relative_to(tools.resolve())
             data = _invocations._read_stable_submission_artifact(path)
-            if "sha256:" + _hashlib.sha256(data).hexdigest() != result["output_hash"]:
+            if sha256_digest(data) != result["output_hash"]:
                 raise GovernanceError(reason)
             files[path] = data
             response = _json.loads(data)
@@ -1482,7 +1486,7 @@ def _capture_pre_merge_turn_budget(
 def _join_pre_merge_implementation(
     *, tools: Path, workspace: Path, rows: dict[str, list[dict[str, Any]]],
     state: dict[str, Any], body: dict[str, Any], planned: dict[str, Any],
-    committed: dict[str, Any], pr_binding: dict[str, Any], pr: dict[str, Any],
+    committed: dict[str, Any], pr_binding: Mapping[str, Any], pr: dict[str, Any],
     base_sha: str, head_sha: str, diff_text: str | None,
     merge_base_sha: str, merge_head_sha: str,
 ) -> tuple[dict[str, Any], tuple[str, ...]]:
@@ -1575,7 +1579,7 @@ def _join_pre_merge_implementation(
             path = _invocations.resolve_output_artifact_path(tools, result[name])
             path.resolve().relative_to(tools.resolve())
             data = _invocations._read_stable_submission_artifact(path)
-            if "sha256:" + _hashlib.sha256(data).hexdigest() != result[hash_field]:
+            if sha256_digest(data) != result[hash_field]:
                 raise GovernanceError(reason)
             artifact_bytes[name] = data
         response = _json.loads(artifact_bytes["output_path"])
@@ -1610,7 +1614,7 @@ def _join_pre_merge_implementation(
         )
         if diff_text is None or diff_text.strip() != merged_diff:
             raise GovernanceError("implementation_diff_unavailable")
-        actual_diff_hash = "sha256:" + _hashlib.sha256(actual_diff.encode("utf-8")).hexdigest()
+        actual_diff_hash = sha256_digest_text(actual_diff)
         if outcome.get("diff_hash") != actual_diff_hash:
             raise GovernanceError("implementation_diff_hash_mismatch")
         return {

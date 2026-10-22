@@ -90,6 +90,12 @@ from tests._helpers.ambient_git_config import AMBIENT_GIT_CONFIG, injected_git_c
 from tests._helpers.git_fixtures import _git, make_repo_with_initial_commit
 from tests._helpers.sandbox_pins import require_sandbox_backend
 
+# ARIA-HIGH-138 — the seam(s) this file proves by a real process, per
+# the closed registry in tests/invariants/seam_registry.py.
+REAL_PROCESS_SEAMS = (
+    "aria-kernel/aria_kernel/git_containment.py",
+)
+
 CYCLE = "cyc-aria-high-123"
 BRANCH = "aria-impl-0123abcd"
 _KERNEL_ROOT = Path(__file__).resolve().parents[1]

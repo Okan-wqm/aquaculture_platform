@@ -260,6 +260,43 @@ class WorkerDispatchPrimitivesTests(unittest.TestCase):
             142,
         )
 
+    def test_only_the_opened_row_binds_an_assignment_to_its_pr(self) -> None:
+        # merge-delivery-1 (ARIA-MEDIUM-656) — the assignment bridge is one of
+        # merge_record.BINDING_FIELDS, so only the PR's opened row names it.
+        # Rows written before record_pr_lifecycle nulled the binding fields on
+        # other events (an observation of a payload that carried the field, a
+        # merged row built from another PR's payload) must not route the
+        # verified assignment's merge_if_green to that row's PR.
+        pr_path = self.tools_root / "pr-lifecycle.jsonl"
+        append_declared_fixture(
+            pr_path,
+            {"schema_version": 1, "event": "opened", "pr_number": 142,
+             "assignment_id": "A-PR", "proposal_id": "PROP-NEW"},
+            expected_surface="pr_lifecycle",
+        )
+        for event, number in (("observed", 777), ("merged", 778)):
+            append_declared_fixture(
+                pr_path,
+                {"schema_version": 1, "event": event, "pr_number": number,
+                 "assignment_id": "A-PR"},
+                expected_surface="pr_lifecycle",
+            )
+        self.assertEqual(
+            pr_for_assignment(assignment_id="A-PR", base_dir=self.tools_root),
+            142,
+        )
+        # An assignment that only a non-opened row ever named has no PR: the
+        # caller fail-closes to verified_pending_merge.
+        append_declared_fixture(
+            pr_path,
+            {"schema_version": 1, "event": "observed", "pr_number": 779,
+             "assignment_id": "A-ORPHAN"},
+            expected_surface="pr_lifecycle",
+        )
+        self.assertIsNone(
+            pr_for_assignment(assignment_id="A-ORPHAN", base_dir=self.tools_root),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

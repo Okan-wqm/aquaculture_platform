@@ -5,13 +5,15 @@ import ast
 import hashlib
 import json
 import os
+import shutil
 import unittest
+from collections import Counter
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 import subprocess
 import tempfile
 from types import MappingProxyType
-from typing import Any
+from typing import Any, Callable, Literal, get_type_hints
 from unittest import mock
 
 import aria_kernel.autonomy_evidence as autonomy_evidence_module
@@ -5661,13 +5663,18 @@ class OperatorPrerequisiteTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory(prefix="aria-evidence-policy-")
         self.addCleanup(self.tmp.cleanup)
-        self.repo = Path(self.tmp.name) / "repo"
-        self.repo.mkdir()
-        _git(self.repo, "init", "--initial-branch=main", ".")
-        _git(self.repo, "config", "user.name", "ARIA Test")
-        _git(self.repo, "config", "user.email", "aria@example.invalid")
-        _git(self.repo, "config", "commit.gpgsign", "false")
-        _write_current_evaluator(self.repo)
+        self.repo = self._new_repo("repo")
+
+    def _new_repo(self, name: str) -> Path:
+        """A fresh target repository holding the executing evaluator."""
+        repo = Path(self.tmp.name) / name
+        repo.mkdir()
+        _git(repo, "init", "--initial-branch=main", ".")
+        _git(repo, "config", "user.name", "ARIA Test")
+        _git(repo, "config", "user.email", "aria@example.invalid")
+        _git(repo, "config", "commit.gpgsign", "false")
+        _write_current_evaluator(repo)
+        return repo
 
     def _commit_policy(self, registry_state: str) -> str:
         policy = self.repo / "docs" / "aria" / "policy" / "autonomy-closure-findings.json"
@@ -6322,22 +6329,12 @@ class OperatorPrerequisiteTests(unittest.TestCase):
         operator blocker is composed beside it; it used to be reported as
         ``operator_prerequisite_policy_invalid`` alone, which hid the one
         action only the operator can take."""
-        self._commit_policy("OPEN")
-        policy_path = (
-            self.repo / "docs" / "aria" / "policy"
-            / "autonomy-closure-findings.json"
-        )
-        policy = json.loads(policy_path.read_text(encoding="utf-8"))
-        relative = policy["entries"][0]["regression_test_refs"][0]
-        regression = self.repo / relative
-        regression.unlink()
-        _git(self.repo, "add", "--all", ".")
-        _git(self.repo, "commit", "-m", "remove policy regression ref")
+        target, _relative = self._commit_without_ref()
 
         capabilities = _apply_operator_prerequisites(
             capabilities=self._capabilities("live_proven"),
             repo_root=self.repo,
-            target_sha=_git(self.repo, "rev-parse", "HEAD"),
+            target_sha=target,
         )
         readiness = capabilities["enterprise_readiness"]
         self.assertEqual(
@@ -6348,6 +6345,163 @@ class OperatorPrerequisiteTests(unittest.TestCase):
             ),
         )
         self.assertEqual(readiness.state, "operator_blocked")
+
+    def _commit_without_ref(self) -> tuple[str, str]:
+        """Commit the policy with its first pinned regression test absent."""
+        self._commit_policy("OPEN")
+        policy = json.loads(
+            (
+                self.repo / "docs" / "aria" / "policy"
+                / "autonomy-closure-findings.json"
+            ).read_text(encoding="utf-8"),
+        )
+        relative = policy["entries"][0]["regression_test_refs"][0]
+        (self.repo / relative).unlink()
+        _git(self.repo, "add", "--all", ".")
+        _git(self.repo, "commit", "-m", "regression test not landed")
+        return _git(self.repo, "rev-parse", "HEAD"), relative
+
+    def test_an_owed_proof_demotes_proven_readiness_to_declared(self) -> None:
+        """An owed proof is engineering work: it never leaves readiness
+        ``live_proven`` (the derivation demotes every capability an
+        engineering blocker names), and it never tells the operator to act.
+        Mode-A is judged on the readiness as derived, never on the demoted
+        evidence (that would report Mode-A unconfigured when it is proven)."""
+        target, _relative = self._commit_without_ref()
+        judged: list[str] = []
+
+        def mode_a_proven(evidence: CapabilityEvidence) -> bool:
+            judged.append(evidence.state)
+            return True
+
+        with mock.patch.object(
+            autonomy_evidence_module,
+            "_mode_a_signed_readiness_live_proven",
+            side_effect=mode_a_proven,
+        ):
+            readiness = _apply_operator_prerequisites(
+                capabilities=self._capabilities("live_proven"),
+                repo_root=self.repo,
+                target_sha=target,
+            )["enterprise_readiness"]
+
+        self.assertEqual(judged, ["live_proven"])
+        self.assertEqual(
+            (readiness.state, readiness.blockers),
+            ("declared", ("closure_policy_regression_refs_unresolved",)),
+        )
+
+    def test_landed_refs_and_proven_mode_a_add_no_prerequisite_blocker(
+        self,
+    ) -> None:
+        target = self._commit_policy("OPEN")
+        with mock.patch.object(
+            autonomy_evidence_module,
+            "_mode_a_signed_readiness_live_proven",
+            return_value=True,
+        ):
+            readiness = _apply_operator_prerequisites(
+                capabilities=self._capabilities("live_proven"),
+                repo_root=self.repo,
+                target_sha=target,
+            )["enterprise_readiness"]
+
+        self.assertEqual((readiness.state, readiness.blockers), ("live_proven", ()))
+
+    def test_a_structurally_invalid_policy_still_composes_the_mode_a_blocker(
+        self,
+    ) -> None:
+        """The policy reads as JSON but its structure is refused: the
+        invalid-structure branch composes Mode-A as the unreadable one does."""
+        self._commit_policy("OPEN")
+        policy_path = (
+            self.repo / "docs" / "aria" / "policy"
+            / "autonomy-closure-findings.json"
+        )
+        policy = json.loads(policy_path.read_text(encoding="utf-8"))
+        policy["policy_id"] = "other"
+        policy_path.write_text(json.dumps(policy), encoding="utf-8")
+        _git(self.repo, "add", ".")
+        _git(self.repo, "commit", "-m", "tampered policy id")
+
+        readiness = _apply_operator_prerequisites(
+            capabilities=self._capabilities("declared"),
+            repo_root=self.repo,
+            target_sha=_git(self.repo, "rev-parse", "HEAD"),
+        )["enterprise_readiness"]
+
+        self.assertEqual(
+            (readiness.state, readiness.blockers),
+            (
+                "operator_blocked",
+                (
+                    "github_app_mode_a_unconfigured",
+                    "operator_prerequisite_policy_invalid",
+                ),
+            ),
+        )
+
+    def test_the_policy_structure_alone_pins_the_one_operator_prerequisite_owner(
+        self,
+    ) -> None:
+        # The applier does not re-check the prerequisite owner: the structure
+        # pins every entry's `operator_prerequisite` (ORPHAN-MEDIUM-789's
+        # metadata, none elsewhere) and 789's predicate. Each shape the
+        # removed applier copy refused is refused by the structure.
+        def owner(policy: dict[str, Any]) -> dict[str, Any]:
+            return next(
+                entry
+                for entry in policy["entries"]
+                if entry["finding_id"] == "ORPHAN-MEDIUM-789"
+            )
+
+        target = self._commit_policy("OPEN")
+        policy_path = (
+            self.repo / "docs" / "aria" / "policy"
+            / "autonomy-closure-findings.json"
+        )
+        for label, mutation in (
+            ("metadata_removed", lambda policy: owner(policy).pop("operator_prerequisite")),
+            (
+                "blocker_renamed",
+                lambda policy: owner(policy)["operator_prerequisite"].update({
+                    "blocker": "some_other_blocker",
+                }),
+            ),
+            (
+                "capability_moved",
+                lambda policy: owner(policy)["operator_prerequisite"].update({
+                    "capability": "cycle_runtime",
+                }),
+            ),
+            (
+                "predicate_changed",
+                lambda policy: owner(policy).update({
+                    "required_predicate": "something_else_live_proven",
+                }),
+            ),
+            (
+                "second_owner",
+                lambda policy: policy["entries"][0].update({
+                    "operator_prerequisite": dict(
+                        owner(policy)["operator_prerequisite"],
+                    ),
+                }),
+            ),
+        ):
+            with self.subTest(label=label):
+                # The target tree holds the valid policy, its anchors and
+                # every ref; only the policy judged here is mutated.
+                policy = json.loads(policy_path.read_text(encoding="utf-8"))
+                mutation(policy)
+                self.assertEqual(
+                    autonomy_evidence_module._operator_policy_shape(
+                        policy,
+                        repo_root=self.repo.resolve(),
+                        target_sha=target,
+                    ),
+                    autonomy_evidence_module._INVALID_OPERATOR_POLICY,
+                )
 
     def test_an_invalid_policy_still_composes_the_mode_a_blocker(self) -> None:
         """ARIA-HIGH-520 — every blocker is composed; none returns early.
@@ -6376,28 +6530,326 @@ class OperatorPrerequisiteTests(unittest.TestCase):
             ),
         )
 
-    def test_target_policy_regression_ref_rejects_non_blob_entry(self) -> None:
+    # Only an ABSENT path below real directories is a proof still owed. A
+    # symlink, tree or gitlink at a pinned path, or a non-directory ancestor
+    # the path would resolve through, is a tampering shape: the policy is
+    # invalid (an operator blocker), never engineering backlog.
+
+    def _assert_pinned_ref_shape_is_structural(
+        self,
+        label: str,
+        mutation: Callable[[str], None],
+        *,
+        stage_worktree: bool = True,
+    ) -> None:
+        self._commit_policy("OPEN")
+        policy = json.loads(
+            (
+                self.repo / "docs" / "aria" / "policy"
+                / "autonomy-closure-findings.json"
+            ).read_text(encoding="utf-8"),
+        )
+        mutation(policy["entries"][0]["regression_test_refs"][0])
+        if stage_worktree:
+            _git(self.repo, "add", "--all", ".")
+        _git(self.repo, "commit", "-m", f"pinned ref {label}")
+
+        with mock.patch.object(
+            autonomy_evidence_module,
+            "_mode_a_signed_readiness_live_proven",
+            return_value=True,
+        ):
+            readiness = _apply_operator_prerequisites(
+                capabilities=self._capabilities("live_proven"),
+                repo_root=self.repo,
+                target_sha=_git(self.repo, "rev-parse", "HEAD"),
+            )["enterprise_readiness"]
+        self.assertEqual(
+            (readiness.state, readiness.blockers),
+            ("operator_blocked", ("operator_prerequisite_policy_invalid",)),
+        )
+
+    def test_a_symlink_at_a_pinned_ref_is_structural_not_unlanded(self) -> None:
+        def symlink(relative: str) -> None:
+            regression = self.repo / relative
+            regression.unlink()
+            regression.symlink_to("missing-regression-target")
+
+        self._assert_pinned_ref_shape_is_structural("symlink", symlink)
+
+    def test_a_tree_at_a_pinned_ref_is_structural_not_unlanded(self) -> None:
+        def tree(relative: str) -> None:
+            regression = self.repo / relative
+            regression.unlink()
+            regression.mkdir()
+            (regression / "inner.py").write_text("x\n", encoding="utf-8")
+
+        self._assert_pinned_ref_shape_is_structural("tree", tree)
+
+    def test_a_gitlink_at_a_pinned_ref_is_structural_not_unlanded(self) -> None:
+        # A gitlink exists only in the index; staging the working tree would
+        # drop it, so this shape stages itself.
+        def gitlink(relative: str) -> None:
+            (self.repo / relative).unlink()
+            _git(self.repo, "add", "--all", ".")
+            _git(
+                self.repo,
+                "update-index",
+                "--add",
+                "--cacheinfo",
+                f"160000,{'a' * 40},{relative}",
+            )
+
+        self._assert_pinned_ref_shape_is_structural(
+            "gitlink",
+            gitlink,
+            stage_worktree=False,
+        )
+
+    def _ancestor_replaced(
+        self,
+        depth: int,
+        shape: Literal["symlink", "file", "gitlink"],
+    ) -> Callable[[str], None]:
+        """Replace the ref's ancestor ``parts[:depth]`` (``1`` its top-level
+        directory, ``-1`` its parent) with a symlink to the moved directory, a
+        regular file, or a gitlink (index only, so it stages itself)."""
+
+        def mutation(relative: str) -> None:
+            ancestor = self.repo.joinpath(*relative.split("/")[:depth])
+            if shape == "symlink":
+                outside = Path(self.tmp.name) / f"outside-{self.repo.name}"
+                ancestor.rename(outside)
+                ancestor.symlink_to(outside)
+                return
+            shutil.rmtree(ancestor)
+            if shape == "file":
+                ancestor.write_text("not a directory\n", encoding="utf-8")
+                return
+            _git(self.repo, "add", "--all", ".")
+            _git(
+                self.repo,
+                "update-index",
+                "--add",
+                "--cacheinfo",
+                f"160000,{'a' * 40},{ancestor.relative_to(self.repo).as_posix()}",
+            )
+
+        return mutation
+
+    def test_a_pinned_ref_below_a_non_directory_ancestor_is_structural_not_unlanded(
+        self,
+    ) -> None:
+        # ARIA-HIGH-520's landed fix (02e4c0dc6) read these shapes as an owed
+        # proof: ls-tree finds nothing below a symlink, file or gitlink, so
+        # the ref looked absent and the tampered tree was reported as
+        # engineering backlog. ARIA-MEDIUM-662 — every ancestor is walked,
+        # the top-level directory (aria-kernel) as well as the parent, so a
+        # walk that stops short of either depth fails here.
+        for shape in ("symlink", "file", "gitlink"):
+            for where, depth in (("top_level", 1), ("parent", -1)):
+                with self.subTest(shape=shape, where=where):
+                    self.repo = self._new_repo(f"repo-{where}-{shape}")
+                    self._assert_pinned_ref_shape_is_structural(
+                        f"{where} {shape}",
+                        self._ancestor_replaced(depth, shape),
+                        stage_worktree=shape != "gitlink",
+                    )
+
+    def test_a_git_failure_classifying_a_pinned_ref_fails_closed(self) -> None:
+        # The classification reads the ref and, when it is absent, each of
+        # its ancestors. A git failure on any of them is an invalid policy,
+        # never an owed proof.
+        target, relative = self._commit_without_ref()
+        real_tree_entry = autonomy_evidence_module._git_tree_entry
+        for label, failing in (
+            ("ref", relative),
+            ("parent", relative.rsplit("/", 1)[0]),
+            ("top_level", relative.split("/", 1)[0]),
+        ):
+            with self.subTest(label=label):
+                def tree_entry(
+                    repo_root: Path,
+                    commit_sha: str,
+                    path: str,
+                    _failing: str = failing,
+                ) -> tuple[bytes, str, str, str] | None:
+                    if path == _failing:
+                        raise RuntimeError("git_authority_tree_unavailable")
+                    return real_tree_entry(repo_root, commit_sha, path)
+
+                with mock.patch.object(
+                    autonomy_evidence_module,
+                    "_git_tree_entry",
+                    side_effect=tree_entry,
+                ), mock.patch.object(
+                    autonomy_evidence_module,
+                    "_mode_a_signed_readiness_live_proven",
+                    return_value=True,
+                ):
+                    readiness = _apply_operator_prerequisites(
+                        capabilities=self._capabilities("live_proven"),
+                        repo_root=self.repo,
+                        target_sha=target,
+                    )["enterprise_readiness"]
+                self.assertEqual(
+                    (readiness.state, readiness.blockers),
+                    ("operator_blocked", ("operator_prerequisite_policy_invalid",)),
+                )
+
+    def test_a_ref_the_policy_does_not_pin_never_reaches_git(self) -> None:
+        # The pinned references are compared before any ref is classified,
+        # so a hostile policy's extra ref (absent, below directories the
+        # target holds) costs no ls-tree call and never reads as backlog.
         self._commit_policy("OPEN")
         policy_path = (
             self.repo / "docs" / "aria" / "policy"
             / "autonomy-closure-findings.json"
         )
         policy = json.loads(policy_path.read_text(encoding="utf-8"))
-        relative = policy["entries"][0]["regression_test_refs"][0]
-        regression = self.repo / relative
-        regression.unlink()
-        regression.symlink_to("missing-regression-target")
-        _git(self.repo, "add", "--all", ".")
-        _git(self.repo, "commit", "-m", "symlink policy regression ref")
+        pinned = policy["entries"][0]["regression_test_refs"][0]
+        unpinned = pinned.rsplit("/", 1)[0] + "/deep/er/test_not_pinned.py"
+        policy["entries"][0]["regression_test_refs"].append(unpinned)
+        policy_path.write_text(json.dumps(policy), encoding="utf-8")
+        _git(self.repo, "add", ".")
+        _git(self.repo, "commit", "-m", "policy with an unpinned ref")
+        real_tree_entry = autonomy_evidence_module._git_tree_entry
+        looked_up: list[str] = []
 
-        capabilities = _apply_operator_prerequisites(
-            capabilities=self._capabilities("live_proven"),
-            repo_root=self.repo,
-            target_sha=_git(self.repo, "rev-parse", "HEAD"),
+        def tree_entry(
+            repo_root: Path,
+            commit_sha: str,
+            path: str,
+        ) -> tuple[bytes, str, str, str] | None:
+            looked_up.append(path)
+            return real_tree_entry(repo_root, commit_sha, path)
+
+        with mock.patch.object(
+            autonomy_evidence_module,
+            "_git_tree_entry",
+            side_effect=tree_entry,
+        ):
+            readiness = _apply_operator_prerequisites(
+                capabilities=self._capabilities("declared"),
+                repo_root=self.repo,
+                target_sha=_git(self.repo, "rev-parse", "HEAD"),
+            )["enterprise_readiness"]
+        self.assertEqual(
+            readiness.blockers,
+            (
+                "github_app_mode_a_unconfigured",
+                "operator_prerequisite_policy_invalid",
+            ),
         )
-        self.assertIn(
-            "operator_prerequisite_policy_invalid",
-            capabilities["enterprise_readiness"].blockers,
+        self.assertEqual(
+            [path for path in looked_up if "/deep" in path],
+            [],
+        )
+
+    def test_one_policy_validation_reads_each_target_tree_path_once(self) -> None:
+        # One tree-entry cache serves the whole validation: a ref two entries
+        # pin (test_judgment_pipeline_phases.py, aria-doc-runtime-ssot.spec.ts),
+        # the ancestors two absent refs share (aria-kernel, aria-kernel/tests)
+        # and the review anchors are each one ls-tree call, never one per use.
+        self._commit_policy("OPEN")
+        policy = json.loads(
+            (
+                self.repo / "docs" / "aria" / "policy"
+                / "autonomy-closure-findings.json"
+            ).read_text(encoding="utf-8"),
+        )
+        absent = tuple(policy["entries"][0]["regression_test_refs"][:2])
+        for relative in absent:
+            (self.repo / relative).unlink()
+        _git(self.repo, "add", "--all", ".")
+        _git(self.repo, "commit", "-m", "two regression tests not landed")
+        target = _git(self.repo, "rev-parse", "HEAD")
+        real_tree_entry = autonomy_evidence_module._git_tree_entry
+        looked_up: list[str] = []
+
+        def tree_entry(
+            repo_root: Path,
+            commit_sha: str,
+            path: str,
+        ) -> tuple[bytes, str, str, str] | None:
+            looked_up.append(path)
+            return real_tree_entry(repo_root, commit_sha, path)
+
+        with mock.patch.object(
+            autonomy_evidence_module,
+            "_git_tree_entry",
+            side_effect=tree_entry,
+        ):
+            shape = autonomy_evidence_module._operator_policy_shape(
+                policy,
+                repo_root=self.repo.resolve(),
+                target_sha=target,
+            )
+
+        self.assertEqual(
+            (shape.valid, shape.unresolved_refs),
+            (True, absent),
+        )
+        self.assertEqual(
+            {path: count for path, count in Counter(looked_up).items() if count > 1},
+            {},
+        )
+        self.assertTrue({"aria-kernel", "aria-kernel/tests"} <= set(looked_up))
+
+    def test_the_target_policy_reader_returns_the_policy_or_one_named_blocker(
+        self,
+    ) -> None:
+        # The reader's result is the policy or the blocker naming why it
+        # cannot be read, never neither: a (None, None) result had to be
+        # papered over by both callers (`blocker or "..._unavailable"`).
+        self.assertEqual(
+            get_type_hints(autonomy_evidence_module._policy_at_target)["return"],
+            dict[str, Any] | str,
+        )
+        policy_path = (
+            self.repo / "docs" / "aria" / "policy"
+            / "autonomy-closure-findings.json"
+        )
+        _git(self.repo, "add", ".")
+        _git(self.repo, "commit", "-m", "no policy yet")
+        root = self.repo.resolve()
+        outcomes: dict[str, dict[str, Any] | str] = {
+            "absent": autonomy_evidence_module._policy_at_target(
+                root,
+                _git(self.repo, "rev-parse", "HEAD"),
+            ),
+        }
+        valid_target = self._commit_policy("OPEN")
+        valid = json.loads(policy_path.read_text(encoding="utf-8"))
+        outcomes["valid"] = autonomy_evidence_module._policy_at_target(
+            root,
+            valid_target,
+        )
+        for label, payload in (
+            ("not_json", b"not-json\n"),
+            ("not_object", b"[]\n"),
+            (
+                "too_large",
+                b"x" * (autonomy_evidence_module._MAX_POLICY_BLOB_BYTES + 1),
+            ),
+        ):
+            policy_path.write_bytes(payload)
+            _git(self.repo, "add", ".")
+            _git(self.repo, "commit", "-m", f"policy {label}")
+            outcomes[label] = autonomy_evidence_module._policy_at_target(
+                root,
+                _git(self.repo, "rev-parse", "HEAD"),
+            )
+
+        self.assertEqual(
+            outcomes,
+            {
+                "absent": "operator_prerequisite_policy_unavailable",
+                "valid": valid,
+                "not_json": "operator_prerequisite_policy_invalid",
+                "not_object": "operator_prerequisite_policy_invalid",
+                "too_large": "operator_prerequisite_policy_too_large",
+            },
         )
 
     def test_non_object_target_policy_is_invalid_not_unavailable(self) -> None:
@@ -6421,11 +6873,16 @@ class OperatorPrerequisiteTests(unittest.TestCase):
         self.assertNotIn("operator_prerequisite_policy_unavailable", blockers)
 
     def test_target_policy_git_read_exception_fails_closed(self) -> None:
+        # With Mode-A proven, the unavailable policy alone blocks readiness.
         target = self._commit_policy("OPEN")
         with mock.patch.object(
             autonomy_evidence_module,
             "_policy_at_target",
-            return_value=(None, "operator_prerequisite_policy_unavailable"),
+            return_value="operator_prerequisite_policy_unavailable",
+        ), mock.patch.object(
+            autonomy_evidence_module,
+            "_mode_a_signed_readiness_live_proven",
+            return_value=True,
         ):
             capabilities = _apply_operator_prerequisites(
                 capabilities=self._capabilities("live_proven"),
@@ -6433,13 +6890,10 @@ class OperatorPrerequisiteTests(unittest.TestCase):
                 target_sha=target,
             )
 
+        readiness = capabilities["enterprise_readiness"]
         self.assertEqual(
-            capabilities["enterprise_readiness"].state,
-            "operator_blocked",
-        )
-        self.assertIn(
-            "operator_prerequisite_policy_unavailable",
-            capabilities["enterprise_readiness"].blockers,
+            (readiness.state, readiness.blockers),
+            ("operator_blocked", ("operator_prerequisite_policy_unavailable",)),
         )
 
     def test_store_unavailable_preserves_target_operator_prerequisite(self) -> None:
@@ -6481,7 +6935,6 @@ PENDING_CLOSURE_REGRESSION_REFS: dict[str, tuple[str, ...]] = {
         "aria-kernel/tests/test_pre_merge_file_claims.py",
     ),
     "ARIA-CRITICAL-009": ("aria-kernel/tests/test_pre_merge_consensus_and_coverage.py",),
-    "ARIA-HIGH-010": ("tools/aria-adapters/rust-runtime-safety-adapter.test.ts",),
     "ARIA-HIGH-012": ("tools/aria-adapters/infrastructure-policy-adapter.test.ts",),
     "ARIA-HIGH-014": ("aria-kernel/tests/test_vertical_slice_evidence.py",),
     "ARIA-CRITICAL-015": ("aria-kernel/tests/test_autonomy_stage_progression.py",),

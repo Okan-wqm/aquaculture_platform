@@ -82,7 +82,7 @@ jobs:
             --head-sha "${{ github.sha }}" \
             --development-ref deployed/development
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -125,7 +125,7 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -167,7 +167,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -243,7 +243,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -326,20 +326,24 @@ jobs:
       pull-requests: read
     runs-on: ubuntu-latest
     # Raised from 40 to 45 when the integration lane joined this job
-    # (FARM-MEDIUM-301). The ceiling catches a runaway; it does not pace the
-    # steps, and it is deliberately NOT their sum — the step budgets add to more
-    # than the job budget and always have, because target filtering means only a
-    # subset of them does real work on any one PR. Each step carries its own
-    # timeout so the STEP names the failure and the job ceiling is the backstop.
+    # (FARM-MEDIUM-301), then 45 -> 55 on 2026-10-20: PR #2042's affected
+    # set is the whole graph, and the fan-out step measured 44m14s on the
+    # unfiltered lane that day (ci-full run 39493596886) — a 35-minute step
+    # budget killed the lane mid-run and reported a duration problem as a
+    # test problem, exactly the CI-TIMEOUT-BUDGET failure mode. The ceiling
+    # catches a runaway; it does not pace the steps, and it is deliberately
+    # NOT their sum — target filtering means only a subset of steps does
+    # real work on any one PR. Each step carries its own timeout so the STEP
+    # names the failure and the job ceiling is the backstop.
     #
-    # 45 is not an arbitrary round number: ci-full's unfiltered `test` job
-    # carries 45 (measured — median 23m29s, max 29m03s), and
+    # 55 is not an arbitrary round number: ci-full's unfiltered `test` job
+    # carries 60 (re-measured 2026-10-19), and
     # tests/invariants/ci-timeout-budget-ssot.spec.ts requires the unfiltered
     # lane's budget to be at least this filtered one's. A filtered lane that may
     # outlast the lane that can never run fewer targets is a contradiction, so
     # this budget is bounded ABOVE by that measured number rather than chosen
     # here. The integration step's own 20 is what bounds a Testcontainers hang.
-    timeout-minutes: 45
+    timeout-minutes: 55
     # continue-on-error removed: failing tests must block PR merge.
     # BEFORE: broken unit tests were invisible to reviewers — PRs merged with red tests.
     # Only NATS: "Run tests (affected only)" points NATS_URL at it for the
@@ -378,7 +382,7 @@ jobs:
           GHCR_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         run: echo "$GHCR_PASSWORD" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -491,7 +495,12 @@ jobs:
           BASE_REF="${{ needs.detect-changes.outputs.base_sha }}"
           HEAD_REF="${{ needs.detect-changes.outputs.head_sha }}"
           bash scripts/ci/affected-target-policy.sh --target test --base "$BASE_REF" --head "$HEAD_REF" --parallel 2 --exclude migration-harness
-        timeout-minutes: 35
+        # 35 -> 50 on 2026-10-20: PR #2042's affected set spans effectively
+        # every test project; the unfiltered lane's identical fan-out measured
+        # 44m14s the same day (ci-full run 39493596886), and the 35-minute
+        # detector killed a healthy run mid-fan-out. 50 keeps step < job (55)
+        # and stays a hang detector for the small affected sets of typical PRs.
+        timeout-minutes: 50
         env:
           NX_DAEMON: 'false'
           NX_NO_CLOUD: 'true'
@@ -627,7 +636,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -713,7 +722,7 @@ jobs:
 
       - name: Upload water-chemistry smoke artifacts
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: farm-water-chemistry-e2e-${{ matrix.scenario }}
           path: |
@@ -739,7 +748,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -806,7 +815,7 @@ jobs:
     continue-on-error: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: Restore node_modules
@@ -885,7 +894,7 @@ jobs:
         # validator runs as `node scripts/ci/preflight-validate.ts` with no
         # transpile step). Same SHA pin as every other setup-node call in
         # this workflow.
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -1316,7 +1325,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Resolve immutable Postgres DR contract digest
         if: matrix.image == 'postgres'
@@ -1332,7 +1341,7 @@ jobs:
           printf 'sha256=%s\n' "${CONTRACT_SHA256}" >> "${GITHUB_OUTPUT}"
 
       - name: Build ${{ matrix.image }} infrastructure image (no push)
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
@@ -1352,7 +1361,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: Restore node_modules
@@ -1462,7 +1471,7 @@ jobs:
           fi
       - name: Upload npm audit source map
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: npm-audit-source-map-${{ github.run_number }}
           path: |
@@ -1499,7 +1508,7 @@ jobs:
 
       - name: Setup Node.js
         # SEC-CI-002: pinned to SHA
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -1521,7 +1530,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: Restore node_modules
@@ -1567,7 +1576,7 @@ jobs:
         with:
           toolchain: 1.88.0
       - name: Install cargo-audit (precompiled)
-        uses: taiki-e/install-action@37f7c5781271959fb65b6b35224e28652ff2b63d # v2.87.0
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-audit
       - name: Audit root lockfile
@@ -1603,7 +1612,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: Restore node_modules
@@ -1631,7 +1640,7 @@ jobs:
         run: npm run gates:sens-enterprise-validation
       - name: Upload Sens enterprise validation artifacts
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sens-enterprise-validation-${{ github.run_number }}
           path: artifacts/sens-enterprise-validation/**

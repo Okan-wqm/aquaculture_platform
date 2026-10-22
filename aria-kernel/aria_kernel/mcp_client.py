@@ -28,6 +28,7 @@ from typing import Any, Mapping
 
 from .agent_env import SECRET_SHAPED_ENV_NAME
 from .ledger import append_declared_jsonl, load_declared_jsonl
+from .operator_approval import recorded_instance, require_operator_act
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 
 MCP_REGISTRY_RELPATH = ("data", "mcp_registry.json")
@@ -59,6 +60,9 @@ QUARANTINE_WINDOW = 50
 QUARANTINE_CALLER_ERROR_CLASSES: frozenset[str] = frozenset({"UnknownTool", "ValueError", "KeyError", "TypeError"})
 MCP_QUARANTINED_EVENT = "mcp_server_quarantined"
 MCP_RELEASED_EVENT = "mcp_server_released"
+# The `event` of a quarantine-ledger row; the fold below reads only these two.
+QUARANTINE_ROW_EVENT = "quarantined"
+RELEASE_ROW_EVENT = "released"
 
 
 @dataclass(frozen=True)
@@ -155,17 +159,22 @@ def load_mcp_registry(path: str | Path | None = None) -> McpRegistry:
     return McpRegistry(servers={name: _validate_server(str(name), spec) for name, spec in servers.items()})
 
 
-def quarantined_servers(base_dir: str | Path | None = None) -> frozenset[str]:
+def _standing_quarantines(base_dir: str | Path | None) -> dict[str, dict[str, Any]]:
+    """Server -> the quarantine row still in force (the fold of the ledger)."""
     path = ensure_tools_dir(base_dir).joinpath(*QUARANTINE_RELPATH)
     if not path.exists():
-        return frozenset()
-    state: set[str] = set()
+        return {}
+    standing: dict[str, dict[str, Any]] = {}
     for row in load_declared_jsonl(path, expected_surface=QUARANTINE_SURFACE):
-        if row.get("event") == "quarantined":
-            state.add(str(row.get("server")))
-        elif row.get("event") == "released":
-            state.discard(str(row.get("server")))
-    return frozenset(state)
+        if row.get("event") == QUARANTINE_ROW_EVENT:
+            standing[str(row.get("server"))] = row
+        elif row.get("event") == RELEASE_ROW_EVENT:
+            standing.pop(str(row.get("server")), None)
+    return standing
+
+
+def quarantined_servers(base_dir: str | Path | None = None) -> frozenset[str]:
+    return frozenset(_standing_quarantines(base_dir))
 
 
 def quarantine_reader_faults() -> tuple[type[BaseException], ...]:
@@ -351,22 +360,44 @@ def _maybe_quarantine(server: str, *, base_dir: Path) -> None:
         return
     path = base_dir.joinpath(*QUARANTINE_RELPATH)
     path.parent.mkdir(parents=True, exist_ok=True)
-    append_declared_jsonl(path, {"schema_version": 1, "recorded_at": utc_now(), "event": "quarantined", "server": server,
+    append_declared_jsonl(path, {"schema_version": 1, "recorded_at": utc_now(), "event": QUARANTINE_ROW_EVENT, "server": server,
                                  "calls": health["calls"], "errors": health["errors"], "error_rate": health["error_rate"]},
                           expected_surface=QUARANTINE_SURFACE)
     append_tools_governance(base_dir, MCP_QUARANTINED_EVENT, {"server": server, **{k: health[k] for k in ("calls", "errors", "error_rate")}})
 
 
+def unquarantine_scope(server: str, *, base_dir: str | Path | None) -> dict[str, str]:
+    """ARIA-HIGH-238 — the quarantine an operator act releasing ``server`` binds
+    to: its standing quarantine row's ``recorded_at``, so an act posted for one
+    quarantine cannot release the next."""
+    standing = _standing_quarantines(base_dir).get(server)
+    if standing is None:
+        raise GovernanceError(f"mcp_unquarantine_not_quarantined: {server} is not quarantined")
+    return {"server": server, "quarantined_at": recorded_instance(standing.get("recorded_at"))}
+
+
 def release_quarantine(server: str, *, base_dir: str | Path | None, operator_ref: str) -> dict[str, Any]:
-    if not operator_ref.strip():
-        raise ValueError("operator_ref is required to release a quarantined server")
+    """Release a quarantined server on an operator's GitHub act (ARIA-HIGH-238).
+
+    A release puts the server back into every spawn's MCP config, so it is
+    proven like any authority grant: ``surface=mcp_unquarantine`` for THIS
+    quarantine (:func:`unquarantine_scope`; ``aria-kernel mcp release
+    --print-approval-line`` prints the line). It took any non-empty string
+    before. Refusals are ``GovernanceError`` (a ``ValueError``, as before).
+    """
     root = ensure_tools_dir(base_dir)
-    if server not in quarantined_servers(root):
-        raise ValueError(f"{server} is not quarantined")
+    scope = unquarantine_scope(server, base_dir=root)
+    # The audit row below is refused under a frozen profile; refusing first
+    # keeps the act unspent.
+    from .runtime_profile import enforce_profile_for_write
+
+    enforce_profile_for_write("tool_governance", base_dir=root)
+    approval = require_operator_act(operator_ref, surface="mcp_unquarantine", scope=scope, base_dir=root)
     path = root.joinpath(*QUARANTINE_RELPATH)
-    row = append_declared_jsonl(path, {"schema_version": 1, "recorded_at": utc_now(), "event": "released", "server": server, "operator_ref": operator_ref},
+    row = append_declared_jsonl(path, {"schema_version": 1, "recorded_at": utc_now(), "event": RELEASE_ROW_EVENT, "server": server,
+                                       "operator_ref": operator_ref, "operator_approval": approval},
                                 expected_surface=QUARANTINE_SURFACE)
-    append_tools_governance(root, MCP_RELEASED_EVENT, {"server": server, "operator_ref": operator_ref})
+    append_tools_governance(root, MCP_RELEASED_EVENT, {"server": server, "operator_ref": operator_ref, "operator_approval": approval})
     return row
 
 
@@ -374,9 +405,9 @@ __all__ = [
     "KERNEL_SOCKET_TRANSPORT", "MCP_QUARANTINED_EVENT", "MCP_REGISTRY_RELPATH", "MCP_RELAY_RELPATH", "MCP_RELEASED_EVENT",
     "MCP_TOOL_PREFIX", "MCP_TRANSPORTS",
     "QUARANTINE_CALLER_ERROR_CLASSES", "QUARANTINE_ERROR_RATE", "QUARANTINE_MIN_CALLS", "QUARANTINE_RELPATH",
-    "QUARANTINE_SURFACE", "QUARANTINE_WINDOW",
+    "QUARANTINE_ROW_EVENT", "QUARANTINE_SURFACE", "QUARANTINE_WINDOW", "RELEASE_ROW_EVENT",
     "TOOL_CALLS_RELPATH", "TOOL_CALLS_SURFACE", "McpRegistry", "McpRelayContext", "McpServerSpec", "evaluate_mcp_health",
     "kernel_socket_servers", "load_mcp_registry",
     "mcp_config_for_profile", "mcp_tool_rules", "quarantine_reader_faults", "quarantined_servers", "record_mcp_call", "registry_path",
-    "release_quarantine", "split_mcp_tool", "write_mcp_config_file",
+    "release_quarantine", "split_mcp_tool", "unquarantine_scope", "write_mcp_config_file",
 ]

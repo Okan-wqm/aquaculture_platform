@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import subprocess
@@ -13,6 +12,7 @@ from .adapter_room import adapter_stderr_sample, prepare_adapter_spawn, run_adap
 from .confidence import confidence_in_unit_interval
 from .evidence_validator import validate_tool_output_evidence
 from .genesis_adapter_custody import verify_genesis_dispatch
+from .ledger import LEDGER_ROW_MAX_BYTES, LEDGER_ROW_NESTING_MAX_DEPTH, canonical_json, json_nesting_within_limit
 from .implementation_safety import (
     BashAllowlistMiss,
     BashDenylistHit,
@@ -20,16 +20,13 @@ from .implementation_safety import (
     SandboxUnavailable,
     verify_bash_command_allowed,
 )
-from .ledger_inline import (
-    INLINE_ROW_FIELD_MAX_BYTES,
-    spill_evidence_validation,
-    spill_oversized_inline,
-)
+from .ledger_inline import INLINE_ROW_FIELD_MAX_BYTES, spill_oversized_inline
 from .runtime_profile import enforce_profile_for_write
 from .canonical_path import lexical_repo_path
 from .snapshot import build_repo_snapshot, ignored_dirty_path, snapshot_allowed_set
-from .tool_health import can_emit_operator_facing, find_scope_violations, record_run
+from .tool_health import RUNS_ROW_RECOVERY, can_emit_operator_facing, find_scope_violations, record_run
 from .tool_registry import GovernanceError, ensure_tools_binding, get_tool, missing_repo_local_dependencies
+from .digest import sha256_digest
 
 
 MINIMUM_OUTPUT_FIELDS = ("observations", "findings", "read_paths", "evidence_sources")
@@ -40,6 +37,32 @@ RAW_SAMPLE_LIMIT = 50
 # 12 MB = measured reality × 2 headroom; the adapter-side per-type
 # observation cap (tenant-scoping-adapter) bounds the growth class itself.
 STDOUT_PARSE_MAX_BYTES = 12 * 1024 * 1024
+# ARIA-HIGH-617 — the deepest a kernel ledger row stores a value of a tool's
+# parsed output, counted from where stdout holds it. A fixture-runs case keeps
+# a finding's id three levels deeper (cases[i] > evidence_validation >
+# errors[j] > finding_id, fixture_runner); a runs row keeps it one level
+# deeper (runner.raw_findings_sample[i], evidence_validation.errors[j]
+# .finding_id and .belief_id, evidence_validation.evidence_sources[i]); every
+# other row stores less of it.
+TOOL_OUTPUT_ROW_NESTING_LEVELS = 3
+# The deepest output the parser accepts: the producer-row bound
+# (ledger.LEDGER_ROW_NESTING_MAX_DEPTH, which keeps contention replay's level
+# free) less those levels, so whatever a row stores of accepted output is a
+# line the strict readers and the replay accept. No JSON file under
+# tools/aria-adapters or aria-kernel/tests/fixtures is deeper than 8 levels
+# (2026-10-19), so the bound costs a real adapter nothing.
+TOOL_OUTPUT_NESTING_MAX_DEPTH = LEDGER_ROW_NESTING_MAX_DEPTH - TOOL_OUTPUT_ROW_NESTING_LEVELS
+# ARIA-HIGH-617 — the most canonical-JSON bytes one finding may take. record_run
+# stores each finding in rows of its own before it decides the run's health: a
+# raw-findings row (the finding inline in v1; its id as finding_id, and str()
+# of its id and rule as finding_summary), and for an ACTIVE tool a findings row
+# (the finding, its id, the services its paths name) and a seeding row. str()
+# at most doubles a value's JSON spelling (a backslash is escaped by repr, then
+# by JSON), so none of those rows holds more than three times a finding's
+# bytes besides its own fields, and an eighth of the row cap leaves each one
+# under it. ORPHAN-HIGH-798 measured 27,853 inline findings at about 2 KB
+# each, so the bound costs a real adapter nothing.
+TOOL_OUTPUT_FINDING_MAX_BYTES = LEDGER_ROW_MAX_BYTES // 8
 
 
 def run_tool(
@@ -265,7 +288,9 @@ def run_tool(
         "emitted_observations": _array_or_empty(raw_observations) if can_emit else [],
         "emitted_findings": _array_or_empty(raw_findings) if can_emit else [],
         "raw_findings": _array_or_empty(raw_findings),
-        "evidence_validation": _spill_evidence_validation(evidence_validation),
+        # Bounded by record_run, after its scrub: the order a stored value
+        # takes (ARIA-HIGH-617).
+        "evidence_validation": evidence_validation,
         "operator_feedback_refs": [],
         "memory_candidates": _valid_memory_candidates(memory_candidates, tool_id),
         "duration_ms": duration_ms,
@@ -399,6 +424,13 @@ def _is_glob_ref(ref: str) -> bool:
 # audit see the specific reason instead of a generic "schema_error".
 PARSE_ERROR_CODES: frozenset[str] = frozenset({
     "output_not_json",
+    # ARIA-HIGH-617: nested past TOOL_OUTPUT_NESTING_MAX_DEPTH.
+    "output_nesting_too_deep",
+    # ARIA-HIGH-617: JSON the decoder refuses to build a value from (an
+    # integer longer than the interpreter's integer string limit).
+    "output_value_not_decodable",
+    # ARIA-HIGH-617: a findings entry past TOOL_OUTPUT_FINDING_MAX_BYTES.
+    "output_finding_too_large",
     "output_not_dict",
     "cost_units_invalid",
     "metadata_not_dict",
@@ -422,11 +454,47 @@ def _parse_tool_output(
     rejection. The runner-envelope writer carries `runner.parse_error`
     so operators and observability layers see the specific failure
     mode.
+
+    ARIA-HIGH-617 — this is where the adapter's stdout, already text, becomes
+    a value the kernel stores, and the refusals below are output the later
+    steps could not store. Each one otherwise left ``run_tool`` before
+    ``record_run``, or wrote a row every publish refused, so the run went
+    unrecorded or unpublishable, and a tool whose report held a ``.env`` read
+    was never quarantined. Refused here, the run is ``schema_error``,
+    recorded and quarantined like any other. (The bytes-to-text step comes
+    before this one: ``adapter_room.run_adapter`` decodes stdout and stderr as
+    strict UTF-8, and a byte that is not UTF-8 still raises out of
+    ``run_tool``, ARIA-HIGH-654.)
+
+    * nesting past TOOL_OUTPUT_NESTING_MAX_DEPTH, measured before decoding by
+      the kernel's one lexical scan (``ledger.json_nesting_within_limit``).
+      ``json.loads`` raised RecursionError past about 20,000 levels, the
+      scrub (``artifact_safety.scrub_json``, one frame per level) past about
+      1,000, and a row nests a parsed value up to
+      TOOL_OUTPUT_ROW_NESTING_LEVELS deeper than stdout does. Text the scan
+      cannot pair (unclosed brackets or strings) is not JSON at all, and
+      keeps that code;
+    * a value the decoder refuses to build: ``json.loads`` raises a plain
+      ValueError, not a JSONDecodeError, for an integer longer than the
+      interpreter's integer string limit (4,300 digits by default);
+    * a findings entry past TOOL_OUTPUT_FINDING_MAX_BYTES, measured in
+      ``ledger.canonical_json``, the spelling a row is written in: each
+      finding gets rows of its own, appended before the run's health is
+      decided, and one oversized row refused the whole batch.
+
+    The decoded output's other properties are checked by the shape checks
+    below and by the evidence validator, not here.
     """
+    if not json_nesting_within_limit(stdout, max_depth=TOOL_OUTPUT_NESTING_MAX_DEPTH):
+        if json_nesting_within_limit(stdout, max_depth=len(stdout)):
+            return None, "output_nesting_too_deep"
+        return None, "output_not_json"
     try:
         payload = json.loads(stdout)
     except json.JSONDecodeError:
         return None, "output_not_json"
+    except ValueError:
+        return None, "output_value_not_decodable"
     if not isinstance(payload, dict):
         return None, "output_not_dict"
     required = set(MINIMUM_OUTPUT_FIELDS)
@@ -441,6 +509,8 @@ def _parse_tool_output(
     for field in MINIMUM_OUTPUT_FIELDS:
         if not isinstance(payload.get(field), list):
             return None, f"field_not_list:{field}"
+    if any(len(canonical_json(finding)) > TOOL_OUTPUT_FINDING_MAX_BYTES for finding in payload["findings"]):
+        return None, "output_finding_too_large"
     if "cost_units" in payload and _non_negative_number(payload["cost_units"], default=None) is None:
         return None, "cost_units_invalid"
     if "metadata" in payload and not isinstance(payload["metadata"], dict):
@@ -675,21 +745,14 @@ def _canonical_json_bytes(payload: Any) -> bytes:
 # cap are replaced by a digest stub so one verbose run can never make
 # every future reader pay for it — and never trip the ledger row cap.
 # The discipline itself lives in ``ledger_inline`` (ARIA-HIGH-034: one
-# implementation for every writer); this module only names where a
-# runs.jsonl reader recovers the bulk.
-_RUNS_ROW_RECOVERY = "the full value persists in this run's runtime artifact (parsed_output)"
-
-
+# implementation for every writer); ``tool_health.RUNS_ROW_RECOVERY`` names
+# where a runs.jsonl reader recovers the bulk.
 def _spill_oversized_inline(field: str, value):
-    return spill_oversized_inline(field, value, recovery=_RUNS_ROW_RECOVERY)
-
-
-def _spill_evidence_validation(validation: dict) -> dict:
-    return spill_evidence_validation(validation, recovery=_RUNS_ROW_RECOVERY)
+    return spill_oversized_inline(field, value, recovery=RUNS_ROW_RECOVERY)
 
 
 def _sha256(payload: bytes) -> str:
-    return "sha256:" + hashlib.sha256(payload).hexdigest()
+    return sha256_digest(payload)
 
 
 def _array_or_empty(value: Any) -> list[Any]:

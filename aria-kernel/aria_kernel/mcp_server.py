@@ -22,7 +22,6 @@ one, which is what makes each admitted write one operator act.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 import secrets
@@ -45,6 +44,7 @@ from .operator_request_signature import (
 )
 from .operator_request_terms import utc_iso
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
+from .digest import sha256_digest_text
 
 PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "aria"
@@ -86,7 +86,7 @@ def mcp_write_subject(tool: str, arguments: dict[str, Any], approval: dict[str, 
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     subject: dict[str, Any] = {
         "schema_version": MCP_WRITE_SCHEMA_VERSION, "row_kind": MCP_WRITE_ROW_KIND, "tool": tool,
-        "args_digest": "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+        "args_digest": sha256_digest_text(canonical),
     }
     subject.update({field: approval[field] for field in APPROVAL_FIELDS if field in approval})
     return subject
@@ -152,7 +152,9 @@ TOOL_MANIFEST: dict[str, dict[str, Any]] = {
     # and two live spawns spent their whole budgets attempting one.
     "plan_verify": {"description": "Verify a CONVERGED plan's authenticity: the kernel recomputes plan_convergence.content_hash from its own hash-verified ledger body and compares it with the hash the envelope names (must_satisfy authenticity item). Returns verdict verified|mismatch, the revision id and the FULL plan body (the envelope's inline copy may be truncated). Call this instead of recomputing by hand.", "inputSchema": _schema({"plan_id": {"type": "string"}, "content_hash": {"type": "string"}}, ["plan_id", "content_hash"])},
     # ARIA-MEDIUM-127 — the operator inbox, the same payload as `aria-kernel operator inbox --json`.
-    "operator_inbox": {"description": "Every decision ARIA is waiting on the operator for (open HUMAN_REQUIRED records, lapsed or lapsing waivers, missions held for a person), with counts per kind and the command that answers each item; unreadable sources are named in undecided.", "inputSchema": _schema({"limit": {"type": "integer", "minimum": 1, "maximum": 200}})},
+    # ARIA-MEDIUM-129 — its convention_lift section surfaces the night's measured per-convention
+    # lift (from the fitness report that measured it).
+    "operator_inbox": {"description": "Every decision ARIA is waiting on the operator for (open HUMAN_REQUIRED records, lapsed or lapsing waivers, missions held for a person, the night's measured convention lift), with counts per kind and the command that answers each item; unreadable sources are named in undecided.", "inputSchema": _schema({"limit": {"type": "integer", "minimum": 1, "maximum": 200}})},
     "human_required_resolve": {"description": "OPERATOR: resolve a HUMAN_REQUIRED request (needs --allow-writes and an operator_approval from `aria-kernel mcp approve` over these exact arguments).", "inputSchema": _schema({"request_id": {"type": "string"}, "resolution_note": {"type": "string"}, "verdict": {"type": "string"}, APPROVAL_ARGUMENT: _APPROVAL_SCHEMA}, ["request_id", "resolution_note", APPROVAL_ARGUMENT])},
     "runtime_signal_ingest": {"description": "OPERATOR: record a runtime signal lead (needs --allow-writes and an operator_approval from `aria-kernel mcp approve` over these exact arguments).", "inputSchema": _schema({"source": {"type": "string"}, "service": {"type": "string"}, "summary": {"type": "string"}, "code_refs": {"type": "array", "items": {"type": "string"}}, "severity": {"type": "string"}, APPROVAL_ARGUMENT: _APPROVAL_SCHEMA}, ["source", "service", "summary", "code_refs", APPROVAL_ARGUMENT])},
 }

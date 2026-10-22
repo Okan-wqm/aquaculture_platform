@@ -209,10 +209,15 @@ class BeliefVerdictBuysNoAdapterAuthority(unittest.TestCase):
                 # live anchor) so this pin isolates the question it is
                 # actually about: a row missing `judgment_subject` must
                 # still read as a FINDING judgment. Observer diversity and
-                # the evidence union are separate rules with their own pins.
+                # the evidence union are separate rules with their own pins
+                # — and since the WP-P recast (operator decision 2026-10-18)
+                # the diversity rule counts SEATS, a row claiming three
+                # agreeing judges must name three receipts or it fails
+                # closed on a different axis than the one this test isolates.
                 "evidence_refs": ["src/legacy.ts:1"],
                 "observers": [
                     {"judge_id": "aria-evidence-judge", "model": "claude-opus-5"},
+                    {"judge_id": "aria-adversarial-judge", "model": "claude-opus-5"},
                     {"judge_id": "aria-consensus-arbiter", "model": "fable"},
                 ],
             })

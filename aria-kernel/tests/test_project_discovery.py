@@ -31,6 +31,11 @@ to that project (``sens-api-gateway/fuzz`` is part of the gateway).
 
 from __future__ import annotations
 
+# ARIA-HIGH-602 — the live partition: this module reads the live checkout
+# outside the kernel surface, so it runs in aria-kernel.yml's always-run
+# `workspace` job (aria_kernel.live_partition), never in a skippable shard.
+READS_LIVE_CHECKOUT = 'every project.json of the live Nx workspace'
+
 import json
 import tempfile
 import unittest

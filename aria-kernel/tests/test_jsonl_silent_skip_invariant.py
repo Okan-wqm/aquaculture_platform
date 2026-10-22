@@ -33,7 +33,7 @@ _SILENT_SKIP_ALLOWLIST: dict[str, str] = {
     "tool_runner.py": "parses tool subprocess stdout; failure → 'output_not_json'",
     "ci.py": "parses gh CLI subprocess output for branch-protection lookup",
     # Single-row JSON config readers (not JSONL ledgers).
-    "workspace.py": "parses ARIA_ACTOR env var + feedback_index single-row JSON",
+    "workspace.py": "parses feedback_index single-row JSON (ARIA-MEDIUM-029 dropped ARIA_ACTOR)",
     # NOTE: runtime_profile.py REMOVED from allowlist after the §A.3
     # forward-fix migrated list_profile_history (a multi-row JSONL ledger
     # reader, missed in the original §A.3 sweep because the prior file-

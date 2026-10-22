@@ -43,7 +43,6 @@ from .ledger import (
     append_declared_jsonl,
     append_jsonl,
     append_segment_rows,
-    is_sha256_digest,
     load_declared_jsonl,
     load_segments,
     segment_paths,
@@ -59,6 +58,7 @@ from .tool_registry import (
     utc_now,
 )
 from .workspace import governance_event
+from .digest import is_sha256_digest, secret_matches_sha256_digest, sha256_digest, sha256_digest_file, sha256_digest_text
 
 if TYPE_CHECKING:  # the probe session and the clock are imported lazily where they are used
     from .evidence_probe import GitProbeSession
@@ -114,7 +114,7 @@ def _target_is_shadow(root: Path, target_agent: str) -> bool:
 
 
 def _sha256_text(value: str) -> str:
-    return "sha256:" + hashlib.sha256(value.encode("utf-8")).hexdigest()
+    return sha256_digest_text(value)
 
 
 def _sha256_payload(payload: dict[str, Any]) -> str:
@@ -1386,6 +1386,14 @@ def create_agent_invocation_request(
     # written. The 2026-10-06 store held 606 never-claimed and 836
     # anchor-stale rows minted by eleven producers that never asked.
     admission: Admission,
+    # ARIA-HIGH-614 — the read-only citation box a producer derives from its
+    # own subject (a questioning or Gate B judge carries the plan's surfaces
+    # and evidence; a genesis drafter or judge the evidence pack's). The
+    # planning-round roles keep their mint-derived scope (ARIA-HIGH-357:
+    # derived so no producer can widen or forget it) and are refused if they
+    # try to supply one. Additive + optional: every other role mints with
+    # None and legacy rows read as absent.
+    evidence_scope: list[str] | None = None,
     # ARIA-MEDIUM-385 — the stable name of WHAT the request is about, for a
     # producer whose subject outlives the cycle that asks (a merged PR, one
     # gold-corpus state: ``pr_tracking.change_intelligence_subject_ref``,
@@ -1490,12 +1498,29 @@ def create_agent_invocation_request(
     # an item they DO carry is still held to the shape.
     if must_satisfy:
         must_satisfy = validate_must_satisfy(must_satisfy)
+    # ARIA-HIGH-614 — the supplied read-only evidence scope is held to the
+    # same shape as forbidden_scope; a planning-round envelope refuses one
+    # outright (below).
+    if evidence_scope is not None and (
+        not isinstance(evidence_scope, list)
+        or any(not isinstance(item, str) or not item.strip() for item in evidence_scope)
+    ):
+        raise GovernanceError("create_agent_invocation_request_evidence_scope_must_be_list_of_strings")
     # ARIA-HIGH-345 — a planning-round envelope belongs to the plan it
     # names. The F-007 plan's round-1 cross_review was minted with the scope
     # and key change of another candidate in the same cycle and could only be
     # refused by its reviewer; the drainer no longer has a parameter through
     # which that can happen, and this refuses it for every other producer.
-    evidence_scope: list[str] = []
+    if role in PLANNING_ROUND_ROLES and evidence_scope:
+        # ARIA-HIGH-357 keeps the planning-round evidence scope derived from
+        # the plan's own record; a producer-supplied one here would be the
+        # widening that derivation exists to prevent, so it is refused by
+        # name rather than silently dropped or merged.
+        raise GovernanceError(
+            "create_agent_invocation_request_evidence_scope_derived_for_plan_rounds: "
+            f"role {role!r} envelope scope comes from plan_round_scope.plan_round_contract"
+        )
+    derived_evidence_scope: list[str] = []
     if role in PLANNING_ROUND_ROLES and convergence_id:
         from .plan_convergence import fold_plan_state
 
@@ -1507,7 +1532,8 @@ def create_agent_invocation_request(
         # ARIA-HIGH-357 (ADR-0021 D9) — the read-only evidence scope is the
         # plan's own record, derived here so no producer can widen or forget it.
         if isinstance(round_state.get("plan_started"), Mapping):
-            evidence_scope = list(plan_round_contract(round_state).evidence_scope)
+            derived_evidence_scope = list(plan_round_contract(round_state).evidence_scope)
+    evidence_scope = derived_evidence_scope or list(evidence_scope or [])
     if forbidden_scope is not None and (
         not isinstance(forbidden_scope, list)
         or any(not isinstance(item, str) or not item.strip() for item in forbidden_scope)
@@ -1625,6 +1651,31 @@ def create_agent_invocation_request(
             f"record rides on its own field (cycle_id, convergence_id, round_number, "
             f"subject_ref) or in the prompt as data"
         )
+    # ARIA-HIGH-614 — what the submit law refuses, the mint refuses, for the
+    # box AS A WHOLE: the response law admits a citation only inside
+    # ``allowed_scope ∪ evidence_scope`` or by identity as one of the
+    # request's ``evidence_refs`` (evidence_validator's cross-check), so an
+    # envelope whose union holds only non-repository namespace labels
+    # (``cycle/``, ``plan-convergence/``, ``convergent/``) can buy only a
+    # refused answer — the three paid ``verification`` runs of 2026-10-15/16
+    # were rejected for exactly this. The mint-side twin of that cross-check,
+    # role-independent; a kernel ledger pointer still counts (the law admits
+    # it by identity, which is how the adjudication lane's own subject
+    # travels). Judged for a NEW identity only, as above, and never for the
+    # operator's legacy opt-out lane, whose approved shape predates strict
+    # fields entirely.
+    if not legacy_strict_fields_optional:
+        from .evidence_validator import scope_entry_admits_citable_ref
+
+        box_entries = [*(allowed_scope or []), *(evidence_scope or []), *(evidence_refs or [])]
+        if not any(scope_entry_admits_citable_ref(entry) for entry in box_entries):
+            raise GovernanceError(
+                "agent_request_scope_admits_no_repository_ref: role "
+                f"{role!r} envelope box {box_entries[:6]} holds only non-repository "
+                f"namespaces; the response law would refuse every citation "
+                f"(agent_evidence_outside_allowed_scope). Carry the subject's own "
+                f"repository refs as evidence_refs and its surfaces as evidence_scope"
+            )
     # A sealed request owns its original context and audit. Only a new
     # identity acquires current optional inputs or captures budget costs.
     evidence_excerpts = _evidence_excerpts_for_refs(
@@ -1941,7 +1992,7 @@ def _verify_transcript_artifact_ref(
     artifact = _submission_source_path(artifact_ref, workspace_root)
     if not artifact.exists() or not artifact.is_file():
         raise GovernanceError("transcript_artifact_ref_missing")
-    observed = "sha256:" + hashlib.sha256(artifact.read_bytes()).hexdigest()
+    observed = sha256_digest_file(artifact)
     if observed != transcript_hash:
         raise GovernanceError("transcript_artifact_hash_mismatch")
     return artifact.resolve()
@@ -1979,6 +2030,18 @@ def _submit_legacy_invocation_result_internal(
         raise GovernanceError(
             "legacy_submit_path_requires_operator_migration_approval"
         )
+    # ARIA-HIGH-238 — the legacy writer bypasses the lease-bound submission
+    # path, so its sign-off must be the operator's own GitHub act naming the
+    # request whose result row it writes.
+    from .operator_approval import require_operator_act
+
+    _root_for_approval = ensure_tools_dir(base_dir)
+    migration_approval = require_operator_act(
+        operator_migration_approval_ref,
+        surface="legacy_result_submit",
+        scope={"request": request_id},
+        base_dir=_root_for_approval,
+    )
     if status not in STATUSES:
         raise GovernanceError("status must be completed, rejected, or partial")
     if status != "completed" and not (rejection_reason or "").strip():
@@ -2002,6 +2065,7 @@ def _submit_legacy_invocation_result_internal(
         {
             "request_id": request_id,
             "operator_migration_approval_ref": operator_migration_approval_ref,
+            "operator_approval": migration_approval,
             "caller_module": caller_module,
         },
     )
@@ -2028,7 +2092,7 @@ def _submit_legacy_invocation_result_internal(
         "role": request.get("role"),
         "target_agent": request.get("target_agent"),
         "output_path": path.resolve().as_posix(),
-        "content_hash": "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest(),
+        "content_hash": sha256_digest_file(path),
         "status": status,
         "by": by,
         "rejection_reason": rejection_reason,
@@ -2422,7 +2486,7 @@ def _seal_submission_artifact(
     content_hash: str,
 ) -> Path:
     """Persist immutable bytes at a store-relative content-addressed path."""
-    observed_hash = "sha256:" + hashlib.sha256(content).hexdigest()
+    observed_hash = sha256_digest(content)
     if observed_hash != content_hash:
         raise GovernanceError("submission_artifact_content_hash_mismatch")
     target = _submission_artifact_target(
@@ -2449,7 +2513,7 @@ def _seal_submission_artifact(
                 f"submission_artifact_existing_unreadable: {exc}"
             ) from exc
         if existing != content:
-            existing_hash = "sha256:" + hashlib.sha256(existing).hexdigest()
+            existing_hash = sha256_digest(existing)
             if existing_hash == content_hash:
                 raise GovernanceError("submission_artifact_digest_collision")
             # A process can die while writing the declared digest target.
@@ -2575,10 +2639,6 @@ def _parse_iso(value: str | None) -> datetime | None:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc)
-
-
-def _hash_lease_token(token: str) -> str:
-    return "sha256:" + hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 def _claim_id(request_id: str, agent_id: str, claimed_at: datetime) -> str:
@@ -4144,7 +4204,7 @@ def claim_request(
             "claim_id": cid,
             "request_id": request_id,
             "agent_id": agent_id,
-            "lease_token_hash": _hash_lease_token(lease_token),
+            "lease_token_hash": sha256_digest_text(lease_token),
             "lease_seconds": lease_seconds,
             "claimed_at": _iso(now),
             "lease_expires_at": _iso(expires),
@@ -4341,7 +4401,7 @@ def _validate_claim_identity(
             f"claim {claim_id} owned by {claim_event.get('agent_id')!r}, "
             f"not {agent_id!r}"
         )
-    if claim_event.get("lease_token_hash") != _hash_lease_token(lease_token):
+    if not secret_matches_sha256_digest(lease_token, claim_event.get("lease_token_hash")):
         raise GovernanceError(f"claim {claim_id} lease_token mismatch")
     return claim_event
 
@@ -4470,7 +4530,7 @@ def release_claim(
     the flag, so today's CI release path FAILS at argparse before
     even reaching this function — the asymmetry has been latent.
 
-    The lease_token is hashed via ``_hash_lease_token`` and compared
+    The lease_token is hashed via ``digest.sha256_digest_text`` and compared
     against the claim row's ``lease_token_hash`` field (same pattern
     as ``heartbeat_claim:681`` and ``submit_claim_result:868``).
     Mismatch raises ``GovernanceError``.
@@ -5118,7 +5178,7 @@ def _verify_prepared_artifact(
         raise GovernanceError(
             f"submission_prepared_{artifact_kind}_artifact_unreadable: {exc}"
         ) from exc
-    observed = "sha256:" + hashlib.sha256(content).hexdigest()
+    observed = sha256_digest(content)
     if observed != expected_hash:
         raise GovernanceError(
             f"submission_prepared_{artifact_kind}_artifact_hash_mismatch"
@@ -5253,7 +5313,7 @@ def _seal_pending_submission_artifacts(
             ) from exc
         if raw_transcript_bytes is not None:
             observed_transcript_hash = (
-                "sha256:" + hashlib.sha256(raw_transcript_bytes).hexdigest()
+                sha256_digest(raw_transcript_bytes)
             )
             if observed_transcript_hash != expected_transcript_hash:
                 raise GovernanceError(
@@ -5569,7 +5629,7 @@ def _prepare_submission_transcript_artifact(
         raise GovernanceError(
             f"transcript_artifact_ref_unreadable: {exc}"
         ) from exc
-    observed = "sha256:" + hashlib.sha256(transcript_bytes).hexdigest()
+    observed = sha256_digest(transcript_bytes)
     if observed != transcript_hash:
         raise GovernanceError("transcript_artifact_hash_mismatch")
     if observed == output_content_hash:
@@ -6162,7 +6222,7 @@ def submit_claim_result(
             claim_id=claim_id,
             request_id=request_id,
             agent_id=agent_id,
-            lease_token_hash=_hash_lease_token(lease_token),
+            lease_token_hash=sha256_digest_text(lease_token),
             submitted_hash=submitted_hash,
             output=output,
             output_content_hash=output_content_hash,
@@ -6218,7 +6278,7 @@ def submit_claim_result(
             raise GovernanceError(f"output_path_unreadable: {exc}") from exc
         if raw_output_bytes is not None:
             raw_output_hash = (
-                "sha256:" + hashlib.sha256(raw_output_bytes).hexdigest()
+                sha256_digest(raw_output_bytes)
             )
             if raw_output_hash != output_content_hash:
                 if not initial_results:
@@ -6261,7 +6321,7 @@ def submit_claim_result(
         except OSError as exc:
             raise GovernanceError(f"output_path_unreadable: {exc}") from exc
         output_content_hash = (
-            "sha256:" + hashlib.sha256(output_bytes).hexdigest()
+            sha256_digest(output_bytes)
         )
 
     envelope_unreadable_error: str | None = None
@@ -6301,7 +6361,7 @@ def submit_claim_result(
             claim_id=claim_id,
             request_id=request_id,
             agent_id=agent_id,
-            lease_token_hash=_hash_lease_token(lease_token),
+            lease_token_hash=sha256_digest_text(lease_token),
             submitted_hash=submitted_hash,
             output=output,
             output_content_hash=output_content_hash,
@@ -6932,7 +6992,7 @@ def bound_submission_transcript(
     if not transcript_artifact_ref or not transcript_hash or not is_sha256_digest(transcript_hash):
         return None
     content = read_submission_transcript(_submission_source_path(transcript_artifact_ref, workspace_root))
-    if content is None or "sha256:" + hashlib.sha256(content).hexdigest() != transcript_hash:
+    if content is None or sha256_digest(content) != transcript_hash:
         return None
     return content
 
@@ -7035,7 +7095,7 @@ def _withhold_submission_sources(root: Path, result_row: Mapping[str, Any]) -> N
             raise GovernanceError(
                 f"submission_withheld_source_unreadable: {relative}: {exc}"
             ) from exc
-        if "sha256:" + hashlib.sha256(content).hexdigest() != digest:
+        if sha256_digest(content) != digest:
             raise GovernanceError(f"submission_withheld_source_drift: {relative}")
         judged.append(target)
     for target in judged:

@@ -6,11 +6,12 @@ from pathlib import Path
 from typing import Any
 
 from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
-from .ledger import append_declared_jsonl, is_sha256_digest, load_declared_jsonl
+from .ledger import append_declared_jsonl, load_declared_jsonl
 from .ledger_refs import find_row_by_source_ledger_ref, ledger_ref_for_row
 from .runtime_artifacts import ArtifactRefV2
 from .tool_registry import GovernanceError
 from .tool_registry import ensure_tools_dir, utc_now
+from .digest import is_sha256_digest, sha256_digest
 
 
 READINESS_SCHEMA = "aria/enterprise-readiness-claim/v2"
@@ -1169,7 +1170,7 @@ def _workflow_run_id_valid(value: Any) -> bool:
 def _sha256_bytes(data: bytes) -> str:
     import hashlib
 
-    return "sha256:" + hashlib.sha256(data).hexdigest()
+    return sha256_digest(data)
 
 
 def _expiry_is_future(value: str) -> bool:

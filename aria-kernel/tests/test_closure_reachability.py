@@ -18,6 +18,11 @@ because the readiness-claim lane calls it in production.
 """
 from __future__ import annotations
 
+# ARIA-HIGH-602 — the live partition: this module reads the live checkout
+# outside the kernel surface, so it runs in aria-kernel.yml's always-run
+# `workspace` job (aria_kernel.live_partition), never in a skippable shard.
+READS_LIVE_CHECKOUT = "the production Python under scripts/ and tools/ (control_reachability's index) and docs/reviews/orphan-findings.md"
+
 import tempfile
 import unittest
 from pathlib import Path

@@ -18,6 +18,7 @@ from .ledger import (
 )
 from .agent_invocations import DEFAULT_LEASE_SECONDS
 from .agent_network import latest_agent_network_hash
+from .merge_record import opened_row
 from .pressure import effective_workspace_pressures
 from .tool_registry import (
     GovernanceError,
@@ -29,6 +30,7 @@ from .tool_registry import (
 )
 from .triage import derive_required_tests, resolve_target_agent
 from .workspace import WorkspacePaths
+from .digest import secret_matches_sha256_digest, sha256_digest_text
 
 
 DEFAULT_WORKTREE_TTL_DAYS = 7
@@ -497,10 +499,6 @@ def _claims_path(root: Path) -> Path:
     return root / "dispatch" / "claims.jsonl"
 
 
-def _hash_lease_token(token: str) -> str:
-    return "sha256:" + hashlib.sha256(token.encode("utf-8")).hexdigest()
-
-
 def _claim_id(assignment_id: str, agent_id: str, now: datetime) -> str:
     digest = hashlib.sha256(
         f"{assignment_id}|{agent_id}|{now.isoformat()}".encode("utf-8")
@@ -650,7 +648,7 @@ def claim_assignment(
             "pressure_event_id": (assignment or {}).get("pressure_event_id"),
             "agent_id": agent_id,
             "provider": provider,
-            "lease_token_hash": _hash_lease_token(lease_token),
+            "lease_token_hash": sha256_digest_text(lease_token),
             "lease_seconds": lease_seconds,
             "recorded_at": _iso(now),
             "claimed_at": _iso(now),
@@ -723,7 +721,7 @@ def release_claim_assignment(
         )
         if claim_event is None:
             raise GovernanceError(f"claim {claim_id} not found")
-        if claim_event.get("lease_token_hash") != _hash_lease_token(lease_token):
+        if not secret_matches_sha256_digest(lease_token, claim_event.get("lease_token_hash")):
             raise GovernanceError(
                 f"claim {claim_id} lease_token mismatch"
             )
@@ -811,11 +809,18 @@ def pr_for_assignment(
 ) -> int | None:
     """Lookup the PR number associated with a verified assignment.
 
-    Plan 025 §E — scans pr-lifecycle.jsonl for the most recent row
-    carrying ``assignment_id``. Pre-fix that ledger never recorded
-    the assignment_id link; the open_pr_for_action surface is
-    extended in this same batch to thread assignment_id into
-    record_pr_lifecycle so future PR rows match.
+    Plan 025 §E — reads pr-lifecycle.jsonl for the most recent
+    ``opened`` row carrying ``assignment_id``. Pre-fix that ledger
+    never recorded the assignment_id link; the open_pr_for_action
+    surface is extended in this same batch to thread assignment_id
+    into record_pr_lifecycle so future PR rows match.
+
+    merge-delivery-1 (ARIA-MEDIUM-656) — ``assignment_id`` is one of
+    ``merge_record.BINDING_FIELDS``: the row that opened the PR binds
+    it, selected by the binding owner (``merge_record.opened_row``).
+    A row of any other event that names the assignment (one written
+    before record_pr_lifecycle nulled the binding fields on those
+    events) binds nothing.
 
     Legacy rows (lacking assignment_id) return None — the caller's
     fail-closed path emits ``verified_pending_merge`` instead of
@@ -828,14 +833,10 @@ def pr_for_assignment(
     pr_path = root / "pr-lifecycle.jsonl"
     if not pr_path.exists():
         return None
-    pr_number: int | None = None
-    for row in load_jsonl(pr_path):
-        if row.get("assignment_id") != assignment_id:
-            continue
-        num = row.get("pr_number")
-        if isinstance(num, int):
-            pr_number = num
-    return pr_number
+    bound = opened_row(load_jsonl(pr_path), assignment_id=assignment_id)
+    if bound is None or type(bound.get("pr_number")) is not int:
+        return None
+    return int(bound["pr_number"])
 
 
 def _latest_assignment_states(root: Path) -> dict[str, str]:

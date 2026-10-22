@@ -549,7 +549,10 @@ REFERENCE_SHAPES: Final[tuple[str, ...]] = (
     "apps/x.ts:12",
     "aria-kernel/aria_kernel/cost_budget" + ".py:263-267",
     "0123456789abcdef" * 4,
-    "sha256:" + "0123456789abcdef" * 4,
+    # A cited digest, written out whole: this module is a standard-library
+    # leaf the harness adapter loads alone (no package, so no `.digest`), and
+    # a whole literal composes no label (the digest owner's pin, ARIA-LOW-517).
+    "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
     "SHA256:" + "U3ludGhldGljRmluZ2VycHJpbnRGb3JBVGVzdE9ubHkx"[:43],
     "commit 99689e46b8f1d3c1e4a5b6c7d8e9f0a1b2c3d4e5",
     "integrity sha512-" + "U3ludGhldGljSW50ZWdyaXR5" * 3 + "==",
@@ -667,6 +670,26 @@ def credential_shapes_in(text: str) -> tuple[str, ...]:
     removed from a value.
     """
     return tuple(row.name for row in shapes_in("redact") if row.kind == "credential" and row.redact.search(text))
+
+
+def is_armoured_private_key(text: str) -> bool:
+    """True when ``text`` is one armoured private key: BEGIN line, body, matching END line.
+
+    The App-key token broker's input check. The BEGIN line is the refuse
+    view's ``private_key_block`` row, read here rather than restated by the
+    caller (ARIA-HIGH-519: one credential table); the END line must close the
+    label the BEGIN line opened.
+    """
+    lines = text.strip().splitlines()
+    if len(lines) < 3:
+        return False
+    begin, end = lines[0].strip(), lines[-1].strip()
+    row = next(row for row in shapes_in("refuse") if row.name == "private_key_block")
+    opener = "-----BEGIN "
+    return (
+        row.detect.fullmatch(begin) is not None
+        and end == "-----END " + begin[len(opener):]
+    )
 
 
 def secret_pattern_types() -> tuple[str, ...]:

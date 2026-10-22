@@ -150,7 +150,6 @@ an operator lifts it (``merge-lane unfreeze``).
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import shutil
@@ -164,6 +163,7 @@ from typing import Any, Callable, Mapping, Sequence
 from .change_paths import name_status_args, parse_name_status_z
 from .git_containment import KERNEL_GIT_NO_HOOKS_ARGS, without_ambient_git_config
 from .ledger import append_declared_jsonl, load_declared_jsonl
+from .merge_record import lifecycle_rows, pr_change_binding
 from .pr_manager import ARIA_PR_BASE, REVERT_BRANCH_PREFIX
 from .self_merge_freeze import (
     FreezeNoticeWriter,
@@ -179,6 +179,7 @@ from .self_merge_freeze import (
 from .state_store import GIT_TIMEOUT_SECONDS
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 from .validation import SpawnWrapper
+from .digest import sha256_digest_text
 
 SELF_REVERTS_SURFACE = "enterprise_self_reverts"
 SELF_REVERTS_RELPATH = ("enterprise", "self-reverts.jsonl")
@@ -349,7 +350,7 @@ def _request_id(merge_sha: str) -> str:
 
 def _digest(payload: Any) -> str:
     text = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
-    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return sha256_digest_text(text)
 
 
 def _record(
@@ -1182,14 +1183,11 @@ def _reverted_suite(reverted: dict[str, Any], *, pr_number: int, base_dir: str |
         if command and command not in commands:
             commands.append(command)
     timeout_ms = CANONICAL_VALIDATION_TIMEOUT_MS
-    lifecycle = ensure_tools_dir(base_dir) / "pr-lifecycle.jsonl"
-    proposal_id = ""
-    if lifecycle.exists():
-        for row in load_declared_jsonl(lifecycle, expected_surface="pr_lifecycle"):
-            if row.get("pr_number") == pr_number and row.get("proposal_id"):
-                proposal_id = str(row["proposal_id"])
-    if proposal_id:
-        _commands, timeout_ms = _staged_suite(proposal_id=proposal_id, base_dir=base_dir)
+    # merge-delivery-1 — the proposal the PR was opened for, from its one
+    # binding owner (the PR's opened row), never a later row's.
+    binding = pr_change_binding(lifecycle_rows(base_dir), pr_number=pr_number)
+    if binding is not None and binding.proposal_id is not None:
+        _commands, timeout_ms = _staged_suite(proposal_id=binding.proposal_id, base_dir=base_dir)
     return commands, timeout_ms
 
 

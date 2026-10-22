@@ -43,8 +43,8 @@ import { EquipmentTypeCatalogCheckerService } from './services/equipment-type-ca
 import { EquipmentTypeLookupService } from './services/equipment-type-lookup.service';
 import { TankEquipmentAdapterService } from './services/tank-equipment-adapter.service';
 import { SubEquipmentResolver } from './sub-equipment.resolver';
-import { WaterTemperatureService } from '../water-quality/services/water-temperature.service';
 import { EquipmentAiQueryResponder } from './responders/equipment-ai-query.responder';
+import { WaterTemperatureCoreModule } from '../water-quality/water-temperature-core.module';
 
 const CommandHandlers = [
   CreateEquipmentHandler,
@@ -69,6 +69,8 @@ const QueryHandlers = [
 
 @Module({
   imports: [
+    // WaterTemperatureService's provider home — imported, never re-provided.
+    WaterTemperatureCoreModule,
     TypeOrmModule.forFeature([
       Equipment,
       EquipmentType,
@@ -97,7 +99,6 @@ const QueryHandlers = [
     TankEquipmentAdapterService,
     EquipmentTypeLookupService,
     EquipmentTypeCatalogCheckerService,
-    WaterTemperatureService,
     ...CommandHandlers,
     ...QueryHandlers,
   ],

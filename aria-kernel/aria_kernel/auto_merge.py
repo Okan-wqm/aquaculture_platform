@@ -16,6 +16,7 @@ from .implementation_safety import (
     is_gh_api_path_forbidden,
 )
 from .ledger import append_declared_jsonl, load_declared_jsonl
+from .merge_record import BINDING_FIELD_EVENTS, BINDING_FIELDS, pr_change_binding
 from .risk_policy import (
     HUMAN_MERGE_DECISION,
     HUMAN_MERGE_LABEL,
@@ -468,10 +469,11 @@ def change_for_pr(
 ) -> str | None:
     """Plan 026R §D.3 — reverse lookup: find the change_id bound to a PR.
 
-    Scans ``pr-lifecycle.jsonl`` for the latest row matching
-    ``pr_number`` that carries a non-null ``change_id``. Returns
-    the change_id or ``None`` when no binding exists (legacy
-    pre-§D.3 PRs without the anchor).
+    The change the PR's latest ``opened`` row names, read through the one
+    binding owner (``merge_record.pr_change_binding``, merge-delivery-1);
+    ``None`` when the kernel never opened the PR or opened it without a change
+    (legacy pre-§D.3 PRs, the operator lane). No other row binds: an
+    ``observed`` or terminal row carries no binding fields.
 
     Consumed by ``merge_if_green`` to assemble the §D.4 triple-gate
     inputs (change_committed + change_validated + validation_runs)
@@ -481,28 +483,8 @@ def change_for_pr(
         ensure_tools_dir(base_dir) / "pr-lifecycle.jsonl",
         expected_surface="pr_lifecycle",
     )
-    binding = pr_change_binding(rows, pr_number)
-    return None if binding is None else str(binding["change_id"])
-
-
-def pr_change_binding(rows: list[dict[str, Any]], pr_number: int) -> dict[str, Any] | None:
-    """The pr-lifecycle row that binds ``pr_number`` to its change, or None.
-
-    ARIA-HIGH-521 — the binding is ARIA's own record: the opener's row
-    (``pr_manager`` and ``self_revert`` write ``opened`` with the change_id
-    and proposal_id). GitHub knows neither, so the merge lane's ``observed``
-    row (``_merge_if_green_with_executor`` records ``adapter.get_pr``)
-    carries change_id None and binds nothing; it is also the LAST row by
-    the time the pre-merge perimeter reads the ledger. The binding is
-    therefore the latest row that carries a change_id, never the latest
-    row. ``change_for_pr`` and the perimeter's change join read it through
-    this one rule, over the file and over a verified prefix respectively.
-    """
-    binding: dict[str, Any] | None = None
-    for row in rows:
-        if row.get("pr_number") == pr_number and row.get("change_id"):
-            binding = row
-    return binding
+    binding = pr_change_binding(rows, pr_number=pr_number)
+    return binding.change_id if binding is not None else None
 
 
 def human_merge_decision(
@@ -526,14 +508,13 @@ def human_merge_decision(
     if live_pr is not None:
         marked = HUMAN_MERGE_LABEL in _label_names(live_pr)
     if not marked:
-        opened = [
-            row
-            for row in load_declared_jsonl(
-                ensure_tools_dir(base_dir) / "pr-lifecycle.jsonl", expected_surface="pr_lifecycle",
-            )
-            if row.get("pr_number") == pr_number and row.get("event") == "opened"
-        ]
-        route = opened[-1].get("merge_route") if opened else None
+        # The opened row, read through the one owner of "the row that names
+        # the PR as ARIA's" (merge_record.pr_change_binding).
+        binding = pr_change_binding(
+            load_declared_jsonl(ensure_tools_dir(base_dir) / "pr-lifecycle.jsonl", expected_surface="pr_lifecycle"),
+            pr_number=pr_number,
+        )
+        route = binding.row.get("merge_route") if binding is not None else None
         marked = isinstance(route, dict) and route.get("human_merge") is True
     if not marked:
         return None
@@ -566,12 +547,17 @@ def _label_names(pr: dict[str, Any]) -> set[str]:
 _MERGED_ROW_OWNER = object()
 _OWNED_LIFECYCLE_EVENTS = frozenset({"merged", "closed_unmerged", "merge_unproven", "merge_lineage_unverified",
                                      "merge_lineage_attested"})
+# merge-delivery-1 (ARIA-HIGH-521) — the closed vocabulary of pr-lifecycle
+# events: the rows that name a PR as ARIA's (`merge_record.BINDING_FIELD_EVENTS`),
+# the merge lane's observation of GitHub's payload, and the terminal events
+# `merge_record` owns. A new writer registers its event here, once.
+PR_LIFECYCLE_EVENTS = BINDING_FIELD_EVENTS | {"observed"} | _OWNED_LIFECYCLE_EVENTS
 
 
 def record_pr_lifecycle(
     pr: dict[str, Any],
     *,
-    event: str = "observed",
+    event: str,
     base_dir: str | Path | None = None,
     cycle_id: str | None = None,
     assignment_id: str | None = None,
@@ -589,7 +575,20 @@ def record_pr_lifecycle(
     Legacy rows without assignment_id return None from the helper
     worker_dispatch.pr_for_assignment, which fail-closes the merge
     path (verified_pending_merge).
+
+    merge-delivery-1 — ``event`` is required and closed
+    (:data:`PR_LIFECYCLE_EVENTS`). Only the rows that name the PR as ARIA's
+    (``merge_record.BINDING_FIELD_EVENTS``) carry the binding fields and the
+    merge route; every other event writes ``merge_record.BINDING_FIELDS`` as
+    null whatever its payload holds, so an observation or a terminal row can
+    never carry, change or re-bind the PR's change.
     """
+    if event not in PR_LIFECYCLE_EVENTS:
+        raise ValueError(f"pr_lifecycle_event_unknown:{event}")
+    # The caller's own binding intent on a row that binds nothing is refused,
+    # never dropped (a payload's fields are nulled: they are GitHub's).
+    if assignment_id is not None and event not in BINDING_FIELD_EVENTS:
+        raise ValueError(f"pr_lifecycle_binding_on_non_binding_event:{event}")
     if event in _OWNED_LIFECYCLE_EVENTS and _owner is not _MERGED_ROW_OWNER:
         raise GovernanceError(
             f"pr_lifecycle_{event}_has_one_writer: merge_record.record_merge writes it (ARIA-HIGH-390)"
@@ -602,20 +601,21 @@ def record_pr_lifecycle(
         "pr_number": pr.get("number"),
         "base_branch": first_present_string(pr, "base_branch", "baseRefName", "base"),
         "head_sha": first_present_string(pr, "head_sha", "headRefOid", "head"),
-        "task_id": pr.get("task_id"),
-        "proposal_id": pr.get("proposal_id"),
-        "assignment_id": assignment_id or pr.get("assignment_id"),
         # Plan 026R §D.3 — change_id anchor for the §D.4 triple-gate.
-        # ``change_for_pr`` (below) reverse-looks-up the change_id by
-        # pr_number; the auto-merge path then fetches change_committed
-        # + change_validated + validation_runs and asserts the triple.
-        "change_id": pr.get("change_id"),
+        # ``change_for_pr`` (above) reverse-looks-up the change_id by
+        # pr_number through ``merge_record.pr_change_binding``; the
+        # auto-merge path then fetches change_committed + change_validated
+        # + validation_runs and asserts the triple.
+        **dict.fromkeys(BINDING_FIELDS),
         "changed_files": [_changed_file_path(item) for item in pr.get("changed_files", pr.get("files", []))],
     }
-    # ARIA-HIGH-211 — the opener's merge route (merge lane or a person's
-    # merge) is recorded on the row that names the PR; other events carry none.
-    if isinstance(pr.get("merge_route"), dict):
-        row["merge_route"] = dict(pr["merge_route"])
+    if event in BINDING_FIELD_EVENTS:
+        row.update({field: pr.get(field) for field in BINDING_FIELDS})
+        row["assignment_id"] = assignment_id or pr.get("assignment_id")
+        # ARIA-HIGH-211 — the opener's merge route (merge lane or a person's
+        # merge) is recorded on the row that names the PR; other events carry none.
+        if isinstance(pr.get("merge_route"), dict):
+            row["merge_route"] = dict(pr["merge_route"])
     if base_dir is None:
         return row
     return append_declared_jsonl(

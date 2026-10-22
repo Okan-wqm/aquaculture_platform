@@ -21,6 +21,7 @@ from .ledger import (
 from .runtime_profile import enforce_profile_for_write
 from .strict_jsonl_reader import read_strict_jsonl
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
+from .digest import sha256_digest_text
 
 
 # Plan ARIA-V3 §A3 — skill grammar contract (required sections in
@@ -683,13 +684,26 @@ def sandbox_skill(
         raw_markdown = path.read_text(encoding="utf-8")
         checklist_results = parse_fixture_blocks(raw_markdown)
         source_path = path.resolve()
-        source_sha256 = "sha256:" + hashlib.sha256(raw_markdown.encode("utf-8")).hexdigest()
+        source_sha256 = sha256_digest_text(raw_markdown)
     if checklist_results is None:
         raise GovernanceError("skill sandbox requires markdown_path or checklist_results")
     if markdown_path is None and not synthetic_test_mode:
         raise GovernanceError("skill_checklist_sandbox_requires_synthetic_test_mode")
     if synthetic_test_mode and not (operator_approval_ref or "").strip():
         raise GovernanceError("skill_synthetic_sandbox_requires_operator_approval_ref")
+    synthetic_approval = None
+    if synthetic_test_mode and (operator_approval_ref or "").strip():
+        # ARIA-HIGH-238 — a synthetic sandbox run backs an agent/skill chain
+        # only on the operator's say-so, so the ref must be the operator's
+        # own GitHub act naming the draft.
+        from .operator_approval import require_operator_act
+
+        synthetic_approval = require_operator_act(
+            operator_approval_ref,
+            surface="skill_synthetic_sandbox",
+            scope={"draft": draft_id},
+            base_dir=base_dir,
+        )
     if len(checklist_results) < MIN_FIXTURES:
         raise GovernanceError(
             f"skill sandbox requires at least {MIN_FIXTURES} fixture entries (## Fixture: <id> blocks or checklist results)"
@@ -706,6 +720,7 @@ def sandbox_skill(
         "source_sha256": source_sha256,
         "synthetic_test_mode": bool(synthetic_test_mode),
         "operator_approval_ref": operator_approval_ref if synthetic_test_mode else None,
+        **({"operator_approval": synthetic_approval} if synthetic_approval is not None else {}),
     }
     root = ensure_tools_dir(base_dir)
     stored = append_jsonl(root / "skill-genesis" / "sandbox.jsonl", row)
@@ -734,6 +749,16 @@ def approve_skill_pr(
     enforce_profile_for_write("skill_genesis", base_dir=base_dir)
     if not operator_approval_ref.strip():
         raise GovernanceError("operator approval ref is required")
+    # ARIA-HIGH-238 — approving a skill draft opens the PR/materialize
+    # lane: authority, so the ref must be the operator's own GitHub act.
+    from .operator_approval import require_operator_act
+
+    approval_proof = require_operator_act(
+        operator_approval_ref,
+        surface="skill_pr_approval",
+        scope={"draft": draft_id},
+        base_dir=base_dir,
+    )
     draft = _find_draft(draft_id, base_dir)
     if draft is None:
         raise GovernanceError(f"skill_approve_draft_not_found: draft_id={draft_id!r}")
@@ -746,6 +771,7 @@ def approve_skill_pr(
     row["recorded_at"] = utc_now()
     row["status"] = "approved_for_skill_pr"
     row["operator_approval_ref"] = operator_approval_ref
+    row["operator_approval"] = approval_proof
     return append_jsonl(ensure_tools_dir(base_dir) / "skill-genesis" / "drafts.jsonl", row)
 
 

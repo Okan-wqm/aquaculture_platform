@@ -35,6 +35,12 @@ class OperatorInboxSurfaceTests(unittest.TestCase):
         missions = mock.patch("aria_kernel.mission.list_open_missions", return_value=[])
         missions.start()
         self.addCleanup(missions.stop)
+        # ARIA-MEDIUM-129 — the convention-lift section's owner: one fitness
+        # report from the real nightly writer (a store with no
+        # convention-bearing request).
+        from aria_kernel.fitness import generate_fitness_report
+
+        generate_fitness_report(cycle_id="cycle-surface", base_dir=self.tools)
 
     def _cli(self, *argv: str) -> str:
         from aria_kernel.cli import main
@@ -54,7 +60,9 @@ class OperatorInboxSurfaceTests(unittest.TestCase):
         self.assertEqual(payload["undecided"], [])
         self.assertEqual(payload["sections"]["human_required"]["open"], 3)
         self.assertEqual(payload["sections"]["waivers"]["items"], [], "no manifest in the checkout: read, and empty")
+        self.assertEqual(payload["sections"]["convention_lift"]["status"], "no_convention_bearing_requests")
         self.assertIn("HUMAN_REQUIRED: 3 open, 0 escalated by the panel", self._cli())
+        self.assertIn("Convention lift (does ARIA learn?): no_convention_bearing_requests", self._cli())
         self.assertIn("operator_inbox", READ_TOOLS)
         self.assertIn("operator_inbox", TOOL_MANIFEST)
         server = AriaMcpServer(base_dir=self.tools, workspace_root=self.workspace)

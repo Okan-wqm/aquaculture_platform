@@ -45,9 +45,9 @@ row the append primitive would refuse for size cannot be produced here.
 
 from __future__ import annotations
 
-import hashlib
 import json
 from typing import Any
+from .digest import sha256_digest
 
 # The governance event the publish preamble appends when the operator's
 # acknowledgment accepts losses nothing attested, and the fields a later
@@ -196,7 +196,7 @@ def governance_rows_claimed_by(published: dict[str, Any]) -> int:
 def surfaces_digest(surfaces: list[str]) -> str:
     """Content identity of a loss set, order-free."""
     canonical = json.dumps(sorted(surfaces), separators=(",", ":")).encode("utf-8")
-    return f"sha256:{hashlib.sha256(canonical).hexdigest()}"
+    return sha256_digest(canonical)
 
 
 def _governance_rows_since(store: Any, *, since: int) -> list[dict[str, Any]]:

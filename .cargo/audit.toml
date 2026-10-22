@@ -21,4 +21,11 @@
 # Regression is blocked structurally by deny.toml [bans], not by
 # this list.
 [advisories]
-ignore = []
+ignore = [
+    # RUSTSEC-2026-0381 — webpki-roots 0.26.11 (emSign roots). Canonical
+    # rationale in deny.toml [advisories] (EDGE-CI-010); registry finding
+    # SUPPLY-HIGH-025.
+    # Owner: platform-team (okan@noras-wt.com)
+    # Deadline: 2027-01-20
+    "RUSTSEC-2026-0381",
+]

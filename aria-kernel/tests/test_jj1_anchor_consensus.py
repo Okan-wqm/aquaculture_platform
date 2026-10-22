@@ -111,13 +111,36 @@ class GroundTruthPredicateTests(unittest.TestCase):
             }),
         )
 
-    def test_one_model_wearing_three_names_is_not_an_anchor(self) -> None:
-        """The defect G-2 exists for, stated without a single statistic.
+    def test_three_seats_on_one_model_are_an_anchor(self) -> None:
+        """WP-P recast of G-2 (operator decision 2026-10-18).
 
-        Three agreeing judges backed by one model is one observation with
-        two duplicate receipts. No verdict is inspected to reach that
-        conclusion — which is why this rule cannot punish judges for being
-        right, the failure that refuted the first design.
+        Three agreeing SEATS backed by one model is a single-provider
+        anchor: on a night only one provider is alive, "use different
+        agents with different perspectives" is the operator's rule, and
+        diversity of vendor is a bonus the row records
+        (`provider_span`), never a gate. The seat-independence defect
+        G-2 hunted lives on one row below: one SEAT voting thrice.
+        """
+        self.assertTrue(
+            is_ground_truth_row({
+                "source_type": "ai_consensus",
+                "judge_count": ANCHOR_MIN_JUDGE_COUNT,
+                "judges_voted": ANCHOR_MIN_JUDGE_COUNT,
+                "observers": [
+                    {"judge_id": f"judge-{n}", "model": "glm-5.3"}
+                    for n in range(ANCHOR_MIN_JUDGE_COUNT)
+                ],
+            }),
+        )
+
+    def test_one_seat_voting_thrice_is_not_an_anchor(self) -> None:
+        """The defect G-2 exists for, recast from models to SEATS.
+
+        Three agreeing votes from one seat is one observation with two
+        duplicate receipts — even when the seat names three different
+        models, which is exactly the self-declaration the old model gate
+        trusted. No verdict is inspected to reach that conclusion, so the
+        rule still cannot punish judges for being right.
         """
         self.assertFalse(
             is_ground_truth_row({
@@ -125,8 +148,8 @@ class GroundTruthPredicateTests(unittest.TestCase):
                 "judge_count": ANCHOR_MIN_JUDGE_COUNT,
                 "judges_voted": ANCHOR_MIN_JUDGE_COUNT,
                 "observers": [
-                    {"judge_id": f"judge-{n}", "model": "claude-opus-5"}
-                    for n in range(ANCHOR_MIN_JUDGE_COUNT)
+                    {"judge_id": "judge-same", "model": model}
+                    for model in ("glm-5.3", "claude-opus-5", "fable")
                 ],
             }),
         )
@@ -308,6 +331,44 @@ class ConsensusAnchorUpgradeTests(_LedgerCase):
             [u["reason"] for u in after["uncertainties"]], ["judge_disagreement"],
         )
         self.assertEqual(anchor_group_keys(tool_id="tool-a", base_dir=self.tools), set())
+
+
+class SingleProviderAnchorTests(_LedgerCase):
+    """WP-P (operator decision 2026-10-18): a single provider is fine.
+
+    "Sometimes there is a single provider, that's fine; use different
+    agents with different perspectives." Diversity comes from perspective
+    and method, not from the vendor — so an anchor minted on an
+    only-Z.ai night (every seat dispatched glm-5.3) must stand on seat
+    independence, and the span of vendors behind it must be RECORDED
+    (`provider_span`) so the multi-provider case stays a visible bonus.
+    """
+
+    def test_single_provider_anchor_mints_and_stands(self) -> None:
+        for judge in (
+            "aria-evidence-judge",
+            "aria-adversarial-judge",
+            "aria-consensus-arbiter",
+        ):
+            self._judge(judge, model="glm-5.3")
+        settled = generate_ai_consensus(tool_id="tool-a", base_dir=self.tools)
+        self.assertEqual(settled["consensus_count"], 1)
+        row = settled["consensus"][0]
+        self.assertEqual(row["judge_count"], 3)
+        self.assertTrue(
+            is_ground_truth_row(row),
+            "an only-Z.ai panel of three distinct seats must anchor",
+        )
+        self.assertEqual(row["provider_span"], "single")
+
+    def test_multi_provider_anchor_records_the_span_as_bonus(self) -> None:
+        self._judge("aria-evidence-judge", model="claude-opus-5")
+        self._judge("aria-adversarial-judge", model="glm-5.3")
+        self._judge("aria-consensus-arbiter", model="glm-5.3")
+        settled = generate_ai_consensus(tool_id="tool-a", base_dir=self.tools)
+        row = settled["consensus"][0]
+        self.assertTrue(is_ground_truth_row(row))
+        self.assertEqual(row["provider_span"], "multi")
 
 
 class AnchorMintTests(_LedgerCase):

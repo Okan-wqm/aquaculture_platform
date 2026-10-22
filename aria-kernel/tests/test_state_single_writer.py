@@ -499,7 +499,8 @@ class TheFenceIsPartOfThePush(_TwoWriters):
 
 class WriterLeaseTransport(_TwoWriters):
     def test_acquire_records_holder_run_and_expiry_on_the_lease_branch(self) -> None:
-        from aria_kernel.state_writer_lease import read_writer_lease, token_digest, writer_lease_branch
+        from aria_kernel.digest import sha256_digest_text
+        from aria_kernel.state_writer_lease import read_writer_lease, writer_lease_branch
 
         code, held, token = self._acquire(self.repo_long, ttl=545, identity={
             "GITHUB_RUN_ID": "37192561282", "GITHUB_RUN_ATTEMPT": "1",
@@ -517,7 +518,7 @@ class WriterLeaseTransport(_TwoWriters):
         self.assertTrue(view.is_held())
         # GSEC-MEDIUM-001 — the branch stores the digest, never the secret.
         self.assertEqual(len(token), 64)
-        self.assertEqual(view.secret_sha256, token_digest(token))
+        self.assertEqual(view.secret_sha256, sha256_digest_text(token))
         _git(self.repo_long, "fetch", "origin", "aria/state-lease")
         self.assertNotIn(token, _git(self.repo_long, "show", "FETCH_HEAD:lease.json"))
 

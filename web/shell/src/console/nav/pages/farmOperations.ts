@@ -49,6 +49,7 @@ export const FARM_OPERATION_PAGES = {
       ['summary', 'feedingV2.tab.summary'],
       ['growth', 'feedingV2.tab.growth'],
       ['fcr', 'feedingV2.tab.fcr'],
+      ['production-plan', 'feedingV2.tab.productionPlan'],
       ['protocols-v2', 'feedingV2.tab.builder'],
       ['assignments', 'feedingV2.tab.assignments'],
       ['sampling', 'nav.tab.sampling'],

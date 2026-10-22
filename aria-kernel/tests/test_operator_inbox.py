@@ -59,6 +59,13 @@ class OperatorInboxTests(unittest.TestCase):
         ])
         missions.start()
         self.addCleanup(missions.stop)
+        # ARIA-MEDIUM-129 — one fitness report from the real nightly writer,
+        # so the inbox's convention-lift section has its owner to read (the
+        # store carries no agent-invocation request: the night measured a
+        # store with no convention-bearing request).
+        from aria_kernel.fitness import generate_fitness_report
+
+        generate_fitness_report(cycle_id="cycle-inbox", base_dir=self.tools)
 
     def _inbox(self, **kwargs):
         from aria_kernel.operator_inbox import read_operator_inbox
@@ -88,6 +95,10 @@ class OperatorInboxTests(unittest.TestCase):
         self.assertEqual(waivers["items"][0]["answer"],
                          "renew or remove surface_x.LAPSED in aria-kernel/surface-reachability.unwritten.json "
                          "through a reviewed PR")
+        convention_lift = inbox["sections"]["convention_lift"]
+        self.assertEqual(convention_lift["status"], "no_convention_bearing_requests")
+        self.assertEqual(convention_lift["items"], [])
+        self.assertEqual(convention_lift["report"]["cycle_id"], "cycle-inbox")
 
     def test_an_unreadable_source_is_named_never_empty(self) -> None:
         inbox = self._inbox(workspace_root=None)
@@ -100,6 +111,11 @@ class OperatorInboxTests(unittest.TestCase):
         from aria_kernel.operator_inbox import render_operator_inbox
 
         self.assertIn("UNDECIDED missions:OSError", render_operator_inbox(inbox))
+        with mock.patch("aria_kernel.fitness.list_fitness_reports", side_effect=OSError("disk")):
+            inbox = self._inbox()
+        self.assertEqual(inbox["undecided"], ["convention_lift:OSError"])
+        self.assertIn("missions", inbox["sections"], "the other owners are still read")
+        self.assertIn("UNDECIDED convention_lift:OSError", render_operator_inbox(inbox))
 
     def test_the_limit_bounds_items_never_counts(self) -> None:
         inbox = self._inbox(limit=1)

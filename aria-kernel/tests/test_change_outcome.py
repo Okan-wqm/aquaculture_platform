@@ -118,7 +118,7 @@ class OutcomeBase(unittest.TestCase):
             path,
             {
                 "schema_version": 1, "recorded_at": _iso(merged_at - timedelta(hours=1)),
-                "event": "pr_open", "pr_number": pr_number, "change_id": change_id,
+                "event": "opened", "pr_number": pr_number, "change_id": change_id,
             },
             expected_surface="pr_lifecycle",
         )
@@ -335,6 +335,25 @@ class EligibilityTests(OutcomeBase):
         self.assertEqual(payload["evaluated"], 0)
         self.assertEqual(payload["skipped"].get("not_merged"), 1)
 
+    def test_a_merge_is_credited_only_to_the_change_the_opened_row_bound(self) -> None:
+        # merge-delivery-1 (ARIA-HIGH-521) — the PR → change binding has one
+        # owner (merge_record.pr_change_binding: the PR's opened rows). A row
+        # written before observations were made unable to bind (an observed
+        # row copying a change_id from its payload) must not attribute the
+        # PR's merge to another change.
+        delivered = self._chain(idx=1)
+        unrelated = self._chain(idx=2)
+        merged_at = self._merge(delivered, nights_ago=3)
+        append_declared_fixture(
+            self.tools / "pr-lifecycle.jsonl",
+            {"schema_version": 1, "recorded_at": _iso(merged_at), "event": "observed",
+             "pr_number": _PR_NUMBER, "change_id": unrelated},
+            expected_surface="pr_lifecycle",
+        )
+        self.assertIsNone(outcome_owner._merge_record_for_change(self.tools, unrelated))
+        merged = outcome_owner._merge_record_for_change(self.tools, delivered)
+        self.assertEqual((merged["event"], merged["pr_number"]), ("merged", _PR_NUMBER))
+
 
 class NightlyPhaseTests(OutcomeBase):
     def test_night_evaluates_eligible_chains_and_discloses_skips(self) -> None:
@@ -515,7 +534,7 @@ class AssessmentHotEvidenceTests(unittest.TestCase):
         with patch("aria_kernel.auto_merge.utc_now", return_value=self.merged_at):
             record_pr_lifecycle(
                 {"number": 9901, "change_id": self.change_id, "head_sha": self.commit_sha,
-                 "changed_files": self.scope_paths}, event="pr_open", base_dir=self.tools,
+                 "changed_files": self.scope_paths}, event="opened", base_dir=self.tools,
             )
             # ARIA-HIGH-390 — the merged row has one writer.
             from aria_kernel.merge_record import MERGED_BY_MERGE_LANE, lifecycle_rows, record_merge
@@ -681,6 +700,23 @@ class AssessmentHotEvidenceTests(unittest.TestCase):
         self.assertEqual(current["verdict"], "gain_confirmed")
         self.assertNotEqual(current["inputs_digest"], original["inputs_digest"])
         self.assertEqual(self.outcome_path.read_bytes(), self.first_bytes)
+
+    def test_a_merge_no_opened_row_bound_to_the_change_has_no_original_merge(self) -> None:
+        # merge-delivery-1 (ARIA-HIGH-521) — the first outcome's merge is the
+        # change's only when an opened row of the PR bound it (the one binding
+        # owner). In a store whose only PR row naming the change is an
+        # observation the pre-fix writer left (it copied the change_id from its
+        # payload), the change has no opening, whatever that row names.
+        from aria_kernel.merge_record import lifecycle_rows
+        from tests._helpers.declared_fixtures import rewrite_declared_fixture
+
+        legacy = [dict(row, event="observed") if row.get("event") == "opened" else row
+                  for row in lifecycle_rows(self.tools)]
+        self.assertEqual([row["event"] for row in legacy], ["observed", "merged"])
+        self.assertEqual(legacy[0]["change_id"], self.change_id)
+        rewrite_declared_fixture(self.tools / "pr-lifecycle.jsonl", legacy, expected_surface="pr_lifecycle")
+        with self.assertRaisesRegex(GovernanceError, r"^change_assessment_original_merge_unavailable$"):
+            self._capture()
 
     def test_exact_retry_after_successor_returns_original_assessment_without_append(self) -> None:
         capture = self._capture()
@@ -914,7 +950,7 @@ class AssessmentAdverseAccountingTests(unittest.TestCase):
         with patch("aria_kernel.auto_merge.utc_now", return_value=merged_at):
             record_pr_lifecycle(
                 {"number": 9902, "change_id": change_id, "head_sha": commit_sha, "changed_files": scope},
-                event="pr_open", base_dir=tools,
+                event="opened", base_dir=tools,
             )
             from aria_kernel.merge_record import MERGED_BY_MERGE_LANE, record_merge
 

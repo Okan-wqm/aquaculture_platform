@@ -40,7 +40,6 @@ it up here at call time) to serve an artifact without the network.
 """
 from __future__ import annotations
 
-import hashlib
 import io
 import json
 import subprocess
@@ -50,6 +49,7 @@ from datetime import datetime, timezone
 from typing import Callable
 
 from .tool_registry import GovernanceError
+from .digest import sha256_digest
 
 ACTIONS_ARTIFACT_URI_SCHEME = "actions-artifact:"
 # An artifact is a zip the claim lane uploaded; a rollback bundle of this
@@ -73,7 +73,7 @@ class FetchedArtifact:
 
     @property
     def zip_sha256(self) -> str:
-        return "sha256:" + hashlib.sha256(self.zip_bytes).hexdigest()
+        return sha256_digest(self.zip_bytes)
 
     def retention_days(self) -> float:
         """The retention GitHub granted this artifact, measured from its own

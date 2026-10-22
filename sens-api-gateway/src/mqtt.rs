@@ -52,6 +52,32 @@ struct ReconnectBackoff {
     max_secs: u64,
 }
 
+/// The broker connection came up (a CONNACK).
+///
+/// `link_up` and `link_down` are the ONLY writers of the link state, and the
+/// event loop below is their only caller (`tests/invariants/mqtt_link_single_writer.rs`).
+/// The state lives in the [`crate::mqtt_acks::AckTracker`] of the client: that
+/// is what the offline-queue dispatcher, its drain task, the comms-loss
+/// supervisor and the result publisher read. The health gauge mirrors it for
+/// the operator and is written in the same call, so the two cannot disagree,
+/// and no consumer needs the health state (or its listener) to know whether the
+/// broker is reachable.
+fn link_up(acks: &crate::mqtt_acks::AckTracker, health: Option<&crate::health::HealthState>) {
+    acks.on_connected();
+    if let Some(hs) = health {
+        // Also bumps `mqtt_last_connected`.
+        hs.set_mqtt_connected(true);
+    }
+}
+
+/// The broker connection is gone, however it was lost (see [`link_up`]).
+fn link_down(acks: &crate::mqtt_acks::AckTracker, health: Option<&crate::health::HealthState>) {
+    acks.on_disconnected();
+    if let Some(hs) = health {
+        hs.set_mqtt_connected(false);
+    }
+}
+
 /// MQTT client wrapper
 pub struct MqttClient {
     client: AsyncClient,
@@ -333,52 +359,19 @@ impl MqttClient {
             retain: true,
         });
 
-        // Create client (v1.2.6: use constant for buffer size)
-        let (client, mut eventloop) = AsyncClient::new(options, INTERNAL_MQTT_BUFFER_SIZE);
-        // Which PubAck belongs to which QoS 1 publish (ADR-048 DEC-27): every
-        // QoS 1 request goes through this tracker's lane, and the event loop
-        // below feeds it the broker's side.
-        let acks = Arc::new(crate::mqtt_acks::AckTracker::default());
-
-        // Create message channel (v1.2.3: increased capacity)
-        let (message_tx, message_rx) = mpsc::channel(MESSAGE_CHANNEL_CAPACITY);
-
-        // Spawn event loop handler with exponential backoff config (v1.2.6: track handle)
-        let topics_clone = topics.clone();
-        let client_clone = client.clone();
         let backoff = ReconnectBackoff {
             min_secs: config.runtime.mqtt_reconnect_min_secs,
             max_secs: config.runtime.mqtt_reconnect_max_secs,
         };
-        // Batch 102: clone the HealthState Arc into the event-
-        // loop task so ConnAck/Disconnect/Publish events update
-        // the gauge + counters without a separate IPC channel.
-        let health_state_for_task = health_state.clone();
-        let acks_for_task = acks.clone();
-        let event_loop_handle = tokio::spawn(async move {
-            Self::handle_events(
-                &mut eventloop,
-                message_tx,
-                client_clone,
-                topics_clone,
-                backoff,
-                health_state_for_task,
-                acks_for_task,
-            )
-            .await;
-        });
-
-        let mqtt_client = Self {
-            client,
+        let mqtt_client = Self::start(
+            options,
             topics,
-            device_id: config.device_id.clone(),
-            device_code: config.device_code.clone(),
+            config.device_id.clone(),
+            config.device_code.clone(),
             mtls_verifier_state,
-            message_rx,
-            event_loop_handle: Some(event_loop_handle),
+            backoff,
             health_state,
-            acks,
-        };
+        );
 
         // Subscribe to command and config topics
         mqtt_client.subscribe().await?;
@@ -405,6 +398,71 @@ impl MqttClient {
         // helper.
 
         Ok(mqtt_client)
+    }
+
+    /// Create the rumqttc client for `options` and spawn the event loop that owns
+    /// its connection. Everything `new` derives from the configuration (the
+    /// options, the transport, the topics) is an argument, so a test starts the
+    /// same client and the same event loop against a plain-TCP listener.
+    fn start(
+        options: MqttOptions,
+        topics: ResolvedTopics,
+        device_id: String,
+        device_code: String,
+        mtls_verifier_state: Option<Arc<crate::mtls::MtlsVerifierState>>,
+        backoff: ReconnectBackoff,
+        health_state: Option<crate::health::HealthState>,
+    ) -> Self {
+        // Create client (v1.2.6: use constant for buffer size)
+        let (client, mut eventloop) = AsyncClient::new(options, INTERNAL_MQTT_BUFFER_SIZE);
+        // Which PubAck belongs to which QoS 1 publish (ADR-048 DEC-27): every
+        // QoS 1 request goes through this tracker's lane, and the event loop
+        // below feeds it the broker's side. It also carries the link state.
+        let acks = Arc::new(crate::mqtt_acks::AckTracker::default());
+
+        // Create message channel (v1.2.3: increased capacity)
+        let (message_tx, message_rx) = mpsc::channel(MESSAGE_CHANNEL_CAPACITY);
+
+        // Spawn event loop handler with exponential backoff config (v1.2.6: track handle)
+        let topics_clone = topics.clone();
+        let client_clone = client.clone();
+        // Batch 102: clone the HealthState Arc into the event-
+        // loop task so ConnAck/Disconnect/Publish events update
+        // the gauge + counters without a separate IPC channel.
+        let health_state_for_task = health_state.clone();
+        let acks_for_task = acks.clone();
+        let event_loop_handle = tokio::spawn(async move {
+            Self::handle_events(
+                &mut eventloop,
+                message_tx,
+                client_clone,
+                topics_clone,
+                backoff,
+                health_state_for_task,
+                acks_for_task,
+            )
+            .await;
+        });
+
+        Self {
+            client,
+            topics,
+            device_id,
+            device_code,
+            mtls_verifier_state,
+            message_rx,
+            event_loop_handle: Some(event_loop_handle),
+            health_state,
+            acks,
+        }
+    }
+
+    /// Whether the broker connection is up now. The one answer every consumer
+    /// of the link (the offline-queue dispatcher, the comms-loss supervisor,
+    /// the result publisher) reads: the event loop clears it on every way the
+    /// connection can be lost ([`link_down`]).
+    pub fn is_connected(&self) -> bool {
+        self.acks.is_connected()
     }
 
     /// Handle MQTT events with exponential backoff on errors
@@ -537,14 +595,7 @@ impl MqttClient {
                         "🟢 MQTT CONNECTED: code={:?}, session_present={}",
                         connack.code, connack.session_present
                     );
-                    acks.on_connected();
-
-                    // Batch 102: flip the connection gauge ON
-                    // + bump mqtt_last_connected timestamp via
-                    // set_mqtt_connected(true).
-                    if let Some(hs) = health_state.as_ref() {
-                        hs.set_mqtt_connected(true);
-                    }
+                    link_up(&acks, health_state.as_ref());
 
                     // Resubscribe after reconnection: when clean_session=true,
                     // the broker drops all subscriptions on disconnect.
@@ -577,21 +628,18 @@ impl MqttClient {
                 Ok(Event::Incoming(Packet::Disconnect)) => {
                     // v1.2.6: Log disconnection events
                     warn!("🔴 MQTT DISCONNECTED by broker");
-                    acks.on_disconnected();
-
-                    // Batch 102: flip the connection gauge
-                    // OFF. Reconnect attempts hit the
-                    // ConnAck path above on success.
-                    if let Some(hs) = health_state.as_ref() {
-                        hs.set_mqtt_connected(false);
-                    }
+                    link_down(&acks, health_state.as_ref());
                 }
                 Ok(Event::Incoming(Packet::PubAck(ack))) => {
                     acks.on_puback(ack.pkid);
                 }
                 Ok(Event::Outgoing(outgoing)) => {
-                    if let rumqttc::Outgoing::Publish(pkid) = outgoing {
-                        acks.on_outgoing_publish(pkid);
+                    match outgoing {
+                        rumqttc::Outgoing::Publish(pkid) => acks.on_outgoing_publish(pkid),
+                        // The agent itself ended the session: the link is
+                        // down from here, whatever the socket does next.
+                        rumqttc::Outgoing::Disconnect => link_down(&acks, health_state.as_ref()),
+                        _ => {}
                     }
                     // v1.2.6: Log outgoing events at trace level
                     trace!("📤 MQTT outgoing event: {:?}", outgoing);
@@ -601,7 +649,12 @@ impl MqttClient {
                     trace!("MQTT event: {:?}", event);
                 }
                 Err(e) => {
-                    acks.on_disconnected();
+                    // A real outage arrives here, not as a DISCONNECT packet:
+                    // an MQTT 3.1.1 broker never sends one, a dropped socket, a
+                    // reset, a TLS failure and a missed PINGRESP all surface as
+                    // an error of the poll. The link is down before the
+                    // backoff starts.
+                    link_down(&acks, health_state.as_ref());
                     consecutive_errors = consecutive_errors.saturating_add(1);
 
                     // Exponential backoff with jitter: base * 2^(errors-1), capped at max.
@@ -892,6 +945,16 @@ impl MqttPublishAdapter {
         if let Some(hs) = self.health_state.as_ref() {
             hs.inc_mqtt_sent();
         }
+    }
+}
+
+/// The adapter is the dispatcher's connectivity port as well as its sink: the
+/// answer comes from the same client whose event loop clears it on every way
+/// the connection can be lost ([`link_down`]), so the queue-or-publish decision
+/// cannot read a flag that outlived the connection.
+impl crate::outbound_publisher::BrokerConnectivity for MqttPublishAdapter {
+    fn is_connected(&self) -> bool {
+        self.acks.is_connected()
     }
 }
 
@@ -1379,3 +1442,9 @@ impl MqttClient {
         Ok((Transport::Tls(tls), mtls_verifier_state))
     }
 }
+
+// The real event loop against a scripted broker (EDGE-HIGH-065, EDGE-HIGH-133).
+#[cfg(test)]
+pub(crate) mod fake_broker;
+#[cfg(test)]
+mod link_tests;

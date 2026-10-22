@@ -11,10 +11,14 @@
 //!   SQLCipher; survives agent restarts. Drained back to the
 //!   broker on reconnect (Batch #252 drain task — not yet wired).
 //!
-//! The dispatch decision uses [`BrokerConnectivity::is_connected`]
-//! which reads the [`crate::health::HealthState`] atomic flag. The
-//! flag is set by the MQTT event-loop in `mqtt.rs` on every
-//! `Connected` / `Disconnected` event.
+//! The dispatch decision uses [`BrokerConnectivity::is_connected`],
+//! which in production reads the link state of the MQTT client
+//! (`mqtt::MqttPublishAdapter`). The event loop in `mqtt.rs` clears it on
+//! every way the connection can be lost: a DISCONNECT packet, the agent's own
+//! disconnect, and any error of the poll (which is how a dropped socket, a
+//! reset, a TLS failure or a missed PINGRESP arrives; an MQTT 3.1.1 broker
+//! never sends a DISCONNECT). The dispatcher needs neither the health state
+//! nor its HTTP listener.
 //!
 //! ## Why the abstraction (vs. inline `if connected { publish }
 //! else { enqueue }` at every call site)
@@ -53,8 +57,8 @@
 //! - Batch #253+ — production call site migration starting with
 //!   the alarm/alert hot-path (life-safety priority).
 //! - `offline_queue.rs` — Batch v1.2.x persistent queue.
-//! - `health.rs` — Batch 102 connectivity tracking + Batch #251
-//!   `is_mqtt_connected` getter.
+//! - `mqtt.rs` — `link_up` / `link_down`, the one writer of the link state
+//!   this dispatcher reads (through `MqttPublishAdapter`).
 
 #![allow(dead_code)]
 
@@ -91,16 +95,9 @@ pub trait BrokerConnectivity: Send + Sync {
     fn is_connected(&self) -> bool;
 }
 
-/// Production wire: HealthState's MQTT-connected atomic flag IS
-/// the canonical connectivity signal for the edge agent. The
-/// MQTT event-loop in `mqtt.rs` updates the flag on every
-/// `Connected` / `Disconnected` event; every consumer reads
-/// through this trait to keep the dispatcher generic in tests.
-impl BrokerConnectivity for crate::health::HealthState {
-    fn is_connected(&self) -> bool {
-        crate::health::HealthState::is_mqtt_connected(self)
-    }
-}
+// The production implementation is `mqtt::MqttPublishAdapter`: connectivity
+// comes from the client whose event loop owns the connection (and clears it on
+// every way the connection can be lost), never from the health gauge.
 
 /// Sink error taxonomy. Distinct variant for the disconnect path
 /// so the dispatcher can fall through to enqueue without
@@ -167,8 +164,8 @@ pub enum OutboundError {
 ///
 /// **Generic over the trait pair** so unit tests can substitute
 /// mock impls without weakening any production-code visibility.
-/// Production wires `MqttClient` (sink) + `HealthState`
-/// (connectivity) + the `Arc<OfflineQueue>` from AppState.
+/// Production wires one `MqttPublishAdapter` as both sink and connectivity
+/// port + the `Arc<OfflineQueue>` from AppState.
 pub struct OutboundPublisher<S: MqttPublishSink, C: BrokerConnectivity> {
     sink: Arc<S>,
     connectivity: Arc<C>,

@@ -147,20 +147,14 @@ impl LinkWatch {
     }
 }
 
-/// Whether the cloud link is up now.
-#[cfg(feature = "health")]
+/// Whether the cloud link is up now: the MQTT client's own link state, which its
+/// event loop clears on every way the connection can be lost. No client yet
+/// (the connectivity task has not created it) is no link.
 fn link_is_up(state: &AppState) -> bool {
     state
-        .health_state
+        .mqtt_client
         .as_ref()
-        .is_some_and(|health| health.is_mqtt_connected())
-}
-
-/// Without the health state there is no connectivity observation; the build
-/// requires the feature (`release/edge-release.toml` `crate_required_features`).
-#[cfg(not(feature = "health"))]
-fn link_is_up(_state: &AppState) -> bool {
-    true
+        .is_some_and(crate::mqtt::MqttClient::is_connected)
 }
 
 /// Drive the leased outputs safe: the work of one expired hold.
@@ -316,23 +310,39 @@ mod tests {
     /// been down for the whole hold. (The id here is not a registered output,
     /// so "dealt with" is observable as the hold being emptied: no safe value
     /// is known for it and it is dropped with a warning.)
-    #[cfg(feature = "health")]
+    ///
+    /// The link is the production MQTT client's, connected to a broker that
+    /// goes away the way a real one does: the socket closes, no DISCONNECT is
+    /// sent. A supervisor that read a flag only a DISCONNECT packet clears would
+    /// see the link up for ever and never expire a hold.
     #[tokio::test]
     async fn the_supervisor_deals_with_a_hold_only_after_the_hold_without_a_link() {
+        use crate::mqtt::MqttClient;
+        use crate::mqtt::fake_broker::{FakeBroker, eventually};
+
         const HOLD: Duration = Duration::from_millis(600);
         let config: crate::config::AgentConfig = serde_yaml::from_str(
             "device_id: \"dev-1\"\ndevice_code: \"EDGE-1\"\napi_url: \"https://api.example.test\"\n\
              mqtt:\n  port: 8883\n",
         )
         .unwrap();
+        let broker = FakeBroker::start().await;
         let mut app = AppState::new(config);
-        assert!(app.init_health_server().await.unwrap().is_none());
-        let health = app.health_state.clone().expect("connectivity state");
+        app.mqtt_client = Some(MqttClient::connect_plain_for_test(broker.port(), None));
         let state = Arc::new(RwLock::new(app));
+        let linked = |state: &Arc<RwLock<AppState>>| {
+            let state = state.clone();
+            move || state.try_read().is_ok_and(|s| link_is_up(&s))
+        };
+        eventually(
+            "the link to come up",
+            Duration::from_secs(10),
+            linked(&state),
+        )
+        .await;
         let holds = RemoteHolds::default();
         holds.record(OutputId::modbus_coil("ghost", 1));
 
-        health.set_mqtt_connected(true);
         let (stop, shutdown) = broadcast::channel(1);
         let task = tokio::spawn(supervise(
             state.clone(),
@@ -350,9 +360,12 @@ mod tests {
             "an output is never touched while the link is up"
         );
 
-        // Link down: dealt with, and not before the whole hold has passed.
+        // The broker goes away: dealt with, and not before the whole hold has
+        // passed. (`down` is taken before the link can read down, so the hold
+        // cannot have started earlier.)
         let down = Instant::now();
-        health.set_mqtt_connected(false);
+        broker.set_accepting(false);
+        broker.drop_connection();
         let deadline = down + Duration::from_secs(10);
         while !holds.is_empty() {
             assert!(Instant::now() < deadline, "the hold never ran out");

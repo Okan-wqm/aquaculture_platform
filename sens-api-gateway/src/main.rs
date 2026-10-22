@@ -562,9 +562,9 @@ pub struct AppState {
     ///
     /// WHAT: `None` only before `init_health_server()` ran (and when the
     /// `health` feature is compiled out). It is built whether or not
-    /// `config.health.enabled` is set: the outbound publisher reads its
-    /// connectivity flag (EDGE-HIGH-133); `health.enabled` only decides
-    /// whether the HTTP listener serves it.
+    /// `config.health.enabled` is set; `health.enabled` only decides whether
+    /// the HTTP listener serves it. Nothing acts on what it holds: the link
+    /// state the publishers and the supervisor read is the MQTT client's.
     ///
     /// OBS-14-001 (session-observations.md): push-paths from MQTT/modbus/
     /// script engine are NOT WIRED yet. Counters will report 0 at runtime
@@ -703,13 +703,13 @@ pub struct AppState {
     /// - Future feature-flag (`offline_queue.enabled = false`)
     ///   would deselect the publisher path.
     ///
-    /// Generic params bound to `MqttClient` (sink) +
-    /// `HealthState` (connectivity) — the production wire pair.
+    /// Generic params bound to the one `MqttPublishAdapter` that is both the
+    /// sink and the connectivity port — the production wire.
     pub outbound_publisher: Option<
         std::sync::Arc<
             crate::outbound_publisher::OutboundPublisher<
                 crate::mqtt::MqttPublishAdapter,
-                crate::health::HealthState,
+                crate::mqtt::MqttPublishAdapter,
             >,
         >,
     >,
@@ -1301,9 +1301,10 @@ impl AppState {
     ///
     /// INVARIANTS:
     /// - AppState.health_state is populated by every successful call,
-    ///   whether or not the HTTP listener is enabled: it carries the MQTT
-    ///   connectivity state the outbound publisher and the offline-queue
-    ///   drain read (EDGE-HIGH-133), so it cannot depend on a listener.
+    ///   whether or not the HTTP listener is enabled: the MQTT gauges and
+    ///   counters the event loop feeds exist from boot, so a listener that is
+    ///   enabled later (or a metrics read) never meets a missing state. The
+    ///   link state itself is not here: consumers read the MQTT client's.
     /// - Server bind is default localhost:8080 per the HealthServerConfig
     ///   Default impl — operator must explicitly open to routable
     ///   interfaces (SL-2 defense-in-depth).
@@ -1318,9 +1319,8 @@ impl AppState {
     pub async fn init_health_server(
         &mut self,
     ) -> Result<Option<tokio::task::JoinHandle<()>>, String> {
-        // EDGE-HIGH-133: the connectivity state the outbound publisher and
-        // its drain task read lives in `HealthState`, so it exists whether or
-        // not the HTTP listener does. Only the listener is optional.
+        // The counters and gauges exist whether or not the HTTP listener
+        // does. Only the listener is optional.
         let health_state = crate::health::HealthState::new();
         health_state.set_config_loaded(true);
 
@@ -2026,10 +2026,11 @@ impl AppState {
     /// the queue-drain background task (Batch #253 ARC-002 wire).
     ///
     /// MUST be called AFTER:
-    /// - `init_mqtt_client` (provides the `MqttPublishAdapter`)
-    /// - `init_health_server` (provides the connectivity
-    ///   `HealthState`)
+    /// - `init_mqtt_client` (provides the `MqttPublishAdapter`, which is
+    ///   also the connectivity port)
     /// - `init_offline_queue` (provides the `Arc<OfflineQueue>`)
+    ///
+    /// It needs no health state and no health listener (EDGE-HIGH-133).
     ///
     /// Pre-Batch-253 publish call sites (`publish_alarms`,
     /// `publish_telemetry`, etc.) keep using the direct
@@ -2052,20 +2053,18 @@ impl AppState {
         let mqtt = self.mqtt_client.as_ref().ok_or_else(|| {
             "init_outbound_publisher: mqtt_client must be initialized first".to_string()
         })?;
-        let hs = self.health_state.as_ref().ok_or_else(|| {
-            "init_outbound_publisher: health_state must be initialized first".to_string()
-        })?;
         let queue_async = self.offline_queue.as_ref().ok_or_else(|| {
             "init_outbound_publisher: offline_queue must be initialized first".to_string()
         })?;
 
+        // The adapter is the sink and the connectivity port: the answer to "is
+        // the broker reachable" comes from the client that owns the connection.
         let adapter = std::sync::Arc::new(mqtt.publish_adapter());
-        let connectivity = std::sync::Arc::new(hs.clone());
         let queue = queue_async.inner();
 
         let publisher = std::sync::Arc::new(OutboundPublisher::new(
             adapter.clone(),
-            connectivity.clone(),
+            adapter.clone(),
             queue.clone(),
         ));
         self.outbound_publisher = Some(publisher);
@@ -2077,7 +2076,7 @@ impl AppState {
         // process exits — same observable behavior, just no
         // mid-drain "stop after current message" semantic.
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
-        let drain = DrainTask::new(adapter, connectivity, queue);
+        let drain = DrainTask::new(adapter.clone(), adapter, queue);
         let drain_handle = tokio::spawn(drain.run(shutdown_rx));
         self.outbound_publisher_drain_shutdown = Some(shutdown_tx);
         self.outbound_publisher_drain_handle = Some(drain_handle);
@@ -2592,7 +2591,12 @@ impl AppState {
     /// config).
     pub async fn init_license_cache(&mut self) {
         let path = paths::AgentPaths::current().license_cache_db();
+        self.init_license_cache_at(&path).await;
+    }
 
+    /// `init_license_cache` for the cache at `path` (the boot test points it at
+    /// a cache of its own; the process's paths are fixed for its whole run).
+    async fn init_license_cache_at(&mut self, path: &std::path::Path) {
         // PR-195 Batch #17 — adopt the manifest-aware
         // constructor (Batch #14). Same shape as
         // init_offline_queue's adoption: prefer the
@@ -5371,12 +5375,12 @@ async fn run_connectivity(
     info!("MQTT client started");
 
     // Step 3: the broker-aware outbound publisher + queue drain (Batch #253
-    // ARC-002). Its prerequisites are the MQTT client, the health state's
-    // connectivity flag and the offline queue. Without them publishes go
-    // direct to the broker (the v1.6.0 path) — that loses messages during an
-    // outage, which is reported, but it is no reason to stop the agent
-    // (DEC-6.2; this used to exit(1) whenever the health server or the
-    // offline queue was disabled).
+    // ARC-002). Its prerequisites are the MQTT client (sink and connectivity
+    // port) and the offline queue; the health server is not one (EDGE-HIGH-133).
+    // Without them publishes go direct to the broker (the v1.6.0 path) — that
+    // loses messages during an outage, which is reported, but it is no reason
+    // to stop the agent (DEC-6.2; this used to exit(1) whenever the offline
+    // queue was disabled).
     {
         let mut state_guard = state.write().await;
         if let Err(msg) = state_guard.init_outbound_publisher() {
@@ -7499,28 +7503,216 @@ mod boot_tests {
         assert_eq!(AppState::new(fresh).tenant_id, None);
     }
 
-    /// EDGE-HIGH-133: the outbound publisher and the offline-queue drain read
-    /// MQTT connectivity from the health state. With the default
-    /// configuration (health server disabled) there is no listener, and the
-    /// state they need must exist anyway — otherwise the publisher is never
-    /// built and an outage loses every message the queue was meant to hold.
-    #[cfg(feature = "health")]
+    /// A cached license manifest for `tenant`, signed by the key `seed` names,
+    /// valid until the year 2100 (a fixed date in the past or near future would
+    /// make the test a time bomb), written to a cache file in `dir`.
+    #[cfg(not(feature = "suderra-os"))]
+    fn cache_a_professional_license(
+        dir: &std::path::Path,
+        tenant: &str,
+        seed: u8,
+    ) -> (std::path::PathBuf, ed25519_dalek::VerifyingKey) {
+        use crate::license::{
+            EdgeLicenseLimits, LicenseManifest, LicenseTier, SignedLicenseManifest,
+        };
+        use ed25519_dalek::{Signer, SigningKey};
+
+        const UNTIL: i64 = 4_102_444_800; // 2100-01-01
+        // The device secret that keys the SQLCipher stores: a file of this
+        // test's own (it is derived once per process and then cached).
+        // SAFETY: the same single-writer pattern as the license cache's tests.
+        unsafe {
+            std::env::set_var("SUDERRA_DB_KEY_PATH", dir.join("db.key"));
+        }
+        let signing_key = SigningKey::from_bytes(&[seed; 32]);
+        let manifest = LicenseManifest {
+            tenant_id: crate::authz::permission::TenantId::new_from_verified(
+                *uuid::Uuid::parse_str(tenant).unwrap().as_bytes(),
+            ),
+            policy_version: 3,
+            valid_from_unix_secs: 1_700_000_000,
+            valid_until_unix_secs: UNTIL,
+            issued_at_unix_secs: 1_700_000_000,
+            limits: EdgeLicenseLimits {
+                tier: LicenseTier::Professional,
+                valid_until_unix_secs: UNTIL,
+                max_io_channels: 64,
+                max_fb_instances: 32,
+                min_scan_cycle_ms: 500,
+                max_st_programs: 8,
+                max_concurrent_tasks: 4,
+                max_watch_sessions: 3,
+                max_concurrent_forces: 5,
+                signed_deploy_required: false,
+                opc_ua_server_enabled: false,
+            },
+        };
+        let signature = signing_key.sign(&manifest.canonical_bytes());
+        let signed =
+            SignedLicenseManifest::from_body_and_signature_bytes(manifest, &signature.to_bytes())
+                .unwrap();
+        let path = dir.join("license_cache.sqlite");
+        crate::license_cache::LicenseCacheStore::open(&path)
+            .expect("open the cache")
+            .save(&signed)
+            .expect("cache the manifest");
+        (path, signing_key.verifying_key())
+    }
+
+    fn activated_config(tenant: &str) -> AgentConfig {
+        serde_yaml::from_str(&format!(
+            "device_id: \"dev-1\"\ndevice_code: \"EDGE-0001\"\napi_url: \"https://api.example.test\"\n\
+             tenant_id: \"{tenant}\"\nmqtt:\n  broker: \"broker.site.test\"\n  port: 8883\n  \
+             username: \"device\"\n  password: \"TEST-ONLY-password\"\n"
+        ))
+        .unwrap()
+    }
+
+    /// EDGE-HIGH-132: after a restart of an activated generic device the license
+    /// loader runs before the connectivity task, so the tenant it verifies the
+    /// cached manifest against has to be bound by then. It used to be read from
+    /// a field that was still `None`, and every restart put a licensed device
+    /// back on Starter limits (16 channels, then degraded mode above that).
+    #[cfg(not(feature = "suderra-os"))]
     #[tokio::test]
-    async fn the_connectivity_state_exists_without_the_health_listener() {
+    async fn an_activated_device_restores_its_cached_license_tier_after_a_restart() {
+        const TENANT: &str = "7e570000-0000-4000-8000-000000000001";
+        let dir = tempfile::tempdir().unwrap();
+        let (path, pubkey) = cache_a_professional_license(dir.path(), TENANT, 0x5a);
+
+        // The restart: a fresh state built from the stored configuration.
+        let mut state = AppState::new(activated_config(TENANT));
+        state.firmware_signing_pubkey = Some(Arc::new(pubkey));
+        assert!(
+            matches!(state.license.tier, crate::license::LicenseTier::Starter),
+            "the state starts on the conservative limits"
+        );
+
+        state.init_license_cache_at(&path).await;
+
+        assert!(
+            matches!(
+                state.license.tier,
+                crate::license::LicenseTier::Professional
+            ),
+            "the cached, verified license is restored, got {:?}",
+            state.license.tier
+        );
+        assert_eq!(state.license.max_io_channels, 64);
+    }
+
+    /// The same cache on a device that was never activated has no tenant to
+    /// verify against: it stays on the conservative limits (the loader's
+    /// pre-provisioning behaviour is unchanged).
+    #[cfg(not(feature = "suderra-os"))]
+    #[tokio::test]
+    async fn a_device_that_was_never_activated_keeps_the_conservative_limits() {
+        const TENANT: &str = "7e570000-0000-4000-8000-000000000001";
+        let dir = tempfile::tempdir().unwrap();
+        let (path, pubkey) = cache_a_professional_license(dir.path(), TENANT, 0x5a);
+
+        let fresh: AgentConfig = serde_yaml::from_str(
+            "device_id: \"dev-2\"\ndevice_code: \"EDGE-0002\"\napi_url: \"https://api.example.test\"\n\
+             mqtt:\n  port: 8883\n",
+        )
+        .unwrap();
+        let mut state = AppState::new(fresh);
+        state.firmware_signing_pubkey = Some(Arc::new(pubkey));
+        state.init_license_cache_at(&path).await;
+        assert!(matches!(
+            state.license.tier,
+            crate::license::LicenseTier::Starter
+        ));
+    }
+
+    /// EDGE-HIGH-133: with the default configuration (no health listener, no
+    /// health state at all) the outbound publisher is built from the MQTT
+    /// client and the offline queue alone, and an outage no longer loses what
+    /// is published: a publish while the broker is down lands in the queue, and
+    /// the drain task `init_outbound_publisher` spawned replays it when the
+    /// broker is back. The broker is a real socket and the client is the
+    /// production event loop, so what is asserted is what the event loop saw.
+    #[tokio::test]
+    async fn the_default_configuration_queues_a_publish_during_an_outage_and_drains_it_after() {
+        use crate::mqtt::MqttClient;
+        use crate::mqtt::fake_broker::{FakeBroker, eventually};
+        use crate::offline_queue::{AsyncOfflineQueue, MessagePriority, OfflineQueue};
+        use crate::outbound_publisher::PublishOutcome;
+
         let config: AgentConfig = serde_yaml::from_str(
             "device_id: \"dev-3\"\ndevice_code: \"EDGE-0003\"\napi_url: \"https://api.example.test\"\n\
              mqtt:\n  port: 8883\n",
         )
         .unwrap();
-        assert!(!config.health.enabled, "the default is no listener");
+        assert!(!config.health.enabled, "the default is no health listener");
+        let broker = FakeBroker::start().await;
         let mut state = AppState::new(config);
-        assert!(state.health_state.is_none());
-        let handle = state.init_health_server().await.unwrap();
-        assert!(handle.is_none(), "no listener without health.enabled");
+        #[cfg(feature = "health")]
+        assert!(state.health_state.is_none(), "no health state exists yet");
+        let client = MqttClient::connect_plain_for_test(broker.port(), None);
+        eventually(
+            "the broker connection",
+            std::time::Duration::from_secs(10),
+            || client.is_connected(),
+        )
+        .await;
+        state.mqtt_client = Some(client);
+        state.offline_queue = Some(Arc::new(AsyncOfflineQueue::new(
+            OfflineQueue::in_memory(100).unwrap(),
+        )));
+
+        state
+            .init_outbound_publisher()
+            .expect("the publisher needs the client and the queue, nothing else");
+        let publisher = state.outbound_publisher.clone().expect("publisher");
+        let queue = state.offline_queue.clone().expect("queue").inner();
+
+        // The broker goes away without a word.
+        broker.set_accepting(false);
+        broker.drop_connection();
+        let client_down = || {
+            state
+                .mqtt_client
+                .as_ref()
+                .is_some_and(|c| !c.is_connected())
+        };
+        eventually(
+            "the link to read down",
+            std::time::Duration::from_secs(10),
+            client_down,
+        )
+        .await;
+
+        let outcome = publisher
+            .publish("t/outage", b"alarm", MessagePriority::Critical, 1, false)
+            .await
+            .unwrap();
         assert!(
-            state.health_state.is_some(),
-            "the publisher's connectivity state is built regardless"
+            matches!(outcome, PublishOutcome::Queued { .. }),
+            "a publish while the broker is down lands in the queue, got {outcome:?}"
         );
+        assert_eq!(queue.len(), 1);
+
+        // The broker is back: the drain task of `init_outbound_publisher`
+        // replays the queue (its tick is one second).
+        broker.set_accepting(true);
+        eventually(
+            "the queued publish at the broker",
+            std::time::Duration::from_secs(15),
+            || {
+                broker
+                    .published()
+                    .iter()
+                    .any(|p| p.topic == "t/outage" && p.payload == b"alarm")
+            },
+        )
+        .await;
+        eventually(
+            "the queue to empty",
+            std::time::Duration::from_secs(5),
+            || queue.len() == 0,
+        )
+        .await;
     }
 }
 

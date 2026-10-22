@@ -1110,6 +1110,14 @@ path = "tests/invariants/tag_writes_route_through_the_writer.rs"
 name = "emergency_stop_latch"
 path = "tests/invariants/emergency_stop_latch.rs"
 
+# ADR-048 DEC-13.3 / EDGE-HIGH-065, EDGE-HIGH-133 — whether the broker is
+# reachable has one writer (the event loop, on every way it loses the
+# connection) and one owner (the client), read by the offline-queue
+# dispatcher, its drain and the comms-loss supervisor.
+[[test]]
+name = "mqtt_link_single_writer"
+path = "tests/invariants/mqtt_link_single_writer.rs"
+
 # ADR-048 DEC-7.5 / EDGE-MEDIUM-077, EDGE-MEDIUM-135 — freshness is judged at an
 # instant the clock authority vouches for; a command the agent does not run is
 # refused out loud.

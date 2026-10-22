@@ -11,6 +11,11 @@ The repository is real (git merges, ``merge-tree``); GitHub is a fake.
 """
 from __future__ import annotations
 
+# ARIA-HIGH-602 — the live partition: this module reads the live checkout
+# outside the kernel surface, so it runs in aria-kernel.yml's always-run
+# `workspace` job (aria_kernel.live_partition), never in a skippable shard.
+READS_LIVE_CHECKOUT = 'apps/farm-service/project.json and scripts/ci/affected-target-policy.json in the live checkout'
+
 import os
 import subprocess
 import tempfile

@@ -49,7 +49,6 @@ identity until the probe interval or a gate change.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -59,6 +58,7 @@ from typing import Any, Mapping
 from .agent_eval import LESSON_EPISODE_THRESHOLD, list_performance_observations
 from .ledger import load_declared_jsonl
 from .tool_registry import ensure_tools_dir_readonly, parse_utc_stamp
+from .digest import sha256_digest_text
 
 RECURRING_ATTRIBUTED_FAILURE = "recurring_attributed_failure"
 RECURRING_FAILURE_PROBE = "recurring_attributed_failure_probe"
@@ -92,7 +92,7 @@ def candidate_identity(
         canonical = ["subject", key] if key is not None else ["finding", finding]
     else:
         canonical = ["refs", _grounds(plan_content.get("evidence_refs"))]
-    return "sha256:" + hashlib.sha256(json.dumps(canonical, sort_keys=True).encode("utf-8")).hexdigest()
+    return sha256_digest_text(json.dumps(canonical, sort_keys=True))
 
 
 @dataclass(frozen=True)

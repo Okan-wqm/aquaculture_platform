@@ -46,6 +46,7 @@ from aria_kernel.harness_parity import check_parity, render_parity_report
 from aria_kernel.ledger import append_declared_jsonl
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from aria_kernel.request_admission import admit_request
+from tests._helpers.operator_acts import github_operator_acts
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _POC = _REPO_ROOT / "tools" / "aria-poc"
@@ -73,7 +74,9 @@ class DecisionMemory(_Store):
         self.assertEqual(cc.collect_decisions(base_dir=self.tools), [])
         control.record_control("cancel", base_dir=self.tools, request_id="AIR-1", reason="tenant isolation plan superseded by the farm-service split")
         control.record_control("pause", base_dir=self.tools, reason="deploy window")
-        control.record_control("resume", base_dir=self.tools)  # no reason → not a decision with a why? it is recorded with empty why
+        with github_operator_acts() as github:  # a resume lifts a pause on an operator act (ARIA-HIGH-238)
+            ref = github.approve("control_resume", control.resume_scope(base_dir=self.tools))
+            control.record_control("resume", base_dir=self.tools, operator_ref=ref)  # no reason: recorded with an empty why
         from aria_kernel import recovery
 
         recovery.classify_recovery("AIR-2", base_dir=self.tools, fingerprint="fp", remote_reader=lambda i: None)

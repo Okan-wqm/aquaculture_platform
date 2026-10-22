@@ -43,7 +43,7 @@ from .agent_invocations import (
     list_agent_invocation_requests,
 )
 from .change_ledger import list_change_chains
-from .debt import debts_dir, list_debts
+from .debt import debts_dir, effective_debt_status, is_unresolved_debt, list_debts
 from .finding import findings_dir, list_findings
 from .governance_reader import read_governance_rows
 from .ledger import append_declared_jsonl
@@ -77,8 +77,10 @@ VALIDATION_EVENT_KINDS: frozenset[str] = frozenset({
 # "list_findings filter status != WITHDRAWN"; STALE + RESOLVED also closed).
 CLOSED_FINDING_STATUSES: frozenset[str] = frozenset({"WITHDRAWN", "RESOLVED", "STALE"})
 
-# Debt statuses that DO NOT count as open.
-CLOSED_DEBT_STATUSES: frozenset[str] = frozenset({"RESOLVED", "WITHDRAWN", "CANCELLED"})
+# Debt closure has one owner: debt.py's CLOSED_DEBT_STATUSES /
+# is_unresolved_debt (ARIA-LOW-605). The private copy here named a
+# CANCELLED status that does not exist in the debt lifecycle and read a
+# field index rows do not carry, so no debt was ever filtered out.
 
 
 def _resolve_repo_root(repo_root: str | Path | None) -> Path:
@@ -121,15 +123,20 @@ def _open_debts(repo_root: Path) -> list[dict[str, Any]]:
     if not debts_dir(repo_root).exists():
         return []
     rows = list_debts(repo_root)
+    # ARIA-LOW-605: the owner's predicate replaces the private closed-set
+    # copy — which read a field index rows do not carry (``status`` vs
+    # ``current_status``), so every debt, resolved included, was handed
+    # off as open. The status shown is the derived one: an overdue debt
+    # hands off as OVERDUE.
     return [
         {
             "debt_id": r.get("debt_id"),
             "severity": r.get("severity"),
-            "status": r.get("status"),
+            "status": effective_debt_status(r),
             "originating_finding_id": r.get("originating_finding_id"),
         }
         for r in rows
-        if r.get("status") not in CLOSED_DEBT_STATUSES
+        if is_unresolved_debt(r)
     ]
 
 

@@ -57,17 +57,22 @@ class SkillSandboxMarkdownDeviationTests(unittest.TestCase):
             sandbox_skill(draft_id=self.draft["draft_id"], markdown_path=path, base_dir=self.tools_dir)
 
     def test_json_checklist_path_requires_explicit_synthetic_mode(self):
-        result = sandbox_skill(
-            draft_id=self.draft["draft_id"],
-            checklist_results=[
-                {"id": "tp1", "status": "pass"},
-                {"id": "fp1", "status": "pass"},
-                {"id": "handoff", "status": "pass"},
-            ],
-            base_dir=self.tools_dir,
-            synthetic_test_mode=True,
-            operator_approval_ref="test-synthetic-fixture",
-        )
+        from tests._helpers.operator_acts import github_operator_acts
+
+        with github_operator_acts() as github:
+            result = sandbox_skill(
+                draft_id=self.draft["draft_id"],
+                checklist_results=[
+                    {"id": "tp1", "status": "pass"},
+                    {"id": "fp1", "status": "pass"},
+                    {"id": "handoff", "status": "pass"},
+                ],
+                base_dir=self.tools_dir,
+                synthetic_test_mode=True,
+                operator_approval_ref=github.approve(
+                    "skill_synthetic_sandbox", {"draft": self.draft["draft_id"]},
+                ),
+            )
         self.assertEqual(result["decision"], "pass")
         self.assertEqual(result["source"], "checklist_json")
         self.assertTrue(result["synthetic_test_mode"])

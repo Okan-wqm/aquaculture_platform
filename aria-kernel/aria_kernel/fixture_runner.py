@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import stat
@@ -27,7 +26,7 @@ from .ledger import (
     LedgerReadLimitError,
     append_declared_jsonl,
     append_jsonl as append_chained_jsonl,
-    sha256_of_canonical_json,
+    sha256_digest_of_canonical_json,
     verify_jsonl_chunks,
 )
 from .ledger_inline import spill_evidence_validation
@@ -42,6 +41,7 @@ from .tool_registry import (
 )
 from .tool_runner import _canonical_json_bytes, _decode_timeout_stream, _parse_tool_output
 from .workspace_view import hermetic_git
+from .digest import sha256_digest, sha256_digest_text
 
 
 SEMANTIC_FIXTURE_REQUIRED_TOOLS = {
@@ -224,7 +224,7 @@ def suite_scripts_digest(
             "argv": [_argv_element(part, cwd=cwd, workspace=workspace) for part in argv],
         }
         commands[json.dumps(command, sort_keys=True)] = command
-    return "sha256:" + sha256_of_canonical_json([commands[key] for key in sorted(commands)])
+    return sha256_digest_of_canonical_json([commands[key] for key in sorted(commands)])
 
 
 def _argv_element(part: str, *, cwd: Path, workspace: Path) -> dict[str, str]:
@@ -353,7 +353,7 @@ def _compute_suite_evidence_hash(summary: dict[str, Any]) -> str:
     }
     payload = {k: v for k, v in summary.items() if k not in excluded}
     serialized = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-    return "sha256:" + hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+    return sha256_digest_text(serialized)
 
 
 def latest_fixture_pass(
@@ -1364,7 +1364,7 @@ def resolve_field(payload: dict[str, Any], field: str) -> Any:
 
 
 def sha256(payload: bytes) -> str:
-    return "sha256:" + hashlib.sha256(payload).hexdigest()
+    return sha256_digest(payload)
 
 
 def tool_manifest_hash(tool: dict[str, Any]) -> str:
@@ -1373,7 +1373,7 @@ def tool_manifest_hash(tool: dict[str, Any]) -> str:
         for key, value in tool.items()
         if key not in {"created_at", "updated_at", "last_transition"}
     }
-    return "sha256:" + sha256_of_canonical_json(stable)
+    return sha256_digest_of_canonical_json(stable)
 
 
 def fixture_set_hash(fixture_dir: Path) -> str:
@@ -1384,7 +1384,7 @@ def fixture_set_hash(fixture_dir: Path) -> str:
                 payload.append((path.relative_to(fixture_dir).as_posix(), sha256(path.read_bytes())))
             except OSError:
                 payload.append((path.relative_to(fixture_dir).as_posix(), "unreadable"))
-    return "sha256:" + sha256_of_canonical_json(payload)
+    return sha256_digest_of_canonical_json(payload)
 
 
 def _default_fixture_lane(name: str) -> str:

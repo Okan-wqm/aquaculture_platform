@@ -100,6 +100,15 @@ _APPROVAL_EVENT = "evt-test-operator-approval"
 _APPROVAL_REF = f"gov:{_APPROVAL_EVENT}"
 
 
+@contextmanager
+def _operator_acts():
+    """A live fake GitHub while a RAISING surface verifies (ARIA-HIGH-238)."""
+    from tests._helpers.operator_acts import github_operator_acts
+
+    with github_operator_acts() as github:
+        yield github
+
+
 def _record_test_approval(root) -> None:
     """Provision the governance-recorded operator approval fixtures use."""
     from aria_kernel.tool_registry import append_tools_governance
@@ -233,11 +242,12 @@ def _cold_runtime_fixture(case: unittest.TestCase, root: Path, *, legacy: bool):
             case.assertEqual(
                 verify_runtime_artifacts(base_dir=tools, workspace_root=source)["status"], "ok",
             )
-            applied = retention_apply(
-                base_dir=tools, retain_hot_cycles=0, acknowledge=True,
-                workspace_root=source, reason="ordinary sequential cold fixture",
-                operator_approval_ref=_APPROVAL_REF,
-            )
+            with _operator_acts() as github:
+                applied = retention_apply(
+                    base_dir=tools, retain_hot_cycles=0, acknowledge=True,
+                    workspace_root=source, reason="ordinary sequential cold fixture",
+                    operator_approval_ref=github.approve("retention_apply", {"retain": "0"}),
+                )
             case.assertEqual(applied["archived_count"], 1)
             archives = load_declared_jsonl(tools / "retention/events.jsonl", expected_surface="retention_events")
             case.assertEqual(len(archives), 1)
@@ -379,23 +389,25 @@ class RuntimeArtifactTests(unittest.TestCase):
         self.assertEqual(plan["candidate_count"], 1)
         with self.assertRaises(Exception):
             retention_apply(base_dir=self.tools, retain_hot_cycles=0)
-        applied = retention_apply(
-            base_dir=self.tools,
-            retain_hot_cycles=0,
-            acknowledge=True,
-            workspace_root=self.repo_root,
-            reason="unit-test-retention",
-            operator_approval_ref=_APPROVAL_REF,
-        )
+        with _operator_acts() as github:
+            applied = retention_apply(
+                base_dir=self.tools,
+                retain_hot_cycles=0,
+                acknowledge=True,
+                workspace_root=self.repo_root,
+                reason="unit-test-retention",
+                operator_approval_ref=github.approve("retention_apply", {"retain": "0"}),
+            )
         self.assertEqual(applied["archived_count"], 1)
         artifact_id = applied["archived"][0]["artifact_id"]
-        restored = restore_artifact(
-            base_dir=self.tools,
-            artifact_ref=artifact_id,
-            workspace_root=self.repo_root,
-            reason="unit-test-restore",
-            operator_approval_ref=_APPROVAL_REF,
-        )
+        with _operator_acts() as github:
+            restored = restore_artifact(
+                base_dir=self.tools,
+                artifact_ref=artifact_id,
+                workspace_root=self.repo_root,
+                reason="unit-test-restore",
+                operator_approval_ref=github.approve("artifact_restore", {"artifact": str(artifact_id)}),
+            )
         self.assertEqual(restored["status"], "restored")
 
     def test_cold_reference_resolves_after_normal_compaction(self) -> None:
@@ -458,10 +470,15 @@ class RuntimeArtifactTests(unittest.TestCase):
                                 "run-artifacts/artifact-index.jsonl",
                             )
                         }
-                        result = restore_artifact(
-                            base_dir=tools, artifact_ref=ref[query_key], workspace_root=fixture["source"],
-                            reason="restore ordinary cold fixture", operator_approval_ref=_APPROVAL_REF,
-                        )
+                        with _operator_acts() as github:
+                            _restore_ref = github.approve(
+                                "artifact_restore", {"artifact": str(ref[query_key])},
+                            )
+                            result = restore_artifact(
+                                base_dir=tools, artifact_ref=ref[query_key], workspace_root=fixture["source"],
+                                reason="restore ordinary cold fixture",
+                                operator_approval_ref=_restore_ref,
+                            )
                         self.assertEqual(result["status"], "restored")
                         self.assertEqual(result["artifact_id"], ref["artifact_id"])
                         self.assertEqual(result["path"], ref["uri"])
@@ -482,14 +499,16 @@ class RuntimeArtifactTests(unittest.TestCase):
                         self.assertRegex(rows[-1]["ledger_hash"], r"^sha256:[0-9a-f]{64}$")
                         self.assertNotEqual(rows[-1]["ledger_hash"], old_rows[-1]["ledger_hash"])
                         self.assertEqual({key: value for key, value in rows[-1].items()
-                                          if key not in {"ledger_hash", "previous_ledger_hash", "recorded_at"}}, {
+                                          if key not in {"ledger_hash", "previous_ledger_hash", "recorded_at",
+                                                         "operator_approval"}}, {
                             "schema_version": 1, "event": "artifact_restored",
                             "artifact_id": ref["artifact_id"], "path": ref["uri"],
                             "sha256": ref["sha256"], "restored_from_archive": True,
                             "restored_from_cold": False,
                             "reason": "restore ordinary cold fixture",
-                            "operator_approval_ref": _APPROVAL_REF,
+                            "operator_approval_ref": _restore_ref,
                         })
+                        self.assertEqual(rows[-1]["operator_approval"]["surface"], "artifact_restore")
                         self.assertEqual({name: (tools / name).read_bytes() for name in original_ledger_bytes}, original_ledger_bytes)
                         after_restore = _tree_bytes_and_modes(tools)
                         for _ in range(2):
@@ -571,17 +590,31 @@ class RuntimeArtifactTests(unittest.TestCase):
             native_before_restore = {
                 path.relative_to(tools).as_posix(): path.read_bytes()
                 for path in tools.rglob("*.jsonl")
+                if path.name != "governance.jsonl"
             }
+            governance_before_restore = (tools / "governance.jsonl").read_bytes()
             for query in (first_ref["artifact_id"], first_ref["uri"]):
-                with self.assertRaisesRegex(GovernanceError, "^artifact_ambiguous:"):
-                    restore_artifact(
-                        base_dir=tools, artifact_ref=query, workspace_root=fixture["source"],
-                        reason="ordinary ambiguous version lookup", operator_approval_ref=_APPROVAL_REF,
-                    )
+                with _operator_acts() as github:
+                    with self.assertRaisesRegex(GovernanceError, "^artifact_ambiguous:"):
+                        restore_artifact(
+                            base_dir=tools, artifact_ref=query, workspace_root=fixture["source"],
+                            reason="ordinary ambiguous version lookup",
+                            operator_approval_ref=github.approve(
+                                "artifact_restore", {"artifact": str(query)},
+                            ),
+                        )
             self.assertEqual({
                 path.relative_to(tools).as_posix(): path.read_bytes()
                 for path in tools.rglob("*.jsonl")
+                if path.name != "governance.jsonl"
             }, native_before_restore)
+            grown = (tools / "governance.jsonl").read_bytes()
+            self.assertTrue(grown.startswith(governance_before_restore))
+            appended = [json.loads(line) for line in grown[len(governance_before_restore):].splitlines() if line.strip()]
+            self.assertEqual(
+                [row.get("kind") for row in appended],
+                ["operator_approval_consumed", "operator_approval_consumed"],
+            )
             self.assertEqual(retained_path.read_bytes(), first_bytes)
             self.assertEqual(hot_path.read_bytes(), second_bytes)
 

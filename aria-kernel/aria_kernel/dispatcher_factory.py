@@ -47,6 +47,7 @@ from .agent_invocations import (
 )
 from .request_admission import admit_request
 from .tool_registry import ensure_tools_dir
+from .digest import sha256_digest_from_hex
 
 
 __all__ = [
@@ -498,7 +499,7 @@ def accepted_response(
     import hashlib as _hashlib
 
     digest = _hashlib.sha256(raw).hexdigest()
-    if expected_hash not in (digest, "sha256:" + digest):
+    if expected_hash not in (digest, sha256_digest_from_hex(digest)):
         return None
     try:
         payload = json.loads(raw.decode("utf-8"))

@@ -54,13 +54,13 @@ from .state_manifest import (
     surface_for_relative_path,
     surface_key_name,
 )
+from .digest import is_sha256_digest
 
 # The two fields the chain owns. A replayed row is re-chained onto its new
 # predecessor, so these are recomputed rather than carried: a copied
 # `ledger_hash` would describe a predecessor the row no longer has, producing a
 # file that looks valid to a naive reader and fails the real verifier.
 _CHAIN_FIELDS = ("ledger_hash", "previous_ledger_hash")
-_LEDGER_EVENT_ID = re.compile(r"^sha256:[0-9a-f]{64}$")
 _REPLAY_TRANSACTION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _DUAL_CHAIN_SURFACES = frozenset({
     "kg_conventions",
@@ -245,7 +245,7 @@ def _producer_event_identity(
         if origin is not None
         else row.get("ledger_hash")
     )
-    if not isinstance(candidate, str) or not _LEDGER_EVENT_ID.fullmatch(candidate):
+    if not is_sha256_digest(candidate):
         raise ReplayRefusal("replay_producer_event_identity_missing")
     return candidate
 
@@ -263,7 +263,7 @@ def _producer_previous_ledger_hash(
     )
     if candidate is None:
         return None
-    if not isinstance(candidate, str) or not _LEDGER_EVENT_ID.fullmatch(candidate):
+    if not is_sha256_digest(candidate):
         raise ReplayRefusal("replay_producer_previous_identity_invalid")
     return candidate
 

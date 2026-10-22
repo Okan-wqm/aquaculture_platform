@@ -62,7 +62,7 @@ from typing import Any
 
 from .hmac_keyring import utc_now_stamp
 from .ledger import atomic_write_json
-from .operator_approval import OperatorApprovalUnrecorded, recorded_instance, verify_operator_approval
+from .operator_approval import recorded_instance, require_operator_act
 from .tool_registry import (
     GovernanceError,
     append_tools_governance,
@@ -548,12 +548,9 @@ def reset_breaker(
     from .runtime_profile import enforce_profile_for_write
 
     enforce_profile_for_write("tool_governance", base_dir=root)
-    try:
-        approval = verify_operator_approval(
-            operator_approval_ref, surface="breaker_reset", scope=trip_scope(root), base_dir=root,
-        )
-    except OperatorApprovalUnrecorded as exc:
-        raise GovernanceError(f"breaker_reset_approval_unrecorded:{exc}") from exc
+    approval = require_operator_act(
+        operator_approval_ref, surface="breaker_reset", scope=trip_scope(root), base_dir=root,
+    )
     atomic_write_json(_state_path(root), {"state": "ok"})
     failures_path = _failures_path(root)
     if failures_path.exists():
@@ -674,12 +671,9 @@ def quarantine_breaker_evidence(
     from .runtime_profile import enforce_profile_for_write
 
     enforce_profile_for_write("tool_governance", base_dir=root)
-    try:
-        approval = verify_operator_approval(
-            operator_approval_ref, surface="breaker_evidence_quarantine", scope=trip_scope(root), base_dir=root,
-        )
-    except OperatorApprovalUnrecorded as exc:
-        raise GovernanceError(f"breaker_evidence_quarantine_approval_unrecorded:{exc}") from exc
+    approval = require_operator_act(
+        operator_approval_ref, surface="breaker_evidence_quarantine", scope=trip_scope(root), base_dir=root,
+    )
 
     stamped = utc_now_stamp()
     quarantine_path = _quarantine_path(root)

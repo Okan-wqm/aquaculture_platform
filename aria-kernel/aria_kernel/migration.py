@@ -14,7 +14,17 @@ from typing import Any, Iterator
 from .feedback import normalize_feedback_event, pressure_evidence_fingerprint, slug
 from .ledger import append_jsonl, atomic_write_json, read_jsonl, rewrite_jsonl, stamp_row_format, verify_jsonl, write_index
 from .tool_registry import GovernanceError, SCHEMA_VERSION as TOOLS_SCHEMA_VERSION, append_tools_governance, covered_tool_ledgers, sync_tools_contract, tools_contract_version, update_tools_index
-from .workspace import WorkspacePaths, canonical_identity, canonical_identity_source, default_actor, governance_event, record_workspace_governance, repo_hash, workspace_paths
+from .execution_spine import current_actor_record
+from .workspace import (
+    WorkspacePaths,
+    canonical_identity,
+    canonical_identity_source,
+    governance_event,
+    record_workspace_governance,
+    repo_hash,
+    workspace_paths,
+)
+from .digest import sha256_digest_from_hex
 
 
 MIGRATION_PHASES = ("started", "copied", "validated", "finalized")
@@ -98,7 +108,7 @@ def rollback_workspace_v2_to_v1(
         raise ValueError("rollback requires --acknowledge and --reason")
     paths = workspace_paths(Path(workspace_root), Path(workspace_base) if workspace_base else None)
     backup = Path(from_backup)
-    actor = default_actor()
+    actor = current_actor_record()
     discarded = _discarded_event_count(paths.ledgers, backup / "aria-memory")
     _guard_post_migration_rows(paths.ledgers, backup / "aria-memory", force_discard_since_migration)
     since_rows = (
@@ -184,7 +194,7 @@ def migrate_tools_v1_to_v2(
 
         source_state = _tools_source_state(root)
         empty_v0_state = not _tools_has_covered_ledgers(root)
-        actor = default_actor()
+        actor = current_actor_record()
         backup = Path(existing_state.get("backup_path") or _tools_backup_dir(root))
         dropped_legacy_fields: list[str] = []
 
@@ -268,7 +278,7 @@ def rollback_tools_v2_to_v1(
     root = Path(tools_dir)
     backup = Path(from_backup)
     with tools_lock(root, "tools_rollback", ""):
-        actor = default_actor()
+        actor = current_actor_record()
         discarded = _discarded_event_count(covered_tool_ledgers(root), backup)
         _guard_post_migration_rows(covered_tool_ledgers(root), backup, force_discard_since_migration)
         since_rows = _since_migration_rows(covered_tool_ledgers(root), backup) if force_discard_since_migration else []
@@ -361,7 +371,7 @@ def migrate_tools_v2_to_v3(
     legacy_bound = identity.get("bound_repo_hash")
     new_canonical = canonical_identity(repo_root)
     identity_source = canonical_identity_source(repo_root)
-    actor = default_actor()
+    actor = current_actor_record()
     migration_event_id = f"MIG-tools-v2-v3-{hashlib.sha256(f'{root}{actor}{_now()}'.encode()).hexdigest()[:16]}"
     pre_strip_hash = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
     # Event 1: rebind for v3 recipe
@@ -405,8 +415,8 @@ def migrate_tools_v2_to_v3(
         "tools_root_schema_stripped",
         {
             "migration_event_id": migration_event_id,
-            "pre_strip_content_hash": f"sha256:{pre_strip_hash}",
-            "post_strip_content_hash": f"sha256:{post_strip_hash}",
+            "pre_strip_content_hash": sha256_digest_from_hex(pre_strip_hash),
+            "post_strip_content_hash": sha256_digest_from_hex(post_strip_hash),
             "reason": reason,
             "acknowledged_by": actor,
         },
@@ -537,7 +547,7 @@ def rollback_tools_v3_to_v2(
             "status": "not_at_v3",
             "current_version": current_version,
         }
-    actor = default_actor()
+    actor = current_actor_record()
     rolled_back = {
         "aria_tools_contract_version": 2,
         "schema_version": 2,
@@ -712,7 +722,7 @@ def tools_lock(root: Path, operation: str, target_repo_hash: str) -> Iterator[No
             payload = {
                 "operation": operation,
                 "pid": os.getpid(),
-                "actor": default_actor(),
+                "actor": current_actor_record(),
                 "started_at": _now(),
                 "target_repo_hash": target_repo_hash,
             }

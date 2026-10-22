@@ -268,11 +268,16 @@ class PlanConvergedApprovalProvenanceTests(unittest.TestCase):
             validation_command="npm run type-check",
             base_dir=self.tools,
         )
-        approve_proposal(
-            proposal_id=proposal["proposal_id"],
-            operator_approval_ref="operator:okan:2026-08-18:reviewed-by-hand",
-            base_dir=self.tools,
-        )
+        from tests._helpers.operator_acts import github_operator_acts
+
+        with github_operator_acts() as github:
+            approve_proposal(
+                proposal_id=proposal["proposal_id"],
+                operator_approval_ref=github.approve(
+                    "proposal_approval", {"proposal": proposal["proposal_id"]},
+                ),
+                base_dir=self.tools,
+            )
         checked, violations = _sweep(self.tools)
         self.assertEqual(checked, 0)
         self.assertEqual(violations, [])

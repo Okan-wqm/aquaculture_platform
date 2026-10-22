@@ -590,7 +590,7 @@ def _verify_abort_gate(
         if (
             _step_label(step, index) in gate.cleanup_steps
             and condition == "always()"
-            and step.get("uses") == WRITER_LEASE_RELEASE_ACTION
+            and step.get("uses") in CLEANUP_ACTIONS
         ):
             continue
         if _step_is_gated(
@@ -607,6 +607,14 @@ def _verify_abort_gate(
 
 # ARIA-HIGH-342 — the one action a gate's cleanup step may be.
 WRITER_LEASE_RELEASE_ACTION = "./.github/actions/release-aria-state-lease"
+# ARIA-MEDIUM-277 — the workspace-lock release is the same class of
+# terminal, idempotent cleanup: it must run even while blocked (a lane
+# that yielded the lease still holds the workspace flock its first step
+# took) and it releases only the state that job itself acquired.
+WORKSPACE_LOCK_RELEASE_ACTION = "./.github/actions/selfhosted-workspace-lock"
+# The sanctioned cleanup actions: a step named in a gate's cleanup_steps
+# may run `if: always()` only as one of these.
+CLEANUP_ACTIONS = frozenset({WRITER_LEASE_RELEASE_ACTION, WORKSPACE_LOCK_RELEASE_ACTION})
 
 _BURN_IN_STEP_MARKER = "autonomy burn-in observe"
 # The burn-in branch of a mode-aware timeout expression, e.g.

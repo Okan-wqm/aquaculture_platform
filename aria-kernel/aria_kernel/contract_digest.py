@@ -44,6 +44,7 @@ from __future__ import annotations
 import hashlib
 import re
 from pathlib import Path
+from .digest import sha256_digest_from_hex
 
 BEGIN_MARKER = "<!-- judge-digest:begin -->"
 END_MARKER = "<!-- judge-digest:end -->"
@@ -215,7 +216,7 @@ def render_judge_digest(repo_root: str | Path) -> str:
         "",
         "# ARIA Judge Contract Digest",
         "",
-        f"source_hash: sha256:{source_hash}",
+        f"source_hash: {sha256_digest_from_hex(source_hash)}",
         "",
         "Preamble digest for the four runtime-dispatched judge/worker agents. Every",
         "passage below is extracted VERBATIM from the `judge-digest` marked sections",

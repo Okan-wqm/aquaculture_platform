@@ -46,6 +46,7 @@ from .tool_registry import GovernanceError, append_tools_governance, ensure_tool
 from .self_merge_freeze import assert_self_merge_not_frozen
 from .system_one_points import shadow_merge
 from .watchdog_freeze import assert_merge_not_watchdog_frozen
+from .digest import sha256_digest, sha256_digest_text
 
 
 def merge_pr_if_ready(
@@ -1253,7 +1254,7 @@ def _capture_pre_merge_coverage(
         if manifest_bytes is None:
             raise GovernanceError(reason)
         reason = "coverage_manifest_hash_mismatch"
-        manifest_hash = "sha256:" + _hashlib.sha256(manifest_bytes).hexdigest()
+        manifest_hash = sha256_digest(manifest_bytes)
         if manifest_hash != payload["closure_manifest_hash"]:
             raise GovernanceError(reason)
         observation["coverage_manifest_hash"] = manifest_hash
@@ -1420,7 +1421,7 @@ def _capture_pre_merge_expert_consensus(
             path = _invocations.resolve_output_artifact_path(tools, result["output_path"])
             path.resolve().relative_to(tools.resolve())
             data = _invocations._read_stable_submission_artifact(path)
-            if "sha256:" + _hashlib.sha256(data).hexdigest() != result["output_hash"]:
+            if sha256_digest(data) != result["output_hash"]:
                 raise GovernanceError(reason)
             files[path] = data
             response = _json.loads(data)
@@ -1578,7 +1579,7 @@ def _join_pre_merge_implementation(
             path = _invocations.resolve_output_artifact_path(tools, result[name])
             path.resolve().relative_to(tools.resolve())
             data = _invocations._read_stable_submission_artifact(path)
-            if "sha256:" + _hashlib.sha256(data).hexdigest() != result[hash_field]:
+            if sha256_digest(data) != result[hash_field]:
                 raise GovernanceError(reason)
             artifact_bytes[name] = data
         response = _json.loads(artifact_bytes["output_path"])
@@ -1613,7 +1614,7 @@ def _join_pre_merge_implementation(
         )
         if diff_text is None or diff_text.strip() != merged_diff:
             raise GovernanceError("implementation_diff_unavailable")
-        actual_diff_hash = "sha256:" + _hashlib.sha256(actual_diff.encode("utf-8")).hexdigest()
+        actual_diff_hash = sha256_digest_text(actual_diff)
         if outcome.get("diff_hash") != actual_diff_hash:
             raise GovernanceError("implementation_diff_hash_mismatch")
         return {

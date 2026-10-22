@@ -60,6 +60,7 @@ from .tool_registry import (
     append_tools_governance,
     ensure_tools_dir,
 )
+from .digest import sha256_digest_text
 
 
 _LOCKS_DIR_RELATIVE = ("locks",)
@@ -253,7 +254,7 @@ def _build_remote_cas_lease(
     epoch = (previous.epoch + 1) if previous is not None else 1
     seed = f"{owner}:{target_ref}:{head_sha}:{epoch}:{now.isoformat()}"
     return RemoteCasLease(
-        lease_id="sha256:" + hashlib.sha256(seed.encode("utf-8")).hexdigest(),
+        lease_id=sha256_digest_text(seed),
         epoch=epoch,
         owner=owner,
         target_ref=target_ref,
@@ -494,6 +495,19 @@ def release_lease(
             f"existing lease belongs to {existing.host_id!r} but "
             f"caller is {host!r}"
         )
+    approval = None
+    if operator_approval_ref:
+        # ARIA-HIGH-238 — releasing ANOTHER host's lease hands the lane to
+        # the caller: an authority takeover, so the ref must be the
+        # operator's own GitHub act naming the host whose lease is released.
+        from .operator_approval import require_operator_act
+
+        approval = require_operator_act(
+            operator_approval_ref,
+            surface="host_lease_release",
+            scope={"host": existing.host_id},
+            base_dir=root,
+        )
     path = _lease_path(root)
     if path.exists():
         path.unlink()
@@ -504,6 +518,7 @@ def release_lease(
             "host_id_released": existing.host_id,
             "released_by": host,
             "operator_approval_ref": operator_approval_ref,
+            **({"operator_approval": approval} if approval is not None else {}),
         },
     )
     return {"status": "released"}

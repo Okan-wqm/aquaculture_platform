@@ -71,13 +71,22 @@ pub const MAX_CMD_NAME_BYTES: usize = 128;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SignatureMode {
-    /// Legacy compatibility. Any envelope accepted. Operator opt-in only.
+    /// Legacy compatibility. Any envelope accepted. Operator opt-in only,
+    /// and refused by a release build (`AgentConfig::check_release_posture`).
     #[cfg(not(feature = "suderra-os"))]
-    #[default]
     Disabled,
     /// Transitional. Unsigned mutating commands logged but accepted; signed
     /// envelopes MUST verify.
+    ///
+    /// The generic profile's default (ADR-048 DEC-9.10, DEC-28): a v1.6.0
+    /// configuration names no `signature_mode`, and the old default
+    /// (Disabled) is what a release build refuses, so the whole fleet's
+    /// configurations failed to load (SENSOR-CRITICAL-203). Permissive loads
+    /// them, still verifies every signed envelope, and the load logs the
+    /// migration it asks for (`signature_mode: enforcing`). P2 removes this
+    /// variant from the generic profile too.
     #[cfg(not(feature = "suderra-os"))]
+    #[default]
     Permissive,
     /// Production default. Unsigned mutating commands rejected.
     #[cfg_attr(feature = "suderra-os", default)]

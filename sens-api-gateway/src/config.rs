@@ -296,10 +296,10 @@ pub struct AgentConfig {
     /// along with the Moka-backed jti dedup cache.
     ///
     /// Rollout discipline (plan §2 HC-6):
-    /// - Disabled (default) — HC-1 backward compat; unsigned
+    /// - Disabled — dev only (refused by a release build); unsigned
     ///   commands accepted.
-    /// - Permissive — unsigned mutating commands logged but
-    ///   accepted; signed envelopes MUST verify.
+    /// - Permissive (generic default, DEC-9.10) — unsigned mutating
+    ///   commands logged but accepted; signed envelopes MUST verify.
     /// - Enforcing — unsigned mutating commands rejected.
     #[serde(default)]
     pub signature_mode: crate::command_envelope::envelope::SignatureMode,
@@ -634,6 +634,51 @@ pub struct HealthServerConfig {
     /// default is intentionally non-routable per SL-2 defense-in-depth.
     #[serde(default = "default_health_bind")]
     pub bind: String,
+}
+
+/// A posture a configuration took from the generic profile's defaults instead
+/// of from its own text (ADR-048 DEC-9.10, DEC-28).
+#[cfg(not(feature = "suderra-os"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DefaultedPosture {
+    SignatureMode,
+    MtlsMode,
+}
+
+/// Which postures the raw configuration text leaves to the profile's defaults.
+/// A v1.6.0 configuration names neither `signature_mode` nor `mtls.mode`.
+#[cfg(not(feature = "suderra-os"))]
+fn defaulted_postures(raw: &serde_yaml::Value) -> Vec<DefaultedPosture> {
+    let mut defaulted = Vec::new();
+    if raw.get("signature_mode").is_none() {
+        defaulted.push(DefaultedPosture::SignatureMode);
+    }
+    if raw.get("mtls").and_then(|m| m.get("mode")).is_none() {
+        defaulted.push(DefaultedPosture::MtlsMode);
+    }
+    defaulted
+}
+
+/// Say, once per load, which postures a configuration got from the profile's
+/// defaults, so an operator who reads the journal learns what the agent runs
+/// and what to set (the migration log of ADR-048 DEC-9.10).
+#[cfg(not(feature = "suderra-os"))]
+fn log_profile_defaults(raw: &serde_yaml::Value) {
+    for posture in defaulted_postures(raw) {
+        match posture {
+            DefaultedPosture::SignatureMode => tracing::warn!(
+                "config.yaml names no signature_mode: this generic-profile agent runs \
+                 `permissive` (a signed envelope must verify; an unsigned mutating command \
+                 is logged and accepted, ADR-048 DEC-9.10). Set `signature_mode: enforcing` \
+                 once the platform signs this device's commands: permissive is removed from \
+                 the generic profile in P2."
+            ),
+            DefaultedPosture::MtlsMode => tracing::info!(
+                "config.yaml names no mtls.mode: the broker connection uses plain WebPKI \
+                 verification (mode `legacy`, no certificate pin configured)"
+            ),
+        }
+    }
 }
 
 /// Safe-state supervision settings (ADR-048 DEC-13.3, EDGE-HIGH-065).
@@ -3655,13 +3700,58 @@ impl AgentConfig {
         let content = fs::read_to_string(path)
             .with_context(|| format!("Failed to read config file: {}", path.display()))?;
 
-        let config: AgentConfig = serde_yaml::from_str(&content)
+        let raw: serde_yaml::Value = serde_yaml::from_str(&content)
             .with_context(|| format!("Failed to parse config file: {}", path.display()))?;
+        let config: AgentConfig = serde_yaml::from_value(raw.clone())
+            .with_context(|| format!("Failed to parse config file: {}", path.display()))?;
+        #[cfg(not(feature = "suderra-os"))]
+        log_profile_defaults(&raw);
 
         // Validate configuration
         config.validate()?;
 
         Ok(config)
+    }
+
+    /// The postures a release build refuses (EDGE-HIGH-010). `validate` runs
+    /// it in release builds only; it is a function of its own so a test can
+    /// run any configuration (the v1.6.0 fleet's included) through the release
+    /// posture from a debug build.
+    ///
+    /// * `signature_mode=disabled` accepts any command with no signature check
+    ///   (IEC 62443 FR1/FR2). The generic profile's default is Permissive
+    ///   (ADR-048 DEC-9.10); Disabled is an explicit dev opt-in. The
+    ///   suderra-os profile compiles no Disabled mode (DEC-9.1).
+    /// * `mtls.mode=legacy` makes a configured certificate pin log-only (FR4).
+    ///   With no pin configured there is nothing to make log-only: Legacy is
+    ///   the plain WebPKI verification every v1.6.0 device ran, and it is what
+    ///   a configuration that names no `mtls` section gets.
+    pub fn check_release_posture(&self) -> Result<()> {
+        #[cfg(not(feature = "suderra-os"))]
+        {
+            if matches!(
+                self.signature_mode,
+                crate::command_envelope::envelope::SignatureMode::Disabled
+            ) {
+                anyhow::bail!(
+                    "Config coherence: signature_mode=disabled is not allowed in release \
+                     builds (unsigned commands accepted — IEC 62443 FR1/FR2). Set \
+                     signature_mode to `permissive` or `enforcing`; use a debug build for \
+                     local development."
+                );
+            }
+            let pinning_configured = self.mtls.enforce_fingerprint_pinning
+                || !self.mtls.pinned_leaf_fingerprints_hex.is_empty();
+            if matches!(self.mtls.mode, crate::mtls::MtlsMode::Legacy) && pinning_configured {
+                anyhow::bail!(
+                    "Config coherence: mtls.mode=legacy with certificate pinning configured is \
+                     not allowed in release builds (the pin is log-only — IEC 62443 FR4). Set \
+                     mtls.mode to `warn` or `strict`, or configure no pin; use a debug build \
+                     for local development."
+                );
+            }
+        }
+        Ok(())
     }
 
     /// Validate configuration values
@@ -4302,42 +4392,11 @@ impl AgentConfig {
             );
         }
 
-        // EDGE-HIGH-010: release builds MUST NOT run a fail-open
-        // command-authentication or TLS-pinning posture.
-        // `signature_mode=disabled` accepts any command with no
-        // signature check (FR1/FR2) and `mtls.mode=legacy` makes
-        // cert pinning log-only (FR4). Both are intentional
-        // debug/dev-rollout defaults (HC-1 / Batch-27 backward
-        // compat) — the enums keep those `#[default]`s so debug
-        // builds and staged rollouts still work — but shipping them
-        // in a RELEASE build silently disables the controls the
-        // product asserts. Fail closed; mirror the api_url release
-        // gate above. Operators stage a rollout via a debug build or
-        // an explicit `permissive`/`warn` step, never Disabled/Legacy
-        // in release.
-        #[cfg(not(debug_assertions))]
-        {
-            // The suderra-os profile compiles no Disabled mode (DEC-9.1).
-            #[cfg(not(feature = "suderra-os"))]
-            if matches!(
-                self.signature_mode,
-                crate::command_envelope::envelope::SignatureMode::Disabled
-            ) {
-                anyhow::bail!(
-                    "Config coherence: signature_mode=disabled is not allowed in release \
-                     builds (unsigned commands accepted — IEC 62443 FR1/FR2). Set \
-                     signature_mode to `permissive` or `enforcing`; use a debug build for \
-                     local development."
-                );
-            }
-            #[cfg(not(feature = "suderra-os"))]
-            if matches!(self.mtls.mode, crate::mtls::MtlsMode::Legacy) {
-                anyhow::bail!(
-                    "Config coherence: mtls.mode=legacy is not allowed in release builds \
-                     (cert pinning is log-only — IEC 62443 FR4). Set mtls.mode to `warn` \
-                     or `strict`; use a debug build for local development."
-                );
-            }
+        // EDGE-HIGH-010: release builds do not run a fail-open command-
+        // authentication or TLS-pinning posture (`check_release_posture`);
+        // debug builds keep the dev-rollout modes.
+        if !cfg!(debug_assertions) {
+            self.check_release_posture()?;
         }
 
         // Rule 2: max_command_skew_secs should be reasonable
@@ -5682,5 +5741,100 @@ mod safe_state_config_tests {
             let err = c.validate().unwrap_err().to_string();
             assert!(err.contains("cloud_loss_hold_secs"), "{secs}: {err}");
         }
+    }
+}
+
+#[cfg(all(test, not(feature = "suderra-os")))]
+mod release_posture_tests {
+    use super::*;
+    use crate::command_envelope::envelope::SignatureMode;
+
+    const V1_6_0: &str = include_str!("../tests/fixtures/v1.6.0/config.yaml");
+
+    fn config(extra: &str) -> AgentConfig {
+        serde_yaml::from_str(&format!("{V1_6_0}\n{extra}")).unwrap()
+    }
+
+    /// SENSOR-CRITICAL-203: the configuration an activated v1.6.0 device carries
+    /// names neither `signature_mode` nor `mtls`, and a RELEASE build used to
+    /// refuse it (the defaults were Disabled and Legacy). The test runs it through
+    /// the release posture from a debug build, which the boot test of the real
+    /// binary cannot.
+    #[test]
+    fn the_v1_6_0_configuration_passes_the_release_posture() {
+        let config: AgentConfig = serde_yaml::from_str(V1_6_0).unwrap();
+        assert_eq!(config.signature_mode, SignatureMode::Permissive);
+        assert!(
+            config.check_release_posture().is_ok(),
+            "{:?}",
+            config.check_release_posture()
+        );
+    }
+
+    #[test]
+    fn the_migration_log_names_exactly_the_postures_a_config_leaves_to_the_defaults() {
+        let raw = |text: &str| serde_yaml::from_str::<serde_yaml::Value>(text).unwrap();
+        assert_eq!(
+            defaulted_postures(&raw(V1_6_0)),
+            vec![DefaultedPosture::SignatureMode, DefaultedPosture::MtlsMode]
+        );
+        assert_eq!(
+            defaulted_postures(&raw(&format!(
+                "{V1_6_0}\nsignature_mode: enforcing\nmtls:\n  mode: warn\n"
+            ))),
+            Vec::new()
+        );
+        assert_eq!(
+            defaulted_postures(&raw(&format!("{V1_6_0}\nsignature_mode: permissive\n"))),
+            vec![DefaultedPosture::MtlsMode]
+        );
+    }
+
+    #[test]
+    fn the_generic_default_is_permissive_and_verifies_signed_envelopes() {
+        assert_eq!(SignatureMode::default(), SignatureMode::Permissive);
+    }
+
+    #[test]
+    fn disabled_is_an_explicit_dev_opt_in_a_release_build_refuses() {
+        let disabled = config("signature_mode: disabled\n");
+        let err = disabled.check_release_posture().unwrap_err().to_string();
+        assert!(err.contains("signature_mode=disabled"), "{err}");
+        assert!(
+            config("signature_mode: permissive\n")
+                .check_release_posture()
+                .is_ok()
+        );
+        assert!(
+            config("signature_mode: enforcing\n")
+                .check_release_posture()
+                .is_ok()
+        );
+    }
+
+    /// Legacy with no pin is the plain WebPKI verification v1.6.0 ran; Legacy
+    /// with a pin configured would make the pin log-only, and is refused.
+    #[test]
+    fn legacy_is_refused_only_where_it_would_make_a_pin_log_only() {
+        assert!(
+            config("mtls:\n  mode: legacy\n")
+                .check_release_posture()
+                .is_ok()
+        );
+        for pinned in [
+            "mtls:\n  mode: legacy\n  enforce_fingerprint_pinning: true\n",
+            "mtls:\n  mode: legacy\n  pinned_leaf_fingerprints_hex:\n    - \"00\"\n",
+        ] {
+            let err = config(pinned)
+                .check_release_posture()
+                .unwrap_err()
+                .to_string();
+            assert!(err.contains("mtls.mode=legacy"), "{err}");
+        }
+        assert!(
+            config("mtls:\n  mode: warn\n  enforce_fingerprint_pinning: true\n")
+                .check_release_posture()
+                .is_ok()
+        );
     }
 }

@@ -19,6 +19,7 @@ from unittest.mock import patch
 
 from aria_kernel.feedback_store import record_findings_for_run
 from aria_kernel.genesis_policy import OVERRIDE_RELPATH
+from aria_kernel.impact_graph import cached_service_analysis_order
 from aria_kernel.ledger import load_jsonl
 from aria_kernel.service_agent_targeting import (
     propose_service_auditor_requests,
@@ -34,16 +35,17 @@ class ServiceAuditorAgentNameTests(unittest.TestCase):
             "aria-svc-farm-service-auditor",
         )
 
-    def test_namespace_colon_collapses_to_filename_safe_hyphen(self) -> None:
-        # shared:/web: dimensions must still land on a legal
+    def test_scoped_nx_name_collapses_to_filename_safe_hyphen(self) -> None:
+        # Dimension values are nx project names (SE-1); a scoped name's
+        # ``@`` and ``/`` must still land on a legal
         # .claude/agents/<name>.md filename.
         self.assertEqual(
-            service_auditor_agent_name("shared:backend-common"),
-            "aria-svc-shared-backend-common-auditor",
+            service_auditor_agent_name("@aquaculture/farm-shared"),
+            "aria-svc-aquaculture-farm-shared-auditor",
         )
         self.assertEqual(
-            service_auditor_agent_name("web:farm-module"),
-            "aria-svc-web-farm-module-auditor",
+            service_auditor_agent_name("platform-event-bus"),
+            "aria-svc-platform-event-bus-auditor",
         )
 
 
@@ -53,7 +55,14 @@ class ServiceAuditorTargetingTests(unittest.TestCase):
         root = Path(self.tmp.name)
         self.tools_dir = ensure_tools_dir(root / "aria-tools")
         self.repo = root / "repo"
-        self.repo.mkdir()
+        # SE-1 — a finding's service is the nx project `project_for_path`
+        # names over the workspace map, so every service the tests seed
+        # under is a project in the fixture workspace, and the map is
+        # published before the first mint (the cycle publishes it in
+        # production) so the mint stamps nx names.
+        for service in ("farm-service", "auth-service", "hr-service"):
+            (self.repo / "apps" / service / "src").mkdir(parents=True)
+        cached_service_analysis_order(workspace_root=self.repo, base_dir=self.tools_dir)
 
     def tearDown(self) -> None:
         self.tmp.cleanup()

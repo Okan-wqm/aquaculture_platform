@@ -1,100 +1,106 @@
-"""E15-a — the service dimension of a finding (operator direction 2026-08-13).
+"""The service dimension of a finding (E15-a, operator direction 2026-08-13).
 
 WHY: findings were organised by TOOL (which adapter fired), never by
-SERVICE (which microservice is sick). The operator runs a 17-service
-platform and wants per-service audits, service-specific agents and
-mission linkage — none of which can exist while the finding itself
-carries no service axis. This module is the single derivation seam:
-every writer (tool-finding mint, committed-finding emission) and every
-reader (list filters, daily-report grouping) derives the dimension HERE,
-so the mapping can never fork.
+SERVICE (which microservice is sick). Per-service audits, service agents
+and mission linkage all need a finding to carry its service axis.
 
-WHAT: a repo-relative path names a service when it lives under
-``apps/<service>/``; a shared library surfaces as ``shared:<lib>``
-(``libs/<lib>/`` or ``platform/libs/<lib>/``); web surfaces as
-``web:<module>`` (``web/modules/<m>/``, ``web/shell``, ``web/shared-ui``,
-``web/apps/<app>``); anything else contributes no dimension. The
-specialist ownership map is NOT copied here — it is imported from
+WHAT: the axis is the nx project key. A path is attributed by
+`impact_graph.project_for_path` — the kernel's ONE path -> project
+function — over the ``project_roots`` map of the impact cache
+(`impact_graph.cached_project_roots` for a caller holding the workspace,
+`impact_graph.published_project_roots` for one holding only a store), so a finding is filed under the
+same names the impacted set, missions and routing use. This module owns
+only the FINDING side of that: which paths a finding cites
+(`finding_dimension_paths`), the fields a mint writes
+(`finding_service_fields`), and the one row reader
+(`services_for_finding_row`).
+
+Until SE-1 (service-expertise plan, owner decision Q9) this module also
+attributed paths itself, in a string vocabulary (``apps/<dir>``,
+``shared:<lib>``, ``web:<app>``) that could not produce 54 of the
+repository's 71 nx names and merged ``libs/X`` with ``platform/libs/X``.
+That second implementation is gone. A row minted under the nx key says so
+(``service_vocabulary: "nx_project/v1"``); a row without that stamp —
+every row minted before SE-1 — is re-derived from its own paths when it
+is read. Its stored ``services`` are not trusted and not translated: a
+string mapping from the old names would carry the merge forward.
+
+The specialist ownership map is NOT copied here — it is imported from
 ``specialist_review_runner`` (the Lane-A touch-map SSoT) to name the
 reviewing agents for a path set.
 """
 from __future__ import annotations
 
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 from .canonical_path import lexical_repo_path
+from .impact_graph import project_for_path
+
+# The stamp a mint writes beside ``services``: the stored names were
+# attributed by `impact_graph.project_for_path` over the published map.
+SERVICE_VOCABULARY = "nx_project/v1"
 
 
-def service_for_path(path: object) -> str | None:
-    """Derive the service dimension of one repo-relative path.
+def _attributed(paths: Iterable[object], project_roots: Mapping[str, str]) -> list[str]:
+    """Sorted unique nx projects a path set lies in (unattributable paths drop out)."""
+    return sorted(
+        {
+            project
+            for project in (
+                project_for_path(path, project_roots) for path in paths if isinstance(path, str)
+            )
+            if project is not None
+        }
+    )
 
-    Line suffixes (``file.ts:42`` / ``:42-60``) are tolerated because
-    finding evidence refs carry them. Absolute paths contribute nothing:
-    the dimension is defined over the repo tree, and an absolute path's
-    leading segments name a machine, not a service.
+
+def finding_service_fields(
+    paths: Iterable[object], project_roots: Mapping[str, str] | None
+) -> dict[str, Any]:
+    """The dimension fields a mint writes for a finding citing ``paths``.
+
+    ``services`` always, ``service`` only when the finding is unambiguously
+    single-service: a multi-service finding deliberately has
+    ``service=None`` — collapsing it to the first entry would misfile
+    cross-service defects. ``service_vocabulary`` marks the names as
+    attributed by the one owner.
+
+    ``project_roots=None`` is a store with no map to attribute against
+    (`impact_graph.published_project_roots`): the mint writes NO dimension
+    rather than an empty one stamped as measured, and the row reader
+    derives it from the row's paths once a map exists.
     """
-    if not isinstance(path, str) or not path.strip():
-        return None
-    clean = path.replace("\\", "/").strip()
-    if clean.startswith("/"):
-        return None
-    while clean.startswith("./"):
-        clean = clean[2:]
-    # Strip a trailing :line[-line] evidence suffix, never a drive colon
-    # (absolute Windows paths were already rejected as absolute above).
-    head, sep, tail = clean.rpartition(":")
-    if sep and tail and all(ch.isdigit() or ch == "-" for ch in tail):
-        clean = head
-    parts = [p for p in clean.split("/") if p]
-    if len(parts) >= 2 and parts[0] == "apps":
-        return parts[1]
-    if len(parts) >= 2 and parts[0] == "libs":
-        return f"shared:{parts[1]}"
-    if len(parts) >= 3 and parts[0] == "platform" and parts[1] == "libs":
-        return f"shared:{parts[2]}"
-    if len(parts) >= 3 and parts[0] == "web" and parts[1] == "modules":
-        return f"web:{parts[2]}"
-    if len(parts) >= 3 and parts[0] == "web" and parts[1] == "apps":
-        return f"web:{parts[2]}"
-    if len(parts) >= 2 and parts[0] == "web":
-        return f"web:{parts[1]}"
-    return None
-
-
-def services_for_paths(paths: Iterable[object]) -> list[str]:
-    """Sorted unique service dimensions across a path set."""
-    found = {service_for_path(path) for path in paths}
-    found.discard(None)
-    return sorted(found)  # type: ignore[arg-type]
-
-
-def service_dimension(paths: Iterable[object]) -> dict[str, Any]:
-    """The mint-time envelope: ``services`` always, ``service`` only
-    when the finding is unambiguously single-service. A multi-service
-    finding deliberately has ``service=None`` — collapsing it to the
-    first entry would misfile cross-service defects (the exact class
-    E15's relation work later builds on)."""
-    services = services_for_paths(paths)
+    if project_roots is None:
+        return {}
+    services = _attributed(paths, project_roots)
     return {
         "service": services[0] if len(services) == 1 else None,
         "services": services,
+        "service_vocabulary": SERVICE_VOCABULARY,
     }
 
 
-def services_for_finding_row(row: dict[str, Any]) -> list[str]:
-    """Service dimensions of one findings-ledger row.
+def services_for_finding_row(
+    row: dict[str, Any], project_roots: Mapping[str, str] | None
+) -> list[str]:
+    """Service dimension of one finding row — THE row reader.
 
-    E15-c extracted this from ``feedback_store.list_findings`` so the
-    list filter and the service-auditor targeting trigger share ONE
-    reading of a row's dimension: stored mint-time ``services`` when
-    present, read-time derivation for legacy rows via the same collector
-    mint-time uses — old and new rows can never disagree, and neither
-    can two readers.
+    ``row`` is either a findings-ledger row (the tool finding nested under
+    ``finding``) or a committed finding document (its paths at top level);
+    the paths come from `finding_dimension_paths` either way. A row stamped
+    with `SERVICE_VOCABULARY` carries names the one owner attributed at mint
+    and is read as stored. Any other row is re-derived from its paths over
+    ``project_roots`` (None: no map, so nothing is attributable yet). Every
+    filter, report and trigger reads a row's dimension here, so no two
+    readers can disagree about it.
     """
     stored = row.get("services")
-    if isinstance(stored, list) and stored:
+    if row.get("service_vocabulary") == SERVICE_VOCABULARY and isinstance(stored, list):
         return [service for service in stored if isinstance(service, str)]
-    return services_for_paths(finding_dimension_paths(row.get("finding") or {}))
+    if project_roots is None:
+        return []
+    document = row.get("finding") if isinstance(row.get("finding"), dict) else row
+    return _attributed(finding_dimension_paths(document), project_roots)
 
 
 def owning_agent_domains_for_paths(paths: Iterable[object]) -> list[str]:

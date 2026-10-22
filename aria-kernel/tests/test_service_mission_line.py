@@ -374,18 +374,17 @@ class ServiceMissionSeedTest(unittest.TestCase):
 
         `targets` are nx project names — `impact_graph._project_for_path` over
         the graph's `project_roots` produced them. The evidence behind them
-        was then attributed with `service_dimension.service_for_path`, which
-        emits `shared:<lib>` / `web:<app>` / None and can therefore never
-        return `backend-common`. Measured against this repository, 54 of 71
-        projects had an nx name that vocabulary cannot produce, so the seeder
-        wrote a governance row claiming "no derivable evidence" about the very
-        path that had put the project in `targets`.
+        was then attributed with a string-vocabulary twin (deleted in SE-1),
+        which emitted `shared:<lib>` / `web:<app>` / None and could therefore
+        never return `backend-common`. Measured against this repository, 54
+        of 71 projects had an nx name that vocabulary cannot produce, so the
+        seeder wrote a governance row claiming "no derivable evidence" about
+        the very path that had put the project in `targets`.
 
-        This pin bites on the vocabulary, not on the string: revert the
-        attribution and `backend-common` moves from `seeded` to `refused`.
+        This pin bites on the vocabulary, not on the string: attribute the
+        evidence in any other vocabulary and `backend-common` moves from
+        `seeded` to `refused`.
         """
-        from aria_kernel.service_dimension import service_for_path
-
         exam = {
             "examination_order": [{"project": "backend-common", "changed_files": 1}],
             "per_service_pressures": [],
@@ -404,21 +403,19 @@ class ServiceMissionSeedTest(unittest.TestCase):
             missions["backend-common"]["wake_condition"],
             {"kind": "evidence", "key": f"changed_path:{changed}"},
         )
-        # WHY the pin bites: the vocabulary this replaced answers a different
-        # question and gives a different answer for this exact path.
-        self.assertNotEqual(service_for_path(changed), "backend-common")
 
     def test_a_finding_on_a_library_project_is_attributed_to_it(self) -> None:
         """Findings went through the same broken vocabulary as paths.
 
-        `services_for_finding_row` answers "which service DIMENSION does this
-        finding belong to" — the axis the findings list and agent routing use
-        — and for a library it answers `shared:backend-common`. The seeder was
-        asking a different question ("which nx project owns it") of that
-        answer. The paths still come from `finding_dimension_paths`, the E15-c
-        collector; only the attribution on top of them changed.
+        Before SE-1 `services_for_finding_row` answered in its own string
+        vocabulary and, for a library, said `shared:backend-common` — a name
+        no `examination_order` entry can carry. Since SE-1 the finding
+        dimension and the seeder speak one key: the row reader, the mint and
+        the seeder all attribute through `impact_graph.project_for_path`. The
+        paths still come from `finding_dimension_paths`, the E15-c collector.
         """
         from aria_kernel.feedback_store import record_findings_for_run
+        from aria_kernel.impact_graph import published_project_roots
         from aria_kernel.service_dimension import services_for_finding_row
 
         # The pressure is what puts a non-core project in `targets` at all;
@@ -456,6 +453,9 @@ class ServiceMissionSeedTest(unittest.TestCase):
                 s["project"]: fold_mission(mission_id=s["mission_id"], base_dir=root)
                 for s in result["seeded"]
             }
+            # The phase published the map it named its targets from; the row
+            # reader, over that same map, files the finding under the same name.
+            dimension = services_for_finding_row(stored, published_project_roots(base_dir=root))
 
         self.assertIn("backend-common", missions)
         self.assertEqual(result["seeded"][0]["contract_source"], "open_finding")
@@ -463,9 +463,7 @@ class ServiceMissionSeedTest(unittest.TestCase):
             missions["backend-common"]["wake_condition"],
             {"kind": "evidence", "key": "finding:F-bc-1"},
         )
-        # The dimension the old reader would have handed the seeder — a name
-        # no `examination_order` entry can ever carry.
-        self.assertEqual(services_for_finding_row(stored), ["shared:backend-common"])
+        self.assertEqual(dimension, ["backend-common"])
 
     def test_a_refusal_never_claims_evidence_it_did_not_attribute(self) -> None:
         """"No derivable evidence" is a measurement, so it needs a measurement.

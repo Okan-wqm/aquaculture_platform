@@ -77,7 +77,7 @@ class SeedMintTests(unittest.TestCase):
         seeder.mint_candidates(self.repo, [_drift()], base_dir=self.repo / 'aria-tools')
         minted, already, unmintable = seeder.mint_candidates(self.repo, [_drift()], base_dir=self.repo / 'aria-tools')
         self.assertEqual((minted, len(already), unmintable), ([], 1, []))
-        self.assertEqual(len(list_findings(self.repo)), 1)
+        self.assertEqual(len(list_findings(self.repo, base_dir=self.repo / 'aria-tools')), 1)
 
     def test_single_sided_drift_is_disclosed_not_minted(self) -> None:
         drift = _drift()

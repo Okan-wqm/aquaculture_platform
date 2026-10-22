@@ -1344,5 +1344,7 @@ function main(argv: readonly string[]): number {
 }
 
 if (require.main === module) {
-  process.exit(main(process.argv.slice(2)));
+  // exitCode, never process.exit(): stdout to a pipe is written asynchronously, and exiting at once
+  // cuts the facts at the pipe buffer (64 KiB) while the exit code still says 0.
+  process.exitCode = main(process.argv.slice(2));
 }

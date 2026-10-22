@@ -119,6 +119,9 @@ pub enum Proof {
 /// One row.
 #[derive(Debug, Clone, Copy)]
 pub struct Row {
+    /// Which event the row is the answer to: how the mock-backed tests and the
+    /// hardware test identify it (the production lookup is [`row`]).
+    #[cfg_attr(not(test), allow(dead_code))]
     pub event: Event,
     pub layer: Layer,
     pub outcome: Outcome,
@@ -126,120 +129,143 @@ pub struct Row {
     pub note: &'static str,
 }
 
+// One constant per row, so the table and the lookup below are the same
+// definitions: the lookup names a row, it never indexes into the table.
+const AGENT_GRACEFUL_RESTART: Row = Row {
+    event: Event::AgentGracefulRestart,
+    layer: Layer::AgentSafeState,
+    outcome: Outcome::SafeValue,
+    proof: Proof::MockAndHil,
+    note: "safe values first, then the watchdog is disarmed, then the descriptor closes: \
+           nothing zeroes the outputs, so a life-support output stays on across a restart",
+};
+
+const AGENT_RESTART_SAFE_STATE_INCOMPLETE: Row = Row {
+    event: Event::AgentRestartSafeStateIncomplete,
+    layer: Layer::PiControlWatchdog,
+    outcome: Outcome::Zero,
+    proof: Proof::MockAndHil,
+    note: "the watchdog stays armed when a safe value is missing, so the driver zeroes the \
+           outputs at close rather than leaving an unknown state",
+};
+
+const AGENT_CRASH: Row = Row {
+    event: Event::AgentCrash,
+    layer: Layer::PiControlWatchdog,
+    outcome: Outcome::Zero,
+    proof: Proof::MockAndHil,
+    note: "the kernel closes the descriptor of a dead process while the watchdog is armed, \
+           and piControlRelease() zeroes every active module's outputs: ZERO, not the \
+           PiCtory default, so a fail-ON output (an aerator) goes OFF. Arming the watchdog \
+           is what makes a crash zero the outputs; a life-support output needs independent \
+           fail-safe wiring (DEC-13.1), and whether an output is under the watchdog at all \
+           is a per-output decision (DEC-13.2, tracked under EDGE-HIGH-065)",
+};
+
+const AGENT_STALL: Row = Row {
+    event: Event::AgentStall,
+    layer: Layer::PiControlWatchdog,
+    outcome: Outcome::Zero,
+    proof: Proof::MockAndHil,
+    note: "within output_watchdog_ms of the last feed, independent of systemd's 60 s watchdog; \
+           the feed stops when the loop task is not polled at all, and when a call has made \
+           no progress for longer than the longest bound a call has (the Modbus phase of the \
+           cycle, plus a margin)",
+};
+
+const FIELDBUS_STALL: Row = Row {
+    event: Event::FieldbusStall,
+    layer: Layer::ControlLoop,
+    outcome: Outcome::Unchanged,
+    proof: Proof::MockAndHil,
+    note: "the loop feeds the watchdog while a bounded call is in flight, so an unrelated \
+           device that does not answer neither zeroes the outputs of a healthy agent nor \
+           changes them; a call that outlives its bound is an AgentStall",
+};
+
+const DEGRADED_ENTERED: Row = Row {
+    event: Event::DegradedEntered,
+    layer: Layer::ControlGate,
+    outcome: Outcome::SafeValue,
+    proof: Proof::MockAndHil,
+    note: "the loop keeps feeding the watchdog while degraded, so the safe values are held \
+           and nothing is zeroed; every writer but the safe-state pass is refused",
+};
+
+const DRIVER_RESET: Row = Row {
+    event: Event::DriverReset,
+    layer: Layer::PiControlDefaults,
+    outcome: Outcome::PiCtoryDefault,
+    proof: Proof::MockAndHil,
+    note: "the PiBridge start copies the default image over the process image; the agent \
+           refuses writes until it proves the new layout, and the registry guarantees the \
+           default is the safe value",
+};
+
+const OS_REBOOT_GRACEFUL: Row = Row {
+    event: Event::OsRebootGraceful,
+    layer: Layer::ModuleFirmware,
+    outcome: Outcome::ModuleDefault,
+    proof: Proof::Commissioning,
+    note: "the modules lose and regain their PiBridge supply; until the agent's boot \
+           safe-state pass the module firmware decides",
+};
+
+const HARDWARE_WATCHDOG_RESET: Row = Row {
+    event: Event::HardwareWatchdogReset,
+    layer: Layer::ModuleFirmware,
+    outcome: Outcome::ModuleDefault,
+    proof: Proof::Commissioning,
+    note: "as a reboot, without the agent's graceful stop",
+};
+
+const POWER_LOSS: Row = Row {
+    event: Event::PowerLoss,
+    layer: Layer::Wiring,
+    outcome: Outcome::DeEnergised,
+    proof: Proof::Commissioning,
+    note: "normally-open or normally-closed relay selection decides the plant's state",
+};
+
+const MODULE_COMMS_LOSS: Row = Row {
+    event: Event::ModuleCommsLoss,
+    layer: Layer::ModuleFirmware,
+    outcome: Outcome::ModuleDefault,
+    proof: Proof::Commissioning,
+    note: "the agent sees the module inactive (its tags go to communication failure) but \
+           cannot drive it; the module's behaviour on a silent bus is firmware",
+};
+
 /// The table.
 pub const TABLE: &[Row] = &[
-    Row {
-        event: Event::AgentGracefulRestart,
-        layer: Layer::AgentSafeState,
-        outcome: Outcome::SafeValue,
-        proof: Proof::MockAndHil,
-        note: "safe values first, then the watchdog is disarmed, then the descriptor closes: \
-               nothing zeroes the outputs, so a life-support output stays on across a restart",
-    },
-    Row {
-        event: Event::AgentRestartSafeStateIncomplete,
-        layer: Layer::PiControlWatchdog,
-        outcome: Outcome::Zero,
-        proof: Proof::MockAndHil,
-        note: "the watchdog stays armed when a safe value is missing, so the driver zeroes the \
-               outputs at close rather than leaving an unknown state",
-    },
-    Row {
-        event: Event::AgentCrash,
-        layer: Layer::PiControlWatchdog,
-        outcome: Outcome::Zero,
-        proof: Proof::MockAndHil,
-        note: "the kernel closes the descriptor of a dead process while the watchdog is armed, \
-               and piControlRelease() zeroes every active module's outputs: ZERO, not the \
-               PiCtory default, so a fail-ON output (an aerator) goes OFF. Arming the watchdog \
-               is what makes a crash zero the outputs; a life-support output needs independent \
-               fail-safe wiring (DEC-13.1), and whether an output is under the watchdog at all \
-               is a per-output decision (DEC-13.2, tracked under EDGE-HIGH-065)",
-    },
-    Row {
-        event: Event::AgentStall,
-        layer: Layer::PiControlWatchdog,
-        outcome: Outcome::Zero,
-        proof: Proof::MockAndHil,
-        note: "within output_watchdog_ms of the last feed, independent of systemd's 60 s watchdog; \
-               the feed stops when the loop task is not polled at all, and when a call has made \
-               no progress for longer than the longest bound a call has (the Modbus phase of the \
-               cycle, plus a margin)",
-    },
-    Row {
-        event: Event::FieldbusStall,
-        layer: Layer::ControlLoop,
-        outcome: Outcome::Unchanged,
-        proof: Proof::MockAndHil,
-        note: "the loop feeds the watchdog while a bounded call is in flight, so an unrelated \
-               device that does not answer neither zeroes the outputs of a healthy agent nor \
-               changes them; a call that outlives its bound is an AgentStall",
-    },
-    Row {
-        event: Event::DegradedEntered,
-        layer: Layer::ControlGate,
-        outcome: Outcome::SafeValue,
-        proof: Proof::MockAndHil,
-        note: "the loop keeps feeding the watchdog while degraded, so the safe values are held \
-               and nothing is zeroed; every writer but the safe-state pass is refused",
-    },
-    Row {
-        event: Event::DriverReset,
-        layer: Layer::PiControlDefaults,
-        outcome: Outcome::PiCtoryDefault,
-        proof: Proof::MockAndHil,
-        note: "the PiBridge start copies the default image over the process image; the agent \
-               refuses writes until it proves the new layout, and the registry guarantees the \
-               default is the safe value",
-    },
-    Row {
-        event: Event::OsRebootGraceful,
-        layer: Layer::ModuleFirmware,
-        outcome: Outcome::ModuleDefault,
-        proof: Proof::Commissioning,
-        note: "the modules lose and regain their PiBridge supply; until the agent's boot \
-               safe-state pass the module firmware decides",
-    },
-    Row {
-        event: Event::HardwareWatchdogReset,
-        layer: Layer::ModuleFirmware,
-        outcome: Outcome::ModuleDefault,
-        proof: Proof::Commissioning,
-        note: "as a reboot, without the agent's graceful stop",
-    },
-    Row {
-        event: Event::PowerLoss,
-        layer: Layer::Wiring,
-        outcome: Outcome::DeEnergised,
-        proof: Proof::Commissioning,
-        note: "normally-open or normally-closed relay selection decides the plant's state",
-    },
-    Row {
-        event: Event::ModuleCommsLoss,
-        layer: Layer::ModuleFirmware,
-        outcome: Outcome::ModuleDefault,
-        proof: Proof::Commissioning,
-        note: "the agent sees the module inactive (its tags go to communication failure) but \
-               cannot drive it; the module's behaviour on a silent bus is firmware",
-    },
+    AGENT_GRACEFUL_RESTART,
+    AGENT_RESTART_SAFE_STATE_INCOMPLETE,
+    AGENT_CRASH,
+    AGENT_STALL,
+    FIELDBUS_STALL,
+    DEGRADED_ENTERED,
+    DRIVER_RESET,
+    OS_REBOOT_GRACEFUL,
+    HARDWARE_WATCHDOG_RESET,
+    POWER_LOSS,
+    MODULE_COMMS_LOSS,
 ];
 
 /// The row of an event. Exhaustive over [`Event`]: an event without a row does
-/// not compile, so the lookup cannot fail (the test below pins that each index
-/// is the row of its own event).
+/// not compile, so the lookup cannot fail.
 pub const fn row(event: Event) -> &'static Row {
     match event {
-        Event::AgentGracefulRestart => &TABLE[0],
-        Event::AgentRestartSafeStateIncomplete => &TABLE[1],
-        Event::AgentCrash => &TABLE[2],
-        Event::AgentStall => &TABLE[3],
-        Event::FieldbusStall => &TABLE[4],
-        Event::DegradedEntered => &TABLE[5],
-        Event::DriverReset => &TABLE[6],
-        Event::OsRebootGraceful => &TABLE[7],
-        Event::HardwareWatchdogReset => &TABLE[8],
-        Event::PowerLoss => &TABLE[9],
-        Event::ModuleCommsLoss => &TABLE[10],
+        Event::AgentGracefulRestart => &AGENT_GRACEFUL_RESTART,
+        Event::AgentRestartSafeStateIncomplete => &AGENT_RESTART_SAFE_STATE_INCOMPLETE,
+        Event::AgentCrash => &AGENT_CRASH,
+        Event::AgentStall => &AGENT_STALL,
+        Event::FieldbusStall => &FIELDBUS_STALL,
+        Event::DegradedEntered => &DEGRADED_ENTERED,
+        Event::DriverReset => &DRIVER_RESET,
+        Event::OsRebootGraceful => &OS_REBOOT_GRACEFUL,
+        Event::HardwareWatchdogReset => &HARDWARE_WATCHDOG_RESET,
+        Event::PowerLoss => &POWER_LOSS,
+        Event::ModuleCommsLoss => &MODULE_COMMS_LOSS,
     }
 }
 

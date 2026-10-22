@@ -54,6 +54,18 @@ async fn the_link_is_down_when_the_socket_drops_and_up_again_after_the_reconnect
     .await;
     assert!(health.readiness().checks.mqtt_connected);
     assert_eq!(broker.connects(), 2, "a second CONNECT after the loss");
+    // The client subscribes again after the reconnect (the broker may have lost
+    // its session): the command topic is subscribed once per connection.
+    let commands = super::fake_broker::topics().commands;
+    eventually("the commands topic to be subscribed again", WITHIN, || {
+        broker
+            .subscriptions()
+            .iter()
+            .filter(|filter| **filter == commands)
+            .count()
+            >= 2
+    })
+    .await;
 }
 
 #[tokio::test]

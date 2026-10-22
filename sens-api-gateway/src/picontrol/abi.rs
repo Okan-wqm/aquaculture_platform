@@ -178,6 +178,11 @@ pub const WATCHDOG_ARG_LEN: usize = std::mem::size_of::<std::ffi::c_ulong>();
 #[cfg(target_endian = "big")]
 compile_error!("the piControl watchdog argument is laid out for little-endian targets");
 
+// The value must fit the argument whatever the kernel reads it as (not the
+// 4-byte buffer the first version passed to a driver that reads an `unsigned
+// long`).
+const _: () = assert!(WATCHDOG_ARG_LEN >= 4);
+
 /// The argument of `KB_SET_OUTPUT_WATCHDOG` for `ms` milliseconds (0 disarms):
 /// the value in the low four bytes and the rest zero, so the kernel reads `ms`
 /// whether it takes an `unsigned long` (v2.6.2, eight bytes on AArch64: four
@@ -627,6 +632,9 @@ mod tests {
     /// its low four bytes and every other byte zero, so either release reads
     /// the period it was given and a stray byte cannot lengthen it or turn an
     /// arm into a disarm.
+    // `c_ulong` is `u64` on LP64 and `u32` on ILP32: the widening below is a
+    // no-op on one and needed on the other.
+    #[allow(clippy::useless_conversion)]
     #[test]
     fn the_watchdog_argument_is_as_wide_as_the_kernels_unsigned_long() {
         assert_eq!(WATCHDOG_ARG_LEN, std::mem::size_of::<std::ffi::c_ulong>());
@@ -636,12 +644,14 @@ mod tests {
             let arg = watchdog_arg(ms);
             assert_eq!(arg.len(), std::mem::size_of::<std::ffi::c_ulong>());
             let as_ulong = std::ffi::c_ulong::from_ne_bytes(arg);
-            assert_eq!(u64::from(ms), u64::from(as_ulong), "unsigned long read");
+            assert_eq!(
+                u64::from(ms),
+                u64::try_from(as_ulong).unwrap(),
+                "unsigned long read"
+            );
             let as_uint = u32::from_ne_bytes(arg[..4].try_into().unwrap());
             assert_eq!(ms, as_uint, "unsigned int read");
         }
-        // Not the 4-byte buffer the first version passed.
-        assert!(WATCHDOG_ARG_LEN >= 4);
     }
 
     #[test]

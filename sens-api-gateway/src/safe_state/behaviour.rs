@@ -583,18 +583,21 @@ pub fn table_json() -> serde_json::Value {
         .flat_map(|&event| {
             Backend::ALL.iter().map(move |&backend| {
                 let b = behaviour(event, backend);
-                let mut row = serde_json::json!({
-                    "event": event.name(),
-                    "output": backend.name(),
-                    "agent": b.agent.name(),
-                    "layer": b.layer.name(),
-                    "outcome": b.outcome.name(),
-                    "proof": b.proof.name(),
-                });
-                if !b.note.is_empty() {
-                    row["note"] = serde_json::Value::from(b.note);
+                let mut row = serde_json::Map::new();
+                for (key, value) in [
+                    ("event", event.name()),
+                    ("output", backend.name()),
+                    ("agent", b.agent.name()),
+                    ("layer", b.layer.name()),
+                    ("outcome", b.outcome.name()),
+                    ("proof", b.proof.name()),
+                ] {
+                    row.insert(key.to_owned(), serde_json::Value::from(value));
                 }
-                row
+                if !b.note.is_empty() {
+                    row.insert("note".to_owned(), serde_json::Value::from(b.note));
+                }
+                serde_json::Value::Object(row)
             })
         })
         .collect();

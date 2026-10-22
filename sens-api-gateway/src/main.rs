@@ -7830,7 +7830,7 @@ mod boot_tests {
         eventually(
             "the queue to empty",
             std::time::Duration::from_secs(5),
-            || queue.len() == 0,
+            || queue.is_empty(),
         )
         .await;
     }

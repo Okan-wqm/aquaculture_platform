@@ -64,7 +64,9 @@ pub enum WriteTarget {
 }
 
 impl WriteTarget {
-    /// The kind of hardware the target is on (a row of the behaviour table).
+    /// The kind of hardware the target is on (a row of the behaviour table). Only
+    /// the test that keeps the table and the remote holds together asks.
+    #[cfg(test)]
     pub fn backend(&self) -> crate::safe_state::behaviour::Backend {
         use crate::safe_state::behaviour::Backend;
         match self {

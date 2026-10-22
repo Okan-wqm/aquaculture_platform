@@ -588,6 +588,52 @@ class ReadTracerTest(unittest.TestCase):
         self.assertNotEqual(verify.returncode, 0, verify.stdout + verify.stderr)
         self.assertIn("not a trace line", verify.stdout + verify.stderr)
 
+    def test_a_git_argument_carrying_a_line_break_keeps_the_trace_well_formed(self) -> None:
+        # Run 39744490984 (shards 4, 6, 9, 10): a `git commit -m` body naming a
+        # `Closes:` path was recorded as a path, its line breaks split the
+        # trace line, and verify refused the whole trace as corrupt — so the
+        # off-surface reads of four shards were never even listed.
+        self.assertEqual(self._install().returncode, 0)
+        child = self._child(
+            "import subprocess\n"
+            "raise SystemExit(subprocess.run(['git', 'log', '-1', '--grep',\n"
+            "    'subject\\n\\nCloses: docs/reviews/x.md#X-1\\tend'], capture_output=True).returncode)\n",
+        )
+        self.assertEqual(child.returncode, 0, child.stderr)
+        verify = self._verify()
+        self.assertEqual(verify.returncode, 0, verify.stdout + verify.stderr)
+        self.assertNotIn("corrupt", verify.stdout + verify.stderr)
+
+    def test_a_tracked_name_carrying_the_escape_character_is_named_as_written(self) -> None:
+        # The trace escapes the line breaks a name can carry; a name that
+        # already holds the escape character must come back unchanged.
+        odd = self.repo / "apps" / "a%0Ab.ts"
+        odd.write_text("export {}\n", encoding="utf-8")
+        subprocess.run(["git", "add", "-A"], cwd=self.repo, env=self.env, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "--quiet", "-m", "odd name"], cwd=self.repo, env=self.env,
+                       check=True, capture_output=True)
+        self.assertEqual(self._install().returncode, 0)
+        child = self._child("open('apps/a%0Ab.ts').read()\n")
+        self.assertEqual(child.returncode, 0, child.stderr)
+        verify = self._verify()
+        self.assertNotEqual(verify.returncode, 0, verify.stdout + verify.stderr)
+        self.assertIn("  apps/a%0Ab.ts\n", verify.stderr)
+
+    def test_the_hook_loads_no_module_the_traced_program_did_not(self) -> None:
+        # Run 39744490984 (shard 9): the hook module imported subprocess,
+        # argparse and pathlib at interpreter startup, so the genesis adapter
+        # launcher — which refuses the import of any module not already loaded
+        # — found subprocess preloaded and seven bypass spellings ran. An
+        # observer that changes sys.modules changes the program it observes.
+        probe = "import sys\nprint('\\n'.join(sorted(sys.modules)))\n"
+        bare = self._child(probe)
+        self.assertEqual(bare.returncode, 0, bare.stderr)
+        self.assertEqual(self._install().returncode, 0)
+        traced = self._child(probe)
+        self.assertEqual(traced.returncode, 0, traced.stderr)
+        added = set(traced.stdout.split()) - set(bare.stdout.split())
+        self.assertEqual(added, {"usercustomize", "aria_read_trace_hook"})
+
     def test_isolated_python_is_not_traced(self) -> None:
         # `python3 -I` never loads the user site, so the hook cannot ride on
         # it: the named residual of the user-site install choice.

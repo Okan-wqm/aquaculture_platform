@@ -44,13 +44,17 @@ red on the next kernel run, with the path named.
 Standard library only, so `python3 -I` can run it on a bare Actions host.
 """
 
-from __future__ import annotations
-
-import argparse
+# NO MODULE-LEVEL IMPORT BEYOND `os` AND `sys`. This file is also the audit
+# hook every traced interpreter loads at startup, and an observer that loads a
+# module changes the program it observes: the genesis adapter launcher refuses
+# the import of any module not already loaded, so a hook that pulled in
+# `subprocess` handed seven bypass spellings a preloaded module (run
+# 39744490984, shard 9). Both are loaded before `site` runs; the verbs import
+# what they need when they run, in their own process. No `from __future__`
+# either (it imports `__future__`): annotations naming lazily imported types
+# are strings.
 import os
-import subprocess
 import sys
-from pathlib import Path
 
 _MARKER = "# aria-kernel read tracer (ARIA-HIGH-602)"
 _HOOK_MODULE = "aria_read_trace_hook"
@@ -71,6 +75,27 @@ if "{_HOOK_MODULE}" not in sys.modules:
     sys.modules["{_HOOK_MODULE}"] = _aria_module
     _aria_spec.loader.exec_module(_aria_module)
 '''
+
+
+# A trace line is `kind<TAB>path<LF>`; a name may carry a tab or a line break
+# (a git argv token such as a `commit -m` body naming a `Closes:` path is
+# recorded as a candidate path too), so the path is percent-escaped for exactly
+# the escape character and the three separators. str.replace only: the hook
+# loads no module. `_unescape` reverses it in one pass, so it is lossless.
+_ESCAPES = (("%", "%25"), ("\t", "%09"), ("\n", "%0A"), ("\r", "%0D"))
+
+
+def _escape(path: str) -> str:
+    for raw, escaped in _ESCAPES:
+        path = path.replace(raw, escaped)
+    return path
+
+
+def _unescape(field: str) -> str:
+    import re
+
+    table = {escaped: raw for raw, escaped in _ESCAPES}
+    return re.sub(r"%(?:25|09|0A|0D)", lambda match: table[match.group(0)], field)
 
 
 class _TraceState:
@@ -106,7 +131,7 @@ class _TraceState:
             relative = os.path.relpath(candidate, self.workspace).replace(os.sep, "/")
             trace_file = os.path.join(self.trace_dir, f"trace-{os.getpid()}.tsv")
             with open(trace_file, "a", encoding="utf-8") as handle:
-                handle.write(f"{entry_kind}\t{relative}\n")
+                handle.write(f"{entry_kind}\t{_escape(relative)}\n")
         except Exception:
             # An audit hook that raises would break the program it observes.
             pass
@@ -181,8 +206,9 @@ def _install_audit_hook() -> None:
     sys.addaudithook(_TraceState(workspace, trace_dir).audit)
 
 
-def _cmd_install(trace_dir: Path) -> int:
+def _cmd_install(trace_dir: "Path") -> int:
     import site
+    from pathlib import Path
 
     trace_dir = trace_dir.resolve()
     user_site = Path(site.getusersitepackages())
@@ -208,13 +234,17 @@ def _cmd_install(trace_dir: Path) -> int:
     return 0
 
 
-def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str]:
+def _git(repo: "Path", *args: str) -> "subprocess.CompletedProcess[str]":
+    import subprocess
+
     return subprocess.run(
         ["git", *args], cwd=repo, capture_output=True, text=True, check=False
     )
 
 
-def _cmd_verify(trace_dir: Path, manifest_path: Path) -> int:
+def _cmd_verify(trace_dir: "Path", manifest_path: "Path") -> int:
+    from pathlib import Path
+
     repo = Path.cwd()
     manifest_file = manifest_path if manifest_path.is_absolute() else repo / manifest_path
     try:
@@ -251,7 +281,7 @@ def _cmd_verify(trace_dir: Path, manifest_path: Path) -> int:
             if len(parts) != 2 or not parts[1] or parts[0] not in (*_READ_KINDS, _LIST_KIND):
                 corrupt.append(f"{trace_file}:{number}: {line!r}")
                 continue
-            kind, path = parts
+            kind, path = parts[0], _unescape(parts[1])
             if os.path.isabs(path) or path.startswith(".."):
                 corrupt.append(f"{trace_file}:{number}: {line!r}")
                 continue
@@ -296,7 +326,10 @@ def _cmd_verify(trace_dir: Path, manifest_path: Path) -> int:
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: "list[str] | None" = None) -> int:
+    import argparse
+    from pathlib import Path
+
     parser = argparse.ArgumentParser(prog="aria_read_trace", description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
     install = commands.add_parser("install", help="write the audit hook's usercustomize and arm GITHUB_ENV")

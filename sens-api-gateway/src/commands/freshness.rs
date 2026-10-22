@@ -44,17 +44,21 @@ impl FreshNow {
     /// An instant of the wall clock the authority vouched for; a clock before
     /// the epoch is not one.
     fn from_system_time(system_time: SystemTime) -> Result<Self, ClockError> {
-        let secs = system_time
+        let since_epoch = system_time
             .duration_since(UNIX_EPOCH)
-            .map_err(|_| ClockError::PreEpochWallClock)?
-            .as_secs();
+            .map_err(|_| ClockError::PreEpochWallClock)?;
         Ok(Self {
-            // A clock past i64::MAX seconds makes every envelope expired:
-            // the saturation fails closed.
-            unix_secs: i64::try_from(secs).unwrap_or(i64::MAX),
+            unix_secs: saturating_unix_secs(since_epoch),
             system_time,
         })
     }
+}
+
+/// Seconds since the epoch as the `i64` an envelope's `iat`/`exp` are. A clock
+/// past `i64::MAX` seconds makes every envelope expired: the saturation fails
+/// closed.
+fn saturating_unix_secs(since_epoch: std::time::Duration) -> i64 {
+    i64::try_from(since_epoch.as_secs()).unwrap_or(i64::MAX)
 }
 
 /// "Now" for a freshness decision, or why the authority will not give one.
@@ -102,6 +106,18 @@ mod tests {
             .expect("a reading");
         assert_eq!(now.unix_secs, 1_700_000_123);
         assert_eq!(now.system_time, instant);
+    }
+
+    #[test]
+    fn a_clock_beyond_the_i64_seconds_saturates_closed() {
+        assert_eq!(
+            saturating_unix_secs(Duration::from_secs(u64::MAX)),
+            i64::MAX
+        );
+        assert_eq!(
+            saturating_unix_secs(Duration::from_secs(1_700_000_000)),
+            1_700_000_000
+        );
     }
 
     #[test]

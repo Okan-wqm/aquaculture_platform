@@ -30,7 +30,9 @@ const read = (relative: string): string => readFileSync(join(REPO_ROOT, relative
 function enumValues(source: string, name: string): string[] {
   const body = new RegExp(`export enum ${name} \\{([^}]*)\\}`).exec(source)?.[1];
   if (body === undefined) throw new Error(`enum ${name} not found`);
-  return [...body.matchAll(/=\s*'([^']+)'/g)].map((match) => match[1]);
+  return [...body.matchAll(/=\s*'([^']+)'/g)].flatMap((match) =>
+    match[1] === undefined ? [] : [match[1]],
+  );
 }
 
 describe('HR module-code parity', () => {

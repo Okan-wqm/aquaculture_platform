@@ -145,10 +145,10 @@ function baselineColumns(table: string): Map<string, string> {
   )?.[1];
   if (body === undefined) throw new Error(`Baseline does not create ${table}`);
   return new Map(
-    [...body.matchAll(/"([A-Za-z]+)" (.*?)(?=, "[A-Za-z]+" |$)/g)].map((match) => [
-      match[1],
-      match[2],
-    ]),
+    [...body.matchAll(/"([A-Za-z]+)" (.*?)(?=, "[A-Za-z]+" |$)/g)].flatMap(
+      (match): Array<[string, string]> =>
+        match[1] === undefined || match[2] === undefined ? [] : [[match[1], match[2]]],
+    ),
   );
 }
 

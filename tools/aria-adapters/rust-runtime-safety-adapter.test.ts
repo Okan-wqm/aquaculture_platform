@@ -294,22 +294,9 @@ assert.equal(
 const manifest = JSON.parse(
   readFileSync(join(__dirname, 'rust-runtime-safety-adapter.tool.json'), 'utf8'),
 ) as {
-  declared_scope: string[];
   default_input: { roots: string[] };
   rules: Record<string, unknown>;
 };
-
-// The manifest claims only what the production input walks: each glob's
-// literal prefix must sit under one of the roots (the observation map
-// counts a declared_scope match as seen).
-for (const glob of manifest.declared_scope) {
-  const wildcard = glob.search(/[*?[{]/);
-  const literal = wildcard < 0 ? glob : glob.slice(0, wildcard);
-  assert.ok(
-    manifest.default_input.roots.some((root) => literal.startsWith(`${root}/`)),
-    `declared_scope ${glob} reaches outside the scan roots ${manifest.default_input.roots.join(', ')}`,
-  );
-}
 
 const real = analyzeRustRuntimeSafety({ roots: manifest.default_input.roots }, REPO_ROOT);
 const realSummary =

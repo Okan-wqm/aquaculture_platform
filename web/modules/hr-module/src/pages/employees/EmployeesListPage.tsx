@@ -4,20 +4,26 @@
  */
 
 import React, { useState, useMemo, useCallback, useDeferredValue } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Plus, Search, Filter, Eye, Edit, Ship, Building2 } from 'lucide-react';
 import {
   cn,
-  useAuth,
   DataTable,
   type DataTableColumn,
   PageHeader,
   Button,
   Select,
+  useI18n,
 } from '@aquaculture/shared-ui';
-import { useEmployees, useDepartments, usePositions, useToggleFarmWorker } from '../../hooks';
+import { useEmployees, useDepartments, useIsWorkforceManager, usePositions } from '../../hooks';
 import { derivePaginationMetadataV1 } from '@platform/pagination-contracts';
-import { StatusBadge, EmployeeAvatar, DepartmentBadge } from '../../components/common';
+import {
+  StatusBadge,
+  EmployeeAvatar,
+  DepartmentBadge,
+  ScopedDescription,
+} from '../../components/common';
+import { departmentLabel } from '../../utils/departmentLabel';
 import type {
   Employee,
   EmployeeFilterInput,
@@ -28,17 +34,18 @@ import type {
 import { EMPLOYEE_STATUS_CONFIG, PERSONNEL_CATEGORY_CONFIG } from '../../types';
 
 export function EmployeesListPage() {
+  const { t } = useI18n();
   const navigate = useNavigate();
-  const { user } = useAuth();
-
-  // SEC-007: only HR managers may perform destructive bulk actions
-  const canBulkDelete =
-    user?.role === 'SUPER_ADMIN' ||
-    user?.role === 'TENANT_ADMIN' ||
-    user?.role === 'MODULE_MANAGER';
+  const [searchParams] = useSearchParams();
+  // SEC-007: only HR managers may hire, edit or perform destructive bulk actions
+  const canManage = useIsWorkforceManager();
 
   // State
-  const [filter, setFilter] = useState<EmployeeFilterInput>({});
+  // WHY: the Departments page links here with ?departmentId= — that department is the
+  // list's starting filter (the server-side `departmentHrId` filter).
+  const [filter, setFilter] = useState<EmployeeFilterInput>(() => ({
+    departmentHrId: searchParams.get('departmentId') ?? undefined,
+  }));
   const [pagination, setPagination] = useState<PaginationInput>({ limit: 20, page: 1 });
   const [searchQuery, setSearchQuery] = useState('');
   // PERF-006: defer the search value so rapid keystrokes are coalesced before
@@ -52,7 +59,6 @@ export function EmployeesListPage() {
   const { data: employees, isLoading } = useEmployees({ ...filter }, pagination);
   const { data: departments } = useDepartments();
   const { data: positions } = usePositions();
-  const toggleFarmWorker = useToggleFarmWorker();
 
   // PERF-004: memoize columns to avoid re-creating the array on every render
   const columns: DataTableColumn<Employee>[] = useMemo(
@@ -75,9 +81,11 @@ export function EmployeesListPage() {
       {
         key: 'department',
         header: 'Department',
+        // The cell is the employee's department entity, so the CSV writes its name and module.
+        exportValue: (row) => (row.departmentHr ? departmentLabel(row.departmentHr, t) : ''),
         render: (_value, row) =>
-          row.department ? (
-            <DepartmentBadge name={row.department} size="sm" />
+          row.departmentHr ? (
+            <DepartmentBadge department={row.departmentHr} showModule size="sm" />
           ) : (
             <span className="text-gray-400 dark:text-gray-500">-</span>
           ),
@@ -134,32 +142,6 @@ export function EmployeesListPage() {
         ),
       },
       {
-        key: 'farmWorker',
-        header: 'Farm',
-        align: 'center',
-        render: (_value, row) => (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              toggleFarmWorker.mutate({ id: row.id, isFarmWorker: !row.isFarmWorker });
-            }}
-            className={cn(
-              'inline-flex h-6 w-6 items-center justify-center rounded-md text-xs font-medium transition-colors',
-              row.isFarmWorker
-                ? 'bg-success-100 text-success-700 hover:bg-success-200 dark:bg-success-900/30 dark:text-success-400'
-                : 'bg-gray-100 text-gray-400 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-500',
-            )}
-            title={
-              row.isFarmWorker
-                ? 'Visible in Farm module (click to hide)'
-                : 'Hidden from Farm module (click to show)'
-            }
-          >
-            {row.isFarmWorker ? '✓' : '-'}
-          </button>
-        ),
-      },
-      {
         key: 'actions',
         header: '',
         width: '60px',
@@ -179,24 +161,26 @@ export function EmployeesListPage() {
             >
               <Eye className="h-4 w-4" />
             </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              iconOnly
-              aria-label="Edit"
-              onClick={(e) => {
-                e.stopPropagation();
-                navigate(`/hr/employees/${row.id}/edit`);
-              }}
-              title="Edit"
-            >
-              <Edit className="h-4 w-4" />
-            </Button>
+            {canManage && (
+              <Button
+                variant="ghost"
+                size="sm"
+                iconOnly
+                aria-label="Edit"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigate(`/hr/employees/${row.id}/edit`);
+                }}
+                title="Edit"
+              >
+                <Edit className="h-4 w-4" />
+              </Button>
+            )}
           </div>
         ),
       },
     ],
-    [navigate, toggleFarmWorker.mutate],
+    [navigate, canManage, t],
   );
 
   // PERF-009: stable keyExtractor so DataTable's useMemo deps don't invalidate
@@ -226,15 +210,17 @@ export function EmployeesListPage() {
       {/* Header */}
       <PageHeader
         title="Employees"
-        description="Manage your organization's workforce"
+        description={<ScopedDescription text="Manage your organization's workforce" />}
         actions={
-          <Button
-            variant="primary"
-            leftIcon={<Plus className="h-4 w-4" />}
-            onClick={() => navigate('/hr/employees/new')}
-          >
-            Add Employee
-          </Button>
+          canManage ? (
+            <Button
+              variant="primary"
+              leftIcon={<Plus className="h-4 w-4" />}
+              onClick={() => navigate('/hr/employees/new')}
+            >
+              Add Employee
+            </Button>
+          ) : undefined
         }
       />
 
@@ -291,18 +277,22 @@ export function EmployeesListPage() {
             </div>
 
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label
+                htmlFor="employee-filter-department"
+                className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              >
                 Department
               </label>
               <select
-                value={filter.department || ''}
-                onChange={(e) => handleFilterChange('department', e.target.value)}
+                id="employee-filter-department"
+                value={filter.departmentHrId || ''}
+                onChange={(e) => handleFilterChange('departmentHrId', e.target.value)}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
               >
                 <option value="">All Departments</option>
                 {departments?.map((dept) => (
                   <option key={dept.id} value={dept.id}>
-                    {dept.name}
+                    {departmentLabel(dept, t)}
                   </option>
                 ))}
               </select>
@@ -370,7 +360,7 @@ export function EmployeesListPage() {
             {selectedKeys.length} selected
           </span>
           <div className="flex items-center gap-2">
-            {canBulkDelete && (
+            {canManage && (
               <>
                 {/* BUG-016: bulk actions are guarded but not yet implemented */}
                 <Button variant="ghost" disabled title="Bulk edit — not yet implemented">

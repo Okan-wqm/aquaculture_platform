@@ -4,20 +4,24 @@
  *
  * Real reads only, each from the hook that already owns it:
  *   - useDailyAttendanceOverview(today)   → KPI attendance counts
- *   - useTodaysAttendance()               → every record of today (managers;
+ *   - useTeamTodaysAttendance()           → every record of today (managers;
  *                                           hr-service narrows other roles to
  *                                           their own record)
  *   - useTeamWeeklyOverview(week, -, site) → today's planned shifts, narrowed
  *                                           by site on the server
  *   - useTeamLeaveCalendar(-, today, today) → approved + pending leave today
  *   - useSiteResponsibility()             → farm-service active sites + contacts
- * Salary is not shown here by design (see the roster footer).
+ * Every read except the sites follows the workspace's module (the hooks resolve
+ * it themselves); the site filter and panel appear only where farm sites apply
+ * (see showsFarmSites). Salary is not shown here by design (see the roster footer).
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { PageHeader, useI18n } from '@aquaculture/shared-ui';
+import { ScopedDescription } from '../../components/common';
 
-import { useDailyAttendanceOverview, useTodaysAttendance } from '../../hooks/useAttendance';
+import { useDailyAttendanceOverview, useTeamTodaysAttendance } from '../../hooks/useAttendance';
 import { useTeamLeaveCalendar } from '../../hooks/useLeaves';
+import { useModuleScope } from '../../hooks/useModuleScope';
 import { formatDateISO, getWeekMonday, useTeamWeeklyOverview } from '../../hooks/useScheduling';
 import { useSiteResponsibility } from '../../hooks/useSiteResponsibility';
 import { OpenLeavePanel } from './OpenLeavePanel';
@@ -25,6 +29,7 @@ import { SiteFilterChips } from './SiteFilterChips';
 import { TodayKpiBand } from './TodayKpiBand';
 import { TodayRosterTable } from './TodayRosterTable';
 import { UnassignedSitesPanel } from './UnassignedSitesPanel';
+import { showsFarmSites } from './siteScope';
 import { buildTodayRoster } from './todayRoster';
 import { unassignedSites } from './unassignedSites';
 
@@ -49,10 +54,14 @@ export function TodayPage(): React.JSX.Element {
   const now = useMinuteClock();
   const today = formatDateISO(now);
   const weekStart = formatDateISO(getWeekMonday(now));
-  const [siteId, setSiteId] = useState<string | undefined>(undefined);
+  const farmSites = showsFarmSites(useModuleScope());
+  const [chosenSiteId, setSiteId] = useState<string | undefined>(undefined);
+  // A site picked in Production must not keep narrowing the plan after the reader
+  // moves to a workspace where sites do not apply.
+  const siteId = farmSites ? chosenSiteId : undefined;
 
   const overview = useDailyAttendanceOverview(today);
-  const attendance = useTodaysAttendance();
+  const attendance = useTeamTodaysAttendance();
   const team = useTeamWeeklyOverview(weekStart, undefined, siteId);
   const leave = useTeamLeaveCalendar(undefined, today, today);
   const sites = useSiteResponsibility();
@@ -83,7 +92,10 @@ export function TodayPage(): React.JSX.Element {
 
   return (
     <div className="sd-page sd-stack">
-      <PageHeader title={t('hr.today.title')} description={t('hr.today.description')} />
+      <PageHeader
+        title={t('hr.today.title')}
+        description={<ScopedDescription text={t('hr.today.description')} />}
+      />
       <TodayKpiBand
         overview={overview.data}
         overviewError={overview.isError}
@@ -91,7 +103,9 @@ export function TodayPage(): React.JSX.Element {
         scheduled={scheduled}
         siteScoped={siteId !== undefined}
       />
-      <SiteFilterChips sites={sites.data ?? []} selected={siteId} onSelect={setSiteId} />
+      {farmSites && (
+        <SiteFilterChips sites={sites.data ?? []} selected={siteId} onSelect={setSiteId} />
+      )}
       <TodayRosterTable
         rows={roster}
         isLoading={team.isLoading || attendance.isLoading}
@@ -108,12 +122,14 @@ export function TodayPage(): React.JSX.Element {
           isError={leave.isError}
           onRetry={() => void leave.refetch()}
         />
-        <UnassignedSitesPanel
-          sites={flaggedSites}
-          isLoading={sites.isLoading}
-          isError={sites.isError}
-          onRetry={() => void sites.refetch()}
-        />
+        {farmSites && (
+          <UnassignedSitesPanel
+            sites={flaggedSites}
+            isLoading={sites.isLoading}
+            isError={sites.isError}
+            onRetry={() => void sites.refetch()}
+          />
+        )}
       </div>
     </div>
   );

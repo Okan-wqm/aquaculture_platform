@@ -4,7 +4,9 @@
 
 import { gql } from 'graphql-tag';
 import {
-  EMPLOYEE_BASIC_FRAGMENT,
+  DEPARTMENT_FRAGMENT,
+  DEPARTMENT_ORGANIZATION_FRAGMENT,
+  EMPLOYEE_DEPARTMENT_FRAGMENT,
   EMPLOYEE_LIST_FRAGMENT,
   EMPLOYEE_FULL_FRAGMENT,
 } from './fragments';
@@ -54,6 +56,7 @@ export const GET_HR_DASHBOARD_STATS = gql`
       attendanceRate
       pendingLeaveRequests
       totalDepartments
+      unplacedEmployees
     }
   }
 `;
@@ -81,52 +84,26 @@ export const GET_EMPLOYEE_BY_NUMBER = gql`
   ${EMPLOYEE_FULL_FRAGMENT}
 `;
 
-// NOTE: searchEmployees query not yet implemented in backend.
-// Using activeEmployees as a workaround for search functionality.
-// WHY: Backend activeEmployees resolver accepts (limit: Int, page: Int), not offset.
-export const SEARCH_EMPLOYEES = gql`
-  query SearchEmployees($limit: Int, $page: Int) {
-    activeEmployees(limit: $limit, page: $page) {
-      ...EmployeeBasic
-      department
-      position
-    }
-  }
-  ${EMPLOYEE_BASIC_FRAGMENT}
-`;
-
+// WHY: `$moduleCode` is the module scope of the reader (see useModuleScope) — absent means
+// every module. Departments are a real entity (departments_hr); the employees of one
+// department are `employees(filter: { departmentHrId })`, not a separate query.
 export const GET_DEPARTMENTS = gql`
-  query GetDepartments($siteId: ID, $isDeleted: Boolean) {
-    hrDepartments(siteId: $siteId, isDeleted: $isDeleted) {
-      id
-      name
-      code
-      description
-      siteId
-      parentDepartmentId
-      managerId
-      budgetCode
-      costCenter
-      isActive
-      sortOrder
+  query GetDepartments($siteId: ID, $isDeleted: Boolean, $moduleCode: HRModuleCode) {
+    hrDepartments(siteId: $siteId, isDeleted: $isDeleted, moduleCode: $moduleCode) {
+      ...DepartmentFull
     }
   }
+  ${DEPARTMENT_FRAGMENT}
 `;
 
-// NOTE: No separate department entity. Use employeesByDepartment to get employees by department enum.
-// WHY: Backend employeesByDepartment resolver accepts (limit: Int, page: Int), not offset.
-// WHY: The Department TS enum is registered in the GraphQL schema under the SDL name
-// `HRDepartment` (employee.entity.ts: registerEnumType(Department, { name: 'HRDepartment' })),
-// so the operation variable must reference `HRDepartment`, not the (non-existent) `Department`.
-export const GET_DEPARTMENT = gql`
-  query GetDepartment($department: HRDepartment!, $limit: Int, $page: Int) {
-    employeesByDepartment(department: $department, limit: $limit, page: $page) {
-      ...EmployeeBasic
-      department
-      position
+/** The departments of a workspace with the head count and manager name the chart draws. */
+export const GET_ORGANIZATION_DEPARTMENTS = gql`
+  query GetOrganizationDepartments($moduleCode: HRModuleCode) {
+    hrDepartments(moduleCode: $moduleCode) {
+      ...DepartmentOrganization
     }
   }
-  ${EMPLOYEE_BASIC_FRAGMENT}
+  ${DEPARTMENT_ORGANIZATION_FRAGMENT}
 `;
 
 // NOTE: Position is a string field in the backend. No separate Position entity.
@@ -137,42 +114,6 @@ export const GET_POSITIONS = gql`
       total
     }
   }
-`;
-
-// NOTE: organizationTree query not yet implemented in backend.
-// Using employees query as a workaround.
-// WHY: pagination is a separate argument, not part of filter.
-export const GET_ORGANIZATION_TREE = gql`
-  query GetOrganizationTree {
-    employees(pagination: { limit: 100 }) {
-      items {
-        id
-        firstName
-        lastName
-        department
-        departmentHrId
-        positionId
-        supervisorId
-        position
-      }
-      total
-    }
-  }
-`;
-
-// NOTE: directReports query not yet implemented in backend.
-// Filter employees by supervisorId on the client side.
-// WHY: Backend activeEmployees resolver accepts (limit: Int, page: Int), not offset.
-export const GET_DIRECT_REPORTS = gql`
-  query GetDirectReports($limit: Int, $page: Int) {
-    activeEmployees(limit: $limit, page: $page) {
-      ...EmployeeBasic
-      department
-      position
-      supervisorId
-    }
-  }
-  ${EMPLOYEE_BASIC_FRAGMENT}
 `;
 
 // =====================
@@ -208,15 +149,18 @@ export const UPDATE_EMPLOYEE_STATUS = gql`
   }
 `;
 
-// NOTE: Department is an enum, use updateEmployee to change it
+// NOTE: A department is placed through updateEmployee({ departmentHrId }); null unassigns.
 export const ASSIGN_EMPLOYEE_TO_DEPARTMENT = gql`
   mutation AssignEmployeeToDepartment($input: UpdateEmployeeInput!) {
     updateEmployee(input: $input) {
       id
-      department
       departmentHrId
+      departmentHr {
+        ...EmployeeDepartment
+      }
     }
   }
+  ${EMPLOYEE_DEPARTMENT_FRAGMENT}
 `;
 
 // NOTE: Position is a string, use updateEmployee to change it
@@ -249,15 +193,6 @@ export const UPDATE_EMPLOYEE_AVATAR = gql`
   }
 `;
 
-export const TOGGLE_FARM_WORKER = gql`
-  mutation ToggleFarmWorker($id: ID!, $isFarmWorker: Boolean!) {
-    toggleFarmWorker(id: $id, isFarmWorker: $isFarmWorker) {
-      id
-      isFarmWorker
-    }
-  }
-`;
-
 // NOTE: emergencyInfo is @HideField in backend, not accessible via GraphQL
 export const UPDATE_EMERGENCY_INFO = gql`
   mutation UpdateEmergencyInfo($input: UpdateEmployeeInput!) {
@@ -270,37 +205,19 @@ export const UPDATE_EMERGENCY_INFO = gql`
 export const CREATE_DEPARTMENT = gql`
   mutation CreateDepartment($input: CreateHRDepartmentInput!) {
     createHRDepartment(input: $input) {
-      id
-      name
-      code
-      description
-      siteId
-      parentDepartmentId
-      managerId
-      budgetCode
-      costCenter
-      isActive
-      sortOrder
+      ...DepartmentFull
     }
   }
+  ${DEPARTMENT_FRAGMENT}
 `;
 
 export const UPDATE_DEPARTMENT = gql`
   mutation UpdateDepartment($input: UpdateHRDepartmentInput!) {
     updateHRDepartment(input: $input) {
-      id
-      name
-      code
-      description
-      siteId
-      parentDepartmentId
-      managerId
-      budgetCode
-      costCenter
-      isActive
-      sortOrder
+      ...DepartmentFull
     }
   }
+  ${DEPARTMENT_FRAGMENT}
 `;
 
 // NOTE: Position is a string in backend, not a separate entity.

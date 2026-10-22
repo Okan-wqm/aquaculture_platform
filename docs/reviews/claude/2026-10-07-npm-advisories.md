@@ -107,6 +107,42 @@ After the change, the gate's verdict per leg:
     Vitest 4 widens to `Procedure | Constructable`. They now declare the mocked
     signature (`Mock<() => Promise<boolean>>`, `Mock<(message: unknown) => void>`).
 
+## SUPPLY-CRITICAL-027 — dompurify 3.4.14: five advisories, one critical (2026-10-22)
+
+- The sensor-module SCADA builder sanitizes uploaded SVG with DOMPurify
+  (`CustomSvgConfig.tsx`, `CustomSvgRenderer.tsx`), and it ships to the
+  browser, so the root production leg reaches it.
+- Advisories against 3.4.14:
+  - GHSA-cg2g-xh64-v4q7 (critical): `SAFE_FOR_TEMPLATES` bypass. Split
+    template expressions survive in attached shadow-root content on DOM
+    output modes. Affected `>=3.4.4 <=3.4.16`, patched 3.4.17.
+  - GHSA-mrv2-3pqr-j5jr (high): an `IN_PLACE` hook that removes a parent or
+    sibling leaves the detached subtree's event handlers armed. It is the
+    incomplete fix for GHSA-p98j-92pf-mc4p. Affected `<=3.4.16`, patched
+    3.4.17.
+  - GHSA-c6gr-qvv4-5v3f (low): the SMIL `attributeName=href` guard is skipped
+    under `application/xhtml+xml`. Affected `<=3.4.16`, patched 3.4.17.
+  - GHSA-p98j-92pf-mc4p and GHSA-6688-9rhm-gjv2 (low): `IN_PLACE` variants.
+    Affected `<=3.4.15`, patched 3.4.16.
+- The gate had no exception for any of them, so the `root-production` and
+  `root-full` legs of the required `security-audit` job were red.
+- Not excepted: a fixed release exists.
+- Fix: 3.4.17, the first release outside all five ranges. It goes into the
+  sensor-module dependency, the root `overrides` entry, the
+  dependency-security-floor pin and the root lockfile. npm now places it under
+  `web/modules/sensor-module/node_modules`, its only dependent.
+
+## SUPPLY-MEDIUM-028 — ip-address 10.7.2: quadratic zone-id match (2026-10-22)
+
+- GHSA-rxp7-6hxx-x8q5 (moderate, published 2026-10-22): `Address6` matches a
+  zone identifier in quadratic time ahead of its length limit, so one long
+  string stalls the process. Affected `<=10.7.3`, patched 10.7.4.
+- Reached in production through `express-rate-limit` and `socks`. The root
+  override `^10.5.1` resolved 10.7.2. The gate reported "a non-breaking fix is
+  available — take it rather than an exception".
+- Fix: the root override and the dependency-security-floor pin move to
+  10.7.4, and the root lockfile resolves 10.7.4.
+
 ## SUPPLY-MEDIUM-020 — tailwind 3 postcss-selector-parser is quadratic (open, excepted)
 
 - `postcss-selector-parser` below 7.1.6 (GHSA-rj75-hqrm-r3gf), reached through

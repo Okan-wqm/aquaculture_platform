@@ -110,6 +110,17 @@ MAX_CLOSED_RECHECKS = 14
 _MAX_WALK = 50
 
 
+# ARIA-HIGH-765 / B0 corrective R2 — the merge authority's statement that NO
+# merge call was made for an attempt: an ``auto-merge-decisions`` row carrying
+# this field (``True``) with its ``pr_number`` and ``head_sha`` ends an attempt
+# whose ``merge_intent`` was already recorded (the operator's stop at the merge
+# moment; an intent that could not be published). A later merge of that PR at
+# that head was made by someone else, so readers that count ARIA's merge
+# attempts (``self_revert._aria_merged_prs``) drop the attempt. A ``failed``
+# row is NOT such a statement: its merge call was made and may have landed.
+NO_MERGE_CALL_FIELD = "no_merge_call"
+
+
 class MergeNotProven(ValueError):
     """An asserted merge the observed facts do not support; nothing is written."""
 
@@ -694,6 +705,7 @@ __all__ = [
     "MAX_CLOSED_RECHECKS",
     "MAX_LINEAGE_CHECKS",
     "MERGED_BY_OBSERVED",
+    "NO_MERGE_CALL_FIELD",
     "MergeLineageUnverified",
     "MergeNotProven",
     "PR_STATE_OPEN",

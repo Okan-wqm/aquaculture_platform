@@ -35,6 +35,7 @@ from aria_kernel.merge_authority import merge_pr_if_ready
 from aria_kernel.runtime_profile import set_merge_lane_grant
 from aria_kernel.tool_registry import ensure_tools_dir
 from tests._helpers.operator_acts import github_operator_acts, operator_set_profile
+from tests._helpers.operator_stop import operator_stop_clear
 
 _HEAD = "a" * 40
 
@@ -141,6 +142,7 @@ class NonOpenPrTests(unittest.TestCase):
                 adapter = _Adapter(state)
                 result = merge_pr_if_ready(
                     adapter=adapter, pr_number=7, base_dir=self.tools, readiness_claim_id="claim:7:aaaaaaaaaaaa",
+                    operator_stop=operator_stop_clear(),
                 )
                 self.assertEqual(result["decision"], "skipped_pr_not_open")
                 self.assertEqual(result["pr_state"], state.upper())
@@ -155,6 +157,7 @@ class NonOpenPrTests(unittest.TestCase):
         with self.assertRaisesRegex(GovernanceError, "merge_authority_pr_state_unobserved"):
             merge_pr_if_ready(
                 adapter=adapter, pr_number=7, base_dir=self.tools, readiness_claim_id="claim:7:aaaaaaaaaaaa",
+                operator_stop=operator_stop_clear(),
             )
 
     def test_the_live_adapter_asks_github_for_the_state(self) -> None:
@@ -194,6 +197,7 @@ class SelectionFollowsMergeAuthorityTests(unittest.TestCase):
             profile="standard", executes_merges=executes_merges, base_dir=self.tools,
             adapter_factory=lambda: object(), pr_enumerator=lambda adapter: [],
             readiness_claim_resolver=lambda adapter, number, root: "claim",
+            operator_stop=operator_stop_clear(),
         )
 
     def test_standard_without_a_grant_stays_a_no_op_and_a_recorder(self) -> None:
@@ -264,7 +268,7 @@ class AuditNamesTheGrantTests(unittest.TestCase):
         for item in patches:
             item.start()
         try:
-            merge_pr_if_ready(adapter=_Adapter("OPEN"), pr_number=7, base_dir=tools, readiness_claim_id="claim")
+            merge_pr_if_ready(adapter=_Adapter("OPEN"), pr_number=7, base_dir=tools, readiness_claim_id="claim", operator_stop=operator_stop_clear())
         finally:
             for item in reversed(patches):
                 item.stop()

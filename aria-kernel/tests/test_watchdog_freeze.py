@@ -26,6 +26,7 @@ from aria_kernel.watchdog_freeze import (
     open_watchdog_incidents,
 )
 from tests._helpers.operator_acts import operator_set_profile
+from tests._helpers.operator_stop import operator_stop_clear
 
 
 class _Adapter:
@@ -428,7 +429,8 @@ class FreezeScopeTests(unittest.TestCase):
             operator_set_profile("autonomous", base_dir=base, scheduler_ceiling="autonomous")
             with self.assertRaises(GovernanceError) as caught:
                 merge_pr_if_ready(adapter=adapter, pr_number=11, base_dir=base,
-                                  readiness_claim_id="claim-1", workspace_root=base)
+                                  readiness_claim_id="claim-1", workspace_root=base,
+                                  operator_stop=operator_stop_clear())
         self.assertIn("merge_frozen_watchdog_incident_open", str(caught.exception))
         self.assertIn("#42", str(caught.exception))
         self.assertEqual(adapter.labels_asked, ["aria", "watchdog"])
@@ -474,6 +476,7 @@ class TheFreezeMustNotStopTheRun(unittest.TestCase):
             adapter_factory=lambda: adapter,
             pr_enumerator=lambda _a: [11, 22, 33],
             readiness_claim_resolver=lambda _a, _pr, _b: "claim-1",
+            operator_stop=operator_stop_clear(),
         )
 
     def test_an_open_incident_blocks_every_candidate_without_raising(self):
@@ -559,6 +562,7 @@ class TheFreezeMustNotStopTheRun(unittest.TestCase):
             adapter_factory=lambda: adapter,
             pr_enumerator=lambda _a: [11],
             readiness_claim_resolver=lambda _a, _pr, _b: "claim-1",
+            operator_stop=operator_stop_clear(),
         )
         runner(base_dir=self.base, workspace_root=self.base)
         self.assertIsNone(adapter.labels_asked, "strict asked the watchdog it must not need")

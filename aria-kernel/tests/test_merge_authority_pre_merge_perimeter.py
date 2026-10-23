@@ -36,6 +36,7 @@ from tests._helpers.declared_fixtures import segmented_ledger_bytes
 from tests._helpers.node_modules import installed_node_modules
 from tests._helpers.witness_sources import witness_tool_paths
 from tests._helpers.operator_acts import operator_set_profile
+from tests._helpers.operator_stop import operator_stop_clear
 
 _SHA = "a" * 40
 _SOURCE = Path(__file__).resolve().parents[1] / "aria_kernel" / "merge_authority.py"
@@ -189,6 +190,7 @@ class PreMergePerimeterTests(unittest.TestCase):
                 pr_number=77,
                 base_dir=self.tools,
                 readiness_claim_id="claim:77:aaaaaaaaaaaa",
+                operator_stop=operator_stop_clear(),
             )
         finally:
             for p in patches:
@@ -225,6 +227,7 @@ class PreMergePerimeterTests(unittest.TestCase):
                 base_dir=self.tools,
                 readiness_claim_id="claim:77:aaaaaaaaaaaa",
                 intent_publisher=lambda intent: {"published": True},
+                operator_stop=operator_stop_clear(),
             )
         finally:
             for p in patches:
@@ -991,6 +994,7 @@ class NativeImplementationContextTests(unittest.TestCase):
             profile="autonomous", executes_merges=True, adapter_factory=lambda: adapter,
             pr_enumerator=lambda selected: [pr["number"]],
             readiness_claim_resolver=lambda selected, number, root: "fixture-readiness-reference",
+            operator_stop=operator_stop_clear(),
         )
         observed_reports = []
 
@@ -1118,6 +1122,7 @@ class NativeImplementationContextTests(unittest.TestCase):
                 profile="autonomous", executes_merges=True, adapter_factory=lambda: selected_adapter,
                 pr_enumerator=lambda selected: [pr["number"]],
                 readiness_claim_resolver=lambda selected, number, root: "fixture-readiness-reference",
+                operator_stop=operator_stop_clear(),
             )
             observed_reports.clear()
             with ExitStack() as stack:

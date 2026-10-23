@@ -46,6 +46,7 @@ from aria_kernel.tools_binding import bind_tools_root
 from tests._helpers.declared_fixtures import append_declared_fixture
 from tests._helpers.state_lineage_pin import pin_bootstrapped_lineage, sync_fixture_lineage_pin
 from tests._helpers.writer_lease import holding_writer_lease, leased_publish
+from tests._helpers.operator_stop import operator_stop_clear
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _REPO_HASH = "repohash0222"
@@ -252,6 +253,7 @@ class MergeIntentTests(unittest.TestCase):
         result = merge_pr_if_ready(
             adapter=adapter, pr_number=7, base_dir=self.tools, readiness_claim_id="claim:7:aaaaaaaaaaaa",
             intent_publisher=publisher,
+            operator_stop=operator_stop_clear(),
         )
         self.assertEqual(adapter.calls, ["publish", "merge"])
         self.assertEqual(result["decision"], "merged")
@@ -272,6 +274,7 @@ class MergeIntentTests(unittest.TestCase):
                 result = merge_pr_if_ready(
                     adapter=adapter, pr_number=7, base_dir=self.tools,
                     readiness_claim_id="claim:7:aaaaaaaaaaaa", intent_publisher=publisher,
+                    operator_stop=operator_stop_clear(),
                 )
                 self.assertEqual(adapter.calls, [])
                 self.assertEqual(result["decision"], "blocked")

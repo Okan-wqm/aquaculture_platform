@@ -49,6 +49,7 @@ import yaml
 
 from tests.test_executor_workflow_sandbox_contract import executable_yaml
 from tests._helpers.operator_acts import operator_set_profile
+from tests._helpers.operator_stop import operator_stop_clear
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "aria-auto-cycle.yml"
@@ -642,6 +643,7 @@ class MergeStaysImpossibleWhenTheNightRunsStrict(unittest.TestCase):
                     pr_number=1,
                     base_dir=tools,
                     readiness_claim_id="claim-1",
+                    operator_stop=operator_stop_clear(),
                 )
         self.assertIn("merge_lane_not_granted", str(caught.exception))
         self.assertIn("'strict'", str(caught.exception))
@@ -706,6 +708,7 @@ class MergeStaysImpossibleWhenTheNightRunsStrict(unittest.TestCase):
             adapter_factory=lambda: object(),
             pr_enumerator=lambda adapter: [4242],
             readiness_claim_resolver=lambda adapter, pr, base: "claim-1",
+            operator_stop=operator_stop_clear(),
         )
         self.assertIsInstance(runner, RealAutoMergeRunner)
         observed: list[bool] = []
@@ -743,12 +746,13 @@ class MergeStaysImpossibleWhenTheNightRunsStrict(unittest.TestCase):
             adapter_factory=lambda: object(),
             pr_enumerator=lambda adapter: [4242],
             readiness_claim_resolver=lambda adapter, pr, base: "claim-1",
+            operator_stop=operator_stop_clear(),
         )
         reached_merge_authority: list[int] = []
         observed_workspace_roots: list[str | None] = []
 
         def _record_merge_authority(*, adapter, pr_number, base_dir, readiness_claim_id, workspace_root=None,
-                                    intent_publisher=None):
+                                    intent_publisher=None, operator_stop=None):
             reached_merge_authority.append(pr_number)
             observed_workspace_roots.append(workspace_root)
             # `blocked` and not a merge: the gates BELOW this point (profile,

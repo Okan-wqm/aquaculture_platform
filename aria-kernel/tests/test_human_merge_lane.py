@@ -29,6 +29,7 @@ from aria_kernel.risk_policy import HUMAN_MERGE_DECISION, HUMAN_MERGE_LABEL, cla
 from aria_kernel.tool_registry import ensure_tools_dir
 from tests._helpers.git_fixtures import make_local_git_repo
 from tests._helpers.installation_credential import LANE_CREDENTIAL_ENV
+from tests._helpers.operator_stop import operator_stop_clear
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -167,6 +168,7 @@ class TheMergeLaneNamesItTests(unittest.TestCase):
         runner = select_auto_merge_runner(
             profile="strict", executes_merges=True, adapter_factory=lambda: object(),
             pr_enumerator=lambda _adapter: [5, 6], readiness_claim_resolver=resolver,
+            operator_stop=operator_stop_clear(),
         )
         with mock.patch("aria_kernel.auto_merge.merge_if_green", side_effect=evaluate):
             result = runner(base_dir=self.tools, workspace_root=self._tmp.name)
@@ -186,7 +188,7 @@ class TheMergeLaneNamesItTests(unittest.TestCase):
 
         with mock.patch("aria_kernel.merge_authority.assert_merge_authority_available", return_value="autonomous"), \
                 mock.patch("aria_kernel.merge_authority.assert_merge_not_watchdog_frozen", return_value=None):
-            result = merge_pr_if_ready(adapter=_Adapter(), pr_number=9, base_dir=self.tools, readiness_claim_id="claim-9")
+            result = merge_pr_if_ready(adapter=_Adapter(), pr_number=9, base_dir=self.tools, readiness_claim_id="claim-9", operator_stop=operator_stop_clear())
         self.assertEqual(result["decision"], "skipped")
         self.assertEqual(result["reasons"], [HUMAN_MERGE_DECISION])
         self.assertFalse((self.tools / "enterprise" / "risk-decisions.jsonl").exists())

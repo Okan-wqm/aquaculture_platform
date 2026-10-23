@@ -36,6 +36,7 @@ from aria_kernel.readiness_proofs import (
 )
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from tests._helpers.published_artifacts import PublishedArtifacts
+from tests._helpers.operator_stop import operator_stop_clear
 
 _HEAD = "a" * 40
 _NEWER_HEAD = "e" * 40
@@ -296,6 +297,7 @@ class LeaseAtMergeTests(_ClaimFixture):
                     adapter=adapter, pr_number=77, base_dir=self.tools,
                     readiness_claim_id=claim_id,
                     intent_publisher=lambda intent: {"published": True},
+                    operator_stop=operator_stop_clear(),
                 )
         finally:
             for item in reversed(patches):
@@ -355,6 +357,7 @@ class LeaseAtMergeTests(_ClaimFixture):
                 result = merge_pr_if_ready(
                     adapter=adapter, pr_number=77, base_dir=self.tools,
                     readiness_claim_id=claim_id,
+                    operator_stop=operator_stop_clear(),
                 )
             finally:
                 for item in reversed(patches):

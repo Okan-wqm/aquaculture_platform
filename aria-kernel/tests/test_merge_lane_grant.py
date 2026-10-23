@@ -34,6 +34,7 @@ from aria_kernel.runtime_profile import (
 )
 from aria_kernel.tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
 from tests._helpers.operator_acts import github_operator_acts, operator_set_profile
+from tests._helpers.operator_stop import operator_stop_clear
 
 
 def _in(days: float) -> str:
@@ -235,7 +236,7 @@ class MergeLaneGrantTests(unittest.TestCase):
         observed: list[str] = []
 
         def _record_authority(*, adapter, pr_number, base_dir, readiness_claim_id, workspace_root=None,
-                              intent_publisher=None):
+                              intent_publisher=None, operator_stop=None):
             observed.append("live")
             return {"decision": "blocked", "eligible": False, "pr_number": pr_number, "reasons": []}
 
@@ -252,6 +253,7 @@ class MergeLaneGrantTests(unittest.TestCase):
             adapter_factory=lambda: object(),
             pr_enumerator=lambda adapter: [7],
             readiness_claim_resolver=lambda adapter, pr, base: "claim-1",
+            operator_stop=operator_stop_clear(),
         )
         from tests._helpers.actions_oidc import merge_lane_job
 
@@ -284,6 +286,7 @@ class MergeLaneGrantTests(unittest.TestCase):
             adapter_factory=lambda: object(),
             pr_enumerator=lambda adapter: [7],
             readiness_claim_resolver=lambda adapter, pr, base: "claim-1",
+            operator_stop=operator_stop_clear(),
         )
         with mock.patch(
             "aria_kernel.auto_merge.merge_if_green",

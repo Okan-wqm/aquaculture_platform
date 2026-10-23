@@ -71,6 +71,7 @@ from aria_kernel.operator_approval import APPROVAL_CONSUMED_EVENT, AUTHORITY_RAI
 from aria_kernel.report_ingestion import read_registry_view
 from aria_kernel.tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
 from tests._helpers.operator_acts import github_operator_acts, operator_set_profile
+from tests._helpers.operator_stop import operator_stop_clear
 
 KERNEL = Path(aria_kernel.__file__).resolve().parent
 REPO = KERNEL.parents[1]
@@ -726,6 +727,8 @@ class VerifiedApprovalSurfaces(unittest.TestCase):
             "full_shadow_cycle_ref": "cycle-1",
             "rollback_plan": "git revert",
             "base_dir": self.tools,
+            # The operator's live stop read clear: this test is about the approval.
+            "operator_stop": operator_stop_clear(),
         }
         self._refused_as_unrecorded(lambda ref: request_kernel_change(operator_approval_ref=ref, **kwargs))
         import hashlib

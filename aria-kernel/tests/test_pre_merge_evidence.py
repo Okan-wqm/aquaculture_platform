@@ -46,6 +46,7 @@ from aria_kernel.merge_authority import merge_pr_if_ready
 from aria_kernel.tool_registry import ensure_tools_dir
 from tests._helpers.operator_acts import operator_set_profile
 from tests.test_merge_authority_pre_merge_perimeter import _SHA, _gate_patches
+from tests._helpers.operator_stop import operator_stop_clear
 
 _SOURCE_PATH = "apps/farm-service/src/sample-interval.ts"
 
@@ -268,6 +269,7 @@ class MergeBindingTests(unittest.TestCase):
                 adapter=adapter, pr_number=77, base_dir=self.tools,
                 readiness_claim_id="claim:77:aaaaaaaaaaaa",
                 intent_publisher=lambda intent: {"published": True},
+                operator_stop=operator_stop_clear(),
             )
         finally:
             for item in reversed(patches):

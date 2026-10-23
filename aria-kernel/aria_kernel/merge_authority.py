@@ -31,9 +31,15 @@ from .incident_ledger import (
 )
 from .ledger import SEGMENTED_LEDGERS, load_declared_jsonl, load_segments, segment_paths
 from .merge_lane_merge_state import route_unmergeable_merge_state
-from .merge_record import LINEAGE_DELIVERED, MERGED_BY_MERGE_LANE, pr_change_binding, record_merge
+from .merge_record import (
+    LINEAGE_DELIVERED,
+    MERGED_BY_MERGE_LANE,
+    NO_MERGE_CALL_FIELD,
+    pr_change_binding,
+    record_merge,
+)
 from .policy_approval import verify_policy_approval
-from .preflight import OPERATOR_STOP_REFUSAL, operator_stop_engaged, refuse_when_operator_stopped
+from .preflight import OperatorStopSource, operator_stop_reason
 from .readiness_proofs import produce_remote_cas_proof
 from .risk_policy import first_present_string, record_risk_decision_for_pr
 from .rollback_bundle import verify_rollback_bundle
@@ -61,6 +67,7 @@ def merge_pr_if_ready(
     readiness_claim_id: str | None = None,
     workspace_root: str | Path | None = None,
     intent_publisher: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+    operator_stop: OperatorStopSource | None = None,
 ) -> dict[str, Any]:
     """Single real-merge authority for ARIA-governed PRs.
 
@@ -76,12 +83,15 @@ def merge_pr_if_ready(
     eligibility, the change-ledger triple gate, and a final live re-evaluation
     immediately before invoking ``adapter.merge_pr``.
 
-    The operator's stop (``vars.ARIA_STOP``, PLAN-v2 §2 'Durdurma') is read
-    at entry, before any gate writes a row, and again as the last act before
-    the merge call, after the intent is published: a stop set while the gates
-    ran blocks the merge by name and makes no merge call.
+    ``operator_stop`` reads the operator's LIVE ``vars.ARIA_STOP`` (PLAN-v2 §2
+    'Durdurma'; :func:`preflight.repository_operator_stop` in the merge lane)
+    as the last act before the merge call, after the intent is published: a
+    stop set at any moment before it — while the job ran, while the gates ran —
+    blocks the merge by name and makes no merge call. Without a source, or
+    when the variable cannot be read, no merge call is made (fail closed). A
+    stop set before the job started never reaches here: the workflow starts
+    no job (``if: vars.ARIA_STOP == ''``).
     """
-    refuse_when_operator_stopped("merge_authority")
     # ARIA-HIGH-205 — merge authority is `autonomous` or an operator's
     # merge-lane grant (runtime_profile). Refused here, before any merge work,
     # when neither exists; the lane the grant must cover is checked against
@@ -368,20 +378,27 @@ def merge_pr_if_ready(
                                 base_dir=base_dir,
                                 cycle_id=cycle_id,
                             )
+                            stop_reason = None if intent_refusal is not None else operator_stop_reason(operator_stop)
                             if intent_refusal is not None:
                                 result = intent_refusal
-                            elif operator_stop_engaged():
+                            elif stop_reason is not None:
                                 # ARIA-HIGH-765 — the merge moment: every gate
                                 # passed and the intent is on the record when
-                                # the operator's stop arrives. No merge call.
+                                # the operator's live stop is read set (or
+                                # unreadable). No merge call — and the row
+                                # says so for (pr, head), so the published
+                                # intent never counts as ARIA's merge attempt.
                                 result = dict(decision)
                                 result.update(
                                     {
                                         "recorded_at": utc_now(),
                                         "decision": "blocked",
                                         "eligible": False,
-                                        "reasons": [OPERATOR_STOP_REFUSAL],
+                                        "reasons": [stop_reason],
                                         "stage": "operator_stop",
+                                        "pr_number": pr_number,
+                                        "head_sha": head_sha,
+                                        NO_MERGE_CALL_FIELD: True,
                                         "merge_lease": _lease_summary(merge_lease),
                                     },
                                 )
@@ -682,6 +699,11 @@ def _publish_merge_intent(
             "eligible": False,
             "reasons": [reason],
             "stage": "merge_intent",
+            # The intent row above may still reach aria/state with a later
+            # publish; this row says no merge call followed it (R2).
+            "pr_number": pr_number,
+            "head_sha": head_sha,
+            NO_MERGE_CALL_FIELD: True,
             "merge_lease": merge_lease,
         },
     )

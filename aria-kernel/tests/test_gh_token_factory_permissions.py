@@ -90,6 +90,9 @@ class TheMintSendsTheCallersPermissions(unittest.TestCase):
         self.assertEqual(self.posted[0]["body"]["permissions"], {
             "pull_requests": "write", "contents": "write", "administration": "read",
             "checks": "read", "statuses": "read", "issues": "read", "actions": "read",
+            # ARIA-HIGH-765 — the operator's live vars.ARIA_STOP at the merge
+            # moment: read, never write (ARIA cannot clear the operator's stop).
+            "actions_variables": "read",
         })
 
     def test_the_named_sets_are_immutable(self) -> None:
@@ -209,6 +212,9 @@ class TheNamedPermissionSetsAreTheClosedAllowlist(unittest.TestCase):
         self.assertEqual(dict(sets["MERGE_LANE"]), {
             "pull_requests": "write", "contents": "write", "administration": "read",
             "checks": "read", "statuses": "read", "issues": "read", "actions": "read",
+            # ARIA-HIGH-765 — the operator's live vars.ARIA_STOP at the merge
+            # moment: read, never write (ARIA cannot clear the operator's stop).
+            "actions_variables": "read",
         })
         self.assertEqual(dict(sets["RUNNER_STATUS"]), {"administration": "read"})
 

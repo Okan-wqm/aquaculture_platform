@@ -337,6 +337,13 @@ INSTALLATION_TOKEN_PERMISSION_SETS: Mapping[str, Mapping[str, str]] = MappingPro
     # actions:read: the readiness claim's rollback and retention proofs name
     # a published Actions artifact, and the merge gate verifies them by
     # downloading it (`actions_artifacts.fetch_actions_artifact`).
+    # ARIA-HIGH-765 (PLAN-v2 §2 'Durdurma', B0 corrective R1) — and
+    # actions_variables:read (the App's "Variables: Read-only"): right before
+    # each merge call the merge authority reads the operator's LIVE
+    # vars.ARIA_STOP (`preflight.repository_operator_stop`). The job-start
+    # copy cannot change inside the job, so without this read a stop set
+    # while the lane runs never reached the merge call. Read only: the App
+    # never holds Variables write, so ARIA cannot clear the operator's stop.
     "MERGE_LANE": MappingProxyType({
         "pull_requests": "write",
         "contents": "write",
@@ -345,6 +352,7 @@ INSTALLATION_TOKEN_PERMISSION_SETS: Mapping[str, Mapping[str, str]] = MappingPro
         "statuses": "read",
         "issues": "read",
         "actions": "read",
+        "actions_variables": "read",
     }),
     # A token that may only READ the repository's runner roster
     # (GET /repos/{owner}/{repo}/actions/runners): what the hosted runner

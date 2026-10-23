@@ -163,7 +163,7 @@ from typing import Any, Callable, Mapping, Sequence
 from .change_paths import name_status_args, parse_name_status_z
 from .git_containment import KERNEL_GIT_NO_HOOKS_ARGS, without_ambient_git_config
 from .ledger import append_declared_jsonl, load_declared_jsonl
-from .merge_record import lifecycle_rows, pr_change_binding
+from .merge_record import NO_MERGE_CALL_FIELD, lifecycle_rows, pr_change_binding
 from .pr_manager import ARIA_PR_BASE, REVERT_BRANCH_PREFIX
 from .self_merge_freeze import (
     FreezeNoticeWriter,
@@ -636,7 +636,17 @@ def prove_revert_purity(*, workspace: Path, merge_sha: str, revert_sha: str) -> 
 # a merge queue, so the merge call usually enqueues and the queue merges the
 # PR later. An enqueued PR the queue then merged at that head is ARIA's
 # merge, whether or not the merge lane has settled it into ``merged`` yet.
-_ATTEMPT_DECISIONS: frozenset[str] = frozenset({"merge_intent", "enqueued"})
+#
+# ARIA-HIGH-765 / B0 corrective R2 — a ``merge_intent`` is withdrawn by the
+# row that follows it stating NO merge call was made for the same (pr, head)
+# (``merge_record.NO_MERGE_CALL_FIELD``: the operator's stop at the merge
+# moment, an unpublished intent). The ledger is read in order, so the
+# statement withdraws the intents recorded before it and no later one: ARIA's
+# own retry at that head after the operator clears the stop is ARIA's again.
+# ``enqueued`` is never withdrawn — that merge call was made, and the queue
+# may still merge it.
+_INTENT_DECISION = "merge_intent"
+_ENQUEUED_DECISION = "enqueued"
 
 
 def _aria_merged_prs(base_dir: str | Path | None) -> set[int]:
@@ -644,14 +654,24 @@ def _aria_merged_prs(base_dir: str | Path | None) -> set[int]:
     if not path.exists():
         return set()
     merged: set[int] = set()
-    attempts: set[tuple[int, str]] = set()
+    intents: set[tuple[int, str]] = set()
+    enqueued: set[tuple[int, str]] = set()
     for row in load_declared_jsonl(path, expected_surface="auto_merge_decisions"):
         if not isinstance(row.get("pr_number"), int):
             continue
         if row.get("decision") == "merged":
             merged.add(int(row["pr_number"]))
-        elif row.get("decision") in _ATTEMPT_DECISIONS and isinstance(row.get("head_sha"), str):
-            attempts.add((int(row["pr_number"]), str(row["head_sha"])))
+            continue
+        if not isinstance(row.get("head_sha"), str):
+            continue
+        key = (int(row["pr_number"]), str(row["head_sha"]))
+        if row.get("decision") == _INTENT_DECISION:
+            intents.add(key)
+        elif row.get("decision") == _ENQUEUED_DECISION:
+            enqueued.add(key)
+        elif row.get(NO_MERGE_CALL_FIELD) is True:
+            intents.discard(key)
+    attempts = intents | enqueued
     if attempts:
         merged_at_head = {
             (number, str(outcome.get("head_sha") or ""))

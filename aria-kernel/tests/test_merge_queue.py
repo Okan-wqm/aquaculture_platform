@@ -36,6 +36,7 @@ from aria_kernel.merge_authority import (
 )
 from aria_kernel.tool_registry import ensure_tools_dir
 from tests._helpers.installation_credential import LANE_CREDENTIAL_ENV
+from tests._helpers.operator_stop import operator_stop_clear
 
 _HEAD = "a" * 40
 _OTHER = "b" * 40
@@ -302,6 +303,7 @@ class TheAuthorityRecordsWhatHappenedTests(_Store):
         return merge_pr_if_ready(
             adapter=_Adapter(merge_result), pr_number=7, base_dir=self.tools,
             readiness_claim_id=_CLAIM, intent_publisher=lambda intent: {"published": True},
+            operator_stop=operator_stop_clear(),
         )
 
     def test_an_enqueued_pr_is_recorded_enqueued_not_merged(self) -> None:
@@ -412,6 +414,7 @@ class TheLaneSettlesTheQueueTests(_Store):
             profile="autonomous", executes_merges=True, adapter_factory=lambda: adapter,
             pr_enumerator=lambda _adapter: seen.append(pending_enqueued_heads(self.tools)) or [],
             readiness_claim_resolver=lambda *_: _CLAIM,
+            operator_stop=operator_stop_clear(),
         )
         with merge_lane_job(), \
                 patch("aria_kernel.runtime_profile.merge_authority_available", return_value=True), \
@@ -435,6 +438,7 @@ class TheLaneSettlesTheQueueTests(_Store):
         runner = RealAutoMergeRunner(
             profile="strict", executes_merges=False, adapter_factory=lambda: _Refuses({}),
             pr_enumerator=lambda _adapter: [], readiness_claim_resolver=lambda *_: _CLAIM,
+            operator_stop=operator_stop_clear(),
         )
         result = runner(base_dir=self.tools, workspace_root=None)
         self.assertTrue(result["dry_run"])

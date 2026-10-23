@@ -46,7 +46,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 # ORPHAN-HIGH-728 — profile authority is READ from the table, never
 # restated. Every `profile == "autonomous"` / `profile in (...)` in this
@@ -559,7 +559,7 @@ def verify_workflow_preflight(
 
     kill_switch = (
         _env_truthy("ARIA_GLOBAL_KILL_SWITCH")
-        or operator_stop_engaged()
+        or operator_stop_at_job_start()
         or (workspace / ".aria-kill-switch").exists()
         or (workspace / "aria-tools" / "KILL_SWITCH").exists()
     )
@@ -768,32 +768,126 @@ def _env_truthy(name: str) -> bool:
 
 # PLAN-v2 §2 'Durdurma' (ARIA-HIGH-765) — the operator's stop is the
 # repository variable ``vars.ARIA_STOP``, which only the operator can write
-# (the ARIA GitHub App holds no Variables permission). Every ARIA workflow
-# starts no job while it is set and passes it to every step as the
-# ``ARIA_STOP`` environment variable (tests/invariants/
-# test_aria_stop_every_workflow.py). NON-EMPTY MEANS STOP, whatever it says:
-# the operator writes a reason or a ticket id, not a truthy word, and the
-# workflows' own ``vars.ARIA_STOP == ''`` guard reads it the same way.
+# (the ARIA GitHub App may READ variables — "Variables: Read-only" — and
+# never write them). NON-EMPTY MEANS STOP, whatever it says: the operator
+# writes a reason or a ticket id, not a truthy word; unset (or empty) means
+# run. Two readings, one owner (this module):
 #
-# This is the ONE reader of that environment variable in the kernel; the
-# workflow preflight, kernel_change admission and the merge authority (at
-# entry and right before the merge call) all ask here. The ``ARIA_STOP``
-# FILE the autonomy loops write is the kernel's own deadline stop, a
-# different thing: its absence never clears the operator's variable.
+# * AT JOB START. Every ARIA workflow starts no job while the variable is set
+#   (``if: vars.ARIA_STOP == ''``) and passes it to every step as the
+#   ``ARIA_STOP`` environment variable (tests/invariants/
+#   test_aria_stop_every_workflow.py). GitHub evaluates both ONCE, when the
+#   job starts, so the environment can never change inside the job: it is the
+#   job gate, and the workflow preflight's kill switch is its only kernel
+#   reader (:func:`operator_stop_at_job_start`).
+# * LIVE, IN PROCESS. A stop the operator sets while a job runs reaches the
+#   kernel only by reading the variable again from GitHub. kernel_change
+#   admission and the merge authority (right before the merge call) do that
+#   through :func:`operator_stop_engaged`, with an :data:`OperatorStopSource`
+#   their caller hands them — :func:`repository_operator_stop` in
+#   production, which asks ``GET /repos/{repo}/actions/variables`` with the
+#   ambient ``gh`` credential (the merge lane's token carries
+#   ``actions_variables: read``). It FAILS CLOSED: no source, or a variable
+#   that cannot be read, is a stop.
+#
+# The ``ARIA_STOP`` FILE the autonomy loops write is the kernel's own
+# deadline stop, a different thing: its absence never clears the operator's
+# variable.
+OPERATOR_STOP_VARIABLE = "ARIA_STOP"
 OPERATOR_STOP_REFUSAL = "aria_stop"
+OPERATOR_STOP_UNREADABLE = "aria_stop_unreadable"
+OPERATOR_STOP_READ_TIMEOUT_SECONDS = 20
+# The provider's page bound for the repository-variables listing.
+_VARIABLES_PAGE_SIZE = 30
 
 
-def operator_stop_engaged() -> bool:
-    """True when the operator's ``vars.ARIA_STOP`` reaches this process non-empty."""
+class OperatorStopUnreadable(GovernanceError):
+    """The live ``vars.ARIA_STOP`` could not be read; the reader counts it as a stop."""
+
+
+# The live value of ``vars.ARIA_STOP``: ``""`` when unset or empty, else the
+# operator's text. Raises :class:`OperatorStopUnreadable` when it cannot say.
+OperatorStopSource = Callable[[], str]
+
+
+def operator_stop_at_job_start() -> bool:
+    """True when the job started with the operator's ``vars.ARIA_STOP`` set (the job-start snapshot)."""
     return os.environ.get("ARIA_STOP", "") != ""
 
 
-def refuse_when_operator_stopped(act: str) -> None:
-    """Raise ``aria_stop: <act> refused ...`` while the operator's stop is set; the value is never echoed."""
-    if operator_stop_engaged():
-        raise GovernanceError(
-            f"{OPERATOR_STOP_REFUSAL}: {act} refused — the operator's stop (vars.ARIA_STOP) is set"
-        )
+def operator_stop_reason(source: OperatorStopSource | None) -> str | None:
+    """Why the operator's stop holds NOW — :data:`OPERATOR_STOP_REFUSAL` or :data:`OPERATOR_STOP_UNREADABLE` —
+    or ``None`` when the live variable is read and empty. The value itself is never returned or echoed."""
+    if source is None:
+        return OPERATOR_STOP_UNREADABLE
+    try:
+        value = source()
+    except OperatorStopUnreadable:
+        return OPERATOR_STOP_UNREADABLE
+    return OPERATOR_STOP_REFUSAL if value != "" else None
+
+
+def operator_stop_engaged(source: OperatorStopSource | None) -> bool:
+    """True when the operator's live ``vars.ARIA_STOP`` is set, or cannot be read (fail closed)."""
+    return operator_stop_reason(source) is not None
+
+
+def refuse_when_operator_stopped(act: str, source: OperatorStopSource | None) -> None:
+    """Raise ``aria_stop[...]: <act> refused ...`` while the live stop holds; the value is never echoed."""
+    reason = operator_stop_reason(source)
+    if reason is not None:
+        raise GovernanceError(f"{reason}: {act} refused — the operator's stop (vars.ARIA_STOP) is set or unreadable")
+
+
+def repository_operator_stop(*, repository: str | None = None, gh_cli: str = "gh") -> OperatorStopSource:
+    """The production source: the live ``vars.ARIA_STOP`` of ``repository`` (default: the operators policy's).
+
+    Lists the repository's variables page by page (``GET /repos/{repository}/
+    actions/variables``) rather than asking for the one variable, because a
+    listing that answers proves the read worked: the variable's absence from
+    it is "unset", never a 404 that could equally be a missing permission.
+    Anything else — ``gh`` missing or failing, a timeout, a body that is not
+    the listing — raises :class:`OperatorStopUnreadable`. No error carries the
+    value.
+    """
+    if repository is None:
+        from .operator_approval import load_operators_policy
+
+        repository = str(load_operators_policy()["repository"])
+    target = repository
+
+    def read() -> str:
+        seen, page = 0, 1
+        while True:
+            path = f"repos/{target}/actions/variables?per_page={_VARIABLES_PAGE_SIZE}&page={page}"
+            try:
+                done = subprocess.run([gh_cli, "api", path], capture_output=True, text=True,
+                                      timeout=OPERATOR_STOP_READ_TIMEOUT_SECONDS, check=False)
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                raise OperatorStopUnreadable(f"{OPERATOR_STOP_UNREADABLE}: {exc.__class__.__name__}") from exc
+            if done.returncode != 0:
+                raise OperatorStopUnreadable(f"{OPERATOR_STOP_UNREADABLE}: gh api exited {done.returncode}")
+            try:
+                listing = json.loads(done.stdout)
+            except ValueError as exc:
+                raise OperatorStopUnreadable(f"{OPERATOR_STOP_UNREADABLE}: the listing is not JSON") from exc
+            total = listing.get("total_count") if isinstance(listing, dict) else None
+            variables = listing.get("variables") if isinstance(listing, dict) else None
+            if type(total) is not int or not isinstance(variables, list) or not all(
+                    isinstance(item, dict) and isinstance(item.get("name"), str) for item in variables):
+                raise OperatorStopUnreadable(f"{OPERATOR_STOP_UNREADABLE}: the listing has no variables page")
+            for item in variables:
+                if item["name"] == OPERATOR_STOP_VARIABLE:
+                    value = item.get("value")
+                    if not isinstance(value, str):
+                        raise OperatorStopUnreadable(f"{OPERATOR_STOP_UNREADABLE}: the variable has no value")
+                    return value
+            seen += len(variables)
+            if seen >= total or not variables:
+                return ""
+            page += 1
+
+    return read
 
 
 def _git_worktree_clean(workspace: Path) -> bool | None:
@@ -854,8 +948,15 @@ def _git_worktree_offending_paths(workspace: Path) -> list[str]:
 
 __all__ = (
     "OPERATOR_STOP_REFUSAL",
+    "OPERATOR_STOP_UNREADABLE",
+    "OPERATOR_STOP_VARIABLE",
+    "OperatorStopSource",
+    "OperatorStopUnreadable",
+    "operator_stop_at_job_start",
     "operator_stop_engaged",
+    "operator_stop_reason",
     "refuse_when_operator_stopped",
+    "repository_operator_stop",
     "PreflightVerdict",
     "WorkflowPreflightVerdict",
     "REQUIRED_BRANCH_PROTECTION_FIELDS",

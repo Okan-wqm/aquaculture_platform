@@ -896,3 +896,23 @@ because the textfile directory is root:root 0755. So every probe*\* rule in
 - Failure scenario: the privileged probe measures an ACTIVE tenant with no usable schema, and no
   alert fires, because Prometheus never sees `probe_finding_count`. This is the channel that let
   ARIA-HIGH-797 run unseen from 2026-08-06.
+
+## ARIA-MEDIUM-800
+
+Container truth for the 2026-08-03 "ps lies" incident class has two owners, and the one meant to be
+authoritative is not installed on the droplet.
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-13.
+- Plan item(s): RW-2 (runtime watch), raised by its single-owner review and kept by the appellate as
+  dissent: the duplicate predates RW-2, which moves the existing measurement unchanged.
+- Evidence:
+  - `infrastructure/scripts/aqua-dataflow-probe.sh:64-74` (State.Running per container, measured by
+    root for the watchdog lane)
+  - `tools/watchdog/probe-runner.mjs:118-128` (the container_state_truth probe id the rules read)
+  - `tools/supervisor/runtime-supervisor.ts:105-125` (the supervisor's own container judgement)
+  - `infrastructure/supervisor/aqua-supervisor.service:6` ("container truth + host pressure")
+  - `infrastructure/monitoring/droplet/rules/60-dataflow-integrity.yml:215-236` (rules over both)
+- Rule: one owner per concept; an alert source that is not installed is a decorative rule.
+- Close when exactly one owner judges container truth for this class (the supervisor installed and
+  read through its published verdict with a freshness check, or its container judgement retired in
+  favour of the root probe), an invariant names that owner, and the alert rules read only it.

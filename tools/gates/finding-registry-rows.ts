@@ -20,8 +20,8 @@
  * WHY ONLY CHANGED ROWS. The integrity invariant
  * (tests/invariants/finding-registry-integrity.spec.ts) already judges the
  * whole ledger on every PR. A writer that refused because of a row it did not
- * touch would let one bad merged row halt every unrelated close and the
- * reconcile lane; checking what this write changes keeps the refusal on the
+ * touch would let one bad merged row halt every unrelated add, sweep and
+ * reopen; checking what this write changes keeps the refusal on the
  * write that caused it.
  */
 

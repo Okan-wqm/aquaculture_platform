@@ -188,7 +188,7 @@ Per data-expert: `DROP COLUMN` does NOT reclaim disk until `VACUUM FULL` / `CLUS
 - [ ] Step 4 three dashboards monitored; within ±20% baseline.
 - [ ] Step 5 schema drift validator + adoption invariant + entity-column check all PASS.
 - [ ] Step 6 smoke E2E PASS for the affected domain path.
-- [ ] Step 7 prod-migration report written; finding-registry closed if applicable.
+- [ ] Step 7 prod-migration report written; the fix commit carries the finding's `Closes:` trailer if applicable.
 - [ ] Rollback path (Step R) identified + dry-run validated before this execution.
 
 ## Examples

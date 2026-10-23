@@ -172,7 +172,7 @@ describe('enterprise-grade debt closure plan contract', () => {
 
     // Missing row: a new active CRITICAL needs an owner, a sprint and a bucket.
     // Retired row: a CRITICAL that left the active set must leave the table
-    // (the closure-reconcile lane moves it). Duplicate rows and unknown
+    // (the PR whose trailer closes it removes it). Duplicate rows and unknown
     // buckets fail too — the earlier Map-based check let a duplicate through.
     expect(checkDebtPlanTruth(snapshot, truthTableActiveRows(truthTable))).toEqual({
       valid: true,

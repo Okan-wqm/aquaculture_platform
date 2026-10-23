@@ -1449,7 +1449,7 @@ function cmdSweep(args: string[], lease: RegistryLockLease): number {
  *
  * `no-console` is an error-level lint rule; this file's existing `console.*`
  * calls are baseline-grandfathered, but lines added after that baseline use the
- * stream API (the same rule `cmdClose` follows for stderr).
+ * stream API (the same rule `cmdProject` follows for stderr).
  */
 function writeOut(message: string): void {
   process.stdout.write(`${message}\n`);

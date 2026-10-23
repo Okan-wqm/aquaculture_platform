@@ -6,6 +6,8 @@
 import { readFileSync, readdirSync, statSync } from 'fs';
 import { join, resolve } from 'path';
 
+import { collaborator } from '@aquaculture/testing';
+
 import { DEVICE_CODE_PATTERN, isDeviceCode } from '../edge-contract';
 import { DeviceModel } from '../entities/edge-device.entity';
 import { ProvisioningController } from '../provisioning.controller';
@@ -119,7 +121,9 @@ describe('the controller routes answer a contract device code with the route, no
     generateUninstallScript: jest.fn().mockResolvedValue('#!/bin/sh\nuninstall\n'),
     generateUpdateScript: jest.fn().mockResolvedValue('#!/bin/sh\nupdate\n'),
   };
-  const controller = new ProvisioningController(service as unknown as ProvisioningService);
+  const controller = new ProvisioningController(
+    collaborator<ProvisioningService>(service, 'ProvisioningService'),
+  );
 
   it('uninstall: a code the old four-copy regex refused is served', async () => {
     const res = response();

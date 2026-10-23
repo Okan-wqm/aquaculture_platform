@@ -649,12 +649,176 @@ class StoredLoginUnderThePasswdHomeTests(unittest.TestCase):
         self.assertNotIn("XDG_CONFIG_HOME", gh["gh_cli:stored:GH_CONFIG_DIR"])
         git = {source.name: source.env for source in self.probe.GitRemoteSource.every_credential(env=env)}
         self.assertEqual(list(git), ["git_https:stored", "git_https:stored:GIT_CONFIG_GLOBAL",
-                                     "git_https:stored:XDG_CONFIG_HOME", "git_https:stored:HOME", "git_ssh"])
+                                     "git_https:stored:XDG_CONFIG_HOME", "git_https:stored:HOME", "git_https:job",
+                                     "git_ssh"])
         self.assertEqual(git["git_https:stored"]["HOME"], str(self.home))
         self.assertNotIn("GIT_CONFIG_GLOBAL", git["git_https:stored"])
         # The passwd home itself is the default place, not a job-named one.
         self.assertEqual([s.name for s in self.probe.GhCliSource.every_credential(env={"HOME": str(self.home)})],
                          ["gh_cli:stored"])
+
+    def _assert_reached_by(self, source: str, cases: dict[str, dict[str, str]]) -> list[str]:
+        """Each env file of ``cases`` alone: exit 1, red, ``source`` reachable, no env-file value in stdout."""
+        reached_by_case: list[str] = []
+        for case, variables in cases.items():
+            with self.subTest(env_file=case):
+                status, stdout = self._run("\n".join(f"{name}={value}" for name, value in variables.items()))
+                report = json.loads(stdout)
+                reached = [r["source"] for r in report["sources"] if r["status"] == self.probe.REACHABLE]
+                self.assertEqual((status, report["verdict"]), (1, "red"), report)
+                self.assertIn(source, reached, report["sources"])
+                for value in variables.values():
+                    if len(value) > 1:
+                        self.assertNotIn(value, stdout)
+                reached_by_case += reached
+        return reached_by_case
+
+    def test_env_borne_git_configuration_does_not_hide_the_git_helper(self) -> None:
+        # B0 corrective round 5, R5-3 (security P4, evidence p04): git takes
+        # configuration from the environment too, and an env-file reset of
+        # credential.helper hid the passwd home's helper from a deny-list.
+        (self.home / ".gitconfig").write_text(
+            '[credential "https://github.com"]\n'
+            '\thelper = "!f() { echo username=x-access-token; echo password=fixture-helper; }; f"\n',
+            encoding="utf-8")
+        self._assert_reached_by("git_https:stored", {
+            "GIT_CONFIG_COUNT": {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "credential.helper",
+                                 "GIT_CONFIG_VALUE_0": ""},
+            "GIT_CONFIG_PARAMETERS": {"GIT_CONFIG_PARAMETERS": "\"'credential.helper='\""},
+        })
+
+    def test_an_answering_job_askpass_is_asked_as_the_job_source(self) -> None:
+        # R5-3 (security P4): a job's own GIT_ASKPASS is a credential the job
+        # holds; the probe used to overwrite it with /bin/false.
+        askpass = self.root / "job-askpass"
+        askpass.write_text("#!/bin/sh\necho fixture-askpass-password\n", encoding="utf-8")
+        askpass.chmod(0o755)
+        reached = self._assert_reached_by("git_https:job", {"GIT_ASKPASS": {"GIT_ASKPASS": str(askpass)}})
+        self.assertEqual(reached, ["git_https:job"], "no stored source carries the job's askpass")
+
+    def test_every_stored_source_env_is_the_base_plus_its_one_variable(self) -> None:
+        # R5-3: an allow-list, not a deny-list — nothing of the job's env but
+        # the named base and the one variable a source asks reaches it.
+        other = str(self.root / "elsewhere")
+        env = {"PATH": "/usr/bin", "LANG": "C.UTF-8", "LC_ALL": "C", "HOME": other, "GH_CONFIG_DIR": other,
+               "XDG_CONFIG_HOME": other, "GIT_CONFIG_GLOBAL": other, "GH_TOKEN": "a", "GITHUB_TOKEN": "b",
+               "GH_HOST": "ghe.example.invalid", "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "credential.helper",
+               "GIT_CONFIG_VALUE_0": "", "GIT_CONFIG_PARAMETERS": "'credential.helper='", "GIT_EXEC_PATH": other,
+               "GIT_ASKPASS": other, "SSH_AUTH_SOCK": other, "GIT_SSH_COMMAND": "ssh -i k", "FOO": "bar"}
+        base = {"PATH": "/usr/bin", "LANG": "C.UTF-8", "LC_ALL": "C", "HOME": str(self.home)}
+        expected = {
+            "gh_cli:stored": None, "gh_cli:stored:GH_CONFIG_DIR": "GH_CONFIG_DIR",
+            "gh_cli:stored:XDG_CONFIG_HOME": "XDG_CONFIG_HOME", "gh_cli:stored:HOME": "HOME",
+            "gh_cli:GH_TOKEN": "GH_TOKEN", "gh_cli:GITHUB_TOKEN": "GITHUB_TOKEN",
+            "git_https:stored": None, "git_https:stored:GIT_CONFIG_GLOBAL": "GIT_CONFIG_GLOBAL",
+            "git_https:stored:XDG_CONFIG_HOME": "XDG_CONFIG_HOME", "git_https:stored:HOME": "HOME",
+            "git_ssh": None, "git_ssh:SSH_AUTH_SOCK": "SSH_AUTH_SOCK",
+        }
+        sources = {source.name: source.env for source in [*self.probe.GhCliSource.every_credential(env=env),
+                                                          *self.probe.GitRemoteSource.every_credential(env=env)]}
+        self.assertEqual(sorted(sources), sorted([*expected, "git_https:job"]))
+        for name, variable in expected.items():
+            with self.subTest(source=name):
+                self.assertEqual(sources[name], {**base, **({variable: env[variable]} if variable else {})})
+        self.assertEqual(sources["git_https:job"], env, "the job source runs under the job's env as a job sees it")
+
+
+class GitSshUnderEnvBorneConfigTests(unittest.TestCase):
+    """B0 corrective round 5, R5-3 (ssot SSOT-R4R2-1, p06): an env file's url.insteadOf no longer moves git_ssh off ssh.
+
+    A fake ``ssh`` on PATH serves a local bare repository, standing in for an
+    SSH key of the uid's that reaches the vault; the insteadOf target is a
+    local HTTP endpoint answering 401. Nothing leaves the host: a ``git``
+    wrapper answers every HTTPS URL as GitHub refuses one, and runs the real
+    git for the SSH URL.
+    """
+
+    def setUp(self) -> None:
+        import http.server
+        import subprocess
+        import threading
+
+        self.probe = _probe_module()
+        scratch = tempfile.TemporaryDirectory(prefix="aria-leak-git-ssh-")
+        self.addCleanup(scratch.cleanup)
+        self.root = Path(scratch.name)
+        home, bin_dir = self.root / "passwd-home", self.root / "bin"
+        home.mkdir()
+        bin_dir.mkdir()
+
+        class Refuses(http.server.BaseHTTPRequestHandler):
+            def do_GET(self) -> None:  # noqa: N802 — http.server's name
+                self.send_response(401)
+                self.send_header("WWW-Authenticate", 'Basic realm="fixture"')
+                self.end_headers()
+
+            def log_message(self, *_: object) -> None:
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), Refuses)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        self.redirect = f"http://127.0.0.1:{server.server_address[1]}/"
+        real_git = shutil.which("git")
+        self.assertIsNotNone(real_git)
+        bare, work = self.root / "vault.git", self.root / "work"
+        hermetic = {"PATH": os.environ["PATH"], "HOME": str(home), "GIT_CONFIG_NOSYSTEM": "1"}
+        for command in (["init", "-q", "--bare", str(bare)], ["init", "-q", str(work)],
+                        ["-C", str(work), "-c", "user.name=x", "-c", "user.email=x@example.invalid", "commit", "-q",
+                         "--allow-empty", "-m", "fixture"],
+                        ["-C", str(work), "push", "-q", str(bare), "HEAD:refs/heads/main"]):
+            subprocess.run([real_git, *command], check=True, env=hermetic, capture_output=True)
+        (bin_dir / "ssh").write_text(f"#!/bin/sh\nexec git-upload-pack {bare}\n", encoding="utf-8")
+        (bin_dir / "git").write_text(
+            f"#!{sys.executable}\nimport os, sys\n"
+            "if any(arg.startswith('https://') for arg in sys.argv):\n"
+            "    sys.stderr.write('remote: Repository not found.')\n    raise SystemExit(128)\n"
+            f"os.execv({real_git!r}, [{real_git!r}, *sys.argv[1:]])\n", encoding="utf-8")
+        (bin_dir / "gh").write_text(
+            f"#!{sys.executable}\nimport sys\nsys.stderr.write('please run:  gh auth login')\nraise SystemExit(4)\n",
+            encoding="utf-8")
+        for tool in ("ssh", "git", "gh"):
+            (bin_dir / tool).chmod(0o755)
+        self.config = self.root / "redirect.gitconfig"
+        self.config.write_text(f'[url "{self.redirect}"]\n\tinsteadOf = git@github.com:\n', encoding="utf-8")
+        self.config_home = self.root / "config-home"
+        self.config_home.mkdir()
+        (self.config_home / ".gitconfig").write_text(self.config.read_text(encoding="utf-8"), encoding="utf-8")
+        environ = {"PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}", "HOME": str(home)}
+        app_refused = lambda source, repository: self.probe.Reach(source.name, self.probe.UNREACHABLE, 404, "fixture")  # noqa: E731
+        for patcher in (patch.dict(os.environ, environ, clear=True),
+                        patch("pwd.getpwuid", lambda _uid: SimpleNamespace(pw_dir=str(home))),
+                        patch.object(self.probe.AppPrivateKeySource, "reach", app_refused)):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_an_env_file_insteadof_does_not_move_git_ssh_off_ssh(self) -> None:
+        import contextlib
+        import io
+
+        cases = {
+            "B_GIT_CONFIG_GLOBAL": {"GIT_CONFIG_GLOBAL": str(self.config)},
+            "C_HOME": {"HOME": str(self.config_home)},
+            "D_GIT_CONFIG_COUNT": {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": f"url.{self.redirect}.insteadOf",
+                                   "GIT_CONFIG_VALUE_0": "git@github.com:"},
+        }
+        for case, variables in cases.items():
+            with self.subTest(env_file=case):
+                env_file = self.root / "runner.env"
+                env_file.write_text("".join(f"{name}={value}\n" for name, value in variables.items()),
+                                    encoding="utf-8")
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    status = self.probe.main(["--app-id", "1", "--installation-id", "2", "--app-private-key",
+                                              str(self.root / "unused.pem"), "--env-file", str(env_file)])
+                report = json.loads(out.getvalue())
+                self.assertEqual((status, report["verdict"]), (1, "red"), report)
+                self.assertEqual({r["source"]: r["status"] for r in report["sources"]}["git_ssh"],
+                                 self.probe.REACHABLE, report["sources"])
+                for value in variables.values():
+                    if len(value) > 1:
+                        self.assertNotIn(value, out.getvalue())
 
 
 if __name__ == "__main__":

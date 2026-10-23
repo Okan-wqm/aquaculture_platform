@@ -23,16 +23,11 @@
 import React from 'react';
 import { Navigate } from 'react-router-dom';
 import {
+  GuardLoading,
   useAuthContext,
   hasResourcePermission,
   hasTenantPanelAccess,
 } from '@aquaculture/shared-ui';
-
-const CheckingSession: React.FC = () => (
-  <div className="flex items-center justify-center h-48 text-gray-500 dark:text-gray-400 text-sm">
-    Checking session...
-  </div>
-);
 
 /**
  * Any signed-in member. The shell's route guard (ProtectedRoute, via
@@ -43,7 +38,7 @@ export const RequireTenantMember: React.FC<{ children: React.ReactNode }> = ({ c
   const { isAuthenticated, isLoading } = useAuthContext();
 
   if (isLoading) {
-    return <CheckingSession />;
+    return <GuardLoading />;
   }
 
   if (!isAuthenticated) {
@@ -56,8 +51,9 @@ export const RequireTenantMember: React.FC<{ children: React.ReactNode }> = ({ c
 export const RequireTenantAdmin: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isAuthenticated, isLoading } = useAuthContext();
 
+  // The guard family's session-check screen: the one loader (FE-MEDIUM-349).
   if (isLoading) {
-    return <CheckingSession />;
+    return <GuardLoading />;
   }
 
   if (!isAuthenticated) {
@@ -83,7 +79,7 @@ export const RequireTenantCapability: React.FC<{
   const { user, hasRoleOrHigher, isAuthenticated, isLoading } = useAuthContext();
 
   if (isLoading) {
-    return <CheckingSession />;
+    return <GuardLoading />;
   }
 
   if (!isAuthenticated) {

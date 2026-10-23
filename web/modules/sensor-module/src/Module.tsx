@@ -8,7 +8,7 @@
 
 import React, { Suspense, lazy } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { ErrorBoundary, RequireAuth, RouteWithBoundary } from '@aquaculture/shared-ui';
+import { BrandLoader, ErrorBoundary, RequireAuth, RouteWithBoundary } from '@aquaculture/shared-ui';
 import SensorScadaPage from './pages/SensorScadaPage';
 import SensorDashboardPage from './pages/SensorDashboardPage';
 import IndustrySetupPage from './pages/IndustrySetupPage';
@@ -23,7 +23,6 @@ import EscalationPoliciesPage from './pages/EscalationPoliciesPage';
 import ThresholdsPage from './pages/ThresholdsPage';
 import CalibrationPage from './pages/CalibrationPage';
 import WidgetDashboardPage from './pages/WidgetDashboardPage';
-import { Spinner } from '@aquaculture/shared-ui';
 
 // Process Editor Pages (lazy loaded - reactflow is heavy and causes Module Federation issues if bundled in main chunk)
 const ProcessListPage = lazy(() => import('./pages/process/ProcessListPage'));
@@ -63,15 +62,6 @@ const WaterChemistryMonitoringPage = lazy(
   () => import('./pages/water-chemistry/WaterChemistryMonitoringPage'),
 );
 
-// Loading fallback
-function PageLoader() {
-  return (
-    <div className="flex h-64 items-center justify-center">
-      <Spinner size="lg" />
-    </div>
-  );
-}
-
 // ============================================================================
 // Sensor Module
 // ============================================================================
@@ -84,7 +74,8 @@ const SensorModule: React.FC = () => {
     // instead of unwinding to the host (web/shared-ui/src/components/guards).
     <RequireAuth>
       <ErrorBoundary moduleName="Sensor">
-        <Suspense fallback={<PageLoader />}>
+        {/* A page chunk loading is the one loading screen (FE-MEDIUM-349). */}
+        <Suspense fallback={<BrandLoader />}>
       <Routes>
         {/* SCADA View - Main Page */}
         <Route index element={<SensorScadaPage />} />

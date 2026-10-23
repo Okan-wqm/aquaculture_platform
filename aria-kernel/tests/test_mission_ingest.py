@@ -42,6 +42,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from aria_kernel import mission as mission_module
+from aria_kernel.impact_graph import ProjectMap
 from aria_kernel.mission import (
     UNUSABLE_SOURCE_IDS,
     adopt_task_candidates,
@@ -288,7 +289,7 @@ class ForwardPointerTests(unittest.TestCase):
                 "finding_id": "F-9",
                 "finding": {"severity": "high", "message": "m",
                             "path": "apps/auth-service/src/token.service.ts"},
-            }, {"auth-service": "apps/auth-service"}), "F-9"),
+            }, ProjectMap({"auth-service": "apps/auth-service"})), "F-9"),
             (_candidate_from_capability_gap("c", {
                 "gap_id": "gap-1", "capability_gap_key": "coverage:auth-service",
                 "recommended_action": "draft_new_aria_agent", "title": "t", "score": 1,

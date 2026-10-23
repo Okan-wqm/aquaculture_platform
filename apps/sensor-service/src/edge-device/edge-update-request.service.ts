@@ -9,11 +9,9 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { DataSource, type QueryRunner } from 'typeorm';
 
 import { EdgeCommandPublisher } from './edge-command-publisher.service';
-import { type BoardRow, boardRow } from './edge-boards';
+import { type BoardRow, boardForDeviceModel } from './edge-boards';
 import {
-  BINDING_METHODS,
-  type BindingMethod,
-  type DeviceBinding,
+  asDeviceBinding,
   type SignedStatement,
   STATEMENT,
   type StatementBodies,
@@ -37,12 +35,11 @@ import {
 import type { EdgeUpdateRecipe, OsUpdateRecipe, UpdateRecipe } from './edge-update-recipe';
 import {
   DeviceLifecycleState,
-  DeviceModel,
   EdgeAgentChannel,
   type EdgeDevice,
-  suderraOsBoardOf,
 } from './entities/edge-device.entity';
 import { EdgeUpdateRequestState } from './entities/edge-update-request.entity';
+import { returningRows } from './returning-rows';
 
 /**
  * The update requests the cloud owes Suderra OS devices (ADR-048 DEC-2, DEC-2.12;
@@ -79,7 +76,7 @@ const TRANSIENT_HANDOFF_REFUSALS: ReadonlySet<string> = new Set([
 ]);
 
 /** The lifecycle states of a committed device an update statement may be issued for. */
-const UPDATABLE_STATES: readonly DeviceLifecycleState[] = [
+export const UPDATABLE_STATES: readonly DeviceLifecycleState[] = [
   DeviceLifecycleState.ACTIVE,
   DeviceLifecycleState.OFFLINE,
   DeviceLifecycleState.ERROR,
@@ -97,6 +94,13 @@ export interface IssueMeta {
    * two replicas reconciling at once cannot both re-issue it.
    */
   readonly supersedes?: string;
+  /**
+   * Runs inside the signing transaction once the request is stored, with the
+   * transaction's query runner and the new request's id. What it writes commits
+   * with the request or not at all; what it throws rolls the request and its
+   * sequence value back. A rollout uses it to take its device's one issue.
+   */
+  readonly afterStore?: (qr: QueryRunner, requestId: string) => Promise<void>;
 }
 
 export interface EdgeUpdateIssue extends IssueMeta {
@@ -157,22 +161,6 @@ interface RequestRow {
   readonly state: EdgeUpdateRequestState;
   readonly expires_at: Date | null;
 }
-
-/**
- * The rows an `UPDATE … RETURNING` answers. TypeORM's raw `query()` answers an UPDATE
- * as `[rows, count]`, which is not an array of rows; the structured form is.
- */
-async function returningRows<T>(
-  qr: QueryRunner,
-  sql: string,
-  params: readonly unknown[],
-): Promise<T[]> {
-  const result: { records: T[] } = await qr.query(sql, [...params], true);
-  return result.records;
-}
-
-const isBindingMethod = (value: string): value is BindingMethod =>
-  BINDING_METHODS.some((method) => method === value);
 
 @Injectable()
 export class EdgeUpdateRequestService implements OnModuleInit {
@@ -307,6 +295,7 @@ export class EdgeUpdateRequestService implements OnModuleInit {
         if (meta.supersedes !== undefined) {
           await this.supersede(qr, device, meta.supersedes, id);
         }
+        if (meta.afterStore !== undefined) await meta.afterStore(qr, id);
         return {
           id,
           intentId,
@@ -338,12 +327,10 @@ export class EdgeUpdateRequestService implements OnModuleInit {
       [device.id, device.tenantId, EdgeAgentChannel.SUDERRA_OS, UPDATABLE_STATES],
     );
     const row = rows[0];
-    if (row === undefined || !isBindingMethod(row.method)) {
-      throw new UpdateTargetUnavailableError(device.id);
-    }
-    const board = boardOfModel(row.model);
-    if (board === null) throw new UpdateTargetUnavailableError(device.id);
-    const binding: DeviceBinding = { method: row.method, digest: { sha256: row.digest } };
+    if (row === undefined) throw new UpdateTargetUnavailableError(device.id);
+    const binding = asDeviceBinding(row.method, row.digest);
+    const board = boardForDeviceModel(row.model);
+    if (binding === null || board === null) throw new UpdateTargetUnavailableError(device.id);
     return {
       updateSeq: Number(row.seq),
       target: { tenantId: device.tenantId, deviceId: device.id, binding, board },
@@ -382,7 +369,7 @@ export class EdgeUpdateRequestService implements OnModuleInit {
         ),
     );
     const row = rows[0];
-    return row === undefined ? null : boardOfModel(row.model);
+    return row === undefined ? null : boardForDeviceModel(row.model);
   }
 
   // ------------------------------------------------------------------ delivery
@@ -705,6 +692,32 @@ export class EdgeUpdateRequestService implements OnModuleInit {
   }
 
   /**
+   * A rollout ended (cancelled by an operator or halted by its failures): the
+   * requests of its devices that no root has been handed yet, and the retryable ones
+   * waiting for a new statement, are concluded as FAILED, so nothing more is
+   * delivered or re-issued. A statement the agent already handed to root cannot be
+   * recalled; its result concludes it as usual. Returns how many were concluded.
+   */
+  async concludeForRollout(tenantId: string, rolloutId: string, detail: string): Promise<number> {
+    const rows = await runInTenantTransaction(
+      this.dataSource,
+      SENSOR_SOURCE_SCHEMA,
+      tenantId,
+      (qr) =>
+        returningRows<{ id: string }>(
+          qr,
+          `UPDATE edge_update_requests
+              SET state = 'failed', failure_detail = $3, updated_at = now()
+            WHERE tenant_id = $1 AND rollout_id = $2
+              AND ((state = 'pending' AND handed_at IS NULL) OR state = 'retry')
+        RETURNING id`,
+          [tenantId, rolloutId, detail.slice(0, 256)],
+        ),
+    );
+    return rows.length;
+  }
+
+  /**
    * An `edge-rollback` result: the device installed an update, its health window
    * failed, and root restored the previous release. The result names the release it
    * rolled back (`subject.version`), not a statement digest, so the request it
@@ -830,13 +843,6 @@ export interface ReissueCandidate {
 
 /** The result kind a device reports when root restored the previous agent release. */
 const EDGE_ROLLBACK_KIND = 'edge-rollback';
-
-/** The board of a device model, or null when the model is not a Suderra OS board. */
-function boardOfModel(model: string): BoardRow | null {
-  const known = Object.values(DeviceModel).find((candidate) => candidate === model);
-  const profile = known === undefined ? null : suderraOsBoardOf(known);
-  return profile === null ? null : boardRow(profile);
-}
 
 const STATEMENT_TYPES: readonly CarriedStatementType[] = [
   STATEMENT.edgeUpdate,

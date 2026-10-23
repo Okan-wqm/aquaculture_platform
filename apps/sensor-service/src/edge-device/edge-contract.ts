@@ -244,6 +244,12 @@ export type DeviceBinding = {
   readonly digest: Sha256Digest;
 };
 
+/** A device's committed binding as a statement names it, or null when the stored method is not one the contract knows. */
+export function asDeviceBinding(method: string, sha256: string): DeviceBinding | null {
+  const known = BINDING_METHODS.find((candidate) => candidate === method);
+  return known === undefined ? null : { method: known, digest: { sha256 } };
+}
+
 export const BOARD_PROFILES = ['revpi-connect4', 'rpi4-cm4', 'qemu-x86_64'] as const;
 export type BoardProfile = (typeof BOARD_PROFILES)[number];
 export type Arch = 'aarch64' | 'x86_64';

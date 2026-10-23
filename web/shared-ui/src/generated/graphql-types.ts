@@ -2924,6 +2924,21 @@ export type CreateDeviceGroupInput = {
   type?: InputMaybe<DeviceGroupType>;
 };
 
+export type CreateEdgeRolloutInput = {
+  kind: EdgeRolloutKind;
+  maxFailures: Scalars['Int']['input'];
+  name: Scalars['String']['input'];
+  osBundle?: InputMaybe<EdgeOsBundleInput>;
+  terms: EdgeUpdateTermsInput;
+  /** The agent release version, for an edge-update rollout. */
+  version?: InputMaybe<Scalars['String']['input']>;
+  /** Device ids, wave by wave; wave n+1 starts only after wave n concluded. */
+  waves: Array<Array<Scalars['ID']['input']>>;
+  /** The first moment the statements are valid; omitted, from when each is signed. */
+  windowNotBefore?: InputMaybe<Scalars['DateTime']['input']>;
+  windowSeconds: Scalars['Int']['input'];
+};
+
 export type CreateEmployeeInput = {
   address: AddressInput;
   bankDetails?: InputMaybe<BankDetailsInput>;
@@ -5207,6 +5222,131 @@ export type EdgeDeviceStats = {
   /** Online devices among inService */
   onlineInService: Scalars['Int']['output'];
   total: Scalars['Int']['output'];
+};
+
+/** An OS bundle an operator registered for one board's images. */
+export type EdgeOsBundleInput = {
+  minCurrentVersion: Scalars['String']['input'];
+  rollbackFloor: Scalars['String']['input'];
+  sha256: Scalars['String']['input'];
+  sizeBytes: Scalars['Int']['input'];
+  supportedAgentAbi: Scalars['String']['input'];
+  url: Scalars['String']['input'];
+  version: Scalars['String']['input'];
+};
+
+export type EdgeRollout = {
+  /** Who approved this plan, and when */
+  approvals: Array<EdgeRolloutApproval>;
+  approvalsRequired: Scalars['Int']['output'];
+  approvedAt?: Maybe<Scalars['DateTime']['output']>;
+  concludedAt?: Maybe<Scalars['DateTime']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  createdBy: Scalars['String']['output'];
+  /** Where each device of the cohort stands, wave by wave */
+  deviceStatuses: Array<EdgeRolloutDeviceStatus>;
+  id: Scalars['ID']['output'];
+  kind: EdgeRolloutKind;
+  maxFailures: Scalars['Int']['output'];
+  name: Scalars['String']['output'];
+  planSha256: Scalars['String']['output'];
+  /** How many devices are not signed yet, in flight, done and failed */
+  progress: EdgeRolloutProgress;
+  state: EdgeRolloutState;
+  stateDetail?: Maybe<Scalars['String']['output']>;
+  target: Scalars['JSON']['output'];
+  terms: Scalars['JSON']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  windowNotBefore?: Maybe<Scalars['DateTime']['output']>;
+  windowSeconds: Scalars['Int']['output'];
+};
+
+export type EdgeRolloutApproval = {
+  approvedAt: Scalars['DateTime']['output'];
+  approverId: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  planSha256: Scalars['String']['output'];
+  rolloutId: Scalars['ID']['output'];
+};
+
+/** Where one device of a rollout stands: not signed yet, in flight, done or failed */
+export type EdgeRolloutDevicePhase =
+  | 'DONE'
+  | 'FAILED'
+  | 'IN_FLIGHT'
+  | 'QUEUED';
+
+export type EdgeRolloutDeviceStatus = {
+  /** Why the device failed, when it did and the cloud knows. */
+  detail?: Maybe<Scalars['String']['output']>;
+  deviceId: Scalars['ID']['output'];
+  phase: EdgeRolloutDevicePhase;
+  /** The state of the latest request of the device's campaign. */
+  requestState?: Maybe<Scalars['String']['output']>;
+  wave: Scalars['Int']['output'];
+};
+
+/** The statement a rollout signs for each device: an edge-update or an os-update */
+export type EdgeRolloutKind =
+  | 'EDGE_UPDATE'
+  | 'OS_UPDATE';
+
+export type EdgeRolloutProgress = {
+  done: Scalars['Int']['output'];
+  failed: Scalars['Int']['output'];
+  inFlight: Scalars['Int']['output'];
+  queued: Scalars['Int']['output'];
+};
+
+/** Where a cohort rollout of an agent release or an OS bundle stands */
+export type EdgeRolloutState =
+  | 'AWAITING_APPROVAL'
+  | 'CANCELLED'
+  | 'COMPLETED'
+  | 'HALTED'
+  | 'RUNNING';
+
+export type EdgeUpdateRequest = {
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['String']['output']>;
+  deliveredAt?: Maybe<Scalars['DateTime']['output']>;
+  deviceId: Scalars['ID']['output'];
+  expiresAt?: Maybe<Scalars['DateTime']['output']>;
+  /** Why the cloud, not the device's verdict alone, ended the request as failed. */
+  failureDetail?: Maybe<Scalars['String']['output']>;
+  handedAt?: Maybe<Scalars['DateTime']['output']>;
+  handoffRefusal?: Maybe<Scalars['String']['output']>;
+  id: Scalars['ID']['output'];
+  intentId: Scalars['ID']['output'];
+  notBefore: Scalars['DateTime']['output'];
+  rolloutId?: Maybe<Scalars['ID']['output']>;
+  settledAt?: Maybe<Scalars['DateTime']['output']>;
+  settledOutcome?: Maybe<Scalars['String']['output']>;
+  settledReason?: Maybe<Scalars['String']['output']>;
+  settledResultSeq?: Maybe<Scalars['Float']['output']>;
+  state: EdgeUpdateRequestState;
+  statementDigest: Scalars['String']['output'];
+  statementType: Scalars['String']['output'];
+  supersededBy?: Maybe<Scalars['ID']['output']>;
+  updateSeq?: Maybe<Scalars['Float']['output']>;
+  updatedAt: Scalars['DateTime']['output'];
+};
+
+/** Where a signed update request owed to a Suderra OS device stands */
+export type EdgeUpdateRequestState =
+  | 'DONE'
+  | 'FAILED'
+  | 'LAPSED'
+  | 'PENDING'
+  | 'REISSUED'
+  | 'RESCHEDULE'
+  | 'RETRY';
+
+/** The terms root applies an update under (DEC-13.4): approval on site, blockers override, outage budget. */
+export type EdgeUpdateTermsInput = {
+  blockersOverride: Scalars['Boolean']['input'];
+  localApproval: Scalars['Boolean']['input'];
+  maxOutageSeconds: Scalars['Int']['input'];
 };
 
 export type EditMessageInput = {
@@ -9645,6 +9785,8 @@ export type Mutation = {
   approveAttendance: AttendanceRecord;
   approveChannelProposal: Array<SensorDataChannel>;
   approveEdgeDevice: EdgeDevice;
+  /** Approves the plan with this digest as the authenticated administrator; the rollout starts when two different administrators did */
+  approveEdgeRollout: EdgeRollout;
   /** Approve a harvest plan */
   approveHarvestPlan: HarvestPlan;
   approveInventoryCount: InventoryCountResponse;
@@ -9694,6 +9836,8 @@ export type Mutation = {
   bulkUpdateMobileSettings: Array<MobileUserSettings>;
   callOpcUaMethod: OpcUaMethodCallResult;
   cancelAnnouncement: Announcement;
+  /** Ends a rollout; what no device has been handed yet is stopped, what a device holds is concluded by its result */
+  cancelEdgeRollout: EdgeRollout;
   /** Yemleme programini iptal et */
   cancelFeedingProgram: FeedingProgram;
   cancelGoal: Goal;
@@ -9758,6 +9902,8 @@ export type Mutation = {
   createDataChannel: DataChannelType;
   createDepartment: DepartmentResponse;
   createDeviceGroup: DeviceGroup;
+  /** Plans a rollout. Nothing is signed for any device until two administrators approved this plan */
+  createEdgeRollout: EdgeRollout;
   createEmployee: Employee;
   createEquipment: EquipmentResponse;
   createEscalationPolicy: EscalationPolicy;
@@ -10595,6 +10741,12 @@ export type MutationApproveEdgeDeviceArgs = {
 };
 
 
+export type MutationApproveEdgeRolloutArgs = {
+  id: Scalars['ID']['input'];
+  planSha256: Scalars['String']['input'];
+};
+
+
 export type MutationApproveHarvestPlanArgs = {
   id: Scalars['ID']['input'];
 };
@@ -10833,6 +10985,12 @@ export type MutationCallOpcUaMethodArgs = {
 
 export type MutationCancelAnnouncementArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type MutationCancelEdgeRolloutArgs = {
+  id: Scalars['ID']['input'];
+  reason: Scalars['String']['input'];
 };
 
 
@@ -11125,6 +11283,11 @@ export type MutationCreateDepartmentArgs = {
 
 export type MutationCreateDeviceGroupArgs = {
   input: CreateDeviceGroupInput;
+};
+
+
+export type MutationCreateEdgeRolloutArgs = {
+  input: CreateEdgeRolloutInput;
 };
 
 
@@ -15822,6 +15985,12 @@ export type Query = {
   edgeDeviceResults: Array<EdgeDeviceResult>;
   edgeDeviceStats: EdgeDeviceStats;
   edgeDevices: EdgeDeviceConnection;
+  /** One rollout and its plan */
+  edgeRollout: EdgeRollout;
+  /** The tenant’s rollouts of agent releases and OS bundles, newest first */
+  edgeRollouts: Array<EdgeRollout>;
+  /** The signed update requests owed to one Suderra OS device, newest first, and how each ended (never the statement itself) */
+  edgeUpdateRequests: Array<EdgeUpdateRequest>;
   effectiveConfiguration: EffectiveConfigurationDto;
   effectiveConfigurationsByService: Array<EffectiveConfigurationDto>;
   effectiveUnitTemperatures: Array<EffectiveUnitTemperature>;
@@ -16857,6 +17026,23 @@ export type QueryEdgeDevicesArgs = {
   page?: InputMaybe<Scalars['Int']['input']>;
   search?: InputMaybe<Scalars['String']['input']>;
   siteId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+
+export type QueryEdgeRolloutArgs = {
+  id: Scalars['ID']['input'];
+};
+
+
+export type QueryEdgeRolloutsArgs = {
+  limit?: InputMaybe<Scalars['Int']['input']>;
+  state?: InputMaybe<EdgeRolloutState>;
+};
+
+
+export type QueryEdgeUpdateRequestsArgs = {
+  deviceId: Scalars['ID']['input'];
+  limit?: InputMaybe<Scalars['Int']['input']>;
 };
 
 

@@ -112,6 +112,9 @@ type QueryComplexityOperationContext = {
   schema: GraphQLSchema;
 };
 import { DeployArtifact } from './deploy-artifact/entities/deploy-artifact.entity';
+import { EdgeRolloutApproval } from './release-bundle/entities/edge-rollout-approval.entity';
+import { EdgeRolloutDevice } from './release-bundle/entities/edge-rollout-device.entity';
+import { EdgeRollout } from './release-bundle/entities/edge-rollout.entity';
 import { ReleaseBundle } from './release-bundle/entities/release-bundle.entity';
 import { Process } from './process/entities/process.entity';
 import { ScadaPackage } from './process/entities/scada-package.entity';
@@ -254,6 +257,9 @@ import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
             ScadaDeployLog,
             DeployArtifact,
             ReleaseBundle,
+            EdgeRollout,
+            EdgeRolloutApproval,
+            EdgeRolloutDevice,
             DeviceGroup,
             DeviceGroupMember,
             VfdParameterDefinition,

@@ -132,6 +132,7 @@ import { TrustAnchorBundleService } from './trust-anchor-bundle.service';
     EdgeCommandPublisher,
     EdgeResultTelemetryService,
     EdgeUpdateRequestService,
+    EdgeReleaseCatalog,
   ],
 })
 export class EdgeDeviceModule {}

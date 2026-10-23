@@ -398,6 +398,11 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       // without them cannot ingest a result or issue an update.
       'edge_device_results',
       'edge_update_requests',
+      // The cohort rollouts of an agent release or OS bundle, their two-person
+      // approvals and the cohort's waves (DEC-2.4, DEC-23).
+      'edge_rollouts',
+      'edge_rollout_approvals',
+      'edge_rollout_devices',
     ],
   },
   {

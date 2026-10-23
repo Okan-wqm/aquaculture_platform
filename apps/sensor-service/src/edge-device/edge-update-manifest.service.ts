@@ -159,7 +159,8 @@ export function assertDeliverableWindow(window: UpdateWindow): void {
   }
 }
 
-function assertTerms(terms: UpdateTerms): void {
+/** The terms' rules before the statement exists (a blockers override needs a person on site). */
+export function assertUpdateTerms(terms: UpdateTerms): void {
   if (terms.blockersOverride && !terms.localApproval) {
     throw new UpdateRefusedError(
       'terms-invalid',
@@ -172,7 +173,7 @@ function assertTerms(terms: UpdateTerms): void {
 export function buildEdgeUpdate(input: EdgeUpdateInput): EdgeUpdateStatement {
   const { target, release, terms, window } = input;
   assertDeliverableWindow(window);
-  assertTerms(terms);
+  assertUpdateTerms(terms);
   if (release.boardProfile !== target.board.boardProfile || release.arch !== target.board.arch) {
     throw new UpdateRefusedError(
       'release-for-another-board',
@@ -215,7 +216,7 @@ export function buildEdgeUpdate(input: EdgeUpdateInput): EdgeUpdateStatement {
 export function buildOsUpdate(input: OsUpdateInput): OsUpdateStatement {
   const { target, bundle, terms, window } = input;
   assertDeliverableWindow(window);
-  assertTerms(terms);
+  assertUpdateTerms(terms);
   if (!osVersionAtLeast(bundle.version, bundle.rollbackFloor)) {
     // A floor above the installed version would forbid the very slot the update installs.
     throw new UpdateRefusedError(

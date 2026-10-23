@@ -28,10 +28,12 @@ import ast
 import functools
 import hashlib
 import importlib.machinery
+import json
 import os
 import subprocess
 import sys
 import tempfile
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from collections.abc import Iterable
@@ -40,13 +42,14 @@ from typing import Any, Literal, NoReturn
 from .artifact_safety import scrub_text
 from .canonical_path import matches_repo_glob
 from .change_paths import read_change_paths
-from .closure_reachability import CLOSURE_BASELINE_RELPATH
+from .closure_reachability import CLOSURE_BASELINE_RELPATH, CLOSURE_PIN_KIND, iter_closure_pins
 from .doctor import DoctorCheck, DoctorReport
 from .git_containment import KERNEL_GIT_NO_HOOKS_ARGS
-from .implementation_safety import KERNEL_CHECKOUT_ROOT
+from .implementation_safety import KERNEL_CHECKOUT_ROOT, SandboxUnavailable, wrap_validation_in_sandbox
 from .state_store_lifecycle_arcs import GIT_TIMEOUT_SECONDS
-from .surface_waivers import WAIVER_MANIFESTS, iter_waivers, load_waiver_manifest
+from .surface_waivers import WAIVER_MANIFESTS, iter_waiver_entries, load_waiver_manifest
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
+from .validation_env import build_validation_env
 
 SELF_IMPROVEMENT_SOURCE_KIND = "self_improvement"
 SELF_CHANGE_NEXT_ACTION = "propose_self_change"
@@ -779,17 +782,30 @@ def _collected_test_ids(root: Path, *, side: Literal["base", "head"]) -> frozens
     """The test ids pytest collects from the kernel suite at `root`: unittest
     TestCases and native pytest items alike (the union of the suite's two
     collectors), under the tree's own pyproject and conftest files, so a
-    narrowed collection config shows up as missing ids."""
-    environment = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1",
-                   "PYTHONPATH": os.pathsep.join((str(root / KERNEL_SUITE_ROOT), str(root)))}
+    narrowed collection config shows up as missing ids.
+
+    Collection IMPORTS the tree's test modules and conftest files, and HEAD's
+    are candidate code. So the child gets what a validation child may see
+    (`validation_env.build_validation_env`, plus the suite's PYTHONPATH and
+    no bytecode writes) and runs in the validation sandbox
+    (`implementation_safety.wrap_validation_in_sandbox`): no credential, no
+    network, nothing written outside it (R8).
+    """
+    workspace = root.resolve()
+    environment = build_validation_env(os.environ, declared={
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONPATH": os.pathsep.join(str(workspace / entry) if entry else str(workspace)
+                                      for entry in SUITE_PYTHONPATH_ROOTS),
+    }).env
     try:
-        completed = subprocess.run(
+        argv = wrap_validation_in_sandbox(
             [sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider",
              "--continue-on-collection-errors", KERNEL_SUITE_ROOT],
-            cwd=str(root), env=environment, capture_output=True, text=True, check=False,
-            timeout=TEST_COLLECTION_TIMEOUT_SECONDS,
+            workspace_root=workspace, git=None, environment=environment,
         )
-    except (OSError, subprocess.TimeoutExpired) as exc:
+        completed = subprocess.run(argv, cwd=str(workspace), env=environment, capture_output=True, text=True,
+                                   check=False, timeout=TEST_COLLECTION_TIMEOUT_SECONDS)
+    except (OSError, subprocess.TimeoutExpired, SandboxUnavailable) as exc:
         raise GovernanceError(f"test_collection_unavailable:{side}:{exc.__class__.__name__}") from exc
     # pytest exits 0 (collected) or 5 (nothing collected) for a clean
     # collection. The BASE is the reference, so it must collect cleanly; at
@@ -801,30 +817,44 @@ def _collected_test_ids(root: Path, *, side: Literal["base", "head"]) -> frozens
     return frozenset(line.strip() for line in listing.splitlines() if "::" in line)
 
 
-def _waiver_entries(root: Path) -> dict[str, dict[str, Any]]:
-    """`<kind>:<key>` → entry for every waiver in every registered manifest."""
-    return {f"{manifest.kind}:{key}": entry
-            for manifest in WAIVER_MANIFESTS
-            for key, entry in iter_waivers(load_waiver_manifest(root, manifest), manifest)}
+def _canonical_entry(entry: dict[str, Any]) -> str:
+    return json.dumps(entry, sort_keys=True, separators=(",", ":"))
+
+
+def _waiver_entries(root: Path) -> Counter[tuple[str, ...]]:
+    """Every waiver entry in every store, structurally keyed: `(store, kind,
+    surface, member, entry)` for a NESTED manifest, `(store, kind, name,
+    entry)` for a FLAT one and `(store, kind, finding, symbol, entry)` for a
+    closure-baseline pin, each read through its owner (`surface_waivers`,
+    `closure_reachability`). A joined key let a new waiver take an existing
+    one's name and vanish (R7)."""
+    entries: Counter[tuple[str, ...]] = Counter()
+    for manifest in WAIVER_MANIFESTS:
+        store = "/".join(manifest.relpath)
+        for key, entry in iter_waiver_entries(load_waiver_manifest(root, manifest), manifest):
+            entries[(store, manifest.kind, *key, _canonical_entry(entry))] += 1
+    baseline = "/".join(CLOSURE_BASELINE_RELPATH)
+    for pin, entry in iter_closure_pins(root):
+        entries[(baseline, CLOSURE_PIN_KIND, pin.finding_id, pin.symbol, _canonical_entry(entry))] += 1
+    return entries
 
 
 def invariants_only_grow(base_root: str | Path, head_root: str | Path) -> list[str]:
     """What a change shrinks among the invariants that judge it (B1, SEC-12).
 
     `test_dropped:<id>` for each test id collected at base and not at head
-    (collected ids base ⊆ head), and `waiver_added:<kind>:<key>` for each
-    waiver entry at head that base does not hold verbatim (waivers head ⊆
-    base: a re-dated waiver is a new waiver). Collection imports the tree's
-    test modules and conftest files, so the Board job computes this with the
-    Board's code in its own room (B2).
+    (collected ids base ⊆ head), and `waiver_added:<json key>` for each waiver
+    entry — in a registered manifest or the closure baseline — that head
+    holds and base does not hold verbatim (waivers head ⊆ base, as
+    multisets: a re-dated waiver is a new waiver). Both trees are collected
+    in the validation sandbox (`_collected_test_ids`).
     """
     base, head = Path(base_root), Path(head_root)
     head_ids = _collected_test_ids(head, side="head")
     violations = [f"test_dropped:{test_id}"
                   for test_id in sorted(_collected_test_ids(base, side="base") - head_ids)]
-    base_waivers = _waiver_entries(base)
-    violations.extend(f"waiver_added:{key}" for key, entry in sorted(_waiver_entries(head).items())
-                      if base_waivers.get(key) != entry)
+    added = _waiver_entries(head) - _waiver_entries(base)
+    violations.extend(f"waiver_added:{json.dumps(list(key[:-1]))}" for key in sorted(added.elements()))
     return violations
 
 

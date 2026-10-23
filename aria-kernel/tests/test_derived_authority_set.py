@@ -69,6 +69,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from aria_kernel import implementation_safety as safety
 from aria_kernel import self_improvement
@@ -78,6 +79,7 @@ from aria_kernel.surface_waivers import WAIVER_MANIFESTS
 from aria_kernel.tool_registry import GovernanceError
 from tests._helpers.git_fixtures import make_local_git_repo
 from tests._helpers.pre_merge_evidence import fixture_pre_merge_evidence
+from tests._helpers.sandbox_pins import require_sandbox_backend
 
 READS_LIVE_CHECKOUT = (
     "the live .github/CODEOWNERS, tools/aria-acceptance/ imports and the tracked file list, "
@@ -705,10 +707,16 @@ def test_b1_native_function():
 '''
 
 
+_PIN = {"owner": "okan", "pinned_at": "2026-10-23", "reason": "fixture"}
+
+
 class InvariantsOnlyGrow(unittest.TestCase):
     """Collected test ids base ⊆ head; waiver entries head ⊆ base."""
 
     def setUp(self) -> None:
+        # R8 — collection imports the trees' test modules, so it runs in the
+        # validation sandbox; a host that cannot build one skips by the one name.
+        require_sandbox_backend()
         self._tmp = tempfile.TemporaryDirectory(prefix="aria-b1-grow-")
         self.addCleanup(self._tmp.cleanup)
         self.base = Path(self._tmp.name) / "base"
@@ -719,6 +727,9 @@ class InvariantsOnlyGrow(unittest.TestCase):
         (kernel / "tests" / "test_b1_grow.py").write_text(_GROW_TESTS, encoding="utf-8")
         (kernel / "surface-reachability.unwritten.json").write_text(
             json.dumps({"b1_surface": {"KEPT": _WAIVER}}, indent=2) + "\n", encoding="utf-8")
+        (kernel / "closure-reachability-baseline.json").write_text(
+            json.dumps({"pinned": {"ORPHAN-HIGH-001:run_b1_kept": _PIN}, "schema_version": 1}, indent=2) + "\n",
+            encoding="utf-8")
         self.head = Path(self._tmp.name) / "head"
         shutil.copytree(self.base, self.head)
 
@@ -774,6 +785,58 @@ class InvariantsOnlyGrow(unittest.TestCase):
             json.dumps({"b1_surface": {"KEPT": later}}, indent=2) + "\n", encoding="utf-8")
         violations = self._violations()
         self.assertTrue(any(v.startswith("waiver_added:") and "KEPT" in v for v in violations), violations)
+
+    def _write_pins(self, pins: dict[str, dict[str, str]]) -> None:
+        self._head_file("closure-reachability-baseline.json").write_text(
+            json.dumps({"pinned": pins, "schema_version": 1}, indent=2) + "\n", encoding="utf-8")
+
+    def test_a_pin_added_to_the_closure_baseline_is_a_violation(self) -> None:
+        # R7 — the baseline's pins waive the closure gate.
+        self._write_pins({"ORPHAN-HIGH-001:run_b1_kept": _PIN, "ORPHAN-HIGH-002:run_b1_added": _PIN})
+        violations = self._violations()
+        self.assertEqual([v for v in violations if v.startswith("waiver_added:")],
+                         ['waiver_added:["aria-kernel/closure-reachability-baseline.json", '
+                          '"closure_reachability_pin", "ORPHAN-HIGH-002", "run_b1_added"]'])
+
+    def test_a_re_dated_closure_pin_is_a_violation(self) -> None:
+        # R7
+        self._write_pins({"ORPHAN-HIGH-001:run_b1_kept": dict(_PIN, pinned_at="2026-12-31")})
+        violations = self._violations()
+        self.assertTrue(any(v.startswith("waiver_added:") and "run_b1_kept" in v for v in violations), violations)
+
+    def test_a_waiver_whose_joined_key_matches_an_existing_one_is_still_added(self) -> None:
+        # R7 — surface `s.ACTIVE` member `legacy` and surface `s` member `ACTIVE.legacy`
+        # both read `s.ACTIVE.legacy`; they are two waivers.
+        manifest = self._head_file("surface-reachability.unwritten.json")
+        manifest.write_text(json.dumps({"tool_status": {"ACTIVE.legacy": _WAIVER}}) + "\n", encoding="utf-8")
+        shutil.copy(manifest, self.base / "aria-kernel" / "surface-reachability.unwritten.json")
+        manifest.write_text(json.dumps({"tool_status": {"ACTIVE.legacy": _WAIVER},
+                                        "tool_status.ACTIVE": {"legacy": _WAIVER}}) + "\n", encoding="utf-8")
+        violations = self._violations()
+        self.assertEqual([v for v in violations if v.startswith("waiver_added:")],
+                         ['waiver_added:["aria-kernel/surface-reachability.unwritten.json", '
+                          '"surface_waiver", "tool_status.ACTIVE", "legacy"]'])
+
+    def test_head_collection_does_not_see_a_secret_shaped_variable(self) -> None:
+        # R8 — HEAD's test modules are candidate code: they get the validation env.
+        (self.base / "aria-kernel" / "tests" / "test_b1_env.py").write_text(
+            "def test_b1_saw_the_secret():\n    assert True\n", encoding="utf-8")
+        self._head_file("tests/test_b1_env.py").write_text(
+            "import os\n\nif os.environ.get('ARIA_B1_PROBE_TOKEN'):\n"
+            "    def test_b1_saw_the_secret():\n        assert True\n", encoding="utf-8")
+        with mock.patch.dict(os.environ, {"ARIA_B1_PROBE_TOKEN": "b1-sentinel"}):
+            violations = self._violations()
+        self.assertTrue(any(v.startswith("test_dropped:") and "test_b1_saw_the_secret" in v for v in violations),
+                        violations)
+
+    def test_head_collection_cannot_write_outside_its_tree(self) -> None:
+        # R8 — collection runs in the validation sandbox.
+        escape = self.base / "b1-escaped"
+        self._head_file("tests/test_b1_write.py").write_text(
+            f"try:\n    open({str(escape)!r}, 'w').write('escaped')\nexcept OSError:\n    pass\n\n\n"
+            "def test_b1_writer():\n    assert True\n", encoding="utf-8")
+        self._violations()
+        self.assertFalse(escape.exists())
 
 
 if __name__ == "__main__":

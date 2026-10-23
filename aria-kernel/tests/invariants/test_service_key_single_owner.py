@@ -643,6 +643,39 @@ class TheDetectorSeesEveryKnownShape(unittest.TestCase):
             "    return m.group(1) if m else None\n"
         )
 
+    # SE-1-R3 appellate R6: R5's behaviour clause samples one path tail
+    # (``<family>/<d>/x``), so a family-anchored capture that also constrains
+    # the rest of the path stopped counting. The round-2 detector flagged each
+    # of these (7765782d5), and the docstring's rule names them.
+
+    _FAMILY_REGEX_SHAPES_THAT_CONSTRAIN_THE_REST = (
+        r"^apps/([^/]+)/src/",
+        r"^apps/([\w-]+)/.*\.ts$",
+        r"^apps/([^/]+)/src/.*\.(ts|tsx)$",
+        r"^apps/([^/]+)$",
+        r"^libs/([^/]+)/src/index\.ts$",
+        r"^apps/([a-z-]+-service)/",
+        r"^apps/([^/]+)/(?:src|test)/",
+    )
+
+    def test_a_family_regex_that_constrains_the_rest_of_the_path_is_detected(self) -> None:
+        for pattern in self._FAMILY_REGEX_SHAPES_THAT_CONSTRAIN_THE_REST:
+            with self.subTest(pattern=pattern, binding="inline"):
+                self._assert_detected(
+                    "import re\n"
+                    "def svc(p):\n"
+                    f"    m = re.match(r'{pattern}', p)\n"
+                    "    return m.group(1) if m else None\n"
+                )
+            with self.subTest(pattern=pattern, binding="module-level"):
+                self._assert_detected(
+                    "import re\n"
+                    f"_P = re.compile(r'{pattern}')\n"
+                    "def svc(p):\n"
+                    "    m = _P.match(p)\n"
+                    "    return m.group(1) if m else None\n"
+                )
+
     def test_a_split_with_a_sep_keyword_is_detected(self) -> None:
         self._assert_detected(
             "def svc(p):\n"
@@ -670,6 +703,9 @@ class TheDetectorSeesEveryKnownShape(unittest.TestCase):
             ("capture_without_family", r"^(\w+)\.ts$"),
             ("family_without_capture", r"^apps/.*\.spec\.ts$"),
             ("capture_of_any_leading_segment", r"^([^/]+)/([^/]+)/"),
+            # A family regex whose capture is not at the project-directory
+            # position (SE-1-R3 appellate R6).
+            ("family_with_a_capture_past_the_project_dir", r"^apps/.*/(\w+)\.spec\.ts$"),
         ):
             with self.subTest(shape=name):
                 source = (

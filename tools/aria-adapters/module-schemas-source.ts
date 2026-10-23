@@ -919,6 +919,17 @@ export interface ModuleFacts {
     readonly schema: string;
     readonly ref: string;
   }[];
+  /**
+   * SCHEMA_REGISTRY owners whose schema no MODULE_SCHEMAS entry declares: the service owns a
+   * schema whose placement the tree does not state. Listed, never dropped, so "placement unknown"
+   * never reads as "owns no schema"; not refused, because the platform invariants allow it (a
+   * module manifest is required only for a tenant-aware schema). `ref` is the registry entry.
+   */
+  readonly owners_without_module: readonly {
+    readonly service: string;
+    readonly schema: string;
+    readonly ref: string;
+  }[];
 }
 
 /** The tree's registries cannot give complete facts: the kernel holds the change by name. */
@@ -974,7 +985,9 @@ function schemaOwnership(
  * tree): MODULE_SCHEMAS and TENANT_SCOPED_MODULES through this module's one reading, joined to the
  * owning service by SCHEMA_REGISTRY. A registry that is absent, read with named errors, or whose
  * ownership is ambiguous or names no nx application throws ModuleFactsUnavailable: partial
- * placement facts are never returned.
+ * placement facts are never returned. The join's leftovers on either side are listed by name:
+ * a module no service owns (`modules_without_owner`) and an owner whose schema no module declares
+ * (`owners_without_module`).
  */
 export function moduleFacts(workspaceRoot: string): ModuleFacts {
   const workspace = containedWorkspace(workspaceRoot);
@@ -1023,10 +1036,19 @@ export function moduleFacts(workspaceRoot: string): ModuleFacts {
       ref,
     });
   }
+  const declared = new Set(source.modules.map((module) => module.sourceSchema));
   return {
     schema: 'aria/module_facts/v1',
     services: services.sort((a, b) => a.service.localeCompare(b.service)),
     modules_without_owner: unowned,
+    owners_without_module: registry.owners
+      .filter((owner) => !declared.has(owner.schema))
+      .map((owner) => ({
+        service: owner.service,
+        schema: owner.schema,
+        ref: `${owner.path}:${owner.line}`,
+      }))
+      .sort((a, b) => a.service.localeCompare(b.service)),
   };
 }
 

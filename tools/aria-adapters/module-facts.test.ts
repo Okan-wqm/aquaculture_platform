@@ -240,7 +240,7 @@ void test('single-owner B3: an owner that is not an nx application refuses the f
   assertRefused(root, ['ghost-service']);
 });
 
-// --- SE-3-R2 corrective round 1 (build/SE-3-R2/appellate-r1.md root R2) ------------------------
+// --- SE-3-R2 corrective round 1 (build/SE-3-R2/appellate-r1.md roots R2, R4) ------------------
 
 // Root R2: the module entry resolves owners through the SE-1 key reader (applicationNames), which
 // followed a symlinked apps/<dir>/project.json out of the tree; a target that is not JSON reached
@@ -260,4 +260,33 @@ void test('R2: a tracked project.json that links out of the tree: exit 2 by name
   assert.match(run.stderr, /SourceTreeUnavailable/);
   assert.match(run.stderr, /apps\/x-service\/project\.json/);
   assert.ok(!run.stderr.includes(OUTSIDE_MARKER.slice(0, 4)), run.stderr);
+});
+
+// Root R4: a SCHEMA_REGISTRY owner whose schema has no MODULE_SCHEMAS entry vanished from the
+// facts with exit 0, so "owns a schema whose placement is unknown" read as "owns no schema". The
+// platform invariants allow this state (a manifest is required only for tenant-aware schemas), so
+// it is listed by name, not refused.
+void test('R4: a registry owner whose schema has no MODULE_SCHEMAS entry is listed with its ref, exit 0', () => {
+  const registry = registryOf([
+    ['farm-service', 'farm'],
+    ['billing-service', 'billing'],
+    ['config-service', 'config'],
+  ]);
+  const run = runEntry(tree("'farm'", registry));
+  assert.equal(run.status, 0, run.stderr);
+  const facts = JSON.parse(run.stdout) as Record<string, unknown>;
+  const configLine =
+    registry.split('\n').findIndex((line) => line.includes("'config-service'")) + 1;
+  assert.deepEqual(facts.owners_without_module, [
+    {
+      service: 'config-service',
+      schema: 'config',
+      ref: `${SCHEMA_REGISTRY_SOURCE_PATH}:${configLine}`,
+    },
+  ]);
+  const services = facts.services as readonly { service: string }[];
+  assert.deepEqual(
+    services.map((entry) => entry.service),
+    ['billing-service', 'farm-service'],
+  );
 });

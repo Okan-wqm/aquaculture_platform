@@ -2928,8 +2928,13 @@ export type CreateEdgeRolloutInput = {
   kind: EdgeRolloutKind;
   maxFailures: Scalars['Int']['input'];
   name: Scalars['String']['input'];
+  /** The policy of a site-netpolicy rollout, in the contract's own form: `interfaces`, `ot_rules`, `time_sources`. */
+  netpolicy?: InputMaybe<Scalars['JSON']['input']>;
   osBundle?: InputMaybe<EdgeOsBundleInput>;
-  terms: EdgeUpdateTermsInput;
+  /** The operator's site files of a site-config rollout (none: a refresh of config.yaml and the RBAC manifest). */
+  siteFiles?: InputMaybe<Array<EdgeSiteFileInput>>;
+  /** The terms of an agent or OS update. */
+  terms?: InputMaybe<EdgeUpdateTermsInput>;
   /** The agent release version, for an edge-update rollout. */
   version?: InputMaybe<Scalars['String']['input']>;
   /** Device ids, wave by wave; wave n+1 starts only after wave n concluded. */
@@ -5286,10 +5291,13 @@ export type EdgeRolloutDeviceStatus = {
   wave: Scalars['Int']['output'];
 };
 
-/** The statement a rollout signs for each device: an edge-update or an os-update */
+/** What a rollout carries to each device: an agent release, an OS bundle, a site config, a site network policy or a trust-anchors bundle */
 export type EdgeRolloutKind =
   | 'EDGE_UPDATE'
-  | 'OS_UPDATE';
+  | 'OS_UPDATE'
+  | 'SITE_CONFIG'
+  | 'SITE_NETPOLICY'
+  | 'TRUST_ANCHORS';
 
 export type EdgeRolloutProgress = {
   done: Scalars['Int']['output'];
@@ -5305,6 +5313,14 @@ export type EdgeRolloutState =
   | 'COMPLETED'
   | 'HALTED'
   | 'RUNNING';
+
+/** One operator-authored site file of a site-config rollout. */
+export type EdgeSiteFileInput = {
+  /** The file's bytes, base64. */
+  contentBase64: Scalars['String']['input'];
+  /** A fixed site path other than config.yaml, which the cloud renders itself. */
+  path: Scalars['String']['input'];
+};
 
 export type EdgeUpdateRequest = {
   createdAt: Scalars['DateTime']['output'];

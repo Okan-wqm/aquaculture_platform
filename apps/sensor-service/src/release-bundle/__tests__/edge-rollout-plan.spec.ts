@@ -2,10 +2,13 @@ import {
   assertPlanShape,
   type EdgeRolloutPlan,
   MAX_ROLLOUT_DEVICES,
+  MAX_ROLLOUT_SITE_FILES_BYTES,
   MAX_ROLLOUT_WAVES,
   planDigest,
   recipeOf,
+  type RolloutPlan,
   targetOf,
+  termsOf,
 } from '../edge-rollout-plan';
 import { isLegalRolloutTransition, phaseOf } from '../edge-rollout.service';
 import { EdgeRolloutKind, EdgeRolloutState } from '../entities/edge-rollout.entity';
@@ -150,5 +153,95 @@ describe('the rollout state machine', () => {
       isLegalRolloutTransition(from, EdgeRolloutState.RUNNING),
     );
     expect(into).toEqual([EdgeRolloutState.AWAITING_APPROVAL]);
+  });
+});
+
+describe('the plans of the other kinds', () => {
+  const group = [[uuid(1)]];
+  const common = { windowNotBefore: null, windowSeconds: 7200, maxFailures: 0, waves: group };
+  const POLICY = {
+    interfaces: [],
+    ot_rules: [{ id: 'plc', proto: 'tcp', dst: '10.0.0.0/24', ports: [{ from: 502, to: 502 }] }],
+    time_sources: [],
+  } as const;
+  const site: RolloutPlan = { kind: EdgeRolloutKind.SITE_CONFIG, files: {}, ...common };
+  const net: RolloutPlan = { kind: EdgeRolloutKind.SITE_NETPOLICY, policy: POLICY, ...common };
+  const anchors: RolloutPlan = {
+    kind: EdgeRolloutKind.TRUST_ANCHORS,
+    bundleDigest: 'ab'.repeat(32),
+    bundleSeq: 3,
+    ...common,
+  };
+
+  it.each([
+    ['a site config', site, { files: {} }, {}],
+    ['a site policy', net, { policy: POLICY }, {}],
+    ['the trust-anchors bundle', anchors, { bundleDigest: 'ab'.repeat(32), bundleSeq: 3 }, {}],
+  ])('%s stores its target and no terms', (_name, plan, target, terms) => {
+    expect(targetOf(plan)).toEqual(target);
+    expect(termsOf(plan)).toEqual(terms);
+    expect(() => assertPlanShape(plan)).not.toThrow();
+  });
+
+  it('reads each stored rollout back into the recipe its statements are issued from', () => {
+    for (const plan of [site, net, anchors]) {
+      const recipe = recipeOf({
+        kind: plan.kind,
+        target: targetOf(plan),
+        terms: termsOf(plan),
+        windowSeconds: plan.windowSeconds,
+      });
+      expect(recipe?.kind).toBe(plan.kind);
+    }
+  });
+
+  it('is a plan of its own: the digest covers the kind and what it carries', () => {
+    const digests = new Set([
+      planDigest(site),
+      planDigest(net),
+      planDigest(anchors),
+      planDigest(plan()),
+      planDigest({ ...site, files: { 'io-config.yaml': 'dGFncw==' } }),
+      planDigest({
+        ...net,
+        policy: { ...POLICY, time_sources: [{ id: 'ntp', host: 'ntp.example.com', nts: true }] },
+      }),
+      planDigest({ ...anchors, bundleSeq: 4 }),
+      planDigest({ ...anchors, bundleDigest: 'cd'.repeat(32) }),
+    ]);
+    expect(digests.size).toBe(8);
+  });
+
+  it('refuses a site config whose files are more than a rollout stores', () => {
+    const big = Buffer.alloc(MAX_ROLLOUT_SITE_FILES_BYTES + 1, 0x61).toString('base64');
+    expect(() =>
+      assertPlanShape({
+        kind: EdgeRolloutKind.SITE_CONFIG,
+        files: { 'io-config.yaml': big },
+        ...common,
+      }),
+    ).toThrow(/at most 262144/);
+  });
+
+  it('refuses a site config naming a path that is not a site file, a trust-anchors plan without a digest', () => {
+    expect(() =>
+      assertPlanShape({
+        kind: EdgeRolloutKind.SITE_CONFIG,
+        files: { 'etc/passwd': 'eA==' },
+        ...common,
+      }),
+    ).toThrow(/not what the kind needs/);
+    expect(() =>
+      assertPlanShape({ ...anchors, bundleDigest: 'not-a-digest' } as RolloutPlan),
+    ).toThrow(/not what the kind needs/);
+  });
+
+  it('refuses a policy value JSON cannot state', () => {
+    expect(() =>
+      targetOf({
+        ...net,
+        policy: { ...POLICY, ot_rules: [{ ...POLICY.ot_rules[0], ports: [{ from: 1.5, to: 2 }] }] },
+      } as RolloutPlan),
+    ).toThrow(/not an integer/);
   });
 });

@@ -34,7 +34,15 @@ import {
   type SensorRlsHarness,
 } from '../../__tests__/support/sensor-rls-postgres.harness';
 import { EdgeRolloutService } from '../edge-rollout.service';
-import { type EdgeRolloutPlan, type OsRolloutPlan, planDigest } from '../edge-rollout-plan';
+import {
+  type EdgeRolloutPlan,
+  type OsRolloutPlan,
+  planDigest,
+  type RolloutPlan,
+  type SiteConfigRolloutPlan,
+  type SiteNetpolicyRolloutPlan,
+  type TrustAnchorsRolloutPlan,
+} from '../edge-rollout-plan';
 import { EdgeRolloutApproval } from '../entities/edge-rollout-approval.entity';
 import { EdgeRolloutDevice } from '../entities/edge-rollout-device.entity';
 import { EdgeRollout, EdgeRolloutKind } from '../entities/edge-rollout.entity';
@@ -47,6 +55,8 @@ import { EdgeRollout, EdgeRolloutKind } from '../entities/edge-rollout.entity';
 
 const TENANT_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const TENANT_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+/** The one tenant the contract's trust-anchors bundle serves. */
+const TENANT_FIXTURE = '7e570000-0000-4000-8000-000000000001';
 const BINDING = { method: 'tpm-ek-sha256', sha256: '7d'.repeat(32) } as const;
 const NOW = new Date('2026-10-20T12:00:00Z');
 const TERMS = { localApproval: false, blockersOverride: false, maxOutageSeconds: 120 };
@@ -74,6 +84,10 @@ const SEED: readonly Seed[] = [
   { code: 'RO-UNBOUND', tenantId: TENANT_A, bound: false },
   { code: 'RO-REVOKED', tenantId: TENANT_A, state: DeviceLifecycleState.REVOKED },
   { code: 'RB-01', tenantId: TENANT_B },
+  ...Array.from({ length: 8 }, (_, i) => ({
+    code: `RF-${String(i + 1).padStart(3, '0')}`,
+    tenantId: TENANT_FIXTURE,
+  })),
 ];
 
 jest.setTimeout(240_000);
@@ -136,10 +150,7 @@ describe('rollouts and their two-person approval under FORCE RLS (ADR-048 DEC-2.
       `SELECT * FROM ${schemaA()}.edge_update_requests WHERE device_id = $1 ORDER BY created_at, id`,
       [id(code)],
     );
-  const approved = async (
-    plan: EdgeRolloutPlan | OsRolloutPlan,
-    name = 'rollout',
-  ): Promise<EdgeRollout> => {
+  const approved = async (plan: RolloutPlan, name = 'rollout'): Promise<EdgeRollout> => {
     const created = await rollouts.create(TENANT_A, 'user-creator', name, plan, NOW);
     await rollouts.approve(TENANT_A, 'user-1', created.id, created.planSha256);
     return rollouts.approve(TENANT_A, 'user-2', created.id, created.planSha256);
@@ -168,7 +179,7 @@ describe('rollouts and their two-person approval under FORCE RLS (ADR-048 DEC-2.
     const open = pending[pending.length - 1];
     if (open === undefined) throw new Error(`${code} has no open request`);
     await report(code, {
-      kind: statementType === 'suderra.os-update.v1' ? 'os-update' : 'edge-update',
+      kind: statementType.replace(/^suderra\./, '').replace(/\.v1$/, ''),
       outcome: 'ok',
       subject: {
         statement_type: statementType,
@@ -189,7 +200,7 @@ describe('rollouts and their two-person approval under FORCE RLS (ADR-048 DEC-2.
     release = await fixtureRelease(config, '1.7.0');
     stage = await bootSensorRlsHarness({
       name: 'edge_rollout',
-      tenants: [TENANT_A, TENANT_B],
+      tenants: [TENANT_A, TENANT_B, TENANT_FIXTURE],
       entities: [
         EdgeDevice,
         EdgeDeviceResult,
@@ -256,6 +267,9 @@ describe('rollouts and their two-person approval under FORCE RLS (ADR-048 DEC-2.
       stage.runtime,
       requests,
       collaborator<EdgeReleaseCatalog>({ forVersion }, 'EdgeReleaseCatalog'),
+      new RbacManifestService(config),
+      new SiteConfigManifestService(config),
+      new TrustAnchorBundleService(config),
       collaborator<ScheduledJobExecutor>({}, 'ScheduledJobExecutor'),
     );
   });
@@ -805,6 +819,194 @@ describe('rollouts and their two-person approval under FORCE RLS (ADR-048 DEC-2.
       expect(await rollouts.list(TENANT_B)).toEqual([]);
       const one = mine[0];
       await expect(rollouts.get(TENANT_B, one?.id ?? '')).rejects.toThrow(/not found/);
+    });
+  });
+
+  describe('site configs, site policies and the trust-anchors bundle as rollouts', () => {
+    const base64 = (text: string): string => Buffer.from(text, 'utf8').toString('base64');
+    const common = (group: string[]) => ({
+      windowNotBefore: null,
+      windowSeconds: 7200,
+      maxFailures: 0,
+      waves: waves(group),
+    });
+    const sitePlan = (
+      group: string[],
+      files: Record<string, string> = {},
+    ): SiteConfigRolloutPlan => ({
+      kind: EdgeRolloutKind.SITE_CONFIG,
+      files,
+      ...common(group),
+    });
+    const POLICY = {
+      interfaces: [],
+      ot_rules: [{ id: 'plc', proto: 'tcp', dst: '10.0.0.0/24', ports: [{ from: 502, to: 502 }] }],
+      time_sources: [],
+    } as const;
+    const netPlan = (
+      group: string[],
+      policy: SiteNetpolicyRolloutPlan['policy'] = POLICY,
+    ): SiteNetpolicyRolloutPlan => ({
+      kind: EdgeRolloutKind.SITE_NETPOLICY,
+      policy,
+      ...common(group),
+    });
+    const fixtureSchema = (): string => `${stage?.schemaOf(TENANT_FIXTURE)}`;
+    const fixtureRequests = async (code: string): Promise<Array<Record<string, any>>> =>
+      admin.query(
+        `SELECT * FROM ${fixtureSchema()}.edge_update_requests WHERE device_id = $1 ORDER BY created_at, id`,
+        [id(code)],
+      );
+    const anchorsPlan = (group: string[]): TrustAnchorsRolloutPlan => ({
+      kind: EdgeRolloutKind.TRUST_ANCHORS,
+      ...rollouts.heldTrustAnchors(TENANT_FIXTURE),
+      ...common(group),
+    });
+    const approvedIn = async (
+      tenantId: string,
+      plan: TrustAnchorsRolloutPlan,
+    ): Promise<EdgeRollout> => {
+      const created = await rollouts.create(tenantId, 'user-creator', 'anchors', plan, NOW);
+      await rollouts.approve(tenantId, 'user-1', created.id, created.planSha256);
+      return rollouts.approve(tenantId, 'user-2', created.id, created.planSha256);
+    };
+
+    it('a site config with no extra file refreshes config.yaml and the RBAC manifest, and completes on its result', async () => {
+      const [a] = take(1) as [string];
+      const rollout = await approved(sitePlan([a]), 'rbac refresh');
+      expect(await rolloutRow(rollout.id)).toMatchObject({
+        kind: 'site-config',
+        terms: {},
+        target: { files: {} },
+      });
+      await rollouts.advanceTenant(TENANT_A, NOW);
+      const [row] = await requestsOf(a);
+      expect(row).toMatchObject({
+        rollout_id: rollout.id,
+        statement_type: 'suderra.site-config.v1',
+        state: 'pending',
+      });
+      expect(row?.['site_bundle']).not.toBeNull();
+      await conclude(a, {}, 'suderra.site-config.v1');
+      await rollouts.advanceTenant(TENANT_A, NOW);
+      expect(await rolloutRow(rollout.id)).toMatchObject({ state: 'completed' });
+    });
+
+    it('a site config with the operator’s file carries it in the bundle', async () => {
+      const [a] = take(1) as [string];
+      await approved(sitePlan([a], { 'io-config.yaml': base64('tags: []\n') }));
+      await rollouts.advanceTenant(TENANT_A, NOW);
+      const [row] = await requestsOf(a);
+      const bundle = JSON.parse(row?.['site_bundle']);
+      expect(Buffer.from(bundle.site_files['io-config.yaml'], 'base64').toString('utf8')).toBe(
+        'tags: []\n',
+      );
+    });
+
+    it.each([
+      ['the PiCtory process image', { 'revpi/config.rsc': base64('{}') }, /defines field outputs/],
+      ['the per-output policy', { 'site-policy.json': base64('{}') }, /per-output policy/],
+      [
+        'an I/O map that enables a write',
+        { 'io-config.yaml': base64('modbus:\n  - allow_writes: true\n') },
+        /allows writes/,
+      ],
+      [
+        'a config.yaml of the operator’s own',
+        { 'config.yaml': base64('device_id: "x"\n') },
+        /not a site file an operator supplies/,
+      ],
+      [
+        'more bytes than a rollout stores',
+        { 'io-config.yaml': Buffer.alloc(262_145, 0x61).toString('base64') },
+        /at most 262144/,
+      ],
+    ])('refuses, before anyone is asked to approve it, %s', async (_name, files, message) => {
+      const [a] = take(1) as [string];
+      await expect(
+        rollouts.create(TENANT_A, 'user-creator', 'bad', sitePlan([a], files), NOW),
+      ).rejects.toThrow(message);
+    });
+
+    it('a site policy is signed for the cohort after the approval, and refused at creation when the contract refuses it', async () => {
+      const [a] = take(1) as [string];
+      const rollout = await approved(netPlan([a]));
+      await rollouts.advanceTenant(TENANT_A, NOW);
+      expect((await requestsOf(a))[0]).toMatchObject({
+        rollout_id: rollout.id,
+        statement_type: 'suderra.site-netpolicy.v1',
+      });
+      const [b] = take(1) as [string];
+      await expect(
+        rollouts.create(
+          TENANT_A,
+          'user-creator',
+          'bad',
+          netPlan([b], { ...POLICY, ot_rules: [{ ...POLICY.ot_rules[0], dst: '10.0.0.5/24' }] }),
+          NOW,
+        ),
+      ).rejects.toThrow(/host bits/);
+    });
+
+    it('the trust-anchors bundle is pushed as the ceremony signed it, to the tenant it serves, once approved', async () => {
+      const group = ['RF-001', 'RF-002'];
+      const rollout = await approvedIn(TENANT_FIXTURE, anchorsPlan(group));
+      expect(rollout).toMatchObject({ kind: 'trust-anchors', state: 'running' });
+      await rollouts.advanceTenant(TENANT_FIXTURE, NOW);
+      for (const code of group) {
+        const [row] = await fixtureRequests(code);
+        expect(row).toMatchObject({
+          rollout_id: rollout.id,
+          statement_type: 'suderra.trust-anchors.v1',
+          update_seq: null,
+          statement_digest: rollouts.heldTrustAnchors(TENANT_FIXTURE).bundleDigest,
+        });
+        expect(new Date(row?.['expires_at']).getTime()).toBe(NOW.getTime() + 7200 * 1000);
+      }
+    });
+
+    it('a trust-anchors plan naming a bundle the cloud does not hold, or a tenant outside its scope, is refused', async () => {
+      const held = rollouts.heldTrustAnchors(TENANT_FIXTURE);
+      await expect(
+        rollouts.create(
+          TENANT_FIXTURE,
+          'user-creator',
+          'bad',
+          { ...anchorsPlan(['RF-003']), bundleDigest: '0'.repeat(64) },
+          NOW,
+        ),
+      ).rejects.toThrow(/not the one the plan names/);
+      await expect(
+        rollouts.create(
+          TENANT_FIXTURE,
+          'user-creator',
+          'bad',
+          { ...anchorsPlan(['RF-003']), bundleSeq: held.bundleSeq + 1 },
+          NOW,
+        ),
+      ).rejects.toThrow(/not the one the plan names/);
+      expect(() => rollouts.heldTrustAnchors(TENANT_A)).toThrow(/does not serve this tenant/);
+      const [a] = take(1) as [string];
+      await expect(
+        rollouts.create(
+          TENANT_A,
+          'user-creator',
+          'bad',
+          { kind: EdgeRolloutKind.TRUST_ANCHORS, ...held, ...common([a]) },
+          NOW,
+        ),
+      ).rejects.toThrow(/does not serve this tenant/);
+    });
+
+    it('each kind is a plan of its own: the digest covers what it carries', () => {
+      const group = ['00000000-0000-4000-8000-000000000001'];
+      const plans = [
+        { ...sitePlan([]), waves: [group] },
+        { ...netPlan([]), waves: [group] },
+        { ...anchorsPlan([]), waves: [group] },
+        { ...edgePlan({ waves: [group] }) },
+      ];
+      expect(new Set(plans.map((plan) => planDigest(plan))).size).toBe(plans.length);
     });
   });
 });

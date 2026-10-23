@@ -18,6 +18,8 @@ import {
   EdgeRolloutDeviceStatusType,
   EdgeRolloutProgressType,
 } from './dto/edge-rollout.dto';
+import { isNetpolicyBody } from '../edge-device/site-netpolicy-manifest.service';
+
 import { type RolloutPlan } from './edge-rollout-plan';
 import { EdgeRolloutService } from './edge-rollout.service';
 import { EdgeRolloutApproval } from './entities/edge-rollout-approval.entity';
@@ -126,7 +128,12 @@ export class EdgeRolloutResolver {
     @CurrentUser() user: CurrentUserPayload,
     @Args('input') input: CreateEdgeRolloutInput,
   ): Promise<EdgeRollout> {
-    return this.rollouts.create(tenantId, user.sub, input.name, planOf(input));
+    return this.rollouts.create(
+      tenantId,
+      user.sub,
+      input.name,
+      planOf(input, this.rollouts, tenantId),
+    );
   }
 
   @Mutation(() => EdgeRollout, {
@@ -162,23 +169,84 @@ export class EdgeRolloutResolver {
   }
 }
 
-/** The plan an input describes; an input that names the wrong target for its kind is refused. */
-function planOf(input: CreateEdgeRolloutInput): RolloutPlan {
+const MEMBERS = ['version', 'osBundle', 'terms', 'siteFiles', 'netpolicy'] as const;
+type Member = (typeof MEMBERS)[number];
+
+/** The members of the input a kind does not take must be absent. */
+function onlyMembers(input: CreateEdgeRolloutInput, allowed: readonly Member[]): void {
+  const extra = MEMBERS.filter(
+    (member) => !allowed.includes(member) && input[member] !== undefined && input[member] !== null,
+  );
+  if (extra.length > 0) {
+    throw new BadRequestException(`A ${input.kind} rollout does not take ${extra.join(' or ')}`);
+  }
+}
+
+/** A member a kind needs. */
+function needed<T>(input: CreateEdgeRolloutInput, value: T | null | undefined, name: Member): T {
+  if (value === undefined || value === null) {
+    throw new BadRequestException(`A ${input.kind} rollout needs ${name}`);
+  }
+  return value;
+}
+
+/**
+ * The plan an input describes. Which members a plan names is decided by its kind, and an
+ * input that names another kind's member, or leaves out one the kind needs, is refused.
+ * A trust-anchors plan names no member: the plan is the bundle the cloud holds, by the
+ * digest and `bundle_seq` it states, which is what the two approvers confirm.
+ */
+function planOf(
+  input: CreateEdgeRolloutInput,
+  rollouts: EdgeRolloutService,
+  tenantId: string,
+): RolloutPlan {
   const common = {
-    terms: input.terms,
     windowNotBefore: input.windowNotBefore ?? null,
     windowSeconds: input.windowSeconds,
     maxFailures: input.maxFailures,
     waves: input.waves,
   };
-  if (input.kind === EdgeRolloutKind.EDGE_UPDATE) {
-    if (input.version === undefined || input.osBundle !== undefined) {
-      throw new BadRequestException('An edge-update rollout names a version and no OS bundle');
+  switch (input.kind) {
+    case EdgeRolloutKind.EDGE_UPDATE:
+      onlyMembers(input, ['version', 'terms']);
+      return {
+        kind: input.kind,
+        version: needed(input, input.version, 'version'),
+        terms: needed(input, input.terms, 'terms'),
+        ...common,
+      };
+    case EdgeRolloutKind.OS_UPDATE:
+      onlyMembers(input, ['osBundle', 'terms']);
+      return {
+        kind: input.kind,
+        bundle: needed(input, input.osBundle, 'osBundle'),
+        terms: needed(input, input.terms, 'terms'),
+        ...common,
+      };
+    case EdgeRolloutKind.SITE_CONFIG: {
+      onlyMembers(input, ['siteFiles']);
+      const files: Record<string, string> = {};
+      for (const file of input.siteFiles ?? []) {
+        if (file.path in files) {
+          throw new BadRequestException(`The site file ${file.path} is named twice`);
+        }
+        files[file.path] = file.contentBase64;
+      }
+      return { kind: input.kind, files, ...common };
     }
-    return { kind: EdgeRolloutKind.EDGE_UPDATE, version: input.version, ...common };
+    case EdgeRolloutKind.SITE_NETPOLICY: {
+      onlyMembers(input, ['netpolicy']);
+      const policy = needed(input, input.netpolicy, 'netpolicy');
+      if (!isNetpolicyBody(policy)) {
+        throw new BadRequestException(
+          'The policy is not one the contract admits: exactly interfaces, ot_rules and time_sources, each as the contract states it',
+        );
+      }
+      return { kind: input.kind, policy, ...common };
+    }
+    case EdgeRolloutKind.TRUST_ANCHORS:
+      onlyMembers(input, []);
+      return { kind: input.kind, ...rollouts.heldTrustAnchors(tenantId), ...common };
   }
-  if (input.osBundle === undefined || input.version !== undefined) {
-    throw new BadRequestException('An os-update rollout names an OS bundle and no version');
-  }
-  return { kind: EdgeRolloutKind.OS_UPDATE, bundle: input.osBundle, ...common };
 }

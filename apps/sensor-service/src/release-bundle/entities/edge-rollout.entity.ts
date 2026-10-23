@@ -47,11 +47,15 @@ registerEnumType(EdgeRolloutState, {
 export enum EdgeRolloutKind {
   EDGE_UPDATE = 'edge-update',
   OS_UPDATE = 'os-update',
+  SITE_CONFIG = 'site-config',
+  SITE_NETPOLICY = 'site-netpolicy',
+  TRUST_ANCHORS = 'trust-anchors',
 }
 
 registerEnumType(EdgeRolloutKind, {
   name: 'EdgeRolloutKind',
-  description: 'The statement a rollout signs for each device: an edge-update or an os-update',
+  description:
+    'What a rollout carries to each device: an agent release, an OS bundle, a site config, a site network policy or a trust-anchors bundle',
 });
 
 /** Where one device of a rollout stands, read from its request's campaign. */
@@ -78,8 +82,9 @@ const KINDS = Object.values(EdgeRolloutKind)
   .join(', ');
 
 /**
- * A plan to take a cohort of Suderra OS devices to one agent release or one OS
- * bundle, in waves, and the state of carrying it out. The plan (kind, target,
+ * A plan to take a cohort of Suderra OS devices to one agent release, OS bundle, site
+ * config, site network policy or trust-anchors bundle, in waves, and the state of
+ * carrying it out. The plan (kind, target,
  * terms, window, cohort, failure allowance) never changes after creation;
  * `plan_sha256` is the digest of it, and an approval names that digest, so an
  * approval is for exactly this plan.
@@ -111,12 +116,12 @@ export class EdgeRollout {
   @Column({ type: 'varchar', length: 16 })
   kind!: EdgeRolloutKind;
 
-  /** `{ version }` of an agent release, or the OS bundle's descriptor. */
+  /** What the kind carries: `{ version }`, `{ bundle }`, `{ files }`, `{ policy }` or `{ bundleDigest, bundleSeq }`. */
   @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb' })
   target!: Record<string, unknown>;
 
-  /** The terms root applies the update under (local approval, blockers override, outage budget). */
+  /** The terms root applies an agent or OS update under (local approval, blockers override, outage budget); `{}` for the other kinds. */
   @Field(() => GraphQLJSON)
   @Column({ type: 'jsonb' })
   terms!: Record<string, unknown>;

@@ -13,7 +13,8 @@ import { BadRequestException, Inject, Injectable, Logger, NotFoundException } fr
 import { DataSource, type QueryRunner } from 'typeorm';
 
 import { boardForDeviceModel, type BoardRow } from '../edge-device/edge-boards';
-import { asDeviceBinding } from '../edge-device/edge-contract';
+import { asDeviceBinding, contractTimestamp } from '../edge-device/edge-contract';
+import { ContractSchemaError } from '../edge-device/edge-statement-schemas';
 import {
   EdgeReleaseCatalog,
   type AdmittedRelease,
@@ -25,7 +26,7 @@ import {
   type UpdateTarget,
   type UpdateWindow,
 } from '../edge-device/edge-update-manifest.service';
-import type { UpdateRecipe } from '../edge-device/edge-update-recipe';
+import { siteFilesOf, type UpdateRecipe } from '../edge-device/edge-update-recipe';
 import {
   EdgeUpdateRequestService,
   UPDATABLE_STATES,
@@ -33,7 +34,17 @@ import {
 } from '../edge-device/edge-update-request.service';
 import { EdgeAgentChannel } from '../edge-device/entities/edge-device.entity';
 import { StatementAdmissionError } from '../edge-device/manifest-signer';
-import { TenantOutOfBundleScopeError } from '../edge-device/trust-anchor-bundle.service';
+import { RbacManifestService } from '../edge-device/rbac-manifest.service';
+import {
+  buildSiteConfig,
+  SiteConfigManifestService,
+} from '../edge-device/site-config-manifest.service';
+import { buildSiteNetpolicy } from '../edge-device/site-netpolicy-manifest.service';
+import {
+  type DeliveredTrustAnchors,
+  TenantOutOfBundleScopeError,
+  TrustAnchorBundleService,
+} from '../edge-device/trust-anchor-bundle.service';
 import { returningRows } from '../edge-device/returning-rows';
 
 import {
@@ -43,7 +54,10 @@ import {
   recipeOf,
   RolloutPlanError,
   targetOf,
+  termsOf,
   type RolloutPlan,
+  type SiteConfigRolloutPlan,
+  type TrustAnchorsRolloutPlan,
 } from './edge-rollout-plan';
 import {
   EdgeRolloutDevicePhase,
@@ -181,6 +195,9 @@ class SlotTakenError extends Error {
   }
 }
 
+/** The id a dry-run site config names in its bundle URL; the real one is the request's own. */
+const PLACEHOLDER_REQUEST_ID = '00000000-0000-4000-8000-000000000000';
+
 const NO_ADVANCE: AdvanceSummary = { issued: 0, refused: 0, halted: 0, completed: 0 };
 
 function addAdvance(a: AdvanceSummary, b: AdvanceSummary): AdvanceSummary {
@@ -207,6 +224,9 @@ export class EdgeRolloutService {
     private readonly dataSource: DataSource,
     private readonly requests: EdgeUpdateRequestService,
     private readonly catalog: EdgeReleaseCatalog,
+    private readonly rbac: RbacManifestService,
+    private readonly siteConfigs: SiteConfigManifestService,
+    private readonly anchors: TrustAnchorBundleService,
     @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
@@ -253,7 +273,7 @@ export class EdgeRolloutService {
             label,
             plan.kind,
             JSON.stringify(targetOf(plan)),
-            JSON.stringify(plan.terms),
+            JSON.stringify(termsOf(plan)),
             plan.windowNotBefore,
             plan.windowSeconds,
             plan.maxFailures,
@@ -334,8 +354,8 @@ export class EdgeRolloutService {
   }
 
   /**
-   * The plan through the real statement builders, one device at a time: the window,
-   * the terms, the release or bundle against the device's board. Nothing is signed;
+   * The plan through the real statement builders, one device at a time: the window, the
+   * terms, the release, bundle, files or policy against the device. Nothing is signed;
    * the sequence value is a placeholder, the signing transaction allocates the real one.
    */
   private async dryRun(
@@ -352,37 +372,117 @@ export class EdgeRolloutService {
     const releases = new Map<string, AdmittedRelease>();
     for (const device of cohort) {
       try {
-        if (plan.kind === EdgeRolloutKind.EDGE_UPDATE) {
-          const board = device.target.board;
-          let release = releases.get(board.boardProfile);
-          if (release === undefined) {
-            release = await this.admit(board, plan.version);
-            releases.set(board.boardProfile, release);
+        switch (plan.kind) {
+          case EdgeRolloutKind.EDGE_UPDATE: {
+            const board = device.target.board;
+            let release = releases.get(board.boardProfile);
+            if (release === undefined) {
+              release = await this.admit(board, plan.version);
+              releases.set(board.boardProfile, release);
+            }
+            buildEdgeUpdate({
+              target: device.target,
+              release,
+              updateSeq: 1,
+              window,
+              terms: plan.terms,
+              running,
+            });
+            break;
           }
-          buildEdgeUpdate({
-            target: device.target,
-            release,
-            updateSeq: 1,
-            window,
-            terms: plan.terms,
-            running,
-          });
-        } else {
-          buildOsUpdate({
-            target: device.target,
-            bundle: plan.bundle,
-            updateSeq: 1,
-            window,
-            terms: plan.terms,
-            running,
-          });
+          case EdgeRolloutKind.OS_UPDATE:
+            buildOsUpdate({
+              target: device.target,
+              bundle: plan.bundle,
+              updateSeq: 1,
+              window,
+              terms: plan.terms,
+              running,
+            });
+            break;
+          case EdgeRolloutKind.SITE_CONFIG:
+            this.dryRunSiteConfig(plan, device, window);
+            break;
+          case EdgeRolloutKind.SITE_NETPOLICY:
+            buildSiteNetpolicy({
+              target: device.target,
+              updateSeq: 1,
+              window,
+              policy: plan.policy,
+            });
+            break;
+          case EdgeRolloutKind.TRUST_ANCHORS:
+            this.assertHeldBundle(plan, device.target.tenantId);
+            break;
         }
       } catch (error) {
-        if (error instanceof UpdateRefusedError) {
+        if (error instanceof UpdateRefusedError || error instanceof ContractSchemaError) {
           throw new RolloutPlanError(`device ${device.deviceCode}: ${error.message}`);
         }
         throw error;
       }
+    }
+  }
+
+  /** The site config of one device of the cohort, built and held to the contract; not signed, not stored. */
+  private dryRunSiteConfig(
+    plan: SiteConfigRolloutPlan,
+    device: CohortDevice,
+    window: UpdateWindow,
+  ): void {
+    const rbac = this.rbac.forTenant(device.target.tenantId);
+    const prepared = this.siteConfigs.prepareUpdate(
+      {
+        tenantId: device.target.tenantId,
+        deviceId: device.id,
+        deviceCode: device.deviceCode,
+        extraFiles: siteFilesOf({ kind: 'site-config', files: plan.files, windowSeconds: 1 }),
+      },
+      rbac,
+    );
+    buildSiteConfig({
+      tenantId: device.target.tenantId,
+      deviceId: device.id,
+      binding: device.target.binding,
+      updateSeq: 1,
+      notBefore: contractTimestamp(window.notBefore),
+      expiresAt: contractTimestamp(window.expiresAt),
+      files: prepared.files,
+      rbac,
+      siteBundleUrl: this.siteConfigs.bundleUrl(device.target.tenantId, PLACEHOLDER_REQUEST_ID),
+    });
+  }
+
+  /** The bundle the plan names is the one the cloud holds, and serves this tenant. */
+  private assertHeldBundle(plan: TrustAnchorsRolloutPlan, tenantId: string): void {
+    let held: DeliveredTrustAnchors;
+    try {
+      held = this.anchors.forTenant(tenantId);
+    } catch (error) {
+      if (error instanceof TenantOutOfBundleScopeError) throw new RolloutPlanError(error.message);
+      throw error;
+    }
+    if (held.digest.sha256 !== plan.bundleDigest || held.bundleSeq !== plan.bundleSeq) {
+      throw new RolloutPlanError(
+        'the trust-anchors bundle the cloud holds is not the one the plan names',
+      );
+    }
+  }
+
+  /**
+   * The trust-anchors bundle the cloud holds for a tenant, by the digest and `bundle_seq`
+   * a plan names and two people approve. A tenant outside its scope has none.
+   */
+  heldTrustAnchors(tenantId: string): {
+    readonly bundleDigest: string;
+    readonly bundleSeq: number;
+  } {
+    try {
+      const held = this.anchors.forTenant(tenantId);
+      return { bundleDigest: held.digest.sha256, bundleSeq: held.bundleSeq };
+    } catch (error) {
+      if (error instanceof TenantOutOfBundleScopeError) throw new RolloutPlanError(error.message);
+      throw error;
     }
   }
 

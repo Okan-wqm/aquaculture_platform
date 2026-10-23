@@ -32,12 +32,16 @@ describe('EdgeRolloutResolver', () => {
   const create = jest.fn();
   const approve = jest.fn();
   const cancel = jest.fn();
+  const heldTrustAnchors = jest.fn();
   let resolver: EdgeRolloutResolver;
 
   beforeEach(() => {
     jest.resetAllMocks();
     resolver = new EdgeRolloutResolver(
-      collaborator<EdgeRolloutService>({ create, approve, cancel }, 'EdgeRolloutService'),
+      collaborator<EdgeRolloutService>(
+        { create, approve, cancel, heldTrustAnchors },
+        'EdgeRolloutService',
+      ),
       collaborator<EdgeUpdateRequestService>({}, 'EdgeUpdateRequestService'),
       collaborator<EdgeDeviceService>({}, 'EdgeDeviceService'),
     );
@@ -128,6 +132,126 @@ describe('EdgeRolloutResolver', () => {
       );
     });
 
+    it('plans a site config from the operator’s files, with none as a refresh of config.yaml and the RBAC manifest', async () => {
+      create.mockResolvedValue({ id: 'r1' });
+      await resolver.createEdgeRollout(
+        TENANT,
+        USER,
+        input({
+          kind: EdgeRolloutKind.SITE_CONFIG,
+          version: undefined,
+          terms: undefined,
+          siteFiles: [{ path: 'io-config.yaml', contentBase64: 'dGFnczogW10K' }],
+        }),
+      );
+      expect(create).toHaveBeenLastCalledWith(
+        TENANT,
+        'user-7',
+        'Canary',
+        expect.objectContaining({
+          kind: 'site-config',
+          files: { 'io-config.yaml': 'dGFnczogW10K' },
+        }),
+      );
+      await resolver.createEdgeRollout(
+        TENANT,
+        USER,
+        input({ kind: EdgeRolloutKind.SITE_CONFIG, version: undefined, terms: undefined }),
+      );
+      expect(create).toHaveBeenLastCalledWith(
+        TENANT,
+        'user-7',
+        'Canary',
+        expect.objectContaining({ kind: 'site-config', files: {} }),
+      );
+    });
+
+    it('plans a site policy only from a policy the contract admits', async () => {
+      create.mockResolvedValue({ id: 'r1' });
+      const policy = {
+        interfaces: [],
+        ot_rules: [
+          { id: 'plc', proto: 'tcp', dst: '10.0.0.0/24', ports: [{ from: 502, to: 502 }] },
+        ],
+        time_sources: [],
+      };
+      await resolver.createEdgeRollout(
+        TENANT,
+        USER,
+        input({
+          kind: EdgeRolloutKind.SITE_NETPOLICY,
+          version: undefined,
+          terms: undefined,
+          netpolicy: policy,
+        }),
+      );
+      expect(create).toHaveBeenCalledWith(
+        TENANT,
+        'user-7',
+        'Canary',
+        expect.objectContaining({ kind: 'site-netpolicy', policy }),
+      );
+      for (const bad of [
+        { ...policy, extra: [] },
+        { ...policy, ot_rules: [{ id: 'X', proto: 'tcp', dst: '10.0.0.0/24', ports: [] }] },
+        { interfaces: [] },
+      ]) {
+        await expect(
+          resolver.createEdgeRollout(
+            TENANT,
+            USER,
+            input({
+              kind: EdgeRolloutKind.SITE_NETPOLICY,
+              version: undefined,
+              terms: undefined,
+              netpolicy: bad,
+            }),
+          ),
+        ).rejects.toThrow(/not one the contract admits/);
+      }
+    });
+
+    it('plans the trust-anchors bundle the cloud holds, by its digest and bundle_seq, and nothing the caller names', async () => {
+      create.mockResolvedValue({ id: 'r1' });
+      heldTrustAnchors.mockReturnValue({ bundleDigest: 'ab'.repeat(32), bundleSeq: 4 });
+      await resolver.createEdgeRollout(
+        TENANT,
+        USER,
+        input({ kind: EdgeRolloutKind.TRUST_ANCHORS, version: undefined, terms: undefined }),
+      );
+      expect(heldTrustAnchors).toHaveBeenCalledWith(TENANT);
+      expect(create).toHaveBeenCalledWith(
+        TENANT,
+        'user-7',
+        'Canary',
+        expect.objectContaining({
+          kind: 'trust-anchors',
+          bundleDigest: 'ab'.repeat(32),
+          bundleSeq: 4,
+        }),
+      );
+      await expect(
+        resolver.createEdgeRollout(TENANT, USER, input({ kind: EdgeRolloutKind.TRUST_ANCHORS })),
+      ).rejects.toThrow(/does not take version or terms/);
+    });
+
+    it.each([
+      [
+        'a site config that names a version',
+        { kind: EdgeRolloutKind.SITE_CONFIG, terms: undefined },
+      ],
+      ['a site config that names terms', { kind: EdgeRolloutKind.SITE_CONFIG, version: undefined }],
+      [
+        'a site policy without a policy',
+        { kind: EdgeRolloutKind.SITE_NETPOLICY, version: undefined, terms: undefined },
+      ],
+    ])('refuses %s', async (_name, over) => {
+      await expect(
+        resolver.createEdgeRollout(TENANT, USER, input(over as Partial<CreateEdgeRolloutInput>)),
+      ).rejects.toThrow(/needs|does not take/);
+      expect(create).not.toHaveBeenCalled();
+    });
+
     it.each([
       ['an agent release without a version', { version: undefined }],
       ['an agent release that also names an OS bundle', { osBundle: BUNDLE }],
@@ -139,7 +263,7 @@ describe('EdgeRolloutResolver', () => {
     ])('refuses %s', async (_name, over) => {
       await expect(
         resolver.createEdgeRollout(TENANT, USER, input(over as Partial<CreateEdgeRolloutInput>)),
-      ).rejects.toThrow(/names/);
+      ).rejects.toThrow(/needs|does not take/);
       expect(create).not.toHaveBeenCalled();
     });
   });

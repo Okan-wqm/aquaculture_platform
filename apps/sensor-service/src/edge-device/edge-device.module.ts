@@ -141,6 +141,9 @@ import { TrustAnchorBundleService } from './trust-anchor-bundle.service';
     EdgeResultTelemetryService,
     EdgeUpdateRequestService,
     EdgeReleaseCatalog,
+    RbacManifestService,
+    SiteConfigManifestService,
+    TrustAnchorBundleService,
   ],
 })
 export class EdgeDeviceModule {}

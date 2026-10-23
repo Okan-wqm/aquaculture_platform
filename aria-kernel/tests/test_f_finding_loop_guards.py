@@ -23,10 +23,12 @@ from unittest import mock
 from aria_kernel import finding_grounding as fg
 from aria_kernel.cycle_phases.plan_source import V9PressureSourceProvider
 from aria_kernel.finding import EXTERNAL_ORIGINATING_SKILLS, ORIGINATING_SKILL_ALLOWLIST
+from aria_kernel.finding_subject import DRIFT_ORIGIN
 from aria_kernel.genesis_policy import OVERRIDE_RELPATH
 from aria_kernel.ledger import load_declared_jsonl
 from aria_kernel.operator_feedback_ingestion import bind_plan_synthesis
 from aria_kernel.plan_convergence import content_hash
+from aria_kernel.plan_write_scope import WRITE_BASIS_DEFERRED
 from aria_kernel.self_revert import SELF_REVERTS_RELPATH, SELF_REVERTS_SURFACE
 from tests._helpers.declared_fixtures import append_declared_fixture
 from tests._helpers.operator_requests import GROUNDED_FILE, OperatorRequestFixture
@@ -34,6 +36,9 @@ from tests._helpers.operator_requests import GROUNDED_FILE, OperatorRequestFixtu
 _ENTITY_FILE = "apps/hr-service/src/leave/leave.entity.ts"
 _OTHER_FILE = "apps/farm-service/src/batch/batch.service.ts"
 _ARIA_FILE = "aria-kernel/pyproject.toml"
+# A ui_option_drift copy side that was renamed after the finding was minted:
+# never committed, so admission grounds only the contract side.
+_MOVED_UI_COPY = "web/modules/hr-module/src/pages/LeavesPage.tsx"
 
 
 def _ago(**delta: float) -> str:
@@ -149,11 +154,36 @@ class SelfLoopGuardTests(_LoopFixture):
     """ADR-0003 prerequisite 3 — the originating-skill self-loop guard."""
 
     def test_an_aria_finding_whose_plan_would_modify_aria_itself_is_refused(self) -> None:
+        # B1 — every path under SELF_CHANGE_ALLOWED_PREFIXES is kernel-readonly, so
+        # grounding refuses an ARIA write surface before any loop guard is judged.
         self.finding("F-020", _ARIA_FILE, origin="ai_consensus:judgment_pipeline")
         self.assertIsNone(self.synthesize("cyc-self"))
-        self.assertEqual(self.skips("cyc-self"), [("F-020", fg.SELF_LOOP_ORIGIN_SURFACE)])
-        detail = self.skip_detail("F-020")["loop_guard"]
-        self.assertEqual(detail, {"originating_skill": "ai_consensus:judgment_pipeline", "surfaces": [_ARIA_FILE]})
+        self.assertEqual(self.skips("cyc-self"), [("F-020", fg.FINDING_SURFACES_READONLY)])
+        detail = self.skip_detail("F-020")
+        self.assertEqual([entry["surface"] for entry in detail["refused_surfaces"]], [_ARIA_FILE])
+        self.assertNotIn("loop_guard", detail)
+
+    def test_an_aria_finding_whose_deferred_write_set_cites_aria_is_refused_by_the_origin_guard(self) -> None:
+        # A deferred write set (ARIA-HIGH-381) is admitted without a writable test, so
+        # guard 3 is what refuses it: every grounded surface counts as a write candidate.
+        self.fx.seed_finding("F-023", refs=[], body={
+            "originating_skill": DRIFT_ORIGIN, "created_at": _ago(days=30), "claim_type": "spine_drift",
+            "claim_summary": "ui_option_drift: 'leaverequest' ui_value_not_on_wire across 2 surfaces "
+                             "(cross_service=True)",
+            "evidences": [
+                {"ref": f"{side}:3", "summary": f"{name} values: ['approved']",
+                 "evidence_envelope": {"canonical_ref": f"{side}:3", "trust_grade": "repo_verified"}}
+                for side, name in ((_MOVED_UI_COPY, "leave-filter-status"), (_ARIA_FILE, "LeaveRequestStatus"))
+            ],
+        })
+        context = fg.load_grounding_context(self.fx.repo, tools_root=self.fx.tools)
+        admission = fg.admit_unattended_finding(context, "F-023")
+        self.assertEqual((admission.reason, admission.write_basis, admission.evidence_surfaces),
+                         (None, WRITE_BASIS_DEFERRED, (_ARIA_FILE,)))
+        self.assertIsNone(self.synthesize("cyc-deferred"))
+        self.assertEqual(self.skips("cyc-deferred"), [("F-023", fg.SELF_LOOP_ORIGIN_SURFACE)])
+        self.assertEqual(self.skip_detail("F-023")["loop_guard"],
+                         {"originating_skill": DRIFT_ORIGIN, "surfaces": [_ARIA_FILE]})
 
     def test_a_finding_on_a_surface_aria_merged_a_change_to_is_refused(self) -> None:
         self.plan("plan-old", "F-005", started=_ago(days=10))
@@ -347,8 +377,10 @@ class ScopeTests(_LoopFixture):
         self.assertEqual(self.skips("cyc-unrelated"), [("F-090", fg.SUBJECT_COOL_OFF)])
 
     def test_operator_requests_bypass_all_three_guards(self) -> None:
-        self.finding("F-007", _ARIA_FILE, origin="ai_consensus:judgment_pipeline")
-        self.plan("plan-r", "F-007", started=_ago(days=5), surfaces=(_ARIA_FILE,))
+        # A writable surface (an ARIA one is refused by grounding, operator or not), an
+        # ARIA origin, and a finding emitted after ARIA merged a change on its evidence.
+        self.finding("F-007", _OTHER_FILE, origin="ai_consensus:judgment_pipeline", created=_ago(days=1))
+        self.plan("plan-r", "F-007", started=_ago(days=5), surfaces=(_OTHER_FILE,))
         self.merged("plan-r", _ago(days=4), "d" * 40)
         self.reverted("d" * 40, _ago(days=3))
         self.plan("plan-cap", "F-099", started=_ago(hours=1), surfaces=(_OTHER_FILE,))
@@ -367,10 +399,11 @@ class ScopeTests(_LoopFixture):
         quarantined = fg.judge_loop_guards(fg.GroundingContext(
             context.repo_root, context.anchor, context.findings, None, no_cap), fg.admit_finding(context, "F-007"))
         self.assertEqual(quarantined.reason, fg.SUBJECT_QUARANTINED)
-        clean = fg.LoopHistory(context.loop_history.now, (), {}, (), 1, timedelta(days=7))
+        unreverted = fg.LoopHistory(no_cap.now, no_cap.plans, {}, (), 1, timedelta(days=7))
         self_loop = fg.judge_loop_guards(fg.GroundingContext(
-            context.repo_root, context.anchor, context.findings, None, clean), fg.admit_finding(context, "F-007"))
-        self.assertEqual(self_loop.reason, fg.SELF_LOOP_ORIGIN_SURFACE)
+            context.repo_root, context.anchor, context.findings, None, unreverted), fg.admit_finding(context, "F-007"))
+        self.assertEqual((self_loop.reason, self_loop.loop_guard),
+                         (fg.SELF_LOOP_OWN_CHANGE, {"plan_id": "plan-r", "surfaces": [_OTHER_FILE]}))
 
     def test_a_context_without_loop_history_refuses_the_aging_source(self) -> None:
         self.finding("F-060", GROUNDED_FILE)

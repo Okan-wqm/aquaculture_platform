@@ -542,13 +542,16 @@ def rhythm_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
 
 WATCHDOG_PULL_DEFAULTS: dict[str, Any] = {
     "enabled": True,
-    # None → disclosed skip (source_unconfigured). The URL is machine-local
-    # (a docker-bridge address on the droplet), so it lives in the operator
-    # override, never in a tracked default.
-    "observability_base_url": None,
-    # The API key itself NEVER enters policy or ledgers — only the NAME of
-    # the environment variable the runner exports.
-    "api_key_env": "ARIA_OBSERVABILITY_API_KEY",
+    # RW-1 — the droplet Prometheus's read-only HTTP API, published on the
+    # host's loopback only (docker-compose.droplet.yml `127.0.0.1:9090`;
+    # install step: docs/runbooks/aria-runner-rebuild.md). The runner shares
+    # that host, so the address is the same on every ARIA host and is the
+    # tracked default. aria_watchdog.pull_observability_metrics refuses any
+    # origin that is not a loopback IP literal (a named hold, no socket),
+    # and an unset or unreachable source is a named hold too, never silence.
+    "observability_base_url": "http://127.0.0.1:9090",
+    # No credential field, not even an env-var name: ARIA holds no shared
+    # internal API key (RW-1); the source needs none.
     "http_5xx_share_threshold": 0.05,
     "http_min_requests": 50,
 }

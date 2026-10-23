@@ -2949,8 +2949,9 @@ def _phase_metrics(context: PhaseContext) -> dict[str, Any]:
     )
     if night is not None:
         phase_digests["experiment_night"] = night
+    watchdog_sweep = _ran_result(context, "watchdog_sweep")
     watchdog = _phase_digest_of(
-        _ran_result(context, "watchdog_sweep"),
+        watchdog_sweep,
         # run_watchdog_sweep's REAL return keys (aria_watchdog.py: candidates/
         # emitted/suppressed). Two prior digests shipped with wrong names —
         # first invented fields, then the DAEMON's termination keys — and both
@@ -2960,6 +2961,13 @@ def _phase_metrics(context: PhaseContext) -> dict[str, Any]:
         ("candidates", "emitted", "suppressed"),
     )
     if watchdog is not None:
+        # RW-1 — the runtime feed's state rides the digest the report
+        # renders: the named hold when the source was not read (a hold that
+        # stopped at the sweep payload was the silence RW-1 removed), else
+        # "read" and the number of telemetry leads raised.
+        runtime = watchdog_sweep["runtime"]
+        watchdog["runtime_feed"] = runtime.get("hold", "read")
+        watchdog["runtime_leads"] = len(runtime.get("leads", ()))
         phase_digests["watchdog_sweep"] = watchdog
     author = _phase_digest_of(
         _ran_result(context, "experiment_author"),

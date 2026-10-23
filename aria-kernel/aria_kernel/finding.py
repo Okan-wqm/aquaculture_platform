@@ -118,9 +118,11 @@ ORIGINATING_SKILL_ALLOWLIST: frozenset[str] = frozenset({
     "manual:operator",
     "aria-watchdog:stall",
     "aria-watchdog:bridge_warning_repeat",
-    # E24-a (ORPHAN-711) — the runtime-pull detectors: production telemetry
-    # (observability-service /metrics) becomes findings through the SAME
-    # dedup'd watchdog emitter, never a parallel path.
+    # E24-a (ORPHAN-711) — the runtime-pull detectors' producer name
+    # (aria_watchdog.RuntimeAnomaly.originating_skill). Since RW-1 the
+    # watchdog mints no finding from telemetry: a runtime anomaly is an
+    # unverified lead on runtime_signal_bridge, and a finding about it is
+    # minted by the repo-evidence path with its reproduction.
     "aria-watchdog:runtime_anomaly",
     "report_ingestion:external_pr",
     # Kapalı Döngü D3 (ORPHAN-CRITICAL-642) — the judgment pipeline's own

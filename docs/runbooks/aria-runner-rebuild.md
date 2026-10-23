@@ -37,7 +37,7 @@ only.
 | Runner name          | `suderra-droplet-claude`                                                                                                                                                                                                                                               |
 | Labels               | `self-hosted`, `linux`, `claude` (both lanes pin `runs-on: [self-hosted, linux, claude]`)                                                                                                                                                                              |
 | systemd service      | `actions.runner.Okan-wqm-aquaculture_platform.suderra-droplet-claude.service`                                                                                                                                                                                          |
-| Secrets file         | `/home/gharunner/actions-runner/.env` (key: `ARIA_OBSERVABILITY_API_KEY`; `ARIA_GH_TOKEN` must be absent)                                                                                                                                                              |
+| Secrets file         | `/home/gharunner/actions-runner/.env` (`ARIA_GH_TOKEN` and `ARIA_OBSERVABILITY_API_KEY` must be absent)                                                                                                                                                                |
 | Claude CLI floor     | `claude_code_floor` in `.github/manifests/aria-claude-floor.json` (both lanes' preflight rejects older)                                                                                                                                                                |
 | Workspace checkout   | `/home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform`                                                                                                                                                                                       |
 | Runner limits        | `MemoryHigh=2300M MemoryMax=3G OOMPolicy=continue CPUQuota=200% CPUWeight=400` (`scripts/aria/runner-habitat/systemd/actions-runner.limits.conf`)                                                                                                                      |
@@ -61,8 +61,6 @@ operator capacity decision — see ARIA-MEDIUM-277's residual.
 - A repo **admin** able to mint a runner registration token
   (Settings → Actions → Runners → New self-hosted runner) and a
   fine-grained PAT (step 3).
-- Read access to the production compose env file on the droplet (source
-  of the observability key value, step 3).
 - The operator's Claude subscription account, to mint the kernel's token
   with `claude setup-token` (step 4). API keys are NOT a substitute — the lanes hard-fail when
   `ANTHROPIC_API_KEY` / `CLAUDE_API_KEY` / `ANTHROPIC_AUTH_TOKEN` is set.
@@ -224,7 +222,7 @@ secrets, or workflow files. **Every edit requires a service restart**:
 sudo systemctl restart actions.runner.Okan-wqm-aquaculture_platform.suderra-droplet-claude.service
 ```
 
-Keep it `chown gharunner: && chmod 600`. One key (NAMES only here), and one that must be absent:
+Keep it `chown gharunner: && chmod 600`. Two retired keys must be absent (NAMES only here):
 
 ### `ARIA_GH_TOKEN` — retired; must be absent (ARIA-CRITICAL-246)
 
@@ -246,16 +244,61 @@ To retire it on a runner that still has it:
 4. Revoke the PAT (GitHub → Settings → Developer settings → Personal access
    tokens → Fine-grained tokens).
 
-### `ARIA_OBSERVABILITY_API_KEY` — production telemetry pull (E24-a)
+### `ARIA_OBSERVABILITY_API_KEY` — retired; must be absent (RW-1)
 
-The watchdog's pull policy (`aria-kernel/aria_kernel/genesis_policy.py`,
-`watchdog_pull.api_key_env`) names this variable; only the NAME ever
-enters policy or ledgers. The value is the observability-service
-`INTERNAL_API_KEY` — supplied to the service as
-`OBSERVABILITY_INTERNAL_API_KEY` in the production compose env
-(`docker-compose.droplet.yml` requires it). Copy that value from the
-droplet's compose env file into the runner `.env` under the ARIA name.
-Rotating the observability key means updating both places.
+This key held a copy of the platform's shared `INTERNAL_API_KEY`, and the
+runtime watchdog sent it in an `x-internal-api-key` header to whatever host
+its pull policy named. ARIA holds no shared internal API key any more: the
+watchdog reads the droplet Prometheus's read-only API on loopback (next
+section), which needs no credential. `provision_runner.sh` reports the key
+as `bad` while it is present.
+
+To retire it on a runner that still has it:
+
+1. Delete the `ARIA_OBSERVABILITY_API_KEY=` line from `.env`.
+2. Restart the service.
+
+### Runtime watchdog source — the loopback Prometheus (RW-1 install step)
+
+The watchdog (`aria_watchdog.pull_observability_metrics`) reads production
+metrics with one credential-free `GET /federate` against
+`watchdog_pull.observability_base_url`, whose tracked default is
+`http://127.0.0.1:9090`. It refuses any origin that is not a loopback IP
+literal before opening a socket. When the source is not set, not loopback or
+not reachable, the cycle's watchdog digest and report name the hold
+(`source_unconfigured`, `source_not_loopback`, `source_unreachable`, …).
+
+The repository config publishes the source: `docker-compose.droplet.yml`
+gives the `prometheus` service `ports: ['127.0.0.1:9090:9090']` and drops
+`--web.enable-lifecycle`, so the published port serves reads only. Before
+that change the production Prometheus published no host port, so every sweep
+holds with `source_unreachable` until the program lead or operator installs
+it on the droplet. This runbook never changes the running host by itself.
+
+1. Confirm the host port is free: `ss -ltn | grep ':9090 '` prints nothing.
+2. Recreate only Prometheus from the merged compose file, in the
+   application project:
+
+   ```bash
+   docker compose -p aqua-saas -f docker-compose.droplet.yml up -d --no-deps prometheus
+   ```
+
+   A full `scripts/deploy/droplet-up.sh` deploy (it recreates every service)
+   applies the same change.
+
+3. Verify the loopback binding and the read path, as the runner account:
+
+   ```bash
+   ss -ltn | grep '127.0.0.1:9090'
+   sudo -u gharunner curl -g -s -o /dev/null -w '%{http_code}\n' 'http://127.0.0.1:9090/federate?match[]=up'
+   sudo -u gharunner curl -s -o /dev/null -w '%{http_code}\n' -X POST 'http://127.0.0.1:9090/-/reload'
+   ```
+
+   Expect `200` for the read and `403` for the lifecycle POST (disabled).
+   A config reload is now `docker kill --signal=HUP aqua-prometheus` (root).
+
+4. Retire `ARIA_OBSERVABILITY_API_KEY` from the runner `.env` (previous
+   section).
 
 ## Step 4 — Claude Code token checklist (10 min)
 

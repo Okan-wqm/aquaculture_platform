@@ -944,12 +944,23 @@ def _render_watchdog_section(reflection: dict[str, Any]) -> list[str]:
     sweep = digests.get("watchdog_sweep")
     if sweep is None:
         return []
+    # RW-1 — the runtime feed is named: the hold that kept it unread, or
+    # what it raised. A digest written before RW-1 has no such field, and
+    # says so rather than reading as a clean feed.
+    feed = sweep.get("runtime_feed")
+    if feed is None:
+        feed_line = "- runtime feed: not recorded (digest predates RW-1)"
+    elif feed == "read":
+        feed_line = f"- runtime feed: read ({sweep.get('runtime_leads', 0)} telemetry leads)"
+    else:
+        feed_line = f"- runtime feed: held — {feed}"
     return [
         "",
         "## Watchdog Sweep",
         "",
         f"- candidates: {sweep.get('candidates', 0)}",
         f"- emitted: {sweep.get('emitted', 0)} (suppressed: {sweep.get('suppressed', 0)})",
+        feed_line,
     ]
 
 

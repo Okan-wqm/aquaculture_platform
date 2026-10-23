@@ -1,3 +1,4 @@
+import { withTenantContext } from '@aquaculture/backend-common/context';
 import { listActiveTenantSchemaIdentities } from '@aquaculture/backend-common/database';
 import {
   ScheduledJob,
@@ -94,7 +95,12 @@ export class EdgeUpdateReconciler {
     let total = NONE;
     for (const { tenantId } of tenants) {
       try {
-        total = add(total, await this.reconcileTenant(tenantId, now));
+        // The tick has no request behind it: each tenant's pass runs inside that
+        // tenant's context, so nothing it calls can reach another tenant's rows.
+        total = add(
+          total,
+          await withTenantContext(tenantId, () => this.reconcileTenant(tenantId, now)),
+        );
       } catch (error) {
         this.logger.error({
           event: 'update_reconcile_failed',

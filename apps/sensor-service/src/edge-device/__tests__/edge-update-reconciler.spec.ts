@@ -1,4 +1,5 @@
 import { listActiveTenantSchemaIdentities } from '@aquaculture/backend-common/database';
+import { getRequestContext } from '@aquaculture/backend-common/logging';
 import { type ScheduledJobExecutor } from '@aquaculture/backend-common/scheduling';
 import { collaborator } from '@aquaculture/testing';
 import { type DataSource } from 'typeorm';
@@ -57,6 +58,21 @@ describe('EdgeUpdateReconciler.reconcileAll', () => {
     });
     expect(lapseDue).toHaveBeenCalledWith(TENANT_A, NOW);
     expect(lapseDue).toHaveBeenCalledWith(TENANT_B, NOW);
+  });
+
+  it("runs each tenant's pass inside that tenant's context, and none outside one", async () => {
+    tenants.mockResolvedValue([
+      { tenantId: TENANT_A, schemaName: 'tenant_a' },
+      { tenantId: TENANT_B, schemaName: 'tenant_b' },
+    ]);
+    const seen: Array<string | undefined> = [];
+    lapseDue.mockImplementation(() => {
+      seen.push(getRequestContext().tenantId);
+      return Promise.resolve(0);
+    });
+    await reconciler.reconcileAll(NOW);
+    expect(seen).toEqual([TENANT_A, TENANT_B]);
+    expect(getRequestContext().tenantId).toBeUndefined();
   });
 
   it("one tenant's failure never stops the others", async () => {

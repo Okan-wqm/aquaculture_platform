@@ -1,3 +1,4 @@
+import { withTenantContext } from '@aquaculture/backend-common/context';
 import {
   listActiveTenantSchemaIdentities,
   runInTenantRead,
@@ -657,7 +658,12 @@ export class EdgeRolloutService {
     let total = NO_ADVANCE;
     for (const { tenantId } of tenants) {
       try {
-        total = addAdvance(total, await this.advanceTenant(tenantId, now));
+        // The tick has no request behind it: each tenant's pass runs inside that
+        // tenant's context, so nothing it calls can reach another tenant's rows.
+        total = addAdvance(
+          total,
+          await withTenantContext(tenantId, () => this.advanceTenant(tenantId, now)),
+        );
       } catch (error) {
         this.logger.error({
           event: 'edge_rollout_advance_failed',

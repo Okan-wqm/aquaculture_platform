@@ -67,10 +67,10 @@ from .surface_waivers import (
 DEADLINE_WARNING_DAYS = 7
 
 # The review registry is read through the one registry view
-# (report_ingestion.read_registry_view): the chain the daily sweep
-# (`tools/gates/finding-registry.ts planSweep`) reads, with every merged delta
-# row folded over it, so the organ tracks the state a merged PR recorded
-# (ARIA-HIGH-279).
+# (report_ingestion.read_registry_view, ARIA-HIGH-279): the registry CLI's
+# projection, which the daily sweep (`tools/gates/finding-registry.ts
+# planSweep`) plans on too, so a finding a merged `Closes:` trailer closed is
+# RESOLVED here from the merge on (MF-1).
 
 # The states the sweep can still act on: RESOLVED is done, BLOCKED is the
 # state the sweep plans (a BLOCKED finding's deadline moves nothing).

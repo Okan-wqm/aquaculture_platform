@@ -68,6 +68,8 @@ from aria_kernel.surface_waivers import (
 )
 from aria_kernel.tool_registry import ensure_tools_dir
 
+from tests._helpers.registry_projection import project_registry_as_stored
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _KERNEL_DIR = _REPO_ROOT / "aria-kernel"
 _KERNEL_TESTS = _KERNEL_DIR / "tests"
@@ -178,6 +180,7 @@ class _Fixture(unittest.TestCase):
     """A store and a checkout with the two committed sources present and empty."""
 
     def setUp(self) -> None:
+        project_registry_as_stored(self)
         self._tmp = tempfile.TemporaryDirectory()
         self.root = Path(self._tmp.name)
         self.tools = self.root / "store" / "tools"

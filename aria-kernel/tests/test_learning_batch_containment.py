@@ -38,6 +38,7 @@ from aria_kernel.ledger import LedgerIntegrityError, read_jsonl
 from aria_kernel.tool_registry import ensure_tools_binding, ensure_tools_dir
 from aria_kernel.workspace import ensure_workspace, workspace_paths
 from tests._helpers.declared_fixtures import append_declared_fixture
+from tests._helpers.registry_projection import project_registry_as_stored
 
 
 class _InjectedFailure(RuntimeError):
@@ -324,6 +325,7 @@ class ReportIngestionRetryTests(unittest.TestCase):
     """Containment must not consume the item it failed to process."""
 
     def setUp(self):
+        project_registry_as_stored(self)
         self.tmp = tempfile.TemporaryDirectory()
         self.repo = Path(self.tmp.name) / "repo"
         self.repo.mkdir()

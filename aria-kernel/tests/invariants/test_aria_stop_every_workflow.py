@@ -92,6 +92,15 @@ class ConditionRequiresTests(unittest.TestCase):
             "${{ vars.ARIA_STOP == ''": False,
             "${{ ${{ vars.ARIA_STOP == '' && x }}": False,
             "${{ vars.ARIA_STOP == '' && github.head_ref == '}}' }}": True,
+            # B0 corrective round 5, R5-2: GitHub keeps whitespace outside the
+            # one block as a literal segment (a quoted scalar's space, a block
+            # scalar's newline), so the value is a template, always truthy.
+            " ${{ vars.ARIA_STOP == '' }}": False,
+            "${{ vars.ARIA_STOP == '' }} ": False,
+            "${{ vars.ARIA_STOP == '' }}\n": False,
+            # Without a block the value is a bare expression, whose
+            # surrounding whitespace GitHub ignores.
+            "vars.ARIA_STOP == ''\n": True,
         }
         for condition, expected in cases.items():
             with self.subTest(condition=condition):

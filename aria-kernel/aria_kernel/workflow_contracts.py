@@ -513,7 +513,7 @@ def _condition_form(text: str) -> str:
 
     B0 corrective round 4, R4-2: a value holding ``${{`` is a condition only
     when it is exactly ONE block (:func:`expression_bodies`, the one reader
-    of where a block ends) spanning the whole stripped value; that block is
+    of where a block ends) spanning the whole value; that block is
     unwrapped. Anything else — a block beside outside text
     (``${{ a }} && b``), two blocks, a ``${{`` that never closes — is a string
     template to GitHub, always truthy, so its form is empty: it requires
@@ -521,16 +521,24 @@ def _condition_form(text: str) -> str:
     unwrapped body come back here and are never unwrapped again: a part that
     holds ``${{`` cannot be a whole closed block (its ``}}`` would have closed
     the outer one), so it requires nothing.
+
+    Round 5, R5-2: "the whole value" is the value UNSTRIPPED. GitHub's
+    template reader keeps whitespace outside a block as a literal segment —
+    a leading or trailing space of a quoted scalar, the trailing newline of a
+    ``|`` or ``>`` block scalar — so ``"${{ a }}\n"`` is a template too. Only
+    a value without ``${{`` (a bare expression, whose surrounding whitespace
+    GitHub ignores) is stripped.
     """
-    body = text.strip()
-    if "${{" in body:
+    if "${{" in text:
         try:
-            blocks = expression_bodies(body)
+            blocks = expression_bodies(text)
         except UnclosedExpression:
             return ""
-        if len(blocks) != 1 or body != "${{" + blocks[0] + "}}":
+        if len(blocks) != 1 or text != "${{" + blocks[0] + "}}":
             return ""
         body = blocks[0]
+    else:
+        body = text.strip()
     kept: list[str] = []
     quoted = False
     for char in body:
@@ -573,7 +581,8 @@ def condition_requires(condition: Any, conjunct: str) -> bool:
     it only inside a negation, a call or a nested ``||``, is not gated. An
     absent or empty condition (GitHub's implicit ``success()``) requires
     nothing, and so does a string template — a ``${{ }}`` block beside text
-    outside it, which GitHub reads as always truthy (:func:`_condition_form`).
+    outside it, whitespace included, which GitHub reads as always truthy
+    (:func:`_condition_form`).
 
     ORPHAN-MEDIUM-491 — this used to be ``guard in condition``, raw
     substring containment: ``${{ <guard> || always() }}`` contains the guard

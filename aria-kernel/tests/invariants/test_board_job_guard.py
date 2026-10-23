@@ -523,6 +523,10 @@ _MUTATIONS: dict[str, Callable[[dict[str, Any]], None]] = {
     # template to GitHub, always truthy; it carries neither conjunct.
     "condition_mixed_template": lambda w: _custody_job(w).update(
         {"if": "${{ vars.ARIA_STOP == '' }} && github.ref == 'refs/heads/main'"}),
+    # B0 corrective round 5, R5-2: a block scalar keeps its trailing
+    # newline, a literal segment beside the block, so GitHub reads a template.
+    "condition_block_scalar_newline": lambda w: _custody_job(w).update(
+        {"if": "${{ vars.ARIA_STOP == '' && github.ref == 'refs/heads/main' }}\n"}),
     "self_hosted": lambda w: _custody_job(w).update({"runs-on": ["self-hosted", "linux"]}),
     "pull_request_trigger": _set(("on",), {"pull_request": {}, "workflow_dispatch": {}}),
     # B0 corrective round 2, R2-1: a Board secret reaches no process but the
@@ -607,11 +611,16 @@ class EachMutationIsRefusedTests(unittest.TestCase):
                 self.assertTrue(board_violations(mutated), f"{name} passed the guard")
 
     def test_a_mixed_template_if_is_refused_under_condition(self) -> None:
-        # B0 corrective round 4, R4-2 (security P5, evidence p03, appellate A4/A5).
-        mutated = copy.deepcopy(self.workflow)
-        _MUTATIONS["condition_mixed_template"](mutated)
-        self.assertEqual([v for v in board_violations(mutated).get("vault-custody", []) if v.startswith("condition:")],
-                         [f"condition: if: does not require {required}" for required in _REQUIRED_CONJUNCTS])
+        # B0 corrective round 4, R4-2 (security P5, evidence p03, appellate
+        # A4/A5); round 5, R5-2 (security P3, evidence p02): whitespace
+        # outside the one block makes a template too.
+        for name in ("condition_mixed_template", "condition_block_scalar_newline"):
+            with self.subTest(mutation=name):
+                mutated = copy.deepcopy(self.workflow)
+                _MUTATIONS[name](mutated)
+                self.assertEqual(
+                    [v for v in board_violations(mutated).get("vault-custody", []) if v.startswith("condition:")],
+                    [f"condition: if: does not require {required}" for required in _REQUIRED_CONJUNCTS])
 
     def test_a_bare_workflow_permissions_grants_nothing_and_passes(self) -> None:
         # B0 corrective round 2, R2-6: a bare ``permissions:`` is an empty

@@ -124,6 +124,11 @@ class SweepWiringTests(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory(prefix="aria-e24-")
         self.repo = Path(self._tmp.name)
         self.tools = ensure_tools_dir(self.repo / "aria-tools")
+        # RW-1 corrective R7: no runtime source unless a test names one. The
+        # tracked default is the host's loopback Prometheus.
+        override = self.repo / "aria-config" / "genesis_policy.json"
+        override.parent.mkdir(parents=True)
+        override.write_text(json.dumps({"watchdog_pull": {"observability_base_url": None}}), encoding="utf-8")
 
     def tearDown(self) -> None:
         self._tmp.cleanup()

@@ -241,12 +241,18 @@ class _NetworkRecorder:
 
 
 class _Workspace(unittest.TestCase):
-    """A throwaway workspace whose operator override sets the pull block."""
+    """A throwaway workspace whose operator override sets the pull block.
+
+    It starts with NO source (RW-1 corrective R7): the tracked default is the
+    host's loopback Prometheus, so a sweep that did not name its own source
+    would read whatever listens on the test host's 127.0.0.1:9090.
+    """
 
     def setUp(self) -> None:
         self.repo = Path(tempfile.mkdtemp(prefix="aria-rw1-"))
         self.addCleanup(shutil.rmtree, self.repo, ignore_errors=True)
         self.tools = ensure_tools_dir(self.repo / "aria-tools")
+        self.configure(None)
 
     def configure(self, base_url: str | None, **pull: Any) -> None:
         override = self.repo / "aria-config" / "genesis_policy.json"
@@ -540,6 +546,128 @@ class TheWindowIsTheSweepCadence(unittest.TestCase):
                 override.write_text(json.dumps({"watchdog_pull": {"window_seconds": value}}), encoding="utf-8")
                 with self.assertRaisesRegex(GovernanceError, "watchdog_pull.window_seconds"):
                     watchdog_pull_policy(repo)
+
+
+# ─── Every kernel-test sweep names its own source (corrective R7) ──────────
+
+
+_SWEEP_ENTRY_POINTS = frozenset({"run_watchdog_sweep", "_phase_watchdog"})
+_SOURCE_MARKERS = frozenset({"observability_base_url", "watchdog_pull_policy"})
+
+
+def _called_name(node: ast.Call) -> str | None:
+    if isinstance(node.func, ast.Name):
+        return node.func.id
+    if isinstance(node.func, ast.Attribute):
+        return node.func.attr
+    return None
+
+
+def _names_a_source(node: ast.AST) -> bool:
+    for child in ast.walk(node):
+        if isinstance(child, ast.Constant) and isinstance(child.value, str):
+            if any(marker in child.value for marker in _SOURCE_MARKERS):
+                return True
+        elif isinstance(child, ast.Name) and child.id in _SOURCE_MARKERS:
+            return True
+        elif isinstance(child, ast.Attribute) and child.attr in _SOURCE_MARKERS:
+            return True
+    return False
+
+
+def _unconfigured_sweep_sites(path: Path) -> list[str]:
+    """Functions in ``path`` that call a sweep entry point while neither they,
+    nor their class's setUp (inherited from a class in the same module), nor a
+    ``self.<method>`` either one calls, names the runtime source."""
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    classes = {node.name: node for node in ast.walk(tree) if isinstance(node, ast.ClassDef)}
+
+    def method(cls: ast.ClassDef | None, name: str) -> ast.FunctionDef | None:
+        seen: set[str] = set()
+        while cls is not None and cls.name not in seen:
+            seen.add(cls.name)
+            for item in cls.body:
+                if isinstance(item, ast.FunctionDef) and item.name == name:
+                    return item
+            base = next((b.id for b in cls.bases if isinstance(b, ast.Name) and b.id in classes), None)
+            cls = classes.get(base) if base else None
+        return None
+
+    def configured(start: list[ast.FunctionDef], cls: ast.ClassDef | None) -> bool:
+        pending, visited = list(start), set()
+        while pending:
+            function = pending.pop()
+            if id(function) in visited:
+                continue
+            visited.add(id(function))
+            if _names_a_source(function):
+                return True
+            for call in (n for n in ast.walk(function) if isinstance(n, ast.Call)):
+                target = call.func
+                if isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name) and target.value.id == "self":
+                    found = method(cls, target.attr)
+                    if found is not None:
+                        pending.append(found)
+        return False
+
+    offenders: list[str] = []
+
+    def visit(node: ast.AST, cls: ast.ClassDef | None) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, ast.ClassDef):
+                visit(child, child)
+            elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                sweeps = any(
+                    isinstance(n, ast.Call) and _called_name(n) in _SWEEP_ENTRY_POINTS for n in ast.walk(child)
+                )
+                setup = method(cls, "setUp")
+                if sweeps and not configured([child, *([setup] if setup else [])], cls):
+                    offenders.append(f"{path.relative_to(_KERNEL_ROOT).as_posix()}:{child.lineno}:{child.name}")
+                visit(child, cls)
+            else:
+                visit(child, cls)
+
+    visit(tree, None)
+    return offenders
+
+
+class EveryKernelTestSweepNamesItsSource(unittest.TestCase):
+    """The tracked default source is the host's 127.0.0.1:9090, where the RW-1
+    install step publishes production Prometheus; a kernel test that sweeps
+    without naming its own source would judge production's 5xx rate."""
+
+    def test_every_sweep_call_site_configures_the_source(self) -> None:
+        offenders = [
+            site for path in sorted((_KERNEL_ROOT / "tests").rglob("*.py")) for site in _unconfigured_sweep_sites(path)
+        ]
+        self.assertEqual(offenders, [])
+
+    def test_the_tracked_default_source_is_never_dialled_inside_the_suite(self) -> None:
+        """The indirect route the call-site guard cannot see — every
+        standard-mode cycle a fixture runs sweeps in its watchdog phase — is
+        held by the test package itself (tests/__init__.py): inside the
+        suite the tracked default source is the unconfigured source."""
+        network = _NetworkRecorder()
+        lookup, connect = network.patches()
+        with lookup, connect:
+            samples, hold = aria_watchdog.pull_observability_metrics(
+                base_url=WATCHDOG_PULL_DEFAULTS["observability_base_url"], window_seconds=3600,
+            )
+        self.assertIsNone(samples)
+        self.assertEqual(hold.name if hold else None, "source_unconfigured", hold)
+        self.assertIn("kernel test suite", hold.detail)
+        self.assertEqual(network.calls, [])
+
+    def test_the_guard_sees_an_unconfigured_sweep(self) -> None:
+        """The guard is not vacuous: a bare sweep is an offender."""
+        probe = Path(tempfile.mkdtemp(prefix="aria-rw1-guard-", dir=_KERNEL_ROOT / "tests"))
+        self.addCleanup(shutil.rmtree, probe, ignore_errors=True)
+        bare = probe / "bare_sweep.py"
+        bare.write_text(
+            "class T:\n    def test_it(self):\n        run_watchdog_sweep(workspace_root='.', tools_dir='.')\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(len(_unconfigured_sweep_sites(bare)), 1)
 
 
 class ThePolicyNamesTheLoopbackSourceAndNoCredential(unittest.TestCase):

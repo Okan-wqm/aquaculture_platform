@@ -85,7 +85,9 @@ class AVerdictReachedBeforeAnyCommit(unittest.TestCase):
         }, base_dir=self.tools)
         submit_cross_review_v8(plan_id="plan-1", review={"reviewer_agent": "aria-cross-reviewer",
                                                          "verdict": "agreed", "risks": []},
-                               workspace_root=self.repo, base_dir=self.tools)
+                               workspace_root=self.repo, base_dir=self.tools,
+                               # The drainer's anchor in a checkout with no commit yet.
+                               reviewed_commit_sha=None)
         with mock.patch("aria_kernel.round_independence.verify_independence", return_value=(True, [])):
             result = evaluate_plan(plan_id="plan-1", round_number=1, base_dir=self.tools)
         self.assertEqual(result["event"]["payload"]["terminal_state"], "CONVERGED")

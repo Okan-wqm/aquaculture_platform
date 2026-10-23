@@ -19,6 +19,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from aria_kernel.workspace_view import workspace_head_sha
 from aria_kernel.plan_convergence import (
     fold_plan_state,
     start_plan,
@@ -99,6 +100,7 @@ class CrossReviewDirectionTests(unittest.TestCase):
             review=review,
             workspace_root=self.root,
             base_dir=self.tools_dir,
+            reviewed_commit_sha=workspace_head_sha(self.root),
         )
         return fold_plan_state(plan_id="plan-dir", base_dir=self.tools_dir)
 

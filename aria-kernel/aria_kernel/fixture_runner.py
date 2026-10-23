@@ -174,7 +174,12 @@ def _measured_code(
     (``build_workspace_view``), so a suite whose workspace names no commit
     has nothing a verdict could be bound to and is refused by name.
     """
-    commit = workspace_head_sha(workspace_root)
+    try:
+        commit = workspace_head_sha(workspace_root)
+    except WorkspaceViewRefused as exc:
+        raise GovernanceError(
+            f"fixture_suite_workspace_head_unreadable: {Path(workspace_root).as_posix()}: {exc.reason}"
+        ) from exc
     if commit is None:
         raise GovernanceError(
             f"fixture_suite_workspace_has_no_commit: {Path(workspace_root).as_posix()} is not a git checkout with a HEAD"
@@ -537,7 +542,10 @@ def require_pinned_fixture_workspace(
             f"fixture_refresh_workspace_not_bound_checkout: {requested.as_posix()} "
             f"is not the store's checkout {bound.as_posix()}"
         )
-    head = workspace_head_sha(requested)
+    try:
+        head = workspace_head_sha(requested)
+    except WorkspaceViewRefused as exc:
+        raise GovernanceError(f"fixture_refresh_workspace_unreadable: {exc.reason}") from exc
     if head is None:
         raise GovernanceError(f"fixture_refresh_workspace_has_no_head: {requested.as_posix()}")
     try:

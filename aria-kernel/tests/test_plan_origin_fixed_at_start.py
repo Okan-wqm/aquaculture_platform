@@ -16,6 +16,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from aria_kernel.workspace_view import workspace_head_sha
 from aria_kernel.plan_convergence import (
     content_hash,
     plan_status,
@@ -102,7 +103,7 @@ class OriginFixedAtStartTests(unittest.TestCase):
         record_critique(plan_id=plan_id, critique={
             "task_packet_hash": task["task_packet_hash"], "target_revision_id": latest["revision_id"],
             "target_plan_content_hash": latest["content_hash"], "reviewer": "farm-expert", "risks": [],
-            "critique_content_hash": content_hash({"reviewer": "farm-expert", "risks": []}),
+            "reviewed_commit_sha": workspace_head_sha(self.root), "critique_content_hash": content_hash({"reviewer": "farm-expert", "risks": []}),
         }, workspace_root=self.root, base_dir=self.tools)
 
     def _revise(self, plan_id: str, body: dict) -> dict:

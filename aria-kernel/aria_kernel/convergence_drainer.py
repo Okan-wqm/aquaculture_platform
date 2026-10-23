@@ -41,7 +41,6 @@ from __future__ import annotations
 import re
 import json
 import os
-import subprocess
 import time
 from pathlib import Path
 from typing import Any, Literal, Protocol, TypedDict
@@ -87,6 +86,7 @@ from .request_admission import Admission, admit_request
 from .step_request import StepRequestDisposition, step_request_disposition
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
 from .digest import ZERO_SHA256_DIGEST
+from .workspace_view import workspace_head_sha
 
 # Plan ARIA-V10.4 Phase 3.H.2 — the convergence drainer mints
 # envelopes for FOUR roles across its rounds (primary_plan revisions,
@@ -349,23 +349,18 @@ def _resolve_workspace_head_sha(workspace_root: str | Path | None) -> str | None
     as ``repo_verified`` (content matches the git blob at this SHA) instead of
     ``worktree_candidate``. Without it, ``EvidencePolicy.require_repo_verified``
     rejects EVERY real ref and convergence can never complete — the layer-4
-    blocker found live 2026-07-03. Returns None when HEAD cannot be resolved
-    (detached/shallow/no-git); the validator then keeps its prior behaviour.
+    blocker found live 2026-07-03.
+
+    PV R1/R4 — the cross-review request's ``target_sha`` is also the commit a
+    plan verdict is bound to (``plan_convergence.evaluate_plan``), so the read
+    goes through the kernel's one hermetic HEAD owner
+    (``workspace_view.workspace_head_sha``): no inherited ``GIT_DIR`` names
+    another repository's commit, None means only "not a checkout" or "no
+    commit yet" (the empty tree), and a checkout git cannot read raises
+    ``WorkspaceViewRefused`` instead of being minted as the empty tree. The
+    workspace is the caller's, or the process working directory.
     """
-    root = Path(workspace_root) if workspace_root else Path.cwd()
-    try:
-        proc = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=str(root),
-            text=True,
-            capture_output=True,
-            check=False,
-            timeout=5,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    sha = proc.stdout.strip()
-    return sha if proc.returncode == 0 and sha else None
+    return workspace_head_sha(Path(workspace_root) if workspace_root else Path.cwd())
 
 
 def _plan_contract_gate_reasons(eval_result: dict[str, Any]) -> dict[str, list[str]]:

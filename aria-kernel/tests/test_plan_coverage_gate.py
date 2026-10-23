@@ -15,6 +15,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from aria_kernel.workspace_view import workspace_head_sha
 from aria_kernel.ledger import load_jsonl
 from aria_kernel.plan_convergence import (
     content_hash,
@@ -394,7 +395,7 @@ class PlanCoverageGateTests(unittest.TestCase):
                 "target_plan_content_hash": task["target_plan_content_hash"],
                 "reviewer": reviewer,
                 "risks": risks,
-                "critique_content_hash": content_hash({"reviewer": reviewer, "risks": risks}),
+                "reviewed_commit_sha": workspace_head_sha(self.root), "critique_content_hash": content_hash({"reviewer": reviewer, "risks": risks}),
             },
             workspace_root=self.root,
             base_dir=self.tools_dir,
@@ -415,6 +416,8 @@ class PlanCoverageGateTests(unittest.TestCase):
                 "reviewer_agent": reviewer,
                 "review_direction": direction,
                 "risks": [],
+                "verdict": "agreed",
+                "reviewed_commit_sha": workspace_head_sha(self.root),
                 "review_content_hash": content_hash({"reviewer": reviewer, "direction": direction}),
             },
             workspace_root=self.root,

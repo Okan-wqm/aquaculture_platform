@@ -93,9 +93,10 @@ class TestV8CrossReviewStateTransition(unittest.TestCase):
             with self.assertRaises(GovernanceError) as ctx:
                 plan_convergence.submit_cross_review_v8(
                     plan_id="plan-x",
-                    review={"reviewer_agent": "aria-cross-reviewer", "risks": []},
+                    review={"reviewer_agent": "aria-cross-reviewer", "verdict": "agreed", "risks": []},
                     workspace_root=".",
                     base_dir=None,
+                    reviewed_commit_sha=None,
                 )
             # Kernel error reports the BAD state ("from state DRAFT")
             # rather than the required state. Both assertions pin the
@@ -141,9 +142,10 @@ class TestV8CrossReviewStateTransition(unittest.TestCase):
         ):
             plan_convergence.submit_cross_review_v8(
                 plan_id="plan-x",
-                review={"reviewer_agent": "aria-cross-reviewer", "risks": []},
+                review={"reviewer_agent": "aria-cross-reviewer", "verdict": "agreed", "risks": []},
                 workspace_root=".",
                 base_dir=None,
+                reviewed_commit_sha=None,
             )
 
         tasks = captured_request["request"]["tasks"]
@@ -196,6 +198,7 @@ class TestV8CrossReviewStateTransition(unittest.TestCase):
                 plan_id="plan-x",
                 review={
                     "reviewer_agent": "aria-cross-reviewer",
+                    "verdict": "agreed",
                     "risks": [
                         {
                             "risk_id": "R1",
@@ -210,6 +213,7 @@ class TestV8CrossReviewStateTransition(unittest.TestCase):
                 },
                 workspace_root=".",
                 base_dir=None,
+                reviewed_commit_sha=None,
             )
 
         self.assertEqual(

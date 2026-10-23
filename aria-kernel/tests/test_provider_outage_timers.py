@@ -24,6 +24,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
+from aria_kernel.workspace_view import workspace_head_sha
 from aria_kernel.plan_convergence import fold_plan_state, resume_candidate_plan_id, start_plan
 from aria_kernel.provider_cooldown import record_provider_cooldown
 from aria_kernel.tool_registry import ensure_tools_dir
@@ -170,7 +171,7 @@ class B1APlanWaitingThroughAnOutageIsAdoptedNotAbandoned(_Store):
         record_critique(plan_id="plan-o", workspace_root=self.root, base_dir=self.tools, critique={
             "task_packet_hash": task["task_packet_hash"], "target_revision_id": task["target_revision_id"],
             "target_plan_content_hash": task["target_plan_content_hash"], "reviewer": "farm-expert",
-            "risks": [], "critique_content_hash": content_hash({"reviewer": "farm-expert", "risks": []}),
+            "risks": [], "reviewed_commit_sha": workspace_head_sha(self.root), "critique_content_hash": content_hash({"reviewer": "farm-expert", "risks": []}),
         })
         evaluated = evaluate_plan(plan_id="plan-o", round_number=1, base_dir=self.tools)
         self.assertEqual(evaluated.get("event", {}).get("payload", {}).get("terminal_state"), "CONVERGED", evaluated)

@@ -368,7 +368,19 @@ def compute_plan_coverage(
 
     # The checkout the witness reads, through the kernel's one hermetic HEAD reader: an inherited
     # GIT_DIR never names another repository's commit as the one the closure was computed at.
-    computed_at_sha = workspace_head_sha(workspace) or "unknown"
+    # A checkout git cannot read is an environment that cannot compute the closure, never "unknown".
+    try:
+        computed_at_sha = workspace_head_sha(workspace) or "unknown"
+    except WorkspaceViewRefused as exc:
+        return environment_unable_payload(
+            round_number=round_number,
+            target_revision_id=target_revision_id,
+            target_plan_content_hash=target_plan_content_hash,
+            manifest_relpath=manifest_relpath,
+            manifest_hash=sha256_digest(b""),
+            computed_at_sha="unknown",
+            witness={"error": exc.reason},
+        )
 
     witness_input = _coverage_witness_input(plan_content)
     input_path = coverage_dir / f"{plan_id}-r{round_number}-input.json"
@@ -442,7 +454,10 @@ def _base_tree_error(workspace: Path, base_sha: str) -> str | None:
     text the change's author chose. Ignored paths (``node_modules``, build output) are outside the
     tracked set, so they do not make the tree unclean.
     """
-    head_sha = workspace_head_sha(workspace)
+    try:
+        head_sha = workspace_head_sha(workspace)
+    except WorkspaceViewRefused as exc:
+        return f"head_unreadable: {exc.reason}"
     if head_sha is None:
         return "head_unreadable: the base tree has no readable HEAD commit"
     if head_sha != base_sha:

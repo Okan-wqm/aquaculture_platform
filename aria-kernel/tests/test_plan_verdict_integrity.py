@@ -171,13 +171,19 @@ class _PlanFixture(unittest.TestCase):
         )
 
     def cross_review(self, risks: list[dict], *, verdict: str, plan_id: str = "plan-1",
-                     verdicts: dict | None = None, dispositions: list[dict] | None = None) -> dict:
+                     verdicts: dict | None = None, dispositions: list[dict] | None = None,
+                     reviewed_at: str | None = None) -> dict:
+        """One V8 cross-review, reviewed at ``reviewed_at`` (default: the checkout's HEAD now,
+        the request's ``target_sha`` the drainer would have minted)."""
         review: dict = {"reviewer_agent": "aria-cross-reviewer", "verdict": verdict, "risks": risks}
         if verdicts is not None:
             review["verdicts"] = verdicts
         if dispositions is not None:
             review["prior_risk_dispositions"] = dispositions
-        return submit_cross_review_v8(plan_id=plan_id, review=review, workspace_root=self.repo, base_dir=self.tools)
+        return submit_cross_review_v8(
+            plan_id=plan_id, review=review, workspace_root=self.repo, base_dir=self.tools,
+            reviewed_commit_sha=reviewed_at or _git(self.repo, "rev-parse", "HEAD"),
+        )
 
     def revise(self, revision_id: str, *, addresses: list[str], plan_id: str = "plan-1") -> None:
         state = fold_plan_state(plan_id=plan_id, base_dir=self.tools)

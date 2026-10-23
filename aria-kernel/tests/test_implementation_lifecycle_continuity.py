@@ -19,6 +19,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from aria_kernel.tool_registry import bound_workspace_root
+from aria_kernel.workspace_view import workspace_head_sha
 from aria_kernel.implementation_reconciler import (
     _pr_number_from_url,
     reconcile_recorded_implementations,
@@ -183,7 +185,7 @@ def drive_plan_to_converged(
             "target_plan_content_hash": content_hash,
             "reviewer": "farm-expert",
             "risks": [],
-            "critique_content_hash": "sha256:" + "b" * 64,
+            "reviewed_commit_sha": workspace_head_sha(bound_workspace_root(tools)), "critique_content_hash": "sha256:" + "b" * 64,
             "status_after": "ANSWERED",
         },
         workspace_root=workspace_root,

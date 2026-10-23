@@ -53,6 +53,9 @@ from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 # untracked cache from the repository's config deciding what git reports.
 HERMETIC_GIT_CONFIG_ARGS: tuple[str, ...] = ("-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false")
 _GIT_LISTING_TIMEOUT_SECONDS = 60
+_HEAD_TIMEOUT_SECONDS = 30
+# The refusal reason of a HEAD read git could not answer (``workspace_head_sha``).
+WORKSPACE_HEAD_UNREADABLE = "workspace_head_unreadable"
 # The mode git records a submodule (gitlink) with.
 _GITLINK_MODE = "160000"
 _GIT_DIRNAME = ".git"
@@ -77,14 +80,48 @@ def hermetic_git(
     )
 
 
-def workspace_head_sha(workspace_root: str | os.PathLike[str]) -> str | None:
-    """The checkout's HEAD commit, or None when it is not a git checkout."""
+def _inside_checkout(workspace_root: str | os.PathLike[str]) -> bool:
+    """True when ``workspace_root`` or a directory above it holds a ``.git`` entry."""
+    start = Path(workspace_root).resolve()
+    return any((directory / _GIT_DIRNAME).exists() for directory in (start, *start.parents))
+
+
+def _head_git(workspace_root: str | os.PathLike[str], *args: str) -> subprocess.CompletedProcess:
     try:
-        completed = hermetic_git(workspace_root, "rev-parse", "--verify", "HEAD^{commit}", timeout=30)
-    except (OSError, subprocess.TimeoutExpired):
+        return hermetic_git(workspace_root, *args, timeout=_HEAD_TIMEOUT_SECONDS)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise WorkspaceViewRefused(f"{WORKSPACE_HEAD_UNREADABLE}:{type(exc).__name__}") from exc
+
+
+def workspace_head_sha(workspace_root: str | os.PathLike[str]) -> str | None:
+    """The checkout's HEAD commit; None when there is none; raise when git cannot say.
+
+    None means one of two facts: ``workspace_root`` is not inside a git
+    checkout (no ``.git`` entry on its path), or the checkout's HEAD names a
+    branch with no commit yet (unborn). Any other answer is a git failure, not
+    a fact about the tree: a checkout git refuses (dubious ownership, a broken
+    ``gitdir``), a ref naming a missing object, a timeout, or no git at all.
+    That raises :class:`WorkspaceViewRefused` (``workspace_head_unreadable:…``),
+    because a caller that read it as "no commit" would bind a verdict, an
+    evidence anchor or a suite to the empty tree while the checkout holds one
+    (PV R4).
+    """
+    if not _inside_checkout(workspace_root):
         return None
+    completed = _head_git(workspace_root, "rev-parse", "--verify", "--quiet", "HEAD^{commit}")
     head = completed.stdout.strip()
-    return head if completed.returncode == 0 and is_object_id(head, formats=ANY_OBJECT_FORMAT) else None
+    if completed.returncode == 0 and is_object_id(head, formats=ANY_OBJECT_FORMAT):
+        return head
+    if completed.returncode == 1:
+        # `--quiet` exits 1 when git read the repository but HEAD names no
+        # commit; it is unborn only when HEAD is a branch whose ref is absent.
+        symbolic = _head_git(workspace_root, "symbolic-ref", "--quiet", "HEAD")
+        branch = symbolic.stdout.strip()
+        if symbolic.returncode == 0 and branch:
+            ref = _head_git(workspace_root, "rev-parse", "--verify", "--quiet", "--end-of-options", branch)
+            if ref.returncode == 1:
+                return None
+    raise WorkspaceViewRefused(f"{WORKSPACE_HEAD_UNREADABLE}:git_exit_{completed.returncode}")
 
 
 def index_flagged_paths(workspace_root: str | os.PathLike[str]) -> tuple[str, ...]:
@@ -203,6 +240,7 @@ def build_workspace_view(workspace_root: str | os.PathLike[str]) -> WorkspaceVie
 
 __all__ = [
     "HERMETIC_GIT_CONFIG_ARGS",
+    "WORKSPACE_HEAD_UNREADABLE",
     "WorkspaceView",
     "WorkspaceViewRefused",
     "build_workspace_view",

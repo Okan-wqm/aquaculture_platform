@@ -4,7 +4,6 @@ import copy
 import json
 import os
 import re
-import subprocess
 import time
 import uuid
 from contextlib import contextmanager
@@ -29,6 +28,8 @@ from .tool_registry import (
     utc_now,
 )
 from .digest import is_sha256_digest, sha256_digest, sha256_digest_text
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
+from .workspace_view import WorkspaceViewRefused, hermetic_git, workspace_head_sha
 
 if TYPE_CHECKING:
     from .provider_clock import ProviderClock
@@ -386,6 +387,7 @@ def submit_cross_review_v8(
     plan_id: str,
     review: dict[str, Any],
     workspace_root: str | Path,
+    reviewed_commit_sha: str | None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """Plan ARIA-V8.2 — single-step V8 P+C+CR cross-review state transition.
@@ -426,6 +428,11 @@ def submit_cross_review_v8(
             Optional `verdict` is recorded as governance hint.
         workspace_root: passed through to record_cross_review for
             reviewer_names() validation.
+        reviewed_commit_sha: the commit the reviewer reviewed — the answered
+            request's ``target_sha``, from the kernel's request row, never
+            from the agent's envelope (null: the reviewed checkout had no
+            commit). PV P3 — every direction record carries it, and the
+            round's verdict is bound to it (``evaluate_plan``).
         base_dir: aria-tools root override.
 
     Returns:
@@ -493,6 +500,7 @@ def submit_cross_review_v8(
     # validator judges it again as the event's own law).
     prior_risk_dispositions = review.get("prior_risk_dispositions", [])
     _validate_prior_risk_dispositions(state, prior_risk_dispositions, round_number)
+    _require_reviewed_commit(reviewed_commit_sha)
 
     # Z3-K2 — deterministic PER-DIRECTION content hash over the risks that
     # apply to that direction. One hash for both directions was half of the
@@ -596,6 +604,9 @@ def submit_cross_review_v8(
                 # not one direction's: each direction record carries the
                 # whole answer, and the fold keeps one row per risk.
                 "prior_risk_dispositions": prior_risk_dispositions,
+                # PV P3 (R2) — the commit this review judged; the round's
+                # verdict is bound to it, not to HEAD when it is evaluated.
+                "reviewed_commit_sha": reviewed_commit_sha,
                 # agent_invocation_request_id intentionally omitted —
                 # V8 bypasses the per-task content-hash mismatch check
                 # because the agent submitted ONE envelope covering both
@@ -841,6 +852,7 @@ def evaluate_plan(
         _require_state(state, {"CRITIQUED", "CROSS_REVIEWED"}, "evaluate plan")
         if state.get("current_round") != round_number:
             raise GovernanceError("round_number must match the current critique round")
+        reviewed_commit_sha = round_reviewed_commit(state, round_number)
         decision = _evaluate_cross_review_state(state, round_number, max_rounds=max_rounds) if state.get("state") == "CROSS_REVIEWED" else _evaluate_state(state, round_number)
         from .architecture_spine_gate import _plan_comparison_obligation
 
@@ -914,11 +926,11 @@ def evaluate_plan(
             "risks_rollup_summary": decision["risks_rollup_summary"],
             "gate_decisions": decision["gate_decisions"],
             "reason_codes": decision["reason_codes"],
-            # PV P3 — the repository commit this verdict was reached at (null:
-            # the checkout had none yet); an implementation request is refused
-            # once a later commit changes a file the plan names
-            # (`plan_verdict_staleness`).
-            "reviewed_commit_sha": workspace_head_sha(root),
+            # PV P3 — the commit the round's reviewers reviewed (null: their
+            # checkout had none yet; `round_reviewed_commit`); an
+            # implementation request is refused once a later commit changes a
+            # file the plan names (`plan_verdict_staleness`).
+            "reviewed_commit_sha": reviewed_commit_sha,
         }
         key = _idempotency_key(plan_id, "evaluate", {"round_number": round_number})
         existing = _find_by_idempotency(root, key)
@@ -1559,30 +1571,24 @@ def request_implementation(
     )
 
 
-def workspace_head_sha(base_dir: str | Path | None = None) -> str | None:
-    """The commit HEAD of the checkout the tools store is bound to, or None when it has none.
-
-    ``tool_registry.bound_workspace_root`` names the checkout; a directory that
-    is not a git checkout, or one with no commit yet, has no HEAD to name.
-    """
-    completed = subprocess.run(  # noqa: S603 — fixed argv, no shell
-        ["git", "rev-parse", "--verify", "--quiet", "HEAD^{commit}"],
-        cwd=bound_workspace_root(base_dir), capture_output=True, text=True, check=False,
-    )
-    return completed.stdout.strip() if completed.returncode == 0 else None
-
-
 def plan_verdict_paths(state: dict[str, Any]) -> list[str]:
-    """PV P3 — the repository paths a CONVERGED verdict judged: the converged
-    body's ``affected_surfaces`` and ``evidence_refs`` and every cross-review
-    risk's ``evidence_refs`` (line suffix dropped; finding ids name no file)."""
+    """PV P3 — the repository paths a CONVERGED verdict judged.
+
+    Every path the converged body names (``plan_origin.body_paths``: its
+    ``affected_surfaces`` and its ``key_changes`` paths, the files the
+    implementer writes), the body's ``evidence_refs`` and every cross-review
+    risk's ``evidence_refs`` (line suffix dropped; finding ids name no file).
+    A key-change path need not lie inside a surface, so a reader of the
+    surfaces alone let the edited file change unseen (PV R5).
+    """
     from .evidence_trust import parse_evidence_ref
+    from .plan_origin import body_paths
 
     body = plan_body_from_state(state)["plan_content"]
     refs = [str(ref) for ref in body.get("evidence_refs", [])]
     for risks in state.get("cross_review_risks_by_round", {}).values():
         refs.extend(str(ref) for risk in risks for ref in risk.get("evidence_refs", []))
-    paths = list(affected_surface_paths(body.get("affected_surfaces", [])))
+    paths = [str(path).strip() for path in body_paths(body)]
     for ref in refs:
         if FINDING_ID_RE.match(ref.strip()):
             continue
@@ -1594,22 +1600,31 @@ def plan_verdict_paths(state: dict[str, Any]) -> list[str]:
 def plan_verdict_staleness(state: dict[str, Any], *, base_dir: str | Path | None = None) -> str | None:
     """PV P3 — why the plan's CONVERGED verdict no longer describes the repository, else None.
 
-    The verdict is bound to the commit it was reached at
-    (``plan_evaluated.reviewed_commit_sha``; null when the store's checkout
-    had no commit yet, i.e. the reviewed tree was the empty tree). Any change
-    between that tree and today's HEAD to a path the plan names
+    The verdict is bound to the commit its reviewers reviewed
+    (``plan_evaluated.reviewed_commit_sha``; null when the reviewed checkout
+    had no commit, i.e. the reviewed tree was the empty tree). Any change
+    between that tree and today's HEAD of the store's checkout
+    (``tool_registry.bound_workspace_root``) to a path the plan names
     (:func:`plan_verdict_paths`; a surface may be a directory or a glob)
     makes it stale: ``plan_verdict_stale:<changed path>``. A verdict recorded
     before the binding existed names no reviewed tree at all
-    (``plan_verdict_unbound``), and one whose commit cannot be compared with
-    HEAD (``plan_verdict_unverifiable:<sha>``) proves nothing about today's
-    bytes; both are refused the same way.
+    (``plan_verdict_unbound``). A HEAD git cannot read, or a reviewed commit
+    the checkout cannot compare with HEAD, proves nothing about today's bytes
+    (``plan_verdict_unverifiable:<why>``). All three are refused the same way.
+
+    Every git read goes through the kernel's one hermetic owner
+    (``workspace_view``): no inherited ``GIT_DIR`` answers for another
+    repository, and a git failure is never read as "no commit" (PV R1, R4).
     """
     payload = _latest_event(state, "plan_evaluated")["payload"]
     if "reviewed_commit_sha" not in payload:
         return f"{PLAN_VERDICT_UNBOUND}:{state['plan_id']}"
     reviewed = payload["reviewed_commit_sha"]
-    head = workspace_head_sha(base_dir)
+    workspace = bound_workspace_root(base_dir)
+    try:
+        head = workspace_head_sha(workspace)
+    except WorkspaceViewRefused as exc:
+        return f"{PLAN_VERDICT_UNVERIFIABLE}:{exc.reason}"
     if head is None:
         # No commit today: none was made after a verdict reached on the empty
         # tree, and a reviewed commit that vanished cannot be compared.
@@ -1619,19 +1634,73 @@ def plan_verdict_staleness(state: dict[str, Any], *, base_dir: str | Path | None
         # `git diff A HEAD --` with no pathspec compares the whole tree; a
         # plan that names no path judged none, so no commit can stale it.
         return None
-    workspace = bound_workspace_root(base_dir)
-    reviewed_tree = reviewed if reviewed is not None else subprocess.run(  # noqa: S603 — fixed argv, no shell
-        ["git", "hash-object", "-t", "tree", "--stdin"],
-        cwd=workspace, input="", capture_output=True, text=True, check=True,
-    ).stdout.strip()
-    completed = subprocess.run(  # noqa: S603 — fixed argv, no shell
-        ["git", "diff", "--name-only", "--no-renames", "-z", reviewed_tree, head, "--", *pathspecs],
-        cwd=workspace, capture_output=True, text=True, check=False,
+    if reviewed is None:
+        empty_tree = hermetic_git(workspace, "hash-object", "-t", "tree", os.devnull)
+        if empty_tree.returncode != 0:
+            return f"{PLAN_VERDICT_UNVERIFIABLE}:empty_tree_unhashable"
+        reviewed_tree = empty_tree.stdout.strip()
+    else:
+        reviewed_tree = reviewed
+    # The event law types the reviewed commit as an object id (PV R3), and
+    # `--end-of-options` keeps any revision from being read as an option.
+    completed = hermetic_git(
+        workspace, "diff", "--name-only", "--no-renames", "-z",
+        "--end-of-options", reviewed_tree, head, "--", *pathspecs,
     )
     if completed.returncode != 0:
         return f"{PLAN_VERDICT_UNVERIFIABLE}:{reviewed}"
     changed = sorted(path for path in completed.stdout.split("\0") if path)
     return f"{PLAN_VERDICT_STALE}:{changed[0]}" if changed else None
+
+
+def _require_reviewed_commit(value: Any) -> None:
+    """PV R3 — a reviewed commit is null (the empty tree) or one full git object id."""
+    if value is not None and not is_object_id(value, formats=ANY_OBJECT_FORMAT):
+        raise GovernanceError(
+            f"reviewed_commit_sha must be null or a full git object id, got {str(value)[:80]!r}"
+        )
+
+
+def _reviewed_commit_field(review: dict[str, Any]) -> dict[str, Any]:
+    """The review's ``reviewed_commit_sha`` as recorded: kept only when named, so an
+    absent binding stays absent (``plan_verdict_unbound``), never null (the empty tree)."""
+    return {"reviewed_commit_sha": review["reviewed_commit_sha"]} if "reviewed_commit_sha" in review else {}
+
+
+def _require_recorded_reviewed_commit(payload: dict[str, Any]) -> None:
+    """PV P3 (R2) — every review recorded names the commit it reviewed."""
+    if "reviewed_commit_sha" not in payload:
+        raise GovernanceError(
+            "reviewed_commit_sha required: a review names the commit it reviewed "
+            "(the answered request's target_sha; null when that checkout had no commit)"
+        )
+    _require_reviewed_commit(payload["reviewed_commit_sha"])
+
+
+def round_reviewed_commit(state: dict[str, Any], round_number: int) -> str | None:
+    """PV P3 (R2) — the one commit every answered review of ``round_number`` reviewed.
+
+    A verdict is bound to what its reviewers judged, not to HEAD when it is
+    evaluated: a commit landing between the review and the evaluation was
+    never reviewed. The round's reviews (its cross-review directions, or a
+    legacy critique round's critiques) must all name one commit; a review
+    without the field (recorded before the binding) or two that disagree
+    leave the round with no reviewed tree, and evaluation is refused
+    (``plan_verdict_unbound``).
+    """
+    if state.get("state") == "CROSS_REVIEWED":
+        reviews = state["cross_reviews"][round_number]["reviews"]
+    else:
+        reviews = state["rounds"][round_number]["critiques"]
+    unbound = [review for review in reviews if "reviewed_commit_sha" not in review]
+    named = {review["reviewed_commit_sha"] for review in reviews if "reviewed_commit_sha" in review}
+    if not reviews or unbound or len(named) != 1:
+        raise GovernanceError(
+            f"{PLAN_VERDICT_UNBOUND}:{state['plan_id']}: round {round_number}'s reviews name "
+            f"{sorted(str(sha) for sha in named)} as the reviewed commit "
+            f"({len(unbound)} of {len(reviews)} name none); a verdict is bound to exactly one"
+        )
+    return next(iter(named))
 
 
 def require_fresh_plan_verdict(state: dict[str, Any], *, base_dir: str | Path | None) -> None:
@@ -2934,6 +3003,7 @@ def _normalize_cross_review(review: dict[str, Any]) -> dict[str, Any]:
         # PV P1 — the reviewer's resolved/open/withdrawn answer on every
         # prior-round reviewer risk; the only door that clears one.
         "prior_risk_dispositions": review.get("prior_risk_dispositions", []),
+        **_reviewed_commit_field(review),
         "review_content_hash": review.get("review_content_hash"),
         "agent_invocation_request_id": review.get("agent_invocation_request_id"),
         "status_after": review.get("status_after", "ANSWERED"),
@@ -2951,6 +3021,7 @@ def _normalize_critique(critique: dict[str, Any]) -> dict[str, Any]:
         "risks": critique.get("risks", []),
         "critique_content_hash": critique.get("critique_content_hash"),
         "status_after": critique.get("status_after", "ANSWERED"),
+        **_reviewed_commit_field(critique),
     }
 
 
@@ -3078,6 +3149,7 @@ def _validate_critique(state: dict[str, Any], payload: dict[str, Any], workspace
     names = reviewer_names(workspace_root=workspace_root)
     if reviewer not in names:
         raise GovernanceError(f"unknown reviewer: {reviewer}")
+    _require_recorded_reviewed_commit(payload)
     round_data = _round_for_target(state, target_revision_id, target_hash)
     task = round_data["tasks"].get(packet_hash)
     if task is None:
@@ -3109,6 +3181,7 @@ def _validate_cross_review_record(state: dict[str, Any], payload: dict[str, Any]
     names = reviewer_names(workspace_root=workspace_root)
     if reviewer not in names:
         raise GovernanceError(f"unknown reviewer: {reviewer}")
+    _require_recorded_reviewed_commit(payload)
     cross = _cross_review_for_target(state, target_revision_id, target_hash)
     task = cross["tasks"].get(packet_hash)
     if task is None:
@@ -3470,6 +3543,8 @@ def _validate_event(event: dict[str, Any]) -> None:
         _require_hash(payload.get("critique_content_hash"), "critique_content_hash")
         if payload.get("status_after") != "ANSWERED":
             raise GovernanceError('critique_recorded status_after must be "ANSWERED"')
+        if "reviewed_commit_sha" in payload:
+            _require_reviewed_commit(payload["reviewed_commit_sha"])
     elif event_type == "cross_review_recorded":
         _require_hash(payload.get("task_packet_hash"), "task_packet_hash")
         _require_hash(payload.get("target_plan_content_hash"), "target_plan_content_hash")
@@ -3482,6 +3557,8 @@ def _validate_event(event: dict[str, Any]) -> None:
             raise GovernanceError('cross_review_recorded status_after must be "ANSWERED"')
         if not isinstance(payload.get("prior_risk_dispositions", []), list):
             raise GovernanceError("prior_risk_dispositions must be an array")
+        if "reviewed_commit_sha" in payload:
+            _require_reviewed_commit(payload["reviewed_commit_sha"])
     elif event_type == "stale_tasks_reaped":
         if not isinstance(payload.get("round_number"), int):
             raise GovernanceError("round_number must be an integer")
@@ -3517,6 +3594,11 @@ def _validate_event(event: dict[str, Any]) -> None:
         for field in ("risks_rollup_summary", "gate_decisions", "reason_codes"):
             if field not in payload:
                 raise GovernanceError(f"plan_evaluated missing {field}")
+        # PV R3 — the binding reaches `git diff` as a revision: only null or
+        # one full object id is a value the ledger may carry. A verdict
+        # recorded before the binding has no field (`plan_verdict_unbound`).
+        if "reviewed_commit_sha" in payload:
+            _require_reviewed_commit(payload["reviewed_commit_sha"])
     elif event_type == "implementation_delivery_attempted":
         attempt = payload.get("attempt")
         if not isinstance(attempt, int) or isinstance(attempt, bool) or attempt <= 0:

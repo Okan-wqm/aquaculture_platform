@@ -29,6 +29,7 @@ import unittest
 from pathlib import Path
 from typing import Any
 
+from aria_kernel.workspace_view import workspace_head_sha
 from aria_kernel.agent_contract import validate_request
 from aria_kernel.agent_eval import observe_agent_performance
 from aria_kernel.agent_invocations import list_agent_invocation_requests
@@ -132,7 +133,7 @@ class EveryPlannerMintCarriesTheLessonTests(_LedgerCase):
         })
         record_critique(plan_id="plan-now", workspace_root=self.workspace, base_dir=self.tools, critique={
             "task_packet_hash": packet, "target_revision_id": "rev-0", "target_plan_content_hash": digest,
-            "reviewer": "farm-expert", "risks": [], "critique_content_hash": "sha256:" + "b" * 64,
+            "reviewer": "farm-expert", "risks": [], "reviewed_commit_sha": workspace_head_sha(self.workspace), "critique_content_hash": "sha256:" + "b" * 64,
             "status_after": "ANSWERED",
         })
 

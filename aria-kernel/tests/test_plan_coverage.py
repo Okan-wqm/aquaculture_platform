@@ -12,6 +12,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from aria_kernel.workspace_view import workspace_head_sha
 from aria_kernel.plan_convergence import _validate_cross_review_risk
 from aria_kernel.plan_coverage import build_synthetic_risk, compute_plan_coverage
 from tests._helpers.git_fixtures import make_repo_with_initial_commit
@@ -255,7 +256,7 @@ class NativePlanCoverageTests(unittest.TestCase):
         record_critique(plan_id=plan_id, critique={
             "task_packet_hash": task["task_packet_hash"], "target_revision_id": latest["revision_id"],
             "target_plan_content_hash": latest["content_hash"], "reviewer": "farm-expert", "risks": [],
-            "critique_content_hash": content_hash({"reviewer": "farm-expert", "risks": []}),
+            "reviewed_commit_sha": workspace_head_sha(repo), "critique_content_hash": content_hash({"reviewer": "farm-expert", "risks": []}),
         }, workspace_root=repo, base_dir=tools)
         self.assertEqual(plan_status(plan_id=plan_id, base_dir=tools)["state"], "CRITIQUED")
         events_path = tools / "plans" / "events.jsonl"

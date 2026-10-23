@@ -373,10 +373,19 @@ def _dispatch_cross_review(
                 or "aria-cross-reviewer"
             ),
         }
+    # PV P3 (R2) — the commit the reviewer reviewed is the one its request
+    # was anchored at (the executor ran it at `target_sha`); the kernel's
+    # request row says so, never the agent's envelope.
+    if "target_sha" not in request:
+        raise GovernanceError(
+            f"cross_review_request_unanchored: request {request.get('request_id')!r} names no "
+            "target_sha, so the review names no reviewed commit"
+        )
     return submit_cross_review_v8(
         plan_id=plan_id,
         review=review_payload,
         workspace_root=workspace_root,
+        reviewed_commit_sha=request["target_sha"],
         base_dir=base_dir,
     )
 

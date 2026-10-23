@@ -6,6 +6,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from aria_kernel.workspace_view import workspace_head_sha
 from aria_kernel import plan_convergence as plan_convergence_module
 from aria_kernel.agent_priors import reviewer_names
 from aria_kernel.ledger import LedgerIntegrityError, load_jsonl, load_segments, segment_paths
@@ -15,6 +16,7 @@ from aria_kernel.plan_convergence import (
     evaluate_plan,
     events_path,
     fold_plan_state,
+    is_material_risk,
     plan_status,
     reap_stale_tasks,
     record_critique,
@@ -620,7 +622,7 @@ class PlanConvergenceTests(unittest.TestCase):
                 "target_plan_content_hash": task["target_plan_content_hash"],
                 "reviewer": reviewer,
                 "risks": risks,
-                "critique_content_hash": content_hash({"reviewer": reviewer, "risks": risks}),
+                "reviewed_commit_sha": workspace_head_sha(self.root), "critique_content_hash": content_hash({"reviewer": reviewer, "risks": risks}),
             },
             workspace_root=self.root,
             base_dir=self.tools_dir,
@@ -659,7 +661,10 @@ class PlanConvergenceTests(unittest.TestCase):
             base_dir=self.tools_dir,
         )
 
-    def cross_review(self, task_id: str, reviewer: str, direction: str, risks: list[dict]):
+    def cross_review(self, task_id: str, reviewer: str, direction: str, risks: list[dict], *,
+                     verdict: str | None = None):
+        """One direction's review through the legacy per-direction door; its verdict
+        agrees with its risks unless the test names one."""
         state = plan_status(plan_id="plan-1", base_dir=self.tools_dir)
         current = state["cross_reviews"][state["current_round"]]
         task = next(task for task in current["tasks"].values() if task["task_id"] == task_id)
@@ -672,6 +677,8 @@ class PlanConvergenceTests(unittest.TestCase):
                 "reviewer_agent": reviewer,
                 "review_direction": direction,
                 "risks": risks,
+                "verdict": verdict or ("material_risks_present" if any(map(is_material_risk, risks)) else "agreed"),
+                "reviewed_commit_sha": workspace_head_sha(self.root),
                 "review_content_hash": content_hash({"reviewer": reviewer, "direction": direction, "risks": risks}),
             },
             workspace_root=self.root,
@@ -731,7 +738,8 @@ class PlanConvergenceTests(unittest.TestCase):
         review = {"reviewer_agent": "farm-expert", "verdict": verdict, "risks": risks}
         if prior_risk_dispositions is not None:
             review["prior_risk_dispositions"] = prior_risk_dispositions
-        return submit_cross_review_v8(plan_id="plan-1", review=review, workspace_root=self.root, base_dir=self.tools_dir)
+        return submit_cross_review_v8(plan_id="plan-1", review=review, workspace_root=self.root, base_dir=self.tools_dir,
+                                      reviewed_commit_sha=workspace_head_sha(self.root))
 
     def task(self, task_id: str, reviewer: str, revision_id: str, plan_hash: str, *, deadline: str | None = None):
         return {

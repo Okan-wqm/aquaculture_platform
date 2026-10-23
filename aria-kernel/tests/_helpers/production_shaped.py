@@ -152,6 +152,8 @@ def production_converged_plan(
     ``<workspace_root>/.claude/agents``; the critique path resolves reviewer
     identity against the repository, so the caller's workspace needs one.
     """
+    from aria_kernel.tool_registry import bound_workspace_root
+    from aria_kernel.workspace_view import workspace_head_sha
     from aria_kernel.plan_convergence import (
         content_hash as plan_content_hash,
         evaluate_plan,
@@ -246,6 +248,9 @@ def production_converged_plan(
             "target_plan_content_hash": task["target_plan_content_hash"],
             "reviewer": reviewer,
             "risks": [],
+            # The commit the critic reviewed: HEAD of the checkout the store serves, the
+            # anchor the drainer mints a request at.
+            "reviewed_commit_sha": workspace_head_sha(bound_workspace_root(tools_dir)),
             "critique_content_hash": plan_content_hash({"reviewer": reviewer, "risks": []}),
         },
         workspace_root=workspace_root,

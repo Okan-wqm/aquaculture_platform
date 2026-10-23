@@ -32,11 +32,24 @@ WHAT THIS PINS.
         the shape of ``service_for_path``, ``_asset_of`` and every
         convention-based copy. "Splits" covers every binding form (plain,
         annotated, walrus, tuple and starred unpacking), a subscript straight
-        on the split, ``Path(...).parts``, and the rest of a path after its
-        family (``removeprefix('apps/')`` or ``partition('/')``) split again
-        (SE-1-R2 appellate R2: the round-2 detector saw only ``name = split``);
-      - holds a regex anchored on a project family with a capture group
-        (``^apps/([^/]+)/``), inline or as a module-level pattern it uses; or
+        on the split, ``split('/')`` and ``split(sep='/')``,
+        ``Path(...).parts``, and the rest of a path after its family
+        (``removeprefix('apps/')`` or ``partition('/')``) split again (SE-1-R2
+        appellate R2: the round-2 detector saw only ``name = split``). The
+        family is spelled inline or bound to a module-level name;
+      - holds a regex anchored on a project family with a capture group,
+        inline or as a module-level pattern it uses (plain or annotated
+        binding). This is decided by BEHAVIOUR, not spelling (SE-1-R2
+        appellate R5): a string literal counts when it compiles as a regex
+        with at least one group, captures the project directory ``<d>`` out
+        of a sample path of some project family (``apps/<d>/x``,
+        ``libs/<d>/x``, ``platform/libs/<d>/x``, ``web/modules/<d>/x``, ...,
+        derived from the owner's ``impact_graph._CONVENTIONAL_FAMILIES``),
+        and does NOT capture it out of the same path under a non-family head
+        (the anchor). ``^apps/([^/]+)/``, ``^apps/(?P<svc>[^/]+)/``,
+        ``^(apps|libs)/([^/]+)/``, ``^(?:apps|libs)/([^/]+)/`` and
+        ``^(?:platform/)?libs/([^/]+)/`` all count; ``^(\\w+)\\.ts$`` (no
+        family) and ``^apps/.*\\.spec\\.ts$`` (no capture) do not; or
       - reads a ``project.json`` ``name`` — naming a project is the map
         builder's job (``impact_graph._declared_project_name``), and a second
         reader builds a second map.
@@ -63,9 +76,13 @@ F0.9b, and goes with it (review-r1 BLOCKER-2 REQUIRED FIX).
 from __future__ import annotations
 
 import ast
+import functools
 import re
 import unittest
+import warnings
 from pathlib import Path
+
+from aria_kernel.impact_graph import _CONVENTIONAL_FAMILIES
 
 _KERNEL = Path(__file__).resolve().parents[2] / "aria_kernel"
 
@@ -74,11 +91,12 @@ _KERNEL = Path(__file__).resolve().parents[2] / "aria_kernel"
 # ``_declared_project_name``) all live here.
 _OWNER_MODULE = "impact_graph"
 
-# Implementations another tracked package removes, with that package.
+# Implementations another tracked package removes, with that package and the
+# registry finding that tracks the removal.
 _TOMBSTONED_ELSEWHERE = {
-    ("recursive_impact", "_project_for_path"): "F0.9b",
-    ("impact", "_affected_projects_hint"): "F0.9b",
-    ("security.assess", "_asset_of"): "F0.9b",
+    ("recursive_impact", "_project_for_path"): "F0.9b, ARIA-MEDIUM-791",
+    ("impact", "_affected_projects_hint"): "F0.9b, ARIA-MEDIUM-791",
+    ("security.assess", "_asset_of"): "F0.9b, ARIA-MEDIUM-791",
 }
 
 # A path -> service/project attribution, by the names this kernel has used
@@ -86,8 +104,21 @@ _TOMBSTONED_ELSEWHERE = {
 # _project_for_path, services_of_path, ...
 _ATTRIBUTION_NAME = re.compile(r"^_?(service|project)s?_(for|of)_paths?$")
 
-# Leading path segments that name a project family in this repository.
-_PROJECT_FAMILIES = frozenset({"apps", "libs", "platform", "web"})
+# The project families come from the owner's map builder (one source): the
+# parents its discovery walks (``apps``, ``libs``, ``platform/libs``,
+# ``web/modules``) and their leading segments (``apps``, ``libs``,
+# ``platform``, ``web``).
+_PROJECT_ROOT_PARENTS = tuple(parent for parent, _ in _CONVENTIONAL_FAMILIES)
+_PROJECT_FAMILIES = frozenset(parent.split("/")[0] for parent in _PROJECT_ROOT_PARENTS)
+
+# Sample paths the regex rule is decided on: a distinctive project directory
+# under every family parent and every leading family segment, and the same
+# directory under a head that is no family (the anchor check).
+_PROBE_DIR = "zqprobedir"
+_FAMILY_SAMPLE_PATHS = tuple(
+    f"{parent}/{_PROBE_DIR}/x" for parent in sorted({*_PROJECT_ROOT_PARENTS, *_PROJECT_FAMILIES})
+)
+_NON_FAMILY_SAMPLE_PATH = f"zqnotafamily/{_PROBE_DIR}/x"
 
 _DELETED_FROM_SERVICE_DIMENSION = ("service_for_path", "services_for_paths", "service_dimension")
 
@@ -138,16 +169,44 @@ def _names_a_project_family(literal: str) -> bool:
     return literal in _PROJECT_FAMILIES or (bool(sep) and head in _PROJECT_FAMILIES)
 
 
-def _slash_call(node: ast.AST, method: str) -> bool:
-    """``<x>.<method>('/')`` (any receiver, any maxsplit)."""
-    return (
-        isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == method
-        and bool(node.args)
-        and isinstance(node.args[0], ast.Constant)
-        and node.args[0].value == "/"
+def _module_bindings(tree: ast.AST) -> list[tuple[str, ast.AST]]:
+    """Module-level ``name = value`` and ``name: T = value`` bindings."""
+    pairs: list[tuple[str, ast.AST]] = []
+    for node in getattr(tree, "body", []):
+        if isinstance(node, ast.Assign):
+            pairs.extend((t.id, node.value) for t in node.targets if isinstance(t, ast.Name))
+        elif isinstance(node, ast.AnnAssign) and node.value is not None and isinstance(node.target, ast.Name):
+            pairs.append((node.target.id, node.value))
+    return pairs
+
+
+def _family_constants(tree: ast.AST) -> frozenset[str]:
+    """Module-level names bound to a value that spells a project family
+    (``_FAMILIES = frozenset({'apps', 'libs'})``, ``_PREFIX = 'apps/'``)."""
+    return frozenset(
+        name
+        for name, value in _module_bindings(tree)
+        if any(
+            isinstance(n, ast.Constant) and isinstance(n.value, str) and _names_a_project_family(n.value)
+            for n in ast.walk(value)
+        )
     )
+
+
+def _names_a_family(node: ast.AST, family_constants: frozenset[str]) -> bool:
+    """A family spelled inline, or a module-level name bound to one."""
+    return any(_names_a_project_family(v) for v in _string_literals(node)) or (
+        isinstance(node, ast.Name) and node.id in family_constants
+    )
+
+
+def _slash_call(node: ast.AST, method: str) -> bool:
+    """``<x>.<method>('/')`` or ``<x>.<method>(sep='/')`` (any receiver, any
+    maxsplit)."""
+    if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == method):
+        return False
+    separators = [*node.args[:1], *(kw.value for kw in node.keywords if kw.arg == "sep")]
+    return any(isinstance(sep, ast.Constant) and sep.value == "/" for sep in separators)
 
 
 def _receiver(node: ast.AST) -> ast.AST | None:
@@ -177,7 +236,7 @@ def _holds_segments(node: ast.AST) -> bool:
     return any(_is_segments(n) for n in ast.walk(node))
 
 
-def _is_family_strip(node: ast.AST) -> bool:
+def _is_family_strip(node: ast.AST, family_constants: frozenset[str]) -> bool:
     """``<x>.removeprefix('<family>/')``: the rest of the path after its
     project family, whose first segment is the project directory."""
     return (
@@ -185,7 +244,7 @@ def _is_family_strip(node: ast.AST) -> bool:
         and isinstance(node.func, ast.Attribute)
         and node.func.attr == "removeprefix"
         and bool(node.args)
-        and any(_names_a_project_family(v) for v in _string_literals(node.args[0]))
+        and _names_a_family(node.args[0], family_constants)
     )
 
 
@@ -217,7 +276,8 @@ class _PathReads:
     the path after a leading segment (``p.removeprefix('apps/')``,
     ``head, _, rest = p.partition('/')``)."""
 
-    def __init__(self, fn: ast.AST) -> None:
+    def __init__(self, fn: ast.AST, family_constants: frozenset[str]) -> None:
+        self.family_constants = family_constants
         self.segments: set[str] = set()
         self.later: set[str] = set()
         self.rests: set[str] = set()
@@ -246,7 +306,7 @@ class _PathReads:
     def _is_rest(self, node: ast.AST) -> bool:
         return (
             (isinstance(node, ast.Name) and node.id in self.rests)
-            or _is_family_strip(node)
+            or _is_family_strip(node, self.family_constants)
             or _is_partition_rest(node)
         )
 
@@ -274,31 +334,46 @@ class _PathReads:
         return False
 
 
-def _family_capture_patterns(tree: ast.AST) -> set[str]:
-    """Module-level names bound to a family-anchored regex with a capture."""
-    names: set[str] = set()
-    for node in getattr(tree, "body", []):
-        if isinstance(node, ast.Assign) and any(_is_family_capture(n) for n in ast.walk(node.value)):
-            names.update(t.id for t in node.targets if isinstance(t, ast.Name))
-    return names
+def _family_capture_patterns(tree: ast.AST) -> frozenset[str]:
+    """Module-level names (plain or annotated binding) bound to a
+    family-anchored regex with a capture."""
+    return frozenset(
+        name
+        for name, value in _module_bindings(tree)
+        if any(_is_family_capture(n) for n in ast.walk(value))
+    )
 
 
-_FAMILY_ANCHOR = re.compile(r"^\^?(?:%s)/" % "|".join(sorted(_PROJECT_FAMILIES)))
-_CAPTURE_GROUP = re.compile(r"(?<!\\)\((?!\?)")
+@functools.lru_cache(maxsize=None)
+def _captures_a_project_dir(literal: str) -> bool:
+    """``literal``, as a regex, captures the project directory of a path in a
+    project family and does not capture it under a non-family head."""
+    # Most literals probed here are prose, not regexes; ``re`` warns about
+    # the future meaning of some of them (``[[`` "possible nested set"),
+    # which says nothing about whether they capture a project directory.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", FutureWarning)
+        try:
+            pattern = re.compile(literal)
+        except re.error:
+            return False
+    if pattern.groups == 0:
+        return False
+
+    def captures(path: str) -> bool:
+        match = pattern.search(path)
+        return match is not None and _PROBE_DIR in match.groups()
+
+    return any(captures(path) for path in _FAMILY_SAMPLE_PATHS) and not captures(_NON_FAMILY_SAMPLE_PATH)
 
 
 def _is_family_capture(node: ast.AST) -> bool:
     """A string literal that is a regex anchored on a project family with a
     capturing group (``^apps/([^/]+)/``): the capture is the project dir."""
-    return (
-        isinstance(node, ast.Constant)
-        and isinstance(node.value, str)
-        and bool(_FAMILY_ANCHOR.match(node.value))
-        and bool(_CAPTURE_GROUP.search(node.value))
-    )
+    return isinstance(node, ast.Constant) and isinstance(node.value, str) and _captures_a_project_dir(node.value)
 
 
-def _uses_a_family_capture(fn: ast.AST, module_patterns: set[str]) -> bool:
+def _uses_a_family_capture(fn: ast.AST, module_patterns: frozenset[str]) -> bool:
     return any(
         _is_family_capture(node)
         or (isinstance(node, ast.Name) and node.id in module_patterns)
@@ -306,11 +381,11 @@ def _uses_a_family_capture(fn: ast.AST, module_patterns: set[str]) -> bool:
     )
 
 
-def _tests_a_project_family(fn: ast.AST) -> bool:
+def _tests_a_project_family(fn: ast.AST, family_constants: frozenset[str]) -> bool:
     for node in ast.walk(fn):
         if isinstance(node, ast.Compare):
             for operand in (node.left, *node.comparators):
-                if any(_names_a_project_family(v) for v in _string_literals(operand)):
+                if _names_a_family(operand, family_constants):
                     return True
         if (
             isinstance(node, ast.Call)
@@ -318,7 +393,7 @@ def _tests_a_project_family(fn: ast.AST) -> bool:
             and node.func.attr in ("startswith", "removeprefix")
         ):
             for arg in node.args:
-                if any(_names_a_project_family(v) for v in _string_literals(arg)):
+                if _names_a_family(arg, family_constants):
                     return True
     return False
 
@@ -346,12 +421,14 @@ def _reads_a_project_json_name(fn: ast.AST) -> bool:
     return mentions_manifest and reads_name
 
 
-def _attribution_reasons(name: str, fn: ast.AST, module_patterns: set[str]) -> list[str]:
+def _attribution_reasons(
+    name: str, fn: ast.AST, module_patterns: frozenset[str], family_constants: frozenset[str]
+) -> list[str]:
     """Why ``fn`` is a path→project attribution (empty: it is not one)."""
     reasons: list[str] = []
     if _ATTRIBUTION_NAME.match(name.rsplit(".", 1)[-1]):
         reasons.append("name")
-    if _tests_a_project_family(fn) and _PathReads(fn).reads_a_later_segment(fn):
+    if _tests_a_project_family(fn, family_constants) and _PathReads(fn, family_constants).reads_a_later_segment(fn):
         reasons.append("path-segment attribution")
     if _uses_a_family_capture(fn, module_patterns):
         reasons.append("family regex capture")
@@ -363,9 +440,10 @@ def _attribution_reasons(name: str, fn: ast.AST, module_patterns: set[str]) -> l
 def _attributions_in(source: str, module: str) -> dict[tuple[str, str], list[str]]:
     tree = ast.parse(source)
     module_patterns = _family_capture_patterns(tree)
+    family_constants = _family_constants(tree)
     found: dict[tuple[str, str], list[str]] = {}
     for name, fn in _functions(tree):
-        reasons = _attribution_reasons(name, fn, module_patterns)
+        reasons = _attribution_reasons(name, fn, module_patterns, family_constants)
         if reasons:
             found[(module, name)] = reasons
     return found
@@ -520,6 +598,87 @@ class TheDetectorSeesEveryKnownShape(unittest.TestCase):
             "    m = _APP.match(path)\n"
             "    return m.group(1) if m else None\n"
         )
+
+    # SE-1-R2 appellate R5: the detector recognised its documented regex rule
+    # by one spelling (``^<family>/`` then an unnamed group) and one module
+    # binding form (``ast.Assign``), and its split rule by a positional '/'
+    # only (ssot P5, evidence p2). Each shape below is a family-anchored regex
+    # with a capture group, or a '/'-split, that the round-2 detector missed.
+
+    _FAMILY_REGEX_SHAPES = (
+        r"^apps/(?P<svc>[^/]+)/",
+        r"^(apps|libs)/([^/]+)/",
+        r"^(?:apps|libs)/([^/]+)/",
+        r"^(?:platform/)?libs/([^/]+)/",
+    )
+
+    def test_family_regex_shapes_are_detected_inline(self) -> None:
+        for pattern in self._FAMILY_REGEX_SHAPES:
+            with self.subTest(pattern=pattern):
+                self._assert_detected(
+                    "import re\n"
+                    "def svc(p):\n"
+                    f"    m = re.match(r'{pattern}', p)\n"
+                    "    return m.group(m.lastindex) if m else None\n"
+                )
+
+    def test_family_regex_shapes_are_detected_as_module_level_patterns(self) -> None:
+        for pattern in self._FAMILY_REGEX_SHAPES:
+            with self.subTest(pattern=pattern):
+                self._assert_detected(
+                    "import re\n"
+                    f"_P = re.compile(r'{pattern}')\n"
+                    "def svc(p):\n"
+                    "    m = _P.match(p)\n"
+                    "    return m.group(m.lastindex) if m else None\n"
+                )
+
+    def test_an_annotated_module_level_family_regex_is_detected(self) -> None:
+        self._assert_detected(
+            "import re\n"
+            "from typing import Final\n"
+            "_P: Final = re.compile(r'^apps/([^/]+)/')\n"
+            "def svc(p):\n"
+            "    m = _P.match(p)\n"
+            "    return m.group(1) if m else None\n"
+        )
+
+    def test_a_split_with_a_sep_keyword_is_detected(self) -> None:
+        self._assert_detected(
+            "def svc(p):\n"
+            "    parts = p.split(sep='/')\n"
+            "    if parts[0] == 'apps':\n"
+            "        return parts[1]\n"
+            "    return None\n"
+        )
+
+    def test_a_family_tested_through_a_module_constant_is_detected(self) -> None:
+        # Recommended by appellate R5 (not required): the docstring's "tests a
+        # leading segment against a project family" holds whether the family
+        # is spelled inline or bound to a module-level name.
+        self._assert_detected(
+            "_FAMILIES = frozenset({'apps', 'libs'})\n"
+            "def svc(p):\n"
+            "    parts = p.split('/')\n"
+            "    if parts[0] in _FAMILIES:\n"
+            "        return parts[1]\n"
+            "    return None\n"
+        )
+
+    def test_a_regex_without_a_family_anchor_or_without_a_capture_is_not_flagged(self) -> None:
+        for name, pattern in (
+            ("capture_without_family", r"^(\w+)\.ts$"),
+            ("family_without_capture", r"^apps/.*\.spec\.ts$"),
+            ("capture_of_any_leading_segment", r"^([^/]+)/([^/]+)/"),
+        ):
+            with self.subTest(shape=name):
+                source = (
+                    "import re\n"
+                    f"_P = re.compile(r'{pattern}')\n"
+                    "def svc(p):\n"
+                    f"    return bool(re.search(r'{pattern}', p)) or bool(_P.match(p))\n"
+                )
+                self.assertEqual(_attributions_in(source, "m"), {})
 
     def test_a_path_class_test_that_names_no_project_is_not_flagged(self) -> None:
         source = (

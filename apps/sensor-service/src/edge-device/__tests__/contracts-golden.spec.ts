@@ -73,7 +73,10 @@ import {
   ProvisioningRefusal,
   serializeDelivery,
 } from '../edge-provisioning-manifest.service';
-import { EdgeReleaseCatalog } from '../edge-release-catalog.service';
+import {
+  EdgeReleaseCatalog,
+  type ReleaseProvenanceVerifier,
+} from '../edge-release-catalog.service';
 import { DeviceModel, suderraOsBoardOf } from '../entities/edge-device.entity';
 import { Ed25519SigningKey, ManifestSigner, StatementAdmissionError } from '../manifest-signer';
 import {
@@ -173,6 +176,29 @@ function fleetRootEnv(): string {
 const secret = (key: Ed25519SigningKey): string =>
   `ed25519:${key.epoch}:${seedOf(key.purpose, key.epoch).toString('hex')}`;
 
+/**
+ * The contract's release fixtures name a provenance digest no document can match, so
+ * the golden tests of statements and manifests admit them with a verifier that accepts
+ * the fixture's provenance. What the real verifier checks, and that the catalog asks it,
+ * is proven against the release pipeline's own output in edge-release-provenance.spec.ts.
+ */
+const FIXTURE_PROVENANCE: ReleaseProvenanceVerifier = (_bytes, expected) => ({
+  digestSha256: expected.digestSha256,
+  repository: expected.repository,
+  workflowRef: 'fixture',
+  tag: `agent-v${expected.version}`,
+  commit: '0'.repeat(40),
+});
+
+/** Serves the release fixture for its statement URL and a stand-in for its provenance. */
+const servingFixture =
+  (statement: string, onlyUrl?: string) =>
+  async (url: string): Promise<string> => {
+    if (url.endsWith('.intoto.jsonl')) return 'provenance fixture\n';
+    if (onlyUrl !== undefined && url !== onlyUrl) throw new Error(`unexpected release URL ${url}`);
+    return statement;
+  };
+
 /** A full channel configuration over the fixtures' TEST-ONLY keys and bundle 1. */
 function channelEnv(overrides: Record<string, string> = {}): Record<string, string> {
   const rbac = bodyOf(RBAC1);
@@ -192,6 +218,7 @@ function channelEnv(overrides: Record<string, string> = {}): Record<string, stri
     SUDERRA_EDGE_RBAC_NOT_BEFORE: field(rbac, 'not_before'),
     SUDERRA_EDGE_RBAC_EXPIRES_AT: field(rbac, 'expires_at'),
     SUDERRA_EDGE_RELEASE_URL_TEMPLATE: RELEASE_URL_TEMPLATE,
+    SUDERRA_EDGE_RELEASE_REPOSITORY: 'example-org/aquaculture',
     SUDERRA_EDGE_AGENT_VERSION: field(bodyOf(REL_160), 'version'),
     SUDERRA_EDGE_MQTT_HOST: 'mqtt-devices.example.com',
     SUDERRA_EDGE_API_URL: 'https://api.example.com',
@@ -212,10 +239,12 @@ function services(env: Record<string, string> = channelEnv()): {
     '{asset}',
     'suderra-agent-os-1.6.0-revpi-connect4-aarch64.tar.gz.release.dsse.json',
   );
-  const catalog = new EdgeReleaseCatalog(config, bundles, async (url) => {
-    if (url !== expectedUrl) throw new Error(`unexpected release URL ${url}`);
-    return fixtureText(REL_160);
-  });
+  const catalog = new EdgeReleaseCatalog(
+    config,
+    bundles,
+    servingFixture(fixtureText(REL_160), expectedUrl),
+    FIXTURE_PROVENANCE,
+  );
   const rbac = new RbacManifestService(config);
   const sites = new SiteConfigManifestService(config);
   const manifests = new EdgeProvisioningManifestService(config, catalog, bundles, rbac, sites);
@@ -719,8 +748,11 @@ describe('contracts golden — what the cloud forwards but does not sign', () =>
 
     const env = channelEnv();
     const config = new SuderraEdgeConfig(new ConfigService(env));
-    const forged = new EdgeReleaseCatalog(config, new TrustAnchorBundleService(config), async () =>
-      fixtureText('edge-release/invalid/wrong-purpose-key.dsse.json'),
+    const forged = new EdgeReleaseCatalog(
+      config,
+      new TrustAnchorBundleService(config),
+      servingFixture(fixtureText('edge-release/invalid/wrong-purpose-key.dsse.json')),
+      FIXTURE_PROVENANCE,
     );
     await expect(forged.forBoard(board)).rejects.toThrow(StatementAdmissionError);
   });
@@ -738,6 +770,23 @@ describe('contracts golden — what the cloud forwards but does not sign', () =>
     const fractional = channelEnv({ SUDERRA_EDGE_RBAC_NOT_BEFORE: '2026-10-01T00:00:00.500Z' });
     expect(() => loadSuderraEdgeSettings((name) => fractional[name])).toThrow(
       SuderraEdgeConfigError,
+    );
+  });
+
+  it('the repository whose release workflow the cloud trusts is required and an owner/repo', () => {
+    const without = channelEnv();
+    expect(() =>
+      loadSuderraEdgeSettings((name) =>
+        name === 'SUDERRA_EDGE_RELEASE_REPOSITORY' ? undefined : without[name],
+      ),
+    ).toThrow(/partially configured; missing: SUDERRA_EDGE_RELEASE_REPOSITORY/);
+    for (const bad of ['aquaculture', 'a/b/c', 'https://github.com/a/b', 'a b/c', '/c', 'a/']) {
+      const env = channelEnv({ SUDERRA_EDGE_RELEASE_REPOSITORY: bad });
+      expect(() => loadSuderraEdgeSettings((name) => env[name])).toThrow(/must be owner\/repo/);
+    }
+    const ok = channelEnv({ SUDERRA_EDGE_RELEASE_REPOSITORY: 'Okan-wqm/aquaculture_platform' });
+    expect(loadSuderraEdgeSettings((name) => ok[name])?.release.repository).toBe(
+      'Okan-wqm/aquaculture_platform',
     );
   });
 });
@@ -784,7 +833,12 @@ describe('contracts golden — what the cloud refuses to forward or issue', () =
   };
   const catalogServing = (text: string): EdgeReleaseCatalog => {
     const config = new SuderraEdgeConfig(new ConfigService(channelEnv()));
-    return new EdgeReleaseCatalog(config, new TrustAnchorBundleService(config), async () => text);
+    return new EdgeReleaseCatalog(
+      config,
+      new TrustAnchorBundleService(config),
+      servingFixture(text),
+      FIXTURE_PROVENANCE,
+    );
   };
   const revpi = (): BoardRow => {
     const board = boardRow('revpi-connect4');
@@ -910,8 +964,11 @@ describe('contracts golden — what the cloud refuses to forward or issue', () =
     const bundles = new TrustAnchorBundleService(config);
     const manifests = new EdgeProvisioningManifestService(
       config,
-      new EdgeReleaseCatalog(config, bundles, async () =>
-        fixtureText('edge-release/valid/rpi4-cm4-aarch64-1.6.0.dsse.json'),
+      new EdgeReleaseCatalog(
+        config,
+        bundles,
+        servingFixture(fixtureText('edge-release/valid/rpi4-cm4-aarch64-1.6.0.dsse.json')),
+        FIXTURE_PROVENANCE,
       ),
       bundles,
       new RbacManifestService(config),

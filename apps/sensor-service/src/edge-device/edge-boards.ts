@@ -22,6 +22,8 @@ export interface BoardRow {
   readonly arch: Arch;
   readonly agentProfile: 'suderra-os';
   readonly cargoFeatures: readonly string[];
+  /** The Rust target the board's agent is built for (boards.json `rust_target`). */
+  readonly rustTarget: string;
   /** The one binding method a device of this board presents (DEC-3.6). */
   readonly deviceBindingMethod: BindingMethod;
   readonly cloudProvisioningAllowed: boolean;
@@ -56,6 +58,7 @@ const ROWS: ReadonlyMap<BoardProfile, BoardRow> = new Map(
         arch: row.arch,
         agentProfile: 'suderra-os',
         cargoFeatures: [...row.cargo_features].sort(),
+        rustTarget: row.rust_target,
         deviceBindingMethod: row.device_binding_method,
         cloudProvisioningAllowed: row.cloud_provisioning.allowed,
         cloudDeviceModels: row.cloud_device_models,
@@ -108,6 +111,17 @@ export function releaseArtifactName(version: string, board: BoardRow): string {
 /** {artifact}.release.dsse.json — the DSSE release statement beside the artifact. */
 export function releaseStatementName(artifact: string): string {
   return NAMING.statement.replace('{artifact}', artifact);
+}
+
+/**
+ * `{artifact base}.intoto.jsonl` — the in-toto SLSA provenance the release
+ * pipeline publishes beside each artifact (scripts/edge/edge_release.py `Row.base`;
+ * a release statement names its digest, `provenance.digest`). artifact-naming.json
+ * does not name this asset, so the rule is held here and pinned against the
+ * pipeline's own output by edge-release-provenance.spec.ts.
+ */
+export function releaseProvenanceName(artifact: string): string {
+  return `${artifact.slice(0, artifact.length - '.tar.gz'.length)}.intoto.jsonl`;
 }
 
 export const RELEASE_BINARY_NAME: string = NAMING.binary_name;

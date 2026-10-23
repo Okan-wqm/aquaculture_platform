@@ -40,8 +40,10 @@ import { EdgeProvisioningManifestService } from './edge-provisioning-manifest.se
 import {
   EdgeReleaseCatalog,
   fetchReleaseStatement,
+  RELEASE_PROVENANCE_VERIFIER,
   RELEASE_STATEMENT_FETCHER,
 } from './edge-release-catalog.service';
+import { verifyReleaseProvenance } from './edge-release-provenance';
 import { InstallerScriptService } from './installer-script.service';
 import { MqttAuthController } from './mqtt-auth.controller';
 import { MqttAuthService } from './mqtt-auth.service';
@@ -100,6 +102,7 @@ import { TrustAnchorBundleService } from './trust-anchor-bundle.service';
     ActivationReceiptService,
     EdgeReleaseCatalog,
     { provide: RELEASE_STATEMENT_FETCHER, useValue: fetchReleaseStatement },
+    { provide: RELEASE_PROVENANCE_VERIFIER, useValue: verifyReleaseProvenance },
     EdgeProvisioningManifestService,
     ProvisioningReservationService,
     // The single command publish path (ADR-048 DEC-9.2) and its signer.

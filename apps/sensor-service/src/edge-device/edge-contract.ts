@@ -93,6 +93,20 @@ export function isDeviceCode(value: string): boolean {
   return DEVICE_CODE_PATTERN.test(value);
 }
 
+/**
+ * The path-safe semantic version of the contract (`common.schema.json` `$defs.semver`,
+ * DEC-1.10): a version is a path component of release URLs and spool names, so
+ * build metadata and empty identifiers are refused. Compiled from the schema, with
+ * its length bound.
+ */
+export const SEMVER_PATTERN: RegExp = new RegExp(commonSchema.$defs.semver.pattern);
+const SEMVER_MAX_LENGTH: number = commonSchema.$defs.semver.maxLength;
+
+/** True when `value` is a version of the contract. */
+export function isContractSemver(value: string): boolean {
+  return value.length <= SEMVER_MAX_LENGTH && SEMVER_PATTERN.test(value);
+}
+
 // ------------------------------------------------------------------- JSON rules
 
 /** A JSON value the contract admits: integers only (statements.json dsse.json). */

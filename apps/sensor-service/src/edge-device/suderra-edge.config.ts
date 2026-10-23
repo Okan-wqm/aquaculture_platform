@@ -42,6 +42,7 @@ const REQUIRED_ENV = [
   'SUDERRA_EDGE_RBAC_NOT_BEFORE',
   'SUDERRA_EDGE_RBAC_EXPIRES_AT',
   'SUDERRA_EDGE_RELEASE_URL_TEMPLATE',
+  'SUDERRA_EDGE_RELEASE_REPOSITORY',
   'SUDERRA_EDGE_AGENT_VERSION',
   'SUDERRA_EDGE_MQTT_HOST',
   'SUDERRA_EDGE_API_URL',
@@ -50,6 +51,7 @@ const REQUIRED_ENV = [
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const SEMVER =
   /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$/;
+const GITHUB_REPOSITORY = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\/[A-Za-z0-9._-]{1,100}$/;
 const HTTPS_URL = /^https:\/\/[A-Za-z0-9.-]+(:[0-9]{1,5})?(\/[A-Za-z0-9._~%!$&'()*+,;=:@/-]*)?$/;
 
 export interface SuderraEdgeSettings {
@@ -72,6 +74,12 @@ export interface SuderraEdgeSettings {
   readonly release: {
     /** HTTPS URL with `{version}` and `{asset}` placeholders. */
     readonly urlTemplate: string;
+    /**
+     * `owner/repo` whose release workflow builds and states the releases the cloud
+     * names: release admission refuses a release whose provenance says another
+     * repository built it (DEC-3.8, DEC-20).
+     */
+    readonly repository: string;
     readonly agentVersion: string;
   };
   /** The broker a Suderra OS device connects to: 8883 TLS only (DEC-10.1). */
@@ -248,6 +256,10 @@ export function loadSuderraEdgeSettings(
       'SUDERRA_EDGE_RELEASE_URL_TEMPLATE must be an https URL with {version} and {asset}',
     );
   }
+  const repository = value('SUDERRA_EDGE_RELEASE_REPOSITORY');
+  if (!GITHUB_REPOSITORY.test(repository)) {
+    throw new SuderraEdgeConfigError('SUDERRA_EDGE_RELEASE_REPOSITORY must be owner/repo');
+  }
   const agentVersion = value('SUDERRA_EDGE_AGENT_VERSION');
   if (!SEMVER.test(agentVersion)) {
     throw new SuderraEdgeConfigError('SUDERRA_EDGE_AGENT_VERSION must be a path-safe semver');
@@ -274,7 +286,7 @@ export function loadSuderraEdgeSettings(
     fleetRootKeys: parseFleetRootKeys(value('SUDERRA_EDGE_FLEET_ROOT_KEYS')),
     platformActorId,
     rbac: { policyVersion, notBefore, expiresAt },
-    release: { urlTemplate, agentVersion },
+    release: { urlTemplate, repository, agentVersion },
     deviceBroker: deviceBrokerEndpoint(mqttHost, 'SUDERRA_EDGE_MQTT_HOST'),
     apiUrl,
     reservationTtlMs: Number(ttlText) * 60_000,

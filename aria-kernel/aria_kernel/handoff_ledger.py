@@ -103,10 +103,10 @@ def _newest_plan_doc(repo_root: Path) -> dict[str, Any] | None:
     }
 
 
-def _open_findings(repo_root: Path) -> list[dict[str, Any]]:
+def _open_findings(repo_root: Path, base_dir: str | Path | None) -> list[dict[str, Any]]:
     if not findings_dir(repo_root).exists():
         return []
-    rows = list_findings(repo_root)
+    rows = list_findings(repo_root, base_dir=base_dir)
     return [
         {
             "finding_id": r.get("finding_id"),
@@ -279,7 +279,7 @@ def take_handoff_snapshot(
 
     repo = _resolve_repo_root(repo_root)
     pending, claimed = _request_states(base_dir)
-    open_findings = _open_findings(repo)
+    open_findings = _open_findings(repo, base_dir)
     open_debts = _open_debts(repo)
     last_chain = _last_change_chain(base_dir)
     last_validation = _last_validation(base_dir)

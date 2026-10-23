@@ -41,6 +41,7 @@ from .agent_resolver import resolve_agent_md_path
 from .batch_containment import guard_item, with_item_failures
 from .feedback_store import list_findings
 from .genesis_policy import load_policy
+from .impact_graph import project_map
 from .service_dimension import finding_dimension_paths, services_for_finding_row
 from .tool_registry import append_tools_governance
 
@@ -61,8 +62,8 @@ _EVIDENCE_REF_CAP = 20
 def service_auditor_agent_name(service: str) -> str:
     """Deterministic agent name for a service dimension.
 
-    Dimension values may carry namespace colons (``shared:backend-common``,
-    ``web:farm-module``) which are not filename-safe for a
+    Dimension values are nx project names, which may carry a scope and a
+    slash (``@aquaculture/farm-shared``) that are not filename-safe for a
     ``.claude/agents/<name>.md`` target; every non-alphanumeric run
     collapses to one hyphen so the same service always maps to the same
     agent file.
@@ -109,12 +110,15 @@ def propose_service_auditor_requests(
         threshold = int(policy["service_auditor_threshold"])
 
     open_rows = list_findings(status="open", base_dir=base_dir)
+    # SE-1 — the services are nx project names, read through the one row
+    # reader over this workspace's current project map.
+    project_roots = project_map(workspace_root=repo_root, base_dir=base_dir)
     per_service: dict[str, list[dict[str, Any]]] = {}
     for row in open_rows:
         # A multi-service finding counts toward EACH service it cites:
         # the finding is evidence of sickness in every service it names,
         # and collapsing it to one would undercount the others.
-        for service in services_for_finding_row(row):
+        for service in services_for_finding_row(row, project_roots):
             per_service.setdefault(service, []).append(row)
 
     already_requested = existing_genesis_request_keys(base_dir=base_dir)

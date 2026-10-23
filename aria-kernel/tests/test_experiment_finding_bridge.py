@@ -224,7 +224,7 @@ class ExperimentFindingBridgeTests(unittest.TestCase):
         self.assertEqual(doc["status"], "RESOLVED")
         self.assertEqual(doc["closes_in_commit"], "a" * 40)
         self.assertEqual(doc["fix_verification"]["validation_run_id"], "run-green-1")
-        rows = list_findings(self.repo)
+        rows = list_findings(self.repo, base_dir=self.tools)
         self.assertEqual(rows[0]["status"], "RESOLVED")
         bindings = list_fix_verified_bindings(self.repo)
         self.assertEqual(len(bindings), 1)
@@ -372,7 +372,7 @@ class ExperimentFindingBridgeTests(unittest.TestCase):
             expected_surface="repo_finding_events",
         )
         with self.assertRaisesRegex(GovernanceError, "event type unknown"):
-            list_findings(self.repo)
+            list_findings(self.repo, base_dir=self.tools)
 
     # --- İ2: the certainty vocabulary matches its producers ---
 

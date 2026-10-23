@@ -24,7 +24,12 @@ name: Examination Board
 #     unpinned install), no `python3 -m aria_kernel`, no PYTHONPATH. The
 #     key-holding step runs examination_board.py BY PATH in isolated mode,
 #     so the package __init__ (the whole ARIA-changeable kernel) never loads,
-#     and its one third-party dependency is installed by hash;
+#     and its one third-party dependency is installed by hash through
+#     `python3 -I -m pip` (a bare `-m pip` would import a `pip/` package from
+#     the checkout);
+#   - a Board secret reaches only that step's env and the vault checkout's
+#     ssh-key: no job or workflow env, other step, `run:` text, action
+#     input, local `./` action or dynamic `secrets[...]` access;
 #   - this workflow has no pull-request trigger, so it never runs PR code.
 #
 # B0 ships the custody check: the environment's data key seals and opens a
@@ -62,7 +67,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install the Board's cipher dependency by hash
-        run: python3 -m pip install --require-hashes --only-binary ':all:' --no-deps -r .github/board/cipher-requirements.txt
+        run: python3 -I -m pip install --require-hashes --only-binary ':all:' --no-deps -r .github/board/cipher-requirements.txt
 
       - name: Prove the vault data key seals and opens a probe
         env:

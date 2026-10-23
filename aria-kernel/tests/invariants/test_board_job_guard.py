@@ -31,9 +31,17 @@ job that declares ``environment: aria-board`` (a "Board job"):
   setup-aria-kernel action (its unpinned install and its ``import
   aria_kernel``), no ``-m aria_kernel``, no ``PYTHONPATH``; the kernel file it
   runs is ``examination_board.py``, by path, in isolated mode (``python3 -I``),
-  and every ``pip install`` it makes is ``--require-hashes``; and
-  ``examination_board`` itself imports the standard library and
-  ``cryptography`` alone;
+  every ``pip install`` it makes is ``--require-hashes`` and runs as
+  ``python3 -I -m pip`` (without ``-I``, ``-m pip`` imports a ``pip/`` package
+  from the checkout); and ``examination_board`` itself imports the standard
+  library and ``cryptography`` alone;
+* a Board secret reaches two places only (B0 corrective round 2, R2-1): the
+  ``env`` of a step that runs ``examination_board.py`` as above, with the
+  default shell and working directory, and the vault checkout's ``ssh-key``
+  (the deploy key alone). No workflow or job ``env``, other step, ``run:``
+  body, action input or ``if:`` names one, the secrets context is never
+  reached by anything but a literal name, and a Board job runs no local
+  ``./`` action (ARIA-writable code);
 * the workflow that holds it runs no pull-request code (no ``pull_request``,
   ``pull_request_target`` or ``merge_group`` trigger);
 * no job other than a Board job, and no workflow-level ``env``, names a Board
@@ -83,6 +91,18 @@ _SHELL_TRACE = re.compile(r"(^|[\s;&|(])(?:set|bash|sh)\s+-[A-Za-z]*x|xtrace", r
 _GIT_PUSH = re.compile(r"\bgit\b[^\n;&|]*\spush\b")
 _KERNEL_PATH = "aria-kernel/aria_kernel/"
 _BOARD_ENTRY = re.compile(r"^python3 -I aria-kernel/aria_kernel/examination_board\.py [a-z-]+$")
+# Every pip the Board runs is `python3 -I -m pip`: without -I, `-m pip` imports
+# a `pip/` package from the checkout (the working directory), which could
+# plant a sitecustomize the key-holding step then loads.
+_PIP = re.compile(r"\bpip3?\b")
+_ISOLATED_PIP = re.compile(r"(?:^|[\s;&|(])python3 -I -m pip install\b")
+# A Board secret, as an expression names it (property names are case-insensitive).
+_BOARD_SECRET = re.compile(r"\bsecrets\s*\.\s*(ARIA_BOARD_[A-Za-z0-9_]*)", re.IGNORECASE)
+# The secrets context reached other than by a literal name: `secrets[...]`,
+# `toJSON(secrets)`, a bare `secrets` — any of them can hand over a Board secret.
+_DYNAMIC_SECRETS = re.compile(r"\bsecrets\b(?!\s*\.\s*[A-Za-z_])", re.IGNORECASE)
+_EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
+VAULT_DEPLOY_KEY = "ARIA_BOARD_VAULT_DEPLOY_KEY"
 _THIRD_PARTY = frozenset({"cryptography"})
 
 
@@ -203,7 +223,74 @@ def _kernel_violations(workflow: dict[str, Any], job: dict[str, Any]) -> list[st
             violations.append(f"step runs kernel code other than examination_board.py in isolation: {label}")
         if "pip install" in run and "--require-hashes" not in run:
             violations.append(f"step installs without --require-hashes: {label}")
+        if _PIP.search(run) and not _ISOLATED_PIP.search(run):
+            violations.append(f"step runs pip other than as python3 -I -m pip: {label}")
     return violations
+
+
+def _expressions(value: Any, path: tuple[Any, ...] = ()) -> list[tuple[tuple[Any, ...], str]]:
+    """Every expression in ``value``, with where it sits: each ``${{ }}`` body, and every ``if:`` whole."""
+    if isinstance(value, dict):
+        return [found for key, item in value.items() for found in _expressions(item, (*path, key))]
+    if isinstance(value, list):
+        return [found for index, item in enumerate(value) for found in _expressions(item, (*path, index))]
+    if not isinstance(value, str):
+        return []
+    found = [(path, body) for body in _EXPRESSION.findall(value)]
+    return [(path, value), *found] if path and path[-1] == "if" else found
+
+
+def _is_key_step(step: dict[str, Any]) -> bool:
+    """The one kind of step a Board key may reach as env: examination_board.py, isolated, as written."""
+    return ("uses" not in step and "shell" not in step and "working-directory" not in step
+            and _BOARD_ENTRY.fullmatch(str(step.get("run") or "").strip()) is not None)
+
+
+def _is_vault_checkout(step: dict[str, Any]) -> bool:
+    return (str(step.get("uses") or "").startswith("actions/checkout@")
+            and (step.get("with") or {}).get("repository") == VAULT_REPOSITORY)
+
+
+def _secret_violations(workflow: dict[str, Any], job: dict[str, Any]) -> list[str]:
+    """A Board secret reaches the isolated examination_board.py step as env, or the vault checkout as its ssh-key.
+
+    B0 corrective round 2, R2-1 (§1.9: ARIA's self-change can neither read
+    nor write the Board's key). Every other place a Board secret could be
+    named — the workflow's or the job's env, another step's env, a ``run:``
+    body, an action's ``with:``, an ``if:`` — hands it to a process ARIA's
+    code can change, so it is refused, and so is reaching the secrets context
+    by anything but a literal name. A key step keeps the default shell and
+    working directory (a ``shell:`` runs its own command line with the key in
+    its env; a ``working-directory:`` changes which file the entry runs), and
+    a Board job runs no local ``./`` action: its code is ARIA-writable.
+    """
+    violations: list[str] = []
+    if any(_shell_or_directory(holder) for holder in (workflow, job)):
+        violations.append("defaults.run sets a shell or working directory for the key step")
+    for where, holder in (("workflow", workflow.get("env")), ("job", job.get("env"))):
+        violations += [f"{where} env names secrets.{name}" for _path, body in _expressions(holder or {})
+                       for name in _BOARD_SECRET.findall(body)]
+    steps = job.get("steps") or []
+    for path, body in _expressions({key: value for key, value in job.items() if key != "env"}):
+        if _DYNAMIC_SECRETS.search(body):
+            violations.append(f"reaches the secrets context by other than a literal name at {'/'.join(map(str, path))}")
+        for name in _BOARD_SECRET.findall(body):
+            step = steps[path[1]] if path[0] == "steps" and isinstance(path[1], int) else None
+            if step is not None and path[2:3] == ("env",) and _is_key_step(step):
+                continue
+            if (step is not None and path[2:] == ("with", "ssh-key") and _is_vault_checkout(step)
+                    and name.upper() == VAULT_DEPLOY_KEY):
+                continue
+            violations.append(f"secrets.{name} reaches {'/'.join(map(str, path))}")
+    violations += [f"step runs a local action: {step.get('uses')}" for step in _steps(job)
+                   if str(step.get("uses") or "").startswith("./")]
+    return violations
+
+
+def _shell_or_directory(holder: dict[str, Any]) -> bool:
+    defaults = holder.get("defaults") or {}
+    run = (defaults.get("run") or {}) if isinstance(defaults, dict) else {}
+    return bool(run.get("shell") or run.get("working-directory"))
 
 
 def _trigger_violations(workflow: dict[str, Any]) -> list[str]:
@@ -219,6 +306,7 @@ _RULES: dict[str, Callable[[dict[str, Any], dict[str, Any]], list[str]]] = {
     "writes": _write_violations,
     "leaks": _leak_violations,
     "kernel": _kernel_violations,
+    "secrets": _secret_violations,
     "triggers": lambda workflow, job: _trigger_violations(workflow),
 }
 
@@ -275,6 +363,23 @@ def _custody_step(**fields: Any) -> Callable[[dict[str, Any]], None]:
     return mutate
 
 
+_DATA_KEY = "${{ secrets.ARIA_BOARD_VAULT_DATA_KEY }}"
+_SIGNING_KEY = "${{ secrets.ARIA_BOARD_SIGNING_KEY }}"
+_DEPLOY_KEY = "${{ secrets.ARIA_BOARD_VAULT_DEPLOY_KEY }}"
+
+
+def _key_to_job_env_with_a_local_action(workflow: dict[str, Any]) -> None:
+    job = _custody_job(workflow)
+    job["env"] = job["steps"][-1].pop("env")
+    job["steps"].insert(-1, {"uses": "./.github/actions/restore-aria-state", "with": {"bootstrap-ack": ""}})
+
+
+def _step_at(index: int, **fields: Any) -> Callable[[dict[str, Any]], None]:
+    def mutate(workflow: dict[str, Any]) -> None:
+        _steps(_custody_job(workflow))[index].update(fields)
+    return mutate
+
+
 # The reviewer's mutated Board workflow (B0 review round 1, BLK-3 / p14) passed
 # every rule of the first guard; each of its changes, and the R3 entry
 # changes, must now be refused alone.
@@ -307,6 +412,34 @@ _MUTATIONS: dict[str, Callable[[dict[str, Any]], None]] = {
     "condition_without_main": lambda w: _custody_job(w).update({"if": "vars.ARIA_STOP == ''"}),
     "self_hosted": lambda w: _custody_job(w).update({"runs-on": ["self-hosted", "linux"]}),
     "pull_request_trigger": _set(("on",), {"pull_request": {}, "workflow_dispatch": {}}),
+    # B0 corrective round 2, R2-1: a Board secret reaches no process but the
+    # isolated examination_board.py step and the vault checkout. The first
+    # three are the arch lens's P4, the rest the security lens's P3 and the
+    # ways around the key step's fullmatch.
+    "key_in_job_env_with_a_local_action": _key_to_job_env_with_a_local_action,
+    "key_step_runs_another_repo_script": _custody_step(run="python3 -I tools/aria-acceptance/acceptance.py"),
+    "second_key_step_runs_node": _add_step({"name": "sign", "env": {"ARIA_BOARD_SIGNING_KEY": _SIGNING_KEY},
+                                            "run": "npx tsx tools/aria-board/sign.ts"}),
+    "job_env_holds_the_key": lambda w: _custody_job(w).update({"env": {"ARIA_BOARD_VAULT_DATA_KEY": _DATA_KEY}}),
+    "workflow_env_holds_the_key": _set(("env",), {"ARIA_BOARD_VAULT_DATA_KEY": _DATA_KEY}),
+    "pip_step_env_holds_the_key": _step_at(2, env={"ARIA_BOARD_VAULT_DATA_KEY": _DATA_KEY}),
+    "run_inlines_the_key": _add_step({"name": "dbg", "run": f"echo {_DATA_KEY} | base64 -d | xxd"}),
+    "third_party_action_gets_the_key": _add_step({"uses": "someone/action@v1", "with": {"k": _DATA_KEY}}),
+    "local_composite_action": _add_step({"uses": "./.github/actions/anything"}),
+    "key_step_through_a_custom_shell": _custody_step(shell="python3 -c 'import os; print(os.environ)' {0}"),
+    "key_step_in_another_directory": _custody_step(**{"working-directory": "vault"}),
+    "every_secret_as_json": _add_step({"name": "dump", "run": "echo '${{ toJSON(secrets) }}' > /dev/null"}),
+    "a_secret_by_index": _add_step({"name": "idx", "run": "echo ${{ secrets['ARIA_BOARD_SIGNING_KEY'] }}"}),
+    "deploy_key_to_this_repository_checkout": _checkout_with(**{"ssh-key": _DEPLOY_KEY}),
+    "deploy_key_to_an_action": _add_step({"uses": "someone/ssh-agent@v1", "with": {"ssh-private-key": _DEPLOY_KEY}}),
+    "data_key_as_the_vault_ssh_key": _add_step({
+        "uses": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+        "with": {"repository": VAULT_REPOSITORY, "path": "vault", "persist-credentials": False,
+                 "ssh-key": _DATA_KEY}}),
+    # Security non-blocking 1 (P4): `python3 -m pip` imports a `pip/` package
+    # from the checkout, which can plant a sitecustomize the key step loads.
+    "pip_from_the_checkout": _step_at(2, run="python3 -m pip install --require-hashes --only-binary ':all:' "
+                                              "--no-deps -r .github/board/cipher-requirements.txt"),
 }
 
 
@@ -340,7 +473,8 @@ class EachMutationIsRefusedTests(unittest.TestCase):
     def test_the_vault_repository_by_name_is_a_board_checkout(self) -> None:
         mutated = copy.deepcopy(self.workflow)
         _add_step({"uses": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
-                   "with": {"repository": VAULT_REPOSITORY, "path": "vault", "persist-credentials": False}})(mutated)
+                   "with": {"repository": VAULT_REPOSITORY, "path": "vault", "persist-credentials": False,
+                            "ssh-key": _DEPLOY_KEY}})(mutated)
         self.assertEqual(board_violations(mutated), {})
 
 

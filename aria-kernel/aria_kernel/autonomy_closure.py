@@ -38,7 +38,8 @@ project --stdin --format=closures``: the projection's closure of each finding
 at the evidence target — derived from the trailers merged into it, or a
 recorded closer that is reachable, not rejected by an override reopen and
 carries the exact ``Closes:`` trailer — run by the TypeScript owner on the
-snapshot's bytes, never transcribed here). What it adds is the closure
+snapshot's bytes through the kernel's one registry CLI runner,
+``report_ingestion.run_registry_cli``, never transcribed here). What it adds is the closure
 policy's own rule for which commit closes a finding (``closing_sha_rule``)
 and the two-SHA discipline above.
 """
@@ -46,7 +47,6 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Mapping
@@ -63,6 +63,7 @@ from .autonomy_evidence import (
     derive_autonomy_evidence_status,
 )
 from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
+from .report_ingestion import RegistryCliRefused, run_registry_cli
 from .digest import sha256_digest_text
 
 CLOSURE_REPORT_PATH = "docs/aria/ARIA_AUTONOMY_CLOSURE_EVIDENCE.md"
@@ -83,10 +84,6 @@ PAYLOAD_FENCE_INFO = "json aria-closure-payload"
 PAYLOAD_DIGEST_FIELD = "report_payload_sha256"
 _MAX_REPORT_BYTES = 1024 * 1024
 _MAX_REGISTRY_BYTES = 32 * 1024 * 1024
-_REGISTRY_VERIFY_TIMEOUT_SECONDS = 300
-_TS_NODE = "node_modules/.bin/ts-node"
-_REGISTRY_CLI = "tools/gates/finding-registry.ts"
-_GATES_TSCONFIG = "tools/gates/tsconfig.json"
 _FENCE = re.compile(r"^```([^\n`]*)\n(.*?)^```[ \t]*$", re.MULTILINE | re.DOTALL)
 
 Verdict = Literal["closed", "open"]
@@ -336,21 +333,13 @@ def _registry_snapshot(
     return ClosurePredicate(name, True, evidence_refs=refs), verdict
 
 
-def _run_registry_cli(repo: Path, raw: bytes, args: list[str]) -> list[Any] | None:
-    """The registry CLI run on ``raw`` by the repository's own ts-node: its
-    stdout's JSON lines, or None when it did not run or printed something
-    else."""
-    argv = [str(repo / _TS_NODE), "--transpile-only", "--project", _GATES_TSCONFIG, _REGISTRY_CLI, *args]
+def _verdict_lines(repo: Path, raw: bytes, args: list[str]) -> list[Any] | None:
+    """A verdict command of the registry CLI run on ``raw``: its stdout's JSON
+    lines (it prints its verdict and exits 0 or 1), or None when stdout is not
+    JSON lines."""
+    stdout = run_registry_cli(repo, args, stdin=raw, answer_exit_codes=frozenset({0, 1}))
     try:
-        completed = subprocess.run(
-            argv, cwd=repo, input=raw, capture_output=True, check=False,
-            timeout=_REGISTRY_VERIFY_TIMEOUT_SECONDS,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    lines = completed.stdout.decode("utf-8", errors="replace").strip().splitlines()
-    try:
-        return [json.loads(line) for line in lines]
+        return [json.loads(line) for line in stdout.strip().splitlines()]
     except json.JSONDecodeError:
         return None
 
@@ -369,13 +358,16 @@ def verify_registry_snapshot(
     merged into ``at`` close it, or when a recorded closer is reachable from
     ``at``, not rejected and carries the exact trailer. The repository's own
     ts-node runs both, as for every gate. A verdict that names fewer closures
-    than were asked for is unreadable, never a partial pass.
+    than were asked for is unreadable, never a partial pass, and a CLI that
+    did not run or refused (``RegistryCliRefused``) is a failed chain verdict
+    naming the refusal.
     """
-    if not (repo / _TS_NODE).is_file():
-        return RegistrySnapshotVerdict(False, "registry_verifier_unavailable:ts_node_absent")
-    chain = _run_registry_cli(repo, raw, ["verify", "--stdin"])
+    try:
+        chain = _verdict_lines(repo, raw, ["verify", "--stdin"])
+    except RegistryCliRefused as exc:
+        return RegistrySnapshotVerdict(False, str(exc))
     if chain is None:
-        return RegistrySnapshotVerdict(False, "registry_verifier_unavailable")
+        return RegistrySnapshotVerdict(False, "registry_verifier_output_unreadable")
     result = chain[-1] if chain else None
     if not isinstance(result, dict) or not isinstance(result.get("ok"), bool):
         return RegistrySnapshotVerdict(False, "registry_verifier_output_unreadable")
@@ -383,11 +375,14 @@ def verify_registry_snapshot(
         return RegistrySnapshotVerdict(False, str(result.get("reason") or "registry_chain_invalid"))
     if not finding_ids:
         return RegistrySnapshotVerdict(True, None, {})
-    items = _run_registry_cli(
-        repo, raw, ["project", "--stdin", f"--ref={at}", "--format=closures", "--ids", *finding_ids],
-    )
+    try:
+        items = _verdict_lines(
+            repo, raw, ["project", "--stdin", f"--ref={at}", "--format=closures", "--ids", *finding_ids],
+        )
+    except RegistryCliRefused as exc:
+        return RegistrySnapshotVerdict(False, str(exc))
     if items is None:
-        return RegistrySnapshotVerdict(False, "registry_verifier_unavailable")
+        return RegistrySnapshotVerdict(False, "registry_verifier_output_unreadable")
     closures: dict[str, tuple[str, ...]] = {}
     closers: dict[str, tuple[str, ...]] = {}
     for item in items:

@@ -5,7 +5,7 @@ import json
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from .feedback import add_feedback, build_feedback_event, slug
 from .batch_containment import guard_item, with_item_failures
@@ -26,10 +26,14 @@ LARGE_BACKFILL_THRESHOLD = 500
 # the fix merges, as every gate does.
 REGISTRY_FINDINGS_RELPATH: tuple[str, ...] = ("docs", "reviews", "_registry", "findings.jsonl")
 _REGISTRY_FINDINGS_REF = "/".join(REGISTRY_FINDINGS_RELPATH)
+# The registry CLI and the repository-local ts-node that runs it. The kernel
+# runs it in exactly one place, run_registry_cli (the view below, and the
+# autonomy closure verifier's chain and closure verdicts).
 _TS_NODE_RELPATH: tuple[str, ...] = ("node_modules", ".bin", "ts-node")
 _REGISTRY_CLI = "tools/gates/finding-registry.ts"
 _GATES_TSCONFIG = "tools/gates/tsconfig.json"
-_PROJECTION_TIMEOUT_SECONDS = 300
+_REGISTRY_CLI_TIMEOUT_SECONDS = 300
+_PROJECT_JSONL: tuple[str, ...] = ("project", "--format=jsonl")
 # findings.jsonl.schema.json `state` enum; pinned against the schema by
 # tests/test_report_ingestion_registry_view.py.
 REGISTRY_STATES: frozenset[str] = frozenset({"OPEN", "IN-PROGRESS", "RESOLVED", "STALE", "BLOCKED"})
@@ -70,8 +74,9 @@ def read_registry_view(repo_root: str | Path) -> RegistryView:
     Needs the repository's node dependencies and its whole history (the
     kernel lanes provision both; tests/invariants/
     test_kernel_lanes_check_out_full_history.py). Without ts-node, or when the
-    projection refuses (a corrupt row, an unreadable history), it raises by
-    name: a silent read of the stored file would report closures late again.
+    projection refuses (a corrupt row, an unreadable history), it raises
+    :class:`RegistryCliRefused` by name: a silent read of the stored file
+    would report closures late again.
     An absent registry raises: this checkout is not the repository the kernel
     serves.
     """
@@ -80,7 +85,7 @@ def read_registry_view(repo_root: str | Path) -> RegistryView:
     if not chain.is_file():
         raise FileNotFoundError(f"finding_registry_missing:{chain.as_posix()}")
     entries: list[RegistryEntry] = []
-    for ordinal, line in enumerate(_projection_jsonl(root).splitlines(), start=1):
+    for ordinal, line in enumerate(run_registry_cli(root, _PROJECT_JSONL).splitlines(), start=1):
         if not line.strip():
             continue
         try:
@@ -93,23 +98,58 @@ def read_registry_view(repo_root: str | Path) -> RegistryView:
     return RegistryView(entries=tuple(entries))
 
 
-def _projection_jsonl(root: Path) -> str:
-    """``finding-registry.ts project --format=jsonl`` run in ``root`` by its own
-    ts-node: the projection's stdout, or a refusal by name."""
+class RegistryCliRefused(GovernanceError):
+    """The registry CLI did not run, or refused to answer.
+
+    ``finding_registry_cli_unavailable:<why>`` when the repository's ts-node is
+    absent or the process could not run or finish; ``finding_registry_cli_refused:
+    <last stderr line>`` when it exited with a code the caller does not read as
+    an answer; ``finding_registry_cli_unreadable:<why>`` when its answer is not
+    UTF-8. Never a fallback answer: the caller that can fail closed (the
+    autonomy closure verifier) maps it to its own verdict, every other caller
+    lets it propagate.
+    """
+
+
+def run_registry_cli(
+    root: Path,
+    args: Sequence[str],
+    *,
+    stdin: bytes | None = None,
+    answer_exit_codes: frozenset[int] = frozenset({0}),
+) -> str:
+    """``tools/gates/finding-registry.ts <args>`` run in ``root`` by the
+    repository's own ts-node: its stdout, or :class:`RegistryCliRefused`.
+
+    WHY: the registry's chain, its projection and every closure verdict have
+    one owner, the TypeScript CLI; the kernel asks it rather than transcribing
+    it, and asks it through this one runner so the argv, the timeout and what
+    counts as a refusal cannot differ between the kernel's callers.
+
+    ``stdin`` is piped to the CLI (``verify --stdin``, ``project --stdin``).
+    ``answer_exit_codes`` are the exits whose stdout is the answer: ``{0}``
+    for ``project --format=jsonl``; ``{0, 1}`` for the verdict commands, which
+    print a verdict either way and exit 1 when it is negative.
+    """
     ts_node = root.joinpath(*_TS_NODE_RELPATH)
     if not ts_node.is_file():
-        raise GovernanceError(f"finding_registry_projection_unavailable:ts_node_absent:{ts_node.as_posix()}")
-    argv = [str(ts_node), "--transpile-only", "--project", _GATES_TSCONFIG, _REGISTRY_CLI, "project", "--format=jsonl"]
+        raise RegistryCliRefused(f"finding_registry_cli_unavailable:ts_node_absent:{ts_node.as_posix()}")
+    argv = [str(ts_node), "--transpile-only", "--project", _GATES_TSCONFIG, _REGISTRY_CLI, *args]
     try:
         completed = subprocess.run(
-            argv, cwd=root, capture_output=True, text=True, check=False, timeout=_PROJECTION_TIMEOUT_SECONDS,
+            argv, cwd=root, input=stdin, capture_output=True, check=False,
+            timeout=_REGISTRY_CLI_TIMEOUT_SECONDS,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        raise GovernanceError(f"finding_registry_projection_unavailable:{type(exc).__name__}") from exc
-    if completed.returncode != 0:
-        detail = completed.stderr.strip().splitlines()[-1:] or [f"exit {completed.returncode}"]
-        raise GovernanceError(f"finding_registry_projection_refused:{detail[0]}")
-    return completed.stdout
+        raise RegistryCliRefused(f"finding_registry_cli_unavailable:{type(exc).__name__}") from exc
+    if completed.returncode not in answer_exit_codes:
+        stderr = completed.stderr.decode("utf-8", errors="replace").strip().splitlines()
+        detail = stderr[-1] if stderr else f"exit {completed.returncode}"
+        raise RegistryCliRefused(f"finding_registry_cli_refused:{detail}")
+    try:
+        return completed.stdout.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise RegistryCliRefused("finding_registry_cli_unreadable:stdout_not_utf8") from exc
 
 
 def positive_backfill_limit(value: object) -> int:

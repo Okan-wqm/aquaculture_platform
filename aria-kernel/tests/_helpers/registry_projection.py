@@ -19,17 +19,24 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
+from typing import Sequence
 from unittest import mock
 
 from aria_kernel import report_ingestion
 
 
-def _stored_rows(root: Path) -> str:
+def _stored_rows(root: Path, args: Sequence[str], **_: object) -> str:
+    if tuple(args) != ("project", "--format=jsonl"):
+        raise AssertionError(f"the stand-in projects the registry only, not {list(args)}")
     return root.joinpath(*report_ingestion.REGISTRY_FINDINGS_RELPATH).read_text(encoding="utf-8")
 
 
 def project_registry_as_stored(test: unittest.TestCase) -> None:
-    """For the rest of ``test``: the projection of a fixture registry is its stored rows."""
-    patcher = mock.patch.object(report_ingestion, "_projection_jsonl", side_effect=_stored_rows)
+    """For the rest of ``test``: the projection of a fixture registry is its stored rows.
+
+    Patches the view's call of ``report_ingestion.run_registry_cli`` only; the
+    autonomy closure verifier imports the runner by name and keeps the real one.
+    """
+    patcher = mock.patch.object(report_ingestion, "run_registry_cli", side_effect=_stored_rows)
     patcher.start()
     test.addCleanup(patcher.stop)

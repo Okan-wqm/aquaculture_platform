@@ -51,7 +51,7 @@ class RegistryReadIsStrictTests(unittest.TestCase):
         self.repo.commit("chore(registry): a torn row", "2026-10-01T10:00:00Z")
         with self.assertRaises(GovernanceError) as ctx:
             read_registry_view(self.repo.root)
-        self.assertIn("finding_registry_projection_refused", str(ctx.exception))
+        self.assertIn("finding_registry_cli_refused", str(ctx.exception))
         paths = workspace_paths(self.repo.root, Path(self.tmp.name) / "ws")
         ensure_workspace(paths)
         with self.assertRaises(GovernanceError):

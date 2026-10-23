@@ -374,6 +374,49 @@ class RegistryViewRefusesWithoutTheProjectionTests(unittest.TestCase):
                 read_registry_view(repo.root)
 
 
+class OneKernelRunnerOfTheRegistryCliTests(unittest.TestCase):
+    """The kernel runs ``tools/gates/finding-registry.ts`` from one module.
+
+    The view and the autonomy closure verifier each carried a runner of the
+    CLI — the ts-node path, the CLI path, the tsconfig, the timeout and the
+    subprocess call — and the two mapped a failure differently (one raised,
+    one returned None). One runner, ``report_ingestion.run_registry_cli``,
+    raises one named refusal; a second definition of the CLI path is a second
+    runner in the making.
+    """
+
+    def test_the_registry_cli_path_is_defined_in_exactly_one_kernel_module(self) -> None:
+        import ast
+
+        package = _REPO_ROOT / "aria-kernel" / "aria_kernel"
+        definers = sorted(
+            path.relative_to(package).as_posix()
+            for path in package.rglob("*.py")
+            if any(
+                isinstance(node, ast.Constant) and node.value == "tools/gates/finding-registry.ts"
+                for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+            )
+        )
+        self.assertEqual(definers, ["report_ingestion.py"])
+
+    def test_the_autonomy_closure_verifier_runs_the_cli_through_that_runner(self) -> None:
+        import aria_kernel.autonomy_closure as autonomy_closure
+        import aria_kernel.report_ingestion as report_ingestion_module
+
+        self.assertIs(autonomy_closure.run_registry_cli, report_ingestion_module.run_registry_cli)
+        for retired in ("_run_registry_cli", "_TS_NODE", "_REGISTRY_CLI", "_GATES_TSCONFIG"):
+            self.assertFalse(hasattr(autonomy_closure, retired), retired)
+
+    def test_a_snapshot_verdict_names_the_runner_s_refusal(self) -> None:
+        from aria_kernel.autonomy_closure import verify_registry_snapshot
+
+        with tempfile.TemporaryDirectory(prefix="aria-registry-cli-absent-") as tmp:
+            verdict = verify_registry_snapshot(Path(tmp), b"", at="HEAD", finding_ids=("ARIA-HIGH-953",))
+        self.assertFalse(verdict.chain_ok)
+        self.assertTrue(str(verdict.chain_reason).startswith("finding_registry_cli_unavailable:ts_node_absent:"),
+                        verdict.chain_reason)
+
+
 @unittest.skipUnless((_REPO_ROOT / _TS_NODE).is_file(), "the repository's ts-node is not installed in this checkout")
 class KernelReadersSeeDerivedClosuresTests(unittest.TestCase):
     """Each kernel reader of the registry, observed through its own output."""

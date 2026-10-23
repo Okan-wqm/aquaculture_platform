@@ -56,7 +56,11 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { loadCanonicalToAliases } from '../../tools/gates/finding-id-aliases';
-import { FINDING_STATES, isUnresolvedFindingState } from '../../tools/gates/finding-registry-chain';
+import {
+  FINDING_STATES,
+  type Finding,
+  isUnresolvedFindingState,
+} from '../../tools/gates/finding-registry-chain';
 import { projectRegistry } from '../../tools/gates/finding-registry-projection';
 import {
   commitMessageClosesFinding,
@@ -623,28 +627,6 @@ const EXPECTED_CLOSURE_REFERENCES = {
 } as const satisfies Readonly<
   Record<(typeof EXPECTED_CLOSURE_SCOPE)[number], ExpectedClosureReferences>
 >;
-
-interface Finding {
-  id: string;
-  severity: string;
-  state: string;
-  title: string;
-  layer: number;
-  owner_agent: string;
-  raised_in_cycle: string;
-  review_file?: string;
-  created_at: string;
-  closed_at: string | null;
-  closing_commits: string[];
-  evidence?: string[];
-  rule_violated?: string;
-  deadline: string | null;
-  owner_user: string | null;
-  override_of: string | null;
-  notes?: string;
-  prev_hash: string;
-  content_hash: string;
-}
 
 interface AutonomyClosureFinding {
   task_id: string;

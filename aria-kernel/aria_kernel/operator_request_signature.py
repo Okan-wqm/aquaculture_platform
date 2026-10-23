@@ -28,7 +28,10 @@ sign (T0 the operator, T1 a root session acting for the operator; never T2,
 the runner) and the expiry bound. :func:`verify_operator_signature` is the
 ONE verification every operator act goes through — the request rows, the
 MCP write approvals, and the label, journey and enrolment acts that follow —
-parameterised by namespace and fed by the registry entry.
+parameterised by namespace and fed by the registry entry. The Examination
+Board's verdicts (PLAN-v2 B0) go through the same verification in their own
+namespace, :data:`BOARD_VERDICT_NAMESPACE`, signed as :data:`BOARD_ACTOR_CLASS`
+— no second signature mechanism exists.
 
 The kernel-written row kinds of the same ledger (verdict rows, calibration
 fixtures) keep their HMAC in ``operator_feedback_signature``; they are never
@@ -44,7 +47,7 @@ import re
 import shutil
 import subprocess
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -92,7 +95,22 @@ ENROLMENT_GENESIS: tuple[str, str] = (
 # runner. An operator namespace admits T0/T1 only.
 OPERATOR_ACTOR_CLASSES: frozenset[str] = frozenset({"T0", "T1"})
 RUNNER_ACTOR_CLASS = "T2"
-_ACTOR_CLASSES: frozenset[str] = OPERATOR_ACTOR_CLASSES | {RUNNER_ACTOR_CLASS}
+# PLAN-v2 §1.9 / §2 'İmza' (B0) — the Examination Board signs its verdicts
+# through THIS verifier, in its own namespace, as its own principal class: TB
+# is neither the operator nor ARIA's runner. Like T2 it stands alone in its
+# entry (no operator namespace admits it, and the Board namespace admits
+# nothing else), so a Board key never signs an operator act and the operator's
+# key never mints a Board verdict. The key sits in the GitHub environment
+# ``aria-board`` only; its public half is enrolled for the Board namespace
+# alone in :data:`ALLOWED_SIGNERS_PATH`.
+BOARD_ACTOR_CLASS = "TB"
+BOARD_VERDICT_NAMESPACE = "aria-board-verdict"
+# What a verdict binds besides the subject fields every signed act carries
+# (B2 issues it, B4 reads it as ``board:<verdict_id>``): the exact head, the
+# surface and scope it adjudicates, and the Board version that judged it. Fixed
+# here because changing it is another operator-signed enrolment.
+BOARD_VERDICT_FIELDS: frozenset[str] = frozenset({"verdict_id", "head_sha", "surface", "scope", "board_version"})
+_ACTOR_CLASSES: frozenset[str] = OPERATOR_ACTOR_CLASSES | {RUNNER_ACTOR_CLASS, BOARD_ACTOR_CLASS}
 NAMESPACE_ACTIVE = "active"
 _NAMESPACE_RE = re.compile(r"^[a-z][a-z0-9-]{0,62}$")
 _VERIFIER_RE = re.compile(r"^aria_kernel(?:\.[a-z_][a-z0-9_]*)+$")
@@ -202,7 +220,22 @@ class NamespaceEntry:
 
     @property
     def operator(self) -> bool:
-        return RUNNER_ACTOR_CLASS not in self.signer_classes
+        """An operator act's namespace: T0/T1 sign it, nobody else."""
+        return self.signer_classes <= OPERATOR_ACTOR_CLASSES
+
+    @property
+    def board(self) -> bool:
+        """The Board's namespace: TB alone signs it."""
+        return self.signer_classes == {BOARD_ACTOR_CLASS}
+
+    @property
+    def signed_subject(self) -> bool:
+        """A namespace whose subjects :func:`verify_operator_signature` verifies (an operator's or the Board's).
+
+        ARIA's own namespaces (T2) carry no domain tag and no expiry: their
+        signatures are verified by their own owners, never here.
+        """
+        return self.domain_tag is not None and self.expiry_hours is not None
 
 
 def _strings(value: Any) -> list[str] | None:
@@ -226,6 +259,12 @@ def _namespace_entry(item: Any) -> NamespaceEntry | None:
         if set(classes) != {RUNNER_ACTOR_CLASS}:
             return None
         tag, hours = None, None
+    elif BOARD_ACTOR_CLASS in classes and (set(classes) != {BOARD_ACTOR_CLASS}
+                                           or not BOARD_VERDICT_FIELDS <= set(fields)):
+        # The Board's namespace: TB alone, binding every verdict field — an
+        # entry listing TB beside another class, or a verdict that binds less
+        # than its head, surface, scope and Board version, is no entry.
+        return None
     elif (not isinstance(tag, str) or re.fullmatch(re.escape(name) + r"/v[1-9][0-9]*", tag) is None
           or type(hours) is not int or hours <= 0 or not OPERATOR_SUBJECT_FIELDS <= set(fields)):
         return None
@@ -241,7 +280,7 @@ def parse_namespace_registry(content: bytes) -> dict[str, NamespaceEntry] | None
     question the anchor read and a NEW enrolment child answer; a registry the
     enrolment walk only passes through answers :func:`_walked_registry`'s.
     """
-    return _registry_entries(content, required=OPERATOR_NAMESPACES)
+    return _registry_entries(content, operator=OPERATOR_NAMESPACES, board=(BOARD_VERDICT_NAMESPACE,))
 
 
 def _walked_registry(content: bytes) -> dict[str, NamespaceEntry] | None:
@@ -255,11 +294,14 @@ def _walked_registry(content: bytes) -> dict[str, NamespaceEntry] | None:
     :func:`parse_namespace_registry` (the anchor read parses it before the
     walk runs, and the walk ends only on that exact pair).
     """
-    return _registry_entries(content, required=(ENROL_NAMESPACE,))
+    return _registry_entries(content, operator=(ENROL_NAMESPACE,), board=())
 
 
-def _registry_entries(content: bytes, *, required: tuple[str, ...]) -> dict[str, NamespaceEntry] | None:
-    """The registry by namespace when every entry is well formed and each ``required`` name is an operator entry."""
+def _registry_entries(
+    content: bytes, *, operator: tuple[str, ...], board: tuple[str, ...],
+) -> dict[str, NamespaceEntry] | None:
+    """The registry by namespace when every entry is well formed, each ``operator`` name is an
+    operator entry and each ``board`` name is the Board's."""
     try:
         payload = json.loads(content.decode("utf-8"))
     except (UnicodeDecodeError, ValueError):
@@ -275,7 +317,9 @@ def _registry_entries(content: bytes, *, required: tuple[str, ...]) -> dict[str,
         if entry is None or entry.namespace in entries:
             return None
         entries[entry.namespace] = entry
-    if not all(name in entries and entries[name].operator for name in required):
+    if not all(name in entries and entries[name].operator for name in operator):
+        return None
+    if not all(name in entries and entries[name].board for name in board):
         return None
     return entries
 
@@ -444,13 +488,19 @@ def _committed_audience(repo_root: str | Path, *, commit: str) -> str | None:
 
 def _anchor_at(
     repo_root: str | Path, *, commit: str, runner_keys: frozenset[str],
+    read_registry: Callable[[bytes], dict[str, NamespaceEntry] | None],
 ) -> tuple[AllowedSigners | None, str | None]:
-    """The pair at ``commit`` once the enrolment walk reaches it. The tip's own keys are judged by the caller."""
+    """The pair at ``commit`` once the enrolment walk reaches it. The tip's own keys are judged by the caller.
+
+    ``read_registry`` judges the committed registry: as the tip every act is
+    verified against (:func:`parse_namespace_registry`), or as the parent of an
+    enrolment being signed (:func:`_walked_registry` — see :func:`record_enrolment`).
+    """
     blob = committed_blob(repo_root, commit=commit, path=ALLOWED_SIGNERS_PATH)
     registry = committed_blob(repo_root, commit=commit, path=NAMESPACE_REGISTRY_PATH)
     if blob is None or registry is None or not blob.content.strip():
         return None, ALLOWED_SIGNERS_UNAVAILABLE
-    namespaces = parse_namespace_registry(registry.content)
+    namespaces = read_registry(registry.content)
     if namespaces is None:
         return None, NAMESPACE_REGISTRY_INVALID
     enrolments = committed_blob(repo_root, commit=commit, path=ENROLMENTS_PATH)
@@ -472,7 +522,8 @@ def _trusted_anchor_at(
     runner_keys = runner_key_blobs(workspace_root=repo_root, base_dir=base_dir)
     if runner_keys is None:
         return None, RUNNER_KEYS_UNAVAILABLE
-    anchor, reason = _anchor_at(repo_root, commit=commit, runner_keys=runner_keys)
+    anchor, reason = _anchor_at(repo_root, commit=commit, runner_keys=runner_keys,
+                                read_registry=parse_namespace_registry)
     if anchor is not None and enrolled_key_blobs(anchor.content) & runner_keys:
         return None, RUNNER_KEY_ENROLLED
     return anchor, reason
@@ -691,7 +742,7 @@ def verify_operator_signature(
     subject: Any, *, namespace: str, allowed_signers: bytes | None,
     namespaces: Mapping[str, NamespaceEntry] | None,
 ) -> OperatorRequestVerdict:
-    """The one ``ssh-keygen -Y verify`` of an operator act, in a registered operator ``namespace``.
+    """The one ``ssh-keygen -Y verify`` of an operator act or a Board verdict, in its registered ``namespace``.
 
     The entry's domain tag forms the verified bytes; a declared ``actor_class``
     the entry does not admit is refused (a request signed before ADR-0023
@@ -713,7 +764,7 @@ def verify_operator_signature(
     if not allowed_signers or namespaces is None:
         return OperatorRequestVerdict(False, principal, ALLOWED_SIGNERS_UNAVAILABLE)
     entry = namespaces.get(namespace)
-    if entry is None or not entry.operator or entry.domain_tag is None:
+    if entry is None or not entry.signed_subject:
         return OperatorRequestVerdict(False, principal, NAMESPACE_UNREGISTERED)
     if "actor_class" in subject and not _admits(entry, subject["actor_class"]):
         return OperatorRequestVerdict(False, principal, ACTOR_CLASS_REFUSED)
@@ -762,7 +813,7 @@ def operator_act_terms_reason(
     Every signed field present, an admitted ``actor_class``, this repository's
     audience, and an ``expires_at`` ahead of ``now`` by no more than the bound.
     """
-    if entry is None or not entry.operator or entry.expiry_hours is None:
+    if entry is None or not entry.signed_subject:
         return NAMESPACE_UNREGISTERED
     if entry.status != NAMESPACE_ACTIVE:
         return NAMESPACE_RETIRED
@@ -793,6 +844,14 @@ def record_enrolment(
     that enrols a key ARIA's runner holds is still a parent, because an
     enrolment is how that key leaves; the child never enrols one and the
     signing key is never one (ARIA-HIGH-281).
+
+    The parent is judged as the walk will judge it — history that must be able
+    to verify this row (:func:`_walked_registry`), not a tip of the kernel
+    signing it: a kernel that speaks a namespace or a principal class main's
+    registry predates (the Board's, PLAN-v2 B0) enrols it from that parent,
+    and the CHILD must be a full tip (ARIA-HIGH-511's rule, applied at the
+    signer). Main's own kernel cannot sign such a child, because it cannot
+    parse the class the child introduces.
     """
     from .operator_request_terms import utc_iso
 
@@ -801,7 +860,8 @@ def record_enrolment(
     if runner_keys is None:
         raise GovernanceError(f"operator_enrol_anchor_unavailable: {RUNNER_KEYS_UNAVAILABLE}")
     main = resolve_main_anchor(repo_root)
-    anchor, reason = (_anchor_at(repo_root, commit=main.commit, runner_keys=runner_keys) if main.commit
+    anchor, reason = (_anchor_at(repo_root, commit=main.commit, runner_keys=runner_keys,
+                                 read_registry=_walked_registry) if main.commit
                       else (None, main.reason))
     if anchor is None:
         raise GovernanceError(f"operator_enrol_anchor_unavailable: {reason}")
@@ -844,6 +904,9 @@ __all__ = [
     "ACTOR_CLASS_REFUSED",
     "ALLOWED_SIGNERS_PATH",
     "ALLOWED_SIGNERS_UNAVAILABLE",
+    "BOARD_ACTOR_CLASS",
+    "BOARD_VERDICT_FIELDS",
+    "BOARD_VERDICT_NAMESPACE",
     "ENROLMENTS_PATH",
     "ENROLMENT_GENESIS",
     "ENROL_CHAIN_BROKEN",

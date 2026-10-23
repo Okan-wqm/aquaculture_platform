@@ -4,7 +4,7 @@ The registry (``.github/manifests/aria-signature-namespaces.json``) is the
 only list of ``ssh-keygen -Y`` namespaces ARIA signs or verifies; the kernel
 reads it at the anchor commit through the hardened reader. These pins cover
 its shape (the four operator namespaces admit T0/T1 only, ARIA's own two
-admit T2 alone), its completeness against the namespace constants the
+admit T2 alone, the Examination Board's admits TB alone — PLAN-v2 B0), its completeness against the namespace constants the
 kernel exports, the verifier taking namespace, domain tag and principal
 classes from the entry, and a request signed before the registry keeping
 its exact bytes; and the enrolment chain: the two files change only through
@@ -68,7 +68,8 @@ class CommittedRegistryTests(unittest.TestCase):
         self.assertIsNotNone(self.entries, "the committed registry must parse")
 
     def test_operator_namespaces_admit_the_operator_and_never_the_runner(self) -> None:
-        self.assertEqual(set(self.entries), set(ors.OPERATOR_NAMESPACES) | _T2_NAMESPACES)
+        self.assertEqual(set(self.entries),
+                         set(ors.OPERATOR_NAMESPACES) | _T2_NAMESPACES | {ors.BOARD_VERDICT_NAMESPACE})
         for name in ors.OPERATOR_NAMESPACES:
             entry = self.entries[name]
             with self.subTest(namespace=name):
@@ -84,7 +85,8 @@ class CommittedRegistryTests(unittest.TestCase):
             self.assertEqual(self.entries[name].signer_classes, {"T2"}, name)
 
     def test_every_namespace_the_kernel_speaks_is_registered_with_a_real_verifier(self) -> None:
-        for constant in (*ors.OPERATOR_NAMESPACES, ors.SIGNATURE_NAMESPACE, state_snapshot.SIGNATURE_NAMESPACE):
+        for constant in (*ors.OPERATOR_NAMESPACES, ors.SIGNATURE_NAMESPACE, ors.BOARD_VERDICT_NAMESPACE,
+                         state_snapshot.SIGNATURE_NAMESPACE):
             self.assertIn(constant, self.entries)
         for entry in self.entries.values():
             module, _, function = entry.verifier.rpartition(".")
@@ -92,7 +94,7 @@ class CommittedRegistryTests(unittest.TestCase):
         # A request's identity digest and its verified bytes use one tag.
         self.assertEqual(self.entries[ors.SIGNATURE_NAMESPACE].domain_tag, ors.REQUEST_DOMAIN_TAG)
 
-    def test_the_allowed_signers_file_enrols_keys_for_operator_namespaces_only(self) -> None:
+    def test_the_allowed_signers_file_enrols_keys_for_operator_namespaces_or_the_board_alone(self) -> None:
         text = (_REPO_ROOT / ors.ALLOWED_SIGNERS_PATH).read_text(encoding="utf-8")
         lines = [line for line in text.splitlines() if line.strip() and not line.startswith("#")]
         self.assertTrue(lines)
@@ -100,7 +102,9 @@ class CommittedRegistryTests(unittest.TestCase):
             options = line.split()[1]
             self.assertTrue(options.startswith('namespaces="'), "every key is restricted to named namespaces")
             names = options.split('"')[1].split(",")
-            self.assertTrue(set(names) <= set(ors.OPERATOR_NAMESPACES), names)
+            # A key signs operator acts, or Board verdicts and nothing else (PLAN-v2 B0).
+            self.assertTrue(set(names) <= set(ors.OPERATOR_NAMESPACES) or names == [ors.BOARD_VERDICT_NAMESPACE],
+                            names)
 
     def test_a_registry_that_breaks_the_contract_is_no_registry(self) -> None:
         cases = {
@@ -530,6 +534,62 @@ class NamespaceAddedByEnrolmentTests(unittest.TestCase):
                  + json.dumps(row((signers, no_enrol), REGISTRY_BYTES)) + "\n").encode()
         self.assertEqual(ors.verify_enrolment_chain(chain, allowed_signers=signers, registry=REGISTRY_BYTES,
                                                     runner_keys=frozenset()), ors.ENROL_CHAIN_BROKEN)
+
+class BoardEnrolledFromAMainThatPredatesItTests(unittest.TestCase):
+    """PLAN-v2 B0 — the operator's one step: enrol the Board from a main whose registry predates the Board class.
+
+    Main's kernel cannot sign that enrolment (it cannot parse the TB class the
+    child introduces), and the kernel that speaks the Board's namespace refuses
+    main's registry as a TIP. The enrolment's parent is history, judged as the
+    walk judges it; the child must be a full tip.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory(prefix="aria-ns-board-")
+        self.addCleanup(self.tmp.cleanup)
+        env = {k: v for k, v in os.environ.items() if k != "ARIA_REPO_STATE_ROOT"}
+        patcher = mock.patch.dict(os.environ, env, clear=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        root = Path(self.tmp.name)
+        self.fx = OperatorRequestFixture(root / "fixture")
+        self.board_key = mint_ed25519_key(root / "board", name="board-key")
+        self.signers = (self.fx.repo / ors.ALLOWED_SIGNERS_PATH).read_text(encoding="utf-8")
+        predating = _registry(aria_board_verdict=None)
+        self.fx.commit_files({ors.NAMESPACE_REGISTRY_PATH: predating.decode(),
+                              ors.ENROLMENTS_PATH: genesis_line(self.signers.encode(), predating)})
+
+    def _anchor(self):
+        return ors.allowed_signers_for_checkout(self.fx.repo, base_dir=self.fx.tools)
+
+    def test_the_operator_enrols_the_board_and_a_board_verdict_then_verifies(self) -> None:
+        self.assertEqual(self._anchor(), (None, ors.NAMESPACE_REGISTRY_INVALID),
+                         "a tip without the Board's namespace is no registry for this kernel")
+        board_line = allowed_signers_line("board@aria.test", self.board_key, namespace=ors.BOARD_VERDICT_NAMESPACE)
+        row = self.fx.enrol({ors.ALLOWED_SIGNERS_PATH: self.signers + board_line,
+                             ors.NAMESPACE_REGISTRY_PATH: REGISTRY_BYTES.decode()})
+        self.assertEqual(row["actor_class"], "T0")
+        anchor, reason = self._anchor()
+        self.assertIsNone(reason)
+        entry = anchor.namespaces[ors.BOARD_VERDICT_NAMESPACE]
+        verdict = ors.sign_operator_subject(
+            {"actor_class": ors.BOARD_ACTOR_CLASS, "audience": AUDIENCE,
+             "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).replace(microsecond=0).isoformat(),
+             "verdict_id": "BV-1", "head_sha": "a" * 40, "surface": "kernel_change_request",
+             "scope": {"digest": "b" * 64}, "board_version": "c" * 40},
+            namespace=ors.BOARD_VERDICT_NAMESPACE, domain_tag=str(entry.domain_tag), signing_key=self.board_key,
+            signer_principal="board@aria.test")
+        self.assertEqual(ors.verify_operator_signature(verdict, namespace=ors.BOARD_VERDICT_NAMESPACE,
+                                                       allowed_signers=anchor.content,
+                                                       namespaces=anchor.namespaces),
+                         ors.OperatorRequestVerdict(True, "board@aria.test", None))
+
+    def test_the_board_key_cannot_sign_the_enrolment(self) -> None:
+        board_line = allowed_signers_line("board@aria.test", self.board_key, namespace=ors.BOARD_VERDICT_NAMESPACE)
+        with self.assertRaisesRegex(GovernanceError, "operator_enrol_refused"):
+            self.fx.enrol({ors.ALLOWED_SIGNERS_PATH: self.signers + board_line,
+                           ors.NAMESPACE_REGISTRY_PATH: REGISTRY_BYTES.decode()},
+                          key=self.board_key, principal="board@aria.test")
 
 
 if __name__ == "__main__":

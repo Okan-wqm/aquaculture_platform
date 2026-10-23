@@ -3,4 +3,7 @@
 # Read by the kernel as a git object at a commit on main, never from the working tree.
 # Changes verify only through .github/manifests/aria-operator-enrolments.jsonl: a row signed in
 # aria-operator-enrol by a key the PARENT version enrols (aria-kernel feedback enrol).
+# PLAN-v2 B0 — the Examination Board's key (private half only in the GitHub environment aria-board)
+# signs Board verdicts in aria-board-verdict and nothing else; no operator namespace enrols it.
 Okan-Wqm@suderra namespaces="aria-operator-request,aria-operator-label,aria-operator-journey,aria-operator-enrol" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEvZ1vnhzDUljXxWEAsyBox9Lz1RTs1+LyJHDjIK7ZhC okan-aria-operator-request
+aria-examination-board namespaces="aria-board-verdict" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEisT729KykHbDucGtJoCQzMAf6NtVp3ePQqA2Yr3rGa aria-board-verdict

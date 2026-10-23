@@ -905,3 +905,82 @@ the bridge lists no producer of ServiceErrorCaptured although every service emit
 - Rule: service-expertise PLAN §3.1/§3.2: events_produced comes from scanEventProducers and a missing
   result is never silent; SE-4 ranks impacted services on these facts. Listed by id in the
   emit-has-interface invariant's KNOWN_UNATTRIBUTED until closed.
+
+## CONTRACT-MEDIUM-015
+
+The e2e NATS invariant keeps a second reader of "who produces event T": extractPublishedEventTypes
+regex-scans each app's sources for `createBaseEvent('X'` and `eventType: 'X'` and feeds PUBLISH
+COVERAGE, and it disagrees with scanEventProducers on 408 (app, type) pairs
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-13 (before SE-4 merges).
+- Raised by: SE-3-R2 appellate, root R3 (ssot SSOT-R2-B1, evidence E3).
+- Evidence:
+  - `e2e/tests/integration/nats-invariants.spec.ts:320-333`
+  - `e2e/tests/integration/nats-invariants.spec.ts:882-921`
+  - `tools/gates/event-consumer-index.ts:1100-1111`
+- Rule: one owner per concept (service-expertise PLAN §2, SE-3). Close: after ARIA-MEDIUM-792,
+  publish coverage reads `scanEventProducers(REPO_ROOT).entries` and the regex is deleted. Listed by
+  id in the single-owner pins of `tools/gates/event-consumer-index.spec.ts` until closed.
+
+## ARIA-MEDIUM-792
+
+scanEventProducers attributes a library construction site whose event type folds to a union to
+every wiring app for every member: each of the 11 apps that wire the tenant-erasure executor is
+listed as producing all 36 per-service erasure outcome types (about 363 false produced facts and
+edges SE-4 would rank on)
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-13 (before SE-4 consumes producers).
+- Raised by: SE-3 review round 1 (non-blocking), accepted as part of root R3 by the SE-3-R2
+  appellate.
+- Evidence:
+  - `libs/backend-common/src/compliance/tenant-erasure/tenant-erasure-target-executor.ts:280`
+  - `libs/event-contracts/src/tenant-erasure-targets.ts:113`
+  - `infrastructure/nats/services.yaml:454` (ai_service holds only its own AiService\* outcome grants)
+  - `tools/gates/event-consumer-index.ts:1055-1094`
+- Rule: service-expertise PLAN §3.1/§3.2: a produced fact or edge the code does not support is a
+  wrong fact. Close: a site folding through `tenantErasureOutcomeEventType(service, outcome)` is
+  attributed only to the wiring application's own outcome types, with a two-app fixture.
+
+## ARIA-MEDIUM-793
+
+The plan-coverage witness keeps a second reader of "where event T is defined": extractEventTypes
+reads `eventType` literals of touched contract files by regex, so a contract diff gets different
+event-consumer nodes from the witness than from the one definition rule eventDefinitionsIn
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-13.
+- Raised by: SE-3-R2 appellate, root R3 (ssot SSOT-R2-B2).
+- Evidence:
+  - `tools/gates/plan-coverage-witness.ts:189`
+  - `tools/gates/plan-coverage-witness.ts:299-309`
+  - `tools/gates/event-consumer-index.ts:1360-1375`
+- Rule: one owner per concept. Not folded in SE-3-R2: the fold would drop the witness's
+  event-consumer nodes for a diff that touches only a schema catalog (89 types the witness reads and
+  the rule does not); service-expertise PLAN §2 "Service impact closure" (SE-4) removes the
+  witness's event-consumer computation. Close with SE-4.
+
+## CONTRACT-MEDIUM-016
+
+Two invariant specs read event definitions with their own regex instead of eventDefinitionsIn: the
+PII crypto-shred invariant locates the interface defining each listed type by an interpolated
+`eventType` regex and slices its block by text, and the feeding delivery invariant captures feeding
+event types from farm-events.ts
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-3-R2 appellate, root R3 (item d) and the widened single-owner pin.
+- Evidence:
+  - `tests/invariants/pii-events-mandatory-crypto-shred.spec.ts:123-141`
+  - `tests/invariants/feeding-event-delivery-semantics.spec.ts:72-76`
+- Rule: one owner per concept. Close: both read `scanEventDefinitions` (the interface declaration
+  exposed so the PII invariant checks `cryptoShredKeyId` through the checker); the regexes go.
+
+## ARIA-MEDIUM-794
+
+recursive_impact keeps a Python reader of "where event T is defined" (`_EVENT_INTERFACE_RE`:
+`export interface XEvent extends BaseEvent`, by name) beside the one definition rule; its fold is the
+F0.9b tombstone of the module (service-expertise PLAN §2 row 1.3)
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-27.
+- Raised by: SE-3-R2 appellate, root R3 (item e).
+- Evidence:
+  - `aria-kernel/aria_kernel/recursive_impact.py:302-304`
+- Rule: one owner per concept (PLAN-v2 F0.9b ownership atlas). Close with the F0.9b tombstone.

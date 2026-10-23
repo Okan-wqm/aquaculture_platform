@@ -35,7 +35,7 @@ import test, { after } from 'node:test';
 
 import { parse as yamlParse } from 'yaml';
 
-import { removeFixtureTree } from './fixture-tree';
+import { indexFixtureTree, removeFixtureTree } from './fixture-tree';
 
 const GATE_DIR = dirname(resolve(__filename));
 const REPO_ROOT = resolve(GATE_DIR, '..', '..');
@@ -516,7 +516,8 @@ function writeCodeRepo(listener: string): string {
     mkdirSync(dirname(join(root, path)), { recursive: true });
     writeFileSync(join(root, path), text, 'utf8');
   }
-  return root;
+  // The consumer scan reads the tree's tracked files (git ls-files).
+  return indexFixtureTree(root);
 }
 
 const DEMO_IMPORT = "import { EventBus } from '../../../platform/libs/event-bus/src/event-bus';";

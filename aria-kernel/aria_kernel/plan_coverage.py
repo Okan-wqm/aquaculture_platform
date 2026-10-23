@@ -424,11 +424,14 @@ def _service_facts_unavailable(base_sha: str, witness: dict[str, Any]) -> dict[s
 def _base_tree_error(run: Runner, workspace: Path, base_sha: str) -> str | None:
     """None when ``workspace`` is a clean checkout of ``base_sha``; otherwise the named error.
 
-    Both entries read the working tree from disk, not the commit, so HEAD alone does not make the
-    facts the base's: a tracked change or an untracked file (an implementer writing into the
-    worktree, a leftover build artifact) would become a fact stamped ``facts_sha = base_sha`` whose
-    ``path:line`` does not resolve against the base commit (PLAN §3.1, §3.5, §3.6). Ignored files
-    (``node_modules``) are not part of the tree and do not count.
+    Both entries enumerate the tree's tracked files (``git ls-files``, event-consumer-index.ts
+    ``trackedPaths``), so an ignored or untracked file, an empty ``apps/<dir>`` or one holding only
+    ignored files is never a source or an application. They read the content of those files from
+    disk, so HEAD alone does not make the facts the base's: a tracked change, or an untracked file
+    added to the index, would become a fact stamped ``facts_sha = base_sha`` whose ``path:line``
+    does not resolve against the base commit (PLAN §3.1, §3.5, §3.6). This check refuses both;
+    with it, the index the entries enumerate is the base commit. Ignored paths (``node_modules``,
+    build output) are outside that enumeration, so they do not make the tree unclean.
     """
     try:
         head = run(["git", "rev-parse", "HEAD"], str(workspace), HEAD_TIMEOUT_SECONDS)

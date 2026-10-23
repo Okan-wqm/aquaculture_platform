@@ -22,6 +22,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -36,21 +37,25 @@ import {
   type EventConsumerIndex,
   eventConsumersFor,
   FORWARDING_SITES,
+  applicationNames,
   scanEventConsumers,
+  scanEventProducers,
 } from './event-consumer-index';
-import { removeFixtureTree } from './fixture-tree';
+import { indexFixtureTree, removeFixtureTree } from './fixture-tree';
+import { hermeticGitEnv } from './hermetic-git';
 import { loadNatsServices } from './nats-services';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const scratch = mkdtempSync(join(tmpdir(), 'event-consumer-index-spec-'));
 after(() => removeFixtureTree(scratch));
 
+/** Writes `files` under `root` and indexes the tree: the scans read its tracked files (git ls-files). */
 function writeTree(root: string, files: Record<string, string>): string {
   for (const [path, text] of Object.entries(files)) {
     mkdirSync(dirname(join(root, path)), { recursive: true });
     writeFileSync(join(root, path), text, 'utf8');
   }
-  return root;
+  return indexFixtureTree(root);
 }
 
 const BUS = [
@@ -1093,4 +1098,114 @@ void test('one reader of "where event T is defined": one eventType-definition re
     [],
     `${EMIT_INVARIANT} still discovers declared interfaces with its own regex`,
   );
+});
+
+// --- SE-3-R2 corrective round 1 (build/SE-3-R2/appellate-r1.md roots R1-R3) -------------------
+
+// Root R1: both --facts entries read the disk, while the kernel's clean-tree check sees only what
+// `git status` shows. An ignored file under a scanned src root (the repo ignores tmp, build, dist…
+// at any depth), an untracked file, an empty apps/<dir> or an ignored-only one became facts and
+// services stamped with the base commit. Everything the scans enumerate is now the tree's tracked
+// set, so such content never reaches the facts.
+const PLANTED_IGNORED = [
+  "import { createBaseEvent } from '../../../../libs/event-contracts/src/base-event';",
+  "export const planted = createBaseEvent('PlantedIgnored', 'tenant-1');",
+  '',
+].join('\n');
+const PLANTED_UNTRACKED = [
+  "import { createBaseEvent } from '../../../libs/event-contracts/src/base-event';",
+  "export const planted = createBaseEvent('PlantedUntracked', 'tenant-1');",
+  '',
+].join('\n');
+
+/** The facts fixture plus content that is not in its tracked set. */
+function untrackedContentRepo(): string {
+  const root = writeTree(factsRepo(FACTS_SERVICES_YAML), { '.gitignore': 'tmp\nbuild\n' });
+  // Written after indexing, so none of these is tracked.
+  const plant = (path: string, text: string): void => {
+    mkdirSync(dirname(join(root, path)), { recursive: true });
+    writeFileSync(join(root, path), text, 'utf8');
+  };
+  plant('apps/a-service/src/tmp/planted.ts', PLANTED_IGNORED);
+  plant('apps/a-service/src/untracked.ts', PLANTED_UNTRACKED);
+  plant('apps/build/project.json', JSON.stringify({ name: 'phantom-build-service' }));
+  plant('apps/untracked-service/project.json', JSON.stringify({ name: 'untracked-service' }));
+  mkdirSync(join(root, 'apps', 'ghost-service', 'src'), { recursive: true });
+  return root;
+}
+
+void test('R1: ignored and untracked files, and app directories with no tracked file, never reach the facts', () => {
+  const root = untrackedContentRepo();
+  // Precondition: git sees the ignored paths as ignored, the others as untracked.
+  const ignored = execFileSync(
+    'git',
+    ['-C', root, 'status', '--porcelain', '--ignored=matching', '--untracked-files=all'],
+    { encoding: 'utf8', env: hermeticGitEnv() },
+  );
+  // git collapses an ignored directory to its name.
+  assert.match(ignored, /^!! apps\/a-service\/src\/tmp\/$/m);
+  assert.match(ignored, /^!! apps\/build\/$/m);
+  assert.match(ignored, /^\?\? apps\/a-service\/src\/untracked\.ts$/m);
+
+  const run = runFactsEntry(root);
+  assert.equal(run.exitCode, 0, run.stderr);
+  for (const planted of ['PlantedIgnored', 'PlantedUntracked', 'tmp/planted.ts', 'untracked.ts']) {
+    assert.ok(!run.stdout.includes(planted), `${planted} reached the facts`);
+  }
+  const parsed = JSON.parse(run.stdout) as { services: readonly { service: string }[] };
+  assert.deepEqual(parsed.services.map((entry) => entry.service).sort(), [...FACTS_APPS].sort());
+
+  const producerSites = scanEventProducers(root).sites.map((site) => site.site);
+  assert.ok(producerSites.includes(SHIPPED_PRODUCER), producerSites.join(', '));
+  assert.ok(
+    producerSites.every((site) => !site.includes('planted') && !site.includes('untracked')),
+    producerSites.join(', '),
+  );
+  assert.deepEqual([...new Set(applicationNames(root).values())].sort(), [...FACTS_APPS].sort());
+});
+
+// Root R2: the SE-1 key reader followed a symlinked apps/<dir>/project.json out of the tree, and a
+// target that is not JSON reached the kernel's witness through the SyntaxError's message.
+const OUTSIDE_MARKER = 'ZQXJ-outside-marker-7c41';
+
+/** The facts fixture with a tracked apps/x-service/project.json that links out of the tree. */
+function linkedProjectRepo(): string {
+  const outside = mkdtempSync(join(scratch, 'outside-'));
+  writeFileSync(join(outside, 'marker.txt'), `${OUTSIDE_MARKER}\n`, 'utf8');
+  const root = factsRepo(FACTS_SERVICES_YAML);
+  mkdirSync(join(root, 'apps', 'x-service', 'src'), { recursive: true });
+  writeFileSync(join(root, 'apps', 'x-service', 'src', 'main.ts'), 'export const x = 1;\n', 'utf8');
+  symlinkSync(join(outside, 'marker.txt'), join(root, 'apps', 'x-service', 'project.json'));
+  return indexFixtureTree(root);
+}
+
+void test('R2: a tracked project.json that is a symlink is a named unavailability (exit 2) that carries no target content', () => {
+  const root = linkedProjectRepo();
+  const tracked = execFileSync('git', ['-C', root, 'ls-files', '-s', '--', 'apps/x-service'], {
+    encoding: 'utf8',
+    env: hermeticGitEnv(),
+  });
+  assert.match(tracked, /^120000 \S+ 0\tapps\/x-service\/project\.json$/m);
+  const run = runFactsEntry(root);
+  assert.equal(run.exitCode, 2, `exit ${run.exitCode}: ${run.stderr}`);
+  assert.equal(run.stdout, '');
+  assert.match(run.stderr, /SourceTreeUnavailable/);
+  assert.match(run.stderr, /apps\/x-service\/project\.json/);
+  assert.ok(
+    !`${run.stdout}${run.stderr}`.includes(OUTSIDE_MARKER.slice(0, 4)),
+    `the target's content reached the output: ${run.stderr}`,
+  );
+});
+
+void test('R2: a tracked project.json that is not JSON is a named unavailability (exit 2) that carries no file content', () => {
+  const root = writeTree(factsRepo(FACTS_SERVICES_YAML), {
+    'apps/y-service/project.json': `${OUTSIDE_MARKER} is not JSON\n`,
+    'apps/y-service/src/main.ts': 'export const y = 1;\n',
+  });
+  const run = runFactsEntry(root);
+  assert.equal(run.exitCode, 2, `exit ${run.exitCode}: ${run.stderr}`);
+  assert.equal(run.stdout, '');
+  assert.match(run.stderr, /SourceTreeUnavailable/);
+  assert.match(run.stderr, /apps\/y-service\/project\.json/);
+  assert.ok(!run.stderr.includes(OUTSIDE_MARKER.slice(0, 4)), run.stderr);
 });

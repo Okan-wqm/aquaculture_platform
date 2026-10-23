@@ -7,11 +7,11 @@
  */
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
 
-import { makeFixtureTree } from '../gates/fixture-tree';
+import { indexFixtureTree, makeFixtureTree } from '../gates/fixture-tree';
 
 import {
   MODULE_SCHEMAS_SOURCE_PATH,
@@ -67,10 +67,15 @@ function tree(scoped: string, registry: string | null = REGISTRY): string {
     mkdirSync(dirname(join(root, path)), { recursive: true });
     writeFileSync(join(root, path), text, 'utf8');
   }
-  return root;
+  // The SE-1 key reader reads the tree's tracked files (git ls-files), so the fixture is indexed.
+  return indexFixtureTree(root);
 }
 
-function runEntry(root: string): { readonly status: number; readonly stdout: string } {
+function runEntry(root: string): {
+  readonly status: number;
+  readonly stdout: string;
+  readonly stderr: string;
+} {
   try {
     const stdout = execFileSync(
       join(REPO_ROOT, 'node_modules', '.bin', 'ts-node'),
@@ -84,10 +89,14 @@ function runEntry(root: string): { readonly status: number; readonly stdout: str
       ],
       { cwd: REPO_ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
     );
-    return { status: 0, stdout };
+    return { status: 0, stdout, stderr: '' };
   } catch (error) {
-    const failed = error as { status?: number | null; stdout?: string };
-    return { status: failed.status ?? -1, stdout: failed.stdout ?? '' };
+    const failed = error as { status?: number | null; stdout?: string; stderr?: string };
+    return {
+      status: failed.status ?? -1,
+      stdout: failed.stdout ?? '',
+      stderr: failed.stderr ?? '',
+    };
   }
 }
 
@@ -229,4 +238,26 @@ void test('single-owner B3: an owner that is not an nx application refuses the f
     'utf8',
   );
   assertRefused(root, ['ghost-service']);
+});
+
+// --- SE-3-R2 corrective round 1 (build/SE-3-R2/appellate-r1.md root R2) ------------------------
+
+// Root R2: the module entry resolves owners through the SE-1 key reader (applicationNames), which
+// followed a symlinked apps/<dir>/project.json out of the tree; a target that is not JSON reached
+// the kernel's witness through the SyntaxError's message (exit 1).
+const OUTSIDE_MARKER = 'ZQXJ-outside-marker-7c41';
+
+void test('R2: a tracked project.json that links out of the tree: exit 2 by name, no target content', () => {
+  const outside = makeFixtureTree('aria-module-facts-outside-');
+  writeFileSync(join(outside, 'marker.txt'), `${OUTSIDE_MARKER}\n`, 'utf8');
+  const root = tree("'farm'");
+  mkdirSync(join(root, 'apps', 'x-service'), { recursive: true });
+  symlinkSync(join(outside, 'marker.txt'), join(root, 'apps', 'x-service', 'project.json'));
+  indexFixtureTree(root);
+  const run = runEntry(root);
+  assert.equal(run.status, 2, `exit ${run.status}: ${run.stderr}`);
+  assert.equal(run.stdout, '');
+  assert.match(run.stderr, /SourceTreeUnavailable/);
+  assert.match(run.stderr, /apps\/x-service\/project\.json/);
+  assert.ok(!run.stderr.includes(OUTSIDE_MARKER.slice(0, 4)), run.stderr);
 });

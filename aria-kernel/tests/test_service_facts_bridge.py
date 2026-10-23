@@ -478,6 +478,106 @@ class ServiceFactsReviewRoundOneTests(unittest.TestCase):
         )
 
 
+# ---------------------------------------------------------------------------------------------
+# SE-3-R2 corrective round 1 (build/SE-3-R2/appellate-r1.md):
+# - R1: ``git status`` hides ignored paths and empty directories, while both entries read the
+#   disk. An ignored file under a scanned src root (the repo ignores tmp, build, dist… at any
+#   depth), an empty apps/<dir> or an ignored-only one became facts stamped ``facts_sha =
+#   base_sha``. The entries now enumerate the tree's tracked files, so such content never reaches
+#   the facts; the ignored root node_modules control still computes.
+# - R2: the SE-1 key reader followed a tracked symlinked apps/<dir>/project.json out of the tree,
+#   and Node's JSON error carried the target's first bytes into ``witness.stderr_tail``.
+# ---------------------------------------------------------------------------------------------
+
+_SMALL_EVENTS = ["SmallFixtureShipped"]
+_SMALL_SERVICES = ["small-service-000"]
+_OUTSIDE_MARKER = "ZQXJ-outside-marker-7c41"
+
+
+class ServiceFactsCorrectiveRoundOneTests(unittest.TestCase):
+    """The roots the SE-3-R2 appellate accepted, on the real entries through the real runner."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory(prefix="aria-se3-r2c1-")
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        environment = patch.dict(
+            os.environ, _hermetic_node_environment(self.root / "env", "http://127.0.0.1:9/"), clear=True
+        )
+        environment.start()
+        self.addCleanup(environment.stop)
+
+    def base_tree(self, gitignore: str) -> Path:
+        files = _facts_tree(_SMALL_EVENTS, _SMALL_SERVICES)
+        files[".gitignore"] = gitignore
+        for path in (*tool_closure_paths(EVENT_ENTRY, MODULE_ENTRY), plan_coverage.WITNESS_TSCONFIG, NATS_SCHEMA):
+            files[path] = (REPO_ROOT / path).read_text(encoding="utf-8")
+        repo = make_repo_with_initial_commit(self.root / "trees", files)
+        (repo / "node_modules").symlink_to(installed_node_modules("typescript", "ts-node", "yaml", "ajv"),
+                                           target_is_directory=True)
+        return repo
+
+    def compute(self, repo: Path) -> dict[str, Any]:
+        head = _git_out(repo, "rev-parse", "HEAD")
+        self.assertEqual(_git_out(repo, "status", "--porcelain", "--untracked-files=all"), "")
+        result = plan_coverage.compute_service_facts(workspace_root=repo, base_sha=head)
+        self.assertIsInstance(result, dict)
+        return result
+
+    def test_ignored_files_and_app_dirs_without_tracked_files_never_reach_the_facts(self) -> None:
+        repo = self.base_tree("/node_modules\ntmp\nbuild\n")
+        planted = repo / "apps" / "producer-service" / "src" / "tmp" / "planted.ts"
+        planted.parent.mkdir(parents=True)
+        planted.write_text(
+            "import { createBaseEvent } from '../../../../libs/event-contracts/src/base-event';\n"
+            "export const planted = createBaseEvent('PlantedIgnored', 'tenant-1');\n",
+            encoding="utf-8",
+        )
+        (repo / "apps" / "ghost-service" / "src").mkdir(parents=True)
+        (repo / "apps" / "build").mkdir()
+        (repo / "apps" / "build" / "project.json").write_text(
+            json.dumps({"name": "phantom-build-service"}), encoding="utf-8"
+        )
+        ignored = _git_out(repo, "status", "--porcelain", "--ignored=matching", "--untracked-files=all")
+        # git collapses an ignored directory to its name.
+        self.assertIn("!! apps/producer-service/src/tmp/", ignored)
+        self.assertIn("!! apps/build/", ignored)
+
+        result = self.compute(repo)
+
+        self.assertEqual(result.get("verdict"), "computed", result.get("witness"))
+        dumped = json.dumps(result)
+        for planted_fact in ("PlantedIgnored", "tmp/planted.ts", "ghost-service", "phantom-build-service"):
+            self.assertNotIn(planted_fact, dumped)
+        self.assertEqual(
+            sorted(service["service"] for service in result["event_facts"]["services"]),
+            sorted(["producer-service", "consumer-service", "db-migrate", *_SMALL_SERVICES]),
+        )
+
+    def test_a_tracked_project_json_linking_out_of_the_tree_is_held_and_leaks_nothing(self) -> None:
+        repo = self.base_tree("/node_modules\n")
+        outside = self.root / "outside"
+        outside.mkdir()
+        (outside / "marker.txt").write_text(f"{_OUTSIDE_MARKER}\n", encoding="utf-8")
+        (repo / "apps" / "x-service").mkdir()
+        (repo / "apps" / "x-service" / "project.json").symlink_to(outside / "marker.txt")
+        for args in (("add", "apps/x-service/project.json"),
+                     ("-c", "user.email=fixture@aria.test", "-c", "user.name=Aria Fixture",
+                      "commit", "-q", "-m", "a tracked symlink under apps/")):
+            subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
+        self.assertTrue(_git_out(repo, "ls-files", "-s", "apps/x-service/project.json").startswith("120000 "))
+
+        result = self.compute(repo)
+
+        self.assertEqual(result.get("verdict"), "environment_unable", result)
+        for key in ("event_facts", "module_facts", "facts_sha"):
+            self.assertNotIn(key, result)
+        witness = result.get("witness") or {}
+        self.assertIn("SourceTreeUnavailable", json.dumps(witness))
+        self.assertIn("apps/x-service/project.json", json.dumps(witness))
+        self.assertNotIn(_OUTSIDE_MARKER[:4], json.dumps(result))
+
+
 _BULK_EVENTS = [f"BulkFixtureEvent{index:04d}" for index in range(700)]
 _BULK_SERVICES = [f"bulk-service-{index:03d}" for index in range(120)]
 
@@ -502,6 +602,13 @@ def _large_facts_tree() -> dict[str, str]:
     subscribing to each (event facts); 120 SCHEMA_REGISTRY services, each an nx application
     with TypeScript sources, owning a MODULE_SCHEMAS module of 40 tables (module facts).
     """
+    return _facts_tree(_BULK_EVENTS, _BULK_SERVICES)
+
+
+def _facts_tree(events: list[str], services: list[str]) -> dict[str, str]:
+    """A base tree both real entries compute on: ``events`` each defined, produced by
+    producer-service and consumed by consumer-service; ``services`` each an nx application that
+    owns a MODULE_SCHEMAS module of 40 tables through SCHEMA_REGISTRY."""
     files: dict[str, str] = {
         ".gitignore": "/node_modules\n",
         "package.json": json.dumps({"name": "se3-pipe-fixture", "private": True}),
@@ -531,7 +638,7 @@ def _large_facts_tree() -> dict[str, str]:
             "import type { BaseEvent } from './base-event';",
             *[
                 f"export interface {name}Event extends BaseEvent {{ readonly eventType: '{name}' }}"
-                for name in _BULK_EVENTS
+                for name in events
             ],
             "",
         ]),
@@ -542,7 +649,7 @@ def _large_facts_tree() -> dict[str, str]:
             "export class Producer {",
             "  constructor(private readonly bus: IEventBus) {}",
             "  async emitAll(tenantId: string): Promise<void> {",
-            *[f"    await this.bus.publish(createBaseEvent('{name}', tenantId));" for name in _BULK_EVENTS],
+            *[f"    await this.bus.publish(createBaseEvent('{name}', tenantId));" for name in events],
             "  }",
             "}",
             "",
@@ -553,7 +660,7 @@ def _large_facts_tree() -> dict[str, str]:
             "export class Listener {",
             "  constructor(private readonly bus: IEventBus) {}",
             "  async start(): Promise<void> {",
-            *[f"    await this.bus.subscribeWildcard('{name}', this);" for name in _BULK_EVENTS],
+            *[f"    await this.bus.subscribeWildcard('{name}', this);" for name in events],
             "  }",
             "}",
             "",
@@ -561,7 +668,7 @@ def _large_facts_tree() -> dict[str, str]:
         "infrastructure/nats/services.yaml": "\n".join([
             "version: 1",
             "services:",
-            *_nats_entry("producer_service", ["events.*.BulkFixtureEvent0000"], []),
+            *_nats_entry("producer_service", [f"events.*.{events[0]}"], []),
             *_nats_entry("consumer_service", [], []),
             "",
         ]),
@@ -569,7 +676,7 @@ def _large_facts_tree() -> dict[str, str]:
     }
     modules: list[str] = []
     registry: list[str] = []
-    for index, service in enumerate(_BULK_SERVICES):
+    for index, service in enumerate(services):
         schema = f"bulk_{index:03d}"
         tables = ", ".join(f"'{schema}_fixture_table_{table:02d}'" for table in range(40))
         modules.append(
@@ -579,7 +686,7 @@ def _large_facts_tree() -> dict[str, str]:
         registry.append(f"  {{ service: '{service}', schema: '{schema}', migrationsGlob: [], reason: 'fixture' }},")
         files[f"apps/{service}/project.json"] = json.dumps({"name": service})
         files[f"apps/{service}/src/main.ts"] = "export const started = true;\n"
-    scoped = ", ".join(f"'bulk_{index:03d}'" for index in range(0, len(_BULK_SERVICES), 2))
+    scoped = ", ".join(f"'bulk_{index:03d}'" for index in range(0, len(services), 2))
     files["libs/backend-common/src/database/schema-manager.service.ts"] = "\n".join([
         "export const MODULE_SCHEMAS = [",
         *modules,

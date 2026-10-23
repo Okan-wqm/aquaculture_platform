@@ -2,7 +2,7 @@ import { posix } from 'node:path';
 
 import ts from 'typescript';
 
-import { applicationNames } from '../gates/event-consumer-index';
+import { applicationNames, SourceTreeUnavailable } from '../gates/event-consumer-index';
 
 import {
   containedWorkspace,
@@ -53,9 +53,12 @@ import {
  * (apps/db-migrate/src/schema-registry.ts, read as source text too). Each owner
  * is keyed by the SE-1 service key, read by the event entry's one reader
  * (`applicationNames`, tools/gates/event-consumer-index.ts), so both entries
- * name a service the same way. The kernel runs it on a diff's base tree
+ * name a service the same way; that reader enumerates the tree's tracked files
+ * and refuses a symlinked project.json, so the module entry keeps its
+ * containment. The kernel runs it on a diff's base tree
  * (`K/plan_coverage.py` `compute_service_facts`); registries it cannot read
- * completely, or whose ownership is ambiguous, exit 2 with nothing on stdout.
+ * completely, whose ownership is ambiguous, or whose applications cannot be
+ * read (SourceTreeUnavailable), exit 2 with nothing on stdout.
  */
 export const MODULE_SCHEMAS_SOURCE_PATH =
   'libs/backend-common/src/database/schema-manager.service.ts';
@@ -1043,9 +1046,17 @@ function main(argv: readonly string[]): number {
   try {
     facts = moduleFacts(repoRoot);
   } catch (error) {
-    if (!(error instanceof ModuleFactsUnavailable)) throw error;
-    process.stderr.write(`module-schemas-source --facts: ${error.message}\n`);
-    return 2;
+    if (error instanceof ModuleFactsUnavailable) {
+      process.stderr.write(`module-schemas-source --facts: ${error.message}\n`);
+      return 2;
+    }
+    // The SE-1 key reader cannot read the tree's applications (a tracked symlinked or non-JSON
+    // project.json): its message names the path, never the content.
+    if (error instanceof SourceTreeUnavailable) {
+      process.stderr.write(`module-schemas-source --facts: ${error.name}: ${error.message}\n`);
+      return 2;
+    }
+    throw error;
   }
   process.stdout.write(`${JSON.stringify(facts)}\n`);
   return 0;

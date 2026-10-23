@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { eventFacts } from '../gates/event-consumer-index';
-import { makeFixtureTree } from '../gates/fixture-tree';
+import { indexFixtureTree, makeFixtureTree } from '../gates/fixture-tree';
 
 import { analyzeEventContracts } from './event-contracts-adapter';
 
@@ -280,6 +280,8 @@ for (const [path, text] of Object.entries(definitionFiles)) {
   mkdirSync(join(definitionsTree, path, '..'), { recursive: true });
   writeFileSync(join(definitionsTree, path), text, 'utf8');
 }
+// The code-fact scans read the tree's tracked files (git ls-files).
+indexFixtureTree(definitionsTree);
 const adapterDefinitions = analyzeEventContracts(
   { root: 'libs/event-contracts/src', checks: ['event_interfaces'] },
   definitionsTree,

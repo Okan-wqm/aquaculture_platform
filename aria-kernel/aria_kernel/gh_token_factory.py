@@ -1110,7 +1110,18 @@ def _mint_installation_token_from_pem(
     ``(token, expires_at)`` — the provider's own horizon: GitHub expires the
     token exactly one hour after the mint (the endpoint takes no
     ``expires_in``), and a lease without it is local fiction (ARIA-AUDIT-017).
+
+    PLAN-v2 B0 / §1.9 (ARIA-MEDIUM-766) — every token is minted for THIS
+    repository by name, the ``repository`` of the code-owned operators policy.
+    An installation token without ``repositories`` reaches every repository
+    the App installation selects, so whether ARIA could read the Examination
+    Board's vault (``aria-board-vault``) hung on a setting in GitHub's UI; with
+    the name in the request it is a property of this code, whatever the
+    installation's selection.
     """
+    from .operator_approval import load_operators_policy
+
+    repository_name = str(load_operators_policy()["repository"]).split("/")[1]
     # Lazy import — keeps the factory import-cheap when Mode A
     # is not used (Mode B fallback path doesn't need PyJWT).
     try:
@@ -1142,14 +1153,16 @@ def _mint_installation_token_from_pem(
         data=_json.dumps({
             # Exactly what the caller asked for (see the named sets at the
             # top of this module for the vocabulary and why each permission
-            # is there). Nothing else: the endpoint takes `repositories`,
+            # is there), for this repository. Nothing else: the endpoint takes `repositories`,
             # `repository_ids` and `permissions` — the `expires_in` the mint
             # sent until ARIA-HIGH-124 round 6 was not a field of it, GitHub
             # ignored it, and the token lived the provider's hour whatever
             # the local TTL said; the horizon the provider enforces comes
             # back as `expires_at` and is carried on the lease
-            # (`provider_expiry`).
+            # (`provider_expiry`). `repositories` names this repository
+            # alone (PLAN-v2 B0; see the docstring).
             "permissions": dict(permissions),
+            "repositories": [repository_name],
         }).encode("utf-8"),
     )
     try:

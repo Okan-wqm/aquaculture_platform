@@ -54,6 +54,7 @@ from unittest import mock  # noqa: F401 — the factory-wiring suite patches env
 
 from aria_kernel import token_broker
 from aria_kernel.gh_token_factory import INSTALLATION_TOKEN_PERMISSION_SETS
+from aria_kernel.operator_approval import load_operators_policy
 from aria_kernel.socket_holders import TOKEN_BROKER, prune_stale_socket_dirs
 from aria_kernel.token_broker import (
     TokenBrokerRefused,
@@ -73,6 +74,8 @@ _FIXTURE_APP_ID = "12345"
 _FIXTURE_INSTALLATION_ID = "67890"
 _FIXTURE_TOKEN = "ghs_brokered_fixture"
 _FIXTURE_EXPIRES_AT = "2026-10-20T11:05:00Z"
+# PLAN-v2 B0 — every token is minted for this repository by name.
+_THIS_REPOSITORY = [str(load_operators_policy()["repository"]).split("/")[1]]
 
 
 def _fixture_pem() -> str:
@@ -183,7 +186,8 @@ class TokenBrokerTests(unittest.TestCase):
         self.assertEqual(len(self.endpoint.requests), 1)
         request = self.endpoint.requests[0]
         self.assertEqual(request["path"], f"/app/installations/{_FIXTURE_INSTALLATION_ID}/access_tokens")
-        self.assertEqual(request["body"], {"permissions": dict(INSTALLATION_TOKEN_PERMISSION_SETS["DELIVERY"])})
+        self.assertEqual(request["body"], {"permissions": dict(INSTALLATION_TOKEN_PERMISSION_SETS["DELIVERY"]),
+                                           "repositories": _THIS_REPOSITORY})
         self.assertEqual(request["accept"], "application/vnd.github+json")
         # The JWT was signed with the PEM the broker holds, for the app it
         # was given: the broker mints with the real flow, not a stub.
@@ -397,7 +401,8 @@ class TheFactoryMintsThroughTheBroker(unittest.TestCase):
         self.assertEqual(lease.token_file.stat().st_mode & 0o777, 0o600)
         self.assertEqual(len(self.endpoint.requests), 1)
         self.assertEqual(self.endpoint.requests[0]["body"],
-                         {"permissions": dict(INSTALLATION_TOKEN_PERMISSION_SETS["DELIVERY"])})
+                         {"permissions": dict(INSTALLATION_TOKEN_PERMISSION_SETS["DELIVERY"]),
+                          "repositories": _THIS_REPOSITORY})
 
     def test_a_mapping_instead_of_a_name_is_refused_on_the_broker_path(self) -> None:
         from aria_kernel import gh_token_factory as tf

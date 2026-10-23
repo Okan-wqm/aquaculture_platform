@@ -18,6 +18,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from aria_kernel import gh_token_factory as tf
+from aria_kernel.operator_approval import load_operators_policy
 
 
 class _Response:
@@ -112,7 +113,9 @@ class TheMintSendsTheCallersPermissions(unittest.TestCase):
         # an hour).
         lease = self._mint(ttl_seconds=1800)
         body = self.posted[0]["body"]
-        self.assertEqual(sorted(body), ["permissions"])
+        # PLAN-v2 B0 — and `repositories`, naming this repository alone.
+        self.assertEqual(sorted(body), ["permissions", "repositories"])
+        self.assertEqual(body["repositories"], [str(load_operators_policy()["repository"]).split("/")[1]])
         self.assertNotIn("expires_in", json.dumps(body))
         self.assertEqual(lease.provider_expiry, "2026-09-12T00:05:00Z")
         self.assertEqual(lease.ttl_seconds, 1800)

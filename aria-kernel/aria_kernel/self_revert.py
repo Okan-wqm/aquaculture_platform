@@ -638,11 +638,15 @@ def prove_revert_purity(*, workspace: Path, merge_sha: str, revert_sha: str) -> 
 # merge, whether or not the merge lane has settled it into ``merged`` yet.
 #
 # ARIA-HIGH-765 / B0 corrective R2 — a ``merge_intent`` is withdrawn by the
-# row that follows it stating NO merge call was made for the same (pr, head)
+# row that follows it stating NO merge call was made for the same attempt
 # (``merge_record.NO_MERGE_CALL_FIELD``: the operator's stop at the merge
-# moment, an unpublished intent). The ledger is read in order, so the
-# statement withdraws the intents recorded before it and no later one: ARIA's
-# own retry at that head after the operator clears the stop is ARIA's again.
+# moment, an unpublished intent). An attempt is (pr, head, merge lease): every
+# merge call runs under its own CAS lease (``merge_lease.lease_id``, fresh per
+# acquisition), and both rows carry it. So the statement withdraws only the
+# intent of its own attempt — never another job's intent at the same head
+# whose merge call was made and whose ``enqueued`` row was lost with its
+# lane-end publish (B0 corrective round 2, R2-5). The ledger is read in order,
+# so ARIA's own retry after the operator clears the stop is ARIA's again.
 # ``enqueued`` is never withdrawn — that merge call was made, and the queue
 # may still merge it.
 _INTENT_DECISION = "merge_intent"
@@ -654,7 +658,7 @@ def _aria_merged_prs(base_dir: str | Path | None) -> set[int]:
     if not path.exists():
         return set()
     merged: set[int] = set()
-    intents: set[tuple[int, str]] = set()
+    intents: set[tuple[int, str, str | None]] = set()
     enqueued: set[tuple[int, str]] = set()
     for row in load_declared_jsonl(path, expected_surface="auto_merge_decisions"):
         if not isinstance(row.get("pr_number"), int):
@@ -666,12 +670,12 @@ def _aria_merged_prs(base_dir: str | Path | None) -> set[int]:
             continue
         key = (int(row["pr_number"]), str(row["head_sha"]))
         if row.get("decision") == _INTENT_DECISION:
-            intents.add(key)
+            intents.add((*key, _merge_lease_id(row)))
         elif row.get("decision") == _ENQUEUED_DECISION:
             enqueued.add(key)
         elif row.get(NO_MERGE_CALL_FIELD) is True:
-            intents.discard(key)
-    attempts = intents | enqueued
+            intents.discard((*key, _merge_lease_id(row)))
+    attempts = {(number, head_sha) for number, head_sha, _lease in intents} | enqueued
     if attempts:
         merged_at_head = {
             (number, str(outcome.get("head_sha") or ""))
@@ -679,6 +683,12 @@ def _aria_merged_prs(base_dir: str | Path | None) -> set[int]:
         }
         merged.update(number for number, head_sha in attempts if (number, head_sha) in merged_at_head)
     return merged
+
+
+def _merge_lease_id(row: dict[str, Any]) -> str | None:
+    """The CAS lease a merge-moment row names (``merge_authority._lease_summary``), the attempt's identity."""
+    lease = row.get("merge_lease")
+    return str(lease["lease_id"]) if isinstance(lease, dict) and lease.get("lease_id") else None
 
 
 def _merge_outcome_heads(base_dir: str | Path | None) -> list[tuple[int, dict[str, Any]]]:

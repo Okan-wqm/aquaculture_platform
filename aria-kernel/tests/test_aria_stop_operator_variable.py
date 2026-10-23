@@ -22,7 +22,10 @@ The merge-moment fixture keeps the process environment's ``ARIA_STOP`` empty
 throughout and sets the operator's variable (behind a fake ``gh``) while the
 merge intent is being published: the merge call must not happen. Then (B0
 corrective R2) the operator merges the same PR at the same head by hand, and
-self-revert must not count that merge as ARIA's.
+self-revert must not count that merge as ARIA's. Round 2: that withdrawal is
+published to aria/state itself (R2-4), not only by the lane-end publish, and
+it withdraws its own attempt (pr, head, merge lease) alone, never another
+job's intent whose merge call was made (R2-5).
 
 The ``ARIA_STOP`` FILE stays the kernel's own deadline stop; its absence is
 never a clearing authority over the operator's variable.
@@ -31,6 +34,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import stat
 import sys
 import tempfile
@@ -352,7 +356,8 @@ class MergeAuthorityStopsTests(_WithFakeVariables):
         # and the merge intent is being published when the operator sets
         # vars.ARIA_STOP. The job-start copy (os.environ) stays empty.
         result = self._merge(self._publisher(stop_on_publish=True), self.variables.source())
-        self.assertEqual(self.adapter.calls, ["publish"], "the live stop is read right before the merge call")
+        self.assertEqual(self.adapter.calls, ["publish", "publish"],
+                         "the live stop is read right before the merge call; its withdrawal is published")
         self._assert_blocked(result, OPERATOR_STOP_REFUSAL)
         self.assertEqual(result["stage"], "operator_stop")
 
@@ -368,7 +373,7 @@ class MergeAuthorityStopsTests(_WithFakeVariables):
             with self.subTest(source=name):
                 self.adapter.calls.clear()
                 result = self._merge(self._publisher(), source)
-                self.assertEqual(self.adapter.calls, ["publish"])
+                self.assertEqual(self.adapter.calls, ["publish", "publish"])
                 self._assert_blocked(result, OPERATOR_STOP_UNREADABLE)
 
     def test_a_human_merge_after_the_merge_moment_stop_is_not_arias(self) -> None:
@@ -406,9 +411,83 @@ class MergeAuthorityStopsTests(_WithFakeVariables):
         self.assertEqual(self._merge(self._publisher(), self.variables.source())["decision"], "enqueued")
         self.adapter.calls.clear()
         self._merge(self._publisher(stop_on_publish=True), self.variables.source())
-        self.assertEqual(self.adapter.calls, ["publish"])
+        self.assertEqual(self.adapter.calls, ["publish", "publish"])
         self._merged_by_hand()
         self.assertIn(7, _aria_merged_prs(self.tools), "the queue merged ARIA's earlier enqueue")
+
+    def _restoring_publisher(self, tip: Path, *, stop_on_publish: bool):  # noqa: ANN202
+        """A publisher whose aria/state tip is a copy of the store as each publish found it."""
+        def publish(row: dict) -> dict:
+            self.adapter.calls.append("publish")
+            if tip.exists():
+                shutil.rmtree(tip)
+            shutil.copytree(self.tools, tip)
+            if stop_on_publish:
+                self.variables.set(variables={"ARIA_STOP": _OPERATOR_STOP})
+            return {"published": True, "reason": None}
+        return publish
+
+    def test_arias_enqueue_stays_arias_when_its_end_publish_is_lost_and_a_later_attempt_is_stopped(self) -> None:
+        # B0 corrective round 2, R2-5 (evidence p10). Job A publishes its
+        # intent, makes the merge call and the queue takes it; A's lane-end
+        # publish is lost, so aria/state holds A's intent alone. Job B restores
+        # that tip, reaches the merge moment for the same (pr, head) and is
+        # stopped. B's no-call row withdraws B's intent (its lease) — not A's,
+        # whose merge call was made. The queue then merges A's call.
+        tip = self.root / "aria-state-tip"
+        self.adapter.merge_answer = {"merged": False, "enqueued": True}
+        job_a = self._merge(self._restoring_publisher(tip, stop_on_publish=False), self.variables.source())
+        self.assertEqual((job_a["decision"], self.adapter.calls), ("enqueued", ["publish", "merge"]))
+        self.tools = self.root / "job-b-tools"
+        shutil.copytree(tip, self.tools)
+        self.adapter.calls.clear()
+        job_b = self._merge(self._restoring_publisher(tip, stop_on_publish=True), self.variables.source())
+        self._assert_blocked(job_b, OPERATOR_STOP_REFUSAL)
+        self.assertNotIn("merge", self.adapter.calls)
+        self._merged_by_hand()
+        self.assertIn(7, _aria_merged_prs(self.tools), "job A's merge call is ARIA's whatever job B's stop says")
+
+    def test_the_merge_moment_withdrawal_reaches_aria_state_itself(self) -> None:
+        # B0 corrective round 2, R2-4 (evidence p06): the intent is on
+        # aria/state, so its withdrawal must be too — not only in the local
+        # ledger the lane-end publish carries, which a cancel, a runner death
+        # or a lost race drops. Here that end publish is lost: the next job
+        # restores the published tip and the operator merges by hand.
+        tip = self.root / "aria-state-tip"
+        seen: list[list[tuple[str, bool]]] = []
+        publish = self._restoring_publisher(tip, stop_on_publish=True)
+
+        def snapshotting(row: dict) -> dict:
+            answer = publish(row)
+            seen.append([(r.get("decision"), r.get("no_merge_call") is True) for r in load_declared_jsonl(
+                tip / "auto-merge-decisions.jsonl", expected_surface="auto_merge_decisions")])
+            return answer
+
+        result = self._merge(snapshotting, self.variables.source())
+        self._assert_blocked(result, OPERATOR_STOP_REFUSAL)
+        self.assertEqual(self.adapter.calls, ["publish", "publish"])
+        self.assertEqual(seen[0], [("merge_intent", False)])
+        self.assertEqual(seen[1], [("merge_intent", False), ("blocked", True)],
+                         "the second publish carries the no_merge_call row")
+        self.tools = tip
+        self._merged_by_hand()
+        self.assertNotIn(7, _aria_merged_prs(tip), "the published tip never counts a human merge as ARIA's")
+
+    def test_a_lost_withdrawal_publish_is_named_and_the_row_stays_for_the_lane_end(self) -> None:
+        answers = iter([{"published": True, "reason": None}, {"published": False, "reason": "fixture_publish_lost"}])
+
+        def publish(row: dict) -> dict:
+            self.adapter.calls.append("publish")
+            self.variables.set(variables={"ARIA_STOP": _OPERATOR_STOP})
+            return next(answers)
+
+        result = self._merge(publish, self.variables.source())
+        self.assertEqual(self.adapter.calls, ["publish", "publish"])
+        self.assertEqual((result["decision"], result["stage"]), ("blocked", "operator_stop"))
+        self.assertEqual(result["reasons"], [OPERATOR_STOP_REFUSAL, "operator_stop_unpublished:fixture_publish_lost"])
+        rows = load_declared_jsonl(self.tools / "auto-merge-decisions.jsonl", expected_surface="auto_merge_decisions")
+        self.assertEqual([(r["decision"], r.get("no_merge_call") is True) for r in rows],
+                         [("merge_intent", False), ("blocked", True)])
 
 
 if __name__ == "__main__":

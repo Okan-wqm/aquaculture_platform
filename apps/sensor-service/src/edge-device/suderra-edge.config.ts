@@ -82,6 +82,14 @@ export interface SuderraEdgeSettings {
     readonly repository: string;
     readonly agentVersion: string;
   };
+  /**
+   * The offline recovery-escrow keys whose envelopes the cloud accepts (DEC-14.3),
+   * by the SHA-256 of the DER SubjectPublicKeyInfo of each public key, as an envelope's
+   * `recipient_spki_sha256` names it. Empty until the key ceremony produced the
+   * production key: the cloud then accepts no envelope, because an envelope encrypted to
+   * a key nobody holds escrows nothing.
+   */
+  readonly recoveryEscrow: { readonly recipientSpkiSha256: readonly string[] };
   /** The broker a Suderra OS device connects to: 8883 TLS only (DEC-10.1). */
   readonly deviceBroker: DeviceBrokerEndpoint;
   /** The api_url the agent activates against (HTTPS). */
@@ -274,6 +282,17 @@ export function loadSuderraEdgeSettings(
       'SUDERRA_EDGE_API_URL must be an https URL without a trailing slash',
     );
   }
+  const escrowRaw = (get('SUDERRA_EDGE_RECOVERY_ESCROW_SPKI_SHA256') ?? '').trim();
+  const recipientSpkiSha256 =
+    escrowRaw === '' ? [] : escrowRaw.split(',').map((entry) => entry.trim());
+  if (
+    recipientSpkiSha256.some((entry) => !/^[0-9a-f]{64}$/.test(entry)) ||
+    new Set(recipientSpkiSha256).size !== recipientSpkiSha256.length
+  ) {
+    throw new SuderraEdgeConfigError(
+      'SUDERRA_EDGE_RECOVERY_ESCROW_SPKI_SHA256 must be distinct lowercase sha256 hex digests, comma separated',
+    );
+  }
   const ttlRaw = (get('SUDERRA_EDGE_RESERVATION_TTL_MINUTES') ?? '').trim();
   const ttlText = ttlRaw === '' ? '30' : ttlRaw;
   if (!/^[1-9][0-9]{0,2}$/.test(ttlText) || Number(ttlText) > 240) {
@@ -287,6 +306,7 @@ export function loadSuderraEdgeSettings(
     platformActorId,
     rbac: { policyVersion, notBefore, expiresAt },
     release: { urlTemplate, repository, agentVersion },
+    recoveryEscrow: { recipientSpkiSha256 },
     deviceBroker: deviceBrokerEndpoint(mqttHost, 'SUDERRA_EDGE_MQTT_HOST'),
     apiUrl,
     reservationTtlMs: Number(ttlText) * 60_000,

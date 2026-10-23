@@ -55,6 +55,8 @@ import { ProvisioningController } from './provisioning.controller';
 import { ProvisioningReservationService } from './provisioning-reservation.service';
 import { ProvisioningService } from './provisioning.service';
 import { RbacManifestService } from './rbac-manifest.service';
+import { RecoveryKeyEscrowResolver } from './recovery-key-escrow.resolver';
+import { RecoveryKeyEscrowService } from './recovery-key-escrow.service';
 import { SiteBundleController } from './site-bundle.controller';
 import { SiteConfigManifestService } from './site-config-manifest.service';
 import { SiteNetpolicyManifestService } from './site-netpolicy-manifest.service';
@@ -130,6 +132,9 @@ import { TrustAnchorBundleService } from './trust-anchor-bundle.service';
     // Typed install/update results from the device's results topic (DEC-27).
     EdgeResultTelemetryService,
     EdgeDeviceResultResolver,
+    // The /data recovery key, encrypted to the offline escrow key (DEC-14.3).
+    RecoveryKeyEscrowService,
+    RecoveryKeyEscrowResolver,
   ],
   exports: [
     EdgeDeviceService,
@@ -141,6 +146,7 @@ import { TrustAnchorBundleService } from './trust-anchor-bundle.service';
     EdgeResultTelemetryService,
     EdgeUpdateRequestService,
     EdgeReleaseCatalog,
+    RecoveryKeyEscrowService,
     RbacManifestService,
     SiteConfigManifestService,
     TrustAnchorBundleService,

@@ -10250,6 +10250,8 @@ export type Mutation = {
   resumeMaintenanceSchedule: MaintenanceSchedule;
   resumeWorkOrder: WorkOrder;
   retireUnifiedTag: UnifiedTagType;
+  /** Takes the current escrowed /data recovery envelope(s) of a device out for the custodians to open in the offline HSM; the retrieval is recorded with the reason given */
+  retrieveRecoveryKeyEscrow: Array<RetrievedRecoveryEscrow>;
   /** Reopen a READY biomass report back to DRAFT for editing. */
   revertBiomassReportToDraft: BiomassReport;
   revokeCertification: EmployeeCertification;
@@ -12722,6 +12724,12 @@ export type MutationResumeWorkOrderArgs = {
 
 export type MutationRetireUnifiedTagArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type MutationRetrieveRecoveryKeyEscrowArgs = {
+  deviceId: Scalars['ID']['input'];
+  reason: Scalars['String']['input'];
 };
 
 
@@ -16288,6 +16296,8 @@ export type Query = {
   readOpcUaHistoricalData: Array<OpcUaHistoricalDataPoint>;
   readings: Array<SensorReading>;
   recentPlcAlarms: Array<PlcAlarm>;
+  /** A Suderra OS device's escrowed /data recovery envelopes, newest first, without their ciphertext */
+  recoveryKeyEscrows: Array<RecoveryKeyEscrowStatus>;
   recurringTemplate: RecurringTemplate;
   recurringTemplates: Array<RecurringTemplate>;
   /** Get regulatory configuration status for the current tenant */
@@ -18085,6 +18095,11 @@ export type QueryRecentPlcAlarmsArgs = {
 };
 
 
+export type QueryRecoveryKeyEscrowsArgs = {
+  deviceId: Scalars['ID']['input'];
+};
+
+
 export type QueryRecurringTemplateArgs = {
   id: Scalars['ID']['input'];
 };
@@ -19348,6 +19363,24 @@ export type RecordWelfareAssessmentInput = {
   woundScore: Scalars['Int']['input'];
 };
 
+/** Whether an escrowed /data recovery envelope is the current one of its volume or was superseded */
+export type RecoveryEscrowState =
+  | 'ACTIVE'
+  | 'SUPERSEDED';
+
+/** An escrowed `/data` recovery envelope as the console lists it: who it is for and what became of it, never the ciphertext (ADR-048 DEC-14.3). */
+export type RecoveryKeyEscrowStatus = {
+  id: Scalars['ID']['output'];
+  receivedAt: Scalars['DateTime']['output'];
+  /** sha256 of the SubjectPublicKeyInfo of the escrow key the envelope is encrypted to. */
+  recipientSpkiSha256: Scalars['String']['output'];
+  /** How many times an administrator has taken this envelope out. */
+  retrievals: Scalars['Int']['output'];
+  state: RecoveryEscrowState;
+  supersededAt?: Maybe<Scalars['DateTime']['output']>;
+  volumeUuid: Scalars['String']['output'];
+};
+
 /** Tekrarlama sıklığı */
 export type RecurrenceFrequency =
   | 'BIWEEKLY'
@@ -19987,6 +20020,15 @@ export type RetentionPolicy = {
   retentionDays: Scalars['Int']['output'];
   tenantId: Scalars['String']['output'];
   updatedAt: Scalars['DateTime']['output'];
+};
+
+/** An envelope an administrator took out for the custodians to open in the offline HSM: the document the device wrote, as JSON text. The retrieval is already on record. */
+export type RetrievedRecoveryEscrow = {
+  deviceId: Scalars['ID']['output'];
+  /** The `suderra.data-recovery-escrow.v1` document, exactly as the device wrote it. */
+  envelope: Scalars['String']['output'];
+  escrowId: Scalars['ID']['output'];
+  receivedAt: Scalars['DateTime']['output'];
 };
 
 export type ReviewCycleStatus = {

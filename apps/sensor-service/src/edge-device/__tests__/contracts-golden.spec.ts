@@ -789,6 +789,25 @@ describe('contracts golden — what the cloud forwards but does not sign', () =>
       'Okan-wqm/aquaculture_platform',
     );
   });
+
+  it('the recovery-escrow keys the cloud accepts are optional, distinct sha256 digests', () => {
+    const none = channelEnv();
+    expect(loadSuderraEdgeSettings((name) => none[name])?.recoveryEscrow).toEqual({
+      recipientSpkiSha256: [],
+    });
+    const one = 'ab'.repeat(32);
+    const two = 'cd'.repeat(32);
+    const set = channelEnv({ SUDERRA_EDGE_RECOVERY_ESCROW_SPKI_SHA256: ` ${one} , ${two} ` });
+    expect(loadSuderraEdgeSettings((name) => set[name])?.recoveryEscrow).toEqual({
+      recipientSpkiSha256: [one, two],
+    });
+    for (const bad of [`${one},${one}`, 'abc', one.toUpperCase(), `${one},`, `${one};${two}`]) {
+      const env = channelEnv({ SUDERRA_EDGE_RECOVERY_ESCROW_SPKI_SHA256: bad });
+      expect(() => loadSuderraEdgeSettings((name) => env[name])).toThrow(
+        /SUDERRA_EDGE_RECOVERY_ESCROW_SPKI_SHA256/,
+      );
+    }
+  });
 });
 
 // ------------------------------------------------------------- refusals

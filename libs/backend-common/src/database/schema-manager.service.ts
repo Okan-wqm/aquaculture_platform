@@ -403,6 +403,10 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'edge_rollouts',
       'edge_rollout_approvals',
       'edge_rollout_devices',
+      // The /data recovery-key escrow (ciphertext to the offline escrow key, DEC-14.3) and
+      // the record of every retrieval of one.
+      'recovery_key_escrows',
+      'recovery_key_escrow_retrievals',
     ],
   },
   {

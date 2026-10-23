@@ -1156,3 +1156,6 @@ crash) closed by 44bb256a2 on main — left the active table from bucket
 - `SUPPLY-CRITICAL-026`: registry state is `RESOLVED` with closing commit
   `36558f753`, derived by `finding-registry reconcile` against `origin/main`.
   Left the active table from bucket `real-open`.
+- `SUPPLY-CRITICAL-027`: registry state is `RESOLVED` with closing commit
+  `1beed818d`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `real-open`.

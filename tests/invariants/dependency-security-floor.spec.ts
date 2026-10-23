@@ -67,8 +67,10 @@ const ROOT_SECURITY_FLOORS = {
   // outside it (SUPPLY-HIGH-016). Production: @apollo/gateway ->
   // make-fetch-happen `^4.1.1`, so the lock is the only place this floor lives.
   'http-cache-semantics': '4.3.0',
-  // GHSA-rpw4-54j3-4h4q, GHSA-2vr4-cq9g-pvrc.
-  'ip-address': '10.5.1',
+  // GHSA-rpw4-54j3-4h4q, GHSA-2vr4-cq9g-pvrc (10.5.1) + GHSA-rxp7-6hxx-x8q5
+  // (10.7.4: Address6 zone-id match is quadratic ahead of its length limit;
+  // SUPPLY-MEDIUM-028).
+  'ip-address': '10.7.4',
   // GHSA-3pph-fpjx-jg34.
   multer: '2.4.0',
   // 13.4.5 globs type paths with tinyglobby instead of fast-glob, which takes
@@ -575,13 +577,16 @@ describe('JavaScript dependency security floor', () => {
     expect(project.targets?.test?.dependsOn).toEqual(['shared-ui:build']);
   });
 
+  // 3.4.17 is the first release outside GHSA-cg2g-xh64-v4q7 (critical),
+  // GHSA-mrv2-3pqr-j5jr, GHSA-c6gr-qvv4-5v3f, GHSA-p98j-92pf-mc4p and
+  // GHSA-6688-9rhm-gjv2 (SUPPLY-CRITICAL-027).
   test('pins DOMPurify in the sensor manifest and root override', () => {
     const root = readJson<PackageManifest>('package.json');
     const lock = readJson<Lockfile>('package-lock.json');
 
-    expect(declaration('web/modules/sensor-module/package.json', 'dompurify')).toBe('3.4.14');
-    expect(root.overrides?.dompurify).toBe('3.4.14');
-    expect(resolvedVersions(lock, 'dompurify')).toEqual(['3.4.14']);
+    expect(declaration('web/modules/sensor-module/package.json', 'dompurify')).toBe('3.4.17');
+    expect(root.overrides?.dompurify).toBe('3.4.17');
+    expect(resolvedVersions(lock, 'dompurify')).toEqual(['3.4.17']);
   });
 
   test('enumerates every router consumer and pins both v7 singletons, SSoT, and locks', () => {

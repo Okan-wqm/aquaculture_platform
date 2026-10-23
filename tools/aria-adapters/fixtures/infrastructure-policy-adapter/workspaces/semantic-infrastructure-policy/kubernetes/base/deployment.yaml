@@ -1,0 +1,81 @@
+# The semantic corpus Kubernetes manifests: a guarded twin, an unguarded twin, a twin the prod
+# overlay guards, a privileged runtime, floating and pinned images, and a comment decoy.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: guarded-api
+spec:
+  template:
+    spec:
+      containers:
+        # SAFE TWIN: a digest-pinned image, a memory limit and both probes.
+        - name: api
+          image: ghcr.io/example/api@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+          securityContext:
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+          resources:
+            limits:
+              memory: 512Mi
+          readinessProbe:
+            httpGet: { path: /ready, port: 8080 }
+          livenessProbe:
+            httpGet: { path: /live, port: 8080 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bare-worker
+spec:
+  template:
+    spec:
+      containers:
+        # UNSAFE TWINS (missing_runtime_guard, floating_artifact): no memory limit, no probes,
+        # and a bare mutable tag. The stray overlay's patch for this container does not count:
+        # that overlay does not deploy this base.
+        # image: ghcr.io/example/commented-image:latest
+        - name: worker
+          image: ghcr.io/example/worker:latest
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: composed-reporter
+spec:
+  template:
+    spec:
+      containers:
+        # COMPOSED TWIN: unguarded here; overlays/prod patches the guards in and deploys this
+        # base, so the composition is evidence, not a claim.
+        - name: reporter
+          image: ghcr.io/example/reporter@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-agent
+spec:
+  template:
+    spec:
+      volumes:
+        # UNSAFE TWIN (privileged_runtime): the containerd socket on the host.
+        - name: runtime
+          hostPath:
+            path: /run/containerd/containerd.sock
+        # SAFE TWIN: a host directory that holds no runtime socket.
+        - name: logs
+          hostPath:
+            path: /var/log
+      containers:
+        # UNSAFE TWIN (privileged_runtime): the container asks for privileged mode.
+        - name: agent
+          image: ghcr.io/example/agent@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+          securityContext:
+            privileged: true
+          resources:
+            limits:
+              memory: 128Mi
+          readinessProbe:
+            exec: { command: ['true'] }
+          livenessProbe:
+            exec: { command: ['true'] }

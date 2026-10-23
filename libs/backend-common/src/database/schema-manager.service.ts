@@ -390,6 +390,14 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       // guarded release-bundle ledger. Must be cloned into every tenant schema.
       'deploy_artifacts',
       'release_bundles',
+
+      // ADR-048 edge integration — per-tenant (entities omit `schema:`): the
+      // typed results a Suderra OS device reports (suderra.result.v1, one row per
+      // (device, seq)) and the signed update statements the cloud owes a device
+      // (edge-update, os-update, site-config, ...). A tenant that is provisioned
+      // without them cannot ingest a result or issue an update.
+      'edge_device_results',
+      'edge_update_requests',
     ],
   },
   {

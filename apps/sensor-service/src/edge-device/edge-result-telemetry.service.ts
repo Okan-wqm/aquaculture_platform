@@ -50,6 +50,21 @@ export const RESULT_RETENTION_PER_DEVICE = 2000;
 /** Most rows one list request returns. */
 export const RESULT_LIST_MAX = 200;
 
+/** A stored result, offered to the services that act on one (the update requests it concludes). */
+export interface ResultEvent {
+  readonly tenantId: string;
+  readonly deviceId: string;
+  readonly result: EdgeResult;
+}
+
+/**
+ * Called for every result of a device the store holds, stored now or already
+ * stored: a republication after a failed settlement must settle, and settling
+ * is idempotent. A failure rejects the message, so the MQTT ack gate holds
+ * PUBACK and the device's agent republishes it.
+ */
+export type ResultObserver = (event: ResultEvent) => Promise<void>;
+
 /** Who published: the topic's tenant level and device level. */
 export interface ResultSource {
   readonly tenantId: string;
@@ -117,10 +132,21 @@ const RESULT_COLUMNS = `id, device_id, seq, kind, outcome, reason, occurred_at, 
 export class EdgeResultTelemetryService {
   private readonly logger = new Logger(EdgeResultTelemetryService.name);
 
+  private readonly observers: ResultObserver[] = [];
+
   constructor(
     private readonly dataSource: DataSource,
     private readonly devices: DeviceDirectoryService,
   ) {}
+
+  /** Registers a service that acts on stored results (once, at module init). */
+  addObserver(observer: ResultObserver): void {
+    this.observers.push(observer);
+  }
+
+  private async notify(event: ResultEvent): Promise<void> {
+    for (const observer of this.observers) await observer(event);
+  }
 
   /**
    * One message of a results topic. Never throws for the publisher's faults:
@@ -210,6 +236,7 @@ export class EdgeResultTelemetryService {
       return { status: 'conflict', deviceId: device.id, seq: result.seq };
     }
     if (stored === 'duplicate') {
+      await this.notify({ tenantId: device.tenantId, deviceId: device.id, result });
       return { status: 'duplicate', deviceId: device.id, seq: result.seq };
     }
     this.logger.log({
@@ -220,6 +247,7 @@ export class EdgeResultTelemetryService {
       outcome: result.outcome,
       reason: result.reason ?? null,
     });
+    await this.notify({ tenantId: device.tenantId, deviceId: device.id, result });
     return { status: 'stored', tenantId: device.tenantId, deviceId: device.id, result };
   }
 
@@ -271,6 +299,26 @@ export class EdgeResultTelemetryService {
         ),
     );
     return rows.map((row) => toResult(tenantId, row));
+  }
+
+  /**
+   * The OS version the device last reported: every result carries the
+   * `os_version` of the image that wrote it, so the newest row is what is known
+   * of the running OS. Null for a device that never reported one.
+   */
+  async latestOsVersion(tenantId: string, deviceId: string): Promise<string | null> {
+    const rows = await runInTenantRead(
+      this.dataSource,
+      SENSOR_SOURCE_SCHEMA,
+      tenantId,
+      (qr): Promise<Array<{ os_version: string }>> =>
+        qr.query(
+          `SELECT os_version FROM edge_device_results
+            WHERE tenant_id = $1 AND device_id = $2 ORDER BY seq DESC LIMIT 1`,
+          [tenantId, deviceId],
+        ),
+    );
+    return rows[0]?.os_version ?? null;
   }
 
   /** How many results a device has stored (retention bounds it). */

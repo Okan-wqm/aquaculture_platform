@@ -22,6 +22,7 @@ import { TenantProvisioningKeyDirectory } from './entities/tenant-provisioning-k
 import { TenantProvisioningKey } from './entities/tenant-provisioning-key.entity';
 import { DeviceEvent } from './entities/device-event.entity';
 import { EdgeDeviceResult } from './entities/edge-device-result.entity';
+import { EdgeUpdateRequest } from './entities/edge-update-request.entity';
 import {
   EdgeAuditArchiveV2,
   EdgeDeviceV2,
@@ -38,6 +39,7 @@ import { EdgeCommandPublisher } from './edge-command-publisher.service';
 import { EdgeRootHandoffService } from './edge-root-handoff.service';
 import { EdgeProvisioningManifestService } from './edge-provisioning-manifest.service';
 import { EdgeUpdateManifestService } from './edge-update-manifest.service';
+import { EdgeUpdateRequestService } from './edge-update-request.service';
 import {
   EdgeReleaseCatalog,
   fetchReleaseStatement,
@@ -75,6 +77,7 @@ import { TrustAnchorBundleService } from './trust-anchor-bundle.service';
       TenantProvisioningKeyDirectory,
       DeviceEvent,
       EdgeDeviceResult,
+      EdgeUpdateRequest,
       // Additional entities for field resolver counts
       AutomationProgram,
       Sensor,
@@ -107,6 +110,7 @@ import { TrustAnchorBundleService } from './trust-anchor-bundle.service';
     EdgeProvisioningManifestService,
     // The device-bound edge-update and os-update statements (DEC-2.4, DEC-2.9).
     EdgeUpdateManifestService,
+    EdgeUpdateRequestService,
     ProvisioningReservationService,
     // The single command publish path (ADR-048 DEC-9.2) and its signer.
     CommandEnvelopeSignerService,
@@ -124,6 +128,7 @@ import { TrustAnchorBundleService } from './trust-anchor-bundle.service';
     DeviceDirectoryService,
     EdgeCommandPublisher,
     EdgeResultTelemetryService,
+    EdgeUpdateRequestService,
   ],
 })
 export class EdgeDeviceModule {}

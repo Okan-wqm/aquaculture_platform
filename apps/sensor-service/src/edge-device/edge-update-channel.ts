@@ -22,6 +22,8 @@ export const UPDATE_CHANNEL = {
   deliveryMarginSeconds: settlement.delivery_window.delivery_margin_seconds,
   /** The longest window: the agent prunes a spool entry older than this. */
   maxWindowSeconds: channel.spool.max_entry_age_seconds,
+  /** The spool holds at most this many unconcluded requests; the agent refuses a fifth. */
+  maxPendingEntries: channel.spool.max_pending_entries,
   /** The most a hand-over command may carry (the DSSE envelope as one string). */
   maxStatementBytes: channelsContract.handoff.statement_param.max_bytes,
   /** A re-issue is a new statement at the earliest this long after the refusal. */

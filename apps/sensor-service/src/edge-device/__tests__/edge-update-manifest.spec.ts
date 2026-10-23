@@ -23,11 +23,7 @@ import {
 } from '../../../../../tests/invariants/lib/suderra-edge-contract';
 import { boardRow } from '../edge-boards';
 import { type DeviceBinding, type DsseEnvelope, STATEMENT } from '../edge-contract';
-import {
-  type AdmittedRelease,
-  EdgeReleaseCatalog,
-  type ReleaseProvenanceVerifier,
-} from '../edge-release-catalog.service';
+import { type AdmittedRelease } from '../edge-release-catalog.service';
 import { ContractSchemaError } from '../edge-statement-schemas';
 import {
   assertDeliverableWindow,
@@ -40,9 +36,9 @@ import {
   type UpdateTarget,
 } from '../edge-update-manifest.service';
 import { SuderraEdgeConfig } from '../suderra-edge.config';
-import { TrustAnchorBundleService } from '../trust-anchor-bundle.service';
 
 import { channelEnvironment } from './support/edge-channel-env';
+import { fixtureRelease } from './support/fixture-release';
 
 const text = (rel: string): string => readFileSync(join(FIXTURES, rel), 'utf8');
 const envelopeOf = (rel: string): DsseEnvelope => JSON.parse(text(rel)) as DsseEnvelope;
@@ -55,15 +51,6 @@ const bodyOf = (rel: string): Record<string, unknown> =>
 const REL_170 = 'edge-release/valid/revpi-connect4-aarch64-1.7.0.dsse.json';
 const EDGE_UPDATE = 'edge-update/valid/revpi-connect4-1.7.0-seq-4.dsse.json';
 const OS_UPDATE = 'os-update/valid/revpi-connect4-1.1.0-seq-3.dsse.json';
-
-/** The contract's provenance digests name no document, so the fixture release is admitted without. */
-const FIXTURE_PROVENANCE: ReleaseProvenanceVerifier = (_bytes, expected) => ({
-  digestSha256: expected.digestSha256,
-  repository: expected.repository,
-  workflowRef: 'fixture',
-  tag: `agent-v${expected.version}`,
-  commit: '0'.repeat(40),
-});
 
 const config = new SuderraEdgeConfig(
   new ConfigService(channelEnvironment({ SUDERRA_EDGE_AGENT_VERSION: '1.7.0' })),
@@ -91,15 +78,7 @@ const GOLDEN_WINDOW = {
 };
 const RUNNING = { osVersion: '1.0.0', installedAgentAbi: 1 };
 
-async function release170(): Promise<AdmittedRelease> {
-  const catalog = new EdgeReleaseCatalog(
-    config,
-    new TrustAnchorBundleService(config),
-    async (url) => (url.endsWith('.intoto.jsonl') ? 'provenance fixture\n' : text(REL_170)),
-    FIXTURE_PROVENANCE,
-  );
-  return catalog.forBoard(board);
-}
+const release170 = (): Promise<AdmittedRelease> => fixtureRelease(config, '1.7.0');
 
 const edgeInput = async (over: Partial<EdgeUpdateInput> = {}): Promise<EdgeUpdateInput> => ({
   target,

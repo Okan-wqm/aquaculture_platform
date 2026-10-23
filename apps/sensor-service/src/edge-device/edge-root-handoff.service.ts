@@ -4,6 +4,7 @@ import { Injectable, Logger } from '@nestjs/common';
 
 import { DeviceDirectoryService } from './device-directory.service';
 import { EdgeCommandPublisher } from './edge-command-publisher.service';
+import { EdgeUpdateRequestService } from './edge-update-request.service';
 import {
   DeviceLifecycleState,
   EdgeAgentChannel,
@@ -75,6 +76,7 @@ export class EdgeRootHandoffService {
     private readonly commands: EdgeCommandPublisher,
     private readonly reservations: ProvisioningReservationService,
     private readonly devices: DeviceDirectoryService,
+    private readonly updateRequests: EdgeUpdateRequestService,
   ) {}
 
   /**
@@ -118,6 +120,24 @@ export class EdgeRootHandoffService {
       paced(device.lifecycleRequestSentAt, now)
     ) {
       await this.deliverLifecycleRequest(device, now);
+    }
+    await this.deliverUpdateRequests(device, now);
+  }
+
+  /**
+   * The update requests the device is owed (ADR-048 DEC-2.12): each delivered inside
+   * its window, at most once per redelivery interval, until the agent hands it to
+   * root. A failure is logged and never fails the heartbeat.
+   */
+  private async deliverUpdateRequests(device: HandoffHolder, now: Date): Promise<void> {
+    try {
+      await this.updateRequests.deliverDue(device, now, HANDOFF_REDELIVERY_INTERVAL_MS);
+    } catch (error) {
+      this.logger.warn({
+        event: 'update_request_delivery_failed',
+        deviceId: device.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -181,13 +201,18 @@ export class EdgeRootHandoffService {
     const result = payload['result'];
     if (!isRecord(result) || typeof result['handed_to_root'] !== 'boolean') return false;
     if (payload['success'] !== true || result['handed_to_root'] !== true) {
+      const commandId = typeof payload['commandId'] === 'string' ? payload['commandId'] : null;
+      const reasons = Array.isArray(result['reasons']) ? result['reasons'].map(String) : [];
       this.logger.warn({
         event: 'root_handoff_refused_by_agent',
         device: responder.deviceCode,
-        commandId: typeof payload['commandId'] === 'string' ? payload['commandId'] : null,
-        reasons: Array.isArray(result['reasons']) ? result['reasons'].map(String) : [],
+        commandId,
+        reasons,
         error: typeof payload['error'] === 'string' ? payload['error'] : null,
       });
+      if (commandId !== null && UUID.test(commandId) && reasons.length > 0) {
+        await this.recordUpdateRefusal(responder, commandId, reasons);
+      }
       return true;
     }
     const reported = result['statement_digest'];
@@ -206,12 +231,35 @@ export class EdgeRootHandoffService {
     ) {
       return true;
     }
-    const settled = await this.reservations.settleHandoff(device, { sha256 }, new Date());
-    if (settled === null) {
-      this.logger.warn({ event: 'root_handoff_digest_unknown', deviceId: device.id, sha256 });
-    } else {
+    const now = new Date();
+    const settled = await this.reservations.settleHandoff(device, { sha256 }, now);
+    if (settled !== null) {
       this.logger.log({ event: 'root_handoff_settled', deviceId: device.id, kind: settled });
+    } else if (await this.updateRequests.markHanded(device, sha256, now)) {
+      // An update request: the spool holds it. Only its result concludes it.
+      this.logger.log({ event: 'update_request_handed', deviceId: device.id, sha256 });
+    } else {
+      this.logger.warn({ event: 'root_handoff_digest_unknown', deviceId: device.id, sha256 });
     }
     return true;
+  }
+
+  /** An agent's refusal of a `request_update` names the command, so it finds its request. */
+  private async recordUpdateRefusal(
+    responder: HandoffResponder,
+    commandId: string,
+    reasons: readonly string[],
+  ): Promise<void> {
+    const device = await this.devices.findDevice(
+      UUID.test(responder.deviceCode) ? 'id' : 'device_code',
+      responder.deviceCode,
+    );
+    if (
+      device === null ||
+      (responder.tenantId !== undefined && responder.tenantId !== device.tenantId)
+    ) {
+      return;
+    }
+    await this.updateRequests.recordHandoffRefusal(device, commandId, reasons, new Date());
   }
 }

@@ -9,6 +9,7 @@ import { collaborator } from '@aquaculture/testing';
 import { type DeviceDirectoryService } from '../device-directory.service';
 import { type EdgeCommandPublisher } from '../edge-command-publisher.service';
 import { EdgeRootHandoffService } from '../edge-root-handoff.service';
+import { type EdgeUpdateRequestService } from '../edge-update-request.service';
 import { DeviceLifecycleState, EdgeAgentChannel, EdgeDevice } from '../entities/edge-device.entity';
 import {
   HANDOFF_REDELIVERY_INTERVAL_MS,
@@ -54,6 +55,8 @@ function harness(
     lifecycle?: string | null;
     settled?: 'activation_receipt' | 'lifecycle_request' | null;
     lapsed?: boolean;
+    handedUpdate?: boolean;
+    deliverDue?: () => Promise<number>;
   } = {},
 ): {
   service: EdgeRootHandoffService;
@@ -63,11 +66,20 @@ function harness(
   settleHandoff: jest.Mock;
   settleLapsedMaintenance: jest.Mock;
   findDevice: jest.Mock;
+  deliverDue: jest.Mock;
+  markHanded: jest.Mock;
+  recordHandoffRefusal: jest.Mock;
 } {
   const publish = jest.fn(options.publish ?? (async (): Promise<void> => undefined));
   const claimReceiptDelivery = jest.fn(async () => options.receipt ?? RECEIPT);
   const claimLifecycleDelivery = jest.fn(async () => options.lifecycle ?? LIFECYCLE);
-  const settleHandoff = jest.fn(async () => options.settled ?? 'activation_receipt');
+  // `settled: null` is a digest the reservations do not own; `undefined` the default receipt.
+  const settleHandoff = jest.fn(async () =>
+    options.settled === undefined ? 'activation_receipt' : options.settled,
+  );
+  const deliverDue = jest.fn(options.deliverDue ?? (async (): Promise<number> => 0));
+  const markHanded = jest.fn(async () => options.handedUpdate ?? false);
+  const recordHandoffRefusal = jest.fn(async () => true);
   const settleLapsedMaintenance = jest.fn(async () => options.lapsed ?? true);
   const findDevice = jest.fn(async (column: string, value: string) =>
     (column === 'id' && value === DEVICE) || (column === 'device_code' && value === DEVICE_CODE)
@@ -81,6 +93,10 @@ function harness(
       'ProvisioningReservationService',
     ),
     collaborator<DeviceDirectoryService>({ findDevice }, 'DeviceDirectoryService'),
+    collaborator<EdgeUpdateRequestService>(
+      { deliverDue, markHanded, recordHandoffRefusal },
+      'EdgeUpdateRequestService',
+    ),
   );
   return {
     service,
@@ -90,6 +106,9 @@ function harness(
     settleHandoff,
     settleLapsedMaintenance,
     findDevice,
+    deliverDue,
+    markHanded,
+    recordHandoffRefusal,
   };
 }
 
@@ -258,5 +277,91 @@ describe('EdgeRootHandoffService (ADR-048 DEC-5.8, DEC-5.14)', () => {
       await expect(service.handleResponse({ deviceCode: DEVICE }, payload)).resolves.toBe(false);
     }
     expect(findDevice).not.toHaveBeenCalled();
+  });
+});
+
+describe('EdgeRootHandoffService and the update requests (ADR-048 DEC-2.12)', () => {
+  const COMMAND = '7e570000-0000-4000-8000-0000000000c1';
+
+  it('hands every heartbeat of a Suderra OS device to the update-request delivery, paced by the same interval', async () => {
+    const { service, deliverDue } = harness();
+    await service.deliverPending(owed, NOW);
+    expect(deliverDue).toHaveBeenCalledWith(owed, NOW, HANDOFF_REDELIVERY_INTERVAL_MS);
+  });
+
+  it('a heartbeat that closed a lapsed re-provisioning window ends there: no update request is delivered', async () => {
+    const lapsed = { ...inWindow, maintenanceExpiresAt: new Date(NOW.getTime() - 1000) };
+    const closed = harness({ lapsed: true });
+    await closed.service.onHeartbeat(lapsed, NOW);
+    expect(closed.deliverDue).not.toHaveBeenCalled();
+  });
+
+  it('delivers nothing to a generic device', async () => {
+    const { service, deliverDue } = harness();
+    await service.deliverPending({ ...owed, agentChannel: EdgeAgentChannel.GENERIC_LINUX }, NOW);
+    expect(deliverDue).not.toHaveBeenCalled();
+  });
+
+  it('a failing update-request delivery never fails the heartbeat or the other deliveries', async () => {
+    const { service, publish } = harness({
+      deliverDue: async () => {
+        throw new Error('database down');
+      },
+    });
+    await expect(service.deliverPending(owed, NOW)).resolves.toBeUndefined();
+    expect(publish).toHaveBeenCalledTimes(1);
+  });
+
+  it('a digest no receipt or lifecycle statement owns is an update request: the hand-over stops its delivery', async () => {
+    const { service, settleHandoff, markHanded } = harness({ settled: null, handedUpdate: true });
+    await expect(
+      service.handleResponse({ deviceCode: DEVICE, tenantId: TENANT }, handed),
+    ).resolves.toBe(true);
+    expect(settleHandoff).toHaveBeenCalledTimes(1);
+    expect(markHanded).toHaveBeenCalledWith(
+      expect.objectContaining({ id: DEVICE, tenantId: TENANT }),
+      DIGEST,
+      expect.any(Date),
+    );
+  });
+
+  it('a receipt digest is not offered to the update requests', async () => {
+    const { service, markHanded } = harness();
+    await service.handleResponse({ deviceCode: DEVICE, tenantId: TENANT }, handed);
+    expect(markHanded).not.toHaveBeenCalled();
+  });
+
+  it("an agent's refusal names its command: the update request it carried records why", async () => {
+    const { service, recordHandoffRefusal, findDevice } = harness();
+    const refused = {
+      commandId: COMMAND,
+      success: false,
+      error: 'update-requests-backlog',
+      result: { handed_to_root: false, reasons: ['update-requests-backlog'] },
+    };
+    await expect(
+      service.handleResponse({ deviceCode: DEVICE, tenantId: TENANT }, refused),
+    ).resolves.toBe(true);
+    expect(findDevice).toHaveBeenCalledWith('id', DEVICE);
+    expect(recordHandoffRefusal).toHaveBeenCalledWith(
+      expect.objectContaining({ id: DEVICE, tenantId: TENANT }),
+      COMMAND,
+      ['update-requests-backlog'],
+      expect.any(Date),
+    );
+  });
+
+  it("another tenant's topic never reaches an update request", async () => {
+    const { service, recordHandoffRefusal } = harness();
+    await service.handleResponse(
+      { deviceCode: DEVICE, tenantId: '7e570000-0000-4000-8000-000000000002' },
+      {
+        commandId: COMMAND,
+        success: false,
+        error: 'io-error',
+        result: { handed_to_root: false, reasons: ['io-error'] },
+      },
+    );
+    expect(recordHandoffRefusal).not.toHaveBeenCalled();
   });
 });

@@ -112,6 +112,7 @@ describe("the channel constants are the contract's", () => {
     expect(UPDATE_CHANNEL).toEqual({
       deliveryMarginSeconds: 600,
       maxWindowSeconds: 86400,
+      maxPendingEntries: 4,
       maxStatementBytes: 65536,
       reissueMinIntervalSeconds: 900,
       campaignMaxSeconds: 604800,

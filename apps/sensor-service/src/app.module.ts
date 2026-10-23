@@ -63,6 +63,7 @@ import { SensorTypeDefinition } from './database/entities/sensor-type-definition
 import { EdgeDeviceModule } from './edge-device/edge-device.module';
 import { DeviceIoConfig } from './edge-device/entities/device-io-config.entity';
 import { EdgeDeviceResult } from './edge-device/entities/edge-device-result.entity';
+import { EdgeUpdateRequest } from './edge-device/entities/edge-update-request.entity';
 import { EdgeDevice } from './edge-device/entities/edge-device.entity';
 import {
   EdgeAuditArchiveV2,
@@ -224,6 +225,7 @@ import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
             DashboardLayout,
             EdgeDevice,
             EdgeDeviceResult,
+            EdgeUpdateRequest,
             EdgeDeviceV2,
             EdgePolicyV2,
             EdgeLicenseV2,

@@ -81,7 +81,7 @@
     },
     {
       "glob": "tools/gates/hermetic-git.ts",
-      "readers": "imported by event-consumer-index.ts (the scans list the tree's tracked files with git, no inherited GIT_* variable) and fixture-tree.ts; same suite tests"
+      "readers": "imported by event-consumer-index.ts (the scans list the tree's tracked files with git, no inherited GIT_* variable); same suite tests"
     },
     {
       "glob": "tools/gates/fixture-tree.ts",

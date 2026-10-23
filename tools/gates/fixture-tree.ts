@@ -44,13 +44,19 @@
  * (`makeFixtureTree`, ARIA-LOW-595): a file run whole by ts-node builds its
  * workspace at module level, where there is no `afterAll`, and eleven
  * `tools/aria-adapters` tests left their trees in the temp dir on every run.
+ *
+ * Two module loaders read this file, so it imports only `node:` built-ins.
+ * ts-node and Jest load it as CommonJS, where a sibling import is written
+ * without an extension (`./hermetic-git`). `npm run tools:test` loads it from
+ * `tools/watchdog/privileged-evidence.spec.mjs` under Node's own type
+ * stripping, where an import must name the file it means and an extensionless
+ * sibling does not resolve (ERR_MODULE_NOT_FOUND). Anything that needs a
+ * sibling module, such as indexing a fixture with git, lives in its own module:
+ * `fixture-git-index.ts`. A sibling import added here fails `tools:test`.
  */
-import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { hermeticGitEnv } from './hermetic-git';
 
 /**
  * Retry budget for a single removal. Worst case is a linear backoff summing to
@@ -123,31 +129,4 @@ export function makeFixtureTree(prefix: string): string {
   }
   treesRemovedAtExit.add(path);
   return path;
-}
-
-/**
- * Make `root` a git work tree whose index holds every file under it that its
- * own `.gitignore` does not ignore, and return `root`. Call it again after
- * writing more files.
- *
- * The code scans of tools/gates/event-consumer-index.ts read the TRACKED files
- * of a tree (`git ls-files`), never whatever lies on disk, so an ignored or
- * untracked file never becomes a fact (SE-3-R2 corrective R1). A fixture is
- * therefore a tree whose files are in its index. Nothing is committed: the
- * index is the tracked set. Git runs with no inherited `GIT_*` variable and no
- * global or system config, so neither the caller's repository nor a user-wide
- * excludes file decides what the fixture tracks.
- */
-export function indexFixtureTree(root: string): string {
-  const env = hermeticGitEnv(process.env, {
-    GIT_CONFIG_GLOBAL: '/dev/null',
-    GIT_CONFIG_NOSYSTEM: '1',
-  });
-  for (const args of [
-    ['init', '--quiet'],
-    ['add', '--all'],
-  ]) {
-    execFileSync('git', ['-C', root, ...args], { env, stdio: ['ignore', 'ignore', 'pipe'] });
-  }
-  return root;
 }

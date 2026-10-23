@@ -121,7 +121,11 @@ export function resolveInsideWorkspace(workspaceRoot: string, requestedPath: str
  * `aria_kernel/digest.py` in the checkout, 0 outside it). `collectFiles` and
  * `containedWorkspace` both classify through this one function, so the walk
  * lists exactly the files the reader will open; outside the room nothing is
- * covered and both see every file.
+ * covered and both see every file. It is the one lstat entry classifier of
+ * the tool sources: the code-fact scans' `TrackedTree`
+ * (tools/gates/event-consumer-index.ts) classifies through
+ * `containedWorkspace` too (SE-3-R2 appellate RC, pinned by
+ * event-consumer-index.spec.ts).
  */
 type EntryKind = 'absent' | 'symlink' | 'file' | 'directory' | 'special';
 

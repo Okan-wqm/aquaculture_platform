@@ -32,10 +32,14 @@ def _resolve(importer: Path, specifier: str) -> Path:
     raise AssertionError(f"{importer.relative_to(REPO_ROOT)} imports {specifier!r}, which resolves to no file")
 
 
-def witness_tool_paths(repo_root: Path = REPO_ROOT) -> tuple[str, ...]:
-    """The witness, its tsconfig and every file it imports relatively, transitively; repo-relative."""
+def tool_closure_paths(*entries: str, repo_root: Path = REPO_ROOT) -> tuple[str, ...]:
+    """The given TypeScript entries and every file they import relatively, transitively; repo-relative, sorted.
+
+    One closure walk serves every native fixture that copies a kernel-run tool into a small
+    repository: the plan-coverage witness and the two code-fact bridge entries (SE-3).
+    """
     seen: set[Path] = set()
-    pending = [(repo_root / WITNESS_RELPATH).resolve()]
+    pending = [(repo_root / entry).resolve() for entry in entries]
     while pending:
         current = pending.pop()
         if current in seen:
@@ -43,6 +47,11 @@ def witness_tool_paths(repo_root: Path = REPO_ROOT) -> tuple[str, ...]:
         seen.add(current)
         for match in _RELATIVE_SPECIFIER.finditer(current.read_text(encoding="utf-8")):
             pending.append(_resolve(current, match.group(2)))
-    ordered = sorted(path.relative_to(repo_root.resolve()).as_posix() for path in seen)
+    return tuple(sorted(path.relative_to(repo_root.resolve()).as_posix() for path in seen))
+
+
+def witness_tool_paths(repo_root: Path = REPO_ROOT) -> tuple[str, ...]:
+    """The witness, its tsconfig and every file it imports relatively, transitively; repo-relative."""
+    ordered = list(tool_closure_paths(WITNESS_RELPATH, repo_root=repo_root))
     ordered.remove(WITNESS_RELPATH)
     return (WITNESS_RELPATH, WITNESS_TSCONFIG, *ordered)

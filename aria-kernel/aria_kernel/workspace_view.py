@@ -46,6 +46,8 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
+from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
+
 # Git that sees the tree as it is: no GIT_DIR / GIT_WORK_TREE /
 # GIT_INDEX_FILE from the caller's environment, no fsmonitor hook and no
 # untracked cache from the repository's config deciding what git reports.
@@ -73,6 +75,40 @@ def hermetic_git(
         ["git", *HERMETIC_GIT_CONFIG_ARGS, "-C", str(workspace_root), *args],
         capture_output=True, text=text, timeout=timeout, check=False, env=hermetic,
     )
+
+
+def workspace_head_sha(workspace_root: str | os.PathLike[str]) -> str | None:
+    """The checkout's HEAD commit, or None when it is not a git checkout."""
+    try:
+        completed = hermetic_git(workspace_root, "rev-parse", "--verify", "HEAD^{commit}", timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    head = completed.stdout.strip()
+    return head if completed.returncode == 0 and is_object_id(head, formats=ANY_OBJECT_FORMAT) else None
+
+
+def index_flagged_paths(workspace_root: str | os.PathLike[str]) -> tuple[str, ...]:
+    """Tracked paths whose index entry stops ``git status`` from comparing them with the disk.
+
+    An entry flagged assume-unchanged (``git ls-files -v`` tags it in lower case) or
+    skip-worktree (tag ``S``) is reported clean whatever its file holds, so a clean status
+    proves nothing about it. A caller that vouches for the disk being HEAD refuses these.
+    Raises :class:`WorkspaceViewRefused` when git cannot list the index.
+    """
+    try:
+        completed = hermetic_git(
+            workspace_root, "ls-files", "-v", "-z", timeout=_GIT_LISTING_TIMEOUT_SECONDS, text=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise WorkspaceViewRefused(f"workspace_view_git_unavailable:{type(exc).__name__}") from exc
+    if completed.returncode != 0:
+        raise WorkspaceViewRefused("workspace_view_not_a_checkout")
+    flagged: list[str] = []
+    for entry in completed.stdout.split(b"\0"):
+        tag, path = entry[:1], entry[2:]
+        if tag.islower() or tag == b"S":
+            flagged.append(os.fsdecode(path))
+    return tuple(flagged)
 
 
 @dataclass(frozen=True)
@@ -171,4 +207,6 @@ __all__ = [
     "WorkspaceViewRefused",
     "build_workspace_view",
     "hermetic_git",
+    "index_flagged_paths",
+    "workspace_head_sha",
 ]

@@ -35,7 +35,7 @@ from aria_kernel.human_required import (
     resolve_human_required,
 )
 from aria_kernel.ledger import append_declared_jsonl
-from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from aria_kernel.tool_registry import GovernanceError, ensure_tools_binding
 from tests._helpers.adjudication import seed_adjudicator_opinion
 
 
@@ -99,7 +99,9 @@ class _GapStoreCase(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory(prefix="aria-y8-")
         self.tools = Path(self._tmp.name) / "aria-tools"
-        ensure_tools_dir(self.tools)
+        # A draft's scope is the root of every project its evidence lies in,
+        # over the store's map (SE-1 round 2): the store declares its workspace.
+        ensure_tools_binding(self.tools, workspace_root=Path(self._tmp.name))
 
     def tearDown(self) -> None:
         self._tmp.cleanup()

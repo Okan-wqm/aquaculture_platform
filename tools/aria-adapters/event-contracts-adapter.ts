@@ -3,7 +3,7 @@ import { relative } from 'node:path';
 
 import ts from 'typescript';
 
-import { eventDefinitionsIn } from '../gates/event-consumer-index';
+import { eventDefinitionsIn, trackedTree } from '../gates/event-consumer-index';
 
 import {
   collectFiles,
@@ -115,15 +115,25 @@ export function analyzeEventContracts(
     throw new Error(`scan root does not exist: ${requestedRoot}`);
   }
 
+  // The tracked view (SE-3-R2 appellate RC): the files and every module they
+  // import are the workspace's tracked content, the view the code-fact scan's
+  // `event_definitions` reads, so the one definition rule (`eventDefinitionsIn`)
+  // answers over one view for both. An untracked contract on disk is no
+  // observation, and an `eventType` whose type comes from an ignored module
+  // resolves to nothing. In the adapter room the workspace already shows only
+  // tracked content, so there the view changes nothing.
+  const tracked = trackedTree(workspaceRoot);
   const files = filterFilesBySnapshot(
-    collectTypeScriptFiles(workspaceRoot, scanRoot),
+    collectTypeScriptFiles(workspaceRoot, scanRoot).filter((file) =>
+      tracked.holdsFile(normalizePath(relative(tracked.root, file))),
+    ),
     workspaceRoot,
     input,
   );
-  // ARIA-LOW-593 — the program is built on the containment owner's host, so
-  // a heritage alias that resolves only through a symlinked module resolves
-  // to nothing: workspace content alone must establish the inheritance.
-  const program = createContainedProgram(workspaceRoot, files);
+  // ARIA-LOW-593 — the program is built on the one host builder, so a
+  // heritage alias that resolves only through a symlinked module resolves to
+  // nothing: tracked workspace content alone must establish the inheritance.
+  const program = createContainedProgram({ kind: 'tracked', tree: tracked }, files);
   const units = files.map((file) => readSourceUnit(file, workspaceRoot, program));
   const context: AnalysisContext = { checker: program.getTypeChecker() };
   const result: AnalysisResult = {

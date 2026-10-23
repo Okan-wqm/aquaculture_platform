@@ -120,25 +120,51 @@ interface TsconfigPaths {
 const MAX_RESOLUTION_HOPS = 16;
 const MODULE_EXTENSIONS = ['.ts', '.tsx', '.js', '/index.ts', '/index.js'] as const;
 
+/**
+ * Which files a MODULE_SCHEMAS reading may read, answered by one owner per policy:
+ *   - `{ pathAllowed? }`: every regular file the containment owner reaches without crossing a
+ *     symlink (`containedWorkspace`), narrowed by the caller's allowance (the typeorm adapter's
+ *     repo snapshot); no allowance admits every contained file;
+ *   - `{ tracked }`: the tree's tracked content (`TrackedTree.holdsFile`, the code-fact module
+ *     entry), which already classifies through the containment owner, so it is asked alone
+ *     (SE-3-R2 appellate RC).
+ */
+export type ModuleSchemasReadPolicy =
+  | { readonly pathAllowed?: (path: string) => boolean }
+  | { readonly tracked: TrackedTree };
+
+/** The one "may this reading read `path` as a file" answer of `policy`. */
+function readableFiles(
+  workspace: ContainedWorkspace,
+  policy: ModuleSchemasReadPolicy,
+): (path: string) => boolean {
+  if ('tracked' in policy) return (path) => policy.tracked.holdsFile(path);
+  const allowed = policy.pathAllowed;
+  return allowed === undefined
+    ? (path) => workspace.entry(path) === 'file'
+    : (path) => allowed(path) && workspace.entry(path) === 'file';
+}
+
 class Resolver {
   private readonly sourceCache = new Map<string, ts.SourceFile | null>();
   private readonly tsconfigPaths: TsconfigPaths | null;
   private readonly readPaths = new Set<string>();
 
+  /**
+   * `readable` is the one answer to "is this a file the reading may read" (see
+   * `ModuleSchemasReadPolicy`); `workspace` only reads what it admitted.
+   */
   constructor(
     private readonly workspace: ContainedWorkspace,
     private readonly errors: ModuleSchemaSourceError[],
-    private readonly pathAllowed: (path: string) => boolean,
+    private readonly readable: (path: string) => boolean,
   ) {
     this.tsconfigPaths = this.readTsconfigPaths();
   }
 
   /** The path map from the workspace's tsconfig.base.json, or null. */
   private readTsconfigPaths(): TsconfigPaths | null {
-    if (
-      this.workspace.entry(TSCONFIG_BASE_PATH) !== 'file' ||
-      !this.pathAllowed(TSCONFIG_BASE_PATH)
-    ) {
+    if (!this.readable(TSCONFIG_BASE_PATH)) {
       return null;
     }
     let config: ts.JsonSourceFile;
@@ -209,7 +235,7 @@ class Resolver {
       return this.sourceCache.get(path) ?? null;
     }
     let source: ts.SourceFile | null = null;
-    if (this.workspace.entry(path) === 'file' && this.pathAllowed(path)) {
+    if (this.readable(path)) {
       try {
         source = ts.createSourceFile(
           path,
@@ -281,20 +307,20 @@ class Resolver {
 
   /**
    * The file a specifier's path names: itself, or with a module extension. The read policy
-   * (`pathAllowed`) is asked about each file the probe would read, never about the extensionless
-   * path, which names no file: a policy of files (the module entry's tracked set) admits
-   * `outbox-migration.ts`, not `outbox-migration`.
+   * (`readable`, one owner per policy) is asked about each file the probe would read, never about
+   * the extensionless path, which names no file: a policy of files (the module entry's tracked
+   * set) admits `outbox-migration.ts`, not `outbox-migration`.
    */
   private probeFile(path: string): string | null {
     if (!isWorkspaceRelativePath(path)) {
       return null;
     }
-    if (this.pathAllowed(path) && this.workspace.entry(path) === 'file') {
+    if (this.readable(path)) {
       return path;
     }
     for (const extension of MODULE_EXTENSIONS) {
       const candidate = normalizeWorkspacePath(`${path}${extension}`);
-      if (this.pathAllowed(candidate) && this.workspace.entry(candidate) === 'file') {
+      if (this.readable(candidate)) {
         return candidate;
       }
     }
@@ -743,19 +769,20 @@ function visit(node: ts.Node, visitor: (node: ts.Node) => void): void {
  * its check), while every element-level failure is a named error in the
  * result, never a silent drop.
  *
- * `options.pathAllowed` (optional) is the caller's read policy — the adapter
- * passes its repo-snapshot allowance so the import-chain resolution never
- * reads a path the snapshot does not permit. A disallowed path resolves to
- * nothing, which surfaces as a named error naming the specifier.
+ * `options` is the caller's read policy (`ModuleSchemasReadPolicy`): the
+ * typeorm adapter passes its repo-snapshot allowance so the import-chain
+ * resolution never reads a path the snapshot does not permit; the code-fact
+ * module entry passes the tree's tracked content. A disallowed path resolves
+ * to nothing, which surfaces as a named error naming the specifier.
  */
 export function readModuleSchemasSource(
   workspaceRoot: string,
   ssotPath: string = MODULE_SCHEMAS_SOURCE_PATH,
-  options: { readonly pathAllowed?: (path: string) => boolean } = {},
+  options: ModuleSchemasReadPolicy = {},
 ): ModuleSchemasSource {
   const workspace = containedWorkspace(workspaceRoot);
   const errors: ModuleSchemaSourceError[] = [];
-  const resolver = new Resolver(workspace, errors, options.pathAllowed ?? (() => true));
+  const resolver = new Resolver(workspace, errors, readableFiles(workspace, options));
   const ssotText = workspace.readFile(ssotPath);
   resolver.noteRead(ssotPath);
   const sourceFile = ts.createSourceFile(ssotPath, ssotText, ts.ScriptTarget.Latest, true);
@@ -1013,9 +1040,7 @@ export function moduleFacts(workspaceRoot: string): ModuleFacts {
       throw new ModuleFactsUnavailable(`${path} is not a file the tree tracks`);
     }
   }
-  const source = readModuleSchemasSource(workspaceRoot, MODULE_SCHEMAS_SOURCE_PATH, {
-    pathAllowed: (path) => tracked.holdsFile(path),
-  });
+  const source = readModuleSchemasSource(workspaceRoot, MODULE_SCHEMAS_SOURCE_PATH, { tracked });
   const registry = readSchemaOwners(workspaceRoot);
   const errors = [...source.errors, ...registry.errors];
   if (errors.length > 0) {

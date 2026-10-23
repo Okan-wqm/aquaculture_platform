@@ -1477,6 +1477,78 @@ void test('R3: one owner of "who produces event T": every other producer reader 
   assertOneOwner('producer', KNOWN_PRODUCER_READERS, PRODUCER_ORACLES);
 });
 
+// Appellate RC: the tracked view was built as a second lstat classifier and a second compiler-host
+// builder beside adapter-fs and adapter-ts (ARIA-LOW-593), and the two hosts disagreed on what the
+// one definition rule saw. One builder (adapter-ts `containedCompilerHost`, given its view) and one
+// classifier (adapter-fs `entryKindAt`) remain across the tool sources.
+const TOOL_SOURCE_DIRS = ['tools/gates/', 'tools/aria-adapters/'];
+const HOST_BUILDER = 'tools/aria-adapters/adapter-ts.ts';
+const ENTRY_CLASSIFIER = 'tools/aria-adapters/adapter-fs.ts#entryKindAt';
+/** lstat callers that read one property of an entry the classifier already classified. */
+const LSTAT_READS_OF_A_CLASSIFIED_ENTRY: Readonly<Record<string, string>> = {
+  'tools/aria-adapters/adapter-fs.ts#workspaceIsExecutable':
+    'the execute bit of a path collectFiles classified as a file',
+  'tools/aria-adapters/adapter-fs.ts#workspaceFileBytes':
+    'the size of an entry containedWorkspace classified as a file',
+};
+
+/** The name of the function, method or bound arrow enclosing `node`, by file. */
+function enclosingFunction(node: ts.Node): string {
+  for (let current = node.parent; current !== undefined; current = current.parent) {
+    if ((ts.isFunctionDeclaration(current) || ts.isMethodDeclaration(current)) && current.name) {
+      return current.name.getText();
+    }
+    if (
+      (ts.isArrowFunction(current) || ts.isFunctionExpression(current)) &&
+      ts.isVariableDeclaration(current.parent)
+    ) {
+      return current.parent.name.getText();
+    }
+  }
+  return '<module>';
+}
+
+void test('RC: the tool sources hold one compiler-host builder and one lstat entry classifier', () => {
+  const sources = execFileSync(
+    'git',
+    ['-C', REPO_ROOT, 'ls-files', '-z', '--', ...TOOL_SOURCE_DIRS.map((dir) => `${dir}*.ts`)],
+    { encoding: 'utf8', env: hermeticGitEnv() },
+  )
+    .split('\0')
+    .filter(
+      (path) =>
+        path.length > 0 &&
+        !/\.(?:spec|test|d)\.ts$/.test(path) &&
+        !path.split('/').some((segment) => segment === 'node_modules' || segment === 'fixtures'),
+    );
+  const hostBuilders: string[] = [];
+  const lstatCallers = new Set<string>();
+  for (const path of sources) {
+    for (const node of nodesOf(parsedSource(path))) {
+      if (!ts.isCallExpression(node)) continue;
+      const callee = node.expression;
+      const name = ts.isPropertyAccessExpression(callee)
+        ? callee.name.text
+        : ts.isIdentifier(callee)
+          ? callee.text
+          : '';
+      if (name === 'createCompilerHost') hostBuilders.push(path);
+      if (name === 'lstatSync' || name === 'lstat') {
+        lstatCallers.add(`${path}#${enclosingFunction(node)}`);
+      }
+    }
+  }
+  assert.deepEqual(hostBuilders, [HOST_BUILDER], 'ts.createCompilerHost( outside the one builder');
+  for (const reader of Object.keys(LSTAT_READS_OF_A_CLASSIFIED_ENTRY)) {
+    assert.ok(lstatCallers.has(reader), `${reader} reads no lstat any more (stale entry)`);
+  }
+  assert.deepEqual(
+    [...lstatCallers].filter((caller) => !(caller in LSTAT_READS_OF_A_CLASSIFIED_ENTRY)).sort(),
+    [ENTRY_CLASSIFIER],
+    'an lstat entry classifier beside adapter-fs entryKindAt',
+  );
+});
+
 void test('R3: one owner of "where event T is defined": every other definition reader in the tree is tracked by an open finding', () => {
   assertOneOwner('definition', KNOWN_DEFINITION_READERS, Object.keys(NOT_DEFINITION_READERS));
   assert.deepEqual(

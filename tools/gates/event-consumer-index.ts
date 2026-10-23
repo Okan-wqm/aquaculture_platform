@@ -18,8 +18,9 @@
  *     `SubscribeTo(`, `EventPattern(`, `EventHandler(`). The text filter only bounds the program;
  *     it decides nothing. Everything a scan reads is the tree's tracked content (`TrackedTree`):
  *     the scans enumerate its tracked files, never the disk, and the type checker's compiler host
- *     resolves imports only inside that tracked set, the workspace node_modules and the
- *     TypeScript lib directory. So an ignored or untracked file is never a source, never a module
+ *     (adapter-ts `containedCompilerHost`, the one host builder, given the tracked view) resolves
+ *     imports only inside that tracked set, the workspace node_modules and the TypeScript lib
+ *     directory. So an ignored or untracked file is never a source, never a module
  *     an import reaches, and an apps/<dir> with no tracked file is never an application; a
  *     symlink at any level of a tracked path is refused, never followed (`SourceTreeUnavailable`
  *     for a file a scan reads, an unresolved import for the checker).
@@ -85,10 +86,21 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { join, relative, resolve, sep } from 'node:path';
 
 import ts from 'typescript';
+
+import {
+  containedWorkspace,
+  type ContainedWorkspace,
+  type WorkspaceEntry,
+} from '../aria-adapters/adapter-fs';
+import {
+  containedCompilerHost,
+  type InTreeView,
+  type TrackedContent,
+} from '../aria-adapters/adapter-ts';
 
 import { hermeticGitEnv } from './hermetic-git';
 import {
@@ -226,48 +238,31 @@ function gitPaths(root: string, args: readonly string[]): string[] {
   return result.stdout.split('\0').filter((path) => path.length > 0);
 }
 
-/** What an on-disk path is, without following it (`lstat`). */
-type EntryKind = 'file' | 'directory' | 'symlink' | 'other' | 'absent';
-
-function entryKind(absolute: string): EntryKind {
-  const stat = lstatSync(absolute, { throwIfNoEntry: false });
-  if (stat === undefined) return 'absent';
-  if (stat.isSymbolicLink()) return 'symlink';
-  if (stat.isFile()) return 'file';
-  return stat.isDirectory() ? 'directory' : 'other';
-}
-
-/** Where a path the type checker asks about lies (`TrackedTree.scopeOf`). */
-type HostScope =
-  | { readonly kind: 'tree'; readonly path: string }
-  | { readonly kind: 'installed' }
-  | { readonly kind: 'outside' };
-
 /**
  * The tracked content of one tree: the one enumeration every scan, the SE-1 key reader, the type
- * checker's host and the module entry read (SE-3-R2 corrective R1 and round-2 RB).
+ * checker's view and the module entry read (SE-3-R2 corrective R1 and round-2 RB).
  *
  * `paths` are the files of the tree's index that are present in the work tree (`git ls-files`
  * minus deleted files, with no inherited GIT_* variable), repo-relative and posix. A path is read
- * only when it is in `paths` and every component of it on disk is a real directory and the last a
- * regular file: a symlink at any level is refused, never followed. So an ignored or untracked
- * file, an empty directory, an apps/<dir> holding only ignored files, a module behind a symlinked
- * directory or at an absolute path is never a source, an application or a module the checker
- * resolves. On the kernel's clean base checkout the index is the base commit and the disk is its
- * content (`K/plan_coverage.py` `_base_tree_error`), so every fact is the base's. A subdirectory
- * of a work tree lists its own tracked files, so a committed fixture tree reads as a tree.
+ * only when it is in `paths` and the containment owner (adapter-fs `containedWorkspace`, whose
+ * component walk classifies with the one lstat classifier `entryKindAt`) finds it a regular file
+ * reached through real directories: a symlink at any level is refused, never followed. So an
+ * ignored or untracked file, an empty directory, an apps/<dir> holding only ignored files, a
+ * module behind a symlinked directory or at an absolute path is never a source, an application or
+ * a module the checker resolves (the checker reads the tree through the tracked view of adapter-ts
+ * `containedCompilerHost`, SE-3-R2 appellate RC). On the kernel's clean base checkout the index is
+ * the base commit and the disk is its content (`K/plan_coverage.py` `_base_tree_error`), so every
+ * fact is the base's. A subdirectory of a work tree lists its own tracked files, so a committed
+ * fixture tree reads as a tree.
  */
-export class TrackedTree {
+export class TrackedTree implements TrackedContent {
   readonly root: string;
   readonly paths: ReadonlySet<string>;
   /** Every directory that holds a tracked path, repo-relative ('' is the root). */
   private readonly directories: ReadonlySet<string>;
-  /**
-   * Outside the tracked tree only the installed toolchain resolves: the workspace node_modules
-   * (and where it links to) and the TypeScript lib directory of the running compiler.
-   */
-  private readonly installedRoots: readonly string[];
-  private readonly kinds = new Map<string, EntryKind>();
+  private readonly workspace: ContainedWorkspace;
+  /** The containment owner's answer per path, asked once. */
+  private readonly entries = new Map<string, WorkspaceEntry>();
 
   constructor(repoRoot: string) {
     this.root = resolve(repoRoot);
@@ -283,31 +278,26 @@ export class TrackedTree {
       }
     }
     this.directories = directories;
-    const installed = [join(this.root, 'node_modules'), dirname(ts.getDefaultLibFilePath({}))];
-    this.installedRoots = installed.flatMap((path) =>
-      existsSync(path) ? [...new Set([path, realpathSync(path)])] : [],
-    );
+    this.workspace = containedWorkspace(this.root);
   }
 
-  /** The on-disk kind of a repo-relative path, every component checked without following it. */
-  private kindOf(path: string): EntryKind {
-    const known = this.kinds.get(path);
+  /** What a repo-relative path is on disk, every component checked without following it. */
+  private entryOf(path: string): WorkspaceEntry {
+    const known = this.entries.get(path);
     if (known !== undefined) return known;
-    const slash = path.lastIndexOf('/');
-    const parent = slash === -1 ? 'directory' : this.kindOf(path.slice(0, slash));
-    const kind = parent === 'directory' ? entryKind(join(this.root, path)) : 'absent';
-    this.kinds.set(path, kind);
-    return kind;
+    const entry = this.workspace.entry(path);
+    this.entries.set(path, entry);
+    return entry;
   }
 
   /** `path` is tracked and a regular file reached through real directories only. */
   holdsFile(path: string): boolean {
-    return this.paths.has(path) && this.kindOf(path) === 'file';
+    return this.paths.has(path) && this.entryOf(path) === 'file';
   }
 
   /** `path` holds a tracked path and is a real directory reached through real directories. */
   holdsDirectory(path: string): boolean {
-    return path === '' || (this.directories.has(path) && this.kindOf(path) === 'directory');
+    return path === '' || (this.directories.has(path) && this.entryOf(path) === 'directory');
   }
 
   /** The absolute path of a tracked regular file; anything else is SourceTreeUnavailable. */
@@ -315,42 +305,12 @@ export class TrackedTree {
     if (!this.paths.has(path)) {
       throw new SourceTreeUnavailable(`${path} is not a tracked file of ${this.root}`);
     }
-    if (this.kindOf(path) !== 'file') {
+    if (this.entryOf(path) !== 'file') {
       throw new SourceTreeUnavailable(
         `${path} is not a regular file; a tracked symlink is refused, never followed`,
       );
     }
     return join(this.root, path);
-  }
-
-  /** Where an absolute (or root-relative) path lies: in the tree, in the toolchain, or outside. */
-  scopeOf(path: string): HostScope {
-    const absolute = resolve(this.root, path);
-    const inTree = relative(this.root, absolute);
-    if (inTree !== '..' && !inTree.startsWith(`..${sep}`) && !isAbsolute(inTree)) {
-      const posix = toPosix(inTree);
-      if (posix === 'node_modules' || posix.startsWith('node_modules/'))
-        return { kind: 'installed' };
-      return { kind: 'tree', path: posix };
-    }
-    const installed = this.installedRoots.some(
-      (root) => absolute === root || absolute.startsWith(`${root}${sep}`),
-    );
-    return installed ? { kind: 'installed' } : { kind: 'outside' };
-  }
-
-  /** Whether the checker may see the file at `path` (see `scopeOf`). */
-  admitsFile(path: string): boolean {
-    const scope = this.scopeOf(path);
-    if (scope.kind === 'tree') return this.holdsFile(scope.path);
-    return scope.kind === 'installed' && ts.sys.fileExists(path);
-  }
-
-  /** Whether the checker may see the directory at `path` (see `scopeOf`). */
-  admitsDirectory(path: string): boolean {
-    const scope = this.scopeOf(path);
-    if (scope.kind === 'tree') return this.holdsDirectory(scope.path);
-    return scope.kind === 'installed' && ts.sys.directoryExists(path);
   }
 }
 
@@ -359,32 +319,9 @@ export function trackedTree(repoRoot: string): TrackedTree {
   return new TrackedTree(repoRoot);
 }
 
-/**
- * The type checker's view of a tree: a compiler host whose every file and directory question is
- * answered by `TrackedTree`, so module resolution and `getSourceFile` see the tracked tree, the
- * workspace node_modules and the TypeScript lib directory, and nothing else. On the default host
- * an import of an ignored, untracked, symlinked or absolute-path module was read from disk and its
- * content became facts stamped with the base commit (SE-3-R2 round-2 RB).
- */
-function trackedCompilerHost(tree: TrackedTree, options: ts.CompilerOptions): ts.CompilerHost {
-  const base = ts.createCompilerHost(options);
-  return {
-    ...base,
-    fileExists: (path) => tree.admitsFile(path),
-    readFile: (path) => (tree.admitsFile(path) ? base.readFile(path) : undefined),
-    directoryExists: (path) => tree.admitsDirectory(path),
-    getDirectories: (path) =>
-      tree.admitsDirectory(path)
-        ? ts.sys.getDirectories(path).filter((name) => tree.admitsDirectory(join(path, name)))
-        : [],
-    // A tracked path holds no symlink, so it is its own real path; the toolchain's links resolve.
-    realpath: (path) =>
-      tree.scopeOf(path).kind === 'installed' && existsSync(path) ? realpathSync(path) : path,
-    getSourceFile: (path, languageVersion, onError, shouldCreate) =>
-      tree.admitsFile(path)
-        ? base.getSourceFile(path, languageVersion, onError, shouldCreate)
-        : undefined,
-  };
+/** The type checker's view of a tree: its tracked content and the installed toolchain only. */
+function trackedView(tree: TrackedTree): InTreeView {
+  return { kind: 'tracked', tree };
 }
 
 const SOURCE_FILE = /^(?:apps|libs|platform\/libs)\/[^/]+\/src\/(?:.+\/)?[^/]+\.ts$/;
@@ -474,20 +411,20 @@ function compilerOptions(tree: TrackedTree): ts.CompilerOptions {
   };
   if (tree.paths.has(TSCONFIG_BASE)) {
     const configPath = tree.file(TSCONFIG_BASE);
-    const readTracked = (path: string): string | undefined =>
-      tree.admitsFile(path) ? ts.sys.readFile(path) : undefined;
-    const read = ts.readConfigFile(configPath, readTracked);
+    // The config and its `extends` chain are read through the checker's own view.
+    const host = containedCompilerHost(trackedView(tree), base);
+    const read = ts.readConfigFile(configPath, (path) => host.readFile(path));
     if (read.error !== undefined) {
       throw new Error(
         `${configPath}: ${ts.flattenDiagnosticMessageText(read.error.messageText, '\n')}`,
       );
     }
-    // An `extends` chain resolves through the tracked view too; the file list is not used.
+    // The file list is not used.
     const parseHost: ts.ParseConfigHost = {
       useCaseSensitiveFileNames: ts.sys.useCaseSensitiveFileNames,
       readDirectory: () => [],
-      fileExists: (path) => tree.admitsFile(path),
-      readFile: readTracked,
+      fileExists: (path) => host.fileExists(path),
+      readFile: (path) => host.readFile(path),
     };
     Object.assign(base, ts.parseJsonConfigFileContent(read.config, parseHost, tree.root).options);
   }
@@ -1026,7 +963,7 @@ class SourceScan {
     this.program = ts.createProgram({
       rootNames: [...programFiles],
       options,
-      host: trackedCompilerHost(tree.tracked, options),
+      host: containedCompilerHost(trackedView(tree.tracked), options),
     });
     this.checker = this.program.getTypeChecker();
     this.folder = new ValueFolder(this.checker);

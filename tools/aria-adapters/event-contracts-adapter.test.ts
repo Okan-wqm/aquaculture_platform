@@ -95,6 +95,8 @@ writeFileSync(
   'utf8',
 );
 
+// The adapter reads the workspace's tracked content (SE-3-R2 appellate RC): its files are indexed.
+indexFixtureTree(workspace);
 const output = analyzeEventContracts({ root: 'libs/event-contracts/src' }, workspace);
 
 assert.equal(output.metadata.adapter, 'event-contracts-adapter');
@@ -184,6 +186,7 @@ writeFileSync(
   `,
   'utf8',
 );
+indexFixtureTree(workspace);
 const emptyCatalogOutput = analyzeEventContracts({ root: 'libs/event-contracts/src' }, workspace);
 assert.equal(
   emptyCatalogOutput.findings.some(
@@ -302,5 +305,79 @@ assert.deepEqual(
   'the code-fact definitions and the adapter observations disagree: two definition rules',
 );
 assert.deepEqual(factDefinitions, ['BatchCreated @ libs/event-contracts/src/farm-events.ts']);
+
+// --- SE-3-R2 appellate RC: both readers of the one definition rule read one view of the tree ---
+//
+// The adapter built its program on the contained view (every file on disk) and walked its file
+// set from disk, while the code-fact scan reads the tree's tracked content. On this tree a tracked
+// contract takes its `eventType` from a gitignored module, and an untracked contract sits beside
+// it: the adapter observed PlantedViaIgnoredType and PlantedUntracked, the facts named neither, and
+// the pin above ("the same set") held only where nothing untracked is on disk. Both readers now
+// read the tracked view, so their answers are one set on every tree.
+const viewTree = makeFixtureTree('aria-event-definitions-view-');
+const viewFiles: Record<string, string> = {
+  '.gitignore': 'tmp\n',
+  'libs/event-contracts/src/base-event.ts':
+    definitionFiles['libs/event-contracts/src/base-event.ts'] ?? '',
+  'libs/event-contracts/src/farm-events.ts': [
+    "import type { BaseEvent } from './base-event';",
+    "import type { PlantedType } from './tmp/planted-type';",
+    'export interface BatchCreatedEvent extends BaseEvent {',
+    "  readonly eventType: 'BatchCreated';",
+    '}',
+    'export interface PlantedEvent extends BaseEvent {',
+    '  readonly eventType: PlantedType;',
+    '}',
+    '',
+  ].join('\n'),
+  'infrastructure/nats/services.yaml': definitionFiles['infrastructure/nats/services.yaml'] ?? '',
+};
+for (const [path, text] of Object.entries(viewFiles)) {
+  mkdirSync(join(viewTree, path, '..'), { recursive: true });
+  writeFileSync(join(viewTree, path), text, 'utf8');
+}
+indexFixtureTree(viewTree);
+// Written after indexing: on disk inside the workspace, one ignored, one untracked.
+mkdirSync(join(viewTree, 'libs/event-contracts/src/tmp'), { recursive: true });
+writeFileSync(
+  join(viewTree, 'libs/event-contracts/src/tmp/planted-type.ts'),
+  "export type PlantedType = 'PlantedViaIgnoredType';\n",
+  'utf8',
+);
+writeFileSync(
+  join(viewTree, 'libs/event-contracts/src/untracked-events.ts'),
+  [
+    "import type { BaseEvent } from './base-event';",
+    'export interface UntrackedEvent extends BaseEvent {',
+    "  readonly eventType: 'PlantedUntracked';",
+    '}',
+    '',
+  ].join('\n'),
+  'utf8',
+);
+const viewAdapter = analyzeEventContracts(
+  { root: 'libs/event-contracts/src', checks: ['event_interfaces'] },
+  viewTree,
+);
+const viewFacts = eventFacts(viewTree);
+const viewObserved = viewAdapter.observations
+  .filter(
+    (observation) => observation.type === 'event_interface' && observation.eventType !== undefined,
+  )
+  .map((observation) => `${observation.eventType} @ ${observation.path}`)
+  .sort();
+const viewDefined = viewFacts.event_definitions
+  .map((definition) => `${definition.event_type} @ ${definition.site.replace(/:\d+$/, '')}`)
+  .sort();
+assert.deepEqual(
+  viewObserved,
+  viewDefined,
+  'the adapter and the code-fact scan read different views of the same tree',
+);
+assert.deepEqual(viewDefined, ['BatchCreated @ libs/event-contracts/src/farm-events.ts']);
+for (const planted of ['PlantedViaIgnoredType', 'PlantedUntracked']) {
+  assert.ok(!JSON.stringify(viewAdapter).includes(planted), `the adapter reports ${planted}`);
+  assert.ok(!JSON.stringify(viewFacts).includes(planted), `the facts report ${planted}`);
+}
 
 process.stdout.write('event-contracts-adapter tests passed\n');

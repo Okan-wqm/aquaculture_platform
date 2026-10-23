@@ -25,7 +25,7 @@ from aria_kernel.service_agent_targeting import (
     propose_service_auditor_requests,
     service_auditor_agent_name,
 )
-from aria_kernel.tool_registry import ensure_tools_dir
+from aria_kernel.tool_registry import ensure_tools_binding
 
 
 class ServiceAuditorAgentNameTests(unittest.TestCase):
@@ -53,15 +53,15 @@ class ServiceAuditorTargetingTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
-        self.tools_dir = ensure_tools_dir(root / "aria-tools")
         self.repo = root / "repo"
         # SE-1 — a finding's service is the nx project `project_for_path`
         # names over the workspace map, so every service the tests seed
-        # under is a project in the fixture workspace, and the map is
-        # published before the first mint (the cycle publishes it in
-        # production) so the mint stamps nx names.
+        # under is a project in the fixture workspace, and the store is
+        # bound to that workspace (round 2: a store that declares none
+        # cannot attribute, and refuses the mint by name).
         for service in ("farm-service", "auth-service", "hr-service"):
             (self.repo / "apps" / service / "src").mkdir(parents=True)
+        self.tools_dir = ensure_tools_binding(root / "aria-tools", workspace_root=self.repo)
         cached_service_analysis_order(workspace_root=self.repo, base_dir=self.tools_dir)
 
     def tearDown(self) -> None:

@@ -4,7 +4,7 @@ import hashlib
 import json
 import re
 from pathlib import Path
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from typing import Any
 
 from .agent_routing import load_routing_table, recommended_agents_for_project
@@ -291,41 +291,69 @@ def cached_service_analysis_order(
     return payload
 
 
-def cached_project_roots(*, workspace_root: str | Path, base_dir: str | Path | None) -> dict[str, str]:
-    """The ``project_roots`` map `project_for_path` attributes against, for a
-    caller that holds the workspace: the cache's answer for it
-    (`cached_service_analysis_order` — fingerprint-checked, rebuilt when the
-    project layout changed)."""
-    cache = cached_service_analysis_order(workspace_root=workspace_root, base_dir=base_dir)
-    return dict(cache["project_roots"])
+class ProjectMap(Mapping[str, str]):
+    """A ``project_roots`` map (name -> root) together with the identity of
+    the project layout it was built from (``graph_fingerprint``).
 
-
-def published_project_roots(*, base_dir: str | Path | None) -> dict[str, str] | None:
-    """The ``project_roots`` map this store's impact cache PUBLISHED, for a
-    caller handed a store and no workspace — the mint-time tool-finding
-    writer and the findings-ledger readers.
-
-    Every cycle refreshes the publication (`cycle_service_examination`), so
-    a mint files a finding under the same project names the cycle's
-    impacted set and missions use. A store with no publication yet that
-    declares its workspace (`tool_registry.declared_bound_repo_root`)
-    publishes one now.
-
-    None means this store can attribute nothing: it declares no workspace
-    and nothing was ever published into it. The layout convention
-    (``<workspace>/aria-tools``) is deliberately NOT guessed here — a scratch
-    store's parent is a temp directory, and a project graph of ``/tmp`` is
-    not a map of anything. Callers treat None as "attribute at read": the mint
-    writes no dimension and the row reader derives it from the row's paths
-    once the store holds a map (`service_dimension.services_for_finding_row`).
+    The identity travels with the map because a name is only meaningful
+    against the layout that produced it: a ``project.json`` rename or a new
+    project changes the answer `project_for_path` gives for the same path.
+    A finding stamped with the names of one layout and read against another
+    has to be re-derived, and only a map that says which layout it is can
+    tell the reader so (`service_dimension.services_for_finding_row`).
     """
-    published = _read_service_order_cache(tools_dir(base_dir) / _SERVICE_ORDER_CACHE)
-    if published is not None:
-        return dict(published["project_roots"])
-    declared = declared_bound_repo_root(base_dir)
-    if declared is None:
-        return None
-    return cached_project_roots(workspace_root=declared, base_dir=base_dir)
+
+    __slots__ = ("_roots", "fingerprint")
+
+    def __init__(self, roots: Mapping[str, str], fingerprint: str) -> None:
+        self._roots = dict(roots)
+        self.fingerprint = fingerprint
+
+    def __getitem__(self, name: str) -> str:
+        return self._roots[name]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._roots)
+
+    def __len__(self) -> int:
+        return len(self._roots)
+
+
+def project_map(*, base_dir: str | Path | None, workspace_root: str | Path | None = None) -> ProjectMap:
+    """THE accessor for the map `project_for_path` attributes against.
+
+    It always resolves through `cached_service_analysis_order`, which checks
+    the published cache's graph fingerprint against the workspace and
+    rebuilds a stale one, so no caller can be handed the names of a layout
+    the tree no longer has. The workspace is ``workspace_root`` when the
+    caller holds it, else the one the store DECLARES
+    (`tool_registry.declared_bound_repo_root`).
+
+    SE-1 round 2 (review-r1 B1 / BLOCKER-1). Round 1 had a second accessor
+    that returned the published file as it stood. The cycle's 'tools' phase
+    mints before 'service_examination' refreshes the publication, so a
+    finding on a project the tree had just gained was minted with no
+    service, and after a ``project.json`` rename the tool-finding mint and
+    `finding.emit_finding` filed one defect under two names.
+
+    A store that declares no workspace, asked without one, cannot produce a
+    map and is refused by name (``service_key_map_unavailable``, review-r1
+    B2). Answering "no map" with an empty attribution made "cannot
+    attribute" and "attributed to nothing" the same answer. The layout
+    convention (``<workspace>/aria-tools``) is deliberately not guessed: a
+    scratch store's parent is a temp directory, and a project graph of
+    ``/tmp`` is not a map of anything.
+    """
+    workspace = workspace_root if workspace_root is not None else declared_bound_repo_root(base_dir)
+    if workspace is None:
+        raise GovernanceError(
+            "service_key_map_unavailable: the store at "
+            f"{tools_dir(base_dir).as_posix()} declares no workspace "
+            "(tool_registry.ensure_tools_binding) and none was given, so no project map can "
+            "attribute a path to a service"
+        )
+    cache = cached_service_analysis_order(workspace_root=workspace, base_dir=base_dir)
+    return ProjectMap(cache["project_roots"], cache["graph_fingerprint"])
 
 
 def cycle_service_examination(
@@ -651,8 +679,10 @@ def project_for_path(path: str, project_roots: Mapping[str, str]) -> str | None:
     The kernel's ONE service key (service-expertise plan SE-1, owner decision
     Q9). The finding dimension, the impacted set, missions and routing all
     name a project through this function, in nx project names. Callers get
-    the map from `cached_project_roots` / `published_project_roots` (or the
-    cache payload they already hold); there is no string mapping to fall back on.
+    the map from `project_map` — fingerprint-checked, so never the names of a
+    layout the tree no longer has — or hold the cache payload
+    `cached_service_analysis_order` returned; there is no string mapping to
+    fall back on.
 
     It used to have a twin. ``service_dimension.service_for_path`` attributed
     findings in a vocabulary of its own (``apps/<dir>``, ``shared:<lib>``,

@@ -129,11 +129,12 @@ def generate_task_candidates(
         candidates.append(_candidate_from_pressure(cycle_id, pressure))
     open_findings = list_findings(status="open", base_dir=base_dir)
     if open_findings:
-        # SE-1 — one read of the store's published project map for every
-        # finding candidate, the map the mint attributed against.
-        from .impact_graph import published_project_roots
+        # SE-1 — one read of the store's current project map for every
+        # finding candidate, the map the mint attributes against; a store
+        # that can produce none refuses (``service_key_map_unavailable``).
+        from .impact_graph import project_map
 
-        project_roots = published_project_roots(base_dir=base_dir)
+        project_roots = project_map(base_dir=base_dir)
         for finding in open_findings:
             candidates.append(_candidate_from_finding(cycle_id, finding, project_roots))
     for gap in latest_capability_gaps(base_dir=base_dir):
@@ -256,15 +257,16 @@ def _candidate_from_pressure(cycle_id: str, pressure: dict[str, Any]) -> dict[st
 
 
 def _candidate_from_finding(
-    cycle_id: str, finding: dict[str, Any], project_roots: Mapping[str, str] | None
+    cycle_id: str, finding: dict[str, Any], project_roots: Mapping[str, str]
 ) -> dict[str, Any]:
     payload = finding.get("finding", {}) if isinstance(finding.get("finding"), dict) else {}
     severity = str(payload.get("severity") or "medium")
     score = {"critical": 100, "high": 85, "medium": 60, "low": 35}.get(severity, 50)
     # E15-b — the candidate inherits the finding's service dimension so a
     # service mission can claim its own findings; through the one row
-    # reader, so a row minted before SE-1 is re-derived from its paths over
-    # the published project map rather than read in the retired vocabulary.
+    # reader, so a row minted before SE-1 or against an older layout is
+    # re-derived from its paths over the current project map rather than
+    # read in a retired vocabulary.
     from .service_dimension import finding_dimension_paths, services_for_finding_row
 
     services = services_for_finding_row(finding, project_roots)

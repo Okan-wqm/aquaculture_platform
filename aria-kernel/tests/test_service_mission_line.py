@@ -30,7 +30,7 @@ from aria_kernel.mission import (
     transition_mission,
 )
 from aria_kernel.mission_scheduler import SOURCE_RANK
-from aria_kernel.tool_registry import ensure_tools_dir, utc_now
+from aria_kernel.tool_registry import ensure_tools_binding, ensure_tools_dir, utc_now
 
 
 def _legacy_service_mission(root: Path, project: str) -> str:
@@ -415,7 +415,7 @@ class ServiceMissionSeedTest(unittest.TestCase):
         paths still come from `finding_dimension_paths`, the E15-c collector.
         """
         from aria_kernel.feedback_store import record_findings_for_run
-        from aria_kernel.impact_graph import published_project_roots
+        from aria_kernel.impact_graph import project_map
         from aria_kernel.service_dimension import services_for_finding_row
 
         # The pressure is what puts a non-core project in `targets` at all;
@@ -432,8 +432,10 @@ class ServiceMissionSeedTest(unittest.TestCase):
         }
         with TemporaryDirectory() as tmp:
             root = Path(tmp) / "aria-tools"
-            ensure_tools_dir(root)
             _workspace(tmp, *_CORE_ROOTS, "libs/backend-common")
+            # SE-1 round 2 — the store declares its workspace, so the mint
+            # can attribute (an unbound store refuses it by name).
+            ensure_tools_binding(root, workspace_root=Path(tmp))
             run = {
                 "tool_id": "backend-auditor",
                 "run_id": "run-1",
@@ -453,9 +455,9 @@ class ServiceMissionSeedTest(unittest.TestCase):
                 s["project"]: fold_mission(mission_id=s["mission_id"], base_dir=root)
                 for s in result["seeded"]
             }
-            # The phase published the map it named its targets from; the row
-            # reader, over that same map, files the finding under the same name.
-            dimension = services_for_finding_row(stored, published_project_roots(base_dir=root))
+            # The phase named its targets from the store's current map; the
+            # row reader, over that same map, files the finding under the same name.
+            dimension = services_for_finding_row(stored, project_map(base_dir=root))
 
         self.assertIn("backend-common", missions)
         self.assertEqual(result["seeded"][0]["contract_source"], "open_finding")
@@ -551,7 +553,10 @@ class ServiceMissionSeedTest(unittest.TestCase):
 
         with TemporaryDirectory() as tmp:
             root = Path(tmp) / "aria-tools"
-            ensure_tools_dir(root)
+            _workspace(tmp, *_CORE_ROOTS)
+            # SE-1 round 2 — the store declares its workspace, so the mint
+            # can attribute (an unbound store refuses it by name).
+            ensure_tools_binding(root, workspace_root=Path(tmp))
             record_findings_for_run(
                 {
                     "tool_id": "auth-auditor",
@@ -567,7 +572,6 @@ class ServiceMissionSeedTest(unittest.TestCase):
                 },
                 base_dir=root,
             )
-            _workspace(tmp, *_CORE_ROOTS)
             ctx = _context(tmp, {}, [])
             with patch.object(cycle_mod, "repo_hash", return_value="rh-1"):
                 result = cycle_mod._phase_service_mission_seed(ctx)

@@ -117,11 +117,13 @@ class SeedingHasAProducerTest(unittest.TestCase):
     def test_recorded_findings_flow_into_the_seeding_ledger(self) -> None:
         from aria_kernel import calibration_bootstrap as cb
         from aria_kernel.feedback_store import record_findings_for_run
-        from aria_kernel.tool_registry import ensure_tools_dir
+        from aria_kernel.tool_registry import ensure_tools_binding
 
         with TemporaryDirectory() as tmp:
             root = Path(tmp) / "aria-tools"
-            ensure_tools_dir(root)
+            # The mint attributes each finding over the store's map (SE-1
+            # round 2): the store declares the workspace it mints for.
+            ensure_tools_binding(root, workspace_root=Path(tmp))
             run = {
                 "tool_id": "adapter-a",
                 "run_id": "run-1",

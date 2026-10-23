@@ -39,13 +39,16 @@ class FitnessPhaseTests(unittest.TestCase):
 
 class ArchitectureProducerTests(unittest.TestCase):
     def setUp(self) -> None:
-        from aria_kernel.tool_registry import ensure_tools_dir
+        from aria_kernel.tool_registry import ensure_tools_binding
 
         self.tmp = tempfile.TemporaryDirectory()
         self.tools = Path(self.tmp.name) / "aria-tools"
-        ensure_tools_dir(self.tools)
         self.repo = Path(self.tmp.name) / "repo"
-        self.repo.mkdir()
+        # The finding's service is the project `project_for_path` names over
+        # the workspace map (SE-1), so the seeded service is a project in the
+        # fixture workspace, and the store declares that workspace (round 2).
+        (self.repo / "apps" / "farm-service" / "src").mkdir(parents=True)
+        ensure_tools_binding(self.tools, workspace_root=self.repo)
 
     def tearDown(self) -> None:
         self.tmp.cleanup()

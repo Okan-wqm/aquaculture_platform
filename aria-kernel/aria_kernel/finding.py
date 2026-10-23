@@ -512,10 +512,12 @@ def emit_finding(
     )
     # E15-a — mint-time service dimension + specialist ownership. The
     # dimension comes from the paths the finding cites, attributed by the
-    # one path -> project owner over this workspace's cached map (SE-1);
-    # the reviewing agents come from the Lane-A touch-map SSoT (imported,
-    # not copied) whenever the caller did not name them explicitly.
-    from .impact_graph import cached_project_roots
+    # one path -> project owner over this workspace's fingerprint-checked
+    # map (SE-1), so this mint and the tool-finding mint stamp the same
+    # current names; the reviewing agents come from the Lane-A touch-map
+    # SSoT (imported, not copied) whenever the caller did not name them
+    # explicitly.
+    from .impact_graph import project_map
     from .service_dimension import (
         finding_dimension_paths,
         finding_service_fields,
@@ -527,7 +529,7 @@ def emit_finding(
     )
     dimension = finding_service_fields(
         dimension_paths,
-        cached_project_roots(workspace_root=repo_path, base_dir=tools_root),
+        project_map(workspace_root=repo_path, base_dir=tools_root),
     )
     if not related_specialized_agent_domains:
         related_specialized_agent_domains = owning_agent_domains_for_paths(
@@ -615,18 +617,18 @@ def list_findings(
     service: str | None = None,
     base_dir: str | Path | None,
 ) -> list[dict[str, Any]]:
-    # E15-a / SE-1 — a doc minted before SE-1 carries no nx-key dimension;
-    # the one row reader derives it from the doc's paths over this
-    # workspace's cached map, so a pre-SE-1 finding filters identically to
-    # a post-SE-1 one. ``base_dir`` is the store holding that cache. It has
+    # E15-a / SE-1 — a doc minted before SE-1, or against a layout a later
+    # ``project.json`` rename replaced, is re-derived by the one row reader
+    # from its paths over this workspace's current map, so it filters
+    # identically to a doc minted now. ``base_dir`` is the store holding that cache. It has
     # no default: every caller names its store (None = the
     # `tool_registry.tools_dir` resolver, stated, not inherited), so no
     # reader silently publishes a map into a store it was never handed.
-    from .impact_graph import cached_project_roots
+    from .impact_graph import project_map
     from .service_dimension import services_for_finding_row
 
     repo_path = Path(repo_root).resolve()
-    project_roots = cached_project_roots(workspace_root=repo_path, base_dir=base_dir)
+    project_roots = project_map(workspace_root=repo_path, base_dir=base_dir)
     rows: list[dict[str, Any]] = []
     for doc in _replay_findings(repo_path).values():
         services = services_for_finding_row(doc, project_roots)

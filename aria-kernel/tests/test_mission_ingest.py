@@ -288,7 +288,7 @@ class ForwardPointerTests(unittest.TestCase):
                 "finding_id": "F-9",
                 "finding": {"severity": "high", "message": "m",
                             "path": "apps/auth-service/src/token.service.ts"},
-            }), "F-9"),
+            }, {"auth-service": "apps/auth-service"}), "F-9"),
             (_candidate_from_capability_gap("c", {
                 "gap_id": "gap-1", "capability_gap_key": "coverage:auth-service",
                 "recommended_action": "draft_new_aria_agent", "title": "t", "score": 1,

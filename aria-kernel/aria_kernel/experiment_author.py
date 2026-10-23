@@ -56,16 +56,16 @@ def author_night_experiments(
         register_recipe,
     )
     from .finding import _replay_findings
-    from .impact_graph import cached_project_roots
+    from .impact_graph import project_map
     from .service_dimension import services_for_finding_row
     from .validation import parse_allowed_command
 
     repo_path = Path(repo_root).resolve()
     ensure_tools_dir(base_dir)
     # SE-1 — the finding's projects come from the one row reader over this
-    # workspace's cached map, so the ``--projects=`` value below is the nx
+    # workspace's current map, so the ``--projects=`` value below is the nx
     # name the test target is registered under, not a directory guess.
-    project_roots = cached_project_roots(workspace_root=repo_path, base_dir=base_dir)
+    project_roots = project_map(workspace_root=repo_path, base_dir=base_dir)
 
     bound_findings = {
         str(row.get("finding_ref"))

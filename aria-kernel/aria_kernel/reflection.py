@@ -412,13 +412,13 @@ def _summarize_findings(repo_root: Path, tools_root: Path) -> dict[str, Any]:
     rows = list((fold_findings(repo_root) or {}).values())
     # E15-b — findings grouped by microservice (operator direction:
     # reports and missions speak in service terms). SE-1 — through the one
-    # row reader over this workspace's cached project map: a doc minted
-    # before SE-1 is re-derived from its paths, never read in the retired
-    # string vocabulary.
-    from .impact_graph import cached_project_roots
+    # row reader over this workspace's current project map: a doc minted
+    # before SE-1 or before the layout last changed is re-derived from its
+    # paths, never read in a retired vocabulary.
+    from .impact_graph import project_map
     from .service_dimension import services_for_finding_row
 
-    project_roots = cached_project_roots(workspace_root=repo_root, base_dir=tools_root)
+    project_roots = project_map(workspace_root=repo_root, base_dir=tools_root)
     by_service: dict[str, dict[str, int]] = {}
     for row in rows:
         services = services_for_finding_row(row, project_roots)

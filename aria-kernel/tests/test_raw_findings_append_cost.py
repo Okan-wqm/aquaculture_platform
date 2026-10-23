@@ -50,7 +50,7 @@ from aria_kernel.ledger import (
     load_declared_jsonl,
     verify_jsonl,
 )
-from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from aria_kernel.tool_registry import GovernanceError, ensure_tools_binding
 
 
 def _run(run_id: str = "run-1") -> dict:
@@ -80,7 +80,11 @@ class _AllSuppressed(dict):
 class _Store(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory(prefix="aria-raw-append-")
-        self.tools = ensure_tools_dir(Path(self._tmp.name) / "aria-tools")
+        workspace = Path(self._tmp.name) / "repo"
+        workspace.mkdir()
+        # The mint attributes each finding over the store's map (SE-1 round
+        # 2): the store declares the workspace it mints for.
+        self.tools = ensure_tools_binding(Path(self._tmp.name) / "aria-tools", workspace_root=workspace)
         self.path = raw_findings_path(self.tools)
 
     def tearDown(self) -> None:

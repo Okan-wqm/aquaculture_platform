@@ -41,7 +41,7 @@ from .agent_resolver import resolve_agent_md_path
 from .batch_containment import guard_item, with_item_failures
 from .feedback_store import list_findings
 from .genesis_policy import load_policy
-from .impact_graph import cached_project_roots
+from .impact_graph import project_map
 from .service_dimension import finding_dimension_paths, services_for_finding_row
 from .tool_registry import append_tools_governance
 
@@ -111,8 +111,8 @@ def propose_service_auditor_requests(
 
     open_rows = list_findings(status="open", base_dir=base_dir)
     # SE-1 — the services are nx project names, read through the one row
-    # reader over this workspace's cached project map.
-    project_roots = cached_project_roots(workspace_root=repo_root, base_dir=base_dir)
+    # reader over this workspace's current project map.
+    project_roots = project_map(workspace_root=repo_root, base_dir=base_dir)
     per_service: dict[str, list[dict[str, Any]]] = {}
     for row in open_rows:
         # A multi-service finding counts toward EACH service it cites:

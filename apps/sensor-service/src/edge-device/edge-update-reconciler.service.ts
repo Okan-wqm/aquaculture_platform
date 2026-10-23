@@ -8,6 +8,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
 import { EdgeReleaseCatalog } from './edge-release-catalog.service';
+import { STATEMENT } from './edge-contract';
 import { reissueDecision } from './edge-update-channel';
 import { UpdateRefusedError, type UpdateWindow } from './edge-update-manifest.service';
 import { parseRecipe, type UpdateRecipe } from './edge-update-recipe';
@@ -18,6 +19,7 @@ import {
   UpdateTargetUnavailableError,
 } from './edge-update-request.service';
 import { StatementAdmissionError } from './manifest-signer';
+import { TenantOutOfBundleScopeError } from './trust-anchor-bundle.service';
 
 /** What one reconciliation of a tenant did. */
 export interface ReconcileSummary {
@@ -162,7 +164,8 @@ export class EdgeUpdateReconciler {
       if (
         error instanceof StatementAdmissionError ||
         error instanceof UpdateRefusedError ||
-        error instanceof UpdateTargetUnavailableError
+        error instanceof UpdateTargetUnavailableError ||
+        error instanceof TenantOutOfBundleScopeError
       ) {
         this.logger.error({
           event: 'update_reissue_refused',
@@ -203,49 +206,38 @@ export class EdgeUpdateReconciler {
     recipe: UpdateRecipe,
     now: Date,
   ): Promise<void> {
-    const device = { id: candidate.deviceId, tenantId: candidate.tenantId };
     const window: UpdateWindow = {
       notBefore: now,
       expiresAt: new Date(now.getTime() + recipe.windowSeconds * 1000),
     };
-    const meta = {
-      intentId: candidate.intentId,
-      campaignStartedAt: candidate.campaignStartedAt,
-      rolloutId: candidate.rolloutId,
-      createdBy: candidate.createdBy,
-      supersedes: candidate.id,
-    };
-    if (recipe.kind === 'edge-update') {
-      const board = await this.requests.boardOf(device);
-      if (board === null) throw new UpdateTargetUnavailableError(device.id);
-      const release = await this.catalog.forVersion(board, recipe.version);
-      await this.requests.issueEdgeUpdate(device, {
-        ...meta,
-        release,
-        window,
-        terms: recipe.terms,
-        recipe,
-      });
-      return;
-    }
-    await this.requests.issueOsUpdate(device, {
-      ...meta,
-      bundle: recipe.bundle,
-      window,
-      terms: recipe.terms,
+    await this.requests.issueFromRecipe(
+      { id: candidate.deviceId, tenantId: candidate.tenantId },
       recipe,
-    });
+      window,
+      {
+        intentId: candidate.intentId,
+        campaignStartedAt: candidate.campaignStartedAt,
+        rolloutId: candidate.rolloutId,
+        createdBy: candidate.createdBy,
+        supersedes: candidate.id,
+      },
+      (board, version) => this.catalog.forVersion(board, version),
+    );
   }
 }
 
 /** The recipe kind a statement type is re-issued from. */
-function recipeKindOf(candidate: ReissueCandidate): UpdateRecipe['kind'] | null {
+function recipeKindOf(candidate: ReissueCandidate): UpdateRecipe['kind'] {
   switch (candidate.statementType) {
-    case 'suderra.edge-update.v1':
+    case STATEMENT.edgeUpdate:
       return 'edge-update';
-    case 'suderra.os-update.v1':
+    case STATEMENT.osUpdate:
       return 'os-update';
-    default:
-      return null;
+    case STATEMENT.siteConfig:
+      return 'site-config';
+    case STATEMENT.siteNetpolicy:
+      return 'site-netpolicy';
+    case STATEMENT.trustAnchors:
+      return 'trust-anchors';
   }
 }

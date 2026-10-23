@@ -293,6 +293,11 @@ export interface SiteConfigUpdateInput {
 export class SiteConfigManifestService {
   constructor(private readonly config: SuderraEdgeConfig) {}
 
+  /** Where root fetches the bundle of request `requestId`: under the platform API host the device's firewall already allows. */
+  bundleUrl(tenantId: string, requestId: string): string {
+    return siteBundleUrl(this.config.settings.apiUrl, tenantId, requestId);
+  }
+
   /**
    * The files and the bundle of a site-config update for a device already activated.
    * config.yaml is the cloud's own and carries no provisioning token (the device's

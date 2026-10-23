@@ -33,6 +33,7 @@ import {
 } from '../edge-device/edge-update-request.service';
 import { EdgeAgentChannel } from '../edge-device/entities/edge-device.entity';
 import { StatementAdmissionError } from '../edge-device/manifest-signer';
+import { TenantOutOfBundleScopeError } from '../edge-device/trust-anchor-bundle.service';
 import { returningRows } from '../edge-device/returning-rows';
 
 import {
@@ -669,6 +670,13 @@ export class EdgeRolloutService {
       expiresAt: new Date(notBefore.getTime() + rollout.windowSeconds * 1000),
     };
     const releases = new Map<string, AdmittedRelease>();
+    const releaseFor = async (board: BoardRow, version: string): Promise<AdmittedRelease> => {
+      const known = releases.get(board.boardProfile);
+      if (known !== undefined) return known;
+      const admitted = await this.catalog.forVersion(board, version);
+      releases.set(board.boardProfile, admitted);
+      return admitted;
+    };
     let issued = 0;
     let refused = 0;
     for (const slot of queued) {
@@ -680,37 +688,15 @@ export class EdgeRolloutService {
           this.takeSlot(qr, rollout.tenantId, slot.slotId, requestId),
       };
       try {
-        if (recipe.kind === 'edge-update') {
-          const board = await this.requests.boardOf(device);
-          if (board === null) throw new UpdateTargetUnavailableError(device.id);
-          let release = releases.get(board.boardProfile);
-          if (release === undefined) {
-            release = await this.catalog.forVersion(board, recipe.version);
-            releases.set(board.boardProfile, release);
-          }
-          await this.requests.issueEdgeUpdate(device, {
-            ...meta,
-            release,
-            window,
-            terms: recipe.terms,
-            recipe,
-          });
-        } else {
-          await this.requests.issueOsUpdate(device, {
-            ...meta,
-            bundle: recipe.bundle,
-            window,
-            terms: recipe.terms,
-            recipe,
-          });
-        }
+        await this.requests.issueFromRecipe(device, recipe, window, meta, releaseFor);
         issued += 1;
       } catch (error) {
         if (error instanceof SlotTakenError) continue;
         if (
           error instanceof UpdateRefusedError ||
           error instanceof UpdateTargetUnavailableError ||
-          error instanceof StatementAdmissionError
+          error instanceof StatementAdmissionError ||
+          error instanceof TenantOutOfBundleScopeError
         ) {
           if (await this.refuseSlot(rollout.tenantId, slot.slotId, error.message)) refused += 1;
           continue;

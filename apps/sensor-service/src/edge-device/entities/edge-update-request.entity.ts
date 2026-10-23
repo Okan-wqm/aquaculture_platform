@@ -62,6 +62,11 @@ const STATES = Object.values(EdgeUpdateRequestState)
  * `update_seq` (a verified statement spends its sequence value before the
  * maintenance gate, so a refused one cannot be replayed).
  *
+ * A result names a statement by digest, so at most one OPEN request (pending, or lapsed
+ * and still awaiting a late result) of a device carries a given digest: a statement the
+ * cloud signs has a digest of its own every time, and a statement it only forwards (a
+ * trust-anchors bundle) repeats its digest on every push, one push at a time.
+ *
  * Per-tenant table — no `schema:` (ADR-011 search_path routing).
  */
 @ObjectType('EdgeUpdateRequest')
@@ -73,7 +78,10 @@ const STATES = Object.values(EdgeUpdateRequestState)
 )
 @Check('CHK_edge_update_requests_digest', `"statement_digest" ~ '^[0-9a-f]{64}$'`)
 @Check('CHK_edge_update_requests_window', `"expires_at" IS NULL OR "expires_at" > "not_before"`)
-@Index('uq_edge_update_requests_device_digest', ['deviceId', 'statementDigest'], { unique: true })
+@Index('uq_edge_update_requests_device_digest', ['deviceId', 'statementDigest'], {
+  unique: true,
+  where: `"state" IN ('pending', 'lapsed')`,
+})
 @Index('idx_edge_update_requests_device_state', ['tenantId', 'deviceId', 'state'])
 @Index('idx_edge_update_requests_intent', ['tenantId', 'intentId'])
 @Index('idx_edge_update_requests_rollout', ['tenantId', 'rolloutId'])

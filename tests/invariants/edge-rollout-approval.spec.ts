@@ -16,11 +16,11 @@ import { stripComments } from './helpers/ts-source';
  *     against what the rollout requires before the write;
  *   - the number of approvals can never be configured below two: the constant, the
  *     column's CHECK and its default all name `MIN_ROLLOUT_APPROVALS`;
- *   - an update statement is signed and stored only through
- *     `EdgeUpdateRequestService.issueEdgeUpdate` / `issueOsUpdate`, and those are
- *     called only by the rollout service (the approved plan) and the reconciler (a new
- *     statement of an intent that was already issued) — no controller, resolver,
- *     command handler or script signs an update on its own;
+ *   - an update statement (edge-update, os-update, site-config, site-netpolicy, a
+ *     trust-anchors push) is signed and stored only inside `EdgeUpdateRequestService`,
+ *     whose `issueFromRecipe` is called only by the rollout service (the approved plan)
+ *     and the reconciler (a new statement of an intent that was already issued) — no
+ *     controller, resolver, command handler or script signs an update on its own;
  *   - `request_update` reaches a device only from `EdgeUpdateRequestService`.
  */
 
@@ -105,16 +105,31 @@ describe('rollout approval (ADR-048 DEC-2.4)', () => {
     expect(read(ROLLOUT_SERVICE)).toMatch(/MIN_ROLLOUT_APPROVALS,\s*digest,/);
   });
 
-  it('an update statement is signed only through the request service, called by the rollout service and the reconciler', () => {
+  it('an update statement is signed only inside the request service, which only a recipe reaches from outside', () => {
     const signers: string[] = [];
-    const issuers: string[] = [];
+    const direct: string[] = [];
+    const fromRecipe: string[] = [];
     for (const path of productionSources()) {
       const source = read(path);
-      if (/\.(signEdgeUpdate|signOsUpdate)\s*\(/.test(source)) signers.push(path);
-      if (/\.(issueEdgeUpdate|issueOsUpdate)\s*\(/.test(source)) issuers.push(path);
+      if (/\.(signEdgeUpdate|signOsUpdate|signUpdate)\s*\(|\bnetpolicies\.sign\s*\(/.test(source)) {
+        signers.push(path);
+      }
+      if (
+        /\.(issueEdgeUpdate|issueOsUpdate|issueSiteConfig|issueSiteNetpolicy|issueTrustAnchors)\s*\(/.test(
+          source,
+        )
+      ) {
+        direct.push(path);
+      }
+      if (/\.issueFromRecipe\s*\(/.test(source)) fromRecipe.push(path);
     }
+    // The producers are called only by the request service, which stores what they sign;
     expect(signers).toEqual([REQUEST_SERVICE]);
-    expect(issuers.sort()).toEqual([RECONCILER, ROLLOUT_SERVICE].sort());
+    // its per-kind issue methods only by its own issueFromRecipe;
+    expect(direct).toEqual([REQUEST_SERVICE]);
+    // and issueFromRecipe only by the rollout service (the approved plan) and the
+    // reconciler (a new statement of an intent that was already issued).
+    expect(fromRecipe.sort()).toEqual([RECONCILER, ROLLOUT_SERVICE].sort());
   });
 
   it('request_update reaches a device only from the request service', () => {

@@ -22,7 +22,11 @@ import {
   EdgeDevice,
 } from '../../edge-device/entities/edge-device.entity';
 import { StatementAdmissionError } from '../../edge-device/manifest-signer';
+import { RbacManifestService } from '../../edge-device/rbac-manifest.service';
+import { SiteConfigManifestService } from '../../edge-device/site-config-manifest.service';
+import { SiteNetpolicyManifestService } from '../../edge-device/site-netpolicy-manifest.service';
 import { SuderraEdgeConfig } from '../../edge-device/suderra-edge.config';
+import { TrustAnchorBundleService } from '../../edge-device/trust-anchor-bundle.service';
 import { channelEnvironment } from '../../edge-device/__tests__/support/edge-channel-env';
 import { fixtureRelease } from '../../edge-device/__tests__/support/fixture-release';
 import {
@@ -241,6 +245,10 @@ describe('rollouts and their two-person approval under FORCE RLS (ADR-048 DEC-2.
         'EdgeCommandPublisher',
       ),
       telemetry,
+      new SiteConfigManifestService(config),
+      new SiteNetpolicyManifestService(config),
+      new RbacManifestService(config),
+      new TrustAnchorBundleService(config),
     );
     requests.onModuleInit();
     forVersion = jest.fn(async (): Promise<AdmittedRelease> => release);

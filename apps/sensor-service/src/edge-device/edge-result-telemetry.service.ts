@@ -55,6 +55,8 @@ export interface ResultEvent {
   readonly tenantId: string;
   readonly deviceId: string;
   readonly result: EdgeResult;
+  /** When the cloud first stored the result: a request created after it cannot be what it concludes. */
+  readonly receivedAt: Date;
 }
 
 /**
@@ -64,6 +66,11 @@ export interface ResultEvent {
  * PUBACK and the device's agent republishes it.
  */
 export type ResultObserver = (event: ResultEvent) => Promise<void>;
+
+/** What storing one message did: stored now, already stored as is, or clashing with a stored one. */
+type StoreOutcome =
+  | { readonly status: 'stored' | 'duplicate'; readonly receivedAt: Date }
+  | { readonly status: 'conflict' };
 
 /** Who published: the topic's tenant level and device level. */
 export interface ResultSource {
@@ -183,14 +190,14 @@ export class EdgeResultTelemetryService {
       this.dataSource,
       SENSOR_SOURCE_SCHEMA,
       device.tenantId,
-      async (qr) => {
-        const inserted: Array<{ id: string }> = await qr.query(
+      async (qr): Promise<StoreOutcome> => {
+        const inserted: Array<{ id: string; received_at: Date }> = await qr.query(
           `INSERT INTO edge_device_results
              (tenant_id, device_id, seq, kind, outcome, reason, occurred_at, time_state,
               board_profile, os_version, subject, detail, document, document_sha256)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13::jsonb, $14)
            ON CONFLICT (device_id, seq) DO NOTHING
-           RETURNING id`,
+           RETURNING id, received_at`,
           [
             device.tenantId,
             device.id,
@@ -209,11 +216,14 @@ export class EdgeResultTelemetryService {
           ],
         );
         if (inserted.length === 0) {
-          const existing: Array<{ document_sha256: string }> = await qr.query(
-            `SELECT document_sha256 FROM edge_device_results WHERE device_id = $1 AND seq = $2`,
+          const existing: Array<{ document_sha256: string; received_at: Date }> = await qr.query(
+            `SELECT document_sha256, received_at FROM edge_device_results WHERE device_id = $1 AND seq = $2`,
             [device.id, result.seq],
           );
-          return existing[0]?.document_sha256 === sha256 ? 'duplicate' : 'conflict';
+          const first = existing[0];
+          return first?.document_sha256 === sha256
+            ? { status: 'duplicate', receivedAt: first.received_at }
+            : { status: 'conflict' };
         }
         await qr.query(
           `DELETE FROM edge_device_results
@@ -222,11 +232,13 @@ export class EdgeResultTelemetryService {
                           ORDER BY received_at DESC, seq DESC OFFSET $2)`,
           [device.id, RESULT_RETENTION_PER_DEVICE],
         );
-        return 'stored';
+        const row = inserted[0];
+        if (row === undefined) throw new Error('the stored result did not return its row');
+        return { status: 'stored', receivedAt: row.received_at };
       },
     );
 
-    if (stored === 'conflict') {
+    if (stored.status === 'conflict') {
       this.logger.warn({
         event: 'edge_result_seq_conflict',
         deviceId: device.id,
@@ -235,8 +247,13 @@ export class EdgeResultTelemetryService {
       });
       return { status: 'conflict', deviceId: device.id, seq: result.seq };
     }
-    if (stored === 'duplicate') {
-      await this.notify({ tenantId: device.tenantId, deviceId: device.id, result });
+    if (stored.status === 'duplicate') {
+      await this.notify({
+        tenantId: device.tenantId,
+        deviceId: device.id,
+        result,
+        receivedAt: stored.receivedAt,
+      });
       return { status: 'duplicate', deviceId: device.id, seq: result.seq };
     }
     this.logger.log({
@@ -247,7 +264,12 @@ export class EdgeResultTelemetryService {
       outcome: result.outcome,
       reason: result.reason ?? null,
     });
-    await this.notify({ tenantId: device.tenantId, deviceId: device.id, result });
+    await this.notify({
+      tenantId: device.tenantId,
+      deviceId: device.id,
+      result,
+      receivedAt: stored.receivedAt,
+    });
     return { status: 'stored', tenantId: device.tenantId, deviceId: device.id, result };
   }
 

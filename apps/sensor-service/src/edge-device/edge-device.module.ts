@@ -55,6 +55,7 @@ import { ProvisioningController } from './provisioning.controller';
 import { ProvisioningReservationService } from './provisioning-reservation.service';
 import { ProvisioningService } from './provisioning.service';
 import { RbacManifestService } from './rbac-manifest.service';
+import { SiteBundleController } from './site-bundle.controller';
 import { SiteConfigManifestService } from './site-config-manifest.service';
 import { SiteNetpolicyManifestService } from './site-netpolicy-manifest.service';
 import { SuderraEdgeConfig } from './suderra-edge.config';
@@ -87,7 +88,12 @@ import { TrustAnchorBundleService } from './trust-anchor-bundle.service';
     ]),
     // MqttClientService is available via @Global SharedMqttModule
   ],
-  controllers: [ProvisioningController, MqttAuthController, EdgeDeviceNatsController],
+  controllers: [
+    ProvisioningController,
+    SiteBundleController,
+    MqttAuthController,
+    EdgeDeviceNatsController,
+  ],
   providers: [
     EdgeDeviceService,
     EdgeDeviceResolver,

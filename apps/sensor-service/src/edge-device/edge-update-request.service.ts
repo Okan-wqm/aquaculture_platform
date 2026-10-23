@@ -12,9 +12,10 @@ import { EdgeCommandPublisher } from './edge-command-publisher.service';
 import { type BoardRow, boardForDeviceModel } from './edge-boards';
 import {
   asDeviceBinding,
-  type SignedStatement,
+  type DsseEnvelope,
+  type Sha256Digest,
+  type SitePath,
   STATEMENT,
-  type StatementBodies,
 } from './edge-contract';
 import type { AdmittedRelease } from './edge-release-catalog.service';
 import { EdgeResultTelemetryService, type ResultEvent } from './edge-result-telemetry.service';
@@ -32,14 +33,29 @@ import {
   type UpdateWindow,
   UpdateRefusedError,
 } from './edge-update-manifest.service';
-import type { EdgeUpdateRecipe, OsUpdateRecipe, UpdateRecipe } from './edge-update-recipe';
+import {
+  siteFilesOf,
+  type EdgeUpdateRecipe,
+  OsUpdateRecipe,
+  SiteConfigRecipe,
+  SiteNetpolicyRecipe,
+  TrustAnchorsRecipe,
+  UpdateRecipe,
+} from './edge-update-recipe';
 import {
   DeviceLifecycleState,
   EdgeAgentChannel,
   type EdgeDevice,
 } from './entities/edge-device.entity';
 import { EdgeUpdateRequestState } from './entities/edge-update-request.entity';
+import { RbacManifestService } from './rbac-manifest.service';
 import { returningRows } from './returning-rows';
+import { SiteConfigManifestService } from './site-config-manifest.service';
+import {
+  type NetpolicyBody,
+  SiteNetpolicyManifestService,
+} from './site-netpolicy-manifest.service';
+import { TrustAnchorBundleService } from './trust-anchor-bundle.service';
 
 /**
  * The update requests the cloud owes Suderra OS devices (ADR-048 DEC-2, DEC-2.12;
@@ -103,6 +119,26 @@ export interface IssueMeta {
   readonly afterStore?: (qr: QueryRunner, requestId: string) => Promise<void>;
 }
 
+/** What a producer hands back to be stored: the signed envelope, its digest, and the bundle a site-config is fetched with. */
+export interface SignedForStorage {
+  readonly envelope: DsseEnvelope;
+  readonly digest: Sha256Digest;
+  readonly siteBundle?: string;
+}
+
+export interface SiteConfigIssue extends IssueMeta {
+  /** The operator's site files besides config.yaml. */
+  readonly extraFiles: ReadonlyMap<SitePath, Buffer>;
+  readonly window: UpdateWindow;
+  readonly recipe: SiteConfigRecipe;
+}
+
+export interface SiteNetpolicyIssue extends IssueMeta {
+  readonly policy: NetpolicyBody;
+  readonly window: UpdateWindow;
+  readonly recipe: SiteNetpolicyRecipe;
+}
+
 export interface EdgeUpdateIssue extends IssueMeta {
   readonly release: AdmittedRelease;
   readonly window: UpdateWindow;
@@ -148,9 +184,31 @@ export class RequestNotReissuableError extends Error {
 
 export type DeviceRef = Pick<EdgeDevice, 'id' | 'tenantId'>;
 
-interface AllocatedTarget {
-  readonly updateSeq: number;
+/** The device a statement is bound to: its committed binding and board, and its code. */
+interface TargetOf {
   readonly target: UpdateTarget;
+  readonly deviceCode: string;
+}
+
+/** What the signing transaction of a statement with an `update_seq` hands the producer. */
+interface AllocatedTarget extends TargetOf {
+  readonly updateSeq: number;
+}
+
+interface SequencedTarget extends AllocatedTarget {
+  readonly requestId: string;
+}
+
+interface UnsequencedTarget extends TargetOf {
+  readonly requestId: string;
+}
+
+interface DeviceTargetRow {
+  readonly seq: string | number;
+  readonly method: string;
+  readonly digest: string;
+  readonly model: string;
+  readonly code: string;
 }
 
 interface RequestRow {
@@ -171,6 +229,10 @@ export class EdgeUpdateRequestService implements OnModuleInit {
     private readonly manifests: EdgeUpdateManifestService,
     private readonly commands: EdgeCommandPublisher,
     private readonly results: EdgeResultTelemetryService,
+    private readonly siteConfigs: SiteConfigManifestService,
+    private readonly netpolicies: SiteNetpolicyManifestService,
+    private readonly rbac: RbacManifestService,
+    private readonly anchors: TrustAnchorBundleService,
   ) {}
 
   onModuleInit(): void {
@@ -191,13 +253,12 @@ export class EdgeUpdateRequestService implements OnModuleInit {
       osVersion: await this.results.latestOsVersion(device.tenantId, device.id),
       installedAgentAbi: null,
     };
-    return this.issue(
+    return this.issueSequenced(
       device,
       STATEMENT.edgeUpdate,
       input,
       input.window,
       input.recipe,
-      null,
       ({ updateSeq, target }) =>
         this.manifests.signEdgeUpdate({
           target,
@@ -216,13 +277,12 @@ export class EdgeUpdateRequestService implements OnModuleInit {
       osVersion: await this.results.latestOsVersion(device.tenantId, device.id),
       installedAgentAbi: null,
     };
-    return this.issue(
+    return this.issueSequenced(
       device,
       STATEMENT.osUpdate,
       input,
       input.window,
       input.recipe,
-      null,
       ({ updateSeq, target }) =>
         this.manifests.signOsUpdate({
           target,
@@ -236,86 +296,259 @@ export class EdgeUpdateRequestService implements OnModuleInit {
   }
 
   /**
-   * One transaction: allocate the device's next update_seq, build and sign the
-   * statement from it, store it. A statement the manifest service refuses leaves
-   * no trace — the allocation rolls back with it.
+   * Signs and stores a site config of `device`: the cloud's own config.yaml (no
+   * provisioning token), the operator's extra files, and the RBAC manifest the tenant
+   * is on, with the bundle root fetches from the URL the statement names. The URL is
+   * the stored request's own id, chosen before the statement is signed, and the bundle
+   * is served only inside the statement's window (see {@link siteBundleOf}).
    */
-  protected async issue<T extends keyof StatementBodies>(
+  async issueSiteConfig(device: DeviceRef, input: SiteConfigIssue): Promise<IssuedUpdateRequest> {
+    const rbac = this.rbac.forTenant(device.tenantId);
+    return this.issueSequenced(
+      device,
+      STATEMENT.siteConfig,
+      input,
+      input.window,
+      input.recipe,
+      ({ updateSeq, target, requestId, deviceCode }) => {
+        const prepared = this.siteConfigs.prepareUpdate(
+          {
+            tenantId: device.tenantId,
+            deviceId: device.id,
+            deviceCode,
+            extraFiles: input.extraFiles,
+          },
+          rbac,
+        );
+        const signed = this.siteConfigs.signUpdate({
+          target,
+          files: prepared.files,
+          rbac,
+          updateSeq,
+          window: input.window,
+          siteBundleUrl: this.siteConfigs.bundleUrl(device.tenantId, requestId),
+        });
+        return { envelope: signed.envelope, digest: signed.digest, siteBundle: prepared.bundle };
+      },
+    );
+  }
+
+  /** Signs and stores a site network policy of `device`. */
+  async issueSiteNetpolicy(
+    device: DeviceRef,
+    input: SiteNetpolicyIssue,
+  ): Promise<IssuedUpdateRequest> {
+    return this.issueSequenced(
+      device,
+      STATEMENT.siteNetpolicy,
+      input,
+      input.window,
+      input.recipe,
+      ({ updateSeq, target }) =>
+        this.netpolicies.sign({ target, updateSeq, window: input.window, policy: input.policy }),
+    );
+  }
+
+  /**
+   * Stores the trust-anchors bundle the cloud holds for `device`'s tenant, exactly as
+   * the offline fleet-root ceremony signed it: the cloud signs nothing here and the
+   * statement carries no `update_seq` and no window of its own (the device's `bundle_seq`
+   * ratchet decides). A tenant outside the bundle's scope gets none, and so does a push
+   * whose approved digest is not the bundle the cloud holds now. `window` is the cloud's
+   * own delivery bound on the stored request, never part of the statement.
+   */
+  async issueTrustAnchors(
+    device: DeviceRef,
+    input: IssueMeta & { readonly window: UpdateWindow; readonly recipe: TrustAnchorsRecipe },
+  ): Promise<IssuedUpdateRequest> {
+    return this.issueUnsequenced(
+      device,
+      STATEMENT.trustAnchors,
+      input,
+      input.window,
+      input.recipe,
+      () => {
+        const bundle = this.anchors.forTenant(device.tenantId);
+        if (bundle.digest.sha256 !== input.recipe.bundleDigest) {
+          throw new UpdateRefusedError(
+            'bundle-invalid',
+            `the trust-anchors bundle the cloud holds (${bundle.digest.sha256}) is not the one that was approved (${input.recipe.bundleDigest})`,
+          );
+        }
+        return { envelope: bundle.envelope, digest: bundle.digest };
+      },
+    );
+  }
+
+  /**
+   * Signs and stores the statement a recipe describes, for `device`, in `window`: the one
+   * place a recipe becomes a statement, for a rollout's first issue and for the
+   * reconciler's re-issue alike. `releaseFor` admits the release an edge-update names.
+   */
+  async issueFromRecipe(
+    device: DeviceRef,
+    recipe: UpdateRecipe,
+    window: UpdateWindow,
+    meta: IssueMeta,
+    releaseFor: (board: BoardRow, version: string) => Promise<AdmittedRelease>,
+  ): Promise<IssuedUpdateRequest> {
+    switch (recipe.kind) {
+      case 'edge-update': {
+        const board = await this.boardOf(device);
+        if (board === null) throw new UpdateTargetUnavailableError(device.id);
+        const release = await releaseFor(board, recipe.version);
+        return this.issueEdgeUpdate(device, {
+          ...meta,
+          release,
+          window,
+          terms: recipe.terms,
+          recipe,
+        });
+      }
+      case 'os-update':
+        return this.issueOsUpdate(device, {
+          ...meta,
+          bundle: recipe.bundle,
+          window,
+          terms: recipe.terms,
+          recipe,
+        });
+      case 'site-config':
+        return this.issueSiteConfig(device, {
+          ...meta,
+          extraFiles: siteFilesOf(recipe),
+          window,
+          recipe,
+        });
+      case 'site-netpolicy':
+        return this.issueSiteNetpolicy(device, { ...meta, policy: recipe.policy, window, recipe });
+      case 'trust-anchors':
+        return this.issueTrustAnchors(device, { ...meta, window, recipe });
+    }
+  }
+
+  /** A statement with an `update_seq`: the device's next value is allocated in the signing transaction. */
+  protected async issueSequenced(
     device: DeviceRef,
     type: CarriedStatementType,
     meta: IssueMeta,
     window: UpdateWindow,
     recipe: UpdateRecipe,
-    siteBundle: string | null,
-    sign: (allocated: AllocatedTarget) => SignedStatement<T>,
+    sign: (allocated: SequencedTarget) => SignedForStorage,
   ): Promise<IssuedUpdateRequest> {
-    const now = new Date();
-    return runInTenantTransaction(
-      this.dataSource,
-      SENSOR_SOURCE_SCHEMA,
-      device.tenantId,
-      async (qr) => {
-        const allocated = await this.allocate(qr, device);
-        const signed = sign(allocated);
-        const statement = JSON.stringify(signed.envelope);
-        if (Buffer.byteLength(statement, 'utf8') > UPDATE_CHANNEL.maxStatementBytes) {
-          throw new UpdateRefusedError(
-            'bundle-invalid',
-            `the signed statement is over the ${UPDATE_CHANNEL.maxStatementBytes} bytes a hand-over command carries`,
-          );
-        }
-        const intentId = meta.intentId ?? randomUUID();
-        const inserted: Array<{ id: string }> = await qr.query(
-          `INSERT INTO edge_update_requests
-             (tenant_id, device_id, rollout_id, intent_id, statement_type, update_seq,
-              statement_digest, statement, site_bundle, recipe, not_before, expires_at, state,
-              campaign_started_at, created_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13, $14, $15)
-           RETURNING id`,
-          [
-            device.tenantId,
-            device.id,
-            meta.rolloutId ?? null,
-            intentId,
-            type,
-            allocated.updateSeq,
-            signed.digest.sha256,
-            statement,
-            siteBundle,
-            JSON.stringify(recipe),
-            window.notBefore,
-            window.expiresAt,
-            EdgeUpdateRequestState.PENDING,
-            meta.campaignStartedAt ?? now,
-            meta.createdBy ?? null,
-          ],
-        );
-        const id = inserted[0]?.id;
-        if (id === undefined) throw new Error('the update request was not stored');
-        if (meta.supersedes !== undefined) {
-          await this.supersede(qr, device, meta.supersedes, id);
-        }
-        if (meta.afterStore !== undefined) await meta.afterStore(qr, id);
-        return {
-          id,
-          intentId,
-          statementType: type,
-          statementDigest: signed.digest.sha256,
-          updateSeq: allocated.updateSeq,
-          notBefore: window.notBefore,
-          expiresAt: window.expiresAt,
-        };
-      },
+    return this.inSigningTransaction(device, async (qr, requestId) => {
+      const allocated = await this.allocate(qr, device);
+      const signed = sign({ ...allocated, requestId });
+      return this.store(
+        qr,
+        device,
+        type,
+        meta,
+        window,
+        recipe,
+        requestId,
+        allocated.updateSeq,
+        signed,
+      );
+    });
+  }
+
+  /** A statement with no `update_seq` (a trust-anchors bundle): the device is checked, no value is spent. */
+  protected async issueUnsequenced(
+    device: DeviceRef,
+    type: CarriedStatementType,
+    meta: IssueMeta,
+    window: UpdateWindow,
+    recipe: UpdateRecipe,
+    sign: (target: UnsequencedTarget) => SignedForStorage,
+  ): Promise<IssuedUpdateRequest> {
+    return this.inSigningTransaction(device, async (qr, requestId) => {
+      const target = await this.readTarget(qr, device);
+      const signed = sign({ ...target, requestId });
+      return this.store(qr, device, type, meta, window, recipe, requestId, null, signed);
+    });
+  }
+
+  /**
+   * One transaction per statement. The request's id exists before the statement is
+   * signed, because a site-config names it in the URL it is signed with.
+   */
+  private async inSigningTransaction(
+    device: DeviceRef,
+    run: (qr: QueryRunner, requestId: string) => Promise<IssuedUpdateRequest>,
+  ): Promise<IssuedUpdateRequest> {
+    const requestId = randomUUID();
+    return runInTenantTransaction(this.dataSource, SENSOR_SOURCE_SCHEMA, device.tenantId, (qr) =>
+      run(qr, requestId),
     );
   }
 
+  /**
+   * Stores the signed statement exactly as signed. A statement over what a hand-over
+   * command carries leaves no trace (the transaction rolls its sequence value back).
+   */
+  private async store(
+    qr: QueryRunner,
+    device: DeviceRef,
+    type: CarriedStatementType,
+    meta: IssueMeta,
+    window: UpdateWindow,
+    recipe: UpdateRecipe,
+    requestId: string,
+    updateSeq: number | null,
+    signed: SignedForStorage,
+  ): Promise<IssuedUpdateRequest> {
+    const statement = JSON.stringify(signed.envelope);
+    if (Buffer.byteLength(statement, 'utf8') > UPDATE_CHANNEL.maxStatementBytes) {
+      throw new UpdateRefusedError(
+        'bundle-invalid',
+        `the signed statement is over the ${UPDATE_CHANNEL.maxStatementBytes} bytes a hand-over command carries`,
+      );
+    }
+    const intentId = meta.intentId ?? randomUUID();
+    await qr.query(
+      `INSERT INTO edge_update_requests
+         (id, tenant_id, device_id, rollout_id, intent_id, statement_type, update_seq,
+          statement_digest, statement, site_bundle, recipe, not_before, expires_at, state,
+          campaign_started_at, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14, $15, $16)`,
+      [
+        requestId,
+        device.tenantId,
+        device.id,
+        meta.rolloutId ?? null,
+        intentId,
+        type,
+        updateSeq,
+        signed.digest.sha256,
+        statement,
+        signed.siteBundle ?? null,
+        JSON.stringify(recipe),
+        window.notBefore,
+        window.expiresAt,
+        EdgeUpdateRequestState.PENDING,
+        meta.campaignStartedAt ?? new Date(),
+        meta.createdBy ?? null,
+      ],
+    );
+    if (meta.supersedes !== undefined) {
+      await this.supersede(qr, device, meta.supersedes, requestId);
+    }
+    if (meta.afterStore !== undefined) await meta.afterStore(qr, requestId);
+    return {
+      id: requestId,
+      intentId,
+      statementType: type,
+      statementDigest: signed.digest.sha256,
+      updateSeq,
+      notBefore: window.notBefore,
+      expiresAt: window.expiresAt,
+    };
+  }
+
+  /** The device's next update_seq, taken by one conditional UPDATE inside the signing transaction. */
   private async allocate(qr: QueryRunner, device: DeviceRef): Promise<AllocatedTarget> {
-    const rows = await returningRows<{
-      seq: string | number;
-      method: string;
-      digest: string;
-      model: string;
-    }>(
+    const rows = await returningRows<DeviceTargetRow>(
       qr,
       `UPDATE edge_devices
           SET edge_statement_seq = edge_statement_seq + 1
@@ -323,17 +556,40 @@ export class EdgeUpdateRequestService implements OnModuleInit {
           AND device_binding_sha256 IS NOT NULL AND device_binding_method IS NOT NULL
           AND lifecycle_state::text = ANY($4::text[])
       RETURNING edge_statement_seq AS seq, device_binding_method AS method,
-                device_binding_sha256 AS digest, device_model::text AS model`,
+                device_binding_sha256 AS digest, device_model::text AS model,
+                device_code AS code`,
       [device.id, device.tenantId, EdgeAgentChannel.SUDERRA_OS, UPDATABLE_STATES],
     );
     const row = rows[0];
     if (row === undefined) throw new UpdateTargetUnavailableError(device.id);
+    return { updateSeq: Number(row.seq), ...this.targetOf(device, row) };
+  }
+
+  /** The same checks as {@link allocate}, without spending a sequence value. */
+  private async readTarget(qr: QueryRunner, device: DeviceRef): Promise<TargetOf> {
+    const rows: DeviceTargetRow[] = await qr.query(
+      `SELECT edge_statement_seq AS seq, device_binding_method AS method,
+              device_binding_sha256 AS digest, device_model::text AS model,
+              device_code AS code
+         FROM edge_devices
+        WHERE id = $1 AND tenant_id = $2 AND agent_channel = $3
+          AND device_binding_sha256 IS NOT NULL AND device_binding_method IS NOT NULL
+          AND lifecycle_state::text = ANY($4::text[])
+        FOR SHARE`,
+      [device.id, device.tenantId, EdgeAgentChannel.SUDERRA_OS, UPDATABLE_STATES],
+    );
+    const row = rows[0];
+    if (row === undefined) throw new UpdateTargetUnavailableError(device.id);
+    return this.targetOf(device, row);
+  }
+
+  private targetOf(device: DeviceRef, row: DeviceTargetRow): TargetOf {
     const binding = asDeviceBinding(row.method, row.digest);
     const board = boardForDeviceModel(row.model);
     if (binding === null || board === null) throw new UpdateTargetUnavailableError(device.id);
     return {
-      updateSeq: Number(row.seq),
       target: { tenantId: device.tenantId, deviceId: device.id, binding, board },
+      deviceCode: row.code,
     };
   }
 
@@ -559,12 +815,18 @@ export class EdgeUpdateRequestService implements OnModuleInit {
       SENSOR_SOURCE_SCHEMA,
       event.tenantId,
       async (qr) => {
+        // The open request of this device that carries the digest and existed when the result
+        // was first stored: a forwarded statement (a trust-anchors bundle) has the same digest
+        // every time it is pushed, so a result cannot conclude a request made after it arrived.
         const rows: RequestRow[] = await qr.query(
           `SELECT id, device_id, statement_type, statement_digest, state, expires_at
              FROM edge_update_requests
             WHERE tenant_id = $1 AND device_id = $2 AND statement_digest = $3
+              AND state IN ('pending', 'lapsed') AND created_at <= $4
+            ORDER BY created_at DESC
+            LIMIT 1
             FOR UPDATE`,
-          [event.tenantId, event.deviceId, digest],
+          [event.tenantId, event.deviceId, digest, event.receivedAt],
         );
         const row = rows[0];
         if (
@@ -768,6 +1030,31 @@ export class EdgeUpdateRequestService implements OnModuleInit {
         reason: event.result.reason ?? null,
       });
     }
+  }
+
+  /**
+   * The site bundle root fetches for the site-config request `requestId`, or null. The
+   * statement names the URL and root checks every byte against the statement, so the
+   * bundle carries no trust; it is still served only while the request is open and
+   * inside its window ("the cloud serves it only for the statement's window",
+   * site-bundle.schema.json), and the caller answers null, an unknown request and a
+   * closed window alike, with one body (DEC-22).
+   */
+  async siteBundleOf(tenantId: string, requestId: string, now: Date): Promise<string | null> {
+    const rows: Array<{ bundle: string }> = await runInTenantRead(
+      this.dataSource,
+      SENSOR_SOURCE_SCHEMA,
+      tenantId,
+      (qr) =>
+        qr.query(
+          `SELECT site_bundle AS bundle FROM edge_update_requests
+            WHERE id = $1 AND tenant_id = $2 AND statement_type = $3
+              AND state = 'pending' AND site_bundle IS NOT NULL
+              AND not_before <= $4 AND expires_at > $4`,
+          [requestId, tenantId, STATEMENT.siteConfig, now],
+        ),
+    );
+    return rows[0]?.bundle ?? null;
   }
 
   /** A device's requests, newest first, for the console. */

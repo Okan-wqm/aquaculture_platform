@@ -9,7 +9,7 @@ import {
   STATEMENT,
   type TimeSource,
 } from './edge-contract';
-import { assertContractSchema } from './edge-statement-schemas';
+import { assertContractSchema, ContractSchemaError } from './edge-statement-schemas';
 import {
   assertDeliverableWindow,
   UpdateRefusedError,
@@ -53,6 +53,43 @@ export interface SiteNetpolicyInput {
   readonly updateSeq: number;
   readonly window: UpdateWindow;
   readonly policy: NetpolicyBody;
+}
+
+const PROBE = {
+  _type: STATEMENT.siteNetpolicy,
+  tenant_id: '00000000-0000-4000-8000-000000000000',
+  device_id: '00000000-0000-4000-8000-000000000000',
+  device_binding: { method: 'tpm-ek-sha256', digest: { sha256: '0'.repeat(64) } },
+  update_seq: 1,
+  not_before: '2026-01-01T00:00:00Z',
+  expires_at: '2026-01-02T00:00:00Z',
+} as const;
+
+/**
+ * Whether `value` is a policy body the contract's schema admits: exactly the three members
+ * `interfaces`, `ot_rules` and `time_sources`, each as the schema states it (limits,
+ * patterns, the `wide` flag, plain NTP only with its mark). It is how an operator's JSON,
+ * or a stored recipe, becomes a {@link NetpolicyBody}: the members are checked by the
+ * contract's own schema (inside a statement with placeholder identity), never cast.
+ * The constraints the schema cannot state are checked when a statement is built.
+ */
+export function isNetpolicyBody(value: unknown): value is NetpolicyBody {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const members = Object.keys(value);
+  if (members.length !== 3) return false;
+  const probe = {
+    ...PROBE,
+    interfaces: Reflect.get(value, 'interfaces'),
+    ot_rules: Reflect.get(value, 'ot_rules'),
+    time_sources: Reflect.get(value, 'time_sources'),
+  };
+  try {
+    assertContractSchema('site-netpolicy', probe);
+    return true;
+  } catch (error) {
+    if (error instanceof ContractSchemaError) return false;
+    throw error;
+  }
 }
 
 /** A policy constraint the contract's schema cannot state and every verifier enforces. */

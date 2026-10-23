@@ -18,8 +18,11 @@ import {
   type EdgeUpdateIssue,
   EdgeUpdateRequestService,
   type OsUpdateIssue,
+  type SiteConfigIssue,
+  type SiteNetpolicyIssue,
   UpdateTargetUnavailableError,
 } from '../edge-update-request.service';
+import type { SiteConfigRecipe, TrustAnchorsRecipe } from '../edge-update-recipe';
 import { EdgeDeviceDirectory } from '../entities/edge-device-directory.entity';
 import { EdgeDeviceResult } from '../entities/edge-device-result.entity';
 import { EdgeUpdateRequest } from '../entities/edge-update-request.entity';
@@ -30,6 +33,16 @@ import {
   EdgeDevice,
 } from '../entities/edge-device.entity';
 import { StatementAdmissionError } from '../manifest-signer';
+import { RbacManifestService } from '../rbac-manifest.service';
+import { SiteConfigManifestService } from '../site-config-manifest.service';
+import {
+  type NetpolicyBody,
+  SiteNetpolicyManifestService,
+} from '../site-netpolicy-manifest.service';
+import {
+  TenantOutOfBundleScopeError,
+  TrustAnchorBundleService,
+} from '../trust-anchor-bundle.service';
 import { SuderraEdgeConfig } from '../suderra-edge.config';
 
 import { channelEnvironment } from './support/edge-channel-env';
@@ -46,6 +59,8 @@ import { fixtureRelease } from './support/fixture-release';
 
 const TENANT_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const TENANT_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+/** The one tenant the contract's trust-anchors bundle serves (its tenant_scope). */
+const TENANT_FIXTURE = '7e570000-0000-4000-8000-000000000001';
 const BINDING = { method: 'tpm-ek-sha256', sha256: '7d'.repeat(32) } as const;
 const NOW = new Date('2026-10-20T12:00:00Z');
 const INTERVAL = 120_000;
@@ -98,6 +113,17 @@ const SEED: readonly Seed[] = [
   { code: 'RC-GONE', tenantId: TENANT_A },
   { code: 'RC-FINAL', tenantId: TENANT_A },
   { code: 'RC-OTHER', tenantId: TENANT_B },
+  { code: 'SC-CONFIG', tenantId: TENANT_A },
+  { code: 'SC-NET', tenantId: TENANT_A },
+  { code: 'SC-SETTLE', tenantId: TENANT_A },
+  { code: 'SC-RETRY', tenantId: TENANT_A },
+  { code: 'SC-RETRY-NET', tenantId: TENANT_A },
+  { code: 'SC-REFUSED', tenantId: TENANT_A },
+  { code: 'TA-ONE', tenantId: TENANT_FIXTURE },
+  { code: 'TA-TWO', tenantId: TENANT_FIXTURE },
+  { code: 'TA-LATE', tenantId: TENANT_FIXTURE },
+  { code: 'TA-RETRY', tenantId: TENANT_FIXTURE },
+  { code: 'TA-OUT', tenantId: TENANT_A },
 ];
 
 jest.setTimeout(240_000);
@@ -181,7 +207,7 @@ describe('update requests under FORCE RLS (ADR-048 DEC-2.12)', () => {
     release = await fixtureRelease(config, '1.7.0');
     stage = await bootSensorRlsHarness({
       name: 'edge_update_request',
-      tenants: [TENANT_A, TENANT_B],
+      tenants: [TENANT_A, TENANT_B, TENANT_FIXTURE],
       entities: [EdgeDevice, EdgeDeviceResult, EdgeUpdateRequest],
       sourceEntities: [EdgeDeviceDirectory],
       beforeRls: async ({ ddl, tenantId }) => {
@@ -228,6 +254,10 @@ describe('update requests under FORCE RLS (ADR-048 DEC-2.12)', () => {
       new EdgeUpdateManifestService(config),
       collaborator<EdgeCommandPublisher>({ publish }, 'EdgeCommandPublisher'),
       telemetry,
+      new SiteConfigManifestService(config),
+      new SiteNetpolicyManifestService(config),
+      new RbacManifestService(config),
+      new TrustAnchorBundleService(config),
     );
     service.onModuleInit();
     forVersion = jest.fn(async (): Promise<AdmittedRelease> => release);
@@ -919,6 +949,316 @@ describe('update requests under FORCE RLS (ADR-048 DEC-2.12)', () => {
         await rolledBack('RC-EDGE', 401, '1.7.0');
         expect((await byDigest('RC-ROLL', digest))['state']).toBe('done');
       });
+    });
+  });
+
+  describe('site statements and the trust-anchors bundle', () => {
+    const anchors = (): TrustAnchorBundleService =>
+      new TrustAnchorBundleService(
+        new SuderraEdgeConfig(
+          new ConfigService(channelEnvironment({ SUDERRA_EDGE_AGENT_VERSION: '1.7.0' })),
+        ),
+      );
+    const siteRecipe = (files: Record<string, string> = {}): SiteConfigRecipe => ({
+      kind: 'site-config',
+      files,
+      windowSeconds: 7200,
+    });
+    const siteIssue = (over: Partial<SiteConfigIssue> = {}): SiteConfigIssue => ({
+      extraFiles: new Map(),
+      window: WINDOW,
+      recipe: siteRecipe(),
+      ...over,
+    });
+    const POLICY: NetpolicyBody = {
+      interfaces: [],
+      ot_rules: [{ id: 'plc', proto: 'tcp', dst: '10.0.0.0/24', ports: [{ from: 502, to: 502 }] }],
+      time_sources: [],
+    };
+    const netIssue = (over: Partial<SiteNetpolicyIssue> = {}): SiteNetpolicyIssue => ({
+      policy: POLICY,
+      window: WINDOW,
+      recipe: { kind: 'site-netpolicy', policy: POLICY, windowSeconds: 7200 },
+      ...over,
+    });
+    const taRecipe = (bundleDigest: string): TrustAnchorsRecipe => ({
+      kind: 'trust-anchors',
+      bundleDigest,
+      windowSeconds: 7200,
+    });
+    const report = (
+      code: string,
+      kind: string,
+      statementType: string,
+      digest: string,
+      over: Record<string, unknown> = {},
+    ): Promise<unknown> =>
+      telemetry.ingest(
+        { tenantId: tenantOf(code), deviceIdentifier: id(code) },
+        concluding(digest, {
+          kind,
+          subject: { statement_type: statementType, statement_digest: { sha256: digest } },
+          ...over,
+        }),
+      );
+    const bodyOf = (row: Record<string, any>): Record<string, any> =>
+      JSON.parse(Buffer.from(JSON.parse(row['statement']).payload, 'base64').toString('utf8'));
+
+    describe('a site config', () => {
+      it('is stored with the bundle its URL names, allocated the next update_seq, config.yaml token-free', async () => {
+        const issued = await service.issueSiteConfig(
+          ref('SC-CONFIG'),
+          siteIssue({
+            extraFiles: new Map([['io-config.yaml', Buffer.from('tags: []\n', 'utf8')]]),
+            recipe: siteRecipe({ 'io-config.yaml': Buffer.from('tags: []\n').toString('base64') }),
+          }),
+        );
+        const [row] = await rows('SC-CONFIG');
+        expect(issued).toMatchObject({ statementType: 'suderra.site-config.v1', updateSeq: 1 });
+        const body = bodyOf(row ?? {});
+        expect(body['site_bundle_url']).toBe(
+          `https://api.example.com/api/devices/site-bundles/${TENANT_A}/${issued.id}`,
+        );
+        expect(row?.['id']).toBe(issued.id);
+        expect(Object.keys(body['files']).sort()).toEqual(['config.yaml', 'io-config.yaml']);
+        const bundle = JSON.parse(row?.['site_bundle']);
+        expect(Object.keys(bundle['site_files']).sort()).toEqual(['config.yaml', 'io-config.yaml']);
+        expect(
+          Buffer.from(bundle['site_files']['config.yaml'], 'base64').toString('utf8'),
+        ).not.toContain('provisioning_token');
+        expect(row).toMatchObject({ state: 'pending', update_seq: '1' });
+      });
+
+      it('is served inside its window only, while it is open, and to nobody else', async () => {
+        const issued = await service.issueSiteConfig(ref('SC-SETTLE'), siteIssue());
+        const inside = new Date(WINDOW.notBefore.getTime() + 60_000);
+        const bundle = await service.siteBundleOf(TENANT_A, issued.id, inside);
+        expect(bundle).not.toBeNull();
+        expect(JSON.parse(bundle ?? '')._type).toBe('suderra.site-bundle.v1');
+        // Before the window, at its end, and after.
+        expect(
+          await service.siteBundleOf(TENANT_A, issued.id, new Date(WINDOW.notBefore.getTime() - 1)),
+        ).toBeNull();
+        expect(await service.siteBundleOf(TENANT_A, issued.id, WINDOW.expiresAt)).toBeNull();
+        // Another tenant, an unknown id, and another statement type answer alike.
+        expect(await service.siteBundleOf(TENANT_B, issued.id, inside)).toBeNull();
+        expect(
+          await service.siteBundleOf(TENANT_A, '11111111-1111-4111-8111-111111111111', inside),
+        ).toBeNull();
+        const other = await service.issueEdgeUpdate(ref('SC-NET'), edge());
+        expect(await service.siteBundleOf(TENANT_A, other.id, inside)).toBeNull();
+        // A concluded request is no longer served.
+        await report('SC-SETTLE', 'site-config', 'suderra.site-config.v1', issued.statementDigest);
+        expect(await service.siteBundleOf(TENANT_A, issued.id, inside)).toBeNull();
+      });
+
+      it('is concluded by its own kind of result: ok, a retryable refusal, a final one', async () => {
+        const ok = await service.issueSiteConfig(ref('SC-SETTLE'), siteIssue());
+        await report('SC-SETTLE', 'site-config', 'suderra.site-config.v1', ok.statementDigest);
+        const retry = await service.issueSiteConfig(ref('SC-SETTLE'), siteIssue());
+        await report('SC-SETTLE', 'site-config', 'suderra.site-config.v1', retry.statementDigest, {
+          outcome: 'rejected',
+          reason: 'fetch-failed',
+        });
+        const final = await service.issueSiteConfig(ref('SC-SETTLE'), siteIssue());
+        await report('SC-SETTLE', 'site-config', 'suderra.site-config.v1', final.statementDigest, {
+          outcome: 'rejected',
+          reason: 'site-bundle-missing',
+        });
+        const byDigest = new Map(
+          (await rows('SC-SETTLE')).map((r) => [r['statement_digest'], r['state']]),
+        );
+        expect(byDigest.get(ok.statementDigest)).toBe('done');
+        expect(byDigest.get(retry.statementDigest)).toBe('retry');
+        expect(byDigest.get(final.statementDigest)).toBe('failed');
+      });
+
+      it('refuses what SG-1 does not allow, and leaves no row and no spent sequence value', async () => {
+        const before = await seqOf('SC-REFUSED');
+        await expect(
+          service.issueSiteConfig(
+            ref('SC-REFUSED'),
+            siteIssue({ extraFiles: new Map([['revpi/config.rsc', Buffer.from('{}')]]) }),
+          ),
+        ).rejects.toBeInstanceOf(UpdateRefusedError);
+        expect(await seqOf('SC-REFUSED')).toBe(before);
+        expect(await rows('SC-REFUSED')).toEqual([]);
+      });
+    });
+
+    describe('a site policy', () => {
+      it('is stored as signed with the next update_seq, and refused when the contract refuses it', async () => {
+        const issued = await service.issueSiteNetpolicy(ref('SC-NET'), netIssue());
+        expect(issued).toMatchObject({ statementType: 'suderra.site-netpolicy.v1' });
+        const row = (await rows('SC-NET')).find((r) => r['id'] === issued.id);
+        expect(bodyOf(row ?? {})).toMatchObject({
+          ot_rules: [{ id: 'plc', dst: '10.0.0.0/24' }],
+          update_seq: Number(row?.['update_seq']),
+        });
+        const before = await seqOf('SC-NET');
+        await expect(
+          service.issueSiteNetpolicy(
+            ref('SC-NET'),
+            netIssue({
+              policy: { ...POLICY, ot_rules: [{ ...POLICY.ot_rules[0]!, dst: '10.0.0.5/24' }] },
+            }),
+          ),
+        ).rejects.toBeInstanceOf(UpdateRefusedError);
+        expect(await seqOf('SC-NET')).toBe(before);
+      });
+    });
+
+    describe('the trust-anchors bundle', () => {
+      const held = (): string => anchors().forTenant(TENANT_FIXTURE).digest.sha256;
+
+      it('is stored exactly as the ceremony signed it, with no update_seq and no sequence value spent', async () => {
+        const before = await seqOf('TA-ONE');
+        const issued = await service.issueTrustAnchors(ref('TA-ONE'), {
+          window: WINDOW,
+          recipe: taRecipe(held()),
+        });
+        const [row] = await rows('TA-ONE');
+        expect(issued).toMatchObject({
+          statementType: 'suderra.trust-anchors.v1',
+          updateSeq: null,
+        });
+        expect(JSON.parse(row?.['statement'])).toEqual(
+          anchors().forTenant(TENANT_FIXTURE).envelope,
+        );
+        expect(row).toMatchObject({ update_seq: null, statement_digest: held(), state: 'pending' });
+        expect(new Date(row?.['expires_at']).getTime()).toBe(WINDOW.expiresAt.getTime());
+        expect(await seqOf('TA-ONE')).toBe(before);
+      });
+
+      it('is concluded by a trust-anchors result; pushed again it is a new request with the same digest', async () => {
+        const first = await service.issueTrustAnchors(ref('TA-TWO'), {
+          window: WINDOW,
+          recipe: taRecipe(held()),
+        });
+        await report('TA-TWO', 'trust-anchors', 'suderra.trust-anchors.v1', first.statementDigest);
+        expect((await rows('TA-TWO'))[0]).toMatchObject({ state: 'done' });
+        const again = await service.issueTrustAnchors(ref('TA-TWO'), {
+          window: WINDOW,
+          recipe: taRecipe(held()),
+        });
+        expect(again.statementDigest).toBe(first.statementDigest);
+        expect(again.id).not.toBe(first.id);
+        // One open request per device and digest: a second push while the first is open is refused.
+        await expect(
+          service.issueTrustAnchors(ref('TA-TWO'), { window: WINDOW, recipe: taRecipe(held()) }),
+        ).rejects.toThrow(/uq_edge_update_requests_device_digest/);
+      });
+
+      it('a result that arrived before a push cannot conclude it, however often it is offered again', async () => {
+        const first = await service.issueTrustAnchors(ref('TA-LATE'), {
+          window: WINDOW,
+          recipe: taRecipe(held()),
+        });
+        const document = concluding(first.statementDigest, {
+          seq: 777001,
+          kind: 'trust-anchors',
+          subject: {
+            statement_type: 'suderra.trust-anchors.v1',
+            statement_digest: { sha256: first.statementDigest },
+          },
+        });
+        await telemetry.ingest(
+          { tenantId: TENANT_FIXTURE, deviceIdentifier: id('TA-LATE') },
+          document,
+        );
+        expect((await rows('TA-LATE')).find((r) => r['id'] === first.id)?.['state']).toBe('done');
+        const second = await service.issueTrustAnchors(ref('TA-LATE'), {
+          window: WINDOW,
+          recipe: taRecipe(held()),
+        });
+        // The device's agent republishes the old message after a reconnect.
+        await telemetry.ingest(
+          { tenantId: TENANT_FIXTURE, deviceIdentifier: id('TA-LATE') },
+          document,
+        );
+        expect((await rows('TA-LATE')).find((r) => r['id'] === second.id)?.['state']).toBe(
+          'pending',
+        );
+      });
+
+      it('is refused for a tenant outside the bundle’s scope, and when the approved digest is not the held bundle', async () => {
+        await expect(
+          service.issueTrustAnchors(ref('TA-OUT'), { window: WINDOW, recipe: taRecipe(held()) }),
+        ).rejects.toBeInstanceOf(TenantOutOfBundleScopeError);
+        expect(await rows('TA-OUT')).toEqual([]);
+        await expect(
+          service.issueTrustAnchors(ref('TA-RETRY'), {
+            window: WINDOW,
+            recipe: taRecipe('0'.repeat(64)),
+          }),
+        ).rejects.toMatchObject({ reason: 'bundle-invalid' });
+        expect(await rows('TA-RETRY')).toEqual([]);
+      });
+    });
+
+    describe('the reconciler re-issues them', () => {
+      const REFUSED_AT = new Date('2026-10-20T12:00:00Z');
+      const CAMPAIGN = new Date('2026-10-20T11:00:00Z');
+      const AFTER = new Date(
+        REFUSED_AT.getTime() + UPDATE_CHANNEL.reissueMinIntervalSeconds * 1000,
+      );
+      const refuse = async (
+        code: string,
+        kind: string,
+        type: string,
+        issued: { id: string; statementDigest: string },
+        reason = 'fetch-failed',
+      ): Promise<void> => {
+        await report(code, kind, type, issued.statementDigest, {
+          outcome: 'rejected',
+          reason,
+        });
+        await admin.query(
+          `UPDATE ${table(code)} SET settled_at = $2, campaign_started_at = $3 WHERE id = $1`,
+          [issued.id, REFUSED_AT, CAMPAIGN],
+        );
+      };
+
+      it('a site config: a new statement and bundle of the same intent, a new request id in its URL', async () => {
+        const old = await service.issueSiteConfig(ref('SC-RETRY'), siteIssue());
+        await refuse('SC-RETRY', 'site-config', 'suderra.site-config.v1', old);
+        await reconciler.reconcileTenant(TENANT_A, AFTER);
+        const [before, after] = await rows('SC-RETRY');
+        expect(before).toMatchObject({ state: 'reissued', id: old.id });
+        expect(after).toMatchObject({ state: 'pending', intent_id: old.intentId });
+        expect(Number(after?.['update_seq'])).toBeGreaterThan(Number(before?.['update_seq']));
+        expect(bodyOf(after ?? {})['site_bundle_url']).toContain(String(after?.['id']));
+        expect(bodyOf(after ?? {})['site_bundle_url']).not.toContain(old.id);
+        expect(after?.['site_bundle']).not.toBeNull();
+      });
+
+      it('a site policy', async () => {
+        const old = await service.issueSiteNetpolicy(ref('SC-RETRY-NET'), netIssue());
+        await refuse(
+          'SC-RETRY-NET',
+          'site-netpolicy',
+          'suderra.site-netpolicy.v1',
+          old,
+          'clock-unsynced',
+        );
+        await reconciler.reconcileTenant(TENANT_A, AFTER);
+        expect((await rows('SC-RETRY-NET')).map((r) => r['state'])).toEqual([
+          'reissued',
+          'pending',
+        ]);
+      });
+
+      it('the trust-anchors bundle, the same approved one, and never a different one', async () => {
+        const old = await service.issueTrustAnchors(ref('TA-RETRY'), {
+          window: WINDOW,
+          recipe: taRecipe(held()),
+        });
+        await refuse('TA-RETRY', 'trust-anchors', 'suderra.trust-anchors.v1', old, 'io-error');
+        await reconciler.reconcileTenant(TENANT_FIXTURE, AFTER);
+        expect((await rows('TA-RETRY')).map((r) => r['state'])).toEqual(['reissued', 'pending']);
+      });
+
+      const held = (): string => anchors().forTenant(TENANT_FIXTURE).digest.sha256;
     });
   });
 });

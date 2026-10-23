@@ -66,6 +66,7 @@ from .workflow_contract_registry import (
 )
 from .workflow_contracts import verify_workflow_contract
 from .digest import is_sha256_digest
+from .tool_registry import GovernanceError
 
 
 @dataclass(frozen=True)
@@ -373,7 +374,6 @@ def verify_branch_protection(
     if payload is None:
         return ok, reasons
     from .readiness_proofs import _probe_branch_rules
-    from .tool_registry import GovernanceError
 
     try:
         _ruleset_ids, _bypass_actors, merge_queue = _probe_branch_rules(
@@ -559,7 +559,7 @@ def verify_workflow_preflight(
 
     kill_switch = (
         _env_truthy("ARIA_GLOBAL_KILL_SWITCH")
-        or _env_truthy("ARIA_STOP")
+        or operator_stop_engaged()
         or (workspace / ".aria-kill-switch").exists()
         or (workspace / "aria-tools" / "KILL_SWITCH").exists()
     )
@@ -766,6 +766,36 @@ def _env_truthy(name: str) -> bool:
     return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+# PLAN-v2 §2 'Durdurma' (ARIA-HIGH-765) — the operator's stop is the
+# repository variable ``vars.ARIA_STOP``, which only the operator can write
+# (the ARIA GitHub App holds no Variables permission). Every ARIA workflow
+# starts no job while it is set and passes it to every step as the
+# ``ARIA_STOP`` environment variable (tests/invariants/
+# test_aria_stop_every_workflow.py). NON-EMPTY MEANS STOP, whatever it says:
+# the operator writes a reason or a ticket id, not a truthy word, and the
+# workflows' own ``vars.ARIA_STOP == ''`` guard reads it the same way.
+#
+# This is the ONE reader of that environment variable in the kernel; the
+# workflow preflight, kernel_change admission and the merge authority (at
+# entry and right before the merge call) all ask here. The ``ARIA_STOP``
+# FILE the autonomy loops write is the kernel's own deadline stop, a
+# different thing: its absence never clears the operator's variable.
+OPERATOR_STOP_REFUSAL = "aria_stop"
+
+
+def operator_stop_engaged() -> bool:
+    """True when the operator's ``vars.ARIA_STOP`` reaches this process non-empty."""
+    return os.environ.get("ARIA_STOP", "") != ""
+
+
+def refuse_when_operator_stopped(act: str) -> None:
+    """Raise ``aria_stop: <act> refused ...`` while the operator's stop is set; the value is never echoed."""
+    if operator_stop_engaged():
+        raise GovernanceError(
+            f"{OPERATOR_STOP_REFUSAL}: {act} refused — the operator's stop (vars.ARIA_STOP) is set"
+        )
+
+
 def _git_worktree_clean(workspace: Path) -> bool | None:
     """Is the worktree clean, IGNORING files the cycle legitimately writes.
 
@@ -823,6 +853,9 @@ def _git_worktree_offending_paths(workspace: Path) -> list[str]:
 
 
 __all__ = (
+    "OPERATOR_STOP_REFUSAL",
+    "operator_stop_engaged",
+    "refuse_when_operator_stopped",
     "PreflightVerdict",
     "WorkflowPreflightVerdict",
     "REQUIRED_BRANCH_PROTECTION_FIELDS",

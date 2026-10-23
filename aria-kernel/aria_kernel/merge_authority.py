@@ -33,6 +33,7 @@ from .ledger import SEGMENTED_LEDGERS, load_declared_jsonl, load_segments, segme
 from .merge_lane_merge_state import route_unmergeable_merge_state
 from .merge_record import LINEAGE_DELIVERED, MERGED_BY_MERGE_LANE, pr_change_binding, record_merge
 from .policy_approval import verify_policy_approval
+from .preflight import OPERATOR_STOP_REFUSAL, operator_stop_engaged, refuse_when_operator_stopped
 from .readiness_proofs import produce_remote_cas_proof
 from .risk_policy import first_present_string, record_risk_decision_for_pr
 from .rollback_bundle import verify_rollback_bundle
@@ -74,7 +75,13 @@ def merge_pr_if_ready(
     readiness, runner and rollback evidence, incident pre-row, auto-merge
     eligibility, the change-ledger triple gate, and a final live re-evaluation
     immediately before invoking ``adapter.merge_pr``.
+
+    The operator's stop (``vars.ARIA_STOP``, PLAN-v2 §2 'Durdurma') is read
+    at entry, before any gate writes a row, and again as the last act before
+    the merge call, after the intent is published: a stop set while the gates
+    ran blocks the merge by name and makes no merge call.
     """
+    refuse_when_operator_stopped("merge_authority")
     # ARIA-HIGH-205 — merge authority is `autonomous` or an operator's
     # merge-lane grant (runtime_profile). Refused here, before any merge work,
     # when neither exists; the lane the grant must cover is checked against
@@ -363,6 +370,22 @@ def merge_pr_if_ready(
                             )
                             if intent_refusal is not None:
                                 result = intent_refusal
+                            elif operator_stop_engaged():
+                                # ARIA-HIGH-765 — the merge moment: every gate
+                                # passed and the intent is on the record when
+                                # the operator's stop arrives. No merge call.
+                                result = dict(decision)
+                                result.update(
+                                    {
+                                        "recorded_at": utc_now(),
+                                        "decision": "blocked",
+                                        "eligible": False,
+                                        "reasons": [OPERATOR_STOP_REFUSAL],
+                                        "stage": "operator_stop",
+                                        "merge_lease": _lease_summary(merge_lease),
+                                    },
+                                )
+                                _append_decision(base_dir, result)
                             else:
                                 merge_kwargs: dict[str, Any] = {
                                     "method": "squash",

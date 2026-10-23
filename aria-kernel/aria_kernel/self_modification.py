@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from .ledger import append_declared_jsonl, load_jsonl
+from .preflight import refuse_when_operator_stopped
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
@@ -26,6 +27,10 @@ def request_kernel_change(
     cycle_id: str | None = None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
+    # PLAN-v2 §2 'Durdurma' (ARIA-HIGH-765) — the operator's stop is read
+    # first: a stopped ARIA admits no kernel change, reads no approval and
+    # writes no row.
+    refuse_when_operator_stopped("kernel_change_request")
     if not changed_files or not all(path.startswith("aria-kernel/aria_kernel/") for path in changed_files):
         raise GovernanceError("kernel change requests may only target aria-kernel/aria_kernel/**")
     if not operator_approval_ref.strip():

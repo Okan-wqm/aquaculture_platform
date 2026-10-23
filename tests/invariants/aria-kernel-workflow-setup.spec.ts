@@ -35,6 +35,17 @@
  * Jobs are checked independently because each GitHub job gets a fresh
  * runner: an install in job A does nothing for job B.
  *
+ * # The one exception: Examination Board jobs
+ *
+ * A job that declares `environment: aria-board` (PLAN-v2 B0, §1.9) holds the
+ * Board's keys and must NOT provision the kernel: the setup action installs
+ * the kernel's dependencies unpinned and imports `aria_kernel`, whose package
+ * `__init__` loads the whole ARIA-changeable kernel into the job. A Board job
+ * runs `aria-kernel/aria_kernel/examination_board.py` by path in isolated mode
+ * with its one dependency installed by hash; its rules live in
+ * `aria-kernel/tests/invariants/test_board_job_guard.py`. This spec pins the
+ * other half: a Board job never uses the setup action.
+ *
  * # Fixing a failure
  *
  * Add `- uses: ./.github/actions/setup-aria-kernel` as the first
@@ -66,7 +77,16 @@ const KERNEL_INVOCATION_MARKERS = [
 ];
 
 type Step = { uses?: string; run?: string; name?: string };
-type Job = { steps?: Step[] };
+type Job = { steps?: Step[]; environment?: string | { name?: string } };
+
+/** The Examination Board's GitHub environment (board/SETUP.md, PLAN-v2 B0). */
+const BOARD_ENVIRONMENT = 'aria-board';
+
+function isBoardJob(job: Job | undefined): boolean {
+  const environment = job?.environment;
+  const name = typeof environment === 'string' ? environment : environment?.name;
+  return name === BOARD_ENVIRONMENT;
+}
 type Workflow = { jobs?: Record<string, Job> };
 
 function isKernelInvocation(step: Step): boolean {
@@ -111,6 +131,7 @@ describe('aria-kernel workflow provisioning', () => {
       const jobs = workflow?.jobs ?? {};
 
       for (const [jobId, job] of Object.entries(jobs)) {
+        if (isBoardJob(job)) continue;
         const steps = job?.steps ?? [];
         let provisioned = false;
 
@@ -131,6 +152,23 @@ describe('aria-kernel workflow provisioning', () => {
     }
 
     expect(violations).toEqual([]);
+  });
+
+  it('never provisions the kernel in an Examination Board job', () => {
+    const offenders: string[] = [];
+    let boardJobs = 0;
+
+    for (const file of workflowFiles) {
+      const workflow = yaml.load(readFileSync(join(WORKFLOW_DIR, file), 'utf8')) as Workflow | null;
+      for (const [jobId, job] of Object.entries(workflow?.jobs ?? {})) {
+        if (!isBoardJob(job)) continue;
+        boardJobs += 1;
+        if ((job?.steps ?? []).some(usesSetupAction)) offenders.push(`${file} job "${jobId}"`);
+      }
+    }
+
+    expect(boardJobs).toBeGreaterThan(0);
+    expect(offenders).toEqual([]);
   });
 
   it('keeps the provisioning action itself installing from pyproject, not a copied list', () => {

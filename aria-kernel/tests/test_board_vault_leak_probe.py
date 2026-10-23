@@ -50,7 +50,6 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from aria_kernel import gh_token_factory as tf
 from aria_kernel.operator_approval import OPERATORS_POLICY_RELPATH
-from aria_kernel.tool_registry import GovernanceError
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _KERNEL = _REPO_ROOT / "aria-kernel" / "aria_kernel"
@@ -116,9 +115,9 @@ class VaultCipherTests(unittest.TestCase):
     def test_the_runner_environment_cannot_open_or_write_the_vault(self) -> None:
         sealed = self._seal()
         with patch.dict(os.environ, _env_with_key(None), clear=True):
-            with self.assertRaises(GovernanceError) as opened:
+            with self.assertRaises(self.board.BoardRefusal) as opened:
                 self.board.open_vault_blob(sealed, context=_CONTEXT)
-            with self.assertRaises(GovernanceError) as written:
+            with self.assertRaises(self.board.BoardRefusal) as written:
                 self.board.seal_vault_blob(b"planted case", context=_CONTEXT)
         self.assertIn("board_vault_key_unavailable", str(opened.exception))
         self.assertIn("board_vault_key_unavailable", str(written.exception))
@@ -136,7 +135,7 @@ class VaultCipherTests(unittest.TestCase):
         }
         for name, attempt in cases.items():
             with self.subTest(case=name):
-                with self.assertRaises(GovernanceError) as raised:
+                with self.assertRaises(self.board.BoardRefusal) as raised:
                     attempt()
                 self.assertIn("board_vault_blob_unauthentic", str(raised.exception))
 
@@ -146,7 +145,7 @@ class VaultCipherTests(unittest.TestCase):
             env = _env_with_key(None)
             env[_KEY_ENV] = value
             with self.subTest(key=name), patch.dict(os.environ, env, clear=True):
-                with self.assertRaises(GovernanceError) as raised:
+                with self.assertRaises(self.board.BoardRefusal) as raised:
                     self.board.seal_vault_blob(_CANARY, context=_CONTEXT)
                 self.assertRegex(str(raised.exception), r"board_vault_key_(invalid|unavailable)")
 

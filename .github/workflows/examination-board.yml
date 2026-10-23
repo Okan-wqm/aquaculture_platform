@@ -7,19 +7,28 @@ name: Examination Board
 # environment can read them. Every such job (a "Board job") keeps the guard
 # pinned by aria-kernel/tests/invariants/test_board_job_guard.py:
 #
-#   - its `if:` checks `github.ref == 'refs/heads/main'` itself (not only
+#   - its `if:` requires `github.ref == 'refs/heads/main'` itself (not only
 #     through the environment policy) and the operator's stop
-#     (`vars.ARIA_STOP == ''`, PLAN-v2 §2 'Durdurma'), with no `||` around them;
+#     (`vars.ARIA_STOP == ''`, PLAN-v2 §2 'Durdurma'), in every branch;
 #   - it runs on a GitHub-hosted runner, never on ARIA's self-hosted runner,
 #     whose uid is the population the Board must exclude;
-#   - it checks out the Board version — main as triggered (no `ref:` an input
-#     or event could choose) — and keeps no credential in the checkout;
+#   - it checks out the Board version — this repository at the main commit
+#     as triggered (no `ref:` an input or event could choose) — or the vault
+#     repository by name, and keeps no credential in a checkout;
+#   - it holds read-only permissions and pushes nothing (B0 has no writer;
+#     B2 adds the one signed-totals writer under this guard);
 #   - it uploads no artifact and saves no cache (both readable by ARIA's jobs),
-#     and traces no shell (a trace echoes case content into the log);
+#     and traces no shell — in a `run:`, a step `shell:` or `defaults.run` —
+#     since a trace echoes case content into the log;
+#   - it never runs the ARIA kernel package: no setup-aria-kernel (its
+#     unpinned install), no `python3 -m aria_kernel`, no PYTHONPATH. The
+#     key-holding step runs examination_board.py BY PATH in isolated mode,
+#     so the package __init__ (the whole ARIA-changeable kernel) never loads,
+#     and its one third-party dependency is installed by hash;
 #   - this workflow has no pull-request trigger, so it never runs PR code.
 #
 # B0 ships the custody check: the environment's data key seals and opens a
-# fixed probe through aria_kernel.examination_board, the one owner of the
+# fixed probe through aria_kernel/examination_board.py, the one owner of the
 # vault cipher. B2 adds the exam runner and its signed totals as further
 # Board jobs under the same guard.
 
@@ -42,14 +51,20 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # A kernel lane is a whole clone (the kernel refuses a shallow one;
-          # tests/invariants/test_kernel_lanes_check_out_full_history.py).
+          # The key-holding step names the kernel's path, which makes this a
+          # kernel lane, and a kernel lane is a whole clone
+          # (tests/invariants/test_kernel_lanes_check_out_full_history.py).
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: ./.github/actions/setup-aria-kernel
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12'
+
+      - name: Install the Board's cipher dependency by hash
+        run: python3 -m pip install --require-hashes --only-binary ':all:' --no-deps -r .github/board/cipher-requirements.txt
 
       - name: Prove the vault data key seals and opens a probe
         env:
           ARIA_BOARD_VAULT_DATA_KEY: ${{ secrets.ARIA_BOARD_VAULT_DATA_KEY }}
-        run: PYTHONPATH=aria-kernel python3 -m aria_kernel.examination_board vault-custody-check
+        run: python3 -I aria-kernel/aria_kernel/examination_board.py vault-custody-check

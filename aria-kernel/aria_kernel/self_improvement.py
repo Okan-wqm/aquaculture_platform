@@ -24,7 +24,6 @@ pending item), so the second accepted answer is refused by name
 """
 from __future__ import annotations
 
-import ast
 import functools
 import hashlib
 import importlib.machinery
@@ -39,7 +38,8 @@ from collections.abc import Iterable
 from typing import Any, Literal, NoReturn
 
 from .artifact_safety import scrub_text
-from .canonical_path import matches_repo_glob
+from .authority_closure import BOARD_TOOLS_RELPATH, import_closure
+from .canonical_path import matches_repo_glob, repo_glob_directory
 from .change_paths import read_change_paths
 from .closure_reachability import CLOSURE_BASELINE_RELPATH, CLOSURE_PIN_KIND, iter_closure_pins
 from .doctor import DoctorCheck, DoctorReport
@@ -325,16 +325,20 @@ def _refuse_mission(root: Path, *, reason: str, mission_id: str, mission: dict[s
 # `implementation_safety.readonly_paths()` (the implementer room and the
 # merge perimeter) projects it; `authority_surface_violations` (a proposal's
 # declared paths) and `realized_diff_authority_violations` (the paths a
-# branch really changes, which the kernel-change lane calls at pin proof and
-# before merge) judge with the one per-path judge against it; the CODEOWNERS
+# branch really changes; the kernel-change lane on landing/aria-kc-l is its
+# caller at pin proof and before merge, not yet on main) judge with the one
+# per-path judge against it; the CODEOWNERS
 # coverage and full-set invariants iterate it
 # (tests/test_derived_authority_set.py).
 #
-# The set is CLOSED UNDER IMPORT: every kernel file a member executes when it
-# is imported is a member too, computed from the tree. The modules that
-# decide the set (change_paths, surface_waivers, closure_reachability, …) are
-# imported by self_improvement, so they are members by the same rule that
-# makes the Board's scorer imports members; nobody lists them.
+# The set is CLOSED UNDER EXECUTION (`authority_closure`): every repository
+# file a decider runs — through any import statement, function bodies
+# included, or as a program it launches or loads by path — is a member too,
+# computed from the tree. The modules that decide the set (change_paths,
+# surface_waivers, closure_reachability, …) are imported by self_improvement,
+# so they are members by the same rule that makes a rail's call-time inputs
+# and the Board's scorer imports members; nobody lists them. And no top-level
+# module name at the suite's import roots is free (`IMPORT_ROOT_MEMBERS`).
 # =============================================================================
 KERNEL_PACKAGE_RELPATH = "aria-kernel/aria_kernel"
 _KERNEL = f"{KERNEL_PACKAGE_RELPATH}/"
@@ -342,9 +346,9 @@ _KERNEL = f"{KERNEL_PACKAGE_RELPATH}/"
 KERNEL_SUITE_ROOT = "aria-kernel"
 # The suite's import roots are declared once, in suite_import_roots, which
 # scripts/ci/aria-suite-run.sh runs to export them (R1).
-# The Board's exam runner (PLAN-v2 Faz 6). Its import closure into the kernel
-# is computed from the tree (`_import_closure`), never copied.
-BOARD_TOOLS_RELPATH = "tools/aria-acceptance"
+# The Board's exam runner (`authority_closure.BOARD_TOOLS_RELPATH`). What it
+# executes is computed from the tree (`authority_closure.import_closure`),
+# never copied.
 # The Board's own module. examination_board is B2's and does not exist yet:
 # it is named by its PLANNED path so the set is complete the day B2 lands,
 # rather than letting the first change after B2 edit the scorer it is judged
@@ -374,20 +378,40 @@ RAIL_MODULES: tuple[str, ...] = tuple(f"{_KERNEL}{name}.py" for name in (
 ))
 # The test modules: what collection measures. A test module is a member (a
 # change may not drop or rewrite one) but not a decider, so its imports are
-# not walked (`_closure_seeds`): they are the code under test.
+# not walked (`_is_decider`): they are the code under test.
 KERNEL_TESTS_GLOB = f"{KERNEL_SUITE_ROOT}/tests/**"
 # The suite's single owner (R1): the script that defines what the suite runs
 # and collects, and the unittest half's collector it runs by path. The
 # collector sits under tests/ but decides collection, so it is a seed.
 SUITE_RUNNER = "scripts/ci/aria-suite-run.sh"
 SUITE_COLLECTOR = f"{KERNEL_SUITE_ROOT}/tests/_helpers/suite_shards.py"
-# The interpreter start-up hooks: `site` imports `sitecustomize` and
-# `usercustomize` by NAME from sys.path before pytest starts, so one on either
-# PYTHONPATH root runs ahead of every collection rule.
-STARTUP_HOOK_MODULES: tuple[str, ...] = tuple(
-    f"{root}/{name}.py" if root else f"{name}.py"
-    for root in SUITE_PYTHONPATH_ROOTS for name in ("sitecustomize", "usercustomize")
-)
+
+
+def _import_root_members(root: str) -> tuple[str, ...]:
+    """Every top-level module name at one of the suite's import roots
+    (`suite_import_roots.SUITE_PYTHONPATH_ROOTS`), R3.
+
+    Both roots precede the standard library and site-packages on sys.path
+    (and the repository root is the cwd that `python3 -m` puts first), so a
+    module or package at either one is imported in place of whatever bears
+    its name: `aria-kernel/json.py` replaces the standard library's json in
+    the suite, the collection child and every kernel process,
+    `aria-kernel/pytest.py` replaces pytest, a `sitecustomize` runs before
+    anything, and a repository-root `aria_kernel/__init__.py` replaces the
+    whole kernel. So every name is a member in every form the importer
+    loads: each loader suffix (`importlib.machinery.all_suffixes`), a
+    package's `__init__.*` and the `__pycache__` beside them. The kernel
+    package's own directory keeps its per-module rules; its NAME at every
+    other root is a member.
+    """
+    head = f"{root}/" if root else ""
+    kernel_name = () if root == KERNEL_SUITE_ROOT else (f"{head}aria_kernel/**",)
+    return (*(f"{head}*{suffix}" for suffix in importlib.machinery.all_suffixes()),
+            f"{head}*/__init__.*", f"{head}__pycache__/**", *kernel_name)
+
+
+IMPORT_ROOT_MEMBERS: tuple[str, ...] = tuple(
+    dict.fromkeys(glob for root in SUITE_PYTHONPATH_ROOTS for glob in _import_root_members(root)))
 # Test collection (B1, SEC-12): what decides which tests run. These are
 # PATTERNS, because a change that ADDS a conftest.py, a validation module or
 # a test-collection override must be a member before it exists. pytest reads
@@ -407,7 +431,7 @@ TEST_COLLECTION_MEMBERS: tuple[str, ...] = (
     f"{_KERNEL}suite_import_roots.py",
     SUITE_RUNNER,
     SUITE_COLLECTOR,
-    *STARTUP_HOOK_MODULES,
+    *IMPORT_ROOT_MEMBERS,
     KERNEL_TESTS_GLOB,
 )
 # Trust-boundary renderers (PLAN-v2 §2 'Güven sınırı'): the `<untrusted_*>`
@@ -416,17 +440,6 @@ TEST_COLLECTION_MEMBERS: tuple[str, ...] = (
 TRUST_BOUNDARY_RENDERERS: tuple[str, ...] = tuple(f"{_KERNEL}{name}.py" for name in (
     "agent_invocations", "untrusted_tree", "text_safety",
 ))
-# What deriving the set reads from a tree: the kernel suite's directory (the
-# kernel package, conftest files, the start-up hooks beside it), the Board
-# runner, and the repository root's start-up hooks in their module and
-# package forms. `derived_authority_set` reads a checkout through these and
-# `_authority_set_at` reads a revision's blobs through the same ones.
-_DERIVATION_ROOTS: tuple[str, ...] = (
-    KERNEL_SUITE_ROOT, BOARD_TOOLS_RELPATH,
-    *(name for hook in STARTUP_HOOK_MODULES if "/" not in hook for name in (hook, hook.removesuffix(".py"))),
-)
-
-
 def _module_name_members(path: str) -> tuple[str, ...]:
     """A Python module member as every file the importer can load under its
     NAME. Python resolves `aria_kernel.self_revert` by name: a package
@@ -435,27 +448,28 @@ def _module_name_members(path: str) -> tuple[str, ...]:
     `__pycache__/self_revert.*.pyc` stands in for its source, so a member
     named by its `.py` file alone could be replaced by adding a file.
 
-    `<stem>.*` covers the source, every extension suffix and a sourceless
-    `.pyc`. At the repository root a glob cannot be projected to a read-only
-    mount (`implementation_safety.readonly_mount_prefix`), so there the name's
-    files are spelt by the running interpreter's own loader suffixes. A
-    package's `__init__` is loaded from inside its directory, so it has no
-    package form of its own.
+    Inside the kernel package, which the implementer room holds read-only as
+    a whole, `<stem>.*` covers the source, every extension suffix and a
+    sourceless `.pyc`. Elsewhere such a glob would project to a read-only
+    mount over its whole directory (`implementation_safety.readonly_mount_prefix`),
+    so there the name's files are spelt by the running interpreter's own
+    loader suffixes. A package's `__init__` is loaded from inside its
+    directory, so it has no package form of its own.
     """
     directory, _, filename = path.rpartition("/")
     stem = filename.removesuffix(".py")
     head = f"{directory}/" if directory else ""
-    if directory:
+    if path.startswith(_KERNEL):
         files: tuple[str, ...] = (f"{head}{stem}.*",)
     else:
-        files = tuple(f"{stem}{suffix}" for suffix in importlib.machinery.all_suffixes())
+        files = tuple(f"{head}{stem}{suffix}" for suffix in importlib.machinery.all_suffixes())
     package = () if stem == "__init__" else (f"{head}{stem}/**",)
     return (*files, *package, f"{head}__pycache__/{stem}.*")
 
 
 def _member_globs(member: str) -> tuple[str, ...]:
-    """A named member as repo globs: a module by its name, anything else as itself."""
-    if member.endswith(".py") and (member.startswith(_KERNEL) or member in STARTUP_HOOK_MODULES):
+    """A named member as repo globs: a kernel module by its name, anything else as itself."""
+    if member.endswith(".py") and member.startswith(_KERNEL):
         return _module_name_members(member)
     return (member,)
 
@@ -499,173 +513,52 @@ def in_authority_set(path: str, authority_set: Iterable[str]) -> bool:
     return any(matches_repo_glob(path, entry) for entry in authority_set)
 
 
-def _closure_seeds(paths: Iterable[str], declared: tuple[str, ...]) -> list[str]:
-    """The members whose module-level code runs: every Python member except
-    a test module. A conftest.py and the suite's own collector
-    (`SUITE_COLLECTOR`) under tests/ decide what is collected, and stay."""
-    return [path for path in paths
-            if path.endswith(".py")
-            and not (matches_repo_glob(path, KERNEL_TESTS_GLOB)
-                     and path.rpartition("/")[2] != "conftest.py" and path != SUITE_COLLECTOR)
-            and in_authority_set(path, declared)]
+def _is_decider(path: str, declared: tuple[str, ...]) -> bool:
+    """Whether a Python file runs as a decider: a member that is not a test
+    module, which is the code under test. A conftest.py and the suite's own
+    collector (`SUITE_COLLECTOR`) under tests/ decide what is collected, so
+    they are deciders."""
+    if matches_repo_glob(path, KERNEL_TESTS_GLOB) and path.rpartition("/")[2] != "conftest.py" and path != SUITE_COLLECTOR:
+        return False
+    return path.endswith(".py") and in_authority_set(path, declared)
 
 
-def _derivation_reads(path: str, declared: tuple[str, ...]) -> bool:
-    """Whether deriving the set reads `path`: a kernel module (the walk may
-    reach any of them) or a closure seed outside the kernel."""
-    return path.endswith(".py") and (path.startswith(_KERNEL) or bool(_closure_seeds((path,), declared)))
-
-
-def _executed_imports(tree: ast.Module) -> list[ast.Import | ast.ImportFrom]:
-    """The import statements a module runs when it is imported: every one
-    outside a function body (an if/try/with block and a class body run at
-    import time; a function body runs only when called)."""
-    found: list[ast.Import | ast.ImportFrom] = []
-    pending: list[ast.AST] = [tree]
-    while pending:
-        node = pending.pop()
-        for child in ast.iter_child_nodes(node):
-            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
-                continue
-            if isinstance(child, (ast.Import, ast.ImportFrom)):
-                found.append(child)
-            else:
-                pending.append(child)
-    return found
-
-
-def _module_level_bindings(tree: ast.Module) -> set[str]:
-    """The names a module binds in its own namespace when it is imported."""
-    names: set[str] = set()
-    pending: list[ast.AST] = [tree]
-    while pending:
-        node = pending.pop()
-        for child in ast.iter_child_nodes(node):
-            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                names.add(child.name)
-            elif isinstance(child, (ast.Import, ast.ImportFrom)):
-                names.update((alias.asname or alias.name).split(".")[0] for alias in child.names)
-            elif isinstance(child, ast.Name) and isinstance(child.ctx, ast.Store):
-                names.add(child.id)
-            elif not isinstance(child, (ast.Lambda, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
-                pending.append(child)
-    return names
-
-
-def _refuse_dynamic_package_attribute(kernel_dir: Path, package: str, name: str) -> None:
-    """Refuse an import of `name` from a package whose `__getattr__` would
-    resolve it (PEP 562): the modules that hook loads are not in the source,
-    so the closure could not say what the import runs. aria_kernel's own
-    `__getattr__` re-exports names for callers outside the kernel; kernel
-    code imports the module that defines a name."""
-    init = kernel_dir / package / "__init__.py"
-    bindings = _module_level_bindings(ast.parse(init.read_text(encoding="utf-8"), filename=str(init)))
-    if "__getattr__" in bindings and name not in bindings:
-        where = f"{_KERNEL}{package}/__init__.py" if package else f"{_KERNEL}__init__.py"
-        raise GovernanceError(f"authority_closure_dynamic_import:{where}:{name}")
-
-
-def _kernel_module_files(kernel_dir: Path, parts: list[str]) -> list[str]:
-    """The kernel files importing `aria_kernel.<parts>` runs, relative to the
-    package: every package `__init__.py` on the way, then the module. A part
-    that is neither a package nor a module is a name the last package binds."""
-    if not (kernel_dir / "__init__.py").is_file():
-        return []
-    files = ["__init__.py"]
-    package = ""
-    for depth in range(1, len(parts) + 1):
-        relative = "/".join(parts[:depth])
-        if (kernel_dir / relative / "__init__.py").is_file():
-            files.append(f"{relative}/__init__.py")
-            package = relative
-            continue
-        if (kernel_dir / f"{relative}.py").is_file():
-            files.append(f"{relative}.py")
+def _closure_seeds(root: Path, declared: tuple[str, ...]) -> list[str]:
+    """The deciders in the checkout at `root` (`_is_decider`). Each is a
+    declared member, so it lies under the directory its glob names
+    (`canonical_path.repo_glob_directory`), or at the repository root's top
+    level for a pattern that matches there; only those places are read."""
+    directories: set[str] = set()
+    candidates: set[Path] = set()
+    for member in declared:
+        directory = repo_glob_directory(member)
+        if directory is None:
+            candidates.add(root / member)
+        elif directory:
+            directories.add(directory)
         else:
-            _refuse_dynamic_package_attribute(kernel_dir, package, parts[depth - 1])
-        break
-    return files
-
-
-def _imported_kernel_files(source: Path, kernel_dir: Path, *, package: list[str] | None) -> set[str]:
-    """Kernel files `source` imports at module level. `package` is the
-    importing module's package inside aria_kernel (None for a file outside
-    it, whose relative imports name its own package, not the kernel's)."""
-    found: set[str] = set()
-    for node in _executed_imports(ast.parse(source.read_text(encoding="utf-8"), filename=str(source))):
-        targets: list[list[str]] = []
-        if isinstance(node, ast.Import):
-            targets = [alias.name.split(".")[1:] for alias in node.names
-                       if alias.name.split(".")[0] == "aria_kernel"]
-        elif node.level == 0:
-            module = (node.module or "").split(".")
-            if module[0] == "aria_kernel":
-                targets = [module[1:] + [alias.name] for alias in node.names]
-        elif package is not None and node.level - 1 <= len(package):
-            base = package[:len(package) - (node.level - 1)]
-            module = node.module.split(".") if node.module else []
-            targets = [base + module + [alias.name] for alias in node.names]
-        for parts in targets:
-            found.update(_kernel_module_files(kernel_dir, parts))
-    return found
-
-
-def _import_closure(root: Path, seeds: Iterable[str]) -> tuple[str, ...]:
-    """Every kernel file the seeds execute when imported, over module-level
-    imports, computed from the tree at `root` (SEC-02, R1).
-
-    A seed inside the kernel runs with its package `__init__` files; one
-    outside it (the Board runner, a conftest, a start-up hook) runs what it
-    imports. Module-level, not every import: `harness.py` imports
-    `aria_kernel.cycle` inside a function, and that call runs the CANDIDATE
-    under exam (ARIA's own cycle), not the scorer. The package `__init__` is
-    lazy (PEP 562), so its imports are what the source says
-    (`_refuse_dynamic_package_attribute`).
-    """
-    kernel_dir = root / KERNEL_PACKAGE_RELPATH
-    pending: set[str] = set()
-    for seed in seeds:
-        if seed.startswith(_KERNEL):
-            parts = seed[len(_KERNEL):].removesuffix(".py").split("/")
-            pending.update(_kernel_module_files(kernel_dir, parts[:-1] if parts[-1] == "__init__" else parts))
-        else:
-            pending |= _imported_kernel_files(root / seed, kernel_dir, package=None)
-    seen: set[str] = set()
-    while pending:
-        relative = pending.pop()
-        if relative in seen:
-            continue
-        seen.add(relative)
-        package = relative.split("/")[:-1]
-        pending |= _imported_kernel_files(kernel_dir / relative, kernel_dir, package=package) - seen
-    return tuple(f"{_KERNEL}{relative}" for relative in sorted(seen))
-
-
-def _tree_python_files(root: Path) -> list[str]:
-    """The `.py` files under the derivation roots of the checkout at `root`."""
-    found: set[str] = set()
-    for entry in _DERIVATION_ROOTS:
-        base = root / entry
-        if base.is_file():
-            found.add(entry)
-        elif base.is_dir():
-            found.update(path.relative_to(root).as_posix() for path in base.rglob("*.py") if path.is_file())
-    return sorted(found)
+            candidates.update(root.glob(member))
+    for directory in directories:
+        if not any(directory.startswith(f"{other}/") for other in directories):
+            candidates.update((root / directory).rglob("*.py"))
+    found = {path.relative_to(root).as_posix() for path in candidates if path.is_file()}
+    return sorted(path for path in found if _is_decider(path, declared))
 
 
 def derived_authority_set(repo_root: str | Path) -> tuple[str, ...]:
     """THE authority set: repo globs (`canonical_path.matches_repo_glob`, the
     repo's one glob semantics) that no ARIA-authored change may touch.
 
-    The named members (`declared_authority_members`) ∪ every kernel file a
-    Python member executes when imported (`_import_closure`, computed from
-    `repo_root`: the Board's scorer, the guards and the rails bring the
-    modules they import, including the ones that decide this set), each
-    module by its name (`_module_name_members`).
+    The named members (`declared_authority_members`) ∪ every repository
+    file a decider executes (`authority_closure.import_closure`, computed from
+    `repo_root` over every import statement — function bodies included — and
+    every program named by file name: the Board's scorer, the guards and the
+    rails bring what they run, including the modules that decide this set),
+    each module by its name (`_module_name_members`).
     """
     root = Path(repo_root)
     declared = declared_authority_members()
-    closure = _import_closure(root, _closure_seeds(_tree_python_files(root), declared))
+    closure = import_closure(root, _closure_seeds(root, declared))
     return tuple(dict.fromkeys((*declared, *(glob for path in closure for glob in _module_name_members(path)))))
 
 
@@ -728,17 +621,24 @@ def _authority_set_at(repo_root: Path, revision: str) -> tuple[str, ...]:
     stored. No checkout and no archive is involved, so nothing the tree
     carries (a `.gitattributes` `export-ignore` or `export-subst`, a filter)
     changes what is read: an attribute merged first cannot empty BASE's
-    closure (R6).
+    closure (R6). Every Python file of the tree is read: the closure resolves
+    an import at any of the suite's import roots, the repository root
+    included (R2).
     """
-    declared = declared_authority_members()
-    listing = _git_output(repo_root, "ls-tree", "-r", "-z", "--full-tree", revision, "--", *_DERIVATION_ROOTS)
+    listing = _git_output(repo_root, "ls-tree", "-r", "-z", "--full-tree", revision)
     wanted: list[tuple[str, str]] = []
     for record in filter(None, listing.split(b"\0")):
         meta, _, name = record.partition(b"\t")
         mode, kind, oid = meta.decode("ascii").split(" ")
         path = name.decode("utf-8")
-        if not _derivation_reads(path, declared):
+        if not path.endswith(".py"):
             continue
+        # A tree entry is written under the extraction directory by its name, so a
+        # name that is absolute or climbs out of it is refused before any
+        # write (git's own fsck refuses such trees; this read does not rely
+        # on it).
+        if path.startswith("/") or any(part in ("", ".", "..") for part in path.split("/")):
+            raise GovernanceError(f"authority_set_tree_unavailable: {path!r} is not a relative tree path")
         if kind != "blob" or mode not in _DERIVATION_BLOB_MODES:
             raise GovernanceError(f"authority_set_tree_unavailable: {path} is a {kind} of mode {mode}")
         wanted.append((oid, path))
@@ -1180,8 +1080,8 @@ def propose_self_change(*, mission_id: str, base_dir: str | Path | None, workspa
 
 
 __all__ = ["ADAPTATION_DUE", "ADAPTATION_KINDS", "ADAPTATION_SIGNAL_KINDS", "ANNOUNCE_REMEDY", "AUTHORITY_SURFACES", "OPERATOR_CONDITION",
-           "BOARD_PLANNED_MODULES", "BOARD_SEAT_PROMPTS", "BOARD_TOOLS_RELPATH", "KERNEL_PACKAGE_RELPATH", "KERNEL_SUITE_ROOT",
-           "KERNEL_TESTS_GLOB", "RAIL_MODULES", "STARTUP_HOOK_MODULES", "SUITE_COLLECT_ARGV", "SUITE_COLLECTOR", "SUITE_RUNNER",
+           "BOARD_PLANNED_MODULES", "BOARD_SEAT_PROMPTS", "KERNEL_PACKAGE_RELPATH", "KERNEL_SUITE_ROOT",
+           "IMPORT_ROOT_MEMBERS", "KERNEL_TESTS_GLOB", "RAIL_MODULES", "SUITE_COLLECT_ARGV", "SUITE_COLLECTOR", "SUITE_RUNNER",
            "TEST_COLLECTION_MEMBERS", "TEST_COLLECTION_TIMEOUT_SECONDS", "TRUST_BOUNDARY_RENDERERS",
            "declared_authority_members", "derived_authority_set", "in_authority_set", "invariants_only_grow",
            "kernel_authority_set",

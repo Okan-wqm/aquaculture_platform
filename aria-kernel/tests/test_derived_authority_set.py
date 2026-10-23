@@ -61,6 +61,7 @@ every case it added elsewhere names its root (``R<n>``) in a comment.
 """
 from __future__ import annotations
 
+import ast
 import json
 import os
 import shutil
@@ -71,6 +72,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from aria_kernel import claude_settings
 from aria_kernel import implementation_safety as safety
 from aria_kernel import self_improvement
 from aria_kernel.canonical_path import matches_repo_glob
@@ -252,6 +254,48 @@ def _loaded_kernel_files(modules: tuple[str, ...], *, extra_path: tuple[Path, ..
     return sorted(path.relative_to(_REPO_ROOT).as_posix() for path in loaded if path.is_relative_to(kernel_dir))
 
 
+def _modulefinder_reach() -> set[str]:
+    """Every repository file the stdlib's ModuleFinder finds the decider
+    seeds can execute, run at the suite's import roots, plus the kernel
+    programs members launch or load by path (named by their owners'
+    constants). The Board runner is read without its declared candidate
+    entries, the one exemption."""
+    from modulefinder import ModuleFinder
+
+    board = _REPO_ROOT / "tools" / "aria-acceptance"
+    finder = ModuleFinder(path=[str(_REPO_ROOT / "aria-kernel"), str(_REPO_ROOT), str(board)])
+    declared = self_improvement.declared_authority_members()
+    seeds = self_improvement._closure_seeds(_REPO_ROOT, declared)
+    with tempfile.TemporaryDirectory() as tmp:
+        for seed in seeds:
+            if seed.startswith(_KERNEL):
+                finder.import_hook(seed.removeprefix("aria-kernel/").removesuffix(".py").replace("/", "."))
+            elif seed == "tools/aria-acceptance/harness.py":
+                tree = ast.parse((_REPO_ROOT / seed).read_text(encoding="utf-8"))
+                entries = next(ast.literal_eval(node.value) for node in tree.body if isinstance(node, ast.Assign)
+                               and any(getattr(t, "id", None) == "BOARD_CANDIDATE_ENTRIES" for t in node.targets))
+                tree.body = [node for node in tree.body
+                             if not (isinstance(node, ast.FunctionDef) and node.name in entries)]
+                scorer = Path(tmp, "harness.py")
+                scorer.write_text(ast.unparse(tree), encoding="utf-8")
+                finder.run_script(str(scorer))
+            else:
+                finder.run_script(str(_REPO_ROOT / seed))
+        child = _REPO_ROOT / "aria-kernel" / "aria_kernel" / safety.VALIDATION_OBSERVATION_CHILD.name
+        programs = [child, claude_settings.hook_client_path(_REPO_ROOT / "aria-kernel")]
+        loaded = subprocess.run([sys.executable, "-I", "-c",
+                                 "import runpy, sys; print(runpy.run_path(sys.argv[1])['_digest_spec'].origin)",
+                                 str(child)], capture_output=True, text=True, check=True).stdout.strip()
+        programs.append(Path(loaded))
+        for program in programs:
+            finder.run_script(str(program))
+    files = {Path(module.__file__).resolve() for module in finder.modules.values() if module.__file__}
+    files.update(program.resolve() for program in programs)
+    return {path.relative_to(_REPO_ROOT).as_posix() for path in files
+            if path.is_relative_to(_REPO_ROOT) and path.suffix == ".py"
+            and not path.is_relative_to(Path(tempfile.gettempdir()))}
+
+
 # =============================================================================
 # 1. The consumers that exist today cover the B1 floor (red by assertion).
 # =============================================================================
@@ -393,6 +437,80 @@ class TheClosureIsComputedFromTheTree(unittest.TestCase):
                 self.assertTrue(_is_member(f"{_KERNEL}{name}.py", entries))
         self.assertFalse(_is_member(f"{_KERNEL}b1_bystander.py", entries))
 
+    def test_an_import_inside_a_function_brings_its_module_transitively(self) -> None:
+        # R2 — a rail imports its decision inputs when it is called; so does the callee.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._tree(root, {f"{_KERNEL}__init__.py": "",
+                              f"{_KERNEL}self_revert.py": "def candidates():\n    from .b1_callee import reds\n    return reds()\n",
+                              f"{_KERNEL}b1_callee.py": "def reds():\n    import aria_kernel.b1_deeper as d\n    return d.R\n",
+                              f"{_KERNEL}b1_deeper.py": "R = ()\n",
+                              f"{_KERNEL}b1_bystander.py": "B = 1\n"})
+            entries = tuple(self_improvement.derived_authority_set(root))
+        for name in ("b1_callee", "b1_deeper"):
+            with self.subTest(module=name):
+                self.assertTrue(_is_member(f"{_KERNEL}{name}.py", entries))
+        self.assertFalse(_is_member(f"{_KERNEL}b1_bystander.py", entries))
+
+    def test_a_program_a_member_runs_by_path_is_in_the_set(self) -> None:
+        # R2 — a child launched by path, and the file it loads by path.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._tree(root, {f"{_KERNEL}__init__.py": "",
+                              f"{_KERNEL}implementation_safety.py":
+                                  "from pathlib import Path\nCHILD = Path(__file__).with_name('b1_child.py')\n",
+                              f"{_KERNEL}b1_child.py": "import importlib.util\nfrom pathlib import Path\n"
+                                                       "SPEC = importlib.util.spec_from_file_location(\n"
+                                                       "    'x', Path(__file__).with_name('b1_loaded.py'))\n",
+                              f"{_KERNEL}b1_loaded.py": "L = 1\n",
+                              f"{_KERNEL}b1_bystander.py": "B = 1\n"})
+            entries = tuple(self_improvement.derived_authority_set(root))
+        for name in ("b1_child", "b1_loaded"):
+            with self.subTest(module=name):
+                self.assertTrue(_is_member(f"{_KERNEL}{name}.py", entries))
+        self.assertFalse(_is_member(f"{_KERNEL}b1_bystander.py", entries))
+
+    def test_an_import_found_at_the_repository_root_brings_its_module(self) -> None:
+        # R2 — imports resolve at the suite's import roots, the repository root included.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._tree(root, {f"{_KERNEL}__init__.py": "",
+                              f"{_KERNEL}change_outcome.py": "def resolve():\n    from tools.shared.b1_shared import S\n",
+                              "tools/__init__.py": "", "tools/shared/__init__.py": "",
+                              "tools/shared/b1_shared.py": "S = 1\n", "tools/shared/b1_unused.py": "U = 1\n"})
+            entries = tuple(self_improvement.derived_authority_set(root))
+        for path in ("tools/shared/b1_shared.py", "tools/shared/__init__.py", "tools/__init__.py"):
+            with self.subTest(path=path):
+                self.assertTrue(_is_member(path, entries))
+        self.assertFalse(_is_member("tools/shared/b1_unused.py", entries))
+
+    def test_only_the_board_runners_declared_candidate_entries_are_not_walked(self) -> None:
+        # R2 — the one exemption: the runner names the functions that run the candidate.
+        runner = (f"BOARD_CANDIDATE_ENTRIES = ('run_candidate',)\n\n"
+                  "def run_candidate():\n    from aria_kernel.b1_candidate import C\n\n"
+                  "def score():\n    from aria_kernel.b1_scorer import S\n")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._tree(root, {f"{_KERNEL}__init__.py": "", f"{_KERNEL}b1_candidate.py": "C = 1\n",
+                              f"{_KERNEL}b1_scorer.py": "S = 1\n", f"{_KERNEL}b1_rail_input.py": "R = 1\n",
+                              # the same declaration anywhere else exempts nothing
+                              f"{_KERNEL}self_revert.py": "BOARD_CANDIDATE_ENTRIES = ('attribute',)\n\n"
+                                                         "def attribute():\n    from .b1_rail_input import R\n",
+                              "tools/aria-acceptance/harness.py": runner})
+            entries = tuple(self_improvement.derived_authority_set(root))
+        self.assertTrue(_is_member(f"{_KERNEL}b1_scorer.py", entries))
+        self.assertTrue(_is_member(f"{_KERNEL}b1_rail_input.py", entries))
+        self.assertFalse(_is_member(f"{_KERNEL}b1_candidate.py", entries))
+
+    def test_a_candidate_entry_the_runner_does_not_define_is_refused(self) -> None:
+        # R2 — a stale declaration cannot exempt a body.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._tree(root, {f"{_KERNEL}__init__.py": "",
+                              "tools/aria-acceptance/harness.py": "BOARD_CANDIDATE_ENTRIES = ('gone',)\n"})
+            with self.assertRaisesRegex(GovernanceError, "authority_closure_candidate_entry_unknown:.*harness.py:gone"):
+                self_improvement.derived_authority_set(root)
+
     def test_a_name_only_the_package_getattr_resolves_is_refused(self) -> None:
         # R2 — a PEP 562 `__getattr__` loads modules the source does not name,
         # so the closure refuses to guess what such an import runs.
@@ -429,6 +547,19 @@ class TheSetHoldsWhatItsMembersExecute(unittest.TestCase):
         for decider in ("change_paths", "surface_waivers", "closure_reachability"):
             self.assertIn(f"{_KERNEL}{decider}.py", loaded)
         for path in loaded:
+            with self.subTest(path=path):
+                self.assertTrue(_is_member(path, self.entries), path)
+
+    def test_every_file_a_decider_can_execute_is_in_the_set(self) -> None:
+        # R2 — the full-set invariant over what the deciders EXECUTE: the
+        # standard library's modulefinder (it scans every code object, so a
+        # function body's import counts) from every decider seed, plus the
+        # kernel programs members run by path, read from their owners.
+        reached = _modulefinder_reach()
+        for path in (f"{_KERNEL}own_pr_ci.py", f"{_KERNEL}containment_probe.py", f"{_KERNEL}digest.py",
+                     f"{_KERNEL}_validation_unittest_child.py", f"{_KERNEL}hook_client.py"):
+            self.assertIn(path, reached)  # the oracle sees the call-time and by-path edges
+        for path in sorted(reached):
             with self.subTest(path=path):
                 self.assertTrue(_is_member(path, self.entries), path)
 
@@ -487,6 +618,33 @@ class EveryConsumerProjectsTheWholeSet(unittest.TestCase):
                     self.assertIn(f"outside_kernel_scope:{path}", violations)
 
 
+class TheImportRootsAreGuarded(unittest.TestCase):
+    """R1/R3 — the suite's import roots are declared once, and no top-level name at either is free."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.entries = tuple(self_improvement.derived_authority_set(_REPO_ROOT))
+
+    def test_the_kernel_package_name_at_the_repository_root_is_guarded_everywhere(self) -> None:
+        # R3 — `python3 -m aria_kernel` from the repository root imports the cwd first.
+        for path in ("aria_kernel/__init__.py", "aria_kernel/__main__.py", "aria_kernel.py"):
+            with self.subTest(path=path):
+                self.assertIsNotNone(safety.readonly_entry_for(path))
+                self.assertTrue(_is_member(path, self.entries))
+                self.assertEqual(_merge_refusal(path), f"readonly_path_change:{path}")
+                self.assertTrue(_owned(path), f"{path} has no CODEOWNERS owner")
+
+    def test_every_top_level_name_at_the_kernel_root_is_a_member(self) -> None:
+        # R3 — the declared check, at aria-kernel/ (inside the self-change scope).
+        for name in _SHADOWED_NAMES:
+            for form in _SHADOW_FORMS:
+                path = f"aria-kernel/{form.format(name)}"
+                with self.subTest(path=path):
+                    self.assertTrue(_is_member(path, self.entries))
+                    self.assertEqual(self_improvement.authority_surface_violations([path]),
+                                     [f"authority_surface:{path}"])
+
+
 class TheSuiteHasOneOwner(unittest.TestCase):
     """R1 — the suite's import roots are declared once, and invariants_only_grow collects through the owner."""
 
@@ -522,6 +680,9 @@ _BASE_FILES: dict[str, str] = {
     "tools/aria-acceptance/harness.py": "import json\n",
 }
 _WAIVER = {"owner": "okan", "reason": "fixture", "expires_on": "2099-01-01", "finding_id": "ARIA-HIGH-767"}
+# R3 — names a module at an import root would replace, and the forms the importer loads a name from.
+_SHADOWED_NAMES = ("pytest", "_pytest", "pluggy", "unittest", "json", "subprocess", "ast", "jwt", "sitecustomize")
+_SHADOW_FORMS = ("{}.py", "{}/__init__.py", "{}.abi3.so", "{}.pyc")
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -624,6 +785,33 @@ class TheRealizedDiffRefusesRailWeakening(unittest.TestCase):
         head = self._change({f"{_KERNEL}git_containment.py": None})
         self.assertIn(f"authority_surface:{_KERNEL}git_containment.py", self._violations(head))
 
+    def test_a_tree_entry_that_climbs_out_is_refused_before_any_write(self) -> None:
+        # R2 ride-along — a tree entry is written under the extraction directory by name.
+        real = self_improvement._git_output
+        escape = Path(tempfile.gettempdir()) / "b1-escaped.py"
+        for name in ("aria-kernel/aria_kernel/../../../b1-escaped.py", "/b1-escaped.py"):
+
+            def listing(repo_root: Path, *args: str, stdin: bytes | None = None, entry: str = name) -> bytes:
+                if args[0] == "ls-tree":
+                    return f"100644 blob {'0' * 40}\t{entry}\0".encode()
+                return real(repo_root, *args, stdin=stdin)
+
+            with self.subTest(name=name), mock.patch.object(self_improvement, "_git_output", side_effect=listing):
+                with self.assertRaisesRegex(GovernanceError, "not a relative tree path"):
+                    self_improvement._authority_set_at(self.repo, self.base)
+        self.assertFalse(escape.exists())
+
+    def test_a_module_added_at_the_kernel_import_root_under_any_name_is_refused(self) -> None:
+        # R3 — aria-kernel/ precedes the standard library and site-packages.
+        added = {f"aria-kernel/{form.format(name)}": "ARMED = False\n"
+                 for name in _SHADOWED_NAMES for form in _SHADOW_FORMS}
+        violations = self._violations(self._change(dict(added)))
+        for path in added:
+            with self.subTest(path=path):
+                self.assertIn(f"authority_surface:{path}", violations)
+                self.assertEqual(self_improvement.authority_surface_violations([path]),
+                                 [f"authority_surface:{path}"])
+
     def test_an_ordinary_change_passes(self) -> None:
         head = self._change({"tools/aria-poc/notes.md": "more notes\n",
                              f"{_KERNEL}b1_unrelated_organ.py": "VALUE = 1\n"})
@@ -651,7 +839,8 @@ class TheRealizedDiffOverTheRealKernel(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls._tmp = tempfile.TemporaryDirectory(prefix="aria-b1-real-")
         cls.repo = make_local_git_repo(Path(cls._tmp.name))
-        listed = subprocess.run(["git", "ls-files", "-z", "--", "aria-kernel/aria_kernel", "tools/aria-acceptance"],
+        listed = subprocess.run(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--",
+                                 "aria-kernel/aria_kernel", "tools/aria-acceptance"],
                                 cwd=_REPO_ROOT, capture_output=True, check=True).stdout.decode("utf-8")
         for rel in filter(None, listed.split("\0")):
             target = cls.repo / rel
@@ -684,6 +873,20 @@ class TheRealizedDiffOverTheRealKernel(unittest.TestCase):
         violations = self_improvement.realized_diff_authority_violations(self.repo, base=self.base,
                                                                          head=self._head({}, deciders))
         for path in deciders:
+            with self.subTest(path=path):
+                self.assertIn(f"authority_surface:{path}", violations)
+
+    def test_an_edit_to_a_file_a_rail_executes_is_refused(self) -> None:
+        # R2 — call-time imports (self_revert → own_pr_ci, change_outcome →
+        # experiment/finding, implementation_safety → containment_probe and
+        # operator_request_signature) and programs run by path (the
+        # validation child, and the digest.py it loads by file).
+        callees = tuple(f"{_KERNEL}{name}.py" for name in (
+            "own_pr_ci", "experiment", "finding", "containment_probe", "operator_request_signature",
+            "_validation_unittest_child", "digest"))
+        violations = self_improvement.realized_diff_authority_violations(self.repo, base=self.base,
+                                                                         head=self._head({}, callees))
+        for path in callees:
             with self.subTest(path=path):
                 self.assertIn(f"authority_surface:{path}", violations)
 

@@ -45,6 +45,16 @@ if str(_KERNEL_PATH) not in sys.path:
 from aria_kernel.evidence_probe import GitProbeSession  # noqa: E402
 from aria_kernel.evidence_trust import classify_evidence_ref  # noqa: E402
 
+# The Board runner's CANDIDATE entries (PLAN-v2 B1, R2): the functions that
+# run ARIA's own code under exam — a whole cycle, and its documented
+# reactions to seeded stimuli — and observe what it does. Everything else
+# here is the scorer. The derived authority set is closed under what the
+# scorer executes (`aria_kernel.authority_closure`); the bodies of these
+# functions are the one place it does not walk, because the code they call
+# is what the Board judges, not part of the judge. A new function that runs
+# the candidate is named here; this file is itself an authority member.
+BOARD_CANDIDATE_ENTRIES = ("run_cycle_acceptance", "assert_reacts_to_scenarios")
+
 _RESOLVABLE_GRADES = ("repo_verified", "worktree_candidate")
 # The grade that says the HARNESS could not ask, not that ARIA cited badly:
 # git did not answer the probe inside its bounds, the run's probe clock ran

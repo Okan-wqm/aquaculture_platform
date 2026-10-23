@@ -230,6 +230,24 @@ def expand_repo_glob(pattern: str) -> tuple[str, ...]:
     return tuple(_expand_braces(lexical_repo_path(pattern)))
 
 
+def repo_glob_directory(pattern: str) -> str | None:
+    """The directory every path ``pattern`` can match lies under: the text
+    before its first wildcard (``*``, ``?``, ``[``, ``{``), cut back to its
+    last ``/`` — ``aria-kernel/**/conftest.py`` lies under ``aria-kernel``.
+    ``""`` when the pattern can match at the repository root (``*.py``,
+    ``*/__init__.*``); None when it has no wildcard and names one path.
+
+    PLAN-v2 B1 — two readers need the same answer: the implementer room
+    projects an authority member to a read-only mount over this directory,
+    and the authority set's derivation reads a checkout's Python files only
+    under it.
+    """
+    cut = min((pattern.index(ch) for ch in "*?[{" if ch in pattern), default=None)
+    if cut is None:
+        return None
+    return pattern[:cut].rpartition("/")[0]
+
+
 def typed_alternatives(glob: str) -> tuple[str, ...]:
     """The brace alternatives of ``glob`` whose last segment names a file type.
 
@@ -396,6 +414,7 @@ __all__ = [
     "lexical_repo_path",
     "matches_repo_glob",
     "normalize_repo_relpath",
+    "repo_glob_directory",
     "resolve_repo_relpath",
     "typed_alternatives",
 ]

@@ -50,6 +50,7 @@ from collections.abc import Mapping, Sequence
 from . import command_policy as _command_policy
 from typing import Any, Callable, Mapping
 
+from .canonical_path import matches_repo_glob, repo_glob_directory
 from .dependency_tree import (
     DEPENDENCY_TREE_DIRNAME,
     TOOL_CACHE_DIRNAMES,
@@ -157,26 +158,33 @@ _IMPLEMENTER_READONLY_ANCHORS: tuple[str, ...] = (
 
 
 def readonly_mount_prefix(member: str) -> str:
-    """The narrowest READONLY prefix that covers every path a derived-set
+    """The narrowest READONLY entry that covers every path a derived-set
     member can match. The room enforces read-only by mounts and prefixes, and
     a mount cannot refuse a file that does not exist yet, so a glob projects
-    to the directory its literal head names: ``aria-kernel/**/conftest.py``
-    to ``aria-kernel/`` (a conftest.py the change ADDS anywhere under it),
-    ``tools/aria-acceptance/**`` to ``tools/aria-acceptance/``. A literal
-    member stays itself."""
-    cut = min((member.index(ch) for ch in "*?[{" if ch in member), default=len(member))
-    if cut == len(member):
+    to the directory its literal head names (`canonical_path.repo_glob_directory`):
+    ``aria-kernel/**/conftest.py`` to ``aria-kernel/`` (a conftest.py the
+    change ADDS anywhere under it), ``tools/aria-acceptance/**`` to
+    ``tools/aria-acceptance/``. A literal member stays itself.
+
+    A glob that matches at the repository root (``*.py``, ``*/__init__.*``:
+    the top-level module names at the root import directory, B1 R3) has no
+    directory short of the whole repository, so it stays a PATTERN: no mount
+    holds it, and every path check judges a path against it
+    (`readonly_entry_for`), as the merge perimeter does.
+    """
+    directory = repo_glob_directory(member)
+    if directory is None or directory == "":
         return member
-    directory = member[:cut].rpartition("/")[0]
-    if not directory:
-        raise ValueError(f"authority_set_member_covers_the_repo_root:{member}")
     return f"{directory}/"
 
 
-def _covered_by(path: str, prefix: str) -> bool:
-    """Whether ``prefix`` (a READONLY entry) covers ``path``."""
-    entry = prefix.rstrip("/")
-    return path == entry or path.startswith(entry + "/")
+def _covered_by(path: str, entry: str) -> bool:
+    """Whether a READONLY entry covers ``path``: a pattern entry by the
+    repo's glob semantics, any other entry as a path prefix."""
+    if repo_glob_directory(entry) is not None:
+        return matches_repo_glob(path, entry)
+    prefix = entry.rstrip("/")
+    return path == prefix or path.startswith(prefix + "/")
 
 
 @lru_cache(maxsize=1)
@@ -184,8 +192,9 @@ def readonly_paths() -> tuple[str, ...]:
     """THE implementer perimeter: the room's own anchors and the derived
     authority set's mount projection (``self_improvement.kernel_authority_set``),
     so the room, the hook, the scope mint and the merge perimeter refuse every
-    member of the one set. A projected prefix an entry already covers adds
-    nothing and is left out, which keeps the room's bind list minimal.
+    member of the one set. A projected prefix a prefix entry already covers
+    adds nothing and is left out, which keeps the room's bind list minimal;
+    a pattern entry covers nothing as a prefix, so it never subsumes one.
 
     The import sits inside the function: ``self_improvement``'s import graph
     reaches this module, so the set is read when a consumer first asks,
@@ -195,7 +204,7 @@ def readonly_paths() -> tuple[str, ...]:
 
     entries = list(_IMPLEMENTER_READONLY_ANCHORS)
     for prefix in sorted({readonly_mount_prefix(member) for member in kernel_authority_set()}, key=len):
-        if not any(_covered_by(prefix.rstrip("/"), entry) for entry in entries):
+        if not any(repo_glob_directory(entry) is None and _covered_by(prefix.rstrip("/"), entry) for entry in entries):
             entries.append(prefix)
     return tuple(entries)
 
@@ -1540,10 +1549,12 @@ def _sandbox_argv(
             "--setenv", MCP_BROKER_SOCKET_ENV, SANDBOX_MCP_BROKER_SOCKET,
         ])
     # readonly_paths() mounted ro-bind on top of the writable
-    # workspace — ANY mutation under these paths gets EROFS.
+    # workspace — ANY mutation under these paths gets EROFS. A pattern entry
+    # (a top-level module name at the repository root, B1 R3) names no
+    # directory a mount could hold; the path checks judge it.
     for ro in readonly_paths() if workspace_view is None else ():
         full = workspace / ro
-        if full.exists():
+        if repo_glob_directory(ro) is None and full.exists():
             wrap.extend(["--ro-bind", str(full), str(full)])
     for extra in extra_ro_binds:
         extra_path = Path(extra)

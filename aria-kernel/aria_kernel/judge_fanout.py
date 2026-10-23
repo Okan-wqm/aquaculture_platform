@@ -23,7 +23,7 @@ from typing import Any, Mapping
 
 from .agent_invocations import create_agent_invocation_request
 from .evidence_trust import forbidden_detector_scope
-from .ledger import load_segments
+from .ledger import ledger_read_faults, load_segments
 from .must_satisfy import must_satisfy_item, product_defect_obligation, rule_premise_obligation
 from .request_admission import Admission, admit_request
 from .rule_contract import RuleContract, resolve_rule_contract
@@ -1193,12 +1193,22 @@ def _row_count(row: dict[str, Any], field: str) -> int:
 
 def _rebuttal_already_minted(root: Path) -> set[tuple[str, str]]:
     """(judgment_group_id, target_agent) pairs that already carry a rebuttal
-    envelope — the bound of the round, read back from the request ledger."""
-    rebuttals: set[tuple[str, str]] = set()
+    envelope — the bound of the round, read back from the request ledger.
+
+    The bound fails closed (WPJ-FAILOPEN R1, the ARIA-HIGH-788 class): an
+    unreadable ledger is not "nothing was minted yet", so a store fault
+    (``ledger_read_faults()``) refuses the whole round with a named
+    ``GovernanceError`` — the cycle records it as a blocked ``rebuttal``
+    step and no dissenter is re-asked a second time. Any other exception is
+    a defect in the reader and propagates.
+    """
     try:
         rows = load_segments(root, "agent_invocation_requests")
-    except Exception:
-        return rebuttals
+    except ledger_read_faults() as exc:
+        raise GovernanceError(
+            f"judge_rebuttal_ledger_unreadable:{type(exc).__name__}: {exc}"[:300]
+        ) from exc
+    rebuttals: set[tuple[str, str]] = set()
     for row in rows:
         if REBUTTAL_MARKER in str(row.get("suggested_prompt") or ""):
             group = str(row.get("judgment_group_id") or "")
@@ -1217,7 +1227,9 @@ def dispatch_rebuttal_for_dissent(
     """Re-mint each dissenter's seat ONCE with the winner's verified refs.
 
     A refusal holds (the door's own discipline): the dissent stays settled
-    as it is, and the candidate is re-derived next cycle.
+    as it is, and the candidate is re-derived next cycle. An unreadable
+    request ledger raises ``GovernanceError`` before anything is minted,
+    because the ONCE bound cannot be proven.
     """
     root = ensure_tools_dir(base_dir)
     already = _rebuttal_already_minted(root)

@@ -21,7 +21,7 @@ from aria_kernel.judge_fanout import (
     dispatch_rebuttal_for_dissent,
     render_evidence_weighing_prompt,
 )
-from aria_kernel.tool_registry import ensure_tools_dir
+from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 
 from tests._helpers.rule_contracts import register_contracted_tool
 
@@ -227,6 +227,53 @@ class BoundedRebuttalTests(_PanelCase):
         # Bounded: the second call mints nothing.
         second = dispatch_rebuttal_for_dissent(tool_id="tool-x", base_dir=self.tools, cycle_id="c2")
         self.assertEqual(second["minted_count"], 0)
+
+    def _rebuttals(self) -> list[tuple[str, str]]:
+        from aria_kernel.agent_invocations import list_agent_invocation_requests
+
+        return [(r["judgment_group_id"], r["target_agent"])
+                for r in list_agent_invocation_requests(base_dir=self.tools)
+                if "REBUTTAL" in r["suggested_prompt"]]
+
+    def test_a_defect_in_the_bound_read_propagates(self) -> None:
+        # WPJ-FAILOPEN R1 (ARIA-HIGH-788 class): the "ONCE" bound is read
+        # back from the request ledger. A defect in that read (a TypeError)
+        # is a kernel bug, not "nothing was minted": it must surface, never
+        # re-mint the dissenter.
+        from unittest import mock
+
+        self._settle_with_dissent()
+        first = dispatch_rebuttal_for_dissent(tool_id="tool-x", base_dir=self.tools, cycle_id="c1")
+        self.assertEqual(first["minted_count"], 1, first["skipped"])
+        with mock.patch("aria_kernel.judge_fanout.load_segments",
+                        side_effect=TypeError("reader defect")):
+            with self.assertRaises(TypeError):
+                dispatch_rebuttal_for_dissent(tool_id="tool-x", base_dir=self.tools, cycle_id="c2")
+        self.assertEqual(len(self._rebuttals()), 1)
+
+    def test_an_unreadable_request_ledger_refuses_the_round(self) -> None:
+        # A store fault (ledger_read_faults) on the bound read refuses the
+        # round with a named GovernanceError — the cycle records it as a
+        # blocked 'rebuttal' step — and mints nothing: the dissenter keeps
+        # exactly the one REBUTTAL envelope it already has.
+        from unittest import mock
+
+        from aria_kernel.ledger import LedgerReadLimitError
+
+        self._settle_with_dissent()
+        first = dispatch_rebuttal_for_dissent(tool_id="tool-x", base_dir=self.tools, cycle_id="c1")
+        self.assertEqual(first["minted_count"], 1, first["skipped"])
+        [pair] = self._rebuttals()
+        with mock.patch("aria_kernel.judge_fanout.load_segments",
+                        side_effect=LedgerReadLimitError("past the evidence budget")):
+            with self.assertRaises(GovernanceError) as raised:
+                dispatch_rebuttal_for_dissent(tool_id="tool-x", base_dir=self.tools, cycle_id="c2")
+        self.assertTrue(
+            str(raised.exception).startswith("judge_rebuttal_ledger_unreadable:LedgerReadLimitError"),
+            str(raised.exception),
+        )
+        self.assertEqual(self._rebuttals(), [pair],
+                         "exactly one REBUTTAL envelope for the (group, agent)")
 
     def test_a_unanimous_group_gets_no_rebuttal(self) -> None:
         from aria_kernel.agent_invocations import list_agent_invocation_requests

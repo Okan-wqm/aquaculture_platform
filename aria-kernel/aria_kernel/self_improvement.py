@@ -30,6 +30,7 @@ import importlib.machinery
 import json
 import os
 import subprocess
+import sys
 import tempfile
 from collections import Counter
 from dataclasses import dataclass, field
@@ -38,7 +39,7 @@ from collections.abc import Iterable
 from typing import Any, Literal, NoReturn
 
 from .artifact_safety import scrub_text
-from .authority_closure import BOARD_TOOLS_RELPATH, import_closure
+from .authority_closure import BOARD_TOOLS_RELPATH, ExecutionClosure, import_closure
 from .canonical_path import matches_repo_glob, repo_glob_directory
 from .change_paths import read_change_paths
 from .closure_reachability import CLOSURE_BASELINE_RELPATH, CLOSURE_PIN_KIND, iter_closure_pins
@@ -333,8 +334,10 @@ def _refuse_mission(root: Path, *, reason: str, mission_id: str, mission: dict[s
 #
 # The set is CLOSED UNDER EXECUTION (`authority_closure`): every repository
 # file a decider runs — through any import statement, function bodies
-# included, or as a program it launches or loads by path — is a member too,
-# computed from the tree. The modules that decide the set (change_paths,
+# included, or as a program it launches or loads by path — and every data
+# file it reads by name to decide is a member too, computed from the tree;
+# beside a program run by path, the standard library's names are members
+# (its own directory leads sys.path). The modules that decide the set (change_paths,
 # surface_waivers, closure_reachability, …) are imported by self_improvement,
 # so they are members by the same rule that makes a rail's call-time inputs
 # and the Board's scorer imports members; nobody lists them. And no top-level
@@ -546,21 +549,40 @@ def _closure_seeds(root: Path, declared: tuple[str, ...]) -> list[str]:
     return sorted(path for path in found if _is_decider(path, declared))
 
 
+def _closure_members(closure: ExecutionClosure) -> tuple[str, ...]:
+    """The closure as members: a Python file by its module name
+    (`_module_name_members`), a data file a decider reads by name as itself,
+    and at the directory of every file named by file name (a program that
+    may run with its own directory first on sys.path, R2 of round 4) every
+    standard-library module name, in each form the importer loads. The names
+    are the running interpreter's own list (`sys.stdlib_module_names`), one
+    brace alternative each. A suite import root already holds every name
+    (`IMPORT_ROOT_MEMBERS`)."""
+    stdlib = ",".join(sorted(sys.stdlib_module_names))
+    program_roots = sorted({path.rpartition("/")[0] for path in closure.programs} - set(SUITE_PYTHONPATH_ROOTS))
+    return (
+        *(glob for path in closure.files
+          for glob in (_module_name_members(path) if path.endswith(".py") else (path,))),
+        *(glob for directory in program_roots for glob in _module_name_members(f"{directory}/{{{stdlib}}}.py")),
+    )
+
+
 def derived_authority_set(repo_root: str | Path) -> tuple[str, ...]:
     """THE authority set: repo globs (`canonical_path.matches_repo_glob`, the
     repo's one glob semantics) that no ARIA-authored change may touch.
 
     The named members (`declared_authority_members`) ∪ every repository
-    file a decider executes (`authority_closure.import_closure`, computed from
-    `repo_root` over every import statement — function bodies included — and
-    every program named by file name: the Board's scorer, the guards and the
-    rails bring what they run, including the modules that decide this set),
-    each module by its name (`_module_name_members`).
+    file a decider executes or reads by name (`authority_closure.import_closure`,
+    computed from `repo_root` over every import statement — function bodies
+    included — and every file named by file name: the Board's scorer, the
+    guards and the rails bring what they run and the decision data they
+    load, including the modules that decide this set), as members
+    (`_closure_members`).
     """
     root = Path(repo_root)
     declared = declared_authority_members()
     closure = import_closure(root, _closure_seeds(root, declared))
-    return tuple(dict.fromkeys((*declared, *(glob for path in closure for glob in _module_name_members(path)))))
+    return tuple(dict.fromkeys((*declared, *_closure_members(closure))))
 
 
 @functools.cache
@@ -624,15 +646,22 @@ def _authority_set_at(repo_root: Path, revision: str) -> tuple[str, ...]:
     changes what is read: an attribute merged first cannot empty BASE's
     closure (R6). Every Python file of the tree is read: the closure resolves
     an import at any of the suite's import roots, the repository root
-    included (R2).
+    included (R2). So is every file under a directory that holds one: a
+    walked file names data it reads under its own directory (round 4, R3).
     """
     listing = _git_output(repo_root, "ls-tree", "-r", "-z", "--full-tree", revision)
-    wanted: list[tuple[str, str]] = []
+    records: list[tuple[str, str, str, str]] = []
     for record in filter(None, listing.split(b"\0")):
         meta, _, name = record.partition(b"\t")
         mode, kind, oid = meta.decode("ascii").split(" ")
-        path = name.decode("utf-8")
-        if not path.endswith(".py"):
+        records.append((mode, kind, oid, name.decode("utf-8")))
+    # A file at the repository root is in no package: it names files beside it only.
+    python_directories = {path.rpartition("/")[0] for _mode, _kind, _oid, path in records if path.endswith(".py")}
+    wanted: list[tuple[str, str]] = []
+    for mode, kind, oid, path in records:
+        directory = path.rpartition("/")[0]
+        if not (path.endswith(".py") or (not directory and "" in python_directories)
+                or any(other and path.startswith(f"{other}/") for other in python_directories)):
             continue
         # A tree entry is written under the extraction directory by its name, so a
         # name that is absolute or climbs out of it is refused before any

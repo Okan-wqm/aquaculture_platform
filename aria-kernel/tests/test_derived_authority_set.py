@@ -75,6 +75,8 @@ from unittest import mock
 from aria_kernel import claude_settings
 from aria_kernel import implementation_safety as safety
 from aria_kernel import self_improvement
+from aria_kernel import validation
+from aria_kernel.authority_closure import import_closure
 from aria_kernel.canonical_path import matches_repo_glob
 from aria_kernel.risk_policy import codeowners_last_match, codeowners_rules
 from aria_kernel.suite_import_roots import SUITE_IMPORT_ROOTS_RELPATH, SUITE_PYTHONPATH_ROOTS
@@ -263,7 +265,8 @@ def _modulefinder_reach() -> set[str]:
     from modulefinder import ModuleFinder
 
     board = _REPO_ROOT / "tools" / "aria-acceptance"
-    finder = ModuleFinder(path=[str(_REPO_ROOT / "aria-kernel"), str(_REPO_ROOT), str(board)])
+    roots = [str(_REPO_ROOT / "aria-kernel"), str(_REPO_ROOT), str(board)]
+    finder = ModuleFinder(path=roots)
     declared = self_improvement.declared_authority_members()
     seeds = self_improvement._closure_seeds(_REPO_ROOT, declared)
     with tempfile.TemporaryDirectory() as tmp:
@@ -287,9 +290,14 @@ def _modulefinder_reach() -> set[str]:
                                  "import runpy, sys; print(runpy.run_path(sys.argv[1])['_digest_spec'].origin)",
                                  str(child)], capture_output=True, text=True, check=True).stdout.strip()
         programs.append(Path(loaded))
+        # Round 4 R2 — a program run by path has its own directory first on
+        # sys.path (the interpreter's rule, unless the launch isolates it).
+        modules = list(finder.modules.values())
         for program in programs:
-            finder.run_script(str(program))
-    files = {Path(module.__file__).resolve() for module in finder.modules.values() if module.__file__}
+            own = ModuleFinder(path=[str(program.parent), *roots])
+            own.run_script(str(program))
+            modules.extend(own.modules.values())
+    files = {Path(module.__file__).resolve() for module in modules if module.__file__}
     files.update(program.resolve() for program in programs)
     return {path.relative_to(_REPO_ROOT).as_posix() for path in files
             if path.is_relative_to(_REPO_ROOT) and path.suffix == ".py"
@@ -563,6 +571,30 @@ class TheSetHoldsWhatItsMembersExecute(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue(_is_member(path, self.entries), path)
 
+    def test_every_data_file_a_decider_names_is_in_the_set(self) -> None:
+        # Round 4 R3 — a rail's decision data is what the rail decides by:
+        # every non-Python file a closure file names by a string literal,
+        # under its own directory, is a member (genesis_policy's default
+        # layer alone sets the circuit breaker's threshold).
+        tracked = _tracked_files()
+        closure = import_closure(_REPO_ROOT, self_improvement._closure_seeds(
+            _REPO_ROOT, self_improvement.declared_authority_members()))
+        named: set[str] = set()
+        for relative in closure.files:
+            if not relative.endswith(".py"):
+                continue
+            literals = {node.value for node in ast.walk(ast.parse((_REPO_ROOT / relative).read_text(encoding="utf-8")))
+                        if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value}
+            directory = relative.rpartition("/")[0]
+            under = [name for name in tracked if name.startswith(f"{directory}/") and not name.endswith(".py")]
+            named.update(name for name in under for literal in literals
+                         if name == f"{directory}/{literal}" or name.endswith(f"/{literal}"))
+        self.assertIn(f"{_KERNEL}data/genesis_policy_default.json", named)
+        self.assertIn(f"{_KERNEL}data/sandbox_etc/hosts", named)
+        for path in sorted(named):
+            with self.subTest(path=path):
+                self.assertTrue(_is_member(path, self.entries), path)
+
     def test_every_kernel_module_member_is_refused_by_its_name_in_every_form(self) -> None:
         # R5 — a package or an extension module beside a member is imported instead of it.
         members = [name for name in _tracked_files()
@@ -575,6 +607,86 @@ class TheSetHoldsWhatItsMembersExecute(unittest.TestCase):
                 with self.subTest(shadow=shadow):
                     self.assertEqual(self_improvement.authority_surface_violations([shadow]),
                                      [f"authority_surface:{shadow}"])
+
+
+class ByPathProgramsRunIsolated(unittest.TestCase):
+    """Round 4 R2 — a program run BY PATH has its own directory first on
+    sys.path unless its launch isolates it. The validation observation child
+    lives in aria-kernel/aria_kernel/, so without isolation a ``json.py``
+    added beside it ran before the child's first line, and the set, which
+    resolves imports at the suite's import roots, did not hold it."""
+
+    def test_the_observation_child_is_launched_with_safe_path(self) -> None:
+        # (a) `-P` sits immediately before the child's path.
+        argv = validation.observation_child_argv(
+            "python3", receipt_fd=9, byte_limit=1, path_limit=1, receipt_limit=1, modules=[],
+            time_budget=0.0, unittest_arguments=["-v", "test_x"])
+        child = str(Path(validation.__file__).with_name("_validation_unittest_child.py"))
+        self.assertEqual(argv[:3], ["python3", "-P", child])
+
+    def test_a_module_planted_beside_the_child_does_not_run(self) -> None:
+        # (b) a temp copy of the package, a marker-writing json.py planted
+        # beside its child, the child launched as that copy's launcher
+        # composes it: the marker stays absent and the receipt parses.
+        with tempfile.TemporaryDirectory(prefix="aria-b1-r4-child-") as tmp:
+            scratch = Path(tmp)
+            kernel = scratch / "aria-kernel"
+            shutil.copytree(_REPO_ROOT / "aria-kernel" / "aria_kernel", kernel / "aria_kernel",
+                            ignore=shutil.ignore_patterns("__pycache__"))
+            marker = scratch / "planted-json-ran"
+            (kernel / "aria_kernel" / "json.py").write_text(
+                f"open({str(marker)!r}, 'w').write('ran')\nraise SystemExit(97)\n", encoding="utf-8")
+            work = scratch / "work"
+            work.mkdir()
+            (work / "test_b1_r4.py").write_text(
+                "import unittest\n\n\nclass B1R4(unittest.TestCase):\n    def test_ok(self):\n"
+                "        self.assertTrue(True)\n", encoding="utf-8")
+            read_end, write_end = os.pipe()
+            try:
+                composed = subprocess.run(
+                    [sys.executable, "-I", "-c",
+                     "import json, sys\nsys.path.insert(0, sys.argv[1])\n"
+                     "from aria_kernel.validation import observation_child_argv\n"
+                     "print(json.dumps(observation_child_argv(sys.executable, receipt_fd=int(sys.argv[2]),"
+                     " byte_limit=1048576, path_limit=4, receipt_limit=4096, modules=['test_b1_r4'],"
+                     " time_budget=5.0, unittest_arguments=['-v', 'test_b1_r4'])))",
+                     str(kernel), str(write_end)],
+                    capture_output=True, text=True, check=True).stdout
+                argv = json.loads(composed)
+                self.assertEqual(argv[2], str(kernel / "aria_kernel" / "_validation_unittest_child.py"))
+                completed = subprocess.run(argv, cwd=work, pass_fds=(write_end,), capture_output=True, text=True,
+                                           env={"PATH": os.environ["PATH"], "PYTHONDONTWRITEBYTECODE": "1"})
+                os.close(write_end)
+                write_end = -1
+                receipt = validation._read_unittest_receipt(read_end, 4096, 1048576, 4)
+            finally:
+                os.close(read_end)
+                if write_end >= 0:
+                    os.close(write_end)
+            self.assertFalse(marker.exists(), completed.stderr)
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertIn("Ran 1 test", completed.stderr)
+            self.assertIsNotNone(receipt)
+
+    def test_every_program_the_closure_names_has_its_directory_names_in_the_set(self) -> None:
+        # (c) the full-set pin. The closure cannot tell a launch from a
+        # mention, nor read the launcher's flags, so every Python file it
+        # reaches by file name is modelled as a program run by path with
+        # its own directory first, and that directory's standard-library
+        # names are members (the kernel's real by-path programs are
+        # launched isolated as well: (a), ISOLATED_INTERPRETER_FLAGS).
+        root = _REPO_ROOT
+        entries = tuple(self_improvement.derived_authority_set(root))
+        closure = import_closure(root, self_improvement._closure_seeds(root, self_improvement.declared_authority_members()))
+        self.assertIn(f"{_KERNEL}_validation_unittest_child.py", closure.programs)
+        self.assertIn(f"{_KERNEL}hook_client.py", closure.programs)
+        directories = sorted({program.rpartition("/")[0] for program in closure.programs})
+        for directory in directories:
+            for name in sorted(sys.stdlib_module_names):
+                for form in (f"{name}.py", f"{name}/__init__.py"):
+                    path = f"{directory}/{form}"
+                    with self.subTest(path=path):
+                        self.assertTrue(_is_member(path, entries), path)
 
 
 class EveryConsumerProjectsTheWholeSet(unittest.TestCase):
@@ -685,7 +797,11 @@ _BASE_FILES: dict[str, str] = {
     f"{_KERNEL}__init__.py": "",
     f"{_KERNEL}change_outcome.py": "RESOLVERS = ('post_merge_ci', 'reverted', 'finding_recurrence')\n",
     f"{_KERNEL}self_revert.py": "TRIGGER_CHANGE_OUTCOME = 'change_outcome_regression'\n",
-    f"{_KERNEL}genesis_policy.py": "def self_change_caps(policy):\n    return policy['self_change']\n",
+    f"{_KERNEL}genesis_policy.py": (
+        "import json\nfrom pathlib import Path\n\nDEFAULT_FILENAME = 'genesis_policy_default.json'\n\n\n"
+        "def default_policy():\n    return json.loads((Path(__file__).parent / 'data' / DEFAULT_FILENAME).read_text())\n\n\n"
+        "def self_change_caps(policy):\n    return policy['self_change']\n"),
+    f"{_KERNEL}data/genesis_policy_default.json": '{"circuit_breaker": {"failure_threshold": 3}}\n',
     f"{_KERNEL}git_containment.py": "READ_ONLY_GIT_PARTS = ('config', 'hooks', 'packed-refs')\n",
     "aria-kernel/surface-reachability.unwritten.json": "{}\n",
     "aria-kernel/tests/__init__.py": "",
@@ -751,6 +867,9 @@ class TheRealizedDiffRefusesRailWeakening(unittest.TestCase):
                 f"{_KERNEL}genesis_policy.py": "def self_change_caps(policy):\n    return {}\n"},
             # the sandbox's read-only git parts widened
             f"{_KERNEL}git_containment.py": {f"{_KERNEL}git_containment.py": "READ_ONLY_GIT_PARTS = ()\n"},
+            # round 4 R3 — the circuit breaker loosened through the package-default layer alone
+            f"{_KERNEL}data/genesis_policy_default.json": {
+                f"{_KERNEL}data/genesis_policy_default.json": '{"circuit_breaker": {"failure_threshold": 1000000}}\n'},
             # pytest collection narrowed
             "aria-kernel/pyproject.toml": {"aria-kernel/pyproject.toml": pyproject.replace(
                 'python_files = ["*test*.py"]', 'python_files = ["*nothing*.py"]')},
@@ -903,6 +1022,17 @@ class TheRealizedDiffOverTheRealKernel(unittest.TestCase):
         for path in callees:
             with self.subTest(path=path):
                 self.assertIn(f"authority_surface:{path}", violations)
+
+    def test_a_change_to_only_the_default_policy_layer_is_refused(self) -> None:
+        # Round 4 R3 — genesis_policy.default_policy reads this file as layer
+        # 1; it alone decides 18 of the 23 POLICY_KEYS, the circuit breaker
+        # among them.
+        rel = f"{_KERNEL}data/genesis_policy_default.json"
+        policy = json.loads((self.repo / rel).read_text(encoding="utf-8"))
+        policy["circuit_breaker"]["failure_threshold"] = 1000000
+        violations = self_improvement.realized_diff_authority_violations(
+            self.repo, base=self.base, head=self._head({rel: json.dumps(policy, indent=2) + "\n"}))
+        self.assertEqual(violations, [f"authority_surface:{rel}"])
 
     def test_a_module_added_beside_a_member_under_its_name_is_refused(self) -> None:
         # R5 — EVERY kernel module member of the base's set (the rails, the

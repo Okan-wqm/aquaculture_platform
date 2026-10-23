@@ -22,17 +22,36 @@ WHAT. :func:`import_closure` walks, transitively from the seeds,
   (``suite_import_roots.SUITE_PYTHONPATH_ROOTS``) — so ``aria_kernel.*``
   and the repository's own ``tools.shared`` are followed, and a name found
   at no root (the standard library, site-packages) is not repository code;
-* every program a walked file names by its file name: a string literal, or
-  the literal part of an f-string, that is exactly the name of a ``.py``
-  file beside it (``Path(__file__).with_name("digest.py")``,
-  ``("aria_kernel", "hook_client.py")``, ``f"{_KERNEL}tools_binding.py"``).
-  A program launched or loaded by path is named that way, and the rule reads
-  the owner's own literal, so no copy of a name lives here. A literal that
-  names a file only as evidence is counted too: the rule over-approximates
-  and never under-approximates.
+* every file a walked file names by its file name: a string literal, or
+  the literal part of an f-string, that names a file under the walked file's
+  own directory, there or below it (``Path(__file__).with_name("digest.py")``,
+  ``("aria_kernel", "hook_client.py")``, ``f"{_KERNEL}tools_binding.py"``,
+  and ``parent / "data" / DEFAULT_FILENAME`` with
+  ``DEFAULT_FILENAME = "genesis_policy_default.json"``). A program launched
+  or loaded by path is named that way, and so is the decision data a rail
+  reads by path (genesis_policy's package-default layer decides the
+  circuit breaker's threshold; implementation_safety's sandbox ``hosts``
+  file decides what the sandbox resolves). The rule reads the owner's own
+  literal, so no copy of a name lives here. A data file is a member as
+  itself and is not walked. A literal that names a file only as evidence is
+  counted too: the rule over-approximates and never under-approximates. A
+  file at the repository root is in no package, so it names files beside it
+  only.
 
 A seed runs with the package ``__init__`` files on its path below its import
 root.
+
+A PYTHON FILE NAMED BY FILE NAME (``ExecutionClosure.programs``) may run as a
+program launched by path, and a script's own directory leads ``sys.path``
+(B1 round 4, R2): a module there is imported in place of whatever bears its
+name. So such a file's absolute imports are resolved at its own directory
+first, and the authority set (``self_improvement``) holds the
+standard-library names at that directory as members, so a ``json.py`` added
+beside the program is a change to the program. The closure cannot tell a
+launch from a mention, nor see the launcher's flags, so every such file is
+modelled this way, isolated or not; the kernel's real by-path programs are
+launched isolated (``-P``/``-I``), which their launchers own and the tests
+pin.
 
 The ONE exemption is the Board runner's candidate entries. The runner
 (``tools/aria-acceptance/harness.py``) declares, by name, the functions that
@@ -52,8 +71,9 @@ from __future__ import annotations
 
 import ast
 import functools
-import re
+import os
 from collections.abc import Iterable
+from dataclasses import dataclass
 from pathlib import Path
 
 from .suite_import_roots import SUITE_PYTHONPATH_ROOTS
@@ -64,8 +84,6 @@ from .tool_registry import GovernanceError
 BOARD_TOOLS_RELPATH = "tools/aria-acceptance"
 BOARD_RUNNER_RELPATH = f"{BOARD_TOOLS_RELPATH}/harness.py"
 BOARD_CANDIDATE_ENTRIES_NAME = "BOARD_CANDIDATE_ENTRIES"
-# A string literal that names a Python file by its file name.
-_PROGRAM_FILE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\.py")
 
 
 def board_candidate_entries(tree: ast.Module, *, where: str) -> frozenset[str]:
@@ -189,19 +207,64 @@ def _absolute_import_files(root: Path, parts: list[str]) -> list[str]:
     return []
 
 
-def _executed_files(root: Path, relative: str) -> set[str]:
-    """Repository files the file at `relative` executes: what its import
-    statements load, and the programs it names by file name."""
+class _FilesUnder:
+    """The files under each directory of one tree, by file name, read once
+    per closure (a tree derived again may differ). The repository root is in
+    no package: the files directly in it only."""
+
+    def __init__(self, root: Path) -> None:
+        self._root = root
+        self._by_directory: dict[str, dict[str, list[str]]] = {}
+
+    def named(self, directory: str, literal: str) -> list[str]:
+        """The files under `directory` that `literal` names: the path
+        relative to the directory is `literal`, or ends with `/<literal>`."""
+        segments = literal.split("/")
+        if any(segment in ("", ".", "..") for segment in segments):
+            return []
+        by_name = self._by_directory.get(directory)
+        if by_name is None:
+            by_name = self._by_directory[directory] = self._index(directory)
+        head = f"{directory}/" if directory else ""
+        return [path for path in by_name.get(segments[-1], ())
+                if path == f"{head}{literal}" or path.endswith(f"/{literal}")]
+
+    def _index(self, directory: str) -> dict[str, list[str]]:
+        by_name: dict[str, list[str]] = {}
+        base = self._root / directory
+        if not directory:
+            names = [(entry.name, entry.name) for entry in os.scandir(base) if entry.is_file(follow_symlinks=False)]
+        else:
+            names = [(name, f"{os.path.relpath(walked, self._root).replace(os.sep, '/')}/{name}")
+                     for walked, _dirs, files in os.walk(base) for name in files]
+        for name, path in names:
+            by_name.setdefault(name, []).append(path)
+        return by_name
+
+
+def _executed_files(root: Path, relative: str, *, as_program: bool,
+                    files_under: _FilesUnder) -> tuple[set[str], set[str]]:
+    """Repository files the file at `relative` executes or reads by name:
+    what its import statements load, and the files it names by file name
+    (``(imported, named)``). Run as a program (named by file name), its
+    absolute imports resolve at its own directory first."""
     imports, literals = _executed_references((root / relative).read_text(encoding="utf-8"), where=relative)
     directory = relative.rpartition("/")[0]
     found: set[str] = set()
+
+    def absolute(parts: list[str]) -> list[str]:
+        own = (_module_files(root, directory, parts) if as_program and directory
+               and ((root / directory / parts[0] / "__init__.py").is_file()
+                    or (root / directory / f"{parts[0]}.py").is_file()) else [])
+        return own or _absolute_import_files(root, parts)
+
     for level, module, names in imports:
         if module is None and level == 0:
             for name in names:
-                found.update(_absolute_import_files(root, name.split(".")))
+                found.update(absolute(name.split(".")))
         elif level == 0:
             for name in names:
-                found.update(_absolute_import_files(root, module.split(".") + [name]))
+                found.update(absolute(module.split(".") + [name]))
         else:
             package = directory.split("/") if directory else []
             if level - 1 > len(package):
@@ -210,10 +273,8 @@ def _executed_files(root: Path, relative: str) -> set[str]:
             parts = module.split(".") if module else []
             for name in names:
                 found.update(_module_files(root, base, parts + [name]))
-    head = f"{directory}/" if directory else ""
-    found.update(f"{head}{value}" for value in literals
-                 if _PROGRAM_FILE_NAME.fullmatch(value) and (root / f"{head}{value}").is_file())
-    return found
+    named = {path for value in literals for path in files_under.named(directory, value)}
+    return found, named
 
 
 def _seed_package_inits(root: Path, seed: str) -> list[str]:
@@ -228,28 +289,51 @@ def _seed_package_inits(root: Path, seed: str) -> list[str]:
     return []
 
 
-def import_closure(root: Path, seeds: Iterable[str]) -> tuple[str, ...]:
+@dataclass(frozen=True)
+class ExecutionClosure:
+    """What the seeds execute (module docstring), repo-relative and sorted.
+
+    ``files``: every repository file the seeds execute or read by name, the
+    seeds included; ``programs``: the Python files among them that a walked
+    file names by file name, each of which may run with its own directory
+    first on ``sys.path``."""
+
+    files: tuple[str, ...]
+    programs: tuple[str, ...]
+
+
+def import_closure(root: Path, seeds: Iterable[str]) -> ExecutionClosure:
     """Every repository file the seeds execute, computed from the tree at
-    `root` (repo-relative paths, sorted; the seeds themselves included):
-    transitively over every import statement and every program named by file
-    name (module docstring).
+    `root`: transitively over every import statement and every file named by
+    file name (module docstring). A Python file is walked; a data file is
+    not.
 
     The package `__init__` is lazy (PEP 562), so its imports are what the
     source says (`_refuse_dynamic_package_attribute`).
     """
-    pending: set[str] = set()
+    files_under = _FilesUnder(root)
+    pending: set[tuple[str, bool]] = set()
     for seed in seeds:
-        pending.add(seed)
-        pending.update(_seed_package_inits(root, seed))
-    seen: set[str] = set()
+        pending.add((seed, False))
+        pending.update((init, False) for init in _seed_package_inits(root, seed))
+    walked: set[tuple[str, bool]] = set()
+    files: set[str] = set()
+    programs: set[str] = set()
     while pending:
-        relative = pending.pop()
-        if relative in seen:
+        item = pending.pop()
+        if item in walked:
             continue
-        seen.add(relative)
-        pending |= _executed_files(root, relative) - seen
-    return tuple(sorted(seen))
+        walked.add(item)
+        relative, as_program = item
+        files.add(relative)
+        if not relative.endswith(".py"):
+            continue
+        imported, named = _executed_files(root, relative, as_program=as_program, files_under=files_under)
+        programs.update(path for path in named if path.endswith(".py"))
+        pending |= {(path, False) for path in imported} | {(path, path.endswith(".py")) for path in named}
+        pending -= walked
+    return ExecutionClosure(files=tuple(sorted(files)), programs=tuple(sorted(programs)))
 
 
 __all__ = ["BOARD_CANDIDATE_ENTRIES_NAME", "BOARD_RUNNER_RELPATH", "BOARD_TOOLS_RELPATH",
-           "board_candidate_entries", "import_closure"]
+           "ExecutionClosure", "board_candidate_entries", "import_closure"]

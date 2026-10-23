@@ -645,19 +645,55 @@ class TheKeyHoldingProcessLoadsNoAriaKernelTests(unittest.TestCase):
                         self.assertEqual(sorted(m for m in loaded if m.startswith("aria_kernel")), [])
 
 
+def board_secret_leaks(workflows: dict[str, dict[str, Any]]) -> list[str]:
+    """Each workflow env that reaches a Board secret, and each other job that names one or the Board environment."""
+    leaks: list[str] = []
+    for name, workflow in workflows.items():
+        if "ARIA_BOARD_" in yaml.safe_dump(workflow.get("env") or {}):
+            leaks.append(f"{name}:env")
+        for job_id, job in (workflow.get("jobs") or {}).items():
+            if not isinstance(job, dict) or _environment(job) == BOARD_ENVIRONMENT:
+                continue
+            text = yaml.safe_dump(job)
+            if "ARIA_BOARD_" in text or BOARD_ENVIRONMENT in text:
+                leaks.append(f"{name}/{job_id}")
+    return leaks
+
+
 class BoardSecretsStayInBoardJobsTests(unittest.TestCase):
     def test_no_other_job_or_workflow_env_names_a_board_secret_or_the_board_environment(self) -> None:
-        leaks: list[str] = []
-        for name, workflow in _workflows().items():
-            if "ARIA_BOARD_" in yaml.safe_dump(workflow.get("env") or {}):
-                leaks.append(f"{name}:env")
-            for job_id, job in (workflow.get("jobs") or {}).items():
-                if not isinstance(job, dict) or _environment(job) == BOARD_ENVIRONMENT:
-                    continue
-                text = yaml.safe_dump(job)
-                if "ARIA_BOARD_" in text or BOARD_ENVIRONMENT in text:
-                    leaks.append(f"{name}/{job_id}")
-        self.assertEqual(leaks, [])
+        self.assertEqual(board_secret_leaks(_workflows()), [])
+
+
+# B0 corrective round 3, R3-2 (ssot B0-R3-SSOT-1, P03): the guard read
+# "which Board secrets an expression reaches" in pieces — workflow and job env
+# by literal name only, the dynamic scan skipping job env, the secrets-stay
+# check by an "ARIA_BOARD_" substring — so dynamic access in an env passed.
+_ENV_REACHES_THE_SECRETS: dict[str, Callable[[dict[str, Any]], None]] = {
+    "job_env_toJSON_secrets": lambda w: _custody_job(w).update({"env": {"ALL": "${{ toJSON(secrets) }}"}}),
+    "workflow_env_toJSON_secrets": _set(("env",), {"ALL": "${{ toJSON(secrets) }}"}),
+    "job_env_secrets_by_index": lambda w: _custody_job(w).update(
+        {"env": {"K": "${{ secrets['ARIA_BOARD_VAULT_DATA_KEY'] }}"}}),
+}
+
+
+class BoardSecretsHaveOneReaderTests(unittest.TestCase):
+    """B0 corrective round 3, R3-2: one reader decides which Board secrets an expression reaches, everywhere."""
+
+    def setUp(self) -> None:
+        self.workflow = _workflows()[_BOARD_WORKFLOW]
+
+    def test_the_secrets_rule_refuses_an_env_that_reaches_the_secrets_dynamically(self) -> None:
+        for name, mutate in _ENV_REACHES_THE_SECRETS.items():
+            with self.subTest(mutation=name):
+                mutated = copy.deepcopy(self.workflow)
+                mutate(mutated)
+                self.assertTrue(_RULES["secrets"](mutated, _custody_job(mutated)), f"{name} passed the secrets rule")
+
+    def test_a_workflow_env_that_reaches_the_secrets_is_a_leak(self) -> None:
+        mutated = copy.deepcopy(self.workflow)
+        _ENV_REACHES_THE_SECRETS["workflow_env_toJSON_secrets"](mutated)
+        self.assertIn(f"{_BOARD_WORKFLOW}:env", board_secret_leaks({_BOARD_WORKFLOW: mutated}))
 
 
 if __name__ == "__main__":

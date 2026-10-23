@@ -728,6 +728,12 @@ Three report tiers (public, sanitized): daily, weekly, monthly. One report tier 
 ### 10.3 — Stop / pause
 
 ```
+OPERATOR STOP (PLAN-v2 §2 'Durdurma'; ARIA's App cannot write repository variables):
+  gh variable set ARIA_STOP --body "<reason>"   # any non-empty value: no ARIA workflow
+                                                # starts a job, the kernel admits no
+                                                # kernel change and makes no merge call
+  gh variable set ARIA_STOP --body ""           # resume (empty = no stop)
+
 SOFT STOP:
   edit aria-config/trust_level.json → 0
 

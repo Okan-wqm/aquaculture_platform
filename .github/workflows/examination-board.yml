@@ -1,0 +1,52 @@
+name: Examination Board
+
+# PLAN-v2 §1.9 / B0 (ARIA-MEDIUM-766) — the Examination Board judges ARIA from
+# OUTSIDE ARIA's trust domain. Its secrets (signing key, vault deploy key,
+# vault data key) live only in the GitHub environment `aria-board`, whose
+# deployment branch policy admits `main` alone, and only a job declaring that
+# environment can read them. Every such job (a "Board job") keeps the guard
+# pinned by aria-kernel/tests/invariants/test_board_job_guard.py:
+#
+#   - its `if:` checks `github.ref == 'refs/heads/main'` itself (not only
+#     through the environment policy) and the operator's stop
+#     (`vars.ARIA_STOP == ''`, PLAN-v2 §2 'Durdurma'), with no `||` around them;
+#   - it runs on a GitHub-hosted runner, never on ARIA's self-hosted runner,
+#     whose uid is the population the Board must exclude;
+#   - it checks out the Board version — main as triggered (no `ref:` an input
+#     or event could choose) — and keeps no credential in the checkout;
+#   - it uploads no artifact and saves no cache (both readable by ARIA's jobs),
+#     and traces no shell (a trace echoes case content into the log);
+#   - this workflow has no pull-request trigger, so it never runs PR code.
+#
+# B0 ships the custody check: the environment's data key seals and opens a
+# fixed probe through aria_kernel.examination_board, the one owner of the
+# vault cipher. B2 adds the exam runner and its signed totals as further
+# Board jobs under the same guard.
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: examination-board
+  cancel-in-progress: false
+
+jobs:
+  vault-custody:
+    if: vars.ARIA_STOP == '' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: aria-board
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-aria-kernel
+
+      - name: Prove the vault data key seals and opens a probe
+        env:
+          ARIA_BOARD_VAULT_DATA_KEY: ${{ secrets.ARIA_BOARD_VAULT_DATA_KEY }}
+        run: PYTHONPATH=aria-kernel python3 -m aria_kernel.examination_board vault-custody-check

@@ -123,6 +123,14 @@ permissions:
   # comments are both issue comments). Read only.
   issues: read
 
+# PLAN-v2 §2 'Durdurma' (ARIA-HIGH-765) — the operator's stop. vars.ARIA_STOP is a
+# repository variable only the operator can write; non-empty means stop. Every
+# job's `if:` opens with `vars.ARIA_STOP == ''`, and the kernel reads the same
+# value here (preflight kill switch, kernel_change admission, merge moment).
+# Pinned by aria-kernel/tests/invariants/test_aria_stop_every_workflow.py.
+env:
+  ARIA_STOP: ${{ vars.ARIA_STOP }}
+
 jobs:
   # B8 (2026-09-12) — a run that cannot get its runner fails by name. The
   # only runner carrying [self-hosted, linux, claude] went offline on
@@ -137,6 +145,7 @@ jobs:
   # (decision logic: aria-kernel/aria_kernel/runner_availability.py; wiring
   # pinned by aria-kernel/tests/test_runner_availability.py).
   runner-preflight:
+    if: vars.ARIA_STOP == ''
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -157,6 +166,7 @@ jobs:
           app-private-key: ${{ secrets.ARIA_GH_APP_PRIVATE_KEY }}
 
   executor:
+    if: vars.ARIA_STOP == ''
     needs: runner-preflight
     runs-on: [self-hosted, linux, claude]
     # The drain window (ARIA_DRAIN_BUDGET_SECONDS below, 21000 s) plus the
@@ -1186,7 +1196,7 @@ jobs:
   # granted, a refusal is a fault somebody has to see.
   chain-next-cycle:
     needs: executor
-    if: always() && needs.executor.outputs.chain_dispatch == 'true' && needs.executor.outputs.rechain_dispatch != 'true'
+    if: vars.ARIA_STOP == '' && always() && needs.executor.outputs.chain_dispatch == 'true' && needs.executor.outputs.rechain_dispatch != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -1217,7 +1227,7 @@ jobs:
   # cycle edge; the depth brake in the decider keeps this at one hop.
   chain-next-drain:
     needs: executor
-    if: always() && needs.executor.outputs.rechain_dispatch == 'true'
+    if: vars.ARIA_STOP == '' && always() && needs.executor.outputs.rechain_dispatch == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

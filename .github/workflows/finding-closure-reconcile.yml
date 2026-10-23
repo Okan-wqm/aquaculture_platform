@@ -72,8 +72,17 @@ concurrency:
   group: finding-closure-reconcile
   cancel-in-progress: false
 
+# PLAN-v2 §2 'Durdurma' (ARIA-HIGH-765) — the operator's stop. vars.ARIA_STOP is a
+# repository variable only the operator can write; non-empty means stop. Every
+# job's `if:` opens with `vars.ARIA_STOP == ''`, and the kernel reads the same
+# value here (preflight kill switch, kernel_change admission, merge moment).
+# Pinned by aria-kernel/tests/invariants/test_aria_stop_every_workflow.py.
+env:
+  ARIA_STOP: ${{ vars.ARIA_STOP }}
+
 jobs:
   reconcile:
+    if: vars.ARIA_STOP == ''
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

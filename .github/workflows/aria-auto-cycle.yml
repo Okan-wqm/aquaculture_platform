@@ -42,7 +42,10 @@ name: aria-auto-cycle
 # when it cannot SEE it is a process that replaces history with emptiness
 # on a network blip. Auth/policy stay fail-closed as before.
 #
-# Brakes (all pre-existing kernel mechanisms):
+# Brakes:
+#   - vars.ARIA_STOP — the operator's stop (PLAN-v2 §2 'Durdurma'): non-empty
+#     starts no job of this workflow and stops the kernel at its preflight
+#     (see the workflow-level env below)
 #   - vars.ARIA_MOCK_KILL_SWITCH (read AHEAD of dispatch input/default)
 #   - ARIA_STOP file in the store's tools root → orchestrator exits cleanly
 #   - cross-host autonomous-loop lease (refuses when a local daemon runs)
@@ -170,6 +173,14 @@ permissions:
   # Write covers both; nothing here needs more than issues.
   issues: write
 
+# PLAN-v2 §2 'Durdurma' (ARIA-HIGH-765) — the operator's stop. vars.ARIA_STOP is a
+# repository variable only the operator can write; non-empty means stop. Every
+# job's `if:` opens with `vars.ARIA_STOP == ''`, and the kernel reads the same
+# value here (preflight kill switch, kernel_change admission, merge moment).
+# Pinned by aria-kernel/tests/invariants/test_aria_stop_every_workflow.py.
+env:
+  ARIA_STOP: ${{ vars.ARIA_STOP }}
+
 jobs:
   # B8 (2026-09-12) — a run that cannot get its runner fails by name. The
   # only runner carrying [self-hosted, linux, claude] went offline on
@@ -184,6 +195,7 @@ jobs:
   # (decision logic: aria-kernel/aria_kernel/runner_availability.py; wiring
   # pinned by aria-kernel/tests/test_runner_availability.py).
   runner-preflight:
+    if: vars.ARIA_STOP == ''
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -204,6 +216,7 @@ jobs:
           app-private-key: ${{ secrets.ARIA_GH_APP_PRIVATE_KEY }}
 
   cycle:
+    if: vars.ARIA_STOP == ''
     needs: runner-preflight
     runs-on: [self-hosted, linux, claude]
     # Mode-aware sizing: a REAL observe burn-in is 30 kernel-guarded cycles at
@@ -1515,7 +1528,7 @@ jobs:
   # cycle is an operator stop, so it chains nothing.
   chain-executor:
     needs: cycle
-    if: ${{ !cancelled() }}
+    if: vars.ARIA_STOP == '' && !cancelled()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

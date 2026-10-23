@@ -36,6 +36,14 @@ concurrency:
   group: aria-daily-report
   cancel-in-progress: false
 
+# PLAN-v2 §2 'Durdurma' (ARIA-HIGH-765) — the operator's stop. vars.ARIA_STOP is a
+# repository variable only the operator can write; non-empty means stop. Every
+# job's `if:` opens with `vars.ARIA_STOP == ''`, and the kernel reads the same
+# value here (preflight kill switch, kernel_change admission, merge moment).
+# Pinned by aria-kernel/tests/invariants/test_aria_stop_every_workflow.py.
+env:
+  ARIA_STOP: ${{ vars.ARIA_STOP }}
+
 jobs:
   # B8 (2026-09-12) — commit-report runs on the self-hosted runner (for its
   # PAT identity, ORPHAN-736) on a daily schedule: with the runner offline it
@@ -48,7 +56,7 @@ jobs:
   runner-preflight:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.ref == 'refs/heads/main'
+    if: vars.ARIA_STOP == '' && github.ref == 'refs/heads/main'
     permissions:
       contents: read
     steps:
@@ -69,7 +77,7 @@ jobs:
   generate-report:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: github.ref == 'refs/heads/main'
+    if: vars.ARIA_STOP == '' && github.ref == 'refs/heads/main'
     permissions:
       contents: read
     outputs:
@@ -258,7 +266,7 @@ jobs:
     # read-only and needs no identity.
     runs-on: [self-hosted, linux, claude]
     timeout-minutes: 10
-    if: github.ref == 'refs/heads/main'
+    if: vars.ARIA_STOP == '' && github.ref == 'refs/heads/main'
     permissions:
       # Plan 024 v3 §B-3 — write scope localized to this job only.
       contents: write

@@ -51,10 +51,10 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 export PYTHONDONTWRITEBYTECODE=1
-# The import roots have one declaration, aria_kernel/suite_import_roots.py,
-# which the authority set reads too (B1); it is run isolated (-I), so nothing
-# at those roots runs before it answers.
-suite_roots="$(python3 -I aria-kernel/aria_kernel/suite_import_roots.py)"
+# The import roots have one declaration, aria-kernel/suite-import-roots (one
+# root per line, "." for the repository root), which the authority set parses
+# too (aria_kernel/suite_import_roots.py, B1).
+suite_roots="$(paste -sd: aria-kernel/suite-import-roots)"
 export PYTHONPATH="${suite_roots}${PYTHONPATH:+:$PYTHONPATH}"
 
 # The pytest-owned half of the partition, whole — one definition for the full

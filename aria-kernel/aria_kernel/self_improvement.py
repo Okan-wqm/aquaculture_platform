@@ -46,7 +46,7 @@ from .doctor import DoctorCheck, DoctorReport
 from .git_containment import KERNEL_GIT_NO_HOOKS_ARGS
 from .implementation_safety import KERNEL_CHECKOUT_ROOT, SandboxUnavailable, wrap_validation_in_sandbox
 from .state_store_lifecycle_arcs import GIT_TIMEOUT_SECONDS
-from .suite_import_roots import SUITE_PYTHONPATH_ROOTS
+from .suite_import_roots import SUITE_IMPORT_ROOTS_RELPATH, SUITE_PYTHONPATH_ROOTS
 from .surface_waivers import WAIVER_MANIFESTS, iter_waiver_entries, load_waiver_manifest
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
 from .validation_env import build_validation_env
@@ -344,8 +344,8 @@ KERNEL_PACKAGE_RELPATH = "aria-kernel/aria_kernel"
 _KERNEL = f"{KERNEL_PACKAGE_RELPATH}/"
 # The kernel suite's collection root, as scripts/ci/aria-suite-run.sh runs it.
 KERNEL_SUITE_ROOT = "aria-kernel"
-# The suite's import roots are declared once, in suite_import_roots, which
-# scripts/ci/aria-suite-run.sh runs to export them (R1).
+# The suite's import roots are declared once, in aria-kernel/suite-import-roots,
+# which scripts/ci/aria-suite-run.sh exports and suite_import_roots parses (R1).
 # The Board's exam runner (`authority_closure.BOARD_TOOLS_RELPATH`). What it
 # executes is computed from the tree (`authority_closure.import_closure`),
 # never copied.
@@ -429,6 +429,7 @@ TEST_COLLECTION_MEMBERS: tuple[str, ...] = (
     f"{_KERNEL}validation*.py",
     f"{_KERNEL}live_partition.py",
     f"{_KERNEL}suite_import_roots.py",
+    SUITE_IMPORT_ROOTS_RELPATH,
     SUITE_RUNNER,
     SUITE_COLLECTOR,
     *IMPORT_ROOT_MEMBERS,

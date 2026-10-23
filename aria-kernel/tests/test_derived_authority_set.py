@@ -77,7 +77,7 @@ from aria_kernel import implementation_safety as safety
 from aria_kernel import self_improvement
 from aria_kernel.canonical_path import matches_repo_glob
 from aria_kernel.risk_policy import codeowners_last_match, codeowners_rules
-from aria_kernel.suite_import_roots import SUITE_PYTHONPATH_ROOTS
+from aria_kernel.suite_import_roots import SUITE_IMPORT_ROOTS_RELPATH, SUITE_PYTHONPATH_ROOTS
 from aria_kernel.surface_waivers import WAIVER_MANIFESTS
 from aria_kernel.tool_registry import GovernanceError
 from tests._helpers.git_fixtures import make_local_git_repo
@@ -649,12 +649,15 @@ class TheSuiteHasOneOwner(unittest.TestCase):
     """R1 — the suite's import roots are declared once, and invariants_only_grow collects through the owner."""
 
     def test_the_suite_script_reads_the_one_declaration_of_the_roots(self) -> None:
-        # R1 — scripts/ci/aria-suite-run.sh exports what suite_import_roots declares.
-        printed = subprocess.run([sys.executable, "-I", "aria-kernel/aria_kernel/suite_import_roots.py"],
-                                 cwd=_REPO_ROOT, capture_output=True, text=True, check=True).stdout.strip()
-        self.assertEqual(printed.split(":"), [root or "." for root in SUITE_PYTHONPATH_ROOTS])
+        # R1 — scripts/ci/aria-suite-run.sh exports what aria-kernel/suite-import-roots declares.
+        declared = (_REPO_ROOT / SUITE_IMPORT_ROOTS_RELPATH).read_text(encoding="utf-8").splitlines()
+        self.assertEqual(declared, [root or "." for root in SUITE_PYTHONPATH_ROOTS])
+        exported = subprocess.run(
+            ["bash", "-c", f"source <(grep -E '^(suite_roots|export PYTHONPATH)=' {self_improvement.SUITE_RUNNER}"
+                           f" | sed 's/^export //'); printf '%s' \"$PYTHONPATH\""],
+            cwd=_REPO_ROOT, env={"PATH": os.environ["PATH"]}, capture_output=True, text=True, check=True).stdout
+        self.assertEqual(exported, ":".join(declared))
         script = (_REPO_ROOT / self_improvement.SUITE_RUNNER).read_text(encoding="utf-8")
-        self.assertIn("python3 -I aria-kernel/aria_kernel/suite_import_roots.py", script)
         self.assertNotIn('PYTHONPATH="aria-kernel', script)
 
     def test_invariants_only_grow_collects_through_the_suite_owner(self) -> None:
@@ -941,7 +944,7 @@ def _suite_owner_files() -> tuple[str, ...]:
     listed = subprocess.run(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--",
                              "aria-kernel/aria_kernel", "tools/__init__.py", "tools/shared"], cwd=_REPO_ROOT,
                             capture_output=True, check=True).stdout.decode("utf-8")
-    return (self_improvement.SUITE_RUNNER, self_improvement.SUITE_COLLECTOR,
+    return (self_improvement.SUITE_RUNNER, self_improvement.SUITE_COLLECTOR, SUITE_IMPORT_ROOTS_RELPATH,
             "aria-kernel/tests/_helpers/__init__.py", *filter(None, listed.split("\0")))
 
 

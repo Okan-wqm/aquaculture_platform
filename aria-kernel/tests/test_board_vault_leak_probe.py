@@ -410,6 +410,24 @@ class RunnerIdentityLeakProbeTests(unittest.TestCase):
                                                      env={"PATH": os.environ["PATH"]}))
                 self.assertEqual(source.reach(self.probe.VAULT_REPOSITORY).status, expected)
 
+    def test_a_gh_that_never_ran_is_inconclusive(self) -> None:
+        # B0 corrective round 3, R3-5 (security SEC-R3-B2, P3; evidence p05
+        # case C): a gh that stalls past the bound, or is not where the probe
+        # looks, says nothing about the uid's stored login; it is never green.
+        app = _Answers(self.probe, self.app, self.probe.UNREACHABLE, 404)
+        with tempfile.TemporaryDirectory(prefix="aria-leak-gh-never-ran-") as tmp:
+            stalled = Path(tmp) / "gh"
+            stalled.write_text(f"#!{sys.executable}\nimport time\ntime.sleep(5)\nprint('{{}}')\n", encoding="utf-8")
+            stalled.chmod(0o755)
+            for name, gh_cli in (("stalled", str(stalled)), ("absent", str(Path(tmp) / "no-such-gh"))):
+                with self.subTest(gh=name), patch.object(self.probe, "COMMAND_TIMEOUT_SECONDS", 1):
+                    gh = self.probe.GhCliSource(gh_cli=gh_cli, env={"PATH": os.environ["PATH"]})
+                    status, report = self.probe.run_probe([app, gh], data_key=[])
+                    self.assertEqual((status, report["verdict"]), (2, "inconclusive"), report)
+                    self.assertEqual([r["status"] for r in report["sources"] if r["source"].startswith("gh_cli")],
+                                     [self.probe.INCONCLUSIVE])
+
+
 class RunnerEnvironmentFileTests(unittest.TestCase):
     """B0 corrective round 2, R2-2 (security P7, P6): the runner exports its env files into every ARIA job.
 

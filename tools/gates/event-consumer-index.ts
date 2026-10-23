@@ -16,9 +16,13 @@
  *   - Candidates: tracked (`git ls-files`) non-test `.ts` under apps/<app>/src, libs/<lib>/src
  *     and platform/libs/<lib>/src whose text contains a subscription-shaped call (`subscribe…(`,
  *     `SubscribeTo(`, `EventPattern(`, `EventHandler(`). The text filter only bounds the program;
- *     it decides nothing. The scans enumerate the tree's tracked files, never the disk, so an
- *     ignored or untracked file is never a source and an apps/<dir> with no tracked file is never
- *     an application; a tracked symlink is refused, never followed (`SourceTreeUnavailable`).
+ *     it decides nothing. Everything a scan reads is the tree's tracked content (`TrackedTree`):
+ *     the scans enumerate its tracked files, never the disk, and the type checker's compiler host
+ *     resolves imports only inside that tracked set, the workspace node_modules and the
+ *     TypeScript lib directory. So an ignored or untracked file is never a source, never a module
+ *     an import reaches, and an apps/<dir> with no tracked file is never an application; a
+ *     symlink at any level of a tracked path is refused, never followed (`SourceTreeUnavailable`
+ *     for a file a scan reads, an unresolved import for the checker).
  *   - Sites are recognised by the type checker, not by name: a call whose resolved signature is
  *     declared by the event bus (`subscribe`, `subscribeWildcard`, `subscribeForTenant` take an
  *     event type; `subscribeTo` takes a subject) or by the NATS client (`subscribe`, a subject), and
@@ -69,9 +73,10 @@
  * type is listed under its application's `subjects_consumed`, never dropped. Each entry carries a
  * per-section `state`: an application without TypeScript sources (a Rust app) has its code
  * sections `unavailable:no_typescript_sources`, so its empty lists never read as "produces
- * nothing". Every input is read under the given tree, and its sources and applications are the
- * tree's tracked files. A services.yaml its schema refuses, or a tree the scans cannot read as its
- * tracked content (a tracked symlink, a project.json that is not JSON), exits 2 with nothing on
+ * nothing". Every input is the given tree's tracked content: its sources, applications,
+ * services.yaml and tsconfig.base.json, and every module the checker resolves. A services.yaml its
+ * schema refuses, or a tree the scans cannot read as its tracked content (a tracked symlink, an
+ * untracked services.yaml, a project.json that is not JSON), exits 2 with nothing on
  * stdout and a message that names paths, never file content, so the kernel holds the change by
  * name instead of reading empty facts.
  *
@@ -80,8 +85,8 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, readFileSync } from 'node:fs';
-import { join, relative, resolve, sep } from 'node:path';
+import { existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 import ts from 'typescript';
 
@@ -162,7 +167,6 @@ export const FORWARDING_SITES: readonly { readonly file: string; readonly functi
   { file: 'libs/backend-common/src/nats/nats-v3-client.proxy.ts', function: 'publish' },
 ];
 
-const SOURCE_ROOTS: readonly string[] = ['apps', 'libs', join('platform', 'libs')];
 const CANDIDATE_TEXT = /\b(?:subscribe\w*|SubscribeTo|EventPattern|EventHandler)\s*\(/;
 const EVENT_BUS_DECLARATION = /[\\/]platform[\\/]libs[\\/]event-bus[\\/]src[\\/]/;
 const NATS_CLIENT_DECLARATION = /[\\/]node_modules[\\/](?:nats|@nats-io[\\/][^\\/]+)[\\/]/;
@@ -222,57 +226,195 @@ function gitPaths(root: string, args: readonly string[]): string[] {
   return result.stdout.split('\0').filter((path) => path.length > 0);
 }
 
-/**
- * The tracked files of `root` under the source roots, repo-relative (posix): the files of the
- * tree's index that are present in the work tree. Every enumeration of the scans and of the SE-1
- * key reader starts here, never at the disk, so an ignored or untracked file, an empty
- * directory, or an apps/<dir> holding only ignored files is never a source or an application
- * (SE-3-R2 corrective R1). On the kernel's clean base checkout the index is the base commit
- * (`K/plan_coverage.py` `_base_tree_error`). A subdirectory of a work tree lists its own tracked
- * files, so a committed fixture tree scans as a tree.
- */
-function trackedPaths(root: string): ReadonlySet<string> {
-  const roots = SOURCE_ROOTS.map(toPosix);
-  const deleted = new Set(gitPaths(root, ['ls-files', '-z', '--deleted', '--', ...roots]));
-  return new Set(
-    gitPaths(root, ['ls-files', '-z', '--cached', '--', ...roots]).filter(
-      (path) => !deleted.has(path),
-    ),
-  );
+/** What an on-disk path is, without following it (`lstat`). */
+type EntryKind = 'file' | 'directory' | 'symlink' | 'other' | 'absent';
+
+function entryKind(absolute: string): EntryKind {
+  const stat = lstatSync(absolute, { throwIfNoEntry: false });
+  if (stat === undefined) return 'absent';
+  if (stat.isSymbolicLink()) return 'symlink';
+  if (stat.isFile()) return 'file';
+  return stat.isDirectory() ? 'directory' : 'other';
 }
 
-/** `root/path` when it is a regular file; a symlink (or anything else) is refused, never followed. */
-function regularFile(root: string, path: string): string {
-  const absolute = join(root, path);
-  if (!lstatSync(absolute).isFile()) {
-    throw new SourceTreeUnavailable(
-      `${path} is not a regular file; a tracked symlink is refused, never followed`,
+/** Where a path the type checker asks about lies (`TrackedTree.scopeOf`). */
+type HostScope =
+  | { readonly kind: 'tree'; readonly path: string }
+  | { readonly kind: 'installed' }
+  | { readonly kind: 'outside' };
+
+/**
+ * The tracked content of one tree: the one enumeration every scan, the SE-1 key reader, the type
+ * checker's host and the module entry read (SE-3-R2 corrective R1 and round-2 RB).
+ *
+ * `paths` are the files of the tree's index that are present in the work tree (`git ls-files`
+ * minus deleted files, with no inherited GIT_* variable), repo-relative and posix. A path is read
+ * only when it is in `paths` and every component of it on disk is a real directory and the last a
+ * regular file: a symlink at any level is refused, never followed. So an ignored or untracked
+ * file, an empty directory, an apps/<dir> holding only ignored files, a module behind a symlinked
+ * directory or at an absolute path is never a source, an application or a module the checker
+ * resolves. On the kernel's clean base checkout the index is the base commit and the disk is its
+ * content (`K/plan_coverage.py` `_base_tree_error`), so every fact is the base's. A subdirectory
+ * of a work tree lists its own tracked files, so a committed fixture tree reads as a tree.
+ */
+export class TrackedTree {
+  readonly root: string;
+  readonly paths: ReadonlySet<string>;
+  /** Every directory that holds a tracked path, repo-relative ('' is the root). */
+  private readonly directories: ReadonlySet<string>;
+  /**
+   * Outside the tracked tree only the installed toolchain resolves: the workspace node_modules
+   * (and where it links to) and the TypeScript lib directory of the running compiler.
+   */
+  private readonly installedRoots: readonly string[];
+  private readonly kinds = new Map<string, EntryKind>();
+
+  constructor(repoRoot: string) {
+    this.root = resolve(repoRoot);
+    const deleted = new Set(gitPaths(this.root, ['ls-files', '-z', '--deleted']));
+    this.paths = new Set(
+      gitPaths(this.root, ['ls-files', '-z', '--cached']).filter((path) => !deleted.has(path)),
+    );
+    const directories = new Set<string>(['']);
+    for (const path of this.paths) {
+      const segments = path.split('/');
+      for (let depth = 1; depth < segments.length; depth += 1) {
+        directories.add(segments.slice(0, depth).join('/'));
+      }
+    }
+    this.directories = directories;
+    const installed = [join(this.root, 'node_modules'), dirname(ts.getDefaultLibFilePath({}))];
+    this.installedRoots = installed.flatMap((path) =>
+      existsSync(path) ? [...new Set([path, realpathSync(path)])] : [],
     );
   }
-  return absolute;
+
+  /** The on-disk kind of a repo-relative path, every component checked without following it. */
+  private kindOf(path: string): EntryKind {
+    const known = this.kinds.get(path);
+    if (known !== undefined) return known;
+    const slash = path.lastIndexOf('/');
+    const parent = slash === -1 ? 'directory' : this.kindOf(path.slice(0, slash));
+    const kind = parent === 'directory' ? entryKind(join(this.root, path)) : 'absent';
+    this.kinds.set(path, kind);
+    return kind;
+  }
+
+  /** `path` is tracked and a regular file reached through real directories only. */
+  holdsFile(path: string): boolean {
+    return this.paths.has(path) && this.kindOf(path) === 'file';
+  }
+
+  /** `path` holds a tracked path and is a real directory reached through real directories. */
+  holdsDirectory(path: string): boolean {
+    return path === '' || (this.directories.has(path) && this.kindOf(path) === 'directory');
+  }
+
+  /** The absolute path of a tracked regular file; anything else is SourceTreeUnavailable. */
+  file(path: string): string {
+    if (!this.paths.has(path)) {
+      throw new SourceTreeUnavailable(`${path} is not a tracked file of ${this.root}`);
+    }
+    if (this.kindOf(path) !== 'file') {
+      throw new SourceTreeUnavailable(
+        `${path} is not a regular file; a tracked symlink is refused, never followed`,
+      );
+    }
+    return join(this.root, path);
+  }
+
+  /** Where an absolute (or root-relative) path lies: in the tree, in the toolchain, or outside. */
+  scopeOf(path: string): HostScope {
+    const absolute = resolve(this.root, path);
+    const inTree = relative(this.root, absolute);
+    if (inTree !== '..' && !inTree.startsWith(`..${sep}`) && !isAbsolute(inTree)) {
+      const posix = toPosix(inTree);
+      if (posix === 'node_modules' || posix.startsWith('node_modules/'))
+        return { kind: 'installed' };
+      return { kind: 'tree', path: posix };
+    }
+    const installed = this.installedRoots.some(
+      (root) => absolute === root || absolute.startsWith(`${root}${sep}`),
+    );
+    return installed ? { kind: 'installed' } : { kind: 'outside' };
+  }
+
+  /** Whether the checker may see the file at `path` (see `scopeOf`). */
+  admitsFile(path: string): boolean {
+    const scope = this.scopeOf(path);
+    if (scope.kind === 'tree') return this.holdsFile(scope.path);
+    return scope.kind === 'installed' && ts.sys.fileExists(path);
+  }
+
+  /** Whether the checker may see the directory at `path` (see `scopeOf`). */
+  admitsDirectory(path: string): boolean {
+    const scope = this.scopeOf(path);
+    if (scope.kind === 'tree') return this.holdsDirectory(scope.path);
+    return scope.kind === 'installed' && ts.sys.directoryExists(path);
+  }
+}
+
+/** The tracked content of the tree at `repoRoot` (see `TrackedTree`). */
+export function trackedTree(repoRoot: string): TrackedTree {
+  return new TrackedTree(repoRoot);
+}
+
+/**
+ * The type checker's view of a tree: a compiler host whose every file and directory question is
+ * answered by `TrackedTree`, so module resolution and `getSourceFile` see the tracked tree, the
+ * workspace node_modules and the TypeScript lib directory, and nothing else. On the default host
+ * an import of an ignored, untracked, symlinked or absolute-path module was read from disk and its
+ * content became facts stamped with the base commit (SE-3-R2 round-2 RB).
+ */
+function trackedCompilerHost(tree: TrackedTree, options: ts.CompilerOptions): ts.CompilerHost {
+  const base = ts.createCompilerHost(options);
+  return {
+    ...base,
+    fileExists: (path) => tree.admitsFile(path),
+    readFile: (path) => (tree.admitsFile(path) ? base.readFile(path) : undefined),
+    directoryExists: (path) => tree.admitsDirectory(path),
+    getDirectories: (path) =>
+      tree.admitsDirectory(path)
+        ? ts.sys.getDirectories(path).filter((name) => tree.admitsDirectory(join(path, name)))
+        : [],
+    // A tracked path holds no symlink, so it is its own real path; the toolchain's links resolve.
+    realpath: (path) =>
+      tree.scopeOf(path).kind === 'installed' && existsSync(path) ? realpathSync(path) : path,
+    getSourceFile: (path, languageVersion, onError, shouldCreate) =>
+      tree.admitsFile(path)
+        ? base.getSourceFile(path, languageVersion, onError, shouldCreate)
+        : undefined,
+  };
 }
 
 const SOURCE_FILE = /^(?:apps|libs|platform\/libs)\/[^/]+\/src\/(?:.+\/)?[^/]+\.ts$/;
 
 /** Non-test tracked `.ts` files under `<base>/<pkg>/src` for every source root, absolute. */
-function sourceFiles(root: string, tracked: ReadonlySet<string>): string[] {
+function sourceFiles(tree: TrackedTree): string[] {
   const files: string[] = [];
-  for (const path of tracked) {
+  for (const path of tree.paths) {
     if (!SOURCE_FILE.test(path)) continue;
     const segments = path.split('/');
     const name = segments[segments.length - 1] ?? '';
     if (isTestFile(name) || segments.includes('node_modules') || segments.includes('__tests__')) {
       continue;
     }
-    files.push(regularFile(root, path));
+    files.push(tree.file(path));
   }
   return files.sort();
 }
 
-/** apps/<dir> -> nx project name over a tracked set (see `applicationNames`). */
-function applicationNamesIn(root: string, tracked: ReadonlySet<string>): Map<string, string> {
+/**
+ * apps/<dir> -> its nx project name (project.json `name`, else the directory): the one TypeScript
+ * reader of the SE-1 service key. An application is a directory under apps/ holding a tracked
+ * file; its project.json is read only when tracked and a regular file. The module entry of the
+ * code-fact bridge (tools/aria-adapters/module-schemas-source.ts) resolves its owners through it
+ * too, so both entries key services in one vocabulary. Throws SourceTreeUnavailable when the tree
+ * cannot be read this way.
+ */
+export function applicationNames(tree: TrackedTree): Map<string, string> {
   const directories = new Set<string>();
-  for (const path of tracked) {
+  for (const path of tree.paths) {
     const match = /^apps\/([^/]+)\/./.exec(path);
     if (match?.[1] !== undefined) directories.add(match[1]);
   }
@@ -280,8 +422,8 @@ function applicationNamesIn(root: string, tracked: ReadonlySet<string>): Map<str
   for (const directory of [...directories].sort()) {
     let name = directory;
     const projectJson = `apps/${directory}/project.json`;
-    if (tracked.has(projectJson)) {
-      const text = readFileSync(regularFile(root, projectJson), 'utf8');
+    if (tree.paths.has(projectJson)) {
+      const text = readFileSync(tree.file(projectJson), 'utf8');
       let parsed: unknown;
       try {
         parsed = JSON.parse(text);
@@ -300,21 +442,9 @@ function applicationNamesIn(root: string, tracked: ReadonlySet<string>): Map<str
   return names;
 }
 
-/**
- * apps/<dir> -> its nx project name (project.json `name`, else the directory): the one TypeScript
- * reader of the SE-1 service key. An application is a directory under apps/ holding a tracked
- * file; its project.json is read only when tracked and a regular file. The module entry of the
- * code-fact bridge (tools/aria-adapters/module-schemas-source.ts) resolves its owners through it
- * too, so both entries key services in one vocabulary. Throws SourceTreeUnavailable when the tree
- * cannot be read this way.
- */
-export function applicationNames(repoRoot: string): Map<string, string> {
-  const root = resolve(repoRoot);
-  return applicationNamesIn(root, trackedPaths(root));
-}
-
 /** The tracked TypeScript sources and the applications of one tree, read once per scan. */
 interface SourceTree {
+  readonly tracked: TrackedTree;
   readonly root: string;
   /** Absolute paths of the non-test tracked sources (`sourceFiles`). */
   readonly files: readonly string[];
@@ -322,17 +452,19 @@ interface SourceTree {
   readonly applications: ReadonlyMap<string, string>;
 }
 
-function sourceTree(repoRoot: string): SourceTree {
-  const root = resolve(repoRoot);
-  const tracked = trackedPaths(root);
+function sourceTree(tracked: TrackedTree): SourceTree {
   return {
-    root,
-    files: sourceFiles(root, tracked),
-    applications: applicationNamesIn(root, tracked),
+    tracked,
+    root: tracked.root,
+    files: sourceFiles(tracked),
+    applications: applicationNames(tracked),
   };
 }
 
-function compilerOptions(repoRoot: string): ts.CompilerOptions {
+const TSCONFIG_BASE = 'tsconfig.base.json';
+
+/** The checker's options: the tree's tracked tsconfig.base.json, read through the tracked view. */
+function compilerOptions(tree: TrackedTree): ts.CompilerOptions {
   const base: ts.CompilerOptions = {
     target: ts.ScriptTarget.ES2022,
     module: ts.ModuleKind.CommonJS,
@@ -340,15 +472,24 @@ function compilerOptions(repoRoot: string): ts.CompilerOptions {
     experimentalDecorators: true,
     esModuleInterop: true,
   };
-  const configPath = join(repoRoot, 'tsconfig.base.json');
-  if (existsSync(configPath)) {
-    const read = ts.readConfigFile(configPath, (path) => ts.sys.readFile(path));
+  if (tree.paths.has(TSCONFIG_BASE)) {
+    const configPath = tree.file(TSCONFIG_BASE);
+    const readTracked = (path: string): string | undefined =>
+      tree.admitsFile(path) ? ts.sys.readFile(path) : undefined;
+    const read = ts.readConfigFile(configPath, readTracked);
     if (read.error !== undefined) {
       throw new Error(
         `${configPath}: ${ts.flattenDiagnosticMessageText(read.error.messageText, '\n')}`,
       );
     }
-    Object.assign(base, ts.parseJsonConfigFileContent(read.config, ts.sys, repoRoot).options);
+    // An `extends` chain resolves through the tracked view too; the file list is not used.
+    const parseHost: ts.ParseConfigHost = {
+      useCaseSensitiveFileNames: ts.sys.useCaseSensitiveFileNames,
+      readDirectory: () => [],
+      fileExists: (path) => tree.admitsFile(path),
+      readFile: readTracked,
+    };
+    Object.assign(base, ts.parseJsonConfigFileContent(read.config, parseHost, tree.root).options);
   }
   // Only the checker is needed: no emit, no ambient type packages, no library checking.
   return { ...base, noEmit: true, skipLibCheck: true, types: [] };
@@ -881,7 +1022,12 @@ class SourceScan {
   constructor(tree: SourceTree, programFiles: readonly string[]) {
     this.root = tree.root;
     this.allFiles = tree.files;
-    this.program = ts.createProgram([...programFiles], compilerOptions(tree.root));
+    const options = compilerOptions(tree.tracked);
+    this.program = ts.createProgram({
+      rootNames: [...programFiles],
+      options,
+      host: trackedCompilerHost(tree.tracked, options),
+    });
     this.checker = this.program.getTypeChecker();
     this.folder = new ValueFolder(this.checker);
     this.applications = tree.applications;
@@ -985,7 +1131,7 @@ function consumerIndex(scan: SourceScan, candidates: readonly string[]): EventCo
 
 /** Scan `repoRoot`'s TypeScript sources for event consumers (see the module header). */
 export function scanEventConsumers(repoRoot: string): EventConsumerIndex {
-  const tree = sourceTree(repoRoot);
+  const tree = sourceTree(trackedTree(repoRoot));
   const candidates = tree.files.filter(textMatches(CANDIDATE_TEXT));
   return consumerIndex(new SourceScan(tree, candidates), candidates);
 }
@@ -1108,7 +1254,7 @@ function producerIndex(scan: SourceScan, candidates: readonly string[]): EventPr
  * their own rule are listed by open finding in the single-owner pin (CONTRACT-MEDIUM-015).
  */
 export function scanEventProducers(repoRoot: string): EventProducerIndex {
-  const tree = sourceTree(repoRoot);
+  const tree = sourceTree(trackedTree(repoRoot));
   const candidates = tree.files.filter(textMatches(PRODUCER_CANDIDATE_TEXT));
   return producerIndex(new SourceScan(tree, candidates), candidates);
 }
@@ -1438,7 +1584,7 @@ const isContractFile =
  * reader that needs only them, such as the emit-has-interface invariant.
  */
 export function scanEventDefinitions(repoRoot: string): EventDefinitionFact[] {
-  const tree = sourceTree(repoRoot);
+  const tree = sourceTree(trackedTree(repoRoot));
   const contractFiles = tree.files.filter(isContractFile(tree.root));
   return eventDefinitions(new SourceScan(tree, contractFiles), contractFiles);
 }
@@ -1452,9 +1598,10 @@ const NATS_SERVICES_REF = toPosix(NATS_SERVICES_YAML);
  * own; nothing is written. A services.yaml the SSoT refuses throws NatsServicesInvalid.
  */
 export function eventFacts(repoRoot: string): EventFacts {
-  const root = resolve(repoRoot);
-  const nats = loadNatsServicesLocated(join(root, NATS_SERVICES_YAML));
-  const tree = sourceTree(root);
+  const tracked = trackedTree(repoRoot);
+  const root = tracked.root;
+  const nats = loadNatsServicesLocated(tracked.file(NATS_SERVICES_REF));
+  const tree = sourceTree(tracked);
   const allFiles = tree.files;
   const consumerFiles = allFiles.filter(textMatches(CANDIDATE_TEXT));
   const producerFiles = allFiles.filter(textMatches(PRODUCER_CANDIDATE_TEXT));

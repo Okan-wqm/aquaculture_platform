@@ -12,6 +12,7 @@ import { dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
 
 import { indexFixtureTree, makeFixtureTree } from '../gates/fixture-tree';
+import { hermeticGitEnv } from '../gates/hermetic-git';
 
 import {
   MODULE_SCHEMAS_SOURCE_PATH,
@@ -289,4 +290,53 @@ void test('R4: a registry owner whose schema has no MODULE_SCHEMAS entry is list
     services.map((entry) => entry.service),
     ['billing-service', 'farm-service'],
   );
+});
+
+// SE-3-R2 corrective round 2, root RB (build/SE-3-R2/appellate-r2.md), the module entry's half:
+// its import-chain resolution read any file under the tree, so a tracked MODULE_SCHEMAS that
+// spreads a constant from an ignored module took that module's tables as placement facts. The
+// reader now resolves only within the tree's tracked set, the one the event entry enumerates.
+const PLANTED_TABLE = 'planted_ignored_table';
+
+function moduleFactsOutcome(root: string): string {
+  try {
+    return JSON.stringify({ facts: moduleFacts(root) });
+  } catch (error) {
+    if (!(error instanceof ModuleFactsUnavailable)) throw error;
+    return JSON.stringify({ unavailable: error.message });
+  }
+}
+
+void test('RB: a MODULE_SCHEMAS constant imported from an ignored module never becomes placement facts', () => {
+  const root = tree("'farm'");
+  const ssot = join(root, MODULE_SCHEMAS_SOURCE_PATH);
+  writeFileSync(
+    ssot,
+    [
+      "import { PLANTED_TABLES } from './tmp/planted-tables';",
+      MODULE_SCHEMAS.replace("tables: ['invoices']", "tables: ['invoices', ...PLANTED_TABLES]"),
+      "export const TENANT_SCOPED_MODULES: ReadonlySet<string> = new Set(['farm']);",
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  writeFileSync(join(root, '.gitignore'), 'tmp\n', 'utf8');
+  indexFixtureTree(root);
+  const before = moduleFactsOutcome(root);
+  const planted = join(dirname(ssot), 'tmp', 'planted-tables.ts');
+  mkdirSync(dirname(planted), { recursive: true });
+  writeFileSync(planted, `export const PLANTED_TABLES = ['${PLANTED_TABLE}'] as const;\n`, 'utf8');
+  const status = execFileSync(
+    'git',
+    ['-C', root, 'status', '--porcelain', '--untracked-files=all'],
+    {
+      encoding: 'utf8',
+      env: hermeticGitEnv(),
+    },
+  );
+  // The fixture is indexed, not committed: its files are staged, and the planted one is not listed.
+  assert.ok(!status.includes('tmp'), status);
+  const after = moduleFactsOutcome(root);
+  assert.equal(after, before, 'an ignored module changed the module facts');
+  assert.ok(!after.includes(PLANTED_TABLE), after);
 });

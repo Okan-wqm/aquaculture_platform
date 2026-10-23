@@ -38,8 +38,10 @@ import {
   eventConsumersFor,
   FORWARDING_SITES,
   applicationNames,
+  eventFacts,
   scanEventConsumers,
   scanEventProducers,
+  trackedTree,
 } from './event-consumer-index';
 import { isUnresolvedFindingState } from './finding-registry-chain';
 import { indexFixtureTree, removeFixtureTree } from './fixture-tree';
@@ -1132,7 +1134,84 @@ void test('R1: ignored and untracked files, and app directories with no tracked 
     producerSites.every((site) => !site.includes('planted') && !site.includes('untracked')),
     producerSites.join(', '),
   );
-  assert.deepEqual([...new Set(applicationNames(root).values())].sort(), [...FACTS_APPS].sort());
+  assert.deepEqual(
+    [...new Set(applicationNames(trackedTree(root)).values())].sort(),
+    [...FACTS_APPS].sort(),
+  );
+});
+
+// SE-3-R2 corrective round 2, root RB (build/SE-3-R2/appellate-r2.md): R1 bounded what the scans
+// enumerate, but the type checker still resolved imports on the default compiler host, so a
+// tracked file importing an ignored module, a module behind an ignored directory symlink, or one at
+// an absolute path outside the tree turned that content into facts. The checker now sees only the
+// tracked tree (no symlink at any level), the workspace node_modules and the TypeScript lib dir.
+const PLANTED_VIA_IMPORT = 'PlantedViaIgnoredImport';
+const VIA_IMPORT = 'apps/a-service/src/via-import.ts';
+
+function viaImportSource(specifier: string): string {
+  return [
+    "import { createBaseEvent } from '../../../libs/event-contracts/src/base-event';",
+    `import { PLANTED_TYPE } from '${specifier}';`,
+    "export const viaImport = createBaseEvent(PLANTED_TYPE, 'tenant-1');",
+    '',
+  ].join('\n');
+}
+
+const PLANTED_VALUE = `export const PLANTED_TYPE = '${PLANTED_VIA_IMPORT}' as const;\n`;
+
+/** Facts and the producer scan before and after `plant` writes content outside the tracked set. */
+function assertImportOutsideTheTreeIsNoFact(root: string, plant: () => void): void {
+  const before = JSON.stringify(eventFacts(root));
+  plant();
+  const status = execFileSync(
+    'git',
+    ['-C', root, 'status', '--porcelain', '--untracked-files=all'],
+    { encoding: 'utf8', env: hermeticGitEnv() },
+  );
+  // The fixture is indexed, not committed: its files are staged, and the planted path is not listed.
+  assert.ok(!status.includes('tmp') && !status.includes('value'), status);
+  const after = JSON.stringify(eventFacts(root));
+  assert.equal(after, before, 'content outside the tracked tree changed the facts');
+  assert.ok(!after.includes(PLANTED_VIA_IMPORT), `${PLANTED_VIA_IMPORT} reached the facts`);
+  const producers = scanEventProducers(root);
+  assert.ok(
+    producers.unresolved.some((site) => site.site === `${VIA_IMPORT}:3`),
+    JSON.stringify(producers.unresolved),
+  );
+  assert.ok(!JSON.stringify(producers).includes(PLANTED_VIA_IMPORT));
+}
+
+void test('RB: a tracked file importing an ignored module never turns that module into facts', () => {
+  const root = writeTree(factsRepo(FACTS_SERVICES_YAML), {
+    '.gitignore': 'tmp\n',
+    [VIA_IMPORT]: viaImportSource('./tmp/value'),
+  });
+  assertImportOutsideTheTreeIsNoFact(root, () => {
+    mkdirSync(join(root, 'apps', 'a-service', 'src', 'tmp'), { recursive: true });
+    writeFileSync(join(root, 'apps', 'a-service', 'src', 'tmp', 'value.ts'), PLANTED_VALUE, 'utf8');
+  });
+});
+
+void test('RB: a module behind an ignored directory symlink never becomes facts', () => {
+  const root = writeTree(factsRepo(FACTS_SERVICES_YAML), {
+    '.gitignore': 'tmp\n',
+    [VIA_IMPORT]: viaImportSource('./tmp/value'),
+  });
+  assertImportOutsideTheTreeIsNoFact(root, () => {
+    const outside = mkdtempSync(join(scratch, 'outside-dir-'));
+    writeFileSync(join(outside, 'value.ts'), PLANTED_VALUE, 'utf8');
+    symlinkSync(outside, join(root, 'apps', 'a-service', 'src', 'tmp'), 'dir');
+  });
+});
+
+void test('RB: a module at an absolute path outside the tree never becomes facts', () => {
+  const outside = mkdtempSync(join(scratch, 'outside-absolute-'));
+  const root = writeTree(factsRepo(FACTS_SERVICES_YAML), {
+    [VIA_IMPORT]: viaImportSource(join(outside, 'value')),
+  });
+  assertImportOutsideTheTreeIsNoFact(root, () => {
+    writeFileSync(join(outside, 'value.ts'), PLANTED_VALUE, 'utf8');
+  });
 });
 
 // Root R2: the SE-1 key reader followed a symlinked apps/<dir>/project.json out of the tree, and a

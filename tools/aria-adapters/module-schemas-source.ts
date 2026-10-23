@@ -2,7 +2,12 @@ import { posix } from 'node:path';
 
 import ts from 'typescript';
 
-import { applicationNames, SourceTreeUnavailable } from '../gates/event-consumer-index';
+import {
+  applicationNames,
+  SourceTreeUnavailable,
+  type TrackedTree,
+  trackedTree,
+} from '../gates/event-consumer-index';
 
 import {
   containedWorkspace,
@@ -55,7 +60,10 @@ import {
  * (`applicationNames`, tools/gates/event-consumer-index.ts), so both entries
  * name a service the same way; that reader enumerates the tree's tracked files
  * and refuses a symlinked project.json, so the module entry keeps its
- * containment. The kernel runs it on a diff's base tree
+ * containment. The same tracked set (`trackedTree`) is the entry's read
+ * policy: the registries and every module their imports reach must be
+ * tracked regular files, so an ignored or untracked module never becomes
+ * placement facts. The kernel runs it on a diff's base tree
  * (`K/plan_coverage.py` `compute_service_facts`); registries it cannot read
  * completely, whose ownership is ambiguous, or whose applications cannot be
  * read (SourceTreeUnavailable), exit 2 with nothing on stdout.
@@ -271,11 +279,17 @@ class Resolver {
     return null;
   }
 
+  /**
+   * The file a specifier's path names: itself, or with a module extension. The read policy
+   * (`pathAllowed`) is asked about each file the probe would read, never about the extensionless
+   * path, which names no file: a policy of files (the module entry's tracked set) admits
+   * `outbox-migration.ts`, not `outbox-migration`.
+   */
   private probeFile(path: string): string | null {
-    if (!isWorkspaceRelativePath(path) || !this.pathAllowed(path)) {
+    if (!isWorkspaceRelativePath(path)) {
       return null;
     }
-    if (this.workspace.entry(path) === 'file') {
+    if (this.pathAllowed(path) && this.workspace.entry(path) === 'file') {
       return path;
     }
     for (const extension of MODULE_EXTENSIONS) {
@@ -948,10 +962,10 @@ export class ModuleFactsUnavailable extends Error {
  * last entry would drop a service from the facts with exit 0, so each is an error by name.
  */
 function schemaOwnership(
-  workspaceRoot: string,
+  tree: TrackedTree,
   owners: readonly SchemaOwnerRecord[],
 ): { readonly ownerOf: ReadonlyMap<string, string>; readonly errors: readonly string[] } {
-  const applications = new Set(applicationNames(workspaceRoot).values());
+  const applications = new Set(applicationNames(tree).values());
   const errors: string[] = [];
   const grouped = (key: (owner: SchemaOwnerRecord) => string): Map<string, SchemaOwnerRecord[]> => {
     const groups = new Map<string, SchemaOwnerRecord[]>();
@@ -990,11 +1004,18 @@ function schemaOwnership(
  * (`owners_without_module`).
  */
 export function moduleFacts(workspaceRoot: string): ModuleFacts {
-  const workspace = containedWorkspace(workspaceRoot);
+  // The tree's tracked content, the one enumeration the event entry reads too: the registries and
+  // every module their imports reach must be tracked regular files, so an ignored or untracked
+  // module never becomes placement facts stamped with the base commit (SE-3-R2 round-2 RB).
+  const tracked = trackedTree(workspaceRoot);
   for (const path of [MODULE_SCHEMAS_SOURCE_PATH, SCHEMA_REGISTRY_SOURCE_PATH]) {
-    if (workspace.entry(path) !== 'file') throw new ModuleFactsUnavailable(`${path} is not a file`);
+    if (!tracked.holdsFile(path)) {
+      throw new ModuleFactsUnavailable(`${path} is not a file the tree tracks`);
+    }
   }
-  const source = readModuleSchemasSource(workspaceRoot);
+  const source = readModuleSchemasSource(workspaceRoot, MODULE_SCHEMAS_SOURCE_PATH, {
+    pathAllowed: (path) => tracked.holdsFile(path),
+  });
   const registry = readSchemaOwners(workspaceRoot);
   const errors = [...source.errors, ...registry.errors];
   if (errors.length > 0) {
@@ -1006,7 +1027,7 @@ export function moduleFacts(workspaceRoot: string): ModuleFacts {
   if (scoped === null) {
     throw new ModuleFactsUnavailable(`${source.path} declares no TENANT_SCOPED_MODULES set`);
   }
-  const ownership = schemaOwnership(workspaceRoot, registry.owners);
+  const ownership = schemaOwnership(tracked, registry.owners);
   if (ownership.errors.length > 0) {
     throw new ModuleFactsUnavailable(
       `${SCHEMA_REGISTRY_SOURCE_PATH}: ${ownership.errors.join('; ')}`,

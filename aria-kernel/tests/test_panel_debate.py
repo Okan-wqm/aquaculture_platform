@@ -8,7 +8,6 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
-from unittest import mock
 
 from aria_kernel.feedback_store import CONSENSUS_UNCERTAINTY_REASONS, generate_ai_consensus
 from aria_kernel.independence_check import (
@@ -22,69 +21,22 @@ from aria_kernel.judge_fanout import (
     dispatch_rebuttal_for_dissent,
     render_evidence_weighing_prompt,
 )
-from aria_kernel.independence_check import (
-    DEFAULT_JACCARD_CEILING,
-    compute_jaccard_similarity,
-    verify_panel_diversity,
-)
-from aria_kernel.agent_surface import METHOD_REQUIRED_EVIDENCE
-from aria_kernel.judge_fanout import (
-    EVIDENCE_WEIGHING_MODE_MARKER,
-    dispatch_judges_for_sample,
-    dispatch_rebuttal_for_dissent,
-    render_evidence_weighing_prompt,
-)
 from aria_kernel.tool_registry import ensure_tools_dir
 
 from tests._helpers.rule_contracts import register_contracted_tool
 
-# The four panel seats this slice adds (the static tracer and the devil's
-# advocate already exist as evidence_judgment / adversarial_judgment).
-NEW_SEATS: dict[str, tuple[str, ...]] = {
-    "bug_hunt": ("aria-bug-hunter",),
-    "reproduction_test": ("aria-test-writer",),
-    "impact_assessment": ("aria-impact-assessor",),
-    "architecture": ("architectural-arbiter",),
-}
-
-# The six seats the funnel can route by claim_type, and the six DISTINCT
-# methods they practice.
-SIX_METHOD_SEATS = (
-    "evidence_judgment",
-    "adversarial_judgment",
-    "bug_hunt",
-    "reproduction_test",
-    "impact_assessment",
-    "architecture",
-)
-
-_METHOD_REQUIRED_FIELDS = {
-    "bug_hunt": "failing_input",
-    "reproduction_test": "reproduction",
-    "impact_assessment": "visible_consequence",
-    "architecture_contract": "blast_radius",
-}
-
 
 class _PanelCase(unittest.TestCase):
+    """The debate cases run on the default read-only pair (no write-scope
+    seat), so the host's providers are not their fact; the panel mint and
+    its host live in test_panel_seats, the degraded host in
+    test_panel_single_provider_night."""
+
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory(prefix="aria-wpjb2-")
         self.tools = Path(self._tmp.name) / "aria-tools"
         ensure_tools_dir(self.tools)
         register_contracted_tool(self.tools, "tool-x")
-        # The host's presence is the test's fact (`provider_outage.host_providers`),
-        # never the machine's PATH: these cases mint a panel on a host that runs
-        # every vendor, so the reproduction seat's write rung is live. Read from
-        # PATH, a runner without the claude CLI dropped that seat
-        # (`seat_write_rung_unavailable`) and the mint counts changed with the
-        # machine. The degraded host is its own owner's case
-        # (test_panel_single_provider_night).
-        host = mock.patch(
-            "aria_kernel.provider_outage.host_providers",
-            return_value=frozenset({"anthropic", "zai", "openai"}),
-        )
-        host.start()
-        self.addCleanup(host.stop)
 
     def tearDown(self) -> None:
         self._tmp.cleanup()
@@ -99,64 +51,6 @@ class _PanelCase(unittest.TestCase):
                 "finding_fingerprint": "fp1",
             }],
         }
-
-
-class PanelMintTests(_PanelCase):
-    def test_a_roles_set_mints_one_envelope_per_seat_with_its_method(self) -> None:
-        roles = tuple(
-            (role, NEW_SEATS[role][0]) for role in ("bug_hunt", "reproduction_test", "impact_assessment")
-        )
-        result = dispatch_judges_for_sample(sample=self._sample(), base_dir=self.tools, roles=roles)
-        self.assertEqual(result["minted_count"], 3)
-        from aria_kernel.agent_invocations import list_agent_invocation_requests
-
-        minted = list_agent_invocation_requests(base_dir=self.tools)
-        self.assertEqual(
-            {row["agent_method"] for row in minted},
-            {"bug_hunt", "reproduction_test", "impact_assessment"},
-        )
-
-    def test_the_default_lane_still_mints_the_two_legacy_seats(self) -> None:
-        result = dispatch_judges_for_sample(sample=self._sample(), base_dir=self.tools)
-        self.assertEqual(result["minted_count"], 2)
-        self.assertEqual(
-            {m["role"] for m in result["minted"]},
-            {"evidence_judgment", "adversarial_judgment"},
-        )
-
-    def test_the_panel_is_minted_whole_or_not_at_all_on_the_backlog_cap(self) -> None:
-        """ARIA-HIGH-364's own discipline, extended to N seats: a panel whose
-        one seat is backlog-capped must mint NOTHING for the finding — a
-        3-of-4 panel is a finding that can never settle at its tier."""
-        roles = tuple(
-            (role, NEW_SEATS[role][0]) for role in ("bug_hunt", "reproduction_test", "impact_assessment")
-        )
-        result = dispatch_judges_for_sample(
-            sample=self._sample(), base_dir=self.tools, roles=roles,
-            max_pending_per_role=0,
-        )
-        self.assertEqual(result["minted_count"], 0)
-        self.assertTrue(result["skipped"])
-
-    def test_the_panel_is_minted_whole_or_not_at_all_on_a_refused_door(self) -> None:
-        from aria_kernel.request_admission import Admission
-
-        def refusing(producer, role, **_kwargs):
-            return Admission(
-                producer, role, "discretionary", "cyc", 1,
-                role != "bug_hunt", "provider_unavailable",
-            )
-
-        roles = tuple(
-            (role, NEW_SEATS[role][0]) for role in ("bug_hunt", "reproduction_test", "impact_assessment")
-        )
-        with mock.patch("aria_kernel.judge_fanout.admit_request", side_effect=refusing):
-            result = dispatch_judges_for_sample(sample=self._sample(), base_dir=self.tools, roles=roles)
-        self.assertEqual(result["minted_count"], 0)
-        self.assertEqual(
-            {s.get("reason") for s in result["skipped"]},
-            {"request_admission_throttled:provider_unavailable"},
-        )
 
 
 class EvidenceWeighingArbiterTests(_PanelCase):

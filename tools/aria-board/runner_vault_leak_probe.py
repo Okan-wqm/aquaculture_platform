@@ -25,22 +25,45 @@ token. The probe also checks that the Board's data key is in neither the
 process environment nor any file the uid can name (environment-file lines and
 file NAMES only).
 
+THE JOB'S ENVIRONMENT (B0 corrective round 2, R2-2). The actions runner
+exports its ``.env`` file — and the runner service exports its systemd
+``EnvironmentFile`` files — into every job it runs, so a ``GH_TOKEN`` or
+``GITHUB_TOKEN`` there is a credential ARIA's jobs hold. ``sudo -u gharunner
+-H`` resets the environment, so the probe's own ``os.environ`` lacks them: the
+gh and git sources therefore run with ``os.environ`` overlaid by every
+``--env-file``'s ``KEY=VALUE`` lines (an ``export`` prefix and surrounding
+quotes allowed; blank lines and ``#``/``;`` comments skipped). The values stay
+in this process's memory; the report names an env file's Board keys and, for a
+line that does not parse, its line NUMBER only — never its text. An env file
+that cannot be read or holds such a line leaves the probe inconclusive.
+
 Exit status: 0 GREEN — every source ran and none reached the vault, the App
 key source included, and no data key is present; 1 RED — a source reached the
 vault or a data key is present; 2 INCONCLUSIVE — a source could not be
-classified, or the App key was not given (a probe that skipped the strongest
-credential proves nothing).
+classified, the App key was not given (a probe that skipped the strongest
+credential proves nothing), or an env file could not be read whole.
 
 The report is one JSON object on stdout: source names, classifications and
 HTTP statuses. It never carries a token, a key, a JWT, a variable's value or
 any command output.
 
 Operator step (PR body): run it as the runner uid, with the App key the
-runner's jobs use, and record the report as the B0 exit evidence::
+runner's jobs use, passing the runner's ``.env`` AND every ``EnvironmentFile``
+its systemd unit loads (``systemctl cat 'actions.runner.*'`` lists the
+unit's ``EnvironmentFile=`` lines; a leading ``-`` only marks one optional),
+and record the report as the B0 exit evidence::
 
     sudo -u gharunner -H python3 -I tools/aria-board/runner_vault_leak_probe.py \\
         --app-id <id> --installation-id <id> --app-private-key <pem path the uid can read> \\
-        --scan-root /home/gharunner --env-file /home/gharunner/actions-runner/.env
+        --scan-root /home/gharunner --env-file /home/gharunner/actions-runner/.env \\
+        --env-file <each EnvironmentFile of the runner unit>
+
+Variables the unit sets inline (``systemctl show -p Environment``), and an
+``EnvironmentFile`` only root can read (systemd reads it before dropping to
+the runner uid; the probe reports it ``unreadable``, inconclusive), are passed
+the same way: copied, by the operator, to a file the runner uid alone can read
+(owner gharunner, mode 0600, removed after the run), given as one more
+``--env-file``.
 """
 from __future__ import annotations
 
@@ -49,6 +72,7 @@ import base64
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -221,12 +245,12 @@ def _run(command: list[str], *, env: dict[str, str]) -> subprocess.CompletedProc
 
 
 class GhCliSource:
-    """The uid's ``gh`` login (hosts.yml) or a GH_TOKEN/GITHUB_TOKEN in its environment."""
+    """The uid's ``gh`` login (hosts.yml) or a GH_TOKEN/GITHUB_TOKEN in the job's environment."""
 
     name = "gh_cli"
 
-    def __init__(self, *, gh_cli: str = "gh", env: dict[str, str] | None = None) -> None:
-        self.gh_cli, self.env = gh_cli, dict(os.environ if env is None else env)
+    def __init__(self, *, env: dict[str, str], gh_cli: str = "gh") -> None:
+        self.gh_cli, self.env = gh_cli, dict(env)
 
     def reach(self, repository: str) -> Reach:
         done = _run([self.gh_cli, "api", f"repos/{repository}"], env=self.env)
@@ -245,11 +269,11 @@ class GhCliSource:
 class GitRemoteSource:
     """The uid's git credentials: the HTTPS credential helper, or its SSH keys."""
 
-    def __init__(self, *, transport: str, git_cli: str = "git", env: dict[str, str] | None = None) -> None:
+    def __init__(self, *, transport: str, env: dict[str, str], git_cli: str = "git") -> None:
         if transport not in ("https", "ssh"):
             raise ValueError(transport)
         self.transport, self.git_cli = transport, git_cli
-        self.env = dict(os.environ if env is None else env)
+        self.env = dict(env)
         self.name = f"git_{transport}"
 
     def reach(self, repository: str) -> Reach:
@@ -277,16 +301,54 @@ class GitRemoteSource:
         return Reach(self.name, INCONCLUSIVE, None, "git_unclassified_failure")
 
 
-def data_key_findings(*, environ: dict[str, str], env_files: list[Path], scan_roots: list[Path]) -> list[str]:
+_ENV_LINE = re.compile(r"^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
+
+
+@dataclass(frozen=True)
+class EnvFile:
+    """One env file as the runner exports it: its KEY=VALUE pairs (in memory only) and what did not parse."""
+
+    path: Path
+    pairs: tuple[tuple[str, str], ...]
+    problems: tuple[str, ...]
+
+
+def read_env_file(path: Path) -> EnvFile:
+    """The one parser of a runner env file; a problem names the file and a line NUMBER, never a line's text."""
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return EnvFile(path, (), (f"env_file:{path}:unreadable",))
+    pairs: list[tuple[str, str]] = []
+    problems: list[str] = []
+    for number, raw in enumerate(lines, start=1):
+        line = raw.strip()
+        if not line or line.startswith(("#", ";")):
+            continue
+        match = _ENV_LINE.match(line)
+        if match is None:
+            problems.append(f"env_file:{path}:line {number}:unparsable")
+            continue
+        value = match.group(2).strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        pairs.append((match.group(1), value))
+    return EnvFile(path, tuple(pairs), tuple(problems))
+
+
+def job_environment(*, environ: dict[str, str], env_files: list[EnvFile]) -> dict[str, str]:
+    """What an ARIA job's process sees: ``environ`` overlaid with each env file, later files winning."""
+    env = dict(environ)
+    for env_file in env_files:
+        env.update(env_file.pairs)
+    return env
+
+
+def data_key_findings(*, environ: dict[str, str], env_files: list[EnvFile], scan_roots: list[Path]) -> list[str]:
     """Where the Board's data key could be: env NAMES, env-file KEY names, file PATHS. Never a value."""
     findings = [f"environment:{name}" for name in sorted(environ) if name.startswith("ARIA_BOARD_")]
-    for env_file in env_files:
-        try:
-            lines = env_file.read_text(encoding="utf-8", errors="replace").splitlines()
-        except OSError:
-            continue
-        findings += [f"env_file:{env_file}:{line.split('=', 1)[0].strip()}" for line in lines
-                     if line.split("=", 1)[0].strip().removeprefix("export ").strip().startswith("ARIA_BOARD_")]
+    findings += [f"env_file:{env_file.path}:{key}" for env_file in env_files for key, _value in env_file.pairs
+                 if key.startswith("ARIA_BOARD_")]
     for root in scan_roots:
         base_depth = len(root.parts)
         for directory, subdirs, files in os.walk(root, onerror=lambda _error: None):
@@ -297,15 +359,17 @@ def data_key_findings(*, environ: dict[str, str], env_files: list[Path], scan_ro
     return findings
 
 
-def run_probe(sources: list[CredentialSource], *, data_key: list[str], repository: str = VAULT_REPOSITORY,
+def run_probe(sources: list[CredentialSource], *, data_key: list[str], environment_problems: list[str] | None = None,
+              repository: str = VAULT_REPOSITORY,
               require: tuple[str, ...] = (AppPrivateKeySource.name,)) -> tuple[int, dict[str, Any]]:
-    """(exit status, report) for ``sources`` and the data-key findings; see the module docstring."""
+    """(exit status, report) for ``sources``, the data-key findings and the env files' problems; see the docstring."""
     reaches = [source.reach(repository) for source in sources]
     names = {reach.source for reach in reaches}
     missing = [name for name in require if name not in names]
+    problems = list(environment_problems or [])
     if any(reach.status == REACHABLE for reach in reaches) or data_key:
         verdict, status = "red", 1
-    elif missing or any(reach.status == INCONCLUSIVE for reach in reaches):
+    elif missing or problems or any(reach.status == INCONCLUSIVE for reach in reaches):
         verdict, status = "inconclusive", 2
     else:
         verdict, status = "green", 0
@@ -317,6 +381,7 @@ def run_probe(sources: list[CredentialSource], *, data_key: list[str], repositor
         "sources": [reach.report() for reach in reaches],
         "required_sources_missing": missing,
         "data_key_findings": data_key,
+        "environment_problems": problems,
     }
 
 
@@ -326,17 +391,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--installation-id")
     parser.add_argument("--app-private-key", type=Path, help="path to the App PEM the runner's jobs use")
     parser.add_argument("--env-file", type=Path, action="append", default=[],
-                        help="an environment file the runner service loads (key names are read, never values)")
+                        help="an environment file the runner exports into its jobs (.env, a systemd "
+                             "EnvironmentFile); its values reach gh and git in memory and are never reported")
     parser.add_argument("--scan-root", type=Path, action="append", default=[],
                         help="a directory whose file NAMES are searched for Board material")
     args = parser.parse_args(argv)
-    sources: list[CredentialSource] = [GhCliSource(), GitRemoteSource(transport="https"),
-                                       GitRemoteSource(transport="ssh")]
+    env_files = [read_env_file(path) for path in args.env_file]
+    job_env = job_environment(environ=dict(os.environ), env_files=env_files)
+    sources: list[CredentialSource] = [GhCliSource(env=job_env), GitRemoteSource(transport="https", env=job_env),
+                                       GitRemoteSource(transport="ssh", env=job_env)]
     if args.app_id and args.installation_id and args.app_private_key:
         sources.insert(0, AppPrivateKeySource(app_id=args.app_id, installation_id=args.installation_id,
                                               private_key_path=args.app_private_key))
-    findings = data_key_findings(environ=dict(os.environ), env_files=args.env_file, scan_roots=args.scan_root)
-    status, report = run_probe(sources, data_key=findings)
+    findings = data_key_findings(environ=dict(os.environ), env_files=env_files, scan_roots=args.scan_root)
+    status, report = run_probe(sources, data_key=findings,
+                               environment_problems=[problem for env_file in env_files for problem in env_file.problems])
     sys.stdout.write(json.dumps(report, indent=2, sort_keys=True) + "\n")
     return status
 

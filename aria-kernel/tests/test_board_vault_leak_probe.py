@@ -305,7 +305,8 @@ class RunnerIdentityLeakProbeTests(unittest.TestCase):
             env_file.write_text(f"PATH=/usr/bin\nARIA_BOARD_VAULT_DATA_KEY={secret}\n", encoding="utf-8")
             (Path(home) / "aria-board-vault.key").write_text(secret, encoding="utf-8")
             findings = self.probe.data_key_findings(environ={_KEY_ENV: secret, "HOME": home},
-                                                    env_files=[env_file], scan_roots=[Path(home)])
+                                                    env_files=[self.probe.read_env_file(env_file)],
+                                                    scan_roots=[Path(home)])
             status, report = self.probe.run_probe(
                 [_Answers(self.probe, self.app, self.probe.UNREACHABLE, 404)], data_key=findings)
         self.assertEqual(status, 1)
@@ -408,6 +409,78 @@ class RunnerIdentityLeakProbeTests(unittest.TestCase):
                           self.probe.GitRemoteSource(transport="https", git_cli=str(binary),
                                                      env={"PATH": os.environ["PATH"]}))
                 self.assertEqual(source.reach(self.probe.VAULT_REPOSITORY).status, expected)
+
+class RunnerEnvironmentFileTests(unittest.TestCase):
+    """B0 corrective round 2, R2-2 (security P7, P6): the runner exports its env files into every ARIA job.
+
+    ``sudo -u gharunner -H`` resets the environment, so a GH_TOKEN the runner
+    hands its jobs through ``.env`` (or its systemd EnvironmentFile) is not in
+    the probe's own ``os.environ``. The gh and git sources must use it anyway.
+    """
+
+    _TOKEN = "ghs_runner_env_file_fixture_token_0042"
+
+    def setUp(self) -> None:
+        self.probe = _probe_module()
+        scratch = tempfile.TemporaryDirectory(prefix="aria-leak-env-file-")
+        self.addCleanup(scratch.cleanup)
+        self.root = Path(scratch.name)
+        bin_dir = self.root / "bin"
+        bin_dir.mkdir()
+        # gh reaches the vault exactly when GH_TOKEN carries the runner's token.
+        (bin_dir / "gh").write_text(
+            f"#!{sys.executable}\nimport os, sys\n"
+            f"if os.environ.get('GH_TOKEN') == {self._TOKEN!r}:\n    print('{{}}')\n    raise SystemExit(0)\n"
+            "sys.stderr.write('gh: Not Found (HTTP 404)')\nraise SystemExit(1)\n", encoding="utf-8")
+        (bin_dir / "git").write_text(
+            f"#!{sys.executable}\nimport sys\nsys.stderr.write('remote: Repository not found.')\n"
+            "raise SystemExit(128)\n", encoding="utf-8")
+        for tool in ("gh", "git"):
+            (bin_dir / tool).chmod(0o755)
+        environ = {k: v for k, v in os.environ.items() if k not in ("GH_TOKEN", "GITHUB_TOKEN", "GH_CONFIG_DIR")}
+        environ.update({"PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}", "HOME": str(self.root),
+                        "GH_CONFIG_DIR": str(self.root / "gh-config")})
+        patcher = patch.dict(os.environ, environ, clear=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _run(self, *argv: str) -> tuple[int, str]:
+        import contextlib
+        import io
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            status = self.probe.main(list(argv))
+        return status, out.getvalue()
+
+    def test_a_token_only_in_the_runner_env_file_is_tried_and_reaches_the_vault(self) -> None:
+        env_file = self.root / "runner.env"
+        env_file.write_text(f"# the runner's .env\nLANG=C.UTF-8\nexport GH_TOKEN={self._TOKEN}\n", encoding="utf-8")
+        control_status, control = self._run()
+        self.assertEqual(control_status, 2, "without the env file gh is refused; no App key: inconclusive")
+        status, stdout = self._run("--env-file", str(env_file))
+        report = json.loads(stdout)
+        self.assertEqual((status, report["verdict"]), (1, "red"), report)
+        self.assertEqual({r["source"]: r["status"] for r in report["sources"]}["gh_cli"], self.probe.REACHABLE)
+        self.assertNotIn(self._TOKEN, stdout)
+        self.assertNotIn(self._TOKEN, control)
+
+    def test_a_malformed_line_is_reported_by_its_number_only(self) -> None:
+        env_file = self.root / "runner.env"
+        env_file.write_text("LANG=C.UTF-8\nARIA_BOARD_X secret\n", encoding="utf-8")
+        status, stdout = self._run("--env-file", str(env_file))
+        report = json.loads(stdout)
+        self.assertNotIn("ARIA_BOARD_X", stdout)
+        self.assertNotIn("ARIA_BOARD_X secret", stdout)
+        self.assertEqual(report["environment_problems"], [f"env_file:{env_file}:line 2:unparsable"])
+        self.assertEqual((status, report["verdict"]), (2, "inconclusive"))
+
+    def test_an_env_file_the_uid_cannot_read_is_never_green(self) -> None:
+        status, stdout = self._run("--env-file", str(self.root / "absent.env"))
+        report = json.loads(stdout)
+        self.assertEqual(report["environment_problems"], [f"env_file:{self.root / 'absent.env'}:unreadable"])
+        self.assertEqual(status, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

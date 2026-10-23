@@ -19,6 +19,7 @@
 import React from 'react';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { Mock } from 'vitest';
 import type { AnimationRule, AnimationRuleType } from '../engine/animation/types';
 
 /* ------------------------------------------------------------------ */
@@ -105,10 +106,10 @@ function makeAnimationRule(
 /* ================================================================== */
 
 describe('AnimationsPanel — Extended Animation Types', () => {
-  let onChange: ReturnType<typeof vi.fn>;
+  let onChange: Mock<(animations: AnimationRule[]) => void>;
 
   beforeEach(() => {
-    onChange = vi.fn();
+    onChange = vi.fn<(animations: AnimationRule[]) => void>();
   });
 
   /* -------------------------------------------------------------- */

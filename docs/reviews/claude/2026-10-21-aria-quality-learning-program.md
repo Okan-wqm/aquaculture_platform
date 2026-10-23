@@ -748,3 +748,98 @@ consumer
   - `aria-kernel/aria_kernel/state_compact.py:20-26`
   - `aria-kernel/aria_kernel/state_manifest.py:612`
 - Rule: PLAN-v2 L6 'Arşiv replay'i'; memory is never lost (the ARIA-HIGH-263 rule).
+
+## ARIA-MEDIUM-774
+
+ARIA's infrastructure-policy adapter observes compose runtime guards and the production compose
+scope nowhere: missing_runtime_guard covers Kubernetes pods only, and every compose file is judged
+alike instead of by service-catalog activeDropletComposeServices
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-18.
+- Raised by: the ARIA-HIGH-012 landing (landing/aria-high-012), as the part of the G017 PR-2 design
+  that landing does not do. The nginx include map the landing's first stub also listed is fixed in
+  that landing (round-2 review B1) and is not part of this finding.
+- Evidence:
+  - `tools/aria-adapters/infrastructure-policy-adapter.tool.json` (missing_runtime_guard premise 3:
+    'Compose services are not this rule's surface')
+  - `tools/gates/infra-policy/runtime-guards.ts` (composeGuards has no caller)
+  - `infrastructure/deploy/service-catalog.generated.json` (activeDropletComposeServices, read by
+    nothing in the adapter)
+- Rule: G017 PR-2 design (wave2/design/G017.md step 4): production scope from service-catalog
+  activeDropletComposeServices, and composeGuards with composition through build: -> Dockerfile
+  HEALTHCHECK.
+- Failure scenario: a droplet compose service loses its healthcheck or mem_limit and ARIA records
+  nothing; a dev-only compose service's floating tag is weighed like a production one.
+
+## ARIA-MEDIUM-775
+
+terraform-pins reads any registry module `version` as pinned: a range such as `~> 5.0` or `>= 4`
+lets the module change under an unchanged .tf file and ARIA records it clean
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-18.
+- Raised by: the round-2 review of the ARIA-HIGH-012 landing (minor M3), registered by that
+  landing's round-3 implementer instead of being deferred without an id.
+- Evidence:
+  - `tools/gates/infra-policy/terraform-pins.ts:186-191` (registry_versioned whenever a `version`
+    attribute exists, whatever it says)
+  - `tools/gates/infra-policy/terraform-pins.ts:52` (registry_versioned is pinned)
+- Rule: an owner that cannot show a pin reports unpinned or unresolved, never pinned.
+- Failure scenario: `version = "~> 5.0"` resolves to 5.9 today and 5.10 after the next
+  `terraform init`; the adapter emits no unpinned_terraform_source claim.
+
+## ARIA-LOW-776
+
+The infrastructure-policy adapter keeps second copies of what tools/gates owns: the kustomization
+basename, the pod guard vocabulary and a dead 'Kustomization' candidate
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-12-21.
+- Raised by: the round-2 review of the ARIA-HIGH-012 landing (minor M5), registered by that
+  landing's round-3 implementer.
+- Evidence:
+  - `tools/aria-adapters/infrastructure-policy-adapter.ts:166` (KUSTOMIZATION_BASENAME, a copy of
+    `tools/gates/lib/infra/classify.ts:38`)
+  - `tools/aria-adapters/infrastructure-policy-adapter.ts:637` (the guard list, a copy of
+    PodGuardGap in `tools/gates/infra-policy/runtime-guards.ts:82`)
+  - `tools/aria-adapters/infrastructure-policy-adapter.ts:590` ('Kustomization', which
+    classifyInfraFile never yields)
+  - `tools/aria-adapters/infrastructure-policy-adapter.ts:600` (optional chaining on a key the
+    caller got from the same map)
+- Rule: one owner per concept (CLAUDE.md single-centre rule).
+- Failure scenario: classify.ts learns a new kustomization spelling or runtime-guards.ts a new
+  guard, and the adapter keeps the old list.
+
+## ARIA-MEDIUM-777
+
+The infrastructure-policy summary reports clean: true while a rule is unavailable or an owner left
+verdicts unresolved
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-18.
+- Raised by: the round-2 review of the ARIA-HIGH-012 landing (minor M6), registered by that
+  landing's round-3 implementer.
+- Evidence:
+  - `tools/aria-adapters/infrastructure-policy-adapter.ts:1049` (clean counts unobserved files,
+    refusals and parse failures only)
+  - `tools/aria-adapters/infrastructure-policy-adapter.ts:430-443` (unresolved verdicts, not read
+    by clean)
+  - `tools/aria-adapters/fixtures/infrastructure-policy-adapter/cases/real-repo-baseline.json`
+    (requires clean true while the real repo has 6 unresolved verdicts)
+- Rule: no silent skip: an unresolved verdict is an observation, never a clean result.
+- Failure scenario: `.gitleaks.toml` is unreadable in a snapshot or an nginx include is unseen,
+  and a consumer that reads only `summary.clean` treats the scan as complete.
+
+## ARIA-MEDIUM-778
+
+ARIA's literal_secret rule reads only compose and Kubernetes container env: a literal in a
+Kubernetes Secret's stringData or data under a gitleaks-allowlisted path is never judged
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-18.
+- Raised by: the round-2 review of the ARIA-HIGH-012 landing (minor M7, no live case on that
+  review's tree), registered by that landing's round-3 implementer.
+- Evidence:
+  - `tools/aria-adapters/infrastructure-policy-adapter.ts:736` and `:764` (compose and container
+    env entries, the only ones collected)
+  - `tools/aria-adapters/infrastructure-policy-adapter.ts:991` (secretsHiddenByPathAllowlist
+    judges only those entries)
+- Rule: the literal_secret premise covers every literal the gitleaks path allowlist hides.
+- Failure scenario: a Secret with a literal `stringData` value is committed under an allowlisted
+  path; gitleaks skips it by path and ARIA records nothing.

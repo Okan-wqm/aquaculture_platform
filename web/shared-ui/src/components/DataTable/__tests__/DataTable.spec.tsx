@@ -5,10 +5,13 @@
  * DataTable: a toolbar strip that appeared with nothing in it, and an empty
  * body that could only say one line.
  */
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
 
 import { DataTable, type DataTableColumn } from '../index';
+
+const csv = vi.hoisted(() => ({ downloadCsv: vi.fn() }));
+vi.mock('../../../utils/csv', () => ({ downloadCsv: csv.downloadCsv }));
 
 interface Row {
   id: string;
@@ -38,6 +41,62 @@ describe('DataTable — toolbar', () => {
       <DataTable<Row> data={rows} columns={columns} keyExtractor={(row) => row.id} searchable />,
     );
     expect(screen.getByPlaceholderText(/search/i)).toBeTruthy();
+  });
+});
+
+describe('DataTable — CSV export', () => {
+  interface Person {
+    id: string;
+    name: string;
+    department?: { name: string };
+  }
+  const people: readonly Person[] = [
+    { id: '1', name: 'Ada', department: { name: 'Deck' } },
+    { id: '2', name: 'Mert' },
+  ];
+
+  function exportCsv(columns: DataTableColumn<Person>[]): void {
+    render(
+      <DataTable<Person>
+        data={people}
+        columns={columns}
+        keyExtractor={(row) => row.id}
+        searchable={false}
+        exportable
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /export/i }));
+    fireEvent.click(screen.getByText(/csv/i));
+  }
+
+  it('writes row[key] for a plain column', () => {
+    csv.downloadCsv.mockClear();
+
+    exportCsv([{ key: 'name', header: 'Name' }]);
+
+    expect(csv.downloadCsv).toHaveBeenCalledWith(expect.any(String), ['Name'], [['Ada'], ['Mert']]);
+  });
+
+  it('writes exportValue for a computed column instead of the absent row[key]', () => {
+    csv.downloadCsv.mockClear();
+
+    exportCsv([
+      { key: 'name', header: 'Name' },
+      {
+        key: 'department',
+        header: 'Department',
+        exportValue: (row) => row.department?.name ?? '',
+      },
+    ]);
+
+    expect(csv.downloadCsv).toHaveBeenCalledWith(
+      expect.any(String),
+      ['Name', 'Department'],
+      [
+        ['Ada', 'Deck'],
+        ['Mert', ''],
+      ],
+    );
   });
 });
 

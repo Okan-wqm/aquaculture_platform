@@ -1,16 +1,19 @@
 """ARIA-HIGH-426 — the lanes' workspace reset names what it cannot remove.
 
-The first step of every self-hosted ARIA job (``aria-auto-cycle.yml`` and
-``aria-agent-executor.yml``) was ``set -euo pipefail; git reset --hard; git
-clean -ffdx -e node_modules``. On 2026-10-08 a root-run rescue publish left
-root-owned files in the runner's workspace. ``git clean`` exits 1 on an entry
-it cannot remove, so every job failed there, red and anonymous, from 19:24Z
-until an operator chowned the tree at about 06:02Z.
+The reset step of every self-hosted ARIA job (``aria-auto-cycle.yml`` and
+``aria-agent-executor.yml``) — the job's first WORK step since
+ARIA-MEDIUM-277 put the host workspace lock ahead of it — was ``set -euo
+pipefail; git reset --hard; git clean -ffdx -e node_modules``. On 2026-10-08
+a root-run rescue publish left root-owned files in the runner's workspace.
+``git clean`` exits 1 on an entry it cannot remove, so every job failed
+there, red and anonymous, from 19:24Z until an operator chowned the tree at
+about 06:02Z.
 
 Pins, on the step body exactly as the workflows carry it:
 
 * both workflows carry one identical body (it runs before checkout, so no
-  repository action or script can hold the single copy);
+  repository action or script can hold the single copy; the workspace-lock
+  step ahead of it holds no part of this body);
 * a path another account owns fails the step with a ``::error`` that counts
   and names it, the job summary lists it, and the remedy names
   ``sudo -u <runner>``. This runs only where the suite can create such a path:

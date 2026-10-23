@@ -115,13 +115,18 @@ class PromoteCandidateTests(unittest.TestCase):
             )
 
     def test_full_promotion_flow_emits_promoted_event(self) -> None:
-        promote_candidate(
-            candidate_id=self.candidate["candidate_id"],
-            operator_approval_ref="op:approve-ic-001",
-            promotion_pr_url="https://github.com/o/r/pull/42",
-            promoted_to="skill",
-            base_dir=self.tools,
-        )
+        from tests._helpers.operator_acts import github_operator_acts
+
+        with github_operator_acts() as github:
+            promote_candidate(
+                candidate_id=self.candidate["candidate_id"],
+                operator_approval_ref=github.approve(
+                    "instinct_promotion", {"candidate": self.candidate["candidate_id"]},
+                ),
+                promotion_pr_url="https://github.com/o/r/pull/42",
+                promoted_to="skill",
+                base_dir=self.tools,
+            )
         gov = (self.tools / "governance.jsonl").read_text(encoding="utf-8").splitlines()
         kinds = [json.loads(line)["kind"] for line in gov if line.strip()]
         self.assertIn("instinct_candidate_promoted", kinds)

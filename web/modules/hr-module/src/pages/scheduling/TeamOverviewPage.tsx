@@ -6,6 +6,7 @@
 import React, { useState, useMemo } from 'react';
 import { Users, Calendar, Printer, Filter, Coffee, Umbrella, AlertTriangle } from 'lucide-react';
 import { cn, PageHeader } from '@aquaculture/shared-ui';
+import { ScopedDescription } from '../../components/common';
 import { WeekNavigator, PrintScheduleButton } from '../../components/scheduling';
 import {
   useTeamWeeklyOverview,
@@ -156,7 +157,7 @@ export function TeamOverviewPage() {
               Takim Gorunumu
             </>
           }
-          description="Tum calisanlarin haftalik programlari"
+          description={<ScopedDescription text="Tum calisanlarin haftalik programlari" />}
           actions={
             <div className="flex items-center gap-4">
               <WeekNavigator currentWeekStart={currentWeekStart} onChange={setCurrentWeekStart} />

@@ -22,6 +22,16 @@ module.exports = function createVitestTestPolicy() {
       // Vitest's InlineConfig owns a mutable reporter array. Return a fresh
       // array for every consumer so no config shares mutable state.
       reporter: ['text', 'lcov'],
+      // Vitest 4 removed `coverage.all`: without an `include` pattern a report
+      // lists only the files some test happened to import, so a module no test
+      // touches drops out of the denominator instead of counting as 0%. Naming
+      // the source tree restores the Vitest 3 meaning of every producer's LCOV
+      // (all of `src`, tested or not). Test files are excluded by Vitest
+      // itself; the two excludes are the Vitest 3 defaults that apply inside
+      // `src` (type-only declarations and test fixtures under __tests__).
+      // Fresh arrays per consumer, for the same reason as `reporter`.
+      include: ['src/**/*.{ts,tsx,js,jsx}'],
+      exclude: ['**/*.d.ts', '**/__tests__/**'],
     }),
   });
 };

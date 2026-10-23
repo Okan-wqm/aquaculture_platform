@@ -158,6 +158,17 @@ def promote_candidate(
         raise GovernanceError(f"candidate_id format invalid: {candidate_id!r}")
 
     root = ensure_tools_dir(base_dir)
+    # ARIA-HIGH-238 — promotion is auto-mutation unless the operator's own
+    # GitHub act proves it; the PR URL is already kernel-checked, the act
+    # binds the promotion to exactly this candidate.
+    from .operator_approval import require_operator_act
+
+    approval = require_operator_act(
+        operator_approval_ref,
+        surface="instinct_promotion",
+        scope={"candidate": candidate_id},
+        base_dir=root,
+    )
     candidates = list_candidates(base_dir=root)
     proposed = next(
         (c for c in reversed(candidates)
@@ -170,6 +181,7 @@ def promote_candidate(
         )
     promoted = {
         **proposed,
+        "operator_approval": approval,
         "status": "PROMOTED",
         "promoted_to": promoted_to,
         "promotion_pr_url": promotion_pr_url,

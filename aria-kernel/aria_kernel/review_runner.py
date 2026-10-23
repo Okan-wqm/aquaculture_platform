@@ -52,7 +52,6 @@ mock fakes covering all V5.2 verdict paths.
 
 from __future__ import annotations
 
-import hashlib
 import re
 import time
 from pathlib import Path
@@ -66,6 +65,7 @@ from .agent_invocations import (
 from .agent_surface import TERMINAL_REQUEST_STATES
 from .request_admission import admit_request
 from .tool_registry import ensure_tools_dir
+from .digest import sha256_digest
 
 # The judge's sealed response must carry an explicit machine-readable
 # verdict line. Transport acceptance of a submission says the judge RAN —
@@ -450,7 +450,7 @@ def run_review_runner(
                     f"{output_ref} cannot be read"
                 )
             else:
-                content_hash = "sha256:" + hashlib.sha256(payload_bytes).hexdigest()
+                content_hash = sha256_digest(payload_bytes)
                 if content_hash != str(accepted_result.get("output_hash")):
                     payload_bytes = None
                     verdict_gap_id = "adversarial_judge_output_hash_drift"

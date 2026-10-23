@@ -10,17 +10,15 @@ it under the dual-executor rule.
 """
 from __future__ import annotations
 
-import hashlib
 import json
-import re
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
+from ..digest import is_sha256_digest, sha256_digest_text
 
 ZAP_PIN_RELPATH: tuple[str, ...] = ("infrastructure", "aria", "security-lab", "zap.pin.json")
 ALLOWED_JOBS = ("passiveScan-config", "passiveScan-wait", "spider", "openapi", "graphql", "activeScan", "report")
 FORBIDDEN_JOB_HINTS = ("script", "addOns", "exportreport", "sequence", "import", "delay", "alertFilter")
-_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 class ZapPolicyError(ValueError):
@@ -36,7 +34,7 @@ def load_zap_pin(workspace_root: str | Path) -> dict[str, Any]:
     image, digest = str(doc.get("image", "")), str(doc.get("digest", ""))
     if not image or ":" in image.rsplit("/", 1)[-1]:
         raise ZapPolicyError("ZAP image must be a bare repository reference (no floating tag)")
-    if not _DIGEST.match(digest):
+    if not is_sha256_digest(digest):
         raise ZapPolicyError("ZAP pin must be a sha256 digest")
     if not doc.get("pinned_by") or not doc.get("pinned_at"):
         raise ZapPolicyError("ZAP pin must record who pinned it and when")
@@ -89,7 +87,7 @@ def build_zap_job(plan: dict[str, Any], *, workspace_root: str | Path, allowed_h
     Fails closed on an unpinned image or a plan outside the allowlist."""
     pin = load_zap_pin(workspace_root)
     jobs = validate_automation_plan(plan, allowed_hosts=allowed_hosts)
-    plan_digest = "sha256:" + hashlib.sha256(json.dumps(plan, sort_keys=True).encode("utf-8")).hexdigest()
+    plan_digest = sha256_digest_text(json.dumps(plan, sort_keys=True))
     return {"image_reference": pin["reference"], "image_digest": pin["digest"], "jobs": jobs,
             "allowed_hosts": list(allowed_hosts), "plan_digest": plan_digest}
 

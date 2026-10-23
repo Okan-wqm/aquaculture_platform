@@ -80,6 +80,7 @@ export const GET_WEEKLY_PLANS = gql`
     $status: WeeklyPlanStatus
     $page: Int
     $limit: Int
+    $moduleCode: HRModuleCode
   ) {
     weeklyPlans(
       employeeId: $employeeId
@@ -89,6 +90,7 @@ export const GET_WEEKLY_PLANS = gql`
       status: $status
       page: $page
       limit: $limit
+      moduleCode: $moduleCode
     ) {
       items {
         ...WeeklyPlanFull
@@ -118,11 +120,13 @@ export const GET_TEAM_WEEKLY_OVERVIEW = gql`
     $weekStartDate: String!
     $departmentId: ID
     $siteId: ID
+    $moduleCode: HRModuleCode
   ) {
     teamWeeklyOverview(
       weekStartDate: $weekStartDate
       departmentId: $departmentId
       siteId: $siteId
+      moduleCode: $moduleCode
     ) {
       weekStartDate
       weekEndDate
@@ -182,12 +186,14 @@ export const GET_OVERTIME_SUMMARY = gql`
     $year: Int!
     $employeeId: ID
     $departmentId: ID
+    $moduleCode: HRModuleCode
   ) {
     overtimeSummary(
       month: $month
       year: $year
       employeeId: $employeeId
       departmentId: $departmentId
+      moduleCode: $moduleCode
     ) {
       month
       year

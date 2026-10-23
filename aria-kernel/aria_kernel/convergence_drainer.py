@@ -86,6 +86,7 @@ from .round_independence import requests_for_step as _requests_for_step
 from .request_admission import Admission, admit_request
 from .step_request import StepRequestDisposition, step_request_disposition
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
+from .digest import ZERO_SHA256_DIGEST
 
 # Plan ARIA-V10.4 Phase 3.H.2 — the convergence drainer mints
 # envelopes for FOUR roles across its rounds (primary_plan revisions,
@@ -744,7 +745,7 @@ def run_convergence_drainer(
                     target_revision_id=str(target_revision_id),
                     target_plan_content_hash=str(target_hash),
                     manifest_relpath=f"{root.name}/coverage/{plan_id}-r{round_n}.json",
-                    manifest_hash="sha256:" + ("0" * 64),
+                    manifest_hash=ZERO_SHA256_DIGEST,
                     computed_at_sha="unknown",
                     witness={"tool": "convergence_drainer", "error": "revision_content_not_structured"},
                 )

@@ -19,7 +19,6 @@ a surface that was never built cannot be scanned vacuously.
 """
 from __future__ import annotations
 
-import hashlib
 import re
 import subprocess
 from pathlib import Path
@@ -27,6 +26,7 @@ from typing import Any
 
 from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 from .tool_registry import GovernanceError
+from .digest import sha256_digest
 
 _DIFF_HEADER = re.compile(r"^diff --git ", re.MULTILINE)
 _GIT_TIMEOUT_SECONDS = 120
@@ -85,5 +85,5 @@ def build_diff_surface(
         "head_sha": head,
         "file_count": len(_DIFF_HEADER.findall(diff.stdout.decode("utf-8", errors="replace"))),
         "size_bytes": len(diff.stdout),
-        "sha256": "sha256:" + hashlib.sha256(diff.stdout).hexdigest(),
+        "sha256": sha256_digest(diff.stdout),
     }

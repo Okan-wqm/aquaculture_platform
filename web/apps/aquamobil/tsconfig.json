@@ -24,7 +24,7 @@
       "@aquaculture/shared-ui/i18n": ["../../shared-ui/src/i18n/index.ts"],
       "@aquaculture/shared-ui/brand": ["../../shared-ui/src/config/brand.ts"]
     },
-    "types": []
+    "types": ["node"]
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "../../../node_modules", "src/pwa/messaging-sw.ts"],

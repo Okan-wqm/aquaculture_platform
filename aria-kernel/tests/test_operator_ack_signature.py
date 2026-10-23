@@ -105,8 +105,16 @@ class _GenesisFixture(unittest.TestCase):
     def init_hmac_key(self) -> None:
         """The HMAC key only autonomous rows, and operator rows minted before slice B, were signed with."""
         if not (self.tools / "secrets" / "ack_hmac.key").exists():
-            ack_ledger.init_ack_ledger(base_dir=self.tools, reason="ack scope test ledger init",
-                                       operator_approval_ref="RFC-ACK-SCOPE")
+            from tests._helpers.operator_acts import bind_github_operator_acts
+
+            if not hasattr(self, "_acts"):
+                self._acts = bind_github_operator_acts(self)
+            ack_ledger.init_ack_ledger(
+                base_dir=self.tools, reason="ack scope test ledger init",
+                operator_approval_ref=self._acts.approve(
+                    "ack_key_operation", {"operation": "init"},
+                ),
+            )
 
     def ledger_rows(self) -> list[dict[str, Any]]:
         return load_jsonl(self.tools / "acks" / "acks.jsonl")

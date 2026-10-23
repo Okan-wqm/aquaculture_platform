@@ -2,6 +2,7 @@ import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { GetOvertimeSummaryQuery } from '../queries/get-overtime-summary.query';
+import { applyEmployeeModuleScope } from '../../common/module-scope';
 import { WeeklyPlan } from '../entities/weekly-plan.entity';
 import { ObjectType, Field, Int, ID } from '@nestjs/graphql';
 
@@ -55,7 +56,7 @@ export class GetOvertimeSummaryHandler implements IQueryHandler<GetOvertimeSumma
   ) {}
 
   async execute(query: GetOvertimeSummaryQuery): Promise<OvertimeSummary> {
-    const { tenantId, month, year, employeeId, departmentId } = query;
+    const { tenantId, month, year, employeeId, departmentId, moduleCode } = query;
 
     // Calculate month date range
     const startOfMonth = new Date(year, month - 1, 1);
@@ -79,7 +80,8 @@ export class GetOvertimeSummaryHandler implements IQueryHandler<GetOvertimeSumma
     }
 
     // Limit query results to prevent performance issues
-    qb.take(MAX_EMPLOYEES_IN_SUMMARY * 4); // Multiply by 4 since each employee may have ~4 weeks per month
+    applyEmployeeModuleScope(qb, 'employee', moduleCode)
+      .take(MAX_EMPLOYEES_IN_SUMMARY * 4); // Multiply by 4 since each employee may have ~4 weeks per month
 
     const plans = await qb.getMany();
 

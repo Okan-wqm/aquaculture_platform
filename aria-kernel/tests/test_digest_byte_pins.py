@@ -33,18 +33,15 @@ if str(_POC) not in sys.path:
 
 import zai_runtime  # noqa: E402
 from aria_kernel import (  # noqa: E402
-    agent_invocations,
     architecture_spine_gate,
     claude_settings,
     context_compiler,
+    digest,
     ledger,
     must_satisfy,
     notify,
     semantic_memory,
     skill_curator,
-    state_writer_lease,
-    verification_gate,
-    worker_dispatch,
 )
 from aria_kernel.gateway import normalize  # noqa: E402
 from aria_kernel.tool_registry import ensure_tools_dir  # noqa: E402
@@ -184,17 +181,21 @@ class SettingsIdentityPins(unittest.TestCase):
 
 
 class LeaseTokenHashPins(unittest.TestCase):
-    """The stored ``lease_token_hash`` / ``secret_sha256`` of one token, by every hasher that mints it."""
+    """The stored ``lease_token_hash`` / ``secret_sha256`` of one token (ARIA-LOW-517).
 
-    def test_every_lease_token_hasher_mints_the_same_stored_bytes(self) -> None:
-        for name, hasher in (
-            ("state_writer_lease.token_digest", state_writer_lease.token_digest),
-            ("verification_gate._hash_lease_token", verification_gate._hash_lease_token),
-            ("worker_dispatch._hash_lease_token", worker_dispatch._hash_lease_token),
-            ("agent_invocations._hash_lease_token", agent_invocations._hash_lease_token),
-        ):
-            with self.subTest(hasher=name):
-                self.assertEqual(hasher(_LEASE_TOKEN), _LEASE_TOKEN_HASH)
+    The four byte-identical pass-through hashers (state_writer_lease.token_digest,
+    verification_gate/worker_dispatch/agent_invocations._hash_lease_token) were
+    collapsed into the digest owner; the pin moves to the owner callable that
+    replaced them and keeps the golden value, per this file's contract.
+    """
+
+    def test_the_owner_mints_the_stored_bytes(self) -> None:
+        self.assertEqual(digest.sha256_digest_text(_LEASE_TOKEN), _LEASE_TOKEN_HASH)
+
+    def test_the_owner_comparison_matches_the_stored_bytes(self) -> None:
+        self.assertTrue(digest.secret_matches_sha256_digest(_LEASE_TOKEN, _LEASE_TOKEN_HASH))
+        self.assertFalse(digest.secret_matches_sha256_digest("lease-token-9999", _LEASE_TOKEN_HASH))
+        self.assertFalse(digest.secret_matches_sha256_digest(_LEASE_TOKEN, None))
 
 
 if __name__ == "__main__":

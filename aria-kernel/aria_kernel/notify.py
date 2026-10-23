@@ -9,7 +9,6 @@ deduped, dry-run or unconfigured — so silence is itself auditable.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -25,6 +24,7 @@ from typing import Any, Callable, Mapping
 
 from .ledger import STATE_LOCK_LIVENESS_SECONDS, load_declared_jsonl, state_transaction
 from .tool_registry import ensure_tools_dir, utc_now
+from .digest import sha256_fingerprint
 
 OUTBOX_SURFACE = "notifications_outbox"
 OUTBOX_RELPATH: tuple[str, ...] = ("notifications", "outbox.jsonl")
@@ -107,7 +107,7 @@ NOTIFY_WORST_CASE_SECONDS: float = (
 
 
 def signature_for(kind: str, key: str | None, title: str) -> str:
-    return "sha256:" + hashlib.sha256(f"{kind}|{key or title}".encode("utf-8")).hexdigest()[:24]
+    return sha256_fingerprint(f"{kind}|{key or title}".encode("utf-8"), hex_chars=24)
 
 
 def outbox_path(base_dir: str | Path | None = None) -> Path:

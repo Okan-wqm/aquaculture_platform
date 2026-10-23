@@ -22,7 +22,6 @@ one, which is what makes each admitted write one operator act.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 import secrets
@@ -45,6 +44,7 @@ from .operator_request_signature import (
 )
 from .operator_request_terms import utc_iso
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
+from .digest import sha256_digest_text
 
 PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "aria"
@@ -86,7 +86,7 @@ def mcp_write_subject(tool: str, arguments: dict[str, Any], approval: dict[str, 
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     subject: dict[str, Any] = {
         "schema_version": MCP_WRITE_SCHEMA_VERSION, "row_kind": MCP_WRITE_ROW_KIND, "tool": tool,
-        "args_digest": "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+        "args_digest": sha256_digest_text(canonical),
     }
     subject.update({field: approval[field] for field in APPROVAL_FIELDS if field in approval})
     return subject

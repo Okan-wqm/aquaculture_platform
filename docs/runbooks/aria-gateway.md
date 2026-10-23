@@ -65,6 +65,22 @@ The actor must be in `ARIA_GATEWAY_ACTOR_ALLOWLIST`; the verb vocabulary is `pau
 cancel` (cancel needs `request_id`). The same commands work offline: `aria-kernel control
 pause|resume|cancel`.
 
+`pause` and `cancel` narrow authority: the actor is recorded as who asked. `resume` lifts a pause,
+so it is an authority grant (ARIA-HIGH-238, surface `control_resume`): the actor header proves
+nothing, and the payload carries `operator_ref`, an operator's GitHub act approving the standing
+pause it lifts. Print the line to post, post it as a comment from an operator account, then pass
+the comment's reference:
+
+```bash
+aria-kernel control resume [--request-id AIR-7] --print-approval-line
+# ARIA-APPROVE surface=control_resume target=all pause_id=ctl-…   ← post this line on GitHub
+aria-kernel control resume [--request-id AIR-7] --operator-ref 'gh:<owner>/<repo>#<n>/comment/<id>'
+curl … -d '{"verb":"resume","operator_ref":"gh:<owner>/<repo>#<n>/comment/<id>"}'
+```
+
+The act binds to that pause and is consumed once: a newer pause makes it stale (print and post
+again).
+
 ## Schedules
 
 The daemon seeds the table on start from `aria_kernel/gateway/default_schedules.py`

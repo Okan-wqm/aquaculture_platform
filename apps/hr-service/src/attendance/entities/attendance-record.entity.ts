@@ -160,9 +160,10 @@ export class AttendanceRecord {
   @JoinColumn({ name: 'employeeId' })
   employee?: Employee;
 
-  @Field({ nullable: true })
-  @Column({ nullable: true })
-  departmentId?: string;
+  /** The employee's department when the record was made; NULL = they were not placed in one. */
+  @Field(() => String, { nullable: true })
+  @Column({ type: 'varchar', nullable: true })
+  departmentId?: string | null;
 
   @Field({ nullable: true })
   @Column({ nullable: true })

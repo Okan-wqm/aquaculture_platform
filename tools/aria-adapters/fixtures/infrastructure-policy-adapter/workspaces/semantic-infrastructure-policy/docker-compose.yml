@@ -1,0 +1,52 @@
+# The semantic corpus compose file: registry-image forms, an anchor merge, host binds, a
+# privileged service, structured env entries and the decoys. The {{ in this comment and the
+# healthcheck's docker --format string are text: neither makes the file a Go template.
+x-base: &base
+  restart: unless-stopped
+
+services:
+  # SAFE TWIN (floating_artifact): the fail-closed required tag.
+  api:
+    <<: *base
+    image: ghcr.io/example/app-api:${TAG:?TAG required}
+    user: '1000'
+    healthcheck:
+      test: ['CMD-SHELL', "docker inspect --format '{{.State.Health.Status}}' api"]
+    environment:
+      # UNSAFE TWIN (literal_secret): a literal in a file the gitleaks path allowlist hides.
+      POSTGRES_PASSWORD: aquaaquaaquaaqua
+      # SAFE TWINS: an env reference, and a placeholder the rule's own allowlist knows.
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      JWT_SECRET: change-me-before-deploy
+
+  # UNSAFE TWIN (floating_artifact): the floating default.
+  worker:
+    <<: *base
+    image: ghcr.io/example/app-worker:${TAG:-latest}
+    # DECOY: a quoted lookalike inside a command is not a setting.
+    command: ['sh', '-c', 'echo privileged: true']
+
+  # UNSAFE TWIN (floating_artifact): a bare mutable tag.
+  cache:
+    image: redis:7-alpine
+
+  # SAFE TWIN (floating_artifact): digest-pinned.
+  pinned:
+    image: redis@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+
+  # UNSAFE TWINS (privileged_runtime): binds of / and /var/run reach the docker socket. The
+  # project bind is the safe twin.
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - ./config:/etc/cadvisor:ro
+      # UNRESOLVED TWIN: a source that climbs out of the project directory lands wherever the
+      # checkout lives, so it is an unresolved observation, never a claim or a clean bind.
+      - ../../shared:/shared:ro
+
+  # UNSAFE TWIN (privileged_runtime): privileged mode.
+  debug:
+    image: busybox@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+    privileged: true

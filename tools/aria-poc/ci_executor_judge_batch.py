@@ -456,7 +456,9 @@ def _run_judge_batch(
             detection={"signature": "zai_unreachable", "marker": str(exc)},
         )
 
-    payload_hash = ("sha256:" + hashlib.sha256(completed.raw_body).hexdigest()) if completed is not None else None
+    from aria_kernel.digest import sha256_digest
+
+    payload_hash = (sha256_digest(completed.raw_body)) if completed is not None else None
     parsed = None
     if call_failure is None:
         parsed = parse_batch_answers(batch, completed.final_message)
@@ -547,7 +549,9 @@ def _run_judge_batch(
             continue
         _finish_attempt(member, result_admission="pending_native_submit",
                         usage_hash=usage_row["ledger_hash"] if usage_row else None)
-        transcript_hash = "sha256:" + hashlib.sha256(transcript_path.read_bytes()).hexdigest()
+        from aria_kernel.digest import sha256_digest_file
+
+        transcript_hash = sha256_digest_file(transcript_path)
         try:
             submit_proc = _engine._submit_via_cli(
                 claim_id=member.claim_id, agent_id=agent_id, lease_token=member.lease_token,

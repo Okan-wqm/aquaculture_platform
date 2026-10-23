@@ -9,6 +9,15 @@ skipped pin is a containment proof that did not run. The unittest half is
 refused by the same predicate in ``suite_shards verify``. Without the option
 (a laptop, a host without user namespaces) the pin stays a skip, the
 sandbox's own fail-closed contract.
+
+ARIA-HIGH-602 — the suite is also split by what it reads: a module that
+declares ``READS_LIVE_CHECKOUT`` reads the live checkout outside the kernel
+surface, so it runs in aria-kernel.yml's always-run ``workspace`` job and
+never in the skippable lanes. By default this plugin deselects those modules'
+items; ``--aria-live-only`` selects only them. The declaration and its
+validation have one owner, ``aria_kernel.live_partition``, which
+``tests/_helpers/suite_shards.py`` reads to partition the unittest half the
+same way.
 """
 
 from __future__ import annotations
@@ -17,9 +26,11 @@ import unittest
 
 import pytest
 
+from .live_partition import LiveDeclarationError, live_declaration
 from .sandbox_pin_skip import is_sandbox_pin_skip
 
 _REFUSE_OPTION = "--refuse-sandbox-skips"
+_LIVE_ONLY_OPTION = "--aria-live-only"
 # pytest prefixes the message of a skip report's (path, line, message) triple.
 _SKIP_MESSAGE_PREFIX = "Skipped: "
 
@@ -29,6 +40,18 @@ def _is_unittest_test_case(item: pytest.Item) -> bool:
 
     class_collector = item.getparent(pytest.Class)
     return class_collector is not None and issubclass(class_collector.obj, unittest.TestCase)
+
+
+def _reads_live_checkout(item: pytest.Item) -> bool:
+    """Return whether ``item``'s module declares the live partition."""
+
+    module_collector = item.getparent(pytest.Module)
+    if module_collector is None:
+        return False
+    try:
+        return live_declaration(module_collector.obj) is not None
+    except LiveDeclarationError as error:
+        raise pytest.UsageError(str(error)) from error
 
 
 class SandboxSkipLedger:
@@ -70,6 +93,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=False,
         help="fail the run when a test skipped as a real-sandbox pin (the kernel lane)",
     )
+    parser.addoption(
+        _LIVE_ONLY_OPTION,
+        action="store_true",
+        default=False,
+        help="select only items of modules that declare READS_LIVE_CHECKOUT (the live partition)",
+    )
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -80,12 +109,14 @@ def pytest_configure(config: pytest.Config) -> None:
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Deselect TestCase items, which the runner executes through unittest."""
+    """Deselect TestCase items (unittest runs them) and the other partition's items."""
 
+    live_only = bool(config.getoption(_LIVE_ONLY_OPTION))
     selected: list[pytest.Item] = []
     deselected: list[pytest.Item] = []
     for item in items:
-        (deselected if _is_unittest_test_case(item) else selected).append(item)
+        keep = not _is_unittest_test_case(item) and _reads_live_checkout(item) == live_only
+        (selected if keep else deselected).append(item)
 
     items[:] = selected
     if deselected:

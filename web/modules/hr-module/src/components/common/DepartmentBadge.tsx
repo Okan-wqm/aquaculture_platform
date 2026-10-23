@@ -1,17 +1,21 @@
 /**
  * Department Badge Component
- * Displays department with custom color
+ * Displays the department an employee is placed in (the `departmentHr` shape the
+ * employee selections return) with custom color, and optionally its module.
  */
 
 import React from 'react';
-import { cn, colors } from '@aquaculture/shared-ui';
+import { cn, colors, useI18n } from '@aquaculture/shared-ui';
+import type { EmployeeDepartment } from '../../types';
+import { moduleLabel } from '../../utils/moduleLabels';
 
 interface DepartmentBadgeProps {
-  name: string;
-  code?: string;
+  department: Pick<EmployeeDepartment, 'name' | 'code' | 'moduleCode'>;
   colorCode?: string | null;
   size?: 'sm' | 'md' | 'lg';
   showCode?: boolean;
+  /** Print the module the department belongs to after its name. */
+  showModule?: boolean;
   className?: string;
 }
 
@@ -42,13 +46,14 @@ function getContrastColor(hexColor: string): string {
 }
 
 export function DepartmentBadge({
-  name,
-  code,
+  department,
   colorCode,
   size = 'md',
   showCode = false,
+  showModule = false,
   className,
 }: DepartmentBadgeProps) {
+  const { t } = useI18n();
   const bgColor = colorCode || colors.primary[500];
   const textColor = getContrastColor(bgColor);
 
@@ -57,17 +62,16 @@ export function DepartmentBadge({
       className={cn(
         'inline-flex items-center gap-1 rounded-md font-medium',
         sizeStyles[size],
-        className
+        className,
       )}
       style={{
         backgroundColor: bgColor,
         color: textColor,
       }}
     >
-      {showCode && code && (
-        <span className="opacity-75">{code}</span>
-      )}
-      <span>{name}</span>
+      {showCode && <span className="opacity-75">{department.code}</span>}
+      <span>{department.name}</span>
+      {showModule && <span className="opacity-75">· {moduleLabel(department.moduleCode, t)}</span>}
     </span>
   );
 }

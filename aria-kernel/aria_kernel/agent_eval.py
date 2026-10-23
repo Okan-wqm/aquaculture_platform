@@ -61,7 +61,6 @@ from .ledger import (
     LedgerIntegrityError,
     append_declared_jsonl,
     atomic_write_json,
-    is_sha256_digest,
     load_declared_jsonl,
 )
 from .ledger_refs import find_row_by_source_ledger_ref
@@ -75,6 +74,7 @@ from .tool_registry import (
     ensure_tools_dir_readonly,
     utc_now,
 )
+from .digest import is_sha256_digest, sha256_digest, sha256_digest_file
 
 EVAL_RUNS_PATH = ("agent-evals", "runs.jsonl")
 EVAL_FIXTURES_LEDGER_PATH = ("agent-evals", "fixtures.jsonl")
@@ -333,6 +333,23 @@ def run_agent_eval(
         context_ledger_ref=context_ledger_ref,
         prompt_ledger_ref=prompt_ledger_ref,
     )
+    # ARIA-HIGH-238 — a supplied operator_approval_ref claims the operator
+    # blessed this eval run; the claim is authority for the promotion chain
+    # that reads it, so it must be the operator's own GitHub act naming the
+    # agent and the fixture. Verified after every read-only refusal and
+    # before the eval row write, so a refused call spends no act. The
+    # ledger-bound operator_approval_ledger_ref is the C4-a provenance
+    # channel and stays as it is.
+    approval_proof = None
+    if operator_approval_ref:
+        from .operator_approval import require_operator_act
+
+        approval_proof = require_operator_act(
+            operator_approval_ref,
+            surface="agent_eval_run",
+            scope={"agent": str(fixture["target_agent"]), "fixture": fixture_id},
+            base_dir=root,
+        )
     envelope = dict(real_response_envelope)
 
     expected_refs = set(fixture["expected_evidence_refs"])
@@ -373,6 +390,7 @@ def run_agent_eval(
         "prompt_ledger_ref": prompt_ledger_ref,
         "provenance_mode": "real_invocation",
         "operator_approval_ref": operator_approval_ref,
+        **({"operator_approval": approval_proof} if approval_proof is not None else {}),
     }
 
     _runs_path(root).parent.mkdir(parents=True, exist_ok=True)
@@ -570,7 +588,7 @@ def _require_transcript_artifact_hash(
         path = Path(artifact)
         if not path.is_file():
             raise GovernanceError("transcript_artifact_path_missing")
-        observed = "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+        observed = sha256_digest_file(path)
         if observed != transcript_hash:
             raise GovernanceError("transcript_artifact_hash_mismatch")
         return
@@ -899,7 +917,7 @@ def _episode(
     from .attribution_void import void_for
 
     canonical = json.dumps([role, plan_id, source], sort_keys=True).encode("utf-8")
-    episode_id = "sha256:" + hashlib.sha256(canonical).hexdigest()
+    episode_id = sha256_digest(canonical)
     # Review of #1829 (HIGH-2) — an attribution whose cause a kernel fix has
     # since removed is recorded unattributed, naming the fix.
     void = void_for(attribution.failure_mode, attribution.role, occurred_at) if attribution is not None else None
@@ -1031,8 +1049,8 @@ def _unrecorded_episodes(root: Path) -> list[dict[str, Any]]:
         # gets a fresh row each time instead of colliding with the B already
         # recorded and sticking on A.
         transition = [lineage, str(current["episode_id"]), *_judgement(episode)]
-        digest = hashlib.sha256(json.dumps(transition).encode("utf-8")).hexdigest()
-        rejudged = {**episode, "episode_id": "sha256:" + digest, "row_id": "sha256:" + digest,
+        digest = sha256_digest(json.dumps(transition).encode("utf-8"))
+        rejudged = {**episode, "episode_id": digest, "row_id": digest,
                     "lineage_id": lineage, "supersedes": str(current["episode_id"])}
         if rejudged["episode_id"] not in recorded:
             pending.append(rejudged)

@@ -198,8 +198,14 @@ function appendToResolvedEvidence(raw: string, entry: string): string {
   const afterHeading = start + heading.length;
   const nextHeading = raw.indexOf('\n## ', afterHeading);
   const sectionEnd = nextHeading === -1 ? raw.length : nextHeading;
-  const section = raw.slice(afterHeading, sectionEnd);
-  return `${raw.slice(0, afterHeading)}${section.trimEnd()}\n${entry}\n${raw.slice(sectionEnd)}`;
+  const section = raw.slice(afterHeading, sectionEnd).trimEnd();
+  // The entry is a bullet. It continues the list the section ends with; after a paragraph it must
+  // start a list of its own, which markdownlint (MD032, enforced by docs-check) wants set off by a
+  // blank line — a note written by hand after the last bullet is exactly that case.
+  const lastBlock = section.slice(section.lastIndexOf('\n\n') + 2);
+  const endsInList = /^\s*[-*+]\s/.test(lastBlock);
+  const separator = endsInList ? '\n' : '\n\n';
+  return `${raw.slice(0, afterHeading)}${section}${separator}${entry}\n${raw.slice(sectionEnd)}`;
 }
 
 /**

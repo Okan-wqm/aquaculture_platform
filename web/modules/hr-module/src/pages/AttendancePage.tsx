@@ -20,7 +20,7 @@ import {
 import { useAttendanceRecords, useDailyAttendanceOverview, useCurrentEmployeeId } from '../hooks';
 import { TimeClockWidget } from '../components/attendance/TimeClockWidget';
 import { derivePaginationMetadataV1 } from '@platform/pagination-contracts';
-import { StatusBadge } from '../components/common';
+import { ScopedDescription, StatusBadge } from '../components/common';
 import type { AttendanceRecord, AttendanceFilterInput, PaginationInput } from '../types';
 import { ATTENDANCE_STATUS_CONFIG } from '../types';
 
@@ -118,7 +118,7 @@ export function AttendancePage() {
       {/* Header */}
       <PageHeader
         title="Attendance"
-        description="Track employee time and attendance"
+        description={<ScopedDescription text="Track employee time and attendance" />}
         actions={
           <Link
             to="/hr/scheduling"

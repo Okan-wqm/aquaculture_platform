@@ -1,0 +1,139 @@
+name: Self-hosted workspace lock
+description: >-
+  Host mutex over the one shared self-hosted workspace: flock held for the
+  job's lifetime, failing by name on timeout (ARIA-MEDIUM-277).
+
+# Z1 (ORPHAN-712) -> ARIA-MEDIUM-277. The shared `aria-selfhosted-workspace`
+# concurrency group made workspace serialization a repo-enforced property,
+# but a GitHub group holds ONE pending slot and a newly arriving run EVICTS
+# the queued one — so any dispatch of one lane silently cancelled another
+# lane's pending run (the dataflow watchdog's CRITICAL dispatch evicted a
+# pending executor; the executor chained the next cycle into the same slot).
+# The lanes now keep per-lane groups, where only a lane's own duplicate can
+# evict its own pending run, and the serialization moved HERE: a flock on
+# the workspace DIRECTORY — an inode actions/checkout never replaces (it
+# cleans and checks out INSIDE the directory), so the lock target survives
+# every clean — held for the job's lifetime by a bounded holder process.
+# GitHub's runner queue, which never evicts, does the waiting.
+#
+# Lifetime: `mode: acquire` (default) takes the lock and MUST be the job's
+# first step, before the workspace reset and any checkout — the reset and
+# the checkout are themselves the wipe vectors the lock exists to serialize.
+# `mode: release` gives the lock back and MUST run as the job's last step
+# under `if: always()`. The holder also carries a hard lifetime ceiling
+# (12h, above every lane's job cap) so a runner killed mid-job cannot leak
+# the lock forever; the next acquire then fails BY NAME after
+# `timeout-seconds`, which is the visible incident the silent eviction used
+# to be. Pinned, with the group rule, by aria-kernel/tests/
+# test_z1_store_isolation.py (the ORPHAN-712 owner) and
+# tests/invariants/selfhosted-lane-concurrency.spec.ts.
+#
+# Topology note for the operator: with the single runner of today the lock
+# is uncontended (a runner executes one job at a time) and acquire is
+# instant; contention exists only once a second runner service is
+# registered against the same workspace. Registering that runner — the act
+# that also lets the hourly probe run at cadence — is an operator decision
+# (ARIA-MEDIUM-277's residual).
+
+inputs:
+  mode:
+    description: >-
+      acquire (default) takes the lock for the rest of the job; release
+      gives it back. One action file so the pair cannot drift apart.
+    required: false
+    default: acquire
+  timeout-seconds:
+    description: >-
+      How long acquire waits for the lock before failing by name. Keep
+      above the paired lane's worst hold when a lane chains behind another
+      (the cycle and the executor pass 27300: just over the cycle's 454-min
+      job cap), and short where a named failure is the better report (the
+      capability probe keeps the default).
+    required: false
+    default: '2700'
+  max-holder-seconds:
+    description: >-
+      Hard ceiling on the holder process's lifetime — above every lane's
+      job cap so no legitimate job loses the lock mid-run, bounded so a
+      leaked holder (runner killed mid-job, release step never ran) frees
+      the host within half a day.
+    required: false
+    default: '43200'
+
+runs:
+  using: composite
+  steps:
+    - name: Take or release the shared self-hosted workspace lock
+      shell: bash
+      env:
+        LOCK_MODE: ${{ inputs.mode }}
+        LOCK_TIMEOUT_SECONDS: ${{ inputs.timeout-seconds }}
+        LOCK_MAX_HOLDER_SECONDS: ${{ inputs.max-holder-seconds }}
+      run: |
+        set -euo pipefail
+
+        if ! command -v flock >/dev/null 2>&1; then
+          echo "::error::selfhosted-workspace-lock: flock(1) is missing on this runner — the shared workspace cannot be serialized. Install util-linux on the runner."
+          exit 1
+        fi
+
+        workspace="${GITHUB_WORKSPACE:?GITHUB_WORKSPACE is not set}"
+        state_dir="${RUNNER_TEMP:?RUNNER_TEMP is not set}/selfhosted-workspace-lock"
+        mkdir -p "$state_dir"
+
+        if [ "$LOCK_MODE" = "release" ]; then
+          if [ -f "$state_dir/holder.pid" ]; then
+            holder="$(cat "$state_dir/holder.pid")"
+            # The holder runs in its own session (setsid), so the negative
+            # PID addresses the whole group: flock, its shell and the sleep.
+            if kill -0 -- "-$holder" 2>/dev/null; then
+              kill -- "-$holder" 2>/dev/null || true
+              for _ in $(seq 1 50); do
+                kill -0 -- "-$holder" 2>/dev/null || break
+                sleep 0.2
+              done
+              kill -9 -- "-$holder" 2>/dev/null || true
+            fi
+            rm -f "$state_dir/holder.pid" "$state_dir/acquired"
+          fi
+          echo "::notice::selfhosted-workspace-lock: released ($workspace)"
+          exit 0
+        fi
+
+        if [ "$LOCK_MODE" != "acquire" ]; then
+          echo "::error::selfhosted-workspace-lock: unknown mode '$LOCK_MODE' (acquire or release)"
+          exit 1
+        fi
+
+        if [ -f "$state_dir/holder.pid" ] && kill -0 -- "-$(cat "$state_dir/holder.pid")" 2>/dev/null; then
+          echo "::error::selfhosted-workspace-lock: this job already holds the lock — acquire ran twice"
+          exit 1
+        fi
+        rm -f "$state_dir/acquired"
+
+        # The holder takes the flock, publishes the acquired marker, then
+        # sleeps until the release step kills its process group or its own
+        # ceiling expires. setsid gives it a process group of its own so the
+        # release can address everything at once.
+        holder_deadline=$(( $(date +%s) + LOCK_MAX_HOLDER_SECONDS ))
+        setsid flock -w "$LOCK_TIMEOUT_SECONDS" "$workspace" \
+          -c "touch '$state_dir/acquired'; while [ \$(date +%s) -lt $holder_deadline ]; do sleep 60; done" &
+        holder=$!
+        echo "$holder" > "$state_dir/holder.pid"
+
+        deadline=$(( $(date +%s) + LOCK_TIMEOUT_SECONDS + 60 ))
+        while [ ! -f "$state_dir/acquired" ]; do
+          if ! kill -0 "$holder" 2>/dev/null; then
+            rm -f "$state_dir/holder.pid"
+            echo "::error::selfhosted-workspace-lock: timed out after ${LOCK_TIMEOUT_SECONDS}s waiting for the shared workspace lock ($workspace) — another self-hosted lane holds it; this run is the eviction that used to be silent"
+            exit 1
+          fi
+          if [ "$(date +%s)" -ge "$deadline" ]; then
+            kill -- "-$holder" 2>/dev/null || true
+            rm -f "$state_dir/holder.pid"
+            echo "::error::selfhosted-workspace-lock: timed out after ${LOCK_TIMEOUT_SECONDS}s waiting for the shared workspace lock ($workspace)"
+            exit 1
+          fi
+          sleep 5
+        done
+        echo "::notice::selfhosted-workspace-lock: acquired ($workspace)"

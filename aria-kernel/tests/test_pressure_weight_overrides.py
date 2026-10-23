@@ -38,14 +38,22 @@ class WeightOverrideLoop(unittest.TestCase):
             candidate_tools=[], recommended_action="a", weights=weights,
         )["score"]
 
+
+    def _override(self, source: str, weight: int, *, reason: str = "precision follow-up test"):
+        from tests._helpers.operator_acts import github_operator_acts
+
+        with github_operator_acts() as github:
+            return record_weight_override(
+                source=source, weight=weight, reason=reason,
+                operator_approval_ref=github.approve(
+                    "pressure_weight_override", {"source": source, "weight": str(weight)},
+                ),
+                base_dir=self.root,
+            )
+
     def test_override_changes_the_next_score(self) -> None:
         base = self._score(effective_source_weights(self.root))
-        record_weight_override(
-            source="evidence_gone", weight=40,
-            reason="precision follow-up test",
-            operator_approval_ref="tranquil-sniffing-pancake#F4.1",
-            base_dir=self.root,
-        )
+        self._override("evidence_gone", 40)
         eff = effective_source_weights(self.root)
         self.assertEqual(eff["evidence_gone"], 40)
         self.assertLess(self._score(eff), base)
@@ -54,11 +62,7 @@ class WeightOverrideLoop(unittest.TestCase):
 
     def test_ledger_is_append_only_history_last_write_wins(self) -> None:
         for w in (40, 55):
-            record_weight_override(
-                source="evidence_gone", weight=w,
-                reason="precision follow-up test",
-                operator_approval_ref="ref#1", base_dir=self.root,
-            )
+            self._override("evidence_gone", w)
         self.assertEqual(load_weight_overrides(self.root)["evidence_gone"], 55)
         path = self.root / "calibration" / "weight-overrides.jsonl"
         self.assertEqual(len(path.read_text().splitlines()), 2)
@@ -87,20 +91,12 @@ class WeightOverrideLoop(unittest.TestCase):
             fh.write(json.dumps(row) + "\n")
 
     def test_boolean_ledger_rows_are_not_weights(self) -> None:
-        record_weight_override(
-            source="evidence_gone", weight=40,
-            reason="precision follow-up test",
-            operator_approval_ref="ref#1", base_dir=self.root,
-        )
+        self._override("evidence_gone", 40)
         self._append_raw({"source": "evidence_gone", "weight": True})
         self.assertEqual(load_weight_overrides(self.root)["evidence_gone"], 40)
 
     def test_out_of_range_ledger_rows_are_not_weights(self) -> None:
-        record_weight_override(
-            source="evidence_gone", weight=40,
-            reason="precision follow-up test",
-            operator_approval_ref="ref#1", base_dir=self.root,
-        )
+        self._override("evidence_gone", 40)
         for weight in (0, 101):
             self._append_raw({"source": "evidence_gone", "weight": weight})
         self.assertEqual(load_weight_overrides(self.root)["evidence_gone"], 40)

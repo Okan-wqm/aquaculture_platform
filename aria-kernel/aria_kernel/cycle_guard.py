@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
-from .debt import debts_dir
+from .debt import debts_dir, is_unresolved_debt
 from .finding import BACKLOG_STATUSES, findings_dir
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, parse_utc_stamp
 
@@ -276,7 +276,9 @@ def admit_finding_opener(
 def _open_debt_count(repo_root: Path) -> int:
     payload = _read_index(debts_dir(repo_root) / "_index.json")
     rows = payload.get("debts") or []
-    return sum(1 for r in rows if isinstance(r, dict) and r.get("current_status") in {"OPEN", "IN_PROGRESS"})
+    # ARIA-LOW-605: the owner's unresolved predicate (OPEN, IN_PROGRESS,
+    # derived OVERDUE) — an overdue debt never leaves the open backlog.
+    return sum(1 for r in rows if isinstance(r, dict) and is_unresolved_debt(r))
 
 
 def _resolve_repo_root(tools_root: Path, override: str | Path | None) -> Path:

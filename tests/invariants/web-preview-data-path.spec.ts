@@ -23,9 +23,9 @@
  *      `docs/reviews/_registry/findings.jsonl`, is still unresolved, and its
  *      review file exists — so when the backend lands and the finding is
  *      RESOLVED, the build fails until the preview is replaced by real data.
- *      "Unresolved" is the registry's open lifecycle (OPEN, IN-PROGRESS,
- *      BLOCKED, STALE): a finding moves to IN-PROGRESS when the backend work
- *      starts, and the preview has to stay until that work merges.
+ *      "Unresolved" is the registry's own predicate, isUnresolvedFindingState
+ *      (every state but RESOLVED): a finding moves to IN-PROGRESS when the
+ *      backend work starts, and the preview has to stay until that work merges.
  *   2. A `*.preview` module is imported only by a file that renders
  *      `MockPreview` (imported from `@aquaculture/shared-ui`) — a barrel or a
  *      helper cannot pass preview data on to a page that would not label it.
@@ -57,6 +57,8 @@ import { join, posix, relative, resolve, sep } from 'node:path';
 
 import * as ts from 'typescript';
 
+import { isUnresolvedFindingState } from '../../tools/gates/finding-registry-chain';
+
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const WEB_ROOT = resolve(REPO_ROOT, 'web');
 const REGISTRY_PATH = resolve(REPO_ROOT, 'docs/reviews/_registry/findings.jsonl');
@@ -64,9 +66,6 @@ const REGISTRY_PATH = resolve(REPO_ROOT, 'docs/reviews/_registry/findings.jsonl'
 /** The preview module: defines `definePreviewData` and `MockPreview`. */
 const PREVIEW_MODULE_DIR = 'web/shared-ui/src/preview/';
 const SHARED_UI_PACKAGE = '@aquaculture/shared-ui';
-
-/** The registry's open lifecycle (docs/reviews/_registry/README.md); RESOLVED ends a preview. */
-const UNRESOLVED_STATES = new Set(['OPEN', 'IN-PROGRESS', 'BLOCKED', 'STALE']);
 
 const SKIP_DIRS = new Set(['node_modules', 'dist', 'build', 'coverage', 'dev-dist', '.vite']);
 const TEST_SUPPORT_DIRS = new Set(['__tests__', '__mocks__', 'test', 'tests', 'test-utils', 'e2e']);
@@ -302,7 +301,7 @@ function previewSourceViolations(
   const row = registry.get(finding);
   if (row === undefined) violations.push(`${where}: ${finding} is not in the finding registry`);
   else {
-    if (!UNRESOLVED_STATES.has(row.state))
+    if (!isUnresolvedFindingState(row.state))
       violations.push(
         `${where}: ${finding} is ${row.state} — its backend landed; render the real data and delete the preview`,
       );

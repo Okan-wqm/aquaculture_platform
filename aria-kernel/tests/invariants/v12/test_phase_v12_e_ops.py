@@ -58,6 +58,7 @@ from aria_kernel.doctor import run_doctor
 from aria_kernel.ledger import load_declared_jsonl
 from aria_kernel.tool_registry import ensure_tools_dir
 from aria_kernel.request_admission import admit_request
+from tests._helpers.operator_acts import github_operator_acts
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 _POC = _REPO_ROOT / "tools" / "aria-poc"
@@ -80,11 +81,18 @@ class _Store(unittest.TestCase):
 
 
 class ControlFolds(_Store):
+    def _resume(self, request_id: str | None = None) -> None:
+        """A resume lifts an operator's pause: it presents the operator's
+        GitHub act for the pause it lifts (ARIA-HIGH-238)."""
+        with github_operator_acts() as github:
+            ref = github.approve("control_resume", control.resume_scope(request_id, base_dir=self.tools))
+            control.record_control("resume", base_dir=self.tools, request_id=request_id, operator_ref=ref)
+
     def test_I_V12_CTRL_01_fold_and_vocabulary(self) -> None:
         self.assertFalse(control.effective_control(self.tools).is_paused())
         control.record_control("pause", base_dir=self.tools, operator_ref="op-1")
         self.assertTrue(control.effective_control(self.tools).is_paused("AIR-1"))
-        control.record_control("resume", base_dir=self.tools)
+        self._resume()
         self.assertFalse(control.effective_control(self.tools).is_paused("AIR-1"))
         control.record_control("pause", base_dir=self.tools, request_id="AIR-2")
         state = control.effective_control(self.tools)
@@ -92,8 +100,9 @@ class ControlFolds(_Store):
         self.assertFalse(state.is_paused("AIR-3"))
         self.assertFalse(state.paused_all)
         control.record_control("cancel", base_dir=self.tools, request_id="AIR-9", reason="wrong plan")
-        control.record_control("resume", base_dir=self.tools)
+        self._resume()
         state = control.effective_control(self.tools)
+        self.assertFalse(state.is_paused("AIR-2"), "an all-scope resume lifts every pause")
         self.assertTrue(state.is_cancelled("AIR-9"), "cancel is sticky across resume")
         self.assertEqual(state.commands, 5)
         with self.assertRaises(ValueError):

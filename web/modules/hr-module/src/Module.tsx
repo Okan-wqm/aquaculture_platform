@@ -31,6 +31,7 @@ const TeamOverviewPage = lazy(() => import('./pages/scheduling/TeamOverviewPage'
 const SchedulingSettingsPage = lazy(() => import('./pages/scheduling/SchedulingSettingsPage'));
 const HRFinancePage = lazy(() => import('./pages/finance/HRFinancePage'));
 const TodayPage = lazy(() => import('./pages/today/TodayPage'));
+const OrganizationChartPage = lazy(() => import('./pages/organization/OrganizationChartPage'));
 
 // Placeholder for pages not yet implemented
 function PlaceholderPage({ title }: { title: string }) {
@@ -113,7 +114,7 @@ const HRModule: React.FC = () => {
           <Route path="crew/transport" element={<PlaceholderPage title="Transport Schedule" />} />
 
           {/* Organization */}
-          <Route path="organization" element={<PlaceholderPage title="Organization Structure" />} />
+          <Route path="organization" element={<OrganizationChartPage />} />
           <Route path="organization/positions" element={<PlaceholderPage title="Positions" />} />
 
           {/* Analytics */}

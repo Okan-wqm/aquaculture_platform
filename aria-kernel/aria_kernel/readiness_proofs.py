@@ -35,10 +35,11 @@ from .enterprise_readiness import (
     record_token_proof,
     record_workflow_run_proof,
 )
-from .ledger import append_declared_jsonl, load_declared_jsonl, sha256_of_canonical_json
+from .ledger import append_declared_jsonl, load_declared_jsonl, sha256_digest_of_canonical_json
 from .ledger_refs import ledger_ref_for_row
 from .secret_scrub import named_detectors
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
+from .digest import sha256_digest, sha256_digest_file
 
 # Single spelling of the source/target surfaces so the producer and its
 # tests cannot drift from the state_manifest declaration (İ1).
@@ -238,7 +239,7 @@ def _canonical_sha256(payload: dict[str, Any]) -> str:
     `ledger.is_sha256_digest` REQUIRES the prefix; a raw hex here would mint
     proofs the gate structurally rejects. The digest itself is
     `ledger.sha256_of_canonical_json`."""
-    return "sha256:" + sha256_of_canonical_json(payload)
+    return sha256_digest_of_canonical_json(payload)
 
 
 def record_branch_protection_snapshot(
@@ -756,13 +757,7 @@ _RETENTION_MEASUREMENT_TOLERANCE_DAYS = 1.0 / 24.0
 
 def _sha256_file(path: Path) -> str:
     """"sha256:"-prefixed file digest (see _canonical_sha256's WHY)."""
-    import hashlib
-
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1 << 20), b""):
-            digest.update(chunk)
-    return "sha256:" + digest.hexdigest()
+    return sha256_digest_file(path)
 
 
 def rollback_bundle_name(head_sha: str) -> str:
@@ -927,7 +922,7 @@ def produce_rollback_and_retention_proofs(
 
     # The published member must BE the bundle the lane built, byte for byte.
     member_bytes = artifact_member(published, bundle_name)
-    source_sha256 = "sha256:" + hashlib.sha256(member_bytes).hexdigest()
+    source_sha256 = sha256_digest(member_bytes)
     if source_sha256 != bundle_sha256:
         raise GovernanceError(
             f"rollback_artifact_member_mismatch: built={bundle_sha256} published={source_sha256}"

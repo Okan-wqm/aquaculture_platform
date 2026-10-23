@@ -12,7 +12,6 @@ import { Lock, Plus, Search, Filter, CheckCircle, Clock, FileText, TrendingUp } 
 import {
   cn,
   Modal,
-  useAuth,
   useConfirm,
   SearchableSelect,
   formatCurrency as sharedFormatCurrency,
@@ -33,6 +32,7 @@ import {
   useCreatePayroll,
   useApprovePayroll,
   useEmployees,
+  useIsWorkforceManager,
 } from '../hooks';
 import { derivePaginationMetadataV1 } from '@platform/pagination-contracts';
 import { StatusBadge, EmployeeAvatar } from '../components/common';
@@ -503,14 +503,9 @@ function SummaryCard({ title, value, icon, iconBg, subtitle }: SummaryCardProps)
 // ============================================================================
 
 const PayrollPage: React.FC = () => {
-  const { user } = useAuth();
-
   // SEC-003: Payroll data is sensitive PII (salary, bank info, tax ID).
   // Only privileged roles may see this page.
-  const isAuthorised =
-    user?.role === 'SUPER_ADMIN' ||
-    user?.role === 'TENANT_ADMIN' ||
-    user?.role === 'MODULE_MANAGER';
+  const isAuthorised = useIsWorkforceManager();
 
   // State
   const [activeTab, setActiveTab] = useState<'all' | 'pending'>('all');

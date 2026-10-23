@@ -50,7 +50,7 @@ from typing import Any
 
 from .hmac_keyring import utc_now_stamp
 from .ledger import atomic_write_json
-from .operator_approval import OperatorApprovalUnrecorded, recorded_instance, verify_operator_approval
+from .operator_approval import recorded_instance, require_operator_act
 from .tool_registry import GovernanceError, ensure_tools_dir, tools_dir
 
 # ARIA-HIGH-238 — the breaker's name in an operator approval line, and the
@@ -315,12 +315,9 @@ def reset_breaker(
     from .runtime_profile import enforce_profile_for_write
 
     enforce_profile_for_write("tool_governance", base_dir=root)
-    try:
-        approval = verify_operator_approval(
-            operator_approval_ref, surface="breaker_reset", scope=trip_scope(root), base_dir=root,
-        )
-    except OperatorApprovalUnrecorded as exc:
-        raise GovernanceError(f"breaker_reset_approval_unrecorded:{exc}") from exc
+    approval = require_operator_act(
+        operator_approval_ref, surface="breaker_reset", scope=trip_scope(root), base_dir=root,
+    )
     atomic_write_json(_state_path(root), {"state": "ok"})
     from .tool_registry import append_tools_governance
     append_tools_governance(

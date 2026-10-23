@@ -111,13 +111,18 @@ class UpdateToolScopeGuardTests(_UpdateToolTestCase):
         self.assertIn("requires reason", str(cm.exception))
 
     def test_runner_change_with_approval_and_reason_succeeds(self) -> None:
-        result = update_tool(
-            "fake-adapter",
-            {"runner": _changed_runner("--echo-input")},
-            base_dir=self.tools,
-            operator_approval_ref="ops-2026-05-08-002",
-            reason="parser refactor; argv split into separate file",
-        )
+        from tests._helpers.operator_acts import github_operator_acts
+
+        with github_operator_acts() as github:
+            result = update_tool(
+                "fake-adapter",
+                {"runner": _changed_runner("--echo-input")},
+                base_dir=self.tools,
+                operator_approval_ref=github.approve(
+                    "tool_update", {"tool": "fake-adapter", "fields": "runner"},
+                ),
+                reason="parser refactor; argv split into separate file",
+            )
         self.assertEqual(result["runner"]["argv"], ["python3", FAKE_RUNNER.as_posix(), "--echo-input"])
 
     def test_allowed_read_globs_change_requires_approval(self) -> None:
@@ -129,13 +134,18 @@ class UpdateToolScopeGuardTests(_UpdateToolTestCase):
             )
 
     def test_runner_argv_swap_emits_governance_event(self) -> None:
-        update_tool(
-            "fake-adapter",
-            {"runner": _changed_runner("--invalid-json")},
-            base_dir=self.tools,
-            operator_approval_ref="ops-2026-05-08-003",
-            reason="parser v2 promotion",
-        )
+        from tests._helpers.operator_acts import github_operator_acts
+
+        with github_operator_acts() as github:
+            update_tool(
+                "fake-adapter",
+                {"runner": _changed_runner("--invalid-json")},
+                base_dir=self.tools,
+                operator_approval_ref=github.approve(
+                    "tool_update", {"tool": "fake-adapter", "fields": "runner"},
+                ),
+                reason="parser v2 promotion",
+            )
         gov = (self.tools / "governance.jsonl").read_text(encoding="utf-8").splitlines()
         kinds = [json.loads(line)["kind"] for line in gov if line.strip()]
         self.assertIn("tool_runner_replaced", kinds)

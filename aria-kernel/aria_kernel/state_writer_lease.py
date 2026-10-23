@@ -58,7 +58,6 @@ from __future__ import annotations
 import contextlib
 import getpass
 import re
-import hashlib
 import json
 import math
 import os
@@ -106,6 +105,7 @@ from .state_store_lifecycle_arcs import (
     lifecycle_step_active,
     require_step_operation,
 )
+from .digest import secret_matches_sha256_digest, sha256_digest_text
 
 # The capability a holder presents. It travels as a masked step output into
 # the publish, merge and release steps only (GSEC-LOW-002), never through
@@ -278,9 +278,6 @@ def _fetch_tip(root: Path, *, remote: str, branch: str) -> str:
         _lease_git_run(root, ("update-ref", "-d", fetched))
 
 
-def token_digest(token: str) -> str:
-    return "sha256:" + hashlib.sha256(token.encode("utf-8")).hexdigest()
-
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
@@ -333,7 +330,7 @@ class WriterLeaseView:
             and self.lease is not None
             and not self.released
             and self.secret_sha256
-            and secrets.compare_digest(self.secret_sha256, token_digest(token))
+            and secret_matches_sha256_digest(token, self.secret_sha256)
         )
 
     def as_json(self) -> dict[str, Any]:
@@ -666,7 +663,7 @@ def acquire_writer_lease(
             branch=branch,
             parent=view.tip,
             record=lease_record(
-                lease, run_id=run, ttl_minutes=int(ttl_minutes), secret_sha256=token_digest(token),
+                lease, run_id=run, ttl_minutes=int(ttl_minutes), secret_sha256=sha256_digest_text(token),
                 reaped=reaped,
             ),
             message=f"chore(aria-state-lease): {holder} epoch {lease.epoch} until {lease.expires_at}{reaped_note}",
@@ -873,7 +870,6 @@ __all__ = [
     "release_writer_lease",
     "repair_writer_lease",
     "resolve_writer_lease_token",
-    "token_digest",
     "view_record",
     "writer_identity",
     "writer_lease_branch",

@@ -9,7 +9,6 @@ stored truncated and SAID to be truncated (downstream verdict = INCONCLUSIVE).
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -23,6 +22,7 @@ from ..ledger import append_declared_jsonl, load_declared_jsonl
 from ..secret_scrub import view_alternation
 from ..tool_registry import ensure_tools_dir, utc_now
 from .scope_policy import MAX_RESPONSE_BYTES
+from ..digest import sha256_digest
 
 EVIDENCE_SURFACE = "security_evidence"
 EVIDENCE_RELPATH: tuple[str, ...] = ("security", "evidence.jsonl")
@@ -127,7 +127,7 @@ class EvidenceVault:
             raise VaultError("campaign evidence is sealed; no further writes")
         truncated = len(data) > MAX_RESPONSE_BYTES
         body = data[:MAX_RESPONSE_BYTES]
-        digest = "sha256:" + hashlib.sha256(body).hexdigest()
+        digest = sha256_digest(body)
         ref = f"vault://{campaign_run_id}/{digest[7:]}"
         nonce = secrets.token_bytes(12)
         blob = nonce + self._AESGCM(self._dek(campaign_run_id)).encrypt(nonce, body, ref.encode("utf-8"))
@@ -160,7 +160,7 @@ class EvidenceVault:
         objects = sorted(p.name[:-4] for p in d.glob("*.bin"))
         manifest = {"campaign_run_id": campaign_run_id, "objects": objects, "sealed_at": utc_now()}
         raw = json.dumps(manifest, sort_keys=True).encode("utf-8")
-        digest = "sha256:" + hashlib.sha256(raw).hexdigest()
+        digest = sha256_digest(raw)
         fd = os.open(d / "manifest.json", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "wb") as fh:
             fh.write(raw)

@@ -7,13 +7,13 @@ work (fail-closed). No env var, issue text or LLM output can widen a ceiling.
 """
 from __future__ import annotations
 
-import hashlib
 import ipaddress
 import json
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from ..digest import sha256_digest, sha256_digest_text
 
 RISK_CLASSES = ("R0_PASSIVE", "R1_BOUNDED_READ", "R2_SYNTHETIC_MUTATION", "R3_HUMAN_REQUIRED", "R4_FORBIDDEN")
 DENY_INVENTORY_RELPATH: tuple[str, ...] = ("infrastructure", "aria", "security-lab", "production-deny-inventory.json")
@@ -81,7 +81,7 @@ def load_deny_inventory(workspace_root: str | Path) -> DenyInventory:
     return DenyInventory(
         hostname_suffixes=tuple(str(s).lower() for s in doc.get("hostname_suffixes", [])),
         cidrs=tuple(str(c) for c in doc.get("cidrs", [])), labels=tuple(str(l) for l in doc.get("labels", [])),
-        complete=complete, digest="sha256:" + hashlib.sha256(raw).hexdigest(),
+        complete=complete, digest=sha256_digest(raw),
     )
 
 
@@ -162,7 +162,7 @@ class SecurityScopePolicy:
     def policy_digest(self) -> str:
         payload = {"inventory_digest": self.inventory_digest, "ceilings": {k: v.__dict__ for k, v in self.ceilings.items()},
                    "limits": [MAX_BODY_BYTES, MAX_RESPONSE_BYTES, MAX_CAMPAIGN_BYTES]}
-        return "sha256:" + hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+        return sha256_digest_text(json.dumps(payload, sort_keys=True))
 
     def max_auto_risk(self) -> str:
         """R2 is the automatic ceiling; R3 needs a human grant; incomplete inventory caps at R0."""

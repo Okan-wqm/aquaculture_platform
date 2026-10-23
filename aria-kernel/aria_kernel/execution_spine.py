@@ -1,238 +1,177 @@
 """The autonomous execution identity and session spine.
 
 Operator design (2026-08-30, "Faz 1A"): every mutating operation in ARIA
-should carry a UNIFIED identity — who triggered it, which service is
-executing, what session it belongs to, what mission it serves, what
-provider is running the models. Today these fields are scattered: the
-cycle carries cycle_id, governance carries actor, invocations carry
-agent_id, tool_health carries runner — nothing ties them into one
-auditable thread.
+carries a UNIFIED identity — who triggered it, which session it belongs to,
+what mission it serves, what provider runs the models. The first cut of
+this module (ARIA-MEDIUM-029) shipped a CLOSED service-actor registry and a
+factory callers had to feed by hand, plus a session ledger whose surface
+``state_manifest`` declared and nobody produced. On the live store every
+governance row therefore said ``{"kind": "human", "id": "user@host"}`` —
+the default a process gets when nothing sets ``ARIA_ACTOR``, which nothing
+ever did (2026-09-25 full-read B11) — and the audit thread the design asked
+for did not exist.
 
-This module is that thread. It provides:
+The spine is now DERIVED, not declared:
 
-1. **Service Actor Registry** — a closed, validated set of known actors.
-   No event can claim an actor that isn't registered; the registry is
-   the single source of truth for "who can act in this system."
+1. **Derived identity** — :func:`derive_execution_identity` reads the
+   platform that is actually running the process: a GitHub Actions run is
+   ``workflow``, a ``system.slice`` cgroup is ``unit``, a ``user.slice``
+   cgroup is ``operator_session``, anything else is ``unattributed`` with a
+   reason. ``human`` is not a kind: no ARIA process is a person, and an
+   identity the environment can declare is an identity an attacker can
+   declare. :func:`current_actor_record` is the same derivation against
+   the real process; it never raises.
 
-2. **ExecutionContext** — generated ONCE at cycle start, threaded
-   everywhere. Every field an auditor needs to answer "who did this,
-   under what authority, in which session, for which mission" lives
-   here. Subsystems consume the context rather than minting their own
-   partial identities.
+2. **Session spine** — the cycle is the ledger's producer. A cycle start
+   mints ``sess-<cycle_id>`` (:func:`begin_cycle_session`), mission
+   selection binds the mission (:func:`bind_session_mission`), the cycle's
+   terminal row closes the session (:func:`end_cycle_session`), and
+   governance rows appended inside the cycle carry the session id and the
+   actor block through the ambient session this module tracks.
 
-3. **Autonomous Session Ledger** — the lifecycle of an execution
-   session (started → bound → running → completed/failed/abandoned).
-   A session spans one cycle; a mission spans many sessions. The ledger
-   is append-only and hash-chained like every other ARIA surface.
-
-4. **Audit Trail Threading** — `to_audit_fields()` produces the common
-   identity block that governance, invocations, tool_health, and state
-   surfaces SHOULD carry. Backward-compatible: surfaces that don't yet
-   thread the context continue to work; new surfaces are required to.
+This module is a LEAF: it imports only ``ledger`` (and stdlib), so
+``workspace`` — whose ``governance_event`` stamps the actor block — can
+import it without a cycle.
 """
 
 from __future__ import annotations
 
 import os
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from enum import Enum
 from pathlib import Path
 from typing import Any
 
 from .ledger import append_declared_jsonl
-from .tool_registry import ensure_tools_dir
-
 
 # ---------------------------------------------------------------------------
-# 1. Service Actor Registry
+# 1. Derived identity
 # ---------------------------------------------------------------------------
 
+#: The closed vocabulary of actor kinds. Every kind is DERIVED from the
+#: platform (see :func:`derive_execution_identity`); ``human`` is
+#: deliberately absent — a mutating operation run by an ARIA process is
+#: attributed to that process, never to a person, because no surface in
+#: this kernel can prove a person.
+ACTOR_KINDS: tuple[str, ...] = (
+    "workflow",
+    "unit",
+    "operator_session",
+    "unattributed",
+)
 
-class ActorType(str, Enum):
-    """The kind of entity that can act in the ARIA system."""
+_GITHUB_WORKFLOW_REF = "GITHUB_WORKFLOW_REF"
+_GITHUB_RUN_ID = "GITHUB_RUN_ID"
+_GITHUB_RUN_ATTEMPT = "GITHUB_RUN_ATTEMPT"
 
-    SYSTEM = "system"  # platform triggers (GitHub schedule, PR event)
-    SERVICE = "service"  # ARIA's own services (orchestrator, executor, etc.)
-    HUMAN = "human"  # reserved for future operator-session binding
+_CGROUP_PATH = Path("/proc/self/cgroup")
+_SYSTEM_SLICE = "/system.slice/"
+_USER_SLICE = "/user.slice/"
 
 
 @dataclass(frozen=True)
-class Actor:
-    """One registered actor — the atom of identity in the spine."""
+class ExecutionIdentity:
+    """Who is executing this process, derived from the platform.
 
+    ``id`` names the actor within its kind (the workflow file stem, the
+    systemd unit, the login session scope). ``run`` carries the GitHub
+    run id/attempt for ``workflow`` actors. ``reason`` says why an
+    ``unattributed`` derivation could not name anything better — an
+    unattributable actor with no reason is a gap in the audit thread, not
+    an answer.
+    """
+
+    kind: str
     id: str
-    type: ActorType
-    description: str = ""
-
-
-# The closed registry. Adding an actor is a code change (and a PR), never
-# a runtime mutation — the same discipline as MODEL_TIER_ORDER.
-SERVICE_ACTOR_REGISTRY: frozenset[Actor] = frozenset({
-    Actor(
-        id="system:github-schedule",
-        type=ActorType.SYSTEM,
-        description="GitHub Actions scheduled trigger (cron)",
-    ),
-    Actor(
-        id="system:github-pr",
-        type=ActorType.SYSTEM,
-        description="GitHub Actions pull_request trigger",
-    ),
-    Actor(
-        id="system:github-dispatch",
-        type=ActorType.SYSTEM,
-        description="GitHub Actions workflow_dispatch trigger",
-    ),
-    Actor(
-        id="service:aria-autonomy-orchestrator",
-        type=ActorType.SERVICE,
-        description="The autonomy cycle orchestrator (nightly producer)",
-    ),
-    Actor(
-        id="service:aria-agent-executor",
-        type=ActorType.SERVICE,
-        description="The CI agent executor (consumer lane)",
-    ),
-    Actor(
-        id="service:aria-merge-authority",
-        type=ActorType.SERVICE,
-        description="The merge authority lane (readiness claims)",
-    ),
-    Actor(
-        id="service:aria-worker",
-        type=ActorType.SERVICE,
-        description="The worker dispatch lane",
-    ),
-    Actor(
-        id="service:aria-readiness-claim",
-        type=ActorType.SERVICE,
-        description="The readiness claim producer",
-    ),
-})
-
-_ACTOR_INDEX: dict[str, Actor] = {a.id: a for a in SERVICE_ACTOR_REGISTRY}
-
-
-def validate_actor(actor_id: str) -> Actor:
-    """Look up an actor; raise if not in the registry.
-
-    Fail-closed: an unknown actor is a configuration error or an
-    injection attempt, never a pass-through.
-    """
-    actor = _ACTOR_INDEX.get(actor_id)
-    if actor is None:
-        raise ValueError(
-            f"unknown_actor: {actor_id!r} not in the service actor registry "
-            f"({sorted(_ACTOR_INDEX)})"
-        )
-    return actor
-
-
-def known_actor_ids() -> frozenset[str]:
-    """The ids of every registered actor."""
-    return frozenset(_ACTOR_INDEX)
-
-
-# ---------------------------------------------------------------------------
-# 2. ExecutionContext Factory
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class ExecutionContext:
-    """All identity fields for one execution — generated once, read everywhere.
-
-    A context is IMMUTABLE after creation. Fields that change during a
-    run (e.g., the mission being selected mid-cycle) are recorded as
-    session events, not by mutating the context.
-    """
-
-    session_id: str
-    cycle_id: str
-    trigger: str  # "schedule" | "dispatch" | "pr" | "manual"
-    executor: str  # actor id from the registry
-    runner: str  # runner identity (hostname, runner name)
-    repository: str  # "owner/repo"
-    runtime_profile: str  # "observe" | "standard" | "strict" | "frozen" | "autonomous"
-    target_sha: str | None = None
-    mission_id: str | None = None
-    provider: str | None = None
-    model: str | None = None
-    created_at: str = ""
+    run: str | None = None
+    reason: str = ""
 
     def __post_init__(self) -> None:
-        if not self.created_at:
-            object.__setattr__(
-                self, "created_at",
-                datetime.now(timezone.utc).isoformat(),
+        if self.kind not in ACTOR_KINDS:
+            raise ValueError(
+                f"unknown_actor_kind: {self.kind!r} — must be one of {list(ACTOR_KINDS)}"
             )
 
     def to_audit_fields(self) -> dict[str, Any]:
-        """The common identity block every audit surface should carry.
-
-        Surfaces that already have their own identity fields (cycle_id in
-        cycles.jsonl, agent_id in invocations) continue to work — these
-        fields are ADDITIVE, forming the unified thread that ties them
-        together.
-        """
-        return {
-            "session_id": self.session_id,
-            "cycle_id": self.cycle_id,
-            "trigger": self.trigger,
-            "executor": self.executor,
-            "runner": self.runner,
-            "repository": self.repository,
-            "runtime_profile": self.runtime_profile,
-            "target_sha": self.target_sha,
-            "mission_id": self.mission_id,
-            "provider": self.provider,
-            "model": self.model,
-        }
+        """The actor block every audit surface carries."""
+        out: dict[str, Any] = {"kind": self.kind, "id": self.id}
+        if self.run:
+            out["run"] = self.run
+        if self.reason:
+            out["reason"] = self.reason
+        return out
 
 
-def create_execution_context(
-    *,
-    cycle_id: str,
-    trigger: str,
-    executor: str,
-    runner: str = "",
-    repository: str = "",
-    runtime_profile: str = "standard",
-    target_sha: str | None = None,
-    mission_id: str | None = None,
-    provider: str | None = None,
-    model: str | None = None,
-    session_id: str | None = None,
-) -> ExecutionContext:
-    """Factory: validate the actor, mint the session, build the context.
+def derive_execution_identity(
+    environ: dict[str, str] | None,
+    cgroup_text: str | None,
+) -> ExecutionIdentity:
+    """Derive the executing identity from the platform, never from ARIA_ACTOR.
 
-    This is THE entry point for creating an execution identity. Callers
-    do not construct ExecutionContext directly — the factory validates
-    the actor, generates the session_id (deterministic from cycle_id
-    for idempotency), and returns the frozen context.
+    Precedence (first match wins, and no branch raises):
+
+    * ``workflow`` — a GitHub Actions run (``GITHUB_WORKFLOW_REF`` with
+      ``GITHUB_RUN_ID``): ``id`` is the workflow file stem (which workflow),
+      ``run`` is ``<run id>/<attempt>`` (which execution of it).
+    * ``unit`` — the process lives under a ``system.slice`` cgroup (a
+      service): ``id`` is the unit name.
+    * ``operator_session`` — the process lives under a ``user.slice``
+      cgroup (a login session): ``id`` is the session scope. This is an
+      operator's session, NOT the operator as an actor — the mutation is
+      still run by an ARIA process inside that session.
+    * ``unattributed`` — none of the above named the platform, and the
+      ``reason`` says so.
     """
-    actor = validate_actor(executor)
-    if trigger not in ("schedule", "dispatch", "pr", "manual"):
-        raise ValueError(f"invalid_trigger: {trigger!r} — must be schedule|dispatch|pr|manual")
-    sid = session_id or f"sess-{cycle_id}"
-    return ExecutionContext(
-        session_id=sid,
-        cycle_id=cycle_id,
-        trigger=trigger,
-        executor=actor.id,
-        runner=runner,
-        repository=repository,
-        runtime_profile=runtime_profile,
-        target_sha=target_sha,
-        mission_id=mission_id,
-        provider=provider,
-        model=model,
-    )
+    env = os.environ if environ is None else environ
+    ref = str(env.get(_GITHUB_WORKFLOW_REF) or "").strip()
+    run_id = str(env.get(_GITHUB_RUN_ID) or "").strip()
+    if ref and run_id:
+        # "owner/repo/.github/workflows/<file>.yml@refs/heads/main" → <file>
+        workflow_path = ref.split("@", 1)[0]
+        attempt = str(env.get(_GITHUB_RUN_ATTEMPT) or "").strip() or "1"
+        return ExecutionIdentity(
+            kind="workflow",
+            id=Path(workflow_path).stem or workflow_path,
+            run=f"{run_id}/{attempt}",
+        )
+    for line in (cgroup_text or "").splitlines():
+        path = line.split(":", 2)[-1] if line.count(":") >= 2 else line
+        if _SYSTEM_SLICE in path:
+            unit = path.rstrip("/").rsplit("/", 1)[-1]
+            return ExecutionIdentity(kind="unit", id=unit or "system.slice")
+        if _USER_SLICE in path:
+            scope = path.rstrip("/").rsplit("/", 1)[-1]
+            return ExecutionIdentity(kind="operator_session", id=scope or "user.slice")
+    why = "no_github_workflow_env:no_service_or_user_slice_cgroup"
+    if ref and not run_id:
+        why = f"github_workflow_ref_without_run_id:{ref[:80]}"
+    elif run_id and not ref:
+        why = f"github_run_id_without_workflow_ref:{run_id}"
+    return ExecutionIdentity(kind="unattributed", id="unknown", reason=why)
+
+
+def current_execution_identity() -> ExecutionIdentity:
+    """The derived identity of THIS process.
+
+    Never raises: identity must be derivable on a host whose
+    ``/proc/self/cgroup`` is unreadable or empty — the answer is then
+    ``unattributed`` with the reason, which is the honest answer.
+    """
+    try:
+        cgroup_text = _CGROUP_PATH.read_text(encoding="utf-8")
+    except OSError:
+        cgroup_text = ""
+    return derive_execution_identity(os.environ, cgroup_text)
+
+
+def current_actor_record() -> dict[str, Any]:
+    """The derived actor block for THIS process, as a plain record."""
+    return current_execution_identity().to_audit_fields()
 
 
 # ---------------------------------------------------------------------------
-# 3. Autonomous Session Ledger
+# 2. Session spine — the cycle is the ledger's producer
 # ---------------------------------------------------------------------------
 
 SESSION_EVENTS: frozenset[str] = frozenset({
@@ -247,104 +186,191 @@ SESSION_EVENTS: frozenset[str] = frozenset({
     "session_abandoned",
 })
 
+#: session outcome → terminal event. ``stopped`` and ``aborted`` cycles
+#: both end a session that will not resume: the session is abandoned
+#: (:func:`session_outcome_for_cycle_status` owns the cycle-status side).
+_SESSION_OUTCOMES: dict[str, str] = {
+    "completed": "session_completed",
+    "failed": "session_failed",
+    "abandoned": "session_abandoned",
+}
+
+
+def session_outcome_for_cycle_status(status: str) -> str:
+    """A cycle's terminal ``status`` → the session outcome that closes it.
+
+    ``stopped`` and ``aborted`` cycles both leave a session that will not
+    resume: the session is abandoned. One mapping, owned here beside the
+    vocabulary it maps — callers never re-derive it.
+    """
+    if status in ("completed", "failed"):
+        return status
+    if status in ("stopped", "aborted"):
+        return "abandoned"
+    raise ValueError(
+        f"unknown_cycle_terminal_status: {status!r} — cannot close a session with it"
+    )
+
 SESSION_LEDGER_SURFACE = "session_ledger"
 SESSION_LEDGER_PATH = Path("sessions") / "session-ledger.jsonl"
+
+
+def session_id_for_cycle(cycle_id: str) -> str:
+    """The session id a cycle mints — deterministic, one session per cycle."""
+    return f"sess-{cycle_id}"
+
+
+@dataclass(frozen=True)
+class SessionRecord:
+    """The session a cycle opened; the spine's ambient unit of work."""
+
+    session_id: str
+    cycle_id: str
+    actor: dict[str, Any] = field(default_factory=dict)
+    started_at: str = ""
+
+
+_ACTIVE_SESSION: ContextVar[SessionRecord | None] = ContextVar(
+    "aria_execution_session", default=None
+)
+
+
+def active_session() -> SessionRecord | None:
+    """The session of the cycle currently running in this process, if any."""
+    return _ACTIVE_SESSION.get()
 
 
 def record_session_event(
     *,
     event: str,
-    context: ExecutionContext,
-    base_dir: str | Path | None = None,
+    session: SessionRecord,
+    tools_root: Path,
     **details: Any,
 ) -> dict[str, Any]:
-    """Write a session lifecycle event to the session ledger.
+    """Append one lifecycle row to the declared session ledger.
 
-    The event carries the FULL audit context — every field from the
-    ExecutionContext plus any event-specific details. This is the
-    immutable record of what happened, who did it, and under what
-    authority.
+    Every row carries the thread an auditor needs to walk: which session,
+    which cycle, which derived actor — plus the event's own details.
     """
     if event not in SESSION_EVENTS:
         raise ValueError(
             f"unknown_session_event: {event!r} — must be one of {sorted(SESSION_EVENTS)}"
         )
-    root = ensure_tools_dir(base_dir)
     row: dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "event": event,
         "at": datetime.now(timezone.utc).isoformat(),
-        **context.to_audit_fields(),
-        **details,
+        "session_id": session.session_id,
+        "cycle_id": session.cycle_id,
+        "actor": session.actor,
     }
+    row.update(details)
     append_declared_jsonl(
-        root / SESSION_LEDGER_PATH,
+        Path(tools_root) / SESSION_LEDGER_PATH,
         row,
         expected_surface=SESSION_LEDGER_SURFACE,
     )
     return row
 
 
-def start_session(
-    context: ExecutionContext,
-    *,
-    base_dir: str | None = None,
-) -> dict[str, Any]:
-    """Record the session_started event — the lifecycle's opening row."""
-    return record_session_event(
-        event="session_started",
-        context=context,
-        base_dir=base_dir,
+def begin_cycle_session(*, cycle_id: str, tools_root: Path) -> SessionRecord:
+    """Mint the cycle's session and record ``session_started``.
+
+    The session id is derived from the cycle id, so replaying a cycle's
+    ledger identifies its session without a second source of truth. The
+    actor is DERIVED at mint time — the record of who opened the session
+    is what the platform said when it happened.
+
+    A session still open from a previous cycle in this process is
+    recorded ``session_abandoned`` before the new one opens: a new cycle
+    starting means the old session will never resume (its cycle escaped
+    between its started row and any terminal writer — exactly the window
+    the escape sealer cannot cover), and an auditor must see that close,
+    not a silently overwritten thread.
+    """
+    stale = _ACTIVE_SESSION.get()
+    if stale is not None:
+        try:
+            record_session_event(
+                event="session_abandoned", session=stale, tools_root=tools_root,
+                reason="superseded_by_next_cycle",
+            )
+        except OSError:
+            # The new session still opens: a ledger that cannot record the
+            # abandon must not also prevent the honest start of the next.
+            pass
+    session = SessionRecord(
+        session_id=session_id_for_cycle(cycle_id),
+        cycle_id=cycle_id,
+        actor=current_actor_record(),
+        started_at=datetime.now(timezone.utc).isoformat(),
     )
+    record_session_event(
+        event="session_started", session=session, tools_root=tools_root
+    )
+    _ACTIVE_SESSION.set(session)
+    return session
 
 
-def bind_mission(
-    context: ExecutionContext,
-    *,
-    mission_id: str,
-    base_dir: str | None = None,
-) -> dict[str, Any]:
-    """Bind the session to a mission — one session, one active mission."""
+def bind_session_mission(*, mission_id: str, tools_root: Path) -> dict[str, Any]:
+    """Record ``mission_bound`` against the ambient session."""
+    session = _ACTIVE_SESSION.get()
+    if session is None:
+        raise RuntimeError(
+            "bind_session_mission requires a running session: call "
+            "begin_cycle_session first (mission binding outside a cycle "
+            "has no audit thread to attach to)"
+        )
     return record_session_event(
         event="mission_bound",
-        context=context,
-        base_dir=base_dir,
+        session=session,
+        tools_root=tools_root,
         mission_id=mission_id,
     )
 
 
-def bind_provider(
-    context: ExecutionContext,
-    *,
-    provider: str,
-    model: str,
-    base_dir: str | None = None,
-) -> dict[str, Any]:
-    """Record which provider/model combination is serving this session."""
+def record_provider_bound(*, provider: str, model: str, tools_root: Path) -> dict[str, Any]:
+    """Record ``provider_bound`` against the ambient session.
+
+    The rung that answered: the provider/model combination that actually
+    served the session's work. Producers call this when a result carries
+    that fact; the spine never invents it.
+    """
+    session = _ACTIVE_SESSION.get()
+    if session is None:
+        raise RuntimeError(
+            "record_provider_bound requires a running session: call "
+            "begin_cycle_session first"
+        )
     return record_session_event(
         event="provider_bound",
-        context=context,
-        base_dir=base_dir,
+        session=session,
+        tools_root=tools_root,
         provider=provider,
         model=model,
     )
 
 
-def complete_session(
-    context: ExecutionContext,
+def end_cycle_session(
     *,
-    outcome: str = "completed",
-    base_dir: str | None = None,
+    outcome: str,
+    tools_root: Path,
     **details: Any,
 ) -> dict[str, Any]:
-    """Record the terminal session event (completed, failed, abandoned)."""
-    terminal = {"completed": "session_completed", "failed": "session_failed", "abandoned": "session_abandoned"}
-    event = terminal.get(outcome)
+    """Record the session's terminal event and close the ambient session."""
+    event = _SESSION_OUTCOMES.get(outcome)
     if event is None:
-        raise ValueError(f"invalid_session_outcome: {outcome!r}")
-    return record_session_event(
-        event=event,
-        context=context,
-        base_dir=base_dir,
-        **details,
+        raise ValueError(
+            f"invalid_session_outcome: {outcome!r} — must be one of {sorted(_SESSION_OUTCOMES)}"
+        )
+    session = _ACTIVE_SESSION.get()
+    if session is None:
+        raise RuntimeError(
+            "end_cycle_session requires a running session: call "
+            "begin_cycle_session first"
+        )
+    row = record_session_event(
+        event=event, session=session, tools_root=tools_root, **details
     )
+    _ACTIVE_SESSION.set(None)
+    return row

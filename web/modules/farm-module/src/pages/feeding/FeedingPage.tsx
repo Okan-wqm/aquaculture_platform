@@ -59,10 +59,10 @@ type TabId =
   | 'summary'
   | 'growth'
   | 'fcr'
+  | 'production-plan'
   | 'protocols-v2'
   | 'assignments'
-  | 'sampling'
-  | 'production-plan';
+  | 'sampling';
 
 interface Tab {
   id: TabId;
@@ -76,17 +76,6 @@ interface Tab {
 // CONSTANTS
 // ============================================================================
 
-const VALID_TABS: TabId[] = [
-  'meal-board',
-  'forecast',
-  'records',
-  'summary',
-  'growth',
-  'fcr',
-  'protocols-v2',
-  'assignments',
-  'sampling',
-];
 const DEFAULT_TAB: TabId = 'meal-board';
 
 /**
@@ -100,70 +89,75 @@ const FILTER_CONSUMING_TABS: TabId[] = ['records', 'summary', 'growth', 'fcr', '
 // TABS CONFIG
 // ============================================================================
 
-const tabs: Tab[] = [
-  {
-    id: 'meal-board',
+/**
+ * The ONE description of the page's tabs. Keyed by TabId, so the compiler
+ * rejects a union member that has no definition and a definition outside the
+ * union. The strip, the accepted `?tab=` values and the render order all derive
+ * from it — a tab could once be drawn in the strip and listed in the nav yet
+ * missing from a second, hand-kept list of accepted ids, which sent both its
+ * button and its deep link to the meal board. Declaration order is the strip
+ * order and follows the shell nav's feeding strip.
+ */
+const TAB_DEFINITIONS: Record<TabId, Omit<Tab, 'id'>> = {
+  'meal-board': {
     name: 'Meal Board',
     i18nKey: 'feedingV2.tab.mealBoard',
     icon: <AlignLeft className="w-5 h-5" aria-hidden="true" />,
   },
-  {
-    id: 'forecast',
+  forecast: {
     name: 'Forecast',
     i18nKey: 'feedingV2.tab.forecast',
     icon: <TrendingUp className="w-5 h-5" aria-hidden="true" />,
   },
-  {
-    id: 'records',
+  records: {
     name: 'Records',
     icon: <ClipboardList className="w-5 h-5" aria-hidden="true" />,
   },
-  {
-    id: 'summary',
+  summary: {
     name: 'Summary',
     icon: <FileChartColumn className="w-5 h-5" aria-hidden="true" />,
   },
-  {
-    id: 'growth',
+  growth: {
     name: 'Growth',
     icon: <Presentation className="w-5 h-5" aria-hidden="true" />,
   },
-  {
-    id: 'fcr',
+  fcr: {
     name: 'FCR',
     icon: <ChartColumn className="w-5 h-5" aria-hidden="true" />,
   },
-  {
-    id: 'protocols-v2',
-    name: 'Protocols v2',
-    i18nKey: 'feedingV2.tab.builder',
-    icon: <FileText className="w-5 h-5" aria-hidden="true" />,
-  },
-  {
-    id: 'assignments',
-    name: 'Assignments',
-    i18nKey: 'feedingV2.tab.assignments',
-    icon: <Users className="w-5 h-5" aria-hidden="true" />,
-  },
-  {
-    id: 'sampling',
-    name: 'Sampling',
-    icon: <FlaskConical className="w-5 h-5" aria-hidden="true" />,
-  },
-  {
-    id: 'production-plan',
+  'production-plan': {
     name: 'Production Plan',
     i18nKey: 'feedingV2.tab.productionPlan',
     icon: <TrendingUp className="w-5 h-5" aria-hidden="true" />,
   },
-];
+  'protocols-v2': {
+    name: 'Protocols v2',
+    i18nKey: 'feedingV2.tab.builder',
+    icon: <FileText className="w-5 h-5" aria-hidden="true" />,
+  },
+  assignments: {
+    name: 'Assignments',
+    i18nKey: 'feedingV2.tab.assignments',
+    icon: <Users className="w-5 h-5" aria-hidden="true" />,
+  },
+  sampling: {
+    name: 'Sampling',
+    icon: <FlaskConical className="w-5 h-5" aria-hidden="true" />,
+  },
+};
+
+// Safe: TAB_DEFINITIONS is a Record<TabId, …>, so its keys are exactly the TabId union.
+const tabs: Tab[] = (Object.keys(TAB_DEFINITIONS) as TabId[]).map((id) => ({
+  id,
+  ...TAB_DEFINITIONS[id],
+}));
 
 // ============================================================================
 // HELPERS
 // ============================================================================
 
 function isValidTab(value: string | null): value is TabId {
-  return value !== null && VALID_TABS.includes(value as TabId);
+  return tabs.some((tab) => tab.id === value);
 }
 
 // ============================================================================

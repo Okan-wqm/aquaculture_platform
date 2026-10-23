@@ -14,6 +14,11 @@ I-V3.2-09 — composite end-to-end assertion locking all 3 fixes.
 
 from __future__ import annotations
 
+# ARIA-HIGH-602 — the live partition: this module reads the live checkout
+# outside the kernel surface, so it runs in aria-kernel.yml's always-run
+# `workspace` job (aria_kernel.live_partition), never in a skippable shard.
+READS_LIVE_CHECKOUT = 'the replayed belief cites nx.json, read from the live checkout'
+
 import json
 import sys
 import tempfile

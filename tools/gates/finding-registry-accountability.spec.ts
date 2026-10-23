@@ -42,6 +42,7 @@ import { applyAssignment } from './finding-registry-assign';
 import {
   rechain,
   serializeRegistryJsonl,
+  UNRESOLVED_FINDING_STATES,
   verify,
   parseRegistryJsonl,
   ZERO_HASH,
@@ -117,7 +118,9 @@ void test('the row contract refuses an unresolved CRITICAL without an accountabl
     validateRegistrySuffixForRechain([entry], 0, SCHEMA_PATH);
 
   assert.deepEqual(violations(row({})), []);
-  for (const state of ['OPEN', 'IN-PROGRESS', 'STALE', 'BLOCKED'] as const) {
+  // Every state the registry's predicate calls unresolved, so the schema's
+  // `not RESOLVED` rule and isUnresolvedFindingState cannot drift apart.
+  for (const state of UNRESOLVED_FINDING_STATES) {
     for (const missing of [
       { owner_user: null },
       { deadline: null },

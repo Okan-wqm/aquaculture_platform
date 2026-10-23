@@ -2,6 +2,7 @@ import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 import { PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { applyEmployeeModuleScope } from '../../common/module-scope';
 import { GetLeaveRequestsQuery } from '../queries/get-leave-requests.query';
 import { LeaveRequest } from '../entities/leave-request.entity';
 
@@ -20,6 +21,7 @@ export class GetLeaveRequestsHandler implements IQueryHandler<GetLeaveRequestsQu
       leaveTypeId,
       startDate,
       endDate,
+      moduleCode,
     } = query;
 
     const page = query.page ?? 1;
@@ -54,7 +56,7 @@ export class GetLeaveRequestsHandler implements IQueryHandler<GetLeaveRequestsQu
       queryBuilder.andWhere('lr.startDate <= :endDate', { endDate });
     }
 
-    const [items, total] = await queryBuilder
+    const [items, total] = await applyEmployeeModuleScope(queryBuilder, 'employee', moduleCode)
       .skip(offset)
       .take(limit)
       .getManyAndCount();

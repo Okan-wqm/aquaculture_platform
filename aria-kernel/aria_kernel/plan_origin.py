@@ -42,7 +42,6 @@ line.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 from collections.abc import Mapping
@@ -51,6 +50,7 @@ from typing import Any
 
 from .finding import FINDING_ID_RE
 from .tool_registry import GovernanceError
+from .digest import sha256_digest_text
 
 COMMIT_CONTRACT_SCHEMA_VERSION = 1
 
@@ -575,7 +575,7 @@ def paths_outside_admission_scope(scope: Mapping[str, Any], paths: list[Any]) ->
                 and any(path == entry or path.startswith(entry + "/") for entry in bound)):
             continue
         text = str(raw)
-        label = text if safe_repo_ref(text) else "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+        label = text if safe_repo_ref(text) else sha256_digest_text(text)
         if label not in offending:
             offending.append(label)
     return offending

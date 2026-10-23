@@ -8,6 +8,16 @@ from pathlib import Path
 from aria_kernel import register_tool, run_tool
 from aria_kernel.runs_reader import run_read_paths
 
+# ARIA-HIGH-602 — this module runs the real adapter over the live
+# apps/farm-service/src and asserts what it read there. Product code is no
+# kernel surface, so the module runs in aria-kernel.yml's always-run
+# `workspace` job (tests/_helpers/suite_shards.py, the live partition): a PR
+# that changes farm-service entities runs it on that PR.
+READS_LIVE_CHECKOUT = (
+    "the real TypeORM adapter over the live apps/farm-service/src and "
+    "libs/backend-common schema-manager.service.ts reads batch.entity.ts and emits observations"
+)
+
 
 class TypeOrmAdapterIntegrationTests(unittest.TestCase):
     def setUp(self):

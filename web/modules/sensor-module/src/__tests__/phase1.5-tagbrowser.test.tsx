@@ -17,6 +17,7 @@
 import React from 'react';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { Mock } from 'vitest';
 
 /* ------------------------------------------------------------------ */
 /*  Mocks: TagBrowser relies on useDeviceTags which hits the API.     */
@@ -156,7 +157,7 @@ describe('AnimationsPanel TagBrowser integration', () => {
 /* ================================================================== */
 
 describe('RangeColorMapping', () => {
-  let onChange: ReturnType<typeof vi.fn>;
+  let onChange: Mock<(ranges: ColorRange[]) => void>;
 
   const defaultRanges: ColorRange[] = [
     { min: 0, max: 30, fill: '#22c55e' },
@@ -165,7 +166,7 @@ describe('RangeColorMapping', () => {
   ];
 
   beforeEach(() => {
-    onChange = vi.fn();
+    onChange = vi.fn<(ranges: ColorRange[]) => void>();
   });
 
   it('renders the correct number of range rows', () => {

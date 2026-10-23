@@ -7,8 +7,9 @@ from typing import Any
 
 from .agent_priors import _parse_agent  # reuse the local parser; this remains an internal ARIA module boundary.
 from .fitness import latest_agent_fitness
-from .ledger import sha256_of_canonical_json
+from .ledger import sha256_digest_of_canonical_json
 from .tool_registry import ensure_tools_dir, utc_now
+from .digest import sha256_digest_text
 
 
 def agent_network_index(
@@ -127,11 +128,11 @@ def _source_hashes(manifest: dict[str, Any]) -> dict[str, str]:
             buckets["skills"].append(raw)
         elif rel.startswith("fitness/"):
             buckets["fitness"].append(raw)
-    return {key: "sha256:" + hashlib.sha256("\n".join(values).encode("utf-8")).hexdigest() for key, values in buckets.items()}
+    return {key: sha256_digest_text("\n".join(values)) for key, values in buckets.items()}
 
 
 def _hash_payload(payload: dict[str, Any]) -> str:
-    return "sha256:" + sha256_of_canonical_json(payload)
+    return sha256_digest_of_canonical_json(payload)
 
 
 def _read_json(path: Path) -> dict[str, Any]:

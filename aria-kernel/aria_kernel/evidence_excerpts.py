@@ -44,13 +44,13 @@ as ``skipped`` entries; the function itself raises only on a caller error
 """
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 from typing import Any, Sequence
 
 from .canonical_path import _canonical_evidence_path
 from .evidence_validator import _parse_agent_ref
 from .tool_registry import GovernanceError
+from .digest import sha256_digest_text
 
 # Defaults are the packing policy. A cited line plus 40 lines either side is
 # roughly a screen of surrounding code — enough to see the function the line
@@ -98,7 +98,7 @@ def excerpt_content_hash(content: str) -> str:
     — which is exactly the signal that the excerpt is stale and the file must
     be Read.
     """
-    return "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest()
+    return sha256_digest_text(content)
 
 
 def _skip(path: str, reason: str) -> dict[str, Any]:

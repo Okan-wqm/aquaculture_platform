@@ -29,7 +29,6 @@ queue layer depends on the contract layer, never the other way around).
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 from pathlib import Path
@@ -45,6 +44,7 @@ from .agent_surface import (
 from .agent_genesis import BANNED_PHRASES
 from .must_satisfy import validate_must_satisfy
 from .tool_registry import GovernanceError
+from .digest import sha256_digest_text
 
 
 REQUEST_REQUIRED_FIELDS = (
@@ -624,4 +624,4 @@ def envelope_hash(envelope: dict[str, Any]) -> str:
     `output_hash` against the request fingerprint).
     """
     canonical = json.dumps(envelope, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return sha256_digest_text(canonical)

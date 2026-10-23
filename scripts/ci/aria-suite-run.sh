@@ -26,6 +26,12 @@
 # pytest half whole. aria-kernel.yml runs every shard plus the pytest half
 # once, which is the two-collector partition above, split across runners.
 #
+# LIVE MODE (ARIA-HIGH-602): `--live REPORT` runs the suite's live partition —
+# the modules that declare READS_LIVE_CHECKOUT and so read the live checkout
+# outside the kernel surface — through the same two collectors. The always-run
+# `workspace` job runs it on every PR, so a PR that changes what those modules
+# read cannot skip them and pass the required check.
+#
 # Consumers: aria-kernel.yml, `npm run aria:test:unit`,
 # and scripts/ci/aria-suite-changed.mjs (pre-push). Change the suite HERE,
 # never in a copy.
@@ -60,6 +66,34 @@ elif [ "${1:-}" = "--pytest-native" ]; then
   # verify` refuses one in the unittest half. The whole-suite run below is a
   # laptop's, where the pin's skip is the sandbox's own fail-closed contract.
   pytest_native --refuse-sandbox-skips
+elif [ "${1:-}" = "--live" ]; then
+  # ARIA-HIGH-602 — the live partition of the suite: the modules that declare
+  # READS_LIVE_CHECKOUT read the live checkout outside the kernel surface, so
+  # the always-run `workspace` job of aria-kernel.yml runs this mode on every
+  # PR and the skippable lanes never do. The unittest half writes the live
+  # report `suite_shards verify` proves complete beside the shard reports. The
+  # pytest half may own nothing (every declared module is a TestCase module
+  # today): exit 5, "nothing to run", is the empty partition, not a failure —
+  # unlike the scoped mode, an empty live set is a valid, reported outcome.
+  # This lane provisions the sandbox backend before the suite, so its pytest
+  # half refuses a skipped real-sandbox pin like the kernel lane's (the
+  # unittest half's skips are refused by verify in either partition).
+  if [ "$#" -ne 2 ]; then
+    echo "usage: $0 --live REPORT_PATH" >&2
+    exit 2
+  fi
+  set +e
+  python3 aria-kernel/tests/_helpers/suite_shards.py run --live --report "$2"
+  unittest_status=$?
+  pytest_native --aria-live-only --refuse-sandbox-skips
+  pytest_status=$?
+  set -e
+  if [ "$unittest_status" -ne 0 ]; then
+    exit "$unittest_status"
+  fi
+  if [ "$pytest_status" -ne 0 ] && [ "$pytest_status" -ne 5 ]; then
+    exit "$pytest_status"
+  fi
 elif [ "$#" -gt 0 ]; then
   # Dots for unittest module names, slashes for pytest paths — both derive
   # from the same argument list, so the two collectors cannot disagree about

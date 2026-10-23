@@ -1,0 +1,109 @@
+{
+  "name": "semantic-infrastructure-policy",
+  "lane": "semantic_regression",
+  "input": {
+    "roots": [
+      "tools/aria-adapters/fixtures/infrastructure-policy-adapter/workspaces/semantic-infrastructure-policy"
+    ]
+  },
+  "expected": {
+    "status": "ok",
+    "required_findings": [
+      "floating_artifact",
+      "privileged_runtime",
+      "literal_secret",
+      "nats_password_identity",
+      "missing_runtime_guard",
+      "security_header_inheritance_drop",
+      "unpinned_terraform_source"
+    ],
+    "findings_count": 19,
+    "required_observations": [
+      "infrastructure_policy_summary",
+      "infrastructure_file",
+      "infrastructure_composition",
+      "infrastructure_unresolved_verdict"
+    ],
+    "required_observation_values": [
+      {
+        "type": "infrastructure_policy_summary",
+        "details.files": 14,
+        "details.parse_failures": 0,
+        "details.unobserved_files": 0,
+        "details.excluded_helm_templates": 1,
+        "details.clean": true,
+        "details.authorities_complete": true,
+        "details.findings.floating_artifact": 4,
+        "details.findings.privileged_runtime": 7,
+        "details.findings.literal_secret": 1,
+        "details.findings.nats_password_identity": 2,
+        "details.findings.missing_runtime_guard": 1,
+        "details.findings.security_header_inheritance_drop": 1,
+        "details.findings.unpinned_terraform_source": 3,
+        "details.unresolved.privileged_runtime": 1,
+        "details.unresolved.unpinned_terraform_source": 1
+      }
+    ]
+  },
+  "curation": {
+    "curator": "claude/ARIA-HIGH-012 (infrastructure-policy-adapter landing, session 2026-10-22)",
+    "gold_set": {
+      "true_positive_count": 19,
+      "known_false_positive_count": 30,
+      "true_positives": [
+        "docker-compose.yml worker ${TAG:-latest} (floating_artifact interpolated_default)",
+        "docker-compose.yml cache redis:7-alpine (floating_artifact floating)",
+        "docker/Dockerfile final FROM debian:bookworm-slim (floating_artifact opaque_tag)",
+        "kubernetes/base/deployment.yaml bare-worker ghcr.io/example/worker:latest (floating_artifact floating)",
+        "docker-compose.yml cadvisor bind of / (privileged_runtime docker_socket)",
+        "docker-compose.yml cadvisor bind of /var/run (privileged_runtime docker_socket)",
+        "docker-compose.yml debug privileged: true (privileged_runtime privileged)",
+        "docker/Dockerfile final stage without USER (privileged_runtime unset)",
+        "docker/Dockerfile.ops USER root (privileged_runtime root)",
+        "kubernetes/base/deployment.yaml node-agent hostPath /run/containerd/containerd.sock (privileged_runtime docker_socket)",
+        "kubernetes/base/deployment.yaml node-agent privileged: true (privileged_runtime privileged)",
+        "docker-compose.yml POSTGRES_PASSWORD literal hidden by the gitleaks docker-compose path allowlist (literal_secret)",
+        "nats/nats-password.conf user $NATS_USER (nats_password_identity interpolated_user)",
+        "nats/nats-password.conf password $NATS_PASS (nats_password_identity password)",
+        "kubernetes/base/deployment.yaml bare-worker without memory limit and probes (missing_runtime_guard)",
+        "nginx/edge.conf location /health drops X-Frame-Options and Content-Security-Policy (security_header_inheritance_drop)",
+        "terraform/main.tf module branch ?ref=main (unpinned_terraform_source git_branch_ref)",
+        "terraform/main.tf module registry_bare without version (unpinned_terraform_source registry_unversioned)",
+        "terraform/main.tf module archive without checksum (unpinned_terraform_source archive)"
+      ],
+      "known_false_positives": [
+        "docker-compose.yml api ${TAG:?TAG required}",
+        "docker-compose.yml pinned digest image",
+        "docker-compose.yml cadvisor digest image",
+        "docker-compose.yml debug digest image",
+        "docker-compose.yml ./config project bind",
+        "docker-compose.yml ../../shared bind (unresolved, not claimed)",
+        "docker-compose.yml quoted 'privileged: true' in a command",
+        "docker-compose.yml REDIS_PASSWORD ${REDIS_PASSWORD}",
+        "docker-compose.yml JWT_SECRET change-me placeholder",
+        "docker-compose.yml {{ in a comment",
+        "docker-compose.yml {{ }} in the healthcheck string",
+        "docker/Dockerfile commented FROM",
+        "docker/Dockerfile digest-pinned build stage",
+        "docker/Dockerfile FROM evil:latest in a heredoc body",
+        "docker/Dockerfile USER root in a heredoc body",
+        "docker/Dockerfile.api digest FROM and USER 65532",
+        "docker/Dockerfile.ops digest FROM",
+        "kubernetes/base/deployment.yaml guarded-api",
+        "kubernetes/base/deployment.yaml commented image line",
+        "kubernetes/base/deployment.yaml composed-reporter guarded by the prod overlay that deploys it",
+        "kubernetes/base/deployment.yaml hostPath /var/log",
+        "kubernetes/overlays/stray patch for bare-worker in an overlay that deploys no base",
+        "terraform/main.tf module commit",
+        "terraform/main.tf module registry with version",
+        "terraform/main.tf module checksummed archive",
+        "terraform/main.tf module mirror ftp-mirror:vpc (unresolved, not claimed)",
+        "terraform/main.tf commented and block-commented modules",
+        "nats/nats-cert.conf certificate-CN user and the commented token",
+        "nginx/edge.conf /assets/ re-declares, / inherits, commented add_header",
+        "helm/demo/values.yaml {{ in a comment (parsed); helm/demo/templates excluded unrendered"
+      ]
+    },
+    "notes": "The committed semantic workspace: a safe and an unsafe twin per claim of the five planned rules and the two owners B added, the unresolved twins (a bind that climbs out of the project, an unclassifiable module source) and the decoys. Every file parses, because infra-policy.spec.ts's corpus test reads every tracked infrastructure file; the alias bomb and the 10 000-level nesting bomb are therefore built at run time by infrastructure-policy-adapter.test.ts, the regression ref, as are its higher-entropy literal secrets. The literal here is low-entropy on purpose: the custom env-secret rule claims it (no entropy floor) while gitleaks' default generic rule (entropy 3.5) does not, so the committed fixture cannot turn the CI secret scan red. Measured on the landing branch: 14 files (1 compose, 3 Dockerfiles, 4 Kubernetes, 1 Helm values, 1 Helm template excluded unrendered, 1 Terraform, 2 NATS, 1 nginx), 0 parse failures, 19 findings."
+  }
+}

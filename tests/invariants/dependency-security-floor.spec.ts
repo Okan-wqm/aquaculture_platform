@@ -6,7 +6,7 @@ import * as YAML from 'yaml';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const NX_VERSION = '22.7.12';
-const VITEST_VERSION = '3.2.7';
+const VITEST_VERSION = '4.1.12';
 const ROUTER_VERSION = '7.18.2';
 const API_EXTRACTOR_VERSION = '7.59.0';
 const E2E_SECURITY_FLOORS = {
@@ -67,8 +67,10 @@ const ROOT_SECURITY_FLOORS = {
   // outside it (SUPPLY-HIGH-016). Production: @apollo/gateway ->
   // make-fetch-happen `^4.1.1`, so the lock is the only place this floor lives.
   'http-cache-semantics': '4.3.0',
-  // GHSA-rpw4-54j3-4h4q, GHSA-2vr4-cq9g-pvrc.
-  'ip-address': '10.5.1',
+  // GHSA-rpw4-54j3-4h4q, GHSA-2vr4-cq9g-pvrc (10.5.1) + GHSA-rxp7-6hxx-x8q5
+  // (10.7.4: Address6 zone-id match is quadratic ahead of its length limit;
+  // SUPPLY-MEDIUM-028).
+  'ip-address': '10.7.4',
   // GHSA-3pph-fpjx-jg34.
   multer: '2.4.0',
   // 13.4.5 globs type paths with tinyglobby instead of fast-glob, which takes
@@ -567,7 +569,7 @@ describe('JavaScript dependency security floor', () => {
       '@testing-library/react': '^16.3.2',
       '@testing-library/user-event': '^14.5.2',
       jsdom: '^24.0.0',
-      vitest: '^3.2.7',
+      vitest: `^${VITEST_VERSION}`,
     });
     expect(vite).toContain("import { defineConfig } from 'vitest/config';");
     expect(vite).toContain("environment: 'jsdom'");
@@ -575,13 +577,16 @@ describe('JavaScript dependency security floor', () => {
     expect(project.targets?.test?.dependsOn).toEqual(['shared-ui:build']);
   });
 
+  // 3.4.17 is the first release outside GHSA-cg2g-xh64-v4q7 (critical),
+  // GHSA-mrv2-3pqr-j5jr, GHSA-c6gr-qvv4-5v3f, GHSA-p98j-92pf-mc4p and
+  // GHSA-6688-9rhm-gjv2 (SUPPLY-CRITICAL-027).
   test('pins DOMPurify in the sensor manifest and root override', () => {
     const root = readJson<PackageManifest>('package.json');
     const lock = readJson<Lockfile>('package-lock.json');
 
-    expect(declaration('web/modules/sensor-module/package.json', 'dompurify')).toBe('3.4.14');
-    expect(root.overrides?.dompurify).toBe('3.4.14');
-    expect(resolvedVersions(lock, 'dompurify')).toEqual(['3.4.14']);
+    expect(declaration('web/modules/sensor-module/package.json', 'dompurify')).toBe('3.4.17');
+    expect(root.overrides?.dompurify).toBe('3.4.17');
+    expect(resolvedVersions(lock, 'dompurify')).toEqual(['3.4.17']);
   });
 
   test('enumerates every router consumer and pins both v7 singletons, SSoT, and locks', () => {

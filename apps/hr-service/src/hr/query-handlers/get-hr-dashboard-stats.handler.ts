@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 import { ObjectType, Field, Int, Float } from '@nestjs/graphql';
+import { HEAD_COUNT_EXCLUDED_STATUS } from '../../common/head-count';
 import { GetHRDashboardStatsQuery } from '../queries/get-hr-dashboard-stats.query';
 
 @ObjectType()
@@ -35,6 +36,10 @@ export class HRDashboardStats {
 
   @Field(() => Int)
   totalDepartments!: number;
+
+  /** Head count (common/head-count.ts) of the employees placed in no department. */
+  @Field(() => Int)
+  unplacedEmployees!: number;
 }
 
 @Injectable()
@@ -60,10 +65,11 @@ export class GetHRDashboardStatsHandler implements IQueryHandler<GetHRDashboardS
         COUNT(*) FILTER (WHERE status = 'terminated' AND "isDeleted" = false) AS "terminatedEmployees",
         COUNT(*) FILTER (WHERE "hireDate" >= $2 AND "isDeleted" = false) AS "newHiresThisMonth",
         COUNT(*) FILTER (WHERE "personnelCategory" = 'offshore' AND status = 'active' AND "isDeleted" = false) AS "offshoreEmployees",
-        COUNT(*) FILTER (WHERE ("personnelCategory" = 'onshore' OR "personnelCategory" IS NULL) AND status = 'active' AND "isDeleted" = false) AS "onshoreEmployees"
+        COUNT(*) FILTER (WHERE ("personnelCategory" = 'onshore' OR "personnelCategory" IS NULL) AND status = 'active' AND "isDeleted" = false) AS "onshoreEmployees",
+        COUNT(*) FILTER (WHERE "departmentHrId" IS NULL AND status <> $3 AND "isDeleted" = false) AS "unplacedEmployees"
       FROM employees
       WHERE "tenantId" = $1
-    `, [tenantId, firstDayOfMonth]);
+    `, [tenantId, firstDayOfMonth, HEAD_COUNT_EXCLUDED_STATUS]);
 
     // Attendance rate for today
     const attendanceResult = await this.dataSource.query(`
@@ -103,6 +109,7 @@ export class GetHRDashboardStatsHandler implements IQueryHandler<GetHRDashboardS
       attendanceRate,
       pendingLeaveRequests: parseInt(leaveResult[0]?.pendingCount, 10) || 0,
       totalDepartments: parseInt(deptResult[0]?.deptCount, 10) || 0,
+      unplacedEmployees: parseInt(stats.unplacedEmployees, 10) || 0,
     };
   }
 }

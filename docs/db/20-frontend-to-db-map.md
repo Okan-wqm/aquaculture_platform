@@ -616,7 +616,6 @@ Schema: Per-tenant via `TenantSchemaMiddleware` -> `search_path`
 | Assign to Position     | `assignEmployeeToPosition`   | `hr.resolver.ts` (same as update) | `employees` | VERIFIED |
 | Assign Manager         | `assignManager`              | `hr.resolver.ts` (same as update) | `employees` | VERIFIED |
 | Update Avatar          | `updateEmployeeAvatar`       | `hr.resolver.ts` (same as update) | `employees` | VERIFIED |
-| Toggle Farm Worker     | `toggleFarmWorker`           | `hr.resolver.ts`                  | `employees` | VERIFIED |
 | Update Emergency Info  | `updateEmergencyInfo`        | `hr.resolver.ts` (same as update) | `employees` | VERIFIED |
 
 ### HR Departments

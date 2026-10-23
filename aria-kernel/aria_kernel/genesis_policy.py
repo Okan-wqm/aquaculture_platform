@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
-import hashlib as _hashlib
 import math as _math
 from dataclasses import dataclass as _dataclass
 from pathlib import Path
 from typing import Any
+from .digest import sha256_digest, sha256_digest_text
 
 
 POLICY_KEYS = {
@@ -459,12 +459,12 @@ def _adaptive_runtime_policy(repo_root: str | Path) -> _AdaptiveRuntimePolicy | 
         for key, value in expected.items()
     ):
         raise GovernanceError("adaptive_runtime_policy_invalid")
-    hashes = ["sha256:" + _hashlib.sha256(content).hexdigest() if content is not None else None
+    hashes = [sha256_digest(content) if content is not None else None
               for content in sources]
     identity = json.dumps({"schema_version": 1, "default_sha256": hashes[0],
                            "override_sha256": hashes[1]}, sort_keys=True, separators=(",", ":"))
     return _AdaptiveRuntimePolicy(
-        policy_id=block["policy_id"], policy_digest="sha256:" + _hashlib.sha256(identity.encode()).hexdigest(),
+        policy_id=block["policy_id"], policy_digest=sha256_digest_text(identity),
         default_sha256=str(hashes[0]), override_sha256=hashes[1],
         monetary_admission=monetary_admission,
     )

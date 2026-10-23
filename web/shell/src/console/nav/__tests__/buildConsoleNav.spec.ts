@@ -356,7 +356,7 @@ describe('buildConsoleNav — representative viewers', () => {
   it('lists the HR "coming soon" routes as planned pages', () => {
     const viewer: Viewer = { role: 'MODULE_USER', modules: ['hr'], permissions: [] };
     const planned = pagesOf(nav(viewer)).filter((page) => page.status === 'planned');
-    expect(planned).toHaveLength(16);
+    expect(planned).toHaveLength(15);
     expect(planned.every((page) => page.path.startsWith('/hr/'))).toBe(true);
   });
 

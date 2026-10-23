@@ -45,6 +45,7 @@ from .agent_surface import PLANNER_BRIDGE_ROLES
 from .independence_check import response_principal
 from .plan_origin import carry_started_origin
 from .tool_registry import GovernanceError
+from .digest import sha256_digest_text
 
 # Plan ARIA-V9.0-B — assert_never is the canonical exhaustiveness
 # tool. Python 3.11+ ships it under typing; earlier targets fall back
@@ -736,7 +737,7 @@ def _canonicalize_revision_payload(
         # validator's _require_non_empty(content) check produces a
         # specific failure rather than a NoneType propagation.
         content = _canonical_json(plan_content or {})
-    content_hash = "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest()
+    content_hash = sha256_digest_text(content)
 
     # Derive a stable revision_id from authoritative inputs. The
     # request_id tail anchors it to the specific agent invocation; the

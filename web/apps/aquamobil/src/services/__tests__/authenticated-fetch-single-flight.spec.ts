@@ -8,6 +8,7 @@
 // new refresh (the in-flight promise is not cached past its window).
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { Mock } from 'vitest';
 
 import {
   authenticatedFetch,
@@ -28,12 +29,18 @@ function makeResponse(
   };
 }
 
+/** The slice of `fetch` authenticatedFetch drives and these specs stand in for. */
+type FetchStub = (
+  url: string,
+  init?: RequestInit,
+) => Promise<Pick<Response, 'status' | 'ok' | 'json'>>;
+
 const OLD_TOKEN = 'old-token';
 const NEW_TOKEN = 'new-token';
 
 describe('authenticatedFetch single-flight refresh (FE-HIGH-054)', () => {
-  let fetchMock: ReturnType<typeof vi.fn>;
-  let refreshAuth: ReturnType<typeof vi.fn>;
+  let fetchMock: Mock<FetchStub>;
+  let refreshAuth: Mock<() => Promise<boolean>>;
 
   beforeEach(() => {
     // Start each test from a fresh, resolved barrier with a registered session so
@@ -51,7 +58,7 @@ describe('authenticatedFetch single-flight refresh (FE-HIGH-054)', () => {
     syncAuthStore(OLD_TOKEN, 'tenant-1', refreshAuth);
     markAuthReady();
 
-    fetchMock = vi.fn();
+    fetchMock = vi.fn<FetchStub>();
     vi.stubGlobal('fetch', fetchMock);
   });
 
@@ -87,9 +94,8 @@ describe('authenticatedFetch single-flight refresh (FE-HIGH-054)', () => {
     // request ever used the stale OLD_TOKEN.
     const successfulOnNewToken = fetchMock.mock.calls.filter(
       ([, init]) =>
-        ((init as RequestInit | undefined)?.headers as Record<string, string> | undefined)?.[
-          'Authorization'
-        ] === `Bearer ${NEW_TOKEN}`,
+        (init?.headers as Record<string, string> | undefined)?.['Authorization'] ===
+        `Bearer ${NEW_TOKEN}`,
     );
     expect(successfulOnNewToken.length).toBeGreaterThanOrEqual(5);
   });

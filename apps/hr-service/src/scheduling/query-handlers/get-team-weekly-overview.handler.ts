@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { GetTeamWeeklyOverviewQuery } from '../queries/get-team-weekly-overview.query';
 import { WeeklyPlan } from '../entities/weekly-plan.entity';
 import { WeeklyPlanEntry, WeeklyPlanEntryType } from '../entities/weekly-plan-entry.entity';
+import { applyEmployeeModuleScope } from '../../common/module-scope';
 import { Employee } from '../../hr/entities/employee.entity';
 import { ObjectType, Field, Int, ID } from '@nestjs/graphql';
 import { WeekDay } from '../../attendance/entities/shift.entity';
@@ -124,7 +125,7 @@ export class GetTeamWeeklyOverviewHandler implements IQueryHandler<GetTeamWeekly
   ) {}
 
   async execute(query: GetTeamWeeklyOverviewQuery): Promise<TeamWeeklyOverview> {
-    const { tenantId, weekStartDate, departmentId, siteId } = query;
+    const { tenantId, weekStartDate, departmentId, siteId, moduleCode } = query;
 
     const startDate = new Date(weekStartDate);
     const endDate = new Date(startDate);
@@ -145,7 +146,7 @@ export class GetTeamWeeklyOverviewHandler implements IQueryHandler<GetTeamWeekly
       employeeQb.andWhere('e.farmId = :siteId', { siteId });
     }
 
-    employeeQb
+    applyEmployeeModuleScope(employeeQb, 'e', moduleCode)
       .orderBy('e.firstName', 'ASC')
       .addOrderBy('e.lastName', 'ASC')
       .take(MAX_EMPLOYEES); // Limit employees to prevent performance issues

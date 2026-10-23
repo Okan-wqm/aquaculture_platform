@@ -1,5 +1,9 @@
 [workspace]
-resolver = "2"
+# Resolver 3 makes lockfile resolution honour `rust-version` below
+# (incompatible-rust-versions = "fallback"): `cargo update` picks the newest
+# release that still builds on the pinned toolchain instead of one that needs
+# a newer rustc (uuid 1.28.0 requires 1.89; PR #2023). Resolver 2 ignored it.
+resolver = "3"
 members = [
     "crates/protocol-codec",
     "crates/alarm-core",

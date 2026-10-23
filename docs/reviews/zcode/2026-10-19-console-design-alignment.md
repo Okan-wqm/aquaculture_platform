@@ -161,3 +161,35 @@ value "ACTIVE"?` — the PR #2026 chip row shipped `active/monitoring/resolved`
   `Tank.departmentId`. A new handler spec pins the resolution: an
   Equipment-only row must never project, a real tank must — with the
   series, capacity and department assertions.
+
+## FARM-MEDIUM-465 — Feeding page refused ?tab=production-plan and opened the Meal Board
+
+- **Evidence:** reported from the live app —
+  `/sites/feeding?tab=production-plan` opened the Meal Board. The page
+  described its tabs in four places: the `TabId` union, a `VALID_TABS` list,
+  the `tabs` array that draws the strip, and the shell nav's feeding strip.
+  `production-plan` was in the union, the strip, the content branch and the
+  nav, but not in `VALID_TABS`, so `isValidTab` refused it and the page fell
+  back to `DEFAULT_TAB`. Clicking the Production Plan button failed the same
+  way (it wrote `?tab=production-plan`, then the same check refused it), so
+  `ProductionPlanTab` could never mount. It shipped that way with the tab
+  (e754a72ea, 2026-10-20): not a regression, and no spec drove a tab through
+  `?tab=`.
+- **Why the gate did not see it:** `web-console-nav-coverage` holds the nav's
+  tab ids against the page's `TabId` union, on the premise that the union is
+  the set the page accepts. For this page it was not.
+- **Fix:** the page describes its tabs once. `TAB_DEFINITIONS` is a
+  `Record<TabId, …>`, so the compiler rejects a union member without a
+  definition and a definition outside the union; the strip and the accepted
+  `?tab=` values both derive from it, and `VALID_TABS` is gone. The union
+  stays a literal type, so the nav gate keeps reading it — and is now sound
+  for this page. Strip order follows the nav's (Production Plan before
+  Protocols v2). Specs derive from the rendered buttons, so a tab added later
+  is covered without editing them: every button shows itself active once
+  clicked, and every `?tab=` its click wrote opens that same tab.
+- **Siblings (swept 2026-10-22, 18 tab-reading pages):** Feeding was the only
+  page with an id drawn and linked but refused. Not fixed here, not registered:
+  `TanksPage` reads `?tab` only when it mounts, so a rail tab click while the
+  page is open changes the URL and the highlight but probably not the view
+  (read from code, not reproduced); Water chemistry's `bulk` tab is listed to
+  viewers without the capability that makes it render.

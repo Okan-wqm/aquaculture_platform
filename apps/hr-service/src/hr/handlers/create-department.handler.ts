@@ -3,6 +3,7 @@ import { DataSource, QueryRunner } from 'typeorm';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { CreateDepartmentCommand } from '../commands/create-department.command';
 import { DepartmentHR } from '../entities/department.entity';
+import { assertDepartmentCodeFree } from '../services/department-code';
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 
 @Injectable()
@@ -24,14 +25,8 @@ export class CreateDepartmentHandler implements ICommandHandler<CreateDepartment
     try {
       const repo = tenantManagerRepo(queryRunner.manager, DepartmentHR, tenantId);
 
-      // Check for duplicate code within tenant
-      const existing = await repo.findOne({
-        where: { tenantId, code: input.code, isDeleted: false },
-      });
-
-      if (existing) {
-        throw new ConflictException(`Department with code '${input.code}' already exists`);
-      }
+      // The code must be free across the whole tenant (every module, deleted rows included).
+      await assertDepartmentCodeFree(queryRunner.manager, tenantId, input.code);
 
       // Validate parent department if specified
       if (input.parentDepartmentId) {

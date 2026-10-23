@@ -120,6 +120,7 @@ def record_draft_lifecycle_chain(
             "genesis_chain_requires_exactly_one_of_operator_or_adjudication_ref"
         )
     capability_gap_key = str(gap.get("capability_gap_key") or "")
+    approval_proof: dict[str, Any] | None = None
     if adjudication_ref:
         request_evidence: dict[str, Any] = {
             "approval_mode": "panel",
@@ -127,7 +128,22 @@ def record_draft_lifecycle_chain(
             "capability_gap_key": capability_gap_key,
         }
     else:
-        request_evidence = {"operator_feedback_ref": operator_approval_ref}
+        # ARIA-HIGH-238 — the operator ref satisfies the REQUEST gate's
+        # operator mode, so it is authority: it must be the operator's own
+        # GitHub act naming the entity being born, verified (and consumed)
+        # before the chain records REQUEST.
+        from .operator_approval import require_operator_act
+
+        approval_proof = require_operator_act(
+            operator_approval_ref,
+            surface="genesis_request",
+            scope={"entity": entity_id},
+            base_dir=base_dir,
+        )
+        request_evidence = {
+            "operator_feedback_ref": operator_approval_ref,
+            "operator_approval": approval_proof,
+        }
     steps: list[tuple[str, dict[str, Any]]] = [
         ("PRESSURE", {"gap_id": gap.get("gap_id"), "primary_source": gap.get("primary_source")}),
         (
@@ -501,6 +517,7 @@ def approve_agent_pr(
         )
     if _panel_ref and operator_synthetic_override:
         raise GovernanceError("synthetic_override_is_operator_only")
+    _approval_proof = None
     if _panel_ref:
         from .genesis_lifecycle import _resolve_panel_adjudication_proof
         from .human_required import _human_required_path as _hr_path
@@ -532,6 +549,19 @@ def approve_agent_pr(
             "operator_synthetic_override=True ONLY if you have an audit "
             "trail proving the synthetic equivalence."
         )
+    # ARIA-HIGH-238 — the operator path approves PR creation for the draft:
+    # authority, so the ref must be the operator's own GitHub act naming the
+    # draft. Verified after every read-only refusal (sandbox gates, draft
+    # lookup) and before the first write, so a refused call spends no act.
+    if _operator_ref:
+        from .operator_approval import require_operator_act
+
+        _approval_proof = require_operator_act(
+            _operator_ref,
+            surface="agent_pr_approval",
+            scope={"draft": draft_id},
+            base_dir=base_dir,
+        )
     row = dict(draft)
     row["recorded_at"] = utc_now()
     row["status"] = "approved_for_agent_pr"
@@ -541,6 +571,8 @@ def approve_agent_pr(
         row["adjudication_ref"] = _panel_ref
         row["approval_mode"] = "panel"
     row["blocked_by"] = []
+    if _approval_proof is not None:
+        row["operator_approval"] = _approval_proof
     return append_jsonl(ensure_tools_dir(base_dir) / "agent-genesis" / "drafts.jsonl", row)
 
 

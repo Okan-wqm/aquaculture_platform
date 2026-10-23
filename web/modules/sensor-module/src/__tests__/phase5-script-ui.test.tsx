@@ -20,6 +20,7 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { Mock } from 'vitest';
 
 /* ------------------------------------------------------------------ */
 /*  Mocks                                                               */
@@ -63,7 +64,7 @@ import { ScriptEditor } from '../components/scada-builder/widget-configs/ScriptE
 import { ScriptsPanel } from '../components/scada-builder/widget-configs/ScriptsPanel';
 import { ScriptTriggerConfig } from '../components/scada-builder/widget-configs/ScriptTriggerConfig';
 import { EventsPanel } from '../components/scada-builder/widget-configs/EventsPanel';
-import type { EventAction, ScadaScript } from '../engine/events/types';
+import type { EventAction, ScadaScript, WidgetEventDef } from '../engine/events/types';
 
 /* ------------------------------------------------------------------ */
 /*  Helper factories                                                    */
@@ -85,14 +86,14 @@ function createScript(overrides: Partial<ScadaScript> = {}): ScadaScript {
 /* ================================================================== */
 
 describe('ScriptEditor', () => {
-  let onChange: ReturnType<typeof vi.fn>;
-  let onDelete: ReturnType<typeof vi.fn>;
-  let onTest: ReturnType<typeof vi.fn>;
+  let onChange: Mock<(updates: Partial<ScadaScript>) => void>;
+  let onDelete: Mock<() => void>;
+  let onTest: Mock<() => void>;
 
   beforeEach(() => {
-    onChange = vi.fn();
-    onDelete = vi.fn();
-    onTest = vi.fn();
+    onChange = vi.fn<(updates: Partial<ScadaScript>) => void>();
+    onDelete = vi.fn<() => void>();
+    onTest = vi.fn<() => void>();
   });
 
   /* -------------------------------------------------------------- */
@@ -203,12 +204,12 @@ describe('ScriptEditor', () => {
 /* ================================================================== */
 
 describe('ScriptsPanel', () => {
-  let onChange: ReturnType<typeof vi.fn>;
-  let onTestScript: ReturnType<typeof vi.fn>;
+  let onChange: Mock<(scripts: ScadaScript[]) => void>;
+  let onTestScript: Mock<(scriptId: string) => void>;
 
   beforeEach(() => {
-    onChange = vi.fn();
-    onTestScript = vi.fn();
+    onChange = vi.fn<(scripts: ScadaScript[]) => void>();
+    onTestScript = vi.fn<(scriptId: string) => void>();
   });
 
   /* -------------------------------------------------------------- */
@@ -260,10 +261,10 @@ describe('ScriptsPanel', () => {
 /* ================================================================== */
 
 describe('ScriptTriggerConfig', () => {
-  let onChange: ReturnType<typeof vi.fn>;
+  let onChange: Mock<(updates: Partial<ScadaScript>) => void>;
 
   beforeEach(() => {
-    onChange = vi.fn();
+    onChange = vi.fn<(updates: Partial<ScadaScript>) => void>();
   });
 
   /* -------------------------------------------------------------- */
@@ -312,10 +313,10 @@ describe('ScriptTriggerConfig', () => {
 /* ================================================================== */
 
 describe('EventsPanel', () => {
-  let onChange: ReturnType<typeof vi.fn>;
+  let onChange: Mock<(events: WidgetEventDef[]) => void>;
 
   beforeEach(() => {
-    onChange = vi.fn();
+    onChange = vi.fn<(events: WidgetEventDef[]) => void>();
   });
 
   /* -------------------------------------------------------------- */

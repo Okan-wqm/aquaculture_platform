@@ -48,7 +48,7 @@ spec:
             team: aria-core
           annotations:
             summary: "ARIA executor has been paused for over 6h"
-            description: "aria-kernel control pause is in effect; resume with aria-kernel control resume."
+            description: "aria-kernel control pause is in effect; resume with aria-kernel control resume --operator-ref <an operator's GitHub act for the line --print-approval-line prints>."
         - alert: AriaDeliverySloGap
           expr: aria_delivery_false_success > 0 or aria_delivery_duplicate_prs > 0
           for: 10m

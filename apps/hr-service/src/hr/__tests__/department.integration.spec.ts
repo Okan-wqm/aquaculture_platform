@@ -12,7 +12,7 @@
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { DataSource, Not, Repository } from 'typeorm';
 import { ConflictException, NotFoundException } from '@nestjs/common';
 
 import { CreateDepartmentHandler } from '../handlers/create-department.handler';
@@ -24,6 +24,8 @@ import { UpdateDepartmentCommand } from '../commands/update-department.command';
 import { GetDepartmentsQuery, GetDepartmentQuery } from '../queries/get-departments.query';
 import { GetHRDashboardStatsQuery } from '../queries/get-hr-dashboard-stats.query';
 import { DepartmentHR } from '../entities/department.entity';
+import { HrModuleCode } from '../../common/enums';
+import { HEAD_COUNT_EXCLUDED_STATUS } from '../../common/head-count';
 
 // ============================================================================
 // Mock Factories
@@ -60,6 +62,8 @@ function createMockQueryRunner() {
   const mockRepo = {
     findOne: jest.fn(),
     find: jest.fn(),
+    // Employees still placed in the department being deleted: none unless a spec says otherwise.
+    count: jest.fn().mockResolvedValue(0),
     create: jest.fn((entity: Partial<DepartmentHR>) => {
       const dept = new DepartmentHR();
       Object.assign(dept, entity);
@@ -216,6 +220,32 @@ describe('Department Management Integration Tests', () => {
       expect(result.budgetCode).toBe('BC-QC');
       expect(result.costCenter).toBe('CC-100');
     });
+
+    it('should persist the owning module when one is given', async () => {
+      mockRepo.findOne.mockResolvedValue(null);
+
+      const command = new CreateDepartmentCommand(
+        tenantId,
+        { name: 'Seed Room', code: 'SEED', moduleCode: HrModuleCode.HYDROPONICS },
+        userId,
+      );
+
+      const result = await handler.execute(command);
+      expect(result.moduleCode).toBe(HrModuleCode.HYDROPONICS);
+    });
+
+    it('should leave moduleCode unset for a company-wide department', async () => {
+      mockRepo.findOne.mockResolvedValue(null);
+
+      const command = new CreateDepartmentCommand(
+        tenantId,
+        { name: 'Administration', code: 'ADM' },
+        userId,
+      );
+
+      const result = await handler.execute(command);
+      expect(result.moduleCode).toBeUndefined();
+    });
   });
 
   // --------------------------------------------------------------------------
@@ -261,6 +291,20 @@ describe('Department Management Integration Tests', () => {
       expect(result.updatedBy).toBe(userId);
     });
 
+    it('should move a department to another module', async () => {
+      const existing = createMockDepartment({ moduleCode: HrModuleCode.FARM });
+      mockRepo.findOne.mockResolvedValue(existing);
+
+      const command = new UpdateDepartmentCommand(
+        tenantId,
+        { id: existing.id, moduleCode: HrModuleCode.SENSOR },
+        userId,
+      );
+
+      const result = await handler.execute(command);
+      expect(result.moduleCode).toBe(HrModuleCode.SENSOR);
+    });
+
     it('should throw NotFoundException for non-existent department', async () => {
       mockRepo.findOne.mockResolvedValue(null);
 
@@ -288,6 +332,32 @@ describe('Department Management Integration Tests', () => {
       );
 
       await expect(handler.execute(command)).rejects.toThrow(/already exists/);
+    });
+
+    it('locks the department row before it counts its members, so a concurrent placement cannot slip past', async () => {
+      const existing = createMockDepartment();
+      mockRepo.findOne.mockResolvedValue(existing);
+
+      await handler.execute(
+        new UpdateDepartmentCommand(tenantId, { id: existing.id, name: 'Renamed' }, userId),
+      );
+
+      expect(mockRepo.findOne.mock.calls[0][0]).toEqual(
+        expect.objectContaining({ lock: { mode: 'pessimistic_write' } }),
+      );
+    });
+
+    it('does not treat the department itself as the holder of its own code on a case-only rename', async () => {
+      const existing = createMockDepartment({ code: 'ops' });
+      mockRepo.findOne.mockResolvedValueOnce(existing).mockResolvedValueOnce(null);
+
+      const result = await handler.execute(
+        new UpdateDepartmentCommand(tenantId, { id: existing.id, code: 'OPS' }, userId),
+      );
+
+      expect(result.code).toBe('OPS');
+      const [codeLookup] = mockRepo.findOne.mock.calls[1];
+      expect(codeLookup.where.id).toEqual(Not(existing.id));
     });
 
     it('should reject self-referencing parent', async () => {
@@ -318,6 +388,27 @@ describe('Department Management Integration Tests', () => {
       expect(result.isDeleted).toBe(true);
       expect(result.deletedAt).toBeDefined();
       expect(result.deletedBy).toBe(userId);
+    });
+
+    // A department now holds people and decides their module: deleting one that still has
+    // employees would silently drop them out of every module's Team list.
+    it('refuses to soft-delete a department that still has employees', async () => {
+      const existing = createMockDepartment();
+      mockRepo.findOne.mockResolvedValue(existing);
+      mockRepo.count.mockResolvedValue(3);
+
+      const command = new UpdateDepartmentCommand(
+        tenantId,
+        { id: existing.id, isDeleted: true },
+        userId,
+      );
+
+      await expect(handler.execute(command)).rejects.toThrow(ConflictException);
+      await expect(handler.execute(command)).rejects.toThrow(/3 employees/);
+      expect(mockRepo.save).not.toHaveBeenCalled();
+      expect(mockRepo.count).toHaveBeenCalledWith({
+        where: { tenantId, departmentHrId: existing.id, isDeleted: false },
+      });
     });
 
     it('should allow same code when not changing it', async () => {
@@ -390,6 +481,18 @@ describe('Department Management Integration Tests', () => {
 
       expect(departmentRepository.find).toHaveBeenCalledWith({
         where: { tenantId, isDeleted: false, siteId: 'site-uuid-001' },
+        order: { sortOrder: 'ASC', name: 'ASC' },
+      });
+    });
+
+    it('should list only the departments of the requested module', async () => {
+      departmentRepository.find.mockResolvedValue([]);
+
+      const query = new GetDepartmentsQuery(tenantId, undefined, undefined, HrModuleCode.FARM);
+      await handler.execute(query);
+
+      expect(departmentRepository.find).toHaveBeenCalledWith({
+        where: { tenantId, isDeleted: false, moduleCode: HrModuleCode.FARM },
         order: { sortOrder: 'ASC', name: 'ASC' },
       });
     });
@@ -503,6 +606,7 @@ describe('Department Management Integration Tests', () => {
             newHiresThisMonth: '3',
             offshoreEmployees: '10',
             onshoreEmployees: '30',
+            unplacedEmployees: '2',
           },
         ])
         // Attendance query
@@ -525,6 +629,24 @@ describe('Department Management Integration Tests', () => {
       expect(result.attendanceRate).toBe(88); // Math.round(35/40 * 100) = 88
       expect(result.pendingLeaveRequests).toBe(7);
       expect(result.totalDepartments).toBe(8);
+      expect(result.unplacedEmployees).toBe(2);
+    });
+
+    it('counts as unplaced only the live employees who have not left and have no department', async () => {
+      mockDataSource.query
+        .mockResolvedValueOnce([{ unplacedEmployees: '1' }])
+        .mockResolvedValueOnce([{}])
+        .mockResolvedValueOnce([{}])
+        .mockResolvedValueOnce([{}]);
+
+      await handler.execute(new GetHRDashboardStatsQuery(tenantId));
+
+      const [sql, params] = mockDataSource.query.mock.calls[0];
+      expect(sql).toContain(
+        'COUNT(*) FILTER (WHERE "departmentHrId" IS NULL AND status <> $3 AND "isDeleted" = false) AS "unplacedEmployees"',
+      );
+      expect(params[0]).toBe(tenantId);
+      expect(params[2]).toBe(HEAD_COUNT_EXCLUDED_STATUS);
     });
 
     it('should handle zero employees gracefully', async () => {

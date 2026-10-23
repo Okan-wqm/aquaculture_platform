@@ -1,3 +1,5 @@
+import type { HrModuleCode } from '../../common/enums';
+
 export class GetPendingApprovalsQuery {
   constructor(
     public readonly tenantId: string,
@@ -5,5 +7,12 @@ export class GetPendingApprovalsQuery {
     public readonly departmentId?: string,
     public readonly limit: number = 20,
     public readonly page: number = 1,
+    /** Only requests of employees whose live department is in this module; absent = every module. */
+    public readonly moduleCode?: HrModuleCode,
+    /**
+     * With no explicit department and no module, narrow to the approver's own department.
+     * False for a tenant admin, who approves across departments and is never narrowed implicitly.
+     */
+    public readonly narrowToOwnDepartment: boolean = true,
   ) {}
 }

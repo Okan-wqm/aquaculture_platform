@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -58,6 +59,39 @@ const SERVICE_COVERAGE_CONFIGS = {
 
 function readWorkflow(): Workflow {
   return YAML.parse(fs.readFileSync(WORKFLOW_PATH, 'utf8')) as Workflow;
+}
+
+/**
+ * The approved actions/upload-artifact pin has one owner: UPLOAD_ARTIFACT_ACTION in
+ * aria-kernel/aria_kernel/workflow_contracts.py, the value the kernel's workflow registry
+ * verifier enforces on every ARIA workflow. This spec held a second copy of the SHA, so the
+ * v7.0.2 bump (#1939) had to be made in two languages or stay red. Reading the literal through
+ * Python's own parser (stdlib `ast`, no kernel import, so this lane needs no PyYAML) makes a
+ * second copy unnecessary: a bump edits one line and both checks follow it.
+ */
+const KERNEL_WORKFLOW_CONTRACTS_PATH = path.join(
+  REPO_ROOT,
+  'aria-kernel',
+  'aria_kernel',
+  'workflow_contracts.py',
+);
+const READ_UPLOAD_ARTIFACT_ACTION = [
+  'import ast, json, sys',
+  'tree = ast.parse(open(sys.argv[1], encoding="utf-8").read(), filename=sys.argv[1])',
+  'json.dump([ast.literal_eval(node.value) for node in tree.body',
+  '           if isinstance(node, ast.Assign)',
+  '           and any(isinstance(t, ast.Name) and t.id == "UPLOAD_ARTIFACT_ACTION" for t in node.targets)],',
+  '          sys.stdout)',
+].join('\n');
+
+function approvedUploadArtifactActions(): string[] {
+  return JSON.parse(
+    execFileSync(
+      'python3',
+      ['-I', '-c', READ_UPLOAD_ARTIFACT_ACTION, KERNEL_WORKFLOW_CONTRACTS_PATH],
+      { encoding: 'utf8' },
+    ),
+  ) as string[];
 }
 
 describe('CI Full scheduled and release contract', () => {
@@ -146,7 +180,7 @@ describe('CI Full scheduled and release contract', () => {
     const rootVitest = packageJson.devDependencies?.vitest;
     const rootCoverage = packageJson.devDependencies?.['@vitest/coverage-v8'];
 
-    const expectedVitestVersion = '3.2.7';
+    const expectedVitestVersion = '4.1.12';
     expect(rootVitest).toBe(expectedVitestVersion);
     expect(rootCoverage).toBe(rootVitest);
     expect(packageLock.packages?.['']?.devDependencies?.['@vitest/coverage-v8']).toBe(rootVitest);
@@ -231,7 +265,11 @@ describe('CI Full scheduled and release contract', () => {
     expect(verifyIndex).toBeGreaterThan(-1);
     expect(uploadIndex).toBeGreaterThan(verifyIndex);
     expect(steps[verifyIndex]?.run).toBe('node tools/quality/coverage-evidence.js');
-    expect(upload?.uses).toBe('actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a');
+    // Exactly one module-level binding, and a full 40-hex commit SHA, or the read is not the pin.
+    const approved = approvedUploadArtifactActions();
+    expect(approved).toHaveLength(1);
+    expect(approved[0]).toMatch(/^actions\/upload-artifact@[0-9a-f]{40}$/);
+    expect(upload?.uses).toBe(approved[0]);
     expect(upload?.with).toEqual({
       name: 'coverage-${{ github.sha }}',
       path:

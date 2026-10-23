@@ -11,6 +11,7 @@ import { HRResolver } from '../hr.resolver';
 import { Role } from '@aquaculture/backend-common/decorators';
 import type { CurrentUserPayload } from '@aquaculture/backend-common/decorators';
 import { Employee } from '../entities/employee.entity';
+import { EmployeePaginationInput } from '../dto/employee-filter.input';
 
 const context = { req: { user: { sub: 'viewer-user', tenantId: 't1' } } } as never;
 
@@ -94,13 +95,17 @@ describe('HRResolver employee contact-PII masking', () => {
       makeEmployee({ id: 'e1', userId: 'a' }),
       makeEmployee({ id: 'e2', userId: 'b' }),
     ];
-    const queryBus = { execute: jest.fn().mockResolvedValue({ data: employees }) };
+    const queryBus = {
+      execute: jest.fn().mockResolvedValue({ data: employees, pagination: { page: 1, limit: 20, total: 2 } }),
+    };
     const resolver = new HRResolver({ execute: jest.fn() } as never, queryBus as never);
 
-    const result = await resolver.getActiveEmployees(20, 1, context, makeViewer([Role.MODULE_USER]));
+    const pagination = Object.assign(new EmployeePaginationInput(), { page: 1, limit: 20 });
 
-    expect(result).toHaveLength(2);
-    for (const e of result) {
+    const result = await resolver.getEmployees({}, pagination, context, makeViewer([Role.MODULE_USER]));
+
+    expect(result.items).toHaveLength(2);
+    for (const e of result.items) {
       expect(e.contactInfo.phone).toBe('REDACTED');
       expect(e.address.street).toBe('REDACTED');
     }

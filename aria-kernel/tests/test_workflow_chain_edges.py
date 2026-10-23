@@ -121,7 +121,9 @@ class ChainEdgesFire(unittest.TestCase):
         # `actions: write` ONLY on a hosted runner (the ARIA-HIGH-244 shape),
         # the dispatch carries `rechain_of`, and the two outbound edges are
         # mutually exclusive — a run must never queue both a pending cycle
-        # and a pending drain into the shared aria-selfhosted-workspace group.
+        # and a pending drain into this lane's own group (ARIA-MEDIUM-277:
+        # one lane, one group; a lane's pending slot is nobody else's to
+        # evict).
         executor = _load(_WORKFLOWS / "aria-agent-executor.yml")
         dispatch_inputs = (
             (_triggers(executor).get("workflow_dispatch") or {}).get("inputs") or {}

@@ -2,17 +2,22 @@
  * TodayPage — the Team area's "who is in today" view, on real reads only.
  *
  * The page is a join of five existing queries: dailyAttendanceOverview (KPI
- * counts), todaysAttendance with no employee (every record of today),
+ * counts), todaysAttendance for the whole workspace (every record of today),
  * teamWeeklyOverview (today's planned shifts, narrowed server-side by site),
  * teamLeaveCalendar(today, today) (approved and pending leave covering today)
  * and farm's activeSites { contacts } (sites nobody is responsible for).
  * These tests mock those hooks and pin what the page reads from each and how
- * the site filter narrows the roster and the leave list.
+ * the site filter narrows the roster and the leave list. The hooks follow the
+ * workspace's module themselves; the page's own part of the scope is that farm
+ * sites (filter chips, unassigned-sites panel) only appear where they apply.
  *
  * Fixtures use the wire shape: absent nullable fields arrive as `null`, and a
  * leave's dates arrive as DateTime — the stored calendar day at UTC midnight.
  */
+import { WorkforceScopeProvider } from '@aquaculture/shared-ui';
+import type { HrModuleCode } from '@platform/shared-ui/generated/graphql-types';
 import { fireEvent, render, screen, within } from '@testing-library/react';
+import type { ReactElement } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -58,7 +63,7 @@ vi.mock('../../../hooks/useAttendance', async (importOriginal) => {
   return {
     ...actual,
     useDailyAttendanceOverview: mocks.overview,
-    useTodaysAttendance: mocks.todays,
+    useTeamTodaysAttendance: mocks.todays,
   };
 });
 
@@ -194,12 +199,19 @@ const SITES: SiteResponsibility[] = [
   { id: 's2', name: 'Bodrum', contacts: [] },
 ];
 
-function renderPage(): void {
-  render(
+/** The page as a workspace shows it: `null` is Company (no module scope). */
+function pageIn(workspace: HrModuleCode | null): ReactElement {
+  return (
     <MemoryRouter>
-      <TodayPage />
-    </MemoryRouter>,
+      <WorkforceScopeProvider moduleCode={workspace}>
+        <TodayPage />
+      </WorkforceScopeProvider>
+    </MemoryRouter>
   );
+}
+
+function renderPage(workspace: HrModuleCode | null = null): ReturnType<typeof render> {
+  return render(pageIn(workspace));
 }
 
 function kpi(label: string): string | null {
@@ -320,6 +332,44 @@ describe('TodayPage', () => {
     expect(screen.getByText(/Attendance counts cover every site/)).toBeInTheDocument();
     const leave = screen.getByRole('region', { name: 'Open leave today' });
     expect(within(leave).queryByText('Zeynep Arslan')).not.toBeInTheDocument();
+  });
+
+  describe('farm sites by workspace', () => {
+    it.each<[string, HrModuleCode | null]>([
+      ['Production', 'FARM'],
+      ['Company', null],
+    ])('offers the site filter and the unassigned-sites panel in %s', (_label, workspace) => {
+      renderPage(workspace);
+
+      expect(screen.getByRole('button', { name: 'Bodrum' })).toBeInTheDocument();
+      expect(
+        screen.getByRole('region', { name: 'Sites without a responsible person' }),
+      ).toBeInTheDocument();
+    });
+
+    it.each<[string, HrModuleCode]>([
+      ['Greenhouse', 'HYDROPONICS'],
+      ['Control & sensors', 'SENSOR'],
+    ])('shows no farm sites in %s', (_label, workspace) => {
+      renderPage(workspace);
+
+      expect(screen.queryByRole('button', { name: 'Bodrum' })).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('region', { name: 'Sites without a responsible person' }),
+      ).not.toBeInTheDocument();
+      expect(mocks.team).toHaveBeenLastCalledWith(WEEK_START, undefined, undefined);
+    });
+
+    it('drops a site picked in Production once the reader moves to a workspace without sites', () => {
+      const { rerender } = renderPage('FARM');
+      fireEvent.click(screen.getByRole('button', { name: 'Bodrum' }));
+      expect(mocks.team).toHaveBeenLastCalledWith(WEEK_START, undefined, 's2');
+
+      rerender(pageIn('HYDROPONICS'));
+
+      expect(mocks.team).toHaveBeenLastCalledWith(WEEK_START, undefined, undefined);
+      expect(screen.queryByRole('button', { name: 'Bodrum' })).not.toBeInTheDocument();
+    });
   });
 
   it('says a panel failed instead of rendering it empty', () => {

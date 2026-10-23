@@ -42,6 +42,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
+import { executableYaml } from '../../tools/gates/config-executable-lines';
 import { removeFixtureTree } from '../../tools/gates/fixture-tree';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
@@ -59,37 +60,6 @@ const CHART_RENDERING_WORKFLOWS = ['ci-affected.yml', 'infra-helm-lint.yml'] as 
  * name: renaming a step is not the hazard, a second copy of the fetch is.
  */
 const INVOKES_THE_RESOLVER = /helm\s+dependency\s+(update|build)\b/;
-
-/**
- * The file with the lines that DESCRIBE behaviour, rather than perform it,
- * removed — comments and step labels.
- *
- * ORPHAN-MEDIUM-458's lesson, and one this file tripped over twice on its first
- * run. Both callsites' comments and the action's own header quote the command
- * they describe, so a raw text scan reports three implementations where there
- * is one. Then, with comments stripped, it still reported two: the surviving
- * match in `ci-affected.yml` was the step's own `name:` — `Phase A4 — helm
- * dependency update (Chart.yaml SSoT to charts/)` — a label GitHub renders and
- * never executes.
- *
- * Both are the same error: matching the description instead of the thing. A
- * gate that fails on accurate documentation gets the documentation deleted, or
- * the step renamed to something less true, which is worse than the drift it was
- * built to catch.
- *
- * Line-level rather than a YAML parse, because an inline `#` following a real
- * command is part of an executable line, and because `name:` is unambiguous at
- * line level in a workflow file.
- */
-function executableYaml(body: string): string {
-  return body
-    .split('\n')
-    .filter((line) => {
-      const trimmed = line.trimStart();
-      return !trimmed.startsWith('#') && !/^-?\s*name:/.test(trimmed);
-    })
-    .join('\n');
-}
 
 function ciFiles(): { rel: string; body: string }[] {
   const files: { rel: string; body: string }[] = [];

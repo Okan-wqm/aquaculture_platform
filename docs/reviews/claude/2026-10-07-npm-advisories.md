@@ -77,6 +77,72 @@ After the change, the gate's verdict per leg:
 - Fix: move the web modules to vitest 4. Owner: claude. Deadline: 2026-11-07.
   The exception expires the same day.
 
+## SUPPLY-CRITICAL-026 — @vitest/mocker 3.2.7: critical code injection, no 3.x patch (2026-10-22)
+
+- GHSA-qxg6-89mg-rqv8, published 2026-10-21T19:54Z: "Vitest: Code injection
+  via unauthenticated manual mock registration". Affected `@vitest/mocker`
+  ranges: `>=2.1.0-beta.7 <4.1.12` and `>=5.0.0-beta.1 <5.0.3`. Patched:
+  4.1.12.
+- The repository pinned vitest 3.2.7. No 3.x release is patched, and the gate
+  had no exception for it, so the root-full leg of the required
+  `security-audit` job turned red. Every push to main has been red on
+  `CI - Affected` (and `build-status`) since 2026-10-21 22:47Z.
+- Not excepted: a fixed release exists.
+- Fix: vitest and every `@vitest/*` package to 4.1.12 in every workspace
+  manifest and in the root lockfile. This is the vitest 4 move SUPPLY-HIGH-019
+  was waiting for, so its three exceptions are removed in the same change
+  (vitest 4 no longer depends on tinypool).
+- Vitest 4 adaptations:
+  - The shared policy (`libs/testing/src/vitest-test-policy.js`) names
+    `coverage.include` (`src`), because `coverage.all` is gone and LCOV would
+    otherwise drop every untested module.
+  - Two sensor-module specs stood in for `new IntersectionObserver` and
+    `new FileReader` with `vi.fn` arrow factories, which Vitest 4 refuses to
+    construct. They now use real classes via `vi.stubGlobal`.
+  - Vitest 3 put `@types/node` into every program that imported it; Vitest 4
+    does not. The AquaMobil, farm-module and messaging-module programs
+    type-check specs that read files with `node:fs` and use `Array#at`, so
+    their tsconfigs now name `node` in `types` instead of inheriting it.
+  - Two AquaMobil specs typed their mocks as `ReturnType<typeof vi.fn>`, which
+    Vitest 4 widens to `Procedure | Constructable`. They now declare the mocked
+    signature (`Mock<() => Promise<boolean>>`, `Mock<(message: unknown) => void>`).
+
+## SUPPLY-CRITICAL-027 — dompurify 3.4.14: five advisories, one critical (2026-10-22)
+
+- The sensor-module SCADA builder sanitizes uploaded SVG with DOMPurify
+  (`CustomSvgConfig.tsx`, `CustomSvgRenderer.tsx`), and it ships to the
+  browser, so the root production leg reaches it.
+- Advisories against 3.4.14:
+  - GHSA-cg2g-xh64-v4q7 (critical): `SAFE_FOR_TEMPLATES` bypass. Split
+    template expressions survive in attached shadow-root content on DOM
+    output modes. Affected `>=3.4.4 <=3.4.16`, patched 3.4.17.
+  - GHSA-mrv2-3pqr-j5jr (high): an `IN_PLACE` hook that removes a parent or
+    sibling leaves the detached subtree's event handlers armed. It is the
+    incomplete fix for GHSA-p98j-92pf-mc4p. Affected `<=3.4.16`, patched
+    3.4.17.
+  - GHSA-c6gr-qvv4-5v3f (low): the SMIL `attributeName=href` guard is skipped
+    under `application/xhtml+xml`. Affected `<=3.4.16`, patched 3.4.17.
+  - GHSA-p98j-92pf-mc4p and GHSA-6688-9rhm-gjv2 (low): `IN_PLACE` variants.
+    Affected `<=3.4.15`, patched 3.4.16.
+- The gate had no exception for any of them, so the `root-production` and
+  `root-full` legs of the required `security-audit` job were red.
+- Not excepted: a fixed release exists.
+- Fix: 3.4.17, the first release outside all five ranges. It goes into the
+  sensor-module dependency, the root `overrides` entry, the
+  dependency-security-floor pin and the root lockfile. npm now places it under
+  `web/modules/sensor-module/node_modules`, its only dependent.
+
+## SUPPLY-MEDIUM-028 — ip-address 10.7.2: quadratic zone-id match (2026-10-22)
+
+- GHSA-rxp7-6hxx-x8q5 (moderate, published 2026-10-22): `Address6` matches a
+  zone identifier in quadratic time ahead of its length limit, so one long
+  string stalls the process. Affected `<=10.7.3`, patched 10.7.4.
+- Reached in production through `express-rate-limit` and `socks`. The root
+  override `^10.5.1` resolved 10.7.2. The gate reported "a non-breaking fix is
+  available — take it rather than an exception".
+- Fix: the root override and the dependency-security-floor pin move to
+  10.7.4, and the root lockfile resolves 10.7.4.
+
 ## SUPPLY-MEDIUM-020 — tailwind 3 postcss-selector-parser is quadratic (open, excepted)
 
 - `postcss-selector-parser` below 7.1.6 (GHSA-rj75-hqrm-r3gf), reached through

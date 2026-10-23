@@ -20,13 +20,13 @@ import {
 import {
   useLeaveRequests,
   usePendingLeaveApprovals,
+  useMyLeaveRequests,
   useLeaveTypes,
   useApproveLeaveRequest,
   useRejectLeaveRequest,
-  useCurrentEmployeeId,
 } from '../../hooks';
 import { derivePaginationMetadataV1 } from '@platform/pagination-contracts';
-import { StatusBadge, EmployeeAvatar } from '../../components/common';
+import { StatusBadge, EmployeeAvatar, ScopedDescription } from '../../components/common';
 import type {
   LeaveRequest,
   LeaveRequestFilterInput,
@@ -57,14 +57,15 @@ const LEAVE_STATUS_FILTER_OPTIONS = [
 const isLeaveRequestStatus = (value: string): value is LeaveRequestStatus =>
   Object.prototype.hasOwnProperty.call(LEAVE_STATUS_CONFIG, value);
 
-export function LeavesPage() {
-  // BUG-011: use centralised hook for consistent auth→employeeId mapping
-  const employeeId = useCurrentEmployeeId();
+type LeaveTab = 'all' | 'pending' | 'mine';
 
+const FIRST_PAGE: PaginationInput = { limit: 20, page: 1 };
+
+export function LeavesPage() {
   // State
-  const [activeTab, setActiveTab] = useState<'all' | 'pending' | 'mine'>('all');
+  const [activeTab, setActiveTab] = useState<LeaveTab>('all');
   const [filter, setFilter] = useState<LeaveRequestFilterInput>({});
-  const [pagination, setPagination] = useState<PaginationInput>({ limit: 20, page: 1 });
+  const [pagination, setPagination] = useState<PaginationInput>(FIRST_PAGE);
   const [searchQuery, setSearchQuery] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   // BUG-010 / SEC-006: replace prompt() with controlled input state
@@ -73,20 +74,59 @@ export function LeavesPage() {
   const [rejectReason, setRejectReason] = useState('');
 
   // Data fetching
-  const { data: allRequests, isLoading: loadingAll } = useLeaveRequests(
-    activeTab === 'mine' ? { ...filter, employeeId } : filter,
-    pagination,
-  );
-  const { data: pendingApprovals, isLoading: loadingPending } =
-    usePendingLeaveApprovals(employeeId);
+  const {
+    data: allRequests,
+    isLoading: loadingAll,
+    error: errorAll,
+  } = useLeaveRequests(filter, pagination);
+  // The server resolves the approver from the token: the list needs a page, not a person. The tab
+  // badge counts the whole list from any tab, so the hook follows the page only while its own
+  // tab shows — paging another tab must not blank the badge while a new page loads.
+  const {
+    data: pendingApprovals,
+    isLoading: loadingPending,
+    error: errorPending,
+  } = usePendingLeaveApprovals(activeTab === 'pending' ? pagination : FIRST_PAGE);
+  // The server resolves the employee from the token too (the auth user id is not an employee
+  // id), and has none for a user without an employee record: ask only while the tab shows.
+  // The answer is a bare array, so no page is sent and none is offered below.
+  const {
+    data: myRequests,
+    isLoading: loadingMine,
+    error: errorMine,
+  } = useMyLeaveRequests(filter.status, undefined, { enabled: activeTab === 'mine' });
   const { data: leaveTypes } = useLeaveTypes();
 
   // Mutations
   const approveMutation = useApproveLeaveRequest();
   const rejectMutation = useRejectLeaveRequest();
 
-  const requests = activeTab === 'pending' ? pendingApprovals : allRequests?.items;
-  const isLoading = activeTab === 'pending' ? loadingPending : loadingAll;
+  // What each tab lists. `total` is what pages the table: the two connections carry one,
+  // the own list is a bare array and has none.
+  const tabLists: Record<
+    LeaveTab,
+    {
+      rows: readonly LeaveRequest[] | undefined;
+      total: number | undefined;
+      isLoading: boolean;
+      error: Error | null;
+    }
+  > = {
+    all: {
+      rows: allRequests?.items,
+      total: allRequests?.total,
+      isLoading: loadingAll,
+      error: errorAll,
+    },
+    pending: {
+      rows: pendingApprovals?.items,
+      total: pendingApprovals?.total,
+      isLoading: loadingPending,
+      error: errorPending,
+    },
+    mine: { rows: myRequests, total: undefined, isLoading: loadingMine, error: errorMine },
+  };
+  const { rows: requests, total, isLoading, error } = tabLists[activeTab];
 
   // PERF-004: memoize columns — they only change when activeTab or mutation state changes
   const columns: DataTableColumn<LeaveRequest>[] = useMemo(
@@ -248,6 +288,12 @@ export function LeavesPage() {
     });
   };
 
+  // A page number belongs to the tab it was chosen on: another list may end before it.
+  const handleTabChange = (tab: LeaveTab): void => {
+    setActiveTab(tab);
+    setPagination((previous) => ({ ...previous, page: 1 }));
+  };
+
   const closeRejectModal = (): void => {
     setRejectingId(null);
     setRejectReason('');
@@ -317,7 +363,7 @@ export function LeavesPage() {
       {/* Header */}
       <PageHeader
         title="Leave Management"
-        description="Track and manage employee leave requests"
+        description={<ScopedDescription text="Track and manage employee leave requests" />}
         actions={
           <Button
             variant="primary"
@@ -333,7 +379,7 @@ export function LeavesPage() {
       {/* Tabs */}
       <div className="flex gap-4 overflow-x-auto border-b border-gray-200 dark:border-gray-700">
         <button
-          onClick={() => setActiveTab('all')}
+          onClick={() => handleTabChange('all')}
           className={cn(
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'all'
@@ -344,7 +390,7 @@ export function LeavesPage() {
           All Requests
         </button>
         <button
-          onClick={() => setActiveTab('pending')}
+          onClick={() => handleTabChange('pending')}
           className={cn(
             'flex items-center gap-2 border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'pending'
@@ -353,14 +399,14 @@ export function LeavesPage() {
           )}
         >
           Pending Approvals
-          {pendingApprovals && pendingApprovals.length > 0 && (
+          {pendingApprovals && pendingApprovals.total > 0 && (
             <span className="rounded-md bg-warning-100 dark:bg-warning-900/40 px-2 py-0.5 text-xs font-medium text-warning-700 dark:text-warning-300">
-              {pendingApprovals.length}
+              {pendingApprovals.total}
             </span>
           )}
         </button>
         <button
-          onClick={() => setActiveTab('mine')}
+          onClick={() => handleTabChange('mine')}
           className={cn(
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'mine'
@@ -486,9 +532,19 @@ export function LeavesPage() {
         </div>
       )}
 
+      {/* A failed list must not read as "no requests" (the own list fails for a user who has no employee record). */}
+      {error && (
+        <div
+          role="alert"
+          className="rounded-lg border border-error-200 bg-error-50 p-4 text-sm text-error-700 dark:border-error-800 dark:bg-error-900/20 dark:text-error-400"
+        >
+          Failed to load leave requests: {error.message}
+        </div>
+      )}
+
       {/* Data Table
-          BUG-007: the pending tab returns a flat array (no server-side pagination),
-          so omit total/onPageChange for that tab to avoid a broken pagination UI. */}
+          The all and pending tabs page a server-side connection; the own list is a bare array
+          with no total, so it gets no pagination controls. */}
       <div className="overflow-x-auto -mx-6 px-6">
         <DataTable<LeaveRequest>
           data={requests || []}
@@ -497,15 +553,11 @@ export function LeavesPage() {
           loading={isLoading}
           emptyMessage="No leave requests found"
           pagination={
-            activeTab !== 'pending' && allRequests
-              ? derivePaginationMetadataV1(
-                  allRequests.total,
-                  pagination.page || 1,
-                  pagination.limit || 20,
-                )
-              : undefined
+            total === undefined
+              ? undefined
+              : derivePaginationMetadataV1(total, pagination.page || 1, pagination.limit || 20)
           }
-          onPageChange={activeTab === 'pending' ? undefined : handlePageChange}
+          onPageChange={total === undefined ? undefined : handlePageChange}
           searchable={false}
           sortable={false}
           stickyHeader={false}

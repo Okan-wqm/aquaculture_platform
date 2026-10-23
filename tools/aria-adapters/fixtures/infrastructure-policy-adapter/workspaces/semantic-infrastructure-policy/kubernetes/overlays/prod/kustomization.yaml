@@ -1,0 +1,22 @@
+# The overlay that deploys the base and supplies the reporter's guards.
+resources:
+  - ../../base
+
+patches:
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: composed-reporter
+      spec:
+        template:
+          spec:
+            containers:
+              - name: reporter
+                resources:
+                  limits:
+                    memory: 256Mi
+                readinessProbe:
+                  httpGet: { path: /ready, port: 8080 }
+                livenessProbe:
+                  httpGet: { path: /live, port: 8080 }

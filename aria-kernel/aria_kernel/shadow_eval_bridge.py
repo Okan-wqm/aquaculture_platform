@@ -255,7 +255,6 @@ def bridge_shadow_eval_from_invocation(
     # read as a wildcard; checked here so the refusal lands before the eval
     # run row (run_agent_eval applies the same rule through its validator).
     require_approval_scope(operator, target_agent=target_agent)
-
     # WHY here, before run_agent_eval (ARIA-HIGH-502, ex ORPHAN-HIGH-573):
     # the lifecycle precondition used to be checked only inside
     # record_transition, AFTER run_agent_eval had appended an eval run row
@@ -272,6 +271,23 @@ def bridge_shadow_eval_from_invocation(
         entity_id=target_agent,
         allowed_states=_BRIDGE_ENTRY_STATES,
         base_dir=base_dir,
+    )
+
+    # ARIA-HIGH-238 — the bridge promotes a genesis agent out of DRAFT on the
+    # strength of this ref, so it must be the operator's own GitHub act
+    # naming the agent and the invocation; the act is consumed here, once,
+    # at the entry point that owns the grant. The same canonical ref keys
+    # the operator-provenance row joined above (the operator mints it with
+    # `operator-provenance record --ref <gh:...>`). Placement: after every
+    # read-only precondition, before the first write — a state-machine
+    # refusal must not spend an operator act.
+    from .operator_approval import require_operator_act
+
+    approval_proof = require_operator_act(
+        operator_approval_ref,
+        surface="shadow_eval_bridge",
+        scope={"agent": target_agent, "invocation": invocation_id},
+        base_dir=root,
     )
 
     transcript_hash = str(transcript.get("transcript_hash") or "")
@@ -314,7 +330,6 @@ def bridge_shadow_eval_from_invocation(
         operator_approval_ledger_ref=_source_ref(
             "operator_provenance", "operator-provenance/events.jsonl", operator
         ),
-        operator_approval_ref=operator_approval_ref,
     )
     # WHY: verify_shadow_eval_proof checks the CHAIN, not the verdict —
     # a failing eval would still satisfy it. The bridge is the promotion
@@ -342,7 +357,6 @@ def bridge_shadow_eval_from_invocation(
             evidence=evidence,
             base_dir=base_dir,
             repo_root=repo_root,
-            operator_approval_ref=operator_approval_ref,
         )
         for to_state in _BRIDGE_TRANSITIONS
     ]
@@ -355,6 +369,7 @@ def bridge_shadow_eval_from_invocation(
         "eval_harness_id": str(eval_run["run_id"]),
         "transcript_hash": transcript_hash,
         "operator_provenance_ref": operator_approval_ref,
+        "operator_approval": approval_proof,
         "eval_run": eval_run,
         "transitions": transitions,
     }

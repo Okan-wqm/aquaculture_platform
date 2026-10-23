@@ -44,7 +44,7 @@ const REGISTRY = join(REPO_ROOT, 'docs', 'reviews', '_registry', 'findings.jsonl
  * to @aws-sdk/client-s3 (SUPPLY-MEDIUM-008) — exactly the re-review condition
  * the entry's own reason named.
  */
-const MAX_EXCEPTIONS = 5;
+const MAX_EXCEPTIONS = 2;
 
 // 2026-09-16: 0 → 2, in the same commit as the two entries it admits.
 // GHSA-7w5x-hrqm-74c2 (nx toolchain, 15 packages) and GHSA-vwc7-r8mq-g2x9
@@ -71,6 +71,13 @@ const MAX_EXCEPTIONS = 5;
 // postcss-selector-parser 6; tailwind 4 is the fix — SUPPLY-MEDIUM-020). Every
 // production leg is clean. The ratchet returns to 1 when vitest 4 and tailwind
 // 4 land.
+//
+// 2026-10-22: 5 → 2, removing GHSA-82fw-gwwq-j7x9, GHSA-5gmw-xhrv-c9v3 and
+// GHSA-85c8-ppgw-ccpr. vitest and every @vitest/* package moved to 4.1.12,
+// which also fixes the critical GHSA-qxg6-89mg-rqv8 (@vitest/mocker, no 3.x
+// patch) that turned root-full red (SUPPLY-CRITICAL-026), and vitest 4 no
+// longer depends on tinypool (SUPPLY-HIGH-019 fixed). The ratchet returns to 1
+// when tailwind 4 lands (SUPPLY-MEDIUM-020).
 
 interface ExceptionEntry {
   owner?: unknown;

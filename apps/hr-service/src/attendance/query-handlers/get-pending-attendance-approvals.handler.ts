@@ -4,8 +4,14 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { GetPendingAttendanceApprovalsQuery } from '../queries/get-pending-attendance-approvals.query';
 import { AttendanceRecord, ApprovalStatus } from '../entities/attendance-record.entity';
+import { applyApprovalDepartment, resolveApprovalDepartment } from '../../common/approval-scope';
+import { applyEmployeeModuleScope } from '../../common/module-scope';
 import { Employee } from '../../hr/entities/employee.entity';
 
+/**
+ * The pending-approval queue. Which department it narrows to is common/approval-scope.ts — the one
+ * rule shared with the leave queue — through the employee's live department.
+ */
 @QueryHandler(GetPendingAttendanceApprovalsQuery)
 export class GetPendingAttendanceApprovalsHandler
   implements IQueryHandler<GetPendingAttendanceApprovalsQuery>
@@ -18,24 +24,22 @@ export class GetPendingAttendanceApprovalsHandler
   ) {}
 
   async execute(query: GetPendingAttendanceApprovalsQuery): Promise<PaginatedQueryResult<AttendanceRecord>> {
-    const { tenantId, approverId, departmentId } = query;
+    const { tenantId, approverId, departmentId, moduleCode, narrowToOwnDepartment } = query;
 
     const page = query.page ?? 1;
     const limit = Math.min(Math.max(query.limit ?? 20, 1), 100);
     const offset = (page - 1) * limit;
 
-    // Only look up the approver's department when the caller has NOT supplied an explicit
-    // departmentId — avoids a wasted round-trip on every call where departmentId is known.
-    let effectiveDepartmentId = departmentId;
-    if (!effectiveDepartmentId) {
-      const approver = await this.employeeRepository.findOne({
-        where: { id: approverId, tenantId, isDeleted: false },
-        select: ['id', 'departmentHrId'],
-      });
-      if (!approver) {
-        return createPaginatedQueryResult([], page, limit, 0);
-      }
-      effectiveDepartmentId = approver.departmentHrId;
+    const scope = await resolveApprovalDepartment(this.employeeRepository, {
+      tenantId,
+      approverId,
+      departmentId,
+      moduleCode,
+      narrowToOwnDepartment,
+    });
+    if (scope.kind === 'unknown-approver') {
+      // Return an empty set rather than leaking cross-department data.
+      return createPaginatedQueryResult([], page, limit, 0);
     }
 
     const queryBuilder = this.attendanceRepository
@@ -47,15 +51,16 @@ export class GetPendingAttendanceApprovalsHandler
         approvalStatus: ApprovalStatus.PENDING_REVIEW,
       })
       .andWhere('ar.isDeleted = false')
-      // Exclude approver's own records
-      .andWhere('ar.employeeId != :approverId', { approverId })
       .orderBy('ar.date', 'DESC');
 
-    if (effectiveDepartmentId) {
-      queryBuilder.andWhere('ar.departmentId = :departmentId', { departmentId: effectiveDepartmentId });
+    // Exclude the approver's own records (only when they are an employee at all).
+    if (approverId) {
+      queryBuilder.andWhere('ar.employeeId != :approverId', { approverId });
     }
 
-    const [items, total] = await queryBuilder
+    applyApprovalDepartment(queryBuilder, 'employee', scope.departmentId);
+
+    const [items, total] = await applyEmployeeModuleScope(queryBuilder, 'employee', moduleCode)
       .skip(offset)
       .take(limit)
       .getManyAndCount();

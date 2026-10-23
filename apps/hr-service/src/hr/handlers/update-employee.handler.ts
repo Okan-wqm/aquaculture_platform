@@ -7,6 +7,7 @@ import { Employee } from '../entities/employee.entity';
 import { createEmployeeUpdatedEvent, createEmployeeTerminatedEvent } from '../events/hr.events';
 import { EmployeeStatus } from '../entities/employee.entity';
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { assertAssignableDepartment } from '../services/assignable-department';
 
 @Injectable()
 @CommandHandler(UpdateEmployeeCommand)
@@ -29,8 +30,9 @@ export class UpdateEmployeeHandler implements ICommandHandler<UpdateEmployeeComm
     try {
       const employeeRepo = tenantManagerRepo(queryRunner.manager, Employee, tenantId);
 
+      // A soft-deleted (erased) employee is not editable.
       const employee = await employeeRepo.findOne({
-        where: { id: input.id, tenantId },
+        where: { id: input.id, tenantId, isDeleted: false },
         lock: { mode: 'pessimistic_write' },
       });
 
@@ -47,6 +49,13 @@ export class UpdateEmployeeHandler implements ICommandHandler<UpdateEmployeeComm
         if (existingByEmail) {
           throw new ConflictException('An employee with this email already exists');
         }
+      }
+
+      // Only a CHANGE to a department is validated: an employee keeps the
+      // department they are already in even if it was switched off since, and
+      // an explicit null (no department) has nothing to validate.
+      if (input.departmentHrId && input.departmentHrId !== employee.departmentHrId) {
+        await assertAssignableDepartment(queryRunner.manager, tenantId, input.departmentHrId);
       }
 
       // Update fields - extract and convert properly

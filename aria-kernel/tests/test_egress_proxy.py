@@ -15,6 +15,12 @@ import unittest
 from aria_kernel import egress_proxy
 from aria_kernel.socket_holders import EGRESS_PROXY, SOCKET_HOLDERS, prune_stale_socket_dirs
 
+# ARIA-HIGH-138 — the seam(s) this file proves by a real process, per
+# the closed registry in tests/invariants/seam_registry.py.
+REAL_PROCESS_SEAMS = (
+    "aria-kernel/aria_kernel/egress_proxy.py",
+)
+
 
 async def _echo(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
     data = await reader.read(1024)

@@ -22,7 +22,6 @@ Small on purpose — operator preference: files stay short.
 """
 from __future__ import annotations
 
-import hashlib
 import re
 from pathlib import Path
 from typing import Any, Mapping
@@ -56,6 +55,7 @@ from .merge_record import (
 from .plan_convergence import events_path, fold_plan_state
 from .ledger import LedgerIntegrityError, load_jsonl, state_transaction
 from .tool_registry import GovernanceError, ensure_tools_dir
+from .digest import sha256_digest_text
 
 _PR_NUMBER_RE = re.compile(r"/pull/(\d+)")
 
@@ -69,7 +69,7 @@ def _idempotency_key_hash(
     plan_id: str, diff_hash: str, pr_number: int, base_branch: str, branch_tip_sha: str
 ) -> str:
     canonical = "|".join((plan_id, diff_hash, str(pr_number), base_branch, branch_tip_sha))
-    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return sha256_digest_text(canonical)
 
 
 def _implementation_states(root: Path) -> dict[str, dict[str, Any]]:

@@ -1,4 +1,12 @@
-import { Roles, Role, ModuleUserOrHigher, AuditLog, RequiresMobileFeature } from '@aquaculture/backend-common/decorators';
+import {
+  Roles,
+  Role,
+  ModuleUserOrHigher,
+  AuditLog,
+  RequiresMobileFeature,
+  CurrentUser,
+  CurrentUserPayload,
+} from '@aquaculture/backend-common/decorators';
 import { MobileFeatureGuard } from '@aquaculture/backend-common/guards';
 import { mobileCommandEnvelopeFromInput } from '@aquaculture/backend-common/mobile-command';
 import {
@@ -14,10 +22,21 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
-import { Resolver, Query, Mutation, Args, ID, Context, Int, Float, ObjectType } from '@nestjs/graphql';
+import {
+  Resolver,
+  Query,
+  Mutation,
+  Args,
+  ID,
+  Context,
+  Int,
+  Float,
+  ObjectType,
+} from '@nestjs/graphql';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
+import { HrModuleCode } from '../common/enums';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
 import { RolesGuard } from '@aquaculture/backend-common/guards';
 import { Employee } from '../hr/entities/employee.entity';
@@ -36,10 +55,7 @@ import {
   CarryOverLeaveBalancesCommand,
   InitializeLeaveBalancesCommand,
 } from './commands';
-import {
-  CreateLeaveRequestInput,
-  UpdateLeaveRequestInput,
-} from './dto/create-leave-request.input';
+import { CreateLeaveRequestInput, UpdateLeaveRequestInput } from './dto/create-leave-request.input';
 import { CreateLeaveTypeInput } from './dto/create-leave-type.input';
 import {
   CarryOverLeaveBalancesResult,
@@ -200,6 +216,7 @@ export class LeaveResolver {
     @Args('endDate', { nullable: true }) endDate?: string,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
     @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
+    @Args('moduleCode', { type: () => HrModuleCode, nullable: true }) moduleCode?: HrModuleCode,
   ): Promise<IStandardPaginatedResult<LeaveRequest>> {
     const tenantId = this.getTenantId(context);
     const result = await this.queryBus.execute<
@@ -215,6 +232,7 @@ export class LeaveResolver {
         endDate,
         limit,
         page,
+        moduleCode,
       ),
     );
     return fromCqrsPaginated(result);
@@ -253,9 +271,11 @@ export class LeaveResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
   async getPendingLeaveApprovals(
     @Context() context: GraphQLContext,
+    @CurrentUser() viewer: CurrentUserPayload,
     @Args('departmentId', { type: () => ID, nullable: true }) departmentId?: string,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
     @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
+    @Args('moduleCode', { type: () => HrModuleCode, nullable: true }) moduleCode?: HrModuleCode,
   ): Promise<IStandardPaginatedResult<LeaveRequest>> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
@@ -268,7 +288,18 @@ export class LeaveResolver {
     const result = await this.queryBus.execute<
       GetPendingApprovalsQuery,
       PaginatedQueryResult<LeaveRequest>
-    >(new GetPendingApprovalsQuery(tenantId, employeeId, departmentId, limit, page));
+    >(
+      new GetPendingApprovalsQuery(
+        tenantId,
+        employeeId,
+        departmentId,
+        limit,
+        page,
+        moduleCode,
+        // A tenant admin approves across departments; only a manager is narrowed to their own.
+        !viewer.roles?.some((role) => role === Role.TENANT_ADMIN),
+      ),
+    );
     return fromCqrsPaginated(result);
   }
 
@@ -278,10 +309,11 @@ export class LeaveResolver {
     @Args('startDate') startDate: string,
     @Args('endDate') endDate: string,
     @Args('departmentId', { type: () => ID, nullable: true }) departmentId?: string,
+    @Args('moduleCode', { type: () => HrModuleCode, nullable: true }) moduleCode?: HrModuleCode,
   ): Promise<LeaveCalendarEntry[]> {
     const tenantId = this.getTenantId(context);
     return this.queryBus.execute<GetTeamLeaveCalendarQuery, LeaveCalendarEntry[]>(
-      new GetTeamLeaveCalendarQuery(tenantId, departmentId, startDate, endDate),
+      new GetTeamLeaveCalendarQuery(tenantId, departmentId, startDate, endDate, moduleCode),
     );
   }
 
@@ -332,7 +364,11 @@ export class LeaveResolver {
   // Defining leave types is a tenant-configuration action: TENANT_ADMIN or the
   // module manager only — never a regular module user.
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
-  @AuditLog({ action: 'CREATE_LEAVE_TYPE', resource: 'LeaveType', description: 'Create a leave type' })
+  @AuditLog({
+    action: 'CREATE_LEAVE_TYPE',
+    resource: 'LeaveType',
+    description: 'Create a leave type',
+  })
   async createLeaveType(
     @Args('input') input: CreateLeaveTypeInput,
     @Context() context: GraphQLContext,
@@ -347,7 +383,11 @@ export class LeaveResolver {
   @Mutation(() => LeaveType)
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
-  @AuditLog({ action: 'UPDATE_LEAVE_TYPE', resource: 'LeaveType', description: 'Update a leave type' })
+  @AuditLog({
+    action: 'UPDATE_LEAVE_TYPE',
+    resource: 'LeaveType',
+    description: 'Update a leave type',
+  })
   async updateLeaveType(
     @Args('input') input: UpdateLeaveTypeInput,
     @Context() context: GraphQLContext,
@@ -366,7 +406,11 @@ export class LeaveResolver {
   @UseGuards(RolesGuard)
   // Manual balance adjustment is a privileged correction: admin / manager only.
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
-  @AuditLog({ action: 'ADJUST_LEAVE_BALANCE', resource: 'LeaveBalance', description: 'Manually adjust a leave balance' })
+  @AuditLog({
+    action: 'ADJUST_LEAVE_BALANCE',
+    resource: 'LeaveBalance',
+    description: 'Manually adjust a leave balance',
+  })
   async adjustLeaveBalance(
     @Args('employeeId', { type: () => ID }) employeeId: string,
     @Args('leaveTypeId', { type: () => ID }) leaveTypeId: string,
@@ -378,14 +422,26 @@ export class LeaveResolver {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
     return this.commandBus.execute<AdjustLeaveBalanceCommand, LeaveBalance>(
-      new AdjustLeaveBalanceCommand(tenantId, userId, employeeId, leaveTypeId, year, adjustment, reason),
+      new AdjustLeaveBalanceCommand(
+        tenantId,
+        userId,
+        employeeId,
+        leaveTypeId,
+        year,
+        adjustment,
+        reason,
+      ),
     );
   }
 
   @Mutation(() => [LeaveBalance])
   @UseGuards(RolesGuard)
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
-  @AuditLog({ action: 'INITIALIZE_LEAVE_BALANCES', resource: 'LeaveBalance', description: 'Seed leave balances for an employee/year' })
+  @AuditLog({
+    action: 'INITIALIZE_LEAVE_BALANCES',
+    resource: 'LeaveBalance',
+    description: 'Seed leave balances for an employee/year',
+  })
   async initializeLeaveBalances(
     @Args('employeeId', { type: () => ID }) employeeId: string,
     @Args('year', { type: () => Int }) year: number,
@@ -402,7 +458,11 @@ export class LeaveResolver {
   @UseGuards(RolesGuard)
   // Year-end carry-over rewrites every employee's balances: admin / manager only.
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
-  @AuditLog({ action: 'CARRY_OVER_LEAVE_BALANCES', resource: 'LeaveBalance', description: 'Carry over leave balances between years' })
+  @AuditLog({
+    action: 'CARRY_OVER_LEAVE_BALANCES',
+    resource: 'LeaveBalance',
+    description: 'Carry over leave balances between years',
+  })
   async carryOverLeaveBalances(
     @Args('fromYear', { type: () => Int }) fromYear: number,
     @Args('toYear', { type: () => Int }) toYear: number,
@@ -419,7 +479,11 @@ export class LeaveResolver {
   // Leave Request Mutations
   // =====================
   @Mutation(() => LeaveRequest)
-  @AuditLog({ action: 'CREATE_LEAVE_REQUEST', resource: 'LeaveRequest', description: 'Create a new leave request' })
+  @AuditLog({
+    action: 'CREATE_LEAVE_REQUEST',
+    resource: 'LeaveRequest',
+    description: 'Create a new leave request',
+  })
   async createLeaveRequest(
     @Args('input') input: CreateLeaveRequestInput,
     @Context() context: GraphQLContext,
@@ -467,7 +531,11 @@ export class LeaveResolver {
   @UseGuards(RolesGuard, MobileFeatureGuard)
   @ModuleUserOrHigher()
   @RequiresMobileFeature('leave')
-  @AuditLog({ action: 'SUBMIT_LEAVE_REQUEST', resource: 'LeaveRequest', description: 'Submit a leave request for approval' })
+  @AuditLog({
+    action: 'SUBMIT_LEAVE_REQUEST',
+    resource: 'LeaveRequest',
+    description: 'Submit a leave request for approval',
+  })
   async submitLeaveRequest(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,
@@ -484,7 +552,11 @@ export class LeaveResolver {
   // MODULE_USER removed: leave approval is a supervisory action requiring MODULE_MANAGER.
   // BEFORE: regular employees could approve any colleague's leave request.
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
-  @AuditLog({ action: 'APPROVE_LEAVE_REQUEST', resource: 'LeaveRequest', description: 'Approve a leave request' })
+  @AuditLog({
+    action: 'APPROVE_LEAVE_REQUEST',
+    resource: 'LeaveRequest',
+    description: 'Approve a leave request',
+  })
   async approveLeaveRequest(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,
@@ -501,7 +573,11 @@ export class LeaveResolver {
   @UseGuards(RolesGuard)
   // MODULE_USER removed: leave rejection is a supervisory action requiring MODULE_MANAGER.
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
-  @AuditLog({ action: 'REJECT_LEAVE_REQUEST', resource: 'LeaveRequest', description: 'Reject a leave request' })
+  @AuditLog({
+    action: 'REJECT_LEAVE_REQUEST',
+    resource: 'LeaveRequest',
+    description: 'Reject a leave request',
+  })
   async rejectLeaveRequest(
     @Args('id', { type: () => ID }) id: string,
     @Args('reason') reason: string,
@@ -522,7 +598,11 @@ export class LeaveResolver {
   @UseGuards(RolesGuard, MobileFeatureGuard)
   @ModuleUserOrHigher()
   @RequiresMobileFeature('leave')
-  @AuditLog({ action: 'CANCEL_LEAVE_REQUEST', resource: 'LeaveRequest', description: 'Cancel a leave request' })
+  @AuditLog({
+    action: 'CANCEL_LEAVE_REQUEST',
+    resource: 'LeaveRequest',
+    description: 'Cancel a leave request',
+  })
   async cancelLeaveRequest(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,
@@ -543,7 +623,11 @@ export class LeaveResolver {
   @UseGuards(RolesGuard, MobileFeatureGuard)
   @ModuleUserOrHigher()
   @RequiresMobileFeature('leave')
-  @AuditLog({ action: 'UPDATE_LEAVE_REQUEST', resource: 'LeaveRequest', description: 'Edit a pending leave request' })
+  @AuditLog({
+    action: 'UPDATE_LEAVE_REQUEST',
+    resource: 'LeaveRequest',
+    description: 'Edit a pending leave request',
+  })
   async updateLeaveRequest(
     @Args('input') input: UpdateLeaveRequestInput,
     @Context() context: GraphQLContext,
@@ -563,7 +647,11 @@ export class LeaveResolver {
   @UseGuards(RolesGuard, MobileFeatureGuard)
   @ModuleUserOrHigher()
   @RequiresMobileFeature('leave')
-  @AuditLog({ action: 'WITHDRAW_LEAVE_REQUEST', resource: 'LeaveRequest', description: 'Withdraw a leave request' })
+  @AuditLog({
+    action: 'WITHDRAW_LEAVE_REQUEST',
+    resource: 'LeaveRequest',
+    description: 'Withdraw a leave request',
+  })
   async withdrawLeaveRequest(
     @Args('id', { type: () => ID }) id: string,
     @Context() context: GraphQLContext,

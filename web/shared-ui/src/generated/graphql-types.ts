@@ -2932,13 +2932,12 @@ export type CreateEmployeeInput = {
   contactInfo: ContactInfoInput;
   currency?: InputMaybe<Scalars['String']['input']>;
   dateOfBirth: Scalars['String']['input'];
-  department: HrDepartment;
+  departmentHrId?: InputMaybe<Scalars['String']['input']>;
   email: Scalars['String']['input'];
   employmentType: EmploymentType;
   farmId?: InputMaybe<Scalars['String']['input']>;
   firstName: Scalars['String']['input'];
   hireDate: Scalars['String']['input'];
-  isFarmWorker?: InputMaybe<Scalars['Boolean']['input']>;
   laborCategory?: InputMaybe<LaborCategory>;
   lastName: Scalars['String']['input'];
   nationalId: Scalars['String']['input'];
@@ -3193,6 +3192,8 @@ export type CreateHrDepartmentInput = {
   costCenter?: InputMaybe<Scalars['String']['input']>;
   description?: InputMaybe<Scalars['String']['input']>;
   managerId?: InputMaybe<Scalars['String']['input']>;
+  /** Owning module; omit for a company-wide department */
+  moduleCode?: InputMaybe<HrModuleCode>;
   name: Scalars['String']['input'];
   parentDepartmentId?: InputMaybe<Scalars['String']['input']>;
   siteId?: InputMaybe<Scalars['String']['input']>;
@@ -4606,10 +4607,13 @@ export type DepartmentHr = {
   deletedAt?: Maybe<Scalars['DateTime']['output']>;
   deletedBy?: Maybe<Scalars['String']['output']>;
   description?: Maybe<Scalars['String']['output']>;
+  headCount: Scalars['Int']['output'];
   id: Scalars['ID']['output'];
   isActive: Scalars['Boolean']['output'];
   isDeleted: Scalars['Boolean']['output'];
   managerId?: Maybe<Scalars['String']['output']>;
+  managerName?: Maybe<Scalars['String']['output']>;
+  moduleCode?: Maybe<HrModuleCode>;
   name: Scalars['String']['output'];
   parentDepartmentId?: Maybe<Scalars['String']['output']>;
   siteId?: Maybe<Scalars['String']['output']>;
@@ -5248,7 +5252,6 @@ export type Employee = {
   currency: Scalars['String']['output'];
   currentRotationId?: Maybe<Scalars['String']['output']>;
   deletedAt?: Maybe<Scalars['DateTime']['output']>;
-  department: HrDepartment;
   departmentHr?: Maybe<DepartmentHr>;
   departmentHrId?: Maybe<Scalars['String']['output']>;
   email: Scalars['String']['output'];
@@ -5259,7 +5262,6 @@ export type Employee = {
   hireDate: Scalars['DateTime']['output'];
   id: Scalars['ID']['output'];
   isDeleted: Scalars['Boolean']['output'];
-  isFarmWorker: Scalars['Boolean']['output'];
   laborCategory?: Maybe<LaborCategory>;
   lastName: Scalars['String']['output'];
   personnelCategory?: Maybe<PersonnelCategory>;
@@ -5357,9 +5359,12 @@ export type EmployeeConnection = {
 };
 
 export type EmployeeFilterInput = {
-  department?: InputMaybe<HrDepartment>;
+  /** Only employees placed in this department (departments_hr id) */
+  departmentHrId?: InputMaybe<Scalars['String']['input']>;
   employmentType?: InputMaybe<EmploymentType>;
   farmId?: InputMaybe<Scalars['String']['input']>;
+  /** Only employees whose (live) department belongs to this module */
+  moduleCode?: InputMaybe<HrModuleCode>;
   /** Filter by personnel category (OFFSHORE/ONSHORE/HYBRID) */
   personnelCategory?: InputMaybe<PersonnelCategory>;
   /** Filter by sea-worthiness certification status */
@@ -7650,17 +7655,14 @@ export type HrDashboardStats = {
   terminatedEmployees: Scalars['Int']['output'];
   totalDepartments: Scalars['Int']['output'];
   totalEmployees: Scalars['Int']['output'];
+  unplacedEmployees: Scalars['Int']['output'];
 };
 
-export type HrDepartment =
-  | 'ADMINISTRATION'
-  | 'FEEDING'
-  | 'LOGISTICS'
-  | 'MAINTENANCE'
-  | 'MANAGEMENT'
-  | 'OPERATIONS'
-  | 'QUALITY_CONTROL'
-  | 'SECURITY';
+/** Module a department belongs to; unset means company-wide */
+export type HrModuleCode =
+  | 'FARM'
+  | 'HYDROPONICS'
+  | 'SENSOR';
 
 export type HalfDayPeriod =
   | 'AM'
@@ -10155,7 +10157,6 @@ export type Mutation = {
   testSensorConnection: ConnectionTestResultType;
   testVfdConnection: VfdConnectionTestResult;
   toggleAutoRuleActive: AutoRule;
-  toggleFarmWorker: Employee;
   /** Activate or release a legal hold. */
   toggleLegalHold: LegalHold;
   toggleRecurringTemplateActive: RecurringTemplate;
@@ -12887,12 +12888,6 @@ export type MutationTestVfdConnectionArgs = {
 
 export type MutationToggleAutoRuleActiveArgs = {
   id: Scalars['ID']['input'];
-};
-
-
-export type MutationToggleFarmWorkerArgs = {
-  id: Scalars['ID']['input'];
-  isFarmWorker: Scalars['Boolean']['input'];
 };
 
 
@@ -15663,7 +15658,6 @@ export type QuantityDeclarationReason =
 
 export type Query = {
   activeAlertCounts: Array<ActiveAlertCount>;
-  activeEmployees: Array<Employee>;
   activeFeedingParameter?: Maybe<FeedingParameter>;
   /** Aktif yemleme programlarini getir */
   activeFeedingPrograms: Array<FeedingProgram>;
@@ -15813,7 +15807,6 @@ export type Query = {
   employeeCertifications: Array<EmployeeCertification>;
   employeeKPIs: Array<EmployeeKpi>;
   employees: EmployeeConnection;
-  employeesByDepartment: Array<Employee>;
   enabledChannelsBySensor: Array<DataChannelType>;
   environmentLayerCatalog: Array<EnvironmentLayerResponse>;
   environmentMonitoringStatus: EnvironmentMonitoringStatusResponse;
@@ -16312,12 +16305,6 @@ export type QueryActiveAlertCountsArgs = {
 };
 
 
-export type QueryActiveEmployeesArgs = {
-  limit?: InputMaybe<Scalars['Int']['input']>;
-  page?: InputMaybe<Scalars['Int']['input']>;
-};
-
-
 export type QueryActiveFeedingParameterArgs = {
   plcConnectionId: Scalars['ID']['input'];
 };
@@ -16430,6 +16417,7 @@ export type QueryAttendanceRecordsArgs = {
   employeeId?: InputMaybe<Scalars['ID']['input']>;
   endDate?: InputMaybe<Scalars['String']['input']>;
   limit?: InputMaybe<Scalars['Int']['input']>;
+  moduleCode?: InputMaybe<HrModuleCode>;
   page?: InputMaybe<Scalars['Int']['input']>;
   startDate?: InputMaybe<Scalars['String']['input']>;
   status?: InputMaybe<AttendanceStatus>;
@@ -16707,6 +16695,7 @@ export type QueryCurrentlyOffshoreArgs = {
 
 export type QueryDailyAttendanceOverviewArgs = {
   date?: InputMaybe<Scalars['String']['input']>;
+  moduleCode?: InputMaybe<HrModuleCode>;
 };
 
 
@@ -16877,13 +16866,6 @@ export type QueryEmployeeKpIsArgs = {
 export type QueryEmployeesArgs = {
   filter?: InputMaybe<EmployeeFilterInput>;
   pagination?: InputMaybe<EmployeePaginationInput>;
-};
-
-
-export type QueryEmployeesByDepartmentArgs = {
-  department: HrDepartment;
-  limit?: InputMaybe<Scalars['Int']['input']>;
-  page?: InputMaybe<Scalars['Int']['input']>;
 };
 
 
@@ -17266,6 +17248,7 @@ export type QueryHrDepartmentArgs = {
 
 export type QueryHrDepartmentsArgs = {
   isDeleted?: InputMaybe<Scalars['Boolean']['input']>;
+  moduleCode?: InputMaybe<HrModuleCode>;
   siteId?: InputMaybe<Scalars['ID']['input']>;
 };
 
@@ -17374,6 +17357,7 @@ export type QueryLeaveRequestsArgs = {
   endDate?: InputMaybe<Scalars['String']['input']>;
   leaveTypeId?: InputMaybe<Scalars['ID']['input']>;
   limit?: InputMaybe<Scalars['Int']['input']>;
+  moduleCode?: InputMaybe<HrModuleCode>;
   page?: InputMaybe<Scalars['Int']['input']>;
   startDate?: InputMaybe<Scalars['String']['input']>;
   status?: InputMaybe<LeaveRequestStatus>;
@@ -17571,6 +17555,7 @@ export type QueryOverdueGoalsArgs = {
 export type QueryOvertimeSummaryArgs = {
   departmentId?: InputMaybe<Scalars['ID']['input']>;
   employeeId?: InputMaybe<Scalars['ID']['input']>;
+  moduleCode?: InputMaybe<HrModuleCode>;
   month: Scalars['Int']['input'];
   year: Scalars['Int']['input'];
 };
@@ -17636,6 +17621,7 @@ export type QueryPayrollsArgs = {
 export type QueryPendingAttendanceApprovalsArgs = {
   departmentId?: InputMaybe<Scalars['ID']['input']>;
   limit?: InputMaybe<Scalars['Int']['input']>;
+  moduleCode?: InputMaybe<HrModuleCode>;
   page?: InputMaybe<Scalars['Int']['input']>;
 };
 
@@ -17648,6 +17634,7 @@ export type QueryPendingChannelProposalsArgs = {
 export type QueryPendingLeaveApprovalsArgs = {
   departmentId?: InputMaybe<Scalars['ID']['input']>;
   limit?: InputMaybe<Scalars['Int']['input']>;
+  moduleCode?: InputMaybe<HrModuleCode>;
   page?: InputMaybe<Scalars['Int']['input']>;
 };
 
@@ -18287,6 +18274,7 @@ export type QueryTeamGoalsArgs = {
 export type QueryTeamLeaveCalendarArgs = {
   departmentId?: InputMaybe<Scalars['ID']['input']>;
   endDate: Scalars['String']['input'];
+  moduleCode?: InputMaybe<HrModuleCode>;
   startDate: Scalars['String']['input'];
 };
 
@@ -18298,6 +18286,7 @@ export type QueryTeamPerformanceOverviewArgs = {
 
 export type QueryTeamWeeklyOverviewArgs = {
   departmentId?: InputMaybe<Scalars['ID']['input']>;
+  moduleCode?: InputMaybe<HrModuleCode>;
   siteId?: InputMaybe<Scalars['ID']['input']>;
   weekStartDate: Scalars['String']['input'];
 };
@@ -18359,6 +18348,7 @@ export type QueryTicketCommentsArgs = {
 
 export type QueryTodaysAttendanceArgs = {
   employeeId?: InputMaybe<Scalars['ID']['input']>;
+  moduleCode?: InputMaybe<HrModuleCode>;
 };
 
 
@@ -18664,6 +18654,7 @@ export type QueryWeeklyPlansArgs = {
   departmentId?: InputMaybe<Scalars['ID']['input']>;
   employeeId?: InputMaybe<Scalars['ID']['input']>;
   limit?: InputMaybe<Scalars['Int']['input']>;
+  moduleCode?: InputMaybe<HrModuleCode>;
   page?: InputMaybe<Scalars['Int']['input']>;
   siteId?: InputMaybe<Scalars['ID']['input']>;
   status?: InputMaybe<WeeklyPlanStatus>;
@@ -23664,14 +23655,13 @@ export type UpdateEmployeeInput = {
   contactInfo?: InputMaybe<ContactInfoInput>;
   currency?: InputMaybe<Scalars['String']['input']>;
   dateOfBirth?: InputMaybe<Scalars['String']['input']>;
-  department?: InputMaybe<HrDepartment>;
+  departmentHrId?: InputMaybe<Scalars['String']['input']>;
   email?: InputMaybe<Scalars['String']['input']>;
   employmentType?: InputMaybe<EmploymentType>;
   farmId?: InputMaybe<Scalars['String']['input']>;
   firstName?: InputMaybe<Scalars['String']['input']>;
   hireDate?: InputMaybe<Scalars['String']['input']>;
   id: Scalars['String']['input'];
-  isFarmWorker?: InputMaybe<Scalars['Boolean']['input']>;
   laborCategory?: InputMaybe<LaborCategory>;
   lastName?: InputMaybe<Scalars['String']['input']>;
   nationalId?: InputMaybe<Scalars['String']['input']>;
@@ -23909,6 +23899,7 @@ export type UpdateHrDepartmentInput = {
   isActive?: InputMaybe<Scalars['Boolean']['input']>;
   isDeleted?: InputMaybe<Scalars['Boolean']['input']>;
   managerId?: InputMaybe<Scalars['String']['input']>;
+  moduleCode?: InputMaybe<HrModuleCode>;
   name?: InputMaybe<Scalars['String']['input']>;
   parentDepartmentId?: InputMaybe<Scalars['String']['input']>;
   siteId?: InputMaybe<Scalars['String']['input']>;

@@ -38,7 +38,6 @@ target is not a plan ground. The merge owner's walk lives in
 """
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -72,6 +71,7 @@ from .operator_request_spend import (
 )
 from .plan_candidate_source import PlanCandidateSource
 from .tool_registry import GovernanceError, ensure_tools_dir_readonly, utc_now
+from .digest import sha256_digest
 
 INGESTION_SURFACE = "operator_feedback_ingestion"
 INGESTION_LEDGER_NAME = "operator-feedback-ingestion.jsonl"
@@ -189,7 +189,7 @@ def _row_key(row: Any) -> str:
     if isinstance(row, dict) and isinstance(row.get("ledger_hash"), str) and row["ledger_hash"]:
         return row["ledger_hash"]
     encoded = row if isinstance(row, str) else json.dumps(row, sort_keys=True, default=str)
-    return "sha256:" + hashlib.sha256(encoded.encode("utf-8", errors="replace")).hexdigest()
+    return sha256_digest(encoded.encode("utf-8", errors="replace"))
 
 
 class _Scan:

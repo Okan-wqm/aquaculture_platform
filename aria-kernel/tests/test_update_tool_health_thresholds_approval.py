@@ -93,6 +93,15 @@ class HealthThresholdsApprovalGateTests(unittest.TestCase):
         self.base = self.tmp / "aria-tools"
         self.base.mkdir()
         register_tool(_make_tool(), base_dir=self.base)
+        from tests._helpers.operator_acts import bind_github_operator_acts
+
+        self.acts = bind_github_operator_acts(self)
+
+    def _approval_ref(self) -> str:
+        """ARIA-HIGH-238 — one fresh operator GitHub act per gated update."""
+        return self.acts.approve(
+            "tool_update", {"tool": "alpha", "fields": "health_thresholds"},
+        )
 
     def tearDown(self) -> None:
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -131,7 +140,7 @@ class HealthThresholdsApprovalGateTests(unittest.TestCase):
                 "crash_rate_last_10": 0.1,
             }},
             base_dir=self.base,
-            operator_approval_ref="docs/operator/approval/123",
+            operator_approval_ref=self._approval_ref(),
             reason="raise precision floor for ACTIVE-eligibility",
         )
         result = get_tool("alpha", base_dir=self.base)
@@ -155,7 +164,7 @@ class HealthThresholdsApprovalGateTests(unittest.TestCase):
                     "crash_rate_last_10": 0.2,
                 }},
                 base_dir=self.base,
-                operator_approval_ref="docs/operator/approval/123",
+                operator_approval_ref=self._approval_ref(),
                 reason="weaken precision",
             )
         self.assertIn("health_thresholds_out_of_range", str(ctx.exception))
@@ -171,7 +180,7 @@ class HealthThresholdsApprovalGateTests(unittest.TestCase):
                     "crash_rate_last_10": 0.2,
                 }},
                 base_dir=self.base,
-                operator_approval_ref="docs/operator/approval/123",
+                operator_approval_ref=self._approval_ref(),
                 reason="impossible threshold",
             )
         self.assertIn("health_thresholds_out_of_range", str(ctx.exception))
@@ -190,7 +199,7 @@ class HealthThresholdsApprovalGateTests(unittest.TestCase):
                     "crash_rate_last_10": 0.2,
                 }},
                 base_dir=self.base,
-                operator_approval_ref="docs/operator/approval/123",
+                operator_approval_ref=self._approval_ref(),
                 reason="allow critical FP",
             )
         self.assertIn("health_thresholds_out_of_range", str(ctx.exception))
@@ -209,7 +218,7 @@ class HealthThresholdsApprovalGateTests(unittest.TestCase):
                     "crash_rate_last_10": 0.6,  # above 0.5 ceiling
                 }},
                 base_dir=self.base,
-                operator_approval_ref="docs/operator/approval/123",
+                operator_approval_ref=self._approval_ref(),
                 reason="weaken crash rate",
             )
         self.assertIn("health_thresholds_out_of_range", str(ctx.exception))

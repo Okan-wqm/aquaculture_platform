@@ -30,6 +30,7 @@ from .state_snapshot import (
 )
 from .state_manifest import normalize_surface_relative_path
 from .state_tree_contract import STATE_BOOTSTRAP_EMPTY_MARKERS
+from .digest import is_sha256_digest
 
 
 EvidenceState = Literal[
@@ -57,7 +58,6 @@ class _LegacyKgCanonicalMigrationRequired(RuntimeError):
     """A published KG ledger needs an operator-governed dual-chain migration."""
 
 
-_LEDGER_HASH = re.compile(r"^sha256:[0-9a-f]{64}$")
 _OWNER_TASK = re.compile(r"^task-(?:[1-9]|1\d|20a)$")
 _REQUIRED_PREDICATE = re.compile(r"^[a-z][a-z0-9_]+$")
 _REGRESSION_TEST_REF = re.compile(r"(?:^|/)(?:tests?|[^/]*\.(?:spec|test)\.)")
@@ -1493,7 +1493,7 @@ def _summarize_native_rows(
                 blockers.add(f"proof_identity_missing:{contract.surface}")
                 continue
             row_hash = row.get(contract.integrity_hash_field)
-            if not isinstance(row_hash, str) or not _LEDGER_HASH.fullmatch(row_hash):
+            if not is_sha256_digest(row_hash):
                 blockers.add(
                     f"proof_integrity_hash_missing:{contract.surface}",
                 )
@@ -2567,7 +2567,7 @@ def _valid_evidence_checkpoint(row: Mapping[str, Any]) -> bool:
         row.get("row_type") == _EVIDENCE_CHECKPOINT_ROW_TYPE and row.get("schema_version") == 1
         and all(count(row.get(name)) for name in ("schema_version", "fold_version", "row_count", "size_bytes"))
         and isinstance(row.get("surface_key"), str) and isinstance(row.get("evidence"), dict)
-        and isinstance(tail, str) and _LEDGER_HASH.fullmatch(tail) is not None
+        and is_sha256_digest(tail)
     )
 
 

@@ -12,7 +12,8 @@ string the old pin (verifier call sites only) never saw.
 THE CLASSES, each with one rule checked from the AST:
 
 * RAISING — success widens what ARIA may do. It calls
-  ``verify_operator_approval`` naming exactly its literal surfaces (a GitHub
+  ``verify_operator_approval`` (directly, or through the owner's one wrapper
+  ``require_operator_act``) naming exactly its literal surfaces (a GitHub
   act of a listed operator, scoped, consumed once), or hands its reference to
   a classified RAISING callee that does.
 * RAISING|LOWERING — one entry point, both directions: as RAISING.
@@ -43,7 +44,13 @@ nothing cannot write the event without failing CI.
 """
 from __future__ import annotations
 
+# ARIA-HIGH-602 — the live partition: this module reads the live checkout
+# outside the kernel surface, so it runs in aria-kernel.yml's always-run
+# `workspace` job (aria_kernel.live_partition), never in a skippable shard.
+READS_LIVE_CHECKOUT = 'the live findings registry docs/reviews/_registry/findings.jsonl'
+
 import ast
+import json
 import os
 import re
 import shutil
@@ -53,13 +60,14 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest import mock
 
 import aria_kernel
 from aria_kernel.circuit_breaker import BREAKER_EVIDENCE_QUARANTINED_EVENT, BREAKER_RESET_EVENT
 from aria_kernel.control import CONTROL_RECORDED_EVENT
 from aria_kernel.cost_budget import COST_BREAKER_RESET_EVENT
 from aria_kernel.mcp_client import MCP_RELEASED_EVENT, QUARANTINE_SURFACE, RELEASE_ROW_EVENT
-from aria_kernel.operator_approval import AUTHORITY_RAISING_SURFACES, RECORD_SURFACES
+from aria_kernel.operator_approval import APPROVAL_CONSUMED_EVENT, AUTHORITY_RAISING_SURFACES, RECORD_SURFACES
 from aria_kernel.report_ingestion import read_registry_view
 from aria_kernel.tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
 from tests._helpers.operator_acts import github_operator_acts, operator_set_profile
@@ -69,7 +77,11 @@ REPO = KERNEL.parents[1]
 
 GITHUB_VERIFIER = "verify_operator_approval"
 RECORDED_VERIFIER = "verify_recorded_reference"
-VERIFIERS = frozenset({GITHUB_VERIFIER, RECORDED_VERIFIER})
+# ARIA-HIGH-238 — the owner module's one wrapper (verify + the GovernanceError
+# mapping, in one place). A call to it is a call to the GitHub verifier.
+GITHUB_WRAPPER = "require_operator_act"
+GITHUB_VERIFIERS = frozenset({GITHUB_VERIFIER, GITHUB_WRAPPER})
+VERIFIERS = frozenset({*GITHUB_VERIFIERS, RECORDED_VERIFIER})
 PANEL_RESOLVERS = frozenset({"resolve_panel_approval", "resolve_panel_adjudication_proof"})
 GOVERNANCE_WRITERS = frozenset({"append_tools_governance", "append_tools_governance_once"})
 DECLARED_WRITERS = frozenset({"append_declared_jsonl"})
@@ -148,8 +160,30 @@ APPROVAL_FUNCTIONS: dict[tuple[str, str], Klass] = {
     ("mcp_client", "release_quarantine"): raising("mcp_unquarantine"),
     ("tool_registry", "transition_tool"): raising_via("tool_registry.resolve_transition_approval"),
     ("tool_registry", "unquarantine_tool"): raising_via("tool_registry.transition_tool"),
-    ("agent_genesis", "approve_agent_pr"): raising("genesis_pr_approval"),
-    ("skill_genesis", "approve_skill_pr"): raising("genesis_pr_approval"),
+    ("agent_genesis", "approve_agent_pr"): raising("agent_pr_approval"),
+    ("skill_genesis", "approve_skill_pr"): raising("skill_pr_approval"),
+    # ARIA-HIGH-238 — the surfaces beyond unit O's four: each verifies the
+    # operator's GitHub act through require_operator_act.
+    ("autonomous_host_lease", "release_lease"): raising_or_lowering("host_lease_release"),
+    ("self_modification", "request_kernel_change"): raising("kernel_change_request"),
+    ("agent_genesis", "record_draft_lifecycle_chain"): raising("genesis_request"),
+    ("agent_genesis", "draft_agent_from_gap"): raising_via("agent_genesis.record_draft_lifecycle_chain"),
+    ("skill_genesis", "sandbox_skill"): raising("skill_synthetic_sandbox"),
+    ("proposal", "approve_proposal"): raising("proposal_approval"),
+    ("instinct_candidate", "promote_candidate"): raising("instinct_promotion"),
+    ("genesis_lifecycle", "record_transition"): raising_or_lowering("genesis_transition"),
+    ("skill_curator", "decide_curation"): raising("skill_curation_decision"),
+    ("pressure", "record_weight_override"): raising("pressure_weight_override"),
+    ("agent_eval", "run_agent_eval"): raising("agent_eval_run"),
+    ("shadow_eval_bridge", "bridge_shadow_eval_from_invocation"): raising("shadow_eval_bridge"),
+    ("agent_invocations", "_submit_legacy_invocation_result_internal"): raising("legacy_result_submit"),
+    ("security.grant", "new_claims"): raising("grant_human_approval"),
+    ("ack_ledger", "init_ack_ledger"): raising("ack_key_operation"),
+    ("ack_ledger", "rotate_key"): raising("ack_key_operation"),
+    ("runtime_artifacts", "retention_apply"): raising("retention_apply"),
+    ("runtime_artifacts", "restore_artifact"): raising("artifact_restore"),
+    ("runtime_artifacts", "rollback_retention"): raising("retention_rollback"),
+    ("tool_registry", "update_tool"): raising("tool_update"),
     # A transition that widens the recorded grant raises; frozen, observe, a
     # lower ceiling or a lane inside its ceiling lowers. `resume` with a
     # standing pause raises; `pause` and `cancel` lower.
@@ -171,38 +205,12 @@ APPROVAL_FUNCTIONS: dict[tuple[str, str], Klass] = {
         "drops a compromised ack key from the verifying set; every row it signed verifies as "
         "signed_key_revoked (ARIA-LOW-598)"),
     # --- PROVENANCE: written as context, read by nothing as authority -------------
-    # The ack key: since ARIA-MEDIUM-254 (b9b77d107) an operator ack is the
-    # operator's ssh-signed ADR-0023 act and the kernel's HMAC key signs only
-    # the kernel's own autonomous ack rows, so minting or rotating that key
-    # raises no authority. (ARIA-HIGH-414 resolved too:
-    # genesis_adapter_custody.verify_genesis_promotion now takes the RESOLVED
-    # approval record, not a reference, and left the population.)
-    ("ack_ledger", "init_ack_ledger"): provenance(
-        "mints the kernel's own HMAC key (autonomous ack rows only); the ref is audit context on the governance row"),
-    ("ack_ledger", "rotate_key"): provenance(
-        "rotates the kernel's own HMAC key (autonomous ack rows only); the ref is audit context on the governance row"),
-    ("agent_eval", "run_agent_eval"): provenance("the refs are written into the eval record; an eval grants nothing"),
     ("agent_eval", "_validate_real_eval_provenance"): provenance(
         "checks the shape of a real-eval ledger reference; grants nothing"),
-    ("agent_genesis", "record_draft_lifecycle_chain"): provenance(
-        "recorded as operator_feedback_ref evidence; PR approval stays behind approve_agent_pr"),
-    ("agent_genesis", "draft_agent_from_gap"): provenance("a draft is a proposal; the ref goes to the lifecycle record"),
-    ("genesis_lifecycle", "record_transition"): provenance(
-        "ACTIVE is gated by the kernel-computed superiority proof and two reviewers; the ref is only written"),
-    ("skill_genesis", "sandbox_skill"): provenance("a sandbox run grants nothing; approve_skill_pr re-checks synthetic mode"),
-    ("skill_curator", "decide_curation"): provenance(
-        "a decision log read only by context_compiler; nothing materializes from an accepted row"),
-    ("pressure", "record_weight_override"): provenance("reorders what ARIA looks at, never what it may do"),
     ("gateway.scheduler", "add_schedule"): provenance(
         "a schedule runs a kernel action under that action's own gates; the ref names who asked"),
     ("gateway.scheduler", "change_schedule"): provenance(
         "a schedule runs a kernel action under that action's own gates; the ref names who asked"),
-    ("runtime_artifacts", "retention_apply"): provenance(
-        "copies to .archive/ and appends artifact_archived, deleting nothing; the kernel archives cycle artifacts itself"),
-    ("runtime_artifacts", "restore_artifact"): provenance("restores an archived copy; widens no authority"),
-    ("runtime_artifacts", "rollback_retention"): provenance("undoes an archive move; widens no authority"),
-    ("shadow_eval_bridge", "bridge_shadow_eval_from_invocation"): provenance(
-        "SHADOW grants no authority; ACTIVE stays behind transition_tool"),
     # --- INTERNAL ------------------------------------------------------------------
     ("runtime_profile", "_transition_merge_lane_grant"): internal(
         "runtime_profile.set_merge_lane_grant", "runtime_profile.revoke_merge_lane_grant"),
@@ -210,22 +218,10 @@ APPROVAL_FUNCTIONS: dict[tuple[str, str], Klass] = {
     # --- PANEL ---------------------------------------------------------------------
     ("promotion_veto", "resolve_panel_approval"): panel("re-derives the panel adjudication for this tool"),
     ("promotion_veto", "record_pending_promotion"): panel("arms the veto window only on a resolved panel approval"),
-    # --- INERT: no production caller -------------------------------------------------
-    ("self_modification", "request_kernel_change"): inert("no production caller"),
-    ("autonomous_host_lease", "release_lease"): inert("no production caller"),
-    ("proposal", "approve_proposal"): inert("no production caller (its only writer of approval_source=operator)"),
-    ("instinct_candidate", "promote_candidate"): inert("no production caller"),
-    ("tool_registry", "update_tool"): inert("no production caller; tool_health writes through the internal primitive"),
-    ("security.grant", "new_claims"): inert("no production caller"),
-    ("agent_invocations", "_submit_legacy_invocation_result_internal"): inert("no production caller"),
 }
 
 # RAISING entries whose verification lands in a later slice of ARIA-HIGH-238.
-UNVERIFIED_UNTIL: dict[tuple[str, str], str] = {
-    ("control", "record_control"): "ARIA-HIGH-238",
-    ("agent_genesis", "approve_agent_pr"): "ARIA-HIGH-238",
-    ("skill_genesis", "approve_skill_pr"): "ARIA-HIGH-238",
-}
+UNVERIFIED_UNTIL: dict[tuple[str, str], str] = {}
 
 # P5 — the writes that record an authority raise.
 RAISING_GOVERNANCE_KINDS: frozenset[str] = frozenset({
@@ -338,13 +334,15 @@ def _calls(node: ast.AST) -> Iterator[ast.Call]:
 
 
 def _verifier_surfaces(function: ast.AST) -> dict[str, frozenset[str]]:
-    """verifier -> every string literal under its ``surface=`` keyword."""
+    """verifier -> every string literal under its ``surface=`` keyword.
+
+    The wrapper is reported as the GitHub verifier it calls."""
     found: dict[str, set[str]] = {}
     for call in _calls(function):
         name = _call_name(call)
         if name not in VERIFIERS:
             continue
-        literals = found.setdefault(name, set())
+        literals = found.setdefault(GITHUB_VERIFIER if name in GITHUB_VERIFIERS else name, set())
         for keyword in call.keywords:
             if keyword.arg == "surface":
                 literals.update(
@@ -354,12 +352,23 @@ def _verifier_surfaces(function: ast.AST) -> dict[str, frozenset[str]]:
     return {name: frozenset(values) for name, values in found.items()}
 
 
-def _hands_on(function: ast.AST, parameter: str) -> set[str]:
-    """Names of the callees whose arguments carry ``parameter``."""
+def _hands_on(function: ast.AST, parameter: str, *, through_locals: bool = False) -> set[str]:
+    """Names of the callees whose arguments carry ``parameter``.
+
+    ``through_locals`` also follows a local bound from it (``ref =
+    str(parameter or "").strip() or None``): a RAISING-via entry may normalise
+    the reference before handing it to its RAISING callee. PASS_THROUGH keeps
+    the exact rule (only the parameter itself)."""
+    carriers = {parameter}
+    for node in ast.walk(function) if through_locals else ():
+        if isinstance(node, ast.Assign) and any(
+            isinstance(leaf, ast.Name) and leaf.id in carriers for leaf in ast.walk(node.value)
+        ):
+            carriers.update(target.id for target in node.targets if isinstance(target, ast.Name))
     callees: set[str] = set()
     for call in _calls(function):
         arguments = [*call.args, *(keyword.value for keyword in call.keywords)]
-        if any(isinstance(node, ast.Name) and node.id == parameter for arg in arguments for node in ast.walk(arg)):
+        if any(isinstance(node, ast.Name) and node.id in carriers for arg in arguments for node in ast.walk(arg)):
             name = _call_name(call)
             if name is not None:
                 callees.add(name)
@@ -516,7 +525,10 @@ class CallerClassificationTests(unittest.TestCase):
                 if klass.callee:
                     callee = tuple(klass.callee.rsplit(".", 1))
                     self.assertIn(APPROVAL_FUNCTIONS[callee].kind, RAISING_KINDS)
-                    self.assertIn(_function_name(klass.callee), _hands_on(function, "operator_approval_ref"))
+                    self.assertIn(
+                        _function_name(klass.callee),
+                        _hands_on(function, "operator_approval_ref", through_locals=True),
+                    )
                 else:
                     self.assertEqual(verifiers.get(GITHUB_VERIFIER), klass.surfaces)
                     self.assertLessEqual(klass.surfaces, set(AUTHORITY_RAISING_SURFACES))
@@ -642,6 +654,364 @@ class CallerClassificationTests(unittest.TestCase):
     def test_the_legacy_verifier_is_gone(self) -> None:
         for path in sorted(KERNEL.rglob("*.py")):
             self.assertNotIn("verify_operator_approval_ref", path.read_text(encoding="utf-8"), msg=str(path))
+
+    def test_every_raising_entry_verifies_and_resume_is_a_declared_surface(self) -> None:
+        """ARIA-HIGH-238 closes with no RAISING entry left unverified.
+
+        ``control.record_control`` was the last one: a ``resume`` lifts an
+        operator's pause, so it is the declared surface ``control_resume``,
+        scoped to what is lifted (``target``: ``all`` or the request id) and to
+        the standing pause it lifts (``pause_id``: that pause row's id).
+        """
+        self.assertEqual(UNVERIFIED_UNTIL, {}, "ARIA-HIGH-238 cannot close with a RAISING entry unverified")
+        self.assertEqual(APPROVAL_FUNCTIONS[("control", "record_control")], raising_or_lowering("control_resume"))
+        self.assertIn("control_resume", AUTHORITY_RAISING_SURFACES)
+        self.assertEqual(AUTHORITY_RAISING_SURFACES["control_resume"], ("target", "pause_id"))
+
+
+class VerifiedApprovalSurfaces(unittest.TestCase):
+    """ARIA-HIGH-238 — one red per surface: a free string is not an approval.
+
+    Each test drives the REAL entry point in a real tools dir: a free string
+    such as ``"ok"`` is refused with the GitHub-act grammar, a fixture
+    operator act (``tests/_helpers/operator_acts``) is accepted, and the same
+    act is refused a second time — one act authorizes one grant. The stop
+    verbs (``breaker_reset``, ``breaker_evidence_quarantine``,
+    ``mcp_unquarantine``) bind to the trip or quarantine instance; their pins
+    live in ``tests/test_breaker_mcp_operator_approval.py``.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = Path(tempfile.mkdtemp(prefix="aria-opa-238-"))
+        self.addCleanup(lambda: shutil.rmtree(self._tmp, ignore_errors=True))
+        self.tools = ensure_tools_dir(self._tmp / "aria-tools")
+
+    def _refused_as_unrecorded(self, action, ref: str = "ok") -> None:
+        with self.assertRaisesRegex(GovernanceError, "gh:<owner>/<repo>#<number>"):
+            action(ref)
+
+    def _refused_as_consumed(self, action, ref: str) -> None:
+        with self.assertRaisesRegex(GovernanceError, "already consumed"):
+            action(ref)
+
+    def test_host_lease_release_takeover(self) -> None:
+        from aria_kernel.autonomous_host_lease import acquire_lease, release_lease
+
+        acquire_lease(base_dir=self.tools, host_id="host-a", pid=111)
+        # Own-host release needs no act at all (LOWERING half of the surface).
+        self.assertEqual(release_lease(base_dir=self.tools, host_id="host-a")["status"], "released")
+        acquire_lease(base_dir=self.tools, host_id="host-b", pid=222)
+        self._refused_as_unrecorded(
+            lambda ref: release_lease(base_dir=self.tools, host_id="host-a", operator_approval_ref=ref),
+        )
+        with github_operator_acts() as github:
+            ref = github.approve("host_lease_release", {"host": "host-b"})
+            self.assertEqual(
+                release_lease(base_dir=self.tools, host_id="host-a", operator_approval_ref=ref)["status"],
+                "released",
+            )
+            acquire_lease(base_dir=self.tools, host_id="host-b", pid=333)
+            self._refused_as_consumed(
+                lambda _: release_lease(base_dir=self.tools, host_id="host-a", operator_approval_ref=ref),
+                ref,
+            )
+
+    def test_kernel_change_request(self) -> None:
+        from aria_kernel.self_modification import REQUIRED_KERNEL_VALIDATIONS, request_kernel_change
+
+        files = ["aria-kernel/aria_kernel/example.py"]
+        kwargs = {
+            "changed_files": files,
+            "validation_refs": list(REQUIRED_KERNEL_VALIDATIONS),
+            "full_shadow_cycle_ref": "cycle-1",
+            "rollback_plan": "git revert",
+            "base_dir": self.tools,
+        }
+        self._refused_as_unrecorded(lambda ref: request_kernel_change(operator_approval_ref=ref, **kwargs))
+        import hashlib
+
+        digest = hashlib.sha256("\n".join(sorted(files)).encode("utf-8")).hexdigest()
+        with github_operator_acts() as github:
+            ref = github.approve("kernel_change_request", {"digest": digest})
+            row = request_kernel_change(operator_approval_ref=ref, **kwargs)
+            self.assertEqual(row["decision"], "authorized_for_pr_only")
+            self._refused_as_consumed(
+                lambda _: request_kernel_change(operator_approval_ref=ref, **kwargs),
+                ref,
+            )
+
+
+    def test_proposal_approval(self) -> None:
+        from aria_kernel.proposal import approve_proposal, record_proposal
+
+        proposal = record_proposal(
+            kind="architecture", title="t", problem="p", evidence=["docs/x.md"],
+            validation_command="pytest", base_dir=self.tools,
+        )
+        run = lambda ref: approve_proposal(  # noqa: E731 - test local
+            proposal_id=proposal["proposal_id"], operator_approval_ref=ref, base_dir=self.tools,
+        )
+        self._refused_as_unrecorded(run)
+        with github_operator_acts() as github:
+            ref = github.approve("proposal_approval", {"proposal": proposal["proposal_id"]})
+            self.assertEqual(run(ref)["status"], "approved_for_apply")
+            self._refused_as_consumed(run, ref)
+
+    def test_pressure_weight_override(self) -> None:
+        from aria_kernel.pressure import record_weight_override, SOURCE_WEIGHTS
+
+        source = sorted(SOURCE_WEIGHTS)[0]
+        run = lambda ref: record_weight_override(  # noqa: E731 - test local
+            source=source, weight=7, reason="rebalance after review", operator_approval_ref=ref,
+            base_dir=self.tools,
+        )
+        self._refused_as_unrecorded(run)
+        with github_operator_acts() as github:
+            ref = github.approve("pressure_weight_override", {"source": source, "weight": "7"})
+            self.assertEqual(run(ref)["weight"], 7)
+            self._refused_as_consumed(run, ref)
+
+    def test_ack_key_init_and_rotate(self) -> None:
+        from aria_kernel.ack_ledger import init_ack_ledger, rotate_key
+
+        init_run = lambda ref: init_ack_ledger(  # noqa: E731 - test local
+            base_dir=self.tools, reason="bootstrap", operator_approval_ref=ref,
+        )
+        self._refused_as_unrecorded(init_run)
+        with github_operator_acts() as github:
+            ref = github.approve("ack_key_operation", {"operation": "init"})
+            self.assertEqual(init_run(ref)["status"], "ok")
+        rotate_run = lambda ref: rotate_key(  # noqa: E731 - test local
+            base_dir=self.tools, reason="scheduled", operator_approval_ref=ref,
+        )
+        self._refused_as_unrecorded(rotate_run)
+        with github_operator_acts() as github:
+            ref = github.approve("ack_key_operation", {"operation": "rotate"})
+            self.assertEqual(rotate_run(ref)["status"], "ok")
+            self._refused_as_consumed(rotate_run, ref)
+
+    def test_tool_update_gated_fields(self) -> None:
+        from aria_kernel.tool_registry import update_tool
+
+        updates = {"allowed_read_globs": ["docs/**"]}
+        run = lambda ref: update_tool(  # noqa: E731 - test local
+            "tool-no-such", updates, base_dir=self.tools,
+            operator_approval_ref=ref, reason="widen reads",
+        )
+        self._refused_as_unrecorded(run)
+        with github_operator_acts() as github:
+            ref = github.approve("tool_update", {"tool": "tool-no-such", "fields": "allowed_read_globs"})
+            # The act is proven, so the call now proceeds to the honest
+            # refusal: the tool itself does not exist.
+            with self.assertRaisesRegex(GovernanceError, "tool not found"):
+                run(ref)
+
+    def test_instinct_promotion(self) -> None:
+        from aria_kernel.instinct_candidate import promote_candidate, record_candidate
+
+        candidate = record_candidate(
+            trigger_signal="repeat-banned-phrase-violation",
+            action_observation="9 of last 12 PRs caught by L1 gate",
+            evidence_refs=["aria-tools/governance.jsonl:42"],
+            confidence_0_to_1=0.85,
+            observation_count=9,
+            base_dir=self.tools,
+        )
+        run = lambda ref: promote_candidate(  # noqa: E731 - test local
+            candidate_id=candidate["candidate_id"], operator_approval_ref=ref,
+            promotion_pr_url="https://github.com/o/r/pull/7", promoted_to="skill",
+            base_dir=self.tools,
+        )
+        self._refused_as_unrecorded(run)
+        with github_operator_acts() as github:
+            ref = github.approve("instinct_promotion", {"candidate": candidate["candidate_id"]})
+            self.assertEqual(run(ref)["status"], "PROMOTED")
+            self._refused_as_consumed(run, ref)
+
+
+    def test_genesis_widening_transition(self) -> None:
+        from aria_kernel.genesis_lifecycle import record_transition
+
+        run = lambda ref: record_transition(  # noqa: E731 - test local
+            entity_id="aria-238-probe", entity_kind="agent", to_state="REAL_SANDBOX",
+            evidence={"eval_harness_id": "h", "fixture_run_id": "f", "transcript_hash": "sha256:" + "0" * 64,
+                      "operator_provenance_ref": "gh:x/y#1/comment/1"},
+            operator_approval_ref=ref, base_dir=self.tools,
+        )
+        self._refused_as_unrecorded(run)
+        with github_operator_acts() as github:
+            ref = github.approve(
+                "genesis_transition", {"entity": "aria-238-probe", "state": "REAL_SANDBOX"},
+            )
+            # The act is proven and consumed; the transition then refuses on
+            # its own honest lifecycle rule (an entity must be born PRESSURE
+            # first). The full accept path is test_shadow_eval_bridge's.
+            with self.assertRaisesRegex(GovernanceError, "genesis_lifecycle_transition_rejected"):
+                run(ref)
+            self._refused_as_consumed(run, ref)
+
+    def test_genesis_narrowing_transition_takes_a_reason(self) -> None:
+        from aria_kernel.genesis_lifecycle import record_transition
+
+        with github_operator_acts() as github:
+            record_transition(
+                entity_id="aria-238-narrow", entity_kind="agent", to_state="PRESSURE",
+                evidence={"gap_id": "g"}, base_dir=self.tools,
+            )
+            record_transition(
+                entity_id="aria-238-narrow", entity_kind="agent", to_state="CANDIDATE_PROPOSED",
+                evidence={"source_types": ["coverage_gap", "shadow_summary"], "valid_cycles": 0},
+                base_dir=self.tools,
+            )
+            row = record_transition(
+                entity_id="aria-238-narrow", entity_kind="agent", to_state="REJECTED",
+                evidence={}, operator_approval_ref="incident: wrong candidate",
+                base_dir=self.tools,
+            )
+            self.assertEqual(row["to_state"], "REJECTED")
+            self.assertEqual(github.reads, [])
+
+
+class ControlResumeSurface(unittest.TestCase):
+    """ARIA-HIGH-238 — lifting an operator's pause is an operator act.
+
+    ``control.record_control("resume", ...)`` lifts a standing pause, so ARIA
+    runs again: it widens authority exactly as a breaker reset does. Its
+    ``operator_ref`` was a free string nothing read (the gateway passes the
+    event actor), so ARIA could resume itself. Like the breaker and MCP stops,
+    the act binds to the INSTANCE being undone — the standing pause row's id,
+    the latest one when several stand — so an act minted for one pause can
+    never lift a later one, even one recorded in the same second. Pausing
+    and cancelling narrow authority and take no act.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = Path(tempfile.mkdtemp(prefix="aria-opa-238-control-"))
+        self.addCleanup(lambda: shutil.rmtree(self._tmp, ignore_errors=True))
+        self.tools = ensure_tools_dir(self._tmp / "aria-tools")
+
+    def _governance(self, kind: str) -> list[dict]:
+        path = self.tools / "governance.jsonl"
+        if not path.exists():
+            return []
+        rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        return [row for row in rows if row.get("kind") == kind]
+
+    def _commands_bytes(self) -> bytes:
+        from aria_kernel.control import commands_path
+
+        path = commands_path(self.tools)
+        return path.read_bytes() if path.exists() else b""
+
+    def _assert_unchanged(self, before_commands: bytes, before_state: dict, before_recorded: int) -> None:
+        from aria_kernel.control import effective_control
+
+        self.assertEqual(self._commands_bytes(), before_commands, "a refused resume wrote a command row")
+        self.assertEqual(effective_control(self.tools).to_dict(), before_state)
+        self.assertEqual(len(self._governance(CONTROL_RECORDED_EVENT)), before_recorded)
+        self.assertEqual(self._governance(APPROVAL_CONSUMED_EVENT), [])
+
+    def test_a_free_string_does_not_lift_a_pause_and_changes_nothing(self) -> None:
+        """(a) — every reference ARIA could author itself is refused, all and per request."""
+        from aria_kernel.control import effective_control, record_control
+
+        record_control("pause", base_dir=self.tools, reason="deploy window")
+        record_control("pause", base_dir=self.tools, request_id="AIR-7", reason="wrong plan")
+        before = (self._commands_bytes(), effective_control(self.tools).to_dict(),
+                  len(self._governance(CONTROL_RECORDED_EVENT)))
+        event = append_tools_governance(self.tools, "operator_action", {"action": "approve"})
+        doc = self._tmp / "review.md"
+        doc.write_text("## OP-1\n", encoding="utf-8")
+        os.environ["ARIA_TEST_ACK_238_CONTROL"] = "yes"
+        self.addCleanup(os.environ.pop, "ARIA_TEST_ACK_238_CONTROL", None)
+        refs = ("ok", "Okan-wqm", "incident: back to work", None, "",
+                f"gov:{event['event_id']}", f"review:{doc}#OP-1", "ack-env:ARIA_TEST_ACK_238_CONTROL")
+        with github_operator_acts():
+            for request_id in (None, "AIR-7"):
+                for ref in refs:
+                    with self.subTest(request_id=request_id, ref=ref):
+                        with self.assertRaisesRegex(GovernanceError, "control_resume_approval_unrecorded"):
+                            record_control("resume", base_dir=self.tools, request_id=request_id, operator_ref=ref)
+                        self._assert_unchanged(*before)
+        state = effective_control(self.tools)
+        self.assertTrue(state.paused_all)
+        self.assertIn("AIR-7", state.paused_requests)
+
+    def test_an_operator_act_bound_to_the_pause_lifts_it_once(self) -> None:
+        """(b) — the GitHub act for this pause lifts it and is consumed exactly once."""
+        from aria_kernel.control import effective_control, record_control
+
+        pause = record_control("pause", base_dir=self.tools, reason="deploy window")
+        with github_operator_acts() as github:
+            ref = github.approve("control_resume", {"target": "all", "pause_id": pause["command_id"]})
+            row = record_control("resume", base_dir=self.tools, operator_ref=ref, reason="window closed")
+        self.assertEqual(row["verb"], "resume")
+        self.assertFalse(effective_control(self.tools).is_paused())
+        consumed = self._governance(APPROVAL_CONSUMED_EVENT)
+        self.assertEqual(len(consumed), 1)
+        self.assertEqual(consumed[0]["details"]["surface"], "control_resume")
+        self.assertEqual(consumed[0]["details"]["scope"], {"target": "all", "pause_id": pause["command_id"]})
+
+    def test_an_operator_act_bound_to_a_request_pause_lifts_only_that_request(self) -> None:
+        """(b) — per request: the act names the request and its standing pause."""
+        from aria_kernel.control import effective_control, record_control
+
+        pause_7 = record_control("pause", base_dir=self.tools, request_id="AIR-7", reason="wrong plan")
+        record_control("pause", base_dir=self.tools, request_id="AIR-8", reason="wrong plan")
+        with github_operator_acts() as github:
+            ref = github.approve("control_resume", {"target": "AIR-7", "pause_id": pause_7["command_id"]})
+            record_control("resume", base_dir=self.tools, request_id="AIR-7", operator_ref=ref)
+            # The same act names AIR-7's pause: it lifts nothing else.
+            with self.assertRaisesRegex(GovernanceError, "control_resume_approval_unrecorded"):
+                record_control("resume", base_dir=self.tools, request_id="AIR-8", operator_ref=ref)
+        state = effective_control(self.tools)
+        self.assertFalse(state.is_paused("AIR-7"))
+        self.assertTrue(state.is_paused("AIR-8"))
+        self.assertEqual(len(self._governance(APPROVAL_CONSUMED_EVENT)), 1)
+
+    def test_an_act_minted_for_one_pause_does_not_lift_a_later_one(self) -> None:
+        """(c) — not after the first pause was lifted, and not over a newer pause on top.
+
+        Both pauses are recorded at the same clock stamp: a pause's identity
+        cannot be the second it was recorded in, or an unspent act minted for
+        one pause would lift every later pause recorded in that second.
+        """
+        from aria_kernel import control
+        from aria_kernel.tool_registry import utc_now
+
+        stamp = utc_now()
+        with mock.patch("aria_kernel.control.utc_now", return_value=stamp), github_operator_acts() as github:
+            first = control.record_control("pause", base_dir=self.tools, reason="deploy window")
+            stale = github.approve("control_resume", {"target": "all", "pause_id": first["command_id"]})
+            fresh = github.approve("control_resume", {"target": "all", "pause_id": first["command_id"]})
+            control.record_control("resume", base_dir=self.tools, operator_ref=fresh)
+            second = control.record_control("pause", base_dir=self.tools, reason="another deploy window")
+            self.assertNotEqual(second["command_id"], first["command_id"], "two pauses, one identity")
+            with self.assertRaisesRegex(GovernanceError, "control_resume_approval_unrecorded"):
+                control.record_control("resume", base_dir=self.tools, operator_ref=stale)
+            self.assertTrue(control.effective_control(self.tools).paused_all)
+
+            # A newer pause on top of a standing one: the act minted before it is stale.
+            on_top = github.approve("control_resume", {"target": "all", "pause_id": second["command_id"]})
+            control.record_control("pause", base_dir=self.tools, reason="re-paused for a new incident")
+            with self.assertRaisesRegex(GovernanceError, "control_resume_approval_unrecorded"):
+                control.record_control("resume", base_dir=self.tools, operator_ref=on_top)
+            self.assertTrue(control.effective_control(self.tools).paused_all)
+        self.assertEqual(len(self._governance(APPROVAL_CONSUMED_EVENT)), 1)
+
+    def test_pausing_and_cancelling_need_no_act(self) -> None:
+        """(d) — the LOWERING half: a reason is enough, GitHub is never asked."""
+        from aria_kernel.control import effective_control, record_control
+
+        with github_operator_acts() as github:
+            record_control("pause", base_dir=self.tools, operator_ref="incident: deploy window")
+            record_control("pause", base_dir=self.tools, request_id="AIR-9")
+            record_control("cancel", base_dir=self.tools, request_id="AIR-9", operator_ref="ok", reason="wrong plan")
+            self.assertEqual(github.reads, [])
+        state = effective_control(self.tools)
+        self.assertTrue(state.paused_all)
+        self.assertTrue(state.is_cancelled("AIR-9"))
+        self.assertEqual(self._governance(APPROVAL_CONSUMED_EVENT), [])
 
 
 class RaisingSurfacesRefuseRecordedReferences(unittest.TestCase):

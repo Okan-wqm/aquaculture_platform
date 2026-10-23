@@ -45,6 +45,7 @@ from typing import Any
 
 from .state_manifest import surface_by_name, surface_key_name
 from .state_snapshot import snapshot_continuity, snapshots_are_linked
+from .digest import sha256_digest_from_hex
 
 
 def write_driving_lost(lost: tuple[str, ...] | list[str]) -> tuple[str, ...]:
@@ -121,7 +122,7 @@ def record_surface_reset(
         {
             "surface": surface,
             "path_pattern": declared.path_pattern,
-            "archived_sha256": f"sha256:{digest}",
+            "archived_sha256": sha256_digest_from_hex(digest),
             "reason": reason.strip(),
             "operator_approval": approval,
         },

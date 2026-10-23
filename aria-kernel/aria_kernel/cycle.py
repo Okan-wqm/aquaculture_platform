@@ -12,6 +12,16 @@ from pathlib import Path
 from typing import Any, Literal, NamedTuple
 
 from .artifact_safety import published_text
+from .execution_spine import (
+    ExecutionIdentity,
+    active_session,
+    begin_cycle_session,
+    bind_session_mission,
+    current_execution_identity,
+    end_cycle_session,
+    session_id_for_cycle,
+    session_outcome_for_cycle_status,
+)
 from .feedback import derive_pressure
 from .ledger import verify_index_hashes, write_index
 from .learning import run_learning_pass, run_learning_post_evidence_closure, run_learning_pre_cycle
@@ -109,19 +119,84 @@ class CycleRow:
         return {k: v for k, v in asdict(self).items() if v is not None}
 
 
-def _started_cycle_row(*, cycle_id: str) -> dict[str, Any]:
+def _started_cycle_row(*, cycle_id: str, execution: ExecutionIdentity) -> dict[str, Any]:
     """Plan 024 §E — single constructor for the started cycles.jsonl row.
 
     Pre-fix the writer emitted a dict literal that omitted `status`.
     The Literal-typed dataclass makes the wrong shape impossible.
+
+    ARIA-MEDIUM-029 — the started row is also the anchor of the execution
+    identity thread: it carries the DERIVED actor block (never a declared
+    one) and the session id of the session this cycle opens, so an auditor
+    can walk cycles.jsonl → sessions/session-ledger.jsonl → governance
+    rows on one id. Additive fields on the v3 row; the upcaster passes
+    v3+ rows through, so no schema bump is owed.
     """
-    return CycleRow(
+    row = CycleRow(
         schema_version=CYCLE_ROW_SCHEMA_VERSION,
         at=utc_now(),
         cycle_id=cycle_id,
         event="started",
         status="started",
     ).to_jsonl()
+    row["session_id"] = session_id_for_cycle(cycle_id)
+    row["actor"] = execution.to_audit_fields()
+    return row
+
+
+def _begin_cycle_session_safely(root: Path, *, cycle_id: str) -> str | None:
+    """ARIA-MEDIUM-029 — open the cycle's session; never fail the cycle for it.
+
+    WHY NON-FATAL: the started cycles.jsonl row is already appended when
+    this runs, so a raise here would strand a cycle with no terminal row —
+    the exact lifecycle violation Plan 024 §E exists to make impossible.
+    The session ledger is an additive audit surface; its failure is
+    DETECTED, not hidden: named in the returned error, reported in the
+    cycle's state under ``session_error``, and disclosed in a governance
+    row.
+    """
+    try:
+        begin_cycle_session(cycle_id=cycle_id, tools_root=root)
+        return None
+    except (OSError, ValueError) as exc:
+        return _disclose_session_spine_degraded(root, "session_start_failed", exc)
+
+
+def _close_cycle_session_safely(root: Path, *, status: str) -> str | None:
+    """ARIA-MEDIUM-029 — close the cycle's session at its terminal row.
+
+    No session (ARIA_STOP stopped the cycle before the started row, or the
+    spine never opened one) is not an error. The status→outcome mapping is
+    the spine's (``session_outcome_for_cycle_status``), never re-derived
+    here.
+    """
+    if active_session() is None:
+        return None
+    try:
+        end_cycle_session(
+            outcome=session_outcome_for_cycle_status(status), tools_root=root
+        )
+        return None
+    except (OSError, ValueError) as exc:
+        return _disclose_session_spine_degraded(root, "session_close_failed", exc)
+
+
+def _disclose_session_spine_degraded(root: Path, what: str, exc: Exception) -> str:
+    error = f"{what}:{type(exc).__name__}"[:200]
+    try:
+        from .tool_registry import append_tools_governance
+
+        append_tools_governance(
+            root,
+            "session_spine_degraded",
+            {"error": error},
+            bypass_profile_gate=True,
+        )
+    except Exception:
+        # The disclosure is best-effort; the returned error string is the
+        # guaranteed carrier (it reaches the cycle state either way).
+        pass
+    return error
 
 
 def _terminal_cycle_row(
@@ -615,7 +690,18 @@ def run_enterprise_cycle(
         }
     workspace = _ensure_enterprise_workspace(workspace_root, workspace_base, root)
     git_head_sha_at_cycle = _git_head_sha(Path(workspace_root))
-    append_declared_jsonl(root / "cycles.jsonl", _started_cycle_row(cycle_id=cycle_id), expected_surface="cycles")
+    # ARIA-MEDIUM-029 — the identity is DERIVED (workflow/unit/operator
+    # session/unattributed), never declared: the started row carries the
+    # actor block, and the session this cycle opens is recorded in the
+    # declared session ledger before any phase runs, so every governance
+    # row the cycle appends already sits inside the session.
+    execution = current_execution_identity()
+    append_declared_jsonl(
+        root / "cycles.jsonl",
+        _started_cycle_row(cycle_id=cycle_id, execution=execution),
+        expected_surface="cycles",
+    )
+    session_error = _begin_cycle_session_safely(root, cycle_id=cycle_id)
     # Burn-in cycles stay out of the learning hooks by mode, mirroring the
     # pre-collapse burn-in loop, which never ran them: an observe burn-in
     # proves the repo-observation lane alone, and the learning pass's
@@ -691,6 +777,7 @@ def run_enterprise_cycle(
             emit_progress("cycle_aborted", cycle_id=cycle_id, reason=_STATE_INTEGRITY_GAP)
             event = _aborted_event(cycle_id, git_head_sha_at_cycle=git_head_sha_at_cycle)
             append_declared_jsonl(root / "cycles.jsonl", event, expected_surface="cycles")
+            session_error = session_error or _close_cycle_session_safely(root, status="aborted")
             # ARIA-LOW-549 — the gate that aborted the cycle is its failed
             # phase, in the row shape the seal writes, so the summary, the
             # doctor's cause key and the notice name it (see
@@ -756,11 +843,13 @@ def run_enterprise_cycle(
             decision_count=0,
         )
         append_declared_jsonl(root / "cycles.jsonl", event, expected_surface="cycles")
+        session_error = session_error or _close_cycle_session_safely(root, status="aborted")
         return {
             "schema_version": 2,
             "cycle_id": cycle_id,
             "git_head_sha_at_cycle": git_head_sha_at_cycle,
             "status": "aborted",
+            "session_error": session_error,
             "event": {**event, "reason": f"cycle_aborted_by_pre_phase:{aborted_by}"},
             "phases": dict(context.outcomes),
             "aborted_by_phase": aborted_by,
@@ -863,6 +952,10 @@ def run_enterprise_cycle(
         )
         update_tools_index(root)
         state_status = "completed"
+    # ARIA-MEDIUM-029 — whichever terminal row the cycle just wrote, the
+    # session it opened closes with it (completed/failed; stopped and
+    # aborted map to abandoned in the spine).
+    session_error = session_error or _close_cycle_session_safely(root, status=state_status)
     emit_progress("cycle_completed", cycle_id=cycle_id, status=state_status,
                   runtime_status=cycle_runtime_status, failed_phases=[f.get("phase") for f in failed_phases])
     # ORPHAN-HIGH-424 — read AFTER this cycle's terminal row is appended
@@ -878,6 +971,10 @@ def run_enterprise_cycle(
         "git_head_sha_at_cycle": git_head_sha_at_cycle,
         "status": state_status,
         "runtime_status": cycle_runtime_status,
+        # ARIA-MEDIUM-029 — None when the session thread opened and closed
+        # with the cycle; the error name (and a session_spine_degraded
+        # governance row) when the session ledger could not be written.
+        "session_error": session_error,
         "phase_failures": phase_failures,
         "failed_phases": failed_phases,
         "event": event,
@@ -2751,6 +2848,7 @@ def _phase_mission_selection(context: PhaseContext) -> dict[str, Any]:
     decision = select_next_mission(base_dir=context.base_dir)
     selected = decision.selected if decision.selected else None
     queued = None
+    session_error: str | None = None
     if selected:
         mission_id = str(selected.get("mission_id") or "")
         queued_row = append_pending(
@@ -2761,12 +2859,20 @@ def _phase_mission_selection(context: PhaseContext) -> dict[str, Any]:
             candidate_tools=[],
         )
         queued = (queued_row or {}).get("queue_item_id")
+        # ARIA-MEDIUM-029 — the selection binds the session to the mission
+        # it will serve. Degraded, not fatal, by the session spine's own
+        # contract (the phase's real work — the queue item — is done).
+        try:
+            bind_session_mission(mission_id=mission_id, tools_root=context.base_dir)
+        except (OSError, RuntimeError, ValueError) as exc:
+            session_error = f"mission_bind_failed:{type(exc).__name__}"[:200]
     return {
         "status": "completed",
         "outcome": decision.outcome,
         "selected_mission": (selected or {}).get("mission_id"),
         "selected_project": (selected or {}).get("target_project"),
         "queue_item_id": queued,
+        "session_error": session_error,
         "considered": decision.considered,
     }
 
@@ -3855,6 +3961,15 @@ def _seal_cycle_on_escape(context: PhaseContext, *, phase: str, exc: BaseExcepti
             _failed_event(context.cycle_id),
             expected_surface="cycles",
         )
+        # ARIA-MEDIUM-029 — the escape sealed the cycle as failed; its
+        # session must not outlive it. Best-effort by the same contract as
+        # the rest of this function: never raise past the escaping
+        # exception, never replace it with a bookkeeping error.
+        if active_session() is not None:
+            try:
+                end_cycle_session(outcome="failed", tools_root=Path(context.base_dir))
+            except (OSError, ValueError):
+                pass
         emit_progress(
             "cycle_sealed_on_escape",
             cycle_id=context.cycle_id,

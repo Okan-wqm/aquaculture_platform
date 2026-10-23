@@ -1152,3 +1152,10 @@ tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
 Updated 2026-10-19: `PLAT-CRITICAL-931` (production date-column serialization
 crash) closed by 44bb256a2 on main — left the active table from bucket
 `already-fixed-needs-close`.
+
+- `SUPPLY-CRITICAL-026`: registry state is `RESOLVED` with closing commit
+  `36558f753`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `real-open`.
+- `SUPPLY-CRITICAL-027`: registry state is `RESOLVED` with closing commit
+  `1beed818d`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `real-open`.

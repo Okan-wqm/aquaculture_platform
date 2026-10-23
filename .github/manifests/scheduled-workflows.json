@@ -13,15 +13,18 @@
     {
       "workflow": "aria-agent-executor.yml",
       "maxAgeHours": 30,
-      "consecutiveFailuresForIncident": 2
+      "consecutiveFailuresForIncident": 2,
+      "selfHostedRunner": true
     },
     {
       "workflow": "aria-auto-cycle.yml",
-      "maxAgeHours": 30
+      "maxAgeHours": 30,
+      "selfHostedRunner": true
     },
     {
       "workflow": "aria-daily-report.yml",
-      "maxAgeHours": 30
+      "maxAgeHours": 30,
+      "selfHostedRunner": true
     },
     {
       "workflow": "aria-external-watchdog.yml",
@@ -50,7 +53,8 @@
     },
     {
       "workflow": "dataflow-integrity-watchdog.yml",
-      "maxAgeHours": 3
+      "maxAgeHours": 2,
+      "selfHostedRunner": true
     },
     {
       "workflow": "db-migration-check.yml",

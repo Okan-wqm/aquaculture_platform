@@ -90,6 +90,14 @@ remain unresolved narrative debt under the existing finding governance.
 - Owner task: Task 15
 - Required predicate: `infrastructure_observation_shadow_proven`
 - Closure mode: `task_commit`
+- Part landed (ARIA order chain, bucket `G017-012-rules`): the one reader per infrastructure format
+  (`tools/gates/lib/infra`: classify, read-infra-file, yaml-documents, workloads, dockerfile,
+  hcl-blocks, nginx-conf, nats-conf; they return errors, never throw) and one owner per rule
+  (`tools/gates/infra-policy`). ci-image-registry, mobile-csp-headers and the e2e NATS invariants
+  call the owners instead of their own rules; `infra-policy.spec.ts` (22 cases, run by
+  `run-all.mjs`) reads every tracked infra file with 0 errors. The row closes with bucket
+  `G017-012-adapter` (adapter, manifest, fixtures). Left open: ARIA-LOW-726, ARIA-LOW-727,
+  ARIA-LOW-728.
 
 ## ARIA-HIGH-013 — ARIA cannot meaningfully observe workflow and shell safety
 

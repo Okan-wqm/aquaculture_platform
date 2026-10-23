@@ -49,11 +49,11 @@ export const DECLARED_NON_NX_RUNNERS: ReadonlyArray<{
     owns: (p) => /^tools\/(supervisor|watchdog)\/[^/]+\.spec\.(ts|mjs)$/.test(p),
   },
   {
-    // package.json `gates:test` (globs the directory), invoked by
-    // .github/workflows/closes-footer-check.yml
+    // package.json `gates:test` (tools/gates/run-all.mjs walks the tree, skipping
+    // fixtures/), invoked by .github/workflows/closes-footer-check.yml
     kind: 'declared-non-nx',
     script: 'gates:test',
-    owns: (p) => /^tools\/gates\/[^/]+\.spec\.ts$/.test(p),
+    owns: (p) => /^tools\/gates\/(?:[^/]+\/)*[^/]+\.spec\.ts$/.test(p) && !/\/fixtures\//.test(p),
   },
   {
     // aria-kernel runs under python unittest in the aria-kernel workflows

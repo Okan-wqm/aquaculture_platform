@@ -120,11 +120,17 @@ class PolicyOverrideTests(unittest.TestCase):
 
 class DraftChainProducerTests(unittest.TestCase):
     def _record(self, root: Path) -> list[dict]:
+        from tests._helpers.operator_acts import bind_github_operator_acts
+
+        if not hasattr(self, "_acts"):
+            self._acts = bind_github_operator_acts(self)
         return record_draft_lifecycle_chain(
             entity_id="aria-svc-farm-auditor",
             gap=_GAP,
             capability_resolution={"decision": "request"},
-            operator_approval_ref="operator:approval:c4c-1",
+            operator_approval_ref=self._acts.approve(
+                "genesis_request", {"entity": "aria-svc-farm-auditor"},
+            ),
             draft_ref="sha256:" + "e" * 64,
             base_dir=root,
         )

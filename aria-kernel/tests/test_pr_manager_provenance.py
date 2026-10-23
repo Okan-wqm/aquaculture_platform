@@ -83,9 +83,14 @@ def _seed_action_and_proposal(*, tools: Path, repo: Path, base_sha: str, proposa
         proposed_change="C-4 fix verification.",
         base_dir=tools,
     )
-    approve_proposal(proposal_id=proposal["proposal_id"],
-                     operator_approval_ref="ops:c4-test",
-                     base_dir=tools)
+    from tests._helpers.operator_acts import github_operator_acts
+
+    with github_operator_acts() as github:
+        approve_proposal(proposal_id=proposal["proposal_id"],
+                         operator_approval_ref=github.approve(
+                             "proposal_approval", {"proposal": proposal["proposal_id"]},
+                         ),
+                         base_dir=tools)
     action_row = {
         "schema_version": 1,
         "recorded_at": "2026-05-08T00:00:00Z",

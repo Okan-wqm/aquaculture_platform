@@ -454,24 +454,14 @@ def _scan_debts_filesystem(debts_dir: Path) -> dict[str, Any]:
         if not isinstance(row, dict):
             continue
         rows.append(row)
+    # ARIA-LOW-605: the owner's predicate and derivation (debt.py) — a
+    # stored-OVERDUE row (a hand edit) stays in the open count instead of
+    # leaving it, and overdue is effective_debt_status, not a restatement.
+    from .debt import effective_debt_status, is_unresolved_debt
+
     now = datetime.now(timezone.utc)
-    open_rows = [
-        r for r in rows
-        if r.get("current_status") in {"OPEN", "IN_PROGRESS"}
-    ]
-    overdue = 0
-    for row in open_rows:
-        due_iso = row.get("due_date")
-        if not due_iso:
-            continue
-        try:
-            due = datetime.fromisoformat(str(due_iso).replace("Z", "+00:00"))
-        except ValueError:
-            continue
-        if due.tzinfo is None:
-            due = due.replace(tzinfo=timezone.utc)
-        if due < now:
-            overdue += 1
+    open_rows = [r for r in rows if is_unresolved_debt(r, now=now)]
+    overdue = sum(1 for r in open_rows if effective_debt_status(r, now=now) == "OVERDUE")
     return {
         "total": len(rows),
         "open": len(open_rows),

@@ -16,6 +16,7 @@ from .feedback_store import load_feedback
 from .snapshot import file_counts_from_payload
 from .tool_health import runs_path
 from .tool_registry import GovernanceError, ensure_tools_dir, load_registry, utc_now
+from .digest import sha256_digest, sha256_digest_file
 
 # Backwards-compatible import surface. The taxonomy itself lives in
 # evidence_trust.py so memory, evidence validation, and tool health cannot drift.
@@ -229,7 +230,7 @@ def rebuild_fates(
     from .evidence_validator import _canonical_evidence_path
     from .runtime_profile import enforce_profile_for_write
     from .tool_registry import append_tools_governance
-    from .workspace import default_actor
+    from .execution_spine import current_actor_record
     enforce_profile_for_write("tool_governance", base_dir=base_dir)
     root = ensure_tools_dir(base_dir)
     discovery_dir = root / "discovery" / cycle_id
@@ -261,7 +262,7 @@ def rebuild_fates(
                 new_files.append(new_entry)
                 continue
             if absolute.exists() and absolute.is_file():
-                actual_hash = "sha256:" + hashlib.sha256(absolute.read_bytes()).hexdigest()
+                actual_hash = sha256_digest_file(absolute)
                 if actual_hash != stored_hash:
                     new_entry["content_hash"] = actual_hash
                     rebuilt_files.append({
@@ -273,7 +274,7 @@ def rebuild_fates(
     new_fates = dict(fates)
     new_fates["files"] = new_files
     fates_path.write_text(json.dumps(new_fates, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    actor = default_actor()
+    actor = current_actor_record()
     append_tools_governance(
         root,
         "memory_fates_rebuilt",
@@ -322,7 +323,8 @@ def reset_memory(
     import hashlib
     import shutil
     from .runtime_profile import enforce_profile_for_write
-    from .workspace import default_actor, record_workspace_governance, workspace_paths
+    from .execution_spine import current_actor_record
+    from .workspace import record_workspace_governance, workspace_paths
     enforce_profile_for_write("tool_governance", base_dir=base_dir)
     backup_path = Path(backup_to)
     if backup_path.exists():
@@ -346,7 +348,7 @@ def reset_memory(
             pre_reset_bytes_parts.append(b"\n")
             pre_reset_bytes_parts.append(child.read_bytes())
             pre_reset_bytes_parts.append(b"\n")
-    pre_reset_hash = "sha256:" + hashlib.sha256(b"".join(pre_reset_bytes_parts)).hexdigest()
+    pre_reset_hash = sha256_digest(b"".join(pre_reset_bytes_parts))
     # Move memory dir to backup
     backup_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(paths.memory_dir), str(backup_path))
@@ -355,7 +357,7 @@ def reset_memory(
     for ledger_path in paths.ledgers.values():
         ledger_path.parent.mkdir(parents=True, exist_ok=True)
         ledger_path.touch(exist_ok=True)
-    actor = default_actor()
+    actor = current_actor_record()
     # Audit row lands in WORKSPACE governance ledger, not tools.
     record_workspace_governance(
         paths,
@@ -2114,7 +2116,7 @@ def _verify_fates_against_git_tree(
             # — silently skip, mirroring the legacy "file missing"
             # branch of the pre-§3.3 verifier.
             continue
-        actual_hash = "sha256:" + hashlib.sha256(result.stdout).hexdigest()
+        actual_hash = sha256_digest(result.stdout)
         if actual_hash != stored_hash:
             raise GovernanceError(
                 f"memory_fates_content_hash_mismatch: "
@@ -2157,7 +2159,7 @@ def _emit_fates_working_tree_drift_observed(
                 continue
             if not absolute.exists() or not absolute.is_file():
                 continue
-            actual_hash = "sha256:" + hashlib.sha256(absolute.read_bytes()).hexdigest()
+            actual_hash = sha256_digest_file(absolute)
             if actual_hash != stored_hash:
                 drifted_count += 1
     if base_dir is not None:
@@ -2193,10 +2195,10 @@ def _fates_actual_hash(
             check=False,
         )
         if completed.returncode == 0:
-            return "sha256:" + hashlib.sha256(completed.stdout).hexdigest()
+            return sha256_digest(completed.stdout)
     if not absolute_path.exists() or not absolute_path.is_file():
         return None
-    return "sha256:" + hashlib.sha256(absolute_path.read_bytes()).hexdigest()
+    return sha256_digest_file(absolute_path)
 
 
 def _evidence_hashes(root: Path, cycle_id: str, evidence_refs: list[str]) -> list[str]:

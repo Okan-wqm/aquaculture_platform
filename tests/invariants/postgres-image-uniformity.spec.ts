@@ -25,8 +25,16 @@ import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
+import {
+  expectedPostgresImageFor,
+  parsePostgresImageManifest,
+  POSTGRES_FAMILY_WORDS,
+  POSTGRES_IMAGE_MANIFEST_PATH,
+  POSTGRES_IMAGE_SCOPE_GLOBS,
+  type PostgresImageManifest,
+} from '../../tools/gates/postgres-image-manifest';
+
 const REPO_ROOT = resolve(__dirname, '..', '..');
-const POSTGRES_IMAGE_MANIFEST_PATH = join(REPO_ROOT, '.github', 'manifests', 'postgres-image.json');
 const DROPLET_COMPOSE_PATH = join(REPO_ROOT, 'docker-compose.droplet.yml');
 const WALG_RUNTIME_COMMAND_PATH = join(
   REPO_ROOT,
@@ -43,108 +51,26 @@ const WALG_SECRET_LOADER_PATH = join(
   'walg-load-secrets.sh',
 );
 
-// Files in scope: every workflow yml + every docker-compose*.yml.
-// We exclude node_modules, dist, worktrees, and historical review docs.
-const SCOPE_GLOBS = ['.github/workflows/*.yml', 'docker-compose*.yml'];
-
-interface PostgresImageManifest {
-  schemaVersion: number;
-  image: string;
-  imageFamily: string;
-  productionImage: string;
-  productionImageFamily: string;
-  dockerfile: string;
-  buildContext: string;
-  postgresMajor: number;
-  requiredCapabilities: string[];
-  productionRequiredCapabilities: string[];
-  walG: {
-    version: string;
-    revision: string;
-    asset: string;
-    assetSha256: string;
-    binaryPath: string;
-  };
-  baseConsumers: string[];
-  productionConsumers: string[];
-  consumers: string[];
-}
-
 interface ImageReference {
   file: string;
   line: number;
   image: string;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function stringValue(value: unknown, field: string): string {
-  if (typeof value !== 'string' || value.length === 0) {
-    throw new Error(`Expected non-empty string field: ${field}`);
-  }
-  return value;
-}
-
-function numberValue(value: unknown, field: string): number {
-  if (typeof value !== 'number') {
-    throw new Error(`Expected numeric field: ${field}`);
-  }
-  return value;
-}
-
-function stringArray(value: unknown, field: string): string[] {
-  if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) {
-    throw new Error(`Expected string array field: ${field}`);
-  }
-  return value;
-}
-
-function recordValue(value: unknown, field: string): Record<string, unknown> {
-  if (!isRecord(value)) {
-    throw new Error(`Expected object field: ${field}`);
-  }
-  return value;
-}
-
+// The manifest's reader, its scope and the postgres-family words have one owner
+// (tools/gates/postgres-image-manifest.ts), shared with ARIA's infrastructure-policy adapter.
 function readPostgresImageManifest(): PostgresImageManifest {
-  const parsed: unknown = JSON.parse(readFileSync(POSTGRES_IMAGE_MANIFEST_PATH, 'utf8'));
-  if (!isRecord(parsed)) {
-    throw new Error('Postgres image manifest must be a JSON object');
-  }
-  const walG = recordValue(parsed.wal_g, 'wal_g');
-  return {
-    schemaVersion: numberValue(parsed.schema_version, 'schema_version'),
-    image: stringValue(parsed.image, 'image'),
-    imageFamily: stringValue(parsed.image_family, 'image_family'),
-    productionImage: stringValue(parsed.production_image, 'production_image'),
-    productionImageFamily: stringValue(parsed.production_image_family, 'production_image_family'),
-    dockerfile: stringValue(parsed.dockerfile, 'dockerfile'),
-    buildContext: stringValue(parsed.build_context, 'build_context'),
-    postgresMajor: numberValue(parsed.postgres_major, 'postgres_major'),
-    requiredCapabilities: stringArray(parsed.required_capabilities, 'required_capabilities'),
-    productionRequiredCapabilities: stringArray(
-      parsed.production_required_capabilities,
-      'production_required_capabilities',
-    ),
-    walG: {
-      version: stringValue(walG.version, 'wal_g.version'),
-      revision: stringValue(walG.revision, 'wal_g.revision'),
-      asset: stringValue(walG.asset, 'wal_g.asset'),
-      assetSha256: stringValue(walG.asset_sha256, 'wal_g.asset_sha256'),
-      binaryPath: stringValue(walG.binary_path, 'wal_g.binary_path'),
-    },
-    baseConsumers: stringArray(parsed.base_consumers, 'base_consumers'),
-    productionConsumers: stringArray(parsed.production_consumers, 'production_consumers'),
-    consumers: stringArray(parsed.consumers, 'consumers'),
-  };
+  return parsePostgresImageManifest(
+    readFileSync(join(REPO_ROOT, POSTGRES_IMAGE_MANIFEST_PATH), 'utf8'),
+  );
 }
 
 function readPostgresImageReferences(): ImageReference[] {
+  // Files in scope: every workflow yml + every docker-compose*.yml.
+  const family = POSTGRES_FAMILY_WORDS.map((word) => `.*${word}.*`).join('|');
   const cmd =
-    `git -C ${REPO_ROOT} grep -nE '^[[:space:]]*image:[[:space:]]+(.*timescaledb.*|.*postgres.*|.*pgvector.*)' -- ` +
-    SCOPE_GLOBS.map((glob) => `'${glob}'`).join(' ');
+    `git -C ${REPO_ROOT} grep -nE '^[[:space:]]*image:[[:space:]]+(${family})' -- ` +
+    POSTGRES_IMAGE_SCOPE_GLOBS.map((glob) => `'${glob}'`).join(' ');
 
   let raw: string;
   try {
@@ -216,13 +142,9 @@ describe('INVARIANT: Postgres images are manifest-governed and immutable', () =>
     const referencedConsumers = Array.from(new Set(references.map((reference) => reference.file)));
     expect(referencedConsumers.sort()).toEqual([...manifest.consumers].sort());
 
-    const productionConsumers = new Set(manifest.productionConsumers);
-    const divergentReferences = references.filter((reference) => {
-      const expected = productionConsumers.has(reference.file)
-        ? manifest.productionImage
-        : manifest.image;
-      return reference.image !== expected;
-    });
+    const divergentReferences = references.filter(
+      (reference) => reference.image !== expectedPostgresImageFor(manifest, reference.file),
+    );
     if (divergentReferences.length > 0) {
       throw new Error(
         `INFRA-CRITICAL-010 / INFRA-HIGH-039 invariant VIOLATED — Postgres image references do not match ` +

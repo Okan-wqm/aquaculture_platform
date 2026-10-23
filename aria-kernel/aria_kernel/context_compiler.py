@@ -25,6 +25,7 @@ from typing import Any, Mapping
 
 from .ledger import load_declared_jsonl, read_jsonl
 from .tool_registry import append_tools_governance, ensure_tools_dir, utc_now
+from .digest import sha256_fingerprint
 
 DECISION_SOURCES: tuple[str, ...] = ("recovery", "control", "curation", "human_required", "plan", "mission", "governance")
 GOVERNANCE_WHY_KEYS: tuple[str, ...] = ("reason", "rationale", "why", "resolution_note", "tripped_reason")
@@ -205,8 +206,8 @@ def compile_context(*, request: Mapping[str, Any], base_dir: str | Path | None =
     sources: dict[str, int] = {}
     for decision in chosen:
         sources[decision.source] = sources.get(decision.source, 0) + 1
-    digest = hashlib.sha256(json.dumps([asdict(d) for d in chosen], sort_keys=True).encode("utf-8")).hexdigest()
-    pack = ContextPack(pack_hash=f"sha256:{digest[:32]}", compiled_at=utc_now(), token_estimate=used, budget_tokens=budget_tokens,
+    pack_hash = sha256_fingerprint(json.dumps([asdict(d) for d in chosen], sort_keys=True).encode("utf-8"), hex_chars=32)
+    pack = ContextPack(pack_hash=pack_hash, compiled_at=utc_now(), token_estimate=used, budget_tokens=budget_tokens,
                        decisions=tuple(chosen), sources=sources)
     if record:
         append_tools_governance(root, CONTEXT_PACK_EVENT, {"request_id": request.get("request_id"), "pack_hash": pack.pack_hash,

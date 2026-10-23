@@ -18,6 +18,7 @@
 import React from 'react';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { Mock } from 'vitest';
 
 /* ------------------------------------------------------------------ */
 /*  Mocks                                                               */
@@ -54,10 +55,10 @@ import { FunctionReference } from '../components/scada-builder/widget-configs/Fu
 /* ================================================================== */
 
 describe('ExpressionEditor', () => {
-  let onChange: ReturnType<typeof vi.fn>;
+  let onChange: Mock<(expression: string) => void>;
 
   beforeEach(() => {
-    onChange = vi.fn();
+    onChange = vi.fn<(expression: string) => void>();
     vi.useFakeTimers();
   });
 
@@ -173,10 +174,10 @@ describe('ExpressionEditor', () => {
 /* ================================================================== */
 
 describe('ExpressionBindingSection', () => {
-  let onChange: ReturnType<typeof vi.fn>;
+  let onChange: Mock<(expression: string | undefined) => void>;
 
   beforeEach(() => {
-    onChange = vi.fn();
+    onChange = vi.fn<(expression: string | undefined) => void>();
     vi.useFakeTimers();
   });
 

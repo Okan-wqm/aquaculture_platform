@@ -197,7 +197,12 @@ def _route(event: NormalizedEvent, *, base_dir: str | Path | None, workspace_roo
         verb = str(subject.get("verb") or "")
         if verb not in CONTROL_VERBS:
             return RouteOutcome("ignored", {"reason": "unknown_verb", "verb": verb})
-        row = record_control(verb, base_dir=root, request_id=subject.get("request_id"), operator_ref=event.actor, reason=str(subject.get("reason") or ""))
+        # ARIA-HIGH-238 — the X-Aria-Actor header is self-declared: it names
+        # who asked a pause or cancel, and lifts nothing. A resume presents the
+        # operator's GitHub act from the payload, which record_control verifies.
+        operator_ref = subject.get("operator_ref") if verb == "resume" else event.actor
+        row = record_control(verb, base_dir=root, request_id=subject.get("request_id"), operator_ref=operator_ref,
+                             reason=str(subject.get("reason") or ""))
         return RouteOutcome("operator_control", {"command_id": row.get("command_id"), "verb": verb})
     return RouteOutcome("ignored", {"reason": "no_route"})
 

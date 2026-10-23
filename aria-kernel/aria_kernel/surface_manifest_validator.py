@@ -65,7 +65,7 @@ from pathlib import Path
 from typing import Any
 
 from .agent_resolver import resolve_agent_md_path
-from .debt import debts_dir
+from .debt import debts_dir, is_closed_debt
 from .ledger import append_declared_jsonl, read_jsonl
 from .runtime_profile import enforce_profile_for_write
 from .tool_registry import (
@@ -277,7 +277,10 @@ def validate_plan_doc_freshness(*, repo_root: Path) -> list[dict[str, Any]]:
             d = json.loads(debt_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
-        if d.get("current_status") == "RESOLVED":
+        # ARIA-LOW-605: the owner's closed predicate (derived status) — a
+        # plan may not cite a closed debt (RESOLVED or WITHDRAWN) as open
+        # or in-progress work; an overdue debt is still open work.
+        if is_closed_debt(d):
             resolved_ids.add(d.get("debt_id"))
     failures: list[dict[str, Any]] = []
     for plan_path in plans_dir.glob("*.md"):

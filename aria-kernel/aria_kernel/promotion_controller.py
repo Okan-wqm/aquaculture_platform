@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_declared_jsonl, read_jsonl, sha256_of_canonical_json
+from .ledger import append_declared_jsonl, read_jsonl, sha256_digest_of_canonical_json
 from .mission import assert_wip_available, bind_mission, fold_mission
 from .oscillation_guard import guard_fix_dispatch
 from .plan_convergence import plan_status
@@ -250,7 +250,7 @@ def _converged_plan_hash(state: dict[str, Any]) -> str | None:
         return value
     payload = state.get("plan_started") or {}
     if payload:
-        return "sha256:" + sha256_of_canonical_json(payload)
+        return sha256_digest_of_canonical_json(payload)
     return None
 
 

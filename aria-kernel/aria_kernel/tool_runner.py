@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import subprocess
@@ -27,6 +26,7 @@ from .canonical_path import lexical_repo_path
 from .snapshot import build_repo_snapshot, ignored_dirty_path, snapshot_allowed_set
 from .tool_health import RUNS_ROW_RECOVERY, can_emit_operator_facing, find_scope_violations, record_run
 from .tool_registry import GovernanceError, ensure_tools_binding, get_tool, missing_repo_local_dependencies
+from .digest import sha256_digest
 
 
 MINIMUM_OUTPUT_FIELDS = ("observations", "findings", "read_paths", "evidence_sources")
@@ -752,7 +752,7 @@ def _spill_oversized_inline(field: str, value):
 
 
 def _sha256(payload: bytes) -> str:
-    return "sha256:" + hashlib.sha256(payload).hexdigest()
+    return sha256_digest(payload)
 
 
 def _array_or_empty(value: Any) -> list[Any]:

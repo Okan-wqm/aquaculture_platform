@@ -1,0 +1,11 @@
+# A Go template: no reader parses it unrendered, so it is an excluded observation (ARIA-LOW-532).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}
+spec:
+  template:
+    spec:
+      containers:
+        - name: demo
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"

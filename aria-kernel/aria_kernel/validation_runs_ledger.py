@@ -67,7 +67,6 @@ does not carry one rather than silently classifying it.
 """
 from __future__ import annotations
 
-import hashlib
 import re
 import secrets
 from pathlib import Path
@@ -78,6 +77,7 @@ from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 from .tool_registry import parse_utc_stamp as _parse_utc_stamp
 from .snapshot import _scoped_input_path
+from .digest import is_sha256_digest, sha256_digest_file
 
 
 VALIDATION_RUNS_FILENAME = "validation-runs.jsonl"
@@ -157,7 +157,7 @@ def _hash_log_file(log_path: Path) -> str:
         raise GovernanceError(
             f"validation_run_log_missing: {log_path.as_posix()}"
         )
-    return "sha256:" + hashlib.sha256(log_path.read_bytes()).hexdigest()
+    return sha256_digest_file(log_path)
 
 
 def _allocate_validation_run_id() -> str:
@@ -430,7 +430,7 @@ def _validated_input_binding(value: dict[str, Any]) -> dict[str, Any]:
     result = {"schema_version": 1}
     for key in digest_keys:
         item = value[key]
-        if item is not None and (not text(item, 71) or re.fullmatch(r"sha256:[0-9a-f]{64}", item) is None):
+        if item is not None and not is_sha256_digest(item):
             invalid()
         result[key] = item
     for key, limit, pattern in (("repo_identity", 16, r"[0-9a-f]{16}"),

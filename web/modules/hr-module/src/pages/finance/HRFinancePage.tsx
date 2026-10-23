@@ -14,6 +14,7 @@ import {
   useHrPersonnelTable,
   type HrFinanceGranularity,
 } from '../../hooks/useHrFinance';
+import { useIsWorkforceManager } from '../../hooks';
 import { PersonnelTableTab } from './components/PersonnelTableTab';
 import { SalariesTab } from './components/SalariesTab';
 import { LabourCostTab } from './components/LabourCostTab';
@@ -34,10 +35,10 @@ const TABS: Array<{ id: TabId; name: string }> = [
 ];
 
 const HRFinancePage: React.FC = () => {
-  const { hasAnyRole, hasPermission } = useAuth();
+  const { hasPermission } = useAuth();
   // Finance-tab access is MANAGER+ADMIN; guard the route so a lower role never
   // reaches the surface (buttons included).
-  const canView = hasAnyRole(['SUPER_ADMIN', 'TENANT_ADMIN', 'MODULE_MANAGER']);
+  const canView = useIsWorkforceManager();
   // Salary/labour-cost figures are separately gated (HR-MEDIUM-005): the tenant
   // admin grants `hr_finance:view_salary`; SUPER/TENANT_ADMIN bypass. Managers
   // without it see headcount + expenses but not pay.

@@ -58,6 +58,7 @@ from typing import Any, Protocol, Sequence
 from .ledger import append_declared_jsonl, load_declared_jsonl
 from .operator_approval import OperatorApprovalUnrecorded, verify_operator_approval
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
+from .digest import sha256_digest_text
 
 SELF_MERGE_FREEZE_SURFACE = "enterprise_self_merge_freeze"
 SELF_MERGE_FREEZE_RELPATH = ("enterprise", "self-merge-freeze.jsonl")
@@ -294,7 +295,7 @@ def publish_freeze_notice(
     lost with a killed job is updated, never duplicated. Returns the
     notice row: ``status`` ``published``, ``failed`` (retried on the next
     call) or ``recorded_only`` (a writer that writes nothing)."""
-    digest = "sha256:" + hashlib.sha256(body.encode("utf-8")).hexdigest()
+    digest = sha256_digest_text(body)
     latest = _latest_notice(freeze_id, _rows(base_dir))
     if (latest is not None and latest.get("status") == "published" and latest.get("state") == "open"
             and latest.get("body_digest") == digest):

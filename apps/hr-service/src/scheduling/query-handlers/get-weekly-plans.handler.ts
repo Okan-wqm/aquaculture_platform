@@ -4,6 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { GetWeeklyPlansQuery } from '../queries/get-weekly-plans.query';
 import { WeeklyPlan } from '../entities/weekly-plan.entity';
+import { applyEmployeeModuleScope } from '../../common/module-scope';
 import { Employee } from '../../hr/entities/employee.entity';
 
 @QueryHandler(GetWeeklyPlansQuery)
@@ -23,6 +24,7 @@ export class GetWeeklyPlansHandler implements IQueryHandler<GetWeeklyPlansQuery>
       siteId,
       weekStartDate,
       status,
+      moduleCode,
     } = query;
 
     const page = query.page ?? 1;
@@ -58,7 +60,8 @@ export class GetWeeklyPlansHandler implements IQueryHandler<GetWeeklyPlansQuery>
       qb.andWhere('wp.status = :status', { status });
     }
 
-    qb.orderBy('wp.weekStartDate', 'DESC')
+    applyEmployeeModuleScope(qb, 'employee', moduleCode)
+      .orderBy('wp.weekStartDate', 'DESC')
       .addOrderBy('employee.firstName', 'ASC')
       .skip(offset)
       .take(limit);

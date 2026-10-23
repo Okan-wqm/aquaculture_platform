@@ -40,8 +40,6 @@ const KNOWN_GAPS: Readonly<Record<string, number>> = {
   'apps/farm-service/src/maintenance/resolvers/spare-part.resolver.ts': 3,
   'apps/farm-service/src/regulatory/dto/regulatory-report-draft.dto.ts': 1,
   'apps/hr-service/src/aquaculture/dto/create-work-area.input.ts': 2,
-  'apps/hr-service/src/hr/dto/create-department.input.ts': 8,
-  'apps/hr-service/src/hr/dto/update-department.input.ts': 11,
 };
 
 function decoratorName(decorator: ts.Decorator): string {

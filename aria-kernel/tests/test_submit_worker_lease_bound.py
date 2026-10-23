@@ -20,7 +20,6 @@ lease-expiry + multi-active corruption + provenance.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import subprocess
 import tempfile
@@ -30,7 +29,8 @@ from pathlib import Path
 from aria_kernel.ledger import append_declared_jsonl, load_jsonl
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import utc_now
-from aria_kernel.verification_gate import _hash_lease_token, submit_worker_result
+from aria_kernel.digest import sha256_digest_text
+from aria_kernel.verification_gate import submit_worker_result
 
 _TEST_LEASE_TOKEN = "secret-lease-" + "12345678"
 
@@ -68,7 +68,7 @@ def _seed_claim(base: Path, *, assignment_id: str, claim_id: str,
         "agent_id": agent_id,
         "event": event,
         "claimed_at": utc_now(),
-        "lease_token_hash": _hash_lease_token(lease_token),
+        "lease_token_hash": sha256_digest_text(lease_token),
     }
     if lease_expires_at is None:
         row["lease_expires_at"] = "2099-12-31T00:00:00+00:00"

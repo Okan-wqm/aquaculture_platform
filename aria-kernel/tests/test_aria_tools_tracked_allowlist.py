@@ -8,7 +8,7 @@ After Phase 5 the only files Git tracks under ``aria-tools/`` are:
 
 Anything else under ``aria-tools/`` is per-clone operator runtime state
 and MUST stay gitignored (GDPR Art 4 data-minimization rationale —
-ARIA_ACTOR + operator --reason text are PII-adjacent).
+governance actor identity + operator --reason text are PII-adjacent).
 
 The assertion is bidirectional set-equality (not subset):
   - any unallowed tracked path → CI fails (drift caught)

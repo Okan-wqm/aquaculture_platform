@@ -11,6 +11,7 @@ reports the key as a fault while a runner still holds it.
 """
 from __future__ import annotations
 
+import re
 import unittest
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,11 @@ import yaml  # type: ignore[import-untyped]
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _RETIRED = "ARIA_GH_TOKEN"
+# The retired key's NAME, with shell-name boundaries: ARIA-GH-583's
+# ARIA_GH_TOKEN_BROKER_SOCKET embeds the retired name as a substring, and a
+# bare substring scan would read it as a lane holding the operator PAT. A
+# distinct variable name is a distinct variable.
+_RETIRED_NAME = re.compile(r"(?<![A-Za-z0-9_])ARIA_GH_TOKEN(?![A-Za-z0-9_])")
 
 
 def _executable(text: str) -> str:
@@ -42,7 +48,7 @@ class NoLaneReadsTheOperatorsPat(unittest.TestCase):
         readers = [
             path.relative_to(_REPO_ROOT).as_posix()
             for path in _ci_files()
-            if _RETIRED in _executable(path.read_text(encoding="utf-8"))
+            if _RETIRED_NAME.search(_executable(path.read_text(encoding="utf-8")))
         ]
         self.assertEqual(readers, [])
 

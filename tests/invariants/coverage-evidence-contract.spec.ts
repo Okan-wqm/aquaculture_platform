@@ -28,7 +28,7 @@ const coverageEvidence: {
 const createVitestTestPolicy: () => {
   maxWorkers: number;
   testTimeout: number;
-  coverage: { provider: string; reporter: string[] };
+  coverage: { provider: string; reporter: string[]; include: string[]; exclude: string[] };
 } = require('@aquaculture/testing/vitest');
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const INVENTORY_PATH = path.join(REPO_ROOT, 'tools', 'quality', 'coverage-report-inventory.json');
@@ -246,6 +246,10 @@ describe('repository-owned coverage evidence contract', () => {
       coverage: {
         provider: 'v8',
         reporter: ['text', 'lcov'],
+        // Vitest 4 has no `coverage.all`; without this include an untested
+        // module silently leaves the LCOV denominator.
+        include: ['src/**/*.{ts,tsx,js,jsx}'],
+        exclude: ['**/*.d.ts', '**/__tests__/**'],
       },
     });
 
@@ -287,12 +291,14 @@ describe('repository-owned coverage evidence contract', () => {
     }
   });
 
-  it('returns an isolated reporter array for every config consumer', () => {
+  it('returns isolated coverage arrays for every config consumer', () => {
     const first = createVitestTestPolicy();
     const second = createVitestTestPolicy();
 
     expect(first).not.toBe(second);
     expect(first.coverage.reporter).not.toBe(second.coverage.reporter);
+    expect(first.coverage.include).not.toBe(second.coverage.include);
+    expect(first.coverage.exclude).not.toBe(second.coverage.exclude);
   });
 
   it('keeps Vitest producers on the inferred test runner so forwarded flags reach Vitest', () => {

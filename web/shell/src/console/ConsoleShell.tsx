@@ -9,7 +9,9 @@
  * ConsoleHeader (sticky where it fits; eyebrow + h1, palette trigger, title
  * block, the layout's notifications and AI trigger, the user menu, the
  * annunciator under the row) and <main>, capped at 1520 px and left-aligned
- * (README §7.1). The command palette is a portal beside them. The
+ * (README §7.1). The routed page sits inside the WorkforceScopeProvider of the
+ * followed workspace's module (Team pages list that module's people). The
+ * command palette is a portal beside them. The
  * SUPER_ADMIN act-as banner is not here: this console never mounts for a
  * SUPER_ADMIN (AdminConsole renders it).
  *
@@ -40,6 +42,7 @@ import {
   PageTitleScope,
   TitleBlock,
   ViewAsBanner,
+  WorkforceScopeProvider,
   deriveSheetCode,
   useAuth,
   useAuthContext,
@@ -61,6 +64,7 @@ import { TitleBlockRevision } from './header/TitleBlockRevision';
 import {
   buildConsoleNav,
   findNavPage,
+  workforceScopeOf,
   workspaceForPath,
   workspaceHome,
   type ConsoleNavInput,
@@ -120,6 +124,9 @@ function ConsoleFrame({ role, headerTools, onSignOut }: ConsoleShellProps): Reac
   const path = `${location.pathname}${location.search}`;
   const activeId = useFollowedWorkspace(path, workspaces);
   const workspace = workspaces.find((candidate) => candidate.id === activeId);
+  // The module the followed workspace is built on: the HR pages routed below
+  // list that module's people (Company, with no module, lists everyone).
+  const workforceScope = workforceScopeOf(workspace?.module);
   const entry = useMemo(() => resolveActiveEntry(path, workspace), [path, workspace]);
   // The page's identity: the document title and the route announcement.
   usePageTitle(consolePageTitle(entry, workspace));
@@ -250,7 +257,9 @@ function ConsoleFrame({ role, headerTools, onSignOut }: ConsoleShellProps): Reac
           </div>
           {/* The header's h1 names the page; a PageHeader below follows (README §4). */}
           <PageTitleScope mode={entry?.titleMode ?? 'subtitle'}>
-            <Outlet />
+            <WorkforceScopeProvider moduleCode={workforceScope}>
+              <Outlet />
+            </WorkforceScopeProvider>
           </PageTitleScope>
         </main>
       </div>

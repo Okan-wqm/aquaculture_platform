@@ -10,7 +10,6 @@ operator's infrastructure; the dry-run provisioner is honest about being dry-run
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import ipaddress
 import uuid
@@ -21,6 +20,7 @@ from typing import Any
 from ..ledger import append_declared_jsonl, load_declared_jsonl
 from ..tool_registry import ensure_tools_dir, utc_now
 from .scope_policy import DenyInventory
+from ..digest import is_sha256_digest, sha256_digest_text
 
 LEASE_SURFACE = "security_lab_leases"
 LEASE_RELPATH: tuple[str, ...] = ("security", "lab-leases.jsonl")
@@ -49,7 +49,7 @@ class LabSpec:
         if self.template not in LAB_TEMPLATES:
             raise LabError(f"unknown lab template {self.template!r}")
         for name, digest in self.image_digests.items():
-            if not digest.startswith("sha256:") or len(digest) != 71:
+            if not is_sha256_digest(digest):
                 raise LabError(f"image {name!r} is not pinned to a sha256 digest (floating tags refused)")
         if len(self.tenants) < MIN_TENANTS or len(set(self.tenants)) != len(self.tenants):
             raise LabError("a lab needs at least two distinct synthetic tenants")
@@ -59,7 +59,7 @@ class LabSpec:
 
     @property
     def digest(self) -> str:
-        return "sha256:" + hashlib.sha256(json.dumps(asdict(self), sort_keys=True).encode("utf-8")).hexdigest()
+        return sha256_digest_text(json.dumps(asdict(self), sort_keys=True))
 
 
 @dataclass(frozen=True)
@@ -116,7 +116,7 @@ class LabAttestation:
 
     @property
     def digest(self) -> str:
-        return "sha256:" + hashlib.sha256(json.dumps(asdict(self), sort_keys=True).encode("utf-8")).hexdigest()
+        return sha256_digest_text(json.dumps(asdict(self), sort_keys=True))
 
 
 def attest_lab(spec: LabSpec, lease: LabLease, inventory: DenyInventory) -> LabAttestation:

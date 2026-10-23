@@ -58,6 +58,7 @@ from .validation_runs_ledger import (
     classify_validation_run_status,
     find_validation_run_by_id,
 )
+from .digest import is_sha256_digest
 
 
 EXPERIMENTS_DIRNAME = "experiments"
@@ -73,7 +74,6 @@ OBSERVATION_COMPARATORS: tuple[str, ...] = (
 )
 
 _ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$")
-_SHA256_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 # Upper bound on a recipe's own timeout. A recipe that may run for an
 # unbounded time is not a deterministic experiment, it is a hang.
@@ -180,7 +180,7 @@ def _recipe_input_source(recipe: dict[str, Any], command: str) -> tuple[dict[str
             return None, "selection_metadata_limit"
     except UnicodeError:
         return None, "selection_metadata_limit"
-    if not isinstance(ledger_hash, str) or not _SHA256_PATTERN.fullmatch(ledger_hash):
+    if not is_sha256_digest(ledger_hash):
         return None, "selection_source_unavailable"
     return {"recipe_id": recipe_id, "ledger_hash": ledger_hash, "command": command}, None
 
@@ -463,7 +463,7 @@ def _validated_observation_contract(
                 f"{expected!r}, allowed {VALIDATION_RUN_STATUSES}"
             )
     elif comparator == "log_sha256_equals":
-        if not isinstance(expected, str) or not _SHA256_PATTERN.match(expected):
+        if not is_sha256_digest(expected):
             raise GovernanceError(
                 f"experiment_observation_expected_must_be_sha256: got "
                 f"{expected!r}"

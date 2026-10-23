@@ -234,10 +234,16 @@ class RestoreArtifactFetchesTheColdStore(ColdEvictionTestCase):
         self.assertNotEqual(missing.returncode, 0, "the fresh clone must not carry the cold blob yet")
         self.assertFalse((tools_b / old["artifact_ref"]["uri"]).exists())
 
-        result = restore_artifact(
-            base_dir=tools_b, artifact_ref=old["artifact_ref"]["artifact_id"],
-            reason="inspect an evicted cycle", operator_approval_ref="gov:operator-approval",
-        )
+        from tests._helpers.operator_acts import github_operator_acts
+
+        with github_operator_acts() as github:
+            result = restore_artifact(
+                base_dir=tools_b, artifact_ref=old["artifact_ref"]["artifact_id"],
+                reason="inspect an evicted cycle",
+                operator_approval_ref=github.approve(
+                    "artifact_restore", {"artifact": str(old["artifact_ref"]["artifact_id"])},
+                ),
+            )
 
         self.assertEqual(result["status"], "restored")
         self.assertEqual((tools_b / old["artifact_ref"]["uri"]).read_bytes(), content)

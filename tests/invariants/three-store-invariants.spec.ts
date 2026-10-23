@@ -54,6 +54,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { loadCanonicalToAliases } from '../../tools/gates/finding-id-aliases';
+import { FINDING_STATES, isUnresolvedFindingState } from '../../tools/gates/finding-registry-chain';
 import {
   commitMessageClosesFinding,
   readCommitMessage,
@@ -1201,16 +1202,19 @@ describe('three-store invariants', () => {
       // State is derived from merged history (finding-registry-closure-drift):
       // a scoped finding is RESOLVED exactly when a main-reachable commit
       // carries its Closes: trailer, and then its closing_commits record that
-      // commit. Pinning OPEN here would contradict the derivation the moment
-      // main closes one of these findings.
+      // commit. Every other state is unresolved and carries no closer — that
+      // includes the daily sweep's STALE and BLOCKED judgements, which leave
+      // the debt in place (isUnresolvedFindingState, ARIA-HIGH-534). Pinning
+      // a narrower state list here would contradict the registry the moment
+      // the sweep or main moves one of these findings.
       const scopedRow = registryRows[0];
       expect(scopedRow).toBeDefined();
       if (scopedRow !== undefined) {
-        expect(['OPEN', 'IN-PROGRESS', 'RESOLVED']).toContain(scopedRow.state);
-        if (scopedRow.state === 'RESOLVED') {
-          expect(scopedRow.closing_commits.length).toBeGreaterThan(0);
-        } else {
+        expect(FINDING_STATES).toContain(scopedRow.state);
+        if (isUnresolvedFindingState(scopedRow.state)) {
           expect(scopedRow.closing_commits).toEqual([]);
+        } else {
+          expect(scopedRow.closing_commits.length).toBeGreaterThan(0);
         }
       }
       if (entry.narrative_anchor) {

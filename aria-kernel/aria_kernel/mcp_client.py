@@ -28,7 +28,7 @@ from typing import Any, Mapping
 
 from .agent_env import SECRET_SHAPED_ENV_NAME
 from .ledger import append_declared_jsonl, load_declared_jsonl
-from .operator_approval import OperatorApprovalUnrecorded, recorded_instance, verify_operator_approval
+from .operator_approval import recorded_instance, require_operator_act
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 
 MCP_REGISTRY_RELPATH = ("data", "mcp_registry.json")
@@ -392,10 +392,7 @@ def release_quarantine(server: str, *, base_dir: str | Path | None, operator_ref
     from .runtime_profile import enforce_profile_for_write
 
     enforce_profile_for_write("tool_governance", base_dir=root)
-    try:
-        approval = verify_operator_approval(operator_ref, surface="mcp_unquarantine", scope=scope, base_dir=root)
-    except OperatorApprovalUnrecorded as exc:
-        raise GovernanceError(f"mcp_unquarantine_approval_unrecorded:{exc}") from exc
+    approval = require_operator_act(operator_ref, surface="mcp_unquarantine", scope=scope, base_dir=root)
     path = root.joinpath(*QUARANTINE_RELPATH)
     row = append_declared_jsonl(path, {"schema_version": 1, "recorded_at": utc_now(), "event": RELEASE_ROW_EVENT, "server": server,
                                        "operator_ref": operator_ref, "operator_approval": approval},

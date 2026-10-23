@@ -87,10 +87,18 @@ on:
         required: false
         type: string
 
-# Z1 (ORPHAN-712) — shared self-hosted workspace group; see
-# dataflow-integrity-watchdog.yml for the measured wipe this prevents.
+# Z1 (ORPHAN-712) → ARIA-MEDIUM-277 — this lane's OWN group. A GitHub
+# concurrency group holds ONE pending slot and an arriving run evicts the
+# queued one, so a group shared with another lane let that lane's dispatch
+# cancel this lane's pending run (measured: the cycle this drain chains and
+# the dataflow watchdog's CRITICAL dispatch both evicted queued drains). In
+# a per-lane group only this lane's own duplicate can evict this lane's
+# pending run — dedup, not starvation. The workspace serialization the
+# shared group used to lend the one shared workspace is carried by the host
+# workspace lock (.github/actions/selfhosted-workspace-lock), taken by this
+# job below; see dataflow-integrity-watchdog.yml for the measured wipe.
 concurrency:
-  group: aria-selfhosted-workspace
+  group: aria-agent-executor
   cancel-in-progress: false
 
 permissions:
@@ -196,6 +204,23 @@ jobs:
       rechain_dispatch: ${{ steps.executor.outputs.rechain_dispatch }}
       rechain_request_ids: ${{ steps.executor.outputs.rechain_request_ids }}
     steps:
+      # ARIA-MEDIUM-277 — the host workspace lock, FIRST, before the anchor,
+      # the reset and any checkout below: those are the wipe vectors the
+      # lock exists to serialize across the lanes that share this workspace.
+      # The lock replaces the serialization the shared
+      # aria-selfhosted-workspace group used to provide (its single pending
+      # slot evicted other lanes' queued runs); GitHub's runner queue,
+      # which never evicts, does the waiting. It precedes the launch epoch
+      # on purpose: the epoch anchors the deadline the drain's work runs
+      # under, and scheduler wait is not drain work. timeout-seconds sits
+      # just above the cycle job's 454-min cap so a drain chained behind a
+      # full cycle eventually gets the workspace instead of failing on the
+      # wait.
+      - name: Take the shared self-hosted workspace lock
+        uses: ./.github/actions/selfhosted-workspace-lock
+        with:
+          timeout-seconds: '27300'
+
       # ARIA-HIGH-124 (round 3) — the absolute deadline every spawn and every
       # delivery in this job runs under is anchored HERE, at launch (the
       # auto-cycle's ARIA-HIGH-019 lesson: a fresh-store restore measured
@@ -270,7 +295,7 @@ jobs:
 
       - uses: ./.github/actions/setup-aria-kernel
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
 
@@ -691,6 +716,45 @@ jobs:
         with:
           tools-dir: ${{ env.ARIA_TOOLS_DIR }}
 
+      - name: Start the GitHub App token broker (ARIA-MEDIUM-583)
+        id: token_broker
+        if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != ''
+        env:
+          # ARIA-MEDIUM-583 — the App key enters THIS step's env only, on its
+          # way to the broker's stdin. The broker is a SIBLING of the
+          # executor process (a later step), not its ancestor: on this
+          # runner's Yama ptrace_scope=1 the executor cannot read its memory,
+          # the key lives in the broker's memory alone, and what the executor
+          # step inherits is the socket path exported below. The broker mints
+          # only the closed allowlist of named permission sets, caps mints
+          # per night and clamps every TTL to the deadline this step
+          # computes.
+          ARIA_GH_APP_PRIVATE_KEY: ${{ secrets.ARIA_GH_APP_PRIVATE_KEY }}
+          ARIA_GH_APP_ID: ${{ secrets.ARIA_GH_APP_ID }}
+          ARIA_GH_APP_INSTALLATION_ID: ${{ secrets.ARIA_GH_APP_INSTALLATION_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "$ARIA_GH_APP_PRIVATE_KEY" ]; then
+            # No App configured: nothing to hold. The executor's Mode A mint
+            # then refuses by name (ARIA_REQUIRE_MODE_A), exactly as it
+            # refuses today when the key is missing.
+            echo "socket=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # The broker dies with the job's own cap (anchored at job launch,
+          # the env the anchor step exported): a broker the runner fails to
+          # reap cannot hold the key past the job, and no token it mints can
+          # outlive it either. The pairing with the job's timeout-minutes is
+          # pinned by test_delivery_identity_lanes.py.
+          BROKER_DEADLINE=$(( ARIA_JOB_LAUNCH_EPOCH + 602 * 60 ))
+          SOCKET="$(printf '%s\n' "$ARIA_GH_APP_PRIVATE_KEY" | PYTHONPATH=aria-kernel python3 -m aria_kernel.token_broker start \
+            --app-id "$ARIA_GH_APP_ID" \
+            --installation-id "$ARIA_GH_APP_INSTALLATION_ID" \
+            --deadline-epoch "$BROKER_DEADLINE" \
+            --ledger "${RUNNER_TEMP}/aria-token-broker-ledger-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.jsonl")"
+          echo "socket=${SOCKET}" >> "$GITHUB_OUTPUT"
+          echo "ARIA_GH_TOKEN_BROKER_SOCKET=${SOCKET}" >> "$GITHUB_ENV"
+
       - name: Run CI executor
         id: executor
         if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != ''
@@ -714,9 +778,12 @@ jobs:
           # ARIA_REQUIRE_MODE_A: that mint is Mode A or refuses by name; it
           # never copies the ambient GH_TOKEN (Mode B) into a PR's author.
           ARIA_REQUIRE_MODE_A: 'true'
-          ARIA_GH_APP_ID: ${{ secrets.ARIA_GH_APP_ID }}
-          ARIA_GH_APP_INSTALLATION_ID: ${{ secrets.ARIA_GH_APP_INSTALLATION_ID }}
-          ARIA_GH_APP_PRIVATE_KEY: ${{ secrets.ARIA_GH_APP_PRIVATE_KEY }}
+          # ARIA-MEDIUM-583 — the App key lives in the broker this job
+          # started (the step above); this process holds the broker's socket
+          # path only (ARIA_GH_TOKEN_BROKER_SOCKET, exported by that step).
+          # REQUIRE_TOKEN_BROKER refuses any in-process key mint by name,
+          # even if a key were ever handed back to this step.
+          ARIA_REQUIRE_TOKEN_BROKER: 'true'
           # ARIA-HIGH-124 — no PR is opened from inside the agent's sandbox
           # by any path: the executor child pushes the published branch,
           # runs the apply gate and opens the PR after the spawn, with its
@@ -804,16 +871,15 @@ jobs:
           # (ARIA_GH_TOKEN) is never exported: a write made with it is
           # authored by the operator, and an operator act is what an
           # ARIA-APPROVE line is verified against.
+          # ARIA-MEDIUM-583 — the App key this step used to write to
+          # $RUNNER_TEMP and export as ARIA_GH_APP_PRIVATE_KEY_PATH is gone
+          # from the executor process entirely: the delivery mints through
+          # the broker step above (ARIA_GH_TOKEN_BROKER_SOCKET, exported by
+          # it), which holds the key in memory and answers narrowed,
+          # capped, TTL-clamped tokens. Narrowing the job token
+          # (ARIA-MEDIUM-555) now actually takes repository write away from
+          # this process.
           set -euo pipefail
-          # The App key, from the secret into a private file in RUNNER_TEMP:
-          # outside the workspace every sandbox binds, removed on any exit.
-          # The PEM leaves the environment before any child process starts;
-          # the mint reads the file through ARIA_GH_APP_PRIVATE_KEY_PATH.
-          KEY_FILE="$RUNNER_TEMP/aria-gh-app-private-key-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.pem"
-          trap 'rm -f "$KEY_FILE"' EXIT
-          (umask 077 && printf '%s\n' "$ARIA_GH_APP_PRIVATE_KEY" > "$KEY_FILE")
-          unset ARIA_GH_APP_PRIVATE_KEY
-          export ARIA_GH_APP_PRIVATE_KEY_PATH="$KEY_FILE"
           if [ "${{ steps.pending.outputs.targeted }}" = "true" ]; then
             # Operator-targeted dispatch: exactly the named request.
             PYTHONPATH=aria-kernel python3 tools/aria-poc/ci_executor.py \
@@ -835,7 +901,7 @@ jobs:
         # targeted run and a drain alike; `if-no-files-found: error` stays
         # for a path that WAS published and resolves to nothing here.
         if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != '' && (steps.executor.outputs.envelope_path != '' || steps.executor.outputs.transcript_path != '')
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           # Limited scope — response envelope plus its transcript anchor. claims.jsonl +
           # runs.jsonl deliberately excluded (lease token / over-disclosure
@@ -962,7 +1028,7 @@ jobs:
       # it cannot become a second source of truth for one hash-chained ledger.
       - name: Cache ARIA state tree (non-authoritative)
         if: always() && steps.lease_check.outputs.blocked != 'true' && steps.integrity.outputs.state_valid == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: aria-state-cache-${{ github.run_id }}
           path: |
@@ -993,7 +1059,7 @@ jobs:
         # and an unguarded `!= 'true'` would quarantine a tree this run never
         # touched — turning every blocked night into a forensics artifact.
         if: always() && steps.lease_check.outputs.blocked != 'true' && (steps.integrity.outputs.state_valid != 'true' || (steps.restore_state.outputs.restored != 'true' && steps.restore_state.outputs.bootstrap != 'true'))
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: quarantine-evidence-${{ github.run_id }}
           path: |
@@ -1102,6 +1168,15 @@ jobs:
         with:
           lease-token: ${{ steps.restore_state.outputs.writer-lease-token }}
 
+      # ARIA-MEDIUM-277 — LAST step of the job: give back the host workspace
+      # lock the first step took, unconditionally, so a failed drain does not
+      # starve every other self-hosted lane until the holder's ceiling.
+      - name: Release the shared self-hosted workspace lock
+        if: always()
+        uses: ./.github/actions/selfhosted-workspace-lock
+        with:
+          mode: release
+
   # ARIA-HIGH-244 — the chain's return edge, on a hosted runner with the one
   # permission it needs. The executor decides (cycle_rhythm, via
   # tools/aria/chain_next_cycle.py) and hands the verdict over as a job
@@ -1136,8 +1211,9 @@ jobs:
   # work the drain itself minted and then window-skipped straight to the
   # next executor run instead of waiting a full cycle for it — and it
   # supersedes `chain-next-cycle` for that run (the two `if:`s are mutually
-  # exclusive), so one run never queues two pending runs into the shared
-  # aria-selfhosted-workspace group. The re-chained drain takes the normal
+  # exclusive), so one run never queues two pending runs into this lane's
+  # own group (ARIA-MEDIUM-277: one lane, one group — a lane's pending slot
+  # is nobody else's to evict). The re-chained drain takes the normal
   # cycle edge; the depth brake in the decider keeps this at one hop.
   chain-next-drain:
     needs: executor

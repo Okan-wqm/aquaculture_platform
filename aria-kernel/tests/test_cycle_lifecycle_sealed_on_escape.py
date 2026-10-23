@@ -54,7 +54,15 @@ class SealOnEscape(unittest.TestCase):
         self._tmp.cleanup()
 
     def _start(self, cycle_id: str) -> None:
-        append_declared_jsonl(self.tools / "cycles.jsonl", C._started_cycle_row(cycle_id=cycle_id), expected_surface="cycles")
+        # ARIA-MEDIUM-029 — the started row now REQUIRES the derived
+        # execution identity (the audit-thread anchor). A declared meaning
+        # change: the seal suite pins lifecycle shape, not identity, so the
+        # fixture derives the identity the way the cycle does.
+        append_declared_jsonl(
+            self.tools / "cycles.jsonl",
+            C._started_cycle_row(cycle_id=cycle_id, execution=C.current_execution_identity()),
+            expected_surface="cycles",
+        )
 
     def test_I_SEAL_01_propagate_escape_seals_and_reraises(self) -> None:
         cycle_id = "cyc-seal-01"
@@ -115,7 +123,11 @@ class LifecycleIntegrity(unittest.TestCase):
         with tempfile.TemporaryDirectory() as t:
             tools = ensure_tools_dir(Path(t) / "tools")
             cycle_id = "cyc-seal-verify"
-            append_declared_jsonl(tools / "cycles.jsonl", C._started_cycle_row(cycle_id=cycle_id), expected_surface="cycles")
+            append_declared_jsonl(
+                tools / "cycles.jsonl",
+                C._started_cycle_row(cycle_id=cycle_id, execution=C.current_execution_identity()),
+                expected_surface="cycles",
+            )
             snapshot = C._cycle_lifecycle_snapshot(tools)
             self.assertFalse(snapshot.get("valid"), "an unterminated cycle must fail lifecycle verification")
             C._seal_cycle_on_escape(_context(tools, cycle_id), phase="tools", exc=C.PhaseDeadlineExceeded("boom"))

@@ -27,7 +27,7 @@
  *   2. Every workflow `image:` / `container:` scalar is one of: a manifest mirror ref spelled
  *      exactly `<mirror>:<tag>@<digest>`; an image this repository builds
  *      (ghcr.io/okan-wqm/aquaculture_platform/<name>, outside ci/); or a Docker Hub family in
- *      DOCKER_HUB_EXCEPTIONS keyed to an OPEN finding. A bare Docker Hub name, any
+ *      DOCKER_HUB_EXCEPTIONS keyed to an unresolved finding. A bare Docker Hub name, any
  *      public.ecr.aws ref, any other registry and a mirror ref with a stale digest all fail.
  *   3. A workflow job that pulls from GHCR passes `credentials` with GITHUB_TOKEN and grants
  *      `packages: read`. An anonymous GHCR pull would work only while the package stays public,
@@ -41,9 +41,10 @@
  *      with `packages: write`, and copies by digest without annotations (an annotation changes
  *      the index digest every consumer pins).
  *
- * The Docker Hub exceptions are image families still owned by an OPEN finding. Closing that
- * finding while the exception remains fails here, and so does an exception whose image is no
- * longer used. An exception cannot outlive its fix.
+ * The Docker Hub exceptions are image families still owned by an unresolved finding
+ * (isUnresolvedFindingState: every state but RESOLVED, so the sweep's STALE and BLOCKED
+ * judgements keep the debt). Resolving that finding while the exception remains fails here, and
+ * so does an exception whose image is no longer used. An exception cannot outlive its fix.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -51,6 +52,12 @@ import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 import yaml from 'js-yaml';
+
+import { isUnresolvedFindingState } from '../../tools/gates/finding-registry-chain';
+// The Docker reference grammar has one owner, shared with ARIA's infrastructure-policy
+// adapter (ARIA-HIGH-012): `.registry` is null exactly when the CLI resolves to Docker Hub,
+// `.name` is the reference without tag or digest (the image family).
+import { parseImageReference } from '../../tools/gates/infra-policy/image-reference';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const FINDINGS_REGISTRY_PATH = join(REPO_ROOT, 'docs', 'reviews', '_registry', 'findings.jsonl');
@@ -60,7 +67,7 @@ const ORG_REGISTRY = 'ghcr.io/okan-wqm/aquaculture_platform';
 const MIRROR_PREFIX = `${ORG_REGISTRY}/ci`;
 
 /**
- * Docker Hub image families CI still pulls, each owned by an OPEN finding.
+ * Docker Hub image families CI still pulls, each owned by an unresolved finding.
  * timescale/timescaledb-ha (with the Dockerfile FROM bases and the buildkit image) is
  * INFRA-HIGH-214's: moving it into ci-images.json also moves postgres-image.json's SSOT.
  */
@@ -176,46 +183,35 @@ function rustManifestConsumers(): ImageReference[] {
   });
 }
 
-/** Docker resolves a reference to Docker Hub when its first path component is not a host. */
-function registryHost(image: string): string | null {
-  const slash = image.indexOf('/');
-  if (slash < 0) {
-    return null;
-  }
-  const first = image.slice(0, slash);
-  return first.includes('.') || first.includes(':') || first === 'localhost' ? first : null;
-}
-
-/** The repository part of a reference: everything before `:tag` and `@digest`. */
-function imageFamily(image: string): string {
-  return image.split('@')[0]!.replace(/:[^/]*$/, '');
-}
-
-function openFindingIds(): Set<string> {
-  const open = new Set<string>();
+/** Finding ids whose latest registry row is still owed (the registry's one predicate). */
+function unresolvedFindingIds(): Set<string> {
+  const unresolved = new Set<string>();
   for (const line of readFileSync(FINDINGS_REGISTRY_PATH, 'utf8').split('\n')) {
     if (line.trim().length === 0) {
       continue;
     }
     const row = JSON.parse(line) as { id?: unknown; state?: unknown };
-    if (typeof row.id === 'string' && (row.state === 'OPEN' || row.state === 'IN-PROGRESS')) {
-      open.add(row.id);
-    } else if (typeof row.id === 'string') {
-      open.delete(row.id);
+    if (typeof row.id !== 'string') {
+      continue;
+    }
+    if (typeof row.state === 'string' && isUnresolvedFindingState(row.state)) {
+      unresolved.add(row.id);
+    } else {
+      unresolved.delete(row.id);
     }
   }
-  return open;
+  return unresolved;
 }
 
 /** Why a workflow image ref is not an approved form, or null when it is. */
 function imageViolation(image: string, mirrorRefs: ReadonlySet<string>): string | null {
   if (mirrorRefs.has(image)) return null;
-  const family = imageFamily(image);
+  const { registry, name: family } = parseImageReference(image);
   if (family.startsWith(`${MIRROR_PREFIX}/`)) {
     return `is not spelled as a ${CI_IMAGES_MANIFEST} entry (<mirror>:<tag>@<digest>)`;
   }
   if (family.startsWith(`${ORG_REGISTRY}/`)) return null;
-  if (registryHost(image) === null && family in DOCKER_HUB_EXCEPTIONS) return null;
+  if (registry === null && family in DOCKER_HUB_EXCEPTIONS) return null;
   return `is a third-party registry pull; mirror it through ${CI_IMAGES_MANIFEST}`;
 }
 
@@ -397,16 +393,21 @@ describe('INVARIANT: CI pulls no third-party image anonymously (INFRA-HIGH-213, 
     expect(steps).not.toContain('--annotation');
   });
 
-  it('keys every Docker Hub exception to an OPEN finding and an image still in use', () => {
-    const open = openFindingIds();
-    const families = new Set(workflowRefs.map((ref) => imageFamily(ref.image)));
+  it('keys every Docker Hub exception to an unresolved finding and an image still in use', () => {
+    const unresolved = unresolvedFindingIds();
+    const families = new Set(workflowRefs.map((ref) => parseImageReference(ref.image).name));
     for (const [family, findingId] of Object.entries(DOCKER_HUB_EXCEPTIONS)) {
-      expect({ family, findingOpen: open.has(findingId) }).toEqual({ family, findingOpen: true });
+      expect({ family, findingUnresolved: unresolved.has(findingId) }).toEqual({
+        family,
+        findingUnresolved: true,
+      });
       expect({ family, inUse: families.has(family) }).toEqual({ family, inUse: true });
     }
   });
 
   it('classifies image references the way the Docker CLI does', () => {
+    const registryHost = (image: string): string | null => parseImageReference(image).registry;
+    const imageFamily = (image: string): string => parseImageReference(image).name;
     expect(registryHost('redis:7-alpine')).toBeNull();
     expect(registryHost('timescale/timescaledb-ha:pg16@sha256:00')).toBeNull();
     expect(registryHost('public.ecr.aws/docker/library/redis:7-alpine')).toBe('public.ecr.aws');

@@ -17,6 +17,7 @@ import { Resolver, Query, Mutation, Args, ID, Context, Int, ObjectType } from '@
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
+import { HrModuleCode } from '../common/enums';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
 import { RolesGuard } from '@aquaculture/backend-common/guards';
 import { Employee } from '../hr/entities/employee.entity';
@@ -96,22 +97,35 @@ export class AttendanceResolver {
   }
 
   /**
-   * Resolve an auth userId to the HR Employee record.
+   * The HR Employee record of an auth userId, or null: a tenant admin or owner need not have one.
    * This bridges the namespace gap between auth user UUIDs and HR employee UUIDs.
    */
-  private async resolveEmployee(userId: string, tenantId: string): Promise<Employee> {
-    const employee = await this.employeeRepository.findOne({
+  private findEmployee(
+    userId: string,
+    tenantId: string,
+    select?: ReadonlyArray<keyof Employee>,
+  ): Promise<Employee | null> {
+    return this.employeeRepository.findOne({
       where: { userId, tenantId, isDeleted: false },
+      ...(select === undefined ? {} : { select: [...select] }),
     });
+  }
+
+  /** The caller's own HR Employee record; a request that is about the caller needs one. */
+  private async resolveEmployee(userId: string, tenantId: string): Promise<Employee> {
+    const employee = await this.findEmployee(userId, tenantId);
     if (!employee) {
       throw new NotFoundException('Employee record not found for current user');
     }
     return employee;
   }
 
+  private hasRole(context: GraphQLContext, role: Role): boolean {
+    return (context.req.user?.roles ?? []).includes(role);
+  }
+
   private hasManagementRole(context: GraphQLContext): boolean {
-    const roles = context.req.user?.roles ?? [];
-    return roles.includes(Role.TENANT_ADMIN) || roles.includes(Role.MODULE_MANAGER);
+    return this.hasRole(context, Role.TENANT_ADMIN) || this.hasRole(context, Role.MODULE_MANAGER);
   }
 
   // =====================
@@ -157,6 +171,7 @@ export class AttendanceResolver {
     @Args('endDate', { nullable: true }) endDate?: string,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
     @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
+    @Args('moduleCode', { type: () => HrModuleCode, nullable: true }) moduleCode?: HrModuleCode,
   ): Promise<IStandardPaginatedResult<AttendanceRecord>> {
     const tenantId = this.getTenantId(context);
     const result = await this.queryBus.execute<
@@ -173,6 +188,7 @@ export class AttendanceResolver {
         endDate,
         limit,
         page,
+        moduleCode,
       ),
     );
     return fromCqrsPaginated(result);
@@ -246,13 +262,30 @@ export class AttendanceResolver {
     @Args('departmentId', { type: () => ID, nullable: true }) departmentId?: string,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
     @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
+    @Args('moduleCode', { type: () => HrModuleCode, nullable: true }) moduleCode?: HrModuleCode,
   ): Promise<IStandardPaginatedResult<AttendanceRecord>> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
+    // The queue works on the approver's EMPLOYEE id (their own records are excluded, their department
+    // is looked up by it), not the auth userId. A tenant admin or owner may have no employee record
+    // and is not locked out: the queue then has nothing of theirs to exclude or narrow by.
+    // Only the id is read: the full entity would decrypt national id and bank details for nothing.
+    const approver = await this.findEmployee(userId, tenantId, ['id']);
     const result = await this.queryBus.execute<
       GetPendingAttendanceApprovalsQuery,
       PaginatedQueryResult<AttendanceRecord>
-    >(new GetPendingAttendanceApprovalsQuery(tenantId, userId, departmentId, limit, page));
+    >(
+      new GetPendingAttendanceApprovalsQuery(
+        tenantId,
+        approver?.id ?? null,
+        departmentId,
+        limit,
+        page,
+        moduleCode,
+        // A tenant admin approves across departments; only a manager is narrowed to their own.
+        !this.hasRole(context, Role.TENANT_ADMIN),
+      ),
+    );
     return fromCqrsPaginated(result);
   }
 
@@ -263,18 +296,25 @@ export class AttendanceResolver {
   async getTodaysAttendance(
     @Context() context: GraphQLContext,
     @Args('employeeId', { type: () => ID, nullable: true }) employeeId?: string,
+    @Args('moduleCode', { type: () => HrModuleCode, nullable: true }) moduleCode?: HrModuleCode,
   ): Promise<AttendanceRecord[]> {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
-    const employee = await this.resolveEmployee(userId, tenantId);
 
-    if (employeeId && employeeId !== employee.id && !this.hasManagementRole(context)) {
-      throw new ForbiddenException('You can only view your own attendance');
+    // A manager asking for the team needs no employee record of their own (the tenant owner often
+    // has none); only a request about the caller does.
+    if (this.hasManagementRole(context)) {
+      return this.queryBus.execute<GetTodaysAttendanceQuery, AttendanceRecord[]>(
+        new GetTodaysAttendanceQuery(tenantId, employeeId, moduleCode),
+      );
     }
 
-    const effectiveEmployeeId = employeeId ?? (this.hasManagementRole(context) ? undefined : employee.id);
+    const employee = await this.resolveEmployee(userId, tenantId);
+    if (employeeId && employeeId !== employee.id) {
+      throw new ForbiddenException('You can only view your own attendance');
+    }
     return this.queryBus.execute<GetTodaysAttendanceQuery, AttendanceRecord[]>(
-      new GetTodaysAttendanceQuery(tenantId, effectiveEmployeeId),
+      new GetTodaysAttendanceQuery(tenantId, employee.id, moduleCode),
     );
   }
 
@@ -299,10 +339,11 @@ export class AttendanceResolver {
   async getDailyAttendanceOverview(
     @Context() context: GraphQLContext,
     @Args('date', { nullable: true }) date?: string,
+    @Args('moduleCode', { type: () => HrModuleCode, nullable: true }) moduleCode?: HrModuleCode,
   ): Promise<DailyAttendanceOverview> {
     const tenantId = this.getTenantId(context);
     return this.queryBus.execute<GetDailyAttendanceOverviewQuery, DailyAttendanceOverview>(
-      new GetDailyAttendanceOverviewQuery(tenantId, date),
+      new GetDailyAttendanceOverviewQuery(tenantId, date, moduleCode),
     );
   }
 

@@ -1,13 +1,27 @@
-"""Execution spine invariants — the seven guarantees (operator design 2026-08-30).
+"""Execution spine invariants — identity is DERIVED, the session ledger is PRODUCED.
 
-Each test pins ONE guarantee from the operator's Faz 1A design:
-1. Mutating run requires session_id (no context, no write)
-2. Session can only use known actors (closed registry)
-3. Agent invocation is bound to a session
-4. Tool run is bound to the current session
-5. Mission binding requires a valid mission_id
-6. Credentials never appear raw in any ledger
-7. Provider metadata is factual (from the fleet probe, never invented)
+ARIA-MEDIUM-029 (operator design 2026-08-30 Faz 1A, 2026-10-16 CONNECT
+re-scope). The first cut of this module shipped a CLOSED actor registry an
+operator had to keep in sync and a session ledger with a declared surface
+(``state_manifest``) and no producer: on the live store every governance row
+said ``{"kind": "human", "id": "user@host"}`` because nothing sets
+``ARIA_ACTOR`` (2026-09-25 full-read B11), and ``sessions/session-ledger.jsonl``
+never existed.
+
+The rewritten spine derives identity from the platform that is actually
+running the process and makes the cycle the session ledger's producer:
+
+* ``derive_execution_identity(environ, cgroup_text)`` — a GitHub Actions run
+  is ``workflow``; a ``system.slice`` cgroup is ``unit``; a ``user.slice``
+  cgroup is ``operator_session``; anything else is ``unattributed`` WITH A
+  REASON and never a raise. ``human`` is not a kind: no ARIA process is a
+  person, and the actor an audit row names must be derivable, not declared
+  by whoever exports the environment.
+* ``current_actor_record()`` — the same derivation against the real process.
+* ``begin_cycle_session`` / ``bind_session_mission`` / ``end_cycle_session``
+  — the cycle mints ``sess-<cycle_id>``, records the lifecycle into the
+  declared ledger, and governance rows appended inside the cycle carry the
+  session id and the derived actor block.
 """
 
 from __future__ import annotations
@@ -23,183 +37,158 @@ if str(_PARENT) not in sys.path:
     sys.path.insert(0, str(_PARENT))
 
 from aria_kernel.execution_spine import (  # noqa: E402
-    Actor,
-    ActorType,
-    ExecutionContext,
+    ACTOR_KINDS,
     SESSION_EVENTS,
-    SERVICE_ACTOR_REGISTRY,
-    bind_mission,
-    bind_provider,
-    complete_session,
-    create_execution_context,
-    known_actor_ids,
-    record_session_event,
-    start_session,
-    validate_actor,
+    ExecutionIdentity,
+    begin_cycle_session,
+    bind_session_mission,
+    current_actor_record,
+    derive_execution_identity,
+    end_cycle_session,
+    session_id_for_cycle,
 )
 
-
-def _ctx(**overrides):
-    """Standard test context."""
-    defaults = dict(
-        cycle_id="cyc-test",
-        trigger="dispatch",
-        executor="service:aria-autonomy-orchestrator",
-        runner="test-runner",
-        repository="test/repo",
-        runtime_profile="standard",
-    )
-    defaults.update(overrides)
-    return create_execution_context(**defaults)
+_GHA_ENV = {
+    "GITHUB_WORKFLOW_REF": (
+        "Okan-wqm/aquaculture_platform/.github/workflows/aria-auto-cycle.yml"
+        "@refs/heads/main"
+    ),
+    "GITHUB_RUN_ID": "1234567890",
+    "GITHUB_RUN_ATTEMPT": "3",
+}
+_GHA_CGROUP = "0::/system.slice/aria-cycle.service\n"
+_USER_CGROUP = "0::/user.slice/user-1000.slice/session-5.scope\n"
 
 
-class ActorRegistryInvariants(unittest.TestCase):
-    """Guarantee 2: sessions can only use known actors."""
+class DerivedActorKinds(unittest.TestCase):
+    """Part A — identity comes from the platform, never from ARIA_ACTOR."""
 
-    def test_registry_is_closed_and_nonempty(self) -> None:
-        self.assertGreater(len(SERVICE_ACTOR_REGISTRY), 0)
+    def test_actor_kinds_are_the_derived_four_and_human_is_not_one(self) -> None:
+        self.assertEqual(ACTOR_KINDS, ("workflow", "unit", "operator_session", "unattributed"))
+        self.assertNotIn("human", ACTOR_KINDS)
 
-    def test_every_actor_has_valid_type(self) -> None:
-        for actor in SERVICE_ACTOR_REGISTRY:
-            self.assertIsInstance(actor.type, ActorType)
+    def test_a_github_actions_env_gives_the_workflow_actor(self) -> None:
+        identity = derive_execution_identity(_GHA_ENV, _GHA_CGROUP)
+        self.assertIsInstance(identity, ExecutionIdentity)
+        self.assertEqual(identity.kind, "workflow")
+        # id is the workflow STEM: which workflow file, not which ref it ran on.
+        self.assertEqual(identity.id, "aria-auto-cycle")
+        self.assertEqual(identity.run, "1234567890/3")
 
-    def test_known_actor_ids_matches_registry(self) -> None:
-        self.assertEqual(known_actor_ids(), {a.id for a in SERVICE_ACTOR_REGISTRY})
+    def test_aria_actor_is_ignored(self) -> None:
+        declared = dict(_GHA_ENV)
+        declared["ARIA_ACTOR"] = json.dumps({"kind": "human", "id": "attacker@declared"})
+        identity = derive_execution_identity(declared, _GHA_CGROUP)
+        self.assertEqual(identity.kind, "workflow")
+        self.assertEqual(identity.id, "aria-auto-cycle")
+        self.assertNotIn("human", (identity.kind, identity.id))
 
-    def test_validate_actor_returns_the_actor(self) -> None:
-        actor = validate_actor("system:github-schedule")
-        self.assertEqual(actor.type, ActorType.SYSTEM)
+    def test_a_system_slice_cgroup_gives_the_unit_actor(self) -> None:
+        identity = derive_execution_identity({}, _GHA_CGROUP)
+        self.assertEqual(identity.kind, "unit")
+        self.assertEqual(identity.id, "aria-cycle.service")
 
-    def test_unknown_actor_rejected(self) -> None:
-        with self.assertRaises(ValueError) as ctx:
-            validate_actor("attacker:unknown")
-        self.assertIn("unknown_actor", str(ctx.exception))
+    def test_a_user_slice_cgroup_gives_operator_session_never_human(self) -> None:
+        identity = derive_execution_identity({}, _USER_CGROUP)
+        self.assertEqual(identity.kind, "operator_session")
+        self.assertNotEqual(identity.kind, "human")
 
-    def test_context_factory_rejects_unknown_actor(self) -> None:
-        with self.assertRaises(ValueError):
-            _ctx(executor="rogue:attacker")
+    def test_an_undecidable_environment_gives_unattributed_with_a_reason(self) -> None:
+        identity = derive_execution_identity({}, "")
+        self.assertEqual(identity.kind, "unattributed")
+        self.assertTrue(identity.reason, "unattributed must carry a reason, not just a label")
 
-
-class ExecutionContextInvariants(unittest.TestCase):
-    """Guarantee 1: no context, no mutating write."""
-
-    def test_context_is_frozen(self) -> None:
-        ctx = _ctx()
-        with self.assertRaises(AttributeError):
-            ctx.runner = "changed"
-
-    def test_session_id_deterministic_from_cycle(self) -> None:
-        ctx = _ctx()
-        self.assertEqual(ctx.session_id, f"sess-{ctx.cycle_id}")
-
-    def test_session_id_explicit_overrides(self) -> None:
-        ctx = _ctx(session_id="sess-custom")
-        self.assertEqual(ctx.session_id, "sess-custom")
-
-    def test_invalid_trigger_rejected(self) -> None:
-        with self.assertRaises(ValueError):
-            _ctx(trigger="sneaky")
-
-    def test_audit_fields_carry_full_identity(self) -> None:
-        ctx = _ctx(target_sha="a" * 40, mission_id="m1", provider="zai", model="glm-5.3")
-        audit = ctx.to_audit_fields()
-        for key in ("session_id", "cycle_id", "trigger", "executor", "runner",
-                     "repository", "runtime_profile", "target_sha", "mission_id",
-                     "provider", "model"):
-            self.assertIn(key, audit, f"audit_fields missing {key}")
+    def test_current_actor_record_never_raises_and_names_a_derived_kind(self) -> None:
+        record = current_actor_record()
+        self.assertIsInstance(record, dict)
+        self.assertIn(record["kind"], ACTOR_KINDS)
+        self.assertTrue(str(record["id"]).strip())
 
 
-class SessionLedgerInvariants(unittest.TestCase):
-    """Guarantees 1, 3, 5, 6: the ledger enforces identity and cleanliness."""
+class SessionIdMinting(unittest.TestCase):
+    def test_session_id_is_deterministic_from_the_cycle(self) -> None:
+        self.assertEqual(session_id_for_cycle("cyc-20261020T000000Z"), "sess-cyc-20261020T000000Z")
+
+
+class SessionLedgerLifecycle(unittest.TestCase):
+    """Part B — the session spine API writes the declared lifecycle."""
 
     def setUp(self) -> None:
+        from aria_kernel.tool_registry import ensure_tools_dir
+
         self._tmp = tempfile.TemporaryDirectory()
-        self.base = self._tmp.name
+        self.base = Path(self._tmp.name)
+        # A real tools root carries the state manifest the declared-surface
+        # check reads; ensure_tools_dir bootstraps it the way every
+        # production root is bootstrapped.
+        self.tools = ensure_tools_dir(self.base / "aria-tools")
         self.addCleanup(self._tmp.cleanup)
 
     def _ledger(self) -> list[dict]:
-        path = Path(self.base) / "sessions" / "session-ledger.jsonl"
+        path = self.tools / "sessions" / "session-ledger.jsonl"
         if not path.exists():
             return []
         return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
-    def test_start_session_writes_started_row(self) -> None:
-        ctx = _ctx()
-        start_session(ctx, base_dir=self.base)
-        rows = self._ledger()
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["event"], "session_started")
-        self.assertEqual(rows[0]["session_id"], ctx.session_id)
+    def test_a_session_records_started_bound_and_terminal_in_order(self) -> None:
+        session = begin_cycle_session(cycle_id="cyc-spine-api", tools_root=self.tools)
+        self.assertEqual(session.session_id, "sess-cyc-spine-api")
+        bind_session_mission(mission_id="m-1", tools_root=self.tools)
+        ended = end_cycle_session(outcome="completed", tools_root=self.tools)
+        self.assertEqual(ended["event"], "session_completed")
+        self.assertEqual([row["event"] for row in self._ledger()], [
+            "session_started", "mission_bound", "session_completed",
+        ])
+        for row in self._ledger():
+            self.assertEqual(row["session_id"], "sess-cyc-spine-api")
+            self.assertEqual(row["cycle_id"], "cyc-spine-api")
+            self.assertIn(row["actor"]["kind"], ACTOR_KINDS)
+        self.assertEqual(self._ledger()[1]["mission_id"], "m-1")
 
-    def test_full_lifecycle_records_all_events(self) -> None:
-        ctx = _ctx()
-        start_session(ctx, base_dir=self.base)
-        bind_mission(ctx, mission_id="m-123", base_dir=self.base)
-        bind_provider(ctx, provider="zai", model="glm-5.3", base_dir=self.base)
-        complete_session(ctx, outcome="completed", base_dir=self.base)
-        events = [r["event"] for r in self._ledger()]
+    def test_the_ambient_session_ends_with_the_terminal_event(self) -> None:
+        from aria_kernel.execution_spine import active_session
+
+        begin_cycle_session(cycle_id="cyc-spine-ambient", tools_root=self.tools)
+        self.assertIsNotNone(active_session())
+        end_cycle_session(outcome="failed", tools_root=self.tools)
+        self.assertIsNone(active_session(), "a terminal event must close the ambient session")
+
+    def test_binding_outside_a_session_is_refused(self) -> None:
+        with self.assertRaises(RuntimeError):
+            bind_session_mission(mission_id="m-orphan", tools_root=self.tools)
+
+    def test_a_session_still_open_when_the_next_cycle_begins_is_abandoned(self) -> None:
+        # The escape window no terminal writer covers (an exception between
+        # the started row and the phase loop): the next cycle's begin must
+        # close the stale thread, not overwrite it silently.
+        stale = begin_cycle_session(cycle_id="cyc-spine-leaked", tools_root=self.tools)
+        begin_cycle_session(cycle_id="cyc-spine-next", tools_root=self.tools)
+        end_cycle_session(outcome="completed", tools_root=self.tools)
+        events = [(row["event"], row["session_id"]) for row in self._ledger()]
         self.assertEqual(events, [
-            "session_started", "mission_bound", "provider_bound", "session_completed",
+            ("session_started", stale.session_id),
+            ("session_abandoned", stale.session_id),
+            ("session_started", "sess-cyc-spine-next"),
+            ("session_completed", "sess-cyc-spine-next"),
         ])
 
-    def test_every_row_carries_audit_context(self) -> None:
-        ctx = _ctx(target_sha="b" * 40)
-        start_session(ctx, base_dir=self.base)
-        row = self._ledger()[0]
-        self.assertEqual(row["executor"], ctx.executor)
-        self.assertEqual(row["runtime_profile"], ctx.runtime_profile)
-        self.assertEqual(row["target_sha"], ctx.target_sha)
-
-    def test_unknown_event_rejected(self) -> None:
-        ctx = _ctx()
+    def test_an_unknown_outcome_is_refused(self) -> None:
+        begin_cycle_session(cycle_id="cyc-spine-bad", tools_root=self.tools)
         with self.assertRaises(ValueError):
-            record_session_event(event="hacked", context=ctx, base_dir=self.base)
+            end_cycle_session(outcome="exploded", tools_root=self.tools)
+        end_cycle_session(outcome="abandoned", tools_root=self.tools)
 
-    def test_invalid_terminal_outcome_rejected(self) -> None:
-        ctx = _ctx()
-        with self.assertRaises(ValueError):
-            complete_session(ctx, outcome="exploded", base_dir=self.base)
-
-    def test_credential_never_in_ledger(self) -> None:
-        """Guarantee 6: raw credentials must never reach any ledger row."""
-        ctx = _ctx(provider="zai")
-        bind_provider(ctx, provider="zai", model="glm-5.3", base_dir=self.base)
-        raw = Path(self.base).joinpath("sessions", "session-ledger.jsonl").read_text()
-        # The provider NAME appears; the API KEY must not
-        self.assertIn("zai", raw)
-        self.assertNotIn("API_KEY", raw.upper().replace("PROVIDER", ""))
-        self.assertNotIn("Bearer ", raw)
-
-    def test_mission_binding_carries_mission_id(self) -> None:
-        """Guarantee 5: mission binding requires a mission_id."""
-        ctx = _ctx(mission_id=None)
-        bind_mission(ctx, mission_id="m-456", base_dir=self.base)
-        rows = self._ledger()
-        mission_rows = [r for r in rows if r["event"] == "mission_bound"]
-        self.assertEqual(len(mission_rows), 1)
-        self.assertEqual(mission_rows[0]["mission_id"], "m-456")
-
-
-class ProviderMetadataInvariants(unittest.TestCase):
-    """Guarantee 7: provider metadata is factual (from the fleet probe)."""
-
-    def test_bind_provider_records_provider_and_model(self) -> None:
-        ctx = _ctx()
-        with tempfile.TemporaryDirectory() as base:
-            bind_provider(ctx, provider="zai", model="glm-5.3", base_dir=base)
-            path = Path(base) / "sessions" / "session-ledger.jsonl"
-            row = json.loads(path.read_text().splitlines()[-1])
-            self.assertEqual(row["provider"], "zai")
-            self.assertEqual(row["model"], "glm-5.3")
-
-    def test_provider_from_fleet_is_known(self) -> None:
-        """The provider must be one of the fleet's registered keys."""
-        from aria_kernel.model_fleet import _FLEET
-        known = {p.key for p in _FLEET}
-        ctx = _ctx()
-        for provider in known:
-            with tempfile.TemporaryDirectory() as base:
-                bind_provider(ctx, provider=provider, model="test", base_dir=base)
+    def test_every_declared_event_name_is_writable(self) -> None:
+        # The declared surface's vocabulary (state_manifest names the ledger;
+        # SESSION_EVENTS names what a row may say) stays closed and covered.
+        self.assertEqual(
+            SESSION_EVENTS,
+            {
+                "session_started", "mission_bound", "agent_bound", "provider_bound",
+                "session_paused", "session_resumed", "session_completed",
+                "session_failed", "session_abandoned",
+            },
+        )
 
 
 if __name__ == "__main__":

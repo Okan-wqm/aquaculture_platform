@@ -34,7 +34,6 @@ already drops both variable names from every agent child.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import time
@@ -184,7 +183,9 @@ def zai_settings_hash(*, endpoint: str, base_url: str, model: str) -> str:
         {"transport": ZAI_TRANSPORT, "endpoint": endpoint, "base_url": base_url, "model": model},
         sort_keys=True, separators=(",", ":"),
     )
-    return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    from aria_kernel.digest import sha256_digest_text
+
+    return sha256_digest_text(payload)
 
 
 @dataclass(frozen=True)

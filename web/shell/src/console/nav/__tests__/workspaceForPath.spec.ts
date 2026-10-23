@@ -24,7 +24,9 @@ describe('workspaceForPath', () => {
     expect(workspaceForPath('/sensor/plc/alarms', CONSOLE_WORKSPACES, 'aqua')).toBe('ctl');
     expect(workspaceForPath('/hydroponics/pid-simulator', CONSOLE_WORKSPACES, 'org')).toBe('gh');
     expect(workspaceForPath('/tenant/billing', CONSOLE_WORKSPACES, 'ctl')).toBe('org');
-    expect(workspaceForPath('/hr/employees/42/edit', CONSOLE_WORKSPACES, 'aqua')).toBe('org');
+    // Offshore crew assignments are Company's alone (not module-scoped).
+    expect(workspaceForPath('/hr/crew', CONSOLE_WORKSPACES, 'aqua')).toBe('org');
+    expect(workspaceForPath('/hr/payroll', CONSOLE_WORKSPACES, 'gh')).toBe('org');
   });
 
   it('keeps the current workspace for a page it shares, else takes the first that lists it', () => {
@@ -34,6 +36,14 @@ describe('workspaceForPath', () => {
     expect(workspaceForPath('/sites/tasks', CONSOLE_WORKSPACES)).toBe('aqua');
     expect(workspaceForPath('/tenant/roles', CONSOLE_WORKSPACES, 'org')).toBe('org');
     expect(workspaceForPath('/tenant/roles', CONSOLE_WORKSPACES, 'ctl')).toBe('ctl');
+    // The team list (and its detail routes) is every module workspace's Team list
+    // and Company's workforce list: it stays where the reader is.
+    expect(workspaceForPath('/hr/employees/42/edit', CONSOLE_WORKSPACES, 'aqua')).toBe('aqua');
+    expect(workspaceForPath('/hr/employees', CONSOLE_WORKSPACES, 'gh')).toBe('gh');
+    expect(workspaceForPath('/hr/employees', CONSOLE_WORKSPACES, 'ctl')).toBe('ctl');
+    expect(workspaceForPath('/hr/employees', CONSOLE_WORKSPACES, 'org')).toBe('org');
+    expect(workspaceForPath('/hr/organization', CONSOLE_WORKSPACES, 'ctl')).toBe('ctl');
+    expect(workspaceForPath('/hr/organization', CONSOLE_WORKSPACES, 'org')).toBe('org');
     // The analytics page is every module workspace's; Production's dashboard is its own.
     expect(workspaceForPath('/dashboard/analytics', CONSOLE_WORKSPACES, 'ctl')).toBe('ctl');
     expect(workspaceForPath('/dashboard/analytics', CONSOLE_WORKSPACES, 'org')).toBe('aqua');

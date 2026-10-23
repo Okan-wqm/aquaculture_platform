@@ -134,11 +134,23 @@ def approve_proposal(
             f"approval; record it through record_machine_approval so the row "
             f"carries approval_source='machine'"
         )
+    # ARIA-HIGH-238 — an approved proposal opens the apply lane, so the ref
+    # must be the operator's own GitHub act naming exactly this proposal.
+    from .operator_approval import require_operator_act
+
+    root = ensure_tools_dir(base_dir)
+    approval = require_operator_act(
+        operator_approval_ref,
+        surface="proposal_approval",
+        scope={"proposal": proposal_id},
+        base_dir=root,
+    )
     return _write_approval(
         proposal_id=proposal_id,
         approval_source="operator",
         operator_approval_ref=operator_approval_ref,
         machine_approval_ref=None,
+        operator_approval_proof=approval,
         base_dir=base_dir,
     )
 
@@ -187,6 +199,7 @@ def _write_approval(
     approval_source: str,
     operator_approval_ref: str | None,
     machine_approval_ref: str | None,
+    operator_approval_proof: dict[str, Any] | None = None,
     base_dir: str | Path | None,
 ) -> dict[str, Any]:
     previous = get_proposal(proposal_id=proposal_id, base_dir=base_dir)
@@ -196,6 +209,8 @@ def _write_approval(
     row["approval_source"] = approval_source
     row["operator_approval_ref"] = operator_approval_ref
     row["machine_approval_ref"] = machine_approval_ref
+    if operator_approval_proof is not None:
+        row["operator_approval"] = operator_approval_proof
     row["blocked_by"] = []
     append_declared_jsonl(
         ensure_tools_dir(base_dir) / "proposals" / "proposals.jsonl",

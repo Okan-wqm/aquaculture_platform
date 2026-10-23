@@ -371,7 +371,7 @@ def _per_run_ledger_path(base_dir: str | Path) -> Path:
 
 def _per_run_canonical_hash(row: dict[str, Any]) -> str:
     payload = json.dumps(row, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-    return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return sha256_digest_text(payload)
 
 
 def _per_run_previous_hash(ledger_path: Path) -> str | None:
@@ -715,6 +715,7 @@ from datetime import datetime, timezone  # safe-redundant; already imported
 # judgment_bridge, V6 specialist review). Closed-set membership is still
 # pinned by I-V10-COST-03; the set is closed by construction, not by hand.
 from .agent_surface import INVOCATION_ROLES as _INVOCATION_ROLES
+from .digest import sha256_digest_text
 
 COST_INVOCATION_ROLES: frozenset[str] = frozenset({
     *_INVOCATION_ROLES,

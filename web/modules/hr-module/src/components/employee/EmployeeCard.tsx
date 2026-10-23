@@ -100,10 +100,10 @@ export function EmployeeCard({
               </div>
             )}
 
-            {employee.department && (
+            {employee.departmentHr && (
               <div className="flex items-center gap-2 text-sm">
                 <Building2 className="h-4 w-4 flex-shrink-0 text-gray-600 dark:text-gray-300" />
-                <DepartmentBadge name={employee.department} size="sm" />
+                <DepartmentBadge department={employee.departmentHr} showModule size="sm" />
               </div>
             )}
 

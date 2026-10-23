@@ -14,13 +14,13 @@ existing `runtime_signal_bridge` as `external_scanner` — no new finding author
 """
 from __future__ import annotations
 
-import hashlib
 import itertools
 import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
+from ..digest import sha256_fingerprint
 
 PACK_NAMES = ("api", "multi_tenant")
 # tenant-scoped tables that legitimately do NOT carry a per-row policy (schema-per-tenant
@@ -140,7 +140,7 @@ class PackManifest:
 
 def _pack_digest(name: str, rules: tuple[PackRule, ...]) -> str:
     payload = {"name": name, "rules": [[r.rule_id, r.severity] for r in rules]}
-    return "sha256:" + hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()[:24]
+    return sha256_fingerprint(json.dumps(payload, sort_keys=True).encode("utf-8"), hex_chars=24)
 
 
 def select_packs(profile_row: dict[str, Any]) -> list[PackManifest]:

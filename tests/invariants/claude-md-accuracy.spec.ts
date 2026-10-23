@@ -29,6 +29,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
+import { isUnresolvedFindingState } from '../../tools/gates/finding-registry-chain';
+
 import { discoverSteeringFiles } from './_constants';
 import { isKnownUnrunnable, runnersOf } from './helpers/spec-runners';
 import { workflowScriptReferences } from './helpers/workflows';
@@ -128,16 +130,16 @@ describe('CLAUDE.md accuracy invariants', () => {
     // question the reader asks: does anything actually run it on a PR?
     const scriptsRunByWorkflows = new Set(workflowScriptReferences().map((ref) => ref.script));
     // A citation may name a spec CI does not run only while the same line
-    // names the OPEN finding that tracks the gap — the repository's one
+    // names the unresolved finding that tracks the gap — the repository's one
     // sanctioned shape for debt (owner + deadline + id live on the finding).
-    const openFindingIds = new Set(
+    // "Unresolved" is the registry's own predicate: the sweep's STALE and
+    // BLOCKED judgements still owe the gap; only RESOLVED retires it.
+    const unresolvedFindingIds = new Set(
       readFileSync(join(REPO_ROOT, 'docs/reviews/_registry/findings.jsonl'), 'utf8')
         .split('\n')
         .filter((line) => line.trim().length > 0)
         .map((line) => JSON.parse(line) as { id: string; state: string })
-        .filter(
-          (row) => row.state === 'OPEN' || row.state === 'IN-PROGRESS' || row.state === 'BLOCKED',
-        )
+        .filter((row) => isUnresolvedFindingState(row.state))
         .map((row) => row.id),
     );
     const FINDING_ID_RX = /\b[A-Z]+-(?:CRITICAL|HIGH|MEDIUM|LOW)-\d{3}\b/g;
@@ -183,7 +185,9 @@ describe('CLAUDE.md accuracy invariants', () => {
         for (const line of readFileSync(join(REPO_ROOT, file), 'utf8').split('\n')) {
           const specs = extractCheckablePaths(line).filter((p) => /\.spec\.tsx?$/.test(p));
           if (specs.length === 0) continue;
-          const tracked = [...line.matchAll(FINDING_ID_RX)].some((m) => openFindingIds.has(m[0]));
+          const tracked = [...line.matchAll(FINDING_ID_RX)].some((m) =>
+            unresolvedFindingIds.has(m[0]),
+          );
           for (const spec of specs) {
             const why = whyNotGated(spec);
             if (why !== undefined && !tracked) ungated.push(`${spec}: ${why}`);

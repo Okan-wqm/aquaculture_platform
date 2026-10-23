@@ -2,7 +2,7 @@
  * Employee CRUD Lifecycle E2E Tests
  *
  * Tests the complete employee lifecycle:
- * Create -> Read -> List/Filter -> Update -> Terminate -> Farm Worker Toggle
+ * Create -> Read -> List/Filter -> Update -> Terminate
  * Plus cross-tenant isolation and DB verification.
  */
 import { randomUUID } from 'crypto';
@@ -60,12 +60,10 @@ describe('Employee CRUD Lifecycle', () => {
     dateOfBirth: '1990-05-15',
     nationalId: 'TC12345678901',
     employmentType: 'FULL_TIME',
-    department: 'OPERATIONS',
     position: 'Aquaculture Technician',
     hireDate: '2024-01-15',
     baseSalary: 45000,
     currency: 'TRY',
-    isFarmWorker: false,
   };
 
   afterAll(async () => {
@@ -83,9 +81,7 @@ describe('Employee CRUD Lifecycle', () => {
         employeeNumber: string;
         status: string;
         employmentType: string;
-        department: string;
         position: string;
-        isFarmWorker: boolean;
         currency: string;
         contactInfo: { email: string; phone: string };
         address: { city: string; country: string };
@@ -101,9 +97,7 @@ describe('Employee CRUD Lifecycle', () => {
           employeeNumber
           status
           employmentType
-          department
           position
-          isFarmWorker
           currency
           contactInfo { email phone }
           address { city country }
@@ -123,9 +117,7 @@ describe('Employee CRUD Lifecycle', () => {
     expect(emp.email).toBe(employeeInput.email.toLowerCase());
     expect(emp.status).toBe('active');
     expect(emp.employmentType).toBe('full_time');
-    expect(emp.department).toBe('operations');
     expect(emp.position).toBe('Aquaculture Technician');
-    expect(emp.isFarmWorker).toBe(false);
     expect(emp.currency).toBe('TRY');
     expect(emp.contactInfo.phone).toBe('+90-555-123-4567');
     expect(emp.address.city).toBe('Istanbul');
@@ -213,7 +205,6 @@ describe('Employee CRUD Lifecycle', () => {
       updateEmployee: {
         id: string;
         position: string;
-        department: string;
       };
     }>(
       `
@@ -221,7 +212,6 @@ describe('Employee CRUD Lifecycle', () => {
         updateEmployee(input: $input) {
           id
           position
-          department
         }
       }
     `,
@@ -229,13 +219,11 @@ describe('Employee CRUD Lifecycle', () => {
         input: {
           id: createdEmployeeId,
           position: 'Senior Aquaculture Technician',
-          department: 'MANAGEMENT',
         },
       },
     );
 
     expect(updateData.updateEmployee.position).toBe('Senior Aquaculture Technician');
-    expect(updateData.updateEmployee.department).toBe('management');
   });
 
   // ── Test 5: Terminate employee ────────────────────────
@@ -286,89 +274,8 @@ describe('Employee CRUD Lifecycle', () => {
     expect(termData.terminateEmployee.terminationDate).toBeDefined();
   });
 
-  // ── Test 6: activeEmployees returns only ACTIVE ───────
-  test('Test 6: activeEmployees query -> only ACTIVE status', async () => {
-    const data = await clientA.query<{
-      activeEmployees: Array<{ id: string; status: string }>;
-    }>(`
-      query ActiveEmployees {
-        activeEmployees {
-          id
-          status
-        }
-      }
-    `);
-
-    // All returned employees must be active
-    for (const emp of data.activeEmployees) {
-      expect(emp.status).toBe('active');
-    }
-  });
-
-  // ── Test 7: employeesByDepartment ─────────────────────
-  test('Test 7: employeesByDepartment -> correct filtering', async () => {
-    const data = await clientA.query<{
-      employeesByDepartment: Array<{ id: string; department: string }>;
-    }>(
-      `
-      query ByDepartment($department: HRDepartment!) {
-        employeesByDepartment(department: $department) {
-          id
-          department
-        }
-      }
-    `,
-      { department: 'MANAGEMENT' },
-    );
-
-    for (const emp of data.employeesByDepartment) {
-      expect(emp.department).toBe('management');
-    }
-    // Our updated employee should be in MANAGEMENT
-    const found = data.employeesByDepartment.find(
-      (e: { id: string }) => e.id === createdEmployeeId,
-    );
-    expect(found).toBeDefined();
-  });
-
-  // ── Test 8: toggleFarmWorker ──────────────────────────
-  test('Test 8: toggleFarmWorker(id, true) -> isFarmWorker=true', async () => {
-    const data = await clientA.mutate<{
-      toggleFarmWorker: { id: string; isFarmWorker: boolean };
-    }>(
-      `
-      mutation ToggleFarmWorker($id: ID!, $isFarmWorker: Boolean!) {
-        toggleFarmWorker(id: $id, isFarmWorker: $isFarmWorker) {
-          id
-          isFarmWorker
-        }
-      }
-    `,
-      { id: createdEmployeeId, isFarmWorker: true },
-    );
-
-    expect(data.toggleFarmWorker.isFarmWorker).toBe(true);
-
-    // Toggle back
-    const data2 = await clientA.mutate<{
-      toggleFarmWorker: { id: string; isFarmWorker: boolean };
-    }>(
-      `
-      mutation ToggleFarmWorker($id: ID!, $isFarmWorker: Boolean!) {
-        toggleFarmWorker(id: $id, isFarmWorker: $isFarmWorker) {
-          id
-          isFarmWorker
-        }
-      }
-    `,
-      { id: createdEmployeeId, isFarmWorker: false },
-    );
-
-    expect(data2.toggleFarmWorker.isFarmWorker).toBe(false);
-  });
-
-  // ── Test 9: hrDashboardStats ──────────────────────────
-  test('Test 9: hrDashboardStats -> total, active, byDepartment', async () => {
+  // ── Test 6: hrDashboardStats ──────────────────────────
+  test('Test 6: hrDashboardStats -> total, active, byDepartment', async () => {
     const data = await clientA.query<{
       hrDashboardStats: {
         totalEmployees: number;
@@ -408,8 +315,8 @@ describe('Employee CRUD Lifecycle', () => {
     expect(typeof stats.totalDepartments).toBe('number');
   });
 
-  // ── Test 10: Cross-tenant isolation ───────────────────
-  test('Test 10: Tenant B cannot see Tenant A employee', async () => {
+  // ── Test 7: Cross-tenant isolation ───────────────────
+  test('Test 7: Tenant B cannot see Tenant A employee', async () => {
     // Tenant B queries for Tenant A's employee by ID
     const response = await clientB.queryRaw<{
       employee: { id: string } | null;
@@ -436,8 +343,8 @@ describe('Employee CRUD Lifecycle', () => {
     }
   });
 
-  // ── Test 11: DB verification ──────────────────────────
-  test('Test 11: DB verify: employees table (not auth.users)', async () => {
+  // ── Test 8: DB verification ──────────────────────────
+  test('Test 8: DB verify: employees table (not auth.users)', async () => {
     try {
       // Employees live in public schema (or tenant schema), NOT auth.users
       const result = await db.query<{

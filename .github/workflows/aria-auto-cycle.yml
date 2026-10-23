@@ -129,10 +129,18 @@ on:
           - 'none'
           - 'dataflow_integrity_critical'
 
-# Z1 (ORPHAN-712) — shared self-hosted workspace group; see
+# Z1 (ORPHAN-712) → ARIA-MEDIUM-277 — this lane's OWN group. A GitHub
+# concurrency group holds ONE pending slot and an arriving run evicts the
+# queued one, so a group shared with another lane let that lane's dispatch
+# cancel this lane's pending run (measured: the dataflow watchdog's CRITICAL
+# dispatch, the executor's chained cycle). In a per-lane group only this
+# lane's own duplicate can evict this lane's pending run — dedup, not
+# starvation. The workspace serialization the shared group used to lend the
+# one shared workspace is carried by the host workspace lock
+# (.github/actions/selfhosted-workspace-lock), taken by this job below; see
 # dataflow-integrity-watchdog.yml for the measured wipe this prevents.
 concurrency:
-  group: aria-selfhosted-workspace
+  group: aria-auto-cycle
   cancel-in-progress: false
 
 permissions:
@@ -241,6 +249,20 @@ jobs:
       ARIA_CLOSE_OUT_MARGIN_SECONDS: '11640'
       ARIA_CLOSE_OUT_UNBOUNDED_BASIS_SECONDS: '3420'
     steps:
+      # ARIA-MEDIUM-277 — the host workspace lock, FIRST, before the reset
+      # and any checkout below: those are the wipe vectors the lock exists
+      # to serialize across the lanes that share this workspace. The lock
+      # replaces the serialization the shared aria-selfhosted-workspace
+      # group used to provide (its single pending slot evicted other
+      # lanes' queued runs); GitHub's runner queue, which never evicts,
+      # does the waiting. timeout-seconds sits just above the cycle job's
+      # own 454-min cap so a lane chained behind a full cycle eventually
+      # gets the workspace instead of failing on the wait.
+      - name: Take the shared self-hosted workspace lock
+        uses: ./.github/actions/selfhosted-workspace-lock
+        with:
+          timeout-seconds: '27300'
+
       # ORPHAN-HIGH-802 — reset the persistent workspace HERE, so checkout
       # does not have to. actions/checkout's `clean` runs `git clean -ffdx`,
       # and `-x` deletes gitignored paths — including node_modules, which the
@@ -334,7 +356,7 @@ jobs:
 
       - uses: ./.github/actions/setup-aria-kernel
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
 
@@ -935,6 +957,44 @@ jobs:
               raise SystemExit(";".join(verdict.reasons))
           PY
 
+      - name: Start the GitHub App token broker (ARIA-MEDIUM-583)
+        id: token_broker
+        if: steps.lease_check.outputs.blocked != 'true' && (github.event.inputs.mode || 'cycle') == 'cycle'
+        env:
+          # ARIA-MEDIUM-583 — the App key enters THIS step's env only, on its
+          # way to the broker's stdin. The broker is a SIBLING of the cycle
+          # process (a later step), not its ancestor: on this runner's Yama
+          # ptrace_scope=1 the cycle cannot read its memory, the key lives in
+          # the broker's memory alone, and what the cycle step inherits is the
+          # socket path exported below. The broker mints only the closed
+          # allowlist of named permission sets, caps mints per night and
+          # clamps every TTL to the deadline this step computes.
+          ARIA_GH_APP_PRIVATE_KEY: ${{ secrets.ARIA_GH_APP_PRIVATE_KEY }}
+          ARIA_GH_APP_ID: ${{ secrets.ARIA_GH_APP_ID }}
+          ARIA_GH_APP_INSTALLATION_ID: ${{ secrets.ARIA_GH_APP_INSTALLATION_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "$ARIA_GH_APP_PRIVATE_KEY" ]; then
+            # No App configured: nothing to hold. The cycle's Mode A mint
+            # then refuses by name (ARIA_REQUIRE_MODE_A), exactly as it
+            # refuses today when the key is missing.
+            echo "socket=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # The broker dies with the job's own cap (anchored at job launch,
+          # the env the anchor step exported): a broker the runner fails to
+          # reap cannot hold the key past the job, and no token it mints can
+          # outlive it either. The pairing with the job's timeout-minutes is
+          # pinned by test_delivery_identity_lanes.py.
+          BROKER_DEADLINE=$(( ARIA_JOB_LAUNCH_EPOCH + 454 * 60 ))
+          SOCKET="$(printf '%s\n' "$ARIA_GH_APP_PRIVATE_KEY" | PYTHONPATH=aria-kernel python3 -m aria_kernel.token_broker start \
+            --app-id "$ARIA_GH_APP_ID" \
+            --installation-id "$ARIA_GH_APP_INSTALLATION_ID" \
+            --deadline-epoch "$BROKER_DEADLINE" \
+            --ledger "${RUNNER_TEMP}/aria-token-broker-ledger-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.jsonl")"
+          echo "socket=${SOCKET}" >> "$GITHUB_OUTPUT"
+          echo "ARIA_GH_TOKEN_BROKER_SOCKET=${SOCKET}" >> "$GITHUB_ENV"
+
       - name: Run the nightly cycle under the resolved profile
         if: steps.lease_check.outputs.blocked != 'true' && (github.event.inputs.mode || 'cycle') == 'cycle'
         env:
@@ -951,9 +1011,12 @@ jobs:
           # ARIA_REQUIRE_MODE_A: that mint is Mode A or refuses by name; it
           # never copies the ambient GH_TOKEN (Mode B) into a PR's author.
           ARIA_REQUIRE_MODE_A: 'true'
-          ARIA_GH_APP_ID: ${{ secrets.ARIA_GH_APP_ID }}
-          ARIA_GH_APP_INSTALLATION_ID: ${{ secrets.ARIA_GH_APP_INSTALLATION_ID }}
-          ARIA_GH_APP_PRIVATE_KEY: ${{ secrets.ARIA_GH_APP_PRIVATE_KEY }}
+          # ARIA-MEDIUM-583 — the App key lives in the broker this job
+          # started (the step above); this process holds the broker's socket
+          # path only (ARIA_GH_TOKEN_BROKER_SOCKET, exported by that step).
+          # REQUIRE_TOKEN_BROKER refuses any in-process key mint by name,
+          # even if a key were ever handed back to this step.
+          ARIA_REQUIRE_TOKEN_BROKER: 'true'
           MAX_REQUESTS_PER_RUN: '30'
           MAX_TIMEOUT_SECONDS: '1800'
           # Plan 032 Faz 032a — the dispatcher factories poll for an envelope
@@ -1004,16 +1067,14 @@ jobs:
           # .env's operator PAT (ARIA_GH_TOKEN) is never exported: a write
           # made with it is authored by the operator, and an operator act is
           # what an ARIA-APPROVE line is verified against.
+          # ARIA-MEDIUM-583 — the App key this step used to write to
+          # $RUNNER_TEMP and export as ARIA_GH_APP_PRIVATE_KEY_PATH is gone
+          # from the cycle process entirely: the delivery mints through the
+          # broker step above (ARIA_GH_TOKEN_BROKER_SOCKET, exported by it),
+          # which holds the key in memory and answers narrowed, capped,
+          # TTL-clamped tokens. Narrowing the job token (ARIA-MEDIUM-555)
+          # now actually takes repository write away from this process.
           set -euo pipefail
-          # The App key, from the secret into a private file in RUNNER_TEMP:
-          # outside the workspace every sandbox binds, removed on any exit.
-          # The PEM leaves the environment before any child process starts;
-          # the mint reads the file through ARIA_GH_APP_PRIVATE_KEY_PATH.
-          KEY_FILE="$RUNNER_TEMP/aria-gh-app-private-key-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.pem"
-          trap 'rm -f "$KEY_FILE"' EXIT
-          (umask 077 && printf '%s\n' "$ARIA_GH_APP_PRIVATE_KEY" > "$KEY_FILE")
-          unset ARIA_GH_APP_PRIVATE_KEY
-          export ARIA_GH_APP_PRIVATE_KEY_PATH="$KEY_FILE"
           MAX_CYCLES="${MAX_CYCLES_INPUT:-1}"
           if ! [[ "$MAX_CYCLES" =~ ^[0-9]{1,2}$ ]]; then
             echo "::error::invalid max_cycles: ${MAX_CYCLES}" >&2
@@ -1366,7 +1427,7 @@ jobs:
       # the canonical one.
       - name: Cache ARIA state tree (non-authoritative)
         if: always() && steps.lease_check.outputs.blocked != 'true' && steps.integrity.outputs.state_valid == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: aria-state-cache-${{ github.run_id }}
           path: |
@@ -1393,7 +1454,7 @@ jobs:
       # run-scoped naming discipline. Nothing restores from it.
       - name: Quarantine unverified ARIA state
         if: always() && steps.lease_check.outputs.blocked != 'true' && (steps.integrity.outputs.state_valid != 'true' || (steps.restore_state.outputs.restored != 'true' && steps.restore_state.outputs.bootstrap != 'true'))
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: quarantine-evidence-${{ github.run_id }}
           path: |
@@ -1431,6 +1492,15 @@ jobs:
         with:
           lease-token: ${{ steps.restore_state.outputs.writer-lease-token }}
 
+      # ARIA-MEDIUM-277 — LAST step of the job: give back the host workspace
+      # lock the first step took, unconditionally, so a failed night does not
+      # starve every other self-hosted lane until the holder's ceiling.
+      - name: Release the shared self-hosted workspace lock
+        if: always()
+        uses: ./.github/actions/selfhosted-workspace-lock
+        with:
+          mode: release
+
   # ORPHAN-724 / ARIA-HIGH-386 — the drain follows the producer. The edge is
   # an explicit dispatch, not a `workflow_run` trigger on the executor:
   # GitHub creates no `workflow_run` event for a run started with the job
@@ -1438,9 +1508,11 @@ jobs:
   # both start this workflow that way, so every chained cycle ended with no
   # drain after it (cycle 37728223278, 2026-10-08). A workflow_dispatch is
   # the one event the job token may create. The executor's run waits in the
-  # shared concurrency group until this run has finished, the same order the
-  # trigger gave. A cancelled cycle is an operator stop, so it chains
-  # nothing.
+  # runner queue — and, once a second runner service exists, behind the
+  # workspace lock this run holds — until this run has finished, the same
+  # order the trigger gave (ARIA-MEDIUM-277: per-lane groups replaced the
+  # shared one, so the wait can no longer be ended by eviction). A cancelled
+  # cycle is an operator stop, so it chains nothing.
   chain-executor:
     needs: cycle
     if: ${{ !cancelled() }}

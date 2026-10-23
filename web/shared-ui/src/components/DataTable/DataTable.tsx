@@ -47,6 +47,11 @@ export interface TableColumn<T> {
   filterType?: 'text' | 'select' | 'date' | 'dateRange' | 'number' | 'boolean';
   filterOptions?: Array<{ value: string; label: string }>;
   exportable?: boolean;
+  /**
+   * What the CSV export writes for a row, when the cell is not simply `row[key]` (a computed or
+   * nested value, such as the name of the department an employee sits in); defaults to `row[key]`.
+   */
+  exportValue?: (row: T) => unknown;
   className?: string;
 }
 
@@ -556,7 +561,11 @@ export function DataTable<T>({
           exportFileName,
           exportColumns.map((c) => c.header),
           processedData.map((row) =>
-            exportColumns.map((col) => (row as Record<string, unknown>)[String(col.key)]),
+            exportColumns.map((col) =>
+              col.exportValue
+                ? col.exportValue(row)
+                : (row as Record<string, unknown>)[String(col.key)],
+            ),
           ),
         );
       }

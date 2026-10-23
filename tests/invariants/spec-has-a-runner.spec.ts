@@ -30,10 +30,12 @@
  * rather than passing silently forever.
  */
 
+import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 import {
+  DECLARED_NON_NX_RUNNERS,
   KNOWN_UNRUNNABLE_SPECS,
   isKnownUnrunnable,
   runnersOf,
@@ -89,5 +91,28 @@ describe('every spec has a runner', () => {
     expect(
       readFileSync(join(repoRoot, '.github/workflows/closes-footer-check.yml'), 'utf8'),
     ).toContain('npm run gates:test');
+  });
+
+  it('runs exactly the tools/gates specs the gates:test entry claims, in CI and pre-commit', () => {
+    // The `owns` predicate above is a declaration; run-all.mjs is what actually runs. Compare
+    // the two in both directions, so a runner that stops walking subdirectories (or a claim
+    // that grows past what it runs) fails here instead of leaving a spec green and unrun.
+    const gates = DECLARED_NON_NX_RUNNERS.find((runner) => runner.script === 'gates:test');
+    if (gates === undefined) throw new Error('no gates:test runner is declared');
+    const claimed = walkSpecs(repoRoot)
+      .filter((spec) => gates.owns(spec))
+      .sort();
+    const listed = execFileSync('node', ['tools/gates/run-all.mjs', '--list'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    })
+      .split('\n')
+      .filter((line) => line.length > 0);
+    expect(listed).toEqual(claimed);
+    expect(claimed).toContain('tools/gates/infra-policy/infra-policy.spec.ts');
+    // The pre-commit hook delegates to the same enumerator instead of globbing tools/gates.
+    const hook = readFileSync(join(repoRoot, '.husky/pre-commit'), 'utf8');
+    expect(hook).toMatch(/^node tools\/gates\/run-all\.mjs \|\| exit 1$/m);
+    expect(hook).not.toMatch(/^for spec in tools\/\*?gates\//m);
   });
 });

@@ -86,11 +86,16 @@ class EnterprisePlan012DTo015Tests(unittest.TestCase):
             validation_commands=list(CANONICAL_VALIDATION_COMMANDS),
             base_dir=self.tools_dir,
         )
-        approve_proposal(
-            proposal_id=proposal["proposal_id"],
-            operator_approval_ref="approval:012d",
-            base_dir=self.tools_dir,
-        )
+        from tests._helpers.operator_acts import github_operator_acts
+
+        with github_operator_acts() as github:
+            approve_proposal(
+                proposal_id=proposal["proposal_id"],
+                operator_approval_ref=github.approve(
+                    "proposal_approval", {"proposal": proposal["proposal_id"]},
+                ),
+                base_dir=self.tools_dir,
+            )
         action = plan_apply_worktree(
             proposal_id=proposal["proposal_id"],
             workspace_root=self.root,
@@ -365,12 +370,17 @@ class EnterprisePlan012DTo015Tests(unittest.TestCase):
             synthetic_test_mode=True,
         )
         # Plan 026R §E.2 — synthetic-mode sandbox requires override.
-        approve_agent_pr(
-            draft_id="draft-aria-demo",
-            operator_approval_ref="approval:genesis",
-            base_dir=self.tools_dir,
-            operator_synthetic_override=True,
-        )
+        from tests._helpers.operator_acts import github_operator_acts
+
+        with github_operator_acts() as github:
+            approve_agent_pr(
+                draft_id="draft-aria-demo",
+                operator_approval_ref=github.approve(
+                    "agent_pr_approval", {"draft": "draft-aria-demo"},
+                ),
+                base_dir=self.tools_dir,
+                operator_synthetic_override=True,
+            )
         lane = prepare_agent_pr_lane(
             draft_id="draft-aria-demo",
             workspace_root=self.root,

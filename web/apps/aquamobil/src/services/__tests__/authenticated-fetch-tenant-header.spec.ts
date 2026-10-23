@@ -6,6 +6,7 @@
 // first request AND on the 401 retry.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { Mock } from 'vitest';
 
 import {
   authenticatedFetch,
@@ -46,7 +47,7 @@ function recordingFetch(
 }
 
 describe('authenticatedFetch X-Tenant-Id comes from the token claim', () => {
-  let fetchMock: ReturnType<typeof vi.fn>;
+  let fetchMock: Mock<ReturnType<typeof recordingFetch>>;
   const refreshAuth = vi.fn(() => Promise.resolve(true));
 
   beforeEach(() => {

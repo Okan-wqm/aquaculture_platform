@@ -1399,6 +1399,51 @@ duplicate `lint-changed-files`. The real residual is INFRA-MEDIUM-224.
   in-window failure row's `ts`, or a digest of the ledger). Read it under the ledger lock, then
   re-read and compare it under that lock before the write. Deadline: 2027-04-18.
 
+### ARIA-LOW-726 — hand-rolled infrastructure readers remain beside the owners
+
+- **Raised by:** the wave-3 `G017-012-rules` fix round 1 ("New findings"); re-read by the ARIA
+  order chain on the landing branch from origin/main 95c452105.
+- **Problem:** `tools/gates/lib/infra` is the one reader for nginx, NATS and compose files
+  (ARIA-HIGH-012), but specs keep their own: `nats-invariants.spec.ts:169-251` locates the GENERATED
+  sentinels by text (once since the ARIA-HIGH-012 landing) and reads users by regex;
+  `parseNginxLocations` (`nginx-route-resolution.spec.ts:89`), `parseLocations`
+  (`mobile-static-asset-fail-closed.spec.ts:35`) and `blockBody` (`mobile-csp-headers.spec.ts:40`)
+  count braces over raw text; seven compose environment readers
+  (`action-link-origin-deployment-contract.spec.ts:96`,
+  `auth-frontend-url-deployment-contract.spec.ts:57`,
+  `farm-environment-deployment-contract.spec.ts:66`, `admin-api-production-posture.spec.ts:40`,
+  `public-service-edge-hardening.spec.ts:137`, `postgres-runtime-contract.spec.ts:97`,
+  `e2e/helpers/env.helper.ts:91`). A comment, a quoted brace or a `username` key can make a spec
+  and the owner judge the same file differently.
+- **Planned fix:** move each spec onto `readNginx` / `readNatsConf` / `readYamlDocuments` +
+  `composeEnvironment` and delete its reader in the same change. Deadline: 2026-11-15 (dated by that
+  fix round).
+
+### ARIA-LOW-727 — nats-invariants.yml does not re-run on main for four of its PR inputs
+
+- **Raised by:** the wave-3 `G017-012-rules` implementation (new finding 1); re-read on the landing
+  branch from origin/main 95c452105.
+- **Problem:** `pull_request.paths` (`nats-invariants.yml:57-63`) lists
+  `platform/libs/event-bus/**`, both e2e NATS specs and the workflow itself; `push.paths` for main
+  (`:64-82`) lists none of them. A merge that changes only one of those files is never checked
+  against the merged tree on main.
+- **Planned fix:** one path list for both events (or a test that compares them), in the change that
+  next owns the workflow (wave-3 `G044-314-*`). Deadline: 2027-04-19 (LOW ceiling).
+
+### ARIA-LOW-728 — 118 of the 122 tracked files under infra/ are empty placeholders
+
+- **Raised by:** the wave-3 `G017-012-rules` implementation (new finding 2); re-measured on
+  origin/main 95c452105 (59 terraform, 44 kubernetes, 12 helm, 3 scripts; the 4 non-empty files are
+  the three argocd manifests and `infra/kubernetes/apps/gateway-api/deployment.yaml`).
+- **Problem:** the placeholders (`infra/terraform/environments/prod/main.tf`,
+  `infra/kubernetes/apps/auth-service/deployment.yaml`, …) classify as infrastructure
+  (`classify.ts:75`) and read as empty, so an observer that walks `infra/**` would count 118 files
+  that configure nothing as observed and clean. The real IaC lives under `infrastructure/` and
+  `deploy/`.
+- **Planned fix:** delete the placeholders (or fill the ones a deploy path uses) and have the
+  infrastructure-policy adapter (`G017-012-adapter`) report an empty file as unobserved. Deadline:
+  2027-04-19 (LOW ceiling).
+
 ## Registry amendments recorded at the L1 registry step
 
 - **ARIA-HIGH-281** (wave-2 key R7-008): reopened by `finding-registry reopen`, which rejects

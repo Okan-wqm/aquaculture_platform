@@ -43,7 +43,12 @@ FIXTURE_ID = "F900-BRIDGE"
 FIXTURE_RUN_ID = "exec-bridge-0001"
 INVOCATION_ID = "inv-bridge-0001"
 REQUEST_ID = "AIR-bridge-0001"
-OPERATOR_REF = "operator:approval:bridge-0001"
+# ARIA-HIGH-238 — the operator refs the chain and the bridge verify are
+# GitHub acts: one names the REQUEST (surface genesis_request), one names
+# the promotion (surface shadow_eval_bridge) and also keys the
+# operator-provenance row the bridge joins.
+CHAIN_REF_SURFACE = "genesis_request"
+BRIDGE_REF_SURFACE = "shadow_eval_bridge"
 
 
 class ShadowEvalBridgeTests(unittest.TestCase):
@@ -52,6 +57,13 @@ class ShadowEvalBridgeTests(unittest.TestCase):
         self.tools = ensure_tools_dir(self.tmp / "aria-tools")
         # agent_evals + fixture-run surfaces are strict-profile writes.
         operator_set_profile("strict", base_dir=self.tools)
+        from tests._helpers.operator_acts import bind_github_operator_acts
+
+        self.github = bind_github_operator_acts(self)
+        self.chain_ref = self.github.approve(CHAIN_REF_SURFACE, {"entity": AGENT})
+        self.bridge_ref = self.github.approve(
+            BRIDGE_REF_SURFACE, {"agent": AGENT, "invocation": INVOCATION_ID},
+        )
 
     def tearDown(self) -> None:
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -74,7 +86,7 @@ class ShadowEvalBridgeTests(unittest.TestCase):
     ) -> None:
         if mint_operator:
             record_operator_approval(
-                ref=OPERATOR_REF,
+                ref=self.bridge_ref,
                 expires_at=(datetime.now(timezone.utc) + timedelta(days=1)).isoformat(),
                 target_agent=AGENT,
                 base_dir=self.tools,
@@ -92,7 +104,7 @@ class ShadowEvalBridgeTests(unittest.TestCase):
                     "source_types": ["coverage_gap", "shadow_summary"],
                 },
                 capability_resolution={"decision": "request"},
-                operator_approval_ref=OPERATOR_REF,
+                operator_approval_ref=self.chain_ref,
                 draft_ref="sha256:" + "e" * 64,
                 base_dir=self.tools,
             )
@@ -229,7 +241,7 @@ class ShadowEvalBridgeTests(unittest.TestCase):
             invocation_id=INVOCATION_ID,
             fixture_id=FIXTURE_ID,
             fixture_run_id=FIXTURE_RUN_ID,
-            operator_approval_ref=OPERATOR_REF,
+            operator_approval_ref=self.bridge_ref,
             base_dir=self.tools,
             repo_root=None,
         )
@@ -310,7 +322,7 @@ class ShadowEvalBridgeTests(unittest.TestCase):
                 invocation_id=INVOCATION_ID,
                 fixture_id=FIXTURE_ID,
                 fixture_run_id="exec-bridge-failing",
-                operator_approval_ref=OPERATOR_REF,
+                operator_approval_ref=self.bridge_ref,
                 base_dir=self.tools,
             )
         # Refusal ORDER matters: the eval ledger must not carry a run
@@ -367,8 +379,8 @@ class ShadowEvalBridgeTests(unittest.TestCase):
                 "recorded_at": datetime.now(timezone.utc).isoformat(),
                 "row_id": "operator-approval:unscoped",
                 "row_type": "operator_approval",
-                "event_id": OPERATOR_REF,
-                "operator_provenance_ref": OPERATOR_REF,
+                "event_id": self.bridge_ref,
+                "operator_provenance_ref": self.bridge_ref,
                 "target_agent": None,
                 "expires_at": (datetime.now(timezone.utc) + timedelta(days=1)).isoformat(),
                 "note": "",

@@ -24,9 +24,9 @@ runner-uid process can edit (ARIA-LOW-267, ADR-0023).
 """
 from __future__ import annotations
 
-import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from .digest import is_sha256_digest
 
 REQUEST_EXPIRED = "request_expired"
 REQUEST_EXPIRY_INVALID = "request_expiry_invalid"
@@ -35,7 +35,6 @@ GROUNDING_DIGEST_MISSING = "grounding_digest_missing"
 TERMS_REASONS: tuple[str, ...] = (
     REQUEST_EXPIRED, REQUEST_EXPIRY_INVALID, REQUEST_AUDIENCE_MISMATCH, GROUNDING_DIGEST_MISSING,
 )
-_DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 def utc_iso(moment: datetime) -> str:
@@ -64,7 +63,7 @@ def request_terms_reason(row: dict[str, Any], *, now: datetime, audience: str, m
     if now >= expires:
         return REQUEST_EXPIRED
     digest = row.get("grounding_digest")
-    if not isinstance(digest, str) or _DIGEST_RE.fullmatch(digest) is None:
+    if not is_sha256_digest(digest):
         return GROUNDING_DIGEST_MISSING
     return None
 

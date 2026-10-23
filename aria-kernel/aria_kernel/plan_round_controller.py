@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .agent_invocations import create_agent_invocation_request, list_agent_invocation_requests
-from .ledger import sha256_of_canonical_json
+from .ledger import sha256_digest_of_canonical_json
 from .plan_contract import render_plan_contract
 from .request_admission import admit_request
 from .plan_convergence import (
@@ -312,7 +312,7 @@ def _cross_task(
         # task owner, so it cannot open a normal controller review round.
         "sla_deadline": (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat(),
     }
-    packet["task_packet_hash"] = "sha256:" + sha256_of_canonical_json(packet)
+    packet["task_packet_hash"] = sha256_digest_of_canonical_json(packet)
     return packet
 
 

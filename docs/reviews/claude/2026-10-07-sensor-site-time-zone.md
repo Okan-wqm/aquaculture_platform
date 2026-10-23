@@ -143,3 +143,20 @@ leaves its row behind.
 On prod (2026-10-07), auth holds no localization for any tenant and the
 projection is empty, so no tenant has the wrong zone today. Owner: claude.
 Deadline: 2026-10-28.
+
+## SENSOR-HIGH-200 — the DST fixture search missed a whole autumn (2026-10-22)
+
+`series-local-buckets.postgres.spec.ts` looks for the most recent 25-hour Oslo
+day and 23-hour Santiago day in `[today - 360, today - 3]`. Those days sit on a
+weekday-anchored date (Oslo: the last Sunday of October), so two consecutive
+ones are 364 or 371 days apart, and a 357-day window misses one for about a
+week every year. On 2026-10-22 the window started 2025-10-27, one day after the
+2025-10-26 Oslo fall-back, and the next one (2026-10-25) was still ahead. All
+11 cases failed with "No 25-hour day in Europe/Oslo in the last year". The
+required `test` job of `CI - Affected` was red for every change that reached
+sensor-service (seen on PR #2065).
+
+Fix: the window is `[today - 380, today - 3]`, 378 days, longer than the
+371-day worst case. A replay over 2020–2026 for Oslo 25 h, Oslo 23 h and
+Santiago 23 h finds 0 failing dates; the old window failed 49–50 dates per
+zone. The spec passes against the real TimescaleDB container.

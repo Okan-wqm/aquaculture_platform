@@ -32,7 +32,6 @@ gateway — ARIA-MEDIUM-563) on a trusted/private runner.
 from __future__ import annotations
 
 import json
-import hashlib
 import os
 import re
 import shutil
@@ -3966,7 +3965,9 @@ def _accepted_native_runtime_result(
     sealed_path = invocations.resolve_output_artifact_path(tools_dir, accepted["output_path"])
     invocations._assert_submission_artifact_path_safe(tools_dir, sealed_path)
     content = invocations._read_stable_submission_artifact(sealed_path)
-    digest = "sha256:" + hashlib.sha256(content).hexdigest()
+    from aria_kernel.digest import sha256_digest
+
+    digest = sha256_digest(content)
     if digest != accepted.get("output_hash") or digest != accepted.get("content_hash"):
         raise GovernanceError("native_runtime_result_sealed_hash_unavailable")
     envelope = json.loads(content)
@@ -4781,7 +4782,9 @@ def _render_and_bind_prompt(*, request_envelope: dict[str, Any], request_id: str
     the renderer's availability first, as it did inline.
     """
     payload = _render_invocation_prompt(request_envelope)
-    computed = "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    from aria_kernel.digest import sha256_digest_text
+
+    computed = sha256_digest_text(payload)
     if request_envelope.get("prompt_hash") != computed:
         sys.stderr.write(
             f"prompt_hash_binding_mismatch: request_id={request_id} "
@@ -4812,7 +4815,9 @@ def _submitted_transcript_hash(transcript_output_path: Path, *, request_id: str,
             )
             + "\n",
         )
-    return "sha256:" + hashlib.sha256(transcript_output_path.read_bytes()).hexdigest()
+    from aria_kernel.digest import sha256_digest_file
+
+    return sha256_digest_file(transcript_output_path)
 
 
 def _submit_via_cli(

@@ -90,7 +90,6 @@ describe('Leave Full Workflow', () => {
           dateOfBirth: '1992-08-10',
           nationalId: 'TC33333333333',
           employmentType: 'FULL_TIME',
-          department: 'OPERATIONS',
           position: 'Marine Biologist',
           hireDate: '2023-01-10',
           baseSalary: 55000,

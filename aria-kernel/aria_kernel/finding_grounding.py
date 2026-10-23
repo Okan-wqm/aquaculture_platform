@@ -54,7 +54,6 @@ convert an aging F finding past the guards by omitting them.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 from dataclasses import dataclass, replace
@@ -64,6 +63,7 @@ from typing import Any, Mapping
 
 from .finding import EXTERNAL_ORIGINATING_SKILLS, FINDING_ID_RE
 from .main_anchor import MainAnchor
+from .digest import sha256_digest
 
 FINDING_ID_MISSING = "finding_id_missing"
 FINDING_ID_INVALID = "finding_id_invalid"
@@ -252,7 +252,7 @@ def _ref_label(ref: str) -> str:
     """
     if safe_repo_ref(ref):
         return ref
-    return "sha256:" + hashlib.sha256(ref.encode("utf-8", errors="replace")).hexdigest()
+    return sha256_digest(ref.encode("utf-8", errors="replace"))
 
 
 def _trusted_entry(entry: Mapping[str, Any]) -> bool:
@@ -292,7 +292,7 @@ def refs_from_finding_record(record: Mapping[str, Any]) -> list[str]:
 def grounding_digest(evidence_refs: tuple[str, ...] | list[str]) -> str:
     """``sha256:`` of the admitted ref list as canonical JSON — what an operator signs."""
     encoded = json.dumps(list(evidence_refs), separators=(",", ":"), ensure_ascii=True)
-    return "sha256:" + hashlib.sha256(encoded.encode("ascii")).hexdigest()
+    return sha256_digest(encoded.encode("ascii"))
 
 
 def load_grounding_context(

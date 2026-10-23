@@ -32,7 +32,7 @@ import {
   useCurrentlyOffshore,
   useWorkAreas,
   useDepartments,
-  useCurrentEmployeeId,
+  useIsWorkforceManager,
 } from '../hooks';
 import { CertificationExpiryAlert, SeaLandSplitView } from '../components';
 import { cn, PageHeader } from '@aquaculture/shared-ui';
@@ -134,12 +134,12 @@ const LoadingSkeleton: React.FC<{ className?: string }> = ({ className }) => (
 
 export function HRDashboardPage() {
   const navigate = useNavigate();
-  // CRIT-5 / BUG-011: use centralised hook instead of user?.id or user?.sub
-  const employeeId = useCurrentEmployeeId();
+  const canManage = useIsWorkforceManager();
 
   // CRIT-3 / PERF-001: use pre-aggregated stats query instead of limit:1000
   const { data: stats, isLoading: loadingStats } = useHRDashboardStats();
-  const { data: pendingLeaves, isLoading: loadingLeaves } = usePendingLeaveApprovals(employeeId);
+  // One row to preview; `total` counts the whole pending list the server resolves for the viewer.
+  const { data: pendingLeaves, isLoading: loadingLeaves } = usePendingLeaveApprovals({ limit: 1 });
   const { data: expiringCerts, isLoading: loadingCerts } = useExpiringCertifications(30);
   const { data: offshoreEmployees, isLoading: loadingOffshore } = useCurrentlyOffshore();
   const { data: departments, isLoading: loadingDepts } = useDepartments();
@@ -150,7 +150,8 @@ export function HRDashboardPage() {
   const onLeaveCount = stats?.onLeaveEmployees || 0;
   const offshoreCount = stats?.offshoreEmployees || offshoreEmployees?.length || 0;
   const departmentCount = stats?.totalDepartments || departments?.length || 0;
-  const pendingLeavesCount = pendingLeaves?.length || 0;
+  const pendingLeavesCount = pendingLeaves?.total ?? 0;
+  const nextPendingLeave = pendingLeaves?.items[0];
   const expiringCertsCount = expiringCerts?.length || 0;
 
   const isLoading = loadingStats || loadingLeaves || loadingCerts || loadingOffshore;
@@ -162,13 +163,15 @@ export function HRDashboardPage() {
         title="HR Dashboard"
         description="Workforce management and human resources overview"
         actions={
-          <Link
-            to="/hr/employees/new"
-            className="flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-700"
-          >
-            <UserPlus className="h-4 w-4" />
-            Add Employee
-          </Link>
+          canManage ? (
+            <Link
+              to="/hr/employees/new"
+              className="flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-700"
+            >
+              <UserPlus className="h-4 w-4" />
+              Add Employee
+            </Link>
+          ) : undefined
         }
       />
 
@@ -435,18 +438,18 @@ export function HRDashboardPage() {
             </div>
           ) : (
             <div className="space-y-4">
-              {pendingLeaves && pendingLeaves.length > 0 && (
+              {nextPendingLeave && (
                 <div className="flex items-center gap-4">
                   <div className="rounded-lg bg-warning-50 p-2 dark:bg-warning-900/30">
                     <Calendar className="h-4 w-4 text-warning-600 dark:text-warning-400" />
                   </div>
                   <div className="flex-1">
                     <p className="text-sm text-gray-900 dark:text-white">
-                      {pendingLeaves[0].employee?.firstName} {pendingLeaves[0].employee?.lastName}{' '}
+                      {nextPendingLeave.employee?.firstName} {nextPendingLeave.employee?.lastName}{' '}
                       submitted a leave request
                     </p>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
-                      {new Date(pendingLeaves[0].createdAt).toLocaleDateString()}
+                      {new Date(nextPendingLeave.createdAt).toLocaleDateString()}
                     </p>
                   </div>
                 </div>

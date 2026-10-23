@@ -36,20 +36,18 @@ GATE_TSCONFIG="--project tools/gates/tsconfig.json"
 # into the pre-commit gate so the helper tests fire on
 # every commit, not just when invoked manually).
 #
-# Glob-based discovery: any `tools/gates/*.spec.ts` file
-# automatically joins the gate. The `[ -f "$spec" ]`
-# guard handles the no-match case (POSIX sh passes the
-# literal pattern when no files match; without the
-# check, ts-node would error on a non-existent file).
-#
-# Tests run via node:test; ~160ms total for the current
-# 39-test suite (16 clippy-affected + 23 commit-msg-
-# validator). Fast enough for per-commit ergonomics.
-# Glob `tools/*gates/*.spec.ts` covers BOTH tools/gates/ (the original
-# pre-commit gates) AND tools/lint-gates/ (the A2 ESLint gate-preservation
-# baseline). The ESLint-API specs add ~2-3s; acceptable for the safety they
-# give the ESLint 8->9 flat-config migration.
-for spec in tools/*gates/*.spec.ts; do
+# tools/gates specs: tools/gates/run-all.mjs is the one enumerator (it walks the
+# tree, so a nested rule-owner spec such as tools/gates/infra-policy/ joins the
+# gate) and CI's `npm run gates:test` runs the same script; a glob here would be
+# a second enumerator that misses subdirectories (ARIA-HIGH-012). It runs each
+# spec with ./node_modules/.bin/ts-node and the gates tsconfig, as above.
+node tools/gates/run-all.mjs || exit 1
+
+# tools/lint-gates/ (the A2 ESLint gate-preservation baseline): the ESLint-API
+# specs add ~2-3s; acceptable for the safety they give the ESLint 8->9
+# flat-config migration. The `[ -f "$spec" ]` guard handles the no-match case
+# (POSIX sh passes the literal pattern when no files match).
+for spec in tools/lint-gates/*.spec.ts; do
   [ -f "$spec" ] || continue
   "$GATE_TS_NODE" $GATE_TSCONFIG "$spec" || exit 1
 done

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import errno
-import hashlib
 import re
 import stat as _stat
 from dataclasses import dataclass
@@ -10,8 +9,9 @@ from typing import Any
 
 from .canonical_path import matches_repo_glob, resolve_repo_relpath
 from .evidence_probe import BaselineResolution, GitProbeSession
-from .ledger import sha256_of_canonical_json
+from .ledger import sha256_digest_of_canonical_json
 from .tool_registry import GovernanceError
+from .digest import sha256_digest, sha256_digest_file
 
 
 SELF_OUTPUT_PREFIXES: tuple[str, ...] = (
@@ -365,7 +365,7 @@ def classify_evidence_ref(
         "glob_match_count": glob_match_count,
         "validation_errors": list(validation_errors),
     }
-    envelope_hash = "sha256:" + sha256_of_canonical_json(envelope_payload)
+    envelope_hash = sha256_digest_of_canonical_json(envelope_payload)
     return EvidenceEnvelope(
         canonical_ref=canonical_ref,
         line=line,
@@ -434,7 +434,7 @@ def _canonicalize(raw_path: str, root: Path) -> tuple[str, Path, tuple[str, ...]
 def _file_sha256(path: Path) -> str | None:
     """The file's content address, or ``None`` when its bytes cannot be read."""
     try:
-        return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+        return sha256_digest_file(path)
     except OSError:
         return None
 
@@ -476,7 +476,7 @@ def _git_blob_matches(
         return None
     if outcome.returncode != 0:
         return False
-    blob_hash = "sha256:" + hashlib.sha256(outcome.stdout).hexdigest()
+    blob_hash = sha256_digest(outcome.stdout)
     return blob_hash == content_hash
 
 

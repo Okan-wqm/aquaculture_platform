@@ -1,7 +1,15 @@
 import { execFileSync } from 'child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync } from 'fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from 'fs';
 import { tmpdir } from 'os';
-import { resolve } from 'path';
+import { dirname, resolve } from 'path';
 
 import * as YAML from 'yaml';
 
@@ -316,6 +324,45 @@ describe('Toolchain Config SSoT', () => {
       });
     } finally {
       removeFixtureTree(temporaryDirectory);
+    }
+  });
+
+  // The manifest records the toolchain (rust-toolchain.toml) and the workspace
+  // members (Cargo.toml) — the inputs `resolve-toolchain.mjs` and the CI
+  // verifier read. It used to carry a Cargo.lock digest too, which nothing
+  // read; its only effect was that every lockfile-only change, i.e. every
+  // Dependabot cargo PR, failed `rust-toolchain check` as "stale" until
+  // someone regenerated the file by hand (PR #2023). The manifest therefore
+  // has to come out identical whatever Cargo.lock contains.
+  it('derives the Rust toolchain manifest without reading Cargo.lock', () => {
+    const fixture = mkdtempSync(resolve(tmpdir(), 'aqua-rust-manifest-'));
+    const manifestPath = 'tools/quality/rust-toolchain-manifest.json';
+    try {
+      for (const path of [
+        'tools/quality/quality.mjs',
+        'tools/quality/format-merge-base.mjs',
+        'rust-toolchain.toml',
+        'Cargo.toml',
+      ]) {
+        mkdirSync(dirname(resolve(fixture, path)), { recursive: true });
+        copyFileSync(resolve(REPO_ROOT, path), resolve(fixture, path));
+      }
+      writeFileSync(
+        resolve(fixture, 'Cargo.lock'),
+        `${readRepoFile('Cargo.lock')}\n# a lockfile-only dependency update\n`,
+      );
+
+      execFileSync(
+        process.execPath,
+        [resolve(fixture, 'tools/quality/quality.mjs'), 'rust-toolchain', 'generate'],
+        { cwd: fixture },
+      );
+
+      expect(JSON.parse(readFileSync(resolve(fixture, manifestPath), 'utf8'))).toEqual(
+        JSON.parse(readRepoFile(manifestPath)),
+      );
+    } finally {
+      removeFixtureTree(fixture);
     }
   });
 

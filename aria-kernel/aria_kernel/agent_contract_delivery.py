@@ -25,12 +25,12 @@ model ignored the file".
 """
 from __future__ import annotations
 
-import hashlib
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from .agent_resolver import resolve_agent_md_path
+from .digest import sha256_digest_text
 
 FRONTMATTER_RX = re.compile(r"\A---\r?\n.*?\r?\n---\r?\n", re.S)
 # `@.claude/knowledge/layer-2-aria-canonical-envelope.md`, with or without
@@ -121,7 +121,7 @@ def render_agent_contract(
 
     parts.extend(["", render_response_validator_contract().rstrip()])
     text = "\n".join(parts).rstrip() + "\n"
-    digest = "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+    digest = sha256_digest_text(text)
     return AgentContractDelivery(
         agent_name=agent_name, agent_path=str(path.relative_to(root)), contract_hash=digest,
         text=text, inlined_refs=tuple(inlined), omitted_refs=tuple(omitted),

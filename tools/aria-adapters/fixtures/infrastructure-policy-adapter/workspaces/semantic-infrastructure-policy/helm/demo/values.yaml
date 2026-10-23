@@ -1,0 +1,5 @@
+# A Helm values file is read and observed. Its {{ .Values.never }} sits in this comment only,
+# so it is parsed, not excluded as a template.
+image:
+  repository: ghcr.io/example/demo
+  tag: latest

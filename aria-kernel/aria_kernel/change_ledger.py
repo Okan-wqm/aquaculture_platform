@@ -68,6 +68,7 @@ from .tool_registry import (
     ensure_tools_dir,
     utc_now,
 )
+from .digest import sha256_digest_text
 
 
 CHANGE_RECORD_SCHEMA = "aria/change-record/v1"
@@ -95,7 +96,7 @@ def _validated_path(tools_root: Path) -> Path:
 
 def _files_hash(files: list[str]) -> str:
     canonical = json.dumps(sorted(files), separators=(",", ":"))
-    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return sha256_digest_text(canonical)
 
 
 def _allocate_change_id(*, plan_id: str, finding_id: str, intended_files: list[str]) -> str:
@@ -443,7 +444,7 @@ def _validated_content_hash(payload: dict[str, Any]) -> str:
         "validation_mode": payload.get("validation_mode"),
     }
     serialized = _j.dumps(fields, sort_keys=True, separators=(",", ":"), default=str)
-    return "sha256:" + _h.sha256(serialized.encode("utf-8")).hexdigest()
+    return sha256_digest_text(serialized)
 
 
 def emit_change_validated(

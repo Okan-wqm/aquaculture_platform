@@ -12,7 +12,6 @@ graph older than its horizon is STALE and may not drive a campaign.
 """
 from __future__ import annotations
 
-import hashlib
 import itertools
 import json
 import re
@@ -23,6 +22,7 @@ from typing import Any
 
 from ..ledger import append_declared_jsonl, load_declared_jsonl
 from ..tool_registry import ensure_tools_dir, utc_now
+from ..digest import sha256_digest_text
 
 GRAPH_SURFACE = "security_attack_graph"
 GRAPH_RELPATH: tuple[str, ...] = ("security", "attack-graph.jsonl")
@@ -140,7 +140,7 @@ def build_graph(*, workspace_root: str | Path, profile_row: dict[str, Any], pack
     profile_digest = str(profile_row.get("profile_digest") or "unknown")
     payload = {"repo_sha": repo_sha, "profile_digest": profile_digest, "pack_digests": sorted(pack_digests),
                "nodes": [asdict(n) for n in node_tuple], "edges": [asdict(e) for e in edge_tuple]}
-    digest = "sha256:" + hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+    digest = sha256_digest_text(json.dumps(payload, sort_keys=True))
     return AttackGraphSnapshot(
         repo_sha=repo_sha, profile_digest=profile_digest, pack_digests=tuple(sorted(pack_digests)),
         nodes=node_tuple, edges=edge_tuple, graph_digest=digest, built_at=utc_now(),

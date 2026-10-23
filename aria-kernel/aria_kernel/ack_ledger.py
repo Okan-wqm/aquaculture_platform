@@ -205,6 +205,17 @@ def init_ack_ledger(
             "ack_init_existing_key_present: pass --force to DR-regenerate "
             "(see docs/runbooks/aria-ack-key-rotation.md §4)"
         )
+    # ARIA-HIGH-238 — the first HMAC key (or its DR regeneration) is the
+    # root of every later ack signature, so the ref must be the operator's
+    # own GitHub act naming the operation.
+    from .operator_approval import require_operator_act
+
+    approval = require_operator_act(
+        operator_approval_ref,
+        surface="ack_key_operation",
+        scope={"operation": "dr_regenerate" if existing_keys else "init"},
+        base_dir=root,
+    )
     new_key = _mint_key_entry()
     _persist_keys(root, [new_key])
     from .tool_registry import append_tools_governance
@@ -215,6 +226,7 @@ def init_ack_ledger(
             "key_id": new_key["key_id"],
             "minted_at": new_key["minted_at"],
             "operator_approval_ref": operator_approval_ref,
+            "operator_approval": approval,
             "reason": reason,
             "force": force,
         },
@@ -245,6 +257,16 @@ def rotate_key(
         raise GovernanceError(
             "ack_rotate_no_existing_key: run `aria-kernel ack init` first"
         )
+    # ARIA-HIGH-238 — rotation retires the key older acks were signed with;
+    # the ref must be the operator's own GitHub act naming the operation.
+    from .operator_approval import require_operator_act
+
+    approval = require_operator_act(
+        operator_approval_ref,
+        surface="ack_key_operation",
+        scope={"operation": "emergency_rotate" if emergency else "rotate"},
+        base_dir=root,
+    )
     # The shared primitive retires the previous head (historical rows stay
     # verifiable) and drops anything past the five-entry window.
     rotation = _keyring(root).rotate()
@@ -260,6 +282,7 @@ def rotate_key(
             "old_key_id": previous_head["key_id"],
             "new_key_id": new_key["key_id"],
             "operator_approval_ref": operator_approval_ref,
+            "operator_approval": approval,
             "reason": reason,
             "emergency": emergency,
             "retired_keys": retired_keys,

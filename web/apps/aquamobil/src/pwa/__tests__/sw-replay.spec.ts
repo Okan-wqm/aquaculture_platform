@@ -16,6 +16,7 @@
 import { webcrypto } from 'node:crypto';
 
 import { vi, describe, it, expect, beforeEach, afterAll } from 'vitest';
+import type { Mock } from 'vitest';
 
 // --------------------------------------------------------------------------
 // Mocks — idb-keyval (same in-memory strategy as offline-queue.spec.ts)
@@ -69,15 +70,18 @@ import type { QueuedPayload } from '@/types';
 // Fake SW global
 // --------------------------------------------------------------------------
 
+/** A window client as the service worker sees it: it only receives messages. */
+type FakeClient = { postMessage: Mock<(message: unknown) => void> };
+
 interface FakeSwOptions {
-  clients?: Array<{ postMessage: ReturnType<typeof vi.fn> }>;
+  clients?: FakeClient[];
   locksAvailable?: boolean;
   lockGrantable?: boolean;
 }
 
 function fakeSw(options: FakeSwOptions = {}): {
   sw: BackgroundSyncScope;
-  clients: Array<{ postMessage: ReturnType<typeof vi.fn> }>;
+  clients: FakeClient[];
 } {
   const clients = options.clients ?? [];
   const locks =
@@ -179,7 +183,12 @@ describe('handleBackgroundSyncEvent (MOB-MEDIUM-002)', () => {
 
   it('delegates to open window clients without touching the network', async () => {
     await queueOperation(TENANT_A, 'recordMortality', mortalityPayload());
-    const { sw, clients } = fakeSw({ clients: [{ postMessage: vi.fn() }, { postMessage: vi.fn() }] });
+    const { sw, clients } = fakeSw({
+      clients: [
+        { postMessage: vi.fn<(message: unknown) => void>() },
+        { postMessage: vi.fn<(message: unknown) => void>() },
+      ],
+    });
 
     await handleBackgroundSyncEvent(sw);
 
@@ -205,7 +214,9 @@ describe('handleBackgroundSyncEvent (MOB-MEDIUM-002)', () => {
     expect(refreshInit.credentials).toBe('include');
     const refreshBody = typeof refreshInit.body === 'string' ? refreshInit.body : '';
     expect(refreshBody).toContain('refreshToken');
-    expect((refreshInit.headers as Record<string, string>)['X-Requested-With']).toBe('XMLHttpRequest');
+    expect((refreshInit.headers as Record<string, string>)['X-Requested-With']).toBe(
+      'XMLHttpRequest',
+    );
 
     // Call 2 — the queued mutation with the minted token + tenant header.
     const [opUrl, opInit] = fetchMock.mock.calls[1] as [string, RequestInit];
@@ -367,16 +378,19 @@ describe('handleBackgroundSyncEvent (MOB-MEDIUM-002)', () => {
 
   it('a GraphQL error with a permanent extensions.code is recorded and not re-drained', async () => {
     await queueOperation(TENANT_A, 'recordMortality', mortalityPayload());
-    fetchMock
-      .mockResolvedValueOnce(refreshResponse(TENANT_A))
-      .mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            errors: [{ message: 'Variable "$input" got invalid value', extensions: { code: 'BAD_USER_INPUT' } }],
-          }),
-          { status: 200 },
-        ),
-      );
+    fetchMock.mockResolvedValueOnce(refreshResponse(TENANT_A)).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          errors: [
+            {
+              message: 'Variable "$input" got invalid value',
+              extensions: { code: 'BAD_USER_INPUT' },
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
     const { sw } = fakeSw();
 
     await handleBackgroundSyncEvent(sw);

@@ -86,7 +86,6 @@ describe('Team Calendar & Leave Balances', () => {
           dateOfBirth: '1994-12-25',
           nationalId: 'TC88888888888',
           employmentType: 'FULL_TIME',
-          department: 'QUALITY_CONTROL',
           position: 'Lab Analyst',
           hireDate: '2024-02-01',
           baseSalary: 48000,

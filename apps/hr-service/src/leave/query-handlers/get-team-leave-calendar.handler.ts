@@ -1,6 +1,7 @@
 import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { applyEmployeeModuleScope } from '../../common/module-scope';
 import { GetTeamLeaveCalendarQuery } from '../queries/get-team-leave-calendar.query';
 import { LeaveRequest, LeaveRequestStatus } from '../entities/leave-request.entity';
 import { ObjectType, Field, ID } from '@nestjs/graphql';
@@ -50,7 +51,7 @@ export class GetTeamLeaveCalendarHandler implements IQueryHandler<GetTeamLeaveCa
   ) {}
 
   async execute(query: GetTeamLeaveCalendarQuery): Promise<LeaveCalendarEntry[]> {
-    const { tenantId, departmentId, startDate, endDate } = query;
+    const { tenantId, departmentId, startDate, endDate, moduleCode } = query;
 
     // Use leftJoin + addSelect instead of leftJoinAndSelect to load only the columns
     // actually used in the map below — avoids transferring full JSONB employee fields.
@@ -75,7 +76,7 @@ export class GetTeamLeaveCalendarHandler implements IQueryHandler<GetTeamLeaveCa
       queryBuilder.andWhere('employee.departmentHrId = :departmentId', { departmentId });
     }
 
-    const leaveRequests = await queryBuilder.getMany();
+    const leaveRequests = await applyEmployeeModuleScope(queryBuilder, 'employee', moduleCode).getMany();
 
     return leaveRequests.map((lr) => ({
       id: lr.id,

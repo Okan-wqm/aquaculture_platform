@@ -10,6 +10,7 @@ import {
   readWorkspaceFile,
   readWorkspaceJson,
   resolveInsideWorkspace,
+  workspaceFileBytes,
   workspaceIsExecutable,
   workspacePathExists,
 } from './adapter-fs';
@@ -155,6 +156,39 @@ const relativePaths = (paths: readonly string[]): readonly string[] =>
       false,
       'not a path outside the workspace',
     );
+  }
+
+  // ---------------------------------------------------------------------
+  // ARIA-HIGH-010 — a file's byte size is the containment owner's answer
+  // too: a per-file byte cap asks it instead of stat-ing on a second fs
+  // path. It answers for a regular file reached without a symlink and
+  // refuses everything else, exactly as readWorkspaceFile does.
+  // ---------------------------------------------------------------------
+  {
+    writeFileSync(join(workspace, 'k', 'sized.rs'), 'ü'.repeat(10), 'utf8');
+    writeFileSync(join(workspace, 'k', 'empty.rs'), '', 'utf8');
+    assert.equal(workspaceFileBytes(workspace, 'k/sized.rs'), 20, 'bytes, not characters');
+    assert.equal(
+      workspaceFileBytes(workspace, join(workspace, 'k', 'sized.rs')),
+      20,
+      'an absolute path inside the workspace names the same file',
+    );
+    assert.equal(workspaceFileBytes(workspace, 'k/empty.rs'), 0);
+    for (const path of [
+      'k',
+      'k/missing.rs',
+      'k/fifo.py',
+      'linked-cli.py',
+      'linked-policies/leaked.json',
+      workspace,
+      join(outside, 'cli.py'),
+    ]) {
+      assert.throws(
+        () => workspaceFileBytes(workspace, path),
+        /refused workspace size/,
+        `no size is answered for ${path}`,
+      );
+    }
   }
 }
 

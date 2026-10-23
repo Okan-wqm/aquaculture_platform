@@ -6,9 +6,10 @@ from typing import Any, Literal
 
 from .agent_eval import _require_operator_approval_future, _validate_real_eval_provenance
 from .genesis_policy import genesis_lifecycle_policy
-from .ledger import append_declared_jsonl, is_sha256_digest, load_declared_jsonl
+from .ledger import append_declared_jsonl, load_declared_jsonl
 from .ledger_refs import find_row_by_source_ledger_ref
 from .tool_registry import GovernanceError, bound_workspace_root, ensure_tools_dir, utc_now
+from .digest import is_sha256_digest
 
 
 GenesisState = Literal[
@@ -36,6 +37,12 @@ GENESIS_LIFECYCLE_STATES: tuple[GenesisState, ...] = (
     "ACTIVE",
     "REJECTED",
 )
+
+# ARIA-HIGH-238 — the states past DRAFT widen what the entity may do; a
+# supplied operator approval for one of them is an authority grant.
+_WIDENING_GENESIS_STATES: frozenset[GenesisState] = frozenset({
+    "REAL_SANDBOX", "SHADOW", "EVAL_WINDOW", "ACTIVE",
+})
 
 ALLOWED_TRANSITIONS: dict[GenesisState, frozenset[GenesisState]] = {
     "PRESSURE": frozenset({"CANDIDATE_PROPOSED"}),
@@ -382,6 +389,22 @@ def record_transition(
                 base_dir=base_dir,
             ),
         }
+    # ARIA-HIGH-238 — a supplied ref claims operator authority for the
+    # transition. Widening states (REAL_SANDBOX/SHADOW/EVAL_WINDOW/ACTIVE —
+    # the reach beyond DRAFT) are RAISING: the ref must be the operator's
+    # own GitHub act naming entity + state, verified and consumed once.
+    # Every other state (the procedural prefix, or a narrowing exit such as
+    # REJECTED) is LOWERING: the ref is the reason on the record.
+    approval_proof: dict[str, Any] | None = None
+    if operator_approval_ref and to_state in _WIDENING_GENESIS_STATES:
+        from .operator_approval import require_operator_act
+
+        approval_proof = require_operator_act(
+            operator_approval_ref,
+            surface="genesis_transition",
+            scope={"entity": entity_id, "state": to_state},
+            base_dir=base_dir,
+        )
     verdict = validate_transition(
         from_state=from_state, to_state=to_state, evidence=evidence, repo_root=policy_root,
     )
@@ -406,6 +429,7 @@ def record_transition(
         "to_state": to_state,
         "evidence": dict(evidence),
         "operator_approval_ref": operator_approval_ref,
+        **({"operator_approval": approval_proof} if approval_proof is not None else {}),
     }
     return append_declared_jsonl(
         lifecycle_events_path(base_dir),

@@ -26,14 +26,18 @@ vi.mock('../../hooks', async (importOriginal) => {
       data: { totalEmployees: 12, activeEmployees: 11, onLeaveEmployees: 2 },
       isLoading: false,
     }),
+    // The pending list is a paginated connection: the page counts `total` and previews `items[0]`.
     usePendingLeaveApprovals: () => ({
-      data: [
-        {
-          id: 'leave-1',
-          createdAt: '2026-10-15T08:00:00Z',
-          employee: { firstName: 'Ada', lastName: 'Berg' },
-        },
-      ],
+      data: {
+        items: [
+          {
+            id: 'leave-1',
+            createdAt: '2026-10-15T08:00:00Z',
+            employee: { firstName: 'Ada', lastName: 'Berg' },
+          },
+        ],
+        total: 1,
+      },
       isLoading: false,
     }),
     useExpiringCertifications: () => ({ data: [], isLoading: false }),

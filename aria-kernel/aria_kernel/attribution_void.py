@@ -45,6 +45,7 @@ from pathlib import Path
 from typing import Any
 
 from .tool_registry import parse_utc_stamp
+from .digest import sha256_digest_from_hex
 
 
 @dataclass(frozen=True)
@@ -131,7 +132,7 @@ def gate_epoch() -> str:
     for module, name in GATE_DEFINITIONS:
         source = sources.setdefault(module, (here / f"{module}.py").read_text(encoding="utf-8"))
         digest.update(f"{module}:{name}\0".encode("utf-8") + definition_digest(source, name).encode("utf-8"))
-    return "sha256:" + digest.hexdigest()
+    return sha256_digest_from_hex(digest.hexdigest())
 
 
 __all__ = ["ATTRIBUTION_VOID", "GATE_DEFINITIONS", "VoidEntry", "definition_digest", "gate_epoch", "void_for"]

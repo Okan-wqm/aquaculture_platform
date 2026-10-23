@@ -282,7 +282,7 @@ LRU cache for tenant schema validation:
 - Fixed midnight shift handling with proper day rollover detection
 
 #### Database Performance (16 New Indexes)
-- **Employee**: tenant, email, department, status composite indexes
+- **Employee**: tenant, email, departmentHrId, status composite indexes
 - **AttendanceRecord**: tenant+employee, tenant+date, status indexes
 - **LeaveRequest**: tenant+employee, tenant+status, date range indexes
 - **TrainingEnrollment**: tenant+employee, tenant+status, course indexes

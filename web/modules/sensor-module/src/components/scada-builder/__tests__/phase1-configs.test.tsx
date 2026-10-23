@@ -20,6 +20,7 @@
 import React from 'react';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { Mock } from 'vitest';
 import { TransformConfig } from '../widget-configs/TransformConfig';
 import { StrokeConfig } from '../widget-configs/StrokeConfig';
 import { SvgMarkerDefs, buildMarkerId } from '../SvgMarkerDefs';
@@ -33,19 +34,14 @@ import type { SvgTransform } from '../../../types/scada-transform.types';
 /* ------------------------------------------------------------------ */
 
 describe('TransformConfig', () => {
-  let onChange: ReturnType<typeof vi.fn>;
+  let onChange: Mock<(updates: Partial<SvgTransform>) => void>;
 
   beforeEach(() => {
-    onChange = vi.fn();
+    onChange = vi.fn<(updates: Partial<SvgTransform>) => void>();
   });
 
   it('renders rotation input after expanding', () => {
-    render(
-      <TransformConfig
-        transform={DEFAULT_SVG_TRANSFORM}
-        onChange={onChange}
-      />,
-    );
+    render(<TransformConfig transform={DEFAULT_SVG_TRANSFORM} onChange={onChange} />);
 
     // Section starts collapsed -- expand it
     const toggle = screen.getByRole('button', { name: /transform settings/i });
@@ -77,12 +73,7 @@ describe('TransformConfig', () => {
   });
 
   it('origin grid has 9 clickable points', () => {
-    render(
-      <TransformConfig
-        transform={DEFAULT_SVG_TRANSFORM}
-        onChange={onChange}
-      />,
-    );
+    render(<TransformConfig transform={DEFAULT_SVG_TRANSFORM} onChange={onChange} />);
 
     // Expand the section
     fireEvent.click(screen.getByRole('button', { name: /transform settings/i }));
@@ -95,9 +86,7 @@ describe('TransformConfig', () => {
     // Click top-left origin
     const topLeft = screen.getByTestId('origin-top-left');
     fireEvent.click(topLeft);
-    expect(onChange).toHaveBeenCalledWith(
-      expect.objectContaining({ originX: 0, originY: 0 }),
-    );
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ originX: 0, originY: 0 }));
   });
 
   it('reset button restores defaults', () => {
@@ -111,12 +100,7 @@ describe('TransformConfig', () => {
       originY: 1,
     };
 
-    render(
-      <TransformConfig
-        transform={modified}
-        onChange={onChange}
-      />,
-    );
+    render(<TransformConfig transform={modified} onChange={onChange} />);
 
     // Expand
     fireEvent.click(screen.getByRole('button', { name: /transform settings/i }));
@@ -183,9 +167,7 @@ describe('SvgMarkerDefs', () => {
   const squareMarker: MarkerConfig = { shape: 'square', size: 6, fill: '#0000ff' };
 
   it('renders arrow marker path', () => {
-    const { container } = render(
-      <SvgMarkerDefs screenId="screen-1" markers={[arrowMarker]} />,
-    );
+    const { container } = render(<SvgMarkerDefs screenId="screen-1" markers={[arrowMarker]} />);
 
     const path = container.querySelector('marker path');
     expect(path).not.toBeNull();
@@ -204,10 +186,7 @@ describe('SvgMarkerDefs', () => {
 
   it('renders circle, diamond, and square marker shapes', () => {
     const { container } = render(
-      <SvgMarkerDefs
-        screenId="screen-1"
-        markers={[circleMarker, diamondMarker, squareMarker]}
-      />,
+      <SvgMarkerDefs screenId="screen-1" markers={[circleMarker, diamondMarker, squareMarker]} />,
     );
 
     const markers = container.querySelectorAll('marker');
@@ -238,20 +217,14 @@ describe('SvgMarkerDefs', () => {
 /* ------------------------------------------------------------------ */
 
 describe('RasterImageConfig', () => {
-  let onChange: ReturnType<typeof vi.fn>;
+  let onChange: Mock<(updates: Record<string, unknown>) => void>;
 
   beforeEach(() => {
-    onChange = vi.fn();
+    onChange = vi.fn<(updates: Record<string, unknown>) => void>();
   });
 
   it('rejects non-image files via MIME type validation', async () => {
-    render(
-      <RasterImageConfig
-        config={{}}
-        onChange={onChange}
-        deviceId={null}
-      />,
-    );
+    render(<RasterImageConfig config={{}} onChange={onChange} deviceId={null} />);
 
     const fileInput = screen.getByTestId('image-file-input') as HTMLInputElement;
 
@@ -266,13 +239,7 @@ describe('RasterImageConfig', () => {
   });
 
   it('warns on large file sizes (>100KB) but allows them', async () => {
-    render(
-      <RasterImageConfig
-        config={{}}
-        onChange={onChange}
-        deviceId={null}
-      />,
-    );
+    render(<RasterImageConfig config={{}} onChange={onChange} deviceId={null} />);
 
     const fileInput = screen.getByTestId('image-file-input') as HTMLInputElement;
 
@@ -280,28 +247,33 @@ describe('RasterImageConfig', () => {
     const largeContent = new Uint8Array(150 * 1024);
     const largeFile = new File([largeContent], 'large.png', { type: 'image/png' });
 
-    // Mock FileReader to simulate successful read
-    const originalFileReader = globalThis.FileReader;
-    const mockOnLoad = vi.fn();
-    const MockFileReader = vi.fn().mockImplementation(() => ({
-      readAsDataURL: vi.fn().mockImplementation(function (this: { onload: ((ev: { target: { result: string } }) => void) | null }) {
-        // Simulate async read completion
-        if (this.onload) {
+    // The component constructs `new FileReader()`. A real class stands in for
+    // it (a vi.fn arrow factory is not constructible under Vitest 4) and
+    // completes the read synchronously with a fixed data URI.
+    class ImmediateDataUrlReader {
+      onload: ((ev: { target: { result: string } }) => void) | null = null;
+      readAsDataURL(): void {
+        if (this.onload !== null) {
           this.onload({ target: { result: 'data:image/png;base64,fake' } });
         }
-      }),
-      onload: null as ((ev: { target: { result: string } }) => void) | null,
-    }));
-    globalThis.FileReader = MockFileReader as unknown as typeof FileReader;
+      }
+    }
+    vi.stubGlobal('FileReader', ImmediateDataUrlReader);
 
-    fireEvent.change(fileInput, { target: { files: [largeFile] } });
+    try {
+      fireEvent.change(fileInput, { target: { files: [largeFile] } });
 
-    // Should show warning (not error) about large file
-    const warning = screen.getByTestId('image-warning');
-    expect(warning.textContent).toContain('Large image');
-    expect(warning.textContent).toContain('S3/MinIO');
-
-    // Restore
-    globalThis.FileReader = originalFileReader;
+      // Should show warning (not error) about large file
+      const warning = screen.getByTestId('image-warning');
+      expect(warning.textContent).toContain('Large image');
+      expect(warning.textContent).toContain('S3/MinIO');
+      // ...and still accept the image.
+      expect(onChange).toHaveBeenCalledWith({
+        imageSrc: 'data:image/png;base64,fake',
+        imageData: 'data:image/png;base64,fake',
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

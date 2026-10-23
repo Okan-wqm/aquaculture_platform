@@ -29,6 +29,7 @@ from .validation import (
     run_validation_commands,
     SpawnWrapper,
 )
+from .digest import SHA256_DIGEST_PATTERN
 
 
 APPROVED_STATUSES = ("approved_for_apply",)
@@ -422,7 +423,7 @@ def latest_ready_apply_action(*, proposal_id: str, base_dir: str | Path | None =
 # only unambiguous way to recover the two halves.
 _PLAN_CONVERGED_REF_RE = re.compile(
     r"^" + re.escape(PLAN_CONVERGED_APPROVAL_PREFIX)
-    + r"(?P<plan_id>.+):(?P<content_hash>sha256:[0-9a-f]{64})$"
+    + r"(?P<plan_id>.+):(?P<content_hash>" + SHA256_DIGEST_PATTERN + r")$"
 )
 
 

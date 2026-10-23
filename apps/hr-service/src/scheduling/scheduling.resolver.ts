@@ -3,6 +3,7 @@ import { UnauthorizedException, NotFoundException, UseGuards } from '@nestjs/com
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { HrModuleCode } from '../common/enums';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
 import { Roles, Role } from '@aquaculture/backend-common/decorators';
 import { StandardPaginatedResponse, IStandardPaginatedResult, fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
@@ -115,6 +116,7 @@ export class SchedulingResolver {
     @Args('status', { type: () => WeeklyPlanStatus, nullable: true }) status?: WeeklyPlanStatus,
     @Args('limit', { type: () => Int, nullable: true, defaultValue: 20 }) limit?: number,
     @Args('page', { type: () => Int, nullable: true, defaultValue: 1 }) page?: number,
+    @Args('moduleCode', { type: () => HrModuleCode, nullable: true }) moduleCode?: HrModuleCode,
   ): Promise<IStandardPaginatedResult<WeeklyPlan>> {
     const tenantId = this.getTenantId(context);
     const effectiveLimit = Math.min(Math.max(1, limit ?? 20), 100);
@@ -129,6 +131,7 @@ export class SchedulingResolver {
         status,
         effectiveLimit,
         effectivePage,
+        moduleCode,
       ),
     );
     return fromCqrsPaginated(result);
@@ -149,10 +152,11 @@ export class SchedulingResolver {
     @Context() context: GraphQLContext,
     @Args('departmentId', { type: () => ID, nullable: true }) departmentId?: string,
     @Args('siteId', { type: () => ID, nullable: true }) siteId?: string,
+    @Args('moduleCode', { type: () => HrModuleCode, nullable: true }) moduleCode?: HrModuleCode,
   ): Promise<TeamWeeklyOverview> {
     const tenantId = this.getTenantId(context);
     return this.queryBus.execute(
-      new GetTeamWeeklyOverviewQuery(tenantId, weekStartDate, departmentId, siteId),
+      new GetTeamWeeklyOverviewQuery(tenantId, weekStartDate, departmentId, siteId, moduleCode),
     );
   }
 
@@ -206,10 +210,11 @@ export class SchedulingResolver {
     @Context() context: GraphQLContext,
     @Args('employeeId', { type: () => ID, nullable: true }) employeeId?: string,
     @Args('departmentId', { type: () => ID, nullable: true }) departmentId?: string,
+    @Args('moduleCode', { type: () => HrModuleCode, nullable: true }) moduleCode?: HrModuleCode,
   ): Promise<OvertimeSummary> {
     const tenantId = this.getTenantId(context);
     return this.queryBus.execute(
-      new GetOvertimeSummaryQuery(tenantId, month, year, employeeId, departmentId),
+      new GetOvertimeSummaryQuery(tenantId, month, year, employeeId, departmentId, moduleCode),
     );
   }
 

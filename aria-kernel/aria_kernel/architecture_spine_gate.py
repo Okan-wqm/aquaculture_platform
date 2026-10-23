@@ -55,7 +55,6 @@ rounds.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -73,6 +72,7 @@ from .tool_registry import (
     get_tool,
     utc_now,
 )
+from .digest import sha256_fingerprint
 
 
 @dataclass(frozen=True)
@@ -322,7 +322,7 @@ def _baseline_hash(measurements: list[InvariantMeasurement]) -> str:
         sort_keys=True,
         separators=(",", ":"),
     )
-    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+    return sha256_fingerprint(canonical.encode("utf-8"), hex_chars=16)
 
 
 def _run_invariant_checks(

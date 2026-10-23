@@ -6,6 +6,7 @@ import { CreateEmployeeCommand } from '../commands/create-employee.command';
 import { Employee } from '../entities/employee.entity';
 import { createEmployeeCreatedEvent } from '../events/hr.events';
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { assertAssignableDepartment } from '../services/assignable-department';
 import { PayrollCostSettingsService } from '../../finance/services/payroll-cost-settings.service';
 
 @Injectable()
@@ -38,6 +39,13 @@ export class CreateEmployeeHandler implements ICommandHandler<CreateEmployeeComm
 
       if (existingByEmail) {
         throw new ConflictException('An employee with this email already exists');
+      }
+
+      // The department decides which module the employee belongs to, so it must
+      // be a live one. Checked before the number lock is taken: a rejected
+      // request should not hold it.
+      if (input.departmentHrId) {
+        await assertAssignableDepartment(queryRunner.manager, tenantId, input.departmentHrId);
       }
 
       // Generate employee number with pessimistic lock to prevent race conditions

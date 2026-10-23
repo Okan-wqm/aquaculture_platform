@@ -18,7 +18,6 @@ from pathlib import Path
 from dataclasses import dataclass
 from dataclasses import asdict as _asdict
 from enum import Enum as _Enum
-import hashlib as _hashlib
 import json as _json
 from typing import Any as _Any, Callable as _Callable, Mapping as _Mapping
 
@@ -41,6 +40,7 @@ from .status_probe import (
     observe_until_decided,
     status_probe_liveness_seconds,
 )
+from .digest import sha256_digest_text
 
 
 # The status reason a provider row carries when it is refused WITHOUT a
@@ -325,7 +325,7 @@ def _native_runtime_admission(
     else:
         outcome, routes = AdmissionOutcome.NO_ELIGIBLE_PROVIDER, ()
     return _NativeRuntimeAdmission(
-        configuration_digest="sha256:" + _hashlib.sha256(configuration.encode()).hexdigest(),
+        configuration_digest=sha256_digest_text(configuration),
         candidate_observations=tuple(observations), eligible_routes=routes,
         outcome=outcome, halting_provider=halted[1] if halted is not None else None,
         declared_provider=declared_provider,

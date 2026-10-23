@@ -49,7 +49,14 @@ from aria_kernel import implementation_safety as impl
 from aria_kernel import provider_gateway
 from aria_kernel.provider_credentials import ProviderCredential
 from aria_kernel.provider_routes import ROOM_CREDENTIAL_PLACEHOLDER, route
+from tests._helpers.real_process_seams import require_host_capability
 from tests._helpers.sandbox_pins import require_sandbox_backend
+
+# ARIA-HIGH-138 — the seam(s) this file proves by a real process, per
+# the closed registry in tests/invariants/seam_registry.py.
+REAL_PROCESS_SEAMS = (
+    "aria-kernel/aria_kernel/egress_relay.py",
+)
 
 PYTHON = os.path.realpath(sys.executable)
 TEST_NET = ("203.0.113.1", 443)  # RFC 5737: never routable, never allowlisted
@@ -230,8 +237,11 @@ class _NoRouteOut:
 
     def test_a_host_interface_address_does_not_answer(self) -> None:
         address = _host_interface_address()
-        if address is None:
-            self.skipTest("this host has no non-loopback IPv4 route")
+        # ARIA-HIGH-138 — this file is the egress relay seam's real-process
+        # proof, so a missing host capability skips only off the kernel lane.
+        require_host_capability(
+            self, "a non-loopback IPv4 route", address is not None
+        )
         service = self.service(socket.AF_INET, ("0.0.0.0", 0))
         seen = self.run_room("tcp", address, str(service.address[1]))
         self.assertFalse(seen["connected"], f"a direct connect reached {address}: {seen}")

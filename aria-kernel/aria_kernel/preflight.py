@@ -65,6 +65,7 @@ from .workflow_contract_registry import (
     workflow_job_contract_hash,
 )
 from .workflow_contracts import verify_workflow_contract
+from .digest import is_sha256_digest
 
 
 @dataclass(frozen=True)
@@ -604,7 +605,7 @@ def verify_workflow_preflight(
     if dlp_scan_clean is not True:
         reasons.append("dlp_scan_not_clean")
         failure_classes.append("dlp_fail_closed_required")
-    if workflow_hash and not re.fullmatch(r"sha256:[0-9a-f]{64}", str(workflow_hash)):
+    if workflow_hash and not is_sha256_digest(workflow_hash):
         reasons.append("workflow_hash_invalid")
         failure_classes.append("workflow_preflight_contract")
     if workflow_hash and observed_workflow_hash and workflow_hash != observed_workflow_hash:

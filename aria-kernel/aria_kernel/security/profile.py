@@ -15,7 +15,6 @@ pentest action; a compiled profile is inert.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 from dataclasses import asdict, dataclass, field
@@ -24,6 +23,7 @@ from typing import Any
 
 from ..ledger import append_declared_jsonl, load_declared_jsonl
 from ..tool_registry import ensure_tools_dir, utc_now
+from ..digest import sha256_digest_text
 
 PROFILE_SURFACE = "security_profile"
 PROFILE_RELPATH: tuple[str, ...] = ("security", "profile.jsonl")
@@ -172,7 +172,7 @@ def _detect_integrations(root: Path) -> list[Claim]:
 def _canonical_digest(claims: list[Claim], repo_sha: str, isolation: str) -> str:
     payload = {"repo_sha": repo_sha, "isolation_strategy": isolation,
                "claims": sorted(([c.key, json.dumps(c.value, sort_keys=True, default=str), c.provenance] for c in claims))}
-    return "sha256:" + hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+    return sha256_digest_text(json.dumps(payload, sort_keys=True))
 
 
 def compile_profile(*, workspace_root: str | Path, repo_sha: str | None = None) -> SecurityProfileSnapshot:

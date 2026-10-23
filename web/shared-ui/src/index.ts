@@ -173,14 +173,25 @@ export type {
 export { TenantProvider, useTenantContext } from './contexts/TenantContext';
 export type { TenantProviderProps } from './contexts/TenantContext';
 
+export {
+  WorkforceScopeProvider,
+  useWorkforceScope,
+  WORKFORCE_MODULE_LABEL_KEYS,
+} from './contexts/WorkforceScopeContext';
+export type { WorkforceScopeProviderProps } from './contexts/WorkforceScopeContext';
+
 // ============================================================================
 // Hooks - simplified exports
 // ============================================================================
 
 export { useAuth, useRequireAuth } from './hooks/useAuth';
 export { useTenant } from './hooks/useTenant';
-export { useTenantQuery, useTenantMutation } from './hooks/useTenantQuery';
-export type { TenantQueryOptions, TenantMutationOptions } from './hooks/useTenantQuery';
+export { useTenantQuery, useTenantQueries, useTenantMutation } from './hooks/useTenantQuery';
+export type {
+  TenantQueryOptions,
+  TenantQueryDefinition,
+  TenantMutationOptions,
+} from './hooks/useTenantQuery';
 export {
   useTenantScopedStorage,
   TENANT_SCOPED_STORAGE_NAMESPACE,

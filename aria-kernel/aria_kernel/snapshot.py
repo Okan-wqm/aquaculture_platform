@@ -12,8 +12,9 @@ from typing import Any
 from .canonical_path import lexical_repo_path
 from .cycle_progress import emit_progress
 from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
-from .ledger import sha256_of_canonical_json
+from .ledger import sha256_digest_of_canonical_json
 from .tool_registry import GovernanceError, utc_now
+from .digest import sha256_digest
 
 
 SNAPSHOT_MODES = ("committed", "working_tree", "working-tree")
@@ -335,7 +336,7 @@ def _snapshot_hash(snapshot: dict[str, Any]) -> str:
         "base_commit_sha": snapshot.get("base_commit_sha"),
         "files": [(row.get("path"), row.get("content_hash")) for row in snapshot.get("fates", [])],
     }
-    return "sha256:" + sha256_of_canonical_json(stable)
+    return sha256_digest_of_canonical_json(stable)
 
 
 def _repo_state_id(snapshot: dict[str, Any]) -> str:
@@ -344,7 +345,7 @@ def _repo_state_id(snapshot: dict[str, Any]) -> str:
 
 
 def _sha256(payload: bytes) -> str:
-    return "sha256:" + hashlib.sha256(payload).hexdigest()
+    return sha256_digest(payload)
 
 
 def _scoped_input_path(value: Any, *, canonical: bool = False) -> str | None:
@@ -391,7 +392,7 @@ def _scoped_input_digest(rows: list[dict[str, Any]]) -> str | None:
     encoded_rows = [{"path": row["path"], "status": "available", "reason": "explicit_file_observed",
                      "size_bytes": row["size_bytes"], "content_hash": row["content_hash"]}
                     for row in sorted(rows, key=lambda item: item["path"])]
-    return "sha256:" + sha256_of_canonical_json({"schema_version": 1, "files": encoded_rows})
+    return sha256_digest_of_canonical_json({"schema_version": 1, "files": encoded_rows})
 
 
 def _read_scoped_working_file(

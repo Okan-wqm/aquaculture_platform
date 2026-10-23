@@ -196,11 +196,14 @@ def _seed_proposal(*, tools: Path, proposal_id: str = "PROP-0001") -> dict:
         base_dir=tools,
     )
     pid = proposal["proposal_id"]
-    approve_proposal(
-        proposal_id=pid,
-        operator_approval_ref="operator-test:plan-017-phase-3",
-        base_dir=tools,
-    )
+    from tests._helpers.operator_acts import github_operator_acts
+
+    with github_operator_acts() as github:
+        approve_proposal(
+            proposal_id=pid,
+            operator_approval_ref=github.approve("proposal_approval", {"proposal": pid}),
+            base_dir=tools,
+        )
     return proposal
 
 

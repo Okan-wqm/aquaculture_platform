@@ -78,7 +78,20 @@ const PROJECT_GLOBS = PROJECT_LINT_OVERRIDES.map((p) => `${p.dir}/**`);
 // once so override 1b (ARIA adapters -> tools/gates) extends rather than copies.
 const NX_MODULE_BOUNDARIES = {
   enforceBuildableLibDependency: true,
-  allow: ['@aquaculture/shared-ui', '@aquaculture/shared-ui/*'],
+  allow: [
+    '@aquaculture/shared-ui',
+    '@aquaculture/shared-ui/*',
+    // The infrastructure readers and rule owners (ARIA-HIGH-012) are shared by
+    // non-project tooling and by Nx projects (the e2e NATS invariants, the ARIA
+    // infrastructure-policy adapter). They are not an Nx project, so the import is
+    // relative; an entry that is neither `/*` nor `/**` is matched as a RegExp.
+    // nats-invariants.yml lists both trees in its `paths:` filters so a change to
+    // the owner re-runs the e2e spec that imports it.
+    // `../gates/...` is the spelling from tools/aria-adapters (override 1b extends
+    // this list). Anchored at both ends: an allow match skips every boundary check,
+    // so no `..` may follow the owner tree.
+    '^(?:\\.\\./)+(?:tools/)?gates/(?:infra-policy|lib/infra)/[A-Za-z0-9_-]+$',
+  ],
   depConstraints: [{ sourceTag: '*', onlyDependOnLibsWithTags: ['*'] }],
 };
 

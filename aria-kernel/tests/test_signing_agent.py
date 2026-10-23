@@ -47,6 +47,12 @@ from aria_kernel.signing_agent import (
     lifetime_until,
 )
 from aria_kernel.socket_holders import SIGNING_AGENT, prune_stale_socket_dirs
+from tests._helpers.real_process_seams import require_host_capability
+
+# ARIA-HIGH-138 — the seam(s) this file proves by a real process (a real
+# ssh-agent with real ssh-add keys, signing real git commits), per the closed
+# registry in tests/invariants/seam_registry.py.
+REAL_PROCESS_SEAMS = ("aria-kernel/aria_kernel/signing_agent.py",)
 
 
 def _fingerprint(public_key: Path) -> str:
@@ -69,8 +75,15 @@ def _alive(pid: int) -> bool:
 
 class SigningAgentTests(unittest.TestCase):
     def setUp(self) -> None:
-        if shutil.which("ssh-agent") is None or shutil.which("ssh-keygen") is None:
-            self.skipTest("openssh client tools are not on this host")
+        # ARIA-HIGH-138 — this file is the signing seam's real-process proof,
+        # so a missing host capability skips only off the kernel lane (on the
+        # lane ARIA_REQUIRE_REAL_SEAMS=1 fails it: a green lane is never a
+        # skipped lane).
+        require_host_capability(
+            self,
+            "the openssh client tools (ssh-agent, ssh-keygen)",
+            shutil.which("ssh-agent") is not None and shutil.which("ssh-keygen") is not None,
+        )
         self.root = Path(tempfile.mkdtemp(prefix="aria-sa-test-"))
         self.addCleanup(shutil.rmtree, self.root, True)
         self.key = self.root / "cycle-key"

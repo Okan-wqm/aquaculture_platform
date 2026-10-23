@@ -940,9 +940,13 @@ function cargoWorkspaceMembers() {
     .sort();
 }
 
+// The manifest is derived from rust-toolchain.toml and the Cargo.toml member
+// list only. Cargo.lock is deliberately not an input: dependency versions are
+// owned by the lockfile itself (and verified by Rust CI), and a lock digest
+// here was read by nothing while turning every lockfile-only change — each
+// Dependabot cargo PR — into a "manifest is stale" failure.
 function buildRustManifest() {
   const toolchain = parseRustToolchainToml();
-  const lockPath = join(REPO_ROOT, 'Cargo.lock');
   return {
     schema_version: 1,
     generated_by: 'tools/quality/quality.mjs rust-toolchain generate',
@@ -950,7 +954,6 @@ function buildRustManifest() {
     channel: toolchain.channel,
     components: toolchain.components,
     targets: toolchain.targets,
-    cargo_lock_sha256: existsSync(lockPath) ? sha256(readFileSync(lockPath)) : null,
     workspace_members: cargoWorkspaceMembers(),
   };
 }

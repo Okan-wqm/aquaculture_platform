@@ -359,6 +359,29 @@ export function workspaceIsExecutable(workspaceRoot: string, path: string): bool
   return stat !== undefined && stat.isFile() && (stat.mode & 0o111) !== 0;
 }
 
+/**
+ * The byte size of the regular file at `path` (absolute, or relative to
+ * `workspaceRoot`): the owner's answer to "how big is it", as
+ * `readWorkspaceFile` answers "what does it say". The path is reached through
+ * `containedWorkspace`, so a symlink on any component, a directory, a special
+ * file, an absent entry, the workspace root itself and a path outside the
+ * workspace are refused with an error; the size is one lstat of the final
+ * entry, never through a symlink, and an entry swapped for a non-file after
+ * the component walk is refused too. A per-file byte cap asks this before it
+ * reads (the Rust runtime adapter, ARIA-HIGH-010), so no adapter measures a
+ * file on a second fs path (eslint overrides 2b/2c, ARIA-LOW-593).
+ */
+export function workspaceFileBytes(workspaceRoot: string, path: string): number {
+  const workspace = containedWorkspace(workspaceRoot);
+  const relativePath = workspaceRelative(workspaceRoot, path);
+  if (workspace.entry(relativePath) !== 'file') {
+    throw new Error(`refused workspace size: ${path}`);
+  }
+  const stat = lstatSync(join(workspace.root, relativePath));
+  if (!stat.isFile()) throw new Error(`refused workspace size: ${path}`);
+  return stat.size;
+}
+
 export function normalizeWorkspacePath(path: string): string {
   return path.split(sep).join('/');
 }

@@ -50,14 +50,17 @@ Over that shape, the rules that judge its values:
 * it traces no shell — a ``defaults.run.shell`` of the workflow traces nothing
   — since a trace echoes case content into the log;
 * a Board secret reaches two places only (B0 corrective round 2, R2-1): the
-  env of the key step, and the vault checkout's ``ssh-key`` (the deploy key
-  alone). No ``run:`` body, action input or ``if:`` names one, the secrets
-  context is never reached by anything but a literal name, and the workflow's
-  ``defaults.run`` sets no shell or working directory for the key step;
+  key step's env entry named for it, and the vault checkout's ``ssh-key`` (the
+  deploy key alone). Which Board secrets an expression reaches has one reader,
+  ``board_secrets_reached`` (round 3, R3-2): its literal name, or every Board
+  secret for any dynamic access (``secrets[...]``, ``toJSON(secrets)``). It
+  reads the workflow's env and every position of the job, and the
+  secrets-stay check below; and the workflow's ``defaults.run`` sets no shell
+  or working directory for the key step;
 * the workflow that holds it runs no pull-request code (no ``pull_request``,
   ``pull_request_target`` or ``merge_group`` trigger);
-* no job other than a Board job, and no workflow-level ``env``, names a Board
-  secret or the ``aria-board`` environment.
+* no workflow-level ``env`` reaches a Board secret, and no job other than a
+  Board job names one or the ``aria-board`` environment.
 
 Every rule is a function over one parsed workflow, so the guard is tested the
 way it fails: each mutation of the real Board workflow below, applied alone,
@@ -271,37 +274,60 @@ def _is_vault_checkout(step: dict[str, Any]) -> bool:
             and (step.get("with") or {}).get("repository") == VAULT_REPOSITORY)
 
 
-def _secret_violations(workflow: dict[str, Any], job: dict[str, Any]) -> list[str]:
-    """A Board secret reaches the isolated examination_board.py step as env, or the vault checkout as its ssh-key.
+def board_secrets_reached(expression: str) -> frozenset[str]:
+    """The Board secrets ``expression`` (one ``${{ }}`` body, or an ``if:``) reaches: THE one reader of that question.
 
-    B0 corrective round 2, R2-1 (§1.9: ARIA's self-change can neither read
-    nor write the Board's key). Every other place a Board secret could be
-    named — the workflow's or the job's env, another step's env, a ``run:``
-    body, an action's ``with:``, an ``if:`` — hands it to a process ARIA's
-    code can change, so it is refused, and so is reaching the secrets context
-    by anything but a literal name. A key step keeps the default shell and
-    working directory (a ``shell:`` runs its own command line with the key in
-    its env; a ``working-directory:`` changes which file the entry runs), and
-    a Board job runs no local ``./`` action: its code is ARIA-writable.
+    B0 corrective round 3, R3-2. A literal ``secrets.<name>`` reaches that
+    name (property names are case-insensitive, so it is upper-cased); any
+    other access to the secrets context — ``secrets['...']``,
+    ``toJSON(secrets)``, a bare ``secrets`` — can hand over any of them, so it
+    reaches every Board secret.
+    """
+    if _DYNAMIC_SECRETS.search(expression):
+        return BOARD_SECRETS
+    return frozenset(name.upper() for name in _BOARD_SECRET.findall(expression))
+
+
+def _secret_allowed_at(job: dict[str, Any], path: tuple[Any, ...]) -> frozenset[str]:
+    """The one Board secret a position of ``job`` may carry, or none.
+
+    Two positions only: an env entry of the key step, which carries the
+    secret it is named for, and the vault checkout's ``ssh-key``, which
+    carries the deploy key.
+    """
+    steps = job.get("steps") or []
+    if len(path) < 3 or path[0] != "steps" or not isinstance(path[1], int) or not isinstance(steps[path[1]], dict):
+        return frozenset()
+    step = steps[path[1]]
+    if len(path) == 4 and path[2] == "env" and _is_key_step(step) and path[3] in BOARD_SECRETS:
+        return frozenset({path[3]})
+    if path[2:] == ("with", "ssh-key") and _is_vault_checkout(step):
+        return frozenset({VAULT_DEPLOY_KEY})
+    return frozenset()
+
+
+def _secret_violations(workflow: dict[str, Any], job: dict[str, Any]) -> list[str]:
+    """A Board secret reaches the key step's env, as the secret its entry is named for, or the vault checkout's ssh-key.
+
+    B0 corrective rounds 2 and 3 (R2-1, R3-2; §1.9: ARIA's self-change can
+    neither read nor write the Board's key). Every expression of the
+    workflow's env and of the job, wherever it sits, is read by
+    :func:`board_secrets_reached`; whatever it reaches beyond what its
+    position may carry (:func:`_secret_allowed_at`) hands a Board secret to a
+    process ARIA's code can change, and is refused. A key step keeps the
+    default shell and working directory (a ``shell:`` runs its own command
+    line with the key in its env; a ``working-directory:`` changes which file
+    the entry runs).
     """
     violations: list[str] = []
     if any(_shell_or_directory(holder) for holder in (workflow, job)):
         violations.append("defaults.run sets a shell or working directory for the key step")
-    for where, holder in (("workflow", workflow.get("env")), ("job", job.get("env"))):
-        violations += [f"{where} env names secrets.{name}" for _path, body in _expressions(holder or {})
-                       for name in _BOARD_SECRET.findall(body)]
-    steps = job.get("steps") or []
-    for path, body in _expressions({key: value for key, value in job.items() if key != "env"}):
-        if _DYNAMIC_SECRETS.search(body):
-            violations.append(f"reaches the secrets context by other than a literal name at {'/'.join(map(str, path))}")
-        for name in _BOARD_SECRET.findall(body):
-            step = steps[path[1]] if path[0] == "steps" and isinstance(path[1], int) else None
-            if step is not None and path[2:3] == ("env",) and _is_key_step(step):
-                continue
-            if (step is not None and path[2:] == ("with", "ssh-key") and _is_vault_checkout(step)
-                    and name.upper() == VAULT_DEPLOY_KEY):
-                continue
-            violations.append(f"secrets.{name} reaches {'/'.join(map(str, path))}")
+    found = [(("env", *path), body, frozenset()) for path, body in _expressions(workflow.get("env") or {})]
+    found += [(path, body, _secret_allowed_at(job, path)) for path, body in _expressions(job)]
+    for path, body, allowed in found:
+        beyond = board_secrets_reached(body) - allowed
+        if beyond:
+            violations.append(f"{', '.join(sorted(beyond))} reached at {'/'.join(map(str, path))}")
     return violations
 
 
@@ -649,7 +675,7 @@ def board_secret_leaks(workflows: dict[str, dict[str, Any]]) -> list[str]:
     """Each workflow env that reaches a Board secret, and each other job that names one or the Board environment."""
     leaks: list[str] = []
     for name, workflow in workflows.items():
-        if "ARIA_BOARD_" in yaml.safe_dump(workflow.get("env") or {}):
+        if any(board_secrets_reached(body) for _path, body in _expressions(workflow.get("env") or {})):
             leaks.append(f"{name}:env")
         for job_id, job in (workflow.get("jobs") or {}).items():
             if not isinstance(job, dict) or _environment(job) == BOARD_ENVIRONMENT:
@@ -694,6 +720,13 @@ class BoardSecretsHaveOneReaderTests(unittest.TestCase):
         mutated = copy.deepcopy(self.workflow)
         _ENV_REACHES_THE_SECRETS["workflow_env_toJSON_secrets"](mutated)
         self.assertIn(f"{_BOARD_WORKFLOW}:env", board_secret_leaks({_BOARD_WORKFLOW: mutated}))
+
+    def test_only_board_secrets_reached_reads_the_secrets_context(self) -> None:
+        tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+        readers = sorted({function.name for function in ast.walk(tree) if isinstance(function, ast.FunctionDef)
+                          for node in ast.walk(function)
+                          if isinstance(node, ast.Name) and node.id in ("_BOARD_SECRET", "_DYNAMIC_SECRETS")})
+        self.assertEqual(readers, ["board_secrets_reached"])
 
 
 if __name__ == "__main__":

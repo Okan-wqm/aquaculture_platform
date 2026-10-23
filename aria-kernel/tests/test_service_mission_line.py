@@ -19,6 +19,7 @@ from tests._helpers.mint_patch import patched_mint
 
 from aria_kernel import cycle as cycle_mod
 from aria_kernel import mission as mission_module
+from aria_kernel.impact_graph import project_map
 from aria_kernel.ledger import append_declared_jsonl, load_jsonl
 from aria_kernel.mission import (
     MISSION_SCHEMA,
@@ -415,7 +416,6 @@ class ServiceMissionSeedTest(unittest.TestCase):
         paths still come from `finding_dimension_paths`, the E15-c collector.
         """
         from aria_kernel.feedback_store import record_findings_for_run
-        from aria_kernel.impact_graph import project_map
         from aria_kernel.service_dimension import services_for_finding_row
 
         # The pressure is what puts a non-core project in `targets` at all;
@@ -446,7 +446,7 @@ class ServiceMissionSeedTest(unittest.TestCase):
                     "path": "libs/backend-common/src/rls.service.ts",
                 }],
             }
-            record_findings_for_run(run, base_dir=root)
+            record_findings_for_run(run, project_roots=project_map(base_dir=root), base_dir=root)
             stored = load_jsonl(root / "findings.jsonl")[0]
             ctx = _context(tmp, exam, [])
             with patch.object(cycle_mod, "repo_hash", return_value="rh-1"):
@@ -570,7 +570,7 @@ class ServiceMissionSeedTest(unittest.TestCase):
                         }
                     ],
                 },
-                base_dir=root,
+                project_roots=project_map(base_dir=root), base_dir=root,
             )
             ctx = _context(tmp, {}, [])
             with patch.object(cycle_mod, "repo_hash", return_value="rh-1"):

@@ -22,6 +22,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+from aria_kernel.impact_graph import project_map
+
 
 class PromisedVerbsExistTest(unittest.TestCase):
     def test_feedback_record_and_batch_are_real_subcommands(self) -> None:
@@ -129,7 +131,7 @@ class SeedingHasAProducerTest(unittest.TestCase):
                 "run_id": "run-1",
                 "emitted_findings": [{"id": "f1", "title": "t", "evidence": ["apps/x.ts:1"]}],
             }
-            record_findings_for_run(run, base_dir=root)
+            record_findings_for_run(run, project_roots=project_map(base_dir=root), base_dir=root)
 
             from aria_kernel.strict_jsonl_reader import read_strict_jsonl
             pool = list(read_strict_jsonl(

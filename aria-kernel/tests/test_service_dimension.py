@@ -26,7 +26,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from aria_kernel.impact_graph import ProjectMap
+from aria_kernel.impact_graph import ProjectMap, project_map
 from aria_kernel.service_dimension import (
     SERVICE_MAP_FINGERPRINT,
     SERVICE_VOCABULARY,
@@ -216,7 +216,7 @@ class ToolFindingMintTests(unittest.TestCase):
                         }
                     ],
                 },
-                base_dir=root,
+                project_roots=project_map(base_dir=root), base_dir=root,
             )
             rows = list_findings(base_dir=root)
             self.assertEqual(len(rows), 1)
@@ -252,7 +252,7 @@ class ToolFindingMintTests(unittest.TestCase):
                              "message": "m"}
                         ],
                     },
-                    base_dir=root,
+                    project_roots=project_map(base_dir=root), base_dir=root,
                 )
             self.assertEqual(list_findings(base_dir=root), [])
 

@@ -19,7 +19,7 @@ from unittest.mock import patch
 
 from aria_kernel.feedback_store import record_findings_for_run
 from aria_kernel.genesis_policy import OVERRIDE_RELPATH
-from aria_kernel.impact_graph import cached_service_analysis_order
+from aria_kernel.impact_graph import cached_service_analysis_order, project_map
 from aria_kernel.ledger import load_jsonl
 from aria_kernel.service_agent_targeting import (
     propose_service_auditor_requests,
@@ -91,7 +91,7 @@ class ServiceAuditorTargetingTests(unittest.TestCase):
                         }
                     ],
                 },
-                base_dir=self.tools_dir,
+                project_roots=project_map(base_dir=self.tools_dir), base_dir=self.tools_dir,
             )
 
     def _requests(self) -> list[dict]:

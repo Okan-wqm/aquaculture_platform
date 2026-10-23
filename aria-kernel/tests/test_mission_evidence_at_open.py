@@ -33,6 +33,7 @@ from unittest.mock import patch
 
 from aria_kernel import cycle as cycle_mod
 from aria_kernel import mission as mission_module
+from aria_kernel.impact_graph import project_map
 from aria_kernel.ledger import append_declared_jsonl, load_jsonl
 from aria_kernel.mission import (
     MISSION_SCHEMA,
@@ -207,7 +208,7 @@ class ProducersRecordTheirEvidenceTest(unittest.TestCase):
                             for fid, paths in findings.items()
                         ],
                     },
-                    base_dir=root,
+                    project_roots=project_map(base_dir=root), base_dir=root,
                 )
             ctx = cycle_mod.build_phase_context(
                 cycle_id="cyc-245", workspace_root=Path(tmp), base_dir=root,

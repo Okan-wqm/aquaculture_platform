@@ -13,6 +13,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from aria_kernel.impact_graph import project_map
+
 
 class DismantledLaneTests(unittest.TestCase):
     def test_executor_and_codegen_modules_are_gone(self) -> None:
@@ -70,7 +72,7 @@ class ArchitectureProducerTests(unittest.TestCase):
                         }
                     ],
                 },
-                base_dir=self.tools,
+                project_roots=project_map(base_dir=self.tools), base_dir=self.tools,
             )
 
     def test_threshold_crossing_also_mints_architecture_evidence(self) -> None:

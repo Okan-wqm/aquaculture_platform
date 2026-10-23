@@ -13,6 +13,7 @@ from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 from .model_fleet import dispatching_provider_for_model
 from .ledger import append_declared_jsonl, append_declared_jsonl_rows, append_jsonl as append_chained_jsonl
 from .finding_subject import normalize_finding_message
+from .impact_graph import ProjectMap
 from .ledger import sha256_digest_of_canonical_json, sha256_of_canonical_json
 from .ledger import load_jsonl as load_chained_jsonl
 from .ledger import rewrite_jsonl as rewrite_chained_jsonl
@@ -515,6 +516,7 @@ def record_findings_for_run(
     run: dict[str, Any],
     *,
     emitted_findings: list[dict[str, Any]] | None = None,
+    project_roots: ProjectMap,
     base_dir: str | Path | None = None,
 ) -> None:
     # ORPHAN-HIGH-798 — record_run strips emitted_findings from the envelope
@@ -528,15 +530,15 @@ def record_findings_for_run(
     # finding itself cites (operator direction: findings organised by
     # microservice, so per-service audits and service-specific agents
     # have an axis to stand on). SE-1 — attributed by the one path ->
-    # project owner over the store's declared workspace's CURRENT map
-    # (fingerprint-checked): the cycle's 'tools' phase mints before
-    # 'service_examination' refreshes the publication, so the published file
-    # as it stands can name a layout the tree no longer has. A store that
-    # can produce no map refuses here, before anything is written.
-    from .impact_graph import project_map
+    # project owner over ``project_roots``, the store's declared workspace's
+    # CURRENT map (`impact_graph.project_map`, fingerprint-checked): the
+    # cycle's 'tools' phase mints before 'service_examination' refreshes the
+    # publication, so the published file as it stands can name a layout the
+    # tree no longer has. SE-1-R2 appellate R4 — the map is a required
+    # parameter, resolved by the caller before ANY write of the run
+    # (`tool_health.record_run`), so a store that cannot attribute refuses
+    # the run whole instead of after its run row and raw findings landed.
     from .service_dimension import finding_dimension_paths, finding_service_fields
-
-    project_roots = project_map(base_dir=base_dir)
 
     confirmed_false_positives = _confirmed_false_positive_fingerprints(base_dir)
     rows: list[dict[str, Any]] = []

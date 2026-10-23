@@ -48,7 +48,7 @@ import unittest
 from pathlib import Path
 from typing import Any
 
-from aria_kernel.impact_graph import cached_service_analysis_order
+from aria_kernel.impact_graph import cached_service_analysis_order, project_map
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_binding, ensure_tools_dir
 
 _EVIDENCE_LINES = 44
@@ -104,7 +104,7 @@ class _BoundStoreCase(unittest.TestCase):
                 "run_id": f"run-{finding_id}",
                 "emitted_findings": [{"id": finding_id, "path": path, "message": "m"}],
             },
-            base_dir=self.tools,
+            project_roots=project_map(base_dir=self.tools), base_dir=self.tools,
         )
         (row,) = [r for r in list_findings(base_dir=self.tools) if r["finding_id"] == finding_id]
         return row
@@ -176,7 +176,6 @@ class AMintAttributesOverTheCurrentMap(_BoundStoreCase):
         # appellate R1 (b): the identity is the map's own (`ProjectMap`
         # digests its name=root pairs), not the discovery graph fingerprint
         # the cache is keyed by, which two different maps can share.
-        from aria_kernel.impact_graph import project_map
 
         _write_source(self.workspace, "apps/farm-service/src/main.ts")
         self.bind()
@@ -266,7 +265,6 @@ class TheStampIsBoundToTheMapNotToTheLayoutKey(_BoundStoreCase):
         (self.tools / "impact" / "service-order-cache.json").write_text("{corrupt", encoding="utf-8")
 
     def test_two_maps_under_one_graph_fingerprint_have_two_map_fingerprints(self) -> None:
-        from aria_kernel.impact_graph import project_map
 
         nx_sourced = self._publish_from_the_nx_graph()
         first = project_map(base_dir=self.tools)

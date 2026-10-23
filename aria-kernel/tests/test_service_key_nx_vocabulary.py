@@ -41,7 +41,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from aria_kernel.impact_graph import cached_service_analysis_order, project_for_path
+from aria_kernel.impact_graph import cached_service_analysis_order, project_for_path, project_map
 from aria_kernel.tool_registry import ensure_tools_binding, ensure_tools_dir
 
 NX_VOCABULARY = "nx_project/v1"
@@ -138,7 +138,7 @@ class MintWithoutWorkspaceRootReceivesTheCachedMap(_CachedMapCase):
                      "message": "m"},
                 ],
             },
-            base_dir=self.tools,
+            project_roots=project_map(base_dir=self.tools), base_dir=self.tools,
         )
         rows = {row["finding_id"]: row for row in list_findings(base_dir=self.tools)}
         self.assertEqual(rows["f-lib"]["services"], [self.lib])
@@ -185,7 +185,7 @@ class StampNamesTheKeyItCarries(unittest.TestCase):
                         for root in _DECLARED
                     ],
                 },
-                base_dir=tools,
+                project_roots=project_map(base_dir=tools), base_dir=tools,
             )
             rows = {row["finding_id"]: row for row in list_findings(base_dir=tools)}
 

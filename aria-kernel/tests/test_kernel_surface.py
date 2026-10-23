@@ -52,9 +52,8 @@ from typing import Any, Iterable, Iterator
 import yaml
 
 from aria_kernel import report_ingestion
-from aria_kernel.plan_coverage import WITNESS_RELPATH, WITNESS_TSCONFIG
 from tests._helpers.kernel_lane import KERNEL_SURFACE_MANIFEST, kernel_lane_surface, kernel_surface_entries
-from tests._helpers.tool_sources import tool_paths
+from tests._helpers.witness_sources import tool_closure_paths, witness_tool_paths
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _KERNEL_WORKFLOW = ".github/workflows/aria-kernel.yml"
@@ -291,7 +290,7 @@ _REGISTRY_CLI_DATA = (
 
 
 def _registry_cli_paths() -> tuple[str, ...]:
-    return tool_paths(report_ingestion._REGISTRY_CLI, report_ingestion._GATES_TSCONFIG)
+    return (*tool_closure_paths(report_ingestion._REGISTRY_CLI), report_ingestion._GATES_TSCONFIG)
 
 
 class KernelToolInputsTest(unittest.TestCase):
@@ -299,7 +298,7 @@ class KernelToolInputsTest(unittest.TestCase):
         # The kernel runs the witness (aria_kernel/plan_coverage.py) and the
         # suite copies its import closure into fixture repos; a change to any
         # of those files must run the suite on its PR.
-        self.assertEqual(uncovered(tool_paths(WITNESS_RELPATH, WITNESS_TSCONFIG), kernel_lane_surface()), [])
+        self.assertEqual(uncovered(witness_tool_paths(), kernel_lane_surface()), [])
 
     def test_the_registry_cli_its_imports_and_its_data_are_on_the_surface(self) -> None:
         # The kernel's only registry reader is the registry CLI, run by

@@ -30,12 +30,11 @@ from unittest.mock import patch
 
 from aria_kernel.implementation_safety import CANONICAL_VALIDATION_COMMANDS_EXECUTABLE
 from aria_kernel.merge_authority import merge_pr_if_ready
-from aria_kernel.plan_coverage import WITNESS_RELPATH, WITNESS_TSCONFIG
 from aria_kernel.tool_registry import ensure_tools_dir
 from aria_kernel.request_admission import admit_request
 from tests._helpers.declared_fixtures import segmented_ledger_bytes
 from tests._helpers.node_modules import installed_node_modules
-from tests._helpers.tool_sources import tool_paths
+from tests._helpers.witness_sources import witness_tool_paths
 from tests._helpers.operator_acts import operator_set_profile
 
 _SHA = "a" * 40
@@ -672,7 +671,7 @@ class NativeImplementationContextTests(unittest.TestCase):
         source_path = "apps/farm-service/src/sample-interval.ts"
         check_path = "apps/farm-service/check-sample.cjs"
         selected_repo = Path(__file__).resolve().parents[2]
-        native_tool_paths = tool_paths(WITNESS_RELPATH, WITNESS_TSCONFIG)
+        native_tool_paths = witness_tool_paths()
         native_tool_bytes = {path: (selected_repo / path).read_bytes() for path in native_tool_paths}
         files = {
             **{path: data.decode("utf-8") for path, data in native_tool_bytes.items()},

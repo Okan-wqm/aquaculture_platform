@@ -2,8 +2,9 @@
  * Platform-wide invariant — DATA-HIGH-002 / DATA-HIGH-004 /
  * COMPLIANCE-CRITICAL-003 / CONTRACT-CRITICAL-002:
  *
- * Every `createBaseEvent('<EventType>', …)` call site MUST have a
- * matching `<EventType>Event` interface declared in `libs/event-contracts/src/`.
+ * Every event a service constructs (`createBaseEvent(...)`) MUST have a
+ * contract: an interface in `libs/event-contracts/src/` that extends
+ * BaseEvent and defines that event type.
  *
  * # Why
  *
@@ -18,165 +19,155 @@
  *
  * # What this test enforces
  *
- *   1. Walk every `*.ts` file under apps/, libs/, platform/ (excluding
- *      tests + node_modules) for `createBaseEvent<…>('…', …)` and
- *      `createBaseEvent('…', …)` invocations.
- *   2. For each matched eventType literal, assert that an interface
- *      named `${EventType}Event` is exported from one of the
- *      `*-events.ts` files in libs/event-contracts/src/ (or its
- *      sub-barrels like security/security-events.ts).
- *   3. Also verify the interface appears in the relevant domain union
- *      (AuthEvent | BillingEvent | SecurityEvent | …) so the
- *      `AnyPlatformEvent` rollup includes it.
+ * It reads the two owners, never a copy of their rules (SE-3 review round 1,
+ * single-owner B1 and B2):
  *
- * Source-only check; uses regex + filesystem walks. Cheap to run on
- * every PR and detects the regression class at compile time.
+ *   - "who produces event T": `scanEventProducers`
+ *     (tools/gates/event-consumer-index.ts) — every call the type checker
+ *     resolves to createBaseEvent, its event type folded statically (a const,
+ *     an `as const` lookup, a typed field), under apps/, libs/ and
+ *     platform/libs/;
+ *   - "where event T is defined": `scanEventDefinitions`, the one definition
+ *     rule `eventDefinitionsIn` (an interface extending BaseEvent, the
+ *     literal values of its own `eventType`).
+ *
+ *   1. Every folded event type of every producer site is a defined event type.
+ *   2. A producer site whose event type does not fold (`unresolved`) fails by
+ *      name: no contract can be checked for it.
+ *   3. A producer site no application wires (`unattributed`) fails by name:
+ *      it is dead code or an attribution gap of the code-fact bridge.
+ *
+ * Each known gap is listed with the tracked finding that owns it, and a
+ * listed gap that no longer exists fails too, so the lists cannot go stale.
  */
 
-import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+import {
+  type EventProducerIndex,
+  scanEventDefinitions,
+  scanEventProducers,
+} from '../../tools/gates/event-consumer-index';
+
 const REPO_ROOT = resolve(__dirname, '..', '..');
-const CONTRACTS_DIR = 'libs/event-contracts/src';
+const REVIEW = 'docs/reviews/claude/2026-10-21-aria-quality-learning-program.md';
+
+/** Building the type-checked program over the repository's sources takes seconds. */
+const SCAN_TIMEOUT_MS = 180_000;
 
 /**
- * Special-case eventType literals that legitimately do not (yet) have
- * a contract interface. Each entry MUST reference the orphan finding
- * that tracks the gap. The list is the safety hatch — not a deferral
- * mechanism — used when the missing interface lives in a domain that
- * was OUT OF SCOPE for the audit cycle that introduced this invariant.
- *
- * Removal of an entry happens when the matching domain audit lands the
- * interface; the invariant then catches any future regression.
+ * Event types emitted without a contract. Each entry names the tracked finding
+ * (owner + deadline) that owns the gap; the entry is removed when the contract
+ * lands.
  */
-const KNOWN_EXEMPT: ReadonlySet<string> = new Set<string>([
-  // 2026-04-29: 20 orphan eventTypes from the messaging-service +
-  // sensor-service automation domains were drained by authoring the
-  // matching interfaces in libs/event-contracts/src/messaging-events.ts
-  // (16 events) + libs/event-contracts/src/automation-events.ts (4
-  // events). Allowlist now empty — the invariant unconditionally
-  // enforces interface presence for every createBaseEvent call site.
+const KNOWN_EXEMPT: ReadonlyMap<string, string> = new Map([
+  ['TelemetryCapacityEntitlementChanged', `${REVIEW}#CONTRACT-MEDIUM-013`],
 ]);
 
-interface CallSite {
-  file: string;
-  eventType: string;
-}
+/** Producer sites whose event type does not fold, keyed `<file> <argument text>`. */
+const KNOWN_UNRESOLVED: ReadonlyMap<string, string> = new Map([
+  [
+    'libs/backend-common/src/audit/audit-log.interceptor.ts `audit.${options.action.toLowerCase()}`',
+    `${REVIEW}#CONTRACT-MEDIUM-014`,
+  ],
+  [
+    'libs/backend-common/src/security/security-event.service.ts eventTypeName',
+    `${REVIEW}#CONTRACT-MEDIUM-014`,
+  ],
+]);
 
-function discoverCallSites(): CallSite[] {
-  // git ls-files gives us the tracked TypeScript files; we then grep
-  // each file in process. execFileSync (not execSync) avoids shell
-  // expansion + quoting hazards on the grep pattern.
-  const lsFilesOut = execFileSync(
-    'git',
-    ['-C', REPO_ROOT, 'ls-files',
-      'apps/*.ts', 'apps/**/*.ts',
-      'libs/*.ts', 'libs/**/*.ts',
-      'platform/*.ts', 'platform/**/*.ts'],
-    { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 },
-  );
+/** Producer sites no application wires, keyed `<file> <event types>`. */
+const KNOWN_UNATTRIBUTED: ReadonlyMap<string, string> = new Map([
+  [
+    'libs/backend-common/src/database/nats-migration-event-sink.ts SchemaMigrationApplied',
+    `${REVIEW}#PLAT-MEDIUM-932`,
+  ],
+  [
+    'libs/backend-common/src/database/nats-migration-event-sink.ts SchemaMigrationFailed',
+    `${REVIEW}#PLAT-MEDIUM-932`,
+  ],
+  [
+    'libs/backend-common/src/database/nats-migration-event-sink.ts SchemaMigrationSkipped',
+    `${REVIEW}#PLAT-MEDIUM-932`,
+  ],
+  [
+    'libs/backend-common/src/database/nats-migration-event-sink.ts SchemaMigrationStarted',
+    `${REVIEW}#PLAT-MEDIUM-932`,
+  ],
+  [
+    'libs/backend-common/src/observability/error-capture.interceptor.ts ServiceErrorCaptured',
+    `${REVIEW}#ARIA-MEDIUM-789`,
+  ],
+]);
 
-  const files = lsFilesOut.split('\n').filter(
-    (f) =>
-      f.length > 0 &&
-      !f.includes('/__tests__/') &&
-      !f.endsWith('.spec.ts') &&
-      !f.endsWith('.test.ts'),
-  );
+/** `path/to/file.ts:12` -> `path/to/file.ts`. */
+const fileOf = (site: string): string => site.replace(/:\d+$/, '');
 
-  const eventTypeRe = /createBaseEvent(?:<[^>]*>)?\(\s*['"]([A-Z][A-Za-z0-9]*)['"]/g;
-  const sites: CallSite[] = [];
-  for (const rel of files) {
-    let src: string;
-    try {
-      src = readFileSync(resolve(REPO_ROOT, rel), 'utf8');
-    } catch {
-      continue; // skip unreadable files
-    }
-    if (!src.includes('createBaseEvent')) continue; // fast-path skip
-    // Strip /* … */ and // … comments so a docblock example like
-    // `* createBaseEvent('EventType', …)` does not register as a real
-    // call site. Block-comment stripping is non-greedy across newlines.
-    const stripped = src
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .split('\n')
-      .map((line) => line.replace(/(?<!:)\/\/.*$/, ''))
-      .join('\n');
-    eventTypeRe.lastIndex = 0;
-    let m: RegExpExecArray | null;
-    while ((m = eventTypeRe.exec(stripped)) !== null) {
-      const eventType = m[1];
-      // ORPHAN-HIGH-507 — guarded, not asserted: a capture the regex matched
-      // but did not bind must skip the row, never crash the invariant.
-      if (eventType !== undefined) sites.push({ file: rel, eventType });
-    }
-  }
-  return sites;
-}
-
-function discoverDeclaredInterfaces(): Set<string> {
-  // Walk every *.ts under libs/event-contracts/src and collect interface
-  // names of the form `XxxEvent`. Filesystem walk avoids shell-escape risk.
-  const lsFilesOut = execFileSync(
-    'git',
-    ['-C', REPO_ROOT, 'ls-files', `${CONTRACTS_DIR}/*.ts`, `${CONTRACTS_DIR}/**/*.ts`],
-    { encoding: 'utf8' },
-  );
-  const files = lsFilesOut.split('\n').filter(
-    (f) => f.length > 0 && !f.includes('/__tests__/') && !f.endsWith('.spec.ts'),
-  );
-
-  const declRe = /export interface ([A-Z][A-Za-z0-9]+Event)\b/g;
-  const names = new Set<string>();
-  for (const rel of files) {
-    const src = readFileSync(resolve(REPO_ROOT, rel), 'utf8');
-    declRe.lastIndex = 0;
-    let m: RegExpExecArray | null;
-    while ((m = declRe.exec(src)) !== null) {
-      const declared = m[1];
-      if (declared !== undefined) names.add(declared);
-    }
-  }
-  return names;
+/** Keys found against a known list: the new ones fail by name, and so do listed keys gone stale. */
+function unlisted(found: readonly string[], known: ReadonlyMap<string, string>): string[] {
+  const present = new Set(found);
+  return [
+    ...[...present].filter((key) => !known.has(key)).map((key) => `new: ${key}`),
+    ...[...known.keys()]
+      .filter((key) => !present.has(key))
+      .map((key) => `stale (${known.get(key) ?? ''}): ${key}`),
+  ].sort();
 }
 
 describe('INVARIANT (DATA-HIGH-004): every createBaseEvent emit has a matching contract interface', () => {
-  it('every emitted eventType has a `${EventType}Event` interface in libs/event-contracts/src', () => {
-    const sites = discoverCallSites();
-    expect(sites.length).toBeGreaterThan(0);
+  let producers: EventProducerIndex;
+  let defined: ReadonlySet<string>;
 
-    const declared = discoverDeclaredInterfaces();
-    expect(declared.size).toBeGreaterThan(0);
+  beforeAll(() => {
+    producers = scanEventProducers(REPO_ROOT);
+    defined = new Set(scanEventDefinitions(REPO_ROOT).map((definition) => definition.event_type));
+  }, SCAN_TIMEOUT_MS);
 
-    const orphans: { eventType: string; sites: string[] }[] = [];
-    const grouped = new Map<string, string[]>();
-    for (const site of sites) {
-      if (!grouped.has(site.eventType)) grouped.set(site.eventType, []);
-      grouped.get(site.eventType)!.push(site.file);
-    }
+  it('every emitted event type is defined by an event-contracts interface', () => {
+    expect(producers.sites.length).toBeGreaterThan(100);
+    expect(defined.size).toBeGreaterThan(100);
 
-    for (const [eventType, files] of grouped) {
-      if (KNOWN_EXEMPT.has(eventType)) continue;
-      const interfaceName = `${eventType}Event`;
-      if (!declared.has(interfaceName)) {
-        orphans.push({ eventType, sites: Array.from(new Set(files)) });
+    const orphans = new Map<string, string[]>();
+    for (const { site, eventTypes } of producers.sites) {
+      for (const eventType of eventTypes ?? []) {
+        if (defined.has(eventType) || KNOWN_EXEMPT.has(eventType)) continue;
+        orphans.set(eventType, [...(orphans.get(eventType) ?? []), site]);
       }
     }
+    const emitted = new Set(producers.sites.flatMap((site) => site.eventTypes ?? []));
+    const staleExemptions = [...KNOWN_EXEMPT.keys()].filter(
+      (eventType) => defined.has(eventType) || !emitted.has(eventType),
+    );
 
-    if (orphans.length > 0) {
-      throw new Error(
-        `${orphans.length} eventType literal(s) have no matching contract interface in libs/event-contracts/src/.\n` +
-          orphans
-            .map(
-              ({ eventType, sites }) =>
-                `  - createBaseEvent('${eventType}', …) is called but no \`${eventType}Event\` interface exists.\n` +
-                `    Emitted from: ${sites.slice(0, 5).join(', ')}${sites.length > 5 ? `, +${sites.length - 5} more` : ''}\n` +
-                `    Fix: add \`export interface ${eventType}Event extends BaseEvent { eventType: '${eventType}'; … }\` ` +
-                `to the appropriate libs/event-contracts/src/*-events.ts file AND add it to the corresponding domain union.`,
-            )
-            .join('\n'),
-      );
-    }
+    expect(staleExemptions).toEqual([]);
+    expect(
+      [...orphans.entries()].map(
+        ([eventType, sites]) =>
+          `createBaseEvent('${eventType}', …) at ${sites.join(', ')} has no contract: add ` +
+          `\`export interface ${eventType}Event extends BaseEvent { eventType: '${eventType}'; … }\` ` +
+          'to the appropriate libs/event-contracts/src/*-events.ts file AND to its domain union',
+      ),
+    ).toEqual([]);
+  });
+
+  it('every producer site folds to its event types; an unresolved site fails by name', () => {
+    expect(
+      unlisted(
+        producers.unresolved.map((site) => `${fileOf(site.site)} ${site.form}`),
+        KNOWN_UNRESOLVED,
+      ),
+    ).toEqual([]);
+  });
+
+  it('every producer site belongs to an application; an unattributed site fails by name', () => {
+    const typesAt = new Map(producers.sites.map((site) => [site.site, site.eventTypes] as const));
+    expect(
+      unlisted(
+        producers.unattributed.map(
+          (site) => `${fileOf(site)} ${(typesAt.get(site) ?? []).join(',')}`,
+        ),
+        KNOWN_UNATTRIBUTED,
+      ),
+    ).toEqual([]);
   });
 });

@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import fnmatch
 from datetime import datetime, timedelta, timezone
+from functools import cache
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any
 
 from .fitness import latest_agent_fitness
+from .impact_graph import ProjectMap, project_for_path, project_map
 from .agent_network import latest_agent_network_hash
 from .batch_containment import guard_item, with_item_failures
 from .ledger import (
@@ -105,6 +108,10 @@ def triage_policy_apply(
     index_hash = latest_agent_network_hash(base_dir=root)
     decisions: list[dict[str, Any]] = []
     item_failures: list[dict[str, Any]] = []
+    # SE-1-R2 appellate R3 — one map for the whole pass, resolved on the first
+    # product path that needs it (a discovery walk per pressure made a no-op
+    # pass over 20 pressures take 12.9 s).
+    project_roots = lazy_project_map(workspace_root=paths.repo_root, base_dir=root)
     for pressure in effective_workspace_pressures(paths):
         pressure_id = str(pressure.get("event_id") or pressure.get("pressure_id") or "")
         if not pressure_id or pressure.get("effective_state") not in {"active", "faded", "sleeping"}:
@@ -150,6 +157,12 @@ def triage_policy_apply(
                 classified_tier=tier, fitness_row=fitness.get(target_agent),
             )
             reasons.extend(ceiling_reasons)
+        # The dedup key is (pressure, tier, agent): an existing decision is
+        # skipped before its test commands are derived.
+        if _decision_key(
+            {"pressure_event_id": pressure_id, "triage_tier": tier, "target_agent": target_agent}
+        ) in existing:
+            continue
         row = {
             "$schema": "aria/triage-decision/v1",
             "schema_version": 1,
@@ -158,11 +171,11 @@ def triage_policy_apply(
             "triage_tier": tier,
             "target_agent": target_agent,
             "reasons": reasons,
-            "required_tests": derive_required_tests(paths.repo_root, _evidence_paths(pressure)),
+            "required_tests": derive_required_tests(
+                _evidence_paths(pressure), project_roots, workspace_root=paths.repo_root
+            ),
             "index_hash_at_decision": index_hash,
         }
-        if _decision_key(row) in existing:
-            continue
         # Triage is what routes a pressure to an agent. Losing the batch to one
         # bad decision leaves every pressure after it unrouted for the cycle,
         # while the decisions already appended stay on disk unreported.
@@ -240,7 +253,41 @@ def resolve_target_agent(pressure: dict[str, Any], tools_root: Path) -> str | No
     return None
 
 
-def derive_required_tests(repo_root: Path, evidence_paths: list[str]) -> list[str]:
+def lazy_project_map(*, workspace_root: Path, base_dir: str | Path) -> Callable[[], ProjectMap]:
+    """The workspace's `impact_graph.project_map`, resolved on the first call
+    and reused after it.
+
+    A pass over many pressures attributes all of them against one map, and a
+    pass whose pressures cite no product path never pays for one (SE-1-R2
+    appellate R3).
+    """
+
+    @cache
+    def resolve() -> ProjectMap:
+        return project_map(workspace_root=workspace_root, base_dir=base_dir)
+
+    return resolve
+
+
+def derive_required_tests(
+    evidence_paths: list[str], project_roots: Callable[[], ProjectMap], *, workspace_root: Path
+) -> list[str]:
+    """The test commands that validate a change to ``evidence_paths``.
+
+    A product path is tested through the nx project that owns it, named by
+    the one path -> project owner (`impact_graph.project_for_path`) over the
+    workspace's current map, when that project is an nx project (its root
+    carries ``project.json``, whose ``name`` the map already uses). SE-1
+    round 2: this walked up the tree to the nearest ``project.json`` and read
+    its name itself, a second map that fell back to the directory name on a
+    malformed file where the owner refuses.
+
+    ``project_roots`` is the caller's handle on that map (`lazy_project_map`):
+    the caller resolves it at most once for all the pressures it triages, and
+    only when a path here asks for it. SE-1-R2 appellate R3: resolving it in
+    here, once per pressure, put a full discovery walk on every pressure of
+    every cycle.
+    """
     commands: list[str] = []
     for path in evidence_paths:
         clean = path.split(":", 1)[0].removeprefix("./")
@@ -249,31 +296,11 @@ def derive_required_tests(repo_root: Path, evidence_paths: list[str]) -> list[st
         elif clean.startswith("tools/aria-poc/"):
             commands.append(f"python -m pytest {clean}")
         else:
-            project = _nearest_nx_project(repo_root, clean)
-            if project:
+            roots = project_roots()
+            project = project_for_path(clean, roots)
+            if project is not None and (workspace_root / roots[project] / "project.json").is_file():
                 commands.append(f"npx nx test {project}")
     return sorted(dict.fromkeys(commands))
-
-
-def _nearest_nx_project(repo_root: Path, rel_path: str) -> str | None:
-    current = repo_root / rel_path
-    if current.is_file():
-        current = current.parent
-    for parent in [current, *current.parents]:
-        if parent == repo_root.parent:
-            break
-        project_json = parent / "project.json"
-        if project_json.exists():
-            try:
-                import json
-
-                payload = json.loads(project_json.read_text(encoding="utf-8"))
-                return str(payload.get("name") or parent.name)
-            except (OSError, ValueError):
-                return parent.name
-        if parent == repo_root:
-            break
-    return None
 
 
 def _routing_table(root: Path) -> dict[str, str]:

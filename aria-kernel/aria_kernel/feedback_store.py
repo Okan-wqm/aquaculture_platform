@@ -13,6 +13,7 @@ from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 from .model_fleet import dispatching_provider_for_model
 from .ledger import append_declared_jsonl, append_declared_jsonl_rows, append_jsonl as append_chained_jsonl
 from .finding_subject import normalize_finding_message
+from .impact_graph import ProjectMap
 from .ledger import sha256_digest_of_canonical_json, sha256_of_canonical_json
 from .ledger import load_jsonl as load_chained_jsonl
 from .ledger import rewrite_jsonl as rewrite_chained_jsonl
@@ -515,6 +516,7 @@ def record_findings_for_run(
     run: dict[str, Any],
     *,
     emitted_findings: list[dict[str, Any]] | None = None,
+    project_roots: ProjectMap,
     base_dir: str | Path | None = None,
 ) -> None:
     # ORPHAN-HIGH-798 — record_run strips emitted_findings from the envelope
@@ -527,8 +529,16 @@ def record_findings_for_run(
     # E15-a — mint-time service dimension, derived from the paths the
     # finding itself cites (operator direction: findings organised by
     # microservice, so per-service audits and service-specific agents
-    # have an axis to stand on).
-    from .service_dimension import finding_dimension_paths, service_dimension
+    # have an axis to stand on). SE-1 — attributed by the one path ->
+    # project owner over ``project_roots``, the store's declared workspace's
+    # CURRENT map (`impact_graph.project_map`, fingerprint-checked): the
+    # cycle's 'tools' phase mints before 'service_examination' refreshes the
+    # publication, so the published file as it stands can name a layout the
+    # tree no longer has. SE-1-R2 appellate R4 — the map is a required
+    # parameter, resolved by the caller before ANY write of the run
+    # (`tool_health.record_run`), so a store that cannot attribute refuses
+    # the run whole instead of after its run row and raw findings landed.
+    from .service_dimension import finding_dimension_paths, finding_service_fields
 
     confirmed_false_positives = _confirmed_false_positive_fingerprints(base_dir)
     rows: list[dict[str, Any]] = []
@@ -538,7 +548,7 @@ def record_findings_for_run(
             continue
         fingerprint = finding_fingerprint(run["tool_id"], finding)
         suppressed = confirmed_false_positives.get(fingerprint)
-        dimension = service_dimension(finding_dimension_paths(finding))
+        dimension = finding_service_fields(finding_dimension_paths(finding), project_roots)
         rows.append(
             {
                 "schema_version": 1,
@@ -549,8 +559,7 @@ def record_findings_for_run(
                 "status": "suppressed_false_positive" if suppressed else "open",
                 "finding_fingerprint": fingerprint,
                 "suppressed_by_feedback": suppressed,
-                "service": dimension["service"],
-                "services": dimension["services"],
+                **dimension,
                 "finding": finding,
             },
         )
@@ -602,14 +611,18 @@ def list_findings(
     if status is not None:
         rows = [row for row in rows if row.get("status") == status]
     if service is not None:
-        # E15-a — legacy rows carry no mint-time dimension; derive at
-        # read time from the same collector the mint uses, so old and
-        # new rows can never disagree about their own service. The
-        # shared row reader (E15-c) keeps this filter and the
-        # service-auditor targeting trigger on one derivation.
+        # E15-a — a row minted before SE-1, or against a layout that has
+        # since changed, is re-derived by the one row reader from its paths
+        # over the same current map the mint attributes against, so old and
+        # new rows can never disagree about their own service, and neither
+        # can two readers. A store that can produce no map refuses the
+        # filter (``service_key_map_unavailable``) instead of answering "no
+        # finding cites that service".
+        from .impact_graph import project_map
         from .service_dimension import services_for_finding_row
 
-        rows = [row for row in rows if service in services_for_finding_row(row)]
+        project_roots = project_map(base_dir=base_dir)
+        rows = [row for row in rows if service in services_for_finding_row(row, project_roots)]
     return rows
 
 

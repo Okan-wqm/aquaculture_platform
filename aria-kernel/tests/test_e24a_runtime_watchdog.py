@@ -9,7 +9,8 @@ failure mode (disabled / unconfigured / unreachable) in the payload.
 
 Deliberate-breakage pins:
 - thresholds gate the 5xx detector (low-volume noise stays out);
-- the new originating skill is allowlisted with its producer.
+- a runtime anomaly carries no finding origin, and the retired
+  ``aria-watchdog:runtime_anomaly`` origin is refused by the mint (RW-1).
 
 RW-1 superseded this file's source/credential/skip pins (the shared
 observability key, the null default URL, the ``skipped`` shape): the
@@ -18,6 +19,7 @@ are pinned in test_rw1_runtime_watchdog_feed.py.
 """
 from __future__ import annotations
 
+import dataclasses
 import tempfile
 import unittest
 from pathlib import Path
@@ -29,9 +31,9 @@ from aria_kernel.aria_watchdog import (
     parse_prometheus_text,
     run_watchdog_sweep,
 )
-from aria_kernel.finding import ORIGINATING_SKILL_ALLOWLIST
+from aria_kernel.finding import ORIGINATING_SKILL_ALLOWLIST, _validate_originating_skill
 from aria_kernel.genesis_policy import POLICY_KEYS, WATCHDOG_PULL_DEFAULTS
-from aria_kernel.tool_registry import ensure_tools_dir
+from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 
 _METRICS_FIXTURE = """\
 # HELP http_requests_total Total number of HTTP requests
@@ -64,7 +66,9 @@ class DetectorTests(unittest.TestCase):
         finding = findings[0]
         self.assertEqual(finding.pattern, "runtime_http_5xx")
         self.assertIn("farm-service", finding.claim_summary)
-        self.assertEqual(finding.originating_skill, "aria-watchdog:runtime_anomaly")
+        # RW-1 corrective R1: a runtime anomaly is a telemetry lead with no
+        # finding origin — it never reaches emit_finding.
+        self.assertNotIn("originating_skill", {f.name for f in dataclasses.fields(finding)})
         # tiny-service is 40% 5xx but at 5 requests — below min volume.
         self.assertFalse(any("tiny-service" in f.claim_summary for f in findings))
 
@@ -74,8 +78,15 @@ class DetectorTests(unittest.TestCase):
         self.assertEqual(len(findings), 1)
         self.assertIn("auth_bypass_attempt", findings[0].claim_summary)
 
-    def test_originating_skill_is_allowlisted_with_its_producer(self) -> None:
-        self.assertIn("aria-watchdog:runtime_anomaly", ORIGINATING_SKILL_ALLOWLIST)
+    def test_the_retired_runtime_origin_is_refused_by_the_mint(self) -> None:
+        """RW-1 corrective R1: telemetry is a lead (runtime_signal_bridge), and a
+        finding about it is minted by the repo-evidence path with its
+        reproduction. An allowlisted watchdog runtime origin with no producer
+        would let any emit_finding caller mint a watchdog-owned runtime
+        finding past that proof gate."""
+        self.assertNotIn("aria-watchdog:runtime_anomaly", ORIGINATING_SKILL_ALLOWLIST)
+        with self.assertRaises(GovernanceError):
+            _validate_originating_skill("aria-watchdog:runtime_anomaly")
 
 
 class SweepWiringTests(unittest.TestCase):

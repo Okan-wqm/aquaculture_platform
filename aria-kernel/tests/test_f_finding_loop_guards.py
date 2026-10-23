@@ -164,9 +164,9 @@ class SelfLoopGuardTests(_LoopFixture):
         self.assertEqual(self.skip_detail("F-021")["loop_guard"], {"plan_id": "plan-old", "surfaces": [GROUNDED_FILE]})
 
     def test_a_watchdog_finding_after_a_watchdog_closure_is_refused(self) -> None:
-        self.finding("F-030", _OTHER_FILE, origin="aria-watchdog:runtime_anomaly")
+        self.finding("F-030", _OTHER_FILE, origin="aria-watchdog:stall")
         self.fx.set_status("F-030", "RESOLVED")
-        self.finding("F-031", GROUNDED_FILE, origin="aria-watchdog:runtime_anomaly")
+        self.finding("F-031", GROUNDED_FILE, origin="aria-watchdog:stall")
         self.assertIsNone(self.synthesize("cyc-wd"))
         self.assertEqual(self.skips("cyc-wd"), [("F-031", fg.SELF_LOOP_WATCHDOG_RECENT)])
         # The RESOLVED finding never reaches admission: the slot policy drops it by the same reason.

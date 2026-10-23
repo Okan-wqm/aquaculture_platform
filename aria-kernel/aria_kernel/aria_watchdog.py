@@ -121,7 +121,6 @@ RUNTIME_SERVICE_LABELS: tuple[str, ...] = ("app", "service")
 SECURITY_EVENTS_SERVICE: str = "observability-service"
 SECURITY_EVENTS_CODE_AREA: str = "apps/observability-service/src/security-events"
 MAX_RUNTIME_METRICS_BYTES: int = 8 * 1024 * 1024
-RUNTIME_ANOMALY_ORIGIN: str = "aria-watchdog:runtime_anomaly"
 
 # Every way the runtime feed can be left unread, by name. A sweep that does
 # not read the source says which of these held it; it is never silent.
@@ -270,8 +269,10 @@ class RuntimeAnomaly:
     (source ``telemetry``, ``trust_grade=runtime_unverified``): it points the
     repo-evidence machinery at ``code_refs``; a finding about it is minted
     only by that machinery, with its proof through
-    finding.record_finding_reproduction. The summary is stable for one
-    (pattern, subject) — the bridge derives the signal id from it, so a
+    finding.record_finding_reproduction, so it carries no originating_skill
+    (finding.ORIGINATING_SKILL_ALLOWLIST has no watchdog runtime origin).
+    The summary is stable for one (pattern, subject) — the bridge derives
+    the signal id from it, so a
     repeat sighting counts on the open signal instead of opening another —
     and the measured values live in ``facts`` (the sweep payload).
     """
@@ -282,7 +283,6 @@ class RuntimeAnomaly:
     claim_summary: str
     facts: list[str]
     code_refs: list[str]
-    originating_skill: str = RUNTIME_ANOMALY_ORIGIN
 
 
 def _sample_service(labels: dict[str, str]) -> str | None:

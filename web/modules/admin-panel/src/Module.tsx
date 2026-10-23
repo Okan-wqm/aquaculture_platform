@@ -8,7 +8,7 @@
  * on demand so the initial bundle stays small.
  */
 
-import { Spinner, useAuthContext } from '@aquaculture/shared-ui';
+import { BrandLoader, useAuthContext } from '@aquaculture/shared-ui';
 import React, { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 
@@ -66,16 +66,6 @@ const PerformanceDashboardPage = lazy(() => import('./pages/system/PerformanceDa
 const ErrorTrackingPage = lazy(() => import('./pages/system/ErrorTrackingPage'));
 const JobQueuePage = lazy(() => import('./pages/system/JobQueuePage'));
 
-// ============================================================================
-// Suspense Fallback
-// ============================================================================
-
-const SuspenseFallback: React.FC = () => (
-  <div className="flex items-center justify-center h-64">
-    <Spinner size="lg" text="Yukleniyor..." />
-  </div>
-);
-
 const isPlatformAdminRole = (role?: string | null): boolean =>
   role === 'SUPER_ADMIN';
 
@@ -91,7 +81,9 @@ const AdminPanelModule: React.FC = () => {
   }
 
   return (
-    <Suspense fallback={<SuspenseFallback />}>
+    // The SUPER_ADMIN console loads its pages with the same one loading
+    // screen as the tenant console (FE-MEDIUM-349).
+    <Suspense fallback={<BrandLoader />}>
       <Routes>
         {/* Dashboard */}
         <Route index element={<AdminDashboard />} />

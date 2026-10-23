@@ -33,6 +33,10 @@ from typing import Any
 
 from .literal_provenance import ProductionIndex
 
+# The ratchet's pinned-unreachable baseline, relative to the repo root. It
+# waives the closure gate, so it is test collection in the derived authority
+# set (`self_improvement.derived_authority_set`, PLAN-v2 B1).
+CLOSURE_BASELINE_RELPATH: tuple[str, ...] = ("aria-kernel", "closure-reachability-baseline.json")
 _LEDGER_HEADING = re.compile(r"^## (ORPHAN-[A-Z]+-\d+) ", re.MULTILINE)
 _BACKTICKED = re.compile(r"`([a-z][a-z0-9_]{3,})`")
 _RESOLVED = "RESOLVED"
@@ -148,9 +152,7 @@ def scan_closure_reachability(
 ) -> ReachabilityReport:
     repo = Path(repo_root).resolve()
     ledger_path = repo / "docs" / "reviews" / "orphan-findings.md"
-    baseline_file = Path(baseline_path) if baseline_path else (
-        repo / "aria-kernel" / "closure-reachability-baseline.json"
-    )
+    baseline_file = Path(baseline_path) if baseline_path else repo.joinpath(*CLOSURE_BASELINE_RELPATH)
 
     # ProductionIndex expects the REPO root: its roster walks
     # aria-kernel/, tools/ and scripts/ from there.
@@ -202,7 +204,7 @@ def write_baseline(repo_root: str | Path, *, owner: str, reason: str) -> dict[st
     from datetime import datetime, timezone
 
     repo = Path(repo_root).resolve()
-    baseline_file = repo / "aria-kernel" / "closure-reachability-baseline.json"
+    baseline_file = repo.joinpath(*CLOSURE_BASELINE_RELPATH)
     report = scan_closure_reachability(repo, baseline_path=baseline_file)
     existing: dict[str, Any] = (
         json.loads(baseline_file.read_text(encoding="utf-8")) if baseline_file.exists() else {}
@@ -222,6 +224,7 @@ def write_baseline(repo_root: str | Path, *, owner: str, reason: str) -> dict[st
 
 
 __all__ = [
+    "CLOSURE_BASELINE_RELPATH",
     "ClosureSymbol",
     "ReachabilityReport",
     "closure_symbols_in_ledger",

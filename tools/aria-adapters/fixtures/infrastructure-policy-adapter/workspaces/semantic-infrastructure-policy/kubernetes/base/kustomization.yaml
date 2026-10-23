@@ -1,0 +1,3 @@
+# The base the overlays deploy.
+resources:
+  - deployment.yaml

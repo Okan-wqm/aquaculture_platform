@@ -39,17 +39,33 @@ WHAT THIS PINS.
         family is spelled inline or bound to a module-level name;
       - holds a regex anchored on a project family with a capture group,
         inline or as a module-level pattern it uses (plain or annotated
-        binding). This is decided by BEHAVIOUR, not spelling (SE-1-R2
-        appellate R5): a string literal counts when it compiles as a regex
-        with at least one group, captures the project directory ``<d>`` out
-        of a sample path of some project family (``apps/<d>/x``,
-        ``libs/<d>/x``, ``platform/libs/<d>/x``, ``web/modules/<d>/x``, ...,
-        derived from the owner's ``impact_graph._CONVENTIONAL_FAMILIES``),
-        and does NOT capture it out of the same path under a non-family head
-        (the anchor). ``^apps/([^/]+)/``, ``^apps/(?P<svc>[^/]+)/``,
-        ``^(apps|libs)/([^/]+)/``, ``^(?:apps|libs)/([^/]+)/`` and
-        ``^(?:platform/)?libs/([^/]+)/`` all count; ``^(\\w+)\\.ts$`` (no
-        family) and ``^apps/.*\\.spec\\.ts$`` (no capture) do not; or
+        binding). A string literal counts when it compiles as a regex
+        (``re.error`` is the only exception caught) with at least one group
+        and EITHER clause holds:
+          (a) BEHAVIOUR (SE-1-R2 appellate R5): it captures the project
+              directory ``<d>`` out of a sample path of some project family
+              (``apps/<d>/x``, ``libs/<d>/x``, ``platform/libs/<d>/x``,
+              ``web/modules/<d>/x``, ...) and does NOT capture it out of the
+              same path under a non-family head (the anchor). This covers
+              alternations, optional prefixes and named groups:
+              ``^apps/(?P<svc>[^/]+)/``, ``^(apps|libs)/([^/]+)/``,
+              ``^(?:apps|libs)/([^/]+)/``, ``^(?:platform/)?libs/([^/]+)/``;
+          (b) SPELLING (SE-1-R3 appellate R6): after an optional ``^``, it
+              begins with a project family or family parent (``apps``,
+              ``libs``, ``platform``, ``platform/libs``, ``web``,
+              ``web/modules``), then ``/``, then a capturing group (a ``(``
+              not followed by ``?``, or ``(?P<``): a group at the
+              project-directory position. This covers a capture that also
+              constrains the rest of the path, which (a)'s one sample tail
+              never matches: ``^apps/([^/]+)/src/``,
+              ``^apps/([\\w-]+)/.*\\.ts$``, ``^apps/([^/]+)$``,
+              ``^libs/([^/]+)/src/index\\.ts$``, ``^apps/([a-z-]+-service)/``.
+        Both clauses take the families from the owner's
+        ``impact_graph._CONVENTIONAL_FAMILIES`` (no second list).
+        ``^apps/([^/]+)/`` meets both. ``^(\\w+)\\.ts$`` and
+        ``^([^/]+)/([^/]+)/`` (no family), ``^apps/.*\\.spec\\.ts$`` (no
+        capture) and ``^apps/.*/(\\w+)\\.spec\\.ts$`` (a capture past the
+        project directory) meet neither; or
       - reads a ``project.json`` ``name`` — naming a project is the map
         builder's job (``impact_graph._declared_project_name``), and a second
         reader builds a second map.
@@ -65,6 +81,15 @@ WHAT THIS PINS.
     ``impact_graph.cached_service_analysis_order``, which checks the graph
     fingerprint against the workspace before trusting it. No other function
     reads the file, so no caller can be handed a stale map.
+
+NOT DETECTED. By design of an AST detector (SE-1-R2 appellate R5
+non-blocking list): slice strips, f-string regexes, aliased pathlib classes,
+``os.sep``, loops over segments, module-level lambdas and a bare ``split()``.
+Neither regex clause detects a content-constrained capture behind a
+non-capturing family alternation, such as
+``^(?:apps|libs)/([a-z-]+-service)/`` (SE-1-R3 appellate R6): (a)'s sample
+directory does not match ``-service``, and the spelling does not begin with
+a family.
 
 Holdouts tombstoned elsewhere (PLAN.md §2, row "Path → service/project key",
 item 3; SO-17): ``recursive_impact`` (whole module, incl. ``_project_for_path``)
@@ -111,14 +136,18 @@ _ATTRIBUTION_NAME = re.compile(r"^_?(service|project)s?_(for|of)_paths?$")
 _PROJECT_ROOT_PARENTS = tuple(parent for parent, _ in _CONVENTIONAL_FAMILIES)
 _PROJECT_FAMILIES = frozenset(parent.split("/")[0] for parent in _PROJECT_ROOT_PARENTS)
 
-# Sample paths the regex rule is decided on: a distinctive project directory
-# under every family parent and every leading family segment, and the same
-# directory under a head that is no family (the anchor check).
+_FAMILY_HEADS = tuple(sorted({*_PROJECT_ROOT_PARENTS, *_PROJECT_FAMILIES}))
+
+# Regex clause (a), behaviour: a distinctive project directory under every
+# family parent and every leading family segment, and the same directory
+# under a head that is no family (the anchor check).
 _PROBE_DIR = "zqprobedir"
-_FAMILY_SAMPLE_PATHS = tuple(
-    f"{parent}/{_PROBE_DIR}/x" for parent in sorted({*_PROJECT_ROOT_PARENTS, *_PROJECT_FAMILIES})
-)
+_FAMILY_SAMPLE_PATHS = tuple(f"{head}/{_PROBE_DIR}/x" for head in _FAMILY_HEADS)
 _NON_FAMILY_SAMPLE_PATH = f"zqnotafamily/{_PROBE_DIR}/x"
+
+# Regex clause (b), spelling: the family heads as a regex spells them before
+# the project directory.
+_FAMILY_SPELLING_PREFIXES = tuple(f"{head}/" for head in _FAMILY_HEADS)
 
 _DELETED_FROM_SERVICE_DIMENSION = ("service_for_path", "services_for_paths", "service_dimension")
 
@@ -346,8 +375,9 @@ def _family_capture_patterns(tree: ast.AST) -> frozenset[str]:
 
 @functools.lru_cache(maxsize=None)
 def _captures_a_project_dir(literal: str) -> bool:
-    """``literal``, as a regex, captures the project directory of a path in a
-    project family and does not capture it under a non-family head."""
+    """``literal`` compiles as a regex with at least one group, and its
+    capture is the project directory of a family path by clause (a) or (b)
+    (module docstring)."""
     # Most literals probed here are prose, not regexes; ``re`` warns about
     # the future meaning of some of them (``[[`` "possible nested set"),
     # which says nothing about whether they capture a project directory.
@@ -359,12 +389,33 @@ def _captures_a_project_dir(literal: str) -> bool:
             return False
     if pattern.groups == 0:
         return False
+    return _captures_it_from_a_family_sample(pattern) or _spells_a_capture_after_a_family(literal)
+
+
+def _captures_it_from_a_family_sample(pattern: re.Pattern[str]) -> bool:
+    """Clause (a), behaviour: ``pattern`` captures the project directory of a
+    sample path in a project family and does not capture it under a
+    non-family head."""
 
     def captures(path: str) -> bool:
         match = pattern.search(path)
         return match is not None and _PROBE_DIR in match.groups()
 
     return any(captures(path) for path in _FAMILY_SAMPLE_PATHS) and not captures(_NON_FAMILY_SAMPLE_PATH)
+
+
+def _spells_a_capture_after_a_family(literal: str) -> bool:
+    """Clause (b), spelling: after an optional ``^``, ``literal`` begins with
+    a family head and ``/``, then a capturing group (``(`` not followed by
+    ``?``, or ``(?P<``), so its group sits at the project-directory position
+    whatever it requires of the rest of the path."""
+    spelling = literal.removeprefix("^")
+    return any(
+        rest.startswith("(") and (not rest.startswith("(?") or rest.startswith("(?P<"))
+        for rest in (
+            spelling[len(prefix):] for prefix in _FAMILY_SPELLING_PREFIXES if spelling.startswith(prefix)
+        )
+    )
 
 
 def _is_family_capture(node: ast.AST) -> bool:

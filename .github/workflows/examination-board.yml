@@ -42,6 +42,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # A kernel lane is a whole clone (the kernel refuses a shallow one;
+          # tests/invariants/test_kernel_lanes_check_out_full_history.py).
+          fetch-depth: 0
           persist-credentials: false
 
       - uses: ./.github/actions/setup-aria-kernel

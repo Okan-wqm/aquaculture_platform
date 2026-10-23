@@ -470,6 +470,39 @@ def _enclosed(expression: str) -> bool:
     return True
 
 
+class UnclosedExpression(ValueError):
+    """A ``${{`` that no ``}}`` outside a string literal closes: GitHub refuses the workflow that holds it."""
+
+
+def expression_bodies(text: str) -> list[str]:
+    """The body of each ``${{ }}`` block of the scalar ``text``, split where GitHub splits it.
+
+    THE ONE reader of "where a ``${{ }}`` block ends" (B0 corrective round 4,
+    R4-1): the Board job guard reads every expression through it, and
+    :func:`_condition_form` asks it whether an ``if:`` is one block. GitHub's
+    template reader opens a block at ``${{``, toggles a string literal at
+    each ``'`` (``''`` escapes a quote and toggles twice), and closes the
+    block only at a ``}}`` outside a literal — so ``${{ format('}}', x) }}``
+    is ONE block, not ``format('`` followed by text.
+
+    Raises :class:`UnclosedExpression` for a ``${{`` that never closes; a
+    caller fails closed rather than reading guessed text.
+    """
+    bodies: list[str] = []
+    start = text.find("${{")
+    while start != -1:
+        index, quoted = start + 3, False
+        while quoted or not text.startswith("}}", index):
+            if index >= len(text):
+                raise UnclosedExpression(f"${{{{ at offset {start} is never closed")
+            if text[index] == "'":
+                quoted = not quoted
+            index += 1
+        bodies.append(text[start + 3:index])
+        start = text.find("${{", index + 2)
+    return bodies
+
+
 def _condition_form(text: str) -> str:
     """The comparable form of a condition: no ``${{ }}`` wrapper, no whitespace outside string literals,
     no parentheses around the whole.
@@ -1066,12 +1099,14 @@ __all__ = [
     "UPLOAD_ARTIFACT_ACTION",
     "WORKFLOW_CONTRACTS",
     "AuditedWorkflowExclusion",
+    "UnclosedExpression",
     "WorkflowContract",
     "WorkflowContractVerdict",
     "WorkflowJobContract",
     "WorkflowRegistryVerdict",
     "condition_requires",
     "discover_aria_workflows",
+    "expression_bodies",
     "generated_workflow_inventory",
     "verify_workflow_contract",
     "verify_workflow_registry",

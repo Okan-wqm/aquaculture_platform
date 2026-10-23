@@ -55,8 +55,11 @@ Over that shape, the rules that judge its values:
   ``board_secrets_reached`` (round 3, R3-2): its literal name, or every Board
   secret for any dynamic access (``secrets[...]``, ``toJSON(secrets)``). It
   reads the workflow's env and every position of the job, and the
-  secrets-stay check below; and the workflow's ``defaults.run`` sets no shell
-  or working directory for the key step;
+  secrets-stay check below, each ``${{ }}`` block split where GitHub splits
+  it — at a ``}}`` outside a string literal — by
+  ``workflow_contracts.expression_bodies`` (round 4, R4-1), and a ``${{``
+  that never closes is refused; and the workflow's ``defaults.run`` sets no
+  shell or working directory for the key step;
 * the workflow that holds it runs no pull-request code (no ``pull_request``,
   ``pull_request_target`` or ``merge_group`` trigger);
 * no workflow-level ``env`` reaches a Board secret, and no job other than a
@@ -92,7 +95,7 @@ import yaml  # type: ignore[import-untyped]
 from aria_kernel.examination_board import VAULT_DATA_KEY_ENV, VAULT_REPOSITORY
 from aria_kernel.operator_approval import load_operators_policy
 from aria_kernel.workflow_contract_registry import declared_token_permissions
-from aria_kernel.workflow_contracts import condition_requires
+from aria_kernel.workflow_contracts import UnclosedExpression, condition_requires, expression_bodies
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _WORKFLOWS = _REPO_ROOT / ".github" / "workflows"
@@ -130,7 +133,6 @@ _BOARD_SECRET = re.compile(r"\bsecrets\s*\.\s*(ARIA_BOARD_[A-Za-z0-9_]*)", re.IG
 # The secrets context reached other than by a literal name: `secrets[...]`,
 # `toJSON(secrets)`, a bare `secrets` — any of them can hand over a Board secret.
 _DYNAMIC_SECRETS = re.compile(r"\bsecrets\b(?!\s*\.\s*[A-Za-z_])", re.IGNORECASE)
-_EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
 VAULT_DEPLOY_KEY = "ARIA_BOARD_VAULT_DEPLOY_KEY"
 # The aria-board environment's secrets (board/SETUP.md, 2026-10-21).
 BOARD_SECRETS = frozenset({"ARIA_BOARD_SIGNING_KEY", VAULT_DEPLOY_KEY, VAULT_DATA_KEY_ENV})
@@ -276,15 +278,27 @@ def _kernel_violations(workflow: dict[str, Any], job: dict[str, Any]) -> list[st
     return violations
 
 
-def _expressions(value: Any, path: tuple[Any, ...] = ()) -> list[tuple[tuple[Any, ...], str]]:
-    """Every expression in ``value``, with where it sits: each ``${{ }}`` body, and every ``if:`` whole."""
+def _expressions(value: Any, path: tuple[Any, ...] = ()) -> list[tuple[tuple[Any, ...], str | None]]:
+    """Every expression in ``value`` at every position, with where it sits.
+
+    Each ``${{ }}`` block's body, as ``workflow_contracts.expression_bodies``
+    (the one reader of where a block ends, B0 corrective round 4, R4-1)
+    splits it — GitHub ends a block only at a ``}}`` outside a string
+    literal — and every ``if:`` whole, which is an expression without
+    ``${{``. A scalar whose ``${{`` never closes yields ``None`` in place of
+    its bodies: GitHub refuses that workflow, and the guard refuses it too
+    rather than read guessed text.
+    """
     if isinstance(value, dict):
         return [found for key, item in value.items() for found in _expressions(item, (*path, key))]
     if isinstance(value, list):
         return [found for index, item in enumerate(value) for found in _expressions(item, (*path, index))]
     if not isinstance(value, str):
         return []
-    found = [(path, body) for body in _EXPRESSION.findall(value)]
+    try:
+        found: list[tuple[tuple[Any, ...], str | None]] = [(path, body) for body in expression_bodies(value)]
+    except UnclosedExpression:
+        found = [(path, None)]
     return [(path, value), *found] if path and path[-1] == "if" else found
 
 
@@ -350,9 +364,13 @@ def _secret_violations(workflow: dict[str, Any], job: dict[str, Any]) -> list[st
     found = [(("env", *path), body, frozenset()) for path, body in _expressions(workflow.get("env") or {})]
     found += [(path, body, _secret_allowed_at(job, path)) for path, body in _expressions(job)]
     for path, body, allowed in found:
+        where = "/".join(map(str, path))
+        if body is None:
+            violations.append(f"an unclosed ${{{{ at {where}")
+            continue
         beyond = board_secrets_reached(body) - allowed
         if beyond:
-            violations.append(f"{', '.join(sorted(beyond))} reached at {'/'.join(map(str, path))}")
+            violations.append(f"{', '.join(sorted(beyond))} reached at {where}")
     return violations
 
 
@@ -708,7 +726,8 @@ def board_secret_leaks(workflows: dict[str, dict[str, Any]]) -> list[str]:
     """Each workflow env that reaches a Board secret, and each other job that names one or the Board environment."""
     leaks: list[str] = []
     for name, workflow in workflows.items():
-        if any(board_secrets_reached(body) for _path, body in _expressions(workflow.get("env") or {})):
+        if any(body is None or board_secrets_reached(body)
+               for _path, body in _expressions(workflow.get("env") or {})):
             leaks.append(f"{name}:env")
         for job_id, job in (workflow.get("jobs") or {}).items():
             if not isinstance(job, dict) or is_board_job(job):
@@ -793,6 +812,65 @@ class EveryJobGitHubGivesTheBoardEnvironmentIsGuardedTests(unittest.TestCase):
                                            "steps": [{"run": 'echo "${{ toJSON(secrets) }}" | base64'}]}
                 self.assertIn("dump", board_violations(mutated), f"{name} passed the guard")
                 self.assertEqual(sorted(board_violations(mutated)), ["dump"], "the real Board job keeps the guard")
+
+
+# B0 corrective round 4, R4-1 (security P3 and P_IL, evidence p02, appellate
+# A1-A3): GitHub's template reader ends a ``${{`` block at the first ``}}``
+# OUTSIDE a single-quoted literal; a reader that ends it at the first ``}}``
+# reads ``format('`` and never sees the Board secret after the quoted braces.
+_HIDDEN_EVERY_SECRET = "${{ format('}}{0}', toJSON(secrets)) }}"
+_QUOTED_BRACES_HIDE_A_SECRET: dict[str, Callable[[dict[str, Any]], None]] = {
+    # security P3
+    "step_name_bit_oracle": _before_key({
+        "name": "${{ format('}}{0}', startsWith(secrets.ARIA_BOARD_SIGNING_KEY, 'LS0t')) }}",
+        "uses": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+        "with": {"persist-credentials": False, "path": "again"}}),
+    "key_env_toJSON_hidden": _key_env(ARIA_BOARD_SIGNING_KEY=_HIDDEN_EVERY_SECRET),
+    "deploy_key_to_this_checkout_hidden": _checkout_with(
+        **{"ssh-key": "${{ format('}}{0}', secrets.ARIA_BOARD_VAULT_DEPLOY_KEY) }}"}),
+    # evidence p02
+    "checkout_step_name": _step_at(0, name=_HIDDEN_EVERY_SECRET),
+    "checkout_path": _checkout_with(path=_HIDDEN_EVERY_SECRET),
+    "setup_python_version": _step_at(1, **{"with": {"python-version": _HIDDEN_EVERY_SECRET}}),
+    "install_step_name": _step_at(2, name=_HIDDEN_EVERY_SECRET),
+    "key_step_env_carries_the_deploy_key": _key_env(
+        ARIA_BOARD_SIGNING_KEY="${{ format('}}', secrets.ARIA_BOARD_VAULT_DEPLOY_KEY) }}"),
+}
+
+
+class ExpressionsAreSplitAsGitHubSplitsThemTests(unittest.TestCase):
+    """B0 corrective round 4, R4-1: the guard reads each ``${{ }}`` block where GitHub ends it."""
+
+    def setUp(self) -> None:
+        self.workflow = _workflows()[_BOARD_WORKFLOW]
+        self.assertEqual(board_violations(self.workflow), {}, "the real Board workflow keeps the guard")
+
+    def test_a_block_closes_only_at_braces_outside_a_literal(self) -> None:
+        self.assertEqual(expression_bodies("${{ format('}}{0}', secrets.X) }}"), [" format('}}{0}', secrets.X) "])
+        self.assertEqual(expression_bodies("a ${{ 'it''s }}' }} b ${{ c }}"), [" 'it''s }}' ", " c "])
+        self.assertEqual(expression_bodies("no expression }}"), [])
+
+    def test_an_unclosed_block_is_refused_by_the_reader(self) -> None:
+        for text in ("${{ secrets.X", "${{ format('}}') ", "${{ a }} ${{ b"):
+            with self.subTest(text=text), self.assertRaises(UnclosedExpression):
+                expression_bodies(text)
+
+    def test_an_unclosed_block_in_a_board_job_is_a_violation(self) -> None:
+        mutated = copy.deepcopy(self.workflow)
+        _step_at(0, name="${{ toJSON(secrets)")(mutated)
+        self.assertTrue(board_violations(mutated), "an unclosed ${{ passed the guard")
+
+    def test_each_secret_behind_quoted_braces_is_refused(self) -> None:
+        for name, mutate in _QUOTED_BRACES_HIDE_A_SECRET.items():
+            with self.subTest(mutation=name):
+                mutated = copy.deepcopy(self.workflow)
+                mutate(mutated)
+                refused = board_violations(mutated).get("vault-custody", [])
+                self.assertTrue([v for v in refused if v.startswith("secrets:")], f"{name} passed: {refused}")
+
+    def test_the_guard_keeps_no_expression_reader_of_its_own(self) -> None:
+        source = Path(__file__).read_text(encoding="utf-8")
+        self.assertNotIn("\\$" + "\\{\\{", source, "a second reader of where a ${{ }} block ends")
 
 
 if __name__ == "__main__":

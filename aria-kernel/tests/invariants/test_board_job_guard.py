@@ -58,7 +58,9 @@ Over that shape, the rules that judge its values:
   key step's env entry named for it, and the vault checkout's ``ssh-key`` (the
   deploy key alone). Which Board secrets an expression reaches has one reader,
   ``board_secrets_reached`` (round 3, R3-2): its literal name, or every Board
-  secret for any dynamic access (``secrets[...]``, ``toJSON(secrets)``). It
+  secret for any dynamic access (``secrets[...]``, ``toJSON(secrets)``), read
+  the same way in the ``env`` context (round 5, R5-1), which holds a Board
+  secret wherever the key step's env put it — its name included. It
   reads the workflow's env and every position of the job, and the
   secrets-stay check below, each ``${{ }}`` block split where GitHub splits
   it — at a ``}}`` outside a string literal — by
@@ -121,11 +123,13 @@ _BOARD_INSTALL = re.compile(r"python3 -I -m pip install --require-hashes --only-
                             r" -r \.github/board/[a-z0-9][a-z0-9-]*-requirements\.txt")
 _PR_TRIGGERS = ("pull_request", "pull_request_target", "merge_group")
 _BOARD_ENTRY = re.compile(r"^python3 -I aria-kernel/aria_kernel/examination_board\.py [a-z-]+$")
-# A Board secret, as an expression names it (property names are case-insensitive).
-_BOARD_SECRET = re.compile(r"\bsecrets\s*\.\s*(ARIA_BOARD_[A-Za-z0-9_]*)", re.IGNORECASE)
-# The secrets context reached other than by a literal name: `secrets[...]`,
-# `toJSON(secrets)`, a bare `secrets` — any of them can hand over a Board secret.
-_DYNAMIC_SECRETS = re.compile(r"\bsecrets\b(?!\s*\.\s*[A-Za-z_])", re.IGNORECASE)
+# A Board secret, as an expression names it (property names are case-insensitive)
+# in the two contexts that hold it: `secrets`, and `env` (R5-1), which holds it
+# once the key step's env entry puts it there.
+_BOARD_SECRET = re.compile(r"\b(?:secrets|env)\s*\.\s*(ARIA_BOARD_[A-Za-z0-9_]*)", re.IGNORECASE)
+# Either context reached other than by a literal name: `secrets[...]`,
+# `toJSON(env)`, a bare `secrets` or `env` — any of them can hand over a Board secret.
+_DYNAMIC_SECRETS = re.compile(r"\b(?:secrets|env)\b(?!\s*\.\s*[A-Za-z_])", re.IGNORECASE)
 VAULT_DEPLOY_KEY = "ARIA_BOARD_VAULT_DEPLOY_KEY"
 # The aria-board environment's secrets (board/SETUP.md, 2026-10-21).
 BOARD_SECRETS = frozenset({"ARIA_BOARD_SIGNING_KEY", VAULT_DEPLOY_KEY, VAULT_DATA_KEY_ENV})
@@ -266,6 +270,15 @@ def board_secrets_reached(expression: str) -> frozenset[str]:
     other access to the secrets context — ``secrets['...']``,
     ``toJSON(secrets)``, a bare ``secrets`` — can hand over any of them, so it
     reaches every Board secret.
+
+    Round 5, R5-1: the ``env`` context holds a Board secret too, once the key
+    step's env entry puts it there — the runner merges a step's env into the
+    context before it evaluates that step's name, and a value derived from a
+    secret (``startsWith(...)``) is not masked. So ``env`` is read exactly as
+    ``secrets`` is: a literal ``env.<name>`` under the ``ARIA_BOARD_`` prefix
+    reaches that name upper-cased, and ``env[...]``, ``toJSON(env)`` or a bare
+    ``env`` reaches every Board secret. Where a position may carry a secret
+    stays :func:`_secret_allowed_at`'s alone.
     """
     if _DYNAMIC_SECRETS.search(expression):
         return BOARD_SECRETS
@@ -570,6 +583,12 @@ _MUTATIONS: dict[str, Callable[[dict[str, Any]], None]] = {
     "job_starts_a_service": lambda w: _custody_job(w).update({"services": {"db": {"image": "postgres:16"}}}),
     "job_env_without_a_secret": lambda w: _custody_job(w).update({"env": {"BASH_ENV": "tools/aria-board/env.sh"}}),
     "workflow_env_without_a_secret": _set(("env",), {"LD_PRELOAD": "tools/aria-board/hook.so"}),
+    # B0 corrective round 5, R5-1 (security P3): the runner evaluates a
+    # step's name after it merges the step's env into the env context, so the
+    # key step's name reads the Board secrets its env holds; a derived value
+    # is not masked, and the timeline shows it to anyone with actions:read.
+    "key_name_env_bit_oracle": _custody_step(name="${{ startsWith(env.ARIA_BOARD_VAULT_DATA_KEY, 'A') }}"),
+    "key_name_toJSON_env": _custody_step(name="${{ toJSON(env) }}"),
 }
 
 
@@ -770,6 +789,30 @@ class BoardSecretsHaveOneReaderTests(unittest.TestCase):
                           for node in ast.walk(function)
                           if isinstance(node, ast.Name) and node.id in ("_BOARD_SECRET", "_DYNAMIC_SECRETS")})
         self.assertEqual(readers, ["board_secrets_reached"])
+
+    def test_the_env_context_reaches_the_board_secrets_it_holds(self) -> None:
+        # B0 corrective round 5, R5-1: the key step's env puts the Board
+        # secrets into the env context, so env reaches them as secrets does.
+        cases = {
+            "env.aria_board_signing_key": frozenset({"ARIA_BOARD_SIGNING_KEY"}),
+            "startsWith(env.ARIA_BOARD_VAULT_DATA_KEY, 'A')": frozenset({VAULT_DATA_KEY_ENV}),
+            "env['X']": BOARD_SECRETS,
+            "toJSON(env)": BOARD_SECRETS,
+            "env": BOARD_SECRETS,
+            "env.PATH": frozenset(),
+        }
+        for expression, reached in cases.items():
+            with self.subTest(expression=expression):
+                self.assertEqual(board_secrets_reached(expression), reached)
+
+    def test_a_key_step_name_that_reads_the_env_is_refused_under_secrets(self) -> None:
+        for name in ("key_name_env_bit_oracle", "key_name_toJSON_env"):
+            with self.subTest(mutation=name):
+                mutated = copy.deepcopy(self.workflow)
+                _MUTATIONS[name](mutated)
+                refused = board_violations(mutated).get("vault-custody", [])
+                self.assertTrue([v for v in refused if v.startswith("secrets:")], f"{name} passed: {refused}")
+        self.assertEqual(board_violations(self.workflow), {})
 
 
 

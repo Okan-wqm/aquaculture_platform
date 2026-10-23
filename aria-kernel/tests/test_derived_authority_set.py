@@ -645,14 +645,14 @@ class ByPathProgramsRunIsolated(unittest.TestCase):
             try:
                 composed = subprocess.run(
                     [sys.executable, "-I", "-c",
-                     "import json, sys\nsys.path.insert(0, sys.argv[1])\n"
+                     "import sys\nsys.path.insert(0, sys.argv[1])\n"
                      "from aria_kernel.validation import observation_child_argv\n"
-                     "print(json.dumps(observation_child_argv(sys.executable, receipt_fd=int(sys.argv[2]),"
+                     "sys.stdout.write(chr(0).join(observation_child_argv(sys.executable, receipt_fd=int(sys.argv[2]),"
                      " byte_limit=1048576, path_limit=4, receipt_limit=4096, modules=['test_b1_r4'],"
                      " time_budget=5.0, unittest_arguments=['-v', 'test_b1_r4'])))",
                      str(kernel), str(write_end)],
                     capture_output=True, text=True, check=True).stdout
-                argv = json.loads(composed)
+                argv = composed.split("\0")
                 self.assertEqual(argv[2], str(kernel / "aria_kernel" / "_validation_unittest_child.py"))
                 completed = subprocess.run(argv, cwd=work, pass_fds=(write_end,), capture_output=True, text=True,
                                            env={"PATH": os.environ["PATH"], "PYTHONDONTWRITEBYTECODE": "1"})
@@ -1028,10 +1028,11 @@ class TheRealizedDiffOverTheRealKernel(unittest.TestCase):
         # 1; it alone decides 18 of the 23 POLICY_KEYS, the circuit breaker
         # among them.
         rel = f"{_KERNEL}data/genesis_policy_default.json"
-        policy = json.loads((self.repo / rel).read_text(encoding="utf-8"))
-        policy["circuit_breaker"]["failure_threshold"] = 1000000
+        policy = (self.repo / rel).read_text(encoding="utf-8")
+        loosened = policy.replace('"failure_threshold": 3', '"failure_threshold": 1000000', 1)
+        self.assertNotEqual(loosened, policy)
         violations = self_improvement.realized_diff_authority_violations(
-            self.repo, base=self.base, head=self._head({rel: json.dumps(policy, indent=2) + "\n"}))
+            self.repo, base=self.base, head=self._head({rel: loosened}))
         self.assertEqual(violations, [f"authority_surface:{rel}"])
 
     def test_a_module_added_beside_a_member_under_its_name_is_refused(self) -> None:

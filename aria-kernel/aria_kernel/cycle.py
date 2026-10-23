@@ -2470,8 +2470,9 @@ def _service_closure_contract(
     ``pressures`` arrive already attributed to THIS project by the caller,
     through `impact_graph.project_for_path` — the same longest-root-prefix
     rule that produced the nx project names this function is handed. The
-    first version asked `service_dimension.service_for_path` instead: that
-    vocabulary emits ``shared:<lib>`` / ``web:<app>`` / ``None`` and can never
+    first version asked the string-vocabulary twin
+    (``service_dimension.service_for_path``, deleted in SE-1) instead: that
+    vocabulary emitted ``shared:<lib>`` / ``web:<app>`` / ``None`` and could never
     produce 54 of this repository's 71 nx project names, so for those 54 the
     seeder wrote a governance row claiming no derivable evidence about the
     very paths that had just selected the project. Two path -> project
@@ -2627,8 +2628,8 @@ def _phase_service_mission_seed(context: PhaseContext) -> dict[str, Any]:
     # Attribution and centrality come out of ONE read of ONE cache on purpose:
     # a second path->project reader can disagree with the reader that chose
     # the targets, and that disagreement is not academic — the first version
-    # of this phase attributed with `service_dimension.service_for_path`,
-    # which cannot name 54 of this repository's 71 nx projects, so it wrote
+    # of this phase attributed with the string-vocabulary twin (deleted in
+    # SE-1), which could not name 54 of this repository's 71 nx projects, so it wrote
     # "no derivable evidence" rows about the exact paths that had selected
     # those projects.
     project_roots: dict[str, str] = {}

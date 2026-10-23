@@ -19,12 +19,13 @@ from unittest.mock import patch
 
 from aria_kernel.feedback_store import record_findings_for_run
 from aria_kernel.genesis_policy import OVERRIDE_RELPATH
+from aria_kernel.impact_graph import cached_service_analysis_order, project_map
 from aria_kernel.ledger import load_jsonl
 from aria_kernel.service_agent_targeting import (
     propose_service_auditor_requests,
     service_auditor_agent_name,
 )
-from aria_kernel.tool_registry import ensure_tools_dir
+from aria_kernel.tool_registry import ensure_tools_binding
 
 
 class ServiceAuditorAgentNameTests(unittest.TestCase):
@@ -34,16 +35,17 @@ class ServiceAuditorAgentNameTests(unittest.TestCase):
             "aria-svc-farm-service-auditor",
         )
 
-    def test_namespace_colon_collapses_to_filename_safe_hyphen(self) -> None:
-        # shared:/web: dimensions must still land on a legal
+    def test_scoped_nx_name_collapses_to_filename_safe_hyphen(self) -> None:
+        # Dimension values are nx project names (SE-1); a scoped name's
+        # ``@`` and ``/`` must still land on a legal
         # .claude/agents/<name>.md filename.
         self.assertEqual(
-            service_auditor_agent_name("shared:backend-common"),
-            "aria-svc-shared-backend-common-auditor",
+            service_auditor_agent_name("@aquaculture/farm-shared"),
+            "aria-svc-aquaculture-farm-shared-auditor",
         )
         self.assertEqual(
-            service_auditor_agent_name("web:farm-module"),
-            "aria-svc-web-farm-module-auditor",
+            service_auditor_agent_name("platform-event-bus"),
+            "aria-svc-platform-event-bus-auditor",
         )
 
 
@@ -51,9 +53,16 @@ class ServiceAuditorTargetingTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
-        self.tools_dir = ensure_tools_dir(root / "aria-tools")
         self.repo = root / "repo"
-        self.repo.mkdir()
+        # SE-1 — a finding's service is the nx project `project_for_path`
+        # names over the workspace map, so every service the tests seed
+        # under is a project in the fixture workspace, and the store is
+        # bound to that workspace (round 2: a store that declares none
+        # cannot attribute, and refuses the mint by name).
+        for service in ("farm-service", "auth-service", "hr-service"):
+            (self.repo / "apps" / service / "src").mkdir(parents=True)
+        self.tools_dir = ensure_tools_binding(root / "aria-tools", workspace_root=self.repo)
+        cached_service_analysis_order(workspace_root=self.repo, base_dir=self.tools_dir)
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
@@ -82,7 +91,7 @@ class ServiceAuditorTargetingTests(unittest.TestCase):
                         }
                     ],
                 },
-                base_dir=self.tools_dir,
+                project_roots=project_map(base_dir=self.tools_dir), base_dir=self.tools_dir,
             )
 
     def _requests(self) -> list[dict]:

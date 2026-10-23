@@ -1057,3 +1057,26 @@ authoritative is not installed on the droplet.
 - Close when exactly one owner judges container truth for this class (the supervisor installed and
   read through its published verdict with a freshness check, or its container judgement retired in
   favour of the root probe), an invariant names that owner, and the alert rules read only it.
+
+## ARIA-MEDIUM-791
+
+Three live path -> service attributions outside impact_graph.project_for_path remain until the
+F0.9b tombstones: recursive_impact.\_project_for_path, impact.\_affected_projects_hint and
+security.assess.\_asset_of each map a path to a project by a layout convention of their own, so
+their names can disagree with the one service key
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-18.
+- Raised by: SE-1 round 2 (review-r1 BLOCKER-2). The structural single-owner invariant names exactly
+  these three in its F0.9b allowance; the five other live second owners it found are folded into
+  the owner in that round.
+- Plan item(s): F0.9b.
+- Evidence:
+  - `aria-kernel/aria_kernel/recursive_impact.py:69`
+  - `aria-kernel/aria_kernel/impact.py:117-129`
+  - `aria-kernel/aria_kernel/security/assess.py:43-48`
+  - `aria-kernel/tests/invariants/test_service_key_single_owner.py:72-76`
+- Rule: service-expertise PLAN.md §2 row 'Path -> service/project key' item 3 and SO-17:
+  recursive_impact, impact.plan_impact and security/profile.py \_detect_services are tombstoned in
+  PLAN-v2 F0.9b; \_asset_of is the per-path twin of \_detect_services and goes with it.
+- Failure scenario: security assessment files a finding on `apps/<dir>` as `service:<dir>` while
+  the finding dimension names the same project by its project.json name, so the two never join.

@@ -122,7 +122,7 @@ class TwinTestSurface(unittest.TestCase):
 
     def test_the_inferred_target_and_the_specs_are_on_every_project(self) -> None:
         projects = build_twin_map(workspace_root=self.repo, base_dir=self.tools)["projects"]
-        hr = projects["web-hr-module"]
+        hr = projects["hr-module"]
         self.assertEqual(hr["test_targets"], [
             {"name": "test", "source": "package.json", "command": "vitest run"},
             {"name": "test:watch", "source": "package.json", "command": "vitest"},
@@ -221,7 +221,7 @@ class TwinTestSurface(unittest.TestCase):
     def test_an_nx_included_scripts_list_narrows_the_inferred_targets(self) -> None:
         narrowed = dict(_PACKAGE_JSON, nx={"includedScripts": ["test"]})
         _commit(self.repo, {"web/modules/hr-module/package.json": json.dumps(narrowed)}, "narrow")
-        hr = build_twin_map(workspace_root=self.repo, base_dir=self.tools)["projects"]["web-hr-module"]
+        hr = build_twin_map(workspace_root=self.repo, base_dir=self.tools)["projects"]["hr-module"]
         self.assertEqual([target["name"] for target in hr["test_targets"]], ["test"])
 
     def test_a_refresh_equals_a_rebuild_after_a_new_spec_and_a_new_script(self) -> None:
@@ -236,7 +236,7 @@ class TwinTestSurface(unittest.TestCase):
         self.assertEqual(incremental["refresh"]["mode"], "incremental")
         rebuild = build_twin_map(workspace_root=self.repo, base_dir=self.clean_tools)
         self.assertEqual(incremental["projects"], rebuild["projects"])
-        self.assertIn("test:integration", [t["name"] for t in rebuild["projects"]["web-hr-module"]["test_targets"]])
+        self.assertIn("test:integration", [t["name"] for t in rebuild["projects"]["hr-module"]["test_targets"]])
 
     def test_a_map_written_before_the_test_surface_is_rebuilt_whole(self) -> None:
         build_twin_map(workspace_root=self.repo, base_dir=self.tools)
@@ -249,7 +249,7 @@ class TwinTestSurface(unittest.TestCase):
         path.write_text(json.dumps(legacy), encoding="utf-8")
         twin = refresh_twin_map(workspace_root=self.repo, base_dir=self.tools)
         self.assertEqual(twin["refresh"], {"mode": "full", "reason": "schema_changed"})
-        self.assertIn("test_targets", twin["projects"]["web-hr-module"])
+        self.assertIn("test_targets", twin["projects"]["hr-module"])
 
 
 class RustReaderAnswerTests(unittest.TestCase):

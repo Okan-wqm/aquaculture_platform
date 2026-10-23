@@ -19,6 +19,7 @@ from tests._helpers.mint_patch import patched_mint
 
 from aria_kernel import cycle as cycle_mod
 from aria_kernel import mission as mission_module
+from aria_kernel.impact_graph import project_map
 from aria_kernel.ledger import append_declared_jsonl, load_jsonl
 from aria_kernel.mission import (
     MISSION_SCHEMA,
@@ -30,7 +31,7 @@ from aria_kernel.mission import (
     transition_mission,
 )
 from aria_kernel.mission_scheduler import SOURCE_RANK
-from aria_kernel.tool_registry import ensure_tools_dir, utc_now
+from aria_kernel.tool_registry import ensure_tools_binding, ensure_tools_dir, utc_now
 
 
 def _legacy_service_mission(root: Path, project: str) -> str:
@@ -374,18 +375,17 @@ class ServiceMissionSeedTest(unittest.TestCase):
 
         `targets` are nx project names — `impact_graph._project_for_path` over
         the graph's `project_roots` produced them. The evidence behind them
-        was then attributed with `service_dimension.service_for_path`, which
-        emits `shared:<lib>` / `web:<app>` / None and can therefore never
-        return `backend-common`. Measured against this repository, 54 of 71
-        projects had an nx name that vocabulary cannot produce, so the seeder
-        wrote a governance row claiming "no derivable evidence" about the very
-        path that had put the project in `targets`.
+        was then attributed with a string-vocabulary twin (deleted in SE-1),
+        which emitted `shared:<lib>` / `web:<app>` / None and could therefore
+        never return `backend-common`. Measured against this repository, 54
+        of 71 projects had an nx name that vocabulary cannot produce, so the
+        seeder wrote a governance row claiming "no derivable evidence" about
+        the very path that had put the project in `targets`.
 
-        This pin bites on the vocabulary, not on the string: revert the
-        attribution and `backend-common` moves from `seeded` to `refused`.
+        This pin bites on the vocabulary, not on the string: attribute the
+        evidence in any other vocabulary and `backend-common` moves from
+        `seeded` to `refused`.
         """
-        from aria_kernel.service_dimension import service_for_path
-
         exam = {
             "examination_order": [{"project": "backend-common", "changed_files": 1}],
             "per_service_pressures": [],
@@ -404,19 +404,16 @@ class ServiceMissionSeedTest(unittest.TestCase):
             missions["backend-common"]["wake_condition"],
             {"kind": "evidence", "key": f"changed_path:{changed}"},
         )
-        # WHY the pin bites: the vocabulary this replaced answers a different
-        # question and gives a different answer for this exact path.
-        self.assertNotEqual(service_for_path(changed), "backend-common")
 
     def test_a_finding_on_a_library_project_is_attributed_to_it(self) -> None:
         """Findings went through the same broken vocabulary as paths.
 
-        `services_for_finding_row` answers "which service DIMENSION does this
-        finding belong to" — the axis the findings list and agent routing use
-        — and for a library it answers `shared:backend-common`. The seeder was
-        asking a different question ("which nx project owns it") of that
-        answer. The paths still come from `finding_dimension_paths`, the E15-c
-        collector; only the attribution on top of them changed.
+        Before SE-1 `services_for_finding_row` answered in its own string
+        vocabulary and, for a library, said `shared:backend-common` — a name
+        no `examination_order` entry can carry. Since SE-1 the finding
+        dimension and the seeder speak one key: the row reader, the mint and
+        the seeder all attribute through `impact_graph.project_for_path`. The
+        paths still come from `finding_dimension_paths`, the E15-c collector.
         """
         from aria_kernel.feedback_store import record_findings_for_run
         from aria_kernel.service_dimension import services_for_finding_row
@@ -435,8 +432,10 @@ class ServiceMissionSeedTest(unittest.TestCase):
         }
         with TemporaryDirectory() as tmp:
             root = Path(tmp) / "aria-tools"
-            ensure_tools_dir(root)
             _workspace(tmp, *_CORE_ROOTS, "libs/backend-common")
+            # SE-1 round 2 — the store declares its workspace, so the mint
+            # can attribute (an unbound store refuses it by name).
+            ensure_tools_binding(root, workspace_root=Path(tmp))
             run = {
                 "tool_id": "backend-auditor",
                 "run_id": "run-1",
@@ -447,7 +446,7 @@ class ServiceMissionSeedTest(unittest.TestCase):
                     "path": "libs/backend-common/src/rls.service.ts",
                 }],
             }
-            record_findings_for_run(run, base_dir=root)
+            record_findings_for_run(run, project_roots=project_map(base_dir=root), base_dir=root)
             stored = load_jsonl(root / "findings.jsonl")[0]
             ctx = _context(tmp, exam, [])
             with patch.object(cycle_mod, "repo_hash", return_value="rh-1"):
@@ -456,6 +455,9 @@ class ServiceMissionSeedTest(unittest.TestCase):
                 s["project"]: fold_mission(mission_id=s["mission_id"], base_dir=root)
                 for s in result["seeded"]
             }
+            # The phase named its targets from the store's current map; the
+            # row reader, over that same map, files the finding under the same name.
+            dimension = services_for_finding_row(stored, project_map(base_dir=root))
 
         self.assertIn("backend-common", missions)
         self.assertEqual(result["seeded"][0]["contract_source"], "open_finding")
@@ -463,9 +465,7 @@ class ServiceMissionSeedTest(unittest.TestCase):
             missions["backend-common"]["wake_condition"],
             {"kind": "evidence", "key": "finding:F-bc-1"},
         )
-        # The dimension the old reader would have handed the seeder — a name
-        # no `examination_order` entry can ever carry.
-        self.assertEqual(services_for_finding_row(stored), ["shared:backend-common"])
+        self.assertEqual(dimension, ["backend-common"])
 
     def test_a_refusal_never_claims_evidence_it_did_not_attribute(self) -> None:
         """"No derivable evidence" is a measurement, so it needs a measurement.
@@ -553,7 +553,10 @@ class ServiceMissionSeedTest(unittest.TestCase):
 
         with TemporaryDirectory() as tmp:
             root = Path(tmp) / "aria-tools"
-            ensure_tools_dir(root)
+            _workspace(tmp, *_CORE_ROOTS)
+            # SE-1 round 2 — the store declares its workspace, so the mint
+            # can attribute (an unbound store refuses it by name).
+            ensure_tools_binding(root, workspace_root=Path(tmp))
             record_findings_for_run(
                 {
                     "tool_id": "auth-auditor",
@@ -567,9 +570,8 @@ class ServiceMissionSeedTest(unittest.TestCase):
                         }
                     ],
                 },
-                base_dir=root,
+                project_roots=project_map(base_dir=root), base_dir=root,
             )
-            _workspace(tmp, *_CORE_ROOTS)
             ctx = _context(tmp, {}, [])
             with patch.object(cycle_mod, "repo_hash", return_value="rh-1"):
                 result = cycle_mod._phase_service_mission_seed(ctx)

@@ -837,7 +837,7 @@ function sitesIn(sourceFile: ts.SourceFile, checker: ts.TypeChecker, file: strin
         kind = 'subject';
       }
       if (callee !== null && kind !== null) {
-        let argument = node.expression.arguments[0];
+        let argument: ts.Expression | undefined = node.expression.arguments[0];
         if (argument !== undefined && ts.isObjectLiteralExpression(argument)) {
           const key = callee.name === 'EventHandler' ? 'eventName' : 'topic';
           const property = argument.properties.find(

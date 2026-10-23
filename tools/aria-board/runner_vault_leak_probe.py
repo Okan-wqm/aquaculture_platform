@@ -41,10 +41,20 @@ EVERY gh CREDENTIAL, EACH ALONE (B0 corrective round 3, R3-4). gh prefers
 ``GH_TOKEN``, then ``GITHUB_TOKEN``, over its stored ``hosts.yml`` login, so
 one gh call in the job's environment asks only the first of them: a revoked
 token there would hide a stored login that reaches the vault. gh is asked once
-per credential, each its own source: ``gh_cli:stored`` (the job's environment
-without any gh token variable), and ``gh_cli:GH_TOKEN`` and
+per credential, each its own source: ``gh_cli:stored`` (no gh token variable;
+see below for where it looks), and ``gh_cli:GH_TOKEN`` and
 ``gh_cli:GITHUB_TOKEN`` (each when the job's environment sets it, with that
 token alone). Any of them reaching the vault is red.
+
+EVERY PLACE A STORED LOGIN LIVES (B0 corrective round 4, R4-3). The uid's
+stored gh login and git credential helper live under its passwd home, and a
+job's code can always reach them there; an env file's ``GH_CONFIG_DIR``,
+``XDG_CONFIG_HOME``, ``HOME`` or ``GIT_CONFIG_GLOBAL`` only moves where the
+tool looks, and ``GH_HOST`` moves gh to another host. So ``gh_cli:stored`` and
+``git_https:stored`` ask the passwd home's default place (``HOME`` from the
+passwd entry, none of those variables), each place the job's environment names
+is asked alone as ``<source>:stored:<VARIABLE>`` (its value never reported),
+and no gh source carries ``GH_HOST``.
 
 Exit status: 0 GREEN — every source ran and none reached the vault, the App
 key source included, and no data key is present; 1 RED — a source reached the
@@ -81,6 +91,7 @@ import base64
 import importlib.util
 import json
 import os
+import pwd
 import re
 import subprocess
 import sys
@@ -259,37 +270,96 @@ def _run(command: list[str], *, env: dict[str, str]) -> subprocess.CompletedProc
         return None
 
 
+def uid_home() -> str:
+    """The runner uid's home as its passwd entry names it (B0 corrective round 4, R4-3).
+
+    gh and git keep the uid's stored login under it by default, and a job's
+    code can always reach it there, whatever ``HOME`` the runner's env files
+    or the probe's own environment set; so the probe never takes it from an
+    environment.
+    """
+    return pwd.getpwuid(os.getuid()).pw_dir
+
+
+def job_named_locations(env: dict[str, str], locations: tuple[str, ...]) -> list[str]:
+    """The ``locations`` variables ``env`` sets: each a place, other than the default, a job may also keep a login.
+
+    ``HOME`` counts only when it is not the passwd home, the default place itself.
+    """
+    home = uid_home()
+    return [name for name in locations if env.get(name) and not (name == "HOME" and env[name] == home)]
+
+
+def stored_login_environment(env: dict[str, str], *, locations: tuple[str, ...], location: str | None = None,
+                             dropped: tuple[str, ...] = ()) -> dict[str, str]:
+    """``env`` made to ask a tool for the uid's stored login: at its default place, or at one job-named ``location``.
+
+    THE one rule for every stored-login source (B0 corrective round 4, R4-3):
+    none of ``locations`` (the variables that move where the tool reads its
+    login) and none of ``dropped`` stays, and ``HOME`` is the passwd home
+    (:func:`uid_home`); with ``location``, that one variable comes back with
+    ``env``'s value, so each place is asked alone and none hides another.
+    """
+    asked = {key: value for key, value in env.items() if key not in locations and key not in dropped}
+    asked["HOME"] = uid_home()
+    if location is not None:
+        asked[location] = env[location]
+    return asked
+
+
 # gh reads these before its hosts.yml login (GH_TOKEN, then GITHUB_TOKEN, for
 # github.com; the enterprise pair for a GH_HOST); any one present shadows it.
 _GH_TOKEN_VARIABLES = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN")
 # The tokens gh would use for github.com, each asked on its own.
 _GH_TOKEN_CREDENTIALS = ("GH_TOKEN", "GITHUB_TOKEN")
 GH_STORED_LOGIN = "stored"
+# Where gh reads its hosts.yml: GH_CONFIG_DIR, else $XDG_CONFIG_HOME/gh, else $HOME/.config/gh.
+_GH_LOGIN_LOCATIONS = ("GH_CONFIG_DIR", "XDG_CONFIG_HOME", "HOME")
+# GH_HOST sends every gh call to another host; each gh source asks github.com.
+_GH_HOST = "GH_HOST"
+# Where git reads the uid's global config, its credential helper included:
+# GIT_CONFIG_GLOBAL, else $HOME/.gitconfig and $XDG_CONFIG_HOME/git/config.
+_GIT_LOGIN_LOCATIONS = ("GIT_CONFIG_GLOBAL", "XDG_CONFIG_HOME", "HOME")
 
 
 class GhCliSource:
-    """One credential gh would use, asked alone: the uid's stored login (hosts.yml), or one token variable.
+    """One credential gh would use, asked alone: the uid's stored login (hosts.yml) at one place, or one token.
 
     B0 corrective round 3, R3-4. gh prefers GH_TOKEN, then GITHUB_TOKEN, over
     its stored login, so one gh call with every variable present asks only
     the first; a revoked or blind token would hide a stored login that
     reaches the vault. Each credential therefore runs in an environment
-    holding it and no other: ``stored`` without any of
-    :data:`_GH_TOKEN_VARIABLES`, a token with that one variable alone.
+    holding it and no other: a token with that one variable alone, the
+    stored login without any of :data:`_GH_TOKEN_VARIABLES`.
+
+    Round 4, R4-3: GH_CONFIG_DIR, XDG_CONFIG_HOME and HOME move where gh
+    reads hosts.yml, and GH_HOST moves every call to another host, so an env
+    file setting one hid the login under the uid's passwd home, which a job's
+    code can still use. ``stored`` therefore asks the passwd home's default
+    place (:func:`stored_login_environment`), each place the job's
+    environment names is asked alone as ``stored:<VARIABLE>`` (its value is
+    never reported), and no gh source carries GH_HOST.
     """
 
-    def __init__(self, *, env: dict[str, str], gh_cli: str = "gh", credential: str = GH_STORED_LOGIN) -> None:
-        if credential != GH_STORED_LOGIN and credential not in _GH_TOKEN_CREDENTIALS:
-            raise ValueError(credential)
-        self.gh_cli, self.name = gh_cli, f"gh_cli:{credential}"
-        self.env = {key: value for key, value in env.items() if key not in _GH_TOKEN_VARIABLES}
-        if credential != GH_STORED_LOGIN:
+    def __init__(self, *, env: dict[str, str], gh_cli: str = "gh", credential: str = GH_STORED_LOGIN,
+                 location: str | None = None) -> None:
+        self.gh_cli = gh_cli
+        if credential == GH_STORED_LOGIN and (location is None or location in _GH_LOGIN_LOCATIONS):
+            self.env = stored_login_environment(env, locations=_GH_LOGIN_LOCATIONS, location=location,
+                                                dropped=(*_GH_TOKEN_VARIABLES, _GH_HOST))
+            self.name = f"gh_cli:{credential}" + (f":{location}" if location is not None else "")
+        elif credential in _GH_TOKEN_CREDENTIALS and location is None:
+            self.env = {key: value for key, value in env.items() if key not in (*_GH_TOKEN_VARIABLES, _GH_HOST)}
             self.env[credential] = env[credential]
+            self.name = f"gh_cli:{credential}"
+        else:
+            raise ValueError(f"{credential}:{location}")
 
     @classmethod
     def every_credential(cls, *, env: dict[str, str], gh_cli: str = "gh") -> list["GhCliSource"]:
-        """A source per credential gh would use under ``env``: the stored login, and each token ``env`` sets."""
+        """A source per credential gh would use under ``env``: the stored login at each place, and each token."""
         return [cls(env=env, gh_cli=gh_cli),
+                *(cls(env=env, gh_cli=gh_cli, location=name) for name in job_named_locations(env, _GH_LOGIN_LOCATIONS)),
                 *(cls(env=env, gh_cli=gh_cli, credential=name) for name in _GH_TOKEN_CREDENTIALS if env.get(name))]
 
     def reach(self, repository: str) -> Reach:
@@ -307,14 +377,37 @@ class GhCliSource:
 
 
 class GitRemoteSource:
-    """The uid's git credentials: the HTTPS credential helper, or its SSH keys."""
+    """The uid's git credentials: the HTTPS credential helper at one config place, or its SSH keys.
 
-    def __init__(self, *, transport: str, env: dict[str, str], git_cli: str = "git") -> None:
-        if transport not in ("https", "ssh"):
-            raise ValueError(transport)
+    B0 corrective round 4, R4-3 (the appellate's measuring test): an env-file
+    HOME or GIT_CONFIG_GLOBAL moves where git reads the uid's global config,
+    and so hid the credential helper in the passwd home's ``.gitconfig``. The
+    HTTPS source takes the rule the gh source takes
+    (:func:`stored_login_environment`): ``git_https:stored`` asks the passwd
+    home's default config, and each place the job's environment names is
+    asked alone as ``git_https:stored:<VARIABLE>``. SSH keys are read from
+    the passwd home by ssh itself, whatever HOME says.
+    """
+
+    def __init__(self, *, transport: str, env: dict[str, str], git_cli: str = "git",
+                 location: str | None = None) -> None:
         self.transport, self.git_cli = transport, git_cli
-        self.env = dict(env)
-        self.name = f"git_{transport}"
+        if transport == "https" and (location is None or location in _GIT_LOGIN_LOCATIONS):
+            self.env = stored_login_environment(env, locations=_GIT_LOGIN_LOCATIONS, location=location)
+            self.name = "git_https:stored" + (f":{location}" if location is not None else "")
+        elif transport == "ssh" and location is None:
+            self.env = dict(env)
+            self.name = "git_ssh"
+        else:
+            raise ValueError(f"{transport}:{location}")
+
+    @classmethod
+    def every_credential(cls, *, env: dict[str, str], git_cli: str = "git") -> list["GitRemoteSource"]:
+        """A source per place git keeps an HTTPS credential under ``env``, and the SSH keys."""
+        return [cls(transport="https", env=env, git_cli=git_cli),
+                *(cls(transport="https", env=env, git_cli=git_cli, location=name)
+                  for name in job_named_locations(env, _GIT_LOGIN_LOCATIONS)),
+                cls(transport="ssh", env=env, git_cli=git_cli)]
 
     def reach(self, repository: str) -> Reach:
         env = dict(self.env, GIT_TERMINAL_PROMPT="0", GIT_ASKPASS="/bin/false", SSH_ASKPASS="/bin/false")
@@ -439,8 +532,7 @@ def main(argv: list[str] | None = None) -> int:
     env_files = [read_env_file(path) for path in args.env_file]
     job_env = job_environment(environ=dict(os.environ), env_files=env_files)
     sources: list[CredentialSource] = [*GhCliSource.every_credential(env=job_env),
-                                       GitRemoteSource(transport="https", env=job_env),
-                                       GitRemoteSource(transport="ssh", env=job_env)]
+                                       *GitRemoteSource.every_credential(env=job_env)]
     if args.app_id and args.installation_id and args.app_private_key:
         sources.insert(0, AppPrivateKeySource(app_id=args.app_id, installation_id=args.installation_id,
                                               private_key_path=args.app_private_key))

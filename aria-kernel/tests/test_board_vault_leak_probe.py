@@ -50,6 +50,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -529,6 +530,131 @@ class RunnerEnvironmentFileTests(unittest.TestCase):
         report = json.loads(stdout)
         self.assertEqual(report["environment_problems"], [f"env_file:{self.root / 'absent.env'}:unreadable"])
         self.assertEqual(status, 2)
+
+
+class StoredLoginUnderThePasswdHomeTests(unittest.TestCase):
+    """B0 corrective round 4, R4-3 (security P6, evidence p04; appellate): an env file moves where gh looks, not the login.
+
+    The runner uid's stored login lives under its passwd home. An env-file
+    GH_CONFIG_DIR, XDG_CONFIG_HOME or HOME points gh at another config
+    directory, and GH_HOST at another host, so a probe that asks gh under the
+    job's environment never asks that login — yet a job's code can unset the
+    variables and use it. The same measurement is made for git's credential
+    helper under the passwd home, with a real git.
+    """
+
+    def setUp(self) -> None:
+        self.probe = _probe_module()
+        scratch = tempfile.TemporaryDirectory(prefix="aria-leak-passwd-home-")
+        self.addCleanup(scratch.cleanup)
+        self.root = Path(scratch.name)
+        self.home = self.root / "passwd-home"
+        self.home.mkdir()
+        self.bin = self.root / "bin"
+        self.bin.mkdir()
+        # gh's own lookup: GH_CONFIG_DIR, else $XDG_CONFIG_HOME/gh, else
+        # $HOME/.config/gh; GH_HOST picks the host whose login it uses.
+        (self.bin / "gh").write_text(
+            f"#!{sys.executable}\nimport os, sys\n"
+            "cfg = os.environ.get('GH_CONFIG_DIR') or os.path.join(\n"
+            "    os.environ.get('XDG_CONFIG_HOME') or os.path.join(os.environ['HOME'], '.config'), 'gh')\n"
+            "if os.environ.get('GH_HOST', 'github.com') == 'github.com' and os.path.exists(os.path.join(cfg, 'hosts.yml')):\n"
+            "    print('{}')\n    raise SystemExit(0)\n"
+            "sys.stderr.write('To get started with GitHub CLI, please run:  gh auth login\\n')\nraise SystemExit(4)\n",
+            encoding="utf-8")
+        # git: the real git decides whether a credential helper answers for
+        # github.com under the environment the source hands it (credential
+        # fill runs the configured helpers and touches no network).
+        real_git = shutil.which("git")
+        self.assertIsNotNone(real_git)
+        (self.bin / "git").write_text(
+            f"#!{sys.executable}\nimport os, subprocess, sys\n"
+            "if not any(arg.startswith('https://') for arg in sys.argv):\n"
+            "    sys.stderr.write('ERROR: Repository not found.')\n    raise SystemExit(128)\n"
+            f"done = subprocess.run([{real_git!r}, 'credential', 'fill'], input='protocol=https\\nhost=github.com\\n\\n',\n"
+            "                      capture_output=True, text=True, env=os.environ)\n"
+            "if done.returncode == 0 and 'password=' in done.stdout:\n    print('0' * 40 + '\\trefs/heads/main')\n"
+            "    raise SystemExit(0)\n"
+            "sys.stderr.write(\"fatal: could not read Username for 'https://github.com': terminal prompts disabled\")\n"
+            "raise SystemExit(128)\n", encoding="utf-8")
+        for tool in ("gh", "git"):
+            (self.bin / tool).chmod(0o755)
+        redirects = ("GH_TOKEN", "GITHUB_TOKEN", "GH_CONFIG_DIR", "GH_HOST", "XDG_CONFIG_HOME", "HOME",
+                     "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_COUNT",
+                     "GIT_CONFIG_PARAMETERS")
+        environ = {k: v for k, v in os.environ.items() if k not in redirects}
+        # `sudo -u gharunner -H` sets HOME to the uid's passwd home.
+        environ.update({"PATH": f"{self.bin}{os.pathsep}{os.environ['PATH']}", "HOME": str(self.home),
+                        "GIT_CONFIG_NOSYSTEM": "1"})
+        passwd = SimpleNamespace(pw_dir=str(self.home))
+        for patcher in (patch.dict(os.environ, environ, clear=True), patch("pwd.getpwuid", lambda _uid: passwd)):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def _run(self, line: str) -> tuple[int, str]:
+        import contextlib
+        import io
+
+        env_file = self.root / "runner.env"
+        env_file.write_text(line + "\n", encoding="utf-8")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            status = self.probe.main(["--env-file", str(env_file)])
+        return status, out.getvalue()
+
+    def _assert_red_through(self, prefix: str, lines: dict[str, str]) -> None:
+        for name, value in lines.items():
+            with self.subTest(env_file=name):
+                status, stdout = self._run(f"{name}={value}")
+                report = json.loads(stdout)
+                reached = [r["source"] for r in report["sources"] if r["status"] == self.probe.REACHABLE]
+                self.assertEqual((status, report["verdict"]), (1, "red"), report)
+                self.assertTrue([s for s in reached if s.startswith(prefix)], report["sources"])
+                self.assertNotIn(value, stdout)
+
+    def test_an_env_file_config_location_or_host_does_not_hide_the_stored_gh_login(self) -> None:
+        (self.home / ".config" / "gh").mkdir(parents=True)
+        (self.home / ".config" / "gh" / "hosts.yml").write_text("github.com:\n    user: fixture\n", encoding="utf-8")
+        empty = {name: self.root / f"empty-{name.lower()}" for name in ("GH_CONFIG_DIR", "XDG_CONFIG_HOME", "HOME")}
+        for directory in empty.values():
+            directory.mkdir()
+        self._assert_red_through("gh_cli:stored", {**{name: str(path) for name, path in empty.items()},
+                                                   "GH_HOST": "ghe.example.invalid"})
+
+    def test_an_env_file_home_or_global_config_does_not_hide_the_git_helper(self) -> None:
+        # The measuring test the appellate asked for: the uid's git credential
+        # helper sits in its passwd home's .gitconfig; the env file redirects
+        # git's global config.
+        (self.home / ".gitconfig").write_text(
+            '[credential "https://github.com"]\n'
+            '\thelper = "!f() { echo username=x-access-token; echo password=fixture-helper; }; f"\n',
+            encoding="utf-8")
+        (self.root / "empty-home").mkdir()
+        (self.root / "empty.gitconfig").write_text("", encoding="utf-8")
+        self._assert_red_through("git_https:stored", {"HOME": str(self.root / "empty-home"),
+                                                      "GIT_CONFIG_GLOBAL": str(self.root / "empty.gitconfig"),
+                                                      "XDG_CONFIG_HOME": str(self.root / "empty-home")})
+
+    def test_every_gh_and_git_source_is_named_and_none_carries_gh_host(self) -> None:
+        other = str(self.root / "elsewhere")
+        env = {"PATH": "/usr/bin", "HOME": other, "GH_CONFIG_DIR": other, "XDG_CONFIG_HOME": other,
+               "GH_HOST": "ghe.example.invalid", "GH_TOKEN": "a", "GIT_CONFIG_GLOBAL": other}
+        gh = {source.name: source.env for source in self.probe.GhCliSource.every_credential(env=env)}
+        self.assertEqual(list(gh), ["gh_cli:stored", "gh_cli:stored:GH_CONFIG_DIR", "gh_cli:stored:XDG_CONFIG_HOME",
+                                    "gh_cli:stored:HOME", "gh_cli:GH_TOKEN"])
+        self.assertEqual([name for name, asked in gh.items() if "GH_HOST" in asked], [])
+        self.assertEqual({k: gh["gh_cli:stored"].get(k) for k in ("HOME", "GH_CONFIG_DIR", "XDG_CONFIG_HOME")},
+                         {"HOME": str(self.home), "GH_CONFIG_DIR": None, "XDG_CONFIG_HOME": None})
+        self.assertEqual(gh["gh_cli:stored:GH_CONFIG_DIR"]["GH_CONFIG_DIR"], other)
+        self.assertNotIn("XDG_CONFIG_HOME", gh["gh_cli:stored:GH_CONFIG_DIR"])
+        git = {source.name: source.env for source in self.probe.GitRemoteSource.every_credential(env=env)}
+        self.assertEqual(list(git), ["git_https:stored", "git_https:stored:GIT_CONFIG_GLOBAL",
+                                     "git_https:stored:XDG_CONFIG_HOME", "git_https:stored:HOME", "git_ssh"])
+        self.assertEqual(git["git_https:stored"]["HOME"], str(self.home))
+        self.assertNotIn("GIT_CONFIG_GLOBAL", git["git_https:stored"])
+        # The passwd home itself is the default place, not a job-named one.
+        self.assertEqual([s.name for s in self.probe.GhCliSource.every_credential(env={"HOME": str(self.home)})],
+                         ["gh_cli:stored"])
 
 
 if __name__ == "__main__":

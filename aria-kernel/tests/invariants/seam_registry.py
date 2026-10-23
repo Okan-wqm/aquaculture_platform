@@ -318,6 +318,7 @@ SPAWN_ONLY_NOT_SEAM: MappingProxyType[str, str] = MappingProxyType(
         "aria-kernel/aria_kernel/merge_lane_workspace.py": "git plumbing on the merge lane's workspace",
         "aria-kernel/aria_kernel/merge_record.py": "read-only git patch-id/-c probes for merge attribution",
         "aria-kernel/aria_kernel/migration.py": "read-only git rev-parse probe",
+        "aria-kernel/aria_kernel/mutation_canary.py": "git plumbing (init, add, commit, rev-parse) on the fresh canary sandbox it builds, under the scrubbed hermetic git env",
         "aria-kernel/aria_kernel/observation_coverage.py": "read-only git -C probe",
         "aria-kernel/aria_kernel/operator_request_signature.py": "ssh-keygen -Y verification of operator acknowledgements",
         "aria-kernel/aria_kernel/phase2_utils.py": "read-only git rev-parse probe",

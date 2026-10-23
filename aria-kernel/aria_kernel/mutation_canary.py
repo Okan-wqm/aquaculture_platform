@@ -90,14 +90,16 @@ _SANDBOX_FILES: dict[str, str] = {
 }
 
 # The planted mutants: (file, find(line), replace(line), canary rule id,
-# defect claim, premise). Each is a REAL defect a judge must catch.
+# defect claim, premise). Each is a REAL defect a judge must catch. An item's
+# evidence ref is DERIVED from its anchor line in ``_SANDBOX_FILES``
+# (``_anchor_ref``), never typed beside it: the sandbox text is the one
+# owner of where a line sits.
 _MUTANTS: list[dict[str, Any]] = [
     {
         "rule": "canary-range-inclusive",
         "file": "sensor_range.py",
         "find": "    return lo <= value <= hi",
         "replace": "    return lo < value < hi",
-        "path": "sensor_range.py:2",
         "claim": "reading_in_range rejects readings exactly at a range boundary, so a sensor at its calibrated edge reports out-of-range",
         "premises": ["reading_in_range is documented to include both endpoints"],
     },
@@ -106,7 +108,6 @@ _MUTANTS: list[dict[str, Any]] = [
         "file": "sensor_range.py",
         "find": "    return max(lo, min(hi, value))",
         "replace": "    return min(hi, max(lo, value))",
-        "path": "sensor_range.py:7",
         "claim": "clamp returns hi for values above hi but lo for values below lo only after clamping to hi first, so a lo above hi inverts the clamp",
         "premises": ["clamp is documented to bound value into [lo, hi]"],
     },
@@ -115,30 +116,44 @@ _MUTANTS: list[dict[str, Any]] = [
         "file": "feed_schedule.py",
         "find": "    return max(5, min(500, grams))",
         "replace": "    return min(5, max(500, grams))",
-        "path": "feed_schedule.py:3",
         "claim": "next_feed_grams floors every ration at 500 g and caps it at 5 g, inverting the intended bounds",
         "premises": ["the daily ration is documented as at least 5 g and at most 500 g"],
     },
 ]
 
 # The planted false claims: findings describing defects that are NOT in the
-# code. A judge must refute each.
+# code. A judge must refute each. ``anchor`` is the unmutated line the claim
+# is about; the evidence ref is derived from it like a mutant's.
 _FALSE_CLAIMS: list[dict[str, Any]] = [
     {
         "rule": "canary-feeds-threshold",
         "file": "feed_schedule.py",
-        "path": "feed_schedule.py:7",
+        "anchor": "    return 2 if temp_c > 24.0 else 1",
         "claim": "feeds_per_day feeds twice at exactly 24C, contradicting the 'above 24C' rule",
         "premises": ["feeds_per_day is documented to feed twice only strictly above 24C"],
     },
     {
         "rule": "canary-range-strict",
         "file": "sensor_range.py",
-        "path": "sensor_range.py:2",
+        "anchor": "    return lo <= value <= hi",
         "claim": "reading_in_range uses strict comparisons and excludes the endpoints",
         "premises": ["reading_in_range is documented to include both endpoints"],
     },
 ]
+
+
+def _anchor_ref(file: str, anchor: str) -> str:
+    """``<file>:<line>`` (1-indexed, the kernel's evidence-ref convention)
+    of the ONE sandbox line equal to ``anchor``.
+
+    Raises ValueError when the anchor is absent or not unique: a ref that
+    cannot name exactly one line is not evidence of anything.
+    """
+    lines = _SANDBOX_FILES[file].splitlines()
+    hits = [number for number, line in enumerate(lines, start=1) if line == anchor]
+    if len(hits) != 1:
+        raise ValueError(f"canary anchor not exactly one line of {file}: {anchor!r}")
+    return f"{file}:{hits[0]}"
 
 
 def _scrubbed_git_env() -> dict[str, str]:
@@ -204,7 +219,7 @@ def build_canary_corpus(
             "kind": "mutant",
             "verdict": "true_positive",
             "rule": mutant["rule"],
-            "path": mutant["path"],
+            "path": _anchor_ref(mutant["file"], mutant["find"]),
             # WP-J review — BLIND by construction: the message is the
             # defect claim alone. The item's kind/verdict live on the corpus
             # row (the label side, read by the fitness measurement), never
@@ -221,7 +236,7 @@ def build_canary_corpus(
             "kind": "false_claim",
             "verdict": "false_positive",
             "rule": false_claim["rule"],
-            "path": false_claim["path"],
+            "path": _anchor_ref(false_claim["file"], false_claim["anchor"]),
             "message": str(false_claim["claim"]),
             "defect_claim": false_claim["claim"],
             "premises": list(false_claim["premises"]),

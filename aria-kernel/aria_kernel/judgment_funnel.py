@@ -6,9 +6,9 @@ The second sealed night measured 462 judge envelopes minted against ~9
 drained per night; 296 died of anchor staleness without ever being read
 (the measured history recorded beside ``JUDGMENT_PIPELINE_DEFAULTS``).
 WP-J's synthesis folds WP-J-1's ``panel_router`` and WP-J-2's in-fanout gate
-into this ONE module, called inside the phase between
-``generate_judgment_sample`` and ``dispatch_judges_for_sample``
-(cycle.py:1950→1958). Tier assignment, escalation, early stop, cache key
+into this ONE module, called inside the phase
+(``cycle._phase_judgment_pipeline``) between ``generate_judgment_sample``
+and ``dispatch_judges_for_sample``. Tier assignment, escalation, early stop, cache key
 and batch key live HERE and nowhere else; ``dispatch_judges_for_sample``
 gains no tier logic — the funnel decides WHAT is judged and HOW MANY seats
 each decision gets, the fan-out mints what it is handed.

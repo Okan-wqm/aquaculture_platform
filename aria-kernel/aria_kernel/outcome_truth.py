@@ -9,8 +9,9 @@ red-first test, and a merged change that was not reverted". Those signals
 already exist, each in its own ledger with its own owner:
 
   * ``repo_finding_events`` — ``finding_reproduced`` (a red run of a bound
-    recipe CONFIRMS the defect, finding.py:787) and
-    ``finding_fix_verified`` (the SAME recipe re-runs green, finding.py:856);
+    recipe CONFIRMS the defect, ``finding.record_finding_reproduction``) and
+    ``finding_fix_verified`` (the SAME recipe re-runs green,
+    ``finding.record_finding_fix_verification``);
   * ``change-ledger`` + ``pr-lifecycle.jsonl`` — the fix's change chain and
     its merge lineage (change_outcome._merge_index folds the attestation);
   * ``enterprise/self-reverts.jsonl`` — ARIA reverting its own merge.
@@ -112,7 +113,8 @@ def _red_then_green_reason(doc: dict[str, Any]) -> str | None:
     """Why the finding is NOT red-then-green same-recipe, or None when it is.
 
     Structural re-check of the two laws the event producers enforce at
-    append time (finding.py:787/:856): both blocks present, and the recipe
+    append time (``finding.record_finding_reproduction`` and
+    ``finding.record_finding_fix_verification``): both blocks present, and the recipe
     that ran red is the recipe that verified green.
     """
     reproduction = doc.get("reproduction")

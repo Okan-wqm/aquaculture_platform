@@ -8,8 +8,9 @@ only the report documents and carries a payload bound to the target. These
 tests build that history in a real Git repository. The autonomy evidence
 status (its derivation is pinned by test_autonomy_evidence_status.py) and
 the registry owner's verdict are the collaborators answered here; the
-registry owner (``finding-registry.ts verify --stdin --closures-at``) runs
-for real against this repository's own history in RegistrySnapshotOwnerTests.
+registry owner (``finding-registry.ts verify --stdin`` and ``project --stdin
+--format=closures``) runs for real against this repository's own history in
+RegistrySnapshotOwnerTests.
 """
 from __future__ import annotations
 

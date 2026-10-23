@@ -133,7 +133,9 @@ export type UpdateRefusal =
   | 'release-for-another-board'
   | 'os-version-too-old'
   | 'agent-abi-unsupported'
-  | 'bundle-invalid';
+  | 'bundle-invalid'
+  | 'policy-invalid'
+  | 'files-invalid';
 
 /** The window's rules before the statement exists (settlement.delivery_window, spool.max_entry_age). */
 export function assertDeliverableWindow(window: UpdateWindow): void {

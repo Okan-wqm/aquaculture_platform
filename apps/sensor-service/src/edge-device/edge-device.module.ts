@@ -56,6 +56,7 @@ import { ProvisioningReservationService } from './provisioning-reservation.servi
 import { ProvisioningService } from './provisioning.service';
 import { RbacManifestService } from './rbac-manifest.service';
 import { SiteConfigManifestService } from './site-config-manifest.service';
+import { SiteNetpolicyManifestService } from './site-netpolicy-manifest.service';
 import { SuderraEdgeConfig } from './suderra-edge.config';
 import { TenantKeyService } from './tenant-key.service';
 import { TrustAnchorBundleService } from './trust-anchor-bundle.service';
@@ -103,6 +104,7 @@ import { TrustAnchorBundleService } from './trust-anchor-bundle.service';
     TrustAnchorBundleService,
     RbacManifestService,
     SiteConfigManifestService,
+    SiteNetpolicyManifestService,
     DeviceLifecycleStatementService,
     ActivationReceiptService,
     EdgeReleaseCatalog,

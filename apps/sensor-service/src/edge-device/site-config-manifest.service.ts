@@ -4,12 +4,22 @@ import { type DeviceBrokerEndpoint } from './device-broker';
 import {
   contractTimestamp,
   type DeviceBinding,
+  type DsseEnvelope,
+  SITE_PATHS,
   type SignedStatement,
   type SitePath,
   type SiteConfigStatement,
   statementDigest,
   STATEMENT,
 } from './edge-contract';
+import { UPDATE_CHANNEL } from './edge-update-channel';
+import { assertContractSchema } from './edge-statement-schemas';
+import {
+  assertDeliverableWindow,
+  UpdateRefusedError,
+  type UpdateTarget,
+  type UpdateWindow,
+} from './edge-update-manifest.service';
 import { ManifestSigner } from './manifest-signer';
 import { SuderraEdgeConfig } from './suderra-edge.config';
 
@@ -36,10 +46,27 @@ export interface SiteConfigInput {
   readonly expiresAt: string;
   readonly files: ReadonlyMap<SitePath, Buffer>;
   readonly rbac: SignedStatement<typeof STATEMENT.rbacManifest>;
+  /** Where root fetches the site bundle, for a statement that travels the update channel. */
+  readonly siteBundleUrl?: string;
 }
 
 /** Root installs site files of at most 1 MiB (site-config.schema.json `file`). */
 const MAX_SITE_FILE_BYTES = 1_048_576;
+
+/**
+ * Root fetches at most `max_site_bundle_bytes` of a site bundle. The bundle holds at
+ * most one file per fixed site path, each at most {@link MAX_SITE_FILE_BYTES}, base64
+ * encoded, and one RBAC manifest envelope (at most 64 KiB, the contract's statement
+ * bound): so no bundle the producer can build is over the fetch bound, and this fails
+ * at load if the contract's bounds ever stop saying so.
+ */
+const WORST_CASE_SITE_BUNDLE_BYTES =
+  Math.ceil((MAX_SITE_FILE_BYTES * SITE_PATHS.length) / 3) * 4 + 65_536 + 1_024;
+if (WORST_CASE_SITE_BUNDLE_BYTES > UPDATE_CHANNEL.maxSiteBundleBytes) {
+  throw new Error(
+    `a site bundle of ${SITE_PATHS.length} files of ${MAX_SITE_FILE_BYTES} bytes can exceed the ${UPDATE_CHANNEL.maxSiteBundleBytes} bytes root fetches`,
+  );
+}
 
 export function buildSiteConfig(input: SiteConfigInput): SiteConfigStatement {
   if (!input.files.has('config.yaml')) {
@@ -52,7 +79,7 @@ export function buildSiteConfig(input: SiteConfigInput): SiteConfigStatement {
     }
     files[path] = { digest: statementDigest(bytes), size_bytes: bytes.length };
   }
-  return {
+  const statement: SiteConfigStatement = {
     _type: STATEMENT.siteConfig,
     tenant_id: input.tenantId,
     device_id: input.deviceId,
@@ -61,11 +88,14 @@ export function buildSiteConfig(input: SiteConfigInput): SiteConfigStatement {
     not_before: input.notBefore,
     expires_at: input.expiresAt,
     files,
+    ...(input.siteBundleUrl === undefined ? {} : { site_bundle_url: input.siteBundleUrl }),
     rbac_manifest: {
       digest: input.rbac.digest,
       policy_version: input.rbac.body.policy_version,
     },
   };
+  assertContractSchema('site-config', statement);
+  return statement;
 }
 
 export interface AgentConfigInput {
@@ -73,7 +103,8 @@ export interface AgentConfigInput {
   readonly deviceCode: string;
   readonly tenantId: string;
   readonly apiUrl: string;
-  readonly provisioningToken: string;
+  /** The single-use token of a first provisioning; absent from the config of a device already activated. */
+  readonly provisioningToken?: string;
   readonly broker: DeviceBrokerEndpoint;
 }
 
@@ -91,7 +122,7 @@ export function renderSuderraOsAgentConfig(input: AgentConfigInput): Buffer {
   if (!/^[A-Za-z0-9_-]{1,50}$/.test(input.deviceCode)) {
     throw new Error('device_code is not a contract device code');
   }
-  if (!/^[0-9a-f]{64}$/.test(input.provisioningToken)) {
+  if (input.provisioningToken !== undefined && !/^[0-9a-f]{64}$/.test(input.provisioningToken)) {
     throw new Error('the provisioning token is not 64 lowercase hex characters');
   }
   const q = (value: string): string => JSON.stringify(value);
@@ -101,7 +132,9 @@ export function renderSuderraOsAgentConfig(input: AgentConfigInput): Buffer {
     `device_code: ${q(input.deviceCode)}`,
     `tenant_id: ${q(input.tenantId)}`,
     `api_url: ${q(input.apiUrl)}`,
-    `provisioning_token: ${q(input.provisioningToken)}`,
+    ...(input.provisioningToken === undefined
+      ? []
+      : [`provisioning_token: ${q(input.provisioningToken)}`]),
     'mqtt:',
     `  broker: ${q(input.broker.host)}`,
     `  port: ${input.broker.port}`,
@@ -147,21 +180,32 @@ const FIELD_WRITE_SETTINGS: ReadonlyArray<readonly [RegExp, string]> = [
 ];
 
 /**
+ * The site files the cloud does not author until SG-1 opens: a PiCtory process image
+ * (`revpi/config.rsc`) defines the RevPi's outputs, and `site-policy.json` is where the
+ * per-output and HMI authorization policy lives (DEC-13), a P2 control.
+ */
+const SG1_CLOSED_FILES: ReadonlyArray<readonly [SitePath, string]> = [
+  ['revpi/config.rsc', 'revpi/config.rsc defines field outputs'],
+  ['site-policy.json', 'site-policy.json carries the per-output policy, a P2 control'],
+];
+
+/**
  * Refuses a site file set that would let the agent write to the field while
- * SG-1 is closed: a write-enabling setting in config.yaml, or a PiCtory
- * process image (`revpi/config.rsc`), which defines the RevPi's outputs and
- * which the cloud does not author in P0.
+ * SG-1 is closed: a file the cloud does not author in P0/P1 (see above), or a
+ * write-enabling setting in any text file of the set (config.yaml, io-config.yaml,
+ * hardware-inventory.yaml).
  */
 export function assertMonitoringOnlySite(files: ReadonlyMap<SitePath, Buffer>): void {
   if (SG1_FIELD_WRITES_OPEN) return;
-  if (files.has('revpi/config.rsc')) {
-    throw new SiteGateClosedError('revpi/config.rsc defines field outputs');
+  for (const [path, reason] of SG1_CLOSED_FILES) {
+    if (files.has(path)) throw new SiteGateClosedError(reason);
   }
-  const config = files.get('config.yaml');
-  if (config === undefined) return;
-  const text = config.toString('utf8');
-  for (const [setting, reason] of FIELD_WRITE_SETTINGS) {
-    if (setting.test(text)) throw new SiteGateClosedError(`config.yaml: ${reason}`);
+  for (const [path, bytes] of files) {
+    if (path === 'revpi/config.rsc') continue;
+    const text = bytes.toString('utf8');
+    for (const [setting, reason] of FIELD_WRITE_SETTINGS) {
+      if (setting.test(text)) throw new SiteGateClosedError(`${path}: ${reason}`);
+    }
   }
 }
 
@@ -181,9 +225,136 @@ export interface SignedSiteConfig {
   readonly files: ReadonlyMap<SitePath, Buffer>;
 }
 
+/** The document root fetches from `site_bundle_url` (site-bundle.schema.json): the files and the RBAC manifest the statement names. */
+export interface SiteBundleDocument {
+  readonly _type: 'suderra.site-bundle.v1';
+  readonly rbac_manifest: DsseEnvelope;
+  readonly site_files: { readonly [path: string]: string };
+}
+
+/**
+ * The site bundle of a site-config update. The document is unsigned: root checks
+ * every byte of it against the signed statement, so it can only fail an update,
+ * never change one. It is built from the same files and RBAC manifest the statement
+ * is, and held to the contract schema; the fetch bound holds by construction (below).
+ */
+export function buildSiteBundle(
+  files: ReadonlyMap<SitePath, Buffer>,
+  rbac: SignedStatement<typeof STATEMENT.rbacManifest>,
+): string {
+  const siteFiles: Record<string, string> = {};
+  for (const [path, bytes] of [...files.entries()].sort(([a], [b]) => (a < b ? -1 : 1))) {
+    if (bytes.length > MAX_SITE_FILE_BYTES) {
+      throw new UpdateRefusedError(
+        'files-invalid',
+        `${path} is over the ${MAX_SITE_FILE_BYTES} bytes of a site file`,
+      );
+    }
+    siteFiles[path] = bytes.toString('base64');
+  }
+  const document: SiteBundleDocument = {
+    _type: 'suderra.site-bundle.v1',
+    rbac_manifest: rbac.envelope,
+    site_files: siteFiles,
+  };
+  assertContractSchema('site-bundle', document);
+  return JSON.stringify(document);
+}
+
+/** The path a site bundle is served at, under the platform API host the device's firewall already allows. */
+export function siteBundleUrl(apiUrl: string, tenantId: string, requestId: string): string {
+  return `${apiUrl}/api/devices/site-bundles/${tenantId}/${requestId}`;
+}
+
+export interface SiteUpdateFiles {
+  readonly tenantId: string;
+  readonly deviceId: string;
+  readonly deviceCode: string;
+  /** Operator-authored files besides config.yaml; the cloud renders config.yaml itself. */
+  readonly extraFiles: ReadonlyMap<SitePath, Buffer>;
+}
+
+/** What a site-config update carries, built before the statement is: the same files the statement names and the bundle root fetches. */
+export interface PreparedSiteUpdate {
+  readonly files: ReadonlyMap<SitePath, Buffer>;
+  readonly bundle: string;
+}
+
+export interface SiteConfigUpdateInput {
+  readonly target: Pick<UpdateTarget, 'tenantId' | 'deviceId' | 'binding'>;
+  readonly files: ReadonlyMap<SitePath, Buffer>;
+  readonly rbac: SignedStatement<typeof STATEMENT.rbacManifest>;
+  readonly updateSeq: number;
+  readonly window: UpdateWindow;
+  readonly siteBundleUrl: string;
+}
+
 @Injectable()
 export class SiteConfigManifestService {
   constructor(private readonly config: SuderraEdgeConfig) {}
+
+  /**
+   * The files and the bundle of a site-config update for a device already activated.
+   * config.yaml is the cloud's own and carries no provisioning token (the device's
+   * token was spent at its first authenticated session, DEC-5.7); the operator's extra
+   * files are named site paths, refused if they would let the agent write to the field
+   * while SG-1 is closed.
+   */
+  prepareUpdate(
+    request: SiteUpdateFiles,
+    rbac: SignedStatement<typeof STATEMENT.rbacManifest>,
+  ): PreparedSiteUpdate {
+    const settings = this.config.settings;
+    const files = new Map<SitePath, Buffer>([
+      [
+        'config.yaml',
+        renderSuderraOsAgentConfig({
+          deviceId: request.deviceId,
+          deviceCode: request.deviceCode,
+          tenantId: request.tenantId,
+          apiUrl: settings.apiUrl,
+          broker: settings.deviceBroker,
+        }),
+      ],
+    ]);
+    for (const [path, bytes] of request.extraFiles) {
+      if (!SITE_PATHS.includes(path) || path === 'config.yaml') {
+        throw new UpdateRefusedError(
+          'files-invalid',
+          `${path} is not a site file an operator supplies`,
+        );
+      }
+      files.set(path, bytes);
+    }
+    try {
+      assertMonitoringOnlySite(files);
+    } catch (error) {
+      if (error instanceof SiteGateClosedError) {
+        throw new UpdateRefusedError('files-invalid', error.message);
+      }
+      throw error;
+    }
+    return { files, bundle: buildSiteBundle(files, rbac) };
+  }
+
+  /** The signed site config of an update: the window, the files and RBAC manifest by digest, and where root fetches them. */
+  signUpdate(input: SiteConfigUpdateInput): SignedStatement<typeof STATEMENT.siteConfig> {
+    assertDeliverableWindow(input.window);
+    return new ManifestSigner(this.config.settings.keys.configIntegrity).sign(
+      STATEMENT.siteConfig,
+      buildSiteConfig({
+        tenantId: input.target.tenantId,
+        deviceId: input.target.deviceId,
+        binding: input.target.binding,
+        updateSeq: input.updateSeq,
+        notBefore: contractTimestamp(input.window.notBefore),
+        expiresAt: contractTimestamp(input.window.expiresAt),
+        files: input.files,
+        rbac: input.rbac,
+        siteBundleUrl: input.siteBundleUrl,
+      }),
+    );
+  }
 
   forDevice(request: DeviceSiteConfigRequest): SignedSiteConfig {
     const settings = this.config.settings;

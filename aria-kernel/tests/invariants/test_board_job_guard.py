@@ -380,6 +380,18 @@ def _step_at(index: int, **fields: Any) -> Callable[[dict[str, Any]], None]:
     return mutate
 
 
+def _before_key(step: dict[str, Any]) -> Callable[[dict[str, Any]], None]:
+    def mutate(workflow: dict[str, Any]) -> None:
+        _custody_job(workflow)["steps"].insert(-1, step)
+    return mutate
+
+
+def _key_env(**env: str) -> Callable[[dict[str, Any]], None]:
+    def mutate(workflow: dict[str, Any]) -> None:
+        _steps(_custody_job(workflow))[-1]["env"].update(env)
+    return mutate
+
+
 # The reviewer's mutated Board workflow (B0 review round 1, BLK-3 / p14) passed
 # every rule of the first guard; each of its changes, and the R3 entry
 # changes, must now be refused alone.
@@ -440,6 +452,36 @@ _MUTATIONS: dict[str, Callable[[dict[str, Any]], None]] = {
     # from the checkout, which can plant a sitecustomize the key step loads.
     "pip_from_the_checkout": _step_at(2, run="python3 -m pip install --require-hashes --only-binary ':all:' "
                                               "--no-deps -r .github/board/cipher-requirements.txt"),
+    # B0 corrective round 3, R3-1 (arch P2, evidence p07/p08/p14, ssot P03):
+    # the steps of one job share the VM, the user and the runner's GITHUB_ENV
+    # and GITHUB_PATH files, so a step that holds no key still decides what
+    # the key step runs. Each passed the round-3 guard, which listed forbidden
+    # shapes; only an allow-list of permitted ones refuses them all.
+    "step_runs_repository_python": _before_key({"name": "prep", "run": "python3 tools/aria-board/prepare.py"}),
+    "step_runs_repository_node": _before_key({"name": "prep", "run": "node tools/aria-acceptance/prepare.mjs"}),
+    "step_prepends_a_checkout_directory_to_path": _before_key(
+        {"name": "path", "run": 'echo "$GITHUB_WORKSPACE/tools/aria-board/bin" >> "$GITHUB_PATH"'}),
+    "step_sets_bash_env_for_later_steps": _before_key(
+        {"name": "env", "run": 'echo "BASH_ENV=$GITHUB_WORKSPACE/tools/aria-board/env.sh" >> "$GITHUB_ENV"'}),
+    "step_plants_a_sitecustomize": _before_key(
+        {"run": "printf 'import os\\n' > \"$(python3 -c 'import site;print(site.getsitepackages()[0])')"
+                "/sitecustomize.py\""}),
+    "key_step_env_sets_bash_env": _key_env(BASH_ENV="tools/aria-board/env.sh"),
+    "key_step_env_sets_ld_preload": _key_env(LD_PRELOAD="tools/aria-board/hook.so"),
+    "unpinned_third_party_action": _before_key({"uses": "someone/unpinned-action@v1"}),
+    "this_repository_action_by_owner_repo_path_at_sha": _before_key(
+        {"uses": f"{_THIS_REPOSITORY[1]}/.github/actions/setup-aria-kernel@0123456789abcdef0123456789abcdef01234567"}),
+    "checkout_by_a_movable_tag": _step_at(0, uses="actions/checkout@v4"),
+    "setup_python_by_a_movable_tag": _step_at(1, uses="actions/setup-python@v6"),
+    "setup_python_saves_a_cache": _step_at(1, **{"with": {"python-version": "3.12", "cache": "pip"}}),
+    "checkout_fetches_submodules": _checkout_with(submodules="recursive"),
+    "install_step_reads_another_index": _step_at(2, env={"PIP_INDEX_URL": "https://example.invalid/simple"}),
+    "install_step_installs_another_file": _step_at(
+        2, run="python3 -I -m pip install --require-hashes --only-binary ':all:' --no-deps -r tools/req.txt"),
+    "job_runs_in_a_container": lambda w: _custody_job(w).update({"container": "python:3.12"}),
+    "job_starts_a_service": lambda w: _custody_job(w).update({"services": {"db": {"image": "postgres:16"}}}),
+    "job_env_without_a_secret": lambda w: _custody_job(w).update({"env": {"BASH_ENV": "tools/aria-board/env.sh"}}),
+    "workflow_env_without_a_secret": _set(("env",), {"LD_PRELOAD": "tools/aria-board/hook.so"}),
 }
 
 

@@ -984,3 +984,46 @@ F0.9b tombstone of the module (service-expertise PLAN §2 row 1.3)
 - Evidence:
   - `aria-kernel/aria_kernel/recursive_impact.py:302-304`
 - Rule: one owner per concept (PLAN-v2 F0.9b ownership atlas). Close with the F0.9b tombstone.
+
+## ARIA-MEDIUM-801
+
+The planner seats' target agents have three production owners: `plan_round_controller.DEFAULT_PLANNER_AGENTS`,
+`cross_review_bridge` (`CROSS_REVIEW_ROLE`, `PRIMARY_REVISION_ROLE`) and
+`convergent_planning_bridge.PLANNER_ROLES` each spell the role-to-agent pairs for primary_plan,
+challenger_plan and cross_review. If a planner agent is renamed, one mint path changes and the
+others do not.
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-13.
+- Raised by: WPJ-RED appellate, carried forward from the round-1 ssot dissent (dissent item 2).
+  Registered by WPJ-FAILOPEN before PR #2073 merges.
+- Evidence:
+  - `aria-kernel/aria_kernel/plan_round_controller.py:28-32`
+  - `aria-kernel/aria_kernel/cross_review_bridge.py:78-82`
+  - `aria-kernel/aria_kernel/convergent_planning_bridge.py:28-31`
+- Rule: one owner per concept (PLAN-v2 F0.9b ownership atlas). Close: one table maps a planning role
+  to its target agent. Both bridges read it, and a pin asserts that no second literal pair exists.
+  `agent_surface.py:218` already cites `DEFAULT_PLANNER_AGENTS["cross_review"]` as the reference.
+
+## ARIA-MEDIUM-802
+
+The `(run_id, finding_id, judgment_group_id)` join key has four copies:
+`outcome_truth._outcome_key` (with an inline tuple beside it), `feedback_store._judgment_key`,
+`judge_calibration._group_key` and `label_queue._key`. `agent_surface` also lists the judgment
+seats twice, once as `JUDGE_ROLES` and once as the keys of `EXPERT_METHODS`, and no pin checks that
+the two sets are equal.
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-13.
+- Raised by: WPJ-RED appellate, non-blocking ssot dissent (dissent item 3). The `outcome_truth` copy
+  came with WP-J `05d99ba06`. Registered by WPJ-FAILOPEN before PR #2073 merges.
+- Evidence:
+  - `aria-kernel/aria_kernel/outcome_truth.py:68-73`
+  - `aria-kernel/aria_kernel/outcome_truth.py:179`
+  - `aria-kernel/aria_kernel/feedback_store.py:466-472`
+  - `aria-kernel/aria_kernel/judge_calibration.py:144-149`
+  - `aria-kernel/aria_kernel/label_queue.py:73-74`
+  - `aria-kernel/aria_kernel/agent_surface.py:128-141`
+  - `aria-kernel/aria_kernel/agent_surface.py:159-171`
+- Rule: one owner per concept. Close: the other three readers call `feedback_store._judgment_key`,
+  whose docstring already calls it "the identity every judgment lane already keys on".
+  `JUDGE_ROLES` derives from `EXPERT_METHODS`, or a pin asserts that the two sets are equal. Today
+  `tests/test_panel_seats.py` checks only that the four new seats are members of both.

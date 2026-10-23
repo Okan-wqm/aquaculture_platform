@@ -510,10 +510,27 @@ def _condition_form(text: str) -> str:
     ``if: ${{ a && b }}`` and ``if: a && b`` are the same condition to GitHub,
     as are ``vars.X==''`` and ``vars.X == ''``; a string literal keeps its
     spaces, because ``'a b'`` and ``'ab'`` are different values.
+
+    B0 corrective round 4, R4-2: a value holding ``${{`` is a condition only
+    when it is exactly ONE block (:func:`expression_bodies`, the one reader
+    of where a block ends) spanning the whole stripped value; that block is
+    unwrapped. Anything else — a block beside outside text
+    (``${{ a }} && b``), two blocks, a ``${{`` that never closes — is a string
+    template to GitHub, always truthy, so its form is empty: it requires
+    nothing, like an absent condition. The ``&&``/``||`` parts of an
+    unwrapped body come back here and are never unwrapped again: a part that
+    holds ``${{`` cannot be a whole closed block (its ``}}`` would have closed
+    the outer one), so it requires nothing.
     """
     body = text.strip()
-    if body.startswith("${{") and body.endswith("}}"):
-        body = body[3:-2]
+    if "${{" in body:
+        try:
+            blocks = expression_bodies(body)
+        except UnclosedExpression:
+            return ""
+        if len(blocks) != 1 or body != "${{" + blocks[0] + "}}":
+            return ""
+        body = blocks[0]
     kept: list[str] = []
     quoted = False
     for char in body:
@@ -555,7 +572,8 @@ def condition_requires(condition: Any, conjunct: str) -> bool:
     any parentheses that enclose a whole branch; a branch without it, or with
     it only inside a negation, a call or a nested ``||``, is not gated. An
     absent or empty condition (GitHub's implicit ``success()``) requires
-    nothing.
+    nothing, and so does a string template — a ``${{ }}`` block beside text
+    outside it, which GitHub reads as always truthy (:func:`_condition_form`).
 
     ORPHAN-MEDIUM-491 — this used to be ``guard in condition``, raw
     substring containment: ``${{ <guard> || always() }}`` contains the guard

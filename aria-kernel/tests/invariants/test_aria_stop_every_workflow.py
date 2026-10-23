@@ -83,6 +83,15 @@ class ConditionRequiresTests(unittest.TestCase):
             "github.head_ref == 'vars.ARIA_STOP == ''''' && a": False,
             "github.event_name == 'schedule'": False,
             "": False,
+            # B0 corrective round 4, R4-2: an if: that mixes ${{ }} with text
+            # outside it is a string template to GitHub, always truthy.
+            "${{ vars.ARIA_STOP == '' }} && x": False,
+            "x && ${{ vars.ARIA_STOP == '' }}": False,
+            "${{ vars.ARIA_STOP == '' }} && ${{ github.ref == 'refs/heads/main' }}": False,
+            "(${{ vars.ARIA_STOP == '' }})": False,
+            "${{ vars.ARIA_STOP == ''": False,
+            "${{ ${{ vars.ARIA_STOP == '' && x }}": False,
+            "${{ vars.ARIA_STOP == '' && github.head_ref == '}}' }}": True,
         }
         for condition, expected in cases.items():
             with self.subTest(condition=condition):

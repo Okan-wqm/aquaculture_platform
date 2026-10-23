@@ -563,6 +563,10 @@ _MUTATIONS: dict[str, Callable[[dict[str, Any]], None]] = {
     "condition_or_branch": lambda w: _custody_job(w).update(
         {"if": "vars.ARIA_STOP == '' && github.ref == 'refs/heads/main' || inputs.force"}),
     "condition_without_main": lambda w: _custody_job(w).update({"if": "vars.ARIA_STOP == ''"}),
+    # B0 corrective round 4, R4-2: ${{ }} beside outside text is a string
+    # template to GitHub, always truthy; it carries neither conjunct.
+    "condition_mixed_template": lambda w: _custody_job(w).update(
+        {"if": "${{ vars.ARIA_STOP == '' }} && github.ref == 'refs/heads/main'"}),
     "self_hosted": lambda w: _custody_job(w).update({"runs-on": ["self-hosted", "linux"]}),
     "pull_request_trigger": _set(("on",), {"pull_request": {}, "workflow_dispatch": {}}),
     # B0 corrective round 2, R2-1: a Board secret reaches no process but the
@@ -639,6 +643,13 @@ class EachMutationIsRefusedTests(unittest.TestCase):
                     mutated["on"] = mutated.pop(True)
                 mutate(mutated)
                 self.assertTrue(board_violations(mutated), f"{name} passed the guard")
+
+    def test_a_mixed_template_if_is_refused_under_condition(self) -> None:
+        # B0 corrective round 4, R4-2 (security P5, evidence p03, appellate A4/A5).
+        mutated = copy.deepcopy(self.workflow)
+        _MUTATIONS["condition_mixed_template"](mutated)
+        self.assertEqual([v for v in board_violations(mutated).get("vault-custody", []) if v.startswith("condition:")],
+                         [f"condition: if: does not require {required}" for required in _REQUIRED_CONJUNCTS])
 
     def test_a_bare_workflow_permissions_grants_nothing_and_passes(self) -> None:
         # B0 corrective round 2, R2-6: a bare ``permissions:`` is an empty

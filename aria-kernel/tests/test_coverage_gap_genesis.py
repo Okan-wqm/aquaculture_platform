@@ -104,11 +104,16 @@ class CoverageGapSourceTests(unittest.TestCase):
         )
         # The consequence that made the foreign refs a defect: a genesis
         # draft's scope_globs come from these refs, so another service's
-        # path would widen the drafted agent's scope to that service.
+        # path would widen the drafted agent's scope to that service. The
+        # scope is the root of each project the refs lie in, over the
+        # workspace's project map (SE-1 round 2).
         from aria_kernel.agent_genesis import _scope_from_evidence
 
         self.assertEqual(
-            _scope_from_evidence(by_key["coverage:svc"]["evidence_refs"]),
+            _scope_from_evidence(
+                by_key["coverage:svc"]["evidence_refs"],
+                {"svc": "apps/svc", "other": "apps/other", "owned": "apps/owned"},
+            ),
             ["apps/svc/**"],
         )
 

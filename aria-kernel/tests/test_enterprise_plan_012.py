@@ -16,7 +16,7 @@ from aria_kernel import (
     verify_integrity,
 )
 from aria_kernel.tool_health import runs_path
-from aria_kernel.tool_registry import GovernanceError
+from aria_kernel.tool_registry import GovernanceError, ensure_tools_binding
 from tests._helpers.declared_fixtures import (
     append_declared_fixture,
     seed_validation_provenance,
@@ -76,6 +76,9 @@ class EnterprisePlan012Tests(unittest.TestCase):
         self.assertEqual(improved["blocked_by"], [])
 
     def test_architecture_evidence_pack_and_adr_draft_require_complete_evidence(self):
+        # Adoption names projects over the store's map (SE-1 round 2): the
+        # store declares the workspace it reviews.
+        ensure_tools_binding(self.tools_dir, workspace_root=self.root)
         option_set = generate_architecture_options(
             technology="Redis",
             evidence_refs=[

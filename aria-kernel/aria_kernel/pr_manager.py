@@ -14,6 +14,7 @@ from .canonical_path import normalize_repo_relpath
 from .gh_token_factory import GitCommitIdentity
 from .git_containment import without_ambient_git_config
 from .github_writes import require_installation_credential, run_gh_write
+from .impact_graph import project_for_path, project_map
 from .implementation_safety import (
     GATE_PRE_PR_OPEN,
     HardFailContext,
@@ -1198,9 +1199,10 @@ def plan_pr_split(
     files = [normalize_repo_relpath(path) for path in changed_files if isinstance(path, str) and path.strip()]
     if not files:
         raise GovernanceError("PR split planning requires changed_files")
+    project_roots = project_map(base_dir=base_dir)
     grouped: dict[str, list[str]] = {}
     for path in sorted(set(files)):
-        grouped.setdefault(_split_group(path), []).append(path)
+        grouped.setdefault(_split_group(path, project_roots), []).append(path)
     prs = []
     index = 1
     for group, group_files in sorted(grouped.items()):
@@ -1304,22 +1306,20 @@ def _parse_time(value: str) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
-def _split_group(path: str) -> str:
+def _split_group(path: str, project_roots: Mapping[str, str]) -> str:
+    """The PR a changed file goes in: migrations together (they are ordered),
+    else the project that owns the file — named by the one path -> project
+    owner (`impact_graph.project_for_path`) over the store's current map —
+    else its top-level directory.
+
+    SE-1 round 2: this was a convention of its own (``apps/<dir>``,
+    ``web/<dir>``, ``libs/<dir>``, ``platform/libs/<dir>``), so every web
+    module shared one ``web/modules`` PR and a marker-discovered project
+    was split by top-level directory instead of by project.
+    """
     if "/migrations/" in path or path.endswith("Migration.ts"):
         return "migration"
-    if path.startswith("apps/"):
-        parts = path.split("/")
-        return "/".join(parts[:2]) if len(parts) >= 2 else "apps"
-    if path.startswith("web/"):
-        parts = path.split("/")
-        return "/".join(parts[:2]) if len(parts) >= 2 else "web"
-    if path.startswith("libs/"):
-        parts = path.split("/")
-        return "/".join(parts[:2]) if len(parts) >= 2 else "libs"
-    if path.startswith("platform/libs/"):
-        parts = path.split("/")
-        return "/".join(parts[:3]) if len(parts) >= 3 else "platform/libs"
-    return path.split("/", 1)[0]
+    return project_for_path(path, project_roots) or path.split("/", 1)[0]
 
 
 def _validate_aria_branch(branch: str) -> None:

@@ -92,16 +92,18 @@ class RealRepositoryDiscoveryTests(unittest.TestCase):
             self._project_of("sens-api-gateway/fuzz/fuzz_targets/a.rs"), "sens-api-gateway"
         )
 
-    def test_the_names_existing_consumers_key_on_did_not_move(self) -> None:
-        # Agent routing, validation matrix and the twin all key on these
-        # names. Discovery is ADDITIVE: it may only add projects.
+    def test_a_conventional_root_is_named_by_its_project_json(self) -> None:
+        # SE-1 round 2 (review-r1 B3, owner decision Q9): the service key is
+        # the nx project name, so a conventional root that carries a
+        # project.json is named by it, and only one that declares no name
+        # keeps its layout name (platform/libs/cqrs has no project.json).
         for name, root in (
             ("farm-service", "apps/farm-service"),
             ("backend-common", "libs/backend-common"),
             ("platform-cqrs", "platform/libs/cqrs"),
-            ("web-dashboard", "web/modules/dashboard"),
-            ("web-shared-ui", "web/shared-ui"),
-            ("web-shell", "web/shell"),
+            ("dashboard", "web/modules/dashboard"),
+            ("shared-ui", "web/shared-ui"),
+            ("shell", "web/shell"),
         ):
             with self.subTest(project=name):
                 self.assertEqual(self.projects.get(name, {}).get("root"), root)

@@ -138,7 +138,10 @@ def create_dispatch_request(
     created_at = _git_timestamp(paths.repo_root)
     assignment_id = _assignment_id(pressure_event_id, created_at, target)
     worktree_path = paths.repo_root / "aria-worktrees" / assignment_id
-    required_tests = list((decision or {}).get("required_tests") or derive_required_tests(paths.repo_root, _evidence_paths(pressure)))
+    required_tests = list(
+        (decision or {}).get("required_tests")
+        or derive_required_tests(_evidence_paths(pressure), workspace_root=paths.repo_root, base_dir=root)
+    )
     row = {
         "$schema": "aria/dispatch-request/v1",
         "schema_version": 1,

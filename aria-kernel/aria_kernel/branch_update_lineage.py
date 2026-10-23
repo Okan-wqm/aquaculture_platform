@@ -234,8 +234,16 @@ def _verify_pure_update(
 
 
 def _quarantined_projects_touched(git: _HermeticGit, *, head_sha: str, live_base_sha: str) -> list[str]:
-    """Projects the merged change touches that CI runs as a warning, per main's policy."""
-    from .impact_graph import project_for_path
+    """Projects the merged change touches that CI runs as a warning, per main's policy.
+
+    The projects are main's, at ``live_base_sha``: the one discovery rule
+    (`impact_graph.project_roots_of_listed_tree`) over main's tree, so a
+    branch cannot rename or move its way out of the policy, and the names
+    are the nx names the policy's ``knownUnstableProjects`` uses. SE-1 round
+    2: this built a map of its own from every ``project.json`` at that
+    revision, a second "which project owns this path" rule.
+    """
+    from .impact_graph import project_for_path, project_roots_of_listed_tree
 
     shown = git.run("show", f"{live_base_sha}:{QUARANTINE_POLICY_PATH}")
     if shown.returncode != 0:
@@ -251,15 +259,21 @@ def _quarantined_projects_touched(git: _HermeticGit, *, head_sha: str, live_base
     listed = git.run("ls-tree", "-r", "--name-only", "-z", live_base_sha)
     if fork.returncode != 0 or changed.returncode != 0 or listed.returncode != 0:
         raise BranchUpdateLineageRefused("merged_change_unreadable")
-    roots: dict[str, str] = {}
-    for path in (entry for entry in listed.stdout.split("\0") if entry.endswith("project.json")):
+
+    def read_at_base(path: str) -> str:
         body = git.run("show", f"{live_base_sha}:{path}")
-        root = path[: -len("project.json")].rstrip("/") or "."
-        try:
-            name = json.loads(body.stdout).get("name") if body.returncode == 0 else None
-        except ValueError:
-            name = None
-        roots[str(name or Path(root).name)] = root
+        if body.returncode != 0:
+            raise GovernanceError(f"project_manifest_unreadable:{path}: git show exited {body.returncode}")
+        return body.stdout
+
+    # Every way main's map cannot be built (a manifest git cannot show, one
+    # that is not JSON) is one refusal of the lineage, naming the file.
+    try:
+        roots = project_roots_of_listed_tree(
+            (entry for entry in listed.stdout.split("\0") if entry), read_at_base
+        )
+    except GovernanceError as exc:
+        raise BranchUpdateLineageRefused(f"project_map_unreadable:{exc}") from exc
     owners = {project_for_path(path, roots) for path in changed.stdout.split("\0") if path}
     return sorted(owner for owner in owners if owner and owner in quarantined)
 

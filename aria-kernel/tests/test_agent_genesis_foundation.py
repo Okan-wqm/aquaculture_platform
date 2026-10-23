@@ -20,7 +20,7 @@ from aria_kernel.agent_genesis import list_agent_drafts
 from aria_kernel.feedback_store import record_operator_feedback
 from aria_kernel.ledger import append_jsonl as _append_jsonl
 from aria_kernel.tool_health import runs_path
-from aria_kernel.tool_registry import register_tool
+from aria_kernel.tool_registry import ensure_tools_binding, register_tool
 
 
 def append_jsonl(path, record):
@@ -48,6 +48,9 @@ class AgentGenesisFoundationTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
+        # A draft's scope is the root of every project its evidence lies in,
+        # over the store's map (SE-1 round 2): the store declares its workspace.
+        ensure_tools_binding(self.tools_dir, workspace_root=self.root)
 
     def tearDown(self):
         self.tmp.cleanup()

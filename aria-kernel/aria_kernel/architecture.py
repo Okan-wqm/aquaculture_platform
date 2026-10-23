@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any
 
-from .canonical_path import lexical_repo_path
+from .impact_graph import project_for_path, project_map
 from .ledger import append_declared_jsonl, load_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
@@ -71,7 +72,7 @@ def review_architecture_decision(
         replacement_grounds=replacement_grounds or [],
         validation_commands=validation_commands or [],
     )
-    adoption = _adoption_gravity(normalized["evidence_refs"])
+    adoption = _adoption_gravity(normalized["evidence_refs"], project_map(base_dir=base_dir))
     recommended = _recommended_action(
         proposed_action=normalized["proposed_action"],
         adoption=adoption,
@@ -141,7 +142,7 @@ def generate_architecture_options(
         replacement_grounds=replacement_grounds or [],
         validation_commands=[],
     )
-    adoption = _adoption_gravity(normalized["evidence_refs"])
+    adoption = _adoption_gravity(normalized["evidence_refs"], project_map(base_dir=base_dir))
     options = [
         _option("harden_boundary", "Keep the technology and correct ownership, fail-mode, timeout, metrics, and policy boundaries.", adoption),
         _option("introduce_abstraction", "Move repeated calls behind a shared contract so callers depend on repo-owned semantics.", adoption),
@@ -336,8 +337,14 @@ def _normalize_input(
     }
 
 
-def _adoption_gravity(evidence_refs: list[str]) -> dict[str, Any]:
-    projects = sorted({_project_key(ref) for ref in evidence_refs if _project_key(ref)})
+def _adoption_gravity(evidence_refs: list[str], project_roots: Mapping[str, str]) -> dict[str, Any]:
+    # The projects the technology is used in, named by the one path ->
+    # project owner over the store's current map (SE-1 round 2: a
+    # convention of its own here counted ``web/modules`` as one project and
+    # every marker-discovered project as none).
+    projects = sorted(
+        {project for project in (project_for_path(ref, project_roots) for ref in evidence_refs) if project}
+    )
     usage_count = len(evidence_refs)
     if usage_count >= 5 or len(projects) >= 4:
         level = "high"
@@ -445,15 +452,6 @@ def _option(action: str, tradeoff: str, adoption: dict[str, Any]) -> dict[str, A
         "requires_adr": action == "replace_with_adr",
         "safe_for_high_adoption": action != "replace_with_adr" or adoption["level"] == "low",
     }
-
-
-def _project_key(path: str) -> str | None:
-    parts = lexical_repo_path(path).split("/")
-    if len(parts) >= 2 and parts[0] in ("apps", "libs", "web"):
-        return "/".join(parts[:2])
-    if len(parts) >= 3 and parts[0] == "platform" and parts[1] == "libs":
-        return "/".join(parts[:3])
-    return None
 
 
 def _dedupe(items: list[str]) -> list[str]:

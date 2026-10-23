@@ -3,9 +3,11 @@ from __future__ import annotations
 import fnmatch
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any
 
 from .fitness import latest_agent_fitness
+from .impact_graph import project_for_path, project_map
 from .agent_network import latest_agent_network_hash
 from .batch_containment import guard_item, with_item_failures
 from .ledger import (
@@ -158,7 +160,9 @@ def triage_policy_apply(
             "triage_tier": tier,
             "target_agent": target_agent,
             "reasons": reasons,
-            "required_tests": derive_required_tests(paths.repo_root, _evidence_paths(pressure)),
+            "required_tests": derive_required_tests(
+                _evidence_paths(pressure), workspace_root=paths.repo_root, base_dir=root
+            ),
             "index_hash_at_decision": index_hash,
         }
         if _decision_key(row) in existing:
@@ -240,8 +244,22 @@ def resolve_target_agent(pressure: dict[str, Any], tools_root: Path) -> str | No
     return None
 
 
-def derive_required_tests(repo_root: Path, evidence_paths: list[str]) -> list[str]:
+def derive_required_tests(
+    evidence_paths: list[str], *, workspace_root: Path, base_dir: str | Path
+) -> list[str]:
+    """The test commands that validate a change to ``evidence_paths``.
+
+    A product path is tested through the nx project that owns it, named by
+    the one path -> project owner (`impact_graph.project_for_path`) over the
+    workspace's current map, when that project is an nx project (its root
+    carries ``project.json``, whose ``name`` the map already uses). SE-1
+    round 2: this walked up the tree to the nearest ``project.json`` and read
+    its name itself, a second map that fell back to the directory name on a
+    malformed file where the owner refuses. The map is read only when a
+    path needs it.
+    """
     commands: list[str] = []
+    project_roots: Mapping[str, str] | None = None
     for path in evidence_paths:
         clean = path.split(":", 1)[0].removeprefix("./")
         if clean.startswith("aria-kernel/"):
@@ -249,31 +267,12 @@ def derive_required_tests(repo_root: Path, evidence_paths: list[str]) -> list[st
         elif clean.startswith("tools/aria-poc/"):
             commands.append(f"python -m pytest {clean}")
         else:
-            project = _nearest_nx_project(repo_root, clean)
-            if project:
+            if project_roots is None:
+                project_roots = project_map(workspace_root=workspace_root, base_dir=base_dir)
+            project = project_for_path(clean, project_roots)
+            if project is not None and (workspace_root / project_roots[project] / "project.json").is_file():
                 commands.append(f"npx nx test {project}")
     return sorted(dict.fromkeys(commands))
-
-
-def _nearest_nx_project(repo_root: Path, rel_path: str) -> str | None:
-    current = repo_root / rel_path
-    if current.is_file():
-        current = current.parent
-    for parent in [current, *current.parents]:
-        if parent == repo_root.parent:
-            break
-        project_json = parent / "project.json"
-        if project_json.exists():
-            try:
-                import json
-
-                payload = json.loads(project_json.read_text(encoding="utf-8"))
-                return str(payload.get("name") or parent.name)
-            except (OSError, ValueError):
-                return parent.name
-        if parent == repo_root:
-            break
-    return None
 
 
 def _routing_table(root: Path) -> dict[str, str]:

@@ -39,6 +39,7 @@ import { EdgeCommandPublisher } from './edge-command-publisher.service';
 import { EdgeRootHandoffService } from './edge-root-handoff.service';
 import { EdgeProvisioningManifestService } from './edge-provisioning-manifest.service';
 import { EdgeUpdateManifestService } from './edge-update-manifest.service';
+import { EdgeUpdateReconciler } from './edge-update-reconciler.service';
 import { EdgeUpdateRequestService } from './edge-update-request.service';
 import {
   EdgeReleaseCatalog,
@@ -111,6 +112,8 @@ import { TrustAnchorBundleService } from './trust-anchor-bundle.service';
     // The device-bound edge-update and os-update statements (DEC-2.4, DEC-2.9).
     EdgeUpdateManifestService,
     EdgeUpdateRequestService,
+    // Lapses silent requests and re-issues retryable ones on a schedule (DEC-2.12).
+    EdgeUpdateReconciler,
     ProvisioningReservationService,
     // The single command publish path (ADR-048 DEC-9.2) and its signer.
     CommandEnvelopeSignerService,

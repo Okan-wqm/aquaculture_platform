@@ -34,6 +34,7 @@ import {
   type UpdateWindow,
   UpdateRefusedError,
 } from './edge-update-manifest.service';
+import type { EdgeUpdateRecipe, OsUpdateRecipe, UpdateRecipe } from './edge-update-recipe';
 import {
   DeviceLifecycleState,
   DeviceModel,
@@ -84,30 +85,18 @@ const UPDATABLE_STATES: readonly DeviceLifecycleState[] = [
   DeviceLifecycleState.ERROR,
 ];
 
-/** What re-issues an edge-update (the intent's parameters, never a statement). */
-export interface EdgeUpdateRecipe {
-  readonly kind: 'edge-update';
-  readonly version: string;
-  readonly terms: UpdateTerms;
-  readonly windowSeconds: number;
-}
-
-/** What re-issues an os-update. */
-export interface OsUpdateRecipe {
-  readonly kind: 'os-update';
-  readonly bundle: OsBundle;
-  readonly terms: UpdateTerms;
-  readonly windowSeconds: number;
-}
-
-export type UpdateRecipe = EdgeUpdateRecipe | OsUpdateRecipe;
-
 export interface IssueMeta {
   readonly rolloutId?: string | null;
   /** An existing campaign, when this is a re-issue. */
   readonly intentId?: string;
   readonly campaignStartedAt?: Date;
   readonly createdBy?: string | null;
+  /**
+   * The RETRY request this statement replaces. It is marked REISSUED in the signing
+   * transaction, so a re-issue and the end of the request it replaces are one commit:
+   * two replicas reconciling at once cannot both re-issue it.
+   */
+  readonly supersedes?: string;
 }
 
 export interface EdgeUpdateIssue extends IssueMeta {
@@ -142,6 +131,14 @@ export class UpdateTargetUnavailableError extends Error {
       `Device ${deviceId} cannot take an update statement: it is not a committed Suderra OS device in service`,
     );
     this.name = 'UpdateTargetUnavailableError';
+  }
+}
+
+/** The request to replace is no longer an open RETRY of this device (another replica re-issued it, or it was concluded). */
+export class RequestNotReissuableError extends Error {
+  constructor(requestId: string) {
+    super(`Update request ${requestId} is no longer a retryable request awaiting a re-issue`);
+    this.name = 'RequestNotReissuableError';
   }
 }
 
@@ -189,7 +186,13 @@ export class EdgeUpdateRequestService implements OnModuleInit {
   ) {}
 
   onModuleInit(): void {
-    this.results.addObserver((event) => this.settleFromResult(event));
+    this.results.addObserver((event) => this.onResult(event));
+  }
+
+  private onResult(event: ResultEvent): Promise<void> {
+    return event.result.kind === EDGE_ROLLBACK_KIND
+      ? this.recordRollback(event)
+      : this.settleFromResult(event);
   }
 
   // ------------------------------------------------------------------- issuing
@@ -301,6 +304,9 @@ export class EdgeUpdateRequestService implements OnModuleInit {
         );
         const id = inserted[0]?.id;
         if (id === undefined) throw new Error('the update request was not stored');
+        if (meta.supersedes !== undefined) {
+          await this.supersede(qr, device, meta.supersedes, id);
+        }
         return {
           id,
           intentId,
@@ -335,15 +341,48 @@ export class EdgeUpdateRequestService implements OnModuleInit {
     if (row === undefined || !isBindingMethod(row.method)) {
       throw new UpdateTargetUnavailableError(device.id);
     }
-    const model = Object.values(DeviceModel).find((candidate) => candidate === row.model);
-    const profile = model === undefined ? null : suderraOsBoardOf(model);
-    const board: BoardRow | null = profile === null ? null : boardRow(profile);
+    const board = boardOfModel(row.model);
     if (board === null) throw new UpdateTargetUnavailableError(device.id);
     const binding: DeviceBinding = { method: row.method, digest: { sha256: row.digest } };
     return {
       updateSeq: Number(row.seq),
       target: { tenantId: device.tenantId, deviceId: device.id, binding, board },
     };
+  }
+
+  /** Ends the RETRY request `previousId` as REISSUED by `successorId`; refuses when it is not an open RETRY of the device. */
+  private async supersede(
+    qr: QueryRunner,
+    device: DeviceRef,
+    previousId: string,
+    successorId: string,
+  ): Promise<void> {
+    const replaced = await returningRows<{ id: string }>(
+      qr,
+      `UPDATE edge_update_requests
+          SET state = 'reissued', superseded_by = $4, updated_at = now()
+        WHERE id = $1 AND tenant_id = $2 AND device_id = $3
+          AND state = 'retry' AND superseded_by IS NULL
+    RETURNING id`,
+      [previousId, device.tenantId, device.id, successorId],
+    );
+    if (replaced.length === 0) throw new RequestNotReissuableError(previousId);
+  }
+
+  /** The board of a device's committed model, or null when the device is gone or is not a Suderra OS board. */
+  async boardOf(device: DeviceRef): Promise<BoardRow | null> {
+    const rows: Array<{ model: string }> = await runInTenantRead(
+      this.dataSource,
+      SENSOR_SOURCE_SCHEMA,
+      device.tenantId,
+      (qr) =>
+        qr.query(
+          `SELECT device_model::text AS model FROM edge_devices WHERE id = $1 AND tenant_id = $2`,
+          [device.id, device.tenantId],
+        ),
+    );
+    const row = rows[0];
+    return row === undefined ? null : boardOfModel(row.model);
   }
 
   // ------------------------------------------------------------------ delivery
@@ -600,6 +639,124 @@ export class EdgeUpdateRequestService implements OnModuleInit {
     return rows.length;
   }
 
+  /**
+   * The open RETRY requests of a tenant, oldest refusal first: each waits for a new
+   * statement of its intent. At most `limit` per call, so a reconciliation tick is bounded.
+   */
+  async reissueCandidates(tenantId: string, limit = 100): Promise<ReissueCandidate[]> {
+    const bounded = Math.min(Math.max(1, Math.trunc(limit)), 500);
+    return runInTenantRead(
+      this.dataSource,
+      SENSOR_SOURCE_SCHEMA,
+      tenantId,
+      async (qr): Promise<ReissueCandidate[]> => {
+        const found: Array<{
+          id: string;
+          deviceId: string;
+          intentId: string;
+          rolloutId: string | null;
+          statementType: string;
+          recipe: unknown;
+          campaignStartedAt: Date;
+          refusedAt: Date;
+          refusalReason: string | null;
+          createdBy: string | null;
+        }> = await qr.query(
+          `SELECT id, device_id AS "deviceId", intent_id AS "intentId", rollout_id AS "rolloutId",
+                  statement_type AS "statementType", recipe,
+                  campaign_started_at AS "campaignStartedAt", settled_at AS "refusedAt",
+                  settled_reason AS "refusalReason", created_by AS "createdBy"
+             FROM edge_update_requests
+            WHERE tenant_id = $1 AND state = 'retry' AND superseded_by IS NULL
+              AND settled_at IS NOT NULL
+            ORDER BY settled_at, id LIMIT $2`,
+          [tenantId, bounded],
+        );
+        return found.flatMap((row) => {
+          const type = STATEMENT_TYPES.find((candidate) => candidate === row.statementType);
+          return type === undefined ? [] : [{ ...row, tenantId, statementType: type }];
+        });
+      },
+    );
+  }
+
+  /**
+   * Ends a RETRY request as FAILED by the cloud's own decision (a campaign out of
+   * time, a re-issue the cloud would not sign): the device's refusal stays as it
+   * reported it, `failure_detail` says what ended the intent. False when the request
+   * was no longer an open RETRY (another replica got there first).
+   */
+  async concludeUnreissued(tenantId: string, requestId: string, detail: string): Promise<boolean> {
+    const rows = await runInTenantTransaction(
+      this.dataSource,
+      SENSOR_SOURCE_SCHEMA,
+      tenantId,
+      (qr) =>
+        returningRows<{ id: string }>(
+          qr,
+          `UPDATE edge_update_requests
+              SET state = 'failed', failure_detail = $3, updated_at = now()
+            WHERE id = $1 AND tenant_id = $2 AND state = 'retry' AND superseded_by IS NULL
+        RETURNING id`,
+          [requestId, tenantId, detail.slice(0, 256)],
+        ),
+    );
+    return rows.length > 0;
+  }
+
+  /**
+   * An `edge-rollback` result: the device installed an update, its health window
+   * failed, and root restored the previous release. The result names the release it
+   * rolled back (`subject.version`), not a statement digest, so the request it
+   * undoes is the device's latest DONE edge-update to that version that concluded
+   * before this result (a republished older rollback never fails a newer, healthy
+   * install of the same version). That request becomes FAILED: a rollout must not
+   * count it as an installed update, and root takes no further update from its spool
+   * until a statement with a larger update_seq arrives.
+   */
+  async recordRollback(event: ResultEvent): Promise<void> {
+    const version = event.result.subject?.version;
+    if (version === undefined) return;
+    const detail = `rolled back by the device: ${event.result.reason ?? event.result.outcome}`;
+    const rolled = await runInTenantTransaction(
+      this.dataSource,
+      SENSOR_SOURCE_SCHEMA,
+      event.tenantId,
+      (qr) =>
+        returningRows<{ id: string }>(
+          qr,
+          `UPDATE edge_update_requests
+              SET state = 'failed', failure_detail = $5, updated_at = now()
+            WHERE id = (
+              SELECT id FROM edge_update_requests
+               WHERE tenant_id = $1 AND device_id = $2 AND statement_type = $3
+                 AND state = 'done' AND recipe->>'version' = $4
+                 AND settled_result_seq < $6
+               ORDER BY settled_result_seq DESC
+               LIMIT 1
+               FOR UPDATE)
+        RETURNING id`,
+          [
+            event.tenantId,
+            event.deviceId,
+            STATEMENT.edgeUpdate,
+            version,
+            detail.slice(0, 256),
+            event.result.seq,
+          ],
+        ),
+    );
+    for (const row of rolled) {
+      this.logger.warn({
+        event: 'update_request_rolled_back',
+        deviceId: event.deviceId,
+        requestId: row.id,
+        version,
+        reason: event.result.reason ?? null,
+      });
+    }
+  }
+
   /** A device's requests, newest first, for the console. */
   async listForDevice(
     tenantId: string,
@@ -652,6 +809,33 @@ export interface EdgeUpdateRequestView {
   readonly supersededBy: string | null;
   readonly createdBy: string | null;
   readonly createdAt: Date;
+}
+
+/** A RETRY request waiting for a new statement of its intent (what the reconciler reads). */
+export interface ReissueCandidate {
+  readonly id: string;
+  readonly tenantId: string;
+  readonly deviceId: string;
+  readonly intentId: string;
+  readonly rolloutId: string | null;
+  readonly statementType: CarriedStatementType;
+  /** The stored recipe as read; `parseRecipe` decides whether it is one the cloud wrote. */
+  readonly recipe: unknown;
+  readonly campaignStartedAt: Date;
+  /** When the cloud received the refusal that ended the request. */
+  readonly refusedAt: Date;
+  readonly refusalReason: string | null;
+  readonly createdBy: string | null;
+}
+
+/** The result kind a device reports when root restored the previous agent release. */
+const EDGE_ROLLBACK_KIND = 'edge-rollback';
+
+/** The board of a device model, or null when the model is not a Suderra OS board. */
+function boardOfModel(model: string): BoardRow | null {
+  const known = Object.values(DeviceModel).find((candidate) => candidate === model);
+  const profile = known === undefined ? null : suderraOsBoardOf(known);
+  return profile === null ? null : boardRow(profile);
 }
 
 const STATEMENT_TYPES: readonly CarriedStatementType[] = [

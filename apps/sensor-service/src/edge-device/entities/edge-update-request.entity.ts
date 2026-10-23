@@ -23,8 +23,11 @@ import {
  *               again as a NEW statement, no earlier than the contract's interval
  *   RESCHEDULE  concluded by approval-missing or expired: the window passed without
  *               the update; only an operator chooses another window
- *   FAILED      concluded by a final refusal, or a retryable intent whose campaign
- *               ran out: recovery is a different statement; the operator is told
+ *   FAILED      concluded by a final refusal, by a retryable intent whose campaign
+ *               ran out, by a re-issue the cloud would not sign, or by the device
+ *               rolling the installed update back: recovery is a different
+ *               statement; the operator is told (`failure_detail` says which when
+ *               it was the cloud that ended it)
  *   LAPSED      nothing concluded it by expires_at (silence ends at the window)
  *   REISSUED    a RETRY request replaced by a new statement (`superseded_by`)
  */
@@ -161,6 +164,11 @@ export class EdgeUpdateRequest {
   @Field(() => String, { nullable: true })
   @Column({ type: 'varchar', length: 256, name: 'handoff_refusal', nullable: true })
   handoffRefusal!: string | null;
+
+  /** Why the cloud, not the device's verdict alone, ended the request as failed. */
+  @Field(() => String, { nullable: true })
+  @Column({ type: 'varchar', length: 256, name: 'failure_detail', nullable: true })
+  failureDetail!: string | null;
 
   /** The result that concluded the request (its seq, outcome and reason). */
   @Field(() => Float, { nullable: true })

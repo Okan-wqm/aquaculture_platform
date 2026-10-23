@@ -1,3 +1,4 @@
+import { ScheduledJobExecutor } from '@aquaculture/backend-common/scheduling';
 import { ConfigService } from '@nestjs/config';
 import { collaborator } from '@aquaculture/testing';
 import { type DataSource } from 'typeorm';
@@ -8,10 +9,11 @@ import {
 } from '../../__tests__/support/sensor-rls-postgres.harness';
 import { DeviceDirectoryService } from '../device-directory.service';
 import { type EdgeCommandPublisher } from '../edge-command-publisher.service';
-import { type AdmittedRelease } from '../edge-release-catalog.service';
+import { type AdmittedRelease, type EdgeReleaseCatalog } from '../edge-release-catalog.service';
 import { EdgeResultTelemetryService } from '../edge-result-telemetry.service';
 import { UPDATE_CHANNEL } from '../edge-update-channel';
 import { EdgeUpdateManifestService, UpdateRefusedError } from '../edge-update-manifest.service';
+import { EdgeUpdateReconciler } from '../edge-update-reconciler.service';
 import {
   type EdgeUpdateIssue,
   EdgeUpdateRequestService,
@@ -27,6 +29,7 @@ import {
   EdgeAgentChannel,
   EdgeDevice,
 } from '../entities/edge-device.entity';
+import { StatementAdmissionError } from '../manifest-signer';
 import { SuderraEdgeConfig } from '../suderra-edge.config';
 
 import { channelEnvironment } from './support/edge-channel-env';
@@ -82,6 +85,19 @@ const SEED: readonly Seed[] = [
   { code: 'UR-MAINT', tenantId: TENANT_A, state: DeviceLifecycleState.MAINTENANCE },
   { code: 'UR-REVOKED', tenantId: TENANT_A, state: DeviceLifecycleState.REVOKED },
   { code: 'UR-OTHER', tenantId: TENANT_B, seq: 5 },
+  { code: 'RC-EDGE', tenantId: TENANT_A },
+  { code: 'RC-OS', tenantId: TENANT_A },
+  { code: 'RC-WAIT', tenantId: TENANT_A },
+  { code: 'RC-CAMP', tenantId: TENANT_A },
+  { code: 'RC-REFUSED', tenantId: TENANT_A },
+  { code: 'RC-DOWN', tenantId: TENANT_A },
+  { code: 'RC-RACE', tenantId: TENANT_A },
+  { code: 'RC-BAD', tenantId: TENANT_A },
+  { code: 'RC-LAPSE', tenantId: TENANT_A },
+  { code: 'RC-ROLL', tenantId: TENANT_A },
+  { code: 'RC-GONE', tenantId: TENANT_A },
+  { code: 'RC-FINAL', tenantId: TENANT_A },
+  { code: 'RC-OTHER', tenantId: TENANT_B },
 ];
 
 jest.setTimeout(240_000);
@@ -93,6 +109,8 @@ describe('update requests under FORCE RLS (ADR-048 DEC-2.12)', () => {
   let telemetry: EdgeResultTelemetryService;
   let release: AdmittedRelease;
   let publish: jest.Mock;
+  let forVersion: jest.Mock;
+  let reconciler: EdgeUpdateReconciler;
   const ids = new Map<string, string>();
   const id = (code: string): string => {
     const found = ids.get(code);
@@ -212,6 +230,13 @@ describe('update requests under FORCE RLS (ADR-048 DEC-2.12)', () => {
       telemetry,
     );
     service.onModuleInit();
+    forVersion = jest.fn(async (): Promise<AdmittedRelease> => release);
+    reconciler = new EdgeUpdateReconciler(
+      stage.runtime,
+      service,
+      collaborator<EdgeReleaseCatalog>({ forVersion }, 'EdgeReleaseCatalog'),
+      collaborator<ScheduledJobExecutor>({}, 'ScheduledJobExecutor'),
+    );
   });
 
   afterAll(async () => {
@@ -618,6 +643,282 @@ describe('update requests under FORCE RLS (ADR-048 DEC-2.12)', () => {
       );
       expect(mine[0]).not.toHaveProperty('statement');
       expect(await service.listForDevice(TENANT_B, id('UR-SETTLE'))).toEqual([]);
+    });
+  });
+
+  describe('reconciliation', () => {
+    const REFUSED_AT = new Date('2026-10-20T12:00:00Z');
+    const CAMPAIGN = new Date('2026-10-20T11:00:00Z');
+    const INTERVAL_MS = UPDATE_CHANNEL.reissueMinIntervalSeconds * 1000;
+    const AFTER_INTERVAL = new Date(REFUSED_AT.getTime() + INTERVAL_MS);
+
+    const report = (
+      code: string,
+      digest: string,
+      over: Record<string, unknown>,
+    ): Promise<unknown> =>
+      telemetry.ingest(
+        { tenantId: tenantOf(code), deviceIdentifier: id(code) },
+        concluding(digest, over),
+      );
+    const byDigest = async (code: string, digest: string): Promise<Record<string, any>> => {
+      const row = (await rows(code)).find((r) => r['statement_digest'] === digest);
+      if (row === undefined) throw new Error(`${code} has no request ${digest}`);
+      return row;
+    };
+    const bodyOf = (row: Record<string, any>): Record<string, any> =>
+      JSON.parse(Buffer.from(JSON.parse(row['statement']).payload, 'base64').toString('utf8'));
+    /** A request the device refused at REFUSED_AT, its campaign begun at CAMPAIGN. */
+    const refused = async (
+      code: string,
+      reason = 'fetch-failed',
+      issue: () => ReturnType<EdgeUpdateRequestService['issueEdgeUpdate']> = () =>
+        service.issueEdgeUpdate(ref(code), edge()),
+    ): Promise<Awaited<ReturnType<EdgeUpdateRequestService['issueEdgeUpdate']>>> => {
+      const issued = await issue();
+      const edgeKind = issued.statementType === 'suderra.edge-update.v1';
+      await report(code, issued.statementDigest, {
+        outcome: 'rejected',
+        reason,
+        kind: edgeKind ? 'edge-update' : 'os-update',
+        subject: {
+          statement_type: issued.statementType,
+          statement_digest: { sha256: issued.statementDigest },
+        },
+      });
+      await admin.query(
+        `UPDATE ${table(code)} SET settled_at = $2, campaign_started_at = $3 WHERE id = $1`,
+        [issued.id, REFUSED_AT, CAMPAIGN],
+      );
+      return issued;
+    };
+
+    it('issues a retryable refusal again as a new statement of the same intent and replaces the request', async () => {
+      const old = await refused('RC-EDGE');
+      expect((await byDigest('RC-EDGE', old.statementDigest))['state']).toBe('retry');
+      const summary = await reconciler.reconcileTenant(TENANT_A, AFTER_INTERVAL);
+      expect(summary.reissued).toBeGreaterThanOrEqual(1);
+
+      const all = await rows('RC-EDGE');
+      expect(all).toHaveLength(2);
+      const [before, after] = all;
+      expect(before).toMatchObject({ state: 'reissued', id: old.id });
+      expect(after).toMatchObject({
+        state: 'pending',
+        intent_id: old.intentId,
+        statement_type: 'suderra.edge-update.v1',
+      });
+      expect(before?.['superseded_by']).toBe(after?.['id']);
+      // A new statement, never the old bytes: later sequence, later window, same campaign.
+      expect(after?.['statement_digest']).not.toBe(old.statementDigest);
+      expect(Number(after?.['update_seq'])).toBeGreaterThan(Number(before?.['update_seq']));
+      expect(new Date(after?.['not_before']).getTime()).toBe(AFTER_INTERVAL.getTime());
+      expect(new Date(after?.['expires_at']).getTime()).toBe(
+        AFTER_INTERVAL.getTime() + 7200 * 1000,
+      );
+      expect(new Date(after?.['campaign_started_at']).getTime()).toBe(CAMPAIGN.getTime());
+      expect(bodyOf(after ?? {})).toMatchObject({
+        update_seq: Number(after?.['update_seq']),
+        version: '1.7.0',
+        not_before: '2026-10-20T12:15:00Z',
+      });
+      expect(await seqOf('RC-EDGE')).toBe(2);
+      expect(forVersion).toHaveBeenCalledWith(
+        expect.objectContaining({ boardProfile: 'revpi-connect4' }),
+        '1.7.0',
+      );
+    });
+
+    it('re-issues an os-update from the recipe it stored, a new statement of the same bundle', async () => {
+      const old = await refused('RC-OS', 'clock-unsynced', () =>
+        service.issueOsUpdate(ref('RC-OS'), os()),
+      );
+      await reconciler.reconcileTenant(TENANT_A, AFTER_INTERVAL);
+      const [before, after] = await rows('RC-OS');
+      expect(before).toMatchObject({ state: 'reissued', id: old.id });
+      expect(after).toMatchObject({ state: 'pending', statement_type: 'suderra.os-update.v1' });
+      expect(bodyOf(after ?? {})).toMatchObject({
+        version: BUNDLE.version,
+        bundle: { digest: { sha256: BUNDLE.sha256 }, size_bytes: BUNDLE.sizeBytes },
+        update_seq: 2,
+      });
+    });
+
+    it('waits the contract interval after the refusal: nothing a second early, one at the interval', async () => {
+      const old = await refused('RC-WAIT');
+      const early = new Date(AFTER_INTERVAL.getTime() - 1000);
+      await reconciler.reconcileTenant(TENANT_A, early);
+      expect((await rows('RC-WAIT')).map((r) => r['state'])).toEqual(['retry']);
+      expect(await seqOf('RC-WAIT')).toBe(1);
+      await reconciler.reconcileTenant(TENANT_A, AFTER_INTERVAL);
+      expect((await rows('RC-WAIT')).map((r) => r['state'])).toEqual(['reissued', 'pending']);
+      expect((await byDigest('RC-WAIT', old.statementDigest))['state']).toBe('reissued');
+    });
+
+    it('ends the campaign at its bound: FAILED, the refusal kept, nothing signed', async () => {
+      const old = await refused('RC-CAMP', 'maintenance-blocked');
+      const over = new Date(CAMPAIGN.getTime() + UPDATE_CHANNEL.campaignMaxSeconds * 1000);
+      const summary = await reconciler.reconcileTenant(TENANT_A, over);
+      expect(summary.failed).toBeGreaterThanOrEqual(1);
+      const row = await byDigest('RC-CAMP', old.statementDigest);
+      expect(row).toMatchObject({
+        state: 'failed',
+        settled_outcome: 'rejected',
+        settled_reason: 'maintenance-blocked',
+      });
+      expect(row['failure_detail']).toContain('campaign over');
+      expect(row['failure_detail']).toContain('maintenance-blocked');
+      expect(await rows('RC-CAMP')).toHaveLength(1);
+      expect(await seqOf('RC-CAMP')).toBe(1);
+    });
+
+    it('a re-issue the cloud would not sign ends the intent as FAILED and says why', async () => {
+      const old = await refused('RC-REFUSED');
+      forVersion.mockRejectedValueOnce(
+        new StatementAdmissionError('The release 1.7.0', 'its provenance names another tag'),
+      );
+      await reconciler.reconcileTenant(TENANT_A, AFTER_INTERVAL);
+      const row = await byDigest('RC-REFUSED', old.statementDigest);
+      expect(row['state']).toBe('failed');
+      expect(row['failure_detail']).toContain('re-issue refused');
+      expect(row['failure_detail']).toContain('provenance names another tag');
+      expect(await rows('RC-REFUSED')).toHaveLength(1);
+      expect(await seqOf('RC-REFUSED')).toBe(1);
+    });
+
+    it('a dependency that is only down leaves the request waiting; the next tick re-issues it', async () => {
+      const old = await refused('RC-DOWN');
+      forVersion.mockRejectedValueOnce(new Error('connect ECONNREFUSED releases.example.com:443'));
+      const summary = await reconciler.reconcileTenant(TENANT_A, AFTER_INTERVAL);
+      expect(summary.waiting).toBeGreaterThanOrEqual(1);
+      expect((await byDigest('RC-DOWN', old.statementDigest))['state']).toBe('retry');
+      expect(await seqOf('RC-DOWN')).toBe(1);
+      await reconciler.reconcileTenant(TENANT_A, AFTER_INTERVAL);
+      expect((await byDigest('RC-DOWN', old.statementDigest))['state']).toBe('reissued');
+      expect(await seqOf('RC-DOWN')).toBe(2);
+    });
+
+    it('two replicas reconciling at once re-issue it once and burn no sequence value', async () => {
+      const old = await refused('RC-RACE');
+      const [a, b] = await Promise.all([
+        reconciler.reconcileTenant(TENANT_A, AFTER_INTERVAL),
+        reconciler.reconcileTenant(TENANT_A, AFTER_INTERVAL),
+      ]);
+      expect(a.reissued + b.reissued).toBeGreaterThanOrEqual(1);
+      const all = await rows('RC-RACE');
+      expect(all.map((r) => r['state']).sort()).toEqual(['pending', 'reissued']);
+      expect((await byDigest('RC-RACE', old.statementDigest))['state']).toBe('reissued');
+      expect(await seqOf('RC-RACE')).toBe(2);
+    });
+
+    it('a device that left service ends the intent as FAILED, not re-signed', async () => {
+      const old = await refused('RC-GONE');
+      await admin.query(
+        `UPDATE ${stage?.schemaOf(tenantOf('RC-GONE'))}.edge_devices SET lifecycle_state = 'revoked' WHERE id = $1`,
+        [id('RC-GONE')],
+      );
+      await reconciler.reconcileTenant(TENANT_A, AFTER_INTERVAL);
+      const row = await byDigest('RC-GONE', old.statementDigest);
+      expect(row['state']).toBe('failed');
+      expect(row['failure_detail']).toContain('cannot take an update statement');
+      expect(await rows('RC-GONE')).toHaveLength(1);
+    });
+
+    it('a stored recipe the cloud did not write ends the intent as FAILED instead of being signed', async () => {
+      const old = await refused('RC-BAD');
+      await admin.query(
+        `UPDATE ${table('RC-BAD')} SET recipe = '{"kind":"edge-update"}'::jsonb WHERE id = $1`,
+        [old.id],
+      );
+      await reconciler.reconcileTenant(TENANT_A, AFTER_INTERVAL);
+      const row = await byDigest('RC-BAD', old.statementDigest);
+      expect(row['state']).toBe('failed');
+      expect(row['failure_detail']).toContain('recipe');
+      expect(await rows('RC-BAD')).toHaveLength(1);
+    });
+
+    it('a final refusal is never re-issued', async () => {
+      const old = await refused('RC-FINAL', 'signature-invalid');
+      await reconciler.reconcileTenant(TENANT_A, AFTER_INTERVAL);
+      expect((await rows('RC-FINAL')).map((r) => r['state'])).toEqual(['failed']);
+      expect((await byDigest('RC-FINAL', old.statementDigest))['failure_detail']).toBeNull();
+    });
+
+    it('lapses a silent request when its window closes, on the same tick', async () => {
+      const silent = await service.issueEdgeUpdate(ref('RC-LAPSE'), edge());
+      const before = await reconciler.reconcileTenant(TENANT_A, WINDOW.expiresAt);
+      expect(before.lapsed).toBeGreaterThanOrEqual(1);
+      expect((await byDigest('RC-LAPSE', silent.statementDigest))['state']).toBe('lapsed');
+    });
+
+    it("reconciling one tenant never touches another tenant's requests", async () => {
+      const other = await refused('RC-OTHER');
+      await reconciler.reconcileTenant(TENANT_A, AFTER_INTERVAL);
+      expect((await byDigest('RC-OTHER', other.statementDigest))['state']).toBe('retry');
+      await reconciler.reconcileTenant(TENANT_B, AFTER_INTERVAL);
+      expect((await byDigest('RC-OTHER', other.statementDigest))['state']).toBe('reissued');
+    });
+
+    describe('rollback', () => {
+      const rolledBack = (
+        code: string,
+        seq: number,
+        version: string,
+        reason = 'health-window-failed',
+      ) =>
+        telemetry.ingest(
+          { tenantId: tenantOf(code), deviceIdentifier: id(code) },
+          Buffer.from(
+            JSON.stringify({
+              _type: 'suderra.result.v1',
+              seq,
+              kind: 'edge-rollback',
+              outcome: 'failed',
+              reason,
+              occurred_at: '2026-10-20T12:30:00Z',
+              time_state: 'synced-nts',
+              board_profile: 'revpi-connect4',
+              os_version: '1.0.0',
+              subject: { version, security_version: 7 },
+            }),
+          ),
+        );
+      const installed = async (code: string, seq: number): Promise<string> => {
+        const issued = await service.issueEdgeUpdate(
+          ref(code),
+          edge({ terms: { ...TERMS, maxOutageSeconds: 200 + seq } }),
+        );
+        await report(code, issued.statementDigest, { seq });
+        expect((await byDigest(code, issued.statementDigest))['state']).toBe('done');
+        return issued.statementDigest;
+      };
+
+      it('the device rolling an installed update back fails the request that installed it', async () => {
+        const digest = await installed('RC-ROLL', 100);
+        await rolledBack('RC-ROLL', 101, '1.7.0');
+        const row = await byDigest('RC-ROLL', digest);
+        expect(row['state']).toBe('failed');
+        expect(row['failure_detail']).toBe('rolled back by the device: health-window-failed');
+        expect(row['settled_outcome']).toBe('ok');
+      });
+
+      it('a republished older rollback never fails a newer install of the same version', async () => {
+        const newer = await installed('RC-ROLL', 200);
+        await rolledBack('RC-ROLL', 101, '1.7.0');
+        expect((await byDigest('RC-ROLL', newer))['state']).toBe('done');
+      });
+
+      it('a rollback naming another version fails nothing', async () => {
+        const digest = await installed('RC-ROLL', 300);
+        await rolledBack('RC-ROLL', 301, '1.6.0');
+        expect((await byDigest('RC-ROLL', digest))['state']).toBe('done');
+      });
+
+      it("another device's rollback never fails this device's install", async () => {
+        const digest = await installed('RC-ROLL', 400);
+        await rolledBack('RC-EDGE', 401, '1.7.0');
+        expect((await byDigest('RC-ROLL', digest))['state']).toBe('done');
+      });
     });
   });
 });

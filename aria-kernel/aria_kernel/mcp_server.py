@@ -138,7 +138,7 @@ def sign_mcp_write_approval(
 TOOL_MANIFEST: dict[str, dict[str, Any]] = {
     "aria_status": {"description": "Doctor summary of the ARIA store (organ statuses, healthy flag).", "inputSchema": _schema({})},
     "missions_list": {"description": "Open missions (state, source, title, next_action).", "inputSchema": _schema({"limit": {"type": "integer", "minimum": 1, "maximum": 200}})},
-    "findings_query": {"description": "Recorded findings, optionally filtered by service.", "inputSchema": _schema({"service": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": 200}})},
+    "findings_query": {"description": "Recorded findings, optionally filtered by service (the kernel project key impact_graph.project_for_path names, e.g. farm-service).", "inputSchema": _schema({"service": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": 200}})},
     "pressure_top": {"description": "Highest-ranked pressure sources.", "inputSchema": _schema({"limit": {"type": "integer", "minimum": 1, "maximum": 100}})},
     "governance_tail": {"description": "Most recent governance rows (kind + details).", "inputSchema": _schema({"limit": {"type": "integer", "minimum": 1, "maximum": 200}, "kind": {"type": "string"}})},
     "handoff_read": {"description": "Last handoff snapshot for a session id.", "inputSchema": _schema({"session_id": {"type": "string"}}, ["session_id"])},
@@ -193,7 +193,7 @@ class AriaMcpServer:
     def _findings_query(self, args: dict[str, Any]) -> Any:
         from .finding import list_findings
 
-        rows = list_findings(self.workspace, service=args.get("service"))
+        rows = list_findings(self.workspace, service=args.get("service"), base_dir=self.root)
         return rows[: int(args.get("limit") or 50)]
 
     def _pressure_top(self, args: dict[str, Any]) -> Any:

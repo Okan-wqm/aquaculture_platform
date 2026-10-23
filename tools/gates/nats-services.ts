@@ -12,11 +12,12 @@
  * every tool at once.
  *
  * What this module owns:
- *   - the read: `yaml.parse`, then the shape the SSoT's own schema declares
+ *   - the read: one YAML parse, then the shape the SSoT's own schema declares
  *     (infrastructure/nats/services.schema.json, draft-07). No hand-written shape check; a document
  *     the schema refuses throws NatsServicesInvalid. Beyond the schema, the integrity draft-07
  *     cannot say: one entry per identity and per application, no repeated grant, every grant a
- *     NATS subject (ARIA-LOW-603).
+ *     NATS subject (ARIA-LOW-603). The same parse keeps where each identity and grant is written
+ *     (`parseNatsServicesLocated`), so a fact citing services.yaml cites its line (SE-3).
  *   - NATS subject semantics: `subjectMatches` (one filter against one concrete subject) and
  *     `filtersOverlap` (do two filters share a subject). `*` is exactly one whole token, `>` is the
  *     last token and matches one or more, every other token is literal, and an empty token matches
@@ -33,7 +34,7 @@ import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 import Ajv, { type ValidateFunction } from 'ajv';
-import { parse as yamlParse } from 'yaml';
+import { isMap, isScalar, isSeq, LineCounter, parseDocument, type Node as YamlNode } from 'yaml';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 
@@ -130,19 +131,53 @@ function integrityErrors(services: readonly NatsServiceEntry[]): string[] {
   return errors;
 }
 
-/**
- * Parse services.yaml text; a document its schema refuses, or one that breaks the integrity rules
- * above, throws NatsServicesInvalid.
- */
-export function parseNatsServices(source: string): readonly NatsServiceEntry[] {
-  let document: unknown;
-  try {
-    document = yamlParse(source);
-  } catch (error) {
-    throw new NatsServicesInvalid(
-      `not YAML: ${error instanceof Error ? error.message : String(error)}`,
-    );
+/** 1-based source lines of one entry: its identity (`name`) and each of its grants, in order. */
+export interface NatsServiceSourceLines {
+  readonly name: number;
+  readonly publish: readonly number[];
+  readonly subscribe: readonly number[];
+}
+
+export interface LocatedNatsServices {
+  readonly services: readonly NatsServiceEntry[];
+  /** Keyed by certificate identity (`name`), which the integrity rules keep unique. */
+  readonly lines: ReadonlyMap<string, NatsServiceSourceLines>;
+}
+
+/** The 1-based line a scalar node starts on; the schema has already admitted the node's shape. */
+function scalarLine(node: unknown, counter: LineCounter, at: string): number {
+  if (!isScalar(node) || node.range === undefined || node.range === null) {
+    throw new NatsServicesInvalid(`${at} is not a scalar with a source position`);
   }
+  return counter.linePos(node.range[0]).line;
+}
+
+function grantLines(
+  entry: YamlNode,
+  key: 'publish' | 'subscribe',
+  counter: LineCounter,
+  at: string,
+): number[] {
+  const list = isMap(entry) ? entry.get(key, true) : undefined;
+  if (!isSeq(list)) throw new NatsServicesInvalid(`${at}.${key} is not a list`);
+  return list.items.map((item, index) => scalarLine(item, counter, `${at}.${key}[${index}]`));
+}
+
+/**
+ * Parse services.yaml text and keep each identity's and grant's line; a document its schema
+ * refuses, or one that breaks the integrity rules above, throws NatsServicesInvalid.
+ */
+export function parseNatsServicesLocated(source: string): LocatedNatsServices {
+  const counter = new LineCounter();
+  const parsed = parseDocument(source, { lineCounter: counter });
+  const [syntaxError] = parsed.errors;
+  if (syntaxError !== undefined) {
+    // The parser's own message quotes the offending source lines; a reader such as the code-fact
+    // bridge carries this message into a witness, so it names the error and its position only.
+    const { line, col } = counter.linePos(syntaxError.pos[0]);
+    throw new NatsServicesInvalid(`not YAML: ${syntaxError.code} at line ${line}, column ${col}`);
+  }
+  const document: unknown = parsed.toJS();
   if (!isValidDocument(document)) {
     const errors = (schemaValidator().errors ?? [])
       .map((error) => `${error.instancePath || '/'} ${error.message ?? 'is invalid'}`)
@@ -151,22 +186,50 @@ export function parseNatsServices(source: string): readonly NatsServiceEntry[] {
   }
   const integrity = integrityErrors(document.services);
   if (integrity.length > 0) throw new NatsServicesInvalid(integrity.join('; '));
-  return document.services;
+  const entries = parsed.get('services', true);
+  if (!isSeq(entries)) throw new NatsServicesInvalid('services is not a list');
+  const lines = new Map<string, NatsServiceSourceLines>();
+  document.services.forEach((service, index) => {
+    const entry = entries.items[index];
+    const at = `services[${index}]`;
+    if (!isMap(entry)) throw new NatsServicesInvalid(`${at} is not a mapping`);
+    lines.set(service.name, {
+      name: scalarLine(entry.get('name', true), counter, `${at}.name`),
+      publish: grantLines(entry, 'publish', counter, at),
+      subscribe: grantLines(entry, 'subscribe', counter, at),
+    });
+  });
+  return { services: document.services, lines };
+}
+
+/**
+ * Parse services.yaml text; a document its schema refuses, or one that breaks the integrity rules
+ * above, throws NatsServicesInvalid.
+ */
+export function parseNatsServices(source: string): readonly NatsServiceEntry[] {
+  return parseNatsServicesLocated(source).services;
+}
+
+function readNatsServicesSource(path: string): string {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch (error) {
+    throw new NatsServicesInvalid(
+      `unreadable ${path}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 /** Read and parse services.yaml (this checkout's when no path is given). */
 export function loadNatsServices(
   path: string = join(REPO_ROOT, NATS_SERVICES_YAML),
 ): readonly NatsServiceEntry[] {
-  let source: string;
-  try {
-    source = readFileSync(path, 'utf8');
-  } catch (error) {
-    throw new NatsServicesInvalid(
-      `unreadable ${path}: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-  return parseNatsServices(source);
+  return parseNatsServices(readNatsServicesSource(path));
+}
+
+/** Read and parse services.yaml with the source line of every identity and grant. */
+export function loadNatsServicesLocated(path: string): LocatedNatsServices {
+  return parseNatsServicesLocated(readNatsServicesSource(path));
 }
 
 /** Does the filter `filter` admit the concrete subject `subject` (NATS semantics)? */

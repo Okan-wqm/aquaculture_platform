@@ -26,7 +26,7 @@ from aria_kernel.research import (
     list_research_fetches,
     record_research_policy,
 )
-from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from aria_kernel.tool_registry import GovernanceError, ensure_tools_binding, ensure_tools_dir
 
 
 def _seed_tools() -> Path:
@@ -44,6 +44,9 @@ class ArchitectureReviewTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tools = _seed_tools()
         self.repo = self.tools.parent
+        # Adoption names projects over the store's map (SE-1 round 2): the
+        # store declares the workspace it reviews.
+        ensure_tools_binding(self.tools, workspace_root=self.repo)
 
     def tearDown(self) -> None:
         import shutil

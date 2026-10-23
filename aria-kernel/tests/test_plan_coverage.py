@@ -14,6 +14,7 @@ from pathlib import Path
 
 from aria_kernel.plan_convergence import _validate_cross_review_risk
 from aria_kernel.plan_coverage import build_synthetic_risk, compute_plan_coverage
+from tests._helpers.git_fixtures import make_repo_with_initial_commit
 from tests._helpers.node_modules import installed_node_modules
 from tests._helpers.witness_sources import witness_tool_paths
 from tests._helpers.operator_acts import operator_set_profile
@@ -45,7 +46,11 @@ WITNESS_REPORT = {
 
 
 class _FakeRunner:
-    """Scripted runner: git rev-parse first, then the witness call."""
+    """Scripted runner for the witness call, the only command the runner runs.
+
+    The HEAD the closure is computed at is read through the kernel's hermetic git owner
+    (``workspace_view.workspace_head_sha``), never through this runner (SE-3-R2 round-2 RA).
+    """
 
     def __init__(self, witness_result):
         self.witness_result = witness_result
@@ -53,8 +58,8 @@ class _FakeRunner:
 
     def __call__(self, cmd, cwd, timeout_seconds):
         self.calls.append(list(cmd))
-        if cmd[:2] == ["git", "rev-parse"]:
-            return subprocess.CompletedProcess(cmd, 0, stdout="a" * 40 + "\n", stderr="")
+        if cmd[:1] == ["git"]:
+            raise AssertionError(f"plan coverage ran git through the witness runner: {cmd}")
         result = self.witness_result
         if isinstance(result, Exception):
             raise result
@@ -64,8 +69,10 @@ class _FakeRunner:
 class PlanCoverageWrapperTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.workspace = Path(self.tmp.name) / "ws"
-        self.workspace.mkdir()
+        self.workspace = make_repo_with_initial_commit(Path(self.tmp.name) / "ws", {"README.md": "ws\n"})
+        self.head = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=self.workspace, check=True, capture_output=True, text=True
+        ).stdout.strip()
         self.tools = Path(self.tmp.name) / "aria-tools"
 
     def tearDown(self):
@@ -100,7 +107,7 @@ class PlanCoverageWrapperTests(unittest.TestCase):
         self.assertTrue(manifest.exists())
         self.assertEqual(json.loads(manifest.read_text())["verdict"], "gaps")
         self.assertTrue(payload["closure_manifest_hash"].startswith("sha256:"))
-        self.assertEqual(payload["computed_at_sha"], "a" * 40)
+        self.assertEqual(payload["computed_at_sha"], self.head)
         # The witness received the plan's waivers.
         witness_call = runner.calls[-1]
         input_path = Path(witness_call[witness_call.index("--input") + 1])
@@ -114,6 +121,18 @@ class PlanCoverageWrapperTests(unittest.TestCase):
         self.assertEqual(payload["verdict"], "covered_with_waivers")
         self.assertEqual(payload["synthetic_risks"], [])
         self.assertEqual(payload["closure_summary"]["waived"], 1)
+
+    def test_witness_runs_the_tree_own_ts_node_never_npx(self):
+        # SE-3 review r1 security B2: the one runner (shared with the code-fact bridge) ran
+        # `npx ts-node`; on a tree without node_modules npx fetches an unpinned ts-node from the
+        # registry instead of failing. The tree's own binary fails as FileNotFoundError, which
+        # is the toolchain_missing case below.
+        clean = {**WITNESS_REPORT, "verdict": "covered_with_waivers", "uncovered": []}
+        runner = _FakeRunner(subprocess.CompletedProcess([], 0, stdout=json.dumps(clean), stderr=""))
+        self.compute(runner)
+        witness_call = runner.calls[-1]
+        self.assertNotIn("npx", witness_call)
+        self.assertEqual(self.workspace / witness_call[0], self.workspace / "node_modules" / ".bin" / "ts-node")
 
     def test_missing_toolchain_is_environment_unable(self):
         payload = self.compute(_FakeRunner(FileNotFoundError("npx not found")))
@@ -158,7 +177,6 @@ class NativePlanCoverageTests(unittest.TestCase):
             request_critics, start_plan,
         )
         from aria_kernel.tool_registry import ensure_tools_binding
-        from tests._helpers.git_fixtures import make_repo_with_initial_commit
 
         fixture_directory = tempfile.TemporaryDirectory(prefix="aria-native-coverage-")
         self.addCleanup(fixture_directory.cleanup)

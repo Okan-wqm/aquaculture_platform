@@ -24,6 +24,12 @@ import {
   truthTableActiveRows,
 } from '../../tools/gates/debt-plan-truth';
 
+import {
+  closesTrailer,
+  fixtureFinding,
+  RegistryFixtureRepo,
+} from './helpers/registry-fixture-repo';
+
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const PLAN_ID = '2026-06-18-enterprise-grade-debt-closure';
 const PLAN_DIR = join(REPO_ROOT, 'docs/plans', PLAN_ID);
@@ -340,4 +346,65 @@ describe('enterprise-grade debt closure plan contract', () => {
     expect(installedTreeStep).toBeDefined();
     expect(stringArray(installedTreeStep?.command)).toEqual(['npm', 'ls', '--all']);
   });
+});
+
+/**
+ * MF-1 T9 (PROC-HIGH-039) — the truth table is judged against the projection
+ * at HEAD, so a PR that closes an active CRITICAL by its trailer answers for
+ * the row in that PR.
+ *
+ * The check used to read the stored `state`, which only the reconcile lane
+ * changed after the merge: a closing PR passed with the row kept, and main
+ * went red on the retired row once reconcile landed (or the lane retired the
+ * row itself, a second main writer). With RESOLVED derived, the CRITICAL
+ * leaves the active set in the closing PR's own tree, and the row must leave
+ * with it. Run through the debt-plan-truth CLI of a throwaway repository whose
+ * history carries the trailer (helpers/registry-fixture-repo.ts).
+ */
+describe('MF-1 T9 — a PR whose trailer closes an active CRITICAL answers for its truth-table row', () => {
+  const CLI_TEST_TIMEOUT_MS = 180_000;
+  const repo = RegistryFixtureRepo.create('mf1-debt-plan-');
+
+  beforeAll(() => {
+    repo.writeRegistry([fixtureFinding('ARIA-CRITICAL-921'), fixtureFinding('ARIA-HIGH-922')]);
+    repo.writeTruthTable(['ARIA-CRITICAL-921']);
+    repo.commit('chore(registry): an active CRITICAL with its plan row', '2026-10-01T10:00:00Z');
+    repo.git(['checkout', '-q', '-b', 'pr-921']);
+  });
+
+  afterAll(() => repo.dispose());
+
+  it(
+    'starts green: the active CRITICAL has its row',
+    () => {
+      const truth = repo.debtPlanTruth();
+      expect({ status: truth.status, stderr: truth.stderr }).toEqual({ status: 0, stderr: '' });
+    },
+    CLI_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'fails at the PR head when the trailer closes the CRITICAL and the row stays',
+    () => {
+      repo.commit(
+        `fix(fixture): close the CRITICAL, keep its plan row\n\n${closesTrailer('ARIA-CRITICAL-921')}`,
+        '2026-10-02T10:00:00Z',
+      );
+      const truth = repo.debtPlanTruth();
+      expect(truth.status).toBe(1);
+      expect(`${truth.stdout}${truth.stderr}`).toContain('ARIA-CRITICAL-921');
+    },
+    CLI_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'passes once the same PR removes the row',
+    () => {
+      repo.writeTruthTable([]);
+      repo.commit('fix(fixture): retire the closed CRITICAL row', '2026-10-02T11:00:00Z');
+      const truth = repo.debtPlanTruth();
+      expect({ status: truth.status, stderr: truth.stderr }).toEqual({ status: 0, stderr: '' });
+    },
+    CLI_TEST_TIMEOUT_MS,
+  );
 });

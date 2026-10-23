@@ -434,6 +434,26 @@ class RegistrySnapshotOwnerTests(unittest.TestCase):
         verdict = verify_registry_snapshot(_REPO, self.raw, at=before, finding_ids=("ARIA-HIGH-017",))
         self.assertEqual(verdict.closures, {"ARIA-HIGH-017": (f"closing_commit_unreachable:{self._CLOSER}",)})
 
+    def test_a_closure_merged_before_the_registry_recorded_it_is_derived(self) -> None:
+        """MF-1 (PROC-HIGH-039): closure is derived at the evidence commit.
+
+        a62b291c3 is the merge of #2067, whose 78d38a761 carries
+        ``Closes: …#ARIA-HIGH-012``. The registry at that merge still records
+        ARIA-HIGH-012 as STALE: the closure-reconcile PR #2075 wrote RESOLVED
+        later. Judged at the merge, the finding is closed by the trailer the
+        merge brought in; a verdict that waits for a second commit is the drift
+        window MF-1 removes.
+        """
+        merge = _git(_REPO, "rev-parse", "--verify", "a62b291c3a7ea6650c60002d75ac51f53fad08cc^{commit}")
+        raw = subprocess.run(
+            ["git", "-C", str(_REPO), "show", f"{merge}:{_REGISTRY}"], check=True, capture_output=True,
+        ).stdout
+        recorded = next(json.loads(line) for line in raw.decode("utf-8").splitlines()
+                        if line.strip() and json.loads(line)["id"] == "ARIA-HIGH-012")
+        self.assertEqual(recorded["state"], "STALE")
+        verdict = verify_registry_snapshot(_REPO, raw, at=merge, finding_ids=("ARIA-HIGH-012",))
+        self.assertEqual(verdict, RegistrySnapshotVerdict(True, None, {"ARIA-HIGH-012": ()}))
+
     def test_a_broken_chain_is_named(self) -> None:
         rows = [json.loads(line) for line in self.raw.decode("utf-8").splitlines()[:3]]
         rows[1]["title"] = rows[1]["title"] + " (edited after the chain was written)"

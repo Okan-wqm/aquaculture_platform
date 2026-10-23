@@ -22,6 +22,7 @@ import {
   SelfRegisterRequest,
   SelfRegisterResponse,
 } from './dto/provisioning.dto';
+import { isDeviceCode } from './edge-contract';
 import { DELIVERY_CONTENT_TYPE, ProvisioningRefusal } from './edge-provisioning-manifest.service';
 import { ProvisioningService } from './provisioning.service';
 
@@ -78,7 +79,7 @@ export class ProvisioningController {
     @Res() res: Response,
   ): Promise<void> {
     // Validate device code format to prevent injection
-    if (!/^[A-Z]{2,5}-[0-9A-F]{8}$/.test(deviceCode)) {
+    if (!isDeviceCode(deviceCode)) {
       res
         .status(HttpStatus.BAD_REQUEST)
         .contentType('text/plain')
@@ -212,7 +213,7 @@ export class ProvisioningController {
     @Res() res: Response,
   ): Promise<void> {
     // Validate device code format to prevent injection
-    if (!/^[A-Z]{2,5}-[0-9A-F]{8}$/.test(deviceCode)) {
+    if (!isDeviceCode(deviceCode)) {
       res
         .status(HttpStatus.BAD_REQUEST)
         .contentType('text/plain')
@@ -259,7 +260,7 @@ export class ProvisioningController {
     @Res() res: Response,
   ): Promise<void> {
     // Validate device code format to prevent injection
-    if (!/^[A-Z]{2,5}-[0-9A-F]{8}$/.test(deviceCode)) {
+    if (!isDeviceCode(deviceCode)) {
       res
         .status(HttpStatus.BAD_REQUEST)
         .contentType('text/plain')
@@ -353,7 +354,7 @@ export class ProvisioningController {
     const MIN_RESPONSE_MS = 100; // minimum 100ms for all responses
 
     // Validate device code format to prevent injection/enumeration
-    if (!/^[A-Z]{2,5}-[0-9A-F]{8}$/.test(deviceCode)) {
+    if (!isDeviceCode(deviceCode)) {
       const elapsed = Date.now() - startTime;
       if (elapsed < MIN_RESPONSE_MS) {
         await new Promise((r) => setTimeout(r, MIN_RESPONSE_MS - elapsed));

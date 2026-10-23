@@ -1,5 +1,7 @@
 import { createHash } from 'crypto';
 
+import commonSchema from '../../../../contracts/suderra-edge/v1/schemas/common.schema.json';
+
 /**
  * The cloud's view of the Suderra edge contract v1 (ADR-048 DEC-25;
  * `contracts/suderra-edge/v1/`). The contract directory is the SSoT; this
@@ -74,6 +76,21 @@ export const CLOUD_SIGNED_STATEMENTS: {
 export function payloadTypeOf(type: StatementType): string {
   const kind = type.slice('suderra.'.length, type.length - '.v1'.length);
   return `application/vnd.suderra.${kind}.v1+json`;
+}
+
+// ---------------------------------------------------------------- identifiers
+
+/**
+ * The device code of the contract (`common.schema.json` `$defs.device_code`),
+ * compiled from the schema itself: the controller, the generator and the DTOs
+ * ask this one pattern, so the cloud cannot admit fewer codes than the contract
+ * (SENSOR-LOW-238) or mint one that a device would refuse.
+ */
+export const DEVICE_CODE_PATTERN: RegExp = new RegExp(commonSchema.$defs.device_code.pattern);
+
+/** True when `value` is a device code of the contract. */
+export function isDeviceCode(value: string): boolean {
+  return DEVICE_CODE_PATTERN.test(value);
 }
 
 // ------------------------------------------------------------------- JSON rules

@@ -50,7 +50,7 @@ import { DeviceEventService } from './device-event.service';
 import { type DeviceBrokerEndpoint } from './device-broker';
 import { DeviceDirectoryService } from './device-directory.service';
 import { DeviceLifecycleStatementService } from './device-lifecycle-statement.service';
-import { type DeviceBinding, wholeSecond } from './edge-contract';
+import { type DeviceBinding, isDeviceCode, wholeSecond } from './edge-contract';
 import { EdgeRootHandoffService } from './edge-root-handoff.service';
 import {
   EdgeProvisioningManifestService,
@@ -144,7 +144,13 @@ export class ProvisioningService {
   generateDeviceCode(model?: DeviceModel): string {
     const prefix = this.getDeviceCodePrefix(model);
     const suffix = crypto.randomBytes(4).toString('hex').toUpperCase();
-    return `${prefix}-${suffix}`;
+    const code = `${prefix}-${suffix}`;
+    if (!isDeviceCode(code)) {
+      // A prefix the contract would refuse is a programming error in this
+      // class; it must never reach a device row.
+      throw new Error(`The generated device code ${code} is outside the contract's pattern`);
+    }
+    return code;
   }
 
   /**

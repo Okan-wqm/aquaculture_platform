@@ -30,6 +30,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 import { isUnresolvedFindingState } from '../../tools/gates/finding-registry-chain';
+import { projectRegistry } from '../../tools/gates/finding-registry-projection';
 
 import { discoverSteeringFiles } from './_constants';
 import { isKnownUnrunnable, runnersOf } from './helpers/spec-runners';
@@ -133,12 +134,12 @@ describe('CLAUDE.md accuracy invariants', () => {
     // names the unresolved finding that tracks the gap — the repository's one
     // sanctioned shape for debt (owner + deadline + id live on the finding).
     // "Unresolved" is the registry's own predicate: the sweep's STALE and
-    // BLOCKED judgements still owe the gap; only RESOLVED retires it.
+    // BLOCKED judgements still owe the gap; only RESOLVED retires it. Asked of
+    // the projection, where a merged `Closes:` trailer resolves the finding
+    // the moment it merges: no workflow refreshes the stored `state` (MF-1,
+    // PROC-HIGH-039).
     const unresolvedFindingIds = new Set(
-      readFileSync(join(REPO_ROOT, 'docs/reviews/_registry/findings.jsonl'), 'utf8')
-        .split('\n')
-        .filter((line) => line.trim().length > 0)
-        .map((line) => JSON.parse(line) as { id: string; state: string })
+      projectRegistry(REPO_ROOT)
         .filter((row) => isUnresolvedFindingState(row.state))
         .map((row) => row.id),
     );

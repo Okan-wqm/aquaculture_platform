@@ -33,8 +33,9 @@
  *   - One owner: closure derivation is defined only in
  *     tools/gates/finding-registry-projection.ts, the closure-admission
  *     helpers are consumed only by it, aliases join a finding only there,
- *     and the readers MF-1 switches read through it instead of building a
- *     path to findings.jsonl.
+ *     and no tracked TypeScript or Python file under tools/, tests/, libs/,
+ *     aria-kernel/ or scripts/ reaches the stored rows and decides on a
+ *     finding's state without the projection (found by a scan, not a list).
  *   - Reads fail closed: a shallow clone is refused by name, never projected
  *     from truncated history (MF-DESIGN §9 R1).
  *
@@ -47,6 +48,8 @@
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
+
+import * as ts from 'typescript';
 
 import { type Finding, parseRegistryJsonl } from '../../tools/gates/finding-registry-chain';
 import {
@@ -466,14 +469,6 @@ const ALIAS_JOIN_INPUTS = [
   'loadCanonicalToAliases',
   'loadFindingIdAliases',
 ];
-const READERS_SWITCHED_TO_THE_PROJECTION = [
-  'tools/gates/commit-msg-validator.ts',
-  'tools/gates/compliance-attestation-coverage.ts',
-  'tools/gates/banned-phrase-excuse.ts',
-  'tools/audit/aggregate-hotspots.ts',
-  'tools/gates/debt-plan-truth.ts',
-];
-
 /** Every non-spec TypeScript source under tools/, repo-relative. */
 function toolSources(): string[] {
   const out: string[] = [];
@@ -513,12 +508,6 @@ function namedImportsFrom(text: string, moduleName: string): string[] {
   }
   return names;
 }
-
-/** A path to findings.jsonl built in code: a resolve/join argument or a constant. */
-const REGISTRY_PATH_CONSTRUCTION = [
-  /\b(?:resolve|join)\([^)]*['"`]findings\.jsonl['"`]/,
-  /(?:const|let|var)\s+\w+\s*(?::\s*\w+\s*)?=\s*['"`][^'"`\n]*_registry\/findings\.jsonl['"`]/,
-];
 
 describe('MF-1 — one owner of closure derivation', () => {
   const sources = toolSources();
@@ -561,19 +550,252 @@ describe('MF-1 — one owner of closure derivation', () => {
       );
     expect(joiners.filter((entry) => !entry.startsWith(`${PROJECTION_MODULE}:`))).toEqual([]);
   });
+});
 
-  it('the readers MF-1 switches read the registry through the projection, not by path', () => {
-    const offenders = READERS_SWITCHED_TO_THE_PROJECTION.flatMap((rel) => {
-      const text = source(rel);
-      const problems: string[] = [];
-      if (!/from\s*['"][^'"]*\/finding-registry-projection['"]/.test(text)) {
-        problems.push(`${rel}: does not import the projection`);
+// ---------------------------------------------------------------------------
+// Every reader of a finding's state reads the projection (MF-DESIGN §4.4)
+// ---------------------------------------------------------------------------
+//
+// After MF-1 no workflow refreshes the stored `state`: a finding closed by a
+// merged trailer stays stored OPEN and is RESOLVED only in the projection. A
+// gate that reads the stored state therefore fails open for every closure
+// after MF-1 — an npm-audit exception, a finance exemption, a web preview or a
+// quarantine outlives its closed finding. A hand list of switched readers
+// missed seven such gates under tests/, because it named five files and walked
+// only tools/. The readers are found instead: every tracked TypeScript and
+// Python file under the trees that read the registry is scanned, and a file
+// that reaches the stored rows and decides on a finding's state must ask the
+// projection.
+
+/** The trees whose tracked sources read the registry. */
+const READER_ROOTS = ['tools', 'tests', 'libs', 'aria-kernel', 'scripts'];
+const READER_SOURCE = /\.(?:ts|py)$/;
+
+/**
+ * The files that reach the stored rows and decide on their state on purpose,
+ * each with why the stored state is the right input there. Every entry must
+ * still be such a file, so the list cannot outlive its reason.
+ */
+const STORED_STATE_DECIDERS: ReadonlyMap<string, string> = new Map([
+  [
+    PROJECTION_MODULE,
+    "the projection itself: it derives every reader's state from the stored rows",
+  ],
+  [
+    'tests/invariants/finding-registry-merge-driver.spec.ts',
+    'store level: it pins how the merge driver combines two stored copies of a row, a ' +
+      'question about the stored bytes, not about whether a finding is closed',
+  ],
+]);
+
+/** A literal that names the registry rows file (not its schema). */
+const REGISTRY_FILE_LITERAL = /(?:^|\/)_registry\/findings\.jsonl$/;
+/** The projection's names that hand out the stored rows or their path. */
+const STORED_ROW_EXPORTS = new Set(['readRegistryRows', 'registryPath', 'REGISTRY_RELATIVE_PATH']);
+/** The projection's readers: a file importing one reads the derived state. */
+const PROJECTION_READERS = new Set(['projectRegistry', 'closureVerdicts']);
+/** The registry's state predicates: using one decides on a finding's state. */
+const STATE_PREDICATES = new Set(['isUnresolvedFindingState', 'UNRESOLVED_FINDING_STATES']);
+const EXPECTATION_MATCHERS = new Set(['toBe', 'toEqual', 'toStrictEqual']);
+const EQUALITY_OPERATORS: ReadonlySet<ts.SyntaxKind> = new Set([
+  ts.SyntaxKind.EqualsEqualsEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsEqualsToken,
+  ts.SyntaxKind.EqualsEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsToken,
+]);
+
+/** What one file does with the registry. */
+interface RegistryReach {
+  /** It builds a path to the rows file, or takes the stored rows or their path from the projection. */
+  readonly reachesStoredRows: boolean;
+  /** It compares with RESOLVED or asks the unresolved-state predicate. */
+  readonly decidesOnState: boolean;
+  /** It imports a projection reader. */
+  readonly readsTheProjection: boolean;
+}
+
+function literalText(node: ts.Node): string | undefined {
+  return ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)
+    ? node.text
+    : undefined;
+}
+
+function importedNames(node: ts.ImportDeclaration): string[] {
+  const bindings = node.importClause?.namedBindings;
+  if (bindings === undefined || !ts.isNamedImports(bindings)) return [];
+  return bindings.elements.map((element) => (element.propertyName ?? element.name).text);
+}
+
+function typeScriptRegistryReach(file: string, text: string): RegistryReach {
+  const tree = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+  let reachesStoredRows = false;
+  let decidesOnState = false;
+  let readsTheProjection = false;
+  const visit = (node: ts.Node): void => {
+    const literal = literalText(node);
+    if (literal !== undefined && REGISTRY_FILE_LITERAL.test(literal)) reachesStoredRows = true;
+    if (ts.isCallExpression(node)) {
+      // join(root, 'docs', 'reviews', '_registry', 'findings.jsonl')
+      const parts = node.arguments.map(literalText);
+      if (
+        parts.some(
+          (part, at) =>
+            part !== undefined &&
+            /(?:^|\/)_registry$/.test(part) &&
+            parts[at + 1] === 'findings.jsonl',
+        )
+      ) {
+        reachesStoredRows = true;
       }
-      if (REGISTRY_PATH_CONSTRUCTION.some((pattern) => pattern.test(text))) {
-        problems.push(`${rel}: builds its own path to findings.jsonl`);
+      const callee = node.expression;
+      const [expected] = node.arguments;
+      if (
+        ts.isPropertyAccessExpression(callee) &&
+        EXPECTATION_MATCHERS.has(callee.name.text) &&
+        expected !== undefined &&
+        literalText(expected) === 'RESOLVED'
+      ) {
+        decidesOnState = true;
       }
-      return problems;
-    });
-    expect(offenders).toEqual([]);
+    }
+    if (
+      ts.isBinaryExpression(node) &&
+      EQUALITY_OPERATORS.has(node.operatorToken.kind) &&
+      (literalText(node.left) === 'RESOLVED' || literalText(node.right) === 'RESOLVED')
+    ) {
+      decidesOnState = true;
+    }
+    if (ts.isIdentifier(node) && STATE_PREDICATES.has(node.text)) decidesOnState = true;
+    if (
+      ts.isImportDeclaration(node) &&
+      /\/finding-registry-projection$/.test(literalText(node.moduleSpecifier) ?? '')
+    ) {
+      const names = importedNames(node);
+      if (names.some((name) => STORED_ROW_EXPORTS.has(name))) reachesStoredRows = true;
+      if (names.some((name) => PROJECTION_READERS.has(name))) readsTheProjection = true;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(tree);
+  return { reachesStoredRows, decidesOnState, readsTheProjection };
+}
+
+/**
+ * The kernel reads the projection only through report_ingestion's one CLI
+ * runner (`run_registry_cli`, and `read_registry_view` on top of it).
+ */
+function pythonRegistryReach(text: string): RegistryReach {
+  const code = text
+    .split('\n')
+    .filter((line) => !line.trimStart().startsWith('#'))
+    .join('\n');
+  return {
+    reachesStoredRows:
+      /['"](?:[^'"\n]*\/)?_registry\/findings\.jsonl['"]/.test(code) ||
+      /['"](?:[^'"\n]*\/)?_registry['"]\s*[,/]\s*['"]findings\.jsonl['"]/.test(code),
+    decidesOnState:
+      /(?:==|!=|\bin)\s*[([{]?\s*['"]RESOLVED['"]/.test(code) ||
+      /['"]RESOLVED['"]\s*(?:==|!=)/.test(code),
+    readsTheProjection: /\b(?:read_registry_view|run_registry_cli)\s*\(/.test(code),
+  };
+}
+
+function registryReach(file: string, text: string): RegistryReach {
+  return file.endsWith('.py') ? pythonRegistryReach(text) : typeScriptRegistryReach(file, text);
+}
+
+function decidesOnStoredState(reach: RegistryReach): boolean {
+  return reach.reachesStoredRows && reach.decidesOnState && !reach.readsTheProjection;
+}
+
+/** Every tracked file under READER_ROOTS that decides on the stored state, repo-relative. */
+function storedStateDeciders(): string[] {
+  const tracked = execFileSync('git', ['ls-files', '-z', '--', ...READER_ROOTS], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+  })
+    .split('\0')
+    .filter((rel) => READER_SOURCE.test(rel) && !rel.endsWith('.d.ts'));
+  return tracked.filter((rel) => {
+    const text = source(rel);
+    // Every way a file reaches the rows names the file or a projection export.
+    if (!/findings\.jsonl|finding-registry-projection/.test(text)) return false;
+    return decidesOnStoredState(registryReach(rel, text));
+  });
+}
+
+describe('MF-1 — every reader of a finding state reads the projection', () => {
+  const deciders = storedStateDeciders();
+
+  it('no file decides on the stored state of a finding except the sanctioned store-level ones', () => {
+    const offenders = deciders.filter((rel) => !STORED_STATE_DECIDERS.has(rel));
+    if (offenders.length > 0) {
+      throw new Error(
+        `${offenders.length} file(s) reach docs/reviews/_registry/findings.jsonl and decide on a ` +
+          "finding's state without the projection. No workflow refreshes the stored state (MF-1), " +
+          'so each fails open for every closure made by a merged trailer. Read projectRegistry ' +
+          '(tools/gates/finding-registry-projection.ts), or read_registry_view in the kernel:\n  ' +
+          offenders.join('\n  '),
+      );
+    }
+  });
+
+  it('every sanctioned file still decides on the stored state', () => {
+    expect([...STORED_STATE_DECIDERS.keys()].filter((rel) => !deciders.includes(rel))).toEqual([]);
+  });
+
+  it('detects each way of reaching the rows and deciding, and passes a projection reader', () => {
+    const decides = (file: string, text: string): boolean =>
+      decidesOnStoredState(registryReach(file, text));
+    const byPath = "const p = join(ROOT, 'docs/reviews/_registry/findings.jsonl');\n";
+    const bySegments = "const p = join(ROOT, 'docs', 'reviews', '_registry', 'findings.jsonl');\n";
+    const projection = "from '../../tools/gates/finding-registry-projection';\n";
+
+    expect(decides('a.ts', `${byPath}rows.filter((r) => r.state !== 'RESOLVED');`)).toBe(true);
+    expect(
+      decides('a.ts', `${bySegments}rows.filter((r) => isUnresolvedFindingState(r.state));`),
+    ).toBe(true);
+    expect(decides('a.ts', `${byPath}expect(row?.state).not.toBe('RESOLVED');`)).toBe(true);
+    expect(
+      decides('a.ts', `import { readRegistryRows } ${projection}x.state === 'RESOLVED';`),
+    ).toBe(true);
+    expect(
+      decides('a.ts', `import { REGISTRY_RELATIVE_PATH } ${projection}x.state === 'RESOLVED';`),
+    ).toBe(true);
+
+    expect(
+      decides('a.ts', `import { projectRegistry } ${projection}${byPath}x.state === 'RESOLVED';`),
+    ).toBe(false);
+    expect(decides('a.ts', `${byPath}const title = row.title;`)).toBe(false);
+    expect(
+      decides(
+        'a.ts',
+        "const s = 'docs/reviews/_registry/findings.jsonl.schema.json'; x === 'RESOLVED';",
+      ),
+    ).toBe(false);
+    expect(decides('a.ts', "// docs/reviews/_registry/findings.jsonl\nx === 'RESOLVED';")).toBe(
+      false,
+    );
+
+    const pyPath = 'p = Path(root) / "docs" / "reviews" / "_registry" / "findings.jsonl"\n';
+    expect(
+      decides('a.py', `${pyPath}open_ = [r for r in rows if r.get("state") != "RESOLVED"]`),
+    ).toBe(true);
+    expect(
+      decides(
+        'a.py',
+        `P = "docs/reviews/_registry/findings.jsonl"\nif row["state"] in ("RESOLVED",): pass`,
+      ),
+    ).toBe(true);
+    expect(
+      decides(
+        'a.py',
+        `${pyPath}rows = read_registry_view(root).rows\nok = r["state"] == "RESOLVED"`,
+      ),
+    ).toBe(false);
+    expect(decides('a.py', `${pyPath}write([{"id": "X-HIGH-001", "state": "RESOLVED"}])`)).toBe(
+      false,
+    );
   });
 });

@@ -44,7 +44,11 @@ registered `RESOLVED`; the write side, MF-2, refuses it.) Rows recorded
 Read the registry as readers see it with `finding-registry project`
 (`--ref=<rev>`, `--ids <ID>...`, `--format=jsonl|csv|json-array|closures`);
 `list`, `sweep`, the debt-plan truth table, the gates and the ARIA kernel all
-read through it.
+read through it. The stored `state` is not a finding's state: a
+gate that compares it with `RESOLVED` fails open for every closure made by a
+merged trailer, so `tests/invariants/finding-registry-projection.spec.ts`
+fails any file under `tools/`, `tests/`, `libs/`, `aria-kernel/` or `scripts/`
+that reaches the rows file and decides on a state without the projection.
 
 ### Reopening
 

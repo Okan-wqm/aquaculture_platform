@@ -32,15 +32,30 @@
 # `workspace` job runs it on every PR, so a PR that changes what those modules
 # read cannot skip them and pass the required check.
 #
+# COLLECT MODE (PLAN-v2 B1, invariants_only_grow): `--collect` prints the
+# ids this suite runs, one per line on stdout and nothing else — the unittest
+# half's leaf ids (`suite_shards.py list`: unittest discovery as the shards
+# run it, so `load_tests` and package `__init__` files decide, exactly as in
+# CI) and the pytest half's node ids in both partitions (the plugin's own
+# selection, hermetic and live). Every collection report goes to stderr. It
+# exits non-zero when a collector could not collect cleanly.
+# `self_improvement.invariants_only_grow` runs this mode in each tree it
+# compares, in the validation sandbox, so it measures what CI runs.
+#
 # Consumers: aria-kernel.yml, `npm run aria:test:unit`,
-# and scripts/ci/aria-suite-changed.mjs (pre-push). Change the suite HERE,
+# scripts/ci/aria-suite-changed.mjs (pre-push) and
+# self_improvement.invariants_only_grow (`--collect`). Change the suite HERE,
 # never in a copy.
 
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 export PYTHONDONTWRITEBYTECODE=1
-export PYTHONPATH="aria-kernel:.${PYTHONPATH:+:$PYTHONPATH}"
+# The import roots have one declaration, aria_kernel/suite_import_roots.py,
+# which the authority set reads too (B1); it is run isolated (-I), so nothing
+# at those roots runs before it answers.
+suite_roots="$(python3 -I aria-kernel/aria_kernel/suite_import_roots.py)"
+export PYTHONPATH="${suite_roots}${PYTHONPATH:+:$PYTHONPATH}"
 
 # The pytest-owned half of the partition, whole — one definition for the full
 # run and for the sharded lane. Arguments are plugin options placed before the
@@ -49,7 +64,38 @@ pytest_native() {
   python3 -m pytest -q -p aria_kernel.pytest_native_only "$@" aria-kernel
 }
 
-if [ "${1:-}" = "--shard" ]; then
+# The pytest half's node ids, for the collect mode. `-q --collect-only`
+# prints the selected node ids first, then one empty line, then its report:
+# the ids go to stdout and everything from the empty line on to stderr.
+# Under pipefail the status is pytest's.
+pytest_native_ids() {
+  pytest_native --collect-only -p no:cacheprovider --continue-on-collection-errors "$@" \
+    | awk 'reported || NF == 0 { reported = 1; print > "/dev/stderr"; next } { print }'
+}
+
+if [ "${1:-}" = "--collect" ]; then
+  if [ "$#" -ne 1 ]; then
+    echo "usage: $0 --collect" >&2
+    exit 2
+  fi
+  set +e
+  python3 aria-kernel/tests/_helpers/suite_shards.py list
+  unittest_status=$?
+  pytest_native_ids
+  hermetic_status=$?
+  pytest_native_ids --aria-live-only
+  live_status=$?
+  set -e
+  if [ "$unittest_status" -ne 0 ]; then
+    exit "$unittest_status"
+  fi
+  # Exit 5 is pytest's "nothing collected": a partition may own nothing.
+  for status in "$hermetic_status" "$live_status"; do
+    if [ "$status" -ne 0 ] && [ "$status" -ne 5 ]; then
+      exit "$status"
+    fi
+  done
+elif [ "${1:-}" = "--shard" ]; then
   if [ "$#" -ne 3 ]; then
     echo "usage: $0 --shard K/N REPORT_PATH" >&2
     exit 2

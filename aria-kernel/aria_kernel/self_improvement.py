@@ -31,7 +31,6 @@ import importlib.machinery
 import json
 import os
 import subprocess
-import sys
 import tempfile
 from collections import Counter
 from dataclasses import dataclass, field
@@ -47,6 +46,7 @@ from .doctor import DoctorCheck, DoctorReport
 from .git_containment import KERNEL_GIT_NO_HOOKS_ARGS
 from .implementation_safety import KERNEL_CHECKOUT_ROOT, SandboxUnavailable, wrap_validation_in_sandbox
 from .state_store_lifecycle_arcs import GIT_TIMEOUT_SECONDS
+from .suite_import_roots import SUITE_PYTHONPATH_ROOTS
 from .surface_waivers import WAIVER_MANIFESTS, iter_waiver_entries, load_waiver_manifest
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
 from .validation_env import build_validation_env
@@ -340,9 +340,8 @@ KERNEL_PACKAGE_RELPATH = "aria-kernel/aria_kernel"
 _KERNEL = f"{KERNEL_PACKAGE_RELPATH}/"
 # The kernel suite's collection root, as scripts/ci/aria-suite-run.sh runs it.
 KERNEL_SUITE_ROOT = "aria-kernel"
-# The suite's import roots in PYTHONPATH order (aria-suite-run.sh exports
-# PYTHONPATH="aria-kernel:."); "" is the repository root.
-SUITE_PYTHONPATH_ROOTS: tuple[str, ...] = (KERNEL_SUITE_ROOT, "")
+# The suite's import roots are declared once, in suite_import_roots, which
+# scripts/ci/aria-suite-run.sh runs to export them (R1).
 # The Board's exam runner (PLAN-v2 Faz 6). Its import closure into the kernel
 # is computed from the tree (`_import_closure`), never copied.
 BOARD_TOOLS_RELPATH = "tools/aria-acceptance"
@@ -377,6 +376,11 @@ RAIL_MODULES: tuple[str, ...] = tuple(f"{_KERNEL}{name}.py" for name in (
 # change may not drop or rewrite one) but not a decider, so its imports are
 # not walked (`_closure_seeds`): they are the code under test.
 KERNEL_TESTS_GLOB = f"{KERNEL_SUITE_ROOT}/tests/**"
+# The suite's single owner (R1): the script that defines what the suite runs
+# and collects, and the unittest half's collector it runs by path. The
+# collector sits under tests/ but decides collection, so it is a seed.
+SUITE_RUNNER = "scripts/ci/aria-suite-run.sh"
+SUITE_COLLECTOR = f"{KERNEL_SUITE_ROOT}/tests/_helpers/suite_shards.py"
 # The interpreter start-up hooks: `site` imports `sitecustomize` and
 # `usercustomize` by NAME from sys.path before pytest starts, so one on either
 # PYTHONPATH root runs ahead of every collection rule.
@@ -400,6 +404,9 @@ TEST_COLLECTION_MEMBERS: tuple[str, ...] = (
     f"{_KERNEL}sandbox_pin_skip.py",
     f"{_KERNEL}validation*.py",
     f"{_KERNEL}live_partition.py",
+    f"{_KERNEL}suite_import_roots.py",
+    SUITE_RUNNER,
+    SUITE_COLLECTOR,
     *STARTUP_HOOK_MODULES,
     KERNEL_TESTS_GLOB,
 )
@@ -494,10 +501,12 @@ def in_authority_set(path: str, authority_set: Iterable[str]) -> bool:
 
 def _closure_seeds(paths: Iterable[str], declared: tuple[str, ...]) -> list[str]:
     """The members whose module-level code runs: every Python member except
-    a test module (a conftest.py under tests/ is collection code, and stays)."""
+    a test module. A conftest.py and the suite's own collector
+    (`SUITE_COLLECTOR`) under tests/ decide what is collected, and stay."""
     return [path for path in paths
             if path.endswith(".py")
-            and not (matches_repo_glob(path, KERNEL_TESTS_GLOB) and path.rpartition("/")[2] != "conftest.py")
+            and not (matches_repo_glob(path, KERNEL_TESTS_GLOB)
+                     and path.rpartition("/")[2] != "conftest.py" and path != SUITE_COLLECTOR)
             and in_authority_set(path, declared)]
 
 
@@ -776,45 +785,41 @@ def realized_diff_authority_violations(
 
 # Collecting the whole kernel suite imports every test module.
 TEST_COLLECTION_TIMEOUT_SECONDS = 900
+# The suite owner's collect mode (scripts/ci/aria-suite-run.sh): the ids the
+# suite runs, one per line, from its own two collectors.
+SUITE_COLLECT_ARGV: tuple[str, ...] = ("bash", "scripts/ci/aria-suite-run.sh", "--collect")
 
 
 def _collected_test_ids(root: Path, *, side: Literal["base", "head"]) -> frozenset[str]:
-    """The test ids pytest collects from the kernel suite at `root`: unittest
-    TestCases and native pytest items alike (the union of the suite's two
-    collectors), under the tree's own pyproject and conftest files, so a
-    narrowed collection config shows up as missing ids.
+    """The ids of the tests the kernel suite at `root` runs, as its single
+    owner collects them (`SUITE_COLLECT_ARGV`): the unittest half's leaf ids
+    from the same discovery the shards run (`load_tests` and package
+    `__init__` files decide) and the pytest half's node ids in both
+    partitions, under the tree's own collection configuration — so a
+    narrowed collection shows up as missing ids (R1: a second, private
+    collector disagreed with the suite on both).
 
     Collection IMPORTS the tree's test modules and conftest files, and HEAD's
     are candidate code. So the child gets what a validation child may see
-    (`validation_env.build_validation_env`, plus the suite's PYTHONPATH and
-    no bytecode writes) and runs in the validation sandbox
-    (`implementation_safety.wrap_validation_in_sandbox`): no credential, no
-    network, nothing written outside it (R8).
+    (`validation_env.build_validation_env`; the suite script sets its own
+    PYTHONPATH from the tree, and no inherited entry joins it) and runs in
+    the validation sandbox (`implementation_safety.wrap_validation_in_sandbox`):
+    no credential, no network, nothing written outside it (R8).
     """
     workspace = root.resolve()
-    environment = build_validation_env(os.environ, declared={
-        "PYTHONDONTWRITEBYTECODE": "1",
-        "PYTHONPATH": os.pathsep.join(str(workspace / entry) if entry else str(workspace)
-                                      for entry in SUITE_PYTHONPATH_ROOTS),
-    }).env
+    environment = build_validation_env(os.environ, declared={"PYTHONPATH": ""}).env
     try:
-        argv = wrap_validation_in_sandbox(
-            [sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider",
-             "--continue-on-collection-errors", KERNEL_SUITE_ROOT],
-            workspace_root=workspace, git=None, environment=environment,
-        )
+        argv = wrap_validation_in_sandbox(list(SUITE_COLLECT_ARGV), workspace_root=workspace, git=None,
+                                          environment=environment)
         completed = subprocess.run(argv, cwd=str(workspace), env=environment, capture_output=True, text=True,
                                    check=False, timeout=TEST_COLLECTION_TIMEOUT_SECONDS)
     except (OSError, subprocess.TimeoutExpired, SandboxUnavailable) as exc:
         raise GovernanceError(f"test_collection_unavailable:{side}:{exc.__class__.__name__}") from exc
-    # pytest exits 0 (collected) or 5 (nothing collected) for a clean
-    # collection. The BASE is the reference, so it must collect cleanly; at
-    # HEAD an error is the change's own, and what it fails to collect is
-    # reported as dropped.
-    if side == "base" and completed.returncode not in (0, 5):
+    # BASE is the reference, so it must collect cleanly. At HEAD a failure is
+    # the change's own, and what it fails to collect is reported as dropped.
+    if side == "base" and completed.returncode != 0:
         raise GovernanceError(f"test_collection_unavailable:base:exit_{completed.returncode}")
-    listing = completed.stdout.split("\n\n", 1)[0]
-    return frozenset(line.strip() for line in listing.splitlines() if "::" in line)
+    return frozenset(line for line in completed.stdout.splitlines() if line)
 
 
 def _canonical_entry(entry: dict[str, Any]) -> str:
@@ -1176,7 +1181,7 @@ def propose_self_change(*, mission_id: str, base_dir: str | Path | None, workspa
 
 __all__ = ["ADAPTATION_DUE", "ADAPTATION_KINDS", "ADAPTATION_SIGNAL_KINDS", "ANNOUNCE_REMEDY", "AUTHORITY_SURFACES", "OPERATOR_CONDITION",
            "BOARD_PLANNED_MODULES", "BOARD_SEAT_PROMPTS", "BOARD_TOOLS_RELPATH", "KERNEL_PACKAGE_RELPATH", "KERNEL_SUITE_ROOT",
-           "KERNEL_TESTS_GLOB", "RAIL_MODULES", "STARTUP_HOOK_MODULES", "SUITE_PYTHONPATH_ROOTS",
+           "KERNEL_TESTS_GLOB", "RAIL_MODULES", "STARTUP_HOOK_MODULES", "SUITE_COLLECT_ARGV", "SUITE_COLLECTOR", "SUITE_RUNNER",
            "TEST_COLLECTION_MEMBERS", "TEST_COLLECTION_TIMEOUT_SECONDS", "TRUST_BOUNDARY_RENDERERS",
            "declared_authority_members", "derived_authority_set", "in_authority_set", "invariants_only_grow",
            "kernel_authority_set",

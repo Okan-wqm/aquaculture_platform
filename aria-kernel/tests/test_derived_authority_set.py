@@ -75,6 +75,7 @@ from aria_kernel import implementation_safety as safety
 from aria_kernel import self_improvement
 from aria_kernel.canonical_path import matches_repo_glob
 from aria_kernel.risk_policy import codeowners_last_match, codeowners_rules
+from aria_kernel.suite_import_roots import SUITE_PYTHONPATH_ROOTS
 from aria_kernel.surface_waivers import WAIVER_MANIFESTS
 from aria_kernel.tool_registry import GovernanceError
 from tests._helpers.git_fixtures import make_local_git_repo
@@ -486,6 +487,24 @@ class EveryConsumerProjectsTheWholeSet(unittest.TestCase):
                     self.assertIn(f"outside_kernel_scope:{path}", violations)
 
 
+class TheSuiteHasOneOwner(unittest.TestCase):
+    """R1 — the suite's import roots are declared once, and invariants_only_grow collects through the owner."""
+
+    def test_the_suite_script_reads_the_one_declaration_of_the_roots(self) -> None:
+        # R1 — scripts/ci/aria-suite-run.sh exports what suite_import_roots declares.
+        printed = subprocess.run([sys.executable, "-I", "aria-kernel/aria_kernel/suite_import_roots.py"],
+                                 cwd=_REPO_ROOT, capture_output=True, text=True, check=True).stdout.strip()
+        self.assertEqual(printed.split(":"), [root or "." for root in SUITE_PYTHONPATH_ROOTS])
+        script = (_REPO_ROOT / self_improvement.SUITE_RUNNER).read_text(encoding="utf-8")
+        self.assertIn("python3 -I aria-kernel/aria_kernel/suite_import_roots.py", script)
+        self.assertNotIn('PYTHONPATH="aria-kernel', script)
+
+    def test_invariants_only_grow_collects_through_the_suite_owner(self) -> None:
+        # R1 — the collect mode is the owner's, not a private pytest argv.
+        self.assertEqual(self_improvement.SUITE_COLLECT_ARGV, ("bash", self_improvement.SUITE_RUNNER, "--collect"))
+        self.assertIn('= "--collect" ]', (_REPO_ROOT / self_improvement.SUITE_RUNNER).read_text(encoding="utf-8"))
+
+
 # =============================================================================
 # 3. The realized diff (new API): the exit fixtures of B1.
 # =============================================================================
@@ -710,8 +729,25 @@ def test_b1_native_function():
 _PIN = {"owner": "okan", "pinned_at": "2026-10-23", "reason": "fixture"}
 
 
+def _suite_owner_files() -> tuple[str, ...]:
+    """What a tree needs to run its suite owner's collect mode: the script,
+    the unittest collector it runs, and the kernel package the collectors
+    import with the repository's shared module it imports (unittest discovery
+    reads `load_tests` off every package, and the kernel's PEP 562 hook
+    answers by importing its export modules)."""
+    listed = subprocess.run(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--",
+                             "aria-kernel/aria_kernel", "tools/__init__.py", "tools/shared"], cwd=_REPO_ROOT,
+                            capture_output=True, check=True).stdout.decode("utf-8")
+    return (self_improvement.SUITE_RUNNER, self_improvement.SUITE_COLLECTOR,
+            "aria-kernel/tests/_helpers/__init__.py", *filter(None, listed.split("\0")))
+
+
 class InvariantsOnlyGrow(unittest.TestCase):
     """Collected test ids base ⊆ head; waiver entries head ⊆ base."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.owner_files = _suite_owner_files()
 
     def setUp(self) -> None:
         # R8 — collection imports the trees' test modules, so it runs in the
@@ -722,6 +758,12 @@ class InvariantsOnlyGrow(unittest.TestCase):
         self.base = Path(self._tmp.name) / "base"
         kernel = self.base / "aria-kernel"
         (kernel / "tests").mkdir(parents=True)
+        # R1 — each tree is collected by its own suite owner
+        # (aria-suite-run.sh --collect), as CI runs it.
+        for rel in self.owner_files:
+            target = self.base / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(_REPO_ROOT / rel, target)
         shutil.copy(_REPO_ROOT / "aria-kernel" / "pyproject.toml", kernel / "pyproject.toml")
         (kernel / "tests" / "__init__.py").write_text("", encoding="utf-8")
         (kernel / "tests" / "test_b1_grow.py").write_text(_GROW_TESTS, encoding="utf-8")
@@ -816,6 +858,33 @@ class InvariantsOnlyGrow(unittest.TestCase):
         self.assertEqual([v for v in violations if v.startswith("waiver_added:")],
                          ['waiver_added:["aria-kernel/surface-reachability.unwritten.json", '
                           '"surface_waiver", "tool_status.ACTIVE", "legacy"]'])
+
+    def _dropped(self) -> list[str]:
+        return [v for v in self._violations() if v.startswith("test_dropped:")]
+
+    def test_the_unittest_half_is_collected_as_the_suite_discovers_it(self) -> None:
+        # R1 — the owner's unittest ids, not a second collector's.
+        ids = self_improvement._collected_test_ids(self.base, side="base")
+        self.assertIn("tests.test_b1_grow.B1GrowCase.test_b1_kept_case", ids)
+        self.assertIn("tests/test_b1_grow.py::test_b1_native_function", ids)
+
+    def test_a_load_tests_that_empties_the_module_drops_its_cases(self) -> None:
+        # R1 — unittest discovery honours load_tests; a pytest walk did not.
+        self._head_file("tests/test_b1_grow.py").write_text(
+            _GROW_TESTS + "\n\ndef load_tests(loader, tests, pattern):\n    return unittest.TestSuite()\n",
+            encoding="utf-8")
+        self.assertEqual(sorted(self._dropped()), [
+            "test_dropped:tests.test_b1_grow.B1GrowCase.test_b1_dropped_case",
+            "test_dropped:tests.test_b1_grow.B1GrowCase.test_b1_kept_case",
+        ])
+
+    def test_a_tests_tree_without_its_package_init_drops_its_cases(self) -> None:
+        # R1 — unittest discovery does not enter a directory that is not a package.
+        self._head_file("tests/__init__.py").unlink()
+        self.assertEqual(sorted(self._dropped()), [
+            "test_dropped:tests.test_b1_grow.B1GrowCase.test_b1_dropped_case",
+            "test_dropped:tests.test_b1_grow.B1GrowCase.test_b1_kept_case",
+        ])
 
     def test_head_collection_does_not_see_a_secret_shaped_variable(self) -> None:
         # R8 — HEAD's test modules are candidate code: they get the validation env.

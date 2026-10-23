@@ -48,6 +48,9 @@ aria-config/                   @Okan-wqm
 /sitecustomize*                @Okan-wqm
 /usercustomize*                @Okan-wqm
 /__pycache__/                  @Okan-wqm
+# The kernel suite's single owner defines what the suite runs and collects;
+# it is a member of the derived authority set (B1 R1).
+/scripts/ci/aria-suite-run.sh  @Okan-wqm
 aria-tools/preflight/           @Okan-wqm
 package.json                    @Okan-wqm
 package-lock.json               @Okan-wqm

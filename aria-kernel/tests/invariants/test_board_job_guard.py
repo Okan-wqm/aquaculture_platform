@@ -721,12 +721,45 @@ class BoardSecretsHaveOneReaderTests(unittest.TestCase):
         _ENV_REACHES_THE_SECRETS["workflow_env_toJSON_secrets"](mutated)
         self.assertIn(f"{_BOARD_WORKFLOW}:env", board_secret_leaks({_BOARD_WORKFLOW: mutated}))
 
+    def test_a_lower_case_board_secret_in_another_job_is_a_leak(self) -> None:
+        mutated = copy.deepcopy(self.workflow)
+        mutated["jobs"]["other"] = {"runs-on": "ubuntu-latest",
+                                    "steps": [{"run": "echo ${{ secrets.aria_board_signing_key }}"}]}
+        self.assertIn(f"{_BOARD_WORKFLOW}/other", board_secret_leaks({_BOARD_WORKFLOW: mutated}))
+
     def test_only_board_secrets_reached_reads_the_secrets_context(self) -> None:
         tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
         readers = sorted({function.name for function in ast.walk(tree) if isinstance(function, ast.FunctionDef)
                           for node in ast.walk(function)
                           if isinstance(node, ast.Name) and node.id in ("_BOARD_SECRET", "_DYNAMIC_SECRETS")})
         self.assertEqual(readers, ["board_secrets_reached"])
+
+
+
+# B0 corrective round 3, R3-3 (security SEC-R3-B1, P2): GitHub environment
+# names are case-insensitive and ``environment:`` takes an expression, so each
+# of these jobs receives the Board's secrets on main. The guard compared the
+# name exactly, so none was a Board job and every rule passed it by.
+_BOARD_ENVIRONMENT_SPELLINGS: dict[str, Any] = {
+    "upper_case": "ARIA-Board",
+    "name_mixed_case": {"name": "Aria-Board"},
+    "expression": "${{ format('aria-{0}', 'board') }}",
+}
+
+
+class EveryJobGitHubGivesTheBoardEnvironmentIsGuardedTests(unittest.TestCase):
+    """B0 corrective round 3, R3-3: a job is a Board job by GitHub's reading of its environment, not by its spelling."""
+
+    def test_each_spelling_of_the_board_environment_is_refused(self) -> None:
+        workflow = _workflows()[_BOARD_WORKFLOW]
+        for name, environment in _BOARD_ENVIRONMENT_SPELLINGS.items():
+            with self.subTest(spelling=name):
+                mutated = copy.deepcopy(workflow)
+                mutated["jobs"]["dump"] = {"runs-on": ["self-hosted", "linux", "claude"], "environment": environment,
+                                           "permissions": {"contents": "write"},
+                                           "steps": [{"run": 'echo "${{ toJSON(secrets) }}" | base64'}]}
+                self.assertIn("dump", board_violations(mutated), f"{name} passed the guard")
+                self.assertEqual(sorted(board_violations(mutated)), ["dump"], "the real Board job keeps the guard")
 
 
 if __name__ == "__main__":

@@ -131,6 +131,8 @@ RUNTIME_SOURCE_HOLDS: frozenset[str] = frozenset({
     "source_not_loopback",   # the host is not a loopback IP literal — refused before any socket
     "source_unreachable",    # the connection failed or timed out
     "source_refused",        # Prometheus answered, but not with a usable federation body
+    "source_empty",          # the answer holds no series of any RUNTIME_METRIC_FAMILIES
+                             # (empty body, HTML, error document, label drift, every target down)
 })
 
 
@@ -823,6 +825,15 @@ def run_aria_watchdog_daemon(
                 pass
 
 
+def _held(hold: SourceHold, *, missing_families: list[str] | None = None) -> dict[str, Any]:
+    """The sweep's ``runtime`` account of a feed it did not read: the named hold,
+    its detail and — when the source answered — the families it held no series for."""
+    runtime: dict[str, Any] = {"hold": hold.name, "detail": hold.detail}
+    if missing_families is not None:
+        runtime["missing_families"] = missing_families
+    return runtime
+
+
 def _ingest_runtime_lead(
     anomaly: RuntimeAnomaly, *, tools_dir: Path, now: datetime,
 ) -> tuple[str, dict[str, Any]]:
@@ -897,20 +908,37 @@ def run_watchdog_sweep(
     runtime: dict[str, Any]
     anomalies: list[RuntimeAnomaly] = []
     if not pull_policy["enabled"]:
-        runtime = {"hold": "source_disabled", "detail": "watchdog_pull.enabled is false"}
+        runtime = _held(SourceHold("source_disabled", "watchdog_pull.enabled is false"))
     else:
         metrics_text, hold = pull_observability_metrics(base_url=pull_policy["observability_base_url"])
         if hold is not None:
-            runtime = {"hold": hold.name, "detail": hold.detail}
+            runtime = _held(hold)
         else:
             samples = parse_prometheus_text(metrics_text)
-            anomalies = detect_http_5xx_share(
-                samples,
-                threshold=float(pull_policy["http_5xx_share_threshold"]),
-                min_requests=int(pull_policy["http_min_requests"]),
-            )
-            anomalies.extend(detect_security_critical_events(samples))
-            runtime = {"samples": len(samples), "candidates": len(anomalies), "leads": [], "refused_leads": []}
+            present = {name for name, _, _ in samples}
+            missing = [family for family in RUNTIME_METRIC_FAMILIES if family not in present]
+            if len(missing) == len(RUNTIME_METRIC_FAMILIES):
+                # A 200 with no runtime series is not a healthy night: it is
+                # an empty answer, a page that is not Prometheus, or targets
+                # that are all down — named, never read as clean.
+                runtime = _held(
+                    SourceHold("source_empty", f"{len(samples)} samples, none of {', '.join(missing)}"),
+                    missing_families=missing,
+                )
+            else:
+                anomalies = detect_http_5xx_share(
+                    samples,
+                    threshold=float(pull_policy["http_5xx_share_threshold"]),
+                    min_requests=int(pull_policy["http_min_requests"]),
+                )
+                anomalies.extend(detect_security_critical_events(samples))
+                runtime = {
+                    "samples": len(samples),
+                    "missing_families": missing,
+                    "candidates": len(anomalies),
+                    "leads": [],
+                    "refused_leads": [],
+                }
 
     interrupt = interrupt_event or threading.Event()
     emitted = 0

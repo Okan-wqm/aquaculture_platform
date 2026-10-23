@@ -948,12 +948,17 @@ def _render_watchdog_section(reflection: dict[str, Any]) -> list[str]:
     # what it raised. A digest written before RW-1 has no such field, and
     # says so rather than reading as a clean feed.
     feed = sweep.get("runtime_feed")
+    missing = sweep.get("runtime_missing_families")
+    no_series = f"; no series for {missing}" if missing else ""
     if feed is None:
         feed_line = "- runtime feed: not recorded (digest predates RW-1)"
     elif feed == "read":
-        feed_line = f"- runtime feed: read ({sweep.get('runtime_leads', 0)} telemetry leads)"
+        feed_line = (
+            f"- runtime feed: read ({sweep.get('runtime_leads', 0)} telemetry leads, "
+            f"{sweep.get('runtime_refused_leads', 0)} refused{no_series})"
+        )
     else:
-        feed_line = f"- runtime feed: held — {feed}"
+        feed_line = f"- runtime feed: held — {feed}{no_series}"
     return [
         "",
         "## Watchdog Sweep",

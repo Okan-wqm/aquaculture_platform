@@ -59,12 +59,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 import yaml
 
 from aria_kernel import aria_watchdog
 from aria_kernel.aria_watchdog import (
+    RUNTIME_METRIC_FAMILIES,
+    RUNTIME_SOURCE_HOLDS,
     detect_http_5xx_share,
     parse_prometheus_text,
     pull_observability_metrics,
@@ -92,28 +94,76 @@ http_requests_total{method="GET",route="/api",status_code="500",service="farm-se
 """
 
 
+_Sample = tuple[str, dict[str, str], float]
+
+# What the read-not-held fixtures serve: one runtime-family series, labelled
+# the way the droplet Prometheus labels a catalog target (`app`, `namespace`).
+_ONE_HTTP_SAMPLE: list[_Sample] = [
+    ("http_requests_total", {"app": "farm-service", "namespace": "aquaculture", "status_code": "200"}, 10.0),
+]
+
+
+def _exposition(samples: list[_Sample]) -> bytes:
+    lines = []
+    for name, labels, value in samples:
+        rendered = ",".join(f'{key}="{val}"' for key, val in sorted(labels.items()))
+        lines.append(f"{name}{{{rendered}}} {value:g} 1761240000000")
+    return ("\n".join(lines) + "\n").encode("utf-8") if lines else b""
+
+
+def _instant_vector(samples: list[_Sample], query: str) -> bytes:
+    """Answer a `sum by (...) (...(<family>{...}...))` instant query the way
+    Prometheus does: one result per group of the `by` labels, summed."""
+    family = next((name for name in {s[0] for s in samples} if name in query), None)
+    by = re.search(r"by \(([^)]*)\)", query)
+    keep = [label.strip() for label in by.group(1).split(",")] if by else None
+    groups: dict[tuple[tuple[str, str], ...], float] = {}
+    for name, labels, value in samples:
+        if name != family:
+            continue
+        metric = {k: v for k, v in labels.items() if keep is None or k in keep}
+        key = tuple(sorted(metric.items()))
+        groups[key] = groups.get(key, 0.0) + value
+    result = [{"metric": dict(key), "value": [1761240000.0, f"{value:g}"]} for key, value in groups.items()]
+    return json.dumps({"status": "success", "data": {"resultType": "vector", "result": result}}).encode("utf-8")
+
+
 class _RecordingPrometheus:
     """A loopback stand-in for the droplet Prometheus that records every request.
 
-    It answers the read-only API the way Prometheus does (an empty instant
-    vector for /api/v1/query*, an empty exposition for /federate) and, so a
-    base-state puller is observable too, an empty exposition for /metrics.
-    Anything else is 404; any method but GET is 405.
+    It answers the read-only API from one set of counters: ``lifetime`` (what
+    /federate and /metrics serve — a counter's value since its process
+    started) and ``window`` (what an ``increase(...[W])`` instant query on
+    /api/v1/query answers — the counters' growth inside the window; it
+    defaults to ``lifetime``). ``raw`` replaces every GET answer with a fixed
+    (status, body, content type) — a listener on the port that is not, or
+    not yet, a usable Prometheus. Anything else is 404; any method but GET
+    is 405.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        lifetime: list[_Sample] | None = None,
+        window: list[_Sample] | None = None,
+        raw: tuple[int, bytes, str] | None = None,
+    ) -> None:
         self.requests: list[dict[str, Any]] = []
+        self.lifetime = list(_ONE_HTTP_SAMPLE if lifetime is None else lifetime)
+        self.window = None if window is None else list(window)
+        self.raw = raw
         recorder = self
 
         class Handler(BaseHTTPRequestHandler):
             def _record(self) -> str:
-                path = urlsplit(self.path).path
+                parts = urlsplit(self.path)
                 recorder.requests.append({
                     "method": self.command,
-                    "path": path,
+                    "path": parts.path,
+                    "query": parse_qs(parts.query),
                     "headers": {k.lower(): v for k, v in self.headers.items()},
                 })
-                return path
+                return parts.path
 
             def _send(self, status: int, body: bytes, content_type: str) -> None:
                 self.send_response(status)
@@ -124,11 +174,14 @@ class _RecordingPrometheus:
 
             def do_GET(self) -> None:  # noqa: N802 — http.server's hook name
                 path = self._record()
-                if path.startswith("/api/v1/query"):
-                    body = json.dumps({"status": "success", "data": {"resultType": "vector", "result": []}})
-                    self._send(200, body.encode("utf-8"), "application/json")
+                if recorder.raw is not None:
+                    self._send(*recorder.raw)
+                elif path.startswith("/api/v1/query"):
+                    query = recorder.requests[-1]["query"].get("query", [""])[0]
+                    counters = recorder.window if "increase(" in query and recorder.window is not None else recorder.lifetime
+                    self._send(200, _instant_vector(counters, query), "application/json")
                 elif path in ("/federate", "/metrics"):
-                    self._send(200, b"", "text/plain; version=0.0.4")
+                    self._send(200, _exposition(recorder.lifetime), "text/plain; version=0.0.4")
                 else:
                     self._send(404, b"not found", "text/plain")
 
@@ -217,6 +270,21 @@ class _Workspace(unittest.TestCase):
         rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
         return [row for row in rows if row.get("kind") == kind]
 
+    def report_lines(self, sweep_payload: dict[str, Any]) -> str:
+        from aria_kernel import cycle as cycle_mod
+        from aria_kernel.reflection import _render_watchdog_section
+
+        context = cycle_mod.build_phase_context(
+            cycle_id="cyc-rw1", workspace_root=self.repo, base_dir=self.tools,
+        )
+        context.results["watchdog_sweep"] = sweep_payload
+        context.outcomes["watchdog_sweep"] = {"outcome": "ran"}
+        with patch.object(cycle_mod, "record_cycle_metrics", side_effect=lambda **kw: kw) as record:
+            cycle_mod._phase_metrics(context)
+        digests = record.call_args.kwargs["phase_digests"] or {}
+        return "\n".join(_render_watchdog_section({"phase_digest_summary": {"digests": digests}}))
+
+
     def runtime_signal_events(self) -> list[dict[str, Any]]:
         path = runtime_signal_events_path(self.tools)
         if not path.exists():
@@ -260,27 +328,86 @@ class TheHoldReachesTheCycleDigestAndTheReport(_Workspace):
     it and the report renders the digest. A hold that stops at the payload is
     the silence RW-1 removes."""
 
-    def _report_lines(self, sweep_payload: dict[str, Any]) -> str:
-        from aria_kernel import cycle as cycle_mod
-        from aria_kernel.reflection import _render_watchdog_section
-
-        context = cycle_mod.build_phase_context(
-            cycle_id="cyc-rw1", workspace_root=self.repo, base_dir=self.tools,
-        )
-        context.results["watchdog_sweep"] = sweep_payload
-        context.outcomes["watchdog_sweep"] = {"outcome": "ran"}
-        with patch.object(cycle_mod, "record_cycle_metrics", side_effect=lambda **kw: kw) as record:
-            cycle_mod._phase_metrics(context)
-        digests = record.call_args.kwargs["phase_digests"] or {}
-        return "\n".join(_render_watchdog_section({"phase_digest_summary": {"digests": digests}}))
-
     def test_the_unconfigured_hold_is_named_in_the_report(self) -> None:
         self.configure(None)
-        self.assertIn("source_unconfigured", self._report_lines(self.sweep()))
+        self.assertIn("source_unconfigured", self.report_lines(self.sweep()))
 
     def test_the_unreachable_hold_is_named_in_the_report(self) -> None:
         self.configure(_closed_loopback_url())
-        self.assertIn("source_unreachable", self._report_lines(self.sweep()))
+        self.assertIn("source_unreachable", self.report_lines(self.sweep()))
+
+
+class AnAnswerWithNoRuntimeSeriesIsANamedHold(_Workspace):
+    """RW-1 corrective R2. A 200 that carries no runtime-family series — an
+    empty body (every target down, label drift), an HTML page or an error
+    document (a foreign listener on the unprivileged port) — is not a healthy
+    night. Recorded as a clean read it was the silence RW-1 forbids."""
+
+    _ANSWERS: dict[str, tuple[int, bytes, str]] = {
+        "empty body": (200, b"", "text/plain; version=0.0.4"),
+        "html page": (200, b"<!doctype html><html><body><h1>It works</h1></body></html>", "text/html"),
+        "error document": (200, b'{"status":"error","errorType":"bad_data","error":"parse error"}', "application/json"),
+        "only a non-runtime family": (
+            200, b'up{app="farm-service",namespace="aquaculture"} 1 1761240000000\n', "text/plain; version=0.0.4",
+        ),
+    }
+
+    def test_each_unusable_answer_is_a_named_hold_in_the_payload_and_the_report(self) -> None:
+        for label, answer in self._ANSWERS.items():
+            with self.subTest(answer=label), _RecordingPrometheus(raw=answer) as prometheus:
+                self.configure(prometheus.base_url)
+                payload = self.sweep()
+                hold = payload["runtime"].get("hold")
+                self.assertIn(hold, RUNTIME_SOURCE_HOLDS, payload["runtime"])
+                self.assertIn(hold, self.report_lines(payload))
+
+    def test_a_well_formed_answer_with_no_runtime_series_names_the_missing_families(self) -> None:
+        with _RecordingPrometheus(lifetime=[]) as prometheus:
+            self.configure(prometheus.base_url)
+            payload = self.sweep()
+        runtime = payload["runtime"]
+        self.assertEqual(runtime.get("hold"), "source_empty", runtime)
+        self.assertEqual(runtime.get("missing_families"), list(RUNTIME_METRIC_FAMILIES), runtime)
+        report = self.report_lines(payload)
+        for family in RUNTIME_METRIC_FAMILIES:
+            self.assertIn(family, report)
+
+    def test_a_read_names_the_families_it_found_no_series_for(self) -> None:
+        with _RecordingPrometheus() as prometheus:
+            self.configure(prometheus.base_url)
+            payload = self.sweep()
+        runtime = payload["runtime"]
+        self.assertNotIn("hold", runtime, runtime)
+        self.assertEqual(runtime.get("missing_families"), ["security_events_total"], runtime)
+        self.assertIn("security_events_total", self.report_lines(payload))
+
+    def test_the_disabled_hold_is_a_named_hold_too(self) -> None:
+        override = self.repo / "aria-config" / "genesis_policy.json"
+        override.parent.mkdir(parents=True, exist_ok=True)
+        override.write_text(json.dumps({"watchdog_pull": {"enabled": False}}), encoding="utf-8")
+        payload = self.sweep()
+        self.assertEqual(payload["runtime"].get("hold"), "source_disabled", payload["runtime"])
+        self.assertIn("source_disabled", self.report_lines(payload))
+
+
+class RefusedLeadsReachTheDigestAndTheReport(_Workspace):
+    """A lead the bridge refused is named in the sweep payload; it must not
+    stop there (appellate R2 carried note: refused_leads never reached the
+    digest or the report)."""
+
+    def test_a_refused_lead_is_counted_in_the_report(self) -> None:
+        refused = aria_watchdog.RuntimeAnomaly(
+            pattern="runtime_http_5xx", service="farm-service", severity="medium",
+            claim_summary="Production service farm-service answers 5xx.", facts=[],
+            code_refs=["../outside-the-repo"],
+        )
+        with _RecordingPrometheus() as prometheus, patch.object(
+            aria_watchdog, "detect_http_5xx_share", return_value=[refused],
+        ), patch.object(aria_watchdog, "detect_security_critical_events", return_value=[]):
+            self.configure(prometheus.base_url)
+            payload = self.sweep(suppress_emission=False)
+        self.assertEqual(len(payload["runtime"]["refused_leads"]), 1, payload["runtime"])
+        self.assertIn("1 refused", self.report_lines(payload))
 
 
 # ─── Least privilege on the wire ───────────────────────────────────────────

@@ -128,6 +128,7 @@ P3 2027-03-31. Yan bulgular, uygulama paketine alınana kadar önemine göre P1 
 | [INFRA-LOW-251](#INFRA-LOW-251) | LOW | P2 | Load-bearing agent comments and config docs contradict the code (FirmwareUpdateMode::Disabled "sole update path", safe-state degraded-mode claim, "default build must include gpio", Strict leaf max-age "unbounded" vs 398 days, panic=abort rationale, dead log_file setting, release trigger) |
 | [INFRA-LOW-252](#INFRA-LOW-252) | LOW | P2 | WASM decoder compilation is unbounded and decoder modules are unsigned |
 | [INFRA-MEDIUM-253](#INFRA-MEDIUM-253) | MEDIUM | P1 | The release checks a binary's NEEDED libraries and glibc symbol versions against hand-maintained release facts, not against a sysroot manifest the Suderra OS image publishes |
+| [INFRA-MEDIUM-257](#INFRA-MEDIUM-257) | MEDIUM | P1 | No tool signs the production trust-anchors bundle with the offline fleet-root key: the only producer is the dev/CI generator, which signs with a file key, so the first production bundle and every later bundle change has no ceremony-grade path |
 | [INFRA-MEDIUM-254](#INFRA-MEDIUM-254) | MEDIUM | P1 | sens-api-gateway-ci.yml greps for the literal version = "2.0.0-rc.4", and the release workflow now calls that CI, so the first version bump blocks every agent release |
 | [INFRA-MEDIUM-255](#INFRA-MEDIUM-255) | MEDIUM | P1 | The nine CRITICAL findings registered by this audit have no truth-table row, so derived-merge-pins and enterprise-grade-debt-plan-contract fail on every run of the registry invariants |
 | [INFRA-MEDIUM-256](#INFRA-MEDIUM-256) | MEDIUM | P2 | e2e/.github/workflows/e2e-tests.yml is a nested workflow GitHub never runs, and it is the only caller of the e2e security, workflow and integration suites |
@@ -2390,6 +2391,21 @@ ADR-048 P0 yayın hattının (release track) bağımsız incelemesinde kaydedild
 - **Kök neden:** The board contract describes what the agent needs from the OS (kernel config) but not what the OS image provides to a dynamically linked agent.
 - **Mimari düzeltme yönü:** Suderra-OS publishes, per board image, the provided sonames and glibc version (a contract v2 boards.json field, or an OS-side runtime manifest at the vendored contract digest). edge_release.py checks NEEDED and VERNEED against it instead of edge-release.toml.
 - **Doğrulama:** A spec case where the OS-published glibc is lower than the binary's needed version fails the plan; the edge-release.toml runtime copy is gone.
+
+<a id="INFRA-MEDIUM-257"></a>
+
+### INFRA-MEDIUM-257 — No tool signs the production trust-anchors bundle with the offline fleet-root key: the only producer is the dev/CI generator, which signs with a file key, so the first production bundle and every later bundle change has no ceremony-grade path
+
+- **Önem:** MEDIUM · **Faz:** P1 · **Son tarih:** 2026-11-30 · **Sahip:** @Okan-wqm · **Durum:** OPEN
+- **Bileşen:** Suderra-OS scripts/ci/edge-dev-keys.py / sensor-service trust-anchor bundle / key ceremony
+- **Köken:** anahtar seremonisi araçları (RL paketi, 2026-10-23)
+- **Kanıt (dosya:satır):** `Suderra-OS/scripts/ci/edge-dev-keys.py:183`, `apps/sensor-service/src/edge-device/suderra-edge.config.ts:38`, `apps/sensor-service/src/edge-device/trust-anchor-bundle.service.ts:1`
+- **Kanıt (ayrıntı):**
+  - The release statements have an offline production path (`scripts/edge/edge_release.py` `offline-request` / `offline-assemble`): the PAE goes to the HSM, the raw signature comes back, `verify_strict` runs before anything is written.
+  - The `suderra.trust-anchors.v1` bundle, which `SUDERRA_EDGE_TRUST_ANCHORS` carries and the trust-anchors update request delivers (DEC-3.7), has only the dev/CI producer `edge-dev-keys.py`, which signs with a PKCS#8 file key (`sign_bundle`). The key ceremony's fleet-root key is non-exportable in the HSM, so no procedure can build and sign the first production bundle with it.
+- **Kök neden:** The offline signing discipline was built for the first fleet-root artifact (the release statement is edge-release's) and not for the second, so the ceremony checklist names a step no tool performs.
+- **Mimari düzeltme yönü:** Build the bundle payload from the key inventory (the bundle-anchored keys, the public MQTT CA roots, tenant scope, a monotonic `bundle_seq`) with a producer that writes the unsigned payload and its PAE; the HSM signs the PAE; assemble the DSSE envelope and verify it with the installer's own verifier before it reaches `SUDERRA_EDGE_TRUST_ANCHORS` or the update request.
+- **Doğrulama:** A contract test runs the flow with a throwaway key (as the release flow's rehearsal does), refuses a TEST-ONLY key, a bundle whose anchors differ from the inventory and a `bundle_seq` that does not increase.
 
 ## Bulut hattı incelemesi bulguları (2026-10-20)
 

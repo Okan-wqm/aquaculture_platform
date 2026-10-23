@@ -163,6 +163,32 @@ CROSS_REVIEW_RISK_REQUIRED = (
 # kept SEPARATE from KNOWN_SEVERITIES (the finding-severity vocabulary) so
 # the two vocabularies can evolve independently; the accept-set unions both.
 RISK_SEVERITY_VALUES = frozenset({"blocking", "material", "nice_to_have"})
+# The severities (case-folded, both vocabularies) that block convergence
+# while a risk carrying one is open: the material gate's one definition.
+MATERIAL_RISK_SEVERITIES = frozenset({"blocking", "material", "critical", "high"})
+# PV P1 (ARIA-HIGH-779) — a reviewer-raised risk id is ROUND-SCOPED at
+# `cross_review_recorded`: `CR-R{N}-<the reviewer's id>`, the law `COV-R{N}`
+# and `IMP-R{N}` already follow. Reviewers restart at CR-001 every round, so
+# an unscoped id let a claim on round 1's CR-001 hide round 2's NEW CR-001.
+# The prefix is also what marks a risk as reviewer-raised (the machine's
+# coverage and import risks are re-derived every round and never carried).
+REVIEW_RISK_ID_PREFIX = "CR-R"
+# PV P1 — what the round N+1 reviewer says about each prior reviewer risk.
+# Only the reviewer's answer moves a prior risk; the plan author's
+# `addresses_review_risk_ids` is a stored claim the reviewer is shown.
+#   resolved  — the fix landed (cited); the risk is resolved.
+#   open      — it still stands; a material one keeps blocking.
+#   withdrawn — the objection was wrong (cited); it no longer blocks.
+PRIOR_RISK_DISPOSITIONS = ("resolved", "open", "withdrawn")
+CITED_PRIOR_RISK_DISPOSITIONS = frozenset({"resolved", "withdrawn"})
+# PV P5 — the reviewer verdicts that say a plan is NOT acceptable as is
+# (`agreed` is the only assenting verdict). The duel ledger reads the same
+# set as "the reviewer's scrutiny landed" (`genesis_superiority`).
+DISSENTING_REVIEW_VERDICTS = frozenset({"material_risks_present", "partial_coverage"})
+REVIEWER_DISSENT_GATE = "reviewer_dissent"
+REVIEWER_DISSENT_REASON = "reviewer_dissent_without_material_risk"
+PRIOR_REVIEW_RISKS_GATE = "prior_review_risks_cleared"
+PRIOR_REVIEW_RISKS_OPEN_REASON = "prior_review_risks_open"
 # Plan-coverage verdict vocabulary. "gaps" blocks convergence via the
 # round loop; "environment_unable" escalates straight to HUMAN_REQUIRED
 # (the environment will not heal round-over-round); the two covered
@@ -451,6 +477,13 @@ def submit_cross_review_v8(
     if not isinstance(round_number, int) or round_number <= 0:
         round_number = max(1, len(state.get("cross_reviews") or {}) + 1)
 
+    # PV P1 (ARIA-HIGH-779) — the reviewer's answer on the prior rounds'
+    # risks is judged BEFORE the round's task request is appended, so a
+    # refused answer leaves the plan in CHALLENGER_DRAFTED (the record
+    # validator judges it again as the event's own law).
+    prior_risk_dispositions = review.get("prior_risk_dispositions", [])
+    _validate_prior_risk_dispositions(state, prior_risk_dispositions, round_number)
+
     # Z3-K2 — deterministic PER-DIRECTION content hash over the risks that
     # apply to that direction. One hash for both directions was half of the
     # "direction is fake" defect: identical hashes made the two records
@@ -549,6 +582,10 @@ def submit_cross_review_v8(
                 # apply to it (rows without applies_to_direction apply to
                 # both, preserving every legacy envelope byte-for-byte).
                 "risks": _direction_risks(task_direction),
+                # PV P1 — the dispositions answer the PLAN's prior risks,
+                # not one direction's: each direction record carries the
+                # whole answer, and the fold keeps one row per risk.
+                "prior_risk_dispositions": prior_risk_dispositions,
                 # agent_invocation_request_id intentionally omitted —
                 # V8 bypasses the per-task content-hash mismatch check
                 # because the agent submitted ONE envelope covering both
@@ -2346,6 +2383,8 @@ def _initial_state(plan_id: str) -> dict[str, Any]:
         "cross_reviews": {},
         "cross_review_risks_by_round": {},
         "resolved_review_risk_ids": [],
+        "review_risk_dispositions": {},
+        "review_risk_claims": {},
         "coverage_by_round": {},
         "implementation_delivery_attempts": [],
         "terminal_state": None,
@@ -2446,20 +2485,41 @@ def _apply_event(state: dict[str, Any], event: dict[str, Any]) -> None:
         task["status"] = payload["status_after"]
         task["review"] = payload
         cross["reviews"].append(payload)
-        surfaced = state["cross_review_risks_by_round"].setdefault(state["current_round"], [])
+        round_number = state["current_round"]
+        surfaced = state["cross_review_risks_by_round"].setdefault(round_number, [])
         # Z3-K3 (ORPHAN-HIGH-629) — the two cross_review_recorded events of a
         # round carried the same risks list and were appended blind, so every
         # risk counted twice: gate margins doubled and any rating metric
         # would read 2x. Dedup by risk_id within the round; a risk without an
         # id keeps legacy append behaviour (nothing to key on).
+        # PV P1 (ARIA-HIGH-779) — the id is ROUND-SCOPED here, at the one
+        # point a reviewer risk enters the plan (`CR-R{N}-<reviewer id>`), so
+        # every reader — the material gate, the revision prompt, the next
+        # reviewer's prior-risk block, a replay of an old ledger — sees ids
+        # no later round can collide with.
         seen_risk_ids = {r.get("risk_id") for r in surfaced if r.get("risk_id")}
         for risk in payload.get("risks", []):
             rid = risk.get("risk_id")
-            if rid and rid in seen_risk_ids:
-                continue
             if rid:
+                rid = review_risk_id(round_number, rid)
+                if rid in seen_risk_ids:
+                    continue
                 seen_risk_ids.add(rid)
+                risk = {**risk, "risk_id": rid}
             surfaced.append({**risk, "surfaced_in_revision_id": payload["target_revision_id"]})
+        # PV P1 — the reviewer's answer on prior risks; the latest answer
+        # per risk stands, and `resolved_review_risk_ids` is its view.
+        dispositions = state.setdefault("review_risk_dispositions", {})
+        for row in payload.get("prior_risk_dispositions", []):
+            dispositions[row["risk_id"]] = {
+                "disposition": row["disposition"],
+                "evidence_refs": list(row.get("evidence_refs", [])),
+                "round": round_number,
+                "reviewer_agent": payload["reviewer_agent"],
+            }
+        state["resolved_review_risk_ids"] = sorted(
+            risk_id for risk_id, row in dispositions.items() if row["disposition"] == "resolved"
+        )
     elif event_type == "stale_tasks_reaped":
         round_data = state["rounds"].get(payload["round_number"]) or state["cross_reviews"].get(payload["round_number"], {})
         task_by_id = {task["task_id"]: task for task in round_data.get("tasks", {}).values()}
@@ -2495,9 +2555,15 @@ def _apply_event(state: dict[str, Any], event: dict[str, Any]) -> None:
         # payload["round"] + 1 so the next cross_review targets a
         # fresh round number.
         state["current_round"] = payload["round"] + 1
-        resolved = set(state.get("resolved_review_risk_ids", []))
-        resolved.update(str(item) for item in payload.get("addresses_review_risk_ids", []) if isinstance(item, str) and item)
-        state["resolved_review_risk_ids"] = sorted(resolved)
+        # PV P1 (ARIA-HIGH-779) — the author's `addresses_review_risk_ids`
+        # is a CLAIM, stored per risk and shown to the next reviewer inside
+        # <untrusted_prior_risks>; it never resolves anything. It used to be
+        # unioned unchecked into resolved_review_risk_ids, so the author
+        # closed the reviewer's objections itself (18 of 18 CONVERGED
+        # verdicts on aria/state @ 8e39b2eeb hid a material risk that way).
+        claims = state.setdefault("review_risk_claims", {})
+        for risk_id in payload.get("addresses_review_risk_ids", []):
+            claims.setdefault(str(risk_id), []).append(payload["revision_id"])
     elif event_type == "coverage_computed":
         # Annotation event: state["state"] is deliberately NOT changed, so
         # _derive_state / evaluate_plan preconditions are untouched. The
@@ -2764,6 +2830,9 @@ def _normalize_cross_review(review: dict[str, Any]) -> dict[str, Any]:
         # DROPPED here: no rating layer could ever see who judged whom
         # right. Legacy rows read back as None — old ledgers stay valid.
         "verdict": review.get("verdict"),
+        # PV P1 — the reviewer's resolved/open/withdrawn answer on every
+        # prior-round reviewer risk; the only door that clears one.
+        "prior_risk_dispositions": review.get("prior_risk_dispositions", []),
         "review_content_hash": review.get("review_content_hash"),
         "agent_invocation_request_id": review.get("agent_invocation_request_id"),
         "status_after": review.get("status_after", "ANSWERED"),
@@ -2961,6 +3030,47 @@ def _validate_cross_review_record(state: dict[str, Any], payload: dict[str, Any]
         raise GovernanceError("risks limit exceeded")
     for risk in risks:
         _validate_cross_review_risk(risk)
+    _validate_prior_risk_dispositions(state, payload.get("prior_risk_dispositions"), state["current_round"])
+
+
+def _validate_prior_risk_dispositions(state: dict[str, Any], dispositions: Any, round_number: int) -> None:
+    """PV P1 (ARIA-HIGH-779) — the round's reviewer answer on prior risks.
+
+    Each row names a reviewer risk an EARLIER round of this plan raised
+    (``CR-R{k}-…``, k < round_number), once, with a disposition from
+    ``PRIOR_RISK_DISPOSITIONS``; ``resolved`` and ``withdrawn`` clear a
+    blocking risk, so they must cite evidence. A prior risk the reviewer
+    does not answer stays open.
+    """
+    if not isinstance(dispositions, list):
+        raise GovernanceError("prior_risk_dispositions must be an array")
+    prior_ids = {risk["risk_id"] for risk in _prior_review_risk_rows(state, round_number)}
+    answered: set[str] = set()
+    for row in dispositions:
+        if not isinstance(row, dict):
+            raise GovernanceError("prior_risk_disposition must be a JSON object")
+        risk_id = row.get("risk_id")
+        if risk_id not in prior_ids:
+            raise GovernanceError(
+                f"prior_risk_disposition names no earlier-round reviewer risk of this plan: {risk_id!r}"
+            )
+        if risk_id in answered:
+            raise GovernanceError(f"prior_risk_disposition answers {risk_id} twice")
+        answered.add(risk_id)
+        disposition = row.get("disposition")
+        if disposition not in PRIOR_RISK_DISPOSITIONS:
+            raise GovernanceError(
+                f"prior_risk_disposition for {risk_id} is {disposition!r}; "
+                f"expected one of {', '.join(PRIOR_RISK_DISPOSITIONS)}"
+            )
+        evidence_refs = row.get("evidence_refs", [])
+        if not isinstance(evidence_refs, list) or not all(_valid_evidence_ref(ref) for ref in evidence_refs):
+            raise GovernanceError(f"prior_risk_disposition for {risk_id} carries an invalid evidence_refs entry")
+        if disposition in CITED_PRIOR_RISK_DISPOSITIONS and not evidence_refs:
+            raise GovernanceError(
+                f"prior_risk_disposition {disposition} for {risk_id} requires evidence_refs: "
+                "a risk is cleared on cited evidence, never on a bare word"
+            )
 
 
 def _validate_revision(state: dict[str, Any], payload: dict[str, Any]) -> None:
@@ -3269,6 +3379,8 @@ def _validate_event(event: dict[str, Any]) -> None:
         _require_hash(payload.get("review_content_hash"), "review_content_hash")
         if payload.get("status_after") != "ANSWERED":
             raise GovernanceError('cross_review_recorded status_after must be "ANSWERED"')
+        if not isinstance(payload.get("prior_risk_dispositions", []), list):
+            raise GovernanceError("prior_risk_dispositions must be an array")
     elif event_type == "stale_tasks_reaped":
         if not isinstance(payload.get("round_number"), int):
             raise GovernanceError("round_number must be an integer")
@@ -3508,34 +3620,108 @@ def _prescribed_imports_gate(
     return gate, None
 
 
+def review_risk_id(round_number: int, reviewer_risk_id: str) -> str:
+    """PV P1 — the plan-wide id of a risk the round's reviewer called ``reviewer_risk_id``."""
+    return f"{REVIEW_RISK_ID_PREFIX}{round_number}-{reviewer_risk_id}"
+
+
+def is_material_risk(risk: dict[str, Any]) -> bool:
+    return str(risk.get("severity")).lower() in MATERIAL_RISK_SEVERITIES
+
+
+def _prior_review_risk_rows(state: dict[str, Any], round_number: int) -> list[dict[str, Any]]:
+    """Every reviewer-raised risk of the rounds before ``round_number``, oldest first."""
+    rows: list[dict[str, Any]] = []
+    for prior_round in sorted(r for r in state.get("cross_review_risks_by_round", {}) if r < round_number):
+        for risk in state["cross_review_risks_by_round"][prior_round]:
+            if str(risk.get("risk_id") or "").startswith(REVIEW_RISK_ID_PREFIX):
+                rows.append({**risk, "round": prior_round})
+    return rows
+
+
+def prior_review_risks(state: dict[str, Any], round_number: int) -> list[dict[str, Any]]:
+    """PV P1 (ARIA-HIGH-779) — the earlier rounds' reviewer risks no reviewer has cleared.
+
+    Each row is the risk as raised, plus ``round``, the plan author's claims
+    on it (``author_claimed_in_revisions``: the revisions whose
+    ``addresses_review_risk_ids`` named it) and the latest reviewer answer
+    (``latest_disposition``, an ``open`` one or None). The round
+    ``round_number`` reviewer is shown exactly these rows, and the material
+    gate counts the material ones as open: only that reviewer's ``resolved``
+    or ``withdrawn`` takes a row out.
+    """
+    dispositions = state.get("review_risk_dispositions", {})
+    claims = state.get("review_risk_claims", {})
+    rows = []
+    for risk in _prior_review_risk_rows(state, round_number):
+        latest = dispositions.get(risk["risk_id"])
+        if latest is not None and latest["disposition"] in CITED_PRIOR_RISK_DISPOSITIONS:
+            continue
+        rows.append({
+            **risk,
+            "author_claimed_in_revisions": list(claims.get(risk["risk_id"], [])),
+            "latest_disposition": latest,
+        })
+    return rows
+
+
+def _reviewer_dissent_gate(cross: dict[str, Any], material: list[dict[str, Any]]) -> dict[str, Any]:
+    """PV P5 — a reviewer verdict that dissents while no material risk is open.
+
+    The kernel recomputes convergence from the risks and used to read the
+    reviewer's verdict as a hint only, so ``material_risks_present`` with
+    nothing but nice-to-have risks converged silently. The two disagree; the
+    gate names the inconsistency instead of picking a side.
+    """
+    dissenting = sorted({
+        str(review.get("review_direction")) for review in cross.get("reviews", [])
+        if review.get("verdict") in DISSENTING_REVIEW_VERDICTS
+    })
+    return {
+        "gate": REVIEWER_DISSENT_GATE,
+        "passed": not (dissenting and not material),
+        "dissenting_directions": dissenting,
+    }
+
+
 def _evaluate_cross_review_state(state: dict[str, Any], round_number: int, *, max_rounds: int) -> dict[str, Any]:
     cross = state["cross_reviews"][round_number]
-    risks = list(state.get("cross_review_risks_by_round", {}).get(round_number, []))
-    resolved = set(state.get("resolved_review_risk_ids", []))
-    active_risks = [risk for risk in risks if str(risk.get("risk_id")) not in resolved]
-    material = [
-        risk for risk in active_risks
-        if str(risk.get("severity")).lower() in {"blocking", "material", "critical", "high"}
-    ]
+    # PV P1 (ARIA-HIGH-779) — the round's own risks are all open (their ids
+    # are round-scoped; only a LATER reviewer can answer them), and every
+    # earlier reviewer risk no reviewer cleared is still open too.
+    active_risks = list(state.get("cross_review_risks_by_round", {}).get(round_number, []))
+    open_prior = prior_review_risks(state, round_number)
+    open_prior_material = [risk for risk in open_prior if is_material_risk(risk)]
+    material = [risk for risk in active_risks if is_material_risk(risk)] + open_prior_material
     tasks = list(cross.get("tasks", {}).values())
     directions = _cross_review_direction_statuses(state, round_number)
     summary = {
         "active_cross_review_risks": len(active_risks),
         "material_cross_review_risks": len(material),
+        "open_prior_review_risks": len(open_prior),
+        "open_prior_material_review_risks": len(open_prior_material),
         "partial_directions": sorted(direction for direction, status in directions.items() if status == "partial"),
         "pending_tasks": sum(1 for task in tasks if task.get("status") == "PENDING"),
         "timeout_aborted_tasks": sum(1 for task in tasks if task.get("status") == "TIMEOUT_ABORTED" and not task.get("replaced_by_task_ids")),
-        "resolved_review_risks": len(resolved),
+        "resolved_review_risks": len(state.get("resolved_review_risk_ids", [])),
     }
+    dissent = _reviewer_dissent_gate(cross, material)
     blockers = []
     if material:
         blockers.append("material_cross_review_risks_present")
+    if open_prior_material:
+        blockers.append(PRIOR_REVIEW_RISKS_OPEN_REASON)
+    if not dissent["passed"]:
+        blockers.append(REVIEWER_DISSENT_REASON)
     if summary["pending_tasks"]:
         blockers.append("pending_tasks_present")
     if summary["timeout_aborted_tasks"] or summary["partial_directions"]:
         blockers.append("partial_cross_review_coverage")
     gate_decisions = [
         {"gate": "material_cross_review_zero", "passed": not material},
+        {"gate": PRIOR_REVIEW_RISKS_GATE, "passed": not open_prior_material,
+         "open_risk_ids": [risk["risk_id"] for risk in open_prior_material]},
+        dissent,
         {"gate": "no_pending_tasks", "passed": summary["pending_tasks"] == 0},
         {"gate": "no_partial_directions", "passed": not summary["partial_directions"] and summary["timeout_aborted_tasks"] == 0},
         {"gate": "max_rounds", "passed": round_number < max_rounds, "max_rounds": max_rounds},

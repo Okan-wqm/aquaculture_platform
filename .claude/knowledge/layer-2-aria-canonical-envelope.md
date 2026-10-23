@@ -216,11 +216,32 @@ two-task state machine flow from a single agent submission.
           "evidence_refs": ["apps/path/to/file.ts:42"],
           "applies_to_direction": "challenger_to_primary"
         }
+      ],
+      "prior_risk_dispositions": [
+        {
+          "risk_id": "CR-R1-CR-001",
+          "disposition": "resolved | open | withdrawn",
+          "evidence_refs": ["apps/path/to/file.ts:42"]
+        }
       ]
     }
   }
 }
 ```
+
+`prior_risk_dispositions[]` (PV P1, ARIA-HIGH-779) answers the earlier
+rounds' reviewer risks the request lists inside `<untrusted_prior_risks>`.
+The kernel round-scopes every reviewer risk id when it records it
+(`CR-001` raised in round 1 is `CR-R1-CR-001` from then on), and the plan
+author's `details.revision.addresses_review_risk_ids` is a stored claim
+only. A prior risk is cleared only by a reviewer's `resolved` or
+`withdrawn`, each with non-empty `evidence_refs`; `open`, or no answer,
+keeps it open, and an open material one blocks convergence.
+`plan_convergence._validate_prior_risk_dispositions` refuses an unknown or
+repeated `risk_id`, a disposition outside the three, and a clearing
+disposition without evidence. A dissenting `verdict`
+(`material_risks_present` / `partial_coverage`) while no material risk is
+open fails the `reviewer_dissent` gate.
 
 Each `risks[]` entry is structurally validated by
 `plan_convergence._validate_cross_review_risk` (in plan_convergence.py). Every

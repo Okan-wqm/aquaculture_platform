@@ -34,12 +34,13 @@ from .agent_eval import compare_eval_windows
 from .calibrated_intelligence import bradley_terry
 from .genesis_policy import SUPERIORITY_DEFAULTS, superiority_policy
 from .ledger import load_jsonl
+from .plan_convergence import DISSENTING_REVIEW_VERDICTS
 from .tool_registry import ensure_tools_dir
 
-# A direction verdict that found material risks is a WIN for the reviewer
-# of that direction (their scrutiny landed) and a LOSS for the reviewed
-# plan's author. "agreed" duels are draws and carry no BT signal.
-_WIN_VERDICTS = frozenset({"material_risks_present", "partial_coverage"})
+# A direction verdict that dissents (`plan_convergence.DISSENTING_REVIEW_
+# VERDICTS`) is a WIN for the reviewer of that direction (their scrutiny
+# landed) and a LOSS for the reviewed plan's author. "agreed" duels are
+# draws and carry no BT signal.
 
 
 def duel_observations(
@@ -55,9 +56,9 @@ def duel_observations(
         if not primary or not challenger:
             continue
         verdicts = row.get("verdicts_by_direction") or {}
-        if verdicts.get("primary_to_challenger") in _WIN_VERDICTS:
+        if verdicts.get("primary_to_challenger") in DISSENTING_REVIEW_VERDICTS:
             observations.append({"winner": primary, "loser": challenger})
-        if verdicts.get("challenger_to_primary") in _WIN_VERDICTS:
+        if verdicts.get("challenger_to_primary") in DISSENTING_REVIEW_VERDICTS:
             observations.append({"winner": challenger, "loser": primary})
     return observations
 

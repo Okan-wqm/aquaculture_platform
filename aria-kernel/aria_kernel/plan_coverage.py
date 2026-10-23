@@ -35,10 +35,10 @@ WITNESS_RELPATH = "tools/gates/plan-coverage-witness.ts"
 WITNESS_TSCONFIG = "tools/gates/tsconfig.json"
 DEFAULT_TIMEOUT_SECONDS = 180
 COVERAGE_DIR = "coverage"
-# Severity is "material" (not "blocking"): a coverage gap must block
-# convergence via the material gate AND remain addressable through the
-# normal revision loop (addresses_review_risk_ids), exactly like a
-# reviewer-raised material risk.
+# Severity is "material" (not "blocking"): a coverage gap blocks
+# convergence via the material gate, and the next revision addresses it
+# like a reviewer-raised material risk. Nobody's claim clears it: the next
+# round recomputes coverage, and only that machine verdict does (PV P1).
 SYNTHETIC_RISK_SEVERITY = "material"
 SYNTHETIC_RISK_CATEGORY = "coverage_gap"
 
@@ -58,10 +58,10 @@ def _default_runner(cmd: list[str], cwd: str, timeout_seconds: int) -> "subproce
 def build_synthetic_risk(node: dict[str, Any], *, round_number: int, closure_manifest_path: str) -> dict[str, Any]:
     """Shape one uncovered closure node as a CROSS_REVIEW_RISK-schema risk.
 
-    The risk_id is ROUND-SCOPED (``COV-R{N}-<hash>``): resolved_review_risk_ids
-    accumulates globally across rounds, so a stable id would let round N's
-    "addressed" claim mask the SAME still-uncovered node re-detected in round
-    N+1. A fresh id per round keeps machine verification authoritative.
+    The risk_id is ROUND-SCOPED (``COV-R{N}-<hash>``), the law reviewer risks
+    follow too (``CR-R{N}-…``): a stable id would let an answer about round N
+    mask the SAME still-uncovered node re-detected in round N+1. A fresh id
+    per round keeps machine verification authoritative.
     """
     node_id = str(node.get("node_id"))
     digest = hashlib.sha256(node_id.encode("utf-8")).hexdigest()[:8]

@@ -316,6 +316,25 @@ describe('MF-1 T3 — the projection derives RESOLVED from merged Closes: traile
     },
     CLI_TEST_TIMEOUT_MS,
   );
+
+  it(
+    'refuses a plain reopen of a finding merged history closes, naming the closer and the override',
+    () => {
+      // ARIA-HIGH-901 is stored OPEN and closed only by derivation (fix901's
+      // merged trailer), as every closure after MF-1 is. A reopen that judged
+      // the stored row answered "No-op: already OPEN" with exit 0 while every
+      // reader saw the finding RESOLVED (MF-DESIGN §4.5: reopen is checked
+      // against the projection).
+      const reopen = repo.registry(['reopen', 'ARIA-HIGH-901']);
+      expect(reopen.status).toBe(1);
+      expect(reopen.stdout).not.toMatch(/already OPEN/);
+      expect(reopen.stderr).toContain(shas.fix901);
+      expect(reopen.stderr).toContain('--reject-closure');
+      expect(repo.read(REGISTRY_RELATIVE_PATH)).toBe(registryAtMain);
+      expect(repo.status()).toBe('');
+    },
+    CLI_TEST_TIMEOUT_MS,
+  );
 });
 
 describe('MF-1 T4 — main is green at the closer merge, with no follow-up commit', () => {

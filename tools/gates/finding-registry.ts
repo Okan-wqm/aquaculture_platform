@@ -1044,7 +1044,9 @@ function resolveFullSha(repoRoot: string, sha: string): { sha?: string; reason?:
  * Without `--reject-closure`: a registration repair. A row registered
  * RESOLVED at birth with no closing commit (an error: a closure is the fix
  * commit's merged trailer, which cannot exist before the fix merges) goes
- * back to OPEN. A row that names a closer is not a registration error.
+ * back to OPEN. A row that names a closer is not a registration error, and
+ * neither is a row the projection derives RESOLVED from a merged trailer:
+ * both are refused, naming the closer and the override.
  *
  * With `--reject-closure=<sha> --reason=<why>`: the override decision
  * (`applyClosureRejection`). Every closer the projection would still derive
@@ -1101,6 +1103,21 @@ function cmdReopen(id: string, lease: RegistryLockLease, rejection?: ClosureReje
       return 1;
     }
   } else {
+    // The stored state is not the finding's state: every closure after MF-1
+    // is stored OPEN and is RESOLVED only where the projection derives it from
+    // the merged trailer. Judging the stored row answered "already OPEN" for a
+    // finding every reader sees closed (MF-DESIGN §4.5).
+    for (const projected of projectRegistry(REPO_ROOT, { rows: [entry] })) {
+      if (projected.state === 'RESOLVED' && entry.state !== 'RESOLVED') {
+        const closers = projected.closing_commits.join(', ');
+        process.stderr.write(
+          `reopen refused: ${id} is RESOLVED — merged commit ${closers} closes it ` +
+            `(the stored row says ${entry.state}). Reopening a finding a commit closed is an ` +
+            `override decision: reopen ${id} --reject-closure=${closers} --reason=<why>.\n`,
+        );
+        return 1;
+      }
+    }
     if (entry.state !== 'RESOLVED') {
       process.stdout.write(`No-op: ${id} is already ${entry.state}.\n`);
       return 0;

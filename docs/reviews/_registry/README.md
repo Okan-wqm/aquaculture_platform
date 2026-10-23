@@ -43,8 +43,8 @@ registered `RESOLVED`; the write side, MF-2, refuses it.) Rows recorded
 
 Read the registry as readers see it with `finding-registry project`
 (`--ref=<rev>`, `--ids <ID>...`, `--format=jsonl|csv|json-array|closures`);
-`list`, `sweep`, the debt-plan truth table, the gates and the ARIA kernel all
-read through it. The stored `state` is not a finding's state: a
+`list`, `sweep`, `reopen`, the debt-plan truth table, the gates and the ARIA
+kernel all read through it. The stored `state` is not a finding's state: a
 gate that compares it with `RESOLVED` fails open for every closure made by a
 merged trailer, so `tests/invariants/finding-registry-projection.spec.ts`
 fails any file under `tools/`, `tests/`, `libs/`, `aria-kernel/` or `scripts/`
@@ -57,7 +57,9 @@ evidence:
 
 - `finding-registry reopen <id>` — registration repair. Only for a row registered `RESOLVED` at
   birth in error (no `closing_commits`). Clears the close fields; the real fix commit closes it
-  through its merged trailer.
+  through its merged trailer. A finding a commit closed — recorded in `closing_commits`, or derived
+  by the projection from a merged trailer while the row is stored OPEN — is refused with exit 1,
+  naming the closer and the override below.
 - `finding-registry reopen <id> --reject-closure=<sha> --reason=<why>` — override reopen. A commit
   closed the finding, but the change did not actually close it (a version-gated tracking finding
   swept shut, a partial fix). The SHA moves to `rejected_closing_commits`; the projection refuses

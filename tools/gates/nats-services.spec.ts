@@ -211,6 +211,20 @@ void test('a document the SSoT schema refuses throws NatsServicesInvalid', () =>
   assert.throws(() => loadNatsServices('/nonexistent/services.yaml'), NatsServicesInvalid);
 });
 
+// SE-3-R2 round 2 (build/SE-3-R2/appellate-r2.md, carried security A1): the code-fact bridge
+// carries this message into the kernel's witness stderr_tail, so a syntax error names its code and
+// position and never quotes the document's text.
+void test('a document that is not YAML throws NatsServicesInvalid naming the position, not the text', () => {
+  const marker = 'ZQXJ-yaml-text-marker';
+  assert.throws(
+    () => parseNatsServices(`services:\n  - name: ${marker}\n    publish: [unclosed\n`),
+    (error: unknown) =>
+      error instanceof NatsServicesInvalid &&
+      /^not YAML: [A-Z_]+ at line \d+, column \d+$/.test(error.message) &&
+      !error.message.includes(marker),
+  );
+});
+
 void test('subjectMatches follows NATS semantics: whole tokens, `>` last and at least one token', () => {
   const table: [string, string, boolean][] = [
     ['events.>', 'events.t1.UserInvited', true],

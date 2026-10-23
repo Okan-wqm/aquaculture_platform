@@ -171,7 +171,12 @@ export function parseNatsServicesLocated(source: string): LocatedNatsServices {
   const counter = new LineCounter();
   const parsed = parseDocument(source, { lineCounter: counter });
   const [syntaxError] = parsed.errors;
-  if (syntaxError !== undefined) throw new NatsServicesInvalid(`not YAML: ${syntaxError.message}`);
+  if (syntaxError !== undefined) {
+    // The parser's own message quotes the offending source lines; a reader such as the code-fact
+    // bridge carries this message into a witness, so it names the error and its position only.
+    const { line, col } = counter.linePos(syntaxError.pos[0]);
+    throw new NatsServicesInvalid(`not YAML: ${syntaxError.code} at line ${line}, column ${col}`);
+  }
   const document: unknown = parsed.toJS();
   if (!isValidDocument(document)) {
     const errors = (schemaValidator().errors ?? [])

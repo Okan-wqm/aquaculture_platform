@@ -23,6 +23,7 @@ import {
   deriveRegistrySnapshot,
   truthTableActiveRows,
 } from '../../tools/gates/debt-plan-truth';
+import { projectRegistry } from '../../tools/gates/finding-registry-projection';
 
 import {
   closesTrailer,
@@ -37,7 +38,6 @@ const README_PATH = join(PLAN_DIR, 'README.md');
 const MANIFEST_PATH = join(PLAN_DIR, 'manifest.json');
 const TRUTH_TABLE_PATH = join(PLAN_DIR, 'finding-truth-table.md');
 const CODEOWNERS_PATH = join(REPO_ROOT, '.github/CODEOWNERS');
-const REGISTRY_PATH = join(REPO_ROOT, 'docs/reviews/_registry/findings.jsonl');
 const REQUIRED_STATUS_CHECKS_PATH = join(
   REPO_ROOT,
   '.github/manifests/main-required-status-checks.json',
@@ -83,7 +83,8 @@ describe('enterprise-grade debt closure plan contract', () => {
   const readme = readFileSync(README_PATH, 'utf8');
   const truthTable = readFileSync(TRUTH_TABLE_PATH, 'utf8');
   const manifest = readManifest();
-  const snapshot = deriveRegistrySnapshot(readFileSync(REGISTRY_PATH, 'utf8'));
+  // The registry as readers see it: RESOLVED derived from merged trailers (MF-1).
+  const snapshot = deriveRegistrySnapshot(projectRegistry(REPO_ROOT));
 
   it('keeps the governed plan README present with the wave structure', () => {
     expect(readme).toContain('# Enterprise-Grade Debt Closure Program');
@@ -111,8 +112,8 @@ describe('enterprise-grade debt closure plan contract', () => {
   });
 
   it('derives the registry view instead of recording it in any plan file', () => {
-    // The derivation itself (determinism, red cases, the reconcile lane's
-    // retirement) is pinned by tools/gates/debt-plan-truth.spec.ts.
+    // The derivation itself (determinism, red cases) is pinned by
+    // tools/gates/debt-plan-truth.spec.ts.
     expect(snapshot.tipHash).toMatch(/^[0-9a-f]{64}$/);
     expect(snapshot.entries).toBeGreaterThan(0);
     const mirrored =

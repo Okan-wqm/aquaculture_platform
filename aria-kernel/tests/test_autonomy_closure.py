@@ -170,8 +170,13 @@ class ClosureVerdictTests(unittest.TestCase):
 
         def owner(repo: Path, raw: bytes, *, at: str, finding_ids: tuple[str, ...]) -> RegistrySnapshotVerdict:
             self.owner_calls.append({"raw": raw, "at": at, "finding_ids": finding_ids})
+            # The closers the owner names are the ones the snapshot records:
+            # every fixture closure is a recorded one.
+            recorded = {row["id"]: tuple(row["closing_commits"])
+                        for row in map(json.loads, raw.decode("utf-8").splitlines()) if row["id"] in finding_ids}
             return RegistrySnapshotVerdict(
                 True, None, {finding_id: self.owner_refusals.get(finding_id, ()) for finding_id in finding_ids},
+                recorded,
             )
 
         registry_owner = mock.patch.object(closure_module, "verify_registry_snapshot", side_effect=owner)

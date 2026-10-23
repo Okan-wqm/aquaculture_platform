@@ -148,17 +148,17 @@ npx jest --config tests/invariants/jest.config.ts --testPathPatterns=adoption-in
 
 ### Step 7 — Finding registry + deploy record
 
-**Affected files:** `docs/reviews/infra-expert/{date}-prod-migration-{slug}.md`, registry via `tools/gates/finding-registry.ts close`.
+**Affected files:** `docs/reviews/infra-expert/{date}-prod-migration-{slug}.md`; the registry is not edited.
 
-**Mechanism:** infra-expert writes a prod-migration report (lock-wait max, latency p99 delta, migration duration, any warnings). If the migration closes a tracked finding (e.g. from a database-reviewer recommendation), close the finding in the registry:
+**Mechanism:** infra-expert writes a prod-migration report (lock-wait max, latency p99 delta, migration duration, any warnings). If the migration closes a tracked finding (e.g. from a database-reviewer recommendation), the migration's fix commit carries that finding's `Closes:` trailer; the registry derives the closure from the merged trailer (`tools/gates/finding-registry-projection.ts`), so nothing is written after the merge. Confirm it:
 
 ```bash
-npx ts-node --project tools/gates/tsconfig.json tools/gates/finding-registry.ts close <FINDING-ID> <commit-sha>
+npx ts-node --project tools/gates/tsconfig.json tools/gates/finding-registry.ts project --ref=origin/main --ids <FINDING-ID>
 ```
 
-**Why:** the prod-migration report is the audit-trail anchor for SOC 2 + the go/no-go decision for the NEXT migration attempting the same pattern. Finding-closure closes the review-to-fix traceability loop.
+**Why:** the prod-migration report is the audit-trail anchor for SOC 2 + the go/no-go decision for the NEXT migration attempting the same pattern. The merged trailer closes the review-to-fix traceability loop.
 
-**Verification:** report exists; finding-registry verify returns chain-valid.
+**Verification:** report exists; the projection shows the finding `RESOLVED` with the fix commit as its closer.
 
 **Cross-domain notifications:** `context-manager` finding state transition; `architectural-arbiter` if the migration revealed a systemic pattern.
 

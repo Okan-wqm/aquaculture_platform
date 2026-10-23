@@ -11,12 +11,14 @@
  *   1. `docs/reviews/_registry/findings.jsonl` (current authority)
  *      — hash-chained append-only log. The `finding-registry-integrity`
  *        spec already verifies chain integrity internally; this spec
- *        treats it as authoritative for (state, closing_commits,
+ *        reads it through the projection (finding-registry-projection.ts,
+ *        MF-1), which derives RESOLVED from merged `Closes:` trailers, and
+ *        treats that as authoritative for (state, closing_commits,
  *        review_file, id) tuples.
  *
  *   2. Merged-commit `Closes:` trailers (implementation evidence)
- *      — every RESOLVED finding's recorded `closing_commits` SHAs
- *        MUST exist in git history AND the commit message MUST
+ *      — every RESOLVED finding's `closing_commits` SHAs, recorded or
+ *        derived, MUST exist in git history AND the commit message MUST
  *        contain a `Closes:` trailer that references the finding id.
  *
  *   3. Review files under `docs/reviews/` (evidence trail)
@@ -55,6 +57,7 @@ import { resolve } from 'node:path';
 
 import { loadCanonicalToAliases } from '../../tools/gates/finding-id-aliases';
 import { FINDING_STATES, isUnresolvedFindingState } from '../../tools/gates/finding-registry-chain';
+import { projectRegistry } from '../../tools/gates/finding-registry-projection';
 import {
   commitMessageClosesFinding,
   readCommitMessage,
@@ -65,7 +68,6 @@ import {
 // ---------------------------------------------------------------------------
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
-const REGISTRY_PATH = resolve(REPO_ROOT, 'docs/reviews/_registry/findings.jsonl');
 const AUTONOMY_CLOSURE_FINDINGS_PATH = resolve(
   REPO_ROOT,
   'docs/aria/policy/autonomy-closure-findings.json',
@@ -669,13 +671,7 @@ interface AutonomyClosureFindingsPolicy {
 }
 
 function loadRegistry(): Finding[] {
-  if (!existsSync(REGISTRY_PATH)) return [];
-  const raw = readFileSync(REGISTRY_PATH, 'utf8').trim();
-  if (!raw) return [];
-  return raw
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => JSON.parse(line) as Finding);
+  return projectRegistry(REPO_ROOT);
 }
 
 function loadAutonomyClosureFindings(): AutonomyClosureFindingsPolicy {
@@ -1199,7 +1195,7 @@ describe('three-store invariants', () => {
         severity: entry.finding_id.split('-')[1],
         owner_agent: 'platform-autonomy',
       });
-      // State is derived from merged history (finding-registry-closure-drift):
+      // State is derived from merged history (finding-registry-projection.ts):
       // a scoped finding is RESOLVED exactly when a main-reachable commit
       // carries its Closes: trailer, and then its closing_commits record that
       // commit. Every other state is unresolved and carries no closer — that

@@ -33,9 +33,11 @@ The parts it reads each have one owner, and this module only asks them:
 the policy's structure and refs (``autonomy_evidence._operator_policy_shape``),
 the capability evidence (``autonomy_evidence.derive_autonomy_evidence_status``),
 and the registry's hash chain and closure rules (``finding-registry.ts verify
---stdin --closures-at``: the chain of ``finding-registry-chain.ts`` and the
-admission ``close`` applies — reachability, an override reopen's rejection,
-the exact ``Closes:`` trailer — run by the TypeScript owner on the
+--stdin``: the chain of ``finding-registry-chain.ts``; ``finding-registry.ts
+project --stdin --format=closures``: the projection's closure of each finding
+at the evidence target — derived from the trailers merged into it, or a
+recorded closer that is reachable, not rejected by an override reopen and
+carries the exact ``Closes:`` trailer — run by the TypeScript owner on the
 snapshot's bytes, never transcribed here). What it adds is the closure
 policy's own rule for which commit closes a finding (``closing_sha_rule``)
 and the two-SHA discipline above.
@@ -162,11 +164,11 @@ def derive_autonomy_closure_verdict(
     policy_predicate, policy_entries = _closure_policy_resolved(repo, evidence_target_sha, evidence_ok)
     predicates.append(policy_predicate)
     finding_ids = tuple(str(entry["finding_id"]) for entry in policy_entries or ())
-    registry_predicate, registry_rows, closures = _registry_snapshot(
+    registry_predicate, registry = _registry_snapshot(
         repo, evidence_target_sha, evidence_ok, finding_ids,
     )
     predicates.append(registry_predicate)
-    predicates.append(_closure_findings_resolved(policy_entries, registry_rows, closures))
+    predicates.append(_closure_findings_resolved(policy_entries, registry))
     predicates.append(_capabilities_live_proven(repo, base_dir, evidence_target_sha, evidence_ok, payload))
     return AutonomyClosureVerdict(
         report_commit_sha=report_commit_sha,
@@ -297,115 +299,134 @@ def _closure_policy_resolved(
 @dataclass(frozen=True, slots=True)
 class RegistrySnapshotVerdict:
     """What the registry's owner says about a snapshot: its chain, and each
-    named finding's closure as of a commit (reasons; empty when closed)."""
+    named finding's closure as of a commit (reasons; empty when closed).
+
+    ``closing_commits`` is the evidence behind each verdict — the closers the
+    projection records for the finding, derived or recorded — and not part of
+    the verdict's identity, so two verdicts that judge alike compare equal.
+    """
 
     chain_ok: bool
     chain_reason: str | None = None
     closures: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    closing_commits: Mapping[str, tuple[str, ...]] = field(default_factory=dict, compare=False)
 
 
 def _registry_snapshot(
     repo: Path, evidence: str, evidence_ok: bool, finding_ids: tuple[str, ...],
-) -> tuple[ClosurePredicate, list[dict[str, Any]] | None, Mapping[str, tuple[str, ...]] | None]:
+) -> tuple[ClosurePredicate, RegistrySnapshotVerdict | None]:
     """The registry blob at the evidence target, judged by its owner."""
     name = "registry_chain_valid_at_evidence_target"
     if not evidence_ok:
-        return ClosurePredicate(name, False, ("evidence_target_unavailable",)), None, None
+        return ClosurePredicate(name, False, ("evidence_target_unavailable",)), None
     try:
         entry = _git_tree_entry(repo, evidence, REGISTRY_PATH)
         if entry is None or entry[1] not in {"100644", "100755"} or entry[2] != "blob":
-            return ClosurePredicate(name, False, ("registry_unavailable",)), None, None
+            return ClosurePredicate(name, False, ("registry_unavailable",)), None
         raw = _read_git_blob_bounded(
             repo, entry[3], max_bytes=_MAX_REGISTRY_BYTES,
             too_large="registry_too_large", unavailable="registry_unavailable",
         )
     except RuntimeError as exc:
-        return ClosurePredicate(name, False, (str(exc),)), None, None
+        return ClosurePredicate(name, False, (str(exc),)), None
     verdict = verify_registry_snapshot(repo, raw, at=evidence, finding_ids=finding_ids)
     if not verdict.chain_ok:
-        return ClosurePredicate(name, False, (f"registry_chain_invalid:{verdict.chain_reason}",)), None, None
-    try:
-        rows = [json.loads(line) for line in raw.decode("utf-8").splitlines() if line.strip()]
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        return ClosurePredicate(name, False, ("registry_unparseable",)), None, None
+        return ClosurePredicate(name, False, (f"registry_chain_invalid:{verdict.chain_reason}",)), None
     refs = (f"{evidence}:{REGISTRY_PATH}@{entry[3]}",)
-    return ClosurePredicate(name, True, evidence_refs=refs), rows, verdict.closures
+    return ClosurePredicate(name, True, evidence_refs=refs), verdict
 
 
-def verify_registry_snapshot(
-    repo: Path, raw: bytes, *, at: str, finding_ids: tuple[str, ...],
-) -> RegistrySnapshotVerdict:
-    """Run the registry's own verifier (TypeScript) over ``raw``.
-
-    ``finding-registry.ts verify --stdin --closures-at <at> <ID>...`` applies
-    ``finding-registry-chain.verify``, the one admission test every registry
-    writer runs, to the bytes given, then judges each named finding's closure
-    as of ``at`` by the rules ``close`` admits a closer with, and prints
-    ``{ok, entries, reason, tip, closures}``. The repository's own ts-node
-    runs it, as for every gate. A verdict that names fewer closures than were
-    asked for is unreadable, never a partial pass.
-    """
-    ts_node = repo / _TS_NODE
-    if not ts_node.is_file():
-        return RegistrySnapshotVerdict(False, "registry_verifier_unavailable:ts_node_absent")
-    argv = [str(ts_node), "--transpile-only", "--project", _GATES_TSCONFIG, _REGISTRY_CLI, "verify", "--stdin"]
-    if finding_ids:
-        argv += ["--closures-at", at, *finding_ids]
+def _run_registry_cli(repo: Path, raw: bytes, args: list[str]) -> list[Any] | None:
+    """The registry CLI run on ``raw`` by the repository's own ts-node: its
+    stdout's JSON lines, or None when it did not run or printed something
+    else."""
+    argv = [str(repo / _TS_NODE), "--transpile-only", "--project", _GATES_TSCONFIG, _REGISTRY_CLI, *args]
     try:
         completed = subprocess.run(
             argv, cwd=repo, input=raw, capture_output=True, check=False,
             timeout=_REGISTRY_VERIFY_TIMEOUT_SECONDS,
         )
     except (OSError, subprocess.TimeoutExpired):
-        return RegistrySnapshotVerdict(False, "registry_verifier_unavailable")
+        return None
     lines = completed.stdout.decode("utf-8", errors="replace").strip().splitlines()
     try:
-        result = json.loads(lines[-1]) if lines else None
+        return [json.loads(line) for line in lines]
     except json.JSONDecodeError:
-        result = None
+        return None
+
+
+def verify_registry_snapshot(
+    repo: Path, raw: bytes, *, at: str, finding_ids: tuple[str, ...],
+) -> RegistrySnapshotVerdict:
+    """Run the registry's own verifier and projection (TypeScript) over ``raw``.
+
+    ``finding-registry.ts verify --stdin`` applies
+    ``finding-registry-chain.verify``, the one admission test every registry
+    writer runs, to the bytes given and prints ``{ok, entries, reason, tip}``.
+    ``finding-registry.ts project --stdin --ref=<at> --format=closures --ids
+    <ID>...`` then judges each named finding's closure in that snapshot as of
+    ``at`` (finding-registry-projection.ts, MF-1): closed when the trailers
+    merged into ``at`` close it, or when a recorded closer is reachable from
+    ``at``, not rejected and carries the exact trailer. The repository's own
+    ts-node runs both, as for every gate. A verdict that names fewer closures
+    than were asked for is unreadable, never a partial pass.
+    """
+    if not (repo / _TS_NODE).is_file():
+        return RegistrySnapshotVerdict(False, "registry_verifier_unavailable:ts_node_absent")
+    chain = _run_registry_cli(repo, raw, ["verify", "--stdin"])
+    if chain is None:
+        return RegistrySnapshotVerdict(False, "registry_verifier_unavailable")
+    result = chain[-1] if chain else None
     if not isinstance(result, dict) or not isinstance(result.get("ok"), bool):
         return RegistrySnapshotVerdict(False, "registry_verifier_output_unreadable")
     if result["ok"] is not True:
         return RegistrySnapshotVerdict(False, str(result.get("reason") or "registry_chain_invalid"))
+    if not finding_ids:
+        return RegistrySnapshotVerdict(True, None, {})
+    items = _run_registry_cli(
+        repo, raw, ["project", "--stdin", f"--ref={at}", "--format=closures", "--ids", *finding_ids],
+    )
+    if items is None:
+        return RegistrySnapshotVerdict(False, "registry_verifier_unavailable")
     closures: dict[str, tuple[str, ...]] = {}
-    for item in result.get("closures") or []:
+    closers: dict[str, tuple[str, ...]] = {}
+    for item in items:
         if not isinstance(item, dict) or not isinstance(item.get("id"), str) \
-                or not isinstance(item.get("reasons"), list):
+                or not isinstance(item.get("reasons"), list) or not isinstance(item.get("closing_commits"), list):
             return RegistrySnapshotVerdict(False, "registry_verifier_output_unreadable")
         closures[item["id"]] = tuple(str(reason) for reason in item["reasons"])
+        closers[item["id"]] = tuple(str(sha) for sha in item["closing_commits"])
     if set(closures) != set(finding_ids):
         return RegistrySnapshotVerdict(False, "registry_verifier_output_unreadable")
-    return RegistrySnapshotVerdict(True, None, closures)
+    return RegistrySnapshotVerdict(True, None, closures, closers)
 
 
 def _closure_findings_resolved(
     policy_entries: list[dict[str, Any]] | None,
-    registry_rows: list[dict[str, Any]] | None,
-    closures: Mapping[str, tuple[str, ...]] | None,
+    registry: RegistrySnapshotVerdict | None,
 ) -> ClosurePredicate:
     """Every policy finding closed in the snapshot by the commit its rule names.
 
-    The registry's owner judged each closure (``closures``); the policy's
-    ``closing_sha_rule`` is this verifier's to apply: ``last_historical_fix``
-    requires the entry's last historical fix, as the policy names it (a full
-    SHA), among the closing commits the registry records — the commit the
-    closure plan's reconciliation (Task 20 PR B) closes it with.
+    The registry's owner judged each closure and named its closers
+    (``registry``); the policy's ``closing_sha_rule`` is this verifier's to
+    apply: ``last_historical_fix`` requires the entry's last historical fix,
+    as the policy names it (a full SHA), among the closing commits the
+    projection records for the finding.
     """
     name = "closure_findings_resolved_at_evidence_target"
     if policy_entries is None:
         return ClosurePredicate(name, False, ("closure_policy_unavailable",))
-    if registry_rows is None or closures is None:
+    if registry is None:
         return ClosurePredicate(name, False, ("registry_unavailable",))
-    rows_by_id = {str(row.get("id")): row for row in registry_rows if isinstance(row, dict)}
     reasons: list[str] = []
     refs: list[str] = []
     for entry in policy_entries:
         finding_id = str(entry["finding_id"])
-        owner_reasons = closures[finding_id]
+        owner_reasons = registry.closures[finding_id]
         reasons.extend(f"{finding_id}:{reason}" for reason in owner_reasons)
         if owner_reasons:
             continue
-        closing = [str(sha) for sha in rows_by_id[finding_id]["closing_commits"]]
+        closing = list(registry.closing_commits[finding_id])
         if entry["closing_sha_rule"] == "last_historical_fix":
             last = str(entry["historical_fix_shas"][-1])
             if last not in closing:

@@ -39,6 +39,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { loadFindingIdAliases } from './finding-id-aliases';
+import { readRegistryRows } from './finding-registry-projection';
 import { ORPHAN_MD_HEADING_REGEX, readOrphanMarkdownStore } from './finding-registry-store';
 import {
   commitMessageClosesFindingExactly,
@@ -66,7 +67,6 @@ const REPO_ROOT = (() => {
     return process.cwd();
   }
 })();
-const REGISTRY_PATH = resolve(REPO_ROOT, 'docs', 'reviews', '_registry', 'findings.jsonl');
 
 function writeStdout(message = ''): void {
   process.stdout.write(`${message}\n`);
@@ -350,7 +350,7 @@ const PRE_PHASE6_SHAS: ReadonlySet<string> = new Set([
   // and amending a pushed commit needs a force-push, which CLAUDE.md forbids.
   // Nor can it legitimately gain a trailer — the only finding it relates to is
   // FE-MEDIUM-093, which its PR deliberately leaves OPEN, so citing it would
-  // make `finding-registry-closure-drift` wrong on merge.
+  // make the registry projection close it on merge.
   //
   // The ROOT CAUSE is the same one ORPHAN-HIGH-441 named: a commit-msg hook
   // that is not bound writes the wrong type unchallenged. `npm run
@@ -465,25 +465,15 @@ function loadRegistryIds(): Map<string, FindingTrailerTarget> {
  */
 function loadLedgerTargets(): Map<string, FindingTrailerTarget> {
   const targets = new Map<string, FindingTrailerTarget>();
-  if (!existsSync(REGISTRY_PATH)) return targets;
-  const content = readFileSync(REGISTRY_PATH, 'utf8').trim();
-  if (!content) return targets;
-  for (const line of content.split('\n')) {
-    try {
-      const entry = JSON.parse(line) as { id?: unknown; review_file?: unknown };
-      if (typeof entry.id !== 'string') continue;
-      // A row is append-only history: the LAST line carrying an id is its
-      // current state, so a later re-registration wins here too.
-      const reviewFile =
-        typeof entry.review_file === 'string' && entry.review_file !== ''
-          ? entry.review_file
-          : undefined;
-      targets.set(entry.id, { id: entry.id, review_file: reviewFile });
-    } catch {
-      // Malformed lines are tolerated here — the hash-chain integrity
-      // invariant in finding-registry-integrity.spec.ts is responsible
-      // for flagging them; we just want best-effort ID coverage.
-    }
+  // The rows as stored (finding-registry-projection.ts): existence and the
+  // review file are recorded facts, so no history is read. A later row of an
+  // id wins, as a re-registration does.
+  for (const entry of readRegistryRows(REPO_ROOT)) {
+    const reviewFile =
+      typeof entry.review_file === 'string' && entry.review_file !== ''
+        ? entry.review_file
+        : undefined;
+    targets.set(entry.id, { id: entry.id, review_file: reviewFile });
   }
   return targets;
 }
@@ -717,8 +707,8 @@ function validateCommit(
         // row's review_file by the same closure derivation as every other
         // registry id. The ORPHAN lane used to check only that the id is
         // known, so 31 OPEN rows filed against other review documents could
-        // be "closed" by a trailer citing the register — a trailer `reconcile`
-        // can never honour. Admission now agrees with the derivation, through
+        // be "closed" by a trailer citing the register — a trailer the
+        // projection can never honour. Admission now agrees with the derivation, through
         // the derivation's own matcher, exactly as the registry lane below
         // has since PR #1425's renumbering smuggle.
         out.push(cannotCloseItViolation(commit, path, findingId, registryTarget));
@@ -737,8 +727,8 @@ function validateCommit(
         // review_file, and this one cites a different document.
         //
         // Admission used to be looser than derivation here — the asymmetry is
-        // documented at finding-registry.ts's collectMergedClosures — so a
-        // commit could pass this gate carrying a trailer that `reconcile` would
+        // documented at finding-registry-projection.ts's closersByTarget — so a
+        // commit could pass this gate carrying a trailer the derivation would
         // never honour. That is not hypothetical: a renumbering left PR #1425's
         // fixes citing SEC-HIGH-056 (an unrelated, already-resolved admin-api
         // SQL-injection finding) while the invitation-link finding it actually

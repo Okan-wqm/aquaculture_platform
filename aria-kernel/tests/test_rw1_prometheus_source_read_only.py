@@ -47,14 +47,57 @@ class ThePublishedPrometheusServesReadsOnly(unittest.TestCase):
         self.assertGreater(published, 0, "no tracked compose file publishes the watchdog's Prometheus source")
         self.assertEqual(offenders, [])
 
-    def test_the_production_prometheus_publishes_the_policy_default_source(self) -> None:
-        """The droplet compose is the stack production runs (project aqua-saas):
-        its Prometheus is published exactly where the policy default points."""
-        source = urlsplit(WATCHDOG_PULL_DEFAULTS["observability_base_url"])
-        document = yaml.safe_load((_REPO_ROOT / "docker-compose.droplet.yml").read_text(encoding="utf-8"))
-        self.assertEqual(
-            document["services"]["prometheus"]["ports"], [f"{source.hostname}:{source.port}:9090"],
-        )
+    def test_every_published_prometheus_port_is_the_policy_default_source(self) -> None:
+        """Owner-agnostic: whichever tracked compose file defines the Prometheus
+        (docker-compose.droplet.yml and docker-compose.monitoring.yml both do
+        today — DEPLOY-CRITICAL-017 tracks the duplicate), every one that
+        publishes a host port publishes exactly where the policy default points,
+        and at least one does."""
+        published, offenders = _published_port_offenders(_tracked_compose_documents())
+        self.assertGreater(published, 0, "no tracked compose file publishes the watchdog's Prometheus source")
+        self.assertEqual(offenders, [])
+
+    def test_the_pin_survives_the_tracked_compose_consolidation(self) -> None:
+        """DEPLOY-CRITICAL-017's fix deletes the monitoring services from
+        docker-compose.droplet.yml; the RW-1 source pin must not depend on
+        which file owns Prometheus (the base pin raised KeyError there)."""
+        documents = _tracked_compose_documents()
+        droplet = documents["docker-compose.droplet.yml"]
+        consolidated = {
+            **documents,
+            "docker-compose.droplet.yml": {
+                **droplet,
+                "services": {k: v for k, v in droplet["services"].items() if k != "prometheus"},
+            },
+        }
+        published, offenders = _published_port_offenders(consolidated)
+        self.assertGreater(published, 0)
+        self.assertEqual(offenders, [])
+
+
+def _tracked_compose_documents() -> dict[str, dict]:
+    return {
+        path.relative_to(_REPO_ROOT).as_posix(): yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        for path in _compose_files()
+    }
+
+
+def _published_port_offenders(documents: dict[str, dict]) -> tuple[int, list[str]]:
+    """(how many compose Prometheus publish a host port, which publish anything
+    but the policy default source ``<host>:<port>:9090``)."""
+    source = urlsplit(WATCHDOG_PULL_DEFAULTS["observability_base_url"])
+    expected = [f"{source.hostname}:{source.port}:9090"]
+    published = 0
+    offenders: list[str] = []
+    for path, document in sorted(documents.items()):
+        for name, service in (document.get("services") or {}).items():
+            if not str(service.get("image", "")).startswith("prom/prometheus:") or not service.get("ports"):
+                continue
+            published += 1
+            ports = [str(port) for port in service["ports"]]
+            if ports != expected:
+                offenders.append(f"{path}:{name}:{ports}")
+    return published, offenders
 
 
 if __name__ == "__main__":

@@ -267,20 +267,41 @@ metrics with credential-free `GET /api/v1/query` instant queries against
 family's increase over `watchdog_pull.window_seconds` (default 86400, the
 once-a-day cycle cadence), so the detectors judge the last window and not a
 container's lifetime counters. It refuses any origin that is not a loopback IP
-literal before opening a socket. When the source is not set, not loopback or
-not reachable, the cycle's watchdog digest and report name the hold
-(`source_unconfigured`, `source_not_loopback`, `source_unreachable`, …).
+literal before opening a socket. Every way the feed goes unread is named in
+the cycle's watchdog digest and report (`source_unconfigured`,
+`source_not_loopback`, `source_unreachable`, `source_refused` for an answer
+that is not a Prometheus instant vector, `source_empty` for well-formed
+answers with no runtime series, …).
 
-The repository config publishes the source: `docker-compose.droplet.yml`
-gives the `prometheus` service `ports: ['127.0.0.1:9090:9090']` and drops
-`--web.enable-lifecycle`, so the published port serves reads only. Before
-that change the production Prometheus published no host port, so every sweep
-holds with `source_unreachable` until the program lead or operator installs
-it on the droplet. This runbook never changes the running host by itself.
+**Two compose owners.** Both `docker-compose.droplet.yml` (project
+`aqua-saas`, the one running today) and `docker-compose.monitoring.yml`
+(project `aqua-monitoring`) define `aqua-prometheus`; DEPLOY-CRITICAL-017
+tracks that duplicate, and its fix direction deletes the monitoring services
+from `docker-compose.droplet.yml`. RW-1 does not pick an owner: every tracked
+compose Prometheus that publishes a host port publishes exactly
+`127.0.0.1:9090:9090` (pinned owner-agnostically by
+`aria-kernel/tests/test_rw1_prometheus_source_read_only.py`), and neither
+enables `--web.enable-lifecycle`, so the published port serves reads only.
+INFRA-LOW-196 records that the running container has no host port binding.
+The droplet definition joins only `aqua-internal`, which is `internal: true`;
+a port published by a container on internal networks only may not be bound
+at all, which is why step 3 verifies the listener instead of assuming it.
+
+Before the install the production Prometheus publishes no host port, so
+every sweep holds with `source_unreachable` until the program lead or
+operator installs it on the droplet. This runbook never changes the running
+host by itself.
+
+**Exposure (program-lead decision).** The loopback port serves the whole
+Prometheus read API, including label values, to every local account on the
+host, `gharunner` included. RW-1 accepts that for read-only metrics; a
+read proxy serving only the RW-1 queries is the narrower alternative.
 
 1. Confirm the host port is free: `ss -ltn | grep ':9090 '` prints nothing.
-2. Recreate only Prometheus from the merged compose file, in the
-   application project:
+2. Recreate only Prometheus from the compose file that owns it on the host
+   (today `docker-compose.droplet.yml`, project `aqua-saas`; after
+   DEPLOY-CRITICAL-017 lands, `docker-compose.monitoring.yml`, project
+   `aqua-monitoring`):
 
    ```bash
    docker compose -p aqua-saas -f docker-compose.droplet.yml up -d --no-deps prometheus
@@ -289,15 +310,27 @@ it on the droplet. This runbook never changes the running host by itself.
    A full `scripts/deploy/droplet-up.sh` deploy (it recreates every service)
    applies the same change.
 
-3. Verify the loopback binding and the read path, as the runner account:
+3. Verify after the recreate that the host port is actually bound and serves
+   the query the watchdog sends, as the runner account:
 
    ```bash
-   ss -ltn | grep '127.0.0.1:9090'
-   sudo -u gharunner curl -g -s -o /dev/null -w '%{http_code}\n' 'http://127.0.0.1:9090/federate?match[]=up'
+   ss -ltn | grep -F '127.0.0.1:9090 '
+   sudo -u gharunner curl -sS -G 'http://127.0.0.1:9090/api/v1/query' \
+     --data-urlencode 'query=sum by (app,status_code) (increase(http_requests_total{namespace="aquaculture"}[86400s]))' \
+     | head -c 300; echo
    sudo -u gharunner curl -s -o /dev/null -w '%{http_code}\n' -X POST 'http://127.0.0.1:9090/-/reload'
    ```
 
-   Expect `200` for the read and `403` for the lifecycle POST (disabled).
+   Expect one `LISTEN` line on `127.0.0.1:9090`, a
+   `{"status":"success","data":{"resultType":"vector","result":[{"metric":{"app":…`
+   answer with at least one series, and `403` for the lifecycle POST
+   (disabled). The query is `aria_watchdog.runtime_increase_query` for
+   `http_requests_total` at the default window. If `ss` prints nothing, the
+   port was not published (the internal-only network above): leave the host
+   as it is (the watchdog names the hold `source_unreachable`) and record it
+   on DEPLOY-CRITICAL-017 and INFRA-LOW-196; the consolidation onto
+   `docker-compose.monitoring.yml`, which also joins `aqua-network`, is the
+   owner fix. Do not hand-edit the container.
    A config reload is now `docker kill --signal=HUP aqua-prometheus` (root).
 
 4. Retire `ARIA_OBSERVABILITY_API_KEY` from the runner `.env` (previous

@@ -140,6 +140,7 @@ EXPECTED_SPECIFIC_AUTHORITY = {
         f"{KERNEL}feedback_store.py",
         f"{KERNEL}finding_promotion.py",
         f"{KERNEL}funnel_health.py",
+        f"{KERNEL}outcome_truth.py",
         f"{KERNEL}pr_tracking.py",
         f"{KERNEL}rule_health.py",
         f"{KERNEL}state_compact.py",
@@ -294,6 +295,7 @@ EXPECTED_CONSUMERS = {
     ),
     "finding_funnel": (
         f"{KERNEL}finding_promotion.py", f"{KERNEL}funnel_health.py",
+        f"{KERNEL}outcome_truth.py",
         f"{KERNEL}rule_health.py", f"{KERNEL}state_compact.py",
     ),
     "fixture_calibration": (

@@ -194,6 +194,20 @@ export class RegistryFixtureRepo {
     removeFixtureTree(this.root);
   }
 
+  /**
+   * A `--depth 1` clone of the checked-out branch, with its own node_modules
+   * link: the history a CI checkout without `fetch-depth: 0` holds.
+   */
+  shallowClone(prefix: string): RegistryFixtureRepo {
+    const root = mkdtempSync(join(tmpdir(), prefix));
+    execFileSync('git', ['clone', '-q', '--depth', '1', `file://${this.root}`, root], {
+      encoding: 'utf8',
+      env: FIXTURE_GIT_ENV,
+    });
+    symlinkSync(join(REPO_ROOT, 'node_modules'), join(root, 'node_modules'), 'dir');
+    return new RegistryFixtureRepo(root);
+  }
+
   git(args: readonly string[], env: NodeJS.ProcessEnv = {}): string {
     return execFileSync('git', ['-C', this.root, ...args], {
       encoding: 'utf8',

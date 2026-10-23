@@ -74,9 +74,9 @@ def read_registry_view(repo_root: str | Path) -> RegistryView:
     Needs the repository's node dependencies and its whole history (the
     kernel lanes provision both; tests/invariants/
     test_kernel_lanes_check_out_full_history.py). Without ts-node, or when the
-    projection refuses (a corrupt row, an unreadable history), it raises
-    :class:`RegistryCliRefused` by name: a silent read of the stored file
-    would report closures late again.
+    projection refuses (a corrupt row, an unreadable or shallow history), it
+    raises :class:`RegistryCliRefused` by name: a silent read of the stored
+    file, or of truncated history, would report closed findings open.
     An absent registry raises: this checkout is not the repository the kernel
     serves.
     """

@@ -373,6 +373,31 @@ class RegistryViewRefusesWithoutTheProjectionTests(unittest.TestCase):
             with self.assertRaises(GovernanceError):
                 read_registry_view(repo.root)
 
+    @unittest.skipUnless((_REPO_ROOT / _TS_NODE).is_file(), "the repository's ts-node is not installed in this checkout")
+    def test_a_shallow_clone_refuses_the_view_by_name(self) -> None:
+        """MF-DESIGN §9 R1: a read without the whole history fails closed.
+
+        A depth-1 clone of main holds the merge of the fix branch but not the
+        fix commit that carries the trailer. A view read from that history
+        would report the closed finding OPEN and raise nothing.
+        """
+        with tempfile.TemporaryDirectory(prefix="aria-registry-shallow-") as tmp:
+            repo = _ProjectionRepo(Path(tmp) / "repo")
+            repo.write_registry([_registry_row("ARIA-HIGH-952")])
+            repo.commit("chore(registry): seed", "2026-10-01T10:00:00Z")
+            repo.close_by_merged_fix(
+                "ARIA-HIGH-952", branch="fix-952", fix_date="2026-10-02T10:00:00Z", merge_date="2026-10-03T10:00:00Z",
+            )
+            shallow = Path(tmp) / "shallow"
+            env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+            env.update({"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"})
+            subprocess.run(["git", "clone", "-q", "--depth", "1", f"file://{repo.root}", str(shallow)],
+                           env=env, check=True, capture_output=True)
+            (shallow / "node_modules").symlink_to(_REPO_ROOT / "node_modules", target_is_directory=True)
+            with self.assertRaises(GovernanceError) as ctx:
+                read_registry_view(shallow)
+            self.assertIn("shallow clone", str(ctx.exception))
+
 
 class OneKernelRunnerOfTheRegistryCliTests(unittest.TestCase):
     """The kernel runs ``tools/gates/finding-registry.ts`` from one module.

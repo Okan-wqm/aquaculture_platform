@@ -179,12 +179,32 @@ interface MergedCommit {
  */
 const historyByCommit = new Map<string, readonly MergedCommit[]>();
 
-/** Every commit reachable from `ref`, OLDEST first (the reverse of `git log`'s walk). */
+/**
+ * Every commit reachable from `ref`, OLDEST first (the reverse of `git log`'s walk).
+ *
+ * A shallow clone is refused by name. Its history stops at a graft, so a
+ * closer older than the graft is simply absent and the walk would report the
+ * finding OPEN — a closed finding read as open, with nothing to say the read
+ * was partial (MF-DESIGN §9 R1: reads fail closed). The reader that needs the
+ * registry provisions full history (`fetch-depth: 0`) instead.
+ */
 function readMergedCommits(repoRoot: string, ref: string): readonly MergedCommit[] {
   const tip = git(repoRoot, ['rev-parse', '--verify', `${ref}^{commit}`]).trim();
   const key = `${resolve(repoRoot)}\0${tip}`;
   const known = historyByCommit.get(key);
   if (known !== undefined) return known;
+  const shallow = git(repoRoot, ['rev-parse', '--is-shallow-repository']).trim();
+  if (shallow === 'true') {
+    throw new Error(
+      `projection: ${resolve(repoRoot)} is a shallow clone; closures cannot be derived from ` +
+        'truncated history (fetch-depth: 0)',
+    );
+  }
+  if (shallow !== 'false') {
+    throw new Error(
+      `projection: git did not say whether ${resolve(repoRoot)} is a shallow clone (${shallow})`,
+    );
+  }
   const raw = git(repoRoot, [
     'log',
     tip,

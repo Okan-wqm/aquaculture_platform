@@ -35,6 +35,8 @@
  *     helpers are consumed only by it, aliases join a finding only there,
  *     and the readers MF-1 switches read through it instead of building a
  *     path to findings.jsonl.
+ *   - Reads fail closed: a shallow clone is refused by name, never projected
+ *     from truncated history (MF-DESIGN §9 R1).
  *
  * The CLI is the contract the design names
  * (`project [--ref=<rev>] [--ids …] [--format=jsonl|csv|json-array]`), run
@@ -182,6 +184,34 @@ describe('MF-1 T3 — the projection derives RESOLVED from merged Closes: traile
       expectProjected(repo.project());
       expect(repo.read(REGISTRY_RELATIVE_PATH)).toBe(registryAtMain);
       expect(repo.status()).toBe('');
+    },
+    CLI_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'refuses a shallow clone by name instead of reporting its closures OPEN',
+    () => {
+      // A depth-1 clone of main holds the merge of fix-901 but not fix901
+      // itself: a walk of that history finds no closer for ARIA-HIGH-901, and
+      // a projection that answered from it would report a closed finding OPEN
+      // with exit 0 (MF-DESIGN §9 R1: reads fail closed).
+      const shallow = repo.shallowClone('mf1-projection-shallow-');
+      try {
+        expect(shallow.git(['rev-parse', '--is-shallow-repository']).trim()).toBe('true');
+        const run = shallow.project();
+        expect({ status: run.status, rows: run.rows.length }).toEqual({ status: 1, rows: 0 });
+        expect(run.stderr).toMatch(/shallow clone; closures cannot be derived/);
+        const closures = shallow.registry([
+          'project',
+          '--format=closures',
+          '--ids',
+          'ARIA-HIGH-901',
+        ]);
+        expect(closures.status).toBe(1);
+        expect(closures.stderr).toMatch(/shallow clone/);
+      } finally {
+        shallow.dispose();
+      }
     },
     CLI_TEST_TIMEOUT_MS,
   );

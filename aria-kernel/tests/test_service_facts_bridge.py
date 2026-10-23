@@ -97,32 +97,24 @@ def _completed(stdout: str, returncode: int = 0, stderr: str = "") -> subprocess
 class _BridgeRunner:
     """Scripted runner in plan_coverage's shape ``(cmd, cwd, timeout_seconds)``.
 
-    ``git ... rev-parse`` answers the tree's HEAD, ``git ... status`` answers a clean tree; each
-    facts entry answers its scripted result (a CompletedProcess, or an exception to raise). Any
-    other command is a test failure.
+    Each facts entry answers its scripted result (a CompletedProcess, or an exception to raise).
+    Any other command, git included, is a test failure: the base-tree checks read git through the
+    kernel's hermetic owner (``workspace_view``), never through the entry runner (SE-3-R2
+    round-2 RA), so the cases run on a real fixture checkout.
     """
 
     def __init__(
         self,
         *,
-        head: str | BaseException = BASE_SHA,
         event: subprocess.CompletedProcess[str] | BaseException | None = None,
         module: subprocess.CompletedProcess[str] | BaseException | None = None,
     ) -> None:
-        self.head = head
         self.event = event if event is not None else _completed(json.dumps(EVENT_FACTS))
         self.module = module if module is not None else _completed(json.dumps(MODULE_FACTS))
         self.calls: list[tuple[list[str], str, int]] = []
 
     def __call__(self, cmd: list[str], cwd: str, timeout_seconds: int) -> subprocess.CompletedProcess[str]:
         self.calls.append((list(cmd), cwd, timeout_seconds))
-        if cmd and cmd[0] == "git" and "rev-parse" in cmd:
-            if isinstance(self.head, BaseException):
-                raise self.head
-            return _completed(self.head + "\n")
-        if cmd and cmd[0] == "git" and "status" in cmd:
-            # SE-3-R2: a scripted base tree is clean (no tracked change, no untracked file).
-            return _completed("")
         if EVENT_ENTRY in cmd:
             result: subprocess.CompletedProcess[str] | BaseException = self.event
         elif MODULE_ENTRY in cmd:
@@ -142,17 +134,23 @@ class ServiceFactsBridgeTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        self.workspace = self.root / "base-tree"
-        self.workspace.mkdir()
+        # A real clean checkout: the tree checks read its HEAD and status through the kernel's
+        # hermetic git owner; only the two entries are scripted.
+        self.workspace = make_repo_with_initial_commit(
+            self.root / "base-tree", {".gitignore": "/node_modules\n", "README.md": "base tree\n"}
+        )
+        self.head = _git_out(self.workspace, "rev-parse", "HEAD")
 
-    def bridge(self, runner: _BridgeRunner, *, base_sha: str = BASE_SHA) -> dict[str, Any]:
+    def bridge(self, runner: _BridgeRunner, *, base_sha: str | None = None) -> dict[str, Any]:
         compute = getattr(plan_coverage, "compute_service_facts", None)
         self.assertTrue(
             callable(compute),
             "plan_coverage.compute_service_facts (SE-3 kernel -> TS facts bridge) does not exist",
         )
         assert compute is not None
-        result = compute(workspace_root=self.workspace, base_sha=base_sha, runner=runner)
+        result = compute(
+            workspace_root=self.workspace, base_sha=self.head if base_sha is None else base_sha, runner=runner
+        )
         self.assertIsInstance(result, dict)
         return result
 
@@ -173,7 +171,7 @@ class ServiceFactsBridgeTests(unittest.TestCase):
         before = sorted(str(path) for path in self.root.rglob("*"))
         result = self.bridge(runner)
         self.assertEqual(result.get("verdict"), "computed", result)
-        self.assertEqual(result.get("facts_sha"), BASE_SHA)
+        self.assertEqual(result.get("facts_sha"), self.head)
         self.assertEqual(result.get("event_facts"), EVENT_FACTS)
         self.assertEqual(result.get("module_facts"), MODULE_FACTS)
         for entry in (EVENT_ENTRY, MODULE_ENTRY):
@@ -209,12 +207,15 @@ class ServiceFactsBridgeTests(unittest.TestCase):
         self.assert_held(self.bridge(_BridgeRunner(event=_completed("not json"))), "unparseable")
 
     def test_a_tree_not_at_the_base_sha_is_environment_unable(self) -> None:
-        result = self.bridge(_BridgeRunner(head="c" * 40))
+        result = self.bridge(_BridgeRunner(), base_sha="c" * 40)
         self.assert_held(result, None)
 
     def test_an_unreadable_head_is_environment_unable(self) -> None:
-        result = self.bridge(_BridgeRunner(head=FileNotFoundError("git not found")))
-        self.assert_held(result, None)
+        # A base tree that is no git checkout has no HEAD to read.
+        self.workspace = self.root / "not-a-checkout"
+        self.workspace.mkdir()
+        result = self.bridge(_BridgeRunner(), base_sha=BASE_SHA)
+        self.assert_held(result, "head_unreadable")
 
 
 # ---------------------------------------------------------------------------------------------
@@ -307,7 +308,7 @@ class _RecordingRegistry:
 
 
 class _TreeRunner(_BridgeRunner):
-    """Git runs for real in the fixture checkout; the two entries stay scripted.
+    """The two entries stay scripted on a real fixture checkout, whose git the bridge reads itself.
 
     ``during_event`` runs while the event entry "runs", to change the tree between the
     bridge's checks (an implementer writing into the worktree, a checkout moving HEAD).
@@ -318,9 +319,6 @@ class _TreeRunner(_BridgeRunner):
         self.during_event = during_event
 
     def __call__(self, cmd: list[str], cwd: str, timeout_seconds: int) -> subprocess.CompletedProcess[str]:
-        if cmd and cmd[0] == "git":
-            self.calls.append((list(cmd), cwd, timeout_seconds))
-            return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout_seconds)
         if EVENT_ENTRY in cmd and self.during_event is not None:
             self.during_event()
         return super().__call__(cmd, cwd, timeout_seconds)
@@ -364,10 +362,9 @@ class ServiceFactsReviewRoundOneTests(unittest.TestCase):
     # ------------------------------------------------------------- npx escape (security B2)
 
     def test_each_entry_runs_the_base_tree_own_ts_node_never_npx(self) -> None:
-        workspace = self.root / "base-tree"
-        workspace.mkdir()
+        workspace, head = self.checkout()
         runner = _BridgeRunner()
-        result = self.compute(workspace, BASE_SHA, runner=runner)
+        result = self.compute(workspace, head, runner=runner)
         self.assertEqual(result.get("verdict"), "computed", result)
         for entry in (EVENT_ENTRY, MODULE_ENTRY):
             calls = runner.entry_calls(entry)
@@ -576,6 +573,214 @@ class ServiceFactsCorrectiveRoundOneTests(unittest.TestCase):
         self.assertIn("SourceTreeUnavailable", json.dumps(witness))
         self.assertIn("apps/x-service/project.json", json.dumps(witness))
         self.assertNotIn(_OUTSIDE_MARKER[:4], json.dumps(result))
+
+
+# ---------------------------------------------------------------------------------------------
+# SE-3-R2 corrective round 2 (build/SE-3-R2/appellate-r2.md):
+# - RA: ``_base_tree_error`` read HEAD and ``git status`` through the injectable entry runner, which
+#   inherits GIT_DIR / GIT_INDEX_FILE and the repository's fsmonitor, and ``git status`` does not
+#   compare a tracked file flagged assume-unchanged or skip-worktree with the disk. Either way the
+#   bridge computed over content that is not in the base commit and stamped it ``facts_sha =
+#   base_sha``. The tree checks now run only through the kernel's hermetic git owner
+#   (``workspace_view``), and a flagged index entry is refused by name (``tree_index_flagged``).
+# - RB: the entries enumerated the tracked set, but the type checker resolved imports on the
+#   default compiler host, so an ignored, symlinked-directory or absolute-path module that a
+#   tracked file imports became facts. The checker now sees only the tracked tree, the workspace
+#   node_modules and the TypeScript lib directory.
+# ---------------------------------------------------------------------------------------------
+
+_PLANTED_FLAGGED = "PlantedViaFlaggedIndex"
+_PLANTED_INDEX = "PlantedViaIndex"
+_PLANTED_IMPORT = "PlantedViaIgnoredImport"
+_PRODUCER = "apps/producer-service/src/producer.ts"
+_VIA_IMPORT = "apps/producer-service/src/via-import.ts"
+
+
+def _hermetic_git_out(repo: Path, *args: str) -> str:
+    """git as the kernel's owner runs it: no inherited GIT_* variable, no fsmonitor."""
+    environment = {name: value for name, value in os.environ.items() if not name.startswith("GIT_")}
+    return subprocess.run(
+        ["git", "-c", "core.fsmonitor=false", *args],
+        cwd=repo, check=True, capture_output=True, text=True, env=environment,
+    ).stdout.strip()
+
+
+def _via_import_source(specifier: str) -> str:
+    """A tracked producer whose event type comes from ``specifier``; the type is on line 3."""
+    return "".join([
+        "import { createBaseEvent } from '../../../libs/event-contracts/src/base-event';\n",
+        f"import {{ PLANTED_TYPE }} from '{specifier}';\n",
+        "export const viaImport = createBaseEvent(PLANTED_TYPE, 'tenant-1');\n",
+    ])
+
+
+class ServiceFactsCorrectiveRoundTwoTests(unittest.TestCase):
+    """RA and RB of the SE-3-R2 round-2 appellate, on the real entries through the real runner."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory(prefix="aria-se3-r2c2-")
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        environment = patch.dict(
+            os.environ, _hermetic_node_environment(self.root / "env", "http://127.0.0.1:9/"), clear=True
+        )
+        environment.start()
+        self.addCleanup(environment.stop)
+
+    def base_tree(self, gitignore: str = "/node_modules\ntmp\n", extra: dict[str, str] | None = None) -> Path:
+        files = _facts_tree(_SMALL_EVENTS, _SMALL_SERVICES)
+        files[".gitignore"] = gitignore
+        files.update(extra or {})
+        for path in (*tool_closure_paths(EVENT_ENTRY, MODULE_ENTRY), plan_coverage.WITNESS_TSCONFIG, NATS_SCHEMA):
+            files[path] = (REPO_ROOT / path).read_text(encoding="utf-8")
+        repo = make_repo_with_initial_commit(self.root / "trees", files)
+        (repo / "node_modules").symlink_to(installed_node_modules("typescript", "ts-node", "yaml", "ajv"),
+                                           target_is_directory=True)
+        return repo
+
+    def compute(self, repo: Path, head: str) -> dict[str, Any]:
+        result = plan_coverage.compute_service_facts(workspace_root=repo, base_sha=head)
+        self.assertIsInstance(result, dict)
+        return result
+
+    def assert_held_without(self, result: dict[str, Any], error_token: str, *absent: str) -> None:
+        self.assertEqual(result.get("verdict"), "environment_unable", result)
+        for key in ("event_facts", "module_facts", "facts_sha"):
+            self.assertNotIn(key, result, f"a held bridge run carries {key}")
+        error = (result.get("witness") or {}).get("error")
+        self.assertIsInstance(error, str, result)
+        self.assertIn(error_token, error)
+        dumped = json.dumps(result)
+        for text in absent:
+            self.assertNotIn(text, dumped)
+
+    # ------------------------------------------------------------ RA: index flags
+
+    def flagged_rewrite(self, flag: str) -> tuple[Path, str]:
+        repo = self.base_tree()
+        head = _git_out(repo, "rev-parse", "HEAD")
+        subprocess.run(["git", "update-index", flag, _PRODUCER], cwd=repo, check=True, capture_output=True)
+        (repo / _PRODUCER).write_text(
+            "import { createBaseEvent } from '../../../libs/event-contracts/src/base-event';\n"
+            f"export const planted = createBaseEvent('{_PLANTED_FLAGGED}', 'tenant-1');\n",
+            encoding="utf-8",
+        )
+        # Precondition: the flag hides the rewrite from git status, as the owner itself runs it.
+        self.assertEqual(_hermetic_git_out(repo, "status", "--porcelain", "--untracked-files=all"), "")
+        return repo, head
+
+    def test_an_assume_unchanged_rewrite_of_a_tracked_file_is_held_by_name(self) -> None:
+        repo, head = self.flagged_rewrite("--assume-unchanged")
+        self.assert_held_without(self.compute(repo, head), "tree_index_flagged", _PLANTED_FLAGGED)
+
+    def test_a_skip_worktree_rewrite_of_a_tracked_file_is_held_by_name(self) -> None:
+        repo, head = self.flagged_rewrite("--skip-worktree")
+        self.assert_held_without(self.compute(repo, head), "tree_index_flagged", _PLANTED_FLAGGED)
+
+    # ------------------------------------------------- RA: ambient git environment
+
+    def force_added_planted(self) -> tuple[Path, str]:
+        """The base tree with an ignored producer force-added to its real index."""
+        repo = self.base_tree()
+        head = _git_out(repo, "rev-parse", "HEAD")
+        planted = repo / "apps" / "producer-service" / "src" / "tmp" / "planted.ts"
+        planted.parent.mkdir(parents=True)
+        planted.write_text(
+            "import { createBaseEvent } from '../../../../libs/event-contracts/src/base-event';\n"
+            f"export const planted = createBaseEvent('{_PLANTED_INDEX}', 'tenant-1');\n",
+            encoding="utf-8",
+        )
+        subprocess.run(["git", "add", "-f", str(planted)], cwd=repo, check=True, capture_output=True)
+        return repo, head
+
+    def test_an_ambient_git_index_file_does_not_hide_a_force_added_file(self) -> None:
+        repo, head = self.force_added_planted()
+        alternate = self.root / "alternate-index"
+        subprocess.run(["git", "read-tree", "HEAD"], cwd=repo, check=True, capture_output=True,
+                       env={**os.environ, "GIT_INDEX_FILE": str(alternate)})
+        with patch.dict(os.environ, {"GIT_INDEX_FILE": str(alternate)}):
+            # Precondition: under the ambient index, git status sees a clean tree.
+            self.assertEqual(_git_out(repo, "status", "--porcelain", "--untracked-files=all"), "")
+            result = self.compute(repo, head)
+        self.assert_held_without(result, "tree_not_clean", _PLANTED_INDEX, "tmp/planted.ts")
+
+    def test_an_ambient_git_dir_at_another_repository_at_base_does_not_vouch_for_the_tree(self) -> None:
+        repo, head = self.force_added_planted()
+        other = self.root / "other"
+        subprocess.run(["git", "clone", "-q", str(repo), str(other)], check=True, capture_output=True)
+        self.assertEqual(_git_out(other, "rev-parse", "HEAD"), head)
+        with patch.dict(os.environ, {"GIT_DIR": str(other / ".git")}):
+            # Precondition: under the ambient GIT_DIR, HEAD is the base and git status is clean.
+            self.assertEqual(_git_out(repo, "rev-parse", "HEAD"), head)
+            self.assertEqual(_git_out(repo, "status", "--porcelain", "--untracked-files=all"), "")
+            result = self.compute(repo, head)
+        self.assert_held_without(result, "tree_not_clean", _PLANTED_INDEX, "tmp/planted.ts")
+
+    def test_plan_coverage_builds_no_git_argv_of_its_own(self) -> None:
+        # The tree checks and the HEAD read go through the kernel's hermetic git owner
+        # (workspace_view), never through an argv this module spells and an injectable runner runs.
+        import ast
+
+        source = Path(plan_coverage.__file__).read_text(encoding="utf-8")
+        spelled = [
+            node.lineno
+            for node in ast.walk(ast.parse(source))
+            if isinstance(node, ast.Constant) and node.value == "git"
+        ]
+        self.assertEqual(spelled, [], f"plan_coverage.py spells a git argv at lines {spelled}")
+
+    # ------------------------------------------- RB: imports outside the tracked tree
+
+    def assert_import_outside_the_tree_is_no_fact(self, repo: Path, plant: Any) -> None:
+        head = _git_out(repo, "rev-parse", "HEAD")
+        before = self.compute(repo, head)
+        self.assertEqual(before.get("verdict"), "computed", before.get("witness"))
+        plant()
+        self.assertEqual(_hermetic_git_out(repo, "status", "--porcelain", "--untracked-files=all"), "")
+        after = self.compute(repo, head)
+        self.assertEqual(after.get("verdict"), "computed", after.get("witness"))
+        self.assertEqual(json.dumps(after["event_facts"], sort_keys=True),
+                         json.dumps(before["event_facts"], sort_keys=True))
+        self.assertIn(
+            {"application": "producer-service", "site": f"{_VIA_IMPORT}:3", "form": "PLANTED_TYPE"},
+            after["event_facts"]["unresolved"]["produced"],
+        )
+        self.assertNotIn(_PLANTED_IMPORT, json.dumps(after))
+
+    def test_an_ignored_module_a_tracked_file_imports_is_no_fact(self) -> None:
+        repo = self.base_tree(extra={_VIA_IMPORT: _via_import_source("./tmp/value")})
+
+        def plant() -> None:
+            value = repo / "apps" / "producer-service" / "src" / "tmp" / "value.ts"
+            value.parent.mkdir(parents=True)
+            value.write_text(f"export const PLANTED_TYPE = '{_PLANTED_IMPORT}' as const;\n", encoding="utf-8")
+
+        self.assert_import_outside_the_tree_is_no_fact(repo, plant)
+
+    def test_a_module_behind_an_ignored_directory_symlink_is_no_fact(self) -> None:
+        repo = self.base_tree(extra={_VIA_IMPORT: _via_import_source("./tmp/value")})
+        outside = self.root / "outside-dir"
+
+        def plant() -> None:
+            outside.mkdir()
+            (outside / "value.ts").write_text(
+                f"export const PLANTED_TYPE = '{_PLANTED_IMPORT}' as const;\n", encoding="utf-8"
+            )
+            (repo / "apps" / "producer-service" / "src" / "tmp").symlink_to(outside, target_is_directory=True)
+
+        self.assert_import_outside_the_tree_is_no_fact(repo, plant)
+
+    def test_a_module_at_an_absolute_path_outside_the_tree_is_no_fact(self) -> None:
+        outside = self.root / "outside-absolute"
+        repo = self.base_tree(extra={_VIA_IMPORT: _via_import_source(str(outside / "value"))})
+
+        def plant() -> None:
+            outside.mkdir()
+            (outside / "value.ts").write_text(
+                f"export const PLANTED_TYPE = '{_PLANTED_IMPORT}' as const;\n", encoding="utf-8"
+            )
+
+        self.assert_import_outside_the_tree_is_no_fact(repo, plant)
 
 
 _BULK_EVENTS = [f"BulkFixtureEvent{index:04d}" for index in range(700)]

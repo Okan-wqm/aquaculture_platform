@@ -36,6 +36,7 @@ from .evidence_validator import coverage_manifest_pointer
 from .plan_convergence import affected_surface_paths as _affected_surface_paths
 from .tool_registry import ensure_tools_dir, utc_now
 from .digest import sha256_digest
+from .workspace_view import WorkspaceViewRefused, hermetic_git, index_flagged_paths, workspace_head_sha
 
 WITNESS_RELPATH = "tools/gates/plan-coverage-witness.ts"
 WITNESS_TSCONFIG = "tools/gates/tsconfig.json"
@@ -44,7 +45,7 @@ MODULE_FACTS_RELPATH = "tools/aria-adapters/module-schemas-source.ts"
 # The workspace's own installed ts-node: no package-manager launcher, so no registry fallback.
 TS_NODE_RELPATH = "node_modules/.bin/ts-node"
 DEFAULT_TIMEOUT_SECONDS = 180
-HEAD_TIMEOUT_SECONDS = 30
+TREE_STATUS_TIMEOUT_SECONDS = 60
 COVERAGE_DIR = "coverage"
 # Severity is "material" (not "blocking"): a coverage gap must block
 # convergence via the material gate AND remain addressable through the
@@ -365,13 +366,9 @@ def compute_plan_coverage(
     tools_root_name = root.name if root.is_absolute() else str(root)
     manifest_relpath = f"{tools_root_name}/{COVERAGE_DIR}/{manifest_path.name}"
 
-    computed_at_sha = "unknown"
-    try:
-        sha_proc = run(["git", "rev-parse", "HEAD"], str(workspace), HEAD_TIMEOUT_SECONDS)
-        if sha_proc.returncode == 0:
-            computed_at_sha = sha_proc.stdout.strip() or "unknown"
-    except (OSError, subprocess.SubprocessError):
-        pass
+    # The checkout the witness reads, through the kernel's one hermetic HEAD reader: an inherited
+    # GIT_DIR never names another repository's commit as the one the closure was computed at.
+    computed_at_sha = workspace_head_sha(workspace) or "unknown"
 
     witness_input = _coverage_witness_input(plan_content)
     input_path = coverage_dir / f"{plan_id}-r{round_number}-input.json"
@@ -421,39 +418,54 @@ def _service_facts_unavailable(base_sha: str, witness: dict[str, Any]) -> dict[s
     return {"verdict": "environment_unable", "base_sha": base_sha, "witness": witness}
 
 
-def _base_tree_error(run: Runner, workspace: Path, base_sha: str) -> str | None:
-    """None when ``workspace`` is a clean checkout of ``base_sha``; otherwise the named error.
+def _base_tree_error(workspace: Path, base_sha: str) -> str | None:
+    """None when the disk the entries read is the content of ``base_sha``; otherwise the named error.
 
-    Both entries enumerate the tree's tracked files (``git ls-files``, event-consumer-index.ts
-    ``trackedPaths``), so an ignored or untracked file, an empty ``apps/<dir>`` or one holding only
-    ignored files is never a source or an application. They read the content of those files from
-    disk, so HEAD alone does not make the facts the base's: a tracked change, or an untracked file
-    added to the index, would become a fact stamped ``facts_sha = base_sha`` whose ``path:line``
-    does not resolve against the base commit (PLAN §3.1, §3.5, §3.6). This check refuses both;
-    with it, the index the entries enumerate is the base commit. Ignored paths (``node_modules``,
-    build output) are outside that enumeration, so they do not make the tree unclean.
+    Both entries enumerate the tree's tracked files (event-consumer-index.ts ``trackedPaths``) and
+    read their content from disk, and the type checker resolves imports only inside that tracked
+    set (its compiler host), the workspace node_modules and the TypeScript lib directory. What this
+    check proves is that the tracked content on disk is the base commit, so a fact stamped
+    ``facts_sha = base_sha`` has a ``path:line`` that resolves against it (PLAN §3.1, §3.5, §3.6):
+
+    * HEAD is ``base_sha``;
+    * no index entry is flagged assume-unchanged or skip-worktree: ``git status`` does not compare
+      such a file with the disk, so a clean status would vouch for a rewrite it never looked at
+      (``tree_index_flagged``);
+    * ``git status`` lists nothing, tracked change, staged path or untracked file
+      (``tree_not_clean``).
+
+    Every git read goes through the kernel's hermetic owner (``workspace_view``), never through the
+    entry runner: an inherited GIT_DIR, GIT_WORK_TREE or GIT_INDEX_FILE, or the repository's
+    fsmonitor, would otherwise decide the answer for another index or another repository than the
+    one the entries read. The errors carry counts, never path names, because a name in the tree is
+    text the change's author chose. Ignored paths (``node_modules``, build output) are outside the
+    tracked set, so they do not make the tree unclean.
     """
-    try:
-        head = run(["git", "rev-parse", "HEAD"], str(workspace), HEAD_TIMEOUT_SECONDS)
-    except (OSError, subprocess.SubprocessError) as exc:
-        return f"head_unreadable: {exc}"
-    head_sha = head.stdout.strip() if head.returncode == 0 else ""
-    if not head_sha:
-        return f"head_unreadable: git exit {head.returncode}"
+    head_sha = workspace_head_sha(workspace)
+    if head_sha is None:
+        return "head_unreadable: the base tree has no readable HEAD commit"
     if head_sha != base_sha:
         return f"tree_not_at_base: HEAD {head_sha} is not {base_sha}"
     try:
-        status = run(
-            ["git", "status", "--porcelain", "--untracked-files=all"], str(workspace), HEAD_TIMEOUT_SECONDS
+        flagged = index_flagged_paths(workspace)
+    except WorkspaceViewRefused as exc:
+        return f"tree_index_unreadable: {exc.reason}"
+    if flagged:
+        return (
+            f"tree_index_flagged: {len(flagged)} tracked path(s) are flagged assume-unchanged or "
+            "skip-worktree, so git status does not compare them with the disk"
         )
-    except (OSError, subprocess.SubprocessError) as exc:
-        return f"tree_status_unreadable: {exc}"
+    try:
+        status = hermetic_git(
+            workspace, "status", "--porcelain", "-z", "--untracked-files=all",
+            timeout=TREE_STATUS_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return f"tree_status_unreadable: {type(exc).__name__}"
     if status.returncode != 0:
         return f"tree_status_unreadable: git exit {status.returncode}"
-    changed = [line for line in status.stdout.splitlines() if line.strip()]
-    if changed:
-        shown = "; ".join(changed[:5])
-        return f"tree_not_clean: {len(changed)} path(s) differ from {base_sha}: {shown}"
+    if status.stdout:
+        return f"tree_not_clean: the base tree differs from {base_sha}"
     return None
 
 
@@ -466,24 +478,26 @@ def compute_service_facts(
 ) -> dict[str, Any]:
     """The code facts of one change subject, computed on its base tree (service-expertise SE-3).
 
-    ``workspace_root`` is a clean checkout of the diff's base: its HEAD must be ``base_sha`` and
-    ``git status`` must list nothing, before and after both runs, because the entries read the
-    working tree and the facts are the pre-change contract the reviewer reads the diff against.
-    Both ``--facts`` entries (``EVENT_FACTS_RELPATH``: per-application produced and consumed event
-    sites, code x code edges, ACL grants as permission facts, NATS identity, event definition
-    sites; ``MODULE_FACTS_RELPATH``: schema and table placement) run once, through the
-    plan-coverage runner, with the base tree as their cwd and repo root.
+    ``workspace_root`` is a clean checkout of the diff's base: before and after both runs its HEAD
+    must be ``base_sha``, no index entry may be flagged to hide the disk from ``git status``, and
+    ``git status`` must list nothing (``_base_tree_error``, through the kernel's hermetic git
+    owner), because the entries read the working tree and the facts are the pre-change contract
+    the reviewer reads the diff against. Both ``--facts`` entries (``EVENT_FACTS_RELPATH``:
+    per-application produced and consumed event sites, code x code edges, ACL grants as permission
+    facts, NATS identity, event definition sites; ``MODULE_FACTS_RELPATH``: schema and table
+    placement) run once, through the plan-coverage runner, with the base tree as their cwd and
+    repo root. The runner runs those two entries and nothing else.
 
     Success: ``{"verdict": "computed", "facts_sha", "event_facts", "module_facts", "witness"}``,
     each facts object exactly as its entry printed it. Any failure, of the tree checks
-    (``head_unreadable``, ``tree_not_at_base``, ``tree_status_unreadable``, ``tree_not_clean``) or
-    of either entry, is ``{"verdict": "environment_unable", "base_sha", "witness": {"error":
+    (``head_unreadable``, ``tree_not_at_base``, ``tree_index_unreadable``, ``tree_index_flagged``,
+    ``tree_status_unreadable``, ``tree_not_clean``) or of either entry, is ``{"verdict": "environment_unable", "base_sha", "witness": {"error":
     <named>}}`` with no facts at all: a partial result would route the change with fewer services.
     Nothing is written; the facts live only in the request rows that carry them (PLAN SO-07).
     """
     run = runner or _default_runner
     workspace = Path(workspace_root)
-    tree_error = _base_tree_error(run, workspace, base_sha)
+    tree_error = _base_tree_error(workspace, base_sha)
     if tree_error is not None:
         return _service_facts_unavailable(base_sha, {"error": tree_error})
 
@@ -504,7 +518,7 @@ def compute_service_facts(
         witnesses[key] = witness
     # The tree the entries read must still be the base after they ran: a file written or a HEAD
     # moved while they ran would otherwise be in the facts without being at base.
-    tree_error = _base_tree_error(run, workspace, base_sha)
+    tree_error = _base_tree_error(workspace, base_sha)
     if tree_error is not None:
         return _service_facts_unavailable(base_sha, {"error": tree_error})
     return {

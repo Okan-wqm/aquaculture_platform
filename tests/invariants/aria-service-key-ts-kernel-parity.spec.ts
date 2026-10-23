@@ -34,7 +34,11 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
 import { scanEventConsumers } from '../../tools/gates/event-consumer-index';
-import { makeFixtureTree, removeFixtureTree } from '../../tools/gates/fixture-tree';
+import {
+  indexFixtureTree,
+  makeFixtureTree,
+  removeFixtureTree,
+} from '../../tools/gates/fixture-tree';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 
@@ -116,6 +120,9 @@ describe('SE-1 (iii) — applicationNames(apps) == project_roots(apps)', () => {
       if (declared !== null) files[`apps/${dir}/project.json`] = JSON.stringify({ name: declared });
     }
     writeTree(repo, files);
+    // Both sides read the tree's TRACKED files (SE-3-R2 corrective R1), so the fixture's files
+    // must be in its index; an unindexed tree is a refusal on both sides, not a parity.
+    indexFixtureTree(repo);
   });
 
   afterAll(() => {
@@ -143,11 +150,24 @@ const EDGE_MANIFESTS: Record<string, string> = {
 
 type Outcome = { name: string | null } | { refused: true };
 
-function outcomeOf(read: () => string | null): Outcome {
+/** The text a failed read reports: its message, plus a child process's captured stderr. */
+function failureText(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  const stderr = 'stderr' in error ? String(error.stderr) : '';
+  return `${error.message}\n${stderr}`;
+}
+
+/**
+ * A read's outcome. Only a refusal that names `manifest` counts as the manifest rule refusing:
+ * any other failure (an unreadable tree, a crash) is rethrown, so two sides that both fail for a
+ * reason unrelated to the manifest can never agree on `{ refused: true }` and pass vacuously.
+ */
+function outcomeOf(manifest: string, read: () => string | null): Outcome {
   try {
     return { name: read() };
-  } catch {
-    return { refused: true };
+  } catch (error) {
+    if (failureText(error).includes(manifest)) return { refused: true };
+    throw error;
   }
 }
 
@@ -163,12 +183,14 @@ describe('SE-1 round 2 — both sides read an edge-case project.json by one rule
           [subscriberPath(dir)]: SUBSCRIBER(`${dir}-happened`),
           [`apps/${dir}/project.json`]: manifest,
         });
-        const ts = outcomeOf(() => {
+        indexFixtureTree(repo);
+        const manifestPath = `apps/${dir}/project.json`;
+        const ts = outcomeOf(manifestPath, () => {
           const index = scanEventConsumers(repo);
           const entry = index.entries.find((e) => e.site.startsWith(`${subscriberPath(dir)}:`));
           return entry?.application ?? null;
         });
-        const kernel = outcomeOf(() => {
+        const kernel = outcomeOf(manifestPath, () => {
           const script = [
             'import json, sys',
             'from aria_kernel.impact_graph import cached_service_analysis_order, project_for_path',

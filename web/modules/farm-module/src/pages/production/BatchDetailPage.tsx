@@ -23,7 +23,7 @@ import React, { Suspense } from 'react';
 import { useParams, useNavigate, NavLink, Routes, Route, Navigate } from 'react-router-dom';
 
 import { useBatch } from '../../hooks/useBatches';
-import { PageHeader, Button } from '@aquaculture/shared-ui';
+import { BrandLoader, PageHeader, Button } from '@aquaculture/shared-ui';
 
 const BatchOverviewTab = React.lazy(() => import('./tabs/BatchOverviewTab'));
 const BatchTanksTab = React.lazy(() => import('./tabs/BatchTanksTab'));
@@ -131,12 +131,9 @@ const BatchDetailPage: React.FC = () => {
         ))}
       </nav>
 
-      {/* Tab content — lazy so a heavy tab doesn't slow the initial paint */}
-      <Suspense
-        fallback={
-          <div className="animate-pulse text-gray-500 dark:text-gray-400">Sekme yükleniyor…</div>
-        }
-      >
+      {/* Tab content — lazy so a heavy tab doesn't slow the initial paint; a tab
+          loading is the one loading screen (FE-MEDIUM-349). */}
+      <Suspense fallback={<BrandLoader />}>
         <Routes>
           <Route index element={<Navigate to="overview" replace />} />
           <Route path="overview" element={<BatchOverviewTab batch={batch} />} />

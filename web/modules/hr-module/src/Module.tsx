@@ -7,7 +7,7 @@
 
 import React, { Suspense, lazy } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { PageTitle, Spinner } from '@aquaculture/shared-ui';
+import { BrandLoader, PageTitle } from '@aquaculture/shared-ui';
 
 // All pages are lazy-loaded to minimize initial chunk size (PERF-010)
 const HRDashboardPage = lazy(() => import('./pages/HRDashboardPage'));
@@ -33,15 +33,6 @@ const HRFinancePage = lazy(() => import('./pages/finance/HRFinancePage'));
 const TodayPage = lazy(() => import('./pages/today/TodayPage'));
 const OrganizationChartPage = lazy(() => import('./pages/organization/OrganizationChartPage'));
 
-// Loading fallback
-function PageLoader() {
-  return (
-    <div className="flex h-64 items-center justify-center">
-      <Spinner size="lg" />
-    </div>
-  );
-}
-
 // Placeholder for pages not yet implemented
 function PlaceholderPage({ title }: { title: string }) {
   return (
@@ -64,7 +55,8 @@ const HRModule: React.FC = () => {
   // singleton SSoT (web/CLAUDE.md / FE-HIGH-004). PII retention is bounded by the
   // shell's logout-cleanup, not a per-module gcTime.
   return (
-    <Suspense fallback={<PageLoader />}>
+    // A page chunk loading is the one loading screen (FE-MEDIUM-349).
+    <Suspense fallback={<BrandLoader />}>
         <Routes>
           {/* Dashboard */}
           <Route index element={<HRDashboardPage />} />

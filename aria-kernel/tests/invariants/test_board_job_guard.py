@@ -5,7 +5,32 @@ secrets (``ARIA_BOARD_SIGNING_KEY``, ``ARIA_BOARD_VAULT_DEPLOY_KEY``,
 ``ARIA_BOARD_VAULT_DATA_KEY``) live only in the GitHub environment
 ``aria-board``, whose deployment branch policy admits ``main`` alone
 (board/SETUP.md). The workflow side of that boundary is pinned here, for every
-job that declares ``environment: aria-board`` (a "Board job"):
+job that declares ``environment: aria-board`` (a "Board job").
+
+The guard is an ALLOW-LIST (B0 corrective round 3, R3-1): it lists what a
+Board job may be, and refuses anything it does not list. The steps of one job
+share the VM, the user and the runner's GITHUB_ENV and GITHUB_PATH files, so a
+step that holds no key still decides what the key step runs; a list of
+forbidden shapes always misses one. A Board job:
+
+* carries the job keys ``name``, ``if``, ``runs-on``, ``timeout-minutes``,
+  ``environment``, ``permissions``, ``concurrency`` and ``steps`` alone (no
+  ``container:``, ``services:`` or ``env:``), and its workflow declares no
+  ``env:``;
+* holds steps of four shapes alone, each with only the step keys it lists:
+  (a) ``actions/checkout`` at a full commit SHA; (b) ``actions/setup-python``
+  at a full commit SHA, given a ``python-version`` alone; (c) exactly
+  ``python3 -I -m pip install --require-hashes --only-binary ':all:' --no-deps
+  -r .github/board/<name>-requirements.txt`` (without ``-I``, ``-m pip``
+  imports a ``pip/`` package from the checkout), with no env, shell or working
+  directory; (d) the key step: exactly ``python3 -I
+  aria-kernel/aria_kernel/examination_board.py <command>`` (the kernel FILE,
+  by path, isolated, so the ARIA-changeable ``aria_kernel`` package never
+  loads), with the default shell and working directory and an env of Board
+  secrets alone. ``examination_board`` itself imports the standard library and
+  ``cryptography`` alone.
+
+Over that shape, the rules that judge its values:
 
 * its ``if:`` requires ``github.ref == 'refs/heads/main'`` (the job verifies
   the ref itself, not only through the environment policy) and
@@ -20,28 +45,15 @@ job that declares ``environment: aria-board`` (a "Board job"):
   or the vault repository by name, and keeps no credential in a checkout;
 * it writes nothing: the workflow declares ``permissions``, and neither it nor
   the job grants a ``write`` scope, each value read by its one owner
-  (``workflow_contract_registry.declared_token_permissions``), and no step
-  pushes (B0 has no writer; B2 adds the one named signed-totals writer under
-  this guard);
-* it uploads no artifact and saves no cache (both are readable by ARIA's own
-  jobs on the same branch), and traces no shell — in a ``run:`` body, a step
-  ``shell:``, or the job's or workflow's ``defaults.run.shell`` — since a trace
-  echoes case content into the log;
-* it never runs the ARIA kernel package (B0 corrective R3): no
-  setup-aria-kernel action (its unpinned install and its ``import
-  aria_kernel``), no ``-m aria_kernel``, no ``PYTHONPATH``; the kernel file it
-  runs is ``examination_board.py``, by path, in isolated mode (``python3 -I``),
-  every ``pip install`` it makes is ``--require-hashes`` and runs as
-  ``python3 -I -m pip`` (without ``-I``, ``-m pip`` imports a ``pip/`` package
-  from the checkout); and ``examination_board`` itself imports the standard
-  library and ``cryptography`` alone;
+  (``workflow_contract_registry.declared_token_permissions``) (B0 has no
+  writer; B2 adds the one named signed-totals writer under this guard);
+* it traces no shell — a ``defaults.run.shell`` of the workflow traces nothing
+  — since a trace echoes case content into the log;
 * a Board secret reaches two places only (B0 corrective round 2, R2-1): the
-  ``env`` of a step that runs ``examination_board.py`` as above, with the
-  default shell and working directory, and the vault checkout's ``ssh-key``
-  (the deploy key alone). No workflow or job ``env``, other step, ``run:``
-  body, action input or ``if:`` names one, the secrets context is never
-  reached by anything but a literal name, and a Board job runs no local
-  ``./`` action (ARIA-writable code);
+  env of the key step, and the vault checkout's ``ssh-key`` (the deploy key
+  alone). No ``run:`` body, action input or ``if:`` names one, the secrets
+  context is never reached by anything but a literal name, and the workflow's
+  ``defaults.run`` sets no shell or working directory for the key step;
 * the workflow that holds it runs no pull-request code (no ``pull_request``,
   ``pull_request_target`` or ``merge_group`` trigger);
 * no job other than a Board job, and no workflow-level ``env``, names a Board
@@ -82,7 +94,15 @@ _REQUIRED_CONJUNCTS = ("github.ref == 'refs/heads/main'", "vars.ARIA_STOP == ''"
 _THIS_REPOSITORY = ("${{ github.repository }}", str(load_operators_policy()["repository"]))
 _BOARD_VERSION_REFS = (None, "${{ github.sha }}")
 _LEAKING_ACTIONS = ("actions/upload-artifact@", "actions/cache@", "actions/cache/save@")
-_KERNEL_SETUP_ACTION = ".github/actions/setup-aria-kernel"
+# R3-1: the allow-list. A Board job carries these keys alone; its steps are
+# the shapes of _step_shape alone.
+_BOARD_JOB_KEYS = frozenset({"name", "if", "runs-on", "timeout-minutes", "environment", "permissions",
+                             "concurrency", "steps"})
+_PINNED_CHECKOUT = re.compile(r"actions/checkout@[0-9a-f]{40}")
+_PINNED_SETUP_PYTHON = re.compile(r"actions/setup-python@[0-9a-f]{40}")
+_CHECKOUT_INPUTS = frozenset({"repository", "ref", "path", "fetch-depth", "persist-credentials", "ssh-key"})
+_BOARD_INSTALL = re.compile(r"python3 -I -m pip install --require-hashes --only-binary ':all:' --no-deps"
+                            r" -r \.github/board/[a-z0-9][a-z0-9-]*-requirements\.txt")
 _PR_TRIGGERS = ("pull_request", "pull_request_target", "merge_group")
 # `set -x`, `set -euxo pipefail`, `bash -ex script`, and any spelling of xtrace
 # (`set -o xtrace`, `SHELLOPTS=xtrace`). The first guard required a word
@@ -103,6 +123,8 @@ _BOARD_SECRET = re.compile(r"\bsecrets\s*\.\s*(ARIA_BOARD_[A-Za-z0-9_]*)", re.IG
 _DYNAMIC_SECRETS = re.compile(r"\bsecrets\b(?!\s*\.\s*[A-Za-z_])", re.IGNORECASE)
 _EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
 VAULT_DEPLOY_KEY = "ARIA_BOARD_VAULT_DEPLOY_KEY"
+# The aria-board environment's secrets (board/SETUP.md, 2026-10-21).
+BOARD_SECRETS = frozenset({"ARIA_BOARD_SIGNING_KEY", VAULT_DEPLOY_KEY, VAULT_DATA_KEY_ENV})
 _THIRD_PARTY = frozenset({"cryptography"})
 
 
@@ -213,8 +235,6 @@ def _kernel_violations(workflow: dict[str, Any], job: dict[str, Any]) -> list[st
     for step in _steps(job):
         uses, run = str(step.get("uses") or ""), str(step.get("run") or "")
         label = step.get("name") or uses or run[:60]
-        if uses.endswith(_KERNEL_SETUP_ACTION):
-            violations.append(f"step provisions the ARIA kernel: {label}")
         if "PYTHONPATH" in run or "PYTHONPATH" in (step.get("env") or {}):
             violations.append(f"step sets PYTHONPATH: {label}")
         if re.search(r"-m\s+aria_kernel", run):
@@ -282,8 +302,51 @@ def _secret_violations(workflow: dict[str, Any], job: dict[str, Any]) -> list[st
                     and name.upper() == VAULT_DEPLOY_KEY):
                 continue
             violations.append(f"secrets.{name} reaches {'/'.join(map(str, path))}")
-    violations += [f"step runs a local action: {step.get('uses')}" for step in _steps(job)
-                   if str(step.get("uses") or "").startswith("./")]
+    return violations
+
+
+def _step_shape(step: dict[str, Any]) -> str | None:
+    """Which permitted Board step ``step`` is, or None: the allow-list every Board step must match whole.
+
+    (a) ``checkout`` — ``actions/checkout`` at a full commit SHA (the checkout
+    rule judges what it fetches); (b) ``setup-python`` — ``actions/setup-python``
+    at a full commit SHA, given a Python version alone (no cache, no pip
+    install of its own); (c) ``install`` — exactly the hash-pinned
+    ``python3 -I -m pip install`` of one ``.github/board/<name>-requirements.txt``,
+    with no env, shell or working directory; (d) ``key`` — the isolated
+    ``examination_board.py`` step (:func:`_is_key_step`) whose env holds Board
+    secrets alone. Each shape lists the step keys it may carry; any other key
+    makes the step none of them.
+    """
+    keys, options = set(step), step.get("with") or {}
+    uses = str(step.get("uses") or "")
+    if _PINNED_CHECKOUT.fullmatch(uses) and keys <= {"name", "uses", "with"} and set(options) <= _CHECKOUT_INPUTS:
+        return "checkout"
+    if _PINNED_SETUP_PYTHON.fullmatch(uses) and keys <= {"name", "uses", "with"} and set(options) <= {"python-version"}:
+        return "setup-python"
+    if keys <= {"name", "run"} and _BOARD_INSTALL.fullmatch(str(step.get("run") or "").strip()):
+        return "install"
+    if keys <= {"name", "run", "env"} and _is_key_step(step) and set(step.get("env") or {}) <= BOARD_SECRETS:
+        return "key"
+    return None
+
+
+def _shape_violations(workflow: dict[str, Any], job: dict[str, Any]) -> list[str]:
+    """B0 corrective round 3, R3-1: a Board job is a permitted shape, whole; anything not listed is refused.
+
+    The steps of one job share the VM, the user and the runner's GITHUB_ENV
+    and GITHUB_PATH files, so a step that holds no key still decides what the
+    key step runs (its PATH, BASH_ENV, site-packages). The guard therefore
+    lists what a Board job may be, never what it may not: its keys are
+    :data:`_BOARD_JOB_KEYS` (no ``container:``, ``services:`` or ``env:``),
+    its workflow declares no ``env:``, and every step is one shape of
+    :func:`_step_shape`.
+    """
+    violations = ["workflow declares env"] if "env" in workflow else []
+    violations += [f"job key {key!r} is not a permitted Board-job key" for key in job if key not in _BOARD_JOB_KEYS]
+    violations += [f"step {index} is no permitted Board step: {step.get('name') or step.get('uses') or step.get('run')}"
+                   for index, step in enumerate(job.get("steps") or [])
+                   if not isinstance(step, dict) or _step_shape(step) is None]
     return violations
 
 
@@ -300,6 +363,7 @@ def _trigger_violations(workflow: dict[str, Any]) -> list[str]:
 
 
 _RULES: dict[str, Callable[[dict[str, Any], dict[str, Any]], list[str]]] = {
+    "steps": _shape_violations,
     "condition": lambda workflow, job: _condition_violations(job),
     "runner": lambda workflow, job: _runner_violations(job),
     "checkout": lambda workflow, job: _checkout_violations(job),

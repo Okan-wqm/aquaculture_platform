@@ -4,32 +4,35 @@ name: Examination Board
 # OUTSIDE ARIA's trust domain. Its secrets (signing key, vault deploy key,
 # vault data key) live only in the GitHub environment `aria-board`, whose
 # deployment branch policy admits `main` alone, and only a job declaring that
-# environment can read them. Every such job (a "Board job") keeps the guard
-# pinned by aria-kernel/tests/invariants/test_board_job_guard.py:
+# environment can read them. Every such job (a "Board job") is one shape of
+# the ALLOW-LIST pinned by aria-kernel/tests/invariants/test_board_job_guard.py;
+# anything the list does not name is refused, since the steps of one job share
+# the VM, the user and GITHUB_ENV/GITHUB_PATH, so a step without a key still
+# decides what the key step runs:
 #
-#   - its `if:` requires `github.ref == 'refs/heads/main'` itself (not only
-#     through the environment policy) and the operator's stop
-#     (`vars.ARIA_STOP == ''`, PLAN-v2 §2 'Durdurma'), in every branch;
+#   - job keys: name, if, runs-on, timeout-minutes, environment, permissions,
+#     concurrency, steps (no container, services or env); this workflow
+#     declares no env;
+#   - steps, each with only its own keys: actions/checkout and
+#     actions/setup-python (python-version alone), each at a full commit SHA;
+#     the hash-pinned `python3 -I -m pip install ... -r
+#     .github/board/<name>-requirements.txt` (a bare `-m pip` would import a
+#     `pip/` package from the checkout); and the key step, which runs
+#     examination_board.py BY PATH in isolated mode (so the package __init__,
+#     the whole ARIA-changeable kernel, never loads) with an env of Board
+#     secrets alone;
+#   - its `if:` requires `github.ref == 'refs/heads/main'` itself and the
+#     operator's stop (`vars.ARIA_STOP == ''`, PLAN-v2 §2 'Durdurma'), in
+#     every branch;
 #   - it runs on a GitHub-hosted runner, never on ARIA's self-hosted runner,
 #     whose uid is the population the Board must exclude;
 #   - it checks out the Board version — this repository at the main commit
 #     as triggered (no `ref:` an input or event could choose) — or the vault
 #     repository by name, and keeps no credential in a checkout;
-#   - it holds read-only permissions and pushes nothing (B0 has no writer;
-#     B2 adds the one signed-totals writer under this guard);
-#   - it uploads no artifact and saves no cache (both readable by ARIA's jobs),
-#     and traces no shell — in a `run:`, a step `shell:` or `defaults.run` —
-#     since a trace echoes case content into the log;
-#   - it never runs the ARIA kernel package: no setup-aria-kernel (its
-#     unpinned install), no `python3 -m aria_kernel`, no PYTHONPATH. The
-#     key-holding step runs examination_board.py BY PATH in isolated mode,
-#     so the package __init__ (the whole ARIA-changeable kernel) never loads,
-#     and its one third-party dependency is installed by hash through
-#     `python3 -I -m pip` (a bare `-m pip` would import a `pip/` package from
-#     the checkout);
-#   - a Board secret reaches only that step's env and the vault checkout's
-#     ssh-key: no job or workflow env, other step, `run:` text, action
-#     input, local `./` action or dynamic `secrets[...]` access;
+#   - it holds read-only permissions (B0 has no writer; B2 adds the one
+#     signed-totals writer under this guard);
+#   - a Board secret reaches only the key step's env and the vault checkout's
+#     ssh-key, never by a dynamic `secrets[...]` or `toJSON(secrets)`;
 #   - this workflow has no pull-request trigger, so it never runs PR code.
 #
 # B0 ships the custody check: the environment's data key seals and opens a

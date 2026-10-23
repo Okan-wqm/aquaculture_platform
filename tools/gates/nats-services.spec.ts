@@ -23,6 +23,7 @@ import {
   eventSubjectsFor,
   filtersOverlap,
   loadNatsServices,
+  loadNatsServicesLocated,
   NATS_SERVICES_YAML,
   type NatsServiceEntry,
   NatsServicesInvalid,
@@ -107,6 +108,29 @@ void test('the live services.yaml loads whole: every service, every grant, each 
     assert.ok(entry.application.length > 0, `${entry.name} has no application`);
 });
 
+void test('the located read cites the line of every live identity and grant', () => {
+  // SE-3: a fact citing services.yaml cites the line it came from. The oracle is the raw text.
+  const lines = readFileSync(join(REPO_ROOT, NATS_SERVICES_YAML), 'utf8').split('\n');
+  const located = loadNatsServicesLocated(join(REPO_ROOT, NATS_SERVICES_YAML));
+  assert.deepEqual(located.services, loadNatsServices());
+  const textAt = (line: number | undefined): string => lines[(line ?? 0) - 1] ?? '';
+  for (const service of located.services) {
+    const at = located.lines.get(service.name);
+    assert.ok(at, `${service.name} has source lines`);
+    assert.match(textAt(at.name), new RegExp(`name:\\s*['"]?${service.name}['"]?\\s*$`));
+    for (const permission of ['publish', 'subscribe'] as const) {
+      assert.equal(
+        at[permission].length,
+        service[permission].length,
+        `${service.name}.${permission}`,
+      );
+      service[permission].forEach((grant, index) => {
+        assert.ok(textAt(at[permission][index]).includes(grant), `${service.name} ${grant}`);
+      });
+    }
+  }
+});
+
 void test('quoted and unquoted list items parse identically', () => {
   const unquoted = parseNatsServices(MINIMAL('fixture_service', 'fixture-service'));
   const quoted = parseNatsServices(
@@ -185,6 +209,20 @@ void test('a document the SSoT schema refuses throws NatsServicesInvalid', () =>
   assert.throws(() => parseNatsServices(lostGrants), NatsServicesInvalid);
   assert.throws(() => parseNatsServices('services: [unclosed'), NatsServicesInvalid);
   assert.throws(() => loadNatsServices('/nonexistent/services.yaml'), NatsServicesInvalid);
+});
+
+// SE-3-R2 round 2 (build/SE-3-R2/appellate-r2.md, carried security A1): the code-fact bridge
+// carries this message into the kernel's witness stderr_tail, so a syntax error names its code and
+// position and never quotes the document's text.
+void test('a document that is not YAML throws NatsServicesInvalid naming the position, not the text', () => {
+  const marker = 'ZQXJ-yaml-text-marker';
+  assert.throws(
+    () => parseNatsServices(`services:\n  - name: ${marker}\n    publish: [unclosed\n`),
+    (error: unknown) =>
+      error instanceof NatsServicesInvalid &&
+      /^not YAML: [A-Z_]+ at line \d+, column \d+$/.test(error.message) &&
+      !error.message.includes(marker),
+  );
 });
 
 void test('subjectMatches follows NATS semantics: whole tokens, `>` last and at least one token', () => {

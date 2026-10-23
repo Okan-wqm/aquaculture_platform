@@ -553,3 +553,38 @@ void test('ARIA-MEDIUM-601: the sweep report keeps its first line and lists UNOW
     '  ARIA-HIGH-941: OPEN → BLOCKED  (past deadline 2026-10-01)',
   ]);
 });
+
+// SE-3-R2 corrective round 1, root R5 (build/SE-3-R2/appellate-r1.md): four rows were appended
+// with a created_at about 9 h after the commit that added them. The staleness sweep and dedup
+// read created_at, and the chain seals it on merge, so a row whose created_at lies after the
+// write that records it is refused by the write sink, for every writer.
+void test('R5: a write that records a row created after the write itself is refused, whole', () => {
+  const registryPath = seedRegistry('future', [row({ id: 'ARIA-HIGH-905', severity: 'HIGH' })]);
+  const paths = { registryPath, schemaPath: SCHEMA_PATH };
+  const before = readFileSync(registryPath, 'utf8');
+  const future = [
+    ...parseRegistryJsonl(before),
+    row({ id: 'ARIA-HIGH-906', severity: 'HIGH', created_at: '2999-01-01T00:00:00Z' }),
+  ];
+  rechain(future, 0);
+  assert.throws(
+    () => withRegistryFileLock(registryPath, (lease) => writeRegistry(future, lease, paths)),
+    (error: unknown) =>
+      error instanceof RegistryWriteRefused &&
+      error.violations.some(
+        (line) => line.startsWith('ARIA-HIGH-906') && /created_at .* is after/.test(line),
+      ),
+  );
+  assert.equal(readFileSync(registryPath, 'utf8'), before);
+
+  // A stub that dates its row in the future is refused by add, and nothing is written.
+  const stubPath = writeStub(
+    'future-stub',
+    stubFields({ severity: 'HIGH', created_at: '2999-01-01T00:00:00Z' }),
+  );
+  const status = withRegistryFileLock(registryPath, (lease) =>
+    appendAllocatedFinding('ARIA', stubPath, lease, paths),
+  );
+  assert.notEqual(status, 0);
+  assert.equal(readFileSync(registryPath, 'utf8'), before);
+});

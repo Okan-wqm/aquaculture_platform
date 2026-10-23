@@ -458,20 +458,14 @@ function loadSchemaOwnershipPolicy(
   // spread elements and imported constants exactly as declared, and names
   // what it cannot resolve instead of dropping it. The snapshot's read policy
   // governs the import-chain files exactly as it governs the SSoT itself.
-  // TENANT_SCOPED_MODULES is read from the same file's source text.
+  // The same reading carries TENANT_SCOPED_MODULES from the SSoT's source text.
   const source = readModuleSchemasSource(workspaceRoot, MODULE_SCHEMAS_SOURCE_PATH, {
     pathAllowed: (path) => pathAllowedBySnapshot(workspaceRoot, path, input),
   });
-  const sourceFile = ts.createSourceFile(
-    modulePath,
-    readWorkspaceFile(workspaceRoot, modulePath),
-    ts.ScriptTarget.Latest,
-    true,
-  );
   const moduleSchema = source.modules.find((module) => module.moduleName === serviceName) ?? null;
   return {
     ssotReadable: true,
-    tenantScopedModules: readTenantScopedModules(sourceFile),
+    tenantScopedModules: source.tenantScopedModules,
     moduleSchema,
     infrastructureTables: new Set(moduleSchema?.infrastructureTables ?? []),
     readerErrors: source.errors,
@@ -1000,44 +994,6 @@ function findObjectArg(args: ts.NodeArray<ts.Expression>): ts.ObjectLiteralExpre
 }
 
 /**
- * Parses `TENANT_SCOPED_MODULES` (`new Set(['farm', …])`) out of the SSoT
- * source. WHY parse instead of import: the adapter must observe the exact
- * on-disk contents of the workspace under analysis (fixtures included), and
- * importing the module would execute NestJS/TypeORM side effects.
- * Returns null when the declaration is absent so callers fail closed.
- */
-function readTenantScopedModules(sourceFile: ts.SourceFile): ReadonlySet<string> | null {
-  let found: ReadonlySet<string> | null = null;
-  visit(sourceFile, (node) => {
-    if (
-      found !== null ||
-      !ts.isVariableDeclaration(node) ||
-      !ts.isIdentifier(node.name) ||
-      node.name.text !== 'TENANT_SCOPED_MODULES'
-    ) {
-      return;
-    }
-    const initializer = unwrapExpression(node.initializer);
-    if (!initializer || !ts.isNewExpression(initializer)) {
-      return;
-    }
-    if (!ts.isIdentifier(initializer.expression) || initializer.expression.text !== 'Set') {
-      return;
-    }
-    const firstArg = initializer.arguments?.[0];
-    if (!firstArg || !ts.isArrayLiteralExpression(firstArg)) {
-      return;
-    }
-    found = new Set(
-      firstArg.elements
-        .filter((element): element is ts.StringLiteralLike => ts.isStringLiteralLike(element))
-        .map((element) => element.text),
-    );
-  });
-  return found;
-}
-
-/**
  * TypeORM DefaultNamingStrategy falls back to snakeCase(className) when
  * @Entity() carries no explicit table name; mirror it so infrastructure-table
  * membership still resolves for bare `@Entity()` declarations.
@@ -1179,19 +1135,6 @@ function isPropertyNamed(name: ts.PropertyName, expected: string): boolean {
     return name.text === expected;
   }
   return false;
-}
-
-function unwrapExpression(expression: ts.Expression | undefined): ts.Expression | undefined {
-  let current = expression;
-  while (
-    current &&
-    (ts.isAsExpression(current) ||
-      ts.isTypeAssertionExpression(current) ||
-      ts.isParenthesizedExpression(current))
-  ) {
-    current = current.expression;
-  }
-  return current;
 }
 
 function visit(node: ts.Node, visitor: (node: ts.Node) => void): void {

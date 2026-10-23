@@ -35,7 +35,10 @@ symlinkSync(join(outside, 'leaked.ts'), join(workspace, 'k', 'linked-leaked.ts')
 symlinkSync(outside, join(workspace, 'linked-outside'));
 
 {
-  const host = containedCompilerHost(workspace, { noEmit: true });
+  const host = containedCompilerHost(
+    { kind: 'contained', workspaceRoot: workspace },
+    { noEmit: true },
+  );
   // Nothing behind a workspace symlink exists for the host.
   assert.equal(host.fileExists(join(workspace, 'k', 'exported.ts')), true);
   assert.equal(host.fileExists(join(workspace, 'k', 'linked-leaked.ts')), false);
@@ -61,7 +64,7 @@ symlinkSync(outside, join(workspace, 'linked-outside'));
     "import { inside } from './linked-leaked';\nexport const link = inside;\n",
     'utf8',
   );
-  const program = createContainedProgram(workspace, [
+  const program = createContainedProgram({ kind: 'contained', workspaceRoot: workspace }, [
     join(workspace, 'k', 'imports-real.ts'),
     join(workspace, 'k', 'imports-link.ts'),
   ]);

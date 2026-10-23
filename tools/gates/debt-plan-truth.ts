@@ -146,6 +146,78 @@ export function truthTableActiveRows(truthTable: string): TruthTableRow[] {
   return rows;
 }
 
+/** What a new active CRITICAL's row says until a human edits it (the table's own vocabulary). */
+export const NEW_CRITICAL_FIRST_SPRINT = '—';
+export const NEW_CRITICAL_BUCKET = 'real-open';
+
+export interface NewCriticalRow {
+  readonly id: string;
+  /** The registry state of the new row (`OPEN` for an allocated add). */
+  readonly state: string;
+  readonly owner: string;
+}
+
+function tableCells(line: string): string[] {
+  return line
+    .trim()
+    .replace(/^\||\|$/g, '')
+    .split('|')
+    .map((cell) => cell.trim());
+}
+
+function renderTableLine(cells: readonly string[], widths: readonly number[]): string {
+  return `| ${cells.map((cell, i) => cell.padEnd(widths[i] ?? 0)).join(' | ')} |`;
+}
+
+/**
+ * The truth table with one more row for a newly registered active CRITICAL
+ * (INFRA-MEDIUM-255). `registry add` writes it in the same operation as the
+ * registry row, so a CRITICAL can never be registered without the row the plan
+ * contract demands: owner from the stub, no sprint yet, bucket `real-open`
+ * (the table's initial rule). A human refines the row later; this makes the
+ * invariant impossible to leave red by registering. Refuses, throwing before
+ * anything is written, when the id already has a row or the table has no
+ * active table to extend. The columns are re-padded to the widest cell, the
+ * layout the table is formatted in, so a long owner name does not leave the
+ * table misaligned.
+ */
+export function addTruthTableRow(truthTable: string, row: NewCriticalRow): string {
+  if (truthTableActiveRows(truthTable).some((existing) => existing.id === row.id)) {
+    throw new Error(`finding-truth-table.md: ${row.id} already has a row`);
+  }
+  const lines = truthTable.split('\n');
+  const header = lines.findIndex((line) => /^\|\s*Finding\s*\|/.test(line));
+  if (header === -1 || !/^\|[\s|:-]+\|$/.test(lines[header + 1] ?? '')) {
+    throw new Error('finding-truth-table.md: no `| Finding | ...` active table to add a row to');
+  }
+  let end = header + 2;
+  while (end < lines.length && (lines[end] ?? '').startsWith('|')) end += 1;
+  const body = lines.slice(header, end).filter((_, i) => i !== 1);
+  const fresh = [
+    `\`${row.id}\``,
+    row.state,
+    NEW_CRITICAL_FIRST_SPRINT,
+    row.owner,
+    NEW_CRITICAL_BUCKET,
+  ];
+  const cells = [...body.map(tableCells), fresh];
+  if (cells.some((c) => c.length !== fresh.length)) {
+    throw new Error('finding-truth-table.md: the active table does not have five columns');
+  }
+  // The table's own column widths are the floor: a layout that already fits is
+  // never narrowed, so the add changes one line.
+  const floor = tableCells(lines[header + 1] ?? '').map((dashes) => dashes.length);
+  const widths = fresh.map((_, i) =>
+    Math.max(floor[i] ?? 0, ...cells.map((c) => (c[i] ?? '').length)),
+  );
+  const rendered = [
+    renderTableLine(cells[0] ?? [], widths),
+    `| ${widths.map((w) => '-'.repeat(w)).join(' | ')} |`,
+    ...cells.slice(1).map((c) => renderTableLine(c, widths)),
+  ];
+  return [...lines.slice(0, header), ...rendered, ...lines.slice(end)].join('\n');
+}
+
 export interface DebtPlanVerdict {
   readonly valid: boolean;
   readonly missingRows: readonly string[];

@@ -70,6 +70,15 @@ npx ts-node --project tools/gates/tsconfig.json \
   tools/gates/finding-registry.ts add-explicit /tmp/historical-finding.json
 ```
 
+When the new finding is an active CRITICAL (any unresolved state), `add` and `add-explicit` also append its
+row to the active table of
+`docs/plans/2026-06-18-enterprise-grade-debt-closure/finding-truth-table.md` in the same operation: owner
+from the stub's `owner_agent`, no first sprint (`—`), bucket `real-open`, columns re-padded to the table's
+layout. The plan contract (`enterprise-grade-debt-plan-contract.spec.ts`, `derived-merge-pins.spec.ts`) needs
+exactly one row per active CRITICAL, so registering one without it left every PR red (INFRA-MEDIUM-255). Refine
+the owner, sprint and bucket by hand afterwards and commit both files together. A table that cannot take the
+row (missing, or the id already in it) refuses the add with nothing written.
+
 All mutating subcommands (`add`, `add-explicit`, `import-narrative`, `close`,
 `reopen`, `assign`, `sweep`, `reconcile`, `rechain-from`, and `dedupe`) share one
 lock in Git's common directory, so every worktree of the same repository is

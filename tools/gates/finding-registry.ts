@@ -61,7 +61,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 // PROC-HIGH-001 structural guard — close ceremony refuses branch-local
@@ -72,6 +72,7 @@ import {
   loadAliasReviewFiles,
   loadCanonicalToAliases,
 } from './finding-id-aliases';
+import { addTruthTableRow, TRUTH_TABLE_PATH } from './debt-plan-truth';
 import { applyAssignment, type AssignmentRequest } from './finding-registry-assign';
 import {
   canonicalJson,
@@ -140,6 +141,12 @@ const GIT_OUTPUT_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 export interface RegistryPaths {
   readonly registryPath: string;
   readonly schemaPath: string;
+  /**
+   * The debt plan's truth table. When set, an add that registers an active
+   * CRITICAL writes that CRITICAL's row in the same operation, so registering
+   * one cannot leave the plan contract red (INFRA-MEDIUM-255).
+   */
+  readonly truthTablePath?: string;
 }
 
 export interface NarrativeImportPaths extends RegistryPaths {
@@ -150,6 +157,7 @@ export interface NarrativeImportPaths extends RegistryPaths {
 const DEFAULT_REGISTRY_PATHS: RegistryPaths = {
   registryPath: REGISTRY_PATH,
   schemaPath: SCHEMA_PATH,
+  truthTablePath: resolve(REPO_ROOT, TRUTH_TABLE_PATH),
 };
 
 const DEFAULT_NARRATIVE_IMPORT_PATHS: NarrativeImportPaths = {
@@ -558,6 +566,49 @@ function buildFinding(stub: Partial<Finding>, id: string): Finding | null {
   };
 }
 
+/**
+ * The truth-table write an add owes (INFRA-MEDIUM-255): an active CRITICAL gets
+ * its row in the debt plan's table when the registry row is appended. Planned
+ * before either file is written, so a table that cannot take the row (missing,
+ * or the id already in it) refuses the add with nothing changed. `null`: no
+ * table is configured, or the row is not an active CRITICAL.
+ */
+function planTruthTableRow(
+  entry: Finding,
+  paths: RegistryPaths,
+): { readonly path: string; readonly contents: string } | 'refused' | null {
+  if (
+    paths.truthTablePath === undefined ||
+    entry.severity !== 'CRITICAL' ||
+    !isUnresolvedFindingState(entry.state)
+  ) {
+    return null;
+  }
+  try {
+    const current = readFileSync(paths.truthTablePath, 'utf8');
+    return {
+      path: paths.truthTablePath,
+      contents: addTruthTableRow(current, {
+        id: entry.id,
+        state: entry.state,
+        owner: entry.owner_agent,
+      }),
+    };
+  } catch (error) {
+    process.stderr.write(
+      `${entry.id} is an active CRITICAL and the plan contract needs its truth-table row, but the ` +
+        `table cannot take it: ${error instanceof Error ? error.message : String(error)}\n\n`,
+    );
+    return 'refused';
+  }
+}
+
+function writeTextAtomically(path: string, contents: string): void {
+  const staging = `${path}.${process.pid}.tmp`;
+  writeFileSync(staging, contents, 'utf8');
+  renameSync(staging, path);
+}
+
 function validateAndAppendFinding(
   newEntry: Finding,
   entries: Finding[],
@@ -607,8 +658,17 @@ function validateAndAppendFinding(
     return 1;
   }
 
+  const truthTable = planTruthTableRow(newEntry, paths);
+  if (truthTable === 'refused') return 1;
+
   beforeRegistryWrite?.();
   writeRegistry(entries, lease, paths);
+  if (truthTable !== null) {
+    writeTextAtomically(truthTable.path, truthTable.contents);
+    process.stdout.write(
+      `Truth table: row for ${newEntry.id} added (bucket real-open, no sprint yet).\n\n`,
+    );
+  }
   process.stdout.write(`Added: ${newEntry.id} at position ${entries.length - 1}\n\n`);
   process.stdout.write(`Chain tip: ${newEntry.content_hash}\n\n`);
   return 0;

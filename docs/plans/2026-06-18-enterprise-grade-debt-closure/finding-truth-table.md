@@ -254,6 +254,15 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-100`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
 | `ADMIN-CRITICAL-087`  | OPEN           | 2026-09-04   | admin-expert               | real-open                 |
 | `DEPLOY-CRITICAL-017` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
+| `EDGE-CRITICAL-046`   | OPEN           | ADR-048 P0   | edge-expert                | already-fixed-needs-close |
+| `EDGE-CRITICAL-047`   | OPEN           | ADR-048 P0   | edge-expert                | already-fixed-needs-close |
+| `EDGE-CRITICAL-048`   | OPEN           | ADR-048 P0   | edge-expert                | already-fixed-needs-close |
+| `EDGE-CRITICAL-049`   | OPEN           | ADR-048 P0   | edge-expert                | already-fixed-needs-close |
+| `SENSOR-CRITICAL-200` | OPEN           | ADR-048 P0   | sensor-expert              | real-open                 |
+| `SENSOR-CRITICAL-201` | OPEN           | ADR-048 P0   | sensor-expert              | real-open                 |
+| `SENSOR-CRITICAL-202` | OPEN           | ADR-048 P0   | sensor-expert              | real-open                 |
+| `SENSOR-CRITICAL-203` | OPEN           | ADR-048 P0   | sensor-expert              | real-open                 |
+| `INFRA-CRITICAL-236`  | OPEN           | ADR-048 P0   | infra-expert               | real-open                 |
 
 Updated 2026-09-10 (W9t, the SUPER_ADMIN audit's last unmigrated page): one active CRITICAL added.
 Updated 2026-10-10 (farm E2E campaign, PR #1951): seven CRITICALs registered
@@ -321,6 +330,14 @@ running NATS broker does not hold. The same branch fixes it: the generator renew
 the kept CA and replaces the CA only when asked to by name. Proof: the `INFRA-CRITICAL-233` case of
 `tests/invariants/production-cert-identity-store.spec.ts`. The closure-reconcile lane records the
 main-reachable closer after merge and moves this row to `Resolved Evidence`.
+
+Updated 2026-10-23 (INFRA-MEDIUM-255, ADR-048 audit CRITICALs): nine CRITICALs of the Suderra OS / edge agent
+integration audit were registered without a row, so the plan contract and `derived-merge-pins` failed on
+every run. They get their rows here, and from now on `finding-registry add` writes the row of an active
+CRITICAL in the same operation as the registry row (owner from the stub, no sprint, bucket `real-open`;
+refined by hand afterwards), so registering one cannot leave the contract red. Four of the nine have their
+fix on the audit branch with the exact `Closes:` trailer and are `already-fixed-needs-close` (evidence
+below); five stay `real-open` because their commits carry `Refs:` only.
 
 ## Mutation Rules
 
@@ -560,6 +577,23 @@ main-reachable closer after merge and moves this row to `Resolved Evidence`.
 
 The 2026-06-20 registry close follow-up left no OTHER active CRITICAL in
 `already-fixed-needs-close`; reconciled items moved to `Resolved Evidence`.
+
+- `EDGE-CRITICAL-046` (the agent rewrites `/etc/suderra/config.yaml` and site material at run time): fixed by
+  `6fa7c4099`. Activation is written to `<state>/activation.json` and `AgentConfig::save()` is not compiled in
+  the `suderra-os` profile; the profile CI runs the invariants `no_etc_write_paths` and
+  `no_security_env_in_suderra_os` and the unit tests of `src/activation_state.rs`. Reproduce, in `sens-api-gateway`,
+  for each Suderra OS feature set `<set>` of `python3 -I scripts/edge/edge_release.py plan`:
+  `cargo test --locked --all-targets --no-default-features --features <set>`. The commit carries the exact
+  `Closes:` trailer; `finding-registry reconcile` closes the row after the branch merges.
+- `EDGE-CRITICAL-047` and `EDGE-CRITICAL-048` (the SQLCipher secret created lazily under `/etc` and keyed to the
+  transient machine-id): fixed by `522d493cb`. `src/db_secret.rs` owns the secret under the agent's `secrets/`
+  directory and, on Suderra OS, `src/machine_id.rs` is not compiled; proof is the unit tests of `db_secret` and
+  the same invariants and reproduction as above. Closed through the same trailer and the same reconcile step.
+- `EDGE-CRITICAL-049` (`notify(true, READY)` unset `NOTIFY_SOCKET`, so every `WATCHDOG=1` was a no-op): fixed by
+  `f5ea43949`. `src/systemd_notify.rs` keeps the socket for the process lifetime and has no unset operation,
+  READY follows the boot safe-state, and `src/liveness.rs` pings only while every registered loop progressed;
+  proof is the unit tests of `systemd_notify`, `liveness` and `degraded` under the same reproduction. Closed
+  through the same trailer and the same reconcile step.
 
 ## Implementation Evidence Pending Registry Close
 

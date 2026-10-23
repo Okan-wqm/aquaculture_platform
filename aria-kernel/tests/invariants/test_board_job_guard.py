@@ -18,9 +18,11 @@ job that declares ``environment: aria-board`` (a "Board job"):
   naming this repository) at the triggering main commit (``ref`` absent or
   ``${{ github.sha }}``), never a ref an event payload or an input chooses —
   or the vault repository by name, and keeps no credential in a checkout;
-* it writes nothing: the workflow declares read-only ``permissions``, the job
-  widens none, and no step pushes (B0 has no writer; B2 adds the one named
-  signed-totals writer under this guard);
+* it writes nothing: the workflow declares ``permissions``, and neither it nor
+  the job grants a ``write`` scope, each value read by its one owner
+  (``workflow_contract_registry.declared_token_permissions``), and no step
+  pushes (B0 has no writer; B2 adds the one named signed-totals writer under
+  this guard);
 * it uploads no artifact and saves no cache (both are readable by ARIA's own
   jobs on the same branch), and traces no shell — in a ``run:`` body, a step
   ``shell:``, or the job's or workflow's ``defaults.run.shell`` — since a trace
@@ -60,6 +62,7 @@ import yaml  # type: ignore[import-untyped]
 
 from aria_kernel.examination_board import VAULT_DATA_KEY_ENV, VAULT_REPOSITORY
 from aria_kernel.operator_approval import load_operators_policy
+from aria_kernel.workflow_contract_registry import declared_token_permissions
 from aria_kernel.workflow_contracts import condition_requires
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -73,7 +76,6 @@ _BOARD_VERSION_REFS = (None, "${{ github.sha }}")
 _LEAKING_ACTIONS = ("actions/upload-artifact@", "actions/cache@", "actions/cache/save@")
 _KERNEL_SETUP_ACTION = ".github/actions/setup-aria-kernel"
 _PR_TRIGGERS = ("pull_request", "pull_request_target", "merge_group")
-_READ_ONLY_LEVELS = ("read", "none")
 # `set -x`, `set -euxo pipefail`, `bash -ex script`, and any spelling of xtrace
 # (`set -o xtrace`, `SHELLOPTS=xtrace`). The first guard required a word
 # boundary after the `x`, so `set -euxo pipefail` passed it.
@@ -117,12 +119,6 @@ def _defaults_shell(holder: dict[str, Any]) -> Any:
     return ((defaults.get("run") or {}) if isinstance(defaults, dict) else {}).get("shell")
 
 
-def _read_only(permissions: Any) -> bool:
-    if permissions == "read-all":
-        return True
-    return isinstance(permissions, dict) and all(level in _READ_ONLY_LEVELS for level in permissions.values())
-
-
 def _condition_violations(job: dict[str, Any]) -> list[str]:
     return [f"if: does not require {required}" for required in _REQUIRED_CONJUNCTS
             if not condition_requires(job.get("if"), required)]
@@ -155,12 +151,21 @@ def _checkout_violations(job: dict[str, Any]) -> list[str]:
     return violations
 
 
+def _grant_violations(where: str, declared: Any) -> list[str]:
+    """A declared ``permissions:`` value, read by its one owner: a value GitHub accepts, granting no write."""
+    granted = declared_token_permissions(declared)
+    if granted is None:
+        return [f"{where} permissions {declared!r} are not a grant GitHub accepts"]
+    return [f"{where} permissions grant {scope}: write" for scope, level in granted.items() if level == "write"]
+
+
 def _write_violations(workflow: dict[str, Any], job: dict[str, Any]) -> list[str]:
-    violations: list[str] = []
-    if not _read_only(workflow.get("permissions")):
-        violations.append(f"workflow permissions {workflow.get('permissions')!r} are not read-only")
-    if "permissions" in job and not _read_only(job.get("permissions")):
-        violations.append(f"job permissions {job.get('permissions')!r} are not read-only")
+    # The workflow declares its grant (undeclared is the repository default,
+    # which this guard cannot see) and no Board job widens it.
+    violations = (_grant_violations("workflow", workflow["permissions"]) if "permissions" in workflow
+                  else ["workflow declares no permissions"])
+    if "permissions" in job:
+        violations += _grant_violations("job", job["permissions"])
     violations += [f"step pushes: {step.get('name') or str(step.get('run'))[:60]}" for step in _steps(job)
                    if _GIT_PUSH.search(str(step.get("run") or ""))]
     return violations
@@ -319,11 +324,39 @@ class EachMutationIsRefusedTests(unittest.TestCase):
                 mutate(mutated)
                 self.assertTrue(board_violations(mutated), f"{name} passed the guard")
 
+    def test_a_bare_workflow_permissions_grants_nothing_and_passes(self) -> None:
+        # B0 corrective round 2, R2-6: a bare ``permissions:`` is an empty
+        # grant (declared_token_permissions), not an undeclared one.
+        mutated = copy.deepcopy(self.workflow)
+        mutated["permissions"] = None
+        self.assertEqual(board_violations(mutated), {})
+
+    def test_undeclared_workflow_permissions_are_refused(self) -> None:
+        # Undeclared means the repository default, which this guard cannot see.
+        mutated = copy.deepcopy(self.workflow)
+        del mutated["permissions"]
+        self.assertTrue(board_violations(mutated))
+
     def test_the_vault_repository_by_name_is_a_board_checkout(self) -> None:
         mutated = copy.deepcopy(self.workflow)
         _add_step({"uses": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
                    "with": {"repository": VAULT_REPOSITORY, "path": "vault", "persist-credentials": False}})(mutated)
         self.assertEqual(board_violations(mutated), {})
+
+
+class PermissionsHaveOneReaderTests(unittest.TestCase):
+    """B0 corrective round 2, R2-6: the guard judges ``permissions:`` through its owner, never its own reading."""
+
+    def test_the_guard_reads_permissions_only_through_declared_token_permissions(self) -> None:
+        source = Path(__file__).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        imported = {alias.name for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
+                    and node.module == "aria_kernel.workflow_contract_registry" for alias in node.names}
+        self.assertIn("declared_token_permissions", imported)
+        defined = {node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)}
+        self.assertNotIn("_read_only", defined)
+        keyword = '"read' + '-all"'
+        self.assertNotIn(keyword, source, "a second reading of the read-all keyword")
 
 
 class TheKeyHoldingProcessLoadsNoAriaKernelTests(unittest.TestCase):

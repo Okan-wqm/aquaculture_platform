@@ -64,6 +64,7 @@ const TOOL = join(REPO_ROOT, 'scripts', 'edge', 'edge_release.py');
 const FACTS = join(REPO_ROOT, 'sens-api-gateway', 'release', 'edge-release.toml');
 const CARGO_TOML = join(REPO_ROOT, 'sens-api-gateway', 'Cargo.toml');
 const RELEASE_WF = '.github/workflows/edge-agent-release.yml';
+const PUBLISH_WF = '.github/workflows/edge-release-publish.yml';
 const CI_EDGE_WF = '.github/workflows/ci-edge.yml';
 const GATEWAY_WF = '.github/workflows/sens-api-gateway-ci.yml';
 const STATEMENT_TYPE = 'suderra.edge-release.v1';
@@ -827,6 +828,249 @@ describe('edge release workflows', () => {
 
   it('keeps no workflow below sens-api-gateway (GitHub runs only the root .github)', () => {
     expect(existsSync(join(REPO_ROOT, 'sens-api-gateway', '.github'))).toBe(false);
+  });
+
+  it('builds the RevPi Connect 4 for aarch64 with the piControl backend and without gpio', () => {
+    // ADR-048 DEC-8: the board's hardware backend is revpi-io (the agent opens
+    // /dev/piControl0); gpio would race the kernel's pibridge node.
+    const revpi = osRows.find((r) => r.id === 'revpi-connect4');
+    expect(revpi?.rust_target).toBe('aarch64-unknown-linux-gnu');
+    expect(revpi?.arch).toBe('aarch64');
+    const features = revpi?.features.split(',') ?? [];
+    expect(features).toEqual(expect.arrayContaining(['revpi-io', 'scada-display', 'suderra-os']));
+    expect(features).not.toContain('gpio');
+    expect(revpi?.artifact).toBe(`suderra-agent-os-${VERSION}-revpi-connect4-aarch64.tar.gz`);
+    // The release and the profile CI build, lint and test exactly that set.
+    expect(plan.test.include.map((t) => t.features)).toContain(revpi?.features);
+    for (const row of osRows) {
+      const backends = row.features.split(',').filter((f) => f === 'gpio' || f === 'revpi-io');
+      expect({ board: row.id, backends }).toEqual({
+        board: row.id,
+        backends:
+          row.id === 'rpi4-cm4' ? ['gpio'] : row.id === 'revpi-connect4' ? ['revpi-io'] : [],
+      });
+    }
+  });
+});
+
+describe('edge release offline production flow (ADR-048 DEC-3.9, DEC-20)', () => {
+  type Step = {
+    uses?: string;
+    run?: string;
+    name?: string;
+    env?: Record<string, string>;
+    with?: Record<string, unknown>;
+  };
+  type Job = {
+    needs?: string | string[];
+    if?: string;
+    environment?: string;
+    permissions?: Record<string, string>;
+    outputs?: Record<string, string>;
+    steps?: Step[];
+  };
+  type Workflow = { on: Record<string, unknown>; jobs: Record<string, Job> };
+  const load = (rel: string): { wf: Workflow; text: string } => {
+    const text = readFileSync(join(REPO_ROOT, rel), 'utf8');
+    return { wf: yaml.load(text) as Workflow, text };
+  };
+  const release = load(RELEASE_WF);
+  const publish = load(PUBLISH_WF);
+  const needs = (job: Job | undefined): string[] =>
+    job?.needs === undefined ? [] : [job.needs].flat();
+  const stepsOf = (wf: Workflow, job: string): Step[] => wf.jobs[job]?.steps ?? [];
+  const runAt = (steps: Step[], needle: string): number =>
+    steps.findIndex((s) => (s.run ?? '').includes(needle));
+  const usesAt = (steps: Step[], needle: string): number =>
+    steps.findIndex((s) => (s.uses ?? '').startsWith(needle));
+  const PINNED = /^[a-z0-9-]+\/[a-z0-9-]+@[0-9a-f]{40}( |$)/;
+
+  it('resolves the signing mode from a repository variable and runs no other job in the wrong mode', () => {
+    const mode = release.wf.jobs['signing-mode'];
+    expect(needs(mode)).toEqual(['release-ref-contract']);
+    expect(mode?.environment).toBeUndefined();
+    expect(mode?.permissions).toEqual({});
+    expect(mode?.outputs).toEqual({ mode: '${{ steps.mode.outputs.mode }}' });
+    const step = stepsOf(release.wf, 'signing-mode')[0];
+    expect(step?.env).toEqual({ CONFIGURED_MODE: '${{ vars.EDGE_RELEASE_SIGNING_MODE }}' });
+    expect(step?.run).toContain('MODE="${CONFIGURED_MODE:-ci-key}"');
+    expect(step?.run).toContain('ci-key | offline');
+    // The dev/CI path is the default and keeps its job, key and publish job.
+    const ciKey = "needs.signing-mode.outputs.mode == 'ci-key'";
+    const offline = "needs.signing-mode.outputs.mode == 'offline'";
+    expect(release.wf.jobs['sign-release-statement']?.if).toBe(ciKey);
+    expect(needs(release.wf.jobs['sign-release-statement'])).toContain('signing-mode');
+    expect(needs(release.wf.jobs['release'])).toContain('sign-release-statement');
+    expect(release.wf.jobs['release']?.if).toBeUndefined();
+    for (const job of ['prepare-offline-statements', 'draft-release']) {
+      expect(needs(release.wf.jobs[job])).toContain(
+        job === 'draft-release' ? 'prepare-offline-statements' : 'signing-mode',
+      );
+    }
+    expect(release.wf.jobs['prepare-offline-statements']?.if).toBe(offline);
+    // The draft job depends on the preparing job, so it never runs in ci-key mode.
+    expect(release.wf.jobs['draft-release']?.if).toBeUndefined();
+  });
+
+  it('holds no key, no secret and no environment in any job of the offline flow', () => {
+    for (const [name, job] of Object.entries(release.wf.jobs)) {
+      if (name !== 'prepare-offline-statements' && name !== 'draft-release') continue;
+      const text = JSON.stringify(job);
+      expect({ name, environment: job.environment }).toEqual({ name, environment: undefined });
+      expect({ name, secrets: /secrets\./.test(text) }).toEqual({ name, secrets: false });
+      expect({ name, key: text.includes('EDGE_RELEASE_SIGNING_KEY') }).toEqual({
+        name,
+        key: false,
+      });
+      expect({ name, ci: text.includes('sign --artifacts') }).toEqual({ name, ci: false });
+    }
+    expect(release.wf.jobs['prepare-offline-statements']?.permissions).toEqual({
+      contents: 'read',
+    });
+    // The parsed workflow, not its comments: nothing the publishing job runs or reads is a secret.
+    const publishText = JSON.stringify(publish.wf);
+    expect(publishText).not.toMatch(/secrets\./);
+    expect(publishText).not.toContain('EDGE_RELEASE_SIGNING_KEY');
+    expect(publishText).not.toMatch(/edge_release\.py sign\b/);
+    // The production statements are never produced by the CI signing command.
+    const offlineRuns = Object.entries(release.wf.jobs)
+      .filter(([name]) => name === 'prepare-offline-statements' || name === 'draft-release')
+      .flatMap(([, job]) => (job.steps ?? []).map((s) => s.run ?? ''))
+      .join('\n');
+    expect(offlineRuns).not.toMatch(/edge_release\.py (sign|offline-assemble)\b/);
+  });
+
+  it('states the provenance and checks the sheet in the preparing job, from the downloaded bytes', () => {
+    const steps = stepsOf(release.wf, 'prepare-offline-statements');
+    const downloadAt = usesAt(steps, 'actions/download-artifact');
+    const provenanceAt = runAt(steps, 'edge_release.py provenance');
+    const statementsAt = runAt(steps, 'edge_release.py statements');
+    const sheetAt = runAt(steps, 'edge_release.py offline-request');
+    expect(downloadAt).toBeGreaterThanOrEqual(0);
+    expect(provenanceAt).toBeGreaterThan(downloadAt);
+    expect(statementsAt).toBeGreaterThan(provenanceAt);
+    expect(sheetAt).toBeGreaterThan(statementsAt);
+    expect(steps[sheetAt]?.run).toContain('--expect-tag "${RELEASE_TAG}"');
+    expect(steps[sheetAt]?.run).toContain('--expect-commit "${GITHUB_SHA}"');
+    expect(steps[sheetAt]?.run).toContain('--expect-repository "${GITHUB_REPOSITORY}"');
+    expect(steps[sheetAt]?.run).toContain('$GITHUB_STEP_SUMMARY');
+    for (const s of steps) {
+      if (s.uses !== undefined) {
+        expect(s.uses).toMatch(
+          /^actions\/(checkout|download-artifact|upload-artifact)@[0-9a-f]{40}( |$)/,
+        );
+      }
+    }
+    const uploads = steps.filter((s) => (s.uses ?? '').startsWith('actions/upload-artifact'));
+    expect(uploads.map((s) => s.with?.['name'])).toEqual([
+      'unsigned-release-statements',
+      'release-provenance',
+    ]);
+  });
+
+  it('publishes the build as a draft after a cosign pass over exactly the build outputs', () => {
+    const steps = stepsOf(release.wf, 'draft-release');
+    const files = runAt(steps, 'offline-assets');
+    const cosign = runAt(steps, 'cosign sign-blob');
+    const create = usesAt(steps, 'softprops/action-gh-release');
+    expect(cosign).toBeGreaterThanOrEqual(0);
+    expect(files).toBeGreaterThan(cosign);
+    expect(create).toBeGreaterThan(files);
+    expect(steps[files]?.run).toContain('--stage built');
+    const gh = steps[create];
+    expect(gh?.with?.['draft']).toBe(true);
+    expect(gh?.with?.['tag_name']).toBe('${{ env.RELEASE_TAG }}');
+    const published = String(gh?.with?.['files']);
+    expect(published).not.toContain('release.dsse.json');
+    expect(published).not.toContain('edge-release.pub');
+    // No statement and no manifest is cosign-signed here: the custodians sign the statements.
+    expect(steps[cosign]?.run).not.toContain('dsse');
+    expect(steps[cosign]?.run).not.toContain('manifest');
+  });
+
+  it('publishes only from a pushed agent-statements-v tag, never from a dispatch', () => {
+    expect(Object.keys(publish.wf.on)).toEqual(['push']);
+    expect(publish.wf.on['push']).toEqual({ tags: ['agent-statements-v*'] });
+    expect(publish.text).not.toContain('workflow_dispatch');
+    expect(Object.keys(release.wf.on)).toEqual(['push']);
+    // The statements tag cannot start the build.
+    expect('agent-statements-v1.0.0').not.toMatch(/^agent-v/);
+    const contract = stepsOf(publish.wf, 'statements-ref-contract');
+    const run = contract.map((s) => s.run ?? '').join('\n');
+    for (const needle of [
+      'agent-statements-v',
+      'sens-api-gateway/Cargo.toml',
+      'git merge-base --is-ancestor',
+      'is not on the commit of',
+    ]) {
+      expect(run).toContain(needle);
+    }
+  });
+
+  it('verifies every statement under the environment keyid before anything is published', () => {
+    const job = publish.wf.jobs['publish'];
+    expect(job?.environment).toBe('edge-release-publish');
+    expect(needs(job)).toEqual(['statements-ref-contract']);
+    expect(job?.permissions).toEqual({ contents: 'write', 'id-token': 'write' });
+    const steps = stepsOf(publish.wf, 'publish');
+    for (const s of steps) {
+      if (s.uses !== undefined) expect(s.uses).toMatch(PINNED);
+    }
+    const draftAt = runAt(steps, 'isDraft');
+    const downloadAt = runAt(steps, 'gh release download');
+    const signedAt = runAt(steps, '--stage signed');
+    const verifyAt = runAt(steps, 'edge_release.py verify');
+    const manifestAt = runAt(steps, 'edge_release.py manifest');
+    const cosignAt = runAt(steps, 'cosign sign-blob');
+    const releasedAt = runAt(steps, '--stage released');
+    const notesAt = runAt(steps, 'edge_release.py notes');
+    const publishAt = runAt(steps, '--draft=false');
+    const order = [
+      draftAt,
+      downloadAt,
+      signedAt,
+      verifyAt,
+      manifestAt,
+      cosignAt,
+      releasedAt,
+      notesAt,
+      publishAt,
+    ];
+    expect(order.every((i) => i >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    const verifyRun = steps[verifyAt]?.run ?? '';
+    expect(verifyRun).toContain('--public-key artifacts/edge-release.pub');
+    expect(verifyRun).toContain('--expect-keyid "${EDGE_RELEASE_KEYID}"');
+    expect(job && JSON.stringify(job)).toContain('${{ vars.EDGE_RELEASE_KEYID }}');
+    // The manifest and the notes name the offline mode; nothing is uploaded before the checks.
+    expect(steps[manifestAt]?.run).toContain('--statement-signing offline');
+    expect(steps[notesAt]?.run).toContain('--statement-signing offline');
+    for (const [i, s] of steps.entries()) {
+      if ((s.run ?? '').includes('gh release upload')) expect(i).toBe(publishAt);
+    }
+    // Only a draft is completed.
+    expect(steps[draftAt]?.run).toContain('"${IS_DRAFT}" != "true"');
+  });
+
+  it('declares the protection of the publishing environment as an operator check', () => {
+    const manifest = readJson(join(REPO_ROOT, '.github', 'provisioned-secrets.json'));
+    const environment = obj(obj(manifest['environments'])['edge-release-publish']);
+    expect(environment['required_reviewers']).toBe(true);
+    expect(environment['prevent_self_review']).toBe(true);
+    expect(environment['deployment_policy']).toEqual({
+      type: 'tag',
+      pattern: 'agent-statements-v*',
+    });
+    // It holds the trust anchor, never a key.
+    expect(list(environment['secrets'])).toEqual([]);
+    expect(list(environment['variables']).map(str)).toEqual(['EDGE_RELEASE_KEYID']);
+    expect(list(environment['repository_level_forbidden']).map(str)).toContain(
+      'EDGE_RELEASE_SIGNING_KEY',
+    );
+    const used = [...publish.text.matchAll(/vars\.([A-Z0-9_]+)/g)].map((m) => m[1]);
+    expect([...new Set(used)]).toEqual(['EDGE_RELEASE_KEYID']);
+    // The production keyid is never also the CI environment's: `edge-release` is unused in offline mode.
+    expect(str(environment['why'])).toContain('EDGE_RELEASE_SIGNING_MODE');
   });
 });
 
@@ -1739,6 +1983,60 @@ describe('edge release offline ceremony flow (ADR-048 DEC-3.9, DEC-20)', () => {
     }
   });
 
+  it('assembles the signatures the rehearsal commands of the runbook make with OpenSSL', () => {
+    const dir = fresh('rehearsal');
+    mkdirSync(join(dir, 'signatures'), { recursive: true });
+    const keyFile = join(dir, 'rehearsal.pem');
+    const publicFile = join(dir, 'rehearsal.pub');
+    const key = newKey();
+    writeFileSync(keyFile, key.pem);
+    const openssl = (args: string[]): void => {
+      const run = spawnSync('openssl', args, { encoding: 'utf8' });
+      if (run.status !== 0) throw new Error(`openssl ${args.join(' ')}: ${run.stderr}`);
+    };
+    openssl(['pkey', '-in', keyFile, '-pubout', '-out', publicFile]);
+    const requested = request();
+    for (const row of osRows) {
+      openssl([
+        'pkeyutl',
+        '-sign',
+        '-rawin',
+        '-inkey',
+        keyFile,
+        '-in',
+        join(requested, `${row.artifact}.release.pae`),
+        '-out',
+        join(dir, 'signatures', `${row.artifact}.release.sig`),
+      ]);
+    }
+    const out = fresh('statements');
+    ok(
+      tool(
+        assembleArgs(
+          prepared.art,
+          prepared.payloads,
+          join(dir, 'signatures'),
+          publicFile,
+          key.keyid,
+          out,
+        ),
+      ),
+    );
+    ok(
+      tool([
+        'verify',
+        '--artifacts',
+        prepared.art,
+        '--statements',
+        out,
+        '--public-key',
+        join(out, 'edge-release.pub'),
+        '--expect-keyid',
+        key.keyid,
+      ]),
+    );
+  });
+
   describe('refuses every signature set that is not the expected key signing this release', () => {
     const key = newKey();
     let requested: string;
@@ -1980,6 +2278,69 @@ describe('edge release offline ceremony flow (ADR-048 DEC-3.9, DEC-20)', () => {
       const refusedRun = tool(args, FINALIZE_ENV);
       expect(refusedRun.status).toBe(1);
       expect(refusedRun.stderr).toContain(`provenance states tag ${TAG}`);
+    });
+
+    describe('the files of each stage are exactly the planned set', () => {
+      const assets = (dir: string, stage: string): ToolRun =>
+        tool(['offline-assets', '--artifacts', dir, '--stage', stage]);
+      /** The draft: the build outputs and their cosign material, no statement. */
+      const draft = (): string => {
+        const dir = published(false);
+        for (const row of osRows) rmSync(join(dir, row.statement));
+        return dir;
+      };
+      /** The draft plus what the custodians upload: the statements and the ceremony's public key. */
+      const signed = (): string => {
+        const dir = published(false);
+        copyFileSync(join(statements, 'edge-release.pub'), join(dir, 'edge-release.pub'));
+        return dir;
+      };
+      const released = (): string => {
+        const dir = signed();
+        ok(tool(manifestArgs(dir, 'offline'), FINALIZE_ENV));
+        for (const ext of ['sig', 'pem']) {
+          writeFileSync(join(dir, `edge-release-manifest.json.${ext}`), ext);
+        }
+        return dir;
+      };
+
+      it('accepts the draft, the draft with the statements, and the released set', () => {
+        ok(assets(draft(), 'built'));
+        ok(assets(signed(), 'signed'));
+        ok(assets(released(), 'released'));
+      });
+
+      it('refuses a file nobody planned and a file that is missing, at every stage', () => {
+        const cases: [string, () => string][] = [
+          ['built', draft],
+          ['signed', signed],
+          ['released', released],
+        ];
+        for (const [stage, make] of cases) {
+          const extra = make();
+          writeFileSync(join(extra, 'notes.txt'), 'stray');
+          const stray = assets(extra, stage);
+          expect({ stage, status: stray.status }).toEqual({ stage, status: 1 });
+          expect(stray.stderr).toContain("unexpected ['notes.txt']");
+
+          const missing = make();
+          const victim = osRows[0] as Row;
+          rmSync(join(missing, `${victim.artifact}.sha256`));
+          const absent = assets(missing, stage);
+          expect({ stage, status: absent.status }).toEqual({ stage, status: 1 });
+          expect(absent.stderr).toContain(`missing ['${victim.artifact}.sha256']`);
+        }
+      });
+
+      it('refuses the statements before the custodians uploaded them and cosign material on them', () => {
+        expect(assets(draft(), 'signed').stderr).toContain('missing');
+        const cosigned = signed();
+        writeFileSync(join(cosigned, `${osRows[0]?.statement ?? ''}.sig`), 'sig');
+        expect(assets(cosigned, 'signed').stderr).toContain('unexpected');
+        // a stage's own set is not the previous one
+        expect(assets(signed(), 'built').stderr).toContain('unexpected');
+        expect(assets(signed(), 'released').stderr).toContain('missing');
+      });
     });
 
     it('says in the notes who signed the statements', () => {

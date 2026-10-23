@@ -216,6 +216,12 @@
       "reason": "Edge agent release build from a release tag."
     },
     {
+      "workflow": "edge-release-publish.yml",
+      "name": "Edge Release Publish",
+      "role": "main_verdict",
+      "reason": "Publishes an offline-signed edge agent release from a protected statements tag."
+    },
+    {
       "workflow": "finding-closure-reconcile.yml",
       "name": "Finding Closure Reconcile",
       "role": "main_verdict",

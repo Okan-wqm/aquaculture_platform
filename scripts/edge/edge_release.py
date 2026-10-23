@@ -28,6 +28,8 @@ Subcommands, in pipeline order:
   offline-assemble  the second half: the DSSE envelopes from the HSM's raw
               signatures, each verified under verify_strict against the public
               key of the ceremony before anything is written
+  offline-assets  the files of a release signed offline at each stage (draft,
+              statements added, manifest added): exactly the planned set
   verify      every planned envelope against its artifact, the public key and
               the contract, in the statements.json verification_order, with
               verify_strict semantics; the payload must be byte for byte the
@@ -101,6 +103,11 @@ SIGNING_SHEET = "signing-sheet.txt"
 # The workflow whose run states the provenance: the cloud's release admission
 # pins the same path (apps/sensor-service edge-release-provenance.ts).
 RELEASE_WORKFLOW = ".github/workflows/edge-agent-release.yml"
+# The three moments of the offline flow at which the set of release files is
+# exact: after the build (the draft), after the custodians' statements were
+# added to the draft, and after the manifest was added to the published release.
+STAGE_BUILT, STAGE_SIGNED, STAGE_RELEASED = "built", "signed", "released"
+MANIFEST_FILE = "edge-release-manifest.json"
 # Who signed the release statements (the manifest and the notes say so).
 SIGNING_CI_KEY = "ci-key"
 SIGNING_OFFLINE = "offline"
@@ -1522,6 +1529,50 @@ def cmd_offline_assemble(release: Release, args: argparse.Namespace) -> None:
             print(str(out_dir / name))
 
 
+def _offline_files(release: Release, stage: str) -> set[str]:
+    """Every file of the release at `stage`, for a release signed offline.
+
+    The cosign material of the build outputs is there from the start; the
+    statements, which carry none, and the ceremony's public key join at the
+    `signed` stage, and the manifest with its own cosign material at the end.
+    """
+    names: set[str] = set()
+    for row in release.rows():
+        for name in (
+            row.artifact,
+            f"{row.base}.cargo-metadata.sbom.json",
+            f"{row.base}.intoto.jsonl",
+            f"{row.base}.NOTICE.md",
+        ):
+            names |= {name, f"{name}.sig", f"{name}.pem"}
+        names.add(f"{row.artifact}.sha256")
+        if stage != STAGE_BUILT and row.channel == CHANNEL_OS:
+            names.add(row.statement)
+    if stage != STAGE_BUILT:
+        names.add(PUBLIC_KEY_FILE)
+    if stage == STAGE_RELEASED:
+        names |= {MANIFEST_FILE, f"{MANIFEST_FILE}.sig", f"{MANIFEST_FILE}.pem"}
+    return names
+
+
+def cmd_offline_assets(release: Release, args: argparse.Namespace) -> None:
+    """The directory holds exactly the files of the stage: a file nobody
+    planned is never published beside the manifest, and none is missing."""
+    directory = Path(args.artifacts)
+    if not directory.is_dir():
+        fail(f"{directory} is not a directory")
+    present = {p.name for p in directory.iterdir() if p.is_file() and not p.is_symlink()}
+    others = {p.name for p in directory.iterdir()} - present
+    expected = _offline_files(release, args.stage)
+    missing, unexpected = sorted(expected - present), sorted((present - expected) | others)
+    if missing or unexpected:
+        fail(
+            f"the {args.stage} files of the release are not the planned set: "
+            f"missing {missing}, unexpected {unexpected}"
+        )
+    print(f"ok {len(expected)} files at stage {args.stage}")
+
+
 def _envelope(release: Release, path: Path) -> dict[str, Any]:
     """envelope-invalid, then payload-type-mismatch (verification_order)."""
     if not path.is_file():
@@ -1758,7 +1809,7 @@ def cmd_manifest(release: Release, args: argparse.Namespace) -> None:
         },
         "artifacts": entries,
     }
-    out = directory / "edge-release-manifest.json"
+    out = directory / MANIFEST_FILE
     out.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     print(str(out))
 
@@ -1820,6 +1871,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--expect-keyid", required=True, help="the keyid the ceremony recorded")
     p.add_argument("--out-dir", required=True)
 
+    p = sub.add_parser(
+        "offline-assets",
+        help="a release signed offline holds exactly the files of its stage, no more and no fewer",
+    )
+    p.add_argument("--artifacts", required=True)
+    p.add_argument("--stage", required=True, choices=[STAGE_BUILT, STAGE_SIGNED, STAGE_RELEASED])
+
     p = sub.add_parser("verify", help="verify every planned release statement")
     p.add_argument("--artifacts", required=True)
     p.add_argument("--statements", required=True)
@@ -1856,6 +1914,7 @@ def main(argv: list[str] | None = None) -> int:
         "sign": cmd_sign,
         "offline-request": cmd_offline_request,
         "offline-assemble": cmd_offline_assemble,
+        "offline-assets": cmd_offline_assets,
         "verify": cmd_verify,
         "check-envelope": cmd_check_envelope,
         "signature-vectors": cmd_signature_vectors,

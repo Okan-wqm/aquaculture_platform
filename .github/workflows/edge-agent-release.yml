@@ -19,11 +19,21 @@ name: Edge Agent Release
 #
 # Order: the tag's commit passes the gateway CI and the profile CI (every
 # feature set linted and tested, every row cross-built) -> cache-free release
-# builds -> a separate job `sign-release-statement` (ADR-048 DEC-3) in the
-# protected `edge-release` environment states the provenance and signs the
-# statements over the exact artifact bytes -> the publish job verifies every
-# statement (verify_strict) before cosign (provenance only, DEC-3.8) and the
-# GitHub release.
+# builds -> the statements, signed one of two ways (job `signing-mode`):
+#   ci-key  (default, P0) a separate job `sign-release-statement` (ADR-048
+#           DEC-3) in the protected `edge-release` environment states the
+#           provenance and signs the statements over the exact artifact bytes
+#           with the dev/CI key -> the publish job verifies every statement
+#           (verify_strict) before cosign (provenance only, DEC-3.8) and the
+#           GitHub release;
+#   offline (production, DEC-3.9) no job of this repository holds the key. The
+#           job `prepare-offline-statements` states the provenance and builds
+#           the unsigned payloads and the signing sheet, `draft-release`
+#           publishes the build as a DRAFT release, and the custodians of the
+#           edge-release ceremony key sign the statements offline
+#           (docs/runbooks/edge-release-offline-signing.md), upload them to
+#           the draft and push the tag agent-statements-v<version>, which
+#           .github/workflows/edge-release-publish.yml verifies and publishes.
 
 on:
   push:
@@ -290,6 +300,38 @@ jobs:
           if-no-files-found: error
           retention-days: 5
 
+  # ADR-048 DEC-3.9 / DEC-20: who signs the release statements. `ci-key` (the
+  # default, P0) signs with the dev/CI key of the protected `edge-release`
+  # environment; `offline` is the production flow, in which no job of this
+  # repository holds a key. A repository variable, because a job's `if` is
+  # evaluated before the variables of its environment exist. Choosing `ci-key`
+  # on a repository whose `edge-release` environment holds no signing secret
+  # fails closed at the signing step; choosing `offline` can never sign.
+  signing-mode:
+    name: Signing mode
+    needs: release-ref-contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    permissions: {}
+    outputs:
+      mode: ${{ steps.mode.outputs.mode }}
+    steps:
+      - name: Resolve the signing mode
+        id: mode
+        env:
+          CONFIGURED_MODE: ${{ vars.EDGE_RELEASE_SIGNING_MODE }}
+        run: |
+          set -euo pipefail
+          MODE="${CONFIGURED_MODE:-ci-key}"
+          case "${MODE}" in
+            ci-key | offline) ;;
+            *)
+              echo "EDGE_RELEASE_SIGNING_MODE must be ci-key or offline, got '${MODE}'"
+              exit 1
+              ;;
+          esac
+          echo "mode=${MODE}" >> "$GITHUB_OUTPUT"
+
   # ADR-048 DEC-3 / DEC-3.9 / DEC-20: the provenance and the edge-release
   # signature, in their own minimal job: no cache, no third-party action, no
   # toolchain — the runner's python3 and OpenSSL 3, GitHub's checkout and
@@ -315,7 +357,9 @@ jobs:
     name: Sign release statements (edge-release)
     needs:
       - release-ref-contract
+      - signing-mode
       - build
+    if: needs.signing-mode.outputs.mode == 'ci-key'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment: edge-release
@@ -474,7 +518,8 @@ jobs:
           set -euo pipefail
           python3 -I scripts/edge/edge_release.py manifest \
             --artifacts artifacts --tag "${RELEASE_TAG}" --channel "${RELEASE_CHANNEL}" \
-            --prerelease "${RELEASE_PRERELEASE}" --statement-keyid "${STATEMENT_KEYID}"
+            --prerelease "${RELEASE_PRERELEASE}" --statement-keyid "${STATEMENT_KEYID}" \
+            --statement-signing ci-key
 
       - name: Sign release manifest with cosign
         run: |
@@ -491,7 +536,8 @@ jobs:
         run: |
           set -euo pipefail
           python3 -I scripts/edge/edge_release.py notes \
-            --tag "${RELEASE_TAG}" --statement-keyid "${STATEMENT_KEYID}" --out release-notes.md
+            --tag "${RELEASE_TAG}" --statement-keyid "${STATEMENT_KEYID}" \
+            --statement-signing ci-key --out release-notes.md
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v2.2.1
@@ -510,5 +556,169 @@ jobs:
             artifacts/*.intoto.jsonl
             artifacts/*.release.dsse.json
             artifacts/edge-release-manifest.json
+            artifacts/*.NOTICE.md
+            artifacts/*.pem
+
+  # The offline production flow (DEC-3.9), first half. This job holds no
+  # environment, no secret and no key: it states the provenance and builds the
+  # unsigned payloads exactly as the signing job does, and prints the signing
+  # sheet the custodians compare with the one they compute offline from the
+  # downloaded bytes. The payloads are uploaded for reference only: the
+  # custodians derive their own from the artifact bytes.
+  prepare-offline-statements:
+    name: Unsigned release statements (offline ceremony)
+    needs:
+      - release-ref-contract
+      - signing-mode
+      - build
+    if: needs.signing-mode.outputs.mode == 'offline'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      RELEASE_TAG: ${{ needs.release-ref-contract.outputs.tag }}
+      RELEASE_VERSION: ${{ needs.release-ref-contract.outputs.version }}
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download build outputs
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: build-*
+          path: dist
+          merge-multiple: true
+
+      - name: State the provenance of every artifact
+        run: python3 -I scripts/edge/edge_release.py provenance --artifacts dist --tag "${RELEASE_TAG}" --out-dir dist
+
+      - name: Build the unsigned release statements
+        run: python3 -I scripts/edge/edge_release.py statements --artifacts dist --out-dir payloads --expect-version "${RELEASE_VERSION}"
+
+      # The same checks the custodians run offline, against this run's own
+      # context: a provenance of another tag, commit or repository, or a
+      # payload that is not this release's statement, stops the release here.
+      - name: Write the signing sheet
+        run: |
+          set -euo pipefail
+          python3 -I scripts/edge/edge_release.py offline-request \
+            --artifacts dist --payloads payloads --out-dir sheet \
+            --expect-tag "${RELEASE_TAG}" --expect-commit "${GITHUB_SHA}" \
+            --expect-repository "${GITHUB_REPOSITORY}" > /dev/null
+          {
+            echo "### Signing sheet of ${RELEASE_TAG}"
+            echo
+            echo "The custodians compare the \`sheet-sha256\` line with the one they compute offline."
+            echo
+            echo '```text'
+            cat sheet/signing-sheet.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the unsigned payloads and the sheet
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: unsigned-release-statements
+          path: |
+            payloads/*.release.payload.json
+            sheet/signing-sheet.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload the provenance
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-provenance
+          path: dist/*.intoto.jsonl
+          if-no-files-found: error
+          retention-days: 30
+
+  # Second half of the build in the offline flow: the build outputs, the
+  # provenance and their cosign material go into a DRAFT release, which stays a
+  # draft until edge-release-publish.yml has verified the custodians' statements.
+  draft-release:
+    name: Create the draft GitHub Release
+    needs:
+      - release-ref-contract
+      - build
+      - prepare-offline-statements
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      # SEC-CI-022: id-token required for keyless cosign signing via sigstore OIDC
+      id-token: write
+    env:
+      RELEASE_TAG: ${{ needs.release-ref-contract.outputs.tag }}
+      RELEASE_PRERELEASE: ${{ needs.release-ref-contract.outputs.prerelease }}
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download build outputs
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: build-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Download the provenance the preparing job stated
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-provenance
+          path: artifacts
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      # DEC-3.8: provenance evidence for the cloud's release admission; the
+      # statements, which the custodians sign, carry no cosign material.
+      - name: Sign build outputs with cosign
+        run: |
+          set -euo pipefail
+          for file in artifacts/*.tar.gz artifacts/*.cargo-metadata.sbom.json artifacts/*.intoto.jsonl artifacts/*.NOTICE.md; do
+            echo "Signing ${file}..."
+            cosign sign-blob \
+              --yes \
+              --output-certificate "${file}.pem" \
+              --output-signature "${file}.sig" \
+              "${file}"
+          done
+
+      # Exactly the files of a draft: nothing else is published later.
+      - name: Check the draft's files
+        run: python3 -I scripts/edge/edge_release.py offline-assets --artifacts artifacts --stage built
+
+      - name: Write the draft notes
+        run: |
+          set -euo pipefail
+          {
+            echo "## Suderra Edge Agent ${RELEASE_TAG} (draft)"
+            echo
+            echo "Signed offline (ADR-048 DEC-3.9): this release is not usable until the custodians"
+            echo "of the edge-release ceremony key have signed its statements, uploaded them here and"
+            echo "pushed the tag agent-statements-v${RELEASE_TAG#agent-v}, which publishes it after"
+            echo "verifying them. See docs/runbooks/edge-release-offline-signing.md."
+          } > release-notes.md
+
+      - name: Create the draft GitHub Release
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v2.2.1
+        with:
+          name: "Edge Agent ${{ env.RELEASE_TAG }}"
+          tag_name: ${{ env.RELEASE_TAG }}
+          draft: true
+          prerelease: ${{ env.RELEASE_PRERELEASE }}
+          body_path: release-notes.md
+          files: |
+            artifacts/*.tar.gz
+            artifacts/*.sha256
+            artifacts/*.sig
+            artifacts/*.cargo-metadata.sbom.json
+            artifacts/*.intoto.jsonl
             artifacts/*.NOTICE.md
             artifacts/*.pem

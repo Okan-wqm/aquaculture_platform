@@ -1,0 +1,210 @@
+name: Edge Release Publish
+
+# ADR-048 DEC-3.9 / DEC-20 — second half of the offline production flow.
+#
+# With EDGE_RELEASE_SIGNING_MODE=offline, edge-agent-release.yml builds the
+# agent and leaves a DRAFT release: the build outputs, their provenance and
+# cosign material, and no release statement. The custodians of the edge-release
+# ceremony key sign the statements offline, upload
+# `*.release.dsse.json` and `edge-release.pub` to the draft, and push the tag
+# agent-statements-v<version> on the commit of agent-v<version>.
+# That push runs this workflow, which holds no signing key: it verifies every
+# statement against the artifact bytes under the keyid the environment
+# `edge-release-publish` records (verify_strict, byte for byte the statement of
+# those bytes), checks that the draft holds exactly the planned files, adds the
+# manifest and publishes.
+#
+# RELEASE-CONTRACT: tag-only, like the release itself. No manual dispatch: the
+# push of a protected tag, approved by the environment's reviewers, is the act
+# of publishing. Operator how-to: docs/runbooks/edge-release-offline-signing.md.
+
+on:
+  push:
+    tags:
+      - 'agent-statements-v*'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  statements-ref-contract:
+    name: Statements ref contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.contract.outputs.tag }}
+      version: ${{ steps.contract.outputs.version }}
+      channel: ${{ steps.contract.outputs.channel }}
+      prerelease: ${{ steps.contract.outputs.prerelease }}
+    steps:
+      # The credentials stay: the steps below fetch the release tag and main.
+      - name: Checkout tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Validate the statements tag
+        id: contract
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" != "push" ] || [ "${GITHUB_REF_TYPE:-}" != "tag" ]; then
+            echo "Edge releases are published from a pushed tag, got event=${GITHUB_EVENT_NAME} ref_type=${GITHUB_REF_TYPE:-unset}"
+            exit 1
+          fi
+          VERSION="${GITHUB_REF_NAME#agent-statements-v}"
+          if [ "${VERSION}" = "${GITHUB_REF_NAME}" ]; then
+            echo "The tag must use the canonical agent-statements-v<semver> format, got ${GITHUB_REF_NAME}"
+            exit 1
+          fi
+          if ! printf '%s' "${VERSION}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$'; then
+            echo "The tag must use agent-statements-v<exact Cargo semver>, got ${GITHUB_REF_NAME}"
+            exit 1
+          fi
+          CARGO_VERSION="$(awk -F' = ' '/^version = / { gsub(/"/, "", $2); print $2; exit }' sens-api-gateway/Cargo.toml)"
+          if [ "${VERSION}" != "${CARGO_VERSION}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match Cargo version ${CARGO_VERSION}; expected agent-statements-v${CARGO_VERSION}"
+            exit 1
+          fi
+          RELEASE_TAG="agent-v${VERSION}"
+          if printf '%s' "${VERSION}" | grep -q -- '-'; then
+            CHANNEL="${VERSION#*-}"
+            PRERELEASE="true"
+          else
+            CHANNEL="stable"
+            PRERELEASE="false"
+          fi
+
+          # The statements are for the release tag's own commit: the sources
+          # this workflow runs from are the sources that were built.
+          git fetch --no-tags origin "+refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+          STATEMENTS_COMMIT="$(git rev-list -n 1 "${GITHUB_REF_NAME}")"
+          RELEASE_COMMIT="$(git rev-list -n 1 "${RELEASE_TAG}")"
+          if [ "${STATEMENTS_COMMIT}" != "${RELEASE_COMMIT}" ]; then
+            echo "${GITHUB_REF_NAME} (${STATEMENTS_COMMIT}) is not on the commit of ${RELEASE_TAG} (${RELEASE_COMMIT})"
+            exit 1
+          fi
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "${RELEASE_COMMIT}" origin/main; then
+            echo "Release commit ${RELEASE_COMMIT} is not reachable from origin/main"
+            exit 1
+          fi
+
+          {
+            echo "tag=${RELEASE_TAG}"
+            echo "version=${VERSION}"
+            echo "channel=${CHANNEL}"
+            echo "prerelease=${PRERELEASE}"
+          } >> "$GITHUB_OUTPUT"
+
+  # The environment `edge-release-publish` holds the variable
+  # EDGE_RELEASE_KEYID (lowercase hex SHA-256 of the raw public key of the
+  # ceremony, from the inventory in Suderra-OS docs/security/key-management.md)
+  # and no secret: the required reviewers approving this job are the second
+  # check on what is published. A missing environment does NOT fail the job
+  # (GitHub creates it unprotected on first use), so the operator check is
+  # .github/provisioned-secrets.json environments.edge-release-publish, pinned
+  # by tests/invariants/edge-release-pipeline.spec.ts.
+  publish:
+    name: Verify the offline statements and publish
+    needs: statements-ref-contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: edge-release-publish
+    permissions:
+      contents: write
+      # SEC-CI-022: id-token required for keyless cosign signing via sigstore OIDC
+      id-token: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ needs.statements-ref-contract.outputs.tag }}
+      RELEASE_CHANNEL: ${{ needs.statements-ref-contract.outputs.channel }}
+      RELEASE_PRERELEASE: ${{ needs.statements-ref-contract.outputs.prerelease }}
+      EDGE_RELEASE_KEYID: ${{ vars.EDGE_RELEASE_KEYID }}
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Only a draft is completed: a published release is never touched again.
+      - name: Check that the release is a draft
+        run: |
+          set -euo pipefail
+          IS_DRAFT="$(gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --json isDraft --jq '.isDraft')"
+          if [ "${IS_DRAFT}" != "true" ]; then
+            echo "Release ${RELEASE_TAG} is not a draft; it is published or does not exist"
+            exit 1
+          fi
+
+      - name: Download the draft's files
+        run: |
+          set -euo pipefail
+          gh release download "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --dir artifacts
+
+      # Exactly the build outputs plus what the custodians uploaded: a stray
+      # file is never published, a missing one never papered over.
+      - name: Check the files of the signed draft
+        run: python3 -I scripts/edge/edge_release.py offline-assets --artifacts artifacts --stage signed
+
+      # The release tool's own verifier (verify_strict), with the keyid the
+      # environment records as the trust anchor: the uploaded public key is
+      # accepted only if it hashes to it, and every statement must verify under
+      # it and be byte for byte the statement of the downloaded artifact bytes.
+      - name: Verify every release statement
+        run: |
+          set -euo pipefail
+          if [ -z "${EDGE_RELEASE_KEYID}" ]; then
+            echo "The environment edge-release-publish has no variable EDGE_RELEASE_KEYID"
+            exit 1
+          fi
+          python3 -I scripts/edge/edge_release.py verify \
+            --artifacts artifacts --statements artifacts \
+            --public-key artifacts/edge-release.pub --expect-keyid "${EDGE_RELEASE_KEYID}"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Create release manifest
+        run: |
+          set -euo pipefail
+          python3 -I scripts/edge/edge_release.py manifest \
+            --artifacts artifacts --tag "${RELEASE_TAG}" --channel "${RELEASE_CHANNEL}" \
+            --prerelease "${RELEASE_PRERELEASE}" --statement-keyid "${EDGE_RELEASE_KEYID}" \
+            --statement-signing offline
+
+      - name: Sign release manifest with cosign
+        run: |
+          set -euo pipefail
+          cosign sign-blob \
+            --yes \
+            --output-certificate artifacts/edge-release-manifest.json.pem \
+            --output-signature artifacts/edge-release-manifest.json.sig \
+            artifacts/edge-release-manifest.json
+
+      - name: Check the files of the release
+        run: python3 -I scripts/edge/edge_release.py offline-assets --artifacts artifacts --stage released
+
+      - name: Write the release notes
+        run: |
+          set -euo pipefail
+          python3 -I scripts/edge/edge_release.py notes \
+            --tag "${RELEASE_TAG}" --statement-keyid "${EDGE_RELEASE_KEYID}" \
+            --statement-signing offline --out release-notes.md
+
+      # Everything verified: the manifest joins the draft, then the draft is
+      # published with the notes of the offline release.
+      - name: Add the manifest and publish
+        run: |
+          set -euo pipefail
+          gh release upload "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" \
+            artifacts/edge-release-manifest.json \
+            artifacts/edge-release-manifest.json.sig \
+            artifacts/edge-release-manifest.json.pem
+          gh release edit "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" \
+            --notes-file release-notes.md --prerelease="${RELEASE_PRERELEASE}" --draft=false

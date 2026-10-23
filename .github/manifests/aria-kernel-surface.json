@@ -65,7 +65,7 @@
     },
     {
       "glob": "tools/gates/plan-coverage-witness.ts",
-      "readers": "aria_kernel/plan_coverage.py runs it; suite: test_plan_coverage, test_merge_authority_pre_merge_perimeter copy its import closure (tests/_helpers/witness_sources.py)"
+      "readers": "aria_kernel/plan_coverage.py runs it; suite: test_plan_coverage, test_merge_authority_pre_merge_perimeter copy its import closure (tests/_helpers/tool_sources.py)"
     },
     {
       "glob": "tools/gates/nats-services.ts",
@@ -178,6 +178,62 @@
     {
       "glob": "tools/gates/plan-import-witness.ts",
       "readers": "aria_kernel/plan_import_resolution.py runs it; suite: test_plan_import_resolution"
+    },
+    {
+      "glob": "tools/gates/finding-registry.ts",
+      "readers": "aria_kernel/report_ingestion.py run_registry_cli runs it (read_registry_view, the autonomy closure verifier); suite: test_report_ingestion_registry_view, test_autonomy_closure, test_deadlines (MF-1 R6)"
+    },
+    {
+      "glob": "tools/gates/finding-evidence-shape.ts",
+      "readers": "imported by the registry CLI; aria_kernel/report_ingestion.py run_registry_cli runs it; same suite tests (tests/_helpers/tool_sources.py derives the closure, test_kernel_surface pins it)"
+    },
+    {
+      "glob": "tools/gates/finding-id-aliases.ts",
+      "readers": "imported by the registry CLI; aria_kernel/report_ingestion.py run_registry_cli runs it; same suite tests (tests/_helpers/tool_sources.py derives the closure, test_kernel_surface pins it)"
+    },
+    {
+      "glob": "tools/gates/finding-registry-assign.ts",
+      "readers": "imported by the registry CLI; aria_kernel/report_ingestion.py run_registry_cli runs it; same suite tests (tests/_helpers/tool_sources.py derives the closure, test_kernel_surface pins it)"
+    },
+    {
+      "glob": "tools/gates/finding-registry-chain.ts",
+      "readers": "imported by the registry CLI; aria_kernel/report_ingestion.py run_registry_cli runs it; same suite tests (tests/_helpers/tool_sources.py derives the closure, test_kernel_surface pins it)"
+    },
+    {
+      "glob": "tools/gates/finding-registry-owners.ts",
+      "readers": "imported by the registry CLI; aria_kernel/report_ingestion.py run_registry_cli runs it; same suite tests (tests/_helpers/tool_sources.py derives the closure, test_kernel_surface pins it)"
+    },
+    {
+      "glob": "tools/gates/finding-registry-projection.ts",
+      "readers": "imported by the registry CLI; aria_kernel/report_ingestion.py run_registry_cli runs it; same suite tests (tests/_helpers/tool_sources.py derives the closure, test_kernel_surface pins it)"
+    },
+    {
+      "glob": "tools/gates/finding-registry-rows.ts",
+      "readers": "imported by the registry CLI; aria_kernel/report_ingestion.py run_registry_cli runs it; same suite tests (tests/_helpers/tool_sources.py derives the closure, test_kernel_surface pins it)"
+    },
+    {
+      "glob": "tools/gates/finding-registry-store.ts",
+      "readers": "imported by the registry CLI; aria_kernel/report_ingestion.py run_registry_cli runs it; same suite tests (tests/_helpers/tool_sources.py derives the closure, test_kernel_surface pins it)"
+    },
+    {
+      "glob": "tools/gates/finding-traceability.ts",
+      "readers": "imported by the registry CLI; aria_kernel/report_ingestion.py run_registry_cli runs it; same suite tests (tests/_helpers/tool_sources.py derives the closure, test_kernel_surface pins it)"
+    },
+    {
+      "glob": "tools/gates/git-reachability.ts",
+      "readers": "imported by the registry CLI; aria_kernel/report_ingestion.py run_registry_cli runs it; same suite tests (tests/_helpers/tool_sources.py derives the closure, test_kernel_surface pins it)"
+    },
+    {
+      "glob": "tools/gates/hermetic-git.ts",
+      "readers": "imported by the registry CLI; aria_kernel/report_ingestion.py run_registry_cli runs it; same suite tests (tests/_helpers/tool_sources.py derives the closure, test_kernel_surface pins it)"
+    },
+    {
+      "glob": "docs/reviews/_registry/findings.jsonl.schema.json",
+      "readers": "the row contract the registry CLI holds every derived row to; aria_kernel/report_ingestion.py run_registry_cli runs it; same suite tests"
+    },
+    {
+      "glob": "docs/reviews/_registry/finding-id-aliases.yaml",
+      "readers": "the alias sidecar the registry CLI resolves a trailer's name through; aria_kernel/report_ingestion.py run_registry_cli runs it; same suite tests"
     }
   ]
 }

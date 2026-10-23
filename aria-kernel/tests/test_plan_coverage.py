@@ -13,9 +13,9 @@ import unittest
 from pathlib import Path
 
 from aria_kernel.plan_convergence import _validate_cross_review_risk
-from aria_kernel.plan_coverage import build_synthetic_risk, compute_plan_coverage
+from aria_kernel.plan_coverage import WITNESS_RELPATH, WITNESS_TSCONFIG, build_synthetic_risk, compute_plan_coverage
 from tests._helpers.node_modules import installed_node_modules
-from tests._helpers.witness_sources import witness_tool_paths
+from tests._helpers.tool_sources import tool_paths
 from tests._helpers.operator_acts import operator_set_profile
 
 PLAN_CONTENT = {
@@ -167,7 +167,7 @@ class NativePlanCoverageTests(unittest.TestCase):
         selected_repo = Path(__file__).resolve().parents[2]
         source_path = "libs/interval-core/src/index.ts"
         note_path = "docs/coverage-note.md"
-        native_tool_paths = witness_tool_paths()
+        native_tool_paths = tool_paths(WITNESS_RELPATH, WITNESS_TSCONFIG)
         native_tool_bytes = {path: (selected_repo / path).read_bytes() for path in native_tool_paths}
         files = {
             ".gitignore": "/node_modules\n.nx/\naria-debts/\n",

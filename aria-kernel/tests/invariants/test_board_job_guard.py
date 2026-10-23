@@ -47,8 +47,13 @@ Over that shape, the rules that judge its values:
   the job grants a ``write`` scope, each value read by its one owner
   (``workflow_contract_registry.declared_token_permissions``) (B0 has no
   writer; B2 adds the one named signed-totals writer under this guard);
-* it traces no shell — a ``defaults.run.shell`` of the workflow traces nothing
-  — since a trace echoes case content into the log;
+* it traces no shell, since a trace echoes case content into the log: that
+  follows from the allow-list — none of the four step shapes sets a
+  ``shell:`` or runs a command but its own fixed one, and a job carries no
+  ``defaults:`` — and from the one reader of ``defaults.run``
+  (``_shell_or_directory``), which refuses any workflow default shell or
+  working directory. No second judge reads the steps (round 4, R4-4): what a
+  step may be is decided by ``_step_shape`` alone;
 * a Board secret reaches two places only (B0 corrective round 2, R2-1): the
   key step's env entry named for it, and the vault checkout's ``ssh-key`` (the
   deploy key alone). Which Board secrets an expression reaches has one reader,
@@ -105,7 +110,6 @@ BOARD_ENVIRONMENT = "aria-board"
 _REQUIRED_CONJUNCTS = ("github.ref == 'refs/heads/main'", "vars.ARIA_STOP == ''")
 _THIS_REPOSITORY = ("${{ github.repository }}", str(load_operators_policy()["repository"]))
 _BOARD_VERSION_REFS = (None, "${{ github.sha }}")
-_LEAKING_ACTIONS = ("actions/upload-artifact@", "actions/cache@", "actions/cache/save@")
 # R3-1: the allow-list. A Board job carries these keys alone; its steps are
 # the shapes of _step_shape alone.
 _BOARD_JOB_KEYS = frozenset({"name", "if", "runs-on", "timeout-minutes", "environment", "permissions",
@@ -116,18 +120,7 @@ _CHECKOUT_INPUTS = frozenset({"repository", "ref", "path", "fetch-depth", "persi
 _BOARD_INSTALL = re.compile(r"python3 -I -m pip install --require-hashes --only-binary ':all:' --no-deps"
                             r" -r \.github/board/[a-z0-9][a-z0-9-]*-requirements\.txt")
 _PR_TRIGGERS = ("pull_request", "pull_request_target", "merge_group")
-# `set -x`, `set -euxo pipefail`, `bash -ex script`, and any spelling of xtrace
-# (`set -o xtrace`, `SHELLOPTS=xtrace`). The first guard required a word
-# boundary after the `x`, so `set -euxo pipefail` passed it.
-_SHELL_TRACE = re.compile(r"(^|[\s;&|(])(?:set|bash|sh)\s+-[A-Za-z]*x|xtrace", re.MULTILINE)
-_GIT_PUSH = re.compile(r"\bgit\b[^\n;&|]*\spush\b")
-_KERNEL_PATH = "aria-kernel/aria_kernel/"
 _BOARD_ENTRY = re.compile(r"^python3 -I aria-kernel/aria_kernel/examination_board\.py [a-z-]+$")
-# Every pip the Board runs is `python3 -I -m pip`: without -I, `-m pip` imports
-# a `pip/` package from the checkout (the working directory), which could
-# plant a sitecustomize the key-holding step then loads.
-_PIP = re.compile(r"\bpip3?\b")
-_ISOLATED_PIP = re.compile(r"(?:^|[\s;&|(])python3 -I -m pip install\b")
 # A Board secret, as an expression names it (property names are case-insensitive).
 _BOARD_SECRET = re.compile(r"\bsecrets\s*\.\s*(ARIA_BOARD_[A-Za-z0-9_]*)", re.IGNORECASE)
 # The secrets context reached other than by a literal name: `secrets[...]`,
@@ -180,17 +173,6 @@ def _steps(job: dict[str, Any]) -> list[dict[str, Any]]:
     return [step for step in job.get("steps") or [] if isinstance(step, dict)]
 
 
-def _shell_traces(shell: Any) -> bool:
-    """A ``shell:`` value that turns on xtrace: a short-option cluster holding ``x``, or ``xtrace``."""
-    words = str(shell or "").split()
-    return "xtrace" in words or any(w.startswith("-") and not w.startswith("--") and "x" in w[1:] for w in words)
-
-
-def _defaults_shell(holder: dict[str, Any]) -> Any:
-    defaults = holder.get("defaults") or {}
-    return ((defaults.get("run") or {}) if isinstance(defaults, dict) else {}).get("shell")
-
-
 def _condition_violations(job: dict[str, Any]) -> list[str]:
     return [f"if: does not require {required}" for required in _REQUIRED_CONJUNCTS
             if not condition_requires(job.get("if"), required)]
@@ -238,43 +220,6 @@ def _write_violations(workflow: dict[str, Any], job: dict[str, Any]) -> list[str
                   else ["workflow declares no permissions"])
     if "permissions" in job:
         violations += _grant_violations("job", job["permissions"])
-    violations += [f"step pushes: {step.get('name') or str(step.get('run'))[:60]}" for step in _steps(job)
-                   if _GIT_PUSH.search(str(step.get("run") or ""))]
-    return violations
-
-
-def _leak_violations(workflow: dict[str, Any], job: dict[str, Any]) -> list[str]:
-    violations: list[str] = []
-    for holder, where in ((workflow, "workflow"), (job, "job")):
-        if _shell_traces(_defaults_shell(holder)):
-            violations.append(f"{where} defaults.run.shell traces")
-    for step in _steps(job):
-        uses, run = str(step.get("uses") or ""), str(step.get("run") or "")
-        if uses.startswith(_LEAKING_ACTIONS):
-            violations.append(f"step uploads or caches: {uses}")
-        if _SHELL_TRACE.search(run) or _shell_traces(step.get("shell")):
-            violations.append(f"step traces its shell: {step.get('name') or run[:60]}")
-    return violations
-
-
-def _kernel_violations(workflow: dict[str, Any], job: dict[str, Any]) -> list[str]:
-    violations: list[str] = []
-    for holder, where in ((workflow, "workflow"), (job, "job")):
-        if "PYTHONPATH" in (holder.get("env") or {}):
-            violations.append(f"{where} env sets PYTHONPATH")
-    for step in _steps(job):
-        uses, run = str(step.get("uses") or ""), str(step.get("run") or "")
-        label = step.get("name") or uses or run[:60]
-        if "PYTHONPATH" in run or "PYTHONPATH" in (step.get("env") or {}):
-            violations.append(f"step sets PYTHONPATH: {label}")
-        if re.search(r"-m\s+aria_kernel", run):
-            violations.append(f"step runs the aria_kernel package: {label}")
-        if (_KERNEL_PATH in run or "aria_kernel" in run) and not _BOARD_ENTRY.fullmatch(run.strip()):
-            violations.append(f"step runs kernel code other than examination_board.py in isolation: {label}")
-        if "pip install" in run and "--require-hashes" not in run:
-            violations.append(f"step installs without --require-hashes: {label}")
-        if _PIP.search(run) and not _ISOLATED_PIP.search(run):
-            violations.append(f"step runs pip other than as python3 -I -m pip: {label}")
     return violations
 
 
@@ -437,8 +382,6 @@ _RULES: dict[str, Callable[[dict[str, Any], dict[str, Any]], list[str]]] = {
     "runner": lambda workflow, job: _runner_violations(job),
     "checkout": lambda workflow, job: _checkout_violations(job),
     "writes": _write_violations,
-    "leaks": _leak_violations,
-    "kernel": _kernel_violations,
     "secrets": _secret_violations,
     "triggers": lambda workflow, job: _trigger_violations(workflow),
 }
@@ -672,6 +615,37 @@ class EachMutationIsRefusedTests(unittest.TestCase):
         self.assertEqual(board_violations(mutated), {})
 
 
+class WhichStepsABoardJobHoldsHasOneJudgeTests(unittest.TestCase):
+    """B0 corrective round 4, R4-4 (ssot SSOT-R4-1, p02/p03; appellate A6): the allow-list alone judges the steps."""
+
+    def setUp(self) -> None:
+        self.workflow = _workflows()[_BOARD_WORKFLOW]
+
+    def test_a_permitted_step_is_not_refused_by_a_second_judge(self) -> None:
+        # ssot p03: each is one of the allow-list's shapes, and a deny-list
+        # step judge refused it for the word "xtrace".
+        for name, mutate in {
+            "key_command_xtrace": _custody_step(run="python3 -I aria-kernel/aria_kernel/examination_board.py xtrace"),
+            "install_xtrace_requirements": _step_at(
+                2, run="python3 -I -m pip install --require-hashes --only-binary ':all:' --no-deps"
+                       " -r .github/board/xtrace-requirements.txt"),
+        }.items():
+            with self.subTest(step=name):
+                mutated = copy.deepcopy(self.workflow)
+                mutate(mutated)
+                self.assertEqual(board_violations(mutated), {})
+
+    def test_only_the_allow_list_reads_the_step_shapes(self) -> None:
+        tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+        shapes = ("_BOARD_ENTRY", "_BOARD_INSTALL", "_PINNED_CHECKOUT", "_PINNED_SETUP_PYTHON")
+        readers = sorted({function.name for function in ast.walk(tree) if isinstance(function, ast.FunctionDef)
+                          for node in ast.walk(function) if isinstance(node, ast.Name) and node.id in shapes})
+        self.assertEqual(readers, ["_is_key_step", "_step_shape"])
+
+    def test_the_guard_has_no_rule_beside_the_allow_list_that_judges_steps(self) -> None:
+        self.assertEqual(sorted(set(_RULES) & {"kernel", "leaks"}), [])
+
+
 class PermissionsHaveOneReaderTests(unittest.TestCase):
     """B0 corrective round 2, R2-6: the guard judges ``permissions:`` through its owner, never its own reading."""
 
@@ -694,6 +668,7 @@ class TheKeyHoldingProcessLoadsNoAriaKernelTests(unittest.TestCase):
         steps = [s for s in _steps(_custody_job(_workflows()[_BOARD_WORKFLOW]))
                  if VAULT_DATA_KEY_ENV in (s.get("env") or {})]
         self.assertEqual(len(steps), 1, "one step holds the vault data key")
+        self.assertTrue(_is_key_step(steps[0]), "the step holding the key is the isolated examination_board.py step")
         return str(steps[0]["run"]).strip()
 
     def test_examination_board_imports_the_standard_library_and_cryptography_alone(self) -> None:
@@ -711,7 +686,6 @@ class TheKeyHoldingProcessLoadsNoAriaKernelTests(unittest.TestCase):
 
     def test_the_board_step_runs_isolated_and_loads_no_aria_kernel_module(self) -> None:
         run = self._custody_run()
-        self.assertRegex(run, _BOARD_ENTRY)
         with tempfile.TemporaryDirectory(prefix="aria-board-entry-") as scratch:
             # The exact run: line, with `python3` resolved to this interpreter
             # and -X importtime added so every module the process loads is named.

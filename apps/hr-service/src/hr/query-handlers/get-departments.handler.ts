@@ -4,6 +4,7 @@ import { Repository, FindOptionsWhere } from 'typeorm';
 import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 import { GetDepartmentsQuery, GetDepartmentQuery } from '../queries/get-departments.query';
 import { DepartmentHR } from '../entities/department.entity';
+import { isModuleScoped } from '../../common/module-scope';
 
 @Injectable()
 @QueryHandler(GetDepartmentsQuery)
@@ -14,7 +15,7 @@ export class GetDepartmentsHandler implements IQueryHandler<GetDepartmentsQuery,
   ) {}
 
   async execute(query: GetDepartmentsQuery): Promise<DepartmentHR[]> {
-    const { tenantId, siteId, isDeleted } = query;
+    const { tenantId, siteId, isDeleted, moduleCode } = query;
 
     const where: FindOptionsWhere<DepartmentHR> = {
       tenantId,
@@ -23,6 +24,9 @@ export class GetDepartmentsHandler implements IQueryHandler<GetDepartmentsQuery,
 
     if (siteId) {
       where.siteId = siteId;
+    }
+    if (isModuleScoped(moduleCode)) {
+      where.moduleCode = moduleCode;
     }
 
     return this.departmentRepository.find({

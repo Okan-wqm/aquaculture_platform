@@ -1,0 +1,46 @@
+{
+  "name": "real-repo-baseline",
+  "lane": "real_repo_baseline",
+  "input": {
+    "roots": [
+      "infrastructure",
+      "infra",
+      "deploy",
+      "nginx",
+      "Dockerfile.agent-tooling",
+      "apps/sensor-ingestion/Dockerfile",
+      "docker-compose.dev.yml",
+      "docker-compose.droplet.yml",
+      "docker-compose.infra.yml",
+      "docker-compose.monitoring.yml",
+      "docker-compose.prod.yml",
+      "docker-compose.staging.yml",
+      "docker-compose.watch.yml",
+      "docker-compose.yml"
+    ]
+  },
+  "expected": {
+    "status": "ok",
+    "required_observations": [
+      "infrastructure_policy_summary",
+      "infrastructure_file",
+      "infrastructure_sanctioned_root_user"
+    ],
+    "required_observation_values": [
+      {
+        "type": "infrastructure_policy_summary",
+        "details.parse_failures": 0,
+        "details.unobserved_files": 0,
+        "details.clean": true,
+        "details.authorities_complete": true,
+        "details.postgres_manifest_read": true
+      }
+    ],
+    "forbidden_findings": ["literal_secret"],
+    "max_findings": 200
+  },
+  "curation": {
+    "curator": "claude/ARIA-HIGH-012 (infrastructure-policy-adapter landing, session 2026-10-22)",
+    "notes": "Measured on the landing branch (origin/main 1fa1b2708 + the G017 owners): 211 infrastructure files under the roots (16 Dockerfiles, 10 compose, 76 Kubernetes, 20 Helm values, 3 Helm charts, 17 Helm templates excluded unrendered, 55 Terraform, 5 NATS, 9 nginx), 0 parse failures, 0 unobserved. 173 findings: 128 floating_artifact (image-reference.ts verdicts: 44 interpolated_default such as the legacy ${TAG:-latest} services, 36 floating, 30 exact_version tags, 11 implicit latest, 7 opaque tags), 6 privileged_runtime (the cAdvisor and node-exporter binds of / and /var/run in the droplet and monitoring compose files), 2 nats_password_identity (nats-auth-enabled.conf user and password) and 37 security_header_inheritance_drop (droplet.conf, nginx/nginx.conf, nginx.prod.conf, shell.conf and default.conf.template levels that set their own add_header). 0 literal_secret, 0 missing_runtime_guard, 0 unpinned_terraform_source. Unresolved, never claimed: 1 bind source (${DR_BOOTSTRAP_RELEASE_ROOT:?\u2026}) and 10 nginx levels whose include targets live only in the image (aquamobil.conf's security-headers snippet, mime.types, conf.d). The WAL-G derivative's USER root is the postgres manifest's sanctioned exception, recorded as an observation. max_findings 200 is the ratchet ceiling: a change that adds a wave of mutable references or header drops flags the nightly refresh instead of being absorbed."
+  }
+}

@@ -7,6 +7,7 @@ export { useGraphQLClient, graphqlRequest } from './useGraphQL';
 
 // Employee management hooks
 export * from './useEmployees';
+export { useIsWorkforceManager } from './useIsWorkforceManager';
 
 // Leave management hooks
 export * from './useLeaves';

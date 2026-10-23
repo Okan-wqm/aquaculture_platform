@@ -17,7 +17,7 @@ import {
   IsNotEmpty,
 } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
-import { EmploymentType, Department, LaborCategory } from '../entities/employee.entity';
+import { EmploymentType, LaborCategory } from '../entities/employee.entity';
 
 @InputType()
 export class ContactInfoInput {
@@ -177,9 +177,14 @@ export class CreateEmployeeInput {
   @IsEnum(EmploymentType, { message: 'Invalid employment type' })
   employmentType!: EmploymentType;
 
-  @Field(() => Department)
-  @IsEnum(Department, { message: 'Invalid department' })
-  department!: Department;
+  /**
+   * The employee's one department (`departments_hr`); through it the employee
+   * belongs to a module. Unset = not placed in a department yet.
+   */
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsUUID('4', { message: 'Department ID must be a valid UUID' })
+  departmentHrId?: string;
 
   @Field()
   @IsString()
@@ -240,8 +245,4 @@ export class CreateEmployeeInput {
   @IsString({ each: true })
   @MaxLength(100, { each: true, message: 'Each skill must be at most 100 characters' })
   skills?: string[];
-
-  @Field({ nullable: true, defaultValue: false })
-  @IsOptional()
-  isFarmWorker?: boolean;
 }

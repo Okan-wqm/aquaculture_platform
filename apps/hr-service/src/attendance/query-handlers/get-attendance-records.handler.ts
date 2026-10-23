@@ -3,6 +3,7 @@ import { PaginatedQueryResult, createPaginatedQueryResult } from '@platform/cqrs
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { GetAttendanceRecordsQuery } from '../queries/get-attendance-records.query';
+import { applyEmployeeModuleScope } from '../../common/module-scope';
 import { AttendanceRecord } from '../entities/attendance-record.entity';
 
 @QueryHandler(GetAttendanceRecordsQuery)
@@ -21,6 +22,7 @@ export class GetAttendanceRecordsHandler implements IQueryHandler<GetAttendanceR
       approvalStatus,
       startDate,
       endDate,
+      moduleCode,
     } = query;
 
     const page = query.page ?? 1;
@@ -60,7 +62,7 @@ export class GetAttendanceRecordsHandler implements IQueryHandler<GetAttendanceR
       queryBuilder.andWhere('ar.date <= :endDate', { endDate });
     }
 
-    const [items, total] = await queryBuilder
+    const [items, total] = await applyEmployeeModuleScope(queryBuilder, 'employee', moduleCode)
       .skip(offset)
       .take(limit)
       .getManyAndCount();

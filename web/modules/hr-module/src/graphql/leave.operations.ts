@@ -61,6 +61,7 @@ export const GET_LEAVE_REQUESTS = gql`
     $endDate: String
     $page: Int
     $limit: Int
+    $moduleCode: HRModuleCode
   ) {
     leaveRequests(
       employeeId: $employeeId
@@ -70,6 +71,7 @@ export const GET_LEAVE_REQUESTS = gql`
       endDate: $endDate
       page: $page
       limit: $limit
+      moduleCode: $moduleCode
     ) {
       items {
         ...LeaveRequestFull
@@ -109,8 +111,18 @@ export const GET_MY_LEAVE_REQUESTS = gql`
 `;
 
 export const GET_PENDING_LEAVE_APPROVALS = gql`
-  query GetPendingLeaveApprovals($departmentId: ID, $page: Int, $limit: Int) {
-    pendingLeaveApprovals(departmentId: $departmentId, page: $page, limit: $limit) {
+  query GetPendingLeaveApprovals(
+    $departmentId: ID
+    $page: Int
+    $limit: Int
+    $moduleCode: HRModuleCode
+  ) {
+    pendingLeaveApprovals(
+      departmentId: $departmentId
+      page: $page
+      limit: $limit
+      moduleCode: $moduleCode
+    ) {
       items {
         ...LeaveRequestFull
       }
@@ -130,11 +142,13 @@ export const GET_TEAM_LEAVE_CALENDAR = gql`
     $departmentId: ID
     $startDate: String!
     $endDate: String!
+    $moduleCode: HRModuleCode
   ) {
     teamLeaveCalendar(
       departmentId: $departmentId
       startDate: $startDate
       endDate: $endDate
+      moduleCode: $moduleCode
     ) {
       id
       employeeId

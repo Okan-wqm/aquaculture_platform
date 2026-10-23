@@ -2,6 +2,7 @@
  * Employee domain types
  */
 
+import type { HrModuleCode } from '@platform/shared-ui/generated/graphql-types';
 import type { BaseEntity, GeoLocation } from './common.types';
 
 // =====================
@@ -93,11 +94,12 @@ export interface Employee extends BaseEntity {
   address?: Address;
   status: EmployeeStatus;
   employmentType: EmploymentType;
-  // Department is an enum string in backend (e.g., 'operations', 'maintenance')
-  department?: string;
   // Position is a plain string in backend
   position?: string;
-  departmentHrId?: string;
+  // The employee's department is `departmentHrId` -> `departments_hr`; its module
+  // is read through that department (an employee has no module field of its own).
+  departmentHrId?: string | null;
+  departmentHr?: EmployeeDepartment | null;
   positionId?: string;
   supervisorId?: string;
   farmId?: string;
@@ -113,10 +115,18 @@ export interface Employee extends BaseEntity {
   seaWorthy: boolean;
   currentRotationId?: string;
   timezone?: string;
-  isFarmWorker?: boolean;
   createdBy?: string;
   updatedBy?: string;
   version?: number;
+}
+
+/** The department an employee is placed in, as the employee selections return it. */
+export interface EmployeeDepartment {
+  id: string;
+  name: string;
+  code: string;
+  /** null = company-wide */
+  moduleCode: HrModuleCode | null;
 }
 
 export interface Department {
@@ -130,11 +140,21 @@ export interface Department {
   managerId?: string;
   budgetCode?: string;
   costCenter?: string;
+  /** null = company-wide */
+  moduleCode: HrModuleCode | null;
   isActive: boolean;
   sortOrder: number;
   colorCode?: string; // kept for backward compat in UI (not from backend)
   createdAt?: string;
   updatedAt?: string;
+}
+
+/** A department with the facts the organization chart derives on the server. */
+export interface OrganizationDepartment extends Department {
+  /** People placed directly in it who have not left (on leave and suspended count). */
+  headCount: number;
+  /** Null when the department has no manager or that employee is no longer on record. */
+  managerName: string | null;
 }
 
 export interface CreateDepartmentInput {
@@ -146,6 +166,8 @@ export interface CreateDepartmentInput {
   managerId?: string;
   budgetCode?: string;
   costCenter?: string;
+  /** Absent = company-wide. */
+  moduleCode?: HrModuleCode;
 }
 
 export interface UpdateDepartmentInput {
@@ -158,6 +180,8 @@ export interface UpdateDepartmentInput {
   managerId?: string;
   budgetCode?: string;
   costCenter?: string;
+  /** A module moves the department there; null makes it company-wide; absent leaves it. */
+  moduleCode?: HrModuleCode | null;
   isActive?: boolean;
   isDeleted?: boolean;
 }
@@ -186,7 +210,6 @@ export interface CreateEmployeeInput {
   contactInfo: ContactInfo;
   address: Address;
   employmentType: EmploymentType;
-  department?: string;
   position?: string;
   departmentHrId?: string;
   supervisorId?: string;
@@ -197,26 +220,29 @@ export interface CreateEmployeeInput {
   personnelCategory?: PersonnelCategory;
   assignedWorkAreas?: WorkAreaType[];
   seaWorthy?: boolean;
-  isFarmWorker?: boolean;
 }
 
-export interface UpdateEmployeeInput extends Partial<CreateEmployeeInput> {
+export interface UpdateEmployeeInput extends Partial<Omit<CreateEmployeeInput, 'departmentHrId'>> {
   id: string;
+  /** A department id places the employee; null removes the placement; absent leaves it. */
+  departmentHrId?: string | null;
   status?: EmployeeStatus;
   terminationDate?: string;
-  isFarmWorker?: boolean;
 }
 
+/**
+ * Mirrors the hr subgraph's `EmployeeFilterInput` field for field. Paging is a
+ * separate GraphQL argument (`EmployeePaginationInput`), never part of the filter.
+ */
 export interface EmployeeFilterInput {
   status?: EmployeeStatus;
   employmentType?: EmploymentType;
-  department?: string;
+  departmentHrId?: string;
+  moduleCode?: HrModuleCode;
   farmId?: string;
   supervisorId?: string;
   personnelCategory?: PersonnelCategory;
   seaWorthy?: boolean;
-  limit?: number;
-  offset?: number;
 }
 
 // =====================

@@ -37,6 +37,7 @@ import {
   type MenuItem,
 } from '@aquaculture/shared-ui';
 
+import { ScopedDescription } from '../../components/common';
 import { sanitizeColor } from '../../components/leave/LeaveBalanceWidget';
 import { PrintScheduleButton } from '../../components/scheduling';
 import { useShifts } from '../../hooks/useAttendance';
@@ -604,7 +605,9 @@ export function WeeklySchedulePage(): React.JSX.Element {
               İş Çizelgesi
             </>
           }
-          description="Çalışanların haftalık planları; her hücre seçildiği anda kaydedilir"
+          description={
+            <ScopedDescription text="Çalışanların haftalık planları; her hücre seçildiği anda kaydedilir" />
+          }
           actions={
             <div className="flex flex-wrap items-center gap-3">
               <div

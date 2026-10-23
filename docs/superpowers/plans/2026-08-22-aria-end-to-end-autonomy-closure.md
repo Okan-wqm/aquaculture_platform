@@ -2452,11 +2452,11 @@ git push
 - Create:
   `tools/aria-adapters/fixtures/infrastructure-policy-adapter/cases/semantic-infrastructure-policy.json`
 - Create:
-  `tools/aria-adapters/fixtures/infrastructure-policy-adapter/workspaces/semantic-infrastructure-policy/deployment.yaml`
+  `tools/aria-adapters/fixtures/infrastructure-policy-adapter/workspaces/semantic-infrastructure-policy/kubernetes/base/deployment.yaml`
 - Create:
-  `tools/aria-adapters/fixtures/infrastructure-policy-adapter/workspaces/semantic-infrastructure-policy/main.tf`
+  `tools/aria-adapters/fixtures/infrastructure-policy-adapter/workspaces/semantic-infrastructure-policy/terraform/main.tf`
 - Create:
-  `tools/aria-adapters/fixtures/infrastructure-policy-adapter/workspaces/semantic-infrastructure-policy/Dockerfile`
+  `tools/aria-adapters/fixtures/infrastructure-policy-adapter/workspaces/semantic-infrastructure-policy/docker/Dockerfile`
 - Modify: `tools/aria-adapters/project.json`
 
 **Interfaces:**
@@ -2465,7 +2465,11 @@ git push
   deployment manifests under `infrastructure`, `infra`, `deploy`, `mcp`, `nginx`, and relevant
   repository-root files.
 - Emits: high-confidence `floating_artifact`, `privileged_runtime`, `literal_secret`,
-  `nats_password_identity`, and `missing_runtime_guard` claims.
+  `nats_password_identity`, and `missing_runtime_guard` claims, plus
+  `security_header_inheritance_drop` and `unpinned_terraform_source`. Each claim is the verdict
+  of the rule owner the CI gates run (`tools/gates/infra-policy/*`, read through
+  `tools/gates/lib/infra/*`); `literal_secret` is the `.gitleaks.toml` env-secret rule applied to
+  the files its path allowlist hides. Helm templates are recorded as unrendered (ARIA-LOW-532).
 
 - [ ] **Step 1: Write failing parser and policy fixtures**
 

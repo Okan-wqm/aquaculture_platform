@@ -28,7 +28,7 @@ from .tool_registry import (
     update_tools_index,
     utc_now,
 )
-from .triage import derive_required_tests, resolve_target_agent
+from .triage import derive_required_tests, lazy_project_map, resolve_target_agent
 from .workspace import WorkspacePaths
 from .digest import secret_matches_sha256_digest, sha256_digest_text
 
@@ -140,7 +140,11 @@ def create_dispatch_request(
     worktree_path = paths.repo_root / "aria-worktrees" / assignment_id
     required_tests = list(
         (decision or {}).get("required_tests")
-        or derive_required_tests(_evidence_paths(pressure), workspace_root=paths.repo_root, base_dir=root)
+        or derive_required_tests(
+            _evidence_paths(pressure),
+            lazy_project_map(workspace_root=paths.repo_root, base_dir=root),
+            workspace_root=paths.repo_root,
+        )
     )
     row = {
         "$schema": "aria/dispatch-request/v1",

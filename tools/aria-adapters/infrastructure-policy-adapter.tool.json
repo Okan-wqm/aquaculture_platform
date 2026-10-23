@@ -1,0 +1,194 @@
+{
+  "tool_id": "infrastructure-policy-adapter",
+  "kind": "adapter",
+  "version": "1.0.0",
+  "status": "SHADOW",
+  "security_class": true,
+  "declared_scope": [
+    "infrastructure/**/Dockerfile*",
+    "infrastructure/**/*.{Dockerfile,dockerfile,yml,yaml,tf,tfvars,tpl,conf}",
+    "infrastructure/**/*.{yml,yaml,conf}.template",
+    "infra/**/Dockerfile*",
+    "infra/**/*.{Dockerfile,dockerfile,yml,yaml,tf,tfvars,tpl,conf}",
+    "infra/**/*.{yml,yaml,conf}.template",
+    "deploy/**/Dockerfile*",
+    "deploy/**/*.{Dockerfile,dockerfile,yml,yaml,tf,tfvars,tpl,conf}",
+    "deploy/**/*.{yml,yaml,conf}.template",
+    "nginx/**/Dockerfile*",
+    "nginx/**/*.{Dockerfile,dockerfile,yml,yaml,tf,tfvars,tpl,conf}",
+    "nginx/**/*.{yml,yaml,conf}.template",
+    "Dockerfile.agent-tooling",
+    "apps/sensor-ingestion/Dockerfile",
+    "docker-compose.dev.yml",
+    "docker-compose.droplet.yml",
+    "docker-compose.infra.yml",
+    "docker-compose.monitoring.yml",
+    "docker-compose.prod.yml",
+    "docker-compose.staging.yml",
+    "docker-compose.watch.yml",
+    "docker-compose.yml"
+  ],
+  "output_schema": {
+    "type": "object",
+    "required": ["observations", "findings", "read_paths", "evidence_sources"]
+  },
+  "fixture_set": "tools/aria-adapters/fixtures/infrastructure-policy-adapter",
+  "health_thresholds": {
+    "max_cost_units": 1000
+  },
+  "default_input": {
+    "roots": [
+      "infrastructure",
+      "infra",
+      "deploy",
+      "nginx",
+      "Dockerfile.agent-tooling",
+      "apps/sensor-ingestion/Dockerfile",
+      "docker-compose.dev.yml",
+      "docker-compose.droplet.yml",
+      "docker-compose.infra.yml",
+      "docker-compose.monitoring.yml",
+      "docker-compose.prod.yml",
+      "docker-compose.staging.yml",
+      "docker-compose.watch.yml",
+      "docker-compose.yml"
+    ]
+  },
+  "allowed_read_globs": [
+    "infrastructure/**",
+    "infra/**",
+    "deploy/**",
+    "nginx/**",
+    "Dockerfile.agent-tooling",
+    "apps/sensor-ingestion/Dockerfile",
+    "docker-compose.dev.yml",
+    "docker-compose.droplet.yml",
+    "docker-compose.infra.yml",
+    "docker-compose.monitoring.yml",
+    "docker-compose.prod.yml",
+    "docker-compose.staging.yml",
+    "docker-compose.watch.yml",
+    "docker-compose.yml",
+    ".gitleaks.toml",
+    ".github/manifests/postgres-image.json",
+    "tools/aria-adapters/adapter-fs.ts",
+    "tools/aria-adapters/infrastructure-policy-adapter.ts",
+    "tools/gates/compose-registry-images.ts",
+    "tools/gates/postgres-image-manifest.ts",
+    "tools/gates/lib/infra/classify.ts",
+    "tools/gates/lib/infra/dockerfile.ts",
+    "tools/gates/lib/infra/hcl-blocks.ts",
+    "tools/gates/lib/infra/nats-conf.ts",
+    "tools/gates/lib/infra/nginx-conf.ts",
+    "tools/gates/lib/infra/read-error.ts",
+    "tools/gates/lib/infra/read-infra-file.ts",
+    "tools/gates/lib/infra/workloads.ts",
+    "tools/gates/lib/infra/yaml-documents.ts",
+    "tools/gates/infra-policy/image-reference.ts",
+    "tools/gates/infra-policy/nats-identity.ts",
+    "tools/gates/infra-policy/nginx-header-inheritance.ts",
+    "tools/gates/infra-policy/runtime-guards.ts",
+    "tools/gates/infra-policy/runtime-privilege.ts",
+    "tools/gates/infra-policy/secret-allowlist-premise.ts",
+    "tools/gates/infra-policy/terraform-pins.ts",
+    "tools/aria-adapters/fixtures/infrastructure-policy-adapter/**"
+  ],
+  "forbidden_read_globs": [
+    ".claude/**",
+    ".git/**",
+    "agent-workspace/**",
+    ".aria-poc/**",
+    "aria-tools/**",
+    "node_modules/**",
+    "dist/**",
+    "coverage/**",
+    "tmp/**"
+  ],
+  "claim_types": ["infrastructure_policy"],
+  "rules": {
+    "floating_artifact": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "An image reference runs bytes that can change under an unchanged file, so infrastructure drifts to whatever the registry serves.",
+      "premises": [
+        "The cited compose `image:`, Kubernetes container `image:` or Dockerfile `FROM` (a stage that is neither an earlier stage nor scratch) is a reference tools/gates/infra-policy/image-reference.ts judges mutable (PIN_MUTABILITY): a moving or major-only tag, an opaque tag, an implicit latest, a `${VAR:-default}` or unchecked variable, or a malformed reference; a digest and a required `${TAG:?…}` are immutable.",
+        "A postgres-family image in a file .github/manifests/postgres-image.json lists as a consumer is judged by tools/gates/postgres-image-manifest.ts instead: the manifest's expected reference is compliant, a divergence is the claim (owner_rule_id manifest_divergence).",
+        "Helm values and chart files are read and observed; no owner rules their image maps, so they raise no claim."
+      ]
+    },
+    "privileged_runtime": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "A container runs with host privilege or as root.",
+      "premises": [
+        "tools/gates/infra-policy/runtime-privilege.ts reports the cited compose service or pod setting as privileged: privileged true, a dangerous capability, a host namespace, a bind of a container runtime socket or a directory above one (paths normalised), privilege escalation, or an unconfined seccomp or AppArmor profile.",
+        "Or the runtime user is root: a compose `user:` or pod runAsUser of root/0, or a Dockerfile final stage that sets no USER (unset) or USER root; the WAL-G derivative that .github/manifests/postgres-image.json names is the sanctioned exception and is recorded as an observation.",
+        "A bind whose source the owner cannot place (a relative path that climbs out of the project, `~`, `$VAR`), and a runtime user named by a variable (Dockerfile `USER $APP_USER`, compose `user: \"${UID}:${GID}\"`), is an unresolved observation, not a claim."
+      ]
+    },
+    "literal_secret": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "A secret literal sits in a file the gitleaks path allowlist hides from the CI secret scan.",
+      "premises": [
+        "The cited compose or Kubernetes env entry matches the aquaculture-env-secret-assignment rule of .gitleaks.toml (regex, keywords, entropy and value allowlists, read by tools/gates/infra-policy/secret-allowlist-premise.ts) and a path allowlist of that rule hides its file.",
+        "Only the key, line and the value's length are reported; the value never enters the finding.",
+        "With .gitleaks.toml unreadable in the workspace or snapshot, the rule is recorded as unavailable instead of judging."
+      ]
+    },
+    "nats_password_identity": {
+      "claim_type": "wrong_code",
+      "severity_cap": "HIGH",
+      "defect_claim": "A NATS server configuration authenticates a client by something other than its mTLS certificate CN, which ADR-015 forbids.",
+      "premises": [
+        "tools/gates/infra-policy/nats-identity.ts finds, in an authorization block or an account's users of the parsed config, a password, token or nkey, a user given as a `$VARIABLE`, or a user name that is not a certificate DN.",
+        "A commented-out key is not configuration; a credential is located by key and line and its value never enters the finding."
+      ]
+    },
+    "missing_runtime_guard": {
+      "claim_type": "wrong_code",
+      "severity_cap": "MEDIUM",
+      "defect_claim": "A Kubernetes workload container runs without a memory limit or without its readiness or liveness probe.",
+      "premises": [
+        "tools/gates/infra-policy/runtime-guards.ts (podGuards) reports the gap for the cited container; init containers and Job/CronJob pods need no probes.",
+        "A guard that a kustomize patch supplies to the base is recorded as a composition observation and removed from the claim only when every deployment of the base (each kustomization no other kustomization lists, with the patches of the kustomizations it reaches) supplies it; a patch in an overlay that does not deploy the base supplies nothing.",
+        "Compose services are not this rule's surface."
+      ]
+    },
+    "security_header_inheritance_drop": {
+      "claim_type": "wrong_code",
+      "severity_cap": "MEDIUM",
+      "defect_claim": "An nginx level sets headers of its own and so serves without headers it would otherwise carry, because add_header does not inherit into a level that declares any.",
+      "premises": [
+        "tools/gates/infra-policy/nginx-header-inheritance.ts (headerLevels) computes the cited level's dropped headers from the parsed configuration.",
+        "A level with an include whose headers this run cannot see is recorded as unresolved instead of claimed."
+      ]
+    },
+    "unpinned_terraform_source": {
+      "claim_type": "wrong_code",
+      "severity_cap": "MEDIUM",
+      "defect_claim": "A Terraform module source can change content under an unchanged .tf file.",
+      "premises": [
+        "tools/gates/infra-policy/terraform-pins.ts (MODULE_SOURCE_PINNING) judges the module's source unpinned: a git branch or no ref, a registry module without version, or an archive without a go-getter checksum.",
+        "A source the owner cannot classify is recorded as unresolved, never counted as pinned.",
+        "The source is reported with its userinfo masked and a query value kept only for ref, rev, depth, archive, checksum and filename; a source that is not one string literal is not reported."
+      ]
+    }
+  },
+  "owner": "platform",
+  "runner": {
+    "type": "subprocess",
+    "argv": [
+      "npx",
+      "ts-node",
+      "--project",
+      "tools/gates/tsconfig.json",
+      "tools/aria-adapters/infrastructure-policy-adapter.ts"
+    ],
+    "cwd": ".",
+    "timeout_ms": 240000,
+    "stdin_json": true
+  },
+  "freshness_window_hours": 168,
+  "schema_version": 1
+}

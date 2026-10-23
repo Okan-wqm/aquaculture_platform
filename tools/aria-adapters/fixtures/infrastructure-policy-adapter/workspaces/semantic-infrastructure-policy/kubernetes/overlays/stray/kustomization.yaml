@@ -1,0 +1,22 @@
+# DECOY (A-10): an overlay that patches bare-worker's guards but deploys no base, so the patch
+# supplies nothing to the base's bare-worker.
+resources: []
+
+patches:
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: bare-worker
+      spec:
+        template:
+          spec:
+            containers:
+              - name: worker
+                resources:
+                  limits:
+                    memory: 256Mi
+                readinessProbe:
+                  httpGet: { path: /ready, port: 8080 }
+                livenessProbe:
+                  httpGet: { path: /live, port: 8080 }

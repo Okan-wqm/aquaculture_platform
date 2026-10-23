@@ -1,0 +1,3 @@
+# UNSAFE TWIN (privileged_runtime): a pinned base whose final stage runs as root.
+FROM alpine@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+USER root

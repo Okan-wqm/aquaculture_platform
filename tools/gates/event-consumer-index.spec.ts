@@ -41,6 +41,7 @@ import {
   scanEventConsumers,
   scanEventProducers,
 } from './event-consumer-index';
+import { isUnresolvedFindingState } from './finding-registry-chain';
 import { indexFixtureTree, removeFixtureTree } from './fixture-tree';
 import { hermeticGitEnv } from './hermetic-git';
 import { loadNatsServices } from './nats-services';
@@ -1022,7 +1023,7 @@ function nodesOf(source: ts.SourceFile): ts.Node[] {
   return nodes;
 }
 
-/** Regex literals, and string literals handed to the RegExp constructor. */
+/** Regex literals, and string or template literals handed to the RegExp constructor. */
 function regexTexts(source: ts.SourceFile): string[] {
   return nodesOf(source).flatMap((node): string[] => {
     if (node.kind === ts.SyntaxKind.RegularExpressionLiteral) return [node.getText(source)];
@@ -1031,7 +1032,10 @@ function regexTexts(source: ts.SourceFile): string[] {
       node.expression.getText(source) === 'RegExp'
     ) {
       const [pattern] = node.arguments ?? [];
-      return pattern !== undefined && ts.isStringLiteralLike(pattern) ? [pattern.text] : [];
+      if (pattern === undefined) return [];
+      if (ts.isStringLiteralLike(pattern)) return [pattern.text];
+      // A template interpolates a value into the pattern, e.g. the event type being looked up.
+      return ts.isTemplateExpression(pattern) ? [pattern.getText(source)] : [];
     }
     return [];
   });
@@ -1065,39 +1069,6 @@ void test('one owner of "who produces event T": the emit invariant reads scanEve
   for (const name of ['unresolved', 'unattributed']) {
     assert.ok(accessed.has(name), `${EMIT_INVARIANT} never reads the scan's ${name} sites`);
   }
-});
-
-void test('one reader of "where event T is defined": one eventType-definition reader in tools/, and the emit invariant has no interface regex', () => {
-  const tracked = execFileSync('git', ['-C', REPO_ROOT, 'ls-files', '-z', '--', 'tools'], {
-    encoding: 'utf8',
-  })
-    .split('\0')
-    .filter((path) => /\.ts$/.test(path) && !/\.(?:spec|test|d)\.ts$/.test(path));
-  // A definition reader compares a member name with the literal 'eventType'.
-  const readers = tracked.filter((path) =>
-    nodesOf(parsedSource(path)).some(
-      (node) =>
-        ts.isBinaryExpression(node) &&
-        [
-          ts.SyntaxKind.EqualsEqualsEqualsToken,
-          ts.SyntaxKind.ExclamationEqualsEqualsToken,
-          ts.SyntaxKind.EqualsEqualsToken,
-          ts.SyntaxKind.ExclamationEqualsToken,
-        ].includes(node.operatorToken.kind) &&
-        [node.left, node.right].some(
-          (side) => ts.isStringLiteralLike(side) && side.text === 'eventType',
-        ),
-    ),
-  );
-  assert.ok(
-    readers.length <= 1,
-    `more than one reader of event definitions: ${readers.join(', ')}`,
-  );
-  assert.deepEqual(
-    regexTexts(parsedSource(EMIT_INVARIANT)).filter((text) => text.includes('interface')),
-    [],
-    `${EMIT_INVARIANT} still discovers declared interfaces with its own regex`,
-  );
 });
 
 // --- SE-3-R2 corrective round 1 (build/SE-3-R2/appellate-r1.md roots R1-R3) -------------------
@@ -1208,4 +1179,230 @@ void test('R2: a tracked project.json that is not JSON is a named unavailability
   assert.match(run.stderr, /SourceTreeUnavailable/);
   assert.match(run.stderr, /apps\/y-service\/project\.json/);
   assert.ok(!run.stderr.includes(OUTSIDE_MARKER.slice(0, 4)), run.stderr);
+});
+
+// Root R3: "who produces event T" (scanEventProducers) and "where event T is defined"
+// (eventDefinitionsIn) are owned here, but the round-2 pins searched only tools/ and one syntactic
+// form, so live readers with their own rules survived unlisted. These pins read every tracked
+// *.ts and *.py file. A reader is a pattern that EXTRACTS the concept: a regex (a literal, a string
+// or template handed to RegExp, or a Python `re.*` pattern) that captures the event-type argument
+// of a `createBaseEvent(` call, or that reads an `eventType:` literal (captured, or interpolated
+// for a given type) or an interface extending BaseEvent; or a TypeScript AST comparison of a name
+// with the constructor or with the `eventType` member. A matcher for one named type (a provenance
+// or retirement check) asserts a fact about that type and is not a reader. Every reader other
+// than the owner is listed by the open registry finding that tracks its fold; a listed reader
+// that is gone fails as stale, and the owner must itself be found, so the pin cannot pass empty.
+
+/** The literals are assembled so this file's own patterns and comparisons are not readers. */
+const CONSTRUCTOR_NAME = ['create', 'BaseEvent'].join('');
+const MEMBER_NAME = ['event', 'Type'].join('');
+const OWNER_MODULE = 'tools/gates/event-consumer-index.ts';
+const REGISTRY_PATH = 'docs/reviews/_registry/findings.jsonl';
+
+type ReaderConcept = 'producer' | 'definition';
+
+/** A capture group that is not escaped and not `(?…)`. */
+const CAPTURE = /(?:^|[^\\])\((?!\?)/;
+const CALL_OPEN = String.raw`\(`;
+
+/** The pattern captures what follows the constructor's opening parenthesis: the event type. */
+function capturesConstructorArgument(pattern: string): boolean {
+  const at = pattern.indexOf(CONSTRUCTOR_NAME);
+  if (at === -1) return false;
+  const open = pattern.indexOf(CALL_OPEN, at + CONSTRUCTOR_NAME.length);
+  return open !== -1 && CAPTURE.test(pattern.slice(open + CALL_OPEN.length));
+}
+
+const MEMBER_LITERAL = new RegExp(`${MEMBER_NAME}[^:]{0,16}:`);
+const INTERPOLATION = /\$\{/;
+
+/** The pattern reads an `eventType:` literal (captured or interpolated), or a BaseEvent interface by name. */
+function readsDefinitions(pattern: string): boolean {
+  const member = pattern.search(MEMBER_LITERAL);
+  if (member !== -1) {
+    const rest = pattern.slice(member);
+    return CAPTURE.test(rest) || INTERPOLATION.test(rest);
+  }
+  return /extends/.test(pattern) && pattern.includes('BaseEvent') && CAPTURE.test(pattern);
+}
+
+const PYTHON_PATTERN =
+  /\bre\.(?:compile|search|match|fullmatch|findall|finditer|sub|split)\(\s*[rRbBuU]*("""|'''|"|')((?:(?!\1)[\s\S])*?)\1/g;
+
+const EQUALITY: ReadonlySet<ts.SyntaxKind> = new Set([
+  ts.SyntaxKind.EqualsEqualsEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsEqualsToken,
+  ts.SyntaxKind.EqualsEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsToken,
+]);
+
+/** AST forms: a name compared with the constructor, or a node's `.text` compared with the member. */
+function astReaders(source: ts.SourceFile): Set<ReaderConcept> {
+  const nodes = nodesOf(source);
+  const constants = new Map<string, string>();
+  for (const node of nodes) {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer !== undefined &&
+      ts.isStringLiteralLike(node.initializer)
+    ) {
+      constants.set(node.name.text, node.initializer.text);
+    }
+  }
+  const valueOf = (side: ts.Expression): string | undefined =>
+    ts.isStringLiteralLike(side)
+      ? side.text
+      : ts.isIdentifier(side)
+        ? constants.get(side.text)
+        : undefined;
+  const found = new Set<ReaderConcept>();
+  for (const node of nodes) {
+    if (!ts.isBinaryExpression(node) || !EQUALITY.has(node.operatorToken.kind)) continue;
+    for (const [side, other] of [
+      [node.left, node.right],
+      [node.right, node.left],
+    ] as const) {
+      const value = valueOf(side);
+      if (value === CONSTRUCTOR_NAME) found.add('producer');
+      if (
+        value === MEMBER_NAME &&
+        ts.isPropertyAccessExpression(other) &&
+        other.name.text === 'text'
+      ) {
+        found.add('definition');
+      }
+    }
+  }
+  return found;
+}
+
+let readerScan: ReadonlyMap<ReaderConcept, readonly string[]> | null = null;
+
+/** Every tracked *.ts / *.py file (outside node_modules) holding a reader form, per concept. */
+function conceptReaders(): ReadonlyMap<ReaderConcept, readonly string[]> {
+  if (readerScan !== null) return readerScan;
+  const tracked = execFileSync('git', ['-C', REPO_ROOT, 'ls-files', '-z', '--', '*.ts', '*.py'], {
+    encoding: 'utf8',
+    env: hermeticGitEnv(),
+    maxBuffer: 256 * 1024 * 1024,
+  })
+    .split('\0')
+    .filter((path) => path.length > 0 && !path.split('/').includes('node_modules'));
+  const readers = new Map<ReaderConcept, string[]>([
+    ['producer', []],
+    ['definition', []],
+  ]);
+  for (const path of tracked) {
+    const text = readFileSync(join(REPO_ROOT, path), 'utf8');
+    if (![CONSTRUCTOR_NAME, MEMBER_NAME, 'BaseEvent'].some((name) => text.includes(name))) continue;
+    const concepts = new Set<ReaderConcept>();
+    let patterns: string[];
+    if (path.endsWith('.py')) {
+      patterns = [...text.matchAll(PYTHON_PATTERN)].map((match) => match[2] ?? '');
+    } else {
+      const source = parsedSource(path);
+      patterns = regexTexts(source);
+      for (const concept of astReaders(source)) concepts.add(concept);
+    }
+    for (const pattern of patterns) {
+      if (capturesConstructorArgument(pattern)) concepts.add('producer');
+      if (readsDefinitions(pattern)) concepts.add('definition');
+    }
+    for (const concept of concepts) readers.get(concept)?.push(path);
+  }
+  readerScan = readers;
+  return readers;
+}
+
+/** Open registry ids (the reader's tracked fold) -> the readers each one lists. */
+const KNOWN_PRODUCER_READERS: Readonly<Record<string, readonly string[]>> = {
+  // extractPublishedEventTypes (PUBLISH COVERAGE); folds after ARIA-MEDIUM-792, before SE-4.
+  'CONTRACT-MEDIUM-015': ['e2e/tests/integration/nats-invariants.spec.ts'],
+};
+const KNOWN_DEFINITION_READERS: Readonly<Record<string, readonly string[]>> = {
+  // Its `eventType: 'X'` literal regex, part of the same producer reader.
+  'CONTRACT-MEDIUM-015': ['e2e/tests/integration/nats-invariants.spec.ts'],
+  // extractEventTypes; removed with the witness's event-consumer nodes by SE-4.
+  'ARIA-MEDIUM-793': ['tools/gates/plan-coverage-witness.ts'],
+  'CONTRACT-MEDIUM-016': [
+    'tests/invariants/feeding-event-delivery-semantics.spec.ts',
+    'tests/invariants/pii-events-mandatory-crypto-shred.spec.ts',
+  ],
+  // _EVENT_INTERFACE_RE; tombstoned with the module in F0.9b (service-expertise PLAN §2 row 1.3).
+  'ARIA-MEDIUM-794': ['aria-kernel/aria_kernel/recursive_impact.py'],
+};
+
+/**
+ * The owner's own oracle: event-producer-scan.spec.ts finds every constructor call with an
+ * independent parse and asserts the owner returns exactly those sites, so it cannot disagree with
+ * the owner silently. Listed so a new reader in a spec still has to be named.
+ */
+const PRODUCER_ORACLES: readonly string[] = ['tools/gates/event-producer-scan.spec.ts'];
+
+/** Reader-shaped patterns that read another fact, with what they read. */
+const NOT_DEFINITION_READERS: Readonly<Record<string, string>> = {
+  'tests/invariants/upcaster-chain.spec.ts':
+    "the event an upcaster upcasts (its object's eventType property), not where the event is defined",
+};
+
+/** Registry id -> state. */
+function registryStates(): Map<string, string> {
+  const states = new Map<string, string>();
+  for (const line of readFileSync(join(REPO_ROOT, REGISTRY_PATH), 'utf8').split('\n')) {
+    if (line.trim() === '') continue;
+    const row = JSON.parse(line) as { id: string; state: string };
+    states.set(row.id, row.state);
+  }
+  return states;
+}
+
+function assertOneOwner(
+  concept: ReaderConcept,
+  known: Readonly<Record<string, readonly string[]>>,
+  exempt: readonly string[],
+): void {
+  const found = conceptReaders().get(concept) ?? [];
+  assert.ok(found.includes(OWNER_MODULE), `the owner ${OWNER_MODULE} holds no ${concept} reader`);
+  const states = registryStates();
+  const listed = new Set<string>();
+  for (const [id, paths] of Object.entries(known)) {
+    assert.ok(
+      isUnresolvedFindingState(states.get(id) ?? ''),
+      `${id} lists ${paths.join(', ')} but is not an unresolved registry finding (${states.get(id) ?? 'absent'})`,
+    );
+    for (const path of paths) {
+      assert.ok(
+        found.includes(path),
+        `${id}: ${path} holds no ${concept} reader any more (stale entry)`,
+      );
+      listed.add(path);
+    }
+  }
+  for (const path of exempt) {
+    assert.ok(
+      found.includes(path),
+      `${path} holds no ${concept} reader any more (stale exemption)`,
+    );
+    listed.add(path);
+  }
+  const unlisted = found.filter((path) => path !== OWNER_MODULE && !listed.has(path));
+  assert.deepEqual(
+    unlisted,
+    [],
+    `${concept} readers beside the owner with no tracked fold: ${unlisted.join(', ')}`,
+  );
+}
+
+void test('R3: one owner of "who produces event T": every other producer reader in the tree is tracked by an open finding', () => {
+  assertOneOwner('producer', KNOWN_PRODUCER_READERS, PRODUCER_ORACLES);
+});
+
+void test('R3: one owner of "where event T is defined": every other definition reader in the tree is tracked by an open finding', () => {
+  assertOneOwner('definition', KNOWN_DEFINITION_READERS, Object.keys(NOT_DEFINITION_READERS));
+  assert.deepEqual(
+    regexTexts(parsedSource(EMIT_INVARIANT)).filter((text) => text.includes('interface')),
+    [],
+    `${EMIT_INVARIANT} still discovers declared interfaces with its own regex`,
+  );
 });

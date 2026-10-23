@@ -55,7 +55,11 @@
  * subscription value is; a value that does not fold is `unresolved`, never dropped. Attribution is
  * the consumers' rule, over-attribution included: a library site whose argument folds to a union
  * (the tenant-erasure executor's per-target outcome types) is a fact of every wiring app for every
- * member. ACL publish grants are permission, not production, and are never read as producers.
+ * member, a wrong fact tracked as ARIA-MEDIUM-792. ACL publish grants are permission, not
+ * production, and are never read as producers. It is the owner, not yet the only reader: a
+ * reader that keeps its own rule (the e2e NATS publish coverage, CONTRACT-MEDIUM-015) is listed
+ * by its open finding in the single-owner pin (event-consumer-index.spec.ts), which reads every
+ * tracked *.ts and *.py file, so a new one fails until it is folded or tracked.
  *
  * `--facts --repo-root <tree>` (`eventFacts`) is the code-fact bridge entry the kernel runs on a
  * diff's base tree (`K/plan_coverage.py` `compute_service_facts`): per application, the produced
@@ -1099,7 +1103,9 @@ function producerIndex(scan: SourceScan, candidates: readonly string[]): EventPr
  * EventId makes it the construction path), so a producer site is a call that resolves to that
  * declaration. Its event type is the folded first argument, with the same folding as consumer
  * values; a value that does not fold is `unresolved`, never dropped. A library site belongs to the
- * apps that wire its class, as for consumers. ACL publish grants are permission, not production.
+ * apps that wire its class, as for consumers (a union-typed library site over-attributes,
+ * ARIA-MEDIUM-792). ACL publish grants are permission, not production. Readers that still keep
+ * their own rule are listed by open finding in the single-owner pin (CONTRACT-MEDIUM-015).
  */
 export function scanEventProducers(repoRoot: string): EventProducerIndex {
   const tree = sourceTree(repoRoot);
@@ -1359,7 +1365,12 @@ function extendsBaseEvent(
  * catalog's shape under schemas/, a registry row, a resolution record) is not a definition, and
  * neither is a type literal. A base interface with no literal `eventType` is returned with no
  * event types. The code-fact entry's `event_definitions`, the event-contracts adapter's
- * `event_interface` observations and the emit-has-interface invariant all read this function.
+ * `event_interface` observations and the emit-has-interface invariant read this function. Readers
+ * that still keep their own rule are each tracked by an open finding and listed by it in the
+ * single-owner pin (event-consumer-index.spec.ts): the plan-coverage witness
+ * (ARIA-MEDIUM-793), the PII crypto-shred and feeding invariants (CONTRACT-MEDIUM-016),
+ * recursive_impact (ARIA-MEDIUM-794, its F0.9b tombstone) and the e2e NATS invariant
+ * (CONTRACT-MEDIUM-015).
  */
 export function eventDefinitionsIn(
   sourceFile: ts.SourceFile,

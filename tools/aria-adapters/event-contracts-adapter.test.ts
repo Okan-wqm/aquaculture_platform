@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { eventFacts } from '../gates/event-consumer-index';
+import { eventFacts, scanEventDefinitions } from '../gates/event-consumer-index';
 import { indexFixtureTree, makeFixtureTree } from '../gates/fixture-tree';
 
 import { analyzeEventContracts } from './event-contracts-adapter';
@@ -227,9 +227,10 @@ assert.equal(
 // code-fact entry's event_definitions in tools/gates/event-consumer-index.ts (any `eventType`
 // member with a literal type: 408 live sites for 288 types, schema catalogs, registries and
 // erasure targets included) and the emit invariant's `export interface …Event` regex. One
-// definition function, with one explicit rule, serves all of them: on the same tree the adapter's
-// observations and the facts' definitions are the same set, and a schema catalog or a registry
-// type that merely carries an `eventType` literal is not a definition.
+// definition function (`eventDefinitionsIn`), with one explicit rule, read over one file selection
+// (`eventContractFiles`), serves all of them: on the same tree the adapter's observations and the
+// facts' definitions are the same set, and a schema catalog or a registry type that merely carries
+// an `eventType` literal is not a definition.
 const definitionsTree = makeFixtureTree('aria-event-definitions-');
 const definitionFiles: Record<string, string> = {
   'libs/event-contracts/src/base-event.ts': [
@@ -313,7 +314,7 @@ assert.deepEqual(factDefinitions, ['BatchCreated @ libs/event-contracts/src/farm
 // contract takes its `eventType` from a gitignored module, and an untracked contract sits beside
 // it: the adapter observed PlantedViaIgnoredType and PlantedUntracked, the facts named neither, and
 // the pin above ("the same set") held only where nothing untracked is on disk. Both readers now
-// read the tracked view, so their answers are one set on every tree.
+// read the tracked view; the R2-A block below pins that they also read one file selection.
 const viewTree = makeFixtureTree('aria-event-definitions-view-');
 const viewFiles: Record<string, string> = {
   '.gitignore': 'tmp\n',
@@ -379,5 +380,85 @@ for (const planted of ['PlantedViaIgnoredType', 'PlantedUntracked']) {
   assert.ok(!JSON.stringify(viewAdapter).includes(planted), `the adapter reports ${planted}`);
   assert.ok(!JSON.stringify(viewFacts).includes(planted), `the facts report ${planted}`);
 }
+
+// --- SE-3-R2 appellate R2-A: both readers of the one definition rule read one file selection ---
+//
+// After RC both readers read the tracked view, but each still chose its own files from it: the
+// adapter walked the scan root with the adapter-fs walk (it enters __tests__ and skips build, dist,
+// tmp, coverage…), the code-fact scan took the tracked non-test sources under the contracts root
+// (it skips __tests__ and reads build). On a clean, fully tracked tree with a contract in each such
+// directory the adapter observed OnlyAdapterSees and the facts named OnlyFactsSee. The one
+// selection rule is event-consumer-index `eventContractFiles`; all three answers come from it.
+const selectionTree = makeFixtureTree('aria-event-definitions-selection-');
+const selectionFiles: Record<string, string> = {
+  'libs/event-contracts/src/base-event.ts':
+    definitionFiles['libs/event-contracts/src/base-event.ts'] ?? '',
+  'libs/event-contracts/src/farm-events.ts':
+    definitionFiles['libs/event-contracts/src/farm-events.ts'] ?? '',
+  'libs/event-contracts/src/__tests__/helper-events.ts': [
+    "import type { BaseEvent } from '../base-event';",
+    'export interface HelperEvent extends BaseEvent {',
+    "  readonly eventType: 'OnlyAdapterSees';",
+    '}',
+    '',
+  ].join('\n'),
+  'libs/event-contracts/src/build/built-events.ts': [
+    "import type { BaseEvent } from '../base-event';",
+    'export interface BuiltEvent extends BaseEvent {',
+    "  readonly eventType: 'OnlyFactsSee';",
+    '}',
+    '',
+  ].join('\n'),
+  'infrastructure/nats/services.yaml': definitionFiles['infrastructure/nats/services.yaml'] ?? '',
+};
+for (const [path, text] of Object.entries(selectionFiles)) {
+  mkdirSync(join(selectionTree, path, '..'), { recursive: true });
+  writeFileSync(join(selectionTree, path), text, 'utf8');
+}
+indexFixtureTree(selectionTree);
+const typedSites = (sites: readonly { event_type: string; site: string }[]): string[] =>
+  sites
+    .map((definition) => `${definition.event_type} @ ${definition.site.replace(/:\d+$/, '')}`)
+    .sort();
+const selectionObserved = analyzeEventContracts(
+  { root: 'libs/event-contracts/src', checks: ['event_interfaces'] },
+  selectionTree,
+)
+  .observations.filter(
+    (observation) => observation.type === 'event_interface' && observation.eventType !== undefined,
+  )
+  .map((observation) => `${observation.eventType} @ ${observation.path}`)
+  .sort();
+const selectionFacts = typedSites(eventFacts(selectionTree).event_definitions);
+const selectionScanned = typedSites(scanEventDefinitions(selectionTree));
+assert.deepEqual(
+  selectionObserved,
+  selectionFacts,
+  'the adapter and the code-fact scan choose their contract files by two rules',
+);
+assert.deepEqual(
+  selectionObserved,
+  selectionScanned,
+  'the adapter and scanEventDefinitions choose their contract files by two rules',
+);
+assert.deepEqual(selectionFacts, [
+  'BatchCreated @ libs/event-contracts/src/farm-events.ts',
+  'OnlyFactsSee @ libs/event-contracts/src/build/built-events.ts',
+]);
+
+// R2-A: the selection is the contracts tree, so a scan root outside it would select nothing and
+// pass empty. The adapter refuses it by name; a root inside it narrows the selection.
+for (const outside of ['libs', 'libs/event-contracts', 'infrastructure/nats']) {
+  assert.throws(
+    () => analyzeEventContracts({ root: outside, checks: ['event_interfaces'] }, selectionTree),
+    (error: unknown) => error instanceof Error && error.name === 'ScanRootOutsideEventContracts',
+    `the adapter accepts the scan root ${outside}, outside the contracts tree`,
+  );
+}
+const narrowed = analyzeEventContracts(
+  { root: 'libs/event-contracts/src/build', checks: ['event_interfaces'] },
+  selectionTree,
+);
+assert.deepEqual(narrowed.read_paths, ['libs/event-contracts/src/build/built-events.ts']);
 
 process.stdout.write('event-contracts-adapter tests passed\n');

@@ -203,7 +203,8 @@ const MAX_FOLD_DEPTH = 8;
 const EVENT_CONSTRUCTOR = 'createBaseEvent';
 const EVENT_CONTRACTS_DECLARATION = /[\\/]libs[\\/]event-contracts[\\/]src[\\/]/;
 const PRODUCER_CANDIDATE_TEXT = /\bcreateBaseEvent\b/;
-const EVENT_CONTRACTS_SOURCES = 'libs/event-contracts/src/';
+/** The event-contracts source tree: the one place event types are defined (CLAUDE.md, ADR-006). */
+export const EVENT_CONTRACTS_ROOT = 'libs/event-contracts/src';
 
 const toPosix = (path: string): string => path.split(sep).join('/');
 
@@ -326,19 +327,38 @@ function trackedView(tree: TrackedTree): InTreeView {
 
 const SOURCE_FILE = /^(?:apps|libs|platform\/libs)\/[^/]+\/src\/(?:.+\/)?[^/]+\.ts$/;
 
+/** A tracked path is a source: a non-test `.ts` file under `<base>/<pkg>/src` of a source root. */
+function isSourcePath(path: string): boolean {
+  if (!SOURCE_FILE.test(path)) return false;
+  const segments = path.split('/');
+  const name = segments[segments.length - 1] ?? '';
+  return !(isTestFile(name) || segments.includes('node_modules') || segments.includes('__tests__'));
+}
+
+/** The tree's tracked paths that `admits`, as absolute paths of regular files, sorted. */
+function trackedFiles(tree: TrackedTree, admits: (path: string) => boolean): string[] {
+  return [...tree.paths]
+    .filter(admits)
+    .map((path) => tree.file(path))
+    .sort();
+}
+
 /** Non-test tracked `.ts` files under `<base>/<pkg>/src` for every source root, absolute. */
 function sourceFiles(tree: TrackedTree): string[] {
-  const files: string[] = [];
-  for (const path of tree.paths) {
-    if (!SOURCE_FILE.test(path)) continue;
-    const segments = path.split('/');
-    const name = segments[segments.length - 1] ?? '';
-    if (isTestFile(name) || segments.includes('node_modules') || segments.includes('__tests__')) {
-      continue;
-    }
-    files.push(tree.file(path));
-  }
-  return files.sort();
+  return trackedFiles(tree, isSourcePath);
+}
+
+/**
+ * The files event types are defined in: the tree's sources under EVENT_CONTRACTS_ROOT, absolute
+ * and sorted. The one selection rule the one definition rule (`eventDefinitionsIn`) reads over,
+ * for the code facts, `scanEventDefinitions` and the event-contracts adapter alike (SE-3-R2
+ * appellate R2-A), so the three answer one set of definitions on every tree.
+ */
+export function eventContractFiles(tree: TrackedTree): string[] {
+  return trackedFiles(
+    tree,
+    (path) => isSourcePath(path) && path.startsWith(`${EVENT_CONTRACTS_ROOT}/`),
+  );
 }
 
 /**
@@ -1511,19 +1531,14 @@ function eventDefinitions(scan: SourceScan, files: readonly string[]): EventDefi
   return definitions.sort((a, b) => a.event_type.localeCompare(b.event_type) || bySite(a, b));
 }
 
-const isContractFile =
-  (root: string) =>
-  (path: string): boolean =>
-    toPosix(relative(root, path)).startsWith(EVENT_CONTRACTS_SOURCES);
-
 /**
- * The event definitions of `repoRoot` (`eventDefinitionsIn` over libs/event-contracts/src), for a
+ * The event definitions of `repoRoot` (`eventDefinitionsIn` over `eventContractFiles`), for a
  * reader that needs only them, such as the emit-has-interface invariant.
  */
 export function scanEventDefinitions(repoRoot: string): EventDefinitionFact[] {
-  const tree = sourceTree(trackedTree(repoRoot));
-  const contractFiles = tree.files.filter(isContractFile(tree.root));
-  return eventDefinitions(new SourceScan(tree, contractFiles), contractFiles);
+  const tracked = trackedTree(repoRoot);
+  const contractFiles = eventContractFiles(tracked);
+  return eventDefinitions(new SourceScan(sourceTree(tracked), contractFiles), contractFiles);
 }
 
 const NATS_SERVICES_REF = toPosix(NATS_SERVICES_YAML);
@@ -1536,13 +1551,12 @@ const NATS_SERVICES_REF = toPosix(NATS_SERVICES_YAML);
  */
 export function eventFacts(repoRoot: string): EventFacts {
   const tracked = trackedTree(repoRoot);
-  const root = tracked.root;
   const nats = loadNatsServicesLocated(tracked.file(NATS_SERVICES_REF));
   const tree = sourceTree(tracked);
   const allFiles = tree.files;
   const consumerFiles = allFiles.filter(textMatches(CANDIDATE_TEXT));
   const producerFiles = allFiles.filter(textMatches(PRODUCER_CANDIDATE_TEXT));
-  const contractFiles = allFiles.filter(isContractFile(root));
+  const contractFiles = eventContractFiles(tracked);
   // One program serves the three readings, so the checker is built once.
   const scan = new SourceScan(tree, [
     ...new Set([...consumerFiles, ...producerFiles, ...contractFiles]),

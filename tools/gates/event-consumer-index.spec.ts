@@ -1549,6 +1549,78 @@ void test('RC: the tool sources hold one compiler-host builder and one lstat ent
   );
 });
 
+// Appellate R2-A: after RC the one definition rule read one view, but two owners chose its files:
+// the adapter walked its scan root (adapter-fs `collectFiles`) and the facts took the tracked
+// sources under the contracts root. One selector, `eventContractFiles`, now owns the choice; the
+// adapter's program is built over files that come from it and from no walk of its own.
+const EVENT_CONTRACTS_ADAPTER = 'tools/aria-adapters/event-contracts-adapter.ts';
+const CONTRACT_FILE_SELECTOR = 'eventContractFiles';
+
+/** The identifiers a node's subtree calls, by callee name. */
+function calledNames(node: ts.Node): Set<string> {
+  const names = new Set<string>();
+  const visit = (current: ts.Node): void => {
+    if (ts.isCallExpression(current)) {
+      const callee = current.expression;
+      if (ts.isIdentifier(callee)) names.add(callee.text);
+      if (ts.isPropertyAccessExpression(callee)) names.add(callee.name.text);
+    }
+    ts.forEachChild(current, visit);
+  };
+  visit(node);
+  return names;
+}
+
+void test('R2-A: the event-contracts adapter chooses its contract files only through eventContractFiles', () => {
+  const source = parsedSource(EVENT_CONTRACTS_ADAPTER);
+  const nodes = nodesOf(source);
+  const importsSelector = source.statements.some(
+    (statement) =>
+      ts.isImportDeclaration(statement) &&
+      ts.isStringLiteral(statement.moduleSpecifier) &&
+      statement.moduleSpecifier.text === '../gates/event-consumer-index' &&
+      statement.importClause?.namedBindings !== undefined &&
+      ts.isNamedImports(statement.importClause.namedBindings) &&
+      statement.importClause.namedBindings.elements.some(
+        (element) => element.name.text === CONTRACT_FILE_SELECTOR,
+      ),
+  );
+  assert.ok(
+    importsSelector,
+    `${EVENT_CONTRACTS_ADAPTER} does not import ${CONTRACT_FILE_SELECTOR}`,
+  );
+  const walks = [...calledNames(source)].filter(
+    (name) => name === 'collectFiles' || name === 'collectTypeScriptFiles',
+  );
+  assert.deepEqual(walks, [], `${EVENT_CONTRACTS_ADAPTER} walks the tree for its own file set`);
+
+  const programs = nodes.filter(
+    (node): node is ts.CallExpression =>
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === 'createContainedProgram',
+  );
+  assert.equal(programs.length, 1, 'the adapter builds one program');
+  const [program] = programs;
+  const filesArgument = program?.arguments[1];
+  assert.ok(
+    filesArgument !== undefined && ts.isIdentifier(filesArgument),
+    'the program is built over a named file list',
+  );
+  const declarations = nodes.filter(
+    (node): node is ts.VariableDeclaration =>
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === filesArgument.text,
+  );
+  assert.equal(declarations.length, 1, `one declaration of ${filesArgument.text}`);
+  const initializer = declarations[0]?.initializer;
+  assert.ok(
+    initializer !== undefined && calledNames(initializer).has(CONTRACT_FILE_SELECTOR),
+    `the files the adapter's program reads do not come from ${CONTRACT_FILE_SELECTOR}`,
+  );
+});
+
 void test('R3: one owner of "where event T is defined": every other definition reader in the tree is tracked by an open finding', () => {
   assertOneOwner('definition', KNOWN_DEFINITION_READERS, Object.keys(NOT_DEFINITION_READERS));
   assert.deepEqual(

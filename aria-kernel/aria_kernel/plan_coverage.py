@@ -421,9 +421,10 @@ def _service_facts_unavailable(base_sha: str, witness: dict[str, Any]) -> dict[s
 def _base_tree_error(workspace: Path, base_sha: str) -> str | None:
     """None when the disk the entries read is the content of ``base_sha``; otherwise the named error.
 
-    Both entries enumerate the tree's tracked files (event-consumer-index.ts ``trackedPaths``) and
+    Both entries enumerate the tree's tracked files (event-consumer-index.ts ``TrackedTree``) and
     read their content from disk, and the type checker resolves imports only inside that tracked
-    set (its compiler host), the workspace node_modules and the TypeScript lib directory. What this
+    set (adapter-ts ``containedCompilerHost`` with the tracked view), the workspace node_modules and
+    the TypeScript lib directory. What this
     check proves is that the tracked content on disk is the base commit, so a fact stamped
     ``facts_sha = base_sha`` has a ``path:line`` that resolves against it (PLAN §3.1, §3.5, §3.6):
 

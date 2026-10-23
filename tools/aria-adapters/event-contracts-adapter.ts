@@ -3,10 +3,14 @@ import { relative } from 'node:path';
 
 import ts from 'typescript';
 
-import { eventDefinitionsIn, trackedTree } from '../gates/event-consumer-index';
+import {
+  EVENT_CONTRACTS_ROOT,
+  eventContractFiles,
+  eventDefinitionsIn,
+  trackedTree,
+} from '../gates/event-consumer-index';
 
 import {
-  collectFiles,
   filterFilesBySnapshot,
   normalizeWorkspacePath,
   readWorkspaceFile,
@@ -95,7 +99,6 @@ interface AnalysisContext {
   readonly checker: ts.TypeChecker;
 }
 
-const DEFAULT_ROOT = 'libs/event-contracts/src';
 const DEFAULT_CHECKS: readonly CheckName[] = [
   'base_event',
   'event_interfaces',
@@ -104,29 +107,50 @@ const DEFAULT_CHECKS: readonly CheckName[] = [
 ];
 const REQUIRED_BASE_EVENT_FIELDS = ['eventId', 'eventType', 'timestamp', 'tenantId', 'version'];
 
+/**
+ * The requested scan root lies outside EVENT_CONTRACTS_ROOT. The adapter's files are the event
+ * contract files (`eventContractFiles`), so such a root would select nothing and pass empty; it is
+ * refused by name instead.
+ */
+export class ScanRootOutsideEventContracts extends Error {
+  constructor(requestedRoot: string) {
+    super(
+      `scan root ${requestedRoot} is outside ${EVENT_CONTRACTS_ROOT}, the event contracts tree`,
+    );
+    this.name = 'ScanRootOutsideEventContracts';
+  }
+}
+
 export function analyzeEventContracts(
   input: AdapterInput,
   workspaceRoot = process.cwd(),
 ): AriaOutput {
-  const requestedRoot = input.root ?? DEFAULT_ROOT;
+  const requestedRoot = input.root ?? EVENT_CONTRACTS_ROOT;
   const checks = new Set(input.checks ?? DEFAULT_CHECKS);
   const scanRoot = resolveInsideWorkspace(workspaceRoot, requestedRoot);
+  const scanPath = normalizePath(relative(workspaceRoot, scanRoot));
+  if (scanPath !== EVENT_CONTRACTS_ROOT && !scanPath.startsWith(`${EVENT_CONTRACTS_ROOT}/`)) {
+    throw new ScanRootOutsideEventContracts(requestedRoot);
+  }
   if (!workspacePathExists(workspaceRoot, scanRoot)) {
     throw new Error(`scan root does not exist: ${requestedRoot}`);
   }
 
-  // The tracked view (SE-3-R2 appellate RC): the files and every module they
-  // import are the workspace's tracked content, the view the code-fact scan's
-  // `event_definitions` reads, so the one definition rule (`eventDefinitionsIn`)
-  // answers over one view for both. An untracked contract on disk is no
-  // observation, and an `eventType` whose type comes from an ignored module
-  // resolves to nothing. In the adapter room the workspace already shows only
-  // tracked content, so there the view changes nothing.
+  // One view and one file selection (SE-3-R2 appellate RC and R2-A): the files
+  // are `eventContractFiles` of the workspace's tracked content, the selection
+  // the code-fact scan's `event_definitions` and `scanEventDefinitions` read, so
+  // the one definition rule (`eventDefinitionsIn`) answers over one file set for
+  // all three. The scan root and the snapshot only narrow that selection. Every
+  // module the files import is read through the same tracked view: an untracked
+  // contract on disk is no observation, and an `eventType` whose type comes from
+  // an ignored module resolves to nothing. In the adapter room the workspace
+  // already shows only tracked content, so there the view changes nothing.
   const tracked = trackedTree(workspaceRoot);
   const files = filterFilesBySnapshot(
-    collectTypeScriptFiles(workspaceRoot, scanRoot).filter((file) =>
-      tracked.holdsFile(normalizePath(relative(tracked.root, file))),
-    ),
+    eventContractFiles(tracked).filter((file) => {
+      const path = normalizePath(relative(tracked.root, file));
+      return path === scanPath || path.startsWith(`${scanPath}/`);
+    }),
     workspaceRoot,
     input,
   );
@@ -561,14 +585,6 @@ function lineOf(sourceFile: ts.SourceFile, node: ts.Node): number {
 function visit(node: ts.Node, visitor: (node: ts.Node) => void): void {
   visitor(node);
   ts.forEachChild(node, (child) => visit(child, visitor));
-}
-
-function collectTypeScriptFiles(workspaceRoot: string, root: string): readonly string[] {
-  return collectFiles(workspaceRoot, root, {
-    extensions: ['.ts'],
-    includeFile: (name) =>
-      !name.endsWith('.spec.ts') && !name.endsWith('.test.ts') && !name.endsWith('.d.ts'),
-  });
 }
 
 function resolveInsideWorkspace(workspaceRoot: string, requestedPath: string): string {

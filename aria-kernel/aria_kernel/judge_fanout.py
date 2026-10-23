@@ -300,51 +300,86 @@ def pending_judge_counts(
 
 PANEL_WRITE_SEAT_DOWNGRADE_KIND: str = "judge_panel_write_seat_downgrade"
 
+# Why a write-scope seat left tonight's panel — the one vocabulary the
+# per-finding ``skipped`` rows and the governance row both carry.
+# ``SEAT_WRITE_RUNG_UNAVAILABLE``: the ladder resolved and no rung on it is
+# present and uncooled (an empty ladder — every rung suspended — included).
+# ``SEAT_WRITE_LADDER_UNRESOLVED``: the routing table refused the seat's
+# ladder, so no executor could take its envelope. ``SEAT_WRITE_COOLDOWNS_UNREADABLE``:
+# the cooldown ledger could not be read, so whether a live rung exists is
+# unknown, and an unknown liveness keeps a seat no more than a dead one does.
+SEAT_WRITE_RUNG_UNAVAILABLE: str = "seat_write_rung_unavailable"
+SEAT_WRITE_LADDER_UNRESOLVED: str = "seat_write_ladder_unresolved"
+SEAT_WRITE_COOLDOWNS_UNREADABLE: str = "seat_write_cooldowns_unreadable"
+
 
 def _drop_write_seats_without_a_live_rung(
     root: Path, seats: tuple[tuple[str, str], ...],
-) -> tuple[tuple[tuple[str, str], ...], list[str]]:
-    """(the write-free panel, the write-scope seat roles dropped and why).
+) -> tuple[tuple[tuple[str, str], ...], list[tuple[str, str, str]]]:
+    """(the write-free panel, each dropped write-scope seat as (role, agent, reason)).
 
     ONE liveness question per seat: does the seat's routing ladder name a
     provider this host can run that is not cooled right now? Presence is
     ``provider_outage.host_providers`` (the same cheap signals every gate
     that decides a mint reads); cooldowns are the outage ledger's own
-    active set. An unreadable cooldown ledger does not decide presence —
-    presence alone answers the Codex-only night. The routing table itself
-    refuses a write-scope role on a ladder naming a non-writing vendor, so
-    a live rung IS a live WRITE rung.
+    active set. The routing table itself refuses a write-scope role on a
+    ladder naming a non-writing vendor, so a live rung IS a live WRITE rung.
+
+    ARIA-HIGH-788 class — the read fails CLOSED. A cooldown ledger the
+    reader cannot read (only the faults ``cooldown_reader_faults`` names)
+    does not mean "nothing is cooled": every write-scope seat is dropped
+    with ``SEAT_WRITE_COOLDOWNS_UNREADABLE`` and the fault is recorded on
+    the governance row. Any other exception from the reader is a defect and
+    propagates. A seat whose ladder the routing table refuses is dropped
+    with ``SEAT_WRITE_LADDER_UNRESOLVED`` (the refusal recorded), and a
+    resolved but empty ladder has no live rung.
     """
+    from .provider_cooldown import cooldown_reader_faults
     from .provider_outage import cooled_providers, host_providers
     from .runtime_profiles import WRITE_SCOPE_ROLES, load_provider_routing
 
     live = set(host_providers())
+    cooled: set[str] | None
+    cooldown_fault: str | None = None
     try:
-        cooled = {str(provider) for provider in (cooled_providers(root, now=datetime.now(timezone.utc)) or {})}
-    except Exception:  # noqa: BLE001 — cooldowns are a refinement, presence decides
-        cooled = set()
+        cooled = set(cooled_providers(root, now=datetime.now(timezone.utc)))
+    except cooldown_reader_faults() as exc:
+        cooled = None
+        cooldown_fault = f"{type(exc).__name__}: {exc}"[:300]
     routing = load_provider_routing()
     kept: list[tuple[str, str]] = []
-    dropped: list[tuple[str, str]] = []
+    dropped: list[tuple[str, str, str]] = []
+    ladder_faults: dict[str, str] = {}
     for role, agent in seats:
-        if role in WRITE_SCOPE_ROLES:
-            try:
-                rungs = routing.ladder_for(role, agent)
-            except GovernanceError:
-                rungs = ()
-            if rungs and not any(provider in live and provider not in cooled for provider in rungs):
-                dropped.append((role, agent))
-                continue
+        if role not in WRITE_SCOPE_ROLES:
+            kept.append((role, agent))
+            continue
+        try:
+            rungs = routing.ladder_for(role, agent)
+        except GovernanceError as exc:
+            ladder_faults[role] = str(exc)
+            dropped.append((role, agent, SEAT_WRITE_LADDER_UNRESOLVED))
+            continue
+        if cooled is None:
+            dropped.append((role, agent, SEAT_WRITE_COOLDOWNS_UNREADABLE))
+            continue
+        if not any(provider in live and provider not in cooled for provider in rungs):
+            dropped.append((role, agent, SEAT_WRITE_RUNG_UNAVAILABLE))
+            continue
         kept.append((role, agent))
     if dropped:
         from .tool_registry import append_tools_governance
 
         append_tools_governance(root, PANEL_WRITE_SEAT_DOWNGRADE_KIND, {
-            "downgraded_seats": [role for role, _agent in dropped],
+            "downgraded_seats": [role for role, _agent, _reason in dropped],
+            "seat_reasons": {role: reason for role, _agent, reason in dropped},
             "live_providers": sorted(live),
-            "reason": "panel_write_seat_no_live_rung",
+            "cooled_providers": None if cooled is None else sorted(cooled),
+            "cooldown_fault": cooldown_fault,
+            "ladder_faults": ladder_faults,
             "note": "the item routes a write-free panel; the write-scope "
-                    "seat rejoins when a write-admitting provider returns",
+                    "seat rejoins when a write-admitting provider returns "
+                    "and its liveness can be read",
         })
     return tuple(kept), dropped
 
@@ -399,7 +434,7 @@ def dispatch_judges_for_sample(
     # in ``skipped`` and once per call in governance — never silently, and
     # never as a hold: the whole-or-not law below stays for caps and door
     # refusals, which are capacity, not liveness.
-    downgraded_seats: list[tuple[str, str]] = []
+    downgraded_seats: list[tuple[str, str, str]] = []
     if panel_lane:
         seats, downgraded_seats = _drop_write_seats_without_a_live_rung(root, seats)
     existing = _existing_judge_dispatches(root)
@@ -424,9 +459,8 @@ def dispatch_judges_for_sample(
         # The degradation's per-finding trace: each dropped seat is named on
         # the finding it was dropped from, exactly like the cap skips.
         skipped.extend(
-            {"judgment_group_id": group, "target_agent": agent,
-             "reason": "seat_write_rung_unavailable"}
-            for _role, agent in downgraded_seats
+            {"judgment_group_id": group, "target_agent": agent, "reason": reason}
+            for _role, agent, reason in downgraded_seats
         )
         refs = _evidence_refs(item)
         tool_id = str(item.get("tool_id") or "")

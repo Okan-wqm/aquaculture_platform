@@ -362,24 +362,28 @@ describe('edge MQTT auth under FORCE RLS (SENSOR-CRITICAL-143)', () => {
     expect(await deviceRow(TENANT_A, CLIENT_ID_A)).toMatchObject({ is_online: true, cpu_usage: 7 });
   });
 
-  it('hands a committed Suderra OS device its activation receipt when it comes online (DEC-5.8)', async () => {
+  it('offers a committed Suderra OS device to the root hand-over on every online heartbeat (DEC-5.8)', async () => {
     const receipt = '{"payloadType":"application/vnd.suderra.edge-activation-receipt.v1+json"}';
     await admin!.query(
       `UPDATE "${getTenantSchemaName(TENANT_B)}".edge_devices
-          SET agent_channel = 'suderra_os', activation_receipt = $2, is_online = false
+          SET agent_channel = 'suderra_os', activation_receipt = $2,
+              activation_receipt_expires_at = now() + interval '1 day', is_online = false
         WHERE mqtt_client_id = $1`,
       [CLIENT_ID, receipt],
     );
-    const deliverActivationReceipt = jest.fn(async (): Promise<boolean> => true);
+    // The pace (at most one delivery per HANDOFF_REDELIVERY_INTERVAL_MS, shared by every
+    // replica) and the settlement belong to EdgeRootHandoffService and are proven where it
+    // is; the heartbeat's part is to hand it the device row it just read, every time.
+    const onHeartbeat = jest.fn(async (): Promise<void> => undefined);
     const service = edgeDevices(
-      collaborator<EdgeRootHandoffService>({ deliverActivationReceipt }, 'EdgeRootHandoffService'),
+      collaborator<EdgeRootHandoffService>({ onHeartbeat }, 'EdgeRootHandoffService'),
     );
     const idB = deviceIds.get(CLIENT_ID)!;
     const heartbeat = { deviceCode: idB, tenantId: TENANT_B, isOnline: true };
 
     await service.updateHeartbeat(heartbeat);
-    expect(deliverActivationReceipt).toHaveBeenCalledTimes(1);
-    expect(deliverActivationReceipt).toHaveBeenCalledWith(
+    expect(onHeartbeat).toHaveBeenCalledTimes(1);
+    expect(onHeartbeat).toHaveBeenCalledWith(
       expect.objectContaining({
         id: idB,
         tenantId: TENANT_B,
@@ -387,22 +391,21 @@ describe('edge MQTT auth under FORCE RLS (SENSOR-CRITICAL-143)', () => {
         activationReceipt: receipt,
         activationReceiptHandedAt: null,
       }),
+      expect.any(Date),
     );
 
-    // Still online: no second hand-over until the next reconnect.
     await service.updateHeartbeat(heartbeat);
-    expect(deliverActivationReceipt).toHaveBeenCalledTimes(1);
+    expect(onHeartbeat).toHaveBeenCalledTimes(2);
 
-    // A failed hand-over is retried at the next reconnect; it never fails the heartbeat.
-    await admin!.query(
-      `UPDATE "${getTenantSchemaName(TENANT_B)}".edge_devices SET is_online = false
-        WHERE mqtt_client_id = $1`,
-      [CLIENT_ID],
-    );
-    deliverActivationReceipt.mockRejectedValueOnce(new Error('Not connected to MQTT broker'));
+    // A failed hand-over never fails the heartbeat.
+    onHeartbeat.mockRejectedValueOnce(new Error('Not connected to MQTT broker'));
     await expect(service.updateHeartbeat(heartbeat)).resolves.toMatchObject({ id: idB });
-    expect(deliverActivationReceipt).toHaveBeenCalledTimes(2);
+    expect(onHeartbeat).toHaveBeenCalledTimes(3);
     expect(await deviceRow(TENANT_B, CLIENT_ID)).toMatchObject({ is_online: true });
+
+    // An offline report is not a reachable device: nothing is handed over.
+    await service.updateHeartbeat({ ...heartbeat, isOnline: false });
+    expect(onHeartbeat).toHaveBeenCalledTimes(3);
   });
 
   it('marks stale in-service devices offline in every tenant, and leaves a revoked one revoked', async () => {

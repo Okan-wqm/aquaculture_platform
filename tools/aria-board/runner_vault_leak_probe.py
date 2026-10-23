@@ -37,6 +37,15 @@ in this process's memory; the report names an env file's Board keys and, for a
 line that does not parse, its line NUMBER only — never its text. An env file
 that cannot be read or holds such a line leaves the probe inconclusive.
 
+EVERY gh CREDENTIAL, EACH ALONE (B0 corrective round 3, R3-4). gh prefers
+``GH_TOKEN``, then ``GITHUB_TOKEN``, over its stored ``hosts.yml`` login, so
+one gh call in the job's environment asks only the first of them: a revoked
+token there would hide a stored login that reaches the vault. gh is asked once
+per credential, each its own source: ``gh_cli:stored`` (the job's environment
+without any gh token variable), and ``gh_cli:GH_TOKEN`` and
+``gh_cli:GITHUB_TOKEN`` (each when the job's environment sets it, with that
+token alone). Any of them reaching the vault is red.
+
 Exit status: 0 GREEN — every source ran and none reached the vault, the App
 key source included, and no data key is present; 1 RED — a source reached the
 vault or a data key is present; 2 INCONCLUSIVE — a source could not be
@@ -244,13 +253,38 @@ def _run(command: list[str], *, env: dict[str, str]) -> subprocess.CompletedProc
         return None
 
 
+# gh reads these before its hosts.yml login (GH_TOKEN, then GITHUB_TOKEN, for
+# github.com; the enterprise pair for a GH_HOST); any one present shadows it.
+_GH_TOKEN_VARIABLES = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN")
+# The tokens gh would use for github.com, each asked on its own.
+_GH_TOKEN_CREDENTIALS = ("GH_TOKEN", "GITHUB_TOKEN")
+GH_STORED_LOGIN = "stored"
+
+
 class GhCliSource:
-    """The uid's ``gh`` login (hosts.yml) or a GH_TOKEN/GITHUB_TOKEN in the job's environment."""
+    """One credential gh would use, asked alone: the uid's stored login (hosts.yml), or one token variable.
 
-    name = "gh_cli"
+    B0 corrective round 3, R3-4. gh prefers GH_TOKEN, then GITHUB_TOKEN, over
+    its stored login, so one gh call with every variable present asks only
+    the first; a revoked or blind token would hide a stored login that
+    reaches the vault. Each credential therefore runs in an environment
+    holding it and no other: ``stored`` without any of
+    :data:`_GH_TOKEN_VARIABLES`, a token with that one variable alone.
+    """
 
-    def __init__(self, *, env: dict[str, str], gh_cli: str = "gh") -> None:
-        self.gh_cli, self.env = gh_cli, dict(env)
+    def __init__(self, *, env: dict[str, str], gh_cli: str = "gh", credential: str = GH_STORED_LOGIN) -> None:
+        if credential != GH_STORED_LOGIN and credential not in _GH_TOKEN_CREDENTIALS:
+            raise ValueError(credential)
+        self.gh_cli, self.name = gh_cli, f"gh_cli:{credential}"
+        self.env = {key: value for key, value in env.items() if key not in _GH_TOKEN_VARIABLES}
+        if credential != GH_STORED_LOGIN:
+            self.env[credential] = env[credential]
+
+    @classmethod
+    def every_credential(cls, *, env: dict[str, str], gh_cli: str = "gh") -> list["GhCliSource"]:
+        """A source per credential gh would use under ``env``: the stored login, and each token ``env`` sets."""
+        return [cls(env=env, gh_cli=gh_cli),
+                *(cls(env=env, gh_cli=gh_cli, credential=name) for name in _GH_TOKEN_CREDENTIALS if env.get(name))]
 
     def reach(self, repository: str) -> Reach:
         done = _run([self.gh_cli, "api", f"repos/{repository}"], env=self.env)
@@ -398,7 +432,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     env_files = [read_env_file(path) for path in args.env_file]
     job_env = job_environment(environ=dict(os.environ), env_files=env_files)
-    sources: list[CredentialSource] = [GhCliSource(env=job_env), GitRemoteSource(transport="https", env=job_env),
+    sources: list[CredentialSource] = [*GhCliSource.every_credential(env=job_env),
+                                       GitRemoteSource(transport="https", env=job_env),
                                        GitRemoteSource(transport="ssh", env=job_env)]
     if args.app_id and args.installation_id and args.app_private_key:
         sources.insert(0, AppPrivateKeySource(app_id=args.app_id, installation_id=args.installation_id,

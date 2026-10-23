@@ -461,7 +461,8 @@ class RunnerEnvironmentFileTests(unittest.TestCase):
         status, stdout = self._run("--env-file", str(env_file))
         report = json.loads(stdout)
         self.assertEqual((status, report["verdict"]), (1, "red"), report)
-        self.assertEqual({r["source"]: r["status"] for r in report["sources"]}["gh_cli"], self.probe.REACHABLE)
+        self.assertEqual({r["source"]: r["status"] for r in report["sources"]}["gh_cli:GH_TOKEN"],
+                         self.probe.REACHABLE)
         self.assertNotIn(self._TOKEN, stdout)
         self.assertNotIn(self._TOKEN, control)
 
@@ -483,6 +484,17 @@ class RunnerEnvironmentFileTests(unittest.TestCase):
         self.assertEqual(sources.get("gh_cli:stored"), self.probe.REACHABLE, sources)
         self.assertEqual(sources.get("gh_cli:GH_TOKEN"), self.probe.NO_CREDENTIAL, sources)
         self.assertNotIn(self._TOKEN, stdout)
+
+    def test_each_gh_credential_runs_alone(self) -> None:
+        env = {"PATH": "/usr/bin", "GH_TOKEN": "a", "GITHUB_TOKEN": "b", "GH_ENTERPRISE_TOKEN": "c",
+               "GITHUB_ENTERPRISE_TOKEN": "d"}
+        tokens = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN")
+        sources = {source.name: {k: v for k, v in source.env.items() if k in tokens}
+                   for source in self.probe.GhCliSource.every_credential(env=env)}
+        self.assertEqual(sources, {"gh_cli:stored": {}, "gh_cli:GH_TOKEN": {"GH_TOKEN": "a"},
+                                   "gh_cli:GITHUB_TOKEN": {"GITHUB_TOKEN": "b"}})
+        self.assertEqual([s.name for s in self.probe.GhCliSource.every_credential(env={"PATH": "/usr/bin"})],
+                         ["gh_cli:stored"])
 
     def test_a_malformed_line_is_reported_by_its_number_only(self) -> None:
         env_file = self.root / "runner.env"

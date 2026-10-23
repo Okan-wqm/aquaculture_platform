@@ -246,6 +246,12 @@ class AppPrivateKeySource:
 
 
 def _run(command: list[str], *, env: dict[str, str]) -> subprocess.CompletedProcess[str] | None:
+    """The command's answer, or None when it did not run to an answer (it could not start, or timed out).
+
+    B0 corrective round 3, R3-5: None is one reading for every source — the
+    command said nothing about the credential, so the source is
+    ``inconclusive``; ``no_credential`` comes only from the tool's own answer.
+    """
     try:
         return subprocess.run(command, capture_output=True, text=True, timeout=COMMAND_TIMEOUT_SECONDS,
                               env=env, check=False)
@@ -289,7 +295,7 @@ class GhCliSource:
     def reach(self, repository: str) -> Reach:
         done = _run([self.gh_cli, "api", f"repos/{repository}"], env=self.env)
         if done is None:
-            return Reach(self.name, NO_CREDENTIAL, None, "gh_not_installed")
+            return Reach(self.name, INCONCLUSIVE, None, "gh_unavailable")
         if done.returncode == 0:
             return Reach(self.name, REACHABLE, 200, "github_answered")
         err = done.stderr

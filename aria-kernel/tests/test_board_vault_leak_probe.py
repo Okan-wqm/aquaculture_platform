@@ -312,50 +312,86 @@ class RunnerIdentityLeakProbeTests(unittest.TestCase):
         self.assertEqual(len(findings), 3, findings)
         self.assertNotIn(secret, json.dumps(report))
 
-    def test_the_app_key_source_mints_unscoped_asks_for_the_vault_and_revokes(self) -> None:
-        from cryptography.hazmat.primitives import hashes, serialization
-        from cryptography.hazmat.primitives.asymmetric import padding, rsa
+    def _app_source(self, answers: dict[str, int], seen: list[tuple[str, str, bytes | None, str]]):  # noqa: ANN202
+        """A real AppPrivateKeySource whose GitHub answers ``answers[repository]`` to each repository GET."""
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
         import urllib.error
 
-        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        self.key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        tmp = tempfile.TemporaryDirectory(prefix="aria-leak-probe-pem-")
+        self.addCleanup(tmp.cleanup)
+        pem = Path(tmp.name) / "app.pem"
+        pem.write_bytes(self.key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                               serialization.NoEncryption()))
+
+        def opener(request):  # noqa: ANN001, ANN202 — urllib's Request
+            seen.append((request.get_method(), request.full_url, request.data, request.get_header("Authorization")))
+            if request.full_url.endswith("/access_tokens"):
+                return _Response({"token": "ghs_fixture_unscoped", "expires_at": "2026-10-23T01:00:00Z"})
+            if request.get_method() == "GET":
+                answer = answers[request.full_url.split("/repos/", 1)[1]]
+                if answer != 200:
+                    raise urllib.error.HTTPError(request.full_url, answer, "refused", None, None)
+            response = _Response({})
+            response.status = 200
+            return response
+
+        return self.probe.AppPrivateKeySource(app_id="678", installation_id="12345", private_key_path=pem,
+                                              opener=opener)
+
+    def test_the_app_key_source_mints_unscoped_proves_its_token_asks_for_the_vault_and_revokes(self) -> None:
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.asymmetric import padding
+
+        control, vault = self.probe.CONTROL_REPOSITORY, self.probe.VAULT_REPOSITORY
         for answer, expected in ((404, self.probe.UNREACHABLE), (200, self.probe.REACHABLE)):
-            with self.subTest(answer=answer), tempfile.TemporaryDirectory(prefix="aria-leak-probe-pem-") as tmp:
-                pem = Path(tmp) / "app.pem"
-                pem.write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
-                                                  serialization.NoEncryption()))
+            with self.subTest(answer=answer):
                 seen: list[tuple[str, str, bytes | None, str]] = []
-
-                def opener(request):  # noqa: ANN001, ANN202 — urllib's Request
-                    seen.append((request.get_method(), request.full_url, request.data,
-                                 request.get_header("Authorization")))
-                    if request.full_url.endswith("/access_tokens"):
-                        return _Response({"token": "ghs_fixture_unscoped", "expires_at": "2026-10-23T01:00:00Z"})
-                    if request.get_method() == "GET" and answer != 200:
-                        raise urllib.error.HTTPError(request.full_url, answer, "Not Found", None, None)
-                    response = _Response({})
-                    response.status = 200
-                    return response
-
-                source = self.probe.AppPrivateKeySource(app_id="678", installation_id="12345",
-                                                        private_key_path=pem, opener=opener)
-                reach = source.reach(self.probe.VAULT_REPOSITORY)
+                reach = self._app_source({control: 200, vault: answer}, seen).reach(vault)
                 self.assertEqual(reach.status, expected)
                 methods = [(method, url.split("api.github.com")[1]) for method, url, _, _ in seen]
                 self.assertEqual(methods, [("POST", "/app/installations/12345/access_tokens"),
+                                           ("GET", f"/repos/{control}"),
                                            ("GET", "/repos/Okan-wqm/aria-board-vault"),
                                            ("DELETE", "/installation/token")])
                 self.assertEqual(seen[0][2], b"{}", "the mint asks for every repository the installation selects")
                 jwt = seen[0][3].split(" ", 1)[1]
                 signing_input, signature = jwt.rsplit(".", 1)
-                key.public_key().verify(base64.urlsafe_b64decode(signature + "=" * (-len(signature) % 4)),
-                                        signing_input.encode("ascii"), padding.PKCS1v15(), hashes.SHA256())
+                self.key.public_key().verify(base64.urlsafe_b64decode(signature + "=" * (-len(signature) % 4)),
+                                             signing_input.encode("ascii"), padding.PKCS1v15(), hashes.SHA256())
                 self.assertNotIn("ghs_fixture_unscoped", json.dumps(reach.report()))
+
+    def test_a_vault_404_is_green_only_after_this_repository_answered_200(self) -> None:
+        # B0 corrective round 2, R2-3 (evidence p09): a 403 (rate limit, a
+        # block) proves nothing, and a token minted for the wrong installation
+        # 404s on everything — the positive control tells it from a shut vault.
+        control, vault = self.probe.CONTROL_REPOSITORY, self.probe.VAULT_REPOSITORY
+        cases = {
+            "vault_403": ({control: 200, vault: 403}, 2, "inconclusive"),
+            "every_get_403": ({control: 403, vault: 403}, 2, "inconclusive"),
+            "control_200_vault_404": ({control: 200, vault: 404}, 0, "green"),
+            "vault_200": ({control: 200, vault: 200}, 1, "red"),
+            "control_404_vault_404": ({control: 404, vault: 404}, 2, "inconclusive"),
+        }
+        for name, (answers, exit_status, verdict) in cases.items():
+            with self.subTest(case=name):
+                status, report = self.probe.run_probe([self._app_source(answers, [])], data_key=[])
+                self.assertEqual((status, report["verdict"]), (exit_status, verdict), report)
+
+    def test_the_control_repository_is_the_operators_policy_repository(self) -> None:
+        from aria_kernel.operator_approval import load_operators_policy
+
+        self.assertEqual(self.probe.CONTROL_REPOSITORY, load_operators_policy()["repository"])
 
     def test_gh_and_git_answers_are_classified(self) -> None:
         cases = {
             ("gh", 1, "gh: Not Found (HTTP 404)"): self.probe.UNREACHABLE,
             ("gh", 0, ""): self.probe.REACHABLE,
             ("gh", 4, "To get started with GitHub CLI, please run:  gh auth login"): self.probe.NO_CREDENTIAL,
+            ("gh", 1, "gh: API rate limit exceeded (HTTP 403)"): self.probe.INCONCLUSIVE,
+            ("git", 128, "remote: Permission to Okan-wqm/aria-board-vault.git denied to x.\n"
+                         "fatal: unable to access: The requested URL returned error: 403"): self.probe.INCONCLUSIVE,
             ("git", 128, "remote: Repository not found.\nfatal: repository not found"): self.probe.UNREACHABLE,
             ("git", 0, ""): self.probe.REACHABLE,
             ("git", 128, "fatal: could not read Username: terminal prompts disabled"): self.probe.NO_CREDENTIAL,

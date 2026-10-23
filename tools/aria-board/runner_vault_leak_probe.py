@@ -11,13 +11,19 @@ tokens WITHOUT the kernel's ``repositories`` scoping. So the probe runs AS
 the runner uid, with those real credentials, and asks GitHub for the vault.
 
 WHAT. Every credential source asks for the vault repository's metadata and is
-classified ``unreachable`` (HTTP 404/403, "Repository not found"),
-``no_credential`` (the uid holds no such credential), ``reachable`` (it
-answered), or ``inconclusive`` (anything the probe cannot classify). The App
-key source mints an UNSCOPED installation token (empty request body: every
-repository the installation selects), asks, and revokes the token. The probe
-also checks that the Board's data key is in neither the process environment
-nor any file the uid can name (environment-file lines and file NAMES only).
+classified ``unreachable`` (HTTP 404, "Repository not found": GitHub's answer
+to a credential that cannot see a private repository), ``no_credential`` (the
+uid holds no such credential), ``reachable`` (it answered), or
+``inconclusive`` (anything else — a 403 included: a rate limit or a block
+says nothing about the vault). The App key source mints an UNSCOPED
+installation token (empty request body: every repository the installation
+selects) and proves it first: it asks for THIS repository (the operators
+policy's ``repository``, which the ARIA installation must reach), and counts
+the vault's 404 only after that answered 200 — a token minted for the wrong
+installation 404s on everything and proves nothing. Then it revokes the
+token. The probe also checks that the Board's data key is in neither the
+process environment nor any file the uid can name (environment-file lines and
+file NAMES only).
 
 Exit status: 0 GREEN — every source ran and none reached the vault, the App
 key source included, and no data key is present; 1 RED — a source reached the
@@ -63,6 +69,12 @@ if _BOARD_SPEC is None or _BOARD_SPEC.loader is None:
 _BOARD = importlib.util.module_from_spec(_BOARD_SPEC)
 _BOARD_SPEC.loader.exec_module(_BOARD)
 VAULT_REPOSITORY: str = _BOARD.VAULT_REPOSITORY
+# The App source's positive control: the repository the ARIA installation
+# exists for. Read from the operators policy file as data (the kernel's loader,
+# operator_approval.load_operators_policy, imports the whole kernel); the test
+# pins that both readings name the same repository.
+_OPERATORS_POLICY = Path(__file__).resolve().parents[2] / "docs" / "aria" / "policy" / "operators.json"
+CONTROL_REPOSITORY: str = json.loads(_OPERATORS_POLICY.read_text(encoding="utf-8"))["repository"]
 GITHUB_API = "https://api.github.com"
 # GitHub's published SSH host key (docs: "GitHub's SSH key fingerprints"),
 # pinned so the SSH source never trusts an unknown host and writes no
@@ -100,7 +112,7 @@ class CredentialSource(Protocol):
 
 
 def _http_status_reach(name: str, status: int) -> Reach:
-    if status in (403, 404):
+    if status == 404:
         return Reach(name, UNREACHABLE, status, "github_refused")
     if 200 <= status < 300:
         return Reach(name, REACHABLE, status, "github_answered")
@@ -150,9 +162,20 @@ class AppPrivateKeySource:
     name = "app_private_key_unscoped_token"
 
     def __init__(self, *, app_id: str, installation_id: str, private_key_path: Path,
-                 opener: Opener = _open, api: str = GITHUB_API) -> None:
+                 opener: Opener = _open, api: str = GITHUB_API, control_repository: str = CONTROL_REPOSITORY) -> None:
         self.app_id, self.installation_id, self.private_key_path = app_id, installation_id, private_key_path
-        self.opener, self.api = opener, api
+        self.opener, self.api, self.control_repository = opener, api, control_repository
+
+    def _get_status(self, repository: str, token: str) -> int | None:
+        """GitHub's HTTP status for the repository's metadata, or None when GitHub was not reached."""
+        try:
+            with self.opener(_request(f"{self.api}/repos/{repository}", method="GET",
+                                      authorization=f"token {token}")) as response:
+                return int(response.status)
+        except urllib.error.HTTPError as exc:
+            return exc.code
+        except (urllib.error.URLError, OSError):
+            return None
 
     def reach(self, repository: str) -> Reach:
         try:
@@ -171,14 +194,14 @@ class AppPrivateKeySource:
         if not isinstance(token, str) or not token:
             return Reach(self.name, INCONCLUSIVE, None, "mint_returned_no_token")
         try:
-            try:
-                with self.opener(_request(f"{self.api}/repos/{repository}", method="GET",
-                                          authorization=f"token {token}")) as response:
-                    return _http_status_reach(self.name, int(response.status))
-            except urllib.error.HTTPError as exc:
-                return _http_status_reach(self.name, exc.code)
-            except (urllib.error.URLError, OSError):
+            control = self._get_status(self.control_repository, token)
+            vault = self._get_status(repository, token)
+            if vault is None:
                 return Reach(self.name, INCONCLUSIVE, None, "github_unreachable")
+            if vault == 404 and control != 200:
+                # The token reaches nothing it must reach: a vault 404 proves nothing.
+                return Reach(self.name, INCONCLUSIVE, control, "control_repository_not_answered")
+            return _http_status_reach(self.name, vault)
         finally:
             try:
                 with self.opener(_request(f"{self.api}/installation/token", method="DELETE",
@@ -212,9 +235,8 @@ class GhCliSource:
         if done.returncode == 0:
             return Reach(self.name, REACHABLE, 200, "github_answered")
         err = done.stderr
-        for code in (404, 403):
-            if f"HTTP {code}" in err:
-                return Reach(self.name, UNREACHABLE, code, "github_refused")
+        if "HTTP 404" in err:
+            return Reach(self.name, UNREACHABLE, 404, "github_refused")
         if "gh auth login" in err or "not logged" in err.lower() or "HTTP 401" in err:
             return Reach(self.name, NO_CREDENTIAL, None, "gh_not_authenticated")
         return Reach(self.name, INCONCLUSIVE, None, "gh_unclassified_failure")
@@ -247,10 +269,8 @@ class GitRemoteSource:
         if done.returncode == 0:
             return Reach(self.name, REACHABLE, None, "git_listed_refs")
         err = done.stderr.lower()
-        if "repository not found" in err or "not found" in err:
+        if "repository not found" in err:
             return Reach(self.name, UNREACHABLE, 404, "github_refused")
-        if "403" in err or ("permission to" in err and "denied" in err):
-            return Reach(self.name, UNREACHABLE, 403, "github_refused")
         if ("could not read username" in err or "terminal prompts disabled" in err
                 or "authentication failed" in err or "permission denied (publickey)" in err):
             return Reach(self.name, NO_CREDENTIAL, None, "git_no_credential")

@@ -14,10 +14,10 @@ Production images pin only the key of the production key ceremony. That key live
 HSM and never enters CI, so for a production release the pipeline builds, states the provenance and
 stops; the custodians sign the statements offline and the pipeline publishes after verifying them.
 
-| Mode | Repository variable `EDGE_RELEASE_SIGNING_MODE` | Who signs | Consumed by |
-|---|---|---|---|
-| `ci-key` (default) | unset or `ci-key` | the dev/CI key, job `sign-release-statement` of the `edge-release` environment | dev and QEMU images, CI |
-| `offline` (production) | `offline` | the ceremony key in the custodians' HSM | production images |
+| Mode                   | Repository variable `EDGE_RELEASE_SIGNING_MODE` | Who signs                                                                      | Consumed by             |
+| ---------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------ | ----------------------- |
+| `ci-key` (default)     | unset or `ci-key`                               | the dev/CI key, job `sign-release-statement` of the `edge-release` environment | dev and QEMU images, CI |
+| `offline` (production) | `offline`                                       | the ceremony key in the custodians' HSM                                        | production images       |
 
 A release has exactly one signature (DSSE envelope, `maxItems: 1`), so one tag is one mode.
 
@@ -131,13 +131,13 @@ These cannot be done by the repository. Until they are done every production rel
 
 ## When the pipeline refuses
 
-| Refusal | Meaning | Action |
-|---|---|---|
-| `offline-request`: provenance tag, commit or repository is not the expected | the build ran for another commit or repository than the ticket's | stop; do not sign; investigate the run |
-| `offline-request`: the payload is not the statement this release makes | the statements the pipeline uploaded differ from the artifact bytes | stop; the build outputs may have been replaced |
-| `offline-assemble`: signature does not verify | wrong format, wrong key, wrong message or a swapped row | sign again from the PAE files; check the object id and the output format |
-| publish job: the release is not a draft, or a file is missing or unexpected | someone published or edited the draft | do not push the tag again; open an incident, rebuild with a new version |
-| publish job: a statement does not verify under `EDGE_RELEASE_KEYID` | the uploaded statements are not the ceremony key's | stop; compare the variable with the inventory |
+| Refusal                                                                     | Meaning                                                             | Action                                                                   |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `offline-request`: provenance tag, commit or repository is not the expected | the build ran for another commit or repository than the ticket's    | stop; do not sign; investigate the run                                   |
+| `offline-request`: the payload is not the statement this release makes      | the statements the pipeline uploaded differ from the artifact bytes | stop; the build outputs may have been replaced                           |
+| `offline-assemble`: signature does not verify                               | wrong format, wrong key, wrong message or a swapped row             | sign again from the PAE files; check the object id and the output format |
+| publish job: the release is not a draft, or a file is missing or unexpected | someone published or edited the draft                               | do not push the tag again; open an incident, rebuild with a new version  |
+| publish job: a statement does not verify under `EDGE_RELEASE_KEYID`         | the uploaded statements are not the ceremony key's                  | stop; compare the variable with the inventory                            |
 
 A rebuild of the same version produces other archive bytes (the compiler is not yet reproducible, DEC-20 P2),
 so statements signed for one build never verify against another: after any rebuild, repeat the procedure.
@@ -146,6 +146,7 @@ so statements signed for one build never verify against another: after any rebui
 
 Before the first production release, and in every key drill, run steps 3 to 5 with a throwaway software key
 (never the production key, never a TEST-ONLY contract key: both refuse):
+
 ```bash
 openssl genpkey -algorithm ed25519 -out rehearsal.pem && openssl pkey -in rehearsal.pem -pubout -out rehearsal.pub
 mkdir -p signatures
@@ -153,6 +154,7 @@ for p in request/*.release.pae; do
   openssl pkeyutl -sign -rawin -inkey rehearsal.pem -in "$p" -out "signatures/$(basename "$p" .release.pae).release.sig"
 done
 ```
+
 `tests/invariants/edge-release-pipeline.spec.ts` runs these commands in CI with a generated key, including every
 refusal above, and pins that the offline envelopes equal the ones the CI signing job writes for the same key.
 

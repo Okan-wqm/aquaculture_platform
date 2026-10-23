@@ -56,6 +56,32 @@ Option A chosen — architecturally defensible on shipped hardware, no vendor lo
 
 **Slot 9 rationale (closes CRITICAL-006):** SL-2 15-min online revoke SLO achievable **only via dedicated revocation key**. Slot 4 rescue_firmware requires 3-of-5 offline ceremony (8-12h realistic latency). Slot 9 signs revocation statements ONLY (schema-enforced: cannot sign firmware, cannot sign manifests, cannot sign commands); compromise blast radius bounded to false revocations (operational disruption, not catastrophic elevation).
 
+### 1a. Edge contract keys — slots added by ADR-048 (amendment 2026-10)
+
+ADR-048 (Suderra OS and edge agent integration contract; DEC-3, DEC-3.11) gives every signed statement between the
+cloud, Suderra OS and the edge agent its own purpose key and epoch. They extend this map. Their keyids are recorded
+once, in the inventory table of Suderra-OS `docs/security/key-management.md` (§Edge sözleşmesi anahtar envanteri), the
+ceremony is Suderra-OS `docs/security/key-ceremony.md` §Edge contract keys, and compromise and rotation are
+`docs/runbooks/edge-key-compromise.md` (ADR-048 DEC-15). The contract that defines the purposes is
+`contracts/suderra-edge/v1/statements.json`.
+
+| Slot | Key name (ADR-048) | Class | Private key | Rotation | Verifier | Counterpart in slots 1–9 |
+|------|--------------------|-------|-------------|----------|----------|--------------------------|
+| 10 | `edge-release` | offline | HSM only; production release statements signed offline per release (`docs/runbooks/edge-release-offline-signing.md`) | new epoch beside the old one in a new OS image (DEC-3.4) | Suderra OS root installer; agent | slot 1 `firmware_signing_key` |
+| 11 | `fleet-root` | offline | HSM only | a new fleet-root is pinned by a new OS image over the separate RAUC chain (DEC-15) | Suderra OS root installer | — |
+| 12 | `edge-provisioning` | online | generated at the ceremony, sensor-service secret until the P2 KMS (EDGE-HIGH-119) | new epoch | root installer; agent (bundle copy) | slot 7 `provisioning_signing_key` |
+| 13 | `device-lifecycle` | online | ceremony-generated, signer secret until the P2 KMS | new epoch | root installer | — |
+| 14 | `command` | online | ceremony-generated, sensor-service secret until the P2 KMS | new bundle | agent (trust-anchors bundle) | slot 3 `command_signing_root_key` |
+| 15 | `config-integrity` | online | ceremony-generated, sensor-service secret until the P2 KMS | new bundle | agent (trust-anchors bundle) | — |
+| 16 | `rbac-manifest` | online | ceremony-generated, sensor-service secret until the P2 KMS | new bundle | agent (trust-anchors bundle) | slot 2 `rbac_manifest_signing_key` |
+| 17 | `edge-image` (P2) | online (KMS) | KMS; X.509, not Ed25519 | — | kernel trusted keyring | — |
+
+Two differences from §2 and §5 apply to slots 10–17. A statement is one DSSE envelope with exactly one signature
+(`statements.json` `dsse.signatures`), so §2's conjunctive HSM + KMS co-signature is not applied to them: in P2 the KMS
+appears as the custodian of an online key, not as a second signer. Epochs are the per-purpose directories of
+`/etc/suderra/keys/<purpose>/<epoch>.pub` and the trust-anchors bundle (ADR-048 DEC-3.4, DEC-3.5), not the
+`signing_key_epoch` field of §5.
+
 ### 2. YubiHSM 2 FIPS + AWS KMS Ed25519 DR — CONJUNCTIVE trust (NEW-HIGH-D kapama)
 
 **Trust model decision:** NOT disjunctive (either-or) — CONJUNCTIVE (both-must-sign) when both healthy; SINGLE-SIG fallback only during declared HSM outage.

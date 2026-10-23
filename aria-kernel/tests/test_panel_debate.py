@@ -72,6 +72,19 @@ class _PanelCase(unittest.TestCase):
         self.tools = Path(self._tmp.name) / "aria-tools"
         ensure_tools_dir(self.tools)
         register_contracted_tool(self.tools, "tool-x")
+        # The host's presence is the test's fact (`provider_outage.host_providers`),
+        # never the machine's PATH: these cases mint a panel on a host that runs
+        # every vendor, so the reproduction seat's write rung is live. Read from
+        # PATH, a runner without the claude CLI dropped that seat
+        # (`seat_write_rung_unavailable`) and the mint counts changed with the
+        # machine. The degraded host is its own owner's case
+        # (test_panel_single_provider_night).
+        host = mock.patch(
+            "aria_kernel.provider_outage.host_providers",
+            return_value=frozenset({"anthropic", "zai", "openai"}),
+        )
+        host.start()
+        self.addCleanup(host.stop)
 
     def tearDown(self) -> None:
         self._tmp.cleanup()

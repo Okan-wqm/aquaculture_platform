@@ -96,6 +96,8 @@ KERNEL_FORCED_CODES: frozenset[str] = frozenset({
     ENVELOPE_DEAD, "max_rounds_reached", "unresolved_material_risk", "implementation_delivery_exhausted",
     "cross_review_self_agreement", "implementation_envelope_no_writable_scope",
     "implementation_envelope_unbound_plan", "implementation_envelope_body_unprovable",
+    # PV P3 — converged_delivery parks a verdict the mint refuses as stale.
+    "plan_verdict_stale", "plan_verdict_unbound",
 })
 #: Result rejection codes that are the kernel's own judgement of its own
 #: artefacts, never the agent's work.

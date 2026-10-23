@@ -60,6 +60,7 @@ from .plan_convergence import (
     key_change_paths,
     plan_body_from_state,
     prior_review_risks,
+    require_fresh_plan_verdict,
     _planning_source_context,
     request_implementation,
 )
@@ -982,6 +983,11 @@ def issue_implementation_envelope(
             f"can walk, and the profile holds merge-class authority; an implementation of it "
             f"would be refused at merge after spending the implementer and the panel"
         )
+
+    # PV P3 — `request_implementation` below refuses a verdict whose reviewed
+    # bytes a later commit changed; refused HERE first, so no envelope is
+    # appended for a transition that cannot follow it.
+    require_fresh_plan_verdict(state_dict, base_dir=base_dir)
 
     body = plan_body_from_state(state_dict)
     plan_content = body["plan_content"]

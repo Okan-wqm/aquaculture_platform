@@ -1581,6 +1581,10 @@ def create_agent_invocation_request(
             **({"context_source_paths": context_source_paths} if context_source_paths is not None else {}),
             **({"context_source_paths_status": context_source_paths_status} if context_source_paths_status is not None else {}),
             **({"evidence_scope": evidence_scope} if evidence_scope else {}),
+            # ARIA-LOW-785 — the staged ids are facts the row carries (its
+            # `base_sha` is read from them): a re-mint for a new proposal or
+            # branch is a new request, never the old row handed back.
+            **({"implementation_ids": dict(implementation_ids)} if implementation_ids else {}),
         },
     )
     existing_request = _find_request_by_id(root, request_id)

@@ -4,6 +4,7 @@ import copy
 import json
 import os
 import re
+import subprocess
 import time
 import uuid
 from contextlib import contextmanager
@@ -21,6 +22,7 @@ from .ledger import (
 from .tool_registry import (
     GovernanceError,
     append_tools_governance,
+    bound_workspace_root,
     ensure_tools_dir,
     ensure_tools_dir_readonly,
     parse_utc_stamp,
@@ -189,6 +191,14 @@ REVIEWER_DISSENT_GATE = "reviewer_dissent"
 REVIEWER_DISSENT_REASON = "reviewer_dissent_without_material_risk"
 PRIOR_REVIEW_RISKS_GATE = "prior_review_risks_cleared"
 PRIOR_REVIEW_RISKS_OPEN_REASON = "prior_review_risks_open"
+# PV P3 — the refusals of an implementation request whose CONVERGED verdict
+# no longer describes the repository: a later commit changed a file the plan
+# names (`plan_verdict_stale:<path>`), the verdict predates the binding and
+# names no reviewed tree (`plan_verdict_unbound`), or its commit cannot be
+# compared with HEAD (`plan_verdict_unverifiable:<sha>`).
+PLAN_VERDICT_STALE = "plan_verdict_stale"
+PLAN_VERDICT_UNBOUND = "plan_verdict_unbound"
+PLAN_VERDICT_UNVERIFIABLE = "plan_verdict_unverifiable"
 # Plan-coverage verdict vocabulary. "gaps" blocks convergence via the
 # round loop; "environment_unable" escalates straight to HUMAN_REQUIRED
 # (the environment will not heal round-over-round); the two covered
@@ -904,6 +914,11 @@ def evaluate_plan(
             "risks_rollup_summary": decision["risks_rollup_summary"],
             "gate_decisions": decision["gate_decisions"],
             "reason_codes": decision["reason_codes"],
+            # PV P3 — the repository commit this verdict was reached at (null:
+            # the checkout had none yet); an implementation request is refused
+            # once a later commit changes a file the plan names
+            # (`plan_verdict_staleness`).
+            "reviewed_commit_sha": workspace_head_sha(root),
         }
         key = _idempotency_key(plan_id, "evaluate", {"round_number": round_number})
         existing = _find_by_idempotency(root, key)
@@ -1539,8 +1554,94 @@ def request_implementation(
         validator=lambda state: (
             _require_state(state, {"CONVERGED"}, "request implementation"),
             _require_coverage_for_implementation(state),
+            require_fresh_plan_verdict(state, base_dir=base_dir),
         ),
     )
+
+
+def workspace_head_sha(base_dir: str | Path | None = None) -> str | None:
+    """The commit HEAD of the checkout the tools store is bound to, or None when it has none.
+
+    ``tool_registry.bound_workspace_root`` names the checkout; a directory that
+    is not a git checkout, or one with no commit yet, has no HEAD to name.
+    """
+    completed = subprocess.run(  # noqa: S603 — fixed argv, no shell
+        ["git", "rev-parse", "--verify", "--quiet", "HEAD^{commit}"],
+        cwd=bound_workspace_root(base_dir), capture_output=True, text=True, check=False,
+    )
+    return completed.stdout.strip() if completed.returncode == 0 else None
+
+
+def plan_verdict_paths(state: dict[str, Any]) -> list[str]:
+    """PV P3 — the repository paths a CONVERGED verdict judged: the converged
+    body's ``affected_surfaces`` and ``evidence_refs`` and every cross-review
+    risk's ``evidence_refs`` (line suffix dropped; finding ids name no file)."""
+    from .evidence_trust import parse_evidence_ref
+
+    body = plan_body_from_state(state)["plan_content"]
+    refs = [str(ref) for ref in body.get("evidence_refs", [])]
+    for risks in state.get("cross_review_risks_by_round", {}).values():
+        refs.extend(str(ref) for risk in risks for ref in risk.get("evidence_refs", []))
+    paths = list(affected_surface_paths(body.get("affected_surfaces", [])))
+    for ref in refs:
+        if FINDING_ID_RE.match(ref.strip()):
+            continue
+        parsed = parse_evidence_ref(ref)
+        paths.append(parsed[0] if parsed is not None else ref.strip())
+    return sorted({path for path in paths if _valid_repo_path(path)})
+
+
+def plan_verdict_staleness(state: dict[str, Any], *, base_dir: str | Path | None = None) -> str | None:
+    """PV P3 — why the plan's CONVERGED verdict no longer describes the repository, else None.
+
+    The verdict is bound to the commit it was reached at
+    (``plan_evaluated.reviewed_commit_sha``; null when the store's checkout
+    had no commit yet, i.e. the reviewed tree was the empty tree). Any change
+    between that tree and today's HEAD to a path the plan names
+    (:func:`plan_verdict_paths`; a surface may be a directory or a glob)
+    makes it stale: ``plan_verdict_stale:<changed path>``. A verdict recorded
+    before the binding existed names no reviewed tree at all
+    (``plan_verdict_unbound``), and one whose commit cannot be compared with
+    HEAD (``plan_verdict_unverifiable:<sha>``) proves nothing about today's
+    bytes; both are refused the same way.
+    """
+    payload = _latest_event(state, "plan_evaluated")["payload"]
+    if "reviewed_commit_sha" not in payload:
+        return f"{PLAN_VERDICT_UNBOUND}:{state['plan_id']}"
+    reviewed = payload["reviewed_commit_sha"]
+    head = workspace_head_sha(base_dir)
+    if head is None:
+        # No commit today: none was made after a verdict reached on the empty
+        # tree, and a reviewed commit that vanished cannot be compared.
+        return None if reviewed is None else f"{PLAN_VERDICT_UNVERIFIABLE}:{reviewed}"
+    pathspecs = [f":(glob){path}" for path in plan_verdict_paths(state)]
+    if not pathspecs:
+        # `git diff A HEAD --` with no pathspec compares the whole tree; a
+        # plan that names no path judged none, so no commit can stale it.
+        return None
+    workspace = bound_workspace_root(base_dir)
+    reviewed_tree = reviewed if reviewed is not None else subprocess.run(  # noqa: S603 — fixed argv, no shell
+        ["git", "hash-object", "-t", "tree", "--stdin"],
+        cwd=workspace, input="", capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    completed = subprocess.run(  # noqa: S603 — fixed argv, no shell
+        ["git", "diff", "--name-only", "--no-renames", "-z", reviewed_tree, head, "--", *pathspecs],
+        cwd=workspace, capture_output=True, text=True, check=False,
+    )
+    if completed.returncode != 0:
+        return f"{PLAN_VERDICT_UNVERIFIABLE}:{reviewed}"
+    changed = sorted(path for path in completed.stdout.split("\0") if path)
+    return f"{PLAN_VERDICT_STALE}:{changed[0]}" if changed else None
+
+
+def require_fresh_plan_verdict(state: dict[str, Any], *, base_dir: str | Path | None) -> None:
+    """Raise ``plan_verdict_stale|unbound|unverifiable`` (:func:`plan_verdict_staleness`)."""
+    refusal = plan_verdict_staleness(state, base_dir=base_dir)
+    if refusal is not None:
+        raise GovernanceError(
+            f"{refusal}: plan {state['plan_id']!r}'s CONVERGED verdict does not describe the "
+            "repository at HEAD; the plan must be reviewed again before it is implemented"
+        )
 
 
 def record_implementation_delivery_attempt(

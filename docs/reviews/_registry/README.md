@@ -35,9 +35,11 @@ not record `RESOLVED` is `RESOLVED` at a ref exactly when a commit reachable
 from that ref carries a `Closes:` trailer naming the finding (aliases resolved,
 the anchored review file bound to the finding's own); `closing_commits` is that
 commit and `closed_at` is the date of the merge that brought it into the ref.
-Nothing writes `RESOLVED`: a fix PR carries its own closure in its trailer, so
-`main` is consistent the moment it merges. Rows recorded `RESOLVED` before the
-derivation keep their recorded closure.
+No workflow writes `RESOLVED`, and no command records a closure it read from
+history: a fix PR carries its own closure in its trailer, so `main` is
+consistent the moment it merges. (`add` and `add-explicit` still accept a stub
+registered `RESOLVED`; the write side, MF-2, refuses it.) Rows recorded
+`RESOLVED` before the derivation keep their recorded closure.
 
 Read the registry as readers see it with `finding-registry project`
 (`--ref=<rev>`, `--ids <ID>...`, `--format=jsonl|csv|json-array|closures`);

@@ -11,27 +11,30 @@
  * result, so every closer merge moved main twice and left the push run red
  * until the second move (63 of 157 merges, 64 red runs and a 121 h drift
  * window in 14 days; MF-DESIGN §1). A fact read where it is recorded cannot
- * lag, so nothing writes RESOLVED any more: this module derives it when the
- * registry is read.
+ * lag, so no workflow writes RESOLVED any more: this module derives it when
+ * the registry is read.
  *
  * ## What it owns
  *
  *   - the store layout: `readRegistryRows` (the rows as stored) and
  *     `projectRegistry` (the rows as they are at a commit);
  *   - closure derivation: the oldest commit reachable from the ref whose
- *     message closes the finding exactly (`commitMessageClosesFindingExactly`,
- *     aliases resolved by `withFindingAliases`), a closer an override reopen
+ *     message closes the finding exactly (`messageClosesFinding`, aliases
+ *     resolved by `withFindingAliases`), a closer an override reopen
  *     rejected excluded; `closed_at` is the committer date of the first
  *     first-parent commit of the ref that contains the closer — the merge that
  *     brought it into the ref;
- *   - closure admission: the rejection decision (`applyClosureRejection`), the
- *     question "does this commit's own message name this finding"
- *     (`commitNamesFinding`) and the per-finding verdict of a snapshot
- *     (`closureVerdicts`).
+ *   - closure admission: the names a trailer may close each row by
+ *     (`findingTrailerTargets`), the one predicate "does this message close
+ *     this finding" (`messageClosesFinding`), the rejection decision
+ *     (`applyClosureRejection`), the question "does this commit's own message
+ *     name this finding" (`commitNamesFinding`) and the per-finding verdict of
+ *     a snapshot (`closureVerdicts`).
  *
  * The admission helpers of finding-traceability.ts are consumed here and
- * nowhere else, so the commit-time gate, the projection and the reopen
- * decision cannot disagree about what closes a finding.
+ * nowhere else, so the commit-time gate (commit-msg-validator.ts, through
+ * `findingTrailerTargets` and `messageClosesFinding`), the projection and the
+ * reopen decision cannot disagree about what closes a finding.
  *
  * A row the registry records RESOLVED keeps its recorded closure (legacy
  * ceremony, seed and reconcile closures; MF-DESIGN §4.4 step 3), so the
@@ -127,6 +130,40 @@ export function withFindingAliases<T extends FindingTrailerTarget>(
   });
 }
 
+/**
+ * Every name a `Closes:` trailer may close a stored row by — its id and each
+ * alias the sidecar records for it — mapped to that row as a trailer target
+ * (its review file, its aliases with their review files, its rejected
+ * closers). A later row of an id wins, as a re-registration does; an alias
+ * resolves only to a row the registry holds, and wins over an id it shadows.
+ * Existence and review files are recorded facts, so no history is read.
+ *
+ * The commit-time gate admits a trailer exactly when `messageClosesFinding`
+ * holds for the target it names here — the target the derivation matches the
+ * same trailer against once it is merged, so a commit the gate admits is a
+ * commit the projection honours (PROC-MEDIUM-024, PR #1425's renumbering
+ * smuggle).
+ */
+export function findingTrailerTargets(repoRoot: string): Map<string, FindingTrailerTarget> {
+  const rows = withFindingAliases<FindingTrailerTarget>(repoRoot, readRegistryRows(repoRoot));
+  const targets = new Map<string, FindingTrailerTarget>();
+  for (const row of rows) targets.set(row.id, row);
+  for (const row of rows) {
+    for (const alias of row.aliases ?? []) targets.set(alias, row);
+  }
+  return targets;
+}
+
+/**
+ * Does `message` carry a `Closes:` trailer that closes `target` — by its id
+ * or an alias, anchored (if at all) on the review file that name belongs to?
+ * The one admission predicate: the derivation, the snapshot verdict and the
+ * commit-time gate all ask it.
+ */
+export function messageClosesFinding(message: string, target: FindingTrailerTarget): boolean {
+  return commitMessageClosesFindingExactly(message, target);
+}
+
 interface MergedCommit {
   readonly sha: string;
   readonly parents: readonly string[];
@@ -179,7 +216,7 @@ const FINDING_NAME_RUN = /[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+/g;
 
 /**
  * Every known name a trailer in `message` could close, as
- * `commitMessageClosesFindingExactly` reads one: a name follows `#` or
+ * `messageClosesFinding` reads one: a name follows `#` or
  * whitespace and ends at a word boundary, which inside a run of the name
  * alphabet falls only before a `-` or at the run's end. Each run's prefixes
  * at those boundaries are therefore a superset of the names the exact matcher
@@ -235,7 +272,7 @@ function closersByTarget(
       // Derivation is stricter than the commit-msg gate: a BACKLOG-* trailer
       // does not close every finding, and an anchored trailer closes a finding
       // only when it cites that finding's own review file.
-      if (!commitMessageClosesFindingExactly(commit.message, target)) continue;
+      if (!messageClosesFinding(commit.message, target)) continue;
       const list = closers.get(target.id) ?? [];
       list.push(commit.sha);
       closers.set(target.id, list);
@@ -412,7 +449,7 @@ export function closureVerdicts(
         reasons.push(`closing_commit_message_unreadable:${sha}`);
         continue;
       }
-      if (!commitMessageClosesFindingExactly(message, row)) {
+      if (!messageClosesFinding(message, row)) {
         reasons.push(`closing_commit_without_trailer:${sha}`);
       }
     }

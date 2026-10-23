@@ -31,10 +31,12 @@
  *                           structured registry as a new OPEN row.
  *
  * Design notes:
- *   * Nothing writes RESOLVED (MF-1, PROC-HIGH-039). A fix commit's merged
- *     `Closes:` trailer IS the closure; the projection derives it at read
- *     time, so main is consistent the moment the fix merges and no second
- *     commit records it.
+ *   * No workflow writes RESOLVED, and no command derives a closure from
+ *     history to record it (MF-1, PROC-HIGH-039). A fix commit's merged `Closes:` trailer IS the closure; the projection
+ *     derives it at read time, so main is consistent the moment the fix
+ *     merges and no second commit records it. `add` and `add-explicit` still
+ *     accept a stub registered RESOLVED; MF-2's event schema refuses it
+ *     (MF-DESIGN §4.5, the write side).
  *   * A mutation of a past row (reopen, assign, canonicalize-owner, sweep)
  *     re-stitches the chain from that row on (prev_hash pointers of later
  *     entries point at the mutated row's OLD content_hash) and verifies the

@@ -1,6 +1,6 @@
 /**
  * MF-1 (PROC-HIGH-039) — RESOLVED is derived from merged `Closes:` trailers at
- * read time, by one projection module, and nothing writes it.
+ * read time, by one projection module, and no workflow writes it.
  *
  * ## Why
  *
@@ -32,8 +32,9 @@
  *     `verify --closures-at` are gone (T5's CLI half for MF-1).
  *   - One owner: closure derivation is defined only in
  *     tools/gates/finding-registry-projection.ts, the closure-admission
- *     helpers are consumed only by it, and the readers MF-1 switches read
- *     through it instead of building a path to findings.jsonl.
+ *     helpers are consumed only by it, aliases join a finding only there,
+ *     and the readers MF-1 switches read through it instead of building a
+ *     path to findings.jsonl.
  *
  * The CLI is the contract the design names
  * (`project [--ref=<rev>] [--ids …] [--format=jsonl|csv|json-array]`), run
@@ -426,7 +427,14 @@ const DERIVATION_FUNCTIONS = [
 const ADMISSION_HELPERS = [
   'closureAdmissible',
   'commitHasFindingCloseTrailer',
+  'commitMessageClosesFindingExactly',
   'findingRejectsClosure',
+];
+/** The alias sidecar's readers: aliases join a finding only in the projection. */
+const ALIAS_JOIN_INPUTS = [
+  'loadAliasReviewFiles',
+  'loadCanonicalToAliases',
+  'loadFindingIdAliases',
 ];
 const READERS_SWITCHED_TO_THE_PROJECTION = [
   'tools/gates/commit-msg-validator.ts',
@@ -507,6 +515,21 @@ describe('MF-1 — one owner of closure derivation', () => {
           .map((name) => `${rel}:${name}`),
       );
     expect(consumers.filter((entry) => !entry.startsWith(`${PROJECTION_MODULE}:`))).toEqual([]);
+  });
+
+  it('joins aliases to a finding only in the projection module', () => {
+    // The commit-msg gate once built its own alias join beside the
+    // projection's (withFindingAliases), with one alias per target where the
+    // derivation carried them all: two owners of "which names close this
+    // finding", free to drift apart.
+    const joiners = sources
+      .filter((rel) => rel !== 'tools/gates/finding-id-aliases.ts')
+      .flatMap((rel) =>
+        namedImportsFrom(source(rel), 'finding-id-aliases')
+          .filter((name) => ALIAS_JOIN_INPUTS.includes(name))
+          .map((name) => `${rel}:${name}`),
+      );
+    expect(joiners.filter((entry) => !entry.startsWith(`${PROJECTION_MODULE}:`))).toEqual([]);
   });
 
   it('the readers MF-1 switches read the registry through the projection, not by path', () => {

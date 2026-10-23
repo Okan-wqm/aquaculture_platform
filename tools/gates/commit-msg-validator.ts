@@ -38,13 +38,9 @@ import { execFileSync, execSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import { loadFindingIdAliases } from './finding-id-aliases';
-import { readRegistryRows } from './finding-registry-projection';
+import { findingTrailerTargets, messageClosesFinding } from './finding-registry-projection';
 import { ORPHAN_MD_HEADING_REGEX, readOrphanMarkdownStore } from './finding-registry-store';
-import {
-  commitMessageClosesFindingExactly,
-  type FindingTrailerTarget,
-} from './finding-traceability';
+import { type FindingTrailerTarget } from './finding-traceability';
 
 // Resolve repo root via `git rev-parse --show-toplevel`
 // (Batch #349) — switched away from
@@ -429,56 +425,6 @@ function run(cmd: string): string {
 }
 
 /**
- * Ledger ids, plus every alias that resolves to one.
- *
- * An alias is admitted ONLY when its canonical id is in the ledger — a mapping
- * that points nowhere resolves nothing here, and fails
- * `finding-id-aliases.spec.ts` outright. See `finding-id-aliases.ts` for why a
- * merged trailer can name an id the ledger does not carry.
- */
-function loadRegistryIds(): Map<string, FindingTrailerTarget> {
-  const targets = loadLedgerTargets();
-  for (const { alias, canonical, review_file: aliasReviewFile } of loadFindingIdAliases(
-    REPO_ROOT,
-  )) {
-    const target = targets.get(canonical);
-    if (target === undefined) continue;
-    // The alias resolves to the SAME target, so a trailer naming a renumbered
-    // finding's historical id is bound to the canonical row's review file — or
-    // to the one review file the sidecar records for that alias (where its
-    // heading lives) — rather than escaping the binding by wearing an old name.
-    targets.set(alias, {
-      ...target,
-      aliases: [alias],
-      alias_review_files: new Map([[alias, aliasReviewFile]]),
-    });
-  }
-  return targets;
-}
-
-/**
- * Every ledger row as a trailer target: the id, the review file the trailer
- * must cite to close it, and the aliases that name it.
- *
- * This used to be a bare `Set<string>` of ids, which is why the gate could only
- * ask "does this id exist?" — see the review-file binding in `validateCommit`.
- */
-function loadLedgerTargets(): Map<string, FindingTrailerTarget> {
-  const targets = new Map<string, FindingTrailerTarget>();
-  // The rows as stored (finding-registry-projection.ts): existence and the
-  // review file are recorded facts, so no history is read. A later row of an
-  // id wins, as a re-registration does.
-  for (const entry of readRegistryRows(REPO_ROOT)) {
-    const reviewFile =
-      typeof entry.review_file === 'string' && entry.review_file !== ''
-        ? entry.review_file
-        : undefined;
-    targets.set(entry.id, { id: entry.id, review_file: reviewFile });
-  }
-  return targets;
-}
-
-/**
  * Load the set of `ORPHAN-{SEV}-NNN` IDs from
  * `docs/reviews/orphan-findings.md` (Batch #342 — closes
  * ORPHAN-MEDIUM-032).
@@ -701,7 +647,7 @@ function validateCommit(
         });
       } else if (
         registryTarget !== undefined &&
-        !commitMessageClosesFindingExactly(commit.body, registryTarget)
+        !messageClosesFinding(commit.body, registryTarget)
       ) {
         // ARIA-LOW-607 — an ORPHAN id the registry holds is bound to that
         // row's review_file by the same closure derivation as every other
@@ -721,7 +667,7 @@ function validateCommit(
           subject: commit.subject,
           reason: `Closes: trailer references unknown finding ID: ${findingId} (not in docs/reviews/_registry/findings.jsonl)`,
         });
-      } else if (!commitMessageClosesFindingExactly(commit.body, target)) {
+      } else if (!messageClosesFinding(commit.body, target)) {
         // The id exists, but this trailer could never CLOSE it: the closure
         // derivation binds the anchored review file to the finding's own
         // review_file, and this one cites a different document.
@@ -745,7 +691,7 @@ function validateCommit(
 
 /**
  * A trailer whose anchored review file is not the finding's own: it names the
- * finding, but the closure derivation (`commitMessageClosesFindingExactly`)
+ * finding, but the closure derivation (`messageClosesFinding`)
  * will never honour it, so admission refuses it in the same words whichever
  * lane (registry id or registry-held ORPHAN id) asked.
  */
@@ -792,7 +738,9 @@ function main(): void {
   }
 
   const mode = modeFlag.replace(/^--mode=/, '');
-  const registryIds = loadRegistryIds();
+  // Every registry id and alias as the projection's trailer target, so the
+  // gate admits exactly the trailers the derivation will honour once merged.
+  const registryIds = findingTrailerTargets(REPO_ROOT);
   const orphanIds = loadOrphanIds();
   const violations: Violation[] = [];
 
@@ -871,7 +819,6 @@ export {
   isAriaArtifactPath,
   isAriaFindingId,
   loadOrphanIds,
-  loadRegistryIds,
   readAriaArtifactId,
   validateCommit,
   type Commit,

@@ -1122,10 +1122,15 @@ def _mint_installation_token_from_pem(
     PLAN-v2 B0 / §1.9 (ARIA-MEDIUM-766) — every token is minted for THIS
     repository by name, the ``repository`` of the code-owned operators policy.
     An installation token without ``repositories`` reaches every repository
-    the App installation selects, so whether ARIA could read the Examination
-    Board's vault (``aria-board-vault``) hung on a setting in GitHub's UI; with
-    the name in the request it is a property of this code, whatever the
-    installation's selection.
+    the App installation selects; with the name in the request, the tokens
+    THIS mint issues reach no other repository — the Examination Board's
+    vault (``aria-board-vault``) included — whatever the selection. That is
+    defence in depth, not the barrier: anything else that holds the App's
+    private key (a self-hosted job that writes the PEM, the token broker) can
+    mint without the field. The barrier stays the installation's repository
+    selection (board/SETUP.md UI check 1, an operator verification), and the
+    runner-identity leak probe (``tools/aria-board/runner_vault_leak_probe.py``)
+    measures it with every credential ARIA's runner uid holds.
     """
     from .operator_approval import load_operators_policy
 

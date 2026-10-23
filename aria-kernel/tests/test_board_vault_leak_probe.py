@@ -14,10 +14,15 @@ What the runner holds, and what each probe pins:
   the key, which the wrapper reads from ``ARIA_BOARD_VAULT_DATA_KEY`` in the
   process environment and nowhere else (no key parameter, no file): in the
   runner's environment the wrapper refuses by name, to read and to write;
-* its GitHub App installation tokens — the one mint scopes every token to
-  this repository by name, so a token the kernel mints cannot reach
-  aria-board-vault whatever the App installation's repository selection is
-  (SETUP's UI check 1 becomes a property of the code);
+* the GitHub App installation tokens the kernel mints — the one mint scopes
+  every token to this repository by name, so a token IT issues cannot reach
+  aria-board-vault whatever the App installation's repository selection is.
+  That is defence in depth only: the runner uid also holds the App's private
+  key, which mints unscoped tokens, so the barrier remains the installation's
+  repository selection (SETUP's UI check 1, an operator verification); the
+  runner-identity probe (``RunnerIdentityLeakProbeTests`` below, and the
+  operator's run of ``tools/aria-board/runner_vault_leak_probe.py`` as the
+  runner uid) measures it with every credential that uid holds;
 * the kernel's source — only ``examination_board`` names a Board secret, and
   it signs nothing itself (§2 'İmza': verdicts go through
   ``operator_request_signature``).
@@ -41,6 +46,7 @@ import inspect
 import json
 import os
 import shutil
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -229,6 +235,143 @@ class KernelTokensCannotReachTheVaultTests(unittest.TestCase):
 
     def test_the_runner_status_set_is_minted_for_this_repository_only(self) -> None:
         self._assert_minted_for_this_repository_only(tf.RUNNER_STATUS_PERMISSIONS)
+
+
+_PROBE_PATH = _REPO_ROOT / "tools" / "aria-board" / "runner_vault_leak_probe.py"
+
+
+def _probe_module():
+    name = "aria_board_runner_vault_leak_probe"
+    if name not in sys.modules:
+        spec = importlib.util.spec_from_file_location(name, _PROBE_PATH)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module  # a dataclass resolves its module by name
+        spec.loader.exec_module(module)
+    return sys.modules[name]
+
+
+class _Answers:
+    """A fixture credential source: GitHub answers ``status`` for the vault."""
+
+    def __init__(self, probe, name: str, status: str, http: int | None) -> None:  # noqa: ANN001 — the module
+        self.name, self._reach = name, probe.Reach(name, status, http, "fixture")
+
+    def reach(self, repository: str):  # noqa: ANN201 — probe.Reach
+        return self._reach
+
+
+class RunnerIdentityLeakProbeTests(unittest.TestCase):
+    """B0 corrective R6: the runner-identity probe goes red when a credential reaches the vault, green when none does.
+
+    The fixture sources stand in for the runner uid's credentials; the real
+    run, as the runner uid with its App key, gh login and git credentials, is
+    the operator's B0 exit step (PR body).
+    """
+
+    def setUp(self) -> None:
+        self.probe = _probe_module()
+        self.app = self.probe.AppPrivateKeySource.name
+
+    def test_the_vault_name_has_one_owner(self) -> None:
+        self.assertEqual(self.probe.VAULT_REPOSITORY, _board(self).VAULT_REPOSITORY)
+        self.assertEqual(self.probe.VAULT_REPOSITORY, "Okan-wqm/aria-board-vault")
+
+    def test_red_when_a_credential_source_answers_200(self) -> None:
+        status, report = self.probe.run_probe(
+            [_Answers(self.probe, self.app, self.probe.REACHABLE, 200),
+             _Answers(self.probe, "gh_cli", self.probe.UNREACHABLE, 404)], data_key=[])
+        self.assertEqual((status, report["verdict"]), (1, "red"))
+
+    def test_green_when_every_source_including_the_app_key_is_refused(self) -> None:
+        status, report = self.probe.run_probe(
+            [_Answers(self.probe, self.app, self.probe.UNREACHABLE, 404),
+             _Answers(self.probe, "gh_cli", self.probe.UNREACHABLE, 404),
+             _Answers(self.probe, "git_https", self.probe.NO_CREDENTIAL, None),
+             _Answers(self.probe, "git_ssh", self.probe.UNREACHABLE, 404)], data_key=[])
+        self.assertEqual((status, report["verdict"]), (0, "green"))
+
+    def test_no_green_without_the_app_key_or_with_an_unclassified_answer(self) -> None:
+        refused = _Answers(self.probe, "gh_cli", self.probe.UNREACHABLE, 404)
+        status, report = self.probe.run_probe([refused], data_key=[])
+        self.assertEqual((status, report["required_sources_missing"]), (2, [self.app]))
+        status, _ = self.probe.run_probe(
+            [_Answers(self.probe, self.app, self.probe.INCONCLUSIVE, 500), refused], data_key=[])
+        self.assertEqual(status, 2)
+
+    def test_a_present_data_key_is_red_by_name_and_never_by_value(self) -> None:
+        secret = base64.b64encode(os.urandom(32)).decode("ascii")
+        with tempfile.TemporaryDirectory(prefix="aria-leak-probe-home-") as home:
+            env_file = Path(home) / ".env"
+            env_file.write_text(f"PATH=/usr/bin\nARIA_BOARD_VAULT_DATA_KEY={secret}\n", encoding="utf-8")
+            (Path(home) / "aria-board-vault.key").write_text(secret, encoding="utf-8")
+            findings = self.probe.data_key_findings(environ={_KEY_ENV: secret, "HOME": home},
+                                                    env_files=[env_file], scan_roots=[Path(home)])
+            status, report = self.probe.run_probe(
+                [_Answers(self.probe, self.app, self.probe.UNREACHABLE, 404)], data_key=findings)
+        self.assertEqual(status, 1)
+        self.assertEqual(len(findings), 3, findings)
+        self.assertNotIn(secret, json.dumps(report))
+
+    def test_the_app_key_source_mints_unscoped_asks_for_the_vault_and_revokes(self) -> None:
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import padding, rsa
+        import urllib.error
+
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        for answer, expected in ((404, self.probe.UNREACHABLE), (200, self.probe.REACHABLE)):
+            with self.subTest(answer=answer), tempfile.TemporaryDirectory(prefix="aria-leak-probe-pem-") as tmp:
+                pem = Path(tmp) / "app.pem"
+                pem.write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                                  serialization.NoEncryption()))
+                seen: list[tuple[str, str, bytes | None, str]] = []
+
+                def opener(request):  # noqa: ANN001, ANN202 — urllib's Request
+                    seen.append((request.get_method(), request.full_url, request.data,
+                                 request.get_header("Authorization")))
+                    if request.full_url.endswith("/access_tokens"):
+                        return _Response({"token": "ghs_fixture_unscoped", "expires_at": "2026-10-23T01:00:00Z"})
+                    if request.get_method() == "GET" and answer != 200:
+                        raise urllib.error.HTTPError(request.full_url, answer, "Not Found", None, None)
+                    response = _Response({})
+                    response.status = 200
+                    return response
+
+                source = self.probe.AppPrivateKeySource(app_id="678", installation_id="12345",
+                                                        private_key_path=pem, opener=opener)
+                reach = source.reach(self.probe.VAULT_REPOSITORY)
+                self.assertEqual(reach.status, expected)
+                methods = [(method, url.split("api.github.com")[1]) for method, url, _, _ in seen]
+                self.assertEqual(methods, [("POST", "/app/installations/12345/access_tokens"),
+                                           ("GET", "/repos/Okan-wqm/aria-board-vault"),
+                                           ("DELETE", "/installation/token")])
+                self.assertEqual(seen[0][2], b"{}", "the mint asks for every repository the installation selects")
+                jwt = seen[0][3].split(" ", 1)[1]
+                signing_input, signature = jwt.rsplit(".", 1)
+                key.public_key().verify(base64.urlsafe_b64decode(signature + "=" * (-len(signature) % 4)),
+                                        signing_input.encode("ascii"), padding.PKCS1v15(), hashes.SHA256())
+                self.assertNotIn("ghs_fixture_unscoped", json.dumps(reach.report()))
+
+    def test_gh_and_git_answers_are_classified(self) -> None:
+        cases = {
+            ("gh", 1, "gh: Not Found (HTTP 404)"): self.probe.UNREACHABLE,
+            ("gh", 0, ""): self.probe.REACHABLE,
+            ("gh", 4, "To get started with GitHub CLI, please run:  gh auth login"): self.probe.NO_CREDENTIAL,
+            ("git", 128, "remote: Repository not found.\nfatal: repository not found"): self.probe.UNREACHABLE,
+            ("git", 0, ""): self.probe.REACHABLE,
+            ("git", 128, "fatal: could not read Username: terminal prompts disabled"): self.probe.NO_CREDENTIAL,
+            ("git", 128, "fatal: unable to access: Could not resolve host"): self.probe.INCONCLUSIVE,
+        }
+        for (tool, code, stderr), expected in cases.items():
+            with self.subTest(tool=tool, code=code), tempfile.TemporaryDirectory(prefix="aria-leak-cli-") as tmp:
+                binary = Path(tmp) / tool
+                binary.write_text(f"#!{sys.executable}\nimport sys\nsys.stderr.write({stderr!r})\n"
+                                  f"raise SystemExit({code})\n", encoding="utf-8")
+                binary.chmod(0o755)
+                source = (self.probe.GhCliSource(gh_cli=str(binary), env={"PATH": os.environ["PATH"]})
+                          if tool == "gh" else
+                          self.probe.GitRemoteSource(transport="https", git_cli=str(binary),
+                                                     env={"PATH": os.environ["PATH"]}))
+                self.assertEqual(source.reach(self.probe.VAULT_REPOSITORY).status, expected)
 
 if __name__ == "__main__":
     unittest.main()

@@ -81,6 +81,7 @@
         "docs/runbooks/database-restore-drill.md",
         "docs/runbooks/edge-gateway-rc4-operator.md",
         "docs/runbooks/farm-outbox-inbox-migration.md",
+        "docs/runbooks/monitoring/dataflow-integrity.md",
         "docs/runbooks/product-audit-invocation.md",
         "**/__tests__/integration/**",
         "**/__tests__/e2e/**",

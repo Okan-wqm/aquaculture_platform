@@ -152,16 +152,16 @@ function outcomeOf(read: () => string | null): Outcome {
 }
 
 describe('SE-1 round 2 — both sides read an edge-case project.json by one rule', () => {
-  it.each(Object.keys(EDGE_MANIFESTS))(
+  it.each(Object.entries(EDGE_MANIFESTS))(
     '%s: the kernel and the TS scan give the same outcome',
-    (dir) => {
+    (dir, manifest) => {
       const repo = makeFixtureTree('se1-r2-manifest-repo-');
       const tools = makeFixtureTree('se1-r2-manifest-tools-');
       try {
         writeTree(repo, {
           'platform/libs/event-bus/src/event-bus.ts': BUS,
           [subscriberPath(dir)]: SUBSCRIBER(`${dir}-happened`),
-          [`apps/${dir}/project.json`]: EDGE_MANIFESTS[dir],
+          [`apps/${dir}/project.json`]: manifest,
         });
         const ts = outcomeOf(() => {
           const index = scanEventConsumers(repo);

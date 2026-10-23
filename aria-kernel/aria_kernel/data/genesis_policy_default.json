@@ -117,6 +117,7 @@
     "enabled": true,
     "http_5xx_share_threshold": 0.05,
     "http_min_requests": 50,
-    "observability_base_url": "http://127.0.0.1:9090"
+    "observability_base_url": "http://127.0.0.1:9090",
+    "window_seconds": 86400
   }
 }

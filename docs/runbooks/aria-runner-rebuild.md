@@ -261,9 +261,12 @@ To retire it on a runner that still has it:
 ### Runtime watchdog source — the loopback Prometheus (RW-1 install step)
 
 The watchdog (`aria_watchdog.pull_observability_metrics`) reads production
-metrics with one credential-free `GET /federate` against
+metrics with credential-free `GET /api/v1/query` instant queries against
 `watchdog_pull.observability_base_url`, whose tracked default is
-`http://127.0.0.1:9090`. It refuses any origin that is not a loopback IP
+`http://127.0.0.1:9090`: one per runtime family, each asking for the
+family's increase over `watchdog_pull.window_seconds` (default 86400, the
+once-a-day cycle cadence), so the detectors judge the last window and not a
+container's lifetime counters. It refuses any origin that is not a loopback IP
 literal before opening a socket. When the source is not set, not loopback or
 not reachable, the cycle's watchdog digest and report name the hold
 (`source_unconfigured`, `source_not_loopback`, `source_unreachable`, …).

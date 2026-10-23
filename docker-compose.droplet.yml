@@ -2157,8 +2157,9 @@ services:
     container_name: aqua-prometheus
     restart: unless-stopped
     # RW-1 — the read-only metrics source of ARIA's runtime watchdog
-    # (aria_watchdog.pull_observability_metrics reads /federate on 127.0.0.1;
-    # it holds no credential and refuses any non-loopback origin). The port is
+    # (aria_watchdog.pull_observability_metrics reads windowed increases from
+    # /api/v1/query on 127.0.0.1; it holds no credential and refuses any
+    # non-loopback origin). The port is
     # published on the host's loopback only, and the HTTP API stays read-only:
     # no --web.enable-lifecycle (POST /-/quit and /-/reload would be open to
     # every local account) and no --web.enable-admin-api. Reload the config

@@ -21,8 +21,8 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import json
+import math
 import os
-import re
 import signal
 import sys
 import threading
@@ -97,25 +97,31 @@ def _signature_hash(*parts: str) -> str:
 # ─── Runtime metrics source (RW-1) ───────────────────────────────────────
 #
 # The source is the droplet Prometheus's read-only HTTP API, published on
-# the host's loopback only (docker-compose.droplet.yml `127.0.0.1:9090`).
-# Prometheus already scrapes every backend's public /metrics through the
-# catalog-generated file_sd, so ARIA reads them without holding any
-# credential: the observability-service /metrics it used to read is gated by
-# the platform's shared INTERNAL_API_KEY, and ARIA holds no such key.
+# the host's loopback only (127.0.0.1:9090 in every tracked compose
+# Prometheus that publishes a port). Prometheus already scrapes every
+# backend's public /metrics through the catalog-generated file_sd, so ARIA
+# reads them without holding any credential: the observability-service
+# /metrics it used to read is gated by the platform's shared
+# INTERNAL_API_KEY, and ARIA holds no such key.
+#
+# Counters are cumulative, so the detectors judge each family's INCREASE
+# over the policy window (watchdog_pull.window_seconds, the sweep cadence),
+# asked of Prometheus's instant-query API, never the lifetime totals.
 
-# The metric families the runtime detectors read, and the scrape scope they
-# are read from: the platform's own targets (the file_sd sets
-# namespace="aquaculture" on every catalog service, and `app` to its
-# service id).
-RUNTIME_METRIC_FAMILIES: tuple[str, ...] = ("http_requests_total", "security_events_total")
-RUNTIME_METRIC_SELECTOR: str = (
-    '{__name__=~"' + "|".join(RUNTIME_METRIC_FAMILIES) + '",namespace="aquaculture"}'
-)
-# The label naming the production service a sample came from: `app` is the
-# Prometheus target label the catalog file_sd sets (the scraper's word, which
-# an exporter cannot override); `service` is the label an exposition names
-# itself with when it is read without a scraper in between.
-RUNTIME_SERVICE_LABELS: tuple[str, ...] = ("app", "service")
+# The metric families the runtime detectors read, each with the labels its
+# windowed increase is summed by, and the scrape scope they are read from:
+# the platform's own targets (the file_sd sets namespace="aquaculture" on
+# every catalog service, and `app` to its service id).
+RUNTIME_FAMILY_GROUPS: dict[str, tuple[str, ...]] = {
+    "http_requests_total": ("app", "status_code"),
+    "security_events_total": ("app", "severity", "type"),
+}
+RUNTIME_METRIC_FAMILIES: tuple[str, ...] = tuple(RUNTIME_FAMILY_GROUPS)
+RUNTIME_SCRAPE_SCOPE: str = 'namespace="aquaculture"'
+# The label naming the production service a sample came from: the target
+# label the catalog file_sd sets (the scraper's word, which an exporter
+# cannot override).
+RUNTIME_SERVICE_LABEL: str = "app"
 # The one producer of security_events_total
 # (apps/observability-service/src/security-events/security-metrics.service.ts).
 SECURITY_EVENTS_SERVICE: str = "observability-service"
@@ -130,9 +136,10 @@ RUNTIME_SOURCE_HOLDS: frozenset[str] = frozenset({
     "source_invalid",        # not an http://<ip>:<port> origin (userinfo, path, query, no port)
     "source_not_loopback",   # the host is not a loopback IP literal — refused before any socket
     "source_unreachable",    # the connection failed or timed out
-    "source_refused",        # Prometheus answered, but not with a usable federation body
-    "source_empty",          # the answer holds no series of any RUNTIME_METRIC_FAMILIES
-                             # (empty body, HTML, error document, label drift, every target down)
+    "source_refused",        # the source answered, but not with a usable instant-query answer
+                             # (a non-200, an HTML page, an error document, an oversized body)
+    "source_empty",          # well-formed answers holding no series of any RUNTIME_METRIC_FAMILIES
+                             # (label drift, every target down)
 })
 
 
@@ -184,16 +191,29 @@ def _loopback_origin(base_url: object) -> tuple[str, int] | SourceHold:
     return host, port
 
 
+def runtime_increase_query(family: str, window_seconds: int) -> str:
+    """The PromQL the puller asks for one runtime family: its increase over the
+    window, inside the platform's scrape scope, summed by the family's labels."""
+    labels = ",".join(RUNTIME_FAMILY_GROUPS[family])
+    return f"sum by ({labels}) (increase({family}{{{RUNTIME_SCRAPE_SCOPE}}}[{window_seconds}s]))"
+
+
+RuntimeSample = tuple[str, dict[str, str], float]
+
+
 def pull_observability_metrics(
     *,
     base_url: str | None,
+    window_seconds: int,
     timeout_seconds: int = 5,
-) -> tuple[str | None, SourceHold | None]:
+) -> tuple[list[RuntimeSample] | None, SourceHold | None]:
     """RW-1 — the ONE reader of the runtime metrics source.
 
-    One credential-free GET of the Prometheus federation endpoint (read-only
-    API) for the families the runtime detectors read, on a loopback origin
-    only. Returns ``(exposition_text, None)`` or ``(None, SourceHold)``.
+    Credential-free GETs of the Prometheus instant-query API (read-only),
+    one per RUNTIME_METRIC_FAMILIES member, each asking for the family's
+    increase over ``window_seconds`` (runtime_increase_query), on a loopback
+    origin only. Returns ``(samples, None)`` — ``(family, labels, increase)``
+    per series — or ``(None, SourceHold)``.
 
     The loopback rule lives here, so no caller can bypass it: anything but a
     loopback IP literal is held before a socket is opened. http.client, not
@@ -207,59 +227,71 @@ def pull_observability_metrics(
     if isinstance(origin, SourceHold):
         return None, origin
     host, port = origin
-    path = "/federate?" + urlencode([("match[]", RUNTIME_METRIC_SELECTOR)])
     connection = http.client.HTTPConnection(host, port, timeout=timeout_seconds)
+    samples: list[RuntimeSample] = []
     try:
-        connection.request("GET", path, headers={"Accept": "text/plain"})
-        response = connection.getresponse()
-        if response.status != 200:
-            return None, SourceHold("source_refused", f"http_{response.status}")
-        body = response.read(MAX_RUNTIME_METRICS_BYTES + 1)
+        for family in RUNTIME_METRIC_FAMILIES:
+            path = "/api/v1/query?" + urlencode([("query", runtime_increase_query(family, window_seconds))])
+            connection.request("GET", path, headers={"Accept": "application/json"})
+            response = connection.getresponse()
+            body = response.read(MAX_RUNTIME_METRICS_BYTES + 1)
+            if response.status != 200:
+                return None, SourceHold("source_refused", f"{family}: http_{response.status}")
+            if len(body) > MAX_RUNTIME_METRICS_BYTES:
+                return None, SourceHold("source_refused", f"{family}: answer exceeds {MAX_RUNTIME_METRICS_BYTES} bytes")
+            family_samples = parse_instant_vector(family, body)
+            if isinstance(family_samples, SourceHold):
+                return None, family_samples
+            samples.extend(family_samples)
     except http.client.HTTPException as exc:
         return None, SourceHold("source_refused", f"{type(exc).__name__}: {str(exc)[:120]}")
     except OSError as exc:
         return None, SourceHold("source_unreachable", f"{type(exc).__name__}: {str(exc)[:120]}")
     finally:
         connection.close()
-    if len(body) > MAX_RUNTIME_METRICS_BYTES:
-        return None, SourceHold("source_refused", f"answer exceeds {MAX_RUNTIME_METRICS_BYTES} bytes")
-    return body.decode("utf-8", errors="replace"), None
+    return samples, None
 
 
-# One exposition sample: name, optional {labels}, value, optional timestamp
-# (the federation endpoint always appends the sample's timestamp).
-_SAMPLE_LINE = re.compile(
-    r"^(?P<name>[A-Za-z_:][A-Za-z0-9_:]*)(?:\{(?P<labels>.*)\})?\s+(?P<value>\S+)(?:\s+-?\d+)?$"
-)
-_LABEL_PAIR = re.compile(r'([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"((?:[^"\\]|\\.)*)"')
-_LABEL_ESCAPE = re.compile(r"\\(.)")
+def parse_instant_vector(family: str, body: bytes) -> list[RuntimeSample] | SourceHold:
+    """A Prometheus instant-query answer → ``(family, labels, value)`` samples.
 
-
-def parse_prometheus_text(text: str) -> list[tuple[str, dict[str, str], float]]:
-    """Prometheus text exposition → (name, labels, value) samples.
-
-    Reads what a target's metrics endpoint and Prometheus's federation
-    endpoint both write: quoted label values (commas and escapes included)
-    and the optional trailing timestamp. Unparseable lines are skipped,
-    never fatal: telemetry is a lead, not a contract surface.
+    The answer is the API's success envelope around an instant vector:
+    ``{"status": "success", "data": {"resultType": "vector", "result":
+    [{"metric": {label: value}, "value": [ts, "<number>"]}]}}``. Anything
+    else — an HTML page, an error document, a series whose labels or value
+    are not that shape — is the source_refused hold, named with what was
+    wrong: an answer is read whole or not at all.
     """
-    samples: list[tuple[str, dict[str, str], float]] = []
-    for line in text.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        match = _SAMPLE_LINE.match(line)
-        if match is None:
-            continue
+    def refused(why: str) -> SourceHold:
+        return SourceHold("source_refused", f"{family}: {why}")
+
+    try:
+        document = json.loads(body)
+    except ValueError:
+        return refused("not a JSON query answer")
+    if not isinstance(document, dict) or document.get("status") != "success":
+        status = document.get("status") if isinstance(document, dict) else type(document).__name__
+        return refused(f"query status {str(status)[:40]!r}")
+    data = document.get("data")
+    if not isinstance(data, dict) or data.get("resultType") != "vector" or not isinstance(data.get("result"), list):
+        return refused("not an instant vector")
+    samples: list[RuntimeSample] = []
+    for series in data["result"]:
+        metric = series.get("metric") if isinstance(series, dict) else None
+        point = series.get("value") if isinstance(series, dict) else None
+        if not isinstance(metric, dict) or not all(
+            isinstance(key, str) and isinstance(value, str) for key, value in metric.items()
+        ):
+            return refused("a series whose labels are not strings")
+        if not isinstance(point, list) or len(point) != 2 or not isinstance(point[1], str):
+            return refused("a series whose value is not [timestamp, \"<number>\"]")
         try:
-            value = float(match.group("value"))
+            value = float(point[1])
         except ValueError:
-            continue
-        labels = {
-            key: _LABEL_ESCAPE.sub(lambda m: "\n" if m.group(1) == "n" else m.group(1), raw)
-            for key, raw in _LABEL_PAIR.findall(match.group("labels") or "")
-        }
-        samples.append((match.group("name"), labels, value))
+            return refused(f"a series value {point[1][:40]!r} that is not a number")
+        if not math.isfinite(value):
+            return refused(f"a series value {point[1][:40]!r} that is not finite")
+        samples.append((family, dict(metric), value))
     return samples
 
 
@@ -287,22 +319,20 @@ class RuntimeAnomaly:
     code_refs: list[str]
 
 
-def _sample_service(labels: dict[str, str]) -> str | None:
-    for label in RUNTIME_SERVICE_LABELS:
-        if labels.get(label):
-            return labels[label]
-    return None
-
-
 def detect_http_5xx_share(
-    samples: list[tuple[str, dict[str, str], float]],
+    samples: list[RuntimeSample],
     *,
     threshold: float,
     min_requests: int,
+    window_seconds: int,
 ) -> list[RuntimeAnomaly]:
-    """A 5xx share above threshold on a meaningful request volume, per service.
+    """A 5xx share above threshold on a meaningful request volume, per service,
+    inside the window: ``samples`` are each series' increase over the last
+    ``window_seconds`` (pull_observability_metrics), so a past storm a
+    container still carries in its lifetime counters raises nothing, and a
+    fresh one on a long-lived service is judged on its own volume.
 
-    A sample that names no service (RUNTIME_SERVICE_LABELS) cannot point at
+    A sample that names no service (RUNTIME_SERVICE_LABEL) cannot point at
     a code area, so it counts toward no service.
     """
     errors_by_service: dict[str, float] = {}
@@ -310,12 +340,11 @@ def detect_http_5xx_share(
     for name, labels, value in samples:
         if name != "http_requests_total":
             continue
-        service = _sample_service(labels)
-        if service is None:
+        service = labels.get(RUNTIME_SERVICE_LABEL)
+        if not service:
             continue
         total_by_service[service] = total_by_service.get(service, 0.0) + value
-        status = str(labels.get("status_code") or labels.get("status") or "")
-        if status.startswith("5"):
+        if str(labels.get("status_code") or "").startswith("5"):
             errors_by_service[service] = errors_by_service.get(service, 0.0) + value
     anomalies: list[RuntimeAnomaly] = []
     for service, errors in sorted(errors_by_service.items()):
@@ -330,11 +359,12 @@ def detect_http_5xx_share(
             service=service,
             severity="medium",
             claim_summary=(
-                f"Production service {service} answers at least {threshold:.0%} "
-                f"of its requests with 5xx (minimum volume {min_requests} requests)."
+                f"Production service {service} answered at least {threshold:.0%} of its requests "
+                f"in the last {window_seconds}s with 5xx (minimum volume {min_requests} requests)."
             ),
             facts=[
-                f"http_requests_total 5xx={int(errors)} total={int(service_total)} share={share:.1%}",
+                f"increase(http_requests_total[{window_seconds}s]) 5xx={int(errors)} "
+                f"total={int(service_total)} share={share:.1%}",
                 f"threshold={threshold:.0%} min_requests={min_requests}",
             ],
             code_refs=[f"apps/{service}"],
@@ -343,9 +373,11 @@ def detect_http_5xx_share(
 
 
 def detect_security_critical_events(
-    samples: list[tuple[str, dict[str, str], float]],
+    samples: list[RuntimeSample],
+    *,
+    window_seconds: int,
 ) -> list[RuntimeAnomaly]:
-    """Any critical-severity security event counter above zero."""
+    """Any critical-severity security event counted inside the window."""
     anomalies: list[RuntimeAnomaly] = []
     for name, labels, value in samples:
         if name != "security_events_total" or value <= 0:
@@ -353,15 +385,19 @@ def detect_security_critical_events(
         severity = str(labels.get("severity") or "").lower()
         if severity != "critical":
             continue
-        event_type = labels.get("type") or labels.get("event_type") or "unknown"
+        event_type = labels.get("type") or "unknown"
         anomalies.append(RuntimeAnomaly(
             pattern="runtime_security_critical",
             service=SECURITY_EVENTS_SERVICE,
             severity="medium",
             claim_summary=(
-                f"Production security telemetry counts critical-severity events of type {event_type}."
+                f"Production security telemetry counted critical-severity events of type {event_type} "
+                f"in the last {window_seconds}s."
             ),
-            facts=[f"security_events_total{{severity=critical,type={event_type}}}={int(value)}"],
+            facts=[
+                f"increase(security_events_total{{severity=critical,type={event_type}}}[{window_seconds}s])"
+                f"={int(value)}"
+            ],
             code_refs=[SECURITY_EVENTS_CODE_AREA],
         ))
     return anomalies
@@ -898,10 +934,11 @@ def run_watchdog_sweep(
     candidates.extend(detect_repeated_bridge_warning(governance_rows, now=now))
 
     # RW-1 — production telemetry joins the same sweep through the ONE
-    # puller (a loopback, credential-free read of the Prometheus federation
-    # endpoint). A source the sweep cannot read is a NAMED hold in the
-    # payload (RUNTIME_SOURCE_HOLDS), which the cycle digest and the report
-    # carry: never silence, never a dead night.
+    # puller (a loopback, credential-free read of each runtime family's
+    # increase over the policy window from the Prometheus query API). A
+    # source the sweep cannot read is a NAMED hold in the payload
+    # (RUNTIME_SOURCE_HOLDS), which the cycle digest and the report carry:
+    # never silence, never a dead night.
     from .genesis_policy import watchdog_pull_policy
 
     pull_policy = watchdog_pull_policy(workspace_path)
@@ -910,19 +947,22 @@ def run_watchdog_sweep(
     if not pull_policy["enabled"]:
         runtime = _held(SourceHold("source_disabled", "watchdog_pull.enabled is false"))
     else:
-        metrics_text, hold = pull_observability_metrics(base_url=pull_policy["observability_base_url"])
+        window_seconds = pull_policy["window_seconds"]
+        samples, hold = pull_observability_metrics(
+            base_url=pull_policy["observability_base_url"], window_seconds=window_seconds,
+        )
         if hold is not None:
             runtime = _held(hold)
         else:
-            samples = parse_prometheus_text(metrics_text)
             present = {name for name, _, _ in samples}
             missing = [family for family in RUNTIME_METRIC_FAMILIES if family not in present]
             if len(missing) == len(RUNTIME_METRIC_FAMILIES):
-                # A 200 with no runtime series is not a healthy night: it is
-                # an empty answer, a page that is not Prometheus, or targets
-                # that are all down — named, never read as clean.
+                # Well-formed answers with no runtime series are not a
+                # healthy night (a quiet window still answers a series per
+                # target, at 0): the scope's labels drifted or every target
+                # is down — named, never read as clean.
                 runtime = _held(
-                    SourceHold("source_empty", f"{len(samples)} samples, none of {', '.join(missing)}"),
+                    SourceHold("source_empty", f"no series of {', '.join(missing)} in the window"),
                     missing_families=missing,
                 )
             else:
@@ -930,9 +970,11 @@ def run_watchdog_sweep(
                     samples,
                     threshold=float(pull_policy["http_5xx_share_threshold"]),
                     min_requests=int(pull_policy["http_min_requests"]),
+                    window_seconds=window_seconds,
                 )
-                anomalies.extend(detect_security_critical_events(samples))
+                anomalies.extend(detect_security_critical_events(samples, window_seconds=window_seconds))
                 runtime = {
+                    "window_seconds": window_seconds,
                     "samples": len(samples),
                     "missing_families": missing,
                     "candidates": len(anomalies),

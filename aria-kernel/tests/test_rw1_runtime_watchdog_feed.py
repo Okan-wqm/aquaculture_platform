@@ -68,13 +68,16 @@ from aria_kernel.aria_watchdog import (
     RUNTIME_METRIC_FAMILIES,
     RUNTIME_SOURCE_HOLDS,
     detect_http_5xx_share,
-    parse_prometheus_text,
     pull_observability_metrics,
     run_watchdog_sweep,
 )
 from aria_kernel.genesis_policy import WATCHDOG_PULL_DEFAULTS, watchdog_pull_policy
-from aria_kernel.runtime_signal_bridge import runtime_signal_events_path
-from aria_kernel.tool_registry import ensure_tools_dir
+from aria_kernel.runtime_signal_bridge import (
+    fold_runtime_signals,
+    resolve_runtime_signal,
+    runtime_signal_events_path,
+)
+from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 
 _KERNEL_ROOT = Path(__file__).resolve().parents[1]
 _PACKAGE_ROOT = _KERNEL_ROOT / "aria_kernel"
@@ -87,11 +90,6 @@ _CREDENTIAL_HEADERS = frozenset({"x-internal-api-key", "authorization", "proxy-a
 # federation endpoint. The lifecycle/admin endpoints (/-/*, /api/v1/admin/*)
 # are not reads and are not in the set.
 _PROMETHEUS_READ_PATHS = ("/api/v1/query", "/federate")
-
-_FARM_5XX_EXPOSITION = """\
-http_requests_total{method="GET",route="/api",status_code="200",service="farm-service"} 90
-http_requests_total{method="GET",route="/api",status_code="500",service="farm-service"} 10
-"""
 
 
 _Sample = tuple[str, dict[str, str], float]
@@ -250,11 +248,11 @@ class _Workspace(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.repo, ignore_errors=True)
         self.tools = ensure_tools_dir(self.repo / "aria-tools")
 
-    def configure(self, base_url: str | None) -> None:
+    def configure(self, base_url: str | None, **pull: Any) -> None:
         override = self.repo / "aria-config" / "genesis_policy.json"
         override.parent.mkdir(parents=True, exist_ok=True)
         override.write_text(
-            json.dumps({"watchdog_pull": {"enabled": True, "observability_base_url": base_url}}),
+            json.dumps({"watchdog_pull": {"enabled": True, "observability_base_url": base_url, **pull}}),
             encoding="utf-8",
         )
 
@@ -428,7 +426,7 @@ class ThePullerHoldsNoCredential(_Workspace):
         network = _NetworkRecorder()
         lookup, connect = network.patches()
         with lookup, connect:
-            pull_observability_metrics(base_url="http://203.0.113.7:9090")
+            pull_observability_metrics(base_url="http://203.0.113.7:9090", window_seconds=86400)
         self.assertEqual(network.calls, [])
 
     def test_a_sweep_sends_only_credential_free_gets_to_the_prometheus_read_api(self) -> None:
@@ -457,6 +455,91 @@ class ThePullerHoldsNoCredential(_Workspace):
             runtime = self.sweep()["runtime"]
         self.assertNotIn("hold", runtime, runtime)
         self.assertTrue(prometheus.requests)
+
+
+# ─── The 5xx detector judges the present: a window, not a lifetime ─────────
+
+
+def _farm_counters(ok: float, errors: float) -> list[_Sample]:
+    scope = {"app": "farm-service", "namespace": "aquaculture", "method": "GET", "route": "/api"}
+    return [
+        ("http_requests_total", {**scope, "status_code": "200"}, ok),
+        ("http_requests_total", {**scope, "status_code": "500"}, errors),
+    ]
+
+
+class TheDetectorJudgesTheWindowNotTheLifetime(_Workspace):
+    """RW-1 corrective R4. Counters are cumulative: a detector that divides a
+    container's lifetime 5xx by its lifetime requests describes the
+    container's whole life. A resolved lead reopened every sweep with no new
+    5xx, and a fresh storm on a long-lived service raised nothing. The
+    detector judges the counters' increase inside ``watchdog_pull.window_seconds``,
+    the sweep cadence."""
+
+    def test_a_resolved_lead_stays_resolved_when_the_next_window_has_no_new_5xx(self) -> None:
+        with _RecordingPrometheus(lifetime=_farm_counters(90, 10), window=_farm_counters(90, 10)) as prometheus:
+            self.configure(prometheus.base_url)
+            first = self.sweep(suppress_emission=False)["runtime"]
+            (lead,) = first["leads"]
+            resolve_runtime_signal(
+                signal_id=lead["signal_id"], resolution_note="investigated after window 1", base_dir=self.tools,
+            )
+            # Window 2: 90 more requests, not one 5xx. The lifetime share is
+            # still 10/190 = 5.3%, above the 5% threshold.
+            prometheus.lifetime = _farm_counters(180, 10)
+            prometheus.window = _farm_counters(90, 0)
+            second = self.sweep(suppress_emission=False)["runtime"]
+        self.assertEqual(second.get("leads"), [], second)
+        record = fold_runtime_signals(self.runtime_signal_events())[lead["signal_id"]]
+        self.assertEqual(record["status"], "resolved", record)
+
+    def test_a_fresh_storm_on_a_long_lived_service_raises_exactly_one_lead(self) -> None:
+        # 1e6 lifetime requests with 0.1% 5xx; the last window is 1000 of 1000.
+        with _RecordingPrometheus(
+            lifetime=_farm_counters(999_000, 1_000), window=_farm_counters(0, 1_000),
+        ) as prometheus:
+            self.configure(prometheus.base_url)
+            runtime = self.sweep(suppress_emission=False)["runtime"]
+        self.assertEqual(len(runtime.get("leads", [])), 1, runtime)
+        observed = [e for e in self.runtime_signal_events() if e.get("event") == "observed"]
+        self.assertEqual([e["service"] for e in observed], ["farm-service"])
+
+    def test_the_window_the_source_is_asked_for_is_the_policy_field(self) -> None:
+        with _RecordingPrometheus() as prometheus:
+            self.configure(prometheus.base_url, window_seconds=7200)
+            self.sweep()
+        queries = [q for r in prometheus.requests for q in r["query"].get("query", [])]
+        self.assertIn(
+            'sum by (app,status_code) (increase(http_requests_total{namespace="aquaculture"}[7200s]))', queries,
+        )
+
+
+class TheWindowIsTheSweepCadence(unittest.TestCase):
+    """The sweep runs once per scheduled cycle, so the default window is that
+    cadence: consecutive sweeps judge consecutive windows, with no gap and no
+    double count."""
+
+    def test_the_default_window_is_the_scheduled_cycle_period(self) -> None:
+        workflow = yaml.safe_load(
+            (_REPO_ROOT / ".github" / "workflows" / "aria-auto-cycle.yml").read_text(encoding="utf-8")
+        )
+        triggers = workflow.get("on", workflow.get(True))
+        (schedule,) = triggers["schedule"]
+        minute, hour, day_of_month, month, day_of_week = schedule["cron"].split()
+        self.assertTrue(minute.isdigit() and hour.isdigit(), schedule)
+        self.assertEqual((day_of_month, month, day_of_week), ("*", "*", "*"), "a once-a-day cycle")
+        self.assertEqual(WATCHDOG_PULL_DEFAULTS["window_seconds"], 24 * 3600)
+
+    def test_a_window_outside_its_bounds_or_not_an_integer_is_refused_by_name(self) -> None:
+        repo = Path(tempfile.mkdtemp(prefix="aria-rw1-window-"))
+        self.addCleanup(shutil.rmtree, repo, ignore_errors=True)
+        override = repo / "aria-config" / "genesis_policy.json"
+        override.parent.mkdir(parents=True)
+        for value in (0, 59, 15 * 24 * 3600, True, 3600.5, "3600s]) or vector(1", None):
+            with self.subTest(window_seconds=value):
+                override.write_text(json.dumps({"watchdog_pull": {"window_seconds": value}}), encoding="utf-8")
+                with self.assertRaisesRegex(GovernanceError, "watchdog_pull.window_seconds"):
+                    watchdog_pull_policy(repo)
 
 
 class ThePolicyNamesTheLoopbackSourceAndNoCredential(unittest.TestCase):
@@ -510,7 +593,7 @@ class RuntimeCandidatesEnterTheRuntimeSignalClaimPath(_Workspace):
 
     def _farm_5xx(self) -> Any:
         (finding,) = detect_http_5xx_share(
-            parse_prometheus_text(_FARM_5XX_EXPOSITION), threshold=0.05, min_requests=50,
+            _farm_counters(90, 10), threshold=0.05, min_requests=50, window_seconds=86400,
         )
         return finding
 

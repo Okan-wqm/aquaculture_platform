@@ -1,0 +1,32 @@
+# RW-2 — the dataflow watchdog's privileged probe, reached over this socket.
+# Paired with aqua-dataflow-probe@.service. Installed by the program lead after
+# review (docs/runbooks/monitoring/dataflow-integrity.md, "Privileged probe
+# install"); the repository copy is the source of truth.
+#
+# WHY A SOCKET, NOT SUDO. The runner unit runs with NoNewPrivileges=yes and no
+# supplementary group (ADR-0023,
+# scripts/aria/runner-habitat/systemd/actions-runner.identity.conf), so no
+# sudoers rule can ever lift a job's process, and docker-group membership would
+# be root by another name. A connection is the one act the runner keeps: each
+# one starts a fresh instance of the root-owned, fixed-argv probe, whose JSON
+# answer comes back on the same connection.
+#
+# WHO MAY CONNECT. root:gharunner 0660 — the runner's primary group, pinned by
+# Group=gharunner in the identity drop-in; no supplementary group is involved.
+# Connecting can only trigger the fixed read-only measurement: the probe takes
+# no argument and reads nothing from the connection (StandardInput=null).
+# MaxConnections=1 keeps a second connection from starting a second probe while
+# one runs.
+[Unit]
+Description=Dataflow watchdog privileged probe socket (RW-2)
+
+[Socket]
+ListenStream=/run/aqua-dataflow-probe.sock
+SocketUser=root
+SocketGroup=gharunner
+SocketMode=0660
+Accept=yes
+MaxConnections=1
+
+[Install]
+WantedBy=sockets.target

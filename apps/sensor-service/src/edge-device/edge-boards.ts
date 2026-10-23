@@ -24,6 +24,8 @@ export interface BoardRow {
   readonly cargoFeatures: readonly string[];
   /** The Rust target the board's agent is built for (boards.json `rust_target`). */
   readonly rustTarget: string;
+  /** The RAUC compatible string of the board's OS images (boards.json `rauc_compatible`). */
+  readonly raucCompatible: string;
   /** The one binding method a device of this board presents (DEC-3.6). */
   readonly deviceBindingMethod: BindingMethod;
   readonly cloudProvisioningAllowed: boolean;
@@ -59,6 +61,7 @@ const ROWS: ReadonlyMap<BoardProfile, BoardRow> = new Map(
         agentProfile: 'suderra-os',
         cargoFeatures: [...row.cargo_features].sort(),
         rustTarget: row.rust_target,
+        raucCompatible: row.rauc_compatible,
         deviceBindingMethod: row.device_binding_method,
         cloudProvisioningAllowed: row.cloud_provisioning.allowed,
         cloudDeviceModels: row.cloud_device_models,

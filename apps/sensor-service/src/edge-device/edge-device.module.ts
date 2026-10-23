@@ -37,6 +37,7 @@ import { DeviceLifecycleStatementService } from './device-lifecycle-statement.se
 import { EdgeCommandPublisher } from './edge-command-publisher.service';
 import { EdgeRootHandoffService } from './edge-root-handoff.service';
 import { EdgeProvisioningManifestService } from './edge-provisioning-manifest.service';
+import { EdgeUpdateManifestService } from './edge-update-manifest.service';
 import {
   EdgeReleaseCatalog,
   fetchReleaseStatement,
@@ -104,6 +105,8 @@ import { TrustAnchorBundleService } from './trust-anchor-bundle.service';
     { provide: RELEASE_STATEMENT_FETCHER, useValue: fetchReleaseStatement },
     { provide: RELEASE_PROVENANCE_VERIFIER, useValue: verifyReleaseProvenance },
     EdgeProvisioningManifestService,
+    // The device-bound edge-update and os-update statements (DEC-2.4, DEC-2.9).
+    EdgeUpdateManifestService,
     ProvisioningReservationService,
     // The single command publish path (ADR-048 DEC-9.2) and its signer.
     CommandEnvelopeSignerService,

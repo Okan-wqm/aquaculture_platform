@@ -533,6 +533,66 @@ describe('MqttAuthService', () => {
     });
   });
 
+  // ─── checkTopicAccess: result topics (ADR-048 DEC-27) ───────────────────
+
+  describe('checkTopicAccess (result topics, ADR-048 DEC-27)', () => {
+    const results = `tenants/${TENANT_A}/devices/${DEVICE_UUID}/results`;
+
+    it('only the device writes its results: no service account publishes one, whatever its tenant grant', async () => {
+      const { service } = createService();
+      for (const account of ['sensor_service', 'backend_service', 'alert_service']) {
+        for (const acc of [2, 3]) {
+          await expect(service.checkTopicAccess(account, results, acc)).resolves.toBe(false);
+          await expect(service.checkTopicAccess(account, `${results}/x`, acc)).resolves.toBe(false);
+        }
+      }
+    });
+
+    it('a device publishes its own results under any of its own identifiers, and never reads or subscribes to them', async () => {
+      const { service, directory } = createService();
+      stubFindDeviceRepeated(directory, makeDevice());
+      for (const id of [DEVICE_UUID, MQTT_CLIENT, DEVICE_CODE]) {
+        const own = `tenants/${TENANT_A}/devices/${id}/results`;
+        await expect(service.checkTopicAccess(MQTT_CLIENT, own, 2)).resolves.toBe(true);
+        await expect(service.checkTopicAccess(MQTT_CLIENT, own, 1)).resolves.toBe(false);
+        await expect(service.checkTopicAccess(MQTT_CLIENT, own, 4)).resolves.toBe(false);
+        await expect(service.checkTopicAccess(MQTT_CLIENT, own, 3)).resolves.toBe(false);
+      }
+    });
+
+    it('a device publishes no results for another device or another tenant', async () => {
+      const { service, directory } = createService();
+      stubFindDeviceRepeated(directory, makeDevice());
+      await expect(
+        service.checkTopicAccess(
+          MQTT_CLIENT,
+          `tenants/${TENANT_A}/devices/ffffffff-ffff-4fff-8fff-ffffffffffff/results`,
+          2,
+        ),
+      ).resolves.toBe(false);
+      await expect(
+        service.checkTopicAccess(
+          MQTT_CLIENT,
+          `tenants/${TENANT_B}/devices/${DEVICE_UUID}/results`,
+          2,
+        ),
+      ).resolves.toBe(false);
+    });
+
+    it('the result consumer subscribes to the per-device filter, and only to that filter', async () => {
+      const { service } = createService();
+      const filter = 'tenants/+/devices/+/results';
+      await expect(service.checkTopicAccess('sensor_service', filter, 4)).resolves.toBe(true);
+      await expect(service.checkTopicAccess('sensor_service', filter, 1)).resolves.toBe(true);
+      // Reading a concrete device's results is the consumer's too; the filter is never a publish target.
+      await expect(service.checkTopicAccess('sensor_service', results, 1)).resolves.toBe(true);
+      await expect(service.checkTopicAccess('sensor_service', filter, 2)).resolves.toBe(false);
+      await expect(
+        service.checkTopicAccess('sensor_service', 'tenants/+/devices/+/results/#', 4),
+      ).resolves.toBe(false);
+    });
+  });
+
   describe('checkTopicAccess (the agent publishes under its own device code, SENSOR-MEDIUM-221)', () => {
     it('allows the HMI watch stream the agent keys by device code', async () => {
       const { service, directory } = createService();

@@ -10,6 +10,8 @@ import { PlcAlarm } from '../plc-control/entities/plc-alarm.entity';
 import { DeviceDirectoryService } from './device-directory.service';
 import { DeviceEventService } from './device-event.service';
 import { EdgeDeviceNatsController } from './edge-device-nats.controller';
+import { EdgeDeviceResultResolver } from './edge-result.resolver';
+import { EdgeResultTelemetryService } from './edge-result-telemetry.service';
 import { EdgeDeviceResolver } from './edge-device.resolver';
 import { EdgeDeviceService } from './edge-device.service';
 import { DeviceIoConfig } from './entities/device-io-config.entity';
@@ -19,6 +21,7 @@ import { LoRaDevice } from './entities/lora-device.entity';
 import { TenantProvisioningKeyDirectory } from './entities/tenant-provisioning-key-directory.entity';
 import { TenantProvisioningKey } from './entities/tenant-provisioning-key.entity';
 import { DeviceEvent } from './entities/device-event.entity';
+import { EdgeDeviceResult } from './entities/edge-device-result.entity';
 import {
   EdgeAuditArchiveV2,
   EdgeDeviceV2,
@@ -68,6 +71,7 @@ import { TrustAnchorBundleService } from './trust-anchor-bundle.service';
       TenantProvisioningKey,
       TenantProvisioningKeyDirectory,
       DeviceEvent,
+      EdgeDeviceResult,
       // Additional entities for field resolver counts
       AutomationProgram,
       Sensor,
@@ -102,6 +106,9 @@ import { TrustAnchorBundleService } from './trust-anchor-bundle.service';
     CommandEnvelopeSignerService,
     EdgeCommandPublisher,
     EdgeRootHandoffService,
+    // Typed install/update results from the device's results topic (DEC-27).
+    EdgeResultTelemetryService,
+    EdgeDeviceResultResolver,
   ],
   exports: [
     EdgeDeviceService,
@@ -110,6 +117,7 @@ import { TrustAnchorBundleService } from './trust-anchor-bundle.service';
     InstallerScriptService,
     DeviceDirectoryService,
     EdgeCommandPublisher,
+    EdgeResultTelemetryService,
   ],
 })
 export class EdgeDeviceModule {}

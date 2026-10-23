@@ -48,6 +48,7 @@ import {
 import { DeviceIoConfig } from '../edge-device/entities/device-io-config.entity';
 import { EdgeDevice } from '../edge-device/entities/edge-device.entity';
 import { EdgeDeviceService, DeviceHeartbeat } from '../edge-device/edge-device.service';
+import { EdgeResultTelemetryService } from '../edge-device/edge-result-telemetry.service';
 import { withTenantContext } from '@aquaculture/backend-common/context';
 import {
   runInTenantRead,
@@ -92,6 +93,7 @@ export const SENSOR_SERVICE_SUBSCRIPTION_FILTERS: readonly string[] = [
   'tenants/+/devices/+/alarms', // I/O alarm events (Edge Agent → Backend persist + WS bridge)
   'tenants/+/devices/+/capabilities', // v2.3: Boot-time hardware capabilities report
   'tenants/+/devices/+/lora_events', // LoRaWAN events (join_accept, uplink_summary)
+  'tenants/+/devices/+/results', // Root's typed install/update results (ADR-048 DEC-27)
 ];
 
 /**
@@ -336,6 +338,12 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     @Optional()
     @Inject(ErasedTenantTombstoneService)
     private readonly tombstone: ErasedTenantTombstoneService | null = null,
+    // ADR-048 DEC-27: stores the typed install/update results a Suderra OS
+    // agent publishes on `…/results`. Trailing optional for the same
+    // `new`-based test-harness reason; explicit token for the same design:paramtypes reason.
+    @Optional()
+    @Inject(EdgeResultTelemetryService)
+    private readonly edgeResultTelemetry: EdgeResultTelemetryService | null = null,
   ) {
     // Legacy edge/ topic flag (default: true for backward compatibility)
     this.legacyEdgeTopicsEnabled =
@@ -1155,11 +1163,6 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
    * }
    */
   private async handleTenantPrefixedEdgeMessage(topic: string, message: Buffer): Promise<void> {
-    if (!this.edgeDeviceService) {
-      this.logger.warn('EdgeDeviceService not available for tenant-prefixed message');
-      return;
-    }
-
     const parts = topic.split('/');
     // Expected: tenants/{tenantId}/devices/{deviceCode}/{messageType}
     if (parts.length < 5) {
@@ -1173,6 +1176,31 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
 
     if (!tenantId || !deviceCode || !messageType) {
       this.logger.warn(`Missing required parts in topic: ${topic}`);
+      return;
+    }
+
+    // ADR-048 DEC-27: a result is stored from its raw bytes (the store hashes and
+    // validates them against the contract schema) and a storage failure must
+    // reach the ack gate, so this runs outside the parse-and-swallow block below
+    // and fails as a DurableWriteError: PUBACK is released only for a result that
+    // is stored or refused for good (the store answers a refusal, it never throws it).
+    if (messageType === 'results') {
+      if (!this.edgeResultTelemetry) {
+        this.logger.warn('EdgeResultTelemetryService not available; result dropped');
+        return;
+      }
+      await this.edgeResultTelemetry
+        .ingest({ tenantId, deviceIdentifier: deviceCode }, message)
+        .catch((error: Error) => {
+          throw new DurableWriteError(
+            `Durable result write failed for device ${deviceCode}: ${error.message}`,
+          );
+        });
+      return;
+    }
+
+    if (!this.edgeDeviceService) {
+      this.logger.warn('EdgeDeviceService not available for tenant-prefixed message');
       return;
     }
 

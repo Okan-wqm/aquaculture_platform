@@ -62,6 +62,7 @@ import { Sensor } from './database/entities/sensor.entity';
 import { SensorTypeDefinition } from './database/entities/sensor-type-definition.entity';
 import { EdgeDeviceModule } from './edge-device/edge-device.module';
 import { DeviceIoConfig } from './edge-device/entities/device-io-config.entity';
+import { EdgeDeviceResult } from './edge-device/entities/edge-device-result.entity';
 import { EdgeDevice } from './edge-device/entities/edge-device.entity';
 import {
   EdgeAuditArchiveV2,
@@ -222,6 +223,7 @@ import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
             ScadaPackage,
             DashboardLayout,
             EdgeDevice,
+            EdgeDeviceResult,
             EdgeDeviceV2,
             EdgePolicyV2,
             EdgeLicenseV2,

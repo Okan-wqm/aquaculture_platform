@@ -5,6 +5,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { isDeviceCommandTopic } from '../shared-mqtt/device-command-topic';
+import { isDeviceResultsTopic } from '../shared-mqtt/device-results-topic';
 
 import { DeviceDirectoryService } from './device-directory.service';
 import { ProvisioningReservationService } from './provisioning-reservation.service';
@@ -262,6 +263,23 @@ export class MqttAuthService implements OnModuleInit {
       return false;
     }
 
+    // ADR-048 DEC-27: a results topic carries what root wrote on the device and
+    // the agent republished, so only the device writes it. A service account
+    // never does — whatever its tenant-wide grant says — because a result a
+    // service could write would be evidence nobody can tell from the device's.
+    // The reverse also holds: a device only writes it, never reads or
+    // subscribes to it; the cloud's result consumer reads it (below).
+    if (isDeviceResultsTopic(topic)) {
+      // A wildcard filter is never a publish target; the consumer's
+      // subscription to it is granted below and is not a write.
+      const concrete = !topic.includes('+') && !topic.includes('#');
+      if (this.serviceAccountNames.has(username)) {
+        if (concrete && (acc & ACC_WRITE) !== 0) return false;
+      } else if (acc !== ACC_WRITE) {
+        return false;
+      }
+    }
+
     // Service accounts: per-topic-pattern grants scoped to tenants. Handled
     // first so their intentional wildcard subscribe patterns still work.
     if (this.serviceAccountNames.has(username)) {
@@ -398,7 +416,7 @@ export class MqttAuthService implements OnModuleInit {
         // this grant cannot drift from what the listener subscribes.
         if (
           (acc & 4 || acc === 1 || acc === 3) &&
-          /^tenants\/\+\/devices\/\+\/(telemetry|status|response|responses|io_data|alarms|capabilities|lora_events)$/.test(
+          /^tenants\/\+\/devices\/\+\/(telemetry|status|response|responses|io_data|alarms|capabilities|lora_events|results)$/.test(
             topic,
           )
         ) {

@@ -5174,6 +5174,29 @@ export type EdgeDeviceConnection = {
   totalPages: Scalars['Int']['output'];
 };
 
+export type EdgeDeviceResult = {
+  boardProfile: Scalars['String']['output'];
+  detail?: Maybe<Scalars['String']['output']>;
+  deviceId: Scalars['ID']['output'];
+  document: Scalars['JSON']['output'];
+  id: Scalars['ID']['output'];
+  kind: Scalars['String']['output'];
+  occurredAt: Scalars['DateTime']['output'];
+  osVersion: Scalars['String']['output'];
+  outcome: Scalars['String']['output'];
+  reason?: Maybe<Scalars['String']['output']>;
+  receivedAt: Scalars['DateTime']['output'];
+  seq: Scalars['Float']['output'];
+  subject?: Maybe<Scalars['JSON']['output']>;
+  timeState: Scalars['String']['output'];
+};
+
+export type EdgeDeviceResultSummary = {
+  deviceId: Scalars['ID']['output'];
+  latestByKind: Array<EdgeDeviceResult>;
+  stored: Scalars['Int']['output'];
+};
+
 export type EdgeDeviceStats = {
   byModel: Array<ModelCount>;
   byState: Array<StateCount>;
@@ -15793,6 +15816,10 @@ export type Query = {
   discoverOpcUaEndpoints: Array<DiscoveredOpcUaEndpoint>;
   disinfectantChemicals: Array<ChemicalResponse>;
   edgeDevice?: Maybe<EdgeDevice>;
+  /** The newest result of every kind a device reported: installed version, verification, rollbacks and lockdown state as the device last said them */
+  edgeDeviceResultSummary?: Maybe<EdgeDeviceResultSummary>;
+  /** A Suderra OS device's reported results, newest first, optionally of one kind (device-reported evidence, not authority) */
+  edgeDeviceResults: Array<EdgeDeviceResult>;
   edgeDeviceStats: EdgeDeviceStats;
   edgeDevices: EdgeDeviceConnection;
   effectiveConfiguration: EffectiveConfigurationDto;
@@ -16807,6 +16834,18 @@ export type QueryDiscoverOpcUaEndpointsArgs = {
 
 export type QueryEdgeDeviceArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type QueryEdgeDeviceResultSummaryArgs = {
+  deviceId: Scalars['ID']['input'];
+};
+
+
+export type QueryEdgeDeviceResultsArgs = {
+  deviceId: Scalars['ID']['input'];
+  kind?: InputMaybe<Scalars['String']['input']>;
+  limit?: InputMaybe<Scalars['Int']['input']>;
 };
 
 

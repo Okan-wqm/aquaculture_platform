@@ -118,7 +118,7 @@ function compareCodePoints(a: string, b: string): number {
 }
 
 /** Rejects an unpaired UTF-16 surrogate (statements.json dsse.json). */
-function assertWellFormed(text: string, where: string): void {
+export function assertWellFormed(text: string, where: string): void {
   for (let i = 0; i < text.length; i += 1) {
     const unit = text.charCodeAt(i);
     if (unit >= 0xd800 && unit <= 0xdbff) {

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { useAuthContext } from '@aquaculture/shared-ui';
+import { RequireAuth } from '@aquaculture/shared-ui';
 import SetupPage from './pages/SetupPage';
 import SolutionPage from './pages/solution/SolutionPage';
 import PidSimulatorPage from './pages/pid-simulator/PidSimulatorPage';
@@ -11,31 +11,12 @@ import PidSimulatorPage from './pages/pid-simulator/PidSimulatorPage';
 // localStorage reads and a stale-read race condition after a save.
 import { NutrientProfilesProvider } from './context/NutrientProfilesContext';
 
-/**
- * SEC-HYD-004: Module-level authentication guard.
- *
- * In Module Federation the remote bundle can be fetched and instantiated
- * independently of the shell's route guard. This guard validates that a
- * session exists before rendering any route, providing a secondary enforcement
- * layer that is not bypassable by navigating directly to the remote entry point.
+/*
+ * SEC-HYD-004: module-level authentication guard. In Module Federation the
+ * remote bundle can be instantiated independently of the shell's route guard,
+ * so the session is re-checked here with the guard family's RequireAuth — the
+ * one gate, whose session check shows the one loading screen (FE-MEDIUM-349).
  */
-const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAuthenticated, isLoading } = useAuthContext();
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-48 text-gray-500 dark:text-gray-400 text-sm">
-        Checking session...
-      </div>
-    );
-  }
-
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
-  }
-
-  return <>{children}</>;
-};
 
 const HydroponicsModule: React.FC = () => (
   <RequireAuth>

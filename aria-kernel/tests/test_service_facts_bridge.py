@@ -277,7 +277,7 @@ class _RecordingRegistry:
     """
 
     def __init__(self) -> None:
-        self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)  # allowlist-external-network: loopback-only listener (bound to 127.0.0.1 below) that stands in for the npm registry to prove the bridge makes no fetch
         self.server.bind(("127.0.0.1", 0))
         self.server.listen(16)
         self.server.settimeout(0.2)

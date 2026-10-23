@@ -72,6 +72,10 @@
       "readers": "imported by the plan-coverage witness; same suite tests"
     },
     {
+      "glob": "infrastructure/nats/services.schema.json",
+      "readers": "read by tools/gates/nats-services.ts (NATS_SERVICES_SCHEMA) to validate services.yaml when the plan-coverage witness and the SE-3 code-fact bridge run; suite: test_service_facts_bridge, test_plan_coverage"
+    },
+    {
       "glob": "tools/gates/event-consumer-index.ts",
       "readers": "imported by the plan-coverage witness (event-consumer closure, ARIA-HIGH-313); same suite tests"
     },

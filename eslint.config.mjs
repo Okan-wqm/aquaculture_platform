@@ -478,7 +478,12 @@ export default [
   // the owner), and a ts.Program built on the default compiler host — ts.sys
   // reads every imported module itself, following symlinks, so a program
   // created outside the contained host escapes containment exactly like a
-  // readFileSync would (exempt: adapter-ts.ts, the one builder on that host).
+  // readFileSync would (exempt: adapter-ts.ts, whose containedCompilerHost is
+  // the one host builder, given a required view: `contained`, or `tracked`
+  // for the event-contracts adapter and the tools/gates code-fact scans).
+  // These blocks cover tools/aria-adapters only; across tools/gates too, the
+  // one ts.createCompilerHost call and the one lstat entry classifier are
+  // pinned by tools/gates/event-consumer-index.spec.ts (SE-3-R2 appellate RC).
   // Both blocks sit AFTER override 2 on purpose: flat config resolves
   // per-file rules last-write-wins, and override 2 redefines both rules for
   // every non-project source. The specs are exempt: they build fixtures,
@@ -511,7 +516,8 @@ export default [
             "CallExpression[callee.type='MemberExpression'][callee.property.name='createProgram']",
           message:
             'a program on the default compiler host reads imported modules through ts.sys, ' +
-            'following symlinks — build it through adapter-ts.ts, the one contained builder.',
+            'following symlinks — build it through adapter-ts.ts, the one host builder ' +
+            '(containedCompilerHost / createContainedProgram with its contained or tracked view).',
         },
       ],
     },

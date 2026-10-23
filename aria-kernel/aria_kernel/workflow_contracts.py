@@ -423,65 +423,133 @@ def _collapse(text: str) -> str:
     return "".join(text.split())
 
 
-def _strip_expression_wrapper(text: str) -> str:
-    """Drop a single enclosing ``${{ ... }}`` so the body can be parsed.
-
-    GitHub accepts ``if: ${{ a && b }}`` and bare ``if: a && b`` as the same
-    condition, so the wrapper must not change how the guard is matched.
-    """
-    if text.startswith("${{") and text.endswith("}}"):
-        return text[3:-2]
-    return text
-
-
-def _top_level_disjuncts(condition: str) -> list[str]:
-    """Split a collapsed GHA condition on its TOP-LEVEL ``||`` only.
+def _top_level_split(expression: str, operator: str) -> list[str]:
+    """``expression`` split on ``operator`` (``||`` or ``&&``) outside parentheses and string literals.
 
     Depth-aware on purpose: ``(a||b)&&guard`` is ONE branch that is gated by
     ``guard``, while ``guard||always()`` is two branches of which only the
-    first is gated. Splitting naively would confuse the two and either accept
-    an inert guard or reject a correct one.
+    first is gated. Quote-aware on purpose: a GitHub Actions string literal
+    is single-quoted (``''`` escapes a quote, which toggles twice), and an
+    operator or a parenthesis inside one — ``github.head_ref == 'a||b'`` —
+    is text, not structure.
     """
-    body = _strip_expression_wrapper(condition)
     parts: list[str] = []
-    depth = 0
-    start = 0
-    index = 0
-    while index < len(body):
-        char = body[index]
-        if char == "(":
+    depth, quoted, start, index = 0, False, 0, 0
+    while index < len(expression):
+        char = expression[index]
+        if char == "'":
+            quoted = not quoted
+        elif not quoted and char == "(":
             depth += 1
-        elif char == ")":
-            depth = max(0, depth - 1)
-        elif char == "|" and depth == 0 and body[index : index + 2] == "||":
-            parts.append(body[start:index])
-            index += 2
+        elif not quoted and char == ")":
+            depth -= 1
+        elif not quoted and depth == 0 and expression.startswith(operator, index):
+            parts.append(expression[start:index])
+            index += len(operator)
             start = index
             continue
         index += 1
-    parts.append(body[start:])
-    return [part for part in parts if part]
+    parts.append(expression[start:])
+    return parts
+
+
+def _enclosed(expression: str) -> bool:
+    """True when the whole of ``expression`` is one parenthesised group: ``(a&&b)``, not ``(a)&&(b)``."""
+    if not (expression.startswith("(") and expression.endswith(")")):
+        return False
+    depth, quoted = 0, False
+    for index, char in enumerate(expression):
+        if char == "'":
+            quoted = not quoted
+        elif not quoted and char == "(":
+            depth += 1
+        elif not quoted and char == ")":
+            depth -= 1
+            if depth == 0 and index != len(expression) - 1:
+                return False
+    return True
+
+
+def _condition_form(text: str) -> str:
+    """The comparable form of a condition: no ``${{ }}`` wrapper, no whitespace outside string literals,
+    no parentheses around the whole.
+
+    ``if: ${{ a && b }}`` and ``if: a && b`` are the same condition to GitHub,
+    as are ``vars.X==''`` and ``vars.X == ''``; a string literal keeps its
+    spaces, because ``'a b'`` and ``'ab'`` are different values.
+    """
+    body = text.strip()
+    if body.startswith("${{") and body.endswith("}}"):
+        body = body[3:-2]
+    kept: list[str] = []
+    quoted = False
+    for char in body:
+        if char == "'":
+            quoted = not quoted
+        if quoted or char == "'" or not char.isspace():
+            kept.append(char)
+    form = "".join(kept)
+    while _enclosed(form):
+        form = form[1:-1]
+    return form
+
+
+def _requires(expression: str, conjunct: str) -> bool:
+    """``expression`` (in condition form) can be true only while ``conjunct`` (in condition form) is.
+
+    It is the conjunct itself; or every top-level ``||`` branch requires it; or
+    one top-level ``&&`` conjunct does. Anything else — a negation, a call, a
+    comparison that merely contains the text — does not.
+    """
+    if expression == conjunct:
+        return True
+    disjuncts = _top_level_split(expression, "||")
+    if len(disjuncts) > 1:
+        return all(_requires(_condition_form(part), conjunct) for part in disjuncts)
+    conjuncts = _top_level_split(expression, "&&")
+    if len(conjuncts) > 1:
+        return any(_requires(_condition_form(part), conjunct) for part in conjuncts)
+    return False
+
+
+def condition_requires(condition: Any, conjunct: str) -> bool:
+    """True only when the GitHub Actions ``condition`` cannot be true unless ``conjunct`` is.
+
+    THE ONE owner of "this ``if:`` carries that guard" (B0, SSOT P08): the
+    workflow contracts' abort gate, the operator-stop invariant and the
+    Board job guard all ask here. Every top-level ``||`` branch must carry
+    ``conjunct`` as a top-level ``&&`` conjunct, at any position and through
+    any parentheses that enclose a whole branch; a branch without it, or with
+    it only inside a negation, a call or a nested ``||``, is not gated. An
+    absent or empty condition (GitHub's implicit ``success()``) requires
+    nothing.
+
+    ORPHAN-MEDIUM-491 — this used to be ``guard in condition``, raw
+    substring containment: ``${{ <guard> || always() }}`` contains the guard
+    verbatim and is unconditionally true.
+    """
+    if condition is None:
+        return False
+    expression = _condition_form(str(condition))
+    if not expression:
+        return False
+    return _requires(expression, _condition_form(conjunct))
 
 
 def _step_is_gated(condition: str, *, guard: str, announce: str | None) -> bool:
-    """True only when EVERY top-level branch of ``condition`` carries a guard.
+    """True only when EVERY top-level branch of ``condition`` requires the guard.
 
-    ORPHAN-MEDIUM-491 — this used to be ``guard in condition``, raw substring
-    containment. ``${{ <guard> || always() }}`` contains the guard verbatim and
-    is unconditionally true, so an unguarded step passed as guarded and ran
-    during a blocked cycle. Requiring every disjunct to carry the guard rejects
-    that shape while still accepting ``(guard && x) || (guard && y)``, which
-    matters because an over-strict gate gets deleted for being noisy (see
-    ``_collapse``).
+    The declared announce step alone may carry the inverse guard (it runs
+    only while blocked) in a branch instead; see :func:`condition_requires`
+    for what "requires" means.
     """
-    if not condition:
+    expression = _condition_form(condition)
+    if not expression:
         return False
-    disjuncts = _top_level_disjuncts(condition)
-    if not disjuncts:
-        return False
+    guards = [_condition_form(guard)] + ([_condition_form(announce)] if announce is not None else [])
     return all(
-        guard in part or (announce is not None and announce in part)
-        for part in disjuncts
+        any(_requires(_condition_form(part), target) for target in guards)
+        for part in _top_level_split(expression, "||")
     )
 
 
@@ -1002,6 +1070,7 @@ __all__ = [
     "WorkflowContractVerdict",
     "WorkflowJobContract",
     "WorkflowRegistryVerdict",
+    "condition_requires",
     "discover_aria_workflows",
     "generated_workflow_inventory",
     "verify_workflow_contract",

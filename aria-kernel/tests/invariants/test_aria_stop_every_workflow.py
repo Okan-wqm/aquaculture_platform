@@ -1,18 +1,20 @@
 """PLAN-v2 §2 'Durdurma' / B0 — every ARIA workflow reads the operator's ``vars.ARIA_STOP``.
 
 ARIA-HIGH-765. The stop is a repository variable only the operator can write
-(the ARIA GitHub App holds no Variables permission; board/SETUP.md). "Non-empty
-means stop", and every ARIA workflow — the merge runner included — reads it
-in two places:
+(the ARIA GitHub App may READ variables, never write them; board/SETUP.md UI
+check 2). "Non-empty means stop", and every ARIA workflow — the merge runner
+included — reads it in two places:
 
-* every job's ``if:`` carries ``vars.ARIA_STOP == ''`` as a top-level
-  conjunct, so a stopped ARIA starts no job (a top-level ``||`` beside it
-  would let a branch run through the stop);
-* the workflow-level ``env`` passes it to every step as ``ARIA_STOP``, so the
-  kernel's own reads (the preflight kill switch, kernel_change admission, and
-  the merge authority right before the merge call; see
-  ``tests/test_aria_stop_operator_variable.py``) see the operator's value and
-  no hand-set copy.
+* every job's ``if:`` requires ``vars.ARIA_STOP == ''`` in every branch, so a
+  stopped ARIA starts no job (a top-level ``||`` beside it would let a branch
+  run through the stop);
+* the workflow-level ``env`` passes it to every step as ``ARIA_STOP``: the
+  value GitHub evaluated when the job started, which the workflow preflight's
+  kill switch reads (the job gate inside the kernel). It cannot change while
+  the job runs, so the kernel's in-process re-checks — kernel_change
+  admission and the merge authority right before the merge call — read the
+  LIVE repository variable instead (``preflight.operator_stop_engaged``;
+  ``tests/test_aria_stop_operator_variable.py``).
 
 The governed set is the kernel's own owner of "which workflows are ARIA's":
 ``workflow_contracts.discover_aria_workflows`` (the ``aria-*`` namespace plus
@@ -20,25 +22,26 @@ every workflow that calls the enterprise preflight). Exempt by name, each with
 its reason: the two pull-request checks — a skipped job reads as a passing
 required check, so gating them would wave every PR through during a stop — and
 the external watchdog, the watchman that must keep watching while ARIA is
-stopped and that writes nothing.
+stopped (it imports no kernel and writes only its own incident issue).
 
-One reader: exactly one kernel module reads the ``ARIA_STOP`` environment
-variable; admission and merge call it (a second reader is how the preflight's
-"truthy word" semantics would drift from the merge path's).
+One owner each: exactly one kernel module reads the ``ARIA_STOP``
+environment variable (the job-start snapshot), and exactly one names the
+repository-variables API (the live read). Whether a job condition requires the
+stop is decided by ``workflow_contracts.condition_requires``, the one owner of
+that question (B0 corrective R4); this file keeps no parser of its own.
 
 Red at the branch base by assertion: no workflow reads ``vars.ARIA_STOP``.
 """
 from __future__ import annotations
 
 import ast
-import re
 import unittest
 from pathlib import Path
 from typing import Any
 
 import yaml  # type: ignore[import-untyped]
 
-from aria_kernel.workflow_contracts import discover_aria_workflows
+from aria_kernel.workflow_contracts import condition_requires, discover_aria_workflows
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _KERNEL = _REPO_ROOT / "aria-kernel" / "aria_kernel"
@@ -47,7 +50,7 @@ _STOP_ENV = "${{ vars.ARIA_STOP }}"
 STOP_EXEMPT: dict[str, str] = {
     "aria-kernel": "pull-request/push CI of the kernel's own code; a skipped job reads as a passing check",
     "aria-merge-authority": "required pull-request check; a skipped job reads as a passing required check",
-    "aria-external-watchdog": "the watchman: writes nothing, imports no kernel, and keeps watching during a stop",
+    "aria-external-watchdog": "the watchman: imports no kernel, writes only its incident issue, keeps watching",
 }
 
 
@@ -56,47 +59,35 @@ def _load(path: Path) -> dict[str, Any]:
     return workflow if isinstance(workflow, dict) else {}
 
 
-def _expression(raw: Any) -> str:
-    text = re.sub(r"\s+", " ", str(raw)).strip()
-    match = re.fullmatch(r"\$\{\{ ?(.*?) ?\}\}", text)
-    return (match.group(1) if match else text).strip()
+class ConditionRequiresTests(unittest.TestCase):
+    """The one predicate, on the inputs the three former parsers answered differently (B0 review P08)."""
 
-
-def _has_top_level_or(expression: str) -> bool:
-    depth, quoted = 0, False
-    for index, char in enumerate(expression):
-        if char == "'":
-            quoted = not quoted
-        elif not quoted and char == "(":
-            depth += 1
-        elif not quoted and char == ")":
-            depth -= 1
-        elif not quoted and depth == 0 and expression.startswith("||", index):
-            return True
-    return False
-
-
-def stop_gated(job_if: Any) -> bool:
-    """``vars.ARIA_STOP == ''`` is the whole condition or its first top-level ``&&`` conjunct."""
-    if job_if is None:
-        return False
-    expression = _expression(job_if)
-    if expression == _STOP_CONJUNCT:
-        return True
-    prefix = _STOP_CONJUNCT + " && "
-    return expression.startswith(prefix) and not _has_top_level_or(expression[len(prefix):])
-
-
-class StopGatePredicateTests(unittest.TestCase):
-    def test_the_predicate_reads_the_conjunct_and_refuses_an_or_around_it(self) -> None:
-        self.assertTrue(stop_gated("vars.ARIA_STOP == ''"))
-        self.assertTrue(stop_gated("${{ vars.ARIA_STOP == '' && (github.event_name == 'schedule' || inputs.x) }}"))
-        self.assertTrue(stop_gated("vars.ARIA_STOP == '' &&\n  github.event.workflow_run.conclusion == 'success'"))
-        self.assertFalse(stop_gated(None))
-        self.assertFalse(stop_gated("github.event_name == 'schedule'"))
-        self.assertFalse(stop_gated("vars.ARIA_STOP == '' && a || b"))
-        self.assertFalse(stop_gated("a || vars.ARIA_STOP == ''"))
-        self.assertFalse(stop_gated("vars.ARIA_STOP != ''"))
+    def test_one_answer_per_input(self) -> None:
+        cases = {
+            "vars.ARIA_STOP == ''": True,
+            "vars.ARIA_STOP==''": True,
+            "${{ vars.ARIA_STOP == '' && (github.event_name == 'schedule' || inputs.x) }}": True,
+            "vars.ARIA_STOP == '' &&\n  github.event.workflow_run.conclusion == 'success'": True,
+            "a && vars.ARIA_STOP == ''": True,
+            "(vars.ARIA_STOP == '' && a) || (vars.ARIA_STOP == '' && b)": True,
+            "(vars.ARIA_STOP == '')": True,
+            "github.head_ref == 'x || y' && vars.ARIA_STOP == ''": True,
+            "vars.ARIA_STOP == '' && a || b": False,
+            "a || vars.ARIA_STOP == ''": False,
+            "${{ vars.ARIA_STOP == '' || always() }}": False,
+            "vars.ARIA_STOP != ''": False,
+            "!(vars.ARIA_STOP == '')": False,
+            "always() && (github.ref == 'refs/heads/main' || vars.ARIA_STOP == '')": False,
+            "vars.ARIA_STOP == ' '": False,
+            # The conjunct's text inside a string literal is not the conjunct.
+            "github.head_ref == 'vars.ARIA_STOP == ''''' && a": False,
+            "github.event_name == 'schedule'": False,
+            "": False,
+        }
+        for condition, expected in cases.items():
+            with self.subTest(condition=condition):
+                self.assertIs(condition_requires(condition, _STOP_CONJUNCT), expected)
+        self.assertFalse(condition_requires(None, _STOP_CONJUNCT))
 
 
 class EveryAriaWorkflowReadsTheStopTests(unittest.TestCase):
@@ -113,7 +104,7 @@ class EveryAriaWorkflowReadsTheStopTests(unittest.TestCase):
             if workflow_id in STOP_EXEMPT:
                 continue
             for job_id, job in sorted((_load(path).get("jobs") or {}).items()):
-                if not isinstance(job, dict) or not stop_gated(job.get("if")):
+                if not isinstance(job, dict) or not condition_requires(job.get("if"), _STOP_CONJUNCT):
                     ungated.append(f"{workflow_id}/{job_id}")
         self.assertEqual(ungated, [], f"jobs that start while the operator's stop is set ({_STOP_CONJUNCT})")
 
@@ -126,7 +117,8 @@ class EveryAriaWorkflowReadsTheStopTests(unittest.TestCase):
 
     def test_the_merge_runner_merge_job_is_gated(self) -> None:
         job = _load(self.discovered["aria-merge-runner"])["jobs"]["merge"]
-        self.assertTrue(stop_gated(job.get("if")), "the merge runner starts no merge job while ARIA is stopped")
+        self.assertTrue(condition_requires(job.get("if"), _STOP_CONJUNCT),
+                        "the merge runner starts no merge job while ARIA is stopped")
 
 
 def _environment_reads(tree: ast.AST) -> list[int]:
@@ -155,6 +147,11 @@ class OneKernelReaderOfTheStopTests(unittest.TestCase):
             if lines:
                 readers[path.relative_to(_KERNEL).as_posix()] = lines
         self.assertEqual(len(readers), 1, f"one owner reads ARIA_STOP from the environment; found {readers}")
+
+    def test_exactly_one_kernel_module_reads_the_repository_variable(self) -> None:
+        readers = sorted(path.relative_to(_KERNEL).as_posix() for path in _KERNEL.rglob("*.py")
+                         if "/actions/variables" in path.read_text(encoding="utf-8"))
+        self.assertEqual(readers, ["preflight.py"], "one owner reads the live vars.ARIA_STOP")
 
 
 if __name__ == "__main__":

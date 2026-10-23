@@ -44,6 +44,7 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -404,6 +405,39 @@ function newKey(): { pem: string; keyid: string; raw: Buffer } {
   };
 }
 
+/**
+ * The pipeline's unsigned half over stand-in binaries of every planned row, in
+ * a fresh directory: the packaged archives, the provenance the signing job
+ * states and the unsigned statement payloads. `env` overrides the GitHub
+ * context the provenance is stated from.
+ */
+function preparedRun(
+  env: Record<string, string> = {},
+  tag: string = `agent-v${VERSION}`,
+): {
+  dir: string;
+  art: string;
+  payloads: string;
+} {
+  const dir = mkdtempSync(join(tmpdir(), 'edge-release-spec-'));
+  const art = join(dir, 'dist');
+  const payloads = join(dir, 'payloads');
+  const github = { ...GITHUB_ENV, ...env };
+  for (const row of plan.build.include) {
+    const bin = join(dir, `${row.channel}-${row.id}.bin`);
+    writeFileSync(bin, releaseElf(row));
+    ok(
+      tool(
+        ['package', '--channel', row.channel, '--id', row.id, '--binary', bin, '--out-dir', art],
+        github,
+      ),
+    );
+  }
+  ok(tool(['provenance', '--artifacts', art, '--tag', tag, '--out-dir', art], github));
+  ok(tool(['statements', '--artifacts', art, '--out-dir', payloads, '--expect-version', VERSION]));
+  return { dir, art, payloads };
+}
+
 /** One release run of the tool over stand-in binaries of every planned row, in a fresh directory. */
 function releaseRun(): {
   dir: string;
@@ -412,27 +446,8 @@ function releaseRun(): {
   statements: string;
   key: ReturnType<typeof newKey>;
 } {
-  const dir = mkdtempSync(join(tmpdir(), 'edge-release-spec-'));
-  const art = join(dir, 'dist');
-  const payloads = join(dir, 'payloads');
+  const { dir, art, payloads } = preparedRun();
   const statements = join(dir, 'statements');
-  for (const row of plan.build.include) {
-    const bin = join(dir, `${row.channel}-${row.id}.bin`);
-    writeFileSync(bin, releaseElf(row));
-    ok(
-      tool(
-        ['package', '--channel', row.channel, '--id', row.id, '--binary', bin, '--out-dir', art],
-        GITHUB_ENV,
-      ),
-    );
-  }
-  ok(
-    tool(
-      ['provenance', '--artifacts', art, '--tag', `agent-v${VERSION}`, '--out-dir', art],
-      GITHUB_ENV,
-    ),
-  );
-  ok(tool(['statements', '--artifacts', art, '--out-dir', payloads, '--expect-version', VERSION]));
   const key = newKey();
   ok(
     tool(
@@ -982,20 +997,8 @@ describe('edge release statements (scripts/edge/edge_release.py)', () => {
     expect(wrong.status).toBe(1);
     expect(wrong.stderr).toContain('is not the expected edge-release keyid');
 
-    const testKey = obj(
-      list(keyring['keys'])
-        .map(obj)
-        .find((k) => k['purpose'] === 'edge-release'),
-    );
-    const seed = createHash('sha256').update(str(testKey['seed_label'])).digest();
-    const pem = createPrivateKey({
-      key: Buffer.concat([PKCS8_ED25519_PREFIX, seed]),
-      format: 'der',
-      type: 'pkcs8',
-    })
-      .export({ format: 'pem', type: 'pkcs8' })
-      .toString();
-    const refused = signWith(pem, str(testKey['keyid']));
+    const testKey = testOnlyReleaseKey();
+    const refused = signWith(testKey.pem, testKey.keyid);
     expect(refused.status).toBe(1);
     expect(refused.stderr).toContain('TEST-ONLY');
     expect(existsSync(join(out, osRows[0]?.statement ?? ''))).toBe(false);
@@ -1415,6 +1418,595 @@ describe('edge release publish gate (scripts/edge/edge_release.py verify and sig
       expect(text).toContain(entry.blocked_by);
     }
     expect(text).toContain(run.key.keyid);
+  });
+});
+
+/** The private key of a TEST-ONLY contract keyring entry (the seed derivation is public). */
+function testOnlyReleaseKey(): { pem: string; keyid: string } {
+  const entry = obj(
+    list(keyring['keys'])
+      .map(obj)
+      .find((k) => k['purpose'] === 'edge-release'),
+  );
+  const seed = createHash('sha256').update(str(entry['seed_label'])).digest();
+  const pem = createPrivateKey({
+    key: Buffer.concat([PKCS8_ED25519_PREFIX, seed]),
+    format: 'der',
+    type: 'pkcs8',
+  })
+    .export({ format: 'pem', type: 'pkcs8' })
+    .toString();
+  return { pem, keyid: str(entry['keyid']) };
+}
+
+describe('edge release offline ceremony flow (ADR-048 DEC-3.9, DEC-20)', () => {
+  const TAG = `agent-v${VERSION}`;
+  const REPOSITORY = GITHUB_ENV.GITHUB_REPOSITORY;
+  const COMMIT = GITHUB_ENV.GITHUB_SHA;
+  const PAYLOAD_TYPE = str(statementEntry['payload_type']);
+  let prepared: ReturnType<typeof preparedRun>;
+  let n = 0;
+  const fresh = (label: string): string => join(prepared.dir, `${label}-${(n += 1)}`);
+  beforeAll(() => {
+    prepared = preparedRun();
+  });
+  afterAll(() => {
+    removeFixtureTree(prepared.dir);
+  });
+
+  type Expectation = { tag?: string; commit?: string; repository?: string };
+  const requestArgs = (
+    art: string,
+    payloads: string,
+    out: string,
+    expected: Expectation = {},
+  ): string[] => [
+    'offline-request',
+    '--artifacts',
+    art,
+    '--payloads',
+    payloads,
+    '--out-dir',
+    out,
+    '--expect-tag',
+    expected.tag ?? TAG,
+    '--expect-commit',
+    expected.commit ?? COMMIT,
+    '--expect-repository',
+    expected.repository ?? REPOSITORY,
+  ];
+  const payloadOf = (row: Row, dir: string = prepared.payloads): Buffer =>
+    readFileSync(join(dir, `${row.artifact}.release.payload.json`));
+  const publicPem = (pem: string): string =>
+    createPublicKey(createPrivateKey(pem)).export({ type: 'spki', format: 'pem' }).toString();
+  /** What the HSM does: one raw Ed25519 signature over each PAE file of a request. */
+  const hsmSign = (request: string, pem: string): string => {
+    const into = fresh('signatures');
+    mkdirSync(into);
+    for (const row of osRows) {
+      const pae = readFileSync(join(request, `${row.artifact}.release.pae`));
+      writeFileSync(
+        join(into, `${row.artifact}.release.sig`),
+        sign(null, pae, createPrivateKey(pem)),
+      );
+    }
+    return into;
+  };
+  const writePublic = (pem: string): string => {
+    const path = join(fresh('public'), 'edge-release.pem');
+    mkdirSync(join(path, '..'));
+    writeFileSync(path, publicPem(pem));
+    return path;
+  };
+  const assembleArgs = (
+    art: string,
+    payloads: string,
+    signatures: string,
+    publicKey: string,
+    keyid: string,
+    out: string,
+  ): string[] => [
+    'offline-assemble',
+    '--artifacts',
+    art,
+    '--payloads',
+    payloads,
+    '--signatures',
+    signatures,
+    '--public-key',
+    publicKey,
+    '--expect-keyid',
+    keyid,
+    '--out-dir',
+    out,
+  ];
+  const request = (): string => {
+    const out = fresh('request');
+    ok(tool(requestArgs(prepared.art, prepared.payloads, out)));
+    return out;
+  };
+  const filesOf = (dir: string): string[] => (existsSync(dir) ? readdirSync(dir).sort() : []);
+
+  it('asks for the PAE of exactly the statements it checked, and needs no key', () => {
+    const out = request();
+    expect(filesOf(out)).toEqual(
+      [...osRows.map((r) => `${r.artifact}.release.pae`), 'signing-sheet.txt'].sort(),
+    );
+    for (const row of osRows) {
+      expect(readFileSync(join(out, `${row.artifact}.release.pae`))).toEqual(
+        dssePae(PAYLOAD_TYPE, payloadOf(row)),
+      );
+    }
+  });
+
+  it('prints a signing sheet from the bytes alone, whose digest covers every line', () => {
+    const out = fresh('sheet');
+    const stdout = ok(tool(requestArgs(prepared.art, prepared.payloads, out)));
+    const sheet = readFileSync(join(out, 'signing-sheet.txt'), 'utf8');
+    expect(stdout).toBe(sheet);
+    const lines = sheet.trimEnd().split('\n');
+    expect(lines.pop()).toBe(`sheet-sha256 ${sha256(`${lines.join('\n')}\n`)}`);
+    for (const fact of [TAG, REPOSITORY, COMMIT, VERSION, PAYLOAD_TYPE]) {
+      expect(sheet).toContain(fact);
+    }
+    for (const row of osRows) {
+      const body = JSON.parse(payloadOf(row).toString('utf8')) as JsonObject;
+      const artifact = obj(body['artifact']);
+      const board = obj(boards.find((b) => b['board_profile'] === row.id));
+      expect(sheet).toContain(row.artifact);
+      expect(sheet).toContain(str(obj(artifact['digest'])['sha256']));
+      expect(sheet).toContain(str(obj(artifact['binary_digest'])['sha256']));
+      expect(sheet).toContain(str(obj(obj(body['provenance'])['digest'])['sha256']));
+      expect(sheet).toContain(list(board['cargo_features']).map(str).sort().join(','));
+      expect(sheet).toContain(`security_version ${String(body['security_version'])}`);
+      expect(sheet).toContain(sha256(dssePae(PAYLOAD_TYPE, payloadOf(row))));
+    }
+  });
+
+  it('gives another sheet digest for other artifact bytes, so a swapped artifact is seen', () => {
+    const other = preparedRun({ SOURCE_DATE_EPOCH: '1700000001' });
+    try {
+      const digestOf = (art: string, payloads: string, label: string): string => {
+        const out = fresh(label);
+        ok(tool(requestArgs(art, payloads, out)));
+        return /sheet-sha256 ([0-9a-f]{64})\n$/.exec(
+          readFileSync(join(out, 'signing-sheet.txt'), 'utf8'),
+        )?.[1] as string;
+      };
+      expect(digestOf(other.art, other.payloads, 'other')).not.toBe(
+        digestOf(prepared.art, prepared.payloads, 'same'),
+      );
+    } finally {
+      removeFixtureTree(other.dir);
+    }
+  });
+
+  it('refuses a payload that is not the statement of this release, and writes no PAE', () => {
+    const row = osRows[0] as Row;
+    const payloads = copyDir(prepared.payloads, fresh('payloads'));
+    const body = JSON.parse(payloadOf(row).toString('utf8')) as JsonObject;
+    body['security_version'] = Number(body['security_version']) + 1;
+    writeFileSync(join(payloads, `${row.artifact}.release.payload.json`), canonicalJson(body));
+    const out = fresh('refused');
+    const refused = tool(requestArgs(prepared.art, payloads, out));
+    expect(refused.status).toBe(1);
+    expect(refused.stderr).toContain('is not the statement this release makes');
+    expect(filesOf(out)).toEqual([]);
+  });
+
+  describe('the provenance is the one of the release the custodians expect', () => {
+    const refusedBy = (
+      art: string,
+      payloads: string,
+      expected: Expectation,
+      message: string,
+    ): void => {
+      const out = fresh('refused');
+      const refused = tool(requestArgs(art, payloads, out, expected));
+      expect(refused.status).toBe(1);
+      expect(refused.stderr).toContain(message);
+      expect(filesOf(out)).toEqual([]);
+    };
+
+    it('refuses another tag, commit or repository than the custodians expect', () => {
+      refusedBy(
+        prepared.art,
+        prepared.payloads,
+        { tag: 'agent-v9.9.9' },
+        'the expected tag agent-v9.9.9',
+      );
+      refusedBy(
+        prepared.art,
+        prepared.payloads,
+        { commit: 'f'.repeat(40) },
+        `provenance commit ${COMMIT}`,
+      );
+      refusedBy(
+        prepared.art,
+        prepared.payloads,
+        { repository: 'someone/else' },
+        `provenance repository ${REPOSITORY}`,
+      );
+    });
+
+    it('refuses provenance of another tag than the Cargo version, whoever expects it', () => {
+      const ghost = 'agent-v9.9.9';
+      const ghostEnv = {
+        GITHUB_WORKFLOW_REF: `${REPOSITORY}/.github/workflows/edge-agent-release.yml@refs/tags/${ghost}`,
+      };
+      const foreign = preparedRun(ghostEnv, ghost);
+      try {
+        // Expected by the custodians, but not the release these payloads state.
+        refusedBy(foreign.art, foreign.payloads, { tag: ghost }, `is not ${TAG}`);
+        // The provenance of another release than the one they were asked to sign.
+        refusedBy(foreign.art, foreign.payloads, {}, `provenance states tag ${ghost}`);
+      } finally {
+        removeFixtureTree(foreign.dir);
+      }
+    });
+
+    it('refuses provenance stated by another workflow than the release workflow', () => {
+      const foreign = preparedRun({
+        GITHUB_WORKFLOW_REF: `${REPOSITORY}/.github/workflows/other.yml@refs/tags/${TAG}`,
+      });
+      try {
+        refusedBy(foreign.art, foreign.payloads, {}, 'was not stated by');
+      } finally {
+        removeFixtureTree(foreign.dir);
+      }
+    });
+
+    it('refuses provenance of another build than its artifact (features, target)', () => {
+      const row = osRows[0] as Row;
+      const art = copyDir(prepared.art, fresh('dist'));
+      const path = join(art, `${row.base}.intoto.jsonl`);
+      const statement = JSON.parse(readFileSync(path, 'utf8')) as JsonObject;
+      const parameters = obj(
+        obj(obj(statement['predicate'])['buildDefinition'])['externalParameters'],
+      );
+      parameters['features'] = 'gpio';
+      writeFileSync(path, `${canonicalJson(statement)}\n`);
+      // The statement names the changed provenance by digest, so only the
+      // claim check is left to refuse it.
+      const payloads = fresh('payloads');
+      ok(tool(['statements', '--artifacts', art, '--out-dir', payloads]));
+      refusedBy(art, payloads, {}, 'the provenance states the build');
+    });
+  });
+
+  it('assembles, from signatures made elsewhere, the envelopes the CI key signs byte for byte', () => {
+    const key = newKey();
+    const requested = request();
+    const signatures = hsmSign(requested, key.pem);
+    const out = fresh('statements');
+    ok(
+      tool(
+        assembleArgs(
+          prepared.art,
+          prepared.payloads,
+          signatures,
+          writePublic(key.pem),
+          key.keyid,
+          out,
+        ),
+      ),
+    );
+    const ci = fresh('ci');
+    ok(
+      tool(
+        [
+          'sign',
+          '--artifacts',
+          prepared.art,
+          '--payloads',
+          prepared.payloads,
+          '--out-dir',
+          ci,
+          '--key-env',
+          'EDGE_RELEASE_SIGNING_KEY',
+          '--expect-keyid',
+          key.keyid,
+        ],
+        { EDGE_RELEASE_SIGNING_KEY: key.pem },
+      ),
+    );
+    expect(filesOf(out)).toEqual(filesOf(ci));
+    for (const name of filesOf(ci)) {
+      expect(readFileSync(join(out, name))).toEqual(readFileSync(join(ci, name)));
+    }
+    ok(
+      tool([
+        'verify',
+        '--artifacts',
+        prepared.art,
+        '--statements',
+        out,
+        '--public-key',
+        join(out, 'edge-release.pub'),
+        '--expect-keyid',
+        key.keyid,
+      ]),
+    );
+    const publicKey = createPublicKey(readFileSync(join(out, 'edge-release.pub')));
+    for (const row of osRows) {
+      const envelope = readJson(join(out, row.statement));
+      expect(schemaErrors('dsse-envelope', envelope)).toEqual([]);
+      const payload = Buffer.from(str(envelope['payload']), 'base64');
+      expect(payload).toEqual(payloadOf(row));
+      expect(schemaErrors('edge-release', JSON.parse(payload.toString('utf8')))).toEqual([]);
+      const sig = Buffer.from(str(obj(list(envelope['signatures'])[0])['sig']), 'base64');
+      expect(verify(null, dssePae(PAYLOAD_TYPE, payload), publicKey, sig)).toBe(true);
+    }
+  });
+
+  describe('refuses every signature set that is not the expected key signing this release', () => {
+    const key = newKey();
+    let requested: string;
+    let signatures: string;
+    let publicKey: string;
+    beforeAll(() => {
+      requested = request();
+      signatures = hsmSign(requested, key.pem);
+      publicKey = writePublic(key.pem);
+    });
+    /** Runs the assembly; it must refuse and leave no statement behind. */
+    const refused = (
+      sigs: string,
+      pub: string,
+      keyid: string,
+      payloads: string = prepared.payloads,
+    ): ToolRun => {
+      const out = fresh('refused');
+      const run = tool(assembleArgs(prepared.art, payloads, sigs, pub, keyid, out));
+      expect(run.status).toBe(1);
+      expect(filesOf(out)).toEqual([]);
+      return run;
+    };
+    const sigFile = (dir: string, row: Row): string => join(dir, `${row.artifact}.release.sig`);
+
+    it('another keyid than the one the ceremony recorded', () => {
+      expect(refused(signatures, publicKey, newKey().keyid).stderr).toContain(
+        'is not the expected edge-release keyid',
+      );
+    });
+
+    it('a TEST-ONLY contract key, which no ceremony may produce', () => {
+      const testKey = testOnlyReleaseKey();
+      const run = refused(hsmSign(requested, testKey.pem), writePublic(testKey.pem), testKey.keyid);
+      expect(run.stderr).toContain('TEST-ONLY');
+    });
+
+    it('signatures of another key under the expected public key', () => {
+      expect(refused(hsmSign(requested, newKey().pem), publicKey, key.keyid).reason).toBe(
+        'signature-invalid',
+      );
+    });
+
+    it('a signature of another row, and a signature over the payload without its PAE header', () => {
+      expect(osRows.length).toBeGreaterThan(1);
+      const [a, b] = osRows as [Row, Row];
+      const swapped = copyDir(signatures, fresh('swapped'));
+      writeFileSync(sigFile(swapped, a), readFileSync(sigFile(signatures, b)));
+      writeFileSync(sigFile(swapped, b), readFileSync(sigFile(signatures, a)));
+      expect(refused(swapped, publicKey, key.keyid).reason).toBe('signature-invalid');
+
+      const bare = copyDir(signatures, fresh('bare'));
+      writeFileSync(sigFile(bare, a), sign(null, payloadOf(a), createPrivateKey(key.pem)));
+      expect(refused(bare, publicKey, key.keyid).reason).toBe('signature-invalid');
+    });
+
+    it('a signature that is not 64 bytes, a missing signature and an extra one', () => {
+      const row = osRows[0] as Row;
+      const short = copyDir(signatures, fresh('short'));
+      writeFileSync(sigFile(short, row), readFileSync(sigFile(signatures, row)).subarray(0, 63));
+      expect(refused(short, publicKey, key.keyid).stderr).toContain('is not 64 bytes');
+
+      const missing = copyDir(signatures, fresh('missing'));
+      rmSync(sigFile(missing, row));
+      expect(refused(missing, publicKey, key.keyid).stderr).toContain('are not the planned set');
+
+      const extra = copyDir(signatures, fresh('extra'));
+      writeFileSync(join(extra, 'suderra-agent-os-0.0.0-ghost-aarch64.tar.gz.release.sig'), '');
+      expect(refused(extra, publicKey, key.keyid).stderr).toContain('are not the planned set');
+    });
+
+    it('a payload that is not the statement of this release, even when its signature verifies', () => {
+      const row = osRows[0] as Row;
+      const payloads = copyDir(prepared.payloads, fresh('payloads'));
+      const body = JSON.parse(payloadOf(row).toString('utf8')) as JsonObject;
+      body['agent_abi'] = Number(body['agent_abi']) + 1;
+      const bytes = Buffer.from(canonicalJson(body));
+      writeFileSync(join(payloads, `${row.artifact}.release.payload.json`), bytes);
+      const sigs = copyDir(signatures, fresh('resigned'));
+      writeFileSync(
+        sigFile(sigs, row),
+        sign(null, dssePae(PAYLOAD_TYPE, bytes), createPrivateKey(key.pem)),
+      );
+      expect(refused(sigs, publicKey, key.keyid, payloads).stderr).toContain(
+        'is not the statement this release makes',
+      );
+    });
+  });
+
+  describe('the manifest and the notes of a release signed offline', () => {
+    const FINALIZE_REF = `${REPOSITORY}/.github/workflows/edge-release-publish.yml@refs/tags/agent-statements-v${VERSION}`;
+    const FINALIZE_ENV = {
+      GITHUB_REPOSITORY: REPOSITORY,
+      GITHUB_WORKFLOW: 'Edge Release Publish',
+      GITHUB_WORKFLOW_REF: FINALIZE_REF,
+      GITHUB_SHA: 'a'.repeat(40),
+      GITHUB_RUN_ID: '2',
+    };
+    let key: ReturnType<typeof newKey>;
+    let statements: string;
+    beforeAll(() => {
+      key = newKey();
+      statements = join(prepared.dir, 'assembled');
+      ok(
+        tool(
+          assembleArgs(
+            prepared.art,
+            prepared.payloads,
+            hsmSign(request(), key.pem),
+            writePublic(key.pem),
+            key.keyid,
+            statements,
+          ),
+        ),
+      );
+    });
+    /** The published directory: artifacts, evidence, the cosign material of the build, the statements. */
+    const published = (cosignStatements: boolean): string => {
+      const dir = copyDir(prepared.art, fresh('published'));
+      const cosign = (name: string): void => {
+        writeFileSync(join(dir, `${name}.sig`), `sig of ${name}`);
+        writeFileSync(join(dir, `${name}.pem`), `pem of ${name}`);
+      };
+      for (const row of plan.build.include) {
+        writeFileSync(join(dir, `${row.base}.cargo-metadata.sbom.json`), '{}');
+        writeFileSync(join(dir, `${row.base}.NOTICE.md`), 'notice');
+        for (const name of [row.artifact, `${row.base}.cargo-metadata.sbom.json`]) cosign(name);
+        cosign(`${row.base}.intoto.jsonl`);
+        cosign(`${row.base}.NOTICE.md`);
+      }
+      for (const row of osRows) {
+        copyFileSync(join(statements, row.statement), join(dir, row.statement));
+        if (cosignStatements) cosign(row.statement);
+      }
+      return dir;
+    };
+    const manifestArgs = (dir: string, mode: string): string[] => [
+      'manifest',
+      '--artifacts',
+      dir,
+      '--tag',
+      TAG,
+      '--channel',
+      'stable',
+      '--prerelease',
+      'false',
+      '--statement-keyid',
+      key.keyid,
+      '--statement-signing',
+      mode,
+    ];
+    const manifestOf = (dir: string): JsonObject =>
+      readJson(join(dir, 'edge-release-manifest.json'));
+
+    it('names the build run from the provenance, not from the run that publishes', () => {
+      const dir = published(true);
+      ok(tool(manifestArgs(dir, 'ci-key'), FINALIZE_ENV));
+      const release = obj(manifestOf(dir)['release']);
+      expect(release['commit']).toBe(COMMIT);
+      expect(release['workflow_ref']).toBe(GITHUB_ENV.GITHUB_WORKFLOW_REF);
+      expect(release['workflow']).toBe(GITHUB_ENV.GITHUB_WORKFLOW);
+      expect(release['workflow_run_id']).toBe(GITHUB_ENV.GITHUB_RUN_ID);
+      expect(release['repository']).toBe(REPOSITORY);
+    });
+
+    it('lists each statement with its cosign material when the CI key signed it', () => {
+      const dir = published(true);
+      ok(tool(manifestArgs(dir, 'ci-key'), FINALIZE_ENV));
+      const manifest = manifestOf(dir);
+      const signing = obj(manifest['signing']);
+      expect(obj(signing['release_statements'])['mode']).toBe('ci-key');
+      const entries = list(manifest['artifacts']).map(obj);
+      for (const row of osRows) {
+        const entry = obj(entries.find((e) => e['target'] === row.id));
+        expect(Object.keys(obj(entry['release_statement'])).sort()).toEqual(
+          ['bytes', 'certificate', 'name', 'sha256', 'signature'].sort(),
+        );
+      }
+    });
+
+    it('lists each statement by digest only when the ceremony key signed it offline', () => {
+      const dir = published(false);
+      ok(tool(manifestArgs(dir, 'offline'), FINALIZE_ENV));
+      const manifest = manifestOf(dir);
+      const signing = obj(manifest['signing']);
+      expect(obj(signing['release_statements'])).toEqual({
+        statement_type: STATEMENT_TYPE,
+        purpose: 'edge-release',
+        keyid: key.keyid,
+        mode: 'offline-ceremony',
+      });
+      expect(obj(signing['manifest'])['certificate_identity']).toBe(
+        `https://github.com/${FINALIZE_REF}`,
+      );
+      const entries = list(manifest['artifacts']).map(obj);
+      for (const row of osRows) {
+        const entry = obj(entries.find((e) => e['target'] === row.id));
+        const statement = readFileSync(join(dir, row.statement));
+        expect(obj(entry['release_statement'])).toEqual({
+          name: row.statement,
+          sha256: sha256(statement),
+          bytes: statement.length,
+        });
+      }
+    });
+
+    it('refuses a statement without cosign material in the CI-key mode, and in either mode a missing statement', () => {
+      const missing = tool(manifestArgs(published(false), 'ci-key'), FINALIZE_ENV);
+      expect(missing.status).toBe(1);
+      expect(missing.stderr).toContain('release manifest missing artifact');
+      const dir = published(false);
+      rmSync(join(dir, osRows[0]?.statement ?? ''));
+      const absent = tool(manifestArgs(dir, 'offline'), FINALIZE_ENV);
+      expect(absent.status).toBe(1);
+      expect(absent.stderr).toContain('release manifest missing artifact');
+    });
+
+    it('refuses provenance whose rows do not state one build run', () => {
+      const foreign = preparedRun({ GITHUB_SHA: 'b'.repeat(40) });
+      try {
+        const dir = published(false);
+        const row = osRows[0] as Row;
+        copyFileSync(
+          join(foreign.art, `${row.base}.intoto.jsonl`),
+          join(dir, `${row.base}.intoto.jsonl`),
+        );
+        const refusedRun = tool(manifestArgs(dir, 'offline'), FINALIZE_ENV);
+        expect(refusedRun.status).toBe(1);
+        expect(refusedRun.stderr).toContain('do not state one build run');
+      } finally {
+        removeFixtureTree(foreign.dir);
+      }
+    });
+
+    it('refuses a tag the provenance does not state', () => {
+      const dir = published(false);
+      const args = manifestArgs(dir, 'offline');
+      args[args.indexOf('--tag') + 1] = 'agent-v9.9.9';
+      const refusedRun = tool(args, FINALIZE_ENV);
+      expect(refusedRun.status).toBe(1);
+      expect(refusedRun.stderr).toContain(`provenance states tag ${TAG}`);
+    });
+
+    it('says in the notes who signed the statements', () => {
+      const notes = (mode: string): string => {
+        const out = join(fresh('notes'), 'release-notes.md');
+        mkdirSync(join(out, '..'));
+        ok(
+          tool(
+            [
+              'notes',
+              '--tag',
+              TAG,
+              '--statement-keyid',
+              key.keyid,
+              '--statement-signing',
+              mode,
+              '--out',
+              out,
+            ],
+            FINALIZE_ENV,
+          ),
+        );
+        return readFileSync(out, 'utf8');
+      };
+      expect(notes('offline')).toContain('signed offline by the custodians');
+      expect(notes('ci-key')).not.toContain('signed offline by the custodians');
+    });
   });
 });
 

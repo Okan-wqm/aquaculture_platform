@@ -20,6 +20,14 @@ Subcommands, in pipeline order:
               artifact, over the digests recomputed from the artifact bytes
   sign        the DSSE envelope of every payload with the edge-release key
               (DEC-3.9, DEC-20); the key comes from an environment variable
+              (the dev/CI key; a production key never enters CI)
+  offline-request   the production flow's first half, run by the custodians on
+              the offline machine: re-checks every payload against the artifact
+              bytes and the provenance, prints the signing sheet and writes the
+              PAE bytes their HSM signs
+  offline-assemble  the second half: the DSSE envelopes from the HSM's raw
+              signatures, each verified under verify_strict against the public
+              key of the ceremony before anything is written
   verify      every planned envelope against its artifact, the public key and
               the contract, in the statements.json verification_order, with
               verify_strict semantics; the payload must be byte for byte the
@@ -28,10 +36,13 @@ Subcommands, in pipeline order:
   signature-vectors  the Ed25519 verifier over fixtures/dsse/signature-vectors.json
   notes       the GitHub release body: what each channel ships, which boards
               are not built and why
-  manifest    the machine-readable index of every published file
+  manifest    the machine-readable index of every published file; the build
+              run it names is the one the provenance states
 
 The tool needs only the Python 3.11+ standard library and, for `sign` alone,
-the OpenSSL 3 CLI (Ed25519 -rawin), so the signing job installs nothing.
+the OpenSSL 3 CLI (Ed25519 -rawin), so the signing job installs nothing. The
+offline commands need neither a key file nor OpenSSL: the private key stays in
+the HSM, which signs the PAE bytes of `offline-request`.
 Signatures are verified by this file's own Ed25519 verifier, which implements
 the contract's verify_strict semantics (statements.json
 dsse.signature_algorithm); OpenSSL's verifier is not conforming.
@@ -82,6 +93,18 @@ CHANNEL_GENERIC = "generic"
 
 PAYLOAD_SUFFIX = ".release.payload.json"
 PUBLIC_KEY_FILE = "edge-release.pub"
+# The offline ceremony (DEC-3.9): the bytes the custodians' HSM signs and the
+# raw 64-byte signature it returns, one pair per Suderra OS artifact.
+PAE_SUFFIX = ".release.pae"
+SIGNATURE_SUFFIX = ".release.sig"
+SIGNING_SHEET = "signing-sheet.txt"
+# The workflow whose run states the provenance: the cloud's release admission
+# pins the same path (apps/sensor-service edge-release-provenance.ts).
+RELEASE_WORKFLOW = ".github/workflows/edge-agent-release.yml"
+# Who signed the release statements (the manifest and the notes say so).
+SIGNING_CI_KEY = "ci-key"
+SIGNING_OFFLINE = "offline"
+SIGNING_MODE_NAMES = {SIGNING_CI_KEY: "ci-key", SIGNING_OFFLINE: "offline-ceremony"}
 
 # RFC 8410 SubjectPublicKeyInfo prefix of a raw Ed25519 public key.
 ED25519_SPKI_PREFIX = bytes.fromhex("302a300506032b6570032100")
@@ -1170,6 +1193,90 @@ def _provenance_digest(row: Row, directory: Path, artifact_digest: str) -> str:
     return sha256_hex(data)
 
 
+@dataclass(frozen=True)
+class BuildClaims:
+    """What the provenance of a release states about the run that built it."""
+
+    repository: str
+    workflow: str
+    workflow_ref: str
+    release_tag: str
+    commit: str
+    run_id: str
+
+
+def _claim(node: Any, path: tuple[str | int, ...], what: str) -> Any:
+    """The value at `path` of a parsed provenance statement, or a refusal."""
+    for key in path:
+        try:
+            node = node[key]
+        except (KeyError, IndexError, TypeError):
+            fail(f"{what} has no {'.'.join(str(k) for k in path)}")
+    return node
+
+
+def _row_claims(row: Row, directory: Path) -> BuildClaims:
+    """The claims of one artifact's provenance, checked against its plan row:
+    the build is this row's, and the run is the release workflow's own."""
+    path = directory / f"{row.base}.intoto.jsonl"
+    if not path.is_file():
+        fail(f"provenance {path.name} of {row.artifact} is missing")
+    lines = path.read_bytes().splitlines()
+    if len(lines) != 1:
+        fail(f"{path.name} is not one in-toto statement line")
+    statement = strict_json(lines[0], path.name, "schema-invalid")
+    build = ("predicate", "buildDefinition")
+    parameters = build + ("externalParameters",)
+    text: dict[str, str] = {}
+    for name, where in {
+        "repository": parameters + ("repository",),
+        "workflow": parameters + ("workflow",),
+        "workflow_ref": parameters + ("workflowRef",),
+        "release_tag": parameters + ("releaseTag",),
+        "channel": parameters + ("channel",),
+        "target": parameters + ("target",),
+        "rust_target": parameters + ("rustTarget",),
+        "features": parameters + ("features",),
+        "source": build + ("resolvedDependencies", 0, "uri"),
+        "commit": build + ("resolvedDependencies", 0, "digest", "gitCommit"),
+        "invocation": ("predicate", "runDetails", "metadata", "invocationId"),
+    }.items():
+        value = _claim(statement, where, path.name)
+        if not isinstance(value, str):
+            fail(f"{path.name}: {'.'.join(str(k) for k in where)} is not a string")
+        text[name] = value
+    claimed = (text["channel"], text["target"], text["rust_target"], text["features"])
+    planned = (row.channel, row.id, row.rust_target, ",".join(row.features))
+    if claimed != planned:
+        fail(f"{path.name}: the provenance states the build {claimed}, the plan's row is {planned}")
+    repository = text["repository"]
+    expected_ref = f"{repository}/{RELEASE_WORKFLOW}@refs/tags/{text['release_tag']}"
+    if text["workflow_ref"] != expected_ref:
+        fail(f"{path.name}: the provenance was not stated by {expected_ref}, but by {text['workflow_ref']}")
+    if text["source"] != f"git+https://github.com/{repository}":
+        fail(f"{path.name}: the provenance source {text['source']} is not repository {repository}")
+    run_prefix = f"https://github.com/{repository}/actions/runs/"
+    if not text["invocation"].startswith(run_prefix) or not text["invocation"][len(run_prefix) :].isdigit():
+        fail(f"{path.name}: the invocation {text['invocation']} is not a run of {repository}")
+    return BuildClaims(
+        repository=repository,
+        workflow=text["workflow"],
+        workflow_ref=text["workflow_ref"],
+        release_tag=text["release_tag"],
+        commit=text["commit"],
+        run_id=text["invocation"][len(run_prefix) :],
+    )
+
+
+def _build_claims(release: Release, directory: Path) -> BuildClaims:
+    """The one build run every planned artifact's provenance states."""
+    claims = {row.artifact: _row_claims(row, directory) for row in release.rows()}
+    distinct = set(claims.values())
+    if len(distinct) != 1:
+        fail(f"the provenance of the artifacts do not state one build run: {sorted(map(repr, distinct))}")
+    return distinct.pop()
+
+
 def _os_rows(release: Release) -> list[Row]:
     return [r for r in release.rows() if r.channel == CHANNEL_OS]
 
@@ -1233,6 +1340,42 @@ def _check_payload(release: Release, row: Row, payload: bytes, artifacts: Path) 
         fail(f"{row.artifact}: the payload is not the statement this release makes: {what}")
 
 
+def _planned_payloads(release: Release, rows: list[Row], artifacts: Path, payloads: Path) -> dict[str, bytes]:
+    """Every planned payload, each checked to be this release's statement of
+    its artifact bytes, before any key or HSM signs one."""
+    expected_payloads = {f"{r.artifact}{PAYLOAD_SUFFIX}" for r in rows}
+    present = {p.name for p in payloads.glob(f"*{PAYLOAD_SUFFIX}")}
+    if present != expected_payloads:
+        fail(f"payloads {sorted(present)} are not the planned set {sorted(expected_payloads)}")
+    payload_of: dict[str, bytes] = {}
+    for row in rows:
+        payload = (payloads / f"{row.artifact}{PAYLOAD_SUFFIX}").read_bytes()
+        _check_payload(release, row, payload, artifacts)
+        payload_of[row.artifact] = payload
+    return payload_of
+
+
+def _write_envelope(
+    release: Release, row: Row, payload: bytes, keyid: str, sig: bytes, out_dir: Path
+) -> Path:
+    """One DSSE envelope; the CI-key and the offline flow write the same bytes."""
+    if len(sig) != 64:
+        fail(f"the Ed25519 signature of {row.artifact} is not 64 bytes")
+    envelope = {
+        "payloadType": release.payload_type,
+        "payload": b64(payload),
+        "signatures": [{"keyid": keyid, "sig": b64(sig)}],
+    }
+    target = out_dir / row.statement
+    target.write_text(json.dumps(envelope, indent=2) + "\n", encoding="utf-8")
+    return target
+
+
+def _refuse_test_only_key(release: Release, keyid: str, what: str) -> None:
+    if keyid in release.test_only_keyids():
+        fail(f"{what} is a TEST-ONLY contract key; no signer may hold one (DEC-3.9)")
+
+
 def cmd_sign(release: Release, args: argparse.Namespace) -> None:
     pem = os.environ.get(args.key_env)
     if not pem:
@@ -1244,16 +1387,8 @@ def cmd_sign(release: Release, args: argparse.Namespace) -> None:
     payloads = Path(args.payloads)
     out_dir = Path(args.out_dir)
     rows = _os_rows(release)
-    expected_payloads = {f"{r.artifact}{PAYLOAD_SUFFIX}" for r in rows}
-    present = {p.name for p in payloads.glob(f"*{PAYLOAD_SUFFIX}")}
-    if present != expected_payloads:
-        fail(f"payloads {sorted(present)} are not the planned set {sorted(expected_payloads)}")
     # Every payload is this release's statement before the key signs any.
-    payload_of: dict[str, bytes] = {}
-    for row in rows:
-        payload = (payloads / f"{row.artifact}{PAYLOAD_SUFFIX}").read_bytes()
-        _check_payload(release, row, payload, artifacts)
-        payload_of[row.artifact] = payload
+    payload_of = _planned_payloads(release, rows, artifacts, payloads)
     with tempfile.TemporaryDirectory(prefix="edge-release-sign-") as tmp:
         key = Path(tmp) / "key.pem"
         fd = os.open(key, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -1261,8 +1396,7 @@ def cmd_sign(release: Release, args: argparse.Namespace) -> None:
             fh.write(pem if pem.endswith("\n") else pem + "\n")
         public = private_key_public_pem(key)
         keyid = sha256_hex(spki_pem_public_key(public, "the signing key"))
-        if keyid in release.test_only_keyids():
-            fail("the signing key is a TEST-ONLY contract key; no signer may hold one (DEC-3.9)")
+        _refuse_test_only_key(release, keyid, "the signing key")
         if keyid != expect:
             fail(
                 f"the signing key's keyid {keyid} is not the expected "
@@ -1275,18 +1409,117 @@ def cmd_sign(release: Release, args: argparse.Namespace) -> None:
             message = Path(tmp) / "pae"
             message.write_bytes(pae(release.payload_type, payload))
             sig = openssl("pkeyutl", "-sign", "-rawin", "-inkey", str(key), "-in", str(message))
-            if len(sig) != 64:
-                fail("the Ed25519 signature is not 64 bytes")
-            envelope = {
-                "payloadType": release.payload_type,
-                "payload": b64(payload),
-                "signatures": [{"keyid": keyid, "sig": b64(sig)}],
-            }
-            target = out_dir / row.statement
-            target.write_text(json.dumps(envelope, indent=2) + "\n", encoding="utf-8")
-            print(str(target))
+            print(str(_write_envelope(release, row, payload, keyid, sig, out_dir)))
     # Every envelope verifies, under verify_strict, before it leaves the job.
     _verify_all(release, artifacts, out_dir, out_dir / PUBLIC_KEY_FILE, expect)
+
+
+# --------------------------------------------------------------------------
+# The offline ceremony flow (ADR-048 DEC-3.9, DEC-20)
+# --------------------------------------------------------------------------
+#
+# The production edge-release key is generated at the key ceremony and never
+# leaves the custodians' HSM; no CI job holds it. The pipeline stops at the
+# unsigned payloads and the provenance. The custodians, on an offline machine
+# that holds nothing the pipeline produced but the downloaded bytes, run
+# `offline-request`, which re-derives everything from those bytes, prints the
+# sheet they compare with the pipeline's own copy and writes the PAE files; the
+# HSM signs each PAE file (any HSM that signs raw Ed25519 messages: this tool
+# imports no PKCS#11 or vendor library), and `offline-assemble` turns the raw
+# signatures into the very envelopes `sign` writes, after verifying each one
+# against the public key whose keyid the ceremony recorded.
+
+
+def cmd_offline_request(release: Release, args: argparse.Namespace) -> None:
+    expected_tag = f"agent-v{release.version}"
+    if args.expect_tag != expected_tag:
+        fail(f"the expected tag {args.expect_tag} is not {expected_tag}, the tag of the Cargo version")
+    artifacts = Path(args.artifacts)
+    rows = _os_rows(release)
+    payload_of = _planned_payloads(release, rows, artifacts, Path(args.payloads))
+    claims = _build_claims(release, artifacts)
+    if claims.release_tag != args.expect_tag:
+        fail(f"the provenance states tag {claims.release_tag}, not the expected tag {args.expect_tag}")
+    if claims.repository != args.expect_repository:
+        fail(f"provenance repository {claims.repository} is not the expected {args.expect_repository}")
+    if claims.commit != args.expect_commit:
+        fail(f"provenance commit {claims.commit} is not the expected commit {args.expect_commit}")
+    lines = [
+        f"{release.signing_purpose} signing sheet",
+        f"tag {claims.release_tag}",
+        f"repository {claims.repository}",
+        f"commit {claims.commit}",
+        f"workflow-ref {claims.workflow_ref}",
+        f"run {claims.run_id}",
+        f"version {release.version}",
+        f"statement-type {STATEMENT_TYPE}",
+        f"payload-type {release.payload_type}",
+    ]
+    messages: dict[str, bytes] = {}
+    for row in sorted(rows, key=lambda r: r.artifact):
+        payload = payload_of[row.artifact]
+        body = json.loads(payload)
+        messages[row.artifact] = pae(release.payload_type, payload)
+        lines += [
+            f"artifact {row.artifact}",
+            f"  board_profile {body['board_profile']} arch {body['arch']} agent_profile {body['agent_profile']}",
+            f"  cargo_features {','.join(body['cargo_features'])}",
+            (
+                f"  security_version {body['security_version']} "
+                f"min_os_version {body['min_os_version']} agent_abi {body['agent_abi']}"
+            ),
+            f"  required_kernel_config {','.join(body['required_kernel_config'])}",
+            f"  archive sha256 {body['artifact']['digest']['sha256']} size {body['artifact']['size_bytes']}",
+            f"  binary sha256 {body['artifact']['binary_digest']['sha256']}",
+            f"  provenance sha256 {body['provenance']['digest']['sha256']}",
+            f"  payload sha256 {sha256_hex(payload)}",
+            f"  pae sha256 {sha256_hex(messages[row.artifact])}",
+        ]
+    text = "\n".join(lines) + "\n"
+    sheet = f"{text}sheet-sha256 {sha256_hex(text.encode('utf-8'))}\n"
+    # Everything checked: only now is anything written.
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for row in rows:
+        (out_dir / f"{row.artifact}{PAE_SUFFIX}").write_bytes(messages[row.artifact])
+    (out_dir / SIGNING_SHEET).write_text(sheet, encoding="utf-8")
+    print(sheet, end="")
+
+
+def cmd_offline_assemble(release: Release, args: argparse.Namespace) -> None:
+    expect = args.expect_keyid
+    if not re.fullmatch(r"[0-9a-f]{64}", expect or ""):
+        fail("--expect-keyid must be the lowercase hex SHA-256 of the raw edge-release public key")
+    public_path = Path(args.public_key)
+    public_text = public_path.read_text(encoding="ascii")
+    raw = spki_pem_public_key(public_text, "the ceremony public key")
+    keyid = sha256_hex(raw)
+    _refuse_test_only_key(release, keyid, "the ceremony public key")
+    if keyid != expect:
+        fail(f"the public key's keyid {keyid} is not the expected {release.signing_purpose} keyid {expect}")
+    artifacts = Path(args.artifacts)
+    signatures = Path(args.signatures)
+    rows = _os_rows(release)
+    expected_signatures = {f"{r.artifact}{SIGNATURE_SUFFIX}" for r in rows}
+    present = {p.name for p in signatures.glob(f"*{SIGNATURE_SUFFIX}")}
+    if present != expected_signatures:
+        fail(f"signatures {sorted(present)} are not the planned set {sorted(expected_signatures)}")
+    payload_of = _planned_payloads(release, rows, artifacts, Path(args.payloads))
+    with tempfile.TemporaryDirectory(prefix="edge-release-assemble-") as tmp:
+        staged = Path(tmp)
+        (staged / PUBLIC_KEY_FILE).write_text(public_text, encoding="ascii")
+        for row in rows:
+            sig = (signatures / f"{row.artifact}{SIGNATURE_SUFFIX}").read_bytes()
+            _write_envelope(release, row, payload_of[row.artifact], keyid, sig, staged)
+        # The one verifier of the publish gate (verify_strict, the statement
+        # checks) passes every envelope before a statement leaves the staging
+        # directory: a signature that is not the key's over this PAE stops here.
+        _verify_all(release, artifacts, staged, staged / PUBLIC_KEY_FILE, expect)
+        out_dir = Path(args.out_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        for name in [PUBLIC_KEY_FILE, *(r.statement for r in rows)]:
+            (out_dir / name).write_bytes((staged / name).read_bytes())
+            print(str(out_dir / name))
 
 
 def _envelope(release: Release, path: Path) -> dict[str, Any]:
@@ -1383,7 +1616,17 @@ def cmd_notes(release: Release, args: argparse.Namespace) -> None:
         for board, entry in sorted(unbuildable.items())
     ]
     generic_lines = [f"- `{r.artifact}` ({r.id})" for r in rows if r.channel == CHANNEL_GENERIC]
-    identity = f"https://github.com/{repo}/.github/workflows/edge-agent-release.yml@refs/tags/{args.tag}"
+    identity = f"https://github.com/{repo}/{RELEASE_WORKFLOW}@refs/tags/{args.tag}"
+    if args.statement_signing == SIGNING_OFFLINE:
+        signer_lines = [
+            "The statements were signed offline by the custodians of the edge-release ceremony",
+            "key; no CI job held that key (DEC-3.9). They carry no cosign material: their",
+            "signature is the Ed25519 one above.",
+        ]
+        provenance_files = "Every build file"
+    else:
+        signer_lines = []
+        provenance_files = "Every file"
     text = "\n".join(
         [
             f"## Suderra Edge Agent {args.tag}",
@@ -1396,6 +1639,7 @@ def cmd_notes(release: Release, args: argparse.Namespace) -> None:
             "",
             "Each archive holds exactly `suderra-agent` and carries its Ed25519 DSSE release",
             f"statement (`{STATEMENT_TYPE}`, {release.signing_purpose} key `{args.statement_keyid}`).",
+            *signer_lines,
             "Suderra OS installs it only through a signed provisioning manifest that names",
             "the statement; root verifies the statement and both digests.",
             "",
@@ -1413,7 +1657,7 @@ def cmd_notes(release: Release, args: argparse.Namespace) -> None:
             "",
             "### Provenance",
             "",
-            "Every file carries `.sig`/`.pem` cosign keyless signature material, plus `.sha256`,",
+            f"{provenance_files} carries `.sig`/`.pem` cosign keyless signature material, plus `.sha256`,",
             "`.cargo-metadata.sbom.json`, `.intoto.jsonl` and `.NOTICE.md` per artifact. Devices",
             "trust only the Ed25519 statement (DEC-3.8). Verify a signature:",
             "",
@@ -1449,6 +1693,11 @@ def _signed(directory: Path, name: str) -> dict[str, Any]:
 
 def cmd_manifest(release: Release, args: argparse.Namespace) -> None:
     directory = Path(args.artifacts)
+    # The run that built the release is the one its provenance states: the
+    # publishing run is another one when the statements were signed offline.
+    claims = _build_claims(release, directory)
+    if claims.release_tag != args.tag:
+        fail(f"the provenance states tag {claims.release_tag}, not {args.tag}")
     entries = []
     for row in release.rows():
         archive = _signed(directory, row.artifact)
@@ -1466,9 +1715,14 @@ def cmd_manifest(release: Release, args: argparse.Namespace) -> None:
             "notice": _signed(directory, f"{row.base}.NOTICE.md"),
         }
         if row.channel == CHANNEL_OS:
-            entry["release_statement"] = _signed(directory, row.statement)
+            if args.statement_signing == SIGNING_CI_KEY:
+                entry["release_statement"] = _signed(directory, row.statement)
+            else:
+                # Signed offline: the Ed25519 signature is its authentication,
+                # and no workflow of this repository signs the file again.
+                entry["release_statement"] = _file_entry(directory, row.statement)
         entries.append(entry)
-    repo = _require_env("GITHUB_REPOSITORY")
+    issuer = "https://token.actions.githubusercontent.com"
     manifest = {
         "schema_version": 2,
         "kind": "suderra.edge.release.manifest",
@@ -1478,22 +1732,28 @@ def cmd_manifest(release: Release, args: argparse.Namespace) -> None:
             "version": release.version,
             "channel": args.channel,
             "prerelease": args.prerelease == "true",
-            "repository": repo,
-            "commit": _require_env("GITHUB_SHA"),
-            "workflow": _require_env("GITHUB_WORKFLOW"),
-            "workflow_ref": _require_env("GITHUB_WORKFLOW_REF"),
-            "workflow_run_id": _require_env("GITHUB_RUN_ID"),
+            "repository": claims.repository,
+            "commit": claims.commit,
+            "workflow": claims.workflow,
+            "workflow_ref": claims.workflow_ref,
+            "workflow_run_id": claims.run_id,
         },
         "signing": {
             "release_statements": {
                 "statement_type": STATEMENT_TYPE,
                 "purpose": release.signing_purpose,
                 "keyid": args.statement_keyid,
+                "mode": SIGNING_MODE_NAMES[args.statement_signing],
             },
             "provenance": {
                 "mode": "cosign-keyless",
-                "oidc_issuer": "https://token.actions.githubusercontent.com",
-                "certificate_identity": f"https://github.com/{repo}/.github/workflows/edge-agent-release.yml@refs/tags/{args.tag}",
+                "oidc_issuer": issuer,
+                "certificate_identity": f"https://github.com/{claims.workflow_ref}",
+            },
+            "manifest": {
+                "mode": "cosign-keyless",
+                "oidc_issuer": issuer,
+                "certificate_identity": f"https://github.com/{_require_env('GITHUB_WORKFLOW_REF')}",
             },
         },
         "artifacts": entries,
@@ -1538,6 +1798,28 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--key-env", required=True, help="environment variable holding the PKCS#8 PEM key")
     p.add_argument("--expect-keyid", required=True)
 
+    p = sub.add_parser(
+        "offline-request",
+        help="custodians, offline: re-check the payloads, print the signing sheet, write the PAE files",
+    )
+    p.add_argument("--artifacts", required=True)
+    p.add_argument("--payloads", required=True)
+    p.add_argument("--out-dir", required=True)
+    p.add_argument("--expect-tag", required=True, help="the tag the custodians were asked to sign")
+    p.add_argument("--expect-commit", required=True, help="the commit of that tag, from their own checkout")
+    p.add_argument("--expect-repository", required=True, help="owner/name of the release repository")
+
+    p = sub.add_parser(
+        "offline-assemble",
+        help="DSSE envelopes from the HSM's raw signatures, verified before anything is written",
+    )
+    p.add_argument("--artifacts", required=True)
+    p.add_argument("--payloads", required=True)
+    p.add_argument("--signatures", required=True, help=f"directory of <artifact>{SIGNATURE_SUFFIX} files")
+    p.add_argument("--public-key", required=True, help="SubjectPublicKeyInfo PEM of the ceremony key")
+    p.add_argument("--expect-keyid", required=True, help="the keyid the ceremony recorded")
+    p.add_argument("--out-dir", required=True)
+
     p = sub.add_parser("verify", help="verify every planned release statement")
     p.add_argument("--artifacts", required=True)
     p.add_argument("--statements", required=True)
@@ -1550,9 +1832,11 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("signature-vectors", help="the Ed25519 verifier against the contract vectors")
     p.add_argument("--vectors", help="default: the contract's fixtures/dsse/signature-vectors.json")
 
+    signing_choices = [SIGNING_CI_KEY, SIGNING_OFFLINE]
     p = sub.add_parser("notes", help="the GitHub release body")
     p.add_argument("--tag", required=True)
     p.add_argument("--statement-keyid", required=True)
+    p.add_argument("--statement-signing", choices=signing_choices, default=SIGNING_CI_KEY)
     p.add_argument("--out", required=True)
 
     p = sub.add_parser("manifest", help="index of every published file")
@@ -1561,6 +1845,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--channel", required=True)
     p.add_argument("--prerelease", required=True, choices=["true", "false"])
     p.add_argument("--statement-keyid", required=True)
+    p.add_argument("--statement-signing", choices=signing_choices, default=SIGNING_CI_KEY)
 
     args = parser.parse_args(argv)
     commands: dict[str, Callable[[Release, argparse.Namespace], None]] = {
@@ -1569,6 +1854,8 @@ def main(argv: list[str] | None = None) -> int:
         "provenance": cmd_provenance,
         "statements": cmd_statements,
         "sign": cmd_sign,
+        "offline-request": cmd_offline_request,
+        "offline-assemble": cmd_offline_assemble,
         "verify": cmd_verify,
         "check-envelope": cmd_check_envelope,
         "signature-vectors": cmd_signature_vectors,

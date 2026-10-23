@@ -292,22 +292,32 @@ def cached_service_analysis_order(
 
 
 class ProjectMap(Mapping[str, str]):
-    """A ``project_roots`` map (name -> root) together with the identity of
-    the project layout it was built from (``graph_fingerprint``).
+    """A ``project_roots`` map (name -> root) together with its own identity.
 
     The identity travels with the map because a name is only meaningful
-    against the layout that produced it: a ``project.json`` rename or a new
+    against the map that produced it: a ``project.json`` rename or a new
     project changes the answer `project_for_path` gives for the same path.
-    A finding stamped with the names of one layout and read against another
-    has to be re-derived, and only a map that says which layout it is can
-    tell the reader so (`service_dimension.services_for_finding_row`).
+    A finding stamped with the names of one map and read against another has
+    to be re-derived, and only a map that says which map it is can tell the
+    reader so (`service_dimension.services_for_finding_row`).
+
+    ``fingerprint`` is computed HERE, as a sha256 over the sorted
+    ``name=root`` pairs this object wraps, never handed in. SE-1-R2 appellate
+    R1 (b): it used to be the cache's ``graph_fingerprint``, which digests the
+    discovery layout the cache is KEYED by, not the map stored under that
+    key. A map built from an nx graph file and the discovery map that later
+    replaced it shared that key, so a stamp of the first was read as stored
+    against the second. A fingerprint that is a digest of the wrapped map
+    cannot describe a different map.
     """
 
     __slots__ = ("_roots", "fingerprint")
 
-    def __init__(self, roots: Mapping[str, str], fingerprint: str) -> None:
+    def __init__(self, roots: Mapping[str, str]) -> None:
         self._roots = dict(roots)
-        self.fingerprint = fingerprint
+        digest = hashlib.sha256()
+        digest.update("\0".join(sorted(f"{name}={root}" for name, root in self._roots.items())).encode("utf-8"))
+        self.fingerprint = digest.hexdigest()
 
     def __getitem__(self, name: str) -> str:
         return self._roots[name]
@@ -353,7 +363,7 @@ def project_map(*, base_dir: str | Path | None, workspace_root: str | Path | Non
             "attribute a path to a service"
         )
     cache = cached_service_analysis_order(workspace_root=workspace, base_dir=base_dir)
-    return ProjectMap(cache["project_roots"], cache["graph_fingerprint"])
+    return ProjectMap(cache["project_roots"])
 
 
 def cycle_service_examination(
@@ -790,9 +800,8 @@ def project_for_path(path: str, project_roots: Mapping[str, str]) -> str | None:
     name a project through this function, in nx project names (every root
     that carries a ``project.json`` is named by it, `_discover`). Callers get
     the map from `project_map` — fingerprint-checked, so never the names of a
-    layout the tree no longer has — or hold the cache payload
-    `cached_service_analysis_order` returned; there is no string mapping to
-    fall back on.
+    layout the tree no longer has; there is no string mapping to fall back
+    on.
 
     It used to have a twin. ``service_dimension.service_for_path`` attributed
     findings in a vocabulary of its own (``apps/<dir>``, ``shared:<lib>``,

@@ -26,7 +26,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from aria_kernel.impact_graph import ProjectMap
 from aria_kernel.service_dimension import (
+    SERVICE_MAP_FINGERPRINT,
     SERVICE_VOCABULARY,
     finding_dimension_paths,
     finding_service_fields,
@@ -35,18 +37,21 @@ from aria_kernel.service_dimension import (
 )
 
 # A hand-written map in the SHAPE `cached_service_analysis_order` publishes
-# (name -> root). The names are fixture names for these unit tests; they are
-# not a claim about the name the real writer gives any root (review-r1 B3:
-# that is pinned against the writer itself, in
+# (name -> root), wrapped as the `ProjectMap` every attribution takes. The
+# names are fixture names for these unit tests; they are not a claim about the
+# name the real writer gives any root (review-r1 B3: that is pinned against
+# the writer itself, in
 # ``test_service_key_nx_vocabulary.StampNamesTheKeyItCarries``).
-ROOTS = {
-    "auth-service": "apps/auth-service",
-    "billing-service": "apps/billing-service",
-    "hr-service": "apps/hr-service",
-    "sensor-service": "apps/sensor-service",
-    "backend-common": "libs/backend-common",
-    "event-bus": "platform/libs/event-bus",
-}
+ROOTS = ProjectMap(
+    {
+        "auth-service": "apps/auth-service",
+        "billing-service": "apps/billing-service",
+        "hr-service": "apps/hr-service",
+        "sensor-service": "apps/sensor-service",
+        "backend-common": "libs/backend-common",
+        "event-bus": "platform/libs/event-bus",
+    }
+)
 
 
 def _fixture_workspace(root: Path, *roots: str) -> Path:
@@ -68,6 +73,7 @@ class MintFieldsTests(unittest.TestCase):
                 "service": "billing-service",
                 "services": ["billing-service"],
                 "service_vocabulary": SERVICE_VOCABULARY,
+                SERVICE_MAP_FINGERPRINT: ROOTS.fingerprint,
             },
         )
 
@@ -106,12 +112,35 @@ class RowReaderTests(unittest.TestCase):
         self.assertEqual(services_for_finding_row(ledger_row, ROOTS), ["sensor-service"])
 
     def test_a_stamped_row_is_read_as_stored(self) -> None:
+        # Stamped against THIS map (same map fingerprint): the stored names are
+        # the one owner's answer for this layout and are read as stored.
+        row = {
+            "services": ["auth-service"],
+            "service_vocabulary": SERVICE_VOCABULARY,
+            SERVICE_MAP_FINGERPRINT: ROOTS.fingerprint,
+            "finding": {"path": "apps/hr-service/src/a.ts"},
+        }
+        self.assertEqual(services_for_finding_row(row, ROOTS), ["auth-service"])
+
+    def test_a_stamped_row_without_a_map_fingerprint_is_re_derived(self) -> None:
+        # SE-1-R2 appellate R1 (a): a stamp that names no map cannot be shown
+        # to belong to the current one. It was compared None == None (a plain
+        # mapping named no layout either) and read as stored.
         row = {
             "services": ["auth-service"],
             "service_vocabulary": SERVICE_VOCABULARY,
             "finding": {"path": "apps/hr-service/src/a.ts"},
         }
-        self.assertEqual(services_for_finding_row(row, ROOTS), ["auth-service"])
+        self.assertEqual(services_for_finding_row(row, ROOTS), ["hr-service"])
+
+    def test_a_row_stamped_against_another_map_is_re_derived(self) -> None:
+        row = {
+            "services": ["auth-service"],
+            "service_vocabulary": SERVICE_VOCABULARY,
+            SERVICE_MAP_FINGERPRINT: ProjectMap({"auth-service": "apps/hr-service"}).fingerprint,
+            "finding": {"path": "apps/hr-service/src/a.ts"},
+        }
+        self.assertEqual(services_for_finding_row(row, ROOTS), ["hr-service"])
 
     def test_an_unstamped_row_is_re_derived_not_string_mapped(self) -> None:
         row = {
@@ -119,6 +148,29 @@ class RowReaderTests(unittest.TestCase):
             "finding": {"path": "libs/backend-common/src/rls.ts"},
         }
         self.assertEqual(services_for_finding_row(row, ROOTS), ["backend-common"])
+
+
+class TheMapIsAProjectMap(unittest.TestCase):
+    """SE-1-R2 appellate R1: a stamp is only as good as the identity of the
+    map it names, so attribution takes a `ProjectMap` (which fingerprints the
+    map it wraps) and nothing else. A plain mapping names no map."""
+
+    def test_a_plain_mapping_is_refused_by_the_mint(self) -> None:
+        with self.assertRaisesRegex(TypeError, "ProjectMap"):
+            finding_service_fields(["apps/hr-service/src/a.ts"], dict(ROOTS))
+
+    def test_a_plain_mapping_is_refused_by_the_row_reader(self) -> None:
+        row = {"finding": {"path": "apps/hr-service/src/a.ts"}}
+        with self.assertRaisesRegex(TypeError, "ProjectMap"):
+            services_for_finding_row(row, dict(ROOTS))
+
+    def test_the_fingerprint_is_the_identity_of_the_wrapped_map(self) -> None:
+        same = ProjectMap(dict(reversed(list(dict(ROOTS).items()))))
+        renamed = ProjectMap({**dict(ROOTS), "hr": "apps/hr-service"})
+        moved = ProjectMap({**dict(ROOTS), "hr-service": "apps/hr"})
+        self.assertEqual(same.fingerprint, ROOTS.fingerprint)
+        self.assertNotEqual(renamed.fingerprint, ROOTS.fingerprint)
+        self.assertNotEqual(moved.fingerprint, ROOTS.fingerprint)
 
 
 class OwnershipMapTests(unittest.TestCase):
@@ -263,9 +315,10 @@ class CandidateLinkageTests(unittest.TestCase):
                 "tool_id": "t",
                 "services": ["alert-engine"],
                 "service_vocabulary": SERVICE_VOCABULARY,
+                SERVICE_MAP_FINGERPRINT: ROOTS.fingerprint,
                 "finding": {"message": "m", "path": "apps/alert-engine/src/x.ts"},
             },
-            None,
+            ROOTS,
         )
         self.assertEqual(candidate["service"], "alert-engine")
         self.assertEqual(candidate["services"], ["alert-engine"])

@@ -3,11 +3,12 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from .candidate_blocks import OWNER_AGENT_PANEL, describe_candidate_block
 from .capability_gap import latest_capability_gaps
 from .feedback_store import list_findings
+from .impact_graph import ProjectMap
 from .ledger import append_declared_jsonl, load_jsonl
 from .proactive_priority import latest_priorities
 from .tool_registry import ensure_tools_dir, utc_now
@@ -257,7 +258,7 @@ def _candidate_from_pressure(cycle_id: str, pressure: dict[str, Any]) -> dict[st
 
 
 def _candidate_from_finding(
-    cycle_id: str, finding: dict[str, Any], project_roots: Mapping[str, str]
+    cycle_id: str, finding: dict[str, Any], project_roots: ProjectMap
 ) -> dict[str, Any]:
     payload = finding.get("finding", {}) if isinstance(finding.get("finding"), dict) else {}
     severity = str(payload.get("severity") or "medium")

@@ -172,16 +172,22 @@ class AMintAttributesOverTheCurrentMap(_BoundStoreCase):
 
     def test_a_minted_row_carries_the_fingerprint_of_its_map(self) -> None:
         # NEW ROW FIELD: the stamp says which map the names came from, so a
-        # reader can tell a still-valid stamp from a stale one.
+        # reader can tell a still-valid stamp from a stale one. SE-1-R2
+        # appellate R1 (b): the identity is the map's own (`ProjectMap`
+        # digests its name=root pairs), not the discovery graph fingerprint
+        # the cache is keyed by, which two different maps can share.
+        from aria_kernel.impact_graph import project_map
+
         _write_source(self.workspace, "apps/farm-service/src/main.ts")
         self.bind()
-        fingerprint = self.publish()["graph_fingerprint"]
+        self.publish()
+        fingerprint = project_map(base_dir=self.tools).fingerprint
 
         row = self.mint_tool_finding("f-1", "apps/farm-service/src/main.ts")
 
         self.assertTrue(
             _contains_value(row, fingerprint),
-            "a stamped row must carry the graph_fingerprint of the map it was attributed against",
+            "a stamped row must carry the fingerprint of the map it was attributed against",
         )
 
 
@@ -228,6 +234,59 @@ class AStampedRowReDerivesWhenItsMapIsStale(_CommittedFindingCase):
 
         self.assertEqual(ids("ingest-new"), [committed["finding_id"]])
         self.assertEqual(ids("ingest-old"), [])
+
+
+class TheStampIsBoundToTheMapNotToTheLayoutKey(_BoundStoreCase):
+    """SE-1-R2 appellate R1 (b), reviewer probe evidence p3. The cache is keyed
+    by `_graph_fingerprint` (discovery names, roots and tsconfig), but the map
+    stored under that key can come from an nx graph file (operator CLI paths
+    such as ``twin build --nx-graph-file``). An nx-sourced map and the
+    discovery map that replaces it share the graph fingerprint, so a stamp
+    that carried the graph fingerprint was read as stored against a map that
+    no longer has its names."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        _write_source(self.workspace, "apps/ingest/src/a.ts")
+        self.bind()
+        self.graph = Path(self._tmp.name) / "nx-graph.json"
+        self.graph.write_text(
+            json.dumps(
+                {"graph": {"nodes": {"ingest-nx": {"data": {"root": "apps/ingest"}}}, "dependencies": {}}}
+            ),
+            encoding="utf-8",
+        )
+
+    def _publish_from_the_nx_graph(self) -> dict[str, Any]:
+        return cached_service_analysis_order(
+            workspace_root=self.workspace, base_dir=self.tools, nx_graph_file=self.graph
+        )
+
+    def _lose_the_publication(self) -> None:
+        (self.tools / "impact" / "service-order-cache.json").write_text("{corrupt", encoding="utf-8")
+
+    def test_two_maps_under_one_graph_fingerprint_have_two_map_fingerprints(self) -> None:
+        from aria_kernel.impact_graph import project_map
+
+        nx_sourced = self._publish_from_the_nx_graph()
+        first = project_map(base_dir=self.tools)
+        self._lose_the_publication()
+        rebuilt = self.publish()
+        second = project_map(base_dir=self.tools)
+
+        self.assertEqual(nx_sourced["graph_fingerprint"], rebuilt["graph_fingerprint"])
+        self.assertNotEqual(dict(first), dict(second))
+        self.assertNotEqual(first.fingerprint, second.fingerprint)
+
+    def test_a_row_stamped_against_the_nx_map_is_filed_under_the_rebuilt_name(self) -> None:
+        self._publish_from_the_nx_graph()
+        row = self.mint_tool_finding("f1", "apps/ingest/src/a.ts")
+        self.assertEqual(row.get("services"), ["ingest-nx"])
+
+        self._lose_the_publication()
+
+        self.assertEqual(self.filtered("ingest"), ["f1"])
+        self.assertEqual(self.filtered("ingest-nx"), [])
 
 
 class AMalformedManifestRefusesTheMap(_BoundStoreCase):

@@ -63,6 +63,10 @@ vi.mock('@aquaculture/shared-ui', () => ({
     (isAdminRole(u.role) ||
       PANEL_CAPS.some((c) => (u.resourcePermissions ?? []).includes(c))),
   getTenantId: vi.fn(() => 'tenant-1'),
+  // The one loading screen (FE-MEDIUM-349): the guards' session check and the
+  // page-chunk fallback, stubbed as the status they render.
+  GuardLoading: () => React.createElement('div', { role: 'status', 'data-testid': 'guard-loading' }),
+  BrandLoader: () => React.createElement('div', { role: 'status', 'data-testid': 'brand-loader' }),
   createTenantQueryKey: (tenantId: string | null | undefined, ...segments: readonly unknown[]) => [
     'tenant',
     tenantId,
@@ -354,6 +358,7 @@ describe('Tenant-admin route guards (SEC-007 + MT-HIGH-060)', () => {
     it('shows a checking-session state while auth is loading', () => {
       mockIsLoading.mockReturnValue(true);
       renderModule('/tenant');
+      expect(screen.getByTestId('guard-loading')).toBeInTheDocument();
       expect(screen.queryByTestId('tenant-dashboard')).not.toBeInTheDocument();
       expect(screen.queryByTestId('unauthorized-page')).not.toBeInTheDocument();
     });

@@ -288,7 +288,7 @@ hardcodedText:
       findingId: FE-HIGH-089
       reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
     - package: web/modules/farm-module
-      ceiling: 2579
+      ceiling: 2578
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-089
@@ -300,7 +300,7 @@ hardcodedText:
       findingId: FE-HIGH-089
       reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
     - package: web/modules/hydroponics-module
-      ceiling: 190
+      ceiling: 189
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-089
@@ -312,7 +312,7 @@ hardcodedText:
       findingId: FE-HIGH-089
       reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
     - package: web/modules/tenant-admin
-      ceiling: 503
+      ceiling: 501
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-089
@@ -324,7 +324,7 @@ hardcodedText:
       findingId: FE-HIGH-089
       reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
     - package: web/shell
-      ceiling: 141
+      ceiling: 136
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-089

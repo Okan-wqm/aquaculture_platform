@@ -9,7 +9,7 @@ import './styles.css';
 import React, { Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useFarmRealtimeStream } from './hooks/useFarmRealtimeStream';
-import { chartChrome, useI18n } from '@aquaculture/shared-ui';
+import { BrandLoader, chartChrome } from '@aquaculture/shared-ui';
 
 // PERF-HIGH-004: every page-level route is code-split with React.lazy so the
 // farm-module remote no longer ships all page code (the heavy 8-tab regulatory
@@ -136,22 +136,10 @@ const FarmModule: React.FC = () => {
   //   FarmGateway → Socket.IO → this hook → queryClient.invalidateQueries
   //                                       → components re-fetch & re-render
   useFarmRealtimeStream();
-  const { t } = useI18n();
 
   return (
-    <Suspense
-      fallback={
-        // Muted text from the gray scale, which the console scope maps to its
-        // neutral ramp (a theme.ts value in a style would keep the old grey).
-        <div
-          role="status"
-          aria-live="polite"
-          className="p-8 text-center text-gray-500 dark:text-gray-400"
-        >
-          {t('common.pageLoading')}
-        </div>
-      }
-    >
+    // A page loading is the one loading screen (BrandLoader, FE-MEDIUM-349).
+    <Suspense fallback={<BrandLoader />}>
       <Routes>
         {/* The environment panel is the canonical site-monitoring surface. */}
         <Route index element={<Navigate to="environment" replace />} />

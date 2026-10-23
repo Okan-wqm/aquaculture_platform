@@ -85,6 +85,7 @@ export const SENSITIVE_FIELDS: readonly string[] = [
   'serverCertificate',
   'provisioningToken',
   'mqttPasswordHash',
+  'previousMqttPasswordHash',
 ] as const;
 
 /** Type-safe union of all sensitive field names for compile-time checks. */

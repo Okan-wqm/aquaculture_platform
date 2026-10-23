@@ -42,8 +42,9 @@ type DeviceAuthDenial =
  * MQTT Authentication Service — the broker's HTTP auth backend.
  *
  * Mosquitto calls /mqtt/auth, /mqtt/acl and /mqtt/superuser; credentials are
- * verified against edge_devices.mqtt_password_hash and the ACL matches the
- * device's tenant against the topic. Service accounts (backend_service,
+ * verified against edge_devices.mqtt_password_hash (and, while a
+ * re-provisioning activation is uncommitted, previous_mqtt_password_hash) and
+ * the ACL matches the device's tenant against the topic. Service accounts (backend_service,
  * sensor_service, alert_service) are verified against hashes from the
  * environment.
  *
@@ -157,24 +158,56 @@ export class MqttAuthService implements OnModuleInit {
       this.logAuthDenied('client_id_mismatch', username);
       return false;
     }
-    if (!device.mqttPasswordHash) {
+    const current = device.mqttPasswordHash;
+    if (!current) {
       this.logAuthDenied('no_password_hash', username, device.lifecycleState);
       return false;
     }
 
-    const valid = await this.verifyPassword(password, device.mqttPasswordHash);
-    if (!valid) {
+    const proven = await this.provenCredential(device, current, password);
+    if (proven === null) {
       this.logAuthDenied('password_mismatch', username, device.lifecycleState);
       return false;
+    }
+    // SENSOR-MEDIUM-236: the previous credential is the running agent's, kept
+    // while a re-provisioning activation is uncommitted. It authenticates the
+    // CONNECT and commits nothing: only the credential issued by the pending
+    // activation proves that the reinstalled agent saved and uses it.
+    if (proven === 'previous') {
+      return true;
     }
     // ADR-048 DEC-5.7: the first CONNECT authenticated by the device's own
     // credential commits the activation and spends the single-use token. A
     // commit that fails (it throws) refuses this CONNECT; the token stays
-    // unspent and the device's reconnect retries the commit.
+    // unspent and the device's reconnect retries the commit. The commit names
+    // the hash that was proven, so an activation issued since cannot be
+    // committed by this CONNECT.
     if (device.tokenUsedAt === null && device.credentialsIssuedAt !== null) {
-      await this.reservations.commitFirstSession(device, new Date());
+      await this.reservations.commitFirstSession(device, new Date(), current);
     }
     return true;
+  }
+
+  /**
+   * Which of the device's credentials `password` is: the credential of the
+   * latest activation (`current`), or the committed one kept beside it while
+   * that activation is uncommitted (`previous`, SENSOR-MEDIUM-236). The
+   * previous slot is empty on every row but a re-provisioning in flight, so
+   * the second derivation is paid only there.
+   */
+  private async provenCredential(
+    device: EdgeDevice,
+    current: string,
+    password: string,
+  ): Promise<'current' | 'previous' | null> {
+    if (await this.verifyPassword(password, current)) {
+      return 'current';
+    }
+    const previous = device.previousMqttPasswordHash;
+    if (previous !== null && (await this.verifyPassword(password, previous))) {
+      return 'previous';
+    }
+    return null;
   }
 
   /** True when `clientId` is the username itself or exactly `${username}-${deviceCode}`. */

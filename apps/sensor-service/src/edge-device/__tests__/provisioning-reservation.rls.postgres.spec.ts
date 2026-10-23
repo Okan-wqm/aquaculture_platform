@@ -1,12 +1,14 @@
 import { randomBytes } from 'node:crypto';
 
 import { collaborator } from '@aquaculture/testing';
+import { ConfigService } from '@nestjs/config';
 import { type DataSource } from 'typeorm';
 
 import {
   bootSensorRlsHarness,
   type SensorRlsHarness,
 } from '../../__tests__/support/sensor-rls-postgres.harness';
+import { DeviceDirectoryService } from '../device-directory.service';
 import { buildEnterMaintenance } from '../device-lifecycle-statement.service';
 import {
   ActivationReceiptService,
@@ -20,6 +22,7 @@ import {
   type SignedStatement,
   STATEMENT,
 } from '../edge-contract';
+import { EdgeDeviceDirectory } from '../entities/edge-device-directory.entity';
 import {
   DeviceLifecycleState,
   DeviceModel,
@@ -29,6 +32,7 @@ import {
   ProvisioningPhase,
 } from '../entities/edge-device.entity';
 import { Ed25519SigningKey, ManifestSigner } from '../manifest-signer';
+import { MqttAuthService } from '../mqtt-auth.service';
 import {
   HANDOFF_REDELIVERY_INTERVAL_MS,
   hashProvisioningToken,
@@ -53,6 +57,8 @@ const NOW = new Date('2026-10-20T12:00:00Z');
 const BINDING_A: DeviceBinding = { method: 'tpm-ek-sha256', digest: { sha256: 'a1'.repeat(32) } };
 const BINDING_B: DeviceBinding = { method: 'tpm-ek-sha256', digest: { sha256: 'b2'.repeat(32) } };
 const token = (code: string): string => hashProvisioningToken(code).slice(0, 64);
+/** The broker username the fixtures give a device. */
+const clientIdOf = (code: string): string => `edge-cccccccc-${code.toLowerCase()}`;
 
 /** Signs real receipts with a throwaway key; the transition logic is what is under test. */
 class ThrowawayReceipts extends ActivationReceiptService {
@@ -104,6 +110,12 @@ const CODES = [
   'RES-NOCRED',
   'RES-CHANNEL',
   'RES-SPENT',
+  'RES-KEEP',
+  'RES-ABANDON',
+  'RES-CHECK',
+  'RES-REVOKE',
+  'RES-BROKER-KEEP',
+  'RES-BROKER-LOST',
 ] as const;
 type Code = (typeof CODES)[number];
 
@@ -112,6 +124,7 @@ describe('two-phase provisioning token on real Postgres (ADR-048 DEC-5.7)', () =
   let admin: DataSource;
   let schema: string;
   let reservations: ProvisioningReservationService;
+  let auth: MqttAuthService;
   const stageOrFail = (): SensorRlsHarness => {
     if (stage === undefined) throw new Error('harness not booted');
     return stage;
@@ -154,6 +167,8 @@ describe('two-phase provisioning token on real Postgres (ADR-048 DEC-5.7)', () =
       name: 'provisioning_reservation',
       tenants: [TENANT],
       entities: [EdgeDevice],
+      // The broker's lookup of a device by its client id goes through the directory.
+      sourceEntities: [EdgeDeviceDirectory],
       beforeRls: async ({ ddl, tenantId }) => {
         for (const code of CODES) {
           const saved = await ddl.manager.save(
@@ -163,7 +178,7 @@ describe('two-phase provisioning token on real Postgres (ADR-048 DEC-5.7)', () =
               deviceName: code,
               deviceModel: DeviceModel.REVOLUTION_PI_CONNECT_4,
               lifecycleState: DeviceLifecycleState.REGISTERED,
-              mqttClientId: `edge-cccccccc-${code.toLowerCase()}`,
+              mqttClientId: clientIdOf(code),
               provisioningToken: hashProvisioningToken(token(code)),
               tokenIssuedAt: new Date('2026-10-20T11:00:00Z'),
               tokenExpiresAt: new Date('2026-10-21T00:00:00Z'),
@@ -177,6 +192,18 @@ describe('two-phase provisioning token on real Postgres (ADR-048 DEC-5.7)', () =
     admin = stage.admin;
     schema = stage.schemaOf(TENANT);
     reservations = new ProvisioningReservationService(stage.runtime, new ThrowawayReceipts());
+    for (const code of CODES) {
+      await admin.query(
+        `INSERT INTO sensor.edge_device_directory (device_id, device_code, mqtt_client_id, tenant_id)
+         VALUES ($1, $2, $3, $4)`,
+        [device(code).id, code, clientIdOf(code), TENANT],
+      );
+    }
+    auth = new MqttAuthService(
+      new ConfigService({ NODE_ENV: 'production', MQTT_AUTH_MODE: 'http' }),
+      new DeviceDirectoryService(stage.runtime),
+      reservations,
+    );
   });
 
   afterAll(async () => {
@@ -346,6 +373,8 @@ describe('two-phase provisioning token on real Postgres (ADR-048 DEC-5.7)', () =
     expect(persisted.tokenUsedAt).toBeNull();
     expect(persisted.provisioningToken).toBe(hashProvisioningToken(token('RES-ACTIVATE')));
     expect(persisted.mqttPasswordHash).toBe('hash-2');
+    // Nothing was committed before, so there is no credential to keep.
+    expect(persisted.previousMqttPasswordHash).toBeNull();
     expect(persisted.lifecycleState).toBe(DeviceLifecycleState.ACTIVE);
     expect(provisioningPhaseOf(persisted, later)).toBe(ProvisioningPhase.ACTIVATION_PENDING);
   });
@@ -364,7 +393,7 @@ describe('two-phase provisioning token on real Postgres (ADR-048 DEC-5.7)', () =
         NOW,
       ),
     ).toBe(true);
-    const commit = await reservations.commitFirstSession(device('RES-GENERIC'), NOW);
+    const commit = await reservations.commitFirstSession(device('RES-GENERIC'), NOW, 'hash');
     expect(commit).toEqual({
       tenantId: TENANT,
       deviceId: device('RES-GENERIC').id,
@@ -395,6 +424,7 @@ describe('two-phase provisioning token on real Postgres (ADR-048 DEC-5.7)', () =
     const commit = await reservations.commitFirstSession(
       device('RES-COMMIT'),
       new Date('2026-10-20T12:05:00.700Z'),
+      'hash',
     );
     expect(commit?.channel).toBe(EdgeAgentChannel.SUDERRA_OS);
     const receipt = JSON.parse(commit?.activationReceipt ?? 'null') as { payload: string };
@@ -411,7 +441,7 @@ describe('two-phase provisioning token on real Postgres (ADR-048 DEC-5.7)', () =
       activated_at: '2026-10-20T12:05:00Z',
     });
 
-    expect(await reservations.commitFirstSession(device('RES-COMMIT'), NOW)).toBeNull();
+    expect(await reservations.commitFirstSession(device('RES-COMMIT'), NOW, 'hash')).toBeNull();
     const persisted = await row('RES-COMMIT');
     expect(persisted).toMatchObject({
       provisioningToken: null,
@@ -442,7 +472,7 @@ describe('two-phase provisioning token on real Postgres (ADR-048 DEC-5.7)', () =
   });
 
   it('commits nothing for a row that holds no issued credential, and activates nothing on an expired token', async () => {
-    expect(await reservations.commitFirstSession(device('RES-NOCRED'), NOW)).toBeNull();
+    expect(await reservations.commitFirstSession(device('RES-NOCRED'), NOW, 'unissued')).toBeNull();
     expect((await row('RES-NOCRED')).tokenUsedAt).toBeNull();
     expect(
       await reservations.issueCredentials(
@@ -469,8 +499,8 @@ describe('two-phase provisioning token on real Postgres (ADR-048 DEC-5.7)', () =
       NOW,
     );
     const commits = await Promise.all([
-      reservations.commitFirstSession(device('RES-RACE'), NOW),
-      reservations.commitFirstSession(device('RES-RACE'), NOW),
+      reservations.commitFirstSession(device('RES-RACE'), NOW, 'hash'),
+      reservations.commitFirstSession(device('RES-RACE'), NOW, 'hash'),
     ]);
     expect(commits.filter((c) => c !== null)).toHaveLength(1);
     expect((await row('RES-RACE')).deviceBindingSha256).toBe(winner?.binding.digest.sha256);
@@ -485,7 +515,7 @@ describe('two-phase provisioning token on real Postgres (ADR-048 DEC-5.7)', () =
       { fingerprint: null, agentVersion: '1.6.0', mqttPasswordHash: credential },
       NOW,
     );
-    const commit = await reservations.commitFirstSession(device(code), NOW);
+    const commit = await reservations.commitFirstSession(device(code), NOW, credential);
     if (commit === null || commit.activationReceipt === null) throw new Error(`${code} commit`);
     await reservations.settleHandoff(
       device(code),
@@ -606,13 +636,23 @@ describe('two-phase provisioning token on real Postgres (ADR-048 DEC-5.7)', () =
       { fingerprint: null, agentVersion: '1.6.1', mqttPasswordHash: 'reinstalled' },
       NOW,
     );
-    const recommit = await reservations.commitFirstSession(device('RES-REPROVISION'), NOW);
+    // The running agent's credential is kept beside the issued one until it commits.
+    expect(await row('RES-REPROVISION')).toMatchObject({
+      mqttPasswordHash: 'reinstalled',
+      previousMqttPasswordHash: 'running',
+    });
+    const recommit = await reservations.commitFirstSession(
+      device('RES-REPROVISION'),
+      NOW,
+      'reinstalled',
+    );
     expect(recommit?.activationReceipt).not.toBeNull();
     const after = await row('RES-REPROVISION');
     expect(after.activationId).not.toBe(committed.activationId);
     expect(after).toMatchObject({
       lifecycleState: DeviceLifecycleState.ACTIVE,
       mqttPasswordHash: 'reinstalled',
+      previousMqttPasswordHash: null,
       lifecycleRequest: null,
       maintenanceExpiresAt: null,
       activationReceiptHandedAt: null,
@@ -671,6 +711,270 @@ describe('two-phase provisioning token on real Postgres (ADR-048 DEC-5.7)', () =
     ).toMatchObject({ lifecycleSeq: committed.edgeStatementSeq + 2 });
   });
 
+  /** An ACTIVE Suderra OS device with a re-provisioning window open and the reinstall reserved. */
+  const reinstalling = async (code: Code, running: string, window = reprovisionWindow) => {
+    await activeOnRoot(code, running);
+    const fresh = hashProvisioningToken(`${code}-window`).slice(0, 64);
+    await reservations.beginReprovisioning(
+      device(code),
+      BINDING_A,
+      hashProvisioningToken(fresh),
+      window,
+      NOW,
+      signLifecycle(code),
+    );
+    await reservations.reserve(device(code), fresh, BINDING_A, TTL_MS, NOW, issue);
+    return {
+      activate: (credential: string): Promise<boolean> =>
+        reservations.issueCredentials(
+          device(code),
+          fresh,
+          { fingerprint: null, agentVersion: '1.6.1', mqttPasswordHash: credential },
+          NOW,
+        ),
+    };
+  };
+
+  it('an activation issued during re-provisioning keeps the running credential until the new one commits (SENSOR-MEDIUM-236)', async () => {
+    const reinstall = await reinstalling('RES-KEEP', 'running');
+
+    expect(await reinstall.activate('reinstalled-1')).toBe(true);
+    const issued = await row('RES-KEEP');
+    expect(issued).toMatchObject({
+      mqttPasswordHash: 'reinstalled-1',
+      previousMqttPasswordHash: 'running',
+      tokenUsedAt: null,
+    });
+    expect(provisioningPhaseOf(issued, NOW)).toBe(ProvisioningPhase.ACTIVATION_PENDING);
+
+    // The agent lost the response and activated again: only the pending
+    // credential is replaced, the running one is still the one kept.
+    expect(await reinstall.activate('reinstalled-2')).toBe(true);
+    expect(await row('RES-KEEP')).toMatchObject({
+      mqttPasswordHash: 'reinstalled-2',
+      previousMqttPasswordHash: 'running',
+    });
+
+    // A CONNECT is committed only by the credential it proved: the superseded
+    // one and the running agent's spend nothing.
+    expect(
+      await reservations.commitFirstSession(device('RES-KEEP'), NOW, 'reinstalled-1'),
+    ).toBeNull();
+    expect(await reservations.commitFirstSession(device('RES-KEEP'), NOW, 'running')).toBeNull();
+    expect(await row('RES-KEEP')).toMatchObject({
+      tokenUsedAt: null,
+      mqttPasswordHash: 'reinstalled-2',
+      previousMqttPasswordHash: 'running',
+    });
+
+    const commit = await reservations.commitFirstSession(device('RES-KEEP'), NOW, 'reinstalled-2');
+    expect(commit?.activationReceipt).not.toBeNull();
+    expect(await row('RES-KEEP')).toMatchObject({
+      tokenUsedAt: NOW,
+      mqttPasswordHash: 'reinstalled-2',
+      previousMqttPasswordHash: null,
+    });
+  });
+
+  it('a reinstall that never connects leaves the running credential in place, and a new window drops the uncommitted one', async () => {
+    const reinstall = await reinstalling('RES-ABANDON', 'running');
+    await reinstall.activate('lost');
+    // Credentials were issued under this window's token: there is nothing to
+    // settle as lapsed, and the running credential is still kept beside them.
+    expect(await reservations.settleLapsedMaintenance(device('RES-ABANDON'), WINDOW_END)).toBe(
+      false,
+    );
+    expect(await row('RES-ABANDON')).toMatchObject({
+      mqttPasswordHash: 'lost',
+      previousMqttPasswordHash: 'running',
+    });
+
+    const second = { notBefore: WINDOW_END, expiresAt: new Date(WINDOW_END.getTime() + 7_200_000) };
+    expect(
+      await reservations.beginReprovisioning(
+        device('RES-ABANDON'),
+        BINDING_A,
+        hashProvisioningToken('6'.repeat(64)),
+        second,
+        WINDOW_END,
+        signLifecycle('RES-ABANDON'),
+      ),
+    ).toMatchObject({ windowEndsAt: second.expiresAt });
+    const reopened = await row('RES-ABANDON');
+    expect(reopened).toMatchObject({
+      mqttPasswordHash: 'running',
+      previousMqttPasswordHash: null,
+      credentialsIssuedAt: null,
+      tokenUsedAt: null,
+    });
+    // The credential of the abandoned window commits nothing any more.
+    expect(
+      await reservations.commitFirstSession(device('RES-ABANDON'), WINDOW_END, 'lost'),
+    ).toBeNull();
+  });
+
+  it('the row cannot hold a previous credential outside a pending activation', async () => {
+    const id = device('RES-CHECK').id;
+    const set = (assignments: string): Promise<unknown> =>
+      admin.query(`UPDATE ${schema}.edge_devices SET ${assignments} WHERE id = $1`, [id]);
+    // No credential issued under a token: nothing is pending.
+    await expect(
+      set(`mqtt_password_hash = 'a', previous_mqtt_password_hash = 'b'`),
+    ).rejects.toThrow(/CHK_edge_devices_previous_credential/);
+    // A previous credential without a current one.
+    await expect(
+      set(`credentials_issued_at = now(), previous_mqtt_password_hash = 'b'`),
+    ).rejects.toThrow(/CHK_edge_devices_previous_credential/);
+    // The token already spent: the activation is committed.
+    await expect(
+      set(
+        `mqtt_password_hash = 'a', credentials_issued_at = now(), token_used_at = now(), previous_mqtt_password_hash = 'b'`,
+      ),
+    ).rejects.toThrow(/CHK_edge_devices_previous_credential/);
+    // A pending activation may carry one.
+    await set(
+      `mqtt_password_hash = 'a', credentials_issued_at = now(), previous_mqtt_password_hash = 'b'`,
+    );
+    // And committing without retiring it is refused by the same check.
+    await expect(set(`token_used_at = now()`)).rejects.toThrow(
+      /CHK_edge_devices_previous_credential/,
+    );
+  });
+
+  it('a from-scratch reissue revokes both credentials', async () => {
+    await admin.query(
+      `UPDATE ${schema}.edge_devices
+          SET mqtt_password_hash = 'a', credentials_issued_at = now(), previous_mqtt_password_hash = 'b'
+        WHERE id = $1`,
+      [device('RES-REVOKE').id],
+    );
+    expect(
+      await reservations.reissueToken(device('RES-REVOKE'), {
+        tokenHash: hashProvisioningToken('5'.repeat(64)),
+        tokenIssuedAt: NOW,
+        tokenExpiresAt: new Date('2026-10-21T00:00:00Z'),
+        lifecycleState: DeviceLifecycleState.REGISTERED,
+      }),
+    ).toBe(true);
+    expect(await row('RES-REVOKE')).toMatchObject({
+      mqttPasswordHash: null,
+      previousMqttPasswordHash: null,
+      credentialsIssuedAt: null,
+    });
+  });
+
+  describe('through the broker authenticator on real credentials (SENSOR-MEDIUM-236)', () => {
+    const connect = (code: Code, password: string): Promise<boolean> =>
+      auth.verifyDeviceCredentials(clientIdOf(code), password, clientIdOf(code));
+
+    /** A Suderra OS device that connected with its first credential and handed its receipt to root. */
+    const connectedOnRoot = async (code: Code, password: string): Promise<void> => {
+      expect(
+        await reservations.reserve(device(code), token(code), BINDING_A, TTL_MS, NOW, issue),
+      ).not.toBeNull();
+      expect(
+        await reservations.issueCredentials(
+          device(code),
+          token(code),
+          {
+            fingerprint: null,
+            agentVersion: '1.6.0',
+            mqttPasswordHash: await auth.hashPassword(password, 1_000),
+          },
+          NOW,
+        ),
+      ).toBe(true);
+      expect(await connect(code, password)).toBe(true);
+      const committed = await row(code);
+      expect(committed.tokenUsedAt).not.toBeNull();
+      await reservations.settleHandoff(
+        device(code),
+        storedStatementDigest(committed.activationReceipt ?? ''),
+        NOW,
+      );
+    };
+
+    /** The window is open, the reinstall reserved and activated, and it has not connected. */
+    const reinstallActivated = async (
+      code: Code,
+      credential: string,
+      window = reprovisionWindow,
+    ): Promise<void> => {
+      const fresh = hashProvisioningToken(`${code}-window`).slice(0, 64);
+      await reservations.beginReprovisioning(
+        device(code),
+        BINDING_A,
+        hashProvisioningToken(fresh),
+        window,
+        NOW,
+        signLifecycle(code),
+      );
+      expect(
+        await reservations.reserve(device(code), fresh, BINDING_A, TTL_MS, NOW, issue),
+      ).not.toBeNull();
+      expect(
+        await reservations.issueCredentials(
+          device(code),
+          fresh,
+          {
+            fingerprint: null,
+            agentVersion: '1.6.1',
+            mqttPasswordHash: await auth.hashPassword(credential, 1_000),
+          },
+          NOW,
+        ),
+      ).toBe(true);
+    };
+
+    it('the running agent authenticates until the reinstalled one connects; that connect retires it', async () => {
+      await connectedOnRoot('RES-BROKER-KEEP', 'running-secret');
+      await reinstallActivated('RES-BROKER-KEEP', 'reinstalled-secret');
+
+      // Activated, never connected: the previously working credential still works,
+      // and nothing is spent by it.
+      expect(await connect('RES-BROKER-KEEP', 'running-secret')).toBe(true);
+      expect(await connect('RES-BROKER-KEEP', 'a-guess')).toBe(false);
+      expect(await row('RES-BROKER-KEEP')).toMatchObject({ tokenUsedAt: null });
+
+      // The reinstalled agent's own credential connects and commits the activation.
+      expect(await connect('RES-BROKER-KEEP', 'reinstalled-secret')).toBe(true);
+      expect(await row('RES-BROKER-KEEP')).toMatchObject({ previousMqttPasswordHash: null });
+      expect((await row('RES-BROKER-KEEP')).tokenUsedAt).not.toBeNull();
+
+      // The credential it replaced is retired in the same statement.
+      expect(await connect('RES-BROKER-KEEP', 'running-secret')).toBe(false);
+      expect(await connect('RES-BROKER-KEEP', 'reinstalled-secret')).toBe(true);
+    });
+
+    it('a reinstall that never connects strands nothing, and a new window revokes what it was issued', async () => {
+      await connectedOnRoot('RES-BROKER-LOST', 'running-secret');
+      await reinstallActivated('RES-BROKER-LOST', 'lost-secret');
+
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        expect(await connect('RES-BROKER-LOST', 'running-secret')).toBe(true);
+      }
+      expect((await row('RES-BROKER-LOST')).tokenUsedAt).toBeNull();
+
+      // The window ends and the operator opens another: the abandoned credential is gone.
+      const next = {
+        notBefore: WINDOW_END,
+        expiresAt: new Date(WINDOW_END.getTime() + 7_200_000),
+      };
+      expect(
+        await reservations.beginReprovisioning(
+          device('RES-BROKER-LOST'),
+          BINDING_A,
+          hashProvisioningToken('4'.repeat(64)),
+          next,
+          WINDOW_END,
+          signLifecycle('RES-BROKER-LOST'),
+        ),
+      ).toMatchObject({ windowEndsAt: next.expiresAt });
+      expect(await connect('RES-BROKER-LOST', 'running-secret')).toBe(true);
+      expect(await connect('RES-BROKER-LOST', 'lost-secret')).toBe(false);
+    });
+  });
+
   it('a pending receipt is delivered paced, re-signed under the same activation near its expiry, and settled only by its current digest', async () => {
     await reservations.reserve(
       device('RES-DELIVER'),
@@ -686,7 +990,7 @@ describe('two-phase provisioning token on real Postgres (ADR-048 DEC-5.7)', () =
       { fingerprint: null, agentVersion: '1.6.0', mqttPasswordHash: 'hash' },
       NOW,
     );
-    const commit = await reservations.commitFirstSession(device('RES-DELIVER'), NOW);
+    const commit = await reservations.commitFirstSession(device('RES-DELIVER'), NOW, 'hash');
     const first = commit?.activationReceipt ?? null;
     expect(await reservations.claimReceiptDelivery(device('RES-DELIVER'), NOW)).toBe(first);
     // The first delivery was lost: nothing again within the pace, then the same bytes.
@@ -777,7 +1081,7 @@ describe('two-phase provisioning token on real Postgres (ADR-048 DEC-5.7)', () =
       { fingerprint: null, agentVersion: '1.6.0', mqttPasswordHash: 'hash' },
       NOW,
     );
-    await reservations.commitFirstSession(device('RES-CHANNEL'), NOW);
+    await reservations.commitFirstSession(device('RES-CHANNEL'), NOW, 'hash');
     expect(await reissue('3'.repeat(64))).toBe(true);
     expect(await row('RES-CHANNEL')).toMatchObject({
       agentChannel: EdgeAgentChannel.SUDERRA_OS,
@@ -794,7 +1098,7 @@ describe('two-phase provisioning token on real Postgres (ADR-048 DEC-5.7)', () =
       { fingerprint: null, agentVersion: '1.6.0', mqttPasswordHash: 'hash' },
       NOW,
     );
-    await reservations.commitFirstSession(device('RES-SPENT'), NOW);
+    await reservations.commitFirstSession(device('RES-SPENT'), NOW, 'hash');
     expect(
       await reservations.reserve(
         device('RES-SPENT'),

@@ -47,6 +47,7 @@ function gateway(mqttClientId: string, lifecycleState: DeviceLifecycleState): Ed
   device.deviceCode = mqttClientId === ACTIVE_GATEWAY ? 'POND-01' : 'POND-02';
   device.mqttClientId = mqttClientId;
   device.mqttPasswordHash = mosquittoHash(GATEWAY_PASSWORD);
+  device.previousMqttPasswordHash = null;
   device.lifecycleState = lifecycleState;
   return device;
 }

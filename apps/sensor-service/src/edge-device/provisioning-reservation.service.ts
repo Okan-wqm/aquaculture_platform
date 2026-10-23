@@ -42,6 +42,16 @@ import { DeviceLifecycleState, EdgeAgentChannel, EdgeDevice } from './entities/e
  * record until the new commit replaces it, so the cloud never treats a live
  * device as never-activated.
  *
+ * The broker credential follows the same rule (SENSOR-MEDIUM-236). The column
+ * `mqtt_password_hash` holds the credential of the latest activation; when an
+ * activation is issued over a committed one, the committed credential moves to
+ * `previous_mqtt_password_hash` in the same statement and keeps authenticating
+ * until the new credential commits, which retires it in the statement that
+ * spends the token. A reinstall that fails, is rolled back or never reaches
+ * the broker therefore leaves the running agent able to connect. The commit
+ * names the credential that was proven (`mqtt_password_hash = :proven`), so a
+ * later activation cannot be committed by a CONNECT that used an earlier one.
+ *
  * The statements a Suderra OS agent hands to root (the receipt, the lifecycle
  * statement) are stored on the row and delivered by claim: one conditional
  * UPDATE stamps the delivery instant, so replicas share one pace and any of
@@ -262,8 +272,10 @@ export class ProvisioningReservationService {
    * → ACTIVATION_PENDING: issue (or re-issue) the broker credential. A
    * generic-Linux device activates straight from TOKEN_ISSUED; a Suderra OS
    * device only under its reservation (live, or already holding credentials).
-   * The token stays valid until the commit. Returns false when the guard
-   * matches no row.
+   * The token stays valid until the commit. A committed credential the row
+   * holds is kept as the previous one, not replaced (SENSOR-MEDIUM-236); a
+   * repeated activation replaces only the pending credential. Returns false
+   * when the guard matches no row.
    */
   async issueCredentials(
     device: Pick<EdgeDevice, 'id' | 'tenantId'>,
@@ -280,6 +292,13 @@ export class ProvisioningReservationService {
           .createQueryBuilder()
           .update(EdgeDevice)
           .set({
+            // No credential issued yet under this token: whatever hash the row
+            // holds is the committed one, and it stays valid beside the new one
+            // until the new one commits. Credentials already issued: the previous
+            // slot is untouched, so a repeated activation never moves the
+            // uncommitted credential into it.
+            previousMqttPasswordHash: () =>
+              'CASE WHEN credentials_issued_at IS NULL THEN mqtt_password_hash ELSE previous_mqtt_password_hash END',
             mqttPasswordHash: credentials.mqttPasswordHash,
             credentialsIssuedAt: now,
             fingerprint: credentials.fingerprint,
@@ -311,14 +330,19 @@ export class ProvisioningReservationService {
   /**
    * ACTIVATION_PENDING → COMMITTED, on the first CONNECT that authenticated
    * with the device's own credential (DEC-5.7). Spends the token, makes the
-   * reserved binding the device's identity, records the committed activation
-   * and closes any re-provisioning window; for a Suderra OS device it signs
-   * the activation receipt naming the manifest root installed. Returns null
-   * when there was nothing to commit (already committed, never pending).
+   * reserved binding the device's identity, records the committed activation,
+   * retires the previous credential and closes any re-provisioning window; for
+   * a Suderra OS device it signs the activation receipt naming the manifest
+   * root installed. Returns null when there was nothing to commit (already
+   * committed, never pending) or when the credential issued since is not the
+   * one `provenHash` is (an activation replaced it between the CONNECT's
+   * verification and this statement: the device holds a credential that no
+   * longer exists, so nothing may be spent on its behalf).
    */
   async commitFirstSession(
     device: Pick<EdgeDevice, 'id' | 'tenantId'>,
     now: Date,
+    provenHash: string,
   ): Promise<Commit | null> {
     const activatedAt = wholeSecond(now);
     const activationId = randomUUID();
@@ -348,10 +372,16 @@ export class ProvisioningReservationService {
             lifecycleRequestSentAt: null,
             lifecycleRequestHandedAt: null,
             maintenanceExpiresAt: null,
+            previousMqttPasswordHash: null,
           })
-          .where('id = :id AND tenant_id = :tenantId', { id: device.id, tenantId: device.tenantId })
+          .where('id = :id AND tenant_id = :tenantId', {
+            id: device.id,
+            tenantId: device.tenantId,
+            proven: provenHash,
+          })
           .andWhere('token_used_at IS NULL AND provisioning_token IS NOT NULL')
           .andWhere('credentials_issued_at IS NOT NULL')
+          .andWhere('mqtt_password_hash = :proven')
           .returning([
             'tenantId',
             'id',
@@ -658,6 +688,11 @@ export class ProvisioningReservationService {
             tokenExpiresAt: window.expiresAt,
             tokenUsedAt: null,
             credentialsIssuedAt: null,
+            // A credential issued under an earlier window that never committed
+            // belonged to that window's token: it is dropped and the committed
+            // one, kept beside it, is the device's credential again.
+            mqttPasswordHash: () => 'COALESCE(previous_mqtt_password_hash, mqtt_password_hash)',
+            previousMqttPasswordHash: null,
             reservedBindingMethod: null,
             reservedBindingSha256: null,
             reservationExpiresAt: null,
@@ -802,6 +837,7 @@ export class ProvisioningReservationService {
             agentChannel: () =>
               `CASE WHEN device_binding_sha256 IS NULL THEN '${EdgeAgentChannel.GENERIC_LINUX}' ELSE agent_channel END`,
             mqttPasswordHash: null,
+            previousMqttPasswordHash: null,
             fingerprint: null,
             agentVersion: null,
             isOnline: false,

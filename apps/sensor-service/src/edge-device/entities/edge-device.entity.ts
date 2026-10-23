@@ -259,6 +259,10 @@ const BINDING_METHOD_CHECK = `(${bindingMethodIn('device_binding_method')}) AND 
   'CHK_edge_devices_lifecycle_request',
   '("lifecycle_request" IS NULL) = ("maintenance_expires_at" IS NULL)',
 )
+@Check(
+  'CHK_edge_devices_previous_credential',
+  '("previous_mqtt_password_hash" IS NULL) OR ("mqtt_password_hash" IS NOT NULL AND "token_used_at" IS NULL AND "credentials_issued_at" IS NOT NULL)',
+)
 export class EdgeDevice {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
@@ -459,8 +463,24 @@ export class EdgeDevice {
   maintenanceExpiresAt!: Date | null;
 
   // MQTT Credentials (password hash stored, never exposed via GraphQL)
+  /**
+   * The credential issued by the latest activation: committed once the device's
+   * own CONNECT with it spends the token, until then pending.
+   */
   @Column({ type: 'varchar', name: 'mqtt_password_hash', length: 128, nullable: true })
   mqttPasswordHash!: string | null;
+
+  /**
+   * The credential the device held at its last COMMITTED activation, kept only
+   * while a re-provisioning activation issued after it is not committed
+   * (SENSOR-MEDIUM-236): the running agent keeps authenticating until the
+   * reinstalled one proves its own credential, which retires this one in the
+   * same statement. Non-null only while an activation is pending — the
+   * `CHK_edge_devices_previous_credential` check makes any other row
+   * unrepresentable. Never exposed via GraphQL.
+   */
+  @Column({ type: 'varchar', name: 'previous_mqtt_password_hash', length: 128, nullable: true })
+  previousMqttPasswordHash!: string | null;
 
   // Device Fingerprint (collected during activation)
   @Field(() => GraphQLJSON, { nullable: true })

@@ -55,6 +55,7 @@ function makeDevice(overrides: Partial<EdgeDevice> = {}): EdgeDevice {
   // `null` matches the entity contract exactly and survives a
   // hypothetical future `noImplicitOverride` toggle.
   d.mqttPasswordHash = null;
+  d.previousMqttPasswordHash = null;
   d.isOnline = true;
   Object.assign(d, overrides);
   return d;
@@ -164,7 +165,11 @@ describe('MqttAuthService', () => {
         await expect(
           service.verifyDeviceCredentials(MQTT_CLIENT, password, OWN_CLIENT_ID),
         ).resolves.toBe(true);
-        expect(reservations.commitFirstSession).toHaveBeenCalledWith(device, expect.any(Date));
+        expect(reservations.commitFirstSession).toHaveBeenCalledWith(
+          device,
+          expect.any(Date),
+          device.mqttPasswordHash,
+        );
       });
 
       it('never commits on a wrong password', async () => {
@@ -193,6 +198,71 @@ describe('MqttAuthService', () => {
           service.verifyDeviceCredentials(MQTT_CLIENT, password, OWN_CLIENT_ID),
         ).resolves.toBe(true);
         expect(reservations.commitFirstSession).not.toHaveBeenCalled();
+      });
+
+      describe('a re-provisioning activation that is not committed yet (SENSOR-MEDIUM-236)', () => {
+        const reprovisioning = (running: string, reinstalled: string): EdgeDevice =>
+          makeDevice({
+            mqttPasswordHash: hashPassword(reinstalled),
+            previousMqttPasswordHash: hashPassword(running),
+            tokenUsedAt: null,
+            provisioningToken: 'a'.repeat(64),
+            credentialsIssuedAt: new Date('2026-10-20T11:00:00Z'),
+          });
+
+        it('still authenticates the running agent and commits nothing', async () => {
+          const { service, directory, reservations } = createService();
+          stubFindDevice(directory, reprovisioning('running-secret', 'reinstalled-secret'));
+
+          await expect(
+            service.verifyDeviceCredentials(MQTT_CLIENT, 'running-secret', OWN_CLIENT_ID),
+          ).resolves.toBe(true);
+          expect(reservations.commitFirstSession).not.toHaveBeenCalled();
+        });
+
+        it('commits when the reinstalled agent proves the credential issued for it', async () => {
+          const { service, directory, reservations } = createService();
+          const device = reprovisioning('running-secret', 'reinstalled-secret');
+          stubFindDevice(directory, device);
+
+          await expect(
+            service.verifyDeviceCredentials(MQTT_CLIENT, 'reinstalled-secret', OWN_CLIENT_ID),
+          ).resolves.toBe(true);
+          expect(reservations.commitFirstSession).toHaveBeenCalledWith(
+            device,
+            expect.any(Date),
+            device.mqttPasswordHash,
+          );
+        });
+
+        it('refuses a password that is neither credential, and commits nothing', async () => {
+          const { service, directory, reservations } = createService();
+          stubFindDevice(directory, reprovisioning('running-secret', 'reinstalled-secret'));
+
+          await expect(
+            service.verifyDeviceCredentials(MQTT_CLIENT, 'guess', OWN_CLIENT_ID),
+          ).resolves.toBe(false);
+          expect(reservations.commitFirstSession).not.toHaveBeenCalled();
+        });
+
+        it('keeps the client-id rule and the lifecycle allow-list for the running agent', async () => {
+          const { service, directory } = createService();
+          stubFindDeviceRepeated(directory, reprovisioning('running-secret', 'reinstalled-secret'));
+          await expect(
+            service.verifyDeviceCredentials(
+              MQTT_CLIENT,
+              'running-secret',
+              'aqua-sensor-service-main',
+            ),
+          ).resolves.toBe(false);
+
+          const revoked = reprovisioning('running-secret', 'reinstalled-secret');
+          revoked.lifecycleState = DeviceLifecycleState.REVOKED;
+          stubFindDeviceRepeated(directory, revoked);
+          await expect(
+            service.verifyDeviceCredentials(MQTT_CLIENT, 'running-secret', OWN_CLIENT_ID),
+          ).resolves.toBe(false);
+        });
       });
 
       it('refuses the CONNECT when the commit fails, leaving the token unspent', async () => {

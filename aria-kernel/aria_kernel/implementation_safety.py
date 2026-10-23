@@ -40,6 +40,7 @@ import os
 import re
 import secrets
 import shutil
+import stat
 import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -2821,10 +2822,34 @@ def readonly_entry_for(relative: str) -> str | None:
     return None
 
 
+def _base_tree_holds_a_file_at(relative: str) -> bool:
+    """Whether the base tree, the checkout the running kernel derives its
+    authority set from (``KERNEL_CHECKOUT_ROOT``), holds a regular file at
+    ``relative``. A directory, a symlink, any other kind and a name the tree
+    does not hold are not files: each can be (or become) a directory."""
+    try:
+        mode = os.lstat(KERNEL_CHECKOUT_ROOT / relative).st_mode
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+    return stat.S_ISREG(mode)
+
+
 def readonly_entry_below(relative: str) -> str | None:
     """The ``readonly_paths()`` entry that covers some path below a
     workspace-relative POSIX path (`_covers_below`), or None: a scope that
-    names ``relative`` would reach into it."""
+    names ``relative`` would reach into it.
+
+    B1 round 5 (program-lead decision C) — only a surface that can be a
+    directory contains anything: one the base tree holds as a directory, or
+    one it does not hold at all (unknown, so it fails closed: ``pytest`` can
+    become ``pytest/__init__.py``). A surface the base tree holds as a regular
+    FILE has no children, so it is judged as itself only (`readonly_entry_for`):
+    a root ``package.json`` is not a container of ``*/__init__.*``. A change
+    that replaced such a file by a directory would write paths the hook and
+    the merge perimeter judge one by one with `readonly_entry_for`.
+    """
+    if _base_tree_holds_a_file_at(relative):
+        return None
     for readonly in readonly_paths():
         if _covers_below(relative, readonly):
             return readonly

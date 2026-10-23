@@ -731,6 +731,46 @@ class EveryConsumerProjectsTheWholeSet(unittest.TestCase):
                 self.assertIsNotNone(safety.classify_declared_surface(path))
                 self.assertEqual(safety.implementation_allowed_scope([path], admission_scope=None)[0], [])
 
+    def test_a_surface_contains_what_lies_below_only_when_it_can_be_a_directory(self) -> None:
+        # Round 5 (program-lead decision C) — the containment half judges a
+        # surface by what the base tree holds at it, the checkout the running
+        # kernel derives its set from. A regular FILE has no children, so it
+        # is judged as itself only; a directory, and a name the tree does not
+        # hold (unknown: fail closed), contain what lies below.
+        name = "fixture-surface.json"
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(safety, "KERNEL_CHECKOUT_ROOT", Path(tmp)):
+            with self.subTest(tree="absent"):
+                self.assertEqual(safety.readonly_entry_below(name), "*/__init__.*")
+                self.assertIsNotNone(safety.classify_declared_surface(name))
+            (Path(tmp) / name).mkdir()
+            with self.subTest(tree="directory"):
+                self.assertEqual(safety.readonly_entry_below(name), "*/__init__.*")
+                self.assertIsNotNone(safety.classify_declared_surface(name))
+            (Path(tmp) / name).rmdir()
+            (Path(tmp) / name).write_text("{}\n", encoding="utf-8")
+            with self.subTest(tree="file"):
+                self.assertIsNone(safety.readonly_entry_below(name))
+                self.assertIsNone(safety.classify_declared_surface(name))
+                self.assertEqual(safety.implementation_allowed_scope([name], admission_scope=None)[0], [name])
+
+    def test_the_envelope_mint_admits_a_root_file_the_base_tree_holds(self) -> None:
+        # Round 5 — a root package.json is a file in the base tree, so only
+        # `readonly_entry_for` judges it; ARIA can declare a root-level file.
+        self.assertEqual(safety.KERNEL_CHECKOUT_ROOT, _REPO_ROOT)
+        self.assertTrue((_REPO_ROOT / "package.json").is_file())
+        self.assertIsNone(safety.classify_declared_surface("package.json"))
+        self.assertEqual(safety.implementation_allowed_scope(["package.json"], admission_scope=None)[0],
+                         ["package.json"])
+
+    def test_the_envelope_mint_refuses_a_one_segment_surface_the_base_tree_does_not_hold(self) -> None:
+        # Round 5 — unknown is not a file: a name the tree does not hold can
+        # become a package directory (`<name>/__init__.py`), so it stays refused.
+        name = "aria-b1-surface-not-in-the-tree"
+        self.assertFalse(os.path.lexists(_REPO_ROOT / name))
+        self.assertEqual(safety.classify_declared_surface(name),
+                         f"declared_surface_contains_readonly:{name}->*/__init__.*")
+        self.assertEqual(safety.implementation_allowed_scope([name], admission_scope=None)[0], [])
+
     def test_the_self_change_proposal_check_refuses_every_member(self) -> None:
         for path in self.paths:
             with self.subTest(path=path):

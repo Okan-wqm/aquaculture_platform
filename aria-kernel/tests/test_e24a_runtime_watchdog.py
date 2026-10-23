@@ -8,10 +8,13 @@ sweep, emit through the SAME dedup'd emitter (İ1), and disclose every
 failure mode (disabled / unconfigured / unreachable) in the payload.
 
 Deliberate-breakage pins:
-- the API key never enters policy or ledgers (only its env-var NAME);
-- an unreachable endpoint is a disclosed skip, never a dead night;
 - thresholds gate the 5xx detector (low-volume noise stays out);
 - the new originating skill is allowlisted with its producer.
+
+RW-1 superseded this file's source/credential/skip pins (the shared
+observability key, the null default URL, the ``skipped`` shape): the
+loopback read-only source, the named holds and the credential-free policy
+are pinned in test_rw1_runtime_watchdog_feed.py.
 """
 from __future__ import annotations
 
@@ -27,11 +30,7 @@ from aria_kernel.aria_watchdog import (
     run_watchdog_sweep,
 )
 from aria_kernel.finding import ORIGINATING_SKILL_ALLOWLIST
-from aria_kernel.genesis_policy import (
-    POLICY_KEYS,
-    WATCHDOG_PULL_DEFAULTS,
-    watchdog_pull_policy,
-)
+from aria_kernel.genesis_policy import POLICY_KEYS, WATCHDOG_PULL_DEFAULTS
 from aria_kernel.tool_registry import ensure_tools_dir
 
 _METRICS_FIXTURE = """\
@@ -93,23 +92,10 @@ class SweepWiringTests(unittest.TestCase):
             workspace_root=self.repo, tools_dir=self.tools, suppress_emission=True,
         )
 
-    def test_unconfigured_source_is_a_disclosed_skip(self) -> None:
-        payload = self._sweep()
-        self.assertEqual(payload["runtime"], {"skipped": "source_unconfigured"})
-
-    def test_unreachable_source_is_a_disclosed_skip_not_a_dead_night(self) -> None:
-        with patch(
-            "aria_kernel.genesis_policy.watchdog_pull_policy",
-            return_value={**WATCHDOG_PULL_DEFAULTS, "observability_base_url": "http://127.0.0.1:1"},
-        ):
-            payload = self._sweep()
-        self.assertEqual(payload["runtime"]["skipped"], "source_unreachable")
-        self.assertIn("error", payload["runtime"])
-
     def test_reachable_feed_contributes_candidates(self) -> None:
         with patch(
             "aria_kernel.genesis_policy.watchdog_pull_policy",
-            return_value={**WATCHDOG_PULL_DEFAULTS, "observability_base_url": "http://example.invalid"},
+            return_value={**WATCHDOG_PULL_DEFAULTS, "observability_base_url": "http://127.0.0.1:9090"},
         ), patch(
             "aria_kernel.aria_watchdog.pull_observability_metrics",
             return_value=(_METRICS_FIXTURE, None),
@@ -120,14 +106,8 @@ class SweepWiringTests(unittest.TestCase):
 
 
 class PolicyPins(unittest.TestCase):
-    def test_block_is_mergeable_and_key_never_lives_in_policy(self) -> None:
+    def test_block_is_a_policy_key(self) -> None:
         self.assertIn("watchdog_pull", POLICY_KEYS)
-        block = watchdog_pull_policy()
-        self.assertIsNone(block["observability_base_url"])
-        self.assertEqual(block["api_key_env"], "ARIA_OBSERVABILITY_API_KEY")
-        # Only the env-var NAME is configuration — no field may carry a
-        # secret value.
-        self.assertFalse(any("key" in k and "env" not in k for k in block))
 
 
 if __name__ == "__main__":

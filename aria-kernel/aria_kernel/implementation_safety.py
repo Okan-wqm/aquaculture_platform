@@ -50,7 +50,7 @@ from collections.abc import Mapping, Sequence
 from . import command_policy as _command_policy
 from typing import Any, Callable, Mapping
 
-from .canonical_path import matches_repo_glob, repo_glob_directory
+from .canonical_path import expand_repo_glob, matches_repo_glob, repo_glob_directory
 from .dependency_tree import (
     DEPENDENCY_TREE_DIRNAME,
     TOOL_CACHE_DIRNAMES,
@@ -185,6 +185,29 @@ def _covered_by(path: str, entry: str) -> bool:
         return matches_repo_glob(path, entry)
     prefix = entry.rstrip("/")
     return path == prefix or path.startswith(prefix + "/")
+
+
+def _covers_below(surface: str, entry: str) -> bool:
+    """Whether a READONLY entry covers some path BELOW ``surface`` (a path
+    that starts ``surface/``), with `_covered_by`'s split: a prefix entry
+    when it lies under ``surface/``, a pattern entry when one of its brace
+    alternatives can match a path there. A ``**`` segment among the
+    surface's segments absorbs the rest of the surface and reaches below it;
+    otherwise the alternative's leading segments match the surface's, one by
+    one, and it has a segment left for the path below."""
+    if repo_glob_directory(entry) is None:
+        return entry.rstrip("/").startswith(surface + "/")
+    depth = len(surface.split("/"))
+    for alternative in expand_repo_glob(entry):
+        segments = alternative.split("/")
+        globstar = next((index for index, segment in enumerate(segments) if "**" in segment), None)
+        if globstar is not None and globstar <= depth:
+            head = "/".join(segments[:globstar])
+            if not head or matches_repo_glob("/".join(surface.split("/")[:globstar]), head):
+                return True
+        elif len(segments) > depth and matches_repo_glob(surface, "/".join(segments[:depth])):
+            return True
+    return False
 
 
 @lru_cache(maxsize=1)
@@ -2798,6 +2821,16 @@ def readonly_entry_for(relative: str) -> str | None:
     return None
 
 
+def readonly_entry_below(relative: str) -> str | None:
+    """The ``readonly_paths()`` entry that covers some path below a
+    workspace-relative POSIX path (`_covers_below`), or None: a scope that
+    names ``relative`` would reach into it."""
+    for readonly in readonly_paths():
+        if _covers_below(relative, readonly):
+            return readonly
+    return None
+
+
 def _check_forbidden_scope_normalized(context: HardFailContext) -> HardFailResult:
     name = "forbidden_scope_normalized"
     if context.workspace_root is None:
@@ -2954,20 +2987,23 @@ def classify_declared_surface(raw: Any) -> str | None:
     # unclassifiable rather than safe. `aria-kernel/**/*.py` passed.
     if any(ch in surface for ch in "*?["):
         return f"glob_in_declared_surface:{raw}"
-    for readonly in readonly_paths():
-        ro = readonly.rstrip("/")
-        # ORPHAN-CRITICAL-461 — BOTH directions. The check used to ask
-        # only "is the declared surface inside a readonly path", so a
-        # strictly BROADER claim walked straight through: declaring one
-        # file under aria-kernel/aria_kernel/ failed, while declaring
-        # `aria-kernel` — which contains it — passed, and so did
-        # `tools`. A scope claim that CONTAINS a protected path is not
-        # safer than one that names it; it is the same write with a
-        # vaguer envelope.
-        if surface == ro or surface.startswith(ro + "/"):
-            return f"readonly_surface_declared:{surface}"
-        if ro.startswith(surface + "/"):
-            return f"declared_surface_contains_readonly:{surface}->{ro}"
+    # B1 round 4 R1 — the inside direction is the perimeter's own judge
+    # (`readonly_entry_for`), so the pattern entries the derived authority
+    # set brings (`*.py`, `*/__init__.*`: top-level names at the repository
+    # root's import directory) are refused here as the hook and the merge
+    # perimeter refuse them; a private prefix loop had admitted `json.py`.
+    if readonly_entry_for(surface) is not None:
+        return f"readonly_surface_declared:{surface}"
+    # ORPHAN-CRITICAL-461 — BOTH directions. The check used to ask only "is
+    # the declared surface inside a readonly path", so a strictly BROADER
+    # claim walked straight through: declaring one file under
+    # aria-kernel/aria_kernel/ failed, while declaring `aria-kernel` — which
+    # contains it — passed, and so did `tools`. A scope claim that CONTAINS a
+    # protected path is not safer than one that names it; it is the same
+    # write with a vaguer envelope. `pytest` contains `pytest/__init__.py`.
+    below = readonly_entry_below(surface)
+    if below is not None:
+        return f"declared_surface_contains_readonly:{surface}->{below.rstrip('/')}"
     return None
 
 

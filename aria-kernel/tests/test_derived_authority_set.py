@@ -608,6 +608,17 @@ class EveryConsumerProjectsTheWholeSet(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue(_owned(path), f"{path} has no CODEOWNERS owner")
 
+    def test_the_envelope_mint_refuses_every_member(self) -> None:
+        # Round 4 R1 — the mint (`classify_declared_surface`, which the
+        # envelope's writable scope subtracts by) judges the one read-only set
+        # the room, the hook and the merge perimeter judge, pattern entries
+        # included. `json.py` and `pytest/__init__.py` are top-level names at
+        # the repository root's import directory; `pytest` contains one.
+        for path in (*self.paths, "json.py", "x.pyc", "pytest", "pytest/__init__.py"):
+            with self.subTest(path=path):
+                self.assertIsNotNone(safety.classify_declared_surface(path))
+                self.assertEqual(safety.implementation_allowed_scope([path], admission_scope=None)[0], [])
+
     def test_the_self_change_proposal_check_refuses_every_member(self) -> None:
         for path in self.paths:
             with self.subTest(path=path):

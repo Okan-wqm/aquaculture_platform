@@ -66,21 +66,29 @@ jobs:
       - name: Validate Edge release contract
         run: |
           set -euo pipefail
-          if grep -q "workflow_dispatch" .github/workflows/edge-agent-release.yml; then
-            echo "edge-agent-release.yml must not allow arbitrary manual release dispatch"
+          # Release creation is tag-only (ADR-048 DEC-20): neither release
+          # workflow may be started by hand.
+          if grep -q "workflow_dispatch" .github/workflows/edge-agent-release.yml .github/workflows/edge-release-publish.yml; then
+            echo "the edge release workflows must not allow manual release dispatch"
             exit 1
           fi
           # ADR-048: every release row comes from the contract and the release
           # facts; the plan fails when they and the crate's features disagree.
           python3 -I scripts/edge/edge_release.py plan > /dev/null
           grep -q "Release ref contract" .github/workflows/edge-agent-release.yml
-          grep -q 'refs/tags/' .github/workflows/edge-agent-release.yml
+          grep -q "GITHUB_REF_TYPE" .github/workflows/edge-agent-release.yml
           grep -q "cargo-metadata.sbom.json" .github/workflows/edge-agent-release.yml
           grep -q "intoto.jsonl" .github/workflows/edge-agent-release.yml
           grep -q "NOTICE.md" .github/workflows/edge-agent-release.yml
-          grep -q 'version = "2.0.0-rc.4"' sens-api-gateway/Cargo.toml
-          if grep -q "apps/admin-api-service/src/edge" docs/evidence/sens-api-gateway-edge-v2.0.0-rc4.md; then
-            grep -q "Excluded" docs/evidence/sens-api-gateway-edge-v2.0.0-rc4.md
+          # INFRA-MEDIUM-254: the expected version is never typed into this
+          # step. The plan above refuses a Cargo version the contract's
+          # release schema does not accept, and on a release tag the version
+          # must be the tag's.
+          CARGO_VERSION="$(awk -F' = ' '/^version = / { gsub(/"/, "", $2); print $2; exit }' sens-api-gateway/Cargo.toml)"
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ] && [ "${GITHUB_REF_NAME#agent-v}" != "${GITHUB_REF_NAME}" ] \
+            && [ "${GITHUB_REF_NAME#agent-v}" != "${CARGO_VERSION}" ]; then
+            echo "Release tag ${GITHUB_REF_NAME} does not match Cargo version ${CARGO_VERSION}"
+            exit 1
           fi
 
   format:

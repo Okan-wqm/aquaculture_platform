@@ -830,6 +830,161 @@ describe('edge release workflows', () => {
     expect(existsSync(join(REPO_ROOT, 'sens-api-gateway', '.github'))).toBe(false);
   });
 
+  it('derives the expected crate version from the release ref, never from a literal (INFRA-MEDIUM-254)', () => {
+    const publishWf = load(PUBLISH_WF).wf;
+    for (const [name, wf] of Object.entries({
+      release: release.wf,
+      publish: publishWf,
+      ciEdge: ciEdge.wf,
+      gateway: gateway.wf,
+    })) {
+      const text = runs(wf).join('\n');
+      // Neither the version this crate has today nor any `version = "x.y.z"` is typed into a step.
+      expect({ name, literal: text.includes(VERSION) }).toEqual({ name, literal: false });
+      expect({ name, pinned: /version\s*=\s*"?\d+\.\d+\.\d+/.test(text) }).toEqual({
+        name,
+        pinned: false,
+      });
+      expect({ name, evidence: /docs\/evidence\/[^\s]*rc\.?\d/.test(text) }).toEqual({
+        name,
+        evidence: false,
+      });
+    }
+  });
+
+  describe('the gateway CI release contract step', () => {
+    const step = gateway.wf.jobs['release-contract']?.steps?.find((s) =>
+      (s.run ?? '').includes('edge_release.py plan'),
+    );
+    const contract = (refType: string, refName: string): ToolRun => {
+      const result = spawnSync('bash', ['-c', step?.run ?? 'exit 99'], {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+        env: { ...process.env, GITHUB_REF_TYPE: refType, GITHUB_REF_NAME: refName },
+      });
+      return {
+        status: result.status,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        reason: undefined,
+      };
+    };
+
+    it('passes on the release tag of this Cargo version, whatever that version is', () => {
+      expect(step).toBeDefined();
+      expect(contract('tag', `agent-v${VERSION}`).status).toBe(0);
+    });
+
+    it('passes on a branch, where there is no tag to compare with', () => {
+      expect(contract('branch', 'feature/anything').status).toBe(0);
+      expect(contract('tag', 'unrelated-tag-1').status).toBe(0);
+    });
+
+    it('refuses a release tag that is not the Cargo version', () => {
+      const refused = contract('tag', 'agent-v9.9.9');
+      expect(refused.status).toBe(1);
+      expect(refused.stdout + refused.stderr).toContain('does not match Cargo version');
+    });
+
+    /** The repository files the step reads, in a scratch tree whose Cargo version is `version`. */
+    const scratch = (version: string): string => {
+      const dir = mkdtempSync(join(tmpdir(), 'edge-release-contract-'));
+      mkdirSync(join(dir, '.github', 'workflows'), { recursive: true });
+      for (const wf of [RELEASE_WF, PUBLISH_WF]) copyFileSync(join(REPO_ROOT, wf), join(dir, wf));
+      mkdirSync(join(dir, 'scripts', 'edge'), { recursive: true });
+      copyFileSync(TOOL, join(dir, 'scripts', 'edge', 'edge_release.py'));
+      cpSync(CONTRACT, join(dir, 'contracts', 'suderra-edge', 'v1'), { recursive: true });
+      mkdirSync(join(dir, 'sens-api-gateway', 'release'), { recursive: true });
+      copyFileSync(FACTS, join(dir, 'sens-api-gateway', 'release', 'edge-release.toml'));
+      writeFileSync(
+        join(dir, 'sens-api-gateway', 'Cargo.toml'),
+        readFileSync(CARGO_TOML, 'utf8').replace(
+          `version = "${VERSION}"`,
+          `version = "${version}"`,
+        ),
+      );
+      return dir;
+    };
+    const inScratch = (dir: string, refType: string, refName: string): ToolRun => {
+      const result = spawnSync('bash', ['-c', step?.run ?? 'exit 99'], {
+        cwd: dir,
+        encoding: 'utf8',
+        env: { ...process.env, GITHUB_REF_TYPE: refType, GITHUB_REF_NAME: refName },
+      });
+      return {
+        status: result.status,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        reason: undefined,
+      };
+    };
+
+    it('follows the Cargo version: another release semver passes on its own tag and fails on the old one', () => {
+      const dir = scratch('3.1.4');
+      try {
+        expect(inScratch(dir, 'tag', 'agent-v3.1.4').status).toBe(0);
+        const stale = inScratch(dir, 'tag', `agent-v${VERSION}`);
+        expect(stale.status).toBe(1);
+        expect(stale.stdout).toContain('does not match Cargo version 3.1.4');
+      } finally {
+        removeFixtureTree(dir);
+      }
+    });
+
+    it('refuses a Cargo version the contract does not accept, on a branch too (the plan)', () => {
+      const dir = scratch('v3.1');
+      try {
+        const refused = inScratch(dir, 'branch', 'main');
+        expect(refused.status).toBe(1);
+        expect(refused.stderr).toContain('edge_release: error');
+      } finally {
+        removeFixtureTree(dir);
+      }
+    });
+
+    it('refuses a release workflow that lost one of the contract markers it checks', () => {
+      for (const marker of [
+        'Release ref contract',
+        'GITHUB_REF_TYPE',
+        'cargo-metadata.sbom.json',
+        'intoto.jsonl',
+        'NOTICE.md',
+      ]) {
+        const dir = scratch(VERSION);
+        try {
+          const path = join(dir, RELEASE_WF);
+          const text = readFileSync(path, 'utf8');
+          expect({ marker, present: text.includes(marker) }).toEqual({ marker, present: true });
+          writeFileSync(path, text.split(marker).join('removed-marker'));
+          expect({ marker, status: inScratch(dir, 'branch', 'main').status }).toEqual({
+            marker,
+            status: 1,
+          });
+        } finally {
+          removeFixtureTree(dir);
+        }
+      }
+    });
+
+    it('refuses a manual release dispatch in either release workflow', () => {
+      for (const wf of [RELEASE_WF, PUBLISH_WF]) {
+        const dir = scratch(VERSION);
+        try {
+          const path = join(dir, wf);
+          writeFileSync(
+            path,
+            readFileSync(path, 'utf8').replace(/^on:\n/m, 'on:\n  workflow_dispatch:\n'),
+          );
+          const refused = inScratch(dir, 'branch', 'main');
+          expect({ wf, status: refused.status }).toEqual({ wf, status: 1 });
+          expect(refused.stdout).toContain('must not allow manual release dispatch');
+        } finally {
+          removeFixtureTree(dir);
+        }
+      }
+    });
+  });
+
   it('builds the RevPi Connect 4 for aarch64 with the piControl backend and without gpio', () => {
     // ADR-048 DEC-8: the board's hardware backend is revpi-io (the agent opens
     // /dev/piControl0); gpio would race the kernel's pibridge node.

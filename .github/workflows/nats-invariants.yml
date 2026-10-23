@@ -57,6 +57,9 @@ on:
       - 'platform/libs/event-bus/**'
       - 'e2e/tests/integration/nats-invariants.spec.ts'
       - 'e2e/tests/integration/nats-subject-contract.spec.ts'
+      # The NATS credential-identity rule owner nats-invariants.spec.ts imports (ARIA-HIGH-012).
+      - 'tools/gates/infra-policy/**'
+      - 'tools/gates/lib/infra/**'
       - '.github/workflows/nats-invariants.yml'
   push:
     branches: [main]
@@ -75,6 +78,8 @@ on:
       - 'scripts/nats/**'
       - 'apps/**'
       - 'libs/event-contracts/**'
+      - 'tools/gates/infra-policy/**'
+      - 'tools/gates/lib/infra/**'
 
 permissions:
   contents: read

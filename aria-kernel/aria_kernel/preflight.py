@@ -418,7 +418,7 @@ def verify_preflight(
     # not exist yet during initial bootstrapping).
     try:
         from . import implementation_safety as _is
-        immutable_paths_count = len(_is.READONLY_PATHS)
+        immutable_paths_count = len(_is.readonly_paths())
         bash_allowlist_count = len(_is.ALLOWED_BASH_COMMANDS)
     except (ImportError, AttributeError):
         immutable_paths_count = 0

@@ -497,11 +497,11 @@ class SeededRegistry(unittest.TestCase):
         })
 
     def test_registry_is_operator_policy_aria_cannot_write(self) -> None:
-        from aria_kernel.implementation_safety import READONLY_PATHS
+        from aria_kernel.implementation_safety import readonly_paths
         from aria_kernel.self_improvement import AUTHORITY_SURFACES
 
         registry = "/".join(system_one.REGISTRY_RELPATH)
-        self.assertTrue(any(registry.startswith(prefix) for prefix in READONLY_PATHS))
+        self.assertTrue(any(registry.startswith(prefix) for prefix in readonly_paths()))
         self.assertIn(registry, AUTHORITY_SURFACES)
 
     def test_ledger_is_an_unread_observation_surface(self) -> None:

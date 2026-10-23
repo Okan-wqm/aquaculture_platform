@@ -191,7 +191,7 @@ class PlanCoverageGateTests(unittest.TestCase):
         with self.assertRaisesRegex(GovernanceError, "invalid_transition"):
             fold_plan_state(plan_id="plan-1", base_dir=self.tools_dir)
 
-    def test_synthetic_risks_fold_into_round_and_resolve_via_revision(self):
+    def test_synthetic_risks_fold_into_round_and_a_revision_claim_does_not_resolve_them(self):
         self.start(schema_version=2)
         self.drive_to_cross_reviewed(1)
         record_coverage(plan_id="plan-1", coverage=self.gaps_payload(1), base_dir=self.tools_dir)
@@ -199,8 +199,11 @@ class PlanCoverageGateTests(unittest.TestCase):
         risk_ids = [risk["risk_id"] for risk in state["cross_review_risks_by_round"][1]]
         self.assertIn("COV-R1-deadbeef", risk_ids)
         self.revision("rev-1", "widen affected_surfaces", addresses_review_risk_ids=["COV-R1-deadbeef"])
+        # PV P1 (b), ARIA-HIGH-779 — the author's addresses_review_risk_ids is
+        # a stored claim, never a resolution; a coverage gap is cleared by the
+        # next round's machine verdict, not by the planner saying so.
         state = plan_status(plan_id="plan-1", base_dir=self.tools_dir)
-        self.assertIn("COV-R1-deadbeef", state["resolved_review_risk_ids"])
+        self.assertNotIn("COV-R1-deadbeef", state.get("resolved_review_risk_ids", []))
 
     def test_round_scoped_gap_ids_are_not_masked_by_prior_addresses(self):
         self.start(schema_version=2)

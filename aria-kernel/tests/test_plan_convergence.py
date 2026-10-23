@@ -25,6 +25,7 @@ from aria_kernel.plan_convergence import (
     request_critics,
     start_plan,
     submit_challenger_plan,
+    submit_cross_review_v8,
 )
 from aria_kernel.tool_registry import GovernanceError
 from tests._helpers.declared_fixtures import append_declared_fixture, segmented_ledger_bytes
@@ -178,7 +179,39 @@ class PlanConvergenceTests(unittest.TestCase):
         self.assertEqual(result["status"], "next_round_required")
         self.assertEqual(before, after)
         self.revision("rev-1", "addresses risk", addresses_review_risk_ids=["RISK-1"])
-        self.assertEqual(plan_status(plan_id="plan-1", base_dir=self.tools_dir)["resolved_review_risk_ids"], ["RISK-1"])
+        # PV P1 (b), ARIA-HIGH-779 — the author's addresses_review_risk_ids is
+        # a stored claim, never a resolution: only the next independent
+        # reviewer's `resolved` disposition clears a risk.
+        self.assertNotIn("RISK-1", plan_status(plan_id="plan-1", base_dir=self.tools_dir).get("resolved_review_risk_ids", []))
+
+    def test_an_author_claim_cannot_mask_a_new_round_two_risk_that_reuses_its_id(self):
+        # PV P1 (a), ARIA-HIGH-779, SEPT-HARVEST §0 — risk ids restarted at
+        # CR-001 every round and the author's claim on round 1's CR-001 hid a
+        # NEW material CR-001 in round 2 (18 of 18 recorded CONVERGED
+        # verdicts on origin/aria/state @ 8e39b2eeb). The round-2 reviewer
+        # even resolves the OLD risk here, so only the id collision can hide
+        # the new one.
+        from unittest import mock
+
+        self.start()
+        self.submit_challenger()
+        self.submit_v8([self.cross_risk("CR-001", "blocking")], verdict="material_risks_present")
+        first = evaluate_plan(plan_id="plan-1", round_number=1, base_dir=self.tools_dir)
+        self.assertEqual(first["status"], "next_round_required")
+        self.structured_revision("rev-1", addresses_review_risk_ids=["CR-001"], summary="addresses CR-001")
+        self.submit_challenger(challenger_revision_id="challenger-rev-1")
+        new_risk = {**self.cross_risk("CR-001", "material"), "summary": "a new round-two objection"}
+        self.submit_v8(
+            [new_risk], verdict="material_risks_present",
+            prior_risk_dispositions=[{
+                "risk_id": "CR-R1-CR-001", "disposition": "resolved",
+                "evidence_refs": ["aria-kernel/aria_kernel/plan_convergence.py:1"],
+            }],
+        )
+        with mock.patch("aria_kernel.round_independence.verify_independence", return_value=(True, [])):
+            second = evaluate_plan(plan_id="plan-1", round_number=2, base_dir=self.tools_dir)
+        terminal = "NEXT_ROUND_REQUIRED" if second["status"] == "next_round_required" else second["event"]["payload"]["terminal_state"]
+        self.assertNotEqual(terminal, "CONVERGED")
 
     def test_cross_review_retry_replaces_timed_out_task_in_same_round(self):
         self.start()
@@ -593,7 +626,7 @@ class PlanConvergenceTests(unittest.TestCase):
             base_dir=self.tools_dir,
         )
 
-    def submit_challenger(self):
+    def submit_challenger(self, challenger_revision_id: str = "challenger-rev-0"):
         state = plan_status(plan_id="plan-1", base_dir=self.tools_dir)
         plan = self.plan()
         plan["title"] = "Challenger Plan"
@@ -601,7 +634,7 @@ class PlanConvergenceTests(unittest.TestCase):
             plan_id="plan-1",
             challenger={
                 "challenger_agent": "access-boundary-auditor",
-                "challenger_revision_id": "challenger-rev-0",
+                "challenger_revision_id": challenger_revision_id,
                 "source_revision_id": state["latest_revision"]["revision_id"],
                 "source_plan_content_hash": state["latest_revision"]["content_hash"],
                 "plan_content": plan,
@@ -676,7 +709,7 @@ class PlanConvergenceTests(unittest.TestCase):
             "architectural_tier": 2,
         }
 
-    def structured_revision(self, revision_id: str, **overrides):
+    def structured_revision(self, revision_id: str, *, addresses_review_risk_ids: list[str] | None = None, **overrides):
         """A revision whose content IS a plan body — the shape that can converge."""
         state = plan_status(plan_id="plan-1", base_dir=self.tools_dir)
         body = {**self.plan(), **overrides}
@@ -688,10 +721,17 @@ class PlanConvergenceTests(unittest.TestCase):
                 "content_hash": content_hash(body),
                 "parent_revision_hash": state["latest_revision"]["content_hash"],
                 "content": json.dumps(body, sort_keys=True),
-                "addresses_review_risk_ids": [],
+                "addresses_review_risk_ids": addresses_review_risk_ids or [],
             },
             base_dir=self.tools_dir,
         )
+
+    def submit_v8(self, risks: list[dict], *, verdict: str, prior_risk_dispositions: list[dict] | None = None):
+        """The live single-envelope cross-review path (`submit_cross_review_v8`)."""
+        review = {"reviewer_agent": "farm-expert", "verdict": verdict, "risks": risks}
+        if prior_risk_dispositions is not None:
+            review["prior_risk_dispositions"] = prior_risk_dispositions
+        return submit_cross_review_v8(plan_id="plan-1", review=review, workspace_root=self.root, base_dir=self.tools_dir)
 
     def task(self, task_id: str, reviewer: str, revision_id: str, plan_hash: str, *, deadline: str | None = None):
         return {

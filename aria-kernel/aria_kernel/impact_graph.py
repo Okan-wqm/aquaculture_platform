@@ -4,13 +4,19 @@ import hashlib
 import json
 import re
 from pathlib import Path
-from collections.abc import Mapping
-from typing import Any
+from collections.abc import Callable, Iterable, Iterator, Mapping
+from typing import Any, Protocol
 
 from .agent_routing import load_routing_table, recommended_agents_for_project
 from .canonical_path import lexical_repo_path
 from .ledger import append_declared_jsonl, load_declared_jsonl
-from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
+from .tool_registry import (
+    GovernanceError,
+    declared_bound_repo_root,
+    ensure_tools_dir,
+    tools_dir,
+    utc_now,
+)
 
 
 IMPORT_RE = re.compile(r"""from\s+['"]([^'"]+)['"]|import\s+[^'"]*['"]([^'"]+)['"]""")
@@ -211,19 +217,42 @@ def plan_service_analysis_order(
 
 
 def _graph_fingerprint(root: Path) -> str:
-    """A cheap fingerprint of the project dependency graph's INPUTS (project dir
-    layout + the tsconfig alias SSoT) — does NOT read any ``*.ts`` file, so it is
-    fast enough to compute every cycle to decide whether the cached order is
-    still valid. The order only changes when projects are added/removed or the
-    tsconfig path aliases change; both are captured here."""
-    roots = sorted(meta["root"] for meta in _discover_projects(root).values())
+    """A cheap fingerprint of the project dependency graph's INPUTS (project
+    names and dir layout + the tsconfig alias SSoT) — does NOT read any
+    ``*.ts`` file, so it is fast enough to compute every cycle to decide
+    whether the cached order is still valid. The order only changes when
+    projects are added/removed/renamed or the tsconfig path aliases change;
+    all are captured here."""
+    # Name AND root: a project's identity is part of the published map
+    # (`project_roots`), so a ``project.json`` rename with the directory
+    # unchanged must invalidate the cache like a moved root does.
+    entries = sorted(f"{name}={meta['root']}" for name, meta in _discover_projects(root).items())
     tsconfig = root / "tsconfig.base.json"
     ts = tsconfig.read_text(encoding="utf-8") if tsconfig.exists() else ""
     digest = hashlib.sha256()
-    digest.update("\0".join(roots).encode("utf-8"))
+    digest.update("\0".join(entries).encode("utf-8"))
     digest.update(b"\0")
     digest.update(ts.encode("utf-8"))
     return digest.hexdigest()
+
+
+_SERVICE_ORDER_CACHE = Path("impact") / "service-order-cache.json"
+
+
+def _read_service_order_cache(cache_file: Path) -> dict[str, Any] | None:
+    """The published service order, or None when there is none to read.
+
+    Absent and unreadable are the same answer on purpose: both mean the
+    writer (`cached_service_analysis_order`) has to run before anyone can
+    read a map, and the writer overwrites an unreadable file.
+    """
+    if not cache_file.is_file():
+        return None
+    try:
+        cached = json.loads(cache_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return cached if isinstance(cached, dict) else None
 
 
 def cached_service_analysis_order(
@@ -237,15 +266,11 @@ def cached_service_analysis_order(
     change. Cache is a plain JSON file (not a declared ledger) under
     ``tools/impact/service-order-cache.json`` — read-through, write-back."""
     root = Path(workspace_root).resolve()
-    cache_file = ensure_tools_dir(base_dir) / "impact" / "service-order-cache.json"
+    cache_file = ensure_tools_dir(base_dir) / _SERVICE_ORDER_CACHE
     fingerprint = _graph_fingerprint(root)
-    if cache_file.exists():
-        try:
-            cached = json.loads(cache_file.read_text(encoding="utf-8"))
-            if isinstance(cached, dict) and cached.get("graph_fingerprint") == fingerprint:
-                return cached
-        except (OSError, ValueError):
-            pass
+    cached = _read_service_order_cache(cache_file)
+    if cached is not None and cached.get("graph_fingerprint") == fingerprint:
+        return cached
     graph = _project_graph(root=root, nx_graph_file=Path(nx_graph_file) if nx_graph_file else None)
     plan = build_service_analysis_order(graph)
     payload = {
@@ -264,6 +289,81 @@ def cached_service_analysis_order(
     except OSError:
         pass
     return payload
+
+
+class ProjectMap(Mapping[str, str]):
+    """A ``project_roots`` map (name -> root) together with its own identity.
+
+    The identity travels with the map because a name is only meaningful
+    against the map that produced it: a ``project.json`` rename or a new
+    project changes the answer `project_for_path` gives for the same path.
+    A finding stamped with the names of one map and read against another has
+    to be re-derived, and only a map that says which map it is can tell the
+    reader so (`service_dimension.services_for_finding_row`).
+
+    ``fingerprint`` is computed HERE, as a sha256 over the sorted
+    ``name=root`` pairs this object wraps, never handed in. SE-1-R2 appellate
+    R1 (b): it used to be the cache's ``graph_fingerprint``, which digests the
+    discovery layout the cache is KEYED by, not the map stored under that
+    key. A map built from an nx graph file and the discovery map that later
+    replaced it shared that key, so a stamp of the first was read as stored
+    against the second. A fingerprint that is a digest of the wrapped map
+    cannot describe a different map.
+    """
+
+    __slots__ = ("_roots", "fingerprint")
+
+    def __init__(self, roots: Mapping[str, str]) -> None:
+        self._roots = dict(roots)
+        digest = hashlib.sha256()
+        digest.update("\0".join(sorted(f"{name}={root}" for name, root in self._roots.items())).encode("utf-8"))
+        self.fingerprint = digest.hexdigest()
+
+    def __getitem__(self, name: str) -> str:
+        return self._roots[name]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._roots)
+
+    def __len__(self) -> int:
+        return len(self._roots)
+
+
+def project_map(*, base_dir: str | Path | None, workspace_root: str | Path | None = None) -> ProjectMap:
+    """THE accessor for the map `project_for_path` attributes against.
+
+    It always resolves through `cached_service_analysis_order`, which checks
+    the published cache's graph fingerprint against the workspace and
+    rebuilds a stale one, so no caller can be handed the names of a layout
+    the tree no longer has. The workspace is ``workspace_root`` when the
+    caller holds it, else the one the store DECLARES
+    (`tool_registry.declared_bound_repo_root`).
+
+    SE-1 round 2 (review-r1 B1 / BLOCKER-1). Round 1 had a second accessor
+    that returned the published file as it stood. The cycle's 'tools' phase
+    mints before 'service_examination' refreshes the publication, so a
+    finding on a project the tree had just gained was minted with no
+    service, and after a ``project.json`` rename the tool-finding mint and
+    `finding.emit_finding` filed one defect under two names.
+
+    A store that declares no workspace, asked without one, cannot produce a
+    map and is refused by name (``service_key_map_unavailable``, review-r1
+    B2). Answering "no map" with an empty attribution made "cannot
+    attribute" and "attributed to nothing" the same answer. The layout
+    convention (``<workspace>/aria-tools``) is deliberately not guessed: a
+    scratch store's parent is a temp directory, and a project graph of
+    ``/tmp`` is not a map of anything.
+    """
+    workspace = workspace_root if workspace_root is not None else declared_bound_repo_root(base_dir)
+    if workspace is None:
+        raise GovernanceError(
+            "service_key_map_unavailable: the store at "
+            f"{tools_dir(base_dir).as_posix()} declares no workspace "
+            "(tool_registry.ensure_tools_binding) and none was given, so no project map can "
+            "attribute a path to a service"
+        )
+    cache = cached_service_analysis_order(workspace_root=workspace, base_dir=base_dir)
+    return ProjectMap(cache["project_roots"])
 
 
 def cycle_service_examination(
@@ -432,33 +532,137 @@ def _read_nx_graph(*, root: Path, graph_file: Path) -> dict[str, Any]:
     return {"projects": projects, "dependencies": dependencies, "graph_source": "nx_graph_json"}
 
 
+class _ProjectTree(Protocol):
+    """The read surface project discovery needs, over repo-relative paths
+    (``""`` is the repository root). One discovery rule runs over the working
+    tree (`_FileTree`) and over a git revision (`_ListedTree`), so the map of
+    a revision is the map of the same layout checked out."""
+
+    def child_dirs(self, rel: str) -> list[str]: ...
+
+    def is_dir(self, rel: str) -> bool: ...
+
+    def is_file(self, rel: str) -> bool: ...
+
+    def read_text(self, rel: str) -> str: ...
+
+
+class _FileTree:
+    def __init__(self, root: Path) -> None:
+        self._root = root
+
+    def child_dirs(self, rel: str) -> list[str]:
+        base = self._root / rel
+        if not base.is_dir():
+            return []
+        return sorted(child.relative_to(self._root).as_posix() for child in base.iterdir() if child.is_dir())
+
+    def is_dir(self, rel: str) -> bool:
+        return (self._root / rel).is_dir()
+
+    def is_file(self, rel: str) -> bool:
+        return (self._root / rel).is_file()
+
+    def read_text(self, rel: str) -> str:
+        return (self._root / rel).read_text(encoding="utf-8")
+
+
+class _ListedTree:
+    """A tree known by its file listing (``git ls-tree -r --name-only``) and a
+    reader for one file's text at the same revision."""
+
+    def __init__(self, files: Iterable[str], read_text: Callable[[str], str]) -> None:
+        self._files: set[str] = set()
+        self._children: dict[str, set[str]] = {}
+        for path in files:
+            parts = [part for part in path.split("/") if part]
+            if not parts:
+                continue
+            self._files.add("/".join(parts))
+            for depth in range(1, len(parts)):
+                parent = "/".join(parts[: depth - 1])
+                self._children.setdefault(parent, set()).add("/".join(parts[:depth]))
+        self._read_text = read_text
+
+    def child_dirs(self, rel: str) -> list[str]:
+        return sorted(self._children.get(rel, set()))
+
+    def is_dir(self, rel: str) -> bool:
+        return rel in self._children
+
+    def is_file(self, rel: str) -> bool:
+        return rel in self._files
+
+    def read_text(self, rel: str) -> str:
+        return self._read_text(rel)
+
+
+# The conventional project families: (parent, name for a root that declares no
+# ``project.json`` name). Single roots are their own parent's one child.
+_CONVENTIONAL_FAMILIES: tuple[tuple[str, Callable[[str], str]], ...] = (
+    ("apps", lambda child: child),
+    ("libs", lambda child: child),
+    ("platform/libs", lambda child: f"platform-{child}"),
+    ("web/modules", lambda child: f"web-{child}"),
+)
+_CONVENTIONAL_ROOTS: tuple[tuple[str, str], ...] = (
+    ("web/shared-ui", "web-shared-ui"),
+    ("web/shell", "web-shell"),
+)
+
+
 def _discover_projects(root: Path) -> dict[str, dict[str, str]]:
+    """Every project in the working tree at ``root`` (`_discover`)."""
+    return _discover(_FileTree(root))
+
+
+def project_roots_of_listed_tree(
+    files: Iterable[str], read_text: Callable[[str], str]
+) -> dict[str, str]:
+    """The ``project_roots`` map of a tree given by its file listing — a git
+    revision the caller lists and reads (``branch_update_lineage`` maps main's
+    tree, not the checkout, so a branch cannot rename its way out of the
+    quarantine policy). The same discovery as the working tree's map; there is
+    no second rule for "which project owns this path" at a revision.
+    """
+    return {name: meta["root"] for name, meta in _discover(_ListedTree(files, read_text)).items()}
+
+
+def _discover(tree: _ProjectTree) -> dict[str, dict[str, str]]:
     """Every project in the repository, by convention first and marker second.
 
-    The conventional layout runs first because the names it produces are what
-    agent routing, the validation matrix and the twin already key on; the
-    marker sweep is strictly ADDITIVE on top of it, so no existing project can
-    be renamed or re-rooted by a marker appearing next to it.
+    Conventional roots (``apps/*``, ``libs/*``, ``platform/libs/*``,
+    ``web/modules/*``, ``web/shared-ui``, ``web/shell``) are named by their
+    ``project.json`` ``name`` — nx's identity, the one the finding dimension
+    adopts (owner decision Q9) and the name the TypeScript code-fact side
+    (`tools/gates/event-consumer-index.ts` ``applicationNames``) files event
+    sites under. Only a conventional root that declares no name falls back to
+    the layout name (``platform-<dir>``, ``web-<dir>``, the directory).
+
+    SE-1 round 2 (review-r1 B3). Round 1 named only ``apps/*`` by
+    ``project.json``; 18 of the repository's 59 ``project.json``-bearing roots
+    (``platform/libs/event-bus`` as ``platform-event-bus``, every web module,
+    ``libs/farm-shared`` as ``farm-shared``) were stamped ``nx_project/v1``
+    under names nx does not know, and the quarantine policy's
+    ``knownUnstableProjects`` (nx names) could not match them.
+
+    The marker sweep runs after the convention and only ADDS: a name already
+    taken is never reassigned and a directory inside a known project is never
+    a second project.
     """
     projects: dict[str, dict[str, str]] = {}
-    for parent in ("apps", "libs"):
-        for child in _children(root / parent):
-            projects[child.name] = {"root": child.relative_to(root).as_posix()}
-    for child in _children(root / "platform" / "libs"):
-        projects[f"platform-{child.name}"] = {"root": child.relative_to(root).as_posix()}
-    for child in _children(root / "web" / "modules"):
-        projects[f"web-{child.name}"] = {"root": child.relative_to(root).as_posix()}
-    shared = root / "web" / "shared-ui"
-    if shared.exists():
-        projects["web-shared-ui"] = {"root": shared.relative_to(root).as_posix()}
-    shell = root / "web" / "shell"
-    if shell.exists():
-        projects["web-shell"] = {"root": shell.relative_to(root).as_posix()}
-    _add_marker_projects(root, projects)
+    for parent, layout_name in _CONVENTIONAL_FAMILIES:
+        for child in tree.child_dirs(parent):
+            name = _declared_project_name(tree, child) or layout_name(child.rsplit("/", 1)[-1])
+            projects[name] = {"root": child}
+    for rel, layout_name in _CONVENTIONAL_ROOTS:
+        if tree.is_dir(rel):
+            projects[_declared_project_name(tree, rel) or layout_name] = {"root": rel}
+    _add_marker_projects(tree, projects)
     return projects
 
 
-def _add_marker_projects(root: Path, projects: dict[str, dict[str, str]]) -> None:
+def _add_marker_projects(tree: _ProjectTree, projects: dict[str, dict[str, str]]) -> None:
     """Add the marker-bearing directories the conventional layout does not name.
 
     The conventional list was accurate for the repository it was written
@@ -478,16 +682,15 @@ def _add_marker_projects(root: Path, projects: dict[str, dict[str, str]]) -> Non
     ``continue`` earns its place on cost, not on correctness: without it the
     walk lists the children of every project it finds.
     """
-    queue: list[tuple[Path, int]] = [(root, 0)]
+    queue: list[tuple[str, int]] = [("", 0)]
     while queue:
-        directory, depth = queue.pop(0)
-        if directory != root:
-            rel = directory.relative_to(root).as_posix()
+        rel, depth = queue.pop(0)
+        if rel:
             # Already inside a known project: there is nothing nested to find.
             if _project_for_path(rel, projects) is not None:
                 continue
-            if any((directory / marker).is_file() for marker in PROJECT_MARKERS):
-                name = _marker_project_name(directory, rel)
+            if any(tree.is_file(f"{rel}/{marker}") for marker in PROJECT_MARKERS):
+                name = _marker_project_name(tree, rel)
                 # A name already taken is never reassigned — moving a project's
                 # root under a consumer's feet is worse than not adding one.
                 if name and name not in projects:
@@ -495,13 +698,14 @@ def _add_marker_projects(root: Path, projects: dict[str, dict[str, str]]) -> Non
                 continue
         if depth >= _MARKER_SCAN_MAX_DEPTH:
             continue
-        for child in _children(directory):
-            if child.name in NOT_THE_REPOSITORY or child.name.startswith("."):
+        for child in tree.child_dirs(rel):
+            name = child.rsplit("/", 1)[-1]
+            if name in NOT_THE_REPOSITORY or name.startswith("."):
                 continue
             queue.append((child, depth + 1))
 
 
-def _marker_project_name(directory: Path, rel: str) -> str:
+def _marker_project_name(tree: _ProjectTree, rel: str) -> str:
     """The project's in-graph identity.
 
     ``project.json``'s ``name`` wins because nx owns that identity and enforces
@@ -511,15 +715,31 @@ def _marker_project_name(directory: Path, rel: str) -> str:
     not the repository's name for the directory, so those fall back to the
     repo-relative path.
     """
-    manifest = directory / "project.json"
-    if manifest.is_file():
-        try:
-            declared = json.loads(manifest.read_text(encoding="utf-8")).get("name")
-        except (OSError, ValueError):
-            declared = None
-        if isinstance(declared, str) and declared.strip():
-            return declared.strip()
-    return rel.replace("/", "-")
+    return _declared_project_name(tree, rel) or rel.replace("/", "-")
+
+
+def _declared_project_name(tree: _ProjectTree, rel: str) -> str | None:
+    """``project.json``'s ``name`` — nx's identity for the directory — or None
+    when the directory carries no ``project.json`` or the file names nothing.
+
+    ONE rule with the TypeScript side (`event-consumer-index.ts`
+    ``applicationNames``): a non-empty string ``name`` is the name exactly as
+    written, and a file that cannot be read as JSON is a refusal naming the
+    file. Round 1 stripped whitespace and fell back to the directory name on
+    malformed JSON while TypeScript threw (review-r1 note (b)), so the two
+    sides could file one application under two names.
+    """
+    manifest = f"{rel}/project.json"
+    if not tree.is_file(manifest):
+        return None
+    try:
+        parsed = json.loads(tree.read_text(manifest))
+    except (OSError, ValueError) as exc:
+        raise GovernanceError(
+            f"project_manifest_unreadable:{manifest}: {type(exc).__name__}: {exc}"
+        ) from exc
+    declared = parsed.get("name") if isinstance(parsed, dict) else None
+    return declared if isinstance(declared, str) and declared else None
 
 
 def _scan_project_dependencies(
@@ -575,18 +795,25 @@ def project_for_path(path: str, project_roots: Mapping[str, str]) -> str | None:
     """THE path -> project attribution, over the ``project_roots`` map that
     `cached_service_analysis_order` publishes: longest matching root prefix.
 
-    Public because a second caller appeared and answered the same question in
-    a different vocabulary. `cycle._phase_service_mission_seed` decides which
-    services get a hardening mission from targets that ARE nx project names
-    (this function named them), then attributed the supporting evidence with
-    `service_dimension.service_for_path`, which emits ``shared:<lib>`` /
-    ``web:<app>`` / ``None``. Measured against this repository: 54 of 71
-    projects have an nx name that vocabulary can never produce, so the seeder
-    disclosed "no derivable evidence" for the very paths that had selected
-    them. `service_for_path` is still the right answer to a different
-    question (which service dimension does a finding belong to, for routing
-    and for the findings-list axis); it is not an answer to "which project
-    owns this path", and that answer lives here, once.
+    The kernel's ONE service key (service-expertise plan SE-1, owner decision
+    Q9). The finding dimension, the impacted set, missions and routing all
+    name a project through this function, in nx project names (every root
+    that carries a ``project.json`` is named by it, `_discover`). Callers get
+    the map from `project_map` — fingerprint-checked, so never the names of a
+    layout the tree no longer has; there is no string mapping to fall back
+    on.
+
+    It used to have a twin. ``service_dimension.service_for_path`` attributed
+    findings in a vocabulary of its own (``apps/<dir>``, ``shared:<lib>``,
+    ``web:<app>``): measured against this repository, 54 of 71 nx project
+    names were values it could never produce, and ``libs/X`` and
+    ``platform/libs/X`` collapsed into one ``shared:X``. A finding filed in
+    one vocabulary and looked up in the other landed under a service no
+    impacted set contains — `cycle._phase_service_mission_seed` wrote "no
+    derivable evidence" about the very paths that had selected a project.
+    SE-1 deleted the twin and moved every caller here; rows minted before
+    that carry no ``service_vocabulary`` and are re-derived from their paths
+    at read time, never string-mapped.
     """
     normalized = _normalize_path(path)
     candidates = sorted(project_roots.items(), key=lambda item: len(item[1]), reverse=True)
@@ -653,8 +880,3 @@ def _normalize_path(path: str) -> str:
         clean = clean.removeprefix("file://")
     return lexical_repo_path(clean).rstrip("/")
 
-
-def _children(path: Path) -> list[Path]:
-    if not path.exists():
-        return []
-    return sorted(child for child in path.iterdir() if child.is_dir())

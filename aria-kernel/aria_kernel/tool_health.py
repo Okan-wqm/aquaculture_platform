@@ -18,6 +18,7 @@ from .feedback_store import (
     record_findings_for_run,
     record_raw_findings_for_run,
 )
+from .impact_graph import project_map
 from .ledger import append_declared_jsonl, append_jsonl as append_chained_jsonl, load_jsonl as load_chained_jsonl
 from .ledger_inline import sample_inline_list, spill_evidence_validation
 from .quarantine import quarantine_tool
@@ -154,6 +155,15 @@ def record_run(
         raise GovernanceError(
             f"{tool['status']} tool cannot emit operator-facing observations or findings",
         )
+    # SE-1-R2 appellate R4 — the map the run's findings are attributed
+    # against is resolved BEFORE the first write of the run (artifact, run
+    # row, run-by-cycle index, raw findings). A store that cannot attribute
+    # (`service_key_map_unavailable`, `project_manifest_unreadable`) refuses
+    # the whole run by name here; resolved after the appends, the refusal
+    # left a run claiming N emitted findings that findings.jsonl never got,
+    # and no health decision.
+    emitted_findings = list(envelope["emitted_findings"]) if isinstance(envelope["emitted_findings"], list) else []
+    project_roots = project_map(base_dir=base_dir) if emitted_findings else None
 
     scope_violations = find_scope_violations(tool, envelope["read_paths"])
     if scope_violations and envelope["status"] == "ok":
@@ -213,10 +223,9 @@ def record_run(
     # _runtime_artifact_payload; the row only needs the counts. v1 writes NO
     # artifact, so stripping the arrays there would lose the observation
     # content entirely (adversarial review caught this) — v1 keeps them.
-    # Copy the arrays for record_findings_for_run (which reads them from the
-    # envelope AFTER the append — popping before the append starves
-    # findings.jsonl), then strip from the row only when the artifact exists.
-    _saved_emitted_findings = list(envelope.get("emitted_findings") or [])
+    # The arrays for record_findings_for_run were copied above (before the
+    # artifact write), so they are stripped from the row here only when the
+    # artifact exists.
     envelope["emitted_counts"] = {
         "observations": _count(envelope.get("emitted_observations")),
         "findings": _count(envelope.get("emitted_findings")),
@@ -228,7 +237,10 @@ def record_run(
     if ledger_format in ("v2-shadow", "v2"):
         append_run_by_cycle(base_dir=base_dir, cycle_uid=envelope["cycle_id"], run_row=run_row)
     record_raw_findings_for_run(envelope, raw_findings, base_dir=base_dir)
-    record_findings_for_run(envelope, emitted_findings=_saved_emitted_findings, base_dir=base_dir)
+    if project_roots is not None:
+        record_findings_for_run(
+            envelope, emitted_findings=emitted_findings, project_roots=project_roots, base_dir=base_dir,
+        )
     decision = evaluate_health(envelope["tool_id"], base_dir=base_dir, latest_run=envelope)
     append_jsonl(health_path(base_dir), decision)
     if envelope["status"] == "tool_unhealthy":

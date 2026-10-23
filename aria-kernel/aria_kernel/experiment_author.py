@@ -56,11 +56,16 @@ def author_night_experiments(
         register_recipe,
     )
     from .finding import _replay_findings
-    from .service_dimension import finding_dimension_paths, service_for_path
+    from .impact_graph import project_map
+    from .service_dimension import services_for_finding_row
     from .validation import parse_allowed_command
 
     repo_path = Path(repo_root).resolve()
     ensure_tools_dir(base_dir)
+    # SE-1 — the finding's projects come from the one row reader over this
+    # workspace's current map, so the ``--projects=`` value below is the nx
+    # name the test target is registered under, not a directory guess.
+    project_roots = project_map(workspace_root=repo_path, base_dir=base_dir)
 
     bound_findings = {
         str(row.get("finding_ref"))
@@ -81,13 +86,15 @@ def author_night_experiments(
         if finding_id in bound_findings:
             deduped.append(finding_id)
             continue
-        services = sorted({
-            service
-            for service in (
-                service_for_path(path) for path in finding_dimension_paths(doc)
-            )
-            if service and not service.startswith(("shared:", "web:"))
-        })
+        # Service-scoped = an application project (rooted under ``apps/``):
+        # a library or web finding is not authorable as one service's red
+        # test. A stored name the current map no longer holds is a project
+        # that was removed or renamed, and is not authorable either.
+        services = [
+            project
+            for project in services_for_finding_row(doc, project_roots)
+            if project in project_roots and project_roots[project].startswith("apps/")
+        ]
         if not services:
             unauthorable.append({
                 "finding_id": finding_id,

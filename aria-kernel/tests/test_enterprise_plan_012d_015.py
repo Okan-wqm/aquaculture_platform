@@ -33,7 +33,7 @@ from tests._helpers.declared_fixtures import (
     append_declared_fixture,
     seed_validation_provenance,
 )
-from aria_kernel.tool_registry import GovernanceError
+from aria_kernel.tool_registry import GovernanceError, ensure_tools_binding
 from tests._helpers.operator_acts import operator_set_profile
 
 
@@ -445,6 +445,9 @@ class EnterprisePlan012DTo015Tests(unittest.TestCase):
             validation_command="python3 -m unittest --help",
             base_dir=self.tools_dir,
         )
+        # The split groups files by the project that owns them, over the
+        # store's map (SE-1 round 2): the store declares its workspace.
+        ensure_tools_binding(self.tools_dir, workspace_root=self.root)
         split = plan_pr_split(
             proposal_id=proposal["proposal_id"],
             changed_files=["apps/api/src/a.ts", "apps/farm-service/src/b.ts"],

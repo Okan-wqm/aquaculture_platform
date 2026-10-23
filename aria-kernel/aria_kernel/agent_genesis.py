@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any
 
 from .ack_row import AckScope
@@ -17,6 +18,7 @@ from .draft_intent import (
     AgentDraftIntent,
 )
 from .draft_pii_filter import mask_pii_in_intent
+from .impact_graph import project_for_path, project_map
 from .ledger import (
     append_declared_jsonl,
     load_declared_jsonl,
@@ -198,7 +200,9 @@ def draft_agent_from_gap(
     draft = {
         "name": name,
         "purpose": gap["title"],
-        "scope_globs": _scope_from_evidence(gap.get("evidence_refs", [])),
+        "scope_globs": _scope_from_evidence(
+            gap.get("evidence_refs", []), project_map(base_dir=base_dir)
+        ),
         "forbidden_globs": ["secrets/**", ".env*", "node_modules/**", "dist/**", "aria-tools/**"],
         "evidence_contract": "Every finding must cite repo paths from scope_globs and include severity.",
         "output_schema": {"required": ["findings", "observations", "evidence_refs"]},
@@ -1228,15 +1232,22 @@ def _agent_name(gap: dict[str, Any]) -> str:
     return "aria-" + (base[:48].strip("-") or "capability-gap")
 
 
-def _scope_from_evidence(evidence_refs: list[str]) -> list[str]:
-    scopes = []
-    for ref in evidence_refs:
-        parts = str(ref).split("/")
-        if len(parts) >= 2 and parts[0] in ("apps", "libs"):
-            scopes.append(f"{parts[0]}/{parts[1]}/**")
-        elif len(parts) >= 3 and parts[0] == "platform":
-            scopes.append(f"platform/libs/{parts[2]}/**")
-    return sorted(set(scopes)) or ["**/*"]
+def _scope_from_evidence(evidence_refs: list[str], project_roots: Mapping[str, str]) -> list[str]:
+    """The draft's evidence boundary: the root of every project its evidence
+    lies in, attributed by the one path -> project owner
+    (`impact_graph.project_for_path`) over the store's current map.
+
+    SE-1 round 2: this was a convention of its own (``apps/<dir>``,
+    ``libs/<dir>``, ``platform/libs/<dir>``), so a web module, a tools
+    project or a marker-discovered project gave the agent the whole
+    repository as its scope while the impacted set named the project.
+    """
+    scopes = {
+        f"{project_roots[project]}/**"
+        for project in (project_for_path(str(ref), project_roots) for ref in evidence_refs)
+        if project is not None
+    }
+    return sorted(scopes) or ["**/*"]
 
 
 def _validate_draft(draft: dict[str, Any]) -> None:

@@ -36,6 +36,9 @@ from aria_kernel.mutation_canary import (
     CANARY_GROUP_PREFIX,
     CANARY_SOURCE_TYPE,
     CANARY_TOOL_ID,
+    _FALSE_CLAIMS,
+    _MUTANTS,
+    _SANDBOX_FILES,
     build_canary_corpus,
     mint_canary_judgments,
     register_canary_corpus,
@@ -100,6 +103,26 @@ class CorpusTests(CanaryBase):
         # The mutants are real: the sandbox file actually changed.
         text = (self.sandbox / "sensor_range.py").read_text()
         self.assertIn("return lo < value < hi", text)
+
+    def test_every_item_ref_names_its_anchor_line_one_indexed(self) -> None:
+        """An item's evidence ref is ``<file>:<line>`` in the kernel's
+        1-indexed convention, and that line of the unmutated sandbox text IS
+        the line the item is about: the mutant's ``find`` or the false
+        claim's ``anchor``. A 0-indexed ref names the line above it (a
+        docstring or a def), so a judge would be handed evidence for a
+        different line than the planted defect."""
+        corpus = build_canary_corpus(sandbox_root=self.sandbox)
+        anchors = {f"canary:{mutant['rule']}": mutant["find"] for mutant in _MUTANTS}
+        anchors.update({f"canary:{claim['rule']}": claim["anchor"] for claim in _FALSE_CLAIMS})
+        self.assertEqual({item["item_id"] for item in corpus["items"]}, set(anchors))
+        for item in corpus["items"]:
+            file, line = str(item["path"]).rsplit(":", 1)
+            self.assertGreaterEqual(int(line), 1, item["path"])
+            self.assertEqual(
+                _SANDBOX_FILES[file].splitlines()[int(line) - 1],
+                anchors[item["item_id"]],
+                item["path"],
+            )
 
     def test_sandbox_is_a_fresh_hermetic_repo(self) -> None:
         corpus = build_canary_corpus(sandbox_root=self.sandbox)

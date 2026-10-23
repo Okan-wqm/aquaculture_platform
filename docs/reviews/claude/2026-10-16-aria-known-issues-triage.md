@@ -3829,3 +3829,13 @@ Not closed here, on the record:
 - `0fab74f54`, `194d7faf3` and `0a87da08c` carry no `Closes:` trailer in the validator's
   grammar. Their messages are not rewritten; the program lead allowlisted the three SHAs in
   `tools/gates/commit-msg-validator.ts` `PRE_PHASE6_SHAS`, and this commit closes their findings.
+
+Registered by the red-CI repair (2026-10-23, appellate root R2, same rule as item 4 above):
+
+- ARIA-MEDIUM-799: the canary corpus' hand-typed evidence refs named the wrong sandbox line
+  (four of five 0-indexed, one at the def line). `0b164c319` derives each ref from its anchor
+  line (`mutation_canary._anchor_ref`, 1-indexed) but carried no row and no proving test. The
+  pin `test_mutation_canary.CorpusTests.test_every_item_ref_names_its_anchor_line_one_indexed`
+  reads each item's line out of `_SANDBOX_FILES` and fails with `_anchor_ref` at `start=0`;
+  its commit closes 799. The canary lane itself stays Part of ARIA-HIGH-697 (no production
+  builder until F5.4).

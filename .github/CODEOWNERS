@@ -41,6 +41,13 @@ tools/aria-poc/                @Okan-wqm
 # an owner for every member.
 tools/aria-acceptance/         @Okan-wqm
 aria-config/                   @Okan-wqm
+# The interpreter start-up hooks on the kernel suite's PYTHONPATH roots
+# (aria-kernel/ and the repository root) run before pytest collects
+# anything, in every form the importer loads them by name; they are members
+# of the derived authority set too.
+/sitecustomize*                @Okan-wqm
+/usercustomize*                @Okan-wqm
+/__pycache__/                  @Okan-wqm
 aria-tools/preflight/           @Okan-wqm
 package.json                    @Okan-wqm
 package-lock.json               @Okan-wqm

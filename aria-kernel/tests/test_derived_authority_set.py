@@ -44,17 +44,28 @@ NOT PINNABLE ON THIS BASE. ``kernel_change_lane`` is not on main (it is on
 landing/aria-kc-l). Its two calls to ``realized_diff_authority_violations``
 (pin proof, before merge) are pinned when that landing meets this one.
 
-Board import closure: the floor pinned here is the closure over MODULE-LEVEL
-imports. ``harness.py`` also imports ``aria_kernel.cycle`` inside a function;
-that import runs the candidate under exam (ARIA's own cycle), not the scorer,
-so it does not make the whole kernel Board code.
+Import closure: the set is closed under MODULE-LEVEL import — every kernel
+file a Python member executes when it is imported is a member (the Board's
+scorer imports, and the modules the guards themselves import, which decide
+the set). The oracle here is the interpreter, not a second walker: a
+subprocess imports the Board runner and the guards and every kernel file it
+loaded must be a member. ``harness.py`` also imports ``aria_kernel.cycle``
+inside a function; that import runs the candidate under exam (ARIA's own
+cycle), not the scorer, so it does not make the whole kernel Board code.
+That holds only because ``aria_kernel/__init__.py`` is lazy (PEP 562): its old
+eager export loop ran ~180 kernel files on any kernel import.
+
+Corrective round 1 (appellate roots R1–R8) added
+``TheSetHoldsWhatItsMembersExecute`` and ``TheRealizedDiffOverTheRealKernel``;
+every case it added elsewhere names its root (``R<n>``) in a comment.
 """
 from __future__ import annotations
 
-import ast
 import json
+import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -64,6 +75,7 @@ from aria_kernel import self_improvement
 from aria_kernel.canonical_path import matches_repo_glob
 from aria_kernel.risk_policy import codeowners_last_match, codeowners_rules
 from aria_kernel.surface_waivers import WAIVER_MANIFESTS
+from aria_kernel.tool_registry import GovernanceError
 from tests._helpers.git_fixtures import make_local_git_repo
 from tests._helpers.pre_merge_evidence import fixture_pre_merge_evidence
 
@@ -103,6 +115,19 @@ _TEST_COLLECTION: tuple[str, ...] = (
     f"{_KERNEL}validation_runs_ledger.py",
     f"{_KERNEL}validation_b1probe.py",
     f"{_KERNEL}validation_matrix_gate.py",
+    # pytest's ini candidates in the rootdir: pytest.ini and .pytest.ini
+    # outrank pyproject.toml, tox.ini and setup.cfg decide once it loses its
+    # section (R3).
+    "aria-kernel/pytest.ini",
+    "aria-kernel/.pytest.ini",
+    "aria-kernel/tox.ini",
+    "aria-kernel/setup.cfg",
+    # `site` imports these by name from the suite's PYTHONPATH roots
+    # (aria-kernel/ and the repository root) before pytest starts (R3).
+    "aria-kernel/sitecustomize.py",
+    "aria-kernel/usercustomize.py",
+    "sitecustomize.py",
+    "usercustomize.py",
     "aria-kernel/closure-reachability-baseline.json",
     *("/".join(manifest.relpath) for manifest in WAIVER_MANIFESTS),
     "aria-kernel/tests/test_b1probe.py",
@@ -205,38 +230,23 @@ def _owned(path: str) -> bool:
 _CODEOWNERS_RULES = codeowners_rules()
 
 
-def _module_level_kernel_imports(path: Path, kernel_dir: Path) -> set[str]:
-    """``aria_kernel`` modules ``path`` imports at module level (top-level statements only)."""
-    found: set[str] = set()
-    for node in ast.parse(path.read_text(encoding="utf-8")).body:
-        names: list[str] = []
-        if isinstance(node, ast.ImportFrom):
-            if node.level:
-                names = [node.module.split(".")[0]] if node.module else [alias.name for alias in node.names]
-            elif node.module and node.module.split(".")[0] == "aria_kernel":
-                parts = node.module.split(".")
-                names = [parts[1]] if len(parts) > 1 else [alias.name for alias in node.names]
-        elif isinstance(node, ast.Import):
-            names = [alias.name.split(".")[1] for alias in node.names
-                     if alias.name.startswith("aria_kernel.")]
-        found.update(name for name in names if (kernel_dir / f"{name}.py").is_file())
-    return found
-
-
-def _board_import_closure(root: Path) -> set[str]:
-    """Kernel module paths reachable from tools/aria-acceptance/*.py over module-level imports."""
-    kernel_dir = root / "aria-kernel" / "aria_kernel"
-    pending: set[str] = set()
-    for source in sorted((root / "tools" / "aria-acceptance").glob("*.py")):
-        pending |= _module_level_kernel_imports(source, kernel_dir)
-    seen: set[str] = set()
-    while pending:
-        name = pending.pop()
-        if name in seen:
-            continue
-        seen.add(name)
-        pending |= _module_level_kernel_imports(kernel_dir / f"{name}.py", kernel_dir) - seen
-    return {f"{_KERNEL}{name}.py" for name in seen}
+def _loaded_kernel_files(modules: tuple[str, ...], *, extra_path: tuple[Path, ...] = ()) -> list[str]:
+    """The kernel files the INTERPRETER loads when a fresh process imports
+    ``modules`` with the suite's PYTHONPATH: the oracle the closure answers to."""
+    script = (
+        "import importlib, sys\n"
+        "for name in sys.argv[1:]:\n"
+        "    importlib.import_module(name)\n"
+        "for module in list(sys.modules.values()):\n"
+        "    print(getattr(module, '__file__', None) or '')\n"
+    )
+    environment = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONPATH": os.pathsep.join(
+        (*map(str, extra_path), str(_REPO_ROOT / "aria-kernel"), str(_REPO_ROOT)))}
+    completed = subprocess.run([sys.executable, "-c", script, *modules], cwd=_REPO_ROOT, env=environment,
+                               capture_output=True, text=True, check=True)
+    kernel_dir = _REPO_ROOT / "aria-kernel" / "aria_kernel"
+    loaded = {Path(line).resolve() for line in completed.stdout.splitlines() if line.endswith(".py")}
+    return sorted(path.relative_to(_REPO_ROOT).as_posix() for path in loaded if path.is_relative_to(kernel_dir))
 
 
 # =============================================================================
@@ -313,10 +323,12 @@ class TheFullSetInvariant(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue(_is_member(path, self.entries), path)
 
-    def test_the_board_scorer_import_closure_is_in_the_set(self) -> None:
-        closure = _board_import_closure(_REPO_ROOT)
-        self.assertIn(f"{_KERNEL}evidence_trust.py", closure)  # the oracle sees the harness
-        for path in sorted(closure):
+    def test_every_kernel_file_the_board_runner_loads_is_in_the_set(self) -> None:
+        board = _REPO_ROOT / "tools" / "aria-acceptance"
+        runners = tuple(sorted(path.stem for path in board.glob("*.py") if not path.name.startswith("test_")))
+        loaded = _loaded_kernel_files(runners, extra_path=(board,))
+        self.assertIn(f"{_KERNEL}evidence_trust.py", loaded)  # the oracle sees the harness
+        for path in loaded:
             with self.subTest(path=path):
                 self.assertTrue(_is_member(path, self.entries), path)
 
@@ -341,6 +353,94 @@ class TheClosureIsComputedFromTheTree(unittest.TestCase):
         self.assertTrue(_is_member(f"{_KERNEL}b1_beta.py", entries))
         self.assertFalse(_is_member(f"{_KERNEL}b1_gamma.py", entries),
                          "a kernel module the Board does not reach is not Board code")
+
+    @staticmethod
+    def _tree(root: Path, files: dict[str, str]) -> None:
+        for rel, text in files.items():
+            target = root / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text, encoding="utf-8")
+
+    def test_the_planned_board_module_brings_its_imports_once_it_exists(self) -> None:
+        # R2 — examination_board seeds the closure the day it exists.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._tree(root, {f"{_KERNEL}__init__.py": "", f"{_KERNEL}b1_scorer.py": "S = 1\n",
+                              "tools/aria-acceptance/harness.py": "import json\n"})
+            before = tuple(self_improvement.derived_authority_set(root))
+            self._tree(root, {f"{_KERNEL}examination_board.py": "from .b1_scorer import S\n"})
+            after = tuple(self_improvement.derived_authority_set(root))
+        self.assertFalse(_is_member(f"{_KERNEL}b1_scorer.py", before))
+        self.assertTrue(_is_member(f"{_KERNEL}b1_scorer.py", after))
+
+    def test_a_guard_brings_the_modules_it_imports(self) -> None:
+        # R1 — the modules that decide the set are members because a guard imports them.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._tree(root, {f"{_KERNEL}__init__.py": "",
+                              f"{_KERNEL}self_improvement.py": "from .b1_decider import DECIDE\n",
+                              f"{_KERNEL}self_revert.py": "from aria_kernel.b1_rail_helper import H\n",
+                              f"{_KERNEL}b1_decider.py": "from . import b1_decider_dep\nDECIDE = 1\n",
+                              f"{_KERNEL}b1_decider_dep.py": "D = 1\n",
+                              f"{_KERNEL}b1_rail_helper.py": "H = 1\n",
+                              f"{_KERNEL}b1_bystander.py": "B = 1\n"})
+            entries = tuple(self_improvement.derived_authority_set(root))
+        for name in ("b1_decider", "b1_decider_dep", "b1_rail_helper"):
+            with self.subTest(module=name):
+                self.assertTrue(_is_member(f"{_KERNEL}{name}.py", entries))
+        self.assertFalse(_is_member(f"{_KERNEL}b1_bystander.py", entries))
+
+    def test_a_name_only_the_package_getattr_resolves_is_refused(self) -> None:
+        # R2 — a PEP 562 `__getattr__` loads modules the source does not name,
+        # so the closure refuses to guess what such an import runs.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._tree(root, {f"{_KERNEL}__init__.py": "VERSION = 1\ndef __getattr__(name):\n    raise AttributeError(name)\n",
+                              f"{_KERNEL}b1_alpha.py": "A = 1\n",
+                              "tools/aria-acceptance/harness.py": "from aria_kernel import b1_alpha, VERSION\n"})
+            self.assertTrue(_is_member(f"{_KERNEL}b1_alpha.py", tuple(self_improvement.derived_authority_set(root))))
+            self._tree(root, {"tools/aria-acceptance/harness.py": "from aria_kernel import register_b1\n"})
+            with self.assertRaisesRegex(GovernanceError, "authority_closure_dynamic_import:.*__init__.py:register_b1"):
+                self_improvement.derived_authority_set(root)
+
+
+class TheSetHoldsWhatItsMembersExecute(unittest.TestCase):
+    """R1/R2 — the interpreter is the oracle: what importing a member loads is in the set."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.entries = tuple(self_improvement.derived_authority_set(_REPO_ROOT))
+
+    def test_importing_one_kernel_module_runs_only_its_own_imports(self) -> None:
+        # R2 — the package's eager export loop ran ~180 files on any kernel import.
+        loaded = _loaded_kernel_files(("aria_kernel.evidence_trust",))
+        self.assertIn(f"{_KERNEL}evidence_trust.py", loaded)
+        self.assertNotIn(f"{_KERNEL}cycle.py", loaded)
+        self.assertNotIn(f"{_KERNEL}pressure.py", loaded)
+
+    def test_every_kernel_file_the_guards_load_is_in_the_set(self) -> None:
+        # R1 — the guards (self_improvement, implementation_safety, the rails) and what they import.
+        guards = ("self_improvement", "implementation_safety", *(
+            Path(rail).stem for rail in self_improvement.RAIL_MODULES if (_REPO_ROOT / rail).is_file()))
+        loaded = _loaded_kernel_files(tuple(f"aria_kernel.{name}" for name in guards))
+        for decider in ("change_paths", "surface_waivers", "closure_reachability"):
+            self.assertIn(f"{_KERNEL}{decider}.py", loaded)
+        for path in loaded:
+            with self.subTest(path=path):
+                self.assertTrue(_is_member(path, self.entries), path)
+
+    def test_every_kernel_module_member_is_refused_by_its_name_in_every_form(self) -> None:
+        # R5 — a package or an extension module beside a member is imported instead of it.
+        members = [name for name in _tracked_files()
+                   if name.startswith(_KERNEL) and name.endswith(".py") and not name.endswith("/__init__.py")
+                   and _is_member(name, self.entries)]
+        self.assertIn(f"{_KERNEL}self_revert.py", members)
+        for path in members:
+            stem = path.removesuffix(".py")
+            for shadow in (f"{stem}/__init__.py", f"{stem}.abi3.so", f"{stem}.cpython-312-x86_64-linux-gnu.so"):
+                with self.subTest(shadow=shadow):
+                    self.assertEqual(self_improvement.authority_surface_violations([shadow]),
+                                     [f"authority_surface:{shadow}"])
 
 
 class EveryConsumerProjectsTheWholeSet(unittest.TestCase):
@@ -467,6 +567,30 @@ class TheRealizedDiffRefusesRailWeakening(unittest.TestCase):
                 head = self._change(edits)
                 self.assertIn(f"authority_surface:{path}", self._violations(head))
 
+    def test_a_collection_config_that_outranks_pyproject_is_refused(self) -> None:
+        # R3 — pytest reads aria-kernel/pytest.ini before pyproject.toml.
+        head = self._change({"aria-kernel/pytest.ini": "[pytest]\npython_files = nothing_*.py\n"})
+        self.assertIn("authority_surface:aria-kernel/pytest.ini", self._violations(head))
+
+    def test_the_realized_judge_is_the_declared_judge(self) -> None:
+        # R4 — a branch can touch nothing its declaration could not.
+        paths = (".github/CODEOWNERS", "sitecustomize.py")
+        head = self._change({path: "# b1\n" for path in paths})
+        self.assertEqual(self._violations(head), [f"outside_kernel_scope:{path}" for path in paths])
+        self.assertEqual(self_improvement.authority_surface_violations(list(paths)), self._violations(head))
+
+    def test_an_attribute_at_base_does_not_change_what_base_derives(self) -> None:
+        # R6 — `git archive` honours an in-tree export-ignore; the set reads the blobs.
+        self.base = self._change({
+            f"{_KERNEL}.gitattributes": "*.py export-ignore\n",
+            f"{_KERNEL}evidence_probe.py": "class GitProbeSession:\n    pass\n",
+            "tools/aria-acceptance/harness.py": "from aria_kernel.evidence_probe import GitProbeSession\n",
+        })
+        self.assertEqual(self_improvement._authority_set_at(self.repo, self.base),
+                         self_improvement.derived_authority_set(self.repo))
+        head = self._change({f"{_KERNEL}evidence_probe.py": "GitProbeSession = None\n"})
+        self.assertIn(f"authority_surface:{_KERNEL}evidence_probe.py", self._violations(head))
+
     def test_a_conftest_the_change_adds_is_refused(self) -> None:
         head = self._change({"aria-kernel/conftest.py": "collect_ignore_glob = ['tests/*']\n"})
         self.assertIn("authority_surface:aria-kernel/conftest.py", self._violations(head))
@@ -497,6 +621,67 @@ class TheRealizedDiffRefusesRailWeakening(unittest.TestCase):
                              f"{_KERNEL}self_revert.py": "TRIGGER_CHANGE_OUTCOME = None\n"})
         self.assertEqual(self._violations(both, board_pin_path=witness),
                          [f"authority_surface:{_KERNEL}self_revert.py"])
+
+
+class TheRealizedDiffOverTheRealKernel(unittest.TestCase):
+    """R1/R5 — the realized-diff check on a base that carries the REAL kernel and Board runner."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._tmp = tempfile.TemporaryDirectory(prefix="aria-b1-real-")
+        cls.repo = make_local_git_repo(Path(cls._tmp.name))
+        listed = subprocess.run(["git", "ls-files", "-z", "--", "aria-kernel/aria_kernel", "tools/aria-acceptance"],
+                                cwd=_REPO_ROOT, capture_output=True, check=True).stdout.decode("utf-8")
+        for rel in filter(None, listed.split("\0")):
+            target = cls.repo / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(_REPO_ROOT / rel, target)
+        _git(cls.repo, "add", "-A")
+        _git(cls.repo, "commit", "-q", "-m", "fixture: the real kernel")
+        cls.base = _git(cls.repo, "rev-parse", "HEAD")
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls._tmp.cleanup()
+
+    def _head(self, added: dict[str, str], edited: tuple[str, ...] = ()) -> str:
+        _git(self.repo, "checkout", "-q", "--detach", self.base)
+        for rel in edited:
+            target = self.repo / rel
+            target.write_text(target.read_text(encoding="utf-8") + "\nB1_WEAKENED = True\n", encoding="utf-8")
+        for rel, text in added.items():
+            target = self.repo / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text, encoding="utf-8")
+        _git(self.repo, "add", "-A")
+        _git(self.repo, "commit", "-q", "-m", "fixture: change")
+        return _git(self.repo, "rev-parse", "HEAD")
+
+    def test_an_edit_to_a_module_that_decides_the_set_is_refused(self) -> None:
+        # R1 — one change to a decider, then a second one weakens a rail.
+        deciders = tuple(f"{_KERNEL}{name}.py" for name in ("change_paths", "surface_waivers", "closure_reachability"))
+        violations = self_improvement.realized_diff_authority_violations(self.repo, base=self.base,
+                                                                         head=self._head({}, deciders))
+        for path in deciders:
+            with self.subTest(path=path):
+                self.assertIn(f"authority_surface:{path}", violations)
+
+    def test_a_module_added_beside_a_member_under_its_name_is_refused(self) -> None:
+        # R5 — EVERY kernel module member of the base's set (the rails, the
+        # Board closure, the guards and what they import), shadowed two ways.
+        entries = tuple(self_improvement.derived_authority_set(self.repo))
+        stems = sorted(path.removesuffix(".py") for path in (
+            p.relative_to(self.repo).as_posix() for p in (self.repo / _KERNEL).rglob("*.py"))
+            if not path.endswith("/__init__.py") and _is_member(path, entries))
+        for rail in ("self_revert", "change_outcome", "genesis_policy", "git_containment",
+                     "evidence_trust", "self_improvement"):
+            self.assertIn(f"{_KERNEL}{rail}", stems)
+        shadows = {f"{stem}{form}": "ARMED = False\n" for stem in stems for form in ("/__init__.py", ".abi3.so")}
+        violations = self_improvement.realized_diff_authority_violations(self.repo, base=self.base,
+                                                                         head=self._head(shadows))
+        for path in shadows:
+            with self.subTest(path=path):
+                self.assertIn(f"authority_surface:{path}", violations)
 
 
 # =============================================================================

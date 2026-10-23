@@ -34,6 +34,13 @@ docs/aria/policy/autonomy-closure-findings.json @Okan-wqm
 docs/aria/schemas/              @Okan-wqm
 docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md @Okan-wqm
 tools/aria-poc/                @Okan-wqm
+# PLAN-v2 B1 — the Board's exam runner and the operator policy ARIA obeys
+# are members of the derived authority set
+# (aria-kernel/aria_kernel/self_improvement.py derived_authority_set); the
+# coverage invariant (aria-kernel/tests/test_derived_authority_set.py) needs
+# an owner for every member.
+tools/aria-acceptance/         @Okan-wqm
+aria-config/                   @Okan-wqm
 aria-tools/preflight/           @Okan-wqm
 package.json                    @Okan-wqm
 package-lock.json               @Okan-wqm

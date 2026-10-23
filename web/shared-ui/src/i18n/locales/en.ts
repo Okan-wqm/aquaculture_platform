@@ -32,8 +32,12 @@ export const en = {
   'guards.titleGeneric': 'An Error Occurred',
   'guards.refresh': 'Refresh Page',
   'guards.goHome': 'Go to Home',
-  'guards.checkingSession': 'Checking session...',
+  'guards.checkingSession': 'Checking your session, please wait.',
   'guards.shareCode': 'Share this code with support:',
+  // The one loading screen (BrandLoader, FE-MEDIUM-349): the word under the mark, and the
+  // status a screen reader announces when the caller names nothing more specific.
+  'brandLoader.loading': 'Loading…',
+  'brandLoader.label': 'Loading, please wait.',
   'common.search': 'Search',
   'common.noResults': 'No results found',
   'common.invalidDate': 'Invalid date',
@@ -419,8 +423,6 @@ export const en = {
   'messaging.backToChannels': 'Back to channels',
   'messaging.composerLabel': 'Message',
   'messaging.sendLabel': 'Send',
-  'messaging.checkingSession': 'Checking session…',
-  'messaging.loadingModule': 'Loading…',
   // FE-MEDIUM-065 — AI rooms: persona picker + dual consent (tenant switch ∧ user opt-in).
   'messaging.ai.newChat': 'New AI conversation',
   'messaging.ai.newTitle': 'New AI conversation',
@@ -933,7 +935,6 @@ export const en = {
   'common.dismiss': 'Dismiss',
   'common.dismissNotification': 'Dismiss notification',
   'common.processing': 'Processing...',
-  'common.pageLoading': 'Loading page...',
   'common.ok': 'OK',
   'common.all': 'All',
   'common.refresh': 'Refresh',

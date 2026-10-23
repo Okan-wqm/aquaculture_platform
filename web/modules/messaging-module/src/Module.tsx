@@ -6,10 +6,10 @@
  * Federation the remote bundle can be instantiated independently of the shell's
  * route guard, so the session is re-checked here.
  *
- * FAZ 3.3 (i18n completion): the root fallbacks are localized too (the useI18n
- * hook has a providerless English fallback, so they work pre-I18nProvider).
+ * The session check and the page loading are the shared gate (RequireAuth)
+ * and the one loading screen (BrandLoader, FE-MEDIUM-349), not copies.
  */
-import { useAuthContext, useI18n } from '@aquaculture/shared-ui';
+import { BrandLoader, RequireAuth } from '@aquaculture/shared-ui';
 import React, { Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 
@@ -17,31 +17,10 @@ const ChannelListPage = React.lazy(() => import('./pages/ChannelListPage'));
 const ChatRoomPage = React.lazy(() => import('./pages/ChatRoomPage'));
 const NewAiChatPage = React.lazy(() => import('./pages/NewAiChatPage'));
 
-const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAuthenticated, isLoading } = useAuthContext();
-  const { t } = useI18n();
-  if (isLoading) {
-    return (
-      <div className="flex h-48 items-center justify-center text-sm text-gray-500 dark:text-gray-400">
-        {t('messaging.checkingSession')}
-      </div>
-    );
-  }
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
-  return <>{children}</>;
-};
-
 const MessagingModule: React.FC = () => {
-  const { t } = useI18n();
   return (
     <RequireAuth>
-      <Suspense
-        fallback={
-          <div className="flex h-48 items-center justify-center text-sm text-gray-500 dark:text-gray-400">
-            {t('messaging.loadingModule')}
-          </div>
-        }
-      >
+      <Suspense fallback={<BrandLoader />}>
         <Routes>
           <Route path="/" element={<ChannelListPage />} />
           <Route path="/new-ai" element={<NewAiChatPage />} />

@@ -365,8 +365,7 @@ html[data-theme='dark'] {
   }
 }
 
-.industrial-auth,
-.industrial-auth-loading {
+.industrial-auth {
   position: relative;
   min-height: 100vh;
   min-height: 100svh;

@@ -32,8 +32,12 @@ export const tr: Record<MessageKey, string> = {
   'guards.titleGeneric': 'Bir Hata Oluştu',
   'guards.refresh': 'Sayfayı yenile',
   'guards.goHome': 'Ana sayfaya git',
-  'guards.checkingSession': 'Oturum kontrol ediliyor...',
+  'guards.checkingSession': 'Oturumunuz denetleniyor, lütfen bekleyin.',
   'guards.shareCode': 'Destek için bu kodu paylaşın:',
+  // The one loading screen (BrandLoader, FE-MEDIUM-349): the word under the mark, and the
+  // status a screen reader announces when the caller names nothing more specific.
+  'brandLoader.loading': 'Yükleniyor…',
+  'brandLoader.label': 'Yükleniyor, lütfen bekleyin.',
   'common.search': 'Ara',
   'common.noResults': 'Sonuç bulunamadı',
   'common.invalidDate': 'Geçersiz tarih',
@@ -419,8 +423,6 @@ export const tr: Record<MessageKey, string> = {
   'messaging.backToChannels': 'Kanallara dön',
   'messaging.composerLabel': 'Mesaj',
   'messaging.sendLabel': 'Gönder',
-  'messaging.checkingSession': 'Oturum kontrol ediliyor…',
-  'messaging.loadingModule': 'Yükleniyor…',
   // FE-MEDIUM-065 — AI odaları: persona seçici + çifte rıza (tenant anahtarı ∧ kullanıcı onayı).
   'messaging.ai.newChat': 'Yeni yapay zekâ sohbeti',
   'messaging.ai.newTitle': 'Yeni yapay zekâ sohbeti',
@@ -933,7 +935,6 @@ export const tr: Record<MessageKey, string> = {
   'common.dismiss': 'Kapat',
   'common.dismissNotification': 'Bildirimi kapat',
   'common.processing': 'İşleniyor...',
-  'common.pageLoading': 'Sayfa yükleniyor...',
   'common.ok': 'Tamam',
   'common.all': 'Tümü',
   'common.refresh': 'Yenile',

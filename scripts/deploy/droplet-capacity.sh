@@ -64,7 +64,11 @@ FULL_HARD_FREE_GIB="${FULL_HARD_FREE_GIB:-35}"
 # 50 GiB warn fired on EVERY deploy (alert fatigue). 45 stays well above the 35 GiB
 # hard floor while still warning before the box is genuinely tight. Non-blocking (returns 1).
 FULL_WARN_FREE_GIB="${FULL_WARN_FREE_GIB:-45}"
-FULL_HARD_FREE_PERCENT="${FULL_HARD_FREE_PERCENT:-20}"
+# Percent floor 10 (was 20), the same as the selective floor. On the 227 GiB droplet 20% is 45 GiB,
+# which is above the 45 GiB warn line, so the percent term and not the 35 GiB floor was the binding
+# hard limit: a deploy was refused at 19% free (44 GiB) on 2026-10-23. The 35 GiB absolute floor and
+# the projected-pull reserve below stay the guards. Owner decision (Okan, 2026-10-23).
+FULL_HARD_FREE_PERCENT="${FULL_HARD_FREE_PERCENT:-10}"
 SELECTIVE_HARD_FREE_GIB="${SELECTIVE_HARD_FREE_GIB:-15}"
 SELECTIVE_WARN_FREE_GIB="${SELECTIVE_WARN_FREE_GIB:-25}"
 SELECTIVE_HARD_FREE_PERCENT="${SELECTIVE_HARD_FREE_PERCENT:-10}"

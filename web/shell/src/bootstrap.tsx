@@ -6,18 +6,13 @@
  * main.tsx does only `import('./bootstrap')` to trigger this asynchronously.
  */
 
-import { AuthProvider, TenantProvider, ConfiguredBrowserRouter, I18nProvider, ToastProvider, ConfirmProvider, registerLogoutCleanup, refetchWhenBackendHealthy } from '@aquaculture/shared-ui';
+import { AuthProvider, TenantProvider, ConfiguredBrowserRouter, I18nProvider, ToastProvider, ConfirmProvider, holdBootSplashTurn, registerLogoutCleanup, refetchWhenBackendHealthy } from '@aquaculture/shared-ui';
 import { installVisibilityTokenRefresh } from '@aquaculture/shared-ui';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 
 import App from './App';
-import {
-  applyThemePreference,
-  followSystemThemePreference,
-  getStoredThemePreference,
-} from './utils/theme';
 import './styles/index.css';
 
 // SECURITY: Remote integrity guard is installed in main.tsx (before this
@@ -28,11 +23,8 @@ import './styles/index.css';
 // FE-HIGH-006: Install visibilitychange listener so returning to a sleeping
 // tab triggers a proactive token refresh instead of a 401 force-logout.
 installVisibilityTokenRefresh();
-// The theme lives on <html> (utils/theme.ts): apply the stored preference, and
-// let the OS colour scheme move it while that preference is "system" — one
-// listener for the app's lifetime, whichever page is open.
-applyThemePreference(getStoredThemePreference());
-followSystemThemePreference();
+// The theme is already on <html>: main.tsx applies it before it imports this
+// chunk, so it is resolved before this chunk's stylesheet arrives (FE-MEDIUM-349).
 
 // ============================================================================
 // Query Client Configuration
@@ -153,6 +145,12 @@ const root = document.getElementById('root');
 if (!root) {
   throw new Error('Root element not found');
 }
+
+// The first render replaces index.html's boot splash with React's BrandLoader,
+// the same markup; reading the splash mark's turn now lets the new mark carry
+// on at the angle the old one had reached instead of snapping back
+// (FE-MEDIUM-349).
+holdBootSplashTurn(root);
 
 ReactDOM.createRoot(root).render(
   <React.StrictMode>

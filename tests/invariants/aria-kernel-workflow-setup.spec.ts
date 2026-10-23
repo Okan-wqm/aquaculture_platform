@@ -83,10 +83,15 @@ type Job = { steps?: Step[]; environment?: string | { name?: string } };
 /** The Examination Board's GitHub environment (board/SETUP.md, PLAN-v2 B0). */
 const BOARD_ENVIRONMENT = 'aria-board';
 
+/**
+ * GitHub environment names are case-insensitive, so the exemption compares the
+ * name case-folded, as the Python guard's `is_board_job` does (B0 corrective
+ * round 3, R3-3). An expression environment is refused by that guard.
+ */
 function isBoardJob(job: Job | undefined): boolean {
   const environment = job?.environment;
   const name = typeof environment === 'string' ? environment : environment?.name;
-  return name === BOARD_ENVIRONMENT;
+  return typeof name === 'string' && name.toLowerCase() === BOARD_ENVIRONMENT;
 }
 type Workflow = { jobs?: Record<string, Job> };
 

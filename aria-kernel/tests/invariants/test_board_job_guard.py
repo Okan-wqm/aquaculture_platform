@@ -5,7 +5,7 @@ secrets (``ARIA_BOARD_SIGNING_KEY``, ``ARIA_BOARD_VAULT_DEPLOY_KEY``,
 ``ARIA_BOARD_VAULT_DATA_KEY``) live only in the GitHub environment
 ``aria-board``, whose deployment branch policy admits ``main`` alone
 (board/SETUP.md). The workflow side of that boundary is pinned here, for every
-job that declares ``environment: aria-board`` (a "Board job").
+job that declares ``environment: aria-board``, in any case (a "Board job").
 
 The guard is an ALLOW-LIST (B0 corrective round 3, R3-1): it lists what a
 Board job may be, and refuses anything it does not list. The steps of one job
@@ -60,7 +60,13 @@ Over that shape, the rules that judge its values:
 * the workflow that holds it runs no pull-request code (no ``pull_request``,
   ``pull_request_target`` or ``merge_group`` trigger);
 * no workflow-level ``env`` reaches a Board secret, and no job other than a
-  Board job names one or the ``aria-board`` environment.
+  Board job names one or the ``aria-board`` environment, in any case.
+
+A Board job is what GitHub gives the ``aria-board`` environment (round 3,
+R3-3): ``is_board_job`` compares the name casefolded, as GitHub does, and
+an ``environment:`` (string or ``name:``) holding an expression is a named
+violation in every workflow, since what it resolves to is decided at run
+time.
 
 Every rule is a function over one parsed workflow, so the guard is tested the
 way it fails: each mutation of the real Board workflow below, applied alone,
@@ -144,9 +150,28 @@ def _environment(job: dict[str, Any]) -> str | None:
     return str(env.get("name")) if isinstance(env, dict) else (str(env) if env is not None else None)
 
 
+def is_board_job(job: dict[str, Any]) -> bool:
+    """THE one reading of "GitHub gives this job the aria-board environment" (B0 corrective round 3, R3-3).
+
+    GitHub environment names are case-insensitive, so the name is compared
+    casefolded. An ``environment:`` that is an expression is not a Board job
+    here; it is a violation of its own (:func:`_environment_expression_violations`),
+    since what it resolves to is decided at run time.
+    """
+    name = _environment(job)
+    return name is not None and name.casefold() == BOARD_ENVIRONMENT
+
+
+def _environment_expression_violations(job: dict[str, Any]) -> list[str]:
+    """An ``environment:`` (a string or its ``name:``) holding ``${{``, in any job: it could resolve to aria-board."""
+    name = _environment(job)
+    return [f"environment {name!r} is an expression that could resolve to {BOARD_ENVIRONMENT}"] \
+        if name is not None and "${{" in name else []
+
+
 def _board_jobs_of(workflow: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     return [(job_id, job) for job_id, job in (workflow.get("jobs") or {}).items()
-            if isinstance(job, dict) and _environment(job) == BOARD_ENVIRONMENT]
+            if isinstance(job, dict) and is_board_job(job)]
 
 
 def _steps(job: dict[str, Any]) -> list[dict[str, Any]]:
@@ -402,10 +427,18 @@ _RULES: dict[str, Callable[[dict[str, Any], dict[str, Any]], list[str]]] = {
 
 
 def board_violations(workflow: dict[str, Any]) -> dict[str, list[str]]:
-    """Every guard rule's violations, per Board job of ``workflow`` (``{}`` when it holds none)."""
+    """Every guard rule's violations per Board job of ``workflow``, and every job's expression environment.
+
+    ``{}`` when ``workflow`` holds no Board job and no job whose environment
+    is an expression.
+    """
     found: dict[str, list[str]] = {}
-    for job_id, job in _board_jobs_of(workflow):
-        violations = [f"{rule}: {v}" for rule, check in _RULES.items() for v in check(workflow, job)]
+    for job_id, job in (workflow.get("jobs") or {}).items():
+        if not isinstance(job, dict):
+            continue
+        violations = [f"environment: {v}" for v in _environment_expression_violations(job)]
+        if is_board_job(job):
+            violations += [f"{rule}: {v}" for rule, check in _RULES.items() for v in check(workflow, job)]
         if violations:
             found[job_id] = violations
     return found
@@ -678,10 +711,10 @@ def board_secret_leaks(workflows: dict[str, dict[str, Any]]) -> list[str]:
         if any(board_secrets_reached(body) for _path, body in _expressions(workflow.get("env") or {})):
             leaks.append(f"{name}:env")
         for job_id, job in (workflow.get("jobs") or {}).items():
-            if not isinstance(job, dict) or _environment(job) == BOARD_ENVIRONMENT:
+            if not isinstance(job, dict) or is_board_job(job):
                 continue
-            text = yaml.safe_dump(job)
-            if "ARIA_BOARD_" in text or BOARD_ENVIRONMENT in text:
+            text = yaml.safe_dump(job).casefold()
+            if "aria_board_" in text or BOARD_ENVIRONMENT in text:
                 leaks.append(f"{name}/{job_id}")
     return leaks
 

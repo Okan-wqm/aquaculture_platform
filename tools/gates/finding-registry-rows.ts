@@ -61,22 +61,40 @@ function loadRowValidator(schemaPath: string): ValidateFunction {
 }
 
 export interface RowContractViolations {
-  /** `<instancePath>: <message> (<keyword>)`, one per schema error. */
+  /**
+   * `<instancePath>: <message> (<keyword>)`, one per schema error; on a schema-valid row, the
+   * created_at time rule (`createdAtViolation`).
+   */
   readonly schema: readonly string[];
   /** Non-canonical evidence items; checked only on a schema-valid row. */
   readonly evidence: readonly NonCanonicalFindingEvidence[];
 }
 
 /**
+ * A row cannot be created after the write that records it. `created_at` is the ledger's time: the
+ * staleness sweep and dedup's winner read it, and the hash chain seals it once merged. Four rows
+ * were once appended stamped about 9 h after the commit that added them (SE-3-R2 corrective R5);
+ * every writer passes through this contract, so such a row is refused at the write. Rows already
+ * in the ledger are not re-judged: only the rows a write changes reach this rule.
+ */
+function createdAtViolation(createdAt: unknown, now: Date): string | null {
+  if (typeof createdAt !== 'string') return null; // the schema requires and types it
+  const created = Date.parse(createdAt);
+  if (Number.isNaN(created) || created <= now.getTime()) return null;
+  return `/created_at ${createdAt} is after the write time ${now.toISOString()} (created_at)`;
+}
+
+/**
  * The row contract for one row. `evidence: 'always'` is the append path's
  * rule (a row written now is held to today's evidence shape whatever its
  * `created_at` says); `'post-cutover'` keeps the relaxed contract historical
- * rows were written under.
+ * rows were written under. `now` is the time of the write being judged.
  */
 export function rowContractViolations(
   row: unknown,
   schemaPath: string,
   evidence: 'always' | 'post-cutover',
+  now: Date = new Date(),
 ): RowContractViolations {
   const validate = loadRowValidator(schemaPath);
   if (!validate(row)) {
@@ -88,10 +106,12 @@ export function rowContractViolations(
     };
   }
   const finding = row as { created_at?: unknown; evidence?: unknown[] };
+  const future = createdAtViolation(finding.created_at, now);
+  const schema = future === null ? [] : [future];
   if (evidence === 'post-cutover' && !requiresCanonicalFindingEvidence(finding.created_at)) {
-    return { schema: [], evidence: [] };
+    return { schema, evidence: [] };
   }
-  return { schema: [], evidence: findNonCanonicalFindingEvidence(finding.evidence) };
+  return { schema, evidence: findNonCanonicalFindingEvidence(finding.evidence) };
 }
 
 function rowBody(entry: Finding): string {

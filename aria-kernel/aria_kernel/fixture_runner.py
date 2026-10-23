@@ -8,7 +8,6 @@ import time
 from pathlib import Path
 from typing import Any, Iterator
 
-from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 from .adapter_fixture_contract import expected_run_status
 from .adapter_room import adapter_stderr_sample, prepare_adapter_spawn, run_adapter
 from .genesis_adapter_custody import verify_genesis_dispatch
@@ -40,7 +39,7 @@ from .tool_registry import (
     utc_now,
 )
 from .tool_runner import _canonical_json_bytes, _decode_timeout_stream, _parse_tool_output
-from .workspace_view import hermetic_git
+from .workspace_view import WorkspaceViewRefused, hermetic_git, index_flagged_paths, workspace_head_sha
 from .digest import sha256_digest, sha256_digest_text
 
 
@@ -503,16 +502,6 @@ def _git(workspace_root: str | os.PathLike[str], *args: str, timeout: int = 60) 
     return hermetic_git(workspace_root, *args, timeout=timeout)
 
 
-def workspace_head_sha(workspace_root: str | os.PathLike[str]) -> str | None:
-    """The checkout's HEAD commit, or None when it is not a git checkout."""
-    try:
-        completed = _git(workspace_root, "rev-parse", "--verify", "HEAD^{commit}", timeout=30)
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    head = completed.stdout.strip()
-    return head if completed.returncode == 0 and is_object_id(head, formats=ANY_OBJECT_FORMAT) else None
-
-
 #: The branch an operator-run refresh may certify: its HEAD must already be
 #: reachable from it, so a clean feature branch cannot certify unmerged code.
 FIXTURE_REFRESH_PINNED_REMOTE = "origin"
@@ -551,12 +540,12 @@ def require_pinned_fixture_workspace(
     head = workspace_head_sha(requested)
     if head is None:
         raise GovernanceError(f"fixture_refresh_workspace_has_no_head: {requested.as_posix()}")
-    flagged = _git(requested, "ls-files", "-v")
-    if flagged.returncode != 0:
-        raise GovernanceError(f"fixture_refresh_workspace_unreadable: {flagged.stderr.strip()[:200]}")
-    hidden = [line[2:] for line in flagged.stdout.splitlines() if line[:1].islower() or line[:1] == "S"]
+    try:
+        hidden = index_flagged_paths(requested)
+    except WorkspaceViewRefused as exc:
+        raise GovernanceError(f"fixture_refresh_workspace_unreadable: {exc.reason}") from exc
     if hidden:
-        raise GovernanceError(f"fixture_refresh_workspace_index_flags_hide_changes: {hidden[:5]}")
+        raise GovernanceError(f"fixture_refresh_workspace_index_flags_hide_changes: {list(hidden[:5])}")
     pathspec = ["."]
     tools_root = ensure_tools_dir(base_dir).resolve()
     try:

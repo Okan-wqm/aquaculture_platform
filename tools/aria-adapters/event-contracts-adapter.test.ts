@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { makeFixtureTree } from '../gates/fixture-tree';
+import { eventFacts, scanEventDefinitions } from '../gates/event-consumer-index';
+import { indexFixtureTree, makeFixtureTree } from '../gates/fixture-tree';
 
 import { analyzeEventContracts } from './event-contracts-adapter';
 
@@ -94,6 +95,8 @@ writeFileSync(
   'utf8',
 );
 
+// The adapter reads the workspace's tracked content (SE-3-R2 appellate RC): its files are indexed.
+indexFixtureTree(workspace);
 const output = analyzeEventContracts({ root: 'libs/event-contracts/src' }, workspace);
 
 assert.equal(output.metadata.adapter, 'event-contracts-adapter');
@@ -183,6 +186,7 @@ writeFileSync(
   `,
   'utf8',
 );
+indexFixtureTree(workspace);
 const emptyCatalogOutput = analyzeEventContracts({ root: 'libs/event-contracts/src' }, workspace);
 assert.equal(
   emptyCatalogOutput.findings.some(
@@ -215,5 +219,246 @@ assert.equal(
   badOutput.findings.some((finding) => finding.rule === 'create_base_event_missing'),
   true,
 );
+
+// --- SE-3 review round 1, single-owner blocker 2 (build/SE-3/review-r1-blockers.md) -----------
+//
+// "Where is event T defined" had three readers with three rules: this adapter's event_interface
+// observations (an interface extending BaseEvent, outside schemas/ and base-event.ts), the
+// code-fact entry's event_definitions in tools/gates/event-consumer-index.ts (any `eventType`
+// member with a literal type: 408 live sites for 288 types, schema catalogs, registries and
+// erasure targets included) and the emit invariant's `export interface …Event` regex. One
+// definition function (`eventDefinitionsIn`), with one explicit rule, read over one file selection
+// (`eventContractFiles`), serves all of them: on the same tree the adapter's observations and the
+// facts' definitions are the same set, and a schema catalog or a registry type that merely carries
+// an `eventType` literal is not a definition.
+const definitionsTree = makeFixtureTree('aria-event-definitions-');
+const definitionFiles: Record<string, string> = {
+  'libs/event-contracts/src/base-event.ts': [
+    'export interface BaseEvent {',
+    '  readonly eventId: string;',
+    '  readonly eventType: string;',
+    '  readonly tenantId: string;',
+    '}',
+    '',
+  ].join('\n'),
+  'libs/event-contracts/src/farm-events.ts': [
+    "import type { BaseEvent } from './base-event';",
+    'export interface BatchCreatedEvent extends BaseEvent {',
+    "  readonly eventType: 'BatchCreated';",
+    '  readonly batchId: string;',
+    '}',
+    '',
+  ].join('\n'),
+  // A validator catalog's shape, not a definition.
+  'libs/event-contracts/src/schemas/farm-events.schema.ts': [
+    'export interface BatchCreatedSchemaShape {',
+    "  readonly eventType: 'BatchCreated';",
+    '}',
+    '',
+  ].join('\n'),
+  // A registry row type, not a definition: it does not extend BaseEvent.
+  'libs/event-contracts/src/event-registry.ts': [
+    'export interface RegistryRow {',
+    "  readonly eventType: 'RegistryOnly';",
+    '  readonly stream: string;',
+    '}',
+    '',
+  ].join('\n'),
+  'infrastructure/nats/services.yaml': [
+    'version: 1',
+    'services:',
+    '  - name: farm_service',
+    '    application: farm-service',
+    '    description: fixture identity',
+    '    publish:',
+    '      - $JS.API.>',
+    '      - $JS.ACK.>',
+    '      - _INBOX.>',
+    '    subscribe:',
+    '      - $JS.API.>',
+    '      - _INBOXFARM_SERVICE.>',
+    '',
+  ].join('\n'),
+};
+for (const [path, text] of Object.entries(definitionFiles)) {
+  mkdirSync(join(definitionsTree, path, '..'), { recursive: true });
+  writeFileSync(join(definitionsTree, path), text, 'utf8');
+}
+// The code-fact scans read the tree's tracked files (git ls-files).
+indexFixtureTree(definitionsTree);
+const adapterDefinitions = analyzeEventContracts(
+  { root: 'libs/event-contracts/src', checks: ['event_interfaces'] },
+  definitionsTree,
+)
+  .observations.filter(
+    (observation) => observation.type === 'event_interface' && observation.eventType !== undefined,
+  )
+  .map((observation) => `${observation.eventType} @ ${observation.path}`)
+  .sort();
+const factDefinitions = eventFacts(definitionsTree)
+  .event_definitions.map(
+    (definition) => `${definition.event_type} @ ${definition.site.replace(/:\d+$/, '')}`,
+  )
+  .sort();
+assert.deepEqual(
+  factDefinitions,
+  adapterDefinitions,
+  'the code-fact definitions and the adapter observations disagree: two definition rules',
+);
+assert.deepEqual(factDefinitions, ['BatchCreated @ libs/event-contracts/src/farm-events.ts']);
+
+// --- SE-3-R2 appellate RC: both readers of the one definition rule read one view of the tree ---
+//
+// The adapter built its program on the contained view (every file on disk) and walked its file
+// set from disk, while the code-fact scan reads the tree's tracked content. On this tree a tracked
+// contract takes its `eventType` from a gitignored module, and an untracked contract sits beside
+// it: the adapter observed PlantedViaIgnoredType and PlantedUntracked, the facts named neither, and
+// the pin above ("the same set") held only where nothing untracked is on disk. Both readers now
+// read the tracked view; the R2-A block below pins that they also read one file selection.
+const viewTree = makeFixtureTree('aria-event-definitions-view-');
+const viewFiles: Record<string, string> = {
+  '.gitignore': 'tmp\n',
+  'libs/event-contracts/src/base-event.ts':
+    definitionFiles['libs/event-contracts/src/base-event.ts'] ?? '',
+  'libs/event-contracts/src/farm-events.ts': [
+    "import type { BaseEvent } from './base-event';",
+    "import type { PlantedType } from './tmp/planted-type';",
+    'export interface BatchCreatedEvent extends BaseEvent {',
+    "  readonly eventType: 'BatchCreated';",
+    '}',
+    'export interface PlantedEvent extends BaseEvent {',
+    '  readonly eventType: PlantedType;',
+    '}',
+    '',
+  ].join('\n'),
+  'infrastructure/nats/services.yaml': definitionFiles['infrastructure/nats/services.yaml'] ?? '',
+};
+for (const [path, text] of Object.entries(viewFiles)) {
+  mkdirSync(join(viewTree, path, '..'), { recursive: true });
+  writeFileSync(join(viewTree, path), text, 'utf8');
+}
+indexFixtureTree(viewTree);
+// Written after indexing: on disk inside the workspace, one ignored, one untracked.
+mkdirSync(join(viewTree, 'libs/event-contracts/src/tmp'), { recursive: true });
+writeFileSync(
+  join(viewTree, 'libs/event-contracts/src/tmp/planted-type.ts'),
+  "export type PlantedType = 'PlantedViaIgnoredType';\n",
+  'utf8',
+);
+writeFileSync(
+  join(viewTree, 'libs/event-contracts/src/untracked-events.ts'),
+  [
+    "import type { BaseEvent } from './base-event';",
+    'export interface UntrackedEvent extends BaseEvent {',
+    "  readonly eventType: 'PlantedUntracked';",
+    '}',
+    '',
+  ].join('\n'),
+  'utf8',
+);
+const viewAdapter = analyzeEventContracts(
+  { root: 'libs/event-contracts/src', checks: ['event_interfaces'] },
+  viewTree,
+);
+const viewFacts = eventFacts(viewTree);
+const viewObserved = viewAdapter.observations
+  .filter(
+    (observation) => observation.type === 'event_interface' && observation.eventType !== undefined,
+  )
+  .map((observation) => `${observation.eventType} @ ${observation.path}`)
+  .sort();
+const viewDefined = viewFacts.event_definitions
+  .map((definition) => `${definition.event_type} @ ${definition.site.replace(/:\d+$/, '')}`)
+  .sort();
+assert.deepEqual(
+  viewObserved,
+  viewDefined,
+  'the adapter and the code-fact scan read different views of the same tree',
+);
+assert.deepEqual(viewDefined, ['BatchCreated @ libs/event-contracts/src/farm-events.ts']);
+for (const planted of ['PlantedViaIgnoredType', 'PlantedUntracked']) {
+  assert.ok(!JSON.stringify(viewAdapter).includes(planted), `the adapter reports ${planted}`);
+  assert.ok(!JSON.stringify(viewFacts).includes(planted), `the facts report ${planted}`);
+}
+
+// --- SE-3-R2 appellate R2-A: both readers of the one definition rule read one file selection ---
+//
+// After RC both readers read the tracked view, but each still chose its own files from it: the
+// adapter walked the scan root with the adapter-fs walk (it enters __tests__ and skips build, dist,
+// tmp, coverage…), the code-fact scan took the tracked non-test sources under the contracts root
+// (it skips __tests__ and reads build). On a clean, fully tracked tree with a contract in each such
+// directory the adapter observed OnlyAdapterSees and the facts named OnlyFactsSee. The one
+// selection rule is event-consumer-index `eventContractFiles`; all three answers come from it.
+const selectionTree = makeFixtureTree('aria-event-definitions-selection-');
+const selectionFiles: Record<string, string> = {
+  'libs/event-contracts/src/base-event.ts':
+    definitionFiles['libs/event-contracts/src/base-event.ts'] ?? '',
+  'libs/event-contracts/src/farm-events.ts':
+    definitionFiles['libs/event-contracts/src/farm-events.ts'] ?? '',
+  'libs/event-contracts/src/__tests__/helper-events.ts': [
+    "import type { BaseEvent } from '../base-event';",
+    'export interface HelperEvent extends BaseEvent {',
+    "  readonly eventType: 'OnlyAdapterSees';",
+    '}',
+    '',
+  ].join('\n'),
+  'libs/event-contracts/src/build/built-events.ts': [
+    "import type { BaseEvent } from '../base-event';",
+    'export interface BuiltEvent extends BaseEvent {',
+    "  readonly eventType: 'OnlyFactsSee';",
+    '}',
+    '',
+  ].join('\n'),
+  'infrastructure/nats/services.yaml': definitionFiles['infrastructure/nats/services.yaml'] ?? '',
+};
+for (const [path, text] of Object.entries(selectionFiles)) {
+  mkdirSync(join(selectionTree, path, '..'), { recursive: true });
+  writeFileSync(join(selectionTree, path), text, 'utf8');
+}
+indexFixtureTree(selectionTree);
+const typedSites = (sites: readonly { event_type: string; site: string }[]): string[] =>
+  sites
+    .map((definition) => `${definition.event_type} @ ${definition.site.replace(/:\d+$/, '')}`)
+    .sort();
+const selectionObserved = analyzeEventContracts(
+  { root: 'libs/event-contracts/src', checks: ['event_interfaces'] },
+  selectionTree,
+)
+  .observations.filter(
+    (observation) => observation.type === 'event_interface' && observation.eventType !== undefined,
+  )
+  .map((observation) => `${observation.eventType} @ ${observation.path}`)
+  .sort();
+const selectionFacts = typedSites(eventFacts(selectionTree).event_definitions);
+const selectionScanned = typedSites(scanEventDefinitions(selectionTree));
+assert.deepEqual(
+  selectionObserved,
+  selectionFacts,
+  'the adapter and the code-fact scan choose their contract files by two rules',
+);
+assert.deepEqual(
+  selectionObserved,
+  selectionScanned,
+  'the adapter and scanEventDefinitions choose their contract files by two rules',
+);
+assert.deepEqual(selectionFacts, [
+  'BatchCreated @ libs/event-contracts/src/farm-events.ts',
+  'OnlyFactsSee @ libs/event-contracts/src/build/built-events.ts',
+]);
+
+// R2-A: the selection is the contracts tree, so a scan root outside it would select nothing and
+// pass empty. The adapter refuses it by name; a root inside it narrows the selection.
+for (const outside of ['libs', 'libs/event-contracts', 'infrastructure/nats']) {
+  assert.throws(
+    () => analyzeEventContracts({ root: outside, checks: ['event_interfaces'] }, selectionTree),
+    (error: unknown) => error instanceof Error && error.name === 'ScanRootOutsideEventContracts',
+    `the adapter accepts the scan root ${outside}, outside the contracts tree`,
+  );
+}
+const narrowed = analyzeEventContracts(
+  { root: 'libs/event-contracts/src/build', checks: ['event_interfaces'] },
+  selectionTree,
+);
+assert.deepEqual(narrowed.read_paths, ['libs/event-contracts/src/build/built-events.ts']);
 
 process.stdout.write('event-contracts-adapter tests passed\n');

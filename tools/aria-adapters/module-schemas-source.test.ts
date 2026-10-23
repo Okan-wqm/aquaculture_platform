@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { test } from 'node:test';
 
 import { makeFixtureTree } from '../gates/fixture-tree';
 
@@ -168,3 +170,59 @@ assert.deepEqual(source.readPaths, [
 }
 
 process.stdout.write('module-schemas-source tests passed\n');
+
+// --- SE-3: the module entry of the code-fact bridge -----------------------------------------
+//
+// service-expertise PLAN §8 SE-3 (v): one JSON entry in this module gives, per service, its
+// tenant schema and table placement, read through this one reader (SO-19). The kernel runs it as
+// a subprocess on the diff's base tree (plan_coverage's runner), so the case runs it the same way
+// on this checkout and compares it with readModuleSchemasSource's own reading of the farm module.
+const REPO_ROOT = resolve(__dirname, '..', '..');
+
+void test('SE-3 (v): the --facts entry gives the schema and table placement of farm-service', () => {
+  let stdout: string;
+  try {
+    stdout = execFileSync(
+      join(REPO_ROOT, 'node_modules', '.bin', 'ts-node'),
+      [
+        '--project',
+        join(REPO_ROOT, 'tools', 'gates', 'tsconfig.json'),
+        join(REPO_ROOT, 'tools', 'aria-adapters', 'module-schemas-source.ts'),
+        '--facts',
+        '--repo-root',
+        REPO_ROOT,
+      ],
+      { cwd: REPO_ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+  } catch (error) {
+    const failed = error as { status?: number | null; stderr?: string };
+    assert.fail(`--facts exited ${String(failed.status)}: ${failed.stderr ?? ''}`);
+  }
+  assert.ok(stdout.trim().startsWith('{'), `--facts printed no JSON object: ${stdout}`);
+  const facts = JSON.parse(stdout) as {
+    readonly services: readonly {
+      readonly service: string;
+      readonly schema: string;
+      readonly per_tenant_tables: readonly string[];
+      readonly cross_tenant_tables: readonly string[];
+      readonly ref: string;
+    }[];
+  };
+  const farmService = facts.services.filter((entry) => entry.service === 'farm-service');
+  assert.equal(farmService.length, 1, 'exactly one tenant entry for farm-service');
+  const [entry] = farmService;
+  assert.ok(entry !== undefined);
+
+  const live = readModuleSchemasSource(REPO_ROOT);
+  assert.deepEqual(live.errors, []);
+  const farmModule = live.modules.find((module) => module.moduleName === 'farm');
+  assert.ok(farmModule, 'the farm module is read');
+  assert.equal(entry.schema, farmModule.sourceSchema);
+  assert.equal(entry.schema, 'farm');
+  assert.deepEqual([...entry.per_tenant_tables].sort(), [...farmModule.tables].sort());
+  assert.deepEqual(
+    [...entry.cross_tenant_tables].sort(),
+    [...farmModule.infrastructureTables].sort(),
+  );
+  assert.equal(entry.ref, `${farmModule.path}:${farmModule.line}`);
+});

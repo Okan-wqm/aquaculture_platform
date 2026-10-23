@@ -17,6 +17,12 @@ stdout all produce a ``verdict="environment_unable"`` payload — the evaluator
 escalates that to HUMAN_REQUIRED. An empty closure can never masquerade as
 "covered" because the witness itself distinguishes exit 0/1 (computed) from
 exit 2 (environment), and anything unparseable lands on the environment side.
+
+The same discipline runs the code-fact bridge (service-expertise PLAN §2, §3.3, SE-3):
+``compute_service_facts`` runs the two ``--facts`` entries on the diff's base tree through the
+one runner below (``run_ts_json_entry``), and any environment failure is a named
+``environment_unable`` with no partial facts, so the change is held instead of being routed as
+if its services produced and consumed nothing.
 """
 from __future__ import annotations
 
@@ -30,10 +36,16 @@ from .evidence_validator import coverage_manifest_pointer
 from .plan_convergence import affected_surface_paths as _affected_surface_paths
 from .tool_registry import ensure_tools_dir, utc_now
 from .digest import sha256_digest
+from .workspace_view import WorkspaceViewRefused, hermetic_git, index_flagged_paths, workspace_head_sha
 
 WITNESS_RELPATH = "tools/gates/plan-coverage-witness.ts"
 WITNESS_TSCONFIG = "tools/gates/tsconfig.json"
+EVENT_FACTS_RELPATH = "tools/gates/event-consumer-index.ts"
+MODULE_FACTS_RELPATH = "tools/aria-adapters/module-schemas-source.ts"
+# The workspace's own installed ts-node: no package-manager launcher, so no registry fallback.
+TS_NODE_RELPATH = "node_modules/.bin/ts-node"
 DEFAULT_TIMEOUT_SECONDS = 180
+TREE_STATUS_TIMEOUT_SECONDS = 60
 COVERAGE_DIR = "coverage"
 # Severity is "material" (not "blocking"): a coverage gap must block
 # convergence via the material gate AND remain addressable through the
@@ -53,6 +65,57 @@ def _default_runner(cmd: list[str], cwd: str, timeout_seconds: int) -> "subproce
         text=True,
         timeout=timeout_seconds,
     )
+
+
+def run_ts_json_entry(
+    run: Runner,
+    *,
+    tool: str,
+    args: list[str],
+    workspace: Path,
+    timeout_seconds: int,
+    ok_exit_codes: tuple[int, ...],
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    """Run one TypeScript JSON entry of ``workspace`` and read its one JSON object.
+
+    Returns ``(report, witness)``. ``report`` is None exactly when the run is an environment
+    failure, and ``witness["error"]`` then names it: ``toolchain_missing``, ``timeout_after_<n>s``,
+    ``witness_environment_exit_<code>`` (an exit outside ``ok_exit_codes``) or
+    ``witness_output_unparseable`` (stdout that is not one JSON object). Nothing is written.
+
+    The entry runs on the workspace's own installed ``ts-node`` (``TS_NODE_RELPATH``), never through
+    ``npx``: on a tree without ``node_modules`` npx does not fail, it fetches an unpinned ts-node
+    from the package registry and runs it with the kernel's environment. The tree's own binary
+    either exists or raises FileNotFoundError, which is ``toolchain_missing`` (PLAN Risk 7).
+    """
+    cmd = [str(workspace / TS_NODE_RELPATH), "--project", WITNESS_TSCONFIG, tool, *args]
+    started_at = utc_now()
+    try:
+        proc = run(cmd, str(workspace), timeout_seconds)
+    except FileNotFoundError as exc:
+        return None, {"tool": tool, "error": f"toolchain_missing: {exc}", "started_at": started_at}
+    except subprocess.TimeoutExpired:
+        return None, {"tool": tool, "error": f"timeout_after_{timeout_seconds}s", "started_at": started_at}
+    witness: dict[str, Any] = {
+        "tool": tool,
+        "exit_code": proc.returncode,
+        "started_at": started_at,
+        "finished_at": utc_now(),
+    }
+    stderr_tail = (proc.stderr or "")[-2000:]
+    if proc.returncode not in ok_exit_codes:
+        witness["error"] = f"witness_environment_exit_{proc.returncode}"
+        witness["stderr_tail"] = stderr_tail
+        return None, witness
+    try:
+        report = json.loads(proc.stdout)
+        if not isinstance(report, dict):
+            raise ValueError("witness output is not an object")
+    except (json.JSONDecodeError, ValueError) as exc:
+        witness["error"] = f"witness_output_unparseable: {exc}"
+        witness["stderr_tail"] = stderr_tail
+        return None, witness
+    return report, witness
 
 
 def build_synthetic_risk(node: dict[str, Any], *, round_number: int, closure_manifest_path: str) -> dict[str, Any]:
@@ -303,79 +366,23 @@ def compute_plan_coverage(
     tools_root_name = root.name if root.is_absolute() else str(root)
     manifest_relpath = f"{tools_root_name}/{COVERAGE_DIR}/{manifest_path.name}"
 
-    computed_at_sha = "unknown"
-    try:
-        sha_proc = run(["git", "rev-parse", "HEAD"], str(workspace), 30)
-        if sha_proc.returncode == 0:
-            computed_at_sha = sha_proc.stdout.strip() or "unknown"
-    except (OSError, subprocess.SubprocessError):
-        pass
+    # The checkout the witness reads, through the kernel's one hermetic HEAD reader: an inherited
+    # GIT_DIR never names another repository's commit as the one the closure was computed at.
+    computed_at_sha = workspace_head_sha(workspace) or "unknown"
 
     witness_input = _coverage_witness_input(plan_content)
     input_path = coverage_dir / f"{plan_id}-r{round_number}-input.json"
     input_path.write_text(json.dumps(witness_input, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
-    cmd = [
-        "npx",
-        "ts-node",
-        "--project",
-        WITNESS_TSCONFIG,
-        WITNESS_RELPATH,
-        "--input",
-        str(input_path),
-    ]
-    started_at = utc_now()
-    try:
-        proc = run(cmd, str(workspace), timeout_seconds)
-        exit_code = proc.returncode
-        stdout = proc.stdout
-        stderr_tail = (proc.stderr or "")[-2000:]
-    except FileNotFoundError as exc:
-        return environment_unable_payload(
-            round_number=round_number,
-            target_revision_id=target_revision_id,
-            target_plan_content_hash=target_plan_content_hash,
-            manifest_relpath=manifest_relpath,
-            manifest_hash=sha256_digest(b""),
-            computed_at_sha=computed_at_sha,
-            witness={"tool": WITNESS_RELPATH, "error": f"toolchain_missing: {exc}", "started_at": started_at},
-        )
-    except subprocess.TimeoutExpired:
-        return environment_unable_payload(
-            round_number=round_number,
-            target_revision_id=target_revision_id,
-            target_plan_content_hash=target_plan_content_hash,
-            manifest_relpath=manifest_relpath,
-            manifest_hash=sha256_digest(b""),
-            computed_at_sha=computed_at_sha,
-            witness={"tool": WITNESS_RELPATH, "error": f"timeout_after_{timeout_seconds}s", "started_at": started_at},
-        )
-
-    witness_meta: dict[str, Any] = {
-        "tool": WITNESS_RELPATH,
-        "exit_code": exit_code,
-        "started_at": started_at,
-        "finished_at": utc_now(),
-    }
-    if exit_code not in (0, 1):
-        witness_meta["error"] = f"witness_environment_exit_{exit_code}"
-        witness_meta["stderr_tail"] = stderr_tail
-        return environment_unable_payload(
-            round_number=round_number,
-            target_revision_id=target_revision_id,
-            target_plan_content_hash=target_plan_content_hash,
-            manifest_relpath=manifest_relpath,
-            manifest_hash=sha256_digest(b""),
-            computed_at_sha=computed_at_sha,
-            witness=witness_meta,
-        )
-    try:
-        report = json.loads(stdout)
-        if not isinstance(report, dict):
-            raise ValueError("witness output is not an object")
-    except (json.JSONDecodeError, ValueError) as exc:
-        witness_meta["error"] = f"witness_output_unparseable: {exc}"
-        witness_meta["stderr_tail"] = stderr_tail
+    report, witness_meta = run_ts_json_entry(
+        run,
+        tool=WITNESS_RELPATH,
+        args=["--input", str(input_path)],
+        workspace=workspace,
+        timeout_seconds=timeout_seconds,
+        ok_exit_codes=(0, 1),
+    )
+    if report is None:
         return environment_unable_payload(
             round_number=round_number,
             target_revision_id=target_revision_id,
@@ -404,4 +411,121 @@ def compute_plan_coverage(
         "synthetic_risks": fields["synthetic_risks"],
         "computed_at_sha": computed_at_sha,
         "witness": witness_meta,
+    }
+
+
+def _service_facts_unavailable(base_sha: str, witness: dict[str, Any]) -> dict[str, Any]:
+    return {"verdict": "environment_unable", "base_sha": base_sha, "witness": witness}
+
+
+def _base_tree_error(workspace: Path, base_sha: str) -> str | None:
+    """None when the disk the entries read is the content of ``base_sha``; otherwise the named error.
+
+    Both entries enumerate the tree's tracked files (event-consumer-index.ts ``TrackedTree``) and
+    read their content from disk, and the type checker resolves imports only inside that tracked
+    set (adapter-ts ``containedCompilerHost`` with the tracked view), the workspace node_modules and
+    the TypeScript lib directory. What this
+    check proves is that the tracked content on disk is the base commit, so a fact stamped
+    ``facts_sha = base_sha`` has a ``path:line`` that resolves against it (PLAN §3.1, §3.5, §3.6):
+
+    * HEAD is ``base_sha``;
+    * no index entry is flagged assume-unchanged or skip-worktree: ``git status`` does not compare
+      such a file with the disk, so a clean status would vouch for a rewrite it never looked at
+      (``tree_index_flagged``);
+    * ``git status`` lists nothing, tracked change, staged path or untracked file
+      (``tree_not_clean``).
+
+    Every git read goes through the kernel's hermetic owner (``workspace_view``), never through the
+    entry runner: an inherited GIT_DIR, GIT_WORK_TREE or GIT_INDEX_FILE, or the repository's
+    fsmonitor, would otherwise decide the answer for another index or another repository than the
+    one the entries read. The errors carry counts, never path names, because a name in the tree is
+    text the change's author chose. Ignored paths (``node_modules``, build output) are outside the
+    tracked set, so they do not make the tree unclean.
+    """
+    head_sha = workspace_head_sha(workspace)
+    if head_sha is None:
+        return "head_unreadable: the base tree has no readable HEAD commit"
+    if head_sha != base_sha:
+        return f"tree_not_at_base: HEAD {head_sha} is not {base_sha}"
+    try:
+        flagged = index_flagged_paths(workspace)
+    except WorkspaceViewRefused as exc:
+        return f"tree_index_unreadable: {exc.reason}"
+    if flagged:
+        return (
+            f"tree_index_flagged: {len(flagged)} tracked path(s) are flagged assume-unchanged or "
+            "skip-worktree, so git status does not compare them with the disk"
+        )
+    try:
+        status = hermetic_git(
+            workspace, "status", "--porcelain", "-z", "--untracked-files=all",
+            timeout=TREE_STATUS_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return f"tree_status_unreadable: {type(exc).__name__}"
+    if status.returncode != 0:
+        return f"tree_status_unreadable: git exit {status.returncode}"
+    if status.stdout:
+        return f"tree_not_clean: the base tree differs from {base_sha}"
+    return None
+
+
+def compute_service_facts(
+    *,
+    workspace_root: str | Path,
+    base_sha: str,
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+    runner: Runner | None = None,
+) -> dict[str, Any]:
+    """The code facts of one change subject, computed on its base tree (service-expertise SE-3).
+
+    ``workspace_root`` is a clean checkout of the diff's base: before and after both runs its HEAD
+    must be ``base_sha``, no index entry may be flagged to hide the disk from ``git status``, and
+    ``git status`` must list nothing (``_base_tree_error``, through the kernel's hermetic git
+    owner), because the entries read the working tree and the facts are the pre-change contract
+    the reviewer reads the diff against. Both ``--facts`` entries (``EVENT_FACTS_RELPATH``:
+    per-application produced and consumed event sites, code x code edges, ACL grants as permission
+    facts, NATS identity, event definition sites; ``MODULE_FACTS_RELPATH``: schema and table
+    placement) run once, through the plan-coverage runner, with the base tree as their cwd and
+    repo root. The runner runs those two entries and nothing else.
+
+    Success: ``{"verdict": "computed", "facts_sha", "event_facts", "module_facts", "witness"}``,
+    each facts object exactly as its entry printed it. Any failure, of the tree checks
+    (``head_unreadable``, ``tree_not_at_base``, ``tree_index_unreadable``, ``tree_index_flagged``,
+    ``tree_status_unreadable``, ``tree_not_clean``) or of either entry, is ``{"verdict": "environment_unable", "base_sha", "witness": {"error":
+    <named>}}`` with no facts at all: a partial result would route the change with fewer services.
+    Nothing is written; the facts live only in the request rows that carry them (PLAN SO-07).
+    """
+    run = runner or _default_runner
+    workspace = Path(workspace_root)
+    tree_error = _base_tree_error(workspace, base_sha)
+    if tree_error is not None:
+        return _service_facts_unavailable(base_sha, {"error": tree_error})
+
+    facts: dict[str, dict[str, Any]] = {}
+    witnesses: dict[str, dict[str, Any]] = {}
+    for key, tool in (("event_facts", EVENT_FACTS_RELPATH), ("module_facts", MODULE_FACTS_RELPATH)):
+        report, witness = run_ts_json_entry(
+            run,
+            tool=tool,
+            args=["--facts", "--repo-root", str(workspace)],
+            workspace=workspace,
+            timeout_seconds=timeout_seconds,
+            ok_exit_codes=(0,),
+        )
+        if report is None:
+            return _service_facts_unavailable(base_sha, witness)
+        facts[key] = report
+        witnesses[key] = witness
+    # The tree the entries read must still be the base after they ran: a file written or a HEAD
+    # moved while they ran would otherwise be in the facts without being at base.
+    tree_error = _base_tree_error(workspace, base_sha)
+    if tree_error is not None:
+        return _service_facts_unavailable(base_sha, {"error": tree_error})
+    return {
+        "verdict": "computed",
+        "facts_sha": base_sha,
+        "event_facts": facts["event_facts"],
+        "module_facts": facts["module_facts"],
+        "witness": witnesses,
     }

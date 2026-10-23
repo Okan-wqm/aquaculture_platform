@@ -30,7 +30,13 @@ WHAT THIS PINS.
         family (``apps``, ``libs``, ``platform``, ``web``, or a prefix such as
         ``apps/``) and reads a later segment (``parts[1]``, ``parts[:2]``) —
         the shape of ``service_for_path``, ``_asset_of`` and every
-        convention-based copy; or
+        convention-based copy. "Splits" covers every binding form (plain,
+        annotated, walrus, tuple and starred unpacking), a subscript straight
+        on the split, ``Path(...).parts``, and the rest of a path after its
+        family (``removeprefix('apps/')`` or ``partition('/')``) split again
+        (SE-1-R2 appellate R2: the round-2 detector saw only ``name = split``);
+      - holds a regex anchored on a project family with a capture group
+        (``^apps/([^/]+)/``), inline or as a module-level pattern it uses; or
       - reads a ``project.json`` ``name`` — naming a project is the map
         builder's job (``impact_graph._declared_project_name``), and a second
         reader builds a second map.
@@ -132,25 +138,172 @@ def _names_a_project_family(literal: str) -> bool:
     return literal in _PROJECT_FAMILIES or (bool(sep) and head in _PROJECT_FAMILIES)
 
 
-def _is_slash_split(node: ast.AST) -> bool:
+def _slash_call(node: ast.AST, method: str) -> bool:
+    """``<x>.<method>('/')`` (any receiver, any maxsplit)."""
     return (
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "split"
+        and node.func.attr == method
         and bool(node.args)
         and isinstance(node.args[0], ast.Constant)
         and node.args[0].value == "/"
     )
 
 
-def _split_path_names(fn: ast.AST) -> set[str]:
-    """Local names bound to a path split on ``/`` (directly or through a
-    comprehension over the split)."""
-    names: set[str] = set()
+def _receiver(node: ast.AST) -> ast.AST | None:
+    """``x`` of a method call ``x.m(...)``."""
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+        return node.func.value
+    return None
+
+
+def _is_path_parts(node: ast.AST) -> bool:
+    """``Path(...).parts`` / ``PurePosixPath(...).parts`` (any pathlib class)."""
+    if not (isinstance(node, ast.Attribute) and node.attr == "parts" and isinstance(node.value, ast.Call)):
+        return False
+    func = node.value.func
+    name = func.id if isinstance(func, ast.Name) else func.attr if isinstance(func, ast.Attribute) else ""
+    return name.endswith("Path")
+
+
+def _is_segments(node: ast.AST) -> bool:
+    """A path's segments, as such: ``p.split('/')`` or ``Path(p).parts``."""
+    return _slash_call(node, "split") or _is_path_parts(node)
+
+
+def _holds_segments(node: ast.AST) -> bool:
+    """A bound value built from a path's segments (directly, or through a
+    comprehension or a call over them)."""
+    return any(_is_segments(n) for n in ast.walk(node))
+
+
+def _is_family_strip(node: ast.AST) -> bool:
+    """``<x>.removeprefix('<family>/')``: the rest of the path after its
+    project family, whose first segment is the project directory."""
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "removeprefix"
+        and bool(node.args)
+        and any(_names_a_project_family(v) for v in _string_literals(node.args[0]))
+    )
+
+
+def _is_partition_rest(node: ast.AST) -> bool:
+    """``<x>.partition('/')[2]``: the path after its first segment."""
+    return (
+        isinstance(node, ast.Subscript)
+        and _slash_call(node.value, "partition")
+        and isinstance(node.slice, ast.Constant)
+        and node.slice.value == 2
+    )
+
+
+def _bindings(fn: ast.AST) -> list[tuple[ast.AST, ast.AST]]:
+    """Every (target, value) binding in ``fn``: plain, annotated and walrus
+    assignments (tuple and starred targets are kept whole)."""
+    pairs: list[tuple[ast.AST, ast.AST]] = []
     for node in ast.walk(fn):
-        if isinstance(node, ast.Assign) and any(_is_slash_split(n) for n in ast.walk(node.value)):
+        if isinstance(node, ast.Assign):
+            pairs.extend((target, node.value) for target in node.targets)
+        elif isinstance(node, (ast.AnnAssign, ast.NamedExpr)) and node.value is not None:
+            pairs.append((node.target, node.value))
+    return pairs
+
+
+class _PathReads:
+    """What one function binds from a path: its segments (``parts``), a later
+    segment by unpacking (``head, name, *_ = p.split('/')``), or the rest of
+    the path after a leading segment (``p.removeprefix('apps/')``,
+    ``head, _, rest = p.partition('/')``)."""
+
+    def __init__(self, fn: ast.AST) -> None:
+        self.segments: set[str] = set()
+        self.later: set[str] = set()
+        self.rests: set[str] = set()
+        for target, value in _bindings(fn):
+            if isinstance(target, ast.Name):
+                if _holds_segments(value):
+                    self.segments.add(target.id)
+                elif self._is_rest(value):
+                    self.rests.add(target.id)
+            elif isinstance(target, (ast.Tuple, ast.List)):
+                self._unpack(target, value)
+
+    def _unpack(self, target: ast.Tuple | ast.List, value: ast.AST) -> None:
+        is_partition = _slash_call(value, "partition")
+        if not (is_partition or _is_segments(value)):
+            return
+        for position, element in enumerate(target.elts):
+            inner = element.value if isinstance(element, ast.Starred) else element
+            if not isinstance(inner, ast.Name) or position == 0:
+                continue
+            if not is_partition:
+                self.later.add(inner.id)
+            elif position == 2:
+                self.rests.add(inner.id)
+
+    def _is_rest(self, node: ast.AST) -> bool:
+        return (
+            (isinstance(node, ast.Name) and node.id in self.rests)
+            or _is_family_strip(node)
+            or _is_partition_rest(node)
+        )
+
+    def _is_bound_segments(self, node: ast.AST) -> bool:
+        return (isinstance(node, ast.Name) and node.id in self.segments) or _is_segments(node)
+
+    def reads_a_later_segment(self, fn: ast.AST) -> bool:
+        for node in ast.walk(fn):
+            # parts[1], parts[:2], p.split('/')[1], Path(p).parts[1]
+            if isinstance(node, ast.Subscript) and self._is_bound_segments(node.value):
+                index = node.slice
+                if isinstance(index, ast.Slice):
+                    return True
+                if isinstance(index, ast.Constant) and isinstance(index.value, int) and index.value >= 1:
+                    return True
+            # head, name, *_ = p.split('/'); ... name
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id in self.later:
+                return True
+            # rest.split('/') / rest.partition('/'): the first segment of the
+            # rest is the project directory.
+            if _slash_call(node, "split") or _slash_call(node, "partition"):
+                receiver = _receiver(node)
+                if receiver is not None and self._is_rest(receiver):
+                    return True
+        return False
+
+
+def _family_capture_patterns(tree: ast.AST) -> set[str]:
+    """Module-level names bound to a family-anchored regex with a capture."""
+    names: set[str] = set()
+    for node in getattr(tree, "body", []):
+        if isinstance(node, ast.Assign) and any(_is_family_capture(n) for n in ast.walk(node.value)):
             names.update(t.id for t in node.targets if isinstance(t, ast.Name))
     return names
+
+
+_FAMILY_ANCHOR = re.compile(r"^\^?(?:%s)/" % "|".join(sorted(_PROJECT_FAMILIES)))
+_CAPTURE_GROUP = re.compile(r"(?<!\\)\((?!\?)")
+
+
+def _is_family_capture(node: ast.AST) -> bool:
+    """A string literal that is a regex anchored on a project family with a
+    capturing group (``^apps/([^/]+)/``): the capture is the project dir."""
+    return (
+        isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and bool(_FAMILY_ANCHOR.match(node.value))
+        and bool(_CAPTURE_GROUP.search(node.value))
+    )
+
+
+def _uses_a_family_capture(fn: ast.AST, module_patterns: set[str]) -> bool:
+    return any(
+        _is_family_capture(node)
+        or (isinstance(node, ast.Name) and node.id in module_patterns)
+        for node in ast.walk(fn)
+    )
 
 
 def _tests_a_project_family(fn: ast.AST) -> bool:
@@ -167,19 +320,6 @@ def _tests_a_project_family(fn: ast.AST) -> bool:
             for arg in node.args:
                 if any(_names_a_project_family(v) for v in _string_literals(arg)):
                     return True
-    return False
-
-
-def _reads_a_later_segment(fn: ast.AST, split_names: set[str]) -> bool:
-    for node in ast.walk(fn):
-        if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name):
-            if node.value.id not in split_names:
-                continue
-            index = node.slice
-            if isinstance(index, ast.Slice):
-                return True
-            if isinstance(index, ast.Constant) and isinstance(index.value, int) and index.value >= 1:
-                return True
     return False
 
 
@@ -206,14 +346,15 @@ def _reads_a_project_json_name(fn: ast.AST) -> bool:
     return mentions_manifest and reads_name
 
 
-def _attribution_reasons(name: str, fn: ast.AST) -> list[str]:
+def _attribution_reasons(name: str, fn: ast.AST, module_patterns: set[str]) -> list[str]:
     """Why ``fn`` is a path→project attribution (empty: it is not one)."""
     reasons: list[str] = []
     if _ATTRIBUTION_NAME.match(name.rsplit(".", 1)[-1]):
         reasons.append("name")
-    split_names = _split_path_names(fn)
-    if split_names and _tests_a_project_family(fn) and _reads_a_later_segment(fn, split_names):
+    if _tests_a_project_family(fn) and _PathReads(fn).reads_a_later_segment(fn):
         reasons.append("path-segment attribution")
+    if _uses_a_family_capture(fn, module_patterns):
+        reasons.append("family regex capture")
     if _reads_a_project_json_name(fn):
         reasons.append("project.json name")
     return reasons
@@ -221,9 +362,10 @@ def _attribution_reasons(name: str, fn: ast.AST) -> list[str]:
 
 def _attributions_in(source: str, module: str) -> dict[tuple[str, str], list[str]]:
     tree = ast.parse(source)
+    module_patterns = _family_capture_patterns(tree)
     found: dict[tuple[str, str], list[str]] = {}
     for name, fn in _functions(tree):
-        reasons = _attribution_reasons(name, fn)
+        reasons = _attribution_reasons(name, fn, module_patterns)
         if reasons:
             found[(module, name)] = reasons
     return found
@@ -281,6 +423,103 @@ class TheDetectorSeesEveryKnownShape(unittest.TestCase):
             "    return json.loads(manifest.read_text()).get('name')\n"
         )
         self.assertIn(("m", "nearest"), _attributions_in(source, "m"))
+
+    # SE-1-R2 appellate R2: the shapes the reviewers' probes (ssot P2, arch
+    # p7) showed the name-bound detector missed. Each is a renamed copy of the
+    # deleted ``service_for_path``.
+
+    def _assert_detected(self, source: str) -> None:
+        self.assertIn(("m", "svc"), _attributions_in(source, "m"))
+
+    def test_an_annotated_split_is_detected(self) -> None:
+        self._assert_detected(
+            "def svc(path: str) -> str | None:\n"
+            "    parts: list[str] = path.split('/')\n"
+            "    if len(parts) >= 2 and parts[0] == 'apps':\n"
+            "        return parts[1]\n"
+            "    return None\n"
+        )
+
+    def test_a_walrus_bound_split_is_detected(self) -> None:
+        self._assert_detected(
+            "def svc(path):\n"
+            "    if (parts := path.split('/'))[0] == 'apps':\n"
+            "        return parts[1]\n"
+            "    return None\n"
+        )
+
+    def test_a_tuple_unpacked_split_is_detected(self) -> None:
+        self._assert_detected(
+            "def svc(p):\n"
+            "    head, name, *_ = p.split('/')\n"
+            "    return name if head == 'apps' else None\n"
+        )
+
+    def test_a_starred_unpacked_split_is_detected(self) -> None:
+        self._assert_detected(
+            "def svc(p):\n"
+            "    head, *rest = p.split('/')\n"
+            "    return rest[0] if head == 'libs' else None\n"
+        )
+
+    def test_an_inline_subscript_of_a_split_is_detected(self) -> None:
+        self._assert_detected(
+            "def svc(path):\n"
+            "    if path.startswith('apps/'):\n"
+            "        return path.split('/')[1]\n"
+            "    return None\n"
+        )
+
+    def test_a_removeprefix_then_split_is_detected(self) -> None:
+        self._assert_detected(
+            "def svc(path):\n"
+            "    if not path.startswith('apps/'):\n"
+            "        return None\n"
+            "    return path.removeprefix('apps/').split('/', 1)[0]\n"
+        )
+
+    def test_a_partition_is_detected(self) -> None:
+        self._assert_detected(
+            "def svc(path):\n"
+            "    head, _, rest = path.partition('/')\n"
+            "    if head in {'apps', 'libs'}:\n"
+            "        return rest.partition('/')[0]\n"
+            "    return None\n"
+        )
+
+    def test_pathlib_parts_are_detected(self) -> None:
+        self._assert_detected(
+            "from pathlib import PurePosixPath\n"
+            "def svc(path):\n"
+            "    parts = PurePosixPath(path).parts\n"
+            "    if parts[0] == 'apps':\n"
+            "        return parts[1]\n"
+            "    return None\n"
+        )
+
+    def test_an_inline_pathlib_parts_subscript_is_detected(self) -> None:
+        self._assert_detected(
+            "from pathlib import Path\n"
+            "def svc(path):\n"
+            "    return Path(path).parts[1] if path.startswith('apps/') else None\n"
+        )
+
+    def test_a_family_anchored_regex_capture_is_detected(self) -> None:
+        self._assert_detected(
+            "import re\n"
+            "def svc(p):\n"
+            "    m = re.match(r'^apps/([^/]+)/', p)\n"
+            "    return m.group(1) if m else None\n"
+        )
+
+    def test_a_module_level_family_regex_capture_is_detected(self) -> None:
+        self._assert_detected(
+            "import re\n"
+            "_APP = re.compile(r'^apps/([^/]+)/')\n"
+            "def svc(path):\n"
+            "    m = _APP.match(path)\n"
+            "    return m.group(1) if m else None\n"
+        )
 
     def test_a_path_class_test_that_names_no_project_is_not_flagged(self) -> None:
         source = (

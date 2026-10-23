@@ -843,3 +843,56 @@ Kubernetes Secret's stringData or data under a gitleaks-allowlisted path is neve
 - Rule: the literal_secret premise covers every literal the gitleaks path allowlist hides.
 - Failure scenario: a Secret with a literal `stringData` value is committed under an allowlisted
   path; gitleaks skips it by path and ARIA records nothing.
+
+## ARIA-HIGH-797
+
+The dataflow watchdog's container_state_truth and tenant_reality_parity probes have never measured
+anything. They run docker from the runner account, which by design cannot open docker.sock and
+cannot gain privilege.
+
+- Severity: HIGH; owner: Okan-wqm; deadline: 2026-11-06.
+- Plan item(s): RW-2 (runtime watch).
+- Evidence:
+  - `tools/watchdog/probe-runner.mjs:93` (`docker ps -q` run by the runner account; origin/main
+    ddf6d5723)
+  - `tools/watchdog/probe-runner.mjs:147-151` (`docker exec aqua-postgres psql` run by the runner
+    account)
+  - `scripts/aria/runner-habitat/systemd/actions-runner.identity.conf` (`SupplementaryGroups=`,
+    `NoNewPrivileges=yes`: no docker group, and sudo is inert for every job)
+  - Every run from 31069638350 (2026-08-06, the first) through 39963926798 (2026-10-23) reports
+    `permission denied ... docker.sock` for both probes.
+- Rule: a watchdog probe measures what it names. The runner account never gets docker access or a
+  privilege gain (ADR-0023).
+- Fix (RW-2): a root-owned probe with fixed arguments, `infrastructure/scripts/aqua-dataflow-probe.sh`.
+  It refuses every argument and opens every psql session read-only. It is reached through the
+  socket-activated units in `infrastructure/dataflow-probe/` and read by
+  `tools/watchdog/privileged-evidence.mjs`. A sudoers rule cannot work: `NoNewPrivileges=yes` makes
+  sudo inert for the job. The finding closes once the program lead installs the probe from the
+  runbook (`docs/runbooks/monitoring/dataflow-integrity.md`) and one dispatched run shows both
+  probes measured. ARIA-HIGH-798 covers why the gap went unseen for ten weeks.
+
+## ARIA-HIGH-798
+
+The dataflow watchdog's results reach no one. A probe-error exits 1, and the lane neither fails nor
+reports on exit 1. The probe*\* textfile is written to RUNNER_TEMP and only uploaded as an artifact,
+because the textfile directory is root:root 0755. So every probe*\* rule in
+60-dataflow-integrity.yml has no series and cannot fire.
+
+- Severity: HIGH; owner: Okan-wqm; deadline: 2026-11-06.
+- Raised by: the RW-2 implementer, while verifying RW-2.
+- Evidence:
+  - `.github/workflows/dataflow-integrity-watchdog.yml:94` and `:123` (`--textfile
+"$RUNNER_TEMP/aqua_probes.prom"`)
+  - `.github/workflows/dataflow-integrity-watchdog.yml:126-135` (the textfile is only uploaded as
+    an artifact)
+  - `.github/workflows/dataflow-integrity-watchdog.yml:146-157` (only exit 3 fails the run; a
+    probe that measured nothing passes)
+  - `docker-compose.droplet.yml:2205-2206` (node-exporter reads `/var/lib/node_exporter/textfile`)
+  - `infrastructure/monitoring/droplet/rules/60-dataflow-integrity.yml:165-204`
+    (TenantActiveWithoutPhysicalSchema, TenantProvisioningNeverCompleted, TenantRealityProbeStale)
+  - On 2026-10-23 the droplet's textfile directory held only `aqua_worktree_gc.prom`.
+- Rule: a probe that cannot measure fails visibly, and an alert rule reads a series that is
+  published on the host it scrapes. A rule that can never fire is a defect.
+- Failure scenario: the privileged probe measures an ACTIVE tenant with no usable schema, and no
+  alert fires, because Prometheus never sees `probe_finding_count`. This is the channel that let
+  ARIA-HIGH-797 run unseen from 2026-08-06.

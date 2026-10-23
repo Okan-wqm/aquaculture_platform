@@ -465,6 +465,25 @@ class RunnerEnvironmentFileTests(unittest.TestCase):
         self.assertNotIn(self._TOKEN, stdout)
         self.assertNotIn(self._TOKEN, control)
 
+    def test_a_blind_env_file_token_does_not_hide_the_stored_gh_login(self) -> None:
+        # B0 corrective round 3, R3-4 (arch P4, evidence p05 case B): gh
+        # prefers GH_TOKEN, then GITHUB_TOKEN, over its hosts.yml login, so one
+        # gh call with the env-file overlay never asks the stored login. This
+        # gh's stored login reaches the vault; the env file's token is revoked.
+        (self.root / "bin" / "gh").write_text(
+            f"#!{sys.executable}\nimport os, sys\n"
+            "if os.environ.get('GH_TOKEN'):\n    sys.stderr.write('gh: Bad credentials (HTTP 401)')\n"
+            "    raise SystemExit(1)\nprint('{}')\n", encoding="utf-8")
+        env_file = self.root / "runner.env"
+        env_file.write_text(f"GH_TOKEN={self._TOKEN}\n", encoding="utf-8")
+        status, stdout = self._run("--env-file", str(env_file))
+        report = json.loads(stdout)
+        self.assertEqual((status, report["verdict"]), (1, "red"), report)
+        sources = {r["source"]: r["status"] for r in report["sources"]}
+        self.assertEqual(sources.get("gh_cli:stored"), self.probe.REACHABLE, sources)
+        self.assertEqual(sources.get("gh_cli:GH_TOKEN"), self.probe.NO_CREDENTIAL, sources)
+        self.assertNotIn(self._TOKEN, stdout)
+
     def test_a_malformed_line_is_reported_by_its_number_only(self) -> None:
         env_file = self.root / "runner.env"
         env_file.write_text("LANG=C.UTF-8\nARIA_BOARD_X secret\n", encoding="utf-8")

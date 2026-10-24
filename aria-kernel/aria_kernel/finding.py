@@ -279,14 +279,15 @@ def _validate_inputs(
             _check_banned_phrases(text, field="interpretations[].text")
 
 
-def _target_sha(repo_root: Path, probe_session: GitProbeSession) -> str:
-    """The commit this decision's evidence is verified against: HEAD,
-    resolved through the decision's probe session so the resolution is
-    bounded (attempt bound, retry, the decision's clock) and cached — the
-    refs graded next against the id it returns ask git nothing more for it.
-    An unbounded `git rev-parse` here was the one probe of a finding that
-    could hang a cycle on a stalled host."""
-    baseline = probe_session.resolve_baseline(repo_root, "HEAD")
+def _target_sha(repo_root: Path, probe_session: GitProbeSession, commit: str) -> str:
+    """The commit this decision's evidence is verified against (``commit``:
+    HEAD for an observation of this workspace, the judged commit for a
+    promoted consensus), resolved through the decision's probe session so
+    the resolution is bounded (attempt bound, retry, the decision's clock)
+    and cached — the refs graded next against the id it returns ask git
+    nothing more for it. An unbounded `git rev-parse` here was the one probe
+    of a finding that could hang a cycle on a stalled host."""
+    baseline = probe_session.resolve_baseline(repo_root, commit)
     if not baseline.readable:
         raise GovernanceError(
             "finding_evidence_target_sha_unavailable: "
@@ -468,8 +469,14 @@ def emit_finding(
     interpretations: list[dict[str, Any]] | None = None,
     recommendation: dict[str, Any] | None = None,
     related_specialized_agent_domains: list[str] | None = None,
+    target_sha: str = "HEAD",
 ) -> dict[str, Any]:
     """Emit a hash-chained operator-facing finding.
+
+    ``target_sha`` is the commit every evidence ref must be repo_verified
+    at: HEAD for a finding observed in this workspace, the commit the judges
+    judged for a promoted consensus (F2.3: the finding stands on the tree
+    the verdict was formed against, never on whatever HEAD moved to).
 
     Why: Plan 016 Faz A2 closes the operator-visibility gap. Until a finding
     can land on disk under aria-findings/ + register a finding_emitted
@@ -508,7 +515,7 @@ def emit_finding(
     # One probe session for this emission: the baseline resolution below
     # and every evidence grade after it.
     probe_session = GitProbeSession()
-    target_sha = _target_sha(repo_path, probe_session)
+    target_sha = _target_sha(repo_path, probe_session, target_sha)
     evidences = _normalize_evidences(
         repo_path, evidences, target_sha=target_sha, probe_session=probe_session,
     )

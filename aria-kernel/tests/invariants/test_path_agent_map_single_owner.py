@@ -54,7 +54,9 @@ WHAT THIS PINS (PLAN.md §8 SE-2 red tests (i) and (iii); DECISIONS.md Q4, Q12).
       - ``platform-kernel-expert`` kept beside ``data-expert`` on the
         ``nats/`` surfaces (``libs/backend-common/src/nats`` and
         ``infrastructure/nats``): Q4 lists it among the LOST agents to add,
-        and "must not narrow" keeps it.
+        and "must not narrow" keeps it. The program lead kept it there (not a
+        move to ``data-expert``); since the owner counts a sub-area row for a
+        broader surface, ``infrastructure`` derives it too.
     Every other agent the deleted touch map named and the routing table does
     not is listed by name in ``_NARROWED_WITHOUT_A_Q4_ENTRY``; the test pins
     that exactly these, and nothing else, drop. Q4 did not name them, so the
@@ -357,7 +359,11 @@ _EXPECTED_REVIEWERS: dict[str, frozenset[str]] = {
         "accessibility-auditor"}),
     "web/apps/aquamobil": frozenset({"frontend-expert", "accessibility-auditor"}),  # Q4: web
     "sens-api-gateway": frozenset({"edge-expert", "security-reviewer"}),
-    "infrastructure": frozenset({"infra-expert", "observability-expert", "security-reviewer"}),
+    # The owner counts a sub-area row for a broader surface (prefix rule, as for
+    # web, apps/auth-service, platform/libs, infrastructure/monitoring), so the
+    # kept infrastructure/nats row reaches infrastructure too (program lead, Q4).
+    "infrastructure": frozenset({"infra-expert", "observability-expert", "security-reviewer",
+                                 "platform-kernel-expert"}),
     "infrastructure/nats": frozenset({"infra-expert", "security-reviewer", "platform-kernel-expert"}),  # Q4: nats/
     "tools/aria-poc": frozenset(),
     "tools/aria-adapters": frozenset(),

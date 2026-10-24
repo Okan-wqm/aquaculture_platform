@@ -62,6 +62,11 @@ CONSENSUS_UNCERTAINTY_REASONS = (
     # answering in the same words settled as N observations. One law, two
     # callers (independence_check): the settle path asks it too.
     "panel_echo",
+    # J5 (SEPT-HARVEST §2) — an anchor-grade closing set whose seats judged
+    # different trees (no ``_common_target_sha``): agreement about no single
+    # tree, so it neither becomes ground truth nor suppresses. The group's
+    # sub-anchor precision row (the pair settled at one tree) stands.
+    "target_sha_mixed",
     "conformal_abstain",
     # ARIA-HIGH-325 — a true_positive whose agreeing judges cite evidence the
     # producing tool's scope does not admit (ARIA's detector source outside
@@ -1417,6 +1422,26 @@ def generate_ai_consensus(
         # one law the plan side asks (same similarity, same ceiling,
         # fail-closed on unreadable answers): an anchor-grade closing set
         # whose seats echo each other is one observation wearing N receipts.
+        # J5 (SEPT-HARVEST §2) — the anchor's TREE leg. ARIA-HIGH-004 already
+        # refuses to NAME a commit for a closing set judged at different
+        # trees; an anchor minted from it would still be ground truth (and,
+        # for a false_positive, a suppression) about no single tree. The
+        # realistic path is the anchor upgrade itself: the pair settles at
+        # sha A, the arbiter answers after the tree moved to sha B. The
+        # group escalates instead; the pair's sub-anchor row already minted
+        # for the precision lane and stays.
+        if (
+            len(closing) >= ANCHOR_MIN_JUDGE_COUNT
+            and dissenting == 0
+            and len(_target_shas(closing)) > 1
+        ):
+            uncertainties.append(
+                _consensus_uncertainty(
+                    tool_id, run_id, finding_id, group_id,
+                    "target_sha_mixed",
+                ),
+            )
+            continue
         if len(closing) >= ANCHOR_MIN_JUDGE_COUNT:
             from .independence_check import verify_panel_diversity
 
@@ -1568,9 +1593,15 @@ def _decision_cost(group_id: str, base_dir: str | Path | None) -> dict[str, Any]
     return {"cost_usd": round(usd, 6), "agents": agents}
 
 
+def _target_shas(rows: list[dict[str, Any]]) -> set[str]:
+    """The commits the rows were judged at; ``""`` stands for a row that
+    names none. More than one member is a mixed-tree set (ARIA-HIGH-004, J5)."""
+    return {str(row.get("target_sha") or "") for row in rows}
+
+
 def _common_target_sha(rows: list[dict[str, Any]]) -> str | None:
     """The one commit every row was judged at, or None (ARIA-HIGH-004)."""
-    shas = {str(row.get("target_sha") or "") for row in rows}
+    shas = _target_shas(rows)
     if len(shas) != 1:
         return None
     sha = shas.pop()

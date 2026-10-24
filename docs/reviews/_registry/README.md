@@ -206,7 +206,8 @@ still awaits that decision; it only shrinks.
 - `content_hash = SHA-256-hex( canonical JSON of this entry WITH content_hash field removed )`.
 - Canonical JSON = key-sorted, no-whitespace serialization.
 
-**Verification:** CI job `.github/workflows/closes-footer-check.yml` (Phase 6 deliverable) runs `finding-registry verify` on every PR; a break fails the build.
+**Verification:** CI job `.github/workflows/closes-footer-check.yml` (Phase 6 deliverable)
+runs `finding-registry verify` on every PR; a break fails the build.
 
 ## Finding ID format
 

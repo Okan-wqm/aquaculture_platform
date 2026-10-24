@@ -4,10 +4,7 @@ PLAN Wave 3 (Revision 2 scope). The operator's request is literal: ARIA should
 work from a map of the repository — for token saving and for understanding —
 the way Graphify-class tools do, without importing one. Twin-lite is the
 deliberately bounded version: four deterministic layers, no symbol-level CALLS
-edges in the map (deep twin is Wave 10, conditional on a consumer proving need).
-The first consumer that proved it, the F0.9b ownership atlas, reads twin's
-symbol layer (``twin_symbols``: definitions, references and ledger calls per
-module), computed on demand and not stored in ``twin/map.json``.
+edges (deep twin is Wave 10, conditional on a consumer proving need).
 
     1. project dependency — reused from ``impact_graph`` (the SSoT for the
        project graph; a second scanner is how two graphs disagree)

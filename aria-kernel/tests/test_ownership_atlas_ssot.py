@@ -45,8 +45,8 @@ FACTS_OWNER = "aria_kernel.source_facts"
 IMPORT_GRAPH = "scripts/ci/aria-import-graph.py"
 # What each consumer of the parse uses from its owner, by the consumer's module name.
 SHARED_PRIMITIVES = {
-    "aria_import_graph": ("SOURCE_ROOTS", "KERNEL_ROOT", "KERNEL_PACKAGE", "module_name", "iter_modules",
-                          "path_parts", "extract", "deepest_module"),
+    "aria_import_graph": ("KERNEL_ROOT", "KERNEL_PACKAGE", "module_name", "iter_modules", "path_parts", "extract",
+                          "deepest_module"),
     GENERATOR: ("module_name", "iter_modules", "path_parts", "extract", "deepest_module"),
 }
 

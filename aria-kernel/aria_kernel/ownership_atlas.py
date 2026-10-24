@@ -5,10 +5,10 @@ written by hand from four evidence-first readers and a skeptic; a hand atlas is
 stale at the next merge. Here each concept family is DECLARED once (its owner,
 the names its value is computed under, its ledgers, and, for a family with
 copies, the plan package that folds them and the finding that tracks it) and
-everything else is COMPUTED from the code through twin's symbol layer
-(``twin_symbols``; no fourth graph engine): who writes the ledger or defines a
-computer, who references the owner, and which cycle phase, CLI or workflow
-reaches it. ``render_atlas`` is committed at ``ATLAS_PATH`` and pinned
+everything else is COMPUTED from the code through the symbol layer of the parse
+aria-import-graph reads (``source_facts.extract``; no fourth graph engine, no
+second parser): who writes the ledger or defines a computer, who references the
+owner, and which cycle phase, CLI or workflow reaches it. ``render_atlas`` is committed at ``ATLAS_PATH`` and pinned
 byte-for-byte (tests/test_ownership_atlas_ssot.py), the JUDGE-DIGEST pattern.
 
 ONE OWNER. A family declared with an owner and no finding is single-owner
@@ -26,7 +26,7 @@ from typing import Any
 
 from .genesis_policy import judgment_pipeline_policy
 from .state_manifest import iter_surfaces
-from .twin_symbols import MODULE_SCOPE, SOURCE_ROOTS, module_of, symbol_facts
+from .source_facts import MODULE_SCOPE, deepest_module, extract, iter_modules, module_name, path_parts
 
 ATLAS_PATH = "docs/aria/generated/OWNERSHIP-ATLAS.md"
 REGEN_COMMAND = f"PYTHONPATH=aria-kernel python3 -m aria_kernel.docs_ssot ownership-atlas > {ATLAS_PATH}"
@@ -66,6 +66,10 @@ FAMILIES: dict[str, Family] = {
                                       ("validate_judge_response",)),
     "dispatch_failure_classification": Family("tools-gates", "tools/aria-poc/dispatch_failure.py:classify_dispatch_failure",
                                               ("classify_dispatch_failure",)),
+    # The one parse aria-import-graph and this atlas read (PLAN-v2 F0.9: no fourth graph engine).
+    "python_source_facts": Family("tools-gates", f"{_K}source_facts.py:extract",
+                                  ("module_name", "iter_sources", "iter_modules", "deepest_module", "path_parts",
+                                   "chain_runs", "flatten_div", "module_bindings", "export_table")),
     # Dormant by design: routed every cycle, acts only with funnel_enabled (genesis_policy).
     "judgment_funnel": Family("judgment", f"{_K}judgment_funnel.py:route_judgment_sample", ("route_judgment_sample",),
                               (("judgment_funnel_routing", "judgment-funnel/routing.jsonl"),), gate="funnel_enabled"),
@@ -99,14 +103,9 @@ FAMILIES: dict[str, Family] = {
 
 
 def production_sources(repo_root: Path) -> dict[str, str]:
-    """Every production module of the kernel and the executor, by repo path (tests excluded)."""
-    sources: dict[str, str] = {}
-    for root in SOURCE_ROOTS:
-        for path in sorted((repo_root / root).rglob("*.py")):
-            rel = path.relative_to(repo_root).as_posix()
-            if "tests" not in path.parts and not path.name.startswith("test_"):
-                sources[rel] = path.read_text(encoding="utf-8")
-    return sources
+    """Every importable production module of the kernel and the executor, by repo path (tests excluded)."""
+    return {path: (repo_root / path).read_text(encoding="utf-8") for _, path, _ in iter_modules(str(repo_root))
+            if "tests" not in path.split("/") and not path.rsplit("/", 1)[-1].startswith("test_")}
 
 
 def _surface(surface: str | None, surface_ref: str | None, constants: dict[str, dict[str, str]]) -> str | None:
@@ -124,13 +123,21 @@ def _sites(family: Family, facts: dict[str, Any], constants: dict[str, dict[str,
         if callee in LEDGER_WRITERS:
             named = _surface(surface, surface_ref, constants)
             sites.update((line, scope, f"{relpath} ({declared})") for declared, relpath in family.ledgers
-                         if named == declared or any(p == relpath or p.endswith("/" + relpath) for p in paths))
+                         if named == declared or any(_names_path(p, relpath) for p in paths))
     return sites
 
 
+def _names_path(parts: list[str], relpath: str) -> bool:
+    """A path literal's components end with ``relpath``'s (``root / "plans" / "events.jsonl"``)."""
+    wanted = path_parts(relpath)
+    return tuple(parts[-len(wanted):]) == wanted
+
+
 def _all_facts(sources: dict[str, str]) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, str]]]:
-    facts = {path: symbol_facts(text, path=path) for path, text in sources.items()}
-    return facts, {module_of(path): f["constants"] for path, f in facts.items()}
+    names = {path: module_name(path) for path in sources}
+    facts = {path: extract(text, path, names[path], path.endswith("/__init__.py"), symbols=True)
+             for path, text in sources.items()}
+    return facts, {names[path]: f["constants"] for path, f in facts.items()}
 
 
 def one_owner_offenders(sources: dict[str, str]) -> list[str]:
@@ -149,13 +156,12 @@ def one_owner_offenders(sources: dict[str, str]) -> list[str]:
 
 def build_atlas(repo_root: Path) -> dict[str, Any]:
     facts, constants = _all_facts(production_sources(repo_root))
-    path_of = {module_of(path): path for path in facts}
+    path_of = {module_name(path): path for path in facts}
     referrers: dict[tuple[str, str], set[tuple[str, str]]] = {}
     for path, module_facts in facts.items():
-        for _, scope, dotted in module_facts["refs"]:
-            parts = dotted.split(".")
-            target = next(((path_of[".".join(parts[:i])], parts[i]) for i in range(len(parts) - 1, 0, -1)
-                           if ".".join(parts[:i]) in path_of), None)
+        for _, scope, dotted in module_facts["uses"]:
+            module = deepest_module(dotted.rpartition(".")[0], path_of)
+            target = (path_of[module], dotted[len(module) + 1 :].split(".")[0]) if module else None
             if target is not None and target != (path, scope):
                 referrers.setdefault(target, set()).add((path, scope))
     roots = _roots(repo_root, path_of)

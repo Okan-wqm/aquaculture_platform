@@ -43,6 +43,7 @@ from aria_kernel.report_ingestion import (
 )
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from aria_kernel.workspace import ensure_workspace, workspace_paths
+from tests._helpers.witness_sources import REGISTRY_CLI_DATA, registry_cli_tool_paths
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _BASE_REF = "docs/reviews/_registry/findings.jsonl"
@@ -186,19 +187,19 @@ class KernelReadSitesReadTheViewTests(unittest.TestCase):
 #     falling back to the stored file;
 #   * the deadline organ and the adapter quarantine see a derived closure.
 #
-# The fixture is a real git repository carrying a copy of tools/gates and a
-# link to this checkout's node_modules, so the CLI runs on the fixture's own
-# history (the TS side builds the same shape in
-# tests/invariants/helpers/registry-fixture-repo.ts).
+# The fixture is a real git repository carrying the registry CLI's input set
+# (its import closure, tsconfig and data files, owned by
+# tests/_helpers/witness_sources.py) and a link to this checkout's
+# node_modules, so the CLI runs on the fixture's own history (the TS side
+# builds the same shape in tests/invariants/helpers/registry-fixture-repo.ts).
+# It copies that set and nothing else: the kernel surface test requires the
+# same set on the surface, so building the fixture never reads a file a PR
+# could change without running this suite (the suite job's read tracer,
+# ARIA-HIGH-602, fails such a read).
 # ---------------------------------------------------------------------------
 
 _FIXTURE_REVIEW = "docs/reviews/claude/2026-10-23-mf-1-fixture.md"
 _ZERO_HASH = "0" * 64
-_COPIED_FILES = (
-    "docs/reviews/_registry/findings.jsonl.schema.json",
-    "docs/reviews/_registry/path-corrections.yaml",
-    ".github/CODEOWNERS",
-)
 _TS_NODE = Path("node_modules/.bin/ts-node")
 
 
@@ -250,17 +251,15 @@ class _ProjectionRepo:
     def __init__(self, root: Path, *, with_node: bool = True) -> None:
         self.root = root
         root.mkdir(parents=True)
-        shutil.copytree(
-            _REPO_ROOT / "tools" / "gates", root / "tools" / "gates",
-            ignore=shutil.ignore_patterns("fixtures", "node_modules", "*.spec.ts"),
-        )
-        for rel in _COPIED_FILES:
+        for rel in (*registry_cli_tool_paths(), *REGISTRY_CLI_DATA):
             (root / rel).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(_REPO_ROOT / rel, root / rel)
         if with_node:
             (root / "node_modules").symlink_to(_REPO_ROOT / "node_modules", target_is_directory=True)
         self.write(".gitignore", "node_modules\n")
         self.write(_FIXTURE_REVIEW, "# MF-1 fixture review\n")
+        # The fixture's own alias sidecar replaces the copied live one: its
+        # trailers name only fixture ids.
         self.write("docs/reviews/_registry/finding-id-aliases.yaml", "version: 1\n\naliases: []\n")
         self.git("init", "-q", "-b", "main")
 

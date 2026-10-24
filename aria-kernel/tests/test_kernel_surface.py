@@ -51,9 +51,8 @@ from typing import Any, Iterable, Iterator
 
 import yaml
 
-from aria_kernel import report_ingestion
 from tests._helpers.kernel_lane import KERNEL_SURFACE_MANIFEST, kernel_lane_surface, kernel_surface_entries
-from tests._helpers.witness_sources import tool_closure_paths, witness_tool_paths
+from tests._helpers.witness_sources import REGISTRY_CLI_DATA, registry_cli_tool_paths, witness_tool_paths
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _KERNEL_WORKFLOW = ".github/workflows/aria-kernel.yml"
@@ -278,21 +277,6 @@ class KernelSurfaceManifestTest(unittest.TestCase):
         )
 
 
-# The data the registry CLI reads on every kernel call beside its code: the row
-# contract a derived row is held to and the alias sidecar a trailer's name
-# resolves through. No import names them, so they are listed here; each must
-# still be named by the CLI's own sources (pinned below), so the list cannot
-# outlive the read.
-_REGISTRY_CLI_DATA = (
-    "docs/reviews/_registry/findings.jsonl.schema.json",
-    "docs/reviews/_registry/finding-id-aliases.yaml",
-)
-
-
-def _registry_cli_paths() -> tuple[str, ...]:
-    return (*tool_closure_paths(report_ingestion._REGISTRY_CLI), report_ingestion._GATES_TSCONFIG)
-
-
 class KernelToolInputsTest(unittest.TestCase):
     def test_the_plan_coverage_witness_and_its_imports_are_on_the_surface(self) -> None:
         # The kernel runs the witness (aria_kernel/plan_coverage.py) and the
@@ -306,13 +290,13 @@ class KernelToolInputsTest(unittest.TestCase):
         # closure verifier). Its twelve modules were off the surface: a PR that
         # changed only the projection's output skipped the kernel suite, passed
         # the required check and turned main red on the push run (MF-1 R6).
-        self.assertEqual(uncovered([*_registry_cli_paths(), *_REGISTRY_CLI_DATA], kernel_lane_surface()), [])
+        self.assertEqual(uncovered([*registry_cli_tool_paths(), *REGISTRY_CLI_DATA], kernel_lane_surface()), [])
 
     def test_every_listed_registry_cli_data_file_is_named_by_the_cli(self) -> None:
         sources = "".join(
-            (_REPO_ROOT / path).read_text(encoding="utf-8") for path in _registry_cli_paths() if path.endswith(".ts")
+            (_REPO_ROOT / path).read_text(encoding="utf-8") for path in registry_cli_tool_paths() if path.endswith(".ts")
         )
-        self.assertEqual([path for path in _REGISTRY_CLI_DATA if path not in sources], [])
+        self.assertEqual([path for path in REGISTRY_CLI_DATA if path not in sources], [])
 
 
 class KernelWorkflowInputsTest(unittest.TestCase):

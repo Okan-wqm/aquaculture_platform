@@ -222,6 +222,19 @@ class ProveRedFirstTests(unittest.TestCase):
         self.assertEqual(fix["verdict"], "proven", "red at the fix's base, green at its head: the fix is proven")
         self._assert_hermetic()
 
+    # D5-R1-SSOT-B1: an assertion whose message names an infra token is
+    # still an assertion red, so the pair is proven, not unrunnable.
+    def test_an_assertion_naming_an_infra_token_is_proven_not_unrunnable(self) -> None:
+        good = commit_files(self.repo, {"errmap.py": "def code_for(n):\n    return {111: 'ECONNREFUSED'}.get(n)\n"},
+                            message="fixture: errno map")
+        bad = commit_files(self.repo, {"errmap.py": "def code_for(n):\n    return {111: 'ETIMEDOUT'}.get(n)\n"},
+                           message="fixture: regress errno map")
+        probe = ("import unittest\n\nimport errmap\n\n\nclass Probe(unittest.TestCase):\n"
+                 "    def test_claim(self):\n        self.assertEqual(errmap.code_for(111), 'ECONNREFUSED')\n")
+        result = self._prove(red_at=bad, green_at=good, pin=_pin(probe, "'ETIMEDOUT' != 'ECONNREFUSED'"))
+        self.assertEqual(result["verdict"], "proven")
+        red, _green = self._assert_one_run_each(bad, good)
+        self.assertEqual(red["failure_reason"], "assertion")
 
 class ProofVocabularyTests(unittest.TestCase):
     """The two closed vocabularies the design names, owned once each."""

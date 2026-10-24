@@ -117,6 +117,20 @@ class ValidationRunsLedgerTests(unittest.TestCase):
         self.assertEqual(self._record(exit_code=1)["failure_reason"], "assertion")
         self.assertEqual(self._record(exit_code=None, timed_out=True)["failure_reason"], "timeout")
 
+    def test_failure_reason_reads_the_command_output_never_the_log_header(self) -> None:
+        # D5-R1-SSOT-B1: the header carries the command line, which a caller
+        # chooses (a ``-k ECONNREFUSED`` filter, an embedded newline); only
+        # the streams after ``--- stdout ---`` are what the command printed.
+        self.log.write_text(
+            "command: python3 -m unittest tests.test_probe -k ECONNREFUSED\n"
+            "ConnectionRefusedError: [Errno 111] Connection refused\n"
+            "argv: ['python3', '-m', 'unittest', 'tests.test_probe', '-k', 'ECONNREFUSED']\n"
+            "--- stdout ---\n\n--- stderr ---\n"
+            "FAIL: test_claim (tests.test_probe.Probe.test_claim)\nAssertionError: 1 != 2\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(self._record(exit_code=1)["failure_reason"], "assertion")
+
 
 class FailureReasonClassTests(unittest.TestCase):
     """The class each admitted runner's red output reads as (D5 / F3.2)."""
@@ -131,6 +145,16 @@ class FailureReasonClassTests(unittest.TestCase):
             ("error: could not compile `gateway` (lib test) due to 1 previous error", "collection"),
             ("ConnectionRefusedError: [Errno 111] Connection refused\nAssertionError: 0 != 1", "infra_required"),
             ("connect ECONNREFUSED 127.0.0.1:5432", "infra_required"),
+            ("Error: connect ECONNREFUSED 127.0.0.1:5432", "infra_required"),
+            ("Error: getaddrinfo EAI_AGAIN db.internal", "infra_required"),
+            ("socket.gaierror: [Errno -3] Temporary failure in name resolution", "infra_required"),
+            # D5-R1-SSOT-B1: an assertion whose message NAMES an infra token
+            # is an assertion, not a refused connection.
+            ("FAIL: test_claim (t.P.test_claim)\nAssertionError: 'ETIMEDOUT' != 'ECONNREFUSED'", "assertion"),
+            ("AssertionError: 'EAI_AGAIN' not found in 'ok'", "assertion"),
+            ("    expect(received).toBe(expected)\n    Expected: \"Temporary failure in name resolution\"", "assertion"),
+            ("command: python3 -m unittest t -k ECONNREFUSED\nFAIL: test_a (t.P.test_a)\nAssertionError: 1 != 2",
+             "assertion"),
             ("FAIL: test_add (tests.test_calc.T.test_add)\nAssertionError: -1 != 5", "assertion"),
             ("    expect(received).toBe(expected) // Object.is equality", "assertion"),
             ("thread 'tests::add' panicked at src/lib.rs:9:5:", "assertion"),

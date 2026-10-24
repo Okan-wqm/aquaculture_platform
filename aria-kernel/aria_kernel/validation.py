@@ -39,9 +39,11 @@ from .ledger import (
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 from .validation_env import build_validation_env
 from .validation_runs_ledger import (
+    VALIDATION_RUN_LOG_OUTPUT_LINE,
     VALIDATION_RUNS_FILENAME,
     record_validation_run,
     validation_run_log_dir,
+    validation_run_log_output,
     verify_validation_run,
 )
 from .canonical_path import matches_repo_glob, normalize_repo_relpath
@@ -590,11 +592,10 @@ def _proof_verdict(red: dict[str, Any], green: dict[str, Any], signature: str, *
 
 
 def _run_log_output(row: dict[str, Any], *, base_dir: str | Path | None) -> str:
-    """The command's output as the run's hash-verified log holds it (the
-    streams ``_write_run_log`` writes, without its command/argv header)."""
+    """The command's output as the run's hash-verified log holds it, read
+    the way the ledger classified it (``validation_run_log_output``)."""
     verified = verify_validation_run(row["validation_run_id"], base_dir=base_dir)
-    text = Path(verified["log_path"]).read_text(encoding="utf-8")
-    return text.partition("\n--- stdout ---\n")[2]
+    return validation_run_log_output(Path(verified["log_path"]).read_text(encoding="utf-8"))
 
 
 # How long a killed validation tree has to die before it is SIGKILLed: the
@@ -913,7 +914,7 @@ def _write_run_log(
             [
                 f"command: {command}",
                 f"argv: {argv!r}",
-                "--- stdout ---",
+                VALIDATION_RUN_LOG_OUTPUT_LINE,
                 scrub_text(stdout),
                 "--- stderr ---",
                 scrub_text(stderr),

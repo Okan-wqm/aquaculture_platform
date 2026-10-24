@@ -34,11 +34,8 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
 import { scanEventConsumers } from '../../tools/gates/event-consumer-index';
-import {
-  indexFixtureTree,
-  makeFixtureTree,
-  removeFixtureTree,
-} from '../../tools/gates/fixture-tree';
+import { indexFixtureTree } from '../../tools/gates/fixture-git-index';
+import { makeFixtureTree, removeFixtureTree } from '../../tools/gates/fixture-tree';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 

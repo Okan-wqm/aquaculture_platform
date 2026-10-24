@@ -228,6 +228,12 @@ SEAM_REGISTRY: MappingProxyType[str, SeamEntry] = MappingProxyType(
             process="real bwrap hosting the executor's managed CLI substitute and its signed "
             "git commit (the sandbox argv owner)",
         ),
+        "aria-kernel/aria_kernel/self_improvement.py": SeamEntry(
+            tests=("aria-kernel/tests/test_derived_authority_set.py",),
+            process="invariants_only_grow runs the suite's own collector (aria-suite-run.sh --collect) "
+            "inside the validation sandbox on real base/head git trees, beside read-only git plumbing "
+            "for the authority set's tree",
+        ),
         "aria-kernel/aria_kernel/hook_broker.py": SeamEntry(
             tests=("aria-kernel/tests/test_hook_broker.py",),
             process="serve_hook_broker on a real unix socket with a real subprocess client",
@@ -318,6 +324,7 @@ SPAWN_ONLY_NOT_SEAM: MappingProxyType[str, str] = MappingProxyType(
         "aria-kernel/aria_kernel/merge_lane_workspace.py": "git plumbing on the merge lane's workspace",
         "aria-kernel/aria_kernel/merge_record.py": "read-only git patch-id/-c probes for merge attribution",
         "aria-kernel/aria_kernel/migration.py": "read-only git rev-parse probe",
+        "aria-kernel/aria_kernel/mutation_canary.py": "git plumbing (init, add, commit, rev-parse) on the fresh canary sandbox it builds, under the scrubbed hermetic git env",
         "aria-kernel/aria_kernel/observation_coverage.py": "read-only git -C probe",
         "aria-kernel/aria_kernel/operator_request_signature.py": "ssh-keygen -Y verification of operator acknowledgements",
         "aria-kernel/aria_kernel/phase2_utils.py": "read-only git rev-parse probe",

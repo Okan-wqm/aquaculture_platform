@@ -48,11 +48,11 @@ from typing import Any, Mapping
 
 from .command_policy import argv_of, classify_command
 from .implementation_safety import (
-    READONLY_PATHS,
     BashAllowlistMiss,
     BashDenylistHit,
     PathEscape,
     is_gh_api_path_forbidden,
+    readonly_entry_for,
     verify_bash_command_allowed,
     verify_no_path_escape,
 )
@@ -147,9 +147,9 @@ def decide_pre_tool(payload: Mapping[str, Any], *, workspace_root: str | Path) -
                 return HookVerdict("deny", "write_target_missing", tool, EXIT_BLOCK)
             resolved = verify_no_path_escape(target, workspace)
             rel = resolved.relative_to(workspace).as_posix()
-            for ro in READONLY_PATHS:
-                if rel == ro.rstrip("/") or rel.startswith(ro if ro.endswith("/") else ro + "/") or rel == ro:
-                    return HookVerdict("deny", f"readonly_path:{ro}", tool, EXIT_BLOCK)
+            readonly = readonly_entry_for(rel)
+            if readonly is not None:
+                return HookVerdict("deny", f"readonly_path:{readonly}", tool, EXIT_BLOCK)
             return HookVerdict("allow", "write_inside_workspace", tool, EXIT_ALLOW)
         return HookVerdict("allow", "tool_not_policed_here", tool, EXIT_ALLOW)
     except (BashAllowlistMiss, BashDenylistHit) as exc:

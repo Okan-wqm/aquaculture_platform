@@ -42,8 +42,8 @@ from .agent_invocations import create_agent_invocation_request
 from .request_admission import Admission
 from .bridge_exceptions import BridgeContractViolation
 from .implementation_safety import (
-    READONLY_PATHS,
     implementation_allowed_scope,
+    readonly_paths,
 )
 from .must_satisfy import (
     key_change_obligation,
@@ -944,7 +944,7 @@ def issue_implementation_envelope(
       * ``allowed_scope`` — ``implementation_allowed_scope`` over the plan's
         own ``affected_surfaces``, refused outright when any lies outside the
         plan's admission bound (ADR-0021): the declared paths MINUS
-        ``implementation_safety.READONLY_PATHS``, computed with the same
+        ``implementation_safety.readonly_paths()``, computed with the same
         classifier the pre-PR-open perimeter judges the envelope with. A plan
         whose every surface is readonly leaves an empty scope and is refused
         HERE, at mint, which is what the ``kernel_self_modification_blocked_
@@ -1094,7 +1094,7 @@ def issue_implementation_envelope(
         # in CONTRACT_ENFORCED_ROLES), so a mint the contract refuses stops
         # here, with the plan still CONVERGED.
         cycle_id=cycle_id,
-        forbidden_scope=list(READONLY_PATHS),
+        forbidden_scope=list(readonly_paths()),
         commit_contract=commit_contract,
         # ARIA-HIGH-144 — the row names the commit it is grounded at, the way
         # every other anchored mint does: the staged base (the baseline's

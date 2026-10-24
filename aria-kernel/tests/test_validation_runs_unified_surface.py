@@ -644,6 +644,9 @@ class ValidationInputBindingTests(unittest.TestCase):
         spawned = ast.literal_eval(next(line.removeprefix("argv: ") for line in log.splitlines() if line.startswith("argv: ")))
         self.assertEqual(environment["spawned_argv"], spawned)
         self.assertEqual(spawned[0], "python3")
+        # B1 round 4 R2 — the child runs by path with -P: its own directory
+        # (aria-kernel/aria_kernel/) is not an import root.
+        self.assertEqual(spawned[1:3], ["-P", str(Path(validation.__file__).with_name("_validation_unittest_child.py"))])
         self.assertNotEqual(spawned, shlex.split(self.command))
         self.assertEqual(manifest["selection"], {"schema_version": 1, "argv": shlex.split(self.command), "selectors": [self.selector]})
         observer = Path(validation.__file__).with_name("_validation_unittest_child.py")

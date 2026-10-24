@@ -1996,7 +1996,16 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
 
         _scored = score_judges(cycle_id=context.cycle_id, base_dir=context.base_dir,
                                **_calibration_knobs(context.workspace_root))
-        _judge_weights = judge_weights_from_calibration(_scored) or None
+        # WP-J D-1 — the stability temper: the ONE flip table (stability_reask)
+        # tempers the weights a judge's calibration earned, and a judge that
+        # flips above STABILITY_MAX_FLIP weighs the prior. With no flips
+        # recorded the table is empty and the weights are bit-for-bit the
+        # pre-temper values — the temper is a no-op until measured.
+        from .stability_reask import load_flip_rates as _load_flip_rates
+
+        _judge_weights = judge_weights_from_calibration(
+            _scored, flip_rates=_load_flip_rates(base_dir=context.base_dir),
+        ) or None
         _judge_calibration = {
             str(judge.get("judge_id") or ""): {
                 "calibration_status": judge.get("calibration_status"),
@@ -2053,20 +2062,37 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
                     base_dir=context.base_dir,
                 )
                 sampled += len(sample.get("items") or [])
-                fanout = dispatch_judges_for_sample(
-                    sample=sample, base_dir=context.base_dir, target_sha=target_sha,
-                    # E17-b — the same workspace target_sha was resolved from. The
-                    # mint needs it to quote the cited lines into the envelope; a
-                    # judge lane that dispatches two judges per finding is exactly
-                    # where paying for the same file read twice is worst.
+                # WP-J slice C — the ONE routing owner sits exactly here,
+                # between the sampler and the fan-out (judgment_funnel). Tier
+                # assignment, escalation, early stop, cache key and batch key
+                # live in that module and nowhere else; with the funnel policy
+                # off it hands back the sampler's own sample and this loop
+                # makes the exact legacy call, bit for bit.
+                from .judgment_funnel import route_judgment_sample
+
+                funnel = route_judgment_sample(
+                    sample=sample,
+                    base_dir=context.base_dir,
                     repo_root=context.workspace_root,
-                    max_pending_per_role=max_pending_per_role,
+                    target_sha=target_sha,
+                    policy=pipeline_policy,
                 )
-                fanned_out += len(fanout.get("minted") or [])
-                mint_skipped_backlog += sum(
-                    1 for s in fanout.get("skipped") or []
-                    if s.get("reason") == "mint_skipped_backlog"
-                )
+                for leg in funnel["plan"]:
+                    fanout = dispatch_judges_for_sample(
+                        sample=leg["sample"], base_dir=context.base_dir, target_sha=target_sha,
+                        # E17-b — the same workspace target_sha was resolved from. The
+                        # mint needs it to quote the cited lines into the envelope; a
+                        # judge lane that dispatches two judges per finding is exactly
+                        # where paying for the same file read twice is worst.
+                        repo_root=context.workspace_root,
+                        max_pending_per_role=max_pending_per_role,
+                        **({"roles": leg["roles"]} if leg.get("roles") is not None else {}),
+                    )
+                    fanned_out += len(fanout.get("minted") or [])
+                    mint_skipped_backlog += sum(
+                        1 for s in fanout.get("skipped") or []
+                        if s.get("reason") == "mint_skipped_backlog"
+                    )
             except GovernanceError as exc:
                 blocked.append({"tool_id": tool_id, "step": "sample_or_fanout", "reason": str(exc)[:200]})
         try:
@@ -2143,6 +2169,22 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
             arbiter_requests += len(anchoring.get("minted") or [])
         except GovernanceError as exc:
             blocked.append({"tool_id": tool_id, "step": "anchoring", "reason": str(exc)[:200]})
+        try:
+            # WP-J B-2 — the bounded rebuttal round: a dissenter whose
+            # verdict a weighted majority outvoted is re-asked ONCE with the
+            # winners' verified refs. Runs AFTER the arbiter arms so a group
+            # arbitrated this tick settles first and its dissent (if any) is
+            # read from the settled row, never guessed from the votes.
+            from .judge_fanout import dispatch_rebuttal_for_dissent
+
+            rebuttal = dispatch_rebuttal_for_dissent(
+                tool_id=tool_id,
+                base_dir=context.base_dir,
+                cycle_id=context.cycle_id,
+            )
+            arbiter_requests += len(rebuttal.get("minted") or [])
+        except GovernanceError as exc:
+            blocked.append({"tool_id": tool_id, "step": "rebuttal", "reason": str(exc)[:200]})
     # D3 (Kapalı Döngü) — accepted consensus becomes a durable finding.
     # Runs AFTER the per-tool consensus loop so any row minted this cycle
     # is promotable immediately; idempotent via the promotions ledger.
@@ -2181,6 +2223,65 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
         "rule_defect_findings": rule_defect_summary.get("committed_count", 0),
         "target_sha": target_sha,
         "blocked": blocked,
+    }
+
+
+def _phase_outcome_calibration(context: PhaseContext) -> dict[str, Any]:
+    """WP-J D-1/D-2 — the outcome lanes: outcome truth, the stability re-ask,
+    the ONE flip table, and the canary self-exam.
+
+    Producers, one phase, fixed order:
+
+    1. ``outcome_truth.mint_outcome_truth`` — a promoted consensus whose
+       finding ran red and verified green same-recipe, merged, not
+       reverted, becomes a scoring-only truth row. Needs the judgment
+       pipeline's promotions, so it runs after ``judgment_pipeline``.
+    2. ``stability_reask.mint_stability_reasks_for_all_tools`` — the
+       stability lane, cadence-bounded by the MEASURED drain (holds, never
+       fails, when the drain is dead).
+    3. ``stability_reask.collect_stability_flips`` — settled re-asks land
+       in the ONE flip table the weight temper and the promotion bar read.
+    4. ``mutation_canary.mint_canary_judgments`` — the canary self-exam
+       mints after the flip collection so the fitness report that follows
+       reads every lane's freshest state.
+
+    ``record_and_continue``: an outcome lane that crashed produced no row,
+    which must not fail a night whose judging succeeded.
+    """
+    from .convergence_drainer import _resolve_workspace_head_sha
+    from .mutation_canary import mint_canary_judgments
+    from .outcome_truth import mint_outcome_truth
+    from .stability_reask import (
+        collect_stability_flips,
+        mint_stability_reasks_for_all_tools,
+    )
+
+    outcome = mint_outcome_truth(
+        repo_root=context.workspace_root, base_dir=context.base_dir,
+    )
+    stability = mint_stability_reasks_for_all_tools(
+        base_dir=context.base_dir,
+        cycle_id=context.cycle_id,
+        target_sha=_resolve_workspace_head_sha(context.workspace_root),
+    )
+    flips = collect_stability_flips(base_dir=context.base_dir)
+    canary = mint_canary_judgments(
+        base_dir=context.base_dir, cycle_id=context.cycle_id,
+        target_sha=_resolve_workspace_head_sha(context.workspace_root),
+    )
+    return {
+        "status": "completed",
+        "outcome_truth_minted": outcome.get("minted_count", 0),
+        "outcome_truth_skipped": outcome.get("skipped", []),
+        "stability": stability,
+        "stability_flips_recorded": flips.get("recorded_count", 0),
+        "anchor_flip_count": flips.get("anchor_flip_count", 0),
+        "mutation_canary": {
+            "held": canary.get("held"),
+            "minted_count": canary.get("minted_count", 0),
+            "labelled_count": canary.get("labelled_count", 0),
+            "corpus_hash": canary.get("corpus_hash"),
+        },
     }
 
 
@@ -3769,6 +3870,15 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
         "judge_replay", "post_tool", _phase_judge_replay,
         precondition=WRITES_PERMITTED, on_error="record_and_continue",
         state_key="judge_replay",
+    ),
+    # WP-J D-1 — after the replay so a night's fresh verdicts are all on the
+    # ledgers, and BEFORE the fitness report: the outcome lanes write what
+    # the fitness readers (the canary block in role_fitness) measure, and a
+    # report that ran first would read a cycle-old corpus.
+    CyclePhase(
+        "outcome_calibration", "post_tool", _phase_outcome_calibration,
+        precondition=WRITES_PERMITTED, on_error="record_and_continue",
+        state_key="outcome_calibration",
     ),
     # Directly after judge_calibration: both read the same feedback ledger,
     # and the gold corpus this mints is what judge_replay scores judges

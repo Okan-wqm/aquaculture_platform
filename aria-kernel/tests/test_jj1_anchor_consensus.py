@@ -88,6 +88,7 @@ class GroundTruthPredicateTests(unittest.TestCase):
                 "source_type": "ai_consensus",
                 "judge_count": ANCHOR_MIN_JUDGE_COUNT,
                 "judges_voted": ANCHOR_MIN_JUDGE_COUNT,
+                "evidence_refs": ["src/a.ts:1"],
                 "observers": [
                     {"judge_id": "aria-evidence-judge", "model": "claude-opus-5"},
                     {"judge_id": "aria-adversarial-judge", "model": "claude-opus-5"},
@@ -125,6 +126,9 @@ class GroundTruthPredicateTests(unittest.TestCase):
                 "source_type": "ai_consensus",
                 "judge_count": ANCHOR_MIN_JUDGE_COUNT,
                 "judges_voted": ANCHOR_MIN_JUDGE_COUNT,
+                # F0.3 N3 — the seat law's evidence leg (WP-J ce6a53541):
+                # the row cites code so only the seat leg is varied here.
+                "evidence_refs": ["src/app.ts:10"],
                 "observers": [
                     {"judge_id": f"judge-{n}", "model": "glm-5.3"}
                     for n in range(ANCHOR_MIN_JUDGE_COUNT)
@@ -146,6 +150,9 @@ class GroundTruthPredicateTests(unittest.TestCase):
                 "source_type": "ai_consensus",
                 "judge_count": ANCHOR_MIN_JUDGE_COUNT,
                 "judges_voted": ANCHOR_MIN_JUDGE_COUNT,
+                # Cites code, so the refusal is the SEAT leg's, not the
+                # evidence leg's (F0.3 N3: both are legs of one function).
+                "evidence_refs": ["src/app.ts:10"],
                 "observers": [
                     {"judge_id": "judge-same", "model": model}
                     for model in ("glm-5.3", "claude-opus-5", "fable")
@@ -243,7 +250,9 @@ class _LedgerCase(unittest.TestCase):
             finding_id=finding,
             verdict=verdict,
             severity="high",
-            note="judge",
+            # WP-J fix round — independent seats write independent prose:
+            # the settle path's diversity leg refuses a panel that echoes.
+            note=f"{judge_id} independent reading of the finding",
             source_type="ai_judge",
             judge_id=judge_id,
             # G-2 — the fleet as it actually runs: the two routine judges are
@@ -253,6 +262,9 @@ class _LedgerCase(unittest.TestCase):
             # named no model were asserting an anchor nobody could attribute.
             model=model or _FLEET_MODELS.get(judge_id, "claude-opus-5"),
             confidence=confidence,
+            # WP-J review — an anchor stands on code evidence: the anchor
+            # pins cite one ref so the rows they anchor are evidence-bearing.
+            evidence_refs=[f"src/{finding.lower()}.ts:10"],
             judgment_group_id=f"judge:{tool_id}:{finding}",
             finding_fingerprint=f"fp-{finding}",
             base_dir=self.tools,

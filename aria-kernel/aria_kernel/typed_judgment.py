@@ -525,12 +525,23 @@ def _failure(question_id: str, code: str, detail: str) -> ParseFailure:
 
 
 def _quote_verified(question: Question, index: int, quote: str) -> bool | None:
-    """True/False against the pinned excerpt bytes; None when none were pinned."""
+    """True/False against the pinned excerpt bytes; None when none were pinned.
+
+    The containment itself is not done here: ``evidence_trust.quote_matches_at``
+    is THE verbatim-quote law (one law, both the typed parse and the untyped
+    submit re-grade ask it), so this function only decides WHICH pinned bytes
+    the citation's ref index names and hands them over.
+    """
+    from .evidence_trust import quote_matches_at
+
     grouped = _excerpts_by_ref_index(question)
     entries = [entry for entry in grouped.get(index, []) if not entry.get("skipped")]
     if question.evidence_excerpts is None or not entries:
         return None
-    return any(quote in str(entry.get("content") or "") for entry in entries)
+    return any(
+        quote_matches_at(quote, excerpt_content=str(entry.get("content") or "")) is True
+        for entry in entries
+    )
 
 
 def _parse_evidence(question: Question, raw: Any) -> tuple[EvidenceCitation, ...] | ParseFailure:

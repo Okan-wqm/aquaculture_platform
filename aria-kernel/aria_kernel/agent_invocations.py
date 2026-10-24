@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Callable, Mapping, Sequence
 from .agent_contract import CONTRACT_ENFORCED_ROLES, REQUEST_SCHEMA, validate_request
 from .agent_surface import (
     DERIVED_REQUEST_STATES,
+    EXPERT_METHODS,
     INVOCATION_ROLES,
     allowed_targets_for_role,
 )
@@ -1401,6 +1402,18 @@ def create_agent_invocation_request(
     # to spell it into ``evidence_refs``, where the agent cited it and the
     # submit law refused the answer (agent_evidence_ref_malformed).
     subject_ref: str | None = None,
+    # WP-J B-1 — the METHOD this seat practices, stamped from
+    # ``agent_surface.EXPERT_METHODS`` at the MINT (ORPHAN-HIGH-781
+    # doctrine, same as judgment_group_id and finding_fingerprint): the
+    # anchor's hybrid diversity leg reads the method off the receipt, and a
+    # method re-derived at read time would be a second copy of the registry
+    # drifting from what the seat was actually asked. Additive optional:
+    # historical rows read as None and keep the model leg. When the caller
+    # passes none, the MINT derives it from the registry (below): every
+    # judgment-lane producer is covered by one law at one owner, and a
+    # judge envelope that forgot its method stamp is unrepresentable — a
+    # partially-stamped panel would fail the anchor's hybrid leg closed.
+    agent_method: str | None = None,
 ) -> dict[str, Any]:
     # Plan ARIA-V5 §3c v2 (B1 fix) — ``plan_revision_hash`` binds the
     # envelope to a specific plan revision so I-V5.1-03 can assert
@@ -1417,6 +1430,17 @@ def create_agent_invocation_request(
     if not target_agent.strip():
         raise GovernanceError("target_agent is required")
     check_admission_binding(admission, role=role)
+    # WP-J B-1 — one law at the one mint: a judgment-lane seat practices the
+    # method its role names in the registry, unless the caller explicitly
+    # stamps another. Deriving here (never at read time) is what makes an
+    # unstamped judge envelope unrepresentable, whichever of the producers
+    # minted it — fan-out, arbiter, replay, remint or review.
+    if agent_method is None:
+        agent_method = EXPERT_METHODS.get(role)
+    # A method outside the one registry is a refusal, not a free-form string
+    # the diversity legs later have to defend against.
+    if agent_method is not None and agent_method not in EXPERT_METHODS.values():
+        raise GovernanceError(f"unknown agent_method: {agent_method!r}")
     root = ensure_tools_dir(base_dir)
     if not shadow_eval and _target_is_shadow(root, target_agent):
         raise GovernanceError(
@@ -1719,6 +1743,10 @@ def create_agent_invocation_request(
         # names no subject), so its presence tells a row minted under the
         # subject channel from one minted before it (``minted_subject_refs``).
         "subject_ref": subject_ref,
+        # WP-J B-1 — the seat's method, mint-first (see the parameter). None
+        # on every row minted before the registry existed: those receipts
+        # keep the model leg of the hybrid anchor rule.
+        "agent_method": agent_method,
         "shadow_eval": bool(shadow_eval),
         "shadow_eval_proof": shadow_eval_proof,
         "target_sha": target_sha,
@@ -5828,6 +5856,9 @@ def judge_claim_submission(
         workspace_root=workspace_root,
         request=strict_request,
         probe_session=probes,
+        # WP-J review — the R4 byte law reads the recorded experiment
+        # observations; the submit always knows its tools root.
+        base_dir=root,
     )
     if not revalidation["valid"]:
         for error in revalidation["errors"]:

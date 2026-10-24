@@ -50,6 +50,13 @@ always-run ``workspace`` job runs the declared ones (``run --live``). Every
 report carries the declared set, and ``verify`` proves the hermetic shards and
 the live report together ran the discovered suite exactly once.
 
+THE COLLECTED IDS (PLAN-v2 B1). ``list`` prints the leaf id of every test
+the unittest half runs, from the same discovery (``load_tests`` and package
+``__init__`` files decide, as in CI), and names on stderr every module that
+failed to import, exiting 1 for it. ``scripts/ci/aria-suite-run.sh
+--collect`` prints these with the pytest half's ids, and
+``self_improvement.invariants_only_grow`` compares two trees through it.
+
 SPAWN SAFETY. Tests in this suite start ``multiprocessing`` children with the
 ``spawn`` method, which re-imports ``__main__``. Everything below is a
 definition; the only statement with an effect is behind the ``__main__``
@@ -59,6 +66,7 @@ guard, so a spawned child never re-runs a shard.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
 import os
@@ -122,6 +130,21 @@ def discover_modules(kernel_root: Path = KERNEL_ROOT) -> dict[str, unittest.Test
         if key is not None:
             modules.setdefault(key, unittest.TestSuite()).addTest(module_suite)
     return modules
+
+
+def collected_ids(kernel_root: Path = KERNEL_ROOT) -> tuple[list[str], list[str]]:
+    """``(ids, failed)``: the id of every test the unittest half runs, and the
+    modules that failed to import (unittest stands a ``_FailedTest`` in for
+    each; it is not a test of the suite)."""
+    ids: list[str] = []
+    failed: list[str] = []
+    for name, suite in sorted(discover_modules(kernel_root).items()):
+        for test in _leaves(suite):
+            if type(test).__name__ == _FAILED_IMPORT_CLASS:
+                failed.append(name)
+            else:
+                ids.append(test.id())
+    return ids, sorted(set(failed))
 
 
 def live_declarations(modules: Mapping[str, unittest.TestSuite]) -> dict[str, str]:
@@ -428,11 +451,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--partitions", default=",".join(PARTITIONS),
         help=f"comma-separated partitions that ran (default: {','.join(PARTITIONS)})",
     )
+    listing = commands.add_parser("list", help="print the id of every test the unittest half runs")
+    listing.add_argument("--kernel-root", type=Path, default=KERNEL_ROOT)
     weights = commands.add_parser("weights", help="write measured seconds from shard reports")
     weights.add_argument("--reports-dir", required=True, type=Path)
     weights.add_argument("--out", type=Path, default=WEIGHTS_PATH)
     args = parser.parse_args(argv)
 
+    if args.command == "list":
+        # Discovery imports every test module, and a module may print at
+        # import: stdout carries the ids alone.
+        with contextlib.redirect_stdout(sys.stderr):
+            ids, failed = collected_ids(args.kernel_root.resolve())
+        for test_id in ids:
+            print(test_id)
+        for name in failed:
+            print(f"suite_shards list: {name} failed to import", file=sys.stderr)
+        return 1 if failed else 0
     if args.command == "run":
         if args.live:
             green = run_live(args.report, kernel_root=args.kernel_root.resolve())

@@ -56,6 +56,16 @@ REQUEST_ROLES: tuple[str, ...] = (
     # is composed of distinct principals by construction rather than by
     # hope; the fold still verifies disjointness against the claims ledger.
     "human_required_adjudication",
+    # WP-J B-2 — the four method-panel seats (operator protocol step 3: a
+    # blind panel of experts with distinct METHODS). They join ALL FOUR E14
+    # tables in this one commit: REQUEST_ROLES here, DISPATCHABLE_ROLES,
+    # ROLE_TARGET_PAIRING and the request_admission producer below. The
+    # reproduction seat holds Write/Edit/Bash (it writes and RUNS the red
+    # test) and is the one judge-lane role in WRITE_SCOPE_ROLES.
+    "bug_hunt",
+    "reproduction_test",
+    "impact_assessment",
+    "architecture",
 )
 
 INVOCATION_ROLES: FrozenSet[str] = frozenset({
@@ -101,6 +111,13 @@ DISPATCHABLE_ROLES: FrozenSet[str] = frozenset({
     # 37192561282 and 37205463513). `ci_executor_drain` now refuses to load
     # an arc naming a role outside this set.
     "maintenance_utility",
+    # WP-J B-2 — the four method-panel seats, claimable the moment they are
+    # mintable (the E14 contract; the standalone ci_executor mirror joins in
+    # this same commit).
+    "bug_hunt",
+    "reproduction_test",
+    "impact_assessment",
+    "architecture",
 })
 
 DRAFTER_ROLES: FrozenSet[str] = frozenset({
@@ -112,7 +129,67 @@ JUDGE_ROLES: tuple[str, ...] = (
     "evidence_judgment",
     "adversarial_judgment",
     "consensus_arbitration",
+    # WP-J B-2 — the panel seats fold their verdicts through the SAME judge
+    # bridge as the routine pair (judgment_bridge.is_judge_role), so a paid
+    # panel envelope can vote in the consensus of the group it was minted
+    # for. Without this membership the seat's response would be accepted,
+    # sealed and silently unfoldable - the E14 defect from the response side.
+    "bug_hunt",
+    "reproduction_test",
+    "impact_assessment",
+    "architecture",
 )
+
+# WP-J B-1 — the METHOD each judgment-lane seat practices. Operator decision
+# 2026-10-18: diversity comes from PERSPECTIVE and METHOD, not from the
+# provider, so the anchor's diversity question (feedback_store G-2 hybrid
+# leg) and the calibrated quorum's both read the METHOD off the receipt, and
+# the method a seat practiced is stamped at the MINT from THIS registry (the
+# ORPHAN-HIGH-781 doctrine: identity comes from what the kernel asked, never
+# from what the judged agent volunteers about itself). One registry, no
+# second copy: judgment_bridge folds it onto the ai_judge row,
+# generate_ai_consensus folds it onto the observers receipt, and nothing
+# else may spell a role's method.
+#
+# The three live seats map onto the operator's method list as: the evidence
+# judge is the static code tracer, the adversarial judge is the devil's
+# advocate, and the arbiter weighs evidence. The panel seats (bug hunt,
+# reproduction, impact, architecture) join this registry in the same commit
+# they join the four E14 tables below.
+EXPERT_METHODS: dict[str, str] = {
+    "evidence_judgment": "static_trace",
+    "adversarial_judgment": "devils_advocate",
+    "consensus_arbitration": "evidence_weighing",
+    # WP-J B-2 — the four panel seats. Six seats, six distinct methods: the
+    # funnel routes by claim_type onto a ROLE (its table), and this registry
+    # is what makes the routed seat's method answerable - never re-derived
+    # per router.
+    "bug_hunt": "bug_hunt",
+    "reproduction_test": "reproduction_test",
+    "impact_assessment": "impact_assessment",
+    "architecture": "architecture_contract",
+}
+
+# The closed vocabulary of methods (the values of EXPERT_METHODS), for
+# validators that check a method string without caring which seat owns it.
+METHODS: tuple[str, ...] = tuple(EXPERT_METHODS.values())
+
+# WP-J B-2 — the method ARTIFACT each method's verdict must carry: the one
+# field that makes the seat's answer checkable as the product of ITS method
+# (operator protocol step 4: "its own METHOD and its own required evidence
+# type"). judgment_bridge refuses a response whose role's method names a
+# field here and the verdict block does not carry it
+# (``judge_verdict.method_evidence_missing:<field>``). Methods absent from
+# this map (the static tracer's hops, the devil's advocate's
+# counter-evidence) are fully governed by the existing verdict law - the
+# cited evidence_refs - and name no artifact of their own, so this is a
+# registry of requirements, not a second copy of the verdict contract.
+METHOD_REQUIRED_EVIDENCE: dict[str, str] = {
+    "bug_hunt": "failing_input",
+    "reproduction_test": "reproduction",
+    "impact_assessment": "visible_consequence",
+    "architecture_contract": "blast_radius",
+}
 
 SUPPORTING_ROLES: tuple[str, ...] = (
     "change_intelligence",
@@ -162,6 +239,13 @@ DEFAULT_TARGET_AGENT_WHITELIST: tuple[str, ...] = (
     # reachable the moment the touch-map names them.
     "architectural-arbiter",
     "auth-security-expert",
+    # WP-J B-2 — the three new panel-seat agents (the architecture seat
+    # reuses architectural-arbiter above). Whitelisted here so the surface
+    # validator checks their prompt files exist like every kernel-minted
+    # target's.
+    "aria-bug-hunter",
+    "aria-test-writer",
+    "aria-impact-assessor",
 )
 
 ROLE_TARGET_PAIRING: dict[str, tuple[str, ...]] = {
@@ -192,6 +276,15 @@ ROLE_TARGET_PAIRING: dict[str, tuple[str, ...]] = {
     # kernel-envelope only, so a queue item or a self-change PROPOSAL can
     # never be served by an agent that holds write tools.
     "maintenance_utility": ("aria-autonomy-planner",),
+    # WP-J B-2 — the four method seats. Three new agents (one per method,
+    # read-only except the test writer's sandboxed Write/Edit/Bash) plus the
+    # EXISTING architectural-arbiter for the architecture seat: the expert
+    # lanes already reach it (expert_review_gate, ci.produce_ci_review), so
+    # a second architecture agent would be a duplicate of a paired agent.
+    "bug_hunt": ("aria-bug-hunter",),
+    "reproduction_test": ("aria-test-writer",),
+    "impact_assessment": ("aria-impact-assessor",),
+    "architecture": ("architectural-arbiter",),
 }
 
 DERIVED_REQUEST_STATES: tuple[str, ...] = (
@@ -264,8 +357,11 @@ __all__ = [
     "DERIVED_REQUEST_STATES",
     "DISPATCHABLE_ROLES",
     "DRAFTER_ROLES",
+    "EXPERT_METHODS",
     "INVOCATION_ROLES",
     "JUDGE_ROLES",
+    "METHOD_REQUIRED_EVIDENCE",
+    "METHODS",
     "PLANNER_BRIDGE_ROLES",
     "REQUEST_ROLES",
     "ROLE_TARGET_PAIRING",

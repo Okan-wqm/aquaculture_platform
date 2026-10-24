@@ -2,7 +2,11 @@
 
 Alerts from the `aquaculture.tenant.reality` group in
 `infrastructure/monitoring/droplet/rules/60-dataflow-integrity.yml`, fed by the
-`tenant_reality_parity` probe in `tools/watchdog/probe-runner.mjs`.
+`tenant_reality_parity` probe of `tools/watchdog/probe-runner.mjs`. Root measures
+it with `infrastructure/scripts/aqua-dataflow-probe.sh` in a read-only session,
+because the runner account has no docker access (install:
+[dataflow-integrity.md](dataflow-integrity.md#privileged-probe-install-container_state_truth-tenant_reality_parity)).
+`tools/watchdog/tenant-reality.mjs` classifies the result.
 
 **What the probe measures.** For every row in `auth.tenants` it compares the
 declared status against physical reality: does `tenant_<first-16-hex-of-uuid>`

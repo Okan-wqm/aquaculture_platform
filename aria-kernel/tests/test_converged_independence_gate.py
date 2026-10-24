@@ -108,8 +108,9 @@ class SelfAgreementIsNeverDelivered(_ReviewedCase):
         payload = self.last_evaluation()
         self.assertEqual(payload["reason_codes"], [CROSS_REVIEW_SELF_AGREEMENT_REASON])
         self.assertIn(
+            # PV R6 — the row names every round it judged (here the converging one).
             {"gate": CROSS_REVIEW_INDEPENDENCE_GATE, "passed": False,
-             "violation_reasons": ["cross_review_echoes_primary"]},
+             "violation_reasons": ["cross_review_echoes_primary"], "judged_rounds": [1], "failed_rounds": [1]},
             payload["gate_decisions"],
         )
         runner = _runner()
@@ -240,7 +241,8 @@ class CleanRoundStillDelivers(_ReviewedCase):
         self.assertEqual(result["arbiter_verdict"], "converged")
         self.assertEqual(self.state(), "CONVERGED")
         self.assertIn(
-            {"gate": CROSS_REVIEW_INDEPENDENCE_GATE, "passed": True, "violation_reasons": []},
+            {"gate": CROSS_REVIEW_INDEPENDENCE_GATE, "passed": True, "violation_reasons": [],
+             "judged_rounds": [1], "failed_rounds": []},
             self.last_evaluation()["gate_decisions"],
         )
         runner = _runner()

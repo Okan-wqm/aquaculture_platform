@@ -1,7 +1,6 @@
 """PV corrective round 1 — the roots the appellate accepted against the first
 PV implementation (/root/aria-handover/2026-10-21/build/PV/appellate-r1.md),
-one class per root, each a property the first implementation broke (the P3
-binding roots; R6-R9 join with the P1/P5 corrections):
+one class per root, each a property the first implementation broke:
 
 * R1 every HEAD, empty-tree and diff read of the verdict binding goes through
   the kernel's one hermetic git owner (``workspace_view``): a caller's
@@ -13,7 +12,13 @@ binding roots; R6-R9 join with the P1/P5 corrections):
 * R4 a git failure is not "no commit": the HEAD owner raises, and the
   staleness check answers ``plan_verdict_unverifiable``;
 * R5 the freshness path set is every path the plan body names
-  (``plan_origin.body_paths``: surfaces AND key-change paths).
+  (``plan_origin.body_paths``: surfaces AND key-change paths);
+* R6 a prior risk's clearing answer counts only from a round whose reviewer
+  seat passes independence;
+* R7 the reviewer verdict vocabulary is closed, and the dissent gate fails
+  closed on anything but ``agreed``;
+* R8 one id names one risk in a round;
+* R9 the duel row counts material risks with the material gate's definition.
 
 Source: SPEC.md (PV P1, P3, P5); findings ARIA-HIGH-779 and ARIA-LOW-785.
 """
@@ -21,6 +26,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import json
 import os
 import shutil
 import subprocess
@@ -31,7 +37,9 @@ from unittest import mock
 from aria_kernel.convergence_drainer import _resolve_workspace_head_sha
 from aria_kernel.ledger import append_declared_jsonl
 from aria_kernel.plan_convergence import (
+    _reviewer_dissent_gate,
     content_hash,
+    evaluate_plan,
     events_path,
     fold_plan_state,
     plan_verdict_staleness,
@@ -46,12 +54,15 @@ from aria_kernel.workspace_view import WorkspaceViewRefused, workspace_head_sha
 from tests.test_plan_verdict_integrity import (
     SURFACE,
     UNRELATED,
+    _disposition,
     _git,
     _PlanFixture,
+    _risk,
     _terminal,
 )
 
 KEY_CHANGE_FILE = "apps/farm-service/src/feed/feed.mapper.ts"
+INDEPENDENT = (True, [])
 
 
 def _foreign_checkout(root: Path) -> Path:
@@ -229,6 +240,123 @@ class R5EveryPathTheBodyNames(_PlanFixture):
         self.commit(KEY_CHANGE_FILE, "export const map = 2;\n")
         with self.assertRaisesRegex(GovernanceError, f"plan_verdict_stale:{KEY_CHANGE_FILE}"):
             self.request_implementation_of_plan()
+
+
+class R6OnlyAnIndependentSeatClearsARisk(_PlanFixture):
+    def _three_rounds(self, *, round_two_independent: bool) -> dict:
+        def verdict(*, challenger, **_dispatches):
+            if challenger.revision_id == "challenger-rev-1" and not round_two_independent:
+                return False, ["cross_review_echoes_plans"]
+            return INDEPENDENT
+
+        with mock.patch("aria_kernel.round_independence.verify_independence", side_effect=verdict):
+            self.start()
+            self.challenger("challenger-rev-0")
+            self.cross_review([_risk("CR-001", "blocking")], verdict="material_risks_present")
+            self.assertEqual(_terminal(evaluate_plan(plan_id="plan-1", round_number=1, base_dir=self.tools)),
+                             "NEXT_ROUND_REQUIRED")
+            self.revise("rev-1", addresses=["CR-R1-CR-001"])
+            self.challenger("challenger-rev-1")
+            self.cross_review([_risk("CR-002", "material")], verdict="material_risks_present",
+                              dispositions=[_disposition("CR-R1-CR-001", "resolved", [f"{SURFACE}:1"])])
+            self.assertEqual(_terminal(evaluate_plan(plan_id="plan-1", round_number=2, base_dir=self.tools)),
+                             "NEXT_ROUND_REQUIRED")
+            self.revise("rev-2", addresses=["CR-R2-CR-002"])
+            self.challenger("challenger-rev-2")
+            self.cross_review([], verdict="agreed",
+                              dispositions=[_disposition("CR-R2-CR-002", "resolved", [f"{SURFACE}:1"])])
+            return evaluate_plan(plan_id="plan-1", round_number=3, base_dir=self.tools)
+
+    def test_a_risk_cleared_by_a_non_independent_round_does_not_converge(self) -> None:
+        result = self._three_rounds(round_two_independent=False)
+        payload = result["event"]["payload"]
+        self.assertEqual(payload["terminal_state"], "HUMAN_REQUIRED")
+        self.assertEqual(payload["reason_codes"], ["cross_review_self_agreement"])
+        [gate] = [gate for gate in payload["gate_decisions"] if gate["gate"] == "cross_review_independence"]
+        self.assertEqual((gate["passed"], gate["judged_rounds"], gate["failed_rounds"]), (False, [2, 3], [2]))
+        self.assertEqual(gate["violation_reasons"], ["round_2:cross_review_echoes_plans"])
+
+    def test_risks_cleared_by_independent_rounds_converge(self) -> None:
+        payload = self._three_rounds(round_two_independent=True)["event"]["payload"]
+        self.assertEqual(payload["terminal_state"], "CONVERGED")
+
+
+class R7AClosedVerdictVocabulary(_PlanFixture):
+    def test_a_verdict_outside_the_vocabulary_or_none_is_refused_at_submit(self) -> None:
+        self.start()
+        self.challenger("challenger-rev-0")
+        for review in (
+            {"verdict": "reject"},
+            {"verdict": "revise"},
+            {},
+            {"verdict": "agreed", "verdicts": {"challenger_to_primary": "revise"}},
+            {"verdicts": {"primary_to_challenger": "agreed"}},
+        ):
+            with self.subTest(review=review):
+                with self.assertRaisesRegex(GovernanceError, "cross-review verdict is"):
+                    submit_cross_review_v8(
+                        plan_id="plan-1", review={**review, "risks": [_risk("CR-001", "nice_to_have")]},
+                        workspace_root=self.repo, base_dir=self.tools, reviewed_commit_sha=self.commit_a,
+                    )
+                self.assertEqual(fold_plan_state(plan_id="plan-1", base_dir=self.tools)["state"], "CHALLENGER_DRAFTED")
+
+    def test_the_dissent_gate_fails_closed_on_a_recorded_non_agreed_verdict(self) -> None:
+        for verdict in ("reject", "revise", None):
+            with self.subTest(verdict=verdict):
+                cross = {"reviews": [{"review_direction": "primary_to_challenger", "verdict": "agreed"},
+                                     {"review_direction": "challenger_to_primary", "verdict": verdict}]}
+                gate = _reviewer_dissent_gate(cross, [])
+                self.assertEqual((gate["passed"], gate["dissenting_directions"]),
+                                 (False, ["challenger_to_primary"]))
+
+    def test_agreed_still_converges(self) -> None:
+        self.start()
+        self.challenger("challenger-rev-0")
+        self.cross_review([_risk("CR-001", "nice_to_have")], verdict="agreed")
+        self.assertEqual(_terminal(self.evaluate(1)), "CONVERGED")
+
+
+class R8OneIdNamesOneRisk(_PlanFixture):
+    def test_an_envelope_that_repeats_a_risk_id_is_refused(self) -> None:
+        self.start()
+        self.challenger("challenger-rev-0")
+        with self.assertRaisesRegex(GovernanceError, r"repeat risk_id \['CR-001'\]"):
+            self.cross_review([_risk("CR-001", "nice_to_have"), _risk("CR-001", "material")],
+                              verdict="material_risks_present")
+        self.assertEqual(fold_plan_state(plan_id="plan-1", base_dir=self.tools)["state"], "CHALLENGER_DRAFTED")
+
+    def test_a_direction_record_reusing_an_id_with_other_content_is_refused(self) -> None:
+        self.start()
+        self.challenger("challenger-rev-0")
+        first, second = _request_round_tasks(self)
+        record_cross_review(plan_id="plan-1", review=_direction_review(self, first, risks=[_risk("CR-001", "nice_to_have")]),
+                            workspace_root=self.repo, base_dir=self.tools)
+        with self.assertRaisesRegex(GovernanceError, "CR-R1-CR-001 is already recorded in round 1 with different content"):
+            record_cross_review(plan_id="plan-1", review=_direction_review(self, second, risks=[_risk("CR-001", "material")]),
+                                workspace_root=self.repo, base_dir=self.tools)
+
+    def test_identical_rows_of_the_two_directions_are_one_risk(self) -> None:
+        self.start()
+        self.challenger("challenger-rev-0")
+        self.cross_review([_risk("CR-001", "material")], verdict="material_risks_present")
+        rows = fold_plan_state(plan_id="plan-1", base_dir=self.tools)["cross_review_risks_by_round"][1]
+        self.assertEqual([row["risk_id"] for row in rows], ["CR-R1-CR-001"])
+
+
+class R9TheDuelRowCountsWithTheGatesDefinition(_PlanFixture):
+    def test_every_evaluated_rounds_duel_count_equals_the_gate_count(self) -> None:
+        self.start()
+        self.challenger("challenger-rev-0")
+        self.cross_review([_risk("CR-001", "HIGH"), _risk("CR-002", "nice_to_have")],
+                          verdict="material_risks_present")
+        with mock.patch("aria_kernel.round_independence.verify_independence", return_value=INDEPENDENT):
+            result = evaluate_plan(plan_id="plan-1", round_number=1, base_dir=self.tools, max_rounds=1)
+        payload = result["event"]["payload"]
+        duel = self.tools / "knowledge-graph" / "duel-ratings.jsonl"
+        rows = [json.loads(line) for line in duel.read_text(encoding="utf-8").splitlines() if line.strip()]
+        [row] = [row for row in rows if row.get("plan_id") == "plan-1"]
+        self.assertEqual(payload["risks_rollup_summary"]["material_cross_review_risks"], 1)
+        self.assertEqual(row["material_risk_count"], payload["risks_rollup_summary"]["material_cross_review_risks"])
 
 
 def _request_round_tasks(case: _PlanFixture) -> list[dict]:

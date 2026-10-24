@@ -184,10 +184,15 @@ REVIEW_RISK_ID_PREFIX = "CR-R"
 #   withdrawn — the objection was wrong (cited); it no longer blocks.
 PRIOR_RISK_DISPOSITIONS = ("resolved", "open", "withdrawn")
 CITED_PRIOR_RISK_DISPOSITIONS = frozenset({"resolved", "withdrawn"})
-# PV P5 — the reviewer verdicts that say a plan is NOT acceptable as is
-# (`agreed` is the only assenting verdict). The duel ledger reads the same
-# set as "the reviewer's scrutiny landed" (`genesis_superiority`).
-DISSENTING_REVIEW_VERDICTS = frozenset({"material_risks_present", "partial_coverage"})
+# PV P5 — the cross-reviewer's verdict vocabulary, closed: a submitted
+# verdict outside it is refused (R7). `agreed` is the only assenting verdict;
+# the others say the plan is NOT acceptable as is, and the duel ledger reads
+# them as "the reviewer's scrutiny landed" (`genesis_superiority`). On fold
+# the dissent gate treats every verdict other than `agreed` (a legacy null
+# included) as dissent, so a replayed history fails closed.
+ASSENTING_REVIEW_VERDICT = "agreed"
+CROSS_REVIEW_VERDICTS = (ASSENTING_REVIEW_VERDICT, "material_risks_present", "partial_coverage")
+DISSENTING_REVIEW_VERDICTS = frozenset(CROSS_REVIEW_VERDICTS) - {ASSENTING_REVIEW_VERDICT}
 REVIEWER_DISSENT_GATE = "reviewer_dissent"
 REVIEWER_DISSENT_REASON = "reviewer_dissent_without_material_risk"
 PRIOR_REVIEW_RISKS_GATE = "prior_review_risks_cleared"
@@ -457,6 +462,7 @@ def submit_cross_review_v8(
     risks = review.get("risks", [])
     if not isinstance(risks, list):
         raise GovernanceError("V8 cross-review risks must be a list")
+    _require_unique_risk_ids(risks)
 
     # Z3-K2 (ORPHAN-HIGH-629) — direction attribution. The V8 agent submits
     # ONE envelope for both directions, and this function used to copy the
@@ -540,6 +546,16 @@ def submit_cross_review_v8(
         if isinstance(verdicts, dict) and direction in verdicts:
             return verdicts[direction]
         return review.get("verdict")
+
+    # PV P5 (R7) — every verdict the envelope states, and the one each
+    # direction record will carry, is judged BEFORE the round's task request
+    # is appended, so a refused verdict leaves the plan in CHALLENGER_DRAFTED.
+    if "verdict" in review:
+        _require_review_verdict(review["verdict"])
+    for stated in (verdicts or {}).values():
+        _require_review_verdict(stated)
+    for direction in REQUIRED_CROSS_REVIEW_DIRECTIONS:
+        _require_review_verdict(_direction_verdict(direction))
 
     sla_deadline = (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat()
 
@@ -896,18 +912,32 @@ def evaluate_plan(
         if decision["terminal_state"] == "CONVERGED" and cross_reviewed_round(state, round_number):
             from .round_independence import round_independence_verdict
 
-            passed, violations = round_independence_verdict(
-                plan_id=plan_id, round_number=round_number, state=state, base_dir=root,
-            )
-            decision["gate_decisions"].append({
-                "gate": CROSS_REVIEW_INDEPENDENCE_GATE, "passed": bool(passed),
-                "violation_reasons": list(violations),
-            })
             # Only a cross-reviewed round that would CONVERGE is judged: a
             # round going to another round is judged there, an escalated one
             # is escalated, and a legacy critique-only round (V8
             # `request_critics`) has no cross reviewer to be independent of.
-            if not passed:
+            # PV R6 — and with it every earlier round whose reviewer's answer
+            # is what clears a material risk today: only the independent
+            # seat clears a risk, so a clearing answer from a round never
+            # judged is judged here, on the fold as that round stood.
+            judged = {
+                judged_round: round_independence_verdict(
+                    plan_id=plan_id, round_number=judged_round, base_dir=root,
+                    state=state if judged_round == round_number else plan_state_at_round(state, judged_round),
+                )
+                for judged_round in (round_number, *clearing_review_rounds(state, round_number))
+            }
+            failed_rounds = sorted(judged_round for judged_round, (passed, _) in judged.items() if not passed)
+            decision["gate_decisions"].append({
+                "gate": CROSS_REVIEW_INDEPENDENCE_GATE, "passed": not failed_rounds,
+                "violation_reasons": [
+                    reason if judged_round == round_number else f"round_{judged_round}:{reason}"
+                    for judged_round in failed_rounds for reason in judged[judged_round][1]
+                ],
+                "judged_rounds": sorted(judged),
+                "failed_rounds": failed_rounds,
+            })
+            if failed_rounds:
                 decision["terminal_state"] = "HUMAN_REQUIRED"
                 decision["reason_codes"] = [CROSS_REVIEW_SELF_AGREEMENT_REASON]
         if decision["terminal_state"] == "NEXT_ROUND_REQUIRED":
@@ -971,7 +1001,6 @@ def _record_duel_observation(
         for review in reviews
         if isinstance(review, dict)
     }
-    risks = fold.get("cross_review_risks_by_round", {}).get(round_number) or []
     # C8/E11 — the duel row names the REAL combatants. The unconditional
     # role literals meant a genesis candidate never matched the
     # genesis_superiority `involved` filter (its duel component stayed
@@ -994,10 +1023,9 @@ def _record_duel_observation(
             "primary_agent": primary_agent,
             "challenger_agent": challenger_agent,
             "verdicts_by_direction": verdicts_by_direction,
-            "material_risk_count": sum(
-                1 for r in risks
-                if isinstance(r, dict) and r.get("severity") in ("blocking", "material")
-            ),
+            # PV R9 — the material gate's own count (one definition,
+            # `is_material_risk`), never a second, narrower spelling.
+            "material_risk_count": len(open_material_review_risks(fold, round_number)),
             "resolved_risk_count": len(fold.get("resolved_review_risk_ids") or []),
             "terminal_state": decision.get("terminal_state"),
         },
@@ -1651,6 +1679,14 @@ def plan_verdict_staleness(state: dict[str, Any], *, base_dir: str | Path | None
         return f"{PLAN_VERDICT_UNVERIFIABLE}:{reviewed}"
     changed = sorted(path for path in completed.stdout.split("\0") if path)
     return f"{PLAN_VERDICT_STALE}:{changed[0]}" if changed else None
+
+
+def _require_review_verdict(verdict: Any) -> None:
+    """PV P5 (R7) — a cross-review verdict is one of ``CROSS_REVIEW_VERDICTS``; absent is refused."""
+    if verdict not in CROSS_REVIEW_VERDICTS:
+        raise GovernanceError(
+            f"cross-review verdict is {str(verdict)[:80]!r}; expected one of {', '.join(CROSS_REVIEW_VERDICTS)}"
+        )
 
 
 def _require_reviewed_commit(value: Any) -> None:
@@ -2660,23 +2696,22 @@ def _apply_event(state: dict[str, Any], event: dict[str, Any]) -> None:
         # Z3-K3 (ORPHAN-HIGH-629) — the two cross_review_recorded events of a
         # round carried the same risks list and were appended blind, so every
         # risk counted twice: gate margins doubled and any rating metric
-        # would read 2x. Dedup by risk_id within the round; a risk without an
-        # id keeps legacy append behaviour (nothing to key on).
+        # would read 2x. A row with an id is recorded once per round; a risk
+        # without an id keeps legacy append behaviour (nothing to key on).
         # PV P1 (ARIA-HIGH-779) — the id is ROUND-SCOPED here, at the one
         # point a reviewer risk enters the plan (`CR-R{N}-<reviewer id>`), so
         # every reader — the material gate, the revision prompt, the next
         # reviewer's prior-risk block, a replay of an old ledger — sees ids
         # no later round can collide with.
-        seen_risk_ids = {r.get("risk_id") for r in surfaced if r.get("risk_id")}
+        # PV R8 — only an IDENTICAL row is the same risk (the two direction
+        # events of one envelope). Two different risks under one id are both
+        # kept: the record law refuses a new one, and a recorded history that
+        # carries one replays with neither masked.
         for risk in payload.get("risks", []):
-            rid = risk.get("risk_id")
-            if rid:
-                rid = review_risk_id(round_number, rid)
-                if rid in seen_risk_ids:
-                    continue
-                seen_risk_ids.add(rid)
-                risk = {**risk, "risk_id": rid}
-            surfaced.append({**risk, "surfaced_in_revision_id": payload["target_revision_id"]})
+            row = _surfaced_review_risk(risk, round_number, payload["target_revision_id"])
+            if risk.get("risk_id") and row in surfaced:
+                continue
+            surfaced.append(row)
         # PV P1 — the reviewer's answer on prior risks; the latest answer
         # per risk stands, and `resolved_review_risk_ids` is its view.
         dispositions = state.setdefault("review_risk_dispositions", {})
@@ -3194,6 +3229,7 @@ def _validate_cross_review_record(state: dict[str, Any], payload: dict[str, Any]
         raise GovernanceError("reviewer_agent must match task reviewer_agent")
     if payload.get("review_direction") != task.get("review_direction"):
         raise GovernanceError("review_direction must match task review_direction")
+    _require_review_verdict(payload.get("verdict"))
     _require_hash(payload.get("review_content_hash"), "review_content_hash")
     if payload.get("status_after") != "ANSWERED":
         raise GovernanceError('cross_review_recorded status_after must be "ANSWERED"')
@@ -3204,7 +3240,29 @@ def _validate_cross_review_record(state: dict[str, Any], payload: dict[str, Any]
         raise GovernanceError("risks limit exceeded")
     for risk in risks:
         _validate_cross_review_risk(risk)
+    _require_unique_risk_ids(risks)
+    # PV R8 — the round's other direction already recorded this envelope's
+    # shared rows; a row under the same id with other content is a second
+    # risk the dedup would mask.
+    surfaced = state["cross_review_risks_by_round"].get(state["current_round"], [])
+    for risk in risks:
+        row = _surfaced_review_risk(risk, state["current_round"], target_revision_id)
+        clash = [prior for prior in surfaced if prior.get("risk_id") == row["risk_id"] and prior != row]
+        if clash:
+            raise GovernanceError(
+                f"cross-review risk {row['risk_id']} is already recorded in round "
+                f"{state['current_round']} with different content; one id names one risk"
+            )
     _validate_prior_risk_dispositions(state, payload.get("prior_risk_dispositions"), state["current_round"])
+    # The dispositions answer the PLAN's prior risks, not one direction's:
+    # every direction record of a round carries the same whole answer, so no
+    # direction recorded later can overwrite the other's.
+    for recorded in cross["reviews"]:
+        if recorded.get("prior_risk_dispositions", []) != payload.get("prior_risk_dispositions"):
+            raise GovernanceError(
+                "prior_risk_dispositions differ between the round's review directions; "
+                "one round gives one answer on each prior risk"
+            )
 
 
 def _validate_prior_risk_dispositions(state: dict[str, Any], dispositions: Any, round_number: int) -> None:
@@ -3803,6 +3861,22 @@ def _prescribed_imports_gate(
     return gate, None
 
 
+def _surfaced_review_risk(risk: dict[str, Any], round_number: int, target_revision_id: str) -> dict[str, Any]:
+    """The row a recorded reviewer risk becomes: its id round-scoped, and the revision it was raised on."""
+    rid = risk.get("risk_id")
+    scoped = {"risk_id": review_risk_id(round_number, rid)} if rid else {}
+    return {**risk, **scoped, "surfaced_in_revision_id": target_revision_id}
+
+
+def _require_unique_risk_ids(risks: list[Any]) -> None:
+    """PV R8 — one envelope names each risk once: a repeated id would let the
+    round's dedup keep one row and drop the other."""
+    ids = [risk.get("risk_id") for risk in risks if isinstance(risk, dict) and risk.get("risk_id")]
+    repeated = sorted({str(rid) for rid in ids if ids.count(rid) > 1})
+    if repeated:
+        raise GovernanceError(f"cross-review risks repeat risk_id {repeated}; one id names one risk")
+
+
 def review_risk_id(round_number: int, reviewer_risk_id: str) -> str:
     """PV P1 — the plan-wide id of a risk the round's reviewer called ``reviewer_risk_id``."""
     return f"{REVIEW_RISK_ID_PREFIX}{round_number}-{reviewer_risk_id}"
@@ -3848,17 +3922,66 @@ def prior_review_risks(state: dict[str, Any], round_number: int) -> list[dict[st
     return rows
 
 
+def clearing_review_rounds(state: dict[str, Any], round_number: int) -> list[int]:
+    """PV R6 — the rounds before ``round_number`` whose reviewer answer is the
+    standing ``resolved``/``withdrawn`` on a material reviewer risk.
+
+    Those answers are what keep the risks out of the material gate, so the
+    seat that gave each must pass independence as the converging one does. A
+    cleared nice-to-have risk never blocked, so its answer is not judged.
+    """
+    material_ids = {
+        str(risk.get("risk_id"))
+        for risks in state.get("cross_review_risks_by_round", {}).values()
+        for risk in risks if is_material_risk(risk)
+    }
+    return sorted({
+        row["round"] for risk_id, row in state.get("review_risk_dispositions", {}).items()
+        if risk_id in material_ids and row["disposition"] in CITED_PRIOR_RISK_DISPOSITIONS
+        and row["round"] != round_number
+    })
+
+
+def plan_state_at_round(state: dict[str, Any], round_number: int) -> dict[str, Any]:
+    """The plan's fold as it stood when ``round_number`` closed: every event of
+    ``state`` before the first one that opens a later round, folded again."""
+    events = state["events"]
+    probe = _initial_state(state["plan_id"])
+    cut = len(events)
+    for index, event in enumerate(events):
+        _apply_event(probe, copy.deepcopy(event))
+        if (probe.get("current_round") or 0) > round_number:
+            cut = index
+            break
+    at_round = _initial_state(state["plan_id"])
+    for event in copy.deepcopy(events[:cut]):
+        _apply_event(at_round, event)
+    _derive_state(at_round)
+    return at_round
+
+
+def open_material_review_risks(state: dict[str, Any], round_number: int) -> list[dict[str, Any]]:
+    """The material risks open at ``round_number``: the round's own reviewer
+    risks and every earlier one no reviewer cleared (:func:`prior_review_risks`).
+    The material gate and the duel row both count exactly these (PV R9)."""
+    own = state.get("cross_review_risks_by_round", {}).get(round_number, [])
+    return [risk for risk in [*own, *prior_review_risks(state, round_number)] if is_material_risk(risk)]
+
+
 def _reviewer_dissent_gate(cross: dict[str, Any], material: list[dict[str, Any]]) -> dict[str, Any]:
     """PV P5 — a reviewer verdict that dissents while no material risk is open.
 
     The kernel recomputes convergence from the risks and used to read the
     reviewer's verdict as a hint only, so ``material_risks_present`` with
     nothing but nice-to-have risks converged silently. The two disagree; the
-    gate names the inconsistency instead of picking a side.
+    gate names the inconsistency instead of picking a side. Every verdict
+    other than ``agreed`` dissents: submit refuses one outside the closed
+    vocabulary, and a recorded history that carries one (or none) fails
+    closed here (R7).
     """
     dissenting = sorted({
         str(review.get("review_direction")) for review in cross.get("reviews", [])
-        if review.get("verdict") in DISSENTING_REVIEW_VERDICTS
+        if review.get("verdict") != ASSENTING_REVIEW_VERDICT
     })
     return {
         "gate": REVIEWER_DISSENT_GATE,
@@ -3875,7 +3998,7 @@ def _evaluate_cross_review_state(state: dict[str, Any], round_number: int, *, ma
     active_risks = list(state.get("cross_review_risks_by_round", {}).get(round_number, []))
     open_prior = prior_review_risks(state, round_number)
     open_prior_material = [risk for risk in open_prior if is_material_risk(risk)]
-    material = [risk for risk in active_risks if is_material_risk(risk)] + open_prior_material
+    material = open_material_review_risks(state, round_number)
     tasks = list(cross.get("tasks", {}).values())
     directions = _cross_review_direction_statuses(state, round_number)
     summary = {

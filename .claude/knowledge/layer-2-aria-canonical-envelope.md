@@ -239,9 +239,12 @@ only. A prior risk is cleared only by a reviewer's `resolved` or
 keeps it open, and an open material one blocks convergence.
 `plan_convergence._validate_prior_risk_dispositions` refuses an unknown or
 repeated `risk_id`, a disposition outside the three, and a clearing
-disposition without evidence. A dissenting `verdict`
-(`material_risks_present` / `partial_coverage`) while no material risk is
-open fails the `reviewer_dissent` gate.
+disposition without evidence. `verdict` (and every `verdicts` value) is
+REQUIRED and one of `agreed` / `material_risks_present` /
+`partial_coverage`; anything else, or none, is refused at submit
+(`plan_convergence.CROSS_REVIEW_VERDICTS`). Any verdict other than `agreed`
+while no material risk is open fails the `reviewer_dissent` gate. Each
+`risk_id` appears once per envelope; a repeated id is refused.
 
 Each `risks[]` entry is structurally validated by
 `plan_convergence._validate_cross_review_risk` (in plan_convergence.py). Every

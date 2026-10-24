@@ -68,8 +68,8 @@ Your steps:
    is in the plan; cite it), `"open"` (still stands; a material one
    blocks) or `"withdrawn"` (the objection was wrong; cite why). An
    unanswered row stays open.
-5. **Emit verdict** (a dissenting one with no material risk open fails
-   the kernel's `reviewer_dissent` gate):
+5. **Emit verdict**, exactly one of these (anything other than `agreed`
+   with no material risk open fails the kernel's `reviewer_dissent` gate):
    - `agreed` — both plans converge on essentially the same solution
    - `material_risks_present` — one or both plans missed a critical risk
    - `partial_coverage` — both plans address the problem but each leaves
@@ -124,10 +124,10 @@ reject envelopes that drift):
 2. `details.cross_review` carries
    `{reviewer_agent, verdict, risks[], prior_risk_dispositions[]}` per the
    SSoT. `submit_cross_review_v8` reads `risks[]` to drive the
-   per-direction state transitions; `verdict` is recorded as governance
-   hint; `reviewer_agent` defaults to `"aria-cross-reviewer"` when
-   omitted. The legacy V7 shape `details.cross_review.reviews[]` is
-   NOT accepted — risks live at a single top-level array.
+   per-direction state transitions; `verdict` is REQUIRED, one of step 5's
+   three values (any other, or none, is refused); `reviewer_agent` defaults
+   to `"aria-cross-reviewer"`. The legacy V7 `reviews[]` list is NOT
+   accepted — risks live at one top-level array.
 
    Each `risks[]` entry MUST carry every field below.
    **Example**: the authoritative JSON below shows every required
@@ -148,7 +148,8 @@ reject envelopes that drift):
    ```
 
    Required fields (non-empty): `risk_id`, `risk_category`, `severity`,
-   `summary`, `recommendation`, `affected_files`, `evidence_refs`. Use
+   `summary`, `recommendation`, `affected_files`, `evidence_refs`; each
+   `risk_id` once per envelope (a repeated id is refused). Use
    `severity ∈ {"blocking", "material", "nice_to_have"}` OR the canonical
    `{"HIGH", "MEDIUM", "LOW"}` (both accepted). Do NOT emit alternate
    field names like `description` (use `summary`) or `category` (use
@@ -182,8 +183,7 @@ reject envelopes that drift):
    `id`, `verdict`, `note` and `evidence_refs`. The validator's own
    rendering of these rules is authoritative.
 
-`details.usage` (Anthropic CLI usage block) is admitted as additional
-context and ignored by the kernel.
+`details.usage` (CLI usage block) is admitted and ignored by the kernel.
 
 ## Refusal patterns
 

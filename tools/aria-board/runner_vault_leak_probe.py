@@ -76,9 +76,10 @@ of job variables to drop always missed one: an env-file reset of
 ``credential.helper`` hid the passwd home's helper, and an env-file
 ``url.insteadOf`` moved ``git_ssh`` off ssh. Every source asked alone — each
 gh and git stored source, https and ssh, and each gh token — therefore runs
-under one named base, :data:`_CREDENTIAL_BASE` (``PATH``, ``LANG``, ``LC_*``)
-with ``HOME`` from the passwd entry, plus the ONE job variable it asks (a
-place, ``SSH_AUTH_SOCK``, or a token); no other job variable reaches it.
+under one named base, :data:`_CREDENTIAL_BASE` (``LANG``, ``LC_*``; its
+``PATH`` is chosen per source since round 7, R7-4 below) with ``HOME`` from
+the passwd entry, plus the ONE job variable it asks (a place,
+``SSH_AUTH_SOCK``, or a token); no other job variable reaches it.
 No git source is handed an askpass of the probe's: each runs with
 ``GIT_TERMINAL_PROMPT=0`` (a job has no terminal either), so an askpass git
 finds is asked, and none found reads as no credential.
@@ -140,9 +141,8 @@ any env file is read, :func:`trusted_tools` resolves ``gh``, ``git`` and
 ``ssh`` to absolute paths from the probe's OWN ``PATH`` (sudo's
 ``secure_path``), and every source runs those (:class:`ProbeTools` refuses a
 relative one); a tool that does not resolve is the named environment problem
-``tool_missing:<name>``, inconclusive. The job's ``PATH`` stays in the base:
-it decides only what a job's own helper, askpass or ssh command resolves to,
-as it does for a job's git.
+``tool_missing:<name>``, inconclusive. Pinning the three tools is not the
+whole lever: R7-4 below.
 
 EVERY STORED GIT CREDENTIAL, EACH ALONE (B0 corrective round 7, R7-1;
 ARIA-MEDIUM-812). ``git_https:stored[:<VARIABLE>]`` asks every config file of
@@ -176,6 +176,24 @@ target is listed as the child's one global file, its path in that child's
 environment, never in argv. A target that does not exist yields nothing (git
 ignores it); one git cannot read is ``git:<place>:include:<i>``,
 inconclusive.
+
+THE JOB'S PATH CHOOSES NO PROGRAM FOR A STORED CREDENTIAL (B0 corrective
+round 7, R7-4; the B0-R4 dissent's premise "once the tools are pinned,
+shadowing changes nothing the probe runs" refuted). git itself runs programs
+for the uid's credentials — a bare-named helper (``git credential-<name>``,
+looked up through exec-path, then ``PATH``), a ``!cmd`` helper, a bare
+askpass — and every source asked alone kept the job's ``PATH``, which an env
+file sets: a silent ``git-credential-<name>`` first on it hid the passwd
+home's helper, whose real binary and token any job can still use. The
+``PATH`` is now one parameter of :func:`credential_environment`: every
+source asked alone — gh and git, each stored place, each R7-1/R7-2 entry,
+each env-borne job credential — runs under the probe's own (the absolute
+entries ``trusted_tools`` resolved from, :attr:`ProbeTools.path`), and each
+git source asked alone is asked once more under the job's ``PATH`` when that
+differs, named ``<source>:PATH``, so a helper only the job's ``PATH``
+resolves is still asked (the dissent's concern). gh runs no program for its
+credential, so it has no twin. The ``:job`` composites keep the job's
+environment exactly.
 
 Exit status: 0 GREEN — every source ran and none reached the vault, the App
 key source included, and no data key is present; 1 RED — a source reached the
@@ -430,19 +448,28 @@ class ProbeTools:
     job's ``PATH`` is whatever a uid-writable directory first on it holds — a
     stored login that reaches the vault would read 404. The probe therefore
     never runs a tool by a bare name: each source takes these paths, and a
-    relative one is refused here. The job's ``PATH`` still reaches each
-    source's environment: it decides what a job's OWN helper, askpass or ssh
-    command resolves to, exactly as it does for a job's git.
+    relative one is refused here.
+
+    ``path`` is the probe's own ``PATH`` the tools were resolved from, its
+    absolute entries only (round 7, R7-4). git itself runs programs for the
+    uid's credentials — a bare-named helper (``git credential-<name>``,
+    looked up through exec-path, then ``PATH``), a ``!cmd`` helper, a bare
+    askpass — so a job's ``PATH`` with a uid-writable directory first would
+    choose those too: every source asked alone runs under this ``path``, and
+    once more under the job's when it differs (:func:`credential_environment`).
     """
 
     gh: str
     git: str
     ssh: str
+    path: str
 
     def __post_init__(self) -> None:
         for tool in PROBE_TOOLS:
             if not os.path.isabs(getattr(self, tool)):
                 raise ValueError(f"the probe's {tool} is not an absolute path")
+        if not all(os.path.isabs(entry) for entry in self.path.split(os.pathsep)):
+            raise ValueError("the probe's PATH holds an entry that is not an absolute path")
 
 
 def trusted_tools(path: str) -> tuple[ProbeTools | None, list[str]]:
@@ -457,7 +484,7 @@ def trusted_tools(path: str) -> tuple[ProbeTools | None, list[str]]:
     missing = [f"tool_missing:{tool}" for tool, where in found.items() if where is None]
     if missing:
         return None, missing
-    return ProbeTools(**{tool: str(where) for tool, where in found.items()}), []
+    return ProbeTools(**{tool: str(where) for tool, where in found.items()}, path=absolute), []
 
 
 def uid_home() -> str:
@@ -481,15 +508,14 @@ def job_named_locations(env: dict[str, str], locations: tuple[str, ...]) -> list
 
 
 # THE named base (B0 corrective round 5, R5-3): the job variables every
-# credential source asked alone takes — the PATH a job's own helper, askpass
-# or ssh command resolves through (never the probe's tools: R6-3,
-# ProbeTools), and the locale it speaks — and nothing else of the job's
-# environment.
-_CREDENTIAL_BASE = re.compile(r"PATH|LANG|LC_[A-Z_]+")
+# credential source asked alone takes — the locale it speaks — and nothing
+# else of the job's environment. Its PATH is chosen per source (round 7,
+# R7-4: credential_environment's ``path``).
+_CREDENTIAL_BASE = re.compile(r"LANG|LC_[A-Z_]+")
 
 
-def credential_environment(env: dict[str, str], *, variable: str | None = None) -> dict[str, str]:
-    """The environment a source asks ONE credential under: the named base, the passwd ``HOME``, and ``variable``.
+def credential_environment(env: dict[str, str], *, path: str, variable: str | None = None) -> dict[str, str]:
+    """The environment a source asks ONE credential under: the named base, ``path``, the passwd ``HOME``, ``variable``.
 
     THE one rule for every source asked alone (B0 corrective round 4, R4-3;
     round 5, R5-3): the stored gh login and git credentials at their default
@@ -501,8 +527,15 @@ def credential_environment(env: dict[str, str], *, variable: str | None = None) 
     allow-list: whatever else a job's environment sets — a config reset, an
     ``insteadOf``, another token, another host — never reaches the source, so
     no place is hidden by another.
+
+    ``path`` is the source's ``PATH`` (round 7, R7-4), the one choice of it:
+    the probe's own (:attr:`ProbeTools.path`), so no job-PATH directory
+    chooses the program git runs for a stored credential; or the job's own,
+    for the ``:PATH`` twin of a source, so a helper only the job's ``PATH``
+    resolves is still asked.
     """
     asked = {key: value for key, value in env.items() if _CREDENTIAL_BASE.fullmatch(key)}
+    asked["PATH"] = path
     asked["HOME"] = uid_home()
     if variable is not None:
         asked[variable] = env[variable]
@@ -530,6 +563,8 @@ _GIT_ENV_CONFIG = re.compile(r"GIT_CONFIG_(?:COUNT|PARAMETERS|KEY_[0-9]+|VALUE_[
 _GIT_ENV_CONFIG_SET_BY = ("GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS")
 # The source kind of one env-borne config entry asked alone: git_<transport>:GIT_CONFIG:<n>.
 GIT_CONFIG_ENTRY = "GIT_CONFIG"
+# The name suffix of a source's twin asked under the job's PATH (B0 corrective round 7, R7-4).
+JOB_PATH = "PATH"
 
 
 def credential_key_transport(key: str) -> str | None:
@@ -607,14 +642,18 @@ def stored_place_name(location: str | None) -> str:
     return GIT_STORED_LOGIN + (f":{location}" if location is not None else "")
 
 
-def git_config_places(env: dict[str, str]) -> list[GitConfigPlace]:
-    """Every place a job's git under ``env`` reads the uid's configuration from: each stored place, then the env's own."""
+def git_config_places(env: dict[str, str], *, path: str) -> list[GitConfigPlace]:
+    """Every place a job's git under ``env`` reads the uid's configuration from: each stored place, then the env's own.
+
+    Listed under ``path``, the probe's own ``PATH`` (R7-4): listing runs no
+    program a ``PATH`` resolves.
+    """
     places = []
     for location in (None, *job_named_locations(env, _GIT_LOGIN_LOCATIONS)):
-        base = credential_environment(env, variable=location)
+        base = credential_environment(env, path=path, variable=location)
         places.append(GitConfigPlace(stored_place_name(location), location, _STORED_SCOPES, base, base))
     if any(name in env for name in _GIT_ENV_CONFIG_SET_BY):
-        base = credential_environment(env)
+        base = credential_environment(env, path=path)
         places.append(GitConfigPlace(GIT_CONFIG_ENTRY, None, _ENV_SCOPES, base, {
             **base, **{k: v for k, v in env.items() if _GIT_ENV_CONFIG.fullmatch(k)}, **CONFIG_FILES_OFF}))
     return places
@@ -812,17 +851,19 @@ class GhCliSource:
     ``stored:<VARIABLE>`` (its value is never reported), and no gh source
     carries GH_HOST. Round 5, R5-3: every gh source's environment is
     :func:`credential_environment` — the named base plus its one location or
-    its one token — so no other token, place or host reaches it.
+    its one token — so no other token, place or host reaches it. Round 7,
+    R7-4: under the probe's own ``PATH``; gh runs no program for its
+    credential, so no job ``PATH`` twin is asked.
     """
 
     def __init__(self, *, env: dict[str, str], tools: ProbeTools, credential: str = GH_STORED_LOGIN,
                  location: str | None = None) -> None:
         self.gh_cli = tools.gh
         if credential == GH_STORED_LOGIN and (location is None or location in _GH_LOGIN_LOCATIONS):
-            self.env = credential_environment(env, variable=location)
+            self.env = credential_environment(env, path=tools.path, variable=location)
             self.name = f"gh_cli:{credential}" + (f":{location}" if location is not None else "")
         elif credential in _GH_TOKEN_CREDENTIALS and location is None:
-            self.env = credential_environment(env, variable=credential)
+            self.env = credential_environment(env, path=tools.path, variable=credential)
             self.name = f"gh_cli:{credential}"
         else:
             raise ValueError(f"{credential}:{location}")
@@ -896,37 +937,50 @@ class GitRemoteSource:
     ``git_<transport>:stored[:<VARIABLE>]:<scope>:<n>``, asked exactly as an
     env-borne entry is (``entry=``; no probe ``GIT_SSH_COMMAND``). The
     ``git_https:stored*`` composites stay, in addition.
+
+    Round 7, R7-4: each source asked alone runs under the probe's own
+    ``PATH`` (:attr:`ProbeTools.path`), and, when the job's ``PATH``
+    differs, once more under it as ``<source>:PATH`` (``job_path=True``), so
+    a job-PATH directory can neither shadow the program git runs for a
+    stored credential nor hide one only it resolves. The ``:job`` composites
+    have no twin: they run under the job's environment exactly.
     """
 
     def __init__(self, *, transport: str, env: dict[str, str], tools: ProbeTools,
                  credential: str = GIT_STORED_LOGIN, location: str | None = None,
-                 entry: GitConfigEntry | None = None) -> None:
+                 entry: GitConfigEntry | None = None, job_path: bool = False) -> None:
         self.transport, self.tools = transport, tools
         # Only the probe's own ssh sources run its ssh, with GitHub's host key pinned.
         self.pins_ssh = transport == "ssh" and credential == GIT_STORED_LOGIN and entry is None
+        # R7-4: a source asked alone runs under the probe's own PATH, or, as
+        # its ``:PATH`` twin, under the job's (never a :job composite).
+        if job_path and (credential == GIT_JOB or "PATH" not in env):
+            raise ValueError(f"{transport}:{credential}:{JOB_PATH}")
+        path = env["PATH"] if job_path else tools.path
+        twin = f":{JOB_PATH}" if job_path else ""
         if entry is not None:
             # One listed config entry, asked alone: its place and index name
             # it, so neither ``credential`` nor ``location`` is given.
             if ((credential, location) != (GIT_STORED_LOGIN, None) or entry.value is None
                     or credential_key_transport(entry.key) != transport):
                 raise ValueError(f"{transport}:{entry.place}:{entry.index}")
-            self.env = {**credential_environment(env, variable=entry.location), **CONFIG_FILES_OFF,
+            self.env = {**credential_environment(env, path=path, variable=entry.location), **CONFIG_FILES_OFF,
                         "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": entry.key, "GIT_CONFIG_VALUE_0": entry.value}
-            self.name = f"git_{transport}:{entry.place}:{entry.index}"
+            self.name = f"git_{transport}:{entry.place}:{entry.index}{twin}"
         elif transport == "https" and credential == GIT_STORED_LOGIN and (
                 location is None or location in _GIT_LOGIN_LOCATIONS):
-            self.env = credential_environment(env, variable=location)
-            self.name = f"git_https:{stored_place_name(location)}"
+            self.env = credential_environment(env, path=path, variable=location)
+            self.name = f"git_https:{stored_place_name(location)}{twin}"
         elif transport == "ssh" and credential == GIT_STORED_LOGIN and (
                 location is None or location in _SSH_LOGIN_LOCATIONS):
-            self.env = {**credential_environment(env, variable=location), **CONFIG_FILES_OFF}
-            self.name = "git_ssh" + (f":{location}" if location is not None else "")
+            self.env = {**credential_environment(env, path=path, variable=location), **CONFIG_FILES_OFF}
+            self.name = "git_ssh" + (f":{location}" if location is not None else "") + twin
         elif transport in ("https", "ssh") and credential == GIT_JOB and location is None:
             self.env = dict(env)
             self.name = f"git_{transport}:job"
         elif JOB_GIT_CREDENTIALS.get(credential) == transport and location is None and env.get(credential):
-            self.env = {**credential_environment(env, variable=credential), **CONFIG_FILES_OFF}
-            self.name = f"git_{transport}:{credential}"
+            self.env = {**credential_environment(env, path=path, variable=credential), **CONFIG_FILES_OFF}
+            self.name = f"git_{transport}:{credential}{twin}"
         else:
             raise ValueError(f"{transport}:{credential}:{location}")
 
@@ -941,25 +995,33 @@ class GitRemoteSource:
         ``git:<place>:include:<i>``), or a credential entry with no value, is
         an :class:`UnaskedSource` (inconclusive), never skipped.
         """
-        listed = [(place, git_config_entries(place, tools.git)) for place in git_config_places(env)]
+        listed = [(place, git_config_entries(place, tools.git)) for place in git_config_places(env, path=tools.path)]
         sources: list[CredentialSource] = [source for _place, (_entries, unasked) in listed for source in unasked]
         stored = [entry for place, (entries, _unasked) in listed if place.stem != GIT_CONFIG_ENTRY for entry in entries]
         env_borne = [entry for place, (entries, _unasked) in listed if place.stem == GIT_CONFIG_ENTRY
                      for entry in entries]
 
-        def asked_alone(transport: str, entries: list[GitConfigEntry]) -> list[CredentialSource]:
-            return [cls(transport=transport, env=env, tools=tools, entry=entry) if entry.value is not None else
-                    UnaskedSource(f"git_{transport}:{entry.place}:{entry.index}", "git_config_entry_without_value")
-                    for entry in entries if credential_key_transport(entry.key) == transport]
+        # R7-4: each source asked alone, under the probe's PATH, then under the
+        # job's when that differs (the ``:PATH`` twin).
+        paths = (False, True) if "PATH" in env and env["PATH"] != tools.path else (False,)
+
+        def alone(transport: str, **asked: Any) -> list[CredentialSource]:
+            return [cls(transport=transport, env=env, tools=tools, job_path=job_path, **asked) for job_path in paths]
+
+        def entries_alone(transport: str, entries: list[GitConfigEntry]) -> list[CredentialSource]:
+            return [source for entry in entries if credential_key_transport(entry.key) == transport
+                    for source in (alone(transport, entry=entry) if entry.value is not None else [
+                        UnaskedSource(f"git_{transport}:{entry.place}:{entry.index}",
+                                      "git_config_entry_without_value")])]
 
         for transport, locations in (("https", _GIT_LOGIN_LOCATIONS), ("ssh", _SSH_LOGIN_LOCATIONS)):
-            sources += [cls(transport=transport, env=env, tools=tools),
-                        *(cls(transport=transport, env=env, tools=tools, location=name)
-                          for name in job_named_locations(env, locations)),
-                        *asked_alone(transport, stored),
-                        *(cls(transport=transport, env=env, tools=tools, credential=name)
-                          for name, served in JOB_GIT_CREDENTIALS.items() if served == transport and env.get(name)),
-                        *asked_alone(transport, env_borne),
+            sources += [*alone(transport),
+                        *(source for name in job_named_locations(env, locations)
+                          for source in alone(transport, location=name)),
+                        *entries_alone(transport, stored),
+                        *(source for name, served in JOB_GIT_CREDENTIALS.items() if served == transport and env.get(name)
+                          for source in alone(transport, credential=name)),
+                        *entries_alone(transport, env_borne),
                         cls(transport=transport, env=env, tools=tools, credential=GIT_JOB)]
         return sources
 

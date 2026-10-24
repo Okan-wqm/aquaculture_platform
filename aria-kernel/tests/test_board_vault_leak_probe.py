@@ -252,8 +252,13 @@ def _probe_module():
 
 
 def _tools(probe, **paths: str):  # noqa: ANN001, ANN202 — the module; probe.ProbeTools
-    """The tools of a source a test builds directly: absolute paths, since ``ProbeTools`` refuses a bare name (R6-3)."""
-    return probe.ProbeTools(**{"gh": "/usr/bin/gh", "git": "/usr/bin/git", "ssh": "/usr/bin/ssh", **paths})
+    """The tools of a source a test builds directly: absolute paths, since ``ProbeTools`` refuses a bare name (R6-3).
+
+    ``path`` is the probe's own PATH (R7-4); ``/usr/bin``, as the tests' job
+    environments say, unless a test gives another.
+    """
+    return probe.ProbeTools(**{"gh": "/usr/bin/gh", "git": "/usr/bin/git", "ssh": "/usr/bin/ssh", "path": "/usr/bin",
+                               **paths})
 
 
 class _Answers:
@@ -1110,6 +1115,88 @@ class ConfigIncludesEachAloneTests(_PasswdHome):
         self.assertEqual((status, report["verdict"]), (2, "inconclusive"), report)
         self.assertEqual({r["source"]: (r["status"], r["reason"]) for r in report["sources"]}.get(
             "git:stored:include:0"), (self.probe.INCONCLUSIVE, "git_config_include_unreadable"), report["sources"])
+
+
+class JobPathResolvesNoStoredHelperTests(_PasswdHome):
+    """B0 corrective round 7, R7-4 (evidence BLK-R5E-3, p02 C; the B0-R4 dissent refuted).
+
+    git runs programs for the uid's stored credentials — a bare-named helper
+    (``git credential-<name>``, looked up through exec-path, then PATH), a
+    ``!cmd`` helper, a bare askpass — and the stored sources kept the job's
+    PATH, which an env file sets: a silent ``git-credential-<name>`` first on
+    it hid the passwd home's helper, whose real binary and token any job can
+    still use. Every source asked alone now runs under the probe's own PATH,
+    and once more under the job's PATH (``:PATH``) when that differs.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        # The real helper, on the probe's own (trusted) PATH.
+        real = self.bin / "git-credential-fixture"
+        real.write_text('#!/bin/sh\n[ "$1" = get ] && { echo username=x-access-token; echo password=fixture-stored; }\n'
+                        "exit 0\n", encoding="utf-8")
+        real.chmod(0o755)
+
+    def _job_path_directory(self, name: str, helper: str, answers: bool) -> Path:
+        directory = self.root / name
+        directory.mkdir()
+        script = directory / f"git-credential-{helper}"
+        script.write_text('#!/bin/sh\n[ "$1" = get ] && { echo username=x-access-token; echo password=fixture-job-path; }\n'
+                          "exit 0\n" if answers else "#!/bin/sh\nexit 0\n", encoding="utf-8")
+        script.chmod(0o755)
+        return directory
+
+    def test_a_silent_shadow_first_on_the_job_path_does_not_hide_a_stored_helper(self) -> None:
+        (self.home / ".gitconfig").write_text('[credential "https://github.com"]\n\thelper = fixture\n',
+                                              encoding="utf-8")
+        shadow = self._job_path_directory("shadow-helper", "fixture", answers=False)
+        for case, variables in (("control", {"LANG": "C.UTF-8"}),
+                                ("env_file_path_shadow", {"PATH": f"{shadow}{os.pathsep}{os.environ['PATH']}"})):
+            with self.subTest(case=case):
+                status, report, _stdout = self._main_app_refused(variables)
+                self.assertEqual((status, report["verdict"]), (1, "red"), report)
+                self.assertEqual({r["source"]: r["status"] for r in report["sources"]}["git_https:stored"],
+                                 self.probe.REACHABLE, report["sources"])
+
+    def test_a_helper_only_the_job_path_resolves_is_asked_under_it(self) -> None:
+        (self.home / ".gitconfig").write_text('[credential "https://github.com"]\n\thelper = jobonly\n',
+                                              encoding="utf-8")
+        job_path = self._job_path_directory("job-path", "jobonly", answers=True)
+        status, report, stdout = self._main_app_refused({"PATH": f"{job_path}{os.pathsep}{os.environ['PATH']}"})
+        sources = {r["source"]: r["status"] for r in report["sources"]}
+        self.assertEqual((status, report["verdict"]), (1, "red"), report)
+        self.assertEqual(sources["git_https:stored:PATH"], self.probe.REACHABLE, report["sources"])
+        self.assertEqual(sources["git_https:stored"], self.probe.NO_CREDENTIAL, report["sources"])
+        self.assertNotIn(str(job_path), stdout)
+
+    def test_each_source_asked_alone_is_asked_under_the_job_path_only_when_it_differs(self) -> None:
+        (self.home / ".gitconfig").write_text(_WORKING_HELPER, encoding="utf-8")
+        trusted = os.pathsep.join(entry for entry in os.environ["PATH"].split(os.pathsep) if os.path.isabs(entry))
+        tools = _tools(self.probe, git=self.real_git, path=trusted)
+        common = {"LANG": "C.UTF-8", "GIT_ASKPASS": str(self.root / "askpass"), "SSH_AUTH_SOCK": str(self.root / "agent"),
+                  "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "core.sshCommand", "GIT_CONFIG_VALUE_0": "ssh -i k"}
+        same = self.probe.GitRemoteSource.every_credential(env={**common, "PATH": trusted}, tools=tools)
+        self.assertEqual([s.name for s in same if s.name.endswith(":PATH")], [])
+        for source in same:
+            with self.subTest(source=source.name):
+                self.assertEqual(source.env["PATH"], trusted)
+        job_path = f"{self.root / 'job-bin'}{os.pathsep}{trusted}"
+        env = {**common, "PATH": job_path}
+        differs = {s.name: s.env for s in self.probe.GitRemoteSource.every_credential(env=env, tools=tools)}
+        composites = {"git_https:job", "git_ssh:job"}
+        alone = [name for name in differs if name not in composites and not name.endswith(":PATH")]
+        self.assertLessEqual({"git_https:stored", "git_https:stored:global:0", "git_https:GIT_ASKPASS", "git_ssh",
+                              "git_ssh:SSH_AUTH_SOCK", "git_ssh:GIT_CONFIG:0"}, set(alone), sorted(differs))
+        self.assertEqual(sorted(name for name in differs if name.endswith(":PATH")),
+                         sorted(f"{name}:PATH" for name in alone))
+        for name in alone:
+            with self.subTest(source=name):
+                self.assertEqual(differs[name]["PATH"], trusted)
+                self.assertEqual({k: v for k, v in differs[f"{name}:PATH"].items() if k != "PATH"},
+                                 {k: v for k, v in differs[name].items() if k != "PATH"})
+                self.assertEqual(differs[f"{name}:PATH"]["PATH"], job_path)
+        for name in composites:
+            self.assertEqual(differs[name], env, "a job composite keeps the job's env exactly")
 
 
 class _LocalVaultOverSsh(unittest.TestCase):

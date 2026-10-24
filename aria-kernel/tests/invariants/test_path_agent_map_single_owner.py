@@ -57,11 +57,11 @@ WHAT THIS PINS (PLAN.md §8 SE-2 red tests (i) and (iii); DECISIONS.md Q4, Q12).
         and "must not narrow" keeps it. The program lead kept it there (not a
         move to ``data-expert``); since the owner counts a sub-area row for a
         broader surface, ``infrastructure`` derives it too.
-    Every other agent the deleted touch map named and the routing table does
-    not is listed by name in ``_NARROWED_WITHOUT_A_Q4_ENTRY``; the test pins
-    that exactly these, and nothing else, drop. Q4 did not name them, so the
-    list is a visible record for the owner, raised with the program lead as
-    a finding by the SE-2 test writer; it is not a decision taken here.
+    The eight further agents only the touch map named (raised by the SE-2
+    test writer) are also-notify routing rows by program-lead decision, the
+    plugin name on aquamobil served by the repository's ``mobile-app-auditor``
+    (``_REPO_AGENT_FOR_TOUCH_MAP_PLUGIN``). ``_NARROWED_WITHOUT_A_Q4_ENTRY``
+    is therefore empty, and the test pins that nothing drops.
 
 RED AT THE BRANCH BASE, each by assertion (no new import): the structural
 detector finds ``specialist_review_runner._DOMAIN_TOUCH_MAP``; the names are
@@ -350,43 +350,41 @@ _EXPECTED_REVIEWERS: dict[str, frozenset[str]] = {
     "libs/backend-common/src/guards": frozenset({
         "auth-security-expert", "data-expert", "multi-tenant-saas-expert", "security-reviewer"}),
     "libs/backend-common/src/security": frozenset({"auth-security-expert", "compliance-expert", "security-reviewer"}),
-    "libs/backend-common/src/audit": frozenset({"auth-security-expert"}),
+    "libs/backend-common/src/audit": frozenset({"auth-security-expert", "audit-trail-completeness-auditor"}),
     "libs/backend-common/src/nats": frozenset({"data-expert", "platform-kernel-expert"}),  # Q4: nats/
-    "libs/event-contracts": frozenset({"data-expert"}),
+    "libs/event-contracts": frozenset({"data-expert", "contract-parity-enforcer"}),
     "platform/libs": frozenset({"data-expert", "messaging-expert", "platform-kernel-expert", "security-reviewer"}),
-    "web": frozenset({  # Q4: accessibility-auditor
+    "web": frozenset({  # Q4: accessibility-auditor; the aquamobil and messaging-module rows reach web
         "admin-expert", "compliance-expert", "farm-expert", "frontend-expert", "hr-expert", "sensor-expert",
-        "accessibility-auditor"}),
-    "web/apps/aquamobil": frozenset({"frontend-expert", "accessibility-auditor"}),  # Q4: web
-    "sens-api-gateway": frozenset({"edge-expert", "security-reviewer"}),
+        "accessibility-auditor", "mobile-app-auditor", "messaging-expert"}),
+    "web/apps/aquamobil": frozenset({"frontend-expert", "accessibility-auditor", "mobile-app-auditor"}),  # Q4: web
+    "sens-api-gateway": frozenset({"edge-expert", "security-reviewer", "edge-industrial-auditor"}),
     # The owner counts a sub-area row for a broader surface (prefix rule, as for
     # web, apps/auth-service, platform/libs, infrastructure/monitoring), so the
     # kept infrastructure/nats row reaches infrastructure too (program lead, Q4).
     "infrastructure": frozenset({"infra-expert", "observability-expert", "security-reviewer",
                                  "platform-kernel-expert"}),
     "infrastructure/nats": frozenset({"infra-expert", "security-reviewer", "platform-kernel-expert"}),  # Q4: nats/
-    "tools/aria-poc": frozenset(),
-    "tools/aria-adapters": frozenset(),
-    ".github/workflows": frozenset({"infra-expert", "security-reviewer", "test-runner"}),
-    "aria-kernel": frozenset(),
+    "tools/aria-poc": frozenset({"mcp-expert"}),
+    "tools/aria-adapters": frozenset({"ai-safety-auditor"}),
+    ".github/workflows": frozenset({"infra-expert", "security-reviewer", "test-runner", "supply-chain-auditor"}),
+    "aria-kernel": frozenset({"platform-kernel-expert"}),
 }
 
-# Agents the deleted touch map named that neither the routing table nor a Q4
-# entry keeps. Owner decision Q4 named four lost agents; these it did not.
-# They are a visible record for the owner (raised as a finding by the SE-2 test
-# writer), not a decision taken in this file. ``aria-kernel`` matters most:
-# the merge-time Lane-A review of ARIA's own PRs (Q12) gets no domain expert
-# for a kernel-only change once the touch map is gone.
-_NARROWED_WITHOUT_A_Q4_ENTRY: frozenset[tuple[str, str]] = frozenset({
-    ("libs/backend-common/src/audit", "audit-trail-completeness-auditor"),
-    ("libs/event-contracts", "contract-parity-enforcer"),
-    ("web/apps/aquamobil", "frontend-mobile-development:mobile-developer"),
-    ("sens-api-gateway", "edge-industrial-auditor"),
-    ("tools/aria-poc", "mcp-expert"),
-    ("tools/aria-adapters", "ai-safety-auditor"),
-    (".github/workflows", "supply-chain-auditor"),
-    ("aria-kernel", "platform-kernel-expert"),
-})
+# Agents the deleted touch map named that the routing table does not keep.
+# EMPTY by program-lead decision (Q4: the merge-time reviewer set must not
+# narrow silently): every agent the touch map named, Q4's four and the eight
+# the SE-2 test writer raised beyond them, is an also-notify routing row. The
+# empty set pins that nothing narrows; a name here is a recorded owner drop.
+_NARROWED_WITHOUT_A_Q4_ENTRY: frozenset[tuple[str, str]] = frozenset()
+
+# The touch map named one agent by a Claude Code plugin name, which is not an
+# agent defined in this repository and so cannot be a routing entry
+# (agent_routing reads kebab-case agent names). The program lead routed the
+# repository's own agent for that surface in its place.
+_REPO_AGENT_FOR_TOUCH_MAP_PLUGIN: dict[str, str] = {
+    "frontend-mobile-development:mobile-developer": "mobile-app-auditor",
+}
 
 
 def _derived_reviewers(surface: str, routing: list[dict[str, object]]) -> frozenset[str]:
@@ -435,8 +433,9 @@ class TheReviewerSetPerSurfaceIsTheLiteral(unittest.TestCase):
         self.assertEqual(missing, [], "an agent owner decision Q4 adds is not derived from the routing table")
 
     def test_only_the_named_agents_drop_from_the_deleted_touch_map(self) -> None:
-        dropped = frozenset((surface, agent) for surface, agents in _DELETED_TOUCH_MAP.items()
-                            for agent in agents if agent not in _derived_reviewers(surface, self.routing))
+        dropped = frozenset(
+            (surface, agent) for surface, agents in _DELETED_TOUCH_MAP.items() for agent in agents
+            if _REPO_AGENT_FOR_TOUCH_MAP_PLUGIN.get(agent, agent) not in _derived_reviewers(surface, self.routing))
         self.assertEqual(
             sorted(dropped), sorted(_NARROWED_WITHOUT_A_Q4_ENTRY),
             "the merge-time reviewer set must not narrow silently: an agent the touch map named drops "

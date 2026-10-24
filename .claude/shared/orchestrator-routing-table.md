@@ -27,21 +27,22 @@ Phase 1 maps every changed file to one or more agents via these globs. `git diff
 | `libs/backend-common/src/guards/**` | auth-security-expert | security-reviewer |
 | `libs/backend-common/src/security/**` | auth-security-expert | security-reviewer |
 | `libs/backend-common/src/middleware/**` | auth-security-expert | security-reviewer |
-| `libs/backend-common/src/audit/**` | auth-security-expert | |
+| `libs/backend-common/src/audit/**` | auth-security-expert | audit-trail-completeness-auditor |
 | `libs/backend-common/src/config/**` | platform-kernel-expert | infra-expert |
 | `libs/backend-common/src/bootstrap/**`, `libs/backend-common/src/context/**`, `libs/backend-common/src/filters/**`, `libs/backend-common/src/health/**`, `libs/backend-common/src/logging/**`, `libs/backend-common/src/metrics/**`, `libs/backend-common/src/monitoring/**`, `libs/backend-common/src/monetary/**`, `libs/backend-common/src/pagination/**`, `libs/backend-common/src/telemetry/**`, `libs/backend-common/src/types/**`, `libs/backend-common/src/utils/**`, `libs/backend-common/src/websocket/**` | platform-kernel-expert | |
 | `libs/backend-common/src/database/**` | data-expert | database-reviewer |
-| `libs/event-contracts/**` | data-expert | *all consumers* |
+| `libs/event-contracts/**` | data-expert | contract-parity-enforcer, *all consumers* |
 | `database/migrations/**` | data-expert | database-reviewer |
 | `apps/*/src/**/entities/*.entity.ts` | {respective domain expert} | database-reviewer |
-| `sens-api-gateway/**` | edge-expert | security-reviewer |
+| `sens-api-gateway/**` | edge-expert | security-reviewer, edge-industrial-auditor |
 | `sensorprotocols/**` | edge-expert | sensor-expert |
 | `web/**` | {respective domain expert} | accessibility-auditor |
 | `web/shell/**` | frontend-expert | |
 | `web/shared-ui/**` | frontend-expert | *all frontend modules* |
 | `web/modules/dashboard/**` | frontend-expert | |
-| `web/apps/aquamobil/**` | frontend-expert | |
+| `web/apps/aquamobil/**` | frontend-expert | mobile-app-auditor |
 | `web/modules/hydroponics-module/**` | farm-expert | |
+| `web/modules/messaging-module/**` | messaging-expert | |
 | `apps/billing-service/**` | billing-expert | multi-tenant-saas-expert, security-reviewer, compliance-expert |
 | `apps/notification-service/**` | alert-engine-expert | security-reviewer, auth-security-expert |
 | `apps/config-service/**` | platform-kernel-expert | infra-expert |
@@ -57,7 +58,7 @@ Phase 1 maps every changed file to one or more agents via these globs. `git diff
 | `infrastructure/nats/**` | infra-expert | platform-kernel-expert |
 | `deploy/**` | infra-expert | security-reviewer |
 | `.github/actions/**` | infra-expert | test-runner, security-reviewer |
-| `.github/workflows/**` | infra-expert | security-reviewer |
+| `.github/workflows/**` | infra-expert | security-reviewer, supply-chain-auditor |
 | `docker-compose*` | infra-expert | |
 | `nginx/**` | infra-expert | security-reviewer |
 | `Dockerfile*` | infra-expert | security-reviewer |
@@ -94,6 +95,9 @@ Phase 1 maps every changed file to one or more agents via these globs. `git diff
 | `.claude/allowlists/**` | security-reviewer | architectural-arbiter |
 | `.claude/skills/**` | prompt-writer | implementation-planner |
 | `tools/gates/**`, `tools/eslint-rules/**`, `tools/ripple-tracer/**` | infra-expert | architectural-arbiter, security-reviewer |
+| `aria-kernel/**` | *ARIA lane — no Lane-A primary* | platform-kernel-expert |
+| `tools/aria-poc/**` | *ARIA lane — no Lane-A primary* | mcp-expert |
+| `tools/aria-adapters/**` | *ARIA lane — no Lane-A primary* | ai-safety-auditor |
 | `CLAUDE.md` | architectural-arbiter | prompt-writer, *all experts* |
 | `apps/*/src/gdpr/**` (handler implementations) | gdpr-erasure-executor | compliance-expert (review), legal-hold-auditor (precedence), audit-trail-completeness-auditor (audit row) |
 | `libs/backend-common/src/compliance/legal-hold/**` | legal-hold-auditor | compliance-expert |

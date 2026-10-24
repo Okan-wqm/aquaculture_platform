@@ -125,6 +125,32 @@ JUDGMENT_PIPELINE_DEFAULTS: dict[str, Any] = {
     # judges exist (`effective_calibration_gate`).
     "calibration_gate": "measure_only",
     "max_uncalibrated_escalations_per_cycle": 5,
+    # WP-J slice C — the judgment funnel (judgment_funnel.route_judgment_sample,
+    # the ONE routing owner called between generate_judgment_sample and
+    # dispatch_judges_for_sample). `funnel_enabled` FALSE is the shipped
+    # default: with the block absent or off, the judgment pipeline is
+    # bit-for-bit legacy (the golden test). Activation is the operator's
+    # override. The rest of the keys document the funnel's law and are
+    # consumed only while it is enabled.
+    "funnel_enabled": False,
+    # ONE per-night envelope budget across ALL judgment lanes, ENVELOPE-
+    # denominated (judge envelopes this night may mint in total) and an
+    # explicit function of the measured drain: the allowance actually
+    # granted is min(this cap, ceil(measured drain_per_day)). Sized to the
+    # measured ~9-13/night (the 462-vs-~9 week is the finding); the drain
+    # verdict at design time was DEAD (last judgment-lane mint 2026-10-01,
+    # 1382 agent_request_refused_stale_anchor refusals), so the cap binds
+    # long before the old per-role ceiling ever did.
+    "funnel_nightly_envelope": 13,
+    # Tier 4 (full panel + debate) is quota-bound: at most this fraction of
+    # the night's routed decisions (operator funnel law; <= 0.10).
+    "funnel_tier4_quota": 0.10,
+    # Wall-clock seconds the tier-1 Jev shadow may spend per cycle
+    # (system_one.ask J2; the score is recorded, never routed on yet).
+    "funnel_tier1_budget_seconds": 15.0,
+    # LOW findings routed to the full tier per cycle, purely for calibration
+    # (the sampler's CALIBRATION_STRATIFIED_STRATEGY is the existing law).
+    "funnel_calibration_sample_per_cycle": 1,
 }
 
 
@@ -136,27 +162,48 @@ def effective_calibration_gate(
     Typed-judgment plan Phase 6 (review H4) — a downgrade keyed on a row
     count leaves every judge under its own floor and floods the escalation
     ledger the day it switches; the criterion is the thing `enforce` needs:
-    two `calibrated` judges of distinct models, read from this cycle's
-    in-memory `score_judges` result (`{judge_id: {"calibration_status",
-    "model"}}` or `{judge_id: status}`).
+    two `calibrated` judges, read from this cycle's in-memory `score_judges`
+    result (`{judge_id: {"calibration_status", "model"}}` or
+    `{judge_id: status}`).
+
+    WP-J B-1 — the quorum criterion is the SAME hybrid law the consensus
+    gate applies (``feedback_store.observation_span``): distinct METHODS
+    when the calibrated rows can name them, the legacy distinct-models leg
+    when they cannot, and a downgrade when neither leg holds — so a single
+    provider whose seats span two methods has closing authority, and this
+    downgrade decision can never disagree with the gate it downgrades for.
     """
-    calibrated: dict[str, str] = {}
+    from .feedback_store import observation_span
+
+    calibrated: list[dict[str, str]] = []
     for judge_id, entry in (judge_calibration or {}).items():
         status = entry.get("calibration_status") if isinstance(entry, dict) else entry
-        model = str(entry.get("model") or "") if isinstance(entry, dict) else ""
-        if status == "calibrated":
-            calibrated[str(judge_id)] = model
-    distinct_models = {model for model in calibrated.values() if model}
+        if status != "calibrated":
+            continue
+        calibrated.append({
+            "judge_id": str(judge_id),
+            "model": str(entry.get("model") or "") if isinstance(entry, dict) else "",
+            "method": str(entry.get("method") or "") if isinstance(entry, dict) else "",
+        })
+    distinct_models = {r["model"] for r in calibrated if r["model"]}
+    distinct_methods = {r["method"] for r in calibrated if r["method"]}
     row = {
         "configured": configured,
-        "calibrated_judges": sorted(calibrated),
+        "calibrated_judges": sorted(r["judge_id"] for r in calibrated),
         "distinct_models": sorted(distinct_models),
+        "distinct_methods": sorted(distinct_methods),
     }
     if configured != "enforce":
         return {**row, "effective": "measure_only", "reason": "configured_measure_only"}
-    if len(calibrated) < 2 or len(distinct_models) < 2:
-        return {**row, "effective": "measure_only", "reason": "fewer_than_two_calibrated_judges_of_distinct_models"}
-    return {**row, "effective": "enforce", "reason": "calibrated_quorum_available"}
+    leg, span = observation_span(tuple(calibrated))
+    if len(calibrated) < 2 or span < 2:
+        return {
+            **row,
+            "effective": "measure_only",
+            "reason": "fewer_than_two_calibrated_judges_of_one_span",
+            "quorum_leg": leg,
+        }
+    return {**row, "effective": "enforce", "reason": "calibrated_quorum_available", "quorum_leg": leg}
 
 
 def judgment_pipeline_policy(repo_root: str | Path | None = None) -> dict[str, Any]:

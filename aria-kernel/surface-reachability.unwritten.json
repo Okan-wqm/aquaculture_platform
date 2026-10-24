@@ -1,4 +1,30 @@
 {
+  "agent_surface_request_role": {
+    "architecture": {
+      "expires_on": "2026-11-19",
+      "finding_id": "ARIA-HIGH-721",
+      "owner": "okan",
+      "reason": "The four WP-J method-panel seats (bug_hunt, reproduction_test, impact_assessment, architecture) sit on every E14 table - REQUEST_ROLES, DISPATCHABLE_ROLES, ROLE_TARGET_PAIRING and the judge_fanout.panel / judge_fanout.rebuttal admission producers - and judge_fanout.dispatch_judges_for_sample mints them when a caller hands it a `roles` panel; no production caller does yet. judgment_funnel.route_judgment_sample plans tier 2 with _tier2_roles (the evidence judge) and tiers 3/4 with roles=None (the JUDGE_FANOUT pair), and the funnel itself ships OFF (genesis_policy funnel_enabled False, operator decision; WP-J LEAD-DECISIONS items 8 and 10), so the live lane offers two methods - the live half of ARIA-HIGH-721, which the landing records as Part of, not Closes. Kept, not deleted: the seats are the operator's 2026-10-18 method panel and PLAN-v2 F5.1 (funnel live, seats routed) is their writer. Expires with ARIA-HIGH-721's registry deadline: by then the funnel routes this seat or the program removes it with everything only it reads. This entry: the architecture seat (architectural-arbiter)."
+    },
+    "bug_hunt": {
+      "expires_on": "2026-11-19",
+      "finding_id": "ARIA-HIGH-721",
+      "owner": "okan",
+      "reason": "The four WP-J method-panel seats (bug_hunt, reproduction_test, impact_assessment, architecture) sit on every E14 table - REQUEST_ROLES, DISPATCHABLE_ROLES, ROLE_TARGET_PAIRING and the judge_fanout.panel / judge_fanout.rebuttal admission producers - and judge_fanout.dispatch_judges_for_sample mints them when a caller hands it a `roles` panel; no production caller does yet. judgment_funnel.route_judgment_sample plans tier 2 with _tier2_roles (the evidence judge) and tiers 3/4 with roles=None (the JUDGE_FANOUT pair), and the funnel itself ships OFF (genesis_policy funnel_enabled False, operator decision; WP-J LEAD-DECISIONS items 8 and 10), so the live lane offers two methods - the live half of ARIA-HIGH-721, which the landing records as Part of, not Closes. Kept, not deleted: the seats are the operator's 2026-10-18 method panel and PLAN-v2 F5.1 (funnel live, seats routed) is their writer. Expires with ARIA-HIGH-721's registry deadline: by then the funnel routes this seat or the program removes it with everything only it reads. This entry: the bug_hunt seat (aria-bug-hunter)."
+    },
+    "impact_assessment": {
+      "expires_on": "2026-11-19",
+      "finding_id": "ARIA-HIGH-721",
+      "owner": "okan",
+      "reason": "The four WP-J method-panel seats (bug_hunt, reproduction_test, impact_assessment, architecture) sit on every E14 table - REQUEST_ROLES, DISPATCHABLE_ROLES, ROLE_TARGET_PAIRING and the judge_fanout.panel / judge_fanout.rebuttal admission producers - and judge_fanout.dispatch_judges_for_sample mints them when a caller hands it a `roles` panel; no production caller does yet. judgment_funnel.route_judgment_sample plans tier 2 with _tier2_roles (the evidence judge) and tiers 3/4 with roles=None (the JUDGE_FANOUT pair), and the funnel itself ships OFF (genesis_policy funnel_enabled False, operator decision; WP-J LEAD-DECISIONS items 8 and 10), so the live lane offers two methods - the live half of ARIA-HIGH-721, which the landing records as Part of, not Closes. Kept, not deleted: the seats are the operator's 2026-10-18 method panel and PLAN-v2 F5.1 (funnel live, seats routed) is their writer. Expires with ARIA-HIGH-721's registry deadline: by then the funnel routes this seat or the program removes it with everything only it reads. This entry: the impact_assessment seat (aria-impact-assessor)."
+    },
+    "reproduction_test": {
+      "expires_on": "2026-11-19",
+      "finding_id": "ARIA-HIGH-721",
+      "owner": "okan",
+      "reason": "The four WP-J method-panel seats (bug_hunt, reproduction_test, impact_assessment, architecture) sit on every E14 table - REQUEST_ROLES, DISPATCHABLE_ROLES, ROLE_TARGET_PAIRING and the judge_fanout.panel / judge_fanout.rebuttal admission producers - and judge_fanout.dispatch_judges_for_sample mints them when a caller hands it a `roles` panel; no production caller does yet. judgment_funnel.route_judgment_sample plans tier 2 with _tier2_roles (the evidence judge) and tiers 3/4 with roles=None (the JUDGE_FANOUT pair), and the funnel itself ships OFF (genesis_policy funnel_enabled False, operator decision; WP-J LEAD-DECISIONS items 8 and 10), so the live lane offers two methods - the live half of ARIA-HIGH-721, which the landing records as Part of, not Closes. Kept, not deleted: the seats are the operator's 2026-10-18 method panel and PLAN-v2 F5.1 (funnel live, seats routed) is their writer. Expires with ARIA-HIGH-721's registry deadline: by then the funnel routes this seat or the program removes it with everything only it reads. This entry: the reproduction_test seat (aria-test-writer)."
+    }
+  },
   "genesis_lifecycle_forward_transition": {
     "ACTIVE": {
       "expires_on": "2026-11-20",

@@ -47,7 +47,6 @@ from aria_kernel.implementation_safety import (  # noqa: E402
     BashDenylistHit,
     CANONICAL_VALIDATION_COMMANDS,
     DENIED_BASH_COMMANDS,
-    READONLY_PATHS,
     HardFailContext,
     SandboxUnavailable,
     _argv_forces_a_push,
@@ -134,7 +133,7 @@ class ProbeMirrorsWrapper(unittest.TestCase):
             }
 
         workspace_binds = {
-            str((_REPO_ROOT / ro).resolve()) for ro in READONLY_PATHS
+            str((_REPO_ROOT / ro).resolve()) for ro in impl.readonly_paths()
         }
         # ARIA-HIGH-123 — binds DERIVED from the workspace (the dependency
         # tree a nested worktree resolves; the checkout's git dirs when a

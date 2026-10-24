@@ -188,6 +188,11 @@ def _learning_inputs(*, target: str | None = _T, fingerprints: int = 1, **overri
     feedback = [
         {"source_type": "ai_consensus", "verdict": "true_positive", "tool_id": _TOOL, "finding_fingerprint": fp,
          "judge_count": 3, "judges_voted": 3, "observers": _OBSERVERS,
+         # WP-J ce6a53541 (ARIA-HIGH-686) — an anchor stands on code
+         # evidence: a consensus row whose evidence union is empty is backed
+         # by zero seats (feedback_store.consensus_distinct_seats), so the
+         # complete chain's anchor cites the code it judged.
+         "evidence_refs": [f"src/{fp.replace(':', '_')}.ts:10"],
          "request_ids": [f"AIR-{fp}-{role}" for role in ("evidence_judgment", "adversarial_judgment",
                                                           "consensus_arbitration")],
          "target_sha": target}

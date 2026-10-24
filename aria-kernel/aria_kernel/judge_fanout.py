@@ -16,17 +16,19 @@ already dispatched is skipped.
 """
 from __future__ import annotations
 
+import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
 from .agent_invocations import create_agent_invocation_request
 from .evidence_trust import forbidden_detector_scope
-from .ledger import load_segments
+from .ledger import ledger_read_faults, load_segments
 from .must_satisfy import must_satisfy_item, product_defect_obligation, rule_premise_obligation
 from .request_admission import Admission, admit_request
 from .rule_contract import RuleContract, resolve_rule_contract
 from .system_one_points import shadow_judge_fanout
-from .tool_registry import ensure_tools_dir
+from .tool_registry import GovernanceError, ensure_tools_dir
 
 
 # Two distinct judge roles → two distinct judge_ids on the same finding. The
@@ -35,6 +37,27 @@ JUDGE_FANOUT: tuple[tuple[str, str], ...] = (
     ("evidence_judgment", "aria-evidence-judge"),
     ("adversarial_judgment", "aria-adversarial-judge"),
 )
+
+# WP-J B-2 — the producers this module mints under. The default lane keeps
+# ``judge_fanout.sample``; an explicit panel (the ``roles`` parameter, the
+# funnel's tier-3/4 lane) mints under ``judge_fanout.panel``, whose door
+# contract is whole-panel-or-nothing; the rebuttal lane (a dissenter
+# re-asked once with the winner's verified refs) mints under
+# ``judge_fanout.rebuttal``.
+SAMPLE_PRODUCER: str = "judge_fanout.sample"
+PANEL_PRODUCER: str = "judge_fanout.panel"
+REBUTTAL_PRODUCER: str = "judge_fanout.rebuttal"
+
+
+def _lane_producer(panel_lane: bool) -> str:
+    """The door producer for the lane being minted (its own function so the
+    admission-door AST scan can see which producer a mint names — the same
+    sanctioned selector pattern convergence_drainer's `_seed_producer`
+    established; the scan reads CONSTANTS, so the literals live here and the
+    named constants above remain the vocabulary importers read)."""
+    if panel_lane:
+        return "judge_fanout.panel"
+    return "judge_fanout.sample"
 
 # E14 — the arbiter that the `consensus_arbitration` role always named and
 # nothing ever minted. The fan-out above guarantees two judges; when those two
@@ -123,13 +146,31 @@ def _judge_obligations(contract: RuleContract) -> list[dict[str, Any]]:
     return obligations
 
 
-def judge_request_fields(item: dict[str, Any], contract: RuleContract) -> dict[str, Any]:
+def judge_request_fields(
+    item: dict[str, Any], contract: RuleContract, *, role: str | None = None,
+) -> dict[str, Any]:
     """The contract-bound part of a judge envelope for one finding: prompt,
     obligations and scopes. The live fan-out and the gold-set replay
     (judge_replay) both mint through it, so replay recall measures the same
-    question live judges answer."""
+    question live judges answer.
+
+    WP-J B-2 — ``role`` renders the seat's METHOD artifact requirement into
+    the prompt (``agent_surface.METHOD_REQUIRED_EVIDENCE``): the ask and the
+    bridge's refusal state one law. ``None`` (every legacy caller and the
+    default lane) renders the legacy prompt byte for byte.
+    """
+    from .agent_surface import EXPERT_METHODS, METHOD_REQUIRED_EVIDENCE
+
+    prompt = _render_prompt(item, contract)
+    method = EXPERT_METHODS.get(role or "")
+    required = METHOD_REQUIRED_EVIDENCE.get(method or "")
+    if required is not None:
+        prompt += (
+            f"\nYour seat's method is {method}; its required artifact is the verdict-block "
+            f"field `{required}`. An answer without it is refused before it can fold."
+        )
     return {
-        "suggested_prompt": _render_prompt(item, contract),
+        "suggested_prompt": prompt,
         "must_satisfy": _judge_obligations(contract),
         # A false_positive may cite anything that refutes a premise, the
         # detector's own source included; what a true_positive may stand on
@@ -257,6 +298,92 @@ def pending_judge_counts(
     return counts
 
 
+PANEL_WRITE_SEAT_DOWNGRADE_KIND: str = "judge_panel_write_seat_downgrade"
+
+# Why a write-scope seat left tonight's panel — the one vocabulary the
+# per-finding ``skipped`` rows and the governance row both carry.
+# ``SEAT_WRITE_RUNG_UNAVAILABLE``: the ladder resolved and no rung on it is
+# present and uncooled (an empty ladder — every rung suspended — included).
+# ``SEAT_WRITE_LADDER_UNRESOLVED``: the routing table refused the seat's
+# ladder, so no executor could take its envelope. ``SEAT_WRITE_COOLDOWNS_UNREADABLE``:
+# the cooldown ledger could not be read, so whether a live rung exists is
+# unknown, and an unknown liveness keeps a seat no more than a dead one does.
+SEAT_WRITE_RUNG_UNAVAILABLE: str = "seat_write_rung_unavailable"
+SEAT_WRITE_LADDER_UNRESOLVED: str = "seat_write_ladder_unresolved"
+SEAT_WRITE_COOLDOWNS_UNREADABLE: str = "seat_write_cooldowns_unreadable"
+
+
+def _drop_write_seats_without_a_live_rung(
+    root: Path, seats: tuple[tuple[str, str], ...],
+) -> tuple[tuple[tuple[str, str], ...], list[tuple[str, str, str]]]:
+    """(the write-free panel, each dropped write-scope seat as (role, agent, reason)).
+
+    ONE liveness question per seat: does the seat's routing ladder name a
+    provider this host can run that is not cooled right now? Presence is
+    ``provider_outage.host_providers`` (the same cheap signals every gate
+    that decides a mint reads); cooldowns are the outage ledger's own
+    active set. The routing table itself refuses a write-scope role on a
+    ladder naming a non-writing vendor, so a live rung IS a live WRITE rung.
+
+    ARIA-HIGH-788 class — the read fails CLOSED. A cooldown ledger the
+    reader cannot read (only the faults ``cooldown_reader_faults`` names)
+    does not mean "nothing is cooled": every write-scope seat is dropped
+    with ``SEAT_WRITE_COOLDOWNS_UNREADABLE`` and the fault is recorded on
+    the governance row. Any other exception from the reader is a defect and
+    propagates. A seat whose ladder the routing table refuses is dropped
+    with ``SEAT_WRITE_LADDER_UNRESOLVED`` (the refusal recorded), and a
+    resolved but empty ladder has no live rung.
+    """
+    from .provider_cooldown import cooldown_reader_faults
+    from .provider_outage import cooled_providers, host_providers
+    from .runtime_profiles import WRITE_SCOPE_ROLES, load_provider_routing
+
+    live = set(host_providers())
+    cooled: set[str] | None
+    cooldown_fault: str | None = None
+    try:
+        cooled = set(cooled_providers(root, now=datetime.now(timezone.utc)))
+    except cooldown_reader_faults() as exc:
+        cooled = None
+        cooldown_fault = f"{type(exc).__name__}: {exc}"[:300]
+    routing = load_provider_routing()
+    kept: list[tuple[str, str]] = []
+    dropped: list[tuple[str, str, str]] = []
+    ladder_faults: dict[str, str] = {}
+    for role, agent in seats:
+        if role not in WRITE_SCOPE_ROLES:
+            kept.append((role, agent))
+            continue
+        try:
+            rungs = routing.ladder_for(role, agent)
+        except GovernanceError as exc:
+            ladder_faults[role] = str(exc)
+            dropped.append((role, agent, SEAT_WRITE_LADDER_UNRESOLVED))
+            continue
+        if cooled is None:
+            dropped.append((role, agent, SEAT_WRITE_COOLDOWNS_UNREADABLE))
+            continue
+        if not any(provider in live and provider not in cooled for provider in rungs):
+            dropped.append((role, agent, SEAT_WRITE_RUNG_UNAVAILABLE))
+            continue
+        kept.append((role, agent))
+    if dropped:
+        from .tool_registry import append_tools_governance
+
+        append_tools_governance(root, PANEL_WRITE_SEAT_DOWNGRADE_KIND, {
+            "downgraded_seats": [role for role, _agent, _reason in dropped],
+            "seat_reasons": {role: reason for role, _agent, reason in dropped},
+            "live_providers": sorted(live),
+            "cooled_providers": None if cooled is None else sorted(cooled),
+            "cooldown_fault": cooldown_fault,
+            "ladder_faults": ladder_faults,
+            "note": "the item routes a write-free panel; the write-scope "
+                    "seat rejoins when a write-admitting provider returns "
+                    "and its liveness can be read",
+        })
+    return tuple(kept), dropped
+
+
 def dispatch_judges_for_sample(
     *,
     sample: dict[str, Any],
@@ -264,8 +391,15 @@ def dispatch_judges_for_sample(
     target_sha: str | None = None,
     repo_root: str | Path | None = None,
     max_pending_per_role: int | None = None,
+    # WP-J slice C (the roles seam): WHICH seats to mint, as
+    # (role, target_agent) pairs. The ROUTER (judgment_funnel) decides
+    # this — tier assignment lives nowhere in this module. None (every
+    # legacy caller) mints the default JUDGE_FANOUT pair, bit for bit; a
+    # shorter list mints only those seats. Slice B extends the same
+    # parameter for the panel seats (EXPERT_METHODS).
+    roles: tuple[tuple[str, str], ...] | list[tuple[str, str]] | None = None,
 ) -> dict[str, Any]:
-    """Mint two judge envelopes per finding in a judgment sample.
+    """Mint judge envelopes per finding in a judgment sample.
 
     Returns a summary; the envelopes are picked up asynchronously by the
     executor drain (``ci_executor_drain``), so the resulting ai_judge rows — and
@@ -277,9 +411,32 @@ def dispatch_judges_for_sample(
     never attach on the one lane that dispatches two judges per finding. The
     caller already resolves this workspace for ``target_sha``; passing it here
     is what makes the packing fire in production rather than only in tests.
+
+    WP-J B-2 — an explicit ``roles`` set mints a PANEL, and a panel is minted
+    WHOLE OR NOT AT ALL: one seat a cap or the door refuses refuses the whole
+    finding (it stays at its settled tier; the next cycle's routing re-offers
+    it), because a 3-of-4 panel is a finding that can never settle at the tier
+    it was routed to. The default lane keeps the legacy per-seat semantics
+    bit for bit.
     """
     root = ensure_tools_dir(base_dir)
+    seats: tuple[tuple[str, str], ...] = tuple(roles) if roles is not None else JUDGE_FANOUT
+    panel_lane = roles is not None
     items = sample.get("items") or []
+    # WP-J review — the panel's single-provider degradation law. A write-
+    # scope seat (the reproduction seat, whose ladder names only
+    # write-admitting vendors) with NO live rung would mint an envelope
+    # that can never execute, in a group that can therefore never settle —
+    # a CRITICAL item left with no verdict on a Codex-only night. The
+    # operator's continuity rule is the opposite: with any single provider
+    # alive, every role runs. The item routes a WRITE-FREE panel (the other
+    # seats settle it) and the downgrade is recorded by name — per finding
+    # in ``skipped`` and once per call in governance — never silently, and
+    # never as a hold: the whole-or-not law below stays for caps and door
+    # refusals, which are capacity, not liveness.
+    downgraded_seats: list[tuple[str, str, str]] = []
+    if panel_lane:
+        seats, downgraded_seats = _drop_write_seats_without_a_live_rung(root, seats)
     existing = _existing_judge_dispatches(root)
     # Y2 (ORPHAN-704) — backlog gate: when the executor's drain is behind,
     # minting more envelopes only manufactures anchor-stale corpses. The
@@ -299,6 +456,12 @@ def dispatch_judges_for_sample(
         if not isinstance(item, dict):
             continue
         group = _group_id(item)
+        # The degradation's per-finding trace: each dropped seat is named on
+        # the finding it was dropped from, exactly like the cap skips.
+        skipped.extend(
+            {"judgment_group_id": group, "target_agent": agent, "reason": reason}
+            for _role, agent, reason in downgraded_seats
+        )
         refs = _evidence_refs(item)
         tool_id = str(item.get("tool_id") or "")
         rule = str(item.get("rule") or "")
@@ -312,46 +475,63 @@ def dispatch_judges_for_sample(
             skipped.extend(
                 {"judgment_group_id": group, "target_agent": agent,
                  "reason": "rule_contract_undeclared", "tool_id": tool_id, "rule": rule}
-                for _role, agent in JUDGE_FANOUT
+                for _role, agent in seats
             )
             continue
-        envelope = judge_request_fields(item, contract)
         if tool_id not in judged:
             judged[tool_id] = _judged_pairs(root, tool_id)
         finding_key = _finding_key(item)
-        admissions: dict[str, Admission] = {}
-        for role, agent in JUDGE_FANOUT:
-            if refused:
-                break
-            if (group, agent) in existing or (finding_key, agent) in judged[tool_id]:
-                continue
-            if max_pending_per_role is not None and pending.get(role, 0) >= max_pending_per_role:
-                continue
-            admission = admit_request("judge_fanout.sample", role, base_dir=root, cycle_id=sample.get("cycle_id"))
-            if not admission.admitted:
-                refused[role] = admission.refusal
-                break
-            admissions[role] = admission
-        throttled = next(iter(refused.values()), None)
-        if throttled is not None:
-            skipped.extend({"judgment_group_id": group, "target_agent": agent, "reason": throttled}
-                           for _role, agent in JUDGE_FANOUT)
-            continue
-        for role, agent in JUDGE_FANOUT:
+        # WP-J B-2 — one seat plan per finding: idempotent (the seat already
+        # exists in the ledger) leaves the panel complete, but a seat the cap
+        # or the door refuses voids the PANEL on the panel lane. Refusals are
+        # named once per finding, for the whole panel.
+        plan: list[tuple[str, str, Admission | None, str | None]] = []
+        panel_refusal: str | None = None
+        for role, agent in seats:
             if (group, agent) in existing:
-                skipped.append({"judgment_group_id": group, "target_agent": agent, "reason": "already_dispatched"})
+                plan.append((role, agent, None, "already_dispatched"))
                 continue
             if (finding_key, agent) in judged[tool_id]:
-                skipped.append({"judgment_group_id": group, "target_agent": agent, "reason": "already_judged"})
+                plan.append((role, agent, None, "already_judged"))
                 continue
             if max_pending_per_role is not None and pending.get(role, 0) >= max_pending_per_role:
-                skipped.append({
-                    "judgment_group_id": group, "target_agent": agent,
-                    "reason": "mint_skipped_backlog",
-                    "pending": pending.get(role, 0),
-                    "max_pending_per_role": max_pending_per_role,
-                })
+                if panel_lane:
+                    panel_refusal = "mint_skipped_backlog"
+                    break
+                plan.append((role, agent, None, "mint_skipped_backlog"))
                 continue
+            if role in refused:
+                panel_refusal = refused[role]
+                break
+            admission = admit_request(_lane_producer(panel_lane), role, base_dir=root, cycle_id=sample.get("cycle_id"))
+            if not admission.admitted:
+                refused[role] = admission.refusal
+                panel_refusal = admission.refusal
+                break
+            admissions_role = admission
+            plan.append((role, agent, admissions_role, None))
+        if panel_refusal is not None:
+            skipped.append({
+                "judgment_group_id": group,
+                "reason": panel_refusal,
+                "whole_panel": True,
+                "seats": [agent for _role, agent in seats],
+            })
+            continue
+        for role, agent, admission, idempotent_reason in plan:
+            if idempotent_reason is not None:
+                entry: dict[str, Any] = {
+                    "judgment_group_id": group, "target_agent": agent,
+                    "reason": idempotent_reason,
+                }
+                if idempotent_reason == "mint_skipped_backlog" and max_pending_per_role is not None:
+                    # Y2 disclosure: what the cap was and what it read.
+                    entry["pending"] = pending.get(role, 0)
+                    entry["max_pending_per_role"] = max_pending_per_role
+                skipped.append(entry)
+                continue
+            assert admission is not None  # a mintable seat always carries one
+            envelope = judge_request_fields(item, contract, role=role)
             req = create_agent_invocation_request(
                 target_agent=agent,
                 role=role,
@@ -369,7 +549,7 @@ def dispatch_judges_for_sample(
                 target_sha=target_sha,
                 base_dir=root,
                 context_repo_root=repo_root,
-                admission=admissions[role],
+                admission=admission,
             )
             minted.append({
                 "request_id": req.get("request_id"),
@@ -443,6 +623,30 @@ def _group_fingerprint(by_judge: dict[str, dict[str, Any]]) -> str:
     )
 
 
+def _seat_payload(judge_id: str, row: dict[str, Any]) -> dict[str, Any]:
+    """One seat's answer as the arbiter lanes hand it around: the verdict
+    and its evidence, plus (WP-J B-2) the fields the evidence-weighing rank
+    reads — the quote-verified selection and the reproduction recipe —
+    carried only when the row has them."""
+    payload = {
+        "judge_id": judge_id,
+        "verdict": row.get("verdict"),
+        "confidence": row.get("confidence"),
+        "rationale": row.get("rationale") or row.get("note"),
+        "evidence_refs": [
+            ref for ref in (row.get("evidence_refs") or [])
+            if isinstance(ref, str) and ref.strip()
+        ],
+    }
+    if row.get("evidence_selection"):
+        payload["evidence_selection"] = row.get("evidence_selection")
+    if isinstance(row.get("reproduction"), dict) and row.get("reproduction"):
+        payload["reproduction"] = row.get("reproduction")
+    if row.get("method"):
+        payload["method"] = row.get("method")
+    return payload
+
+
 def split_verdict_groups(
     *,
     tool_id: str,
@@ -471,16 +675,7 @@ def split_verdict_groups(
             "judgment_group_id": group_id,
             "finding_fingerprint": _group_fingerprint(by_judge),
             "judges": [
-                {
-                    "judge_id": judge_id,
-                    "verdict": row.get("verdict"),
-                    "confidence": row.get("confidence"),
-                    "rationale": row.get("rationale") or row.get("note"),
-                    "evidence_refs": [
-                        ref for ref in (row.get("evidence_refs") or [])
-                        if isinstance(ref, str) and ref.strip()
-                    ],
-                }
+                _seat_payload(judge_id, row)
                 for judge_id, row in sorted(by_judge.items())
             ],
         })
@@ -508,6 +703,84 @@ def _render_arbiter_prompt(split: dict[str, Any]) -> str:
         "evidence you relied on; when the gate cannot be met, omit verdict and "
         "set details.consensus.uncertainty_reason as the Judge verdict "
         "contract states. Do not re-judge the finding from scratch."
+    )
+    return "\n".join(lines)
+
+
+# WP-J B-2 — the literal first line of the EVIDENCE WEIGHING brief, the same
+# discipline ANCHOR_MODE_MARKER established: `.claude/agents/
+# aria-consensus-arbiter.md` keys its Evidence Weighing Mode section on this
+# exact string, so the brief and the agent contract cannot drift apart.
+EVIDENCE_WEIGHING_MODE_MARKER: str = "MODE: evidence_weighing"
+
+# The evidence-class rank the weighing brief lists entries in: an executable
+# reproduction outranks a mechanically verified trace (quote-matched refs),
+# which outranks a cited observation, which outranks bare argument. The ORDER
+# is the arbiter's own law (operator protocol step 7); the CLASSES are read
+# off what the seats' rows already carry — the reproduction recipe block and
+# the quote-verified `index` evidence selection — never re-derived here.
+_EVIDENCE_RANK_REPRODUCTION = 0
+_EVIDENCE_RANK_VERIFIED_TRACE = 1
+_EVIDENCE_RANK_CITED_REF = 2
+_EVIDENCE_RANK_ARGUMENT = 3
+
+
+def _seat_evidence_rank(seat: dict[str, Any]) -> int:
+    if isinstance(seat.get("reproduction"), dict) and seat.get("reproduction"):
+        return _EVIDENCE_RANK_REPRODUCTION
+    if seat.get("evidence_selection") == "index":
+        return _EVIDENCE_RANK_VERIFIED_TRACE
+    if [ref for ref in seat.get("evidence_refs") or [] if str(ref).strip()]:
+        return _EVIDENCE_RANK_CITED_REF
+    return _EVIDENCE_RANK_ARGUMENT
+
+
+def render_evidence_weighing_prompt(split: dict[str, Any]) -> str:
+    """The arbiter's EVIDENCE WEIGHING brief.
+
+    Identity-stripped (no seat names travel with the evidence — the arbiter
+    weighs artefacts, not reputations) and class-ranked: reproduction first,
+    then verified trace, then cited observation, then argument. The stated
+    outcome vocabulary includes ``unverifiable``: when the load-bearing
+    assertions cannot be weighed, that is the lawful answer, not a forced
+    verdict.
+    """
+    seats = sorted(
+        split.get("judges") or [],
+        key=lambda seat: (
+            _seat_evidence_rank(seat),
+            -len([r for r in seat.get("evidence_refs") or [] if str(r).strip()]),
+        ),
+    )
+    lines = [
+        EVIDENCE_WEIGHING_MODE_MARKER,
+        "A method panel has answered this adapter finding. Weigh the EVIDENCE,",
+        "not the votes: the seats are unnamed and their assertions are listed",
+        "ranked — an executable reproduction outranks a mechanically verified",
+        "trace, which outranks a cited observation, which outranks argument.",
+        f"tool_id: {split.get('tool_id')}",
+        f"run_id: {split.get('run_id')}",
+        f"finding_id: {split.get('finding_id')}",
+        f"judgment_group_id: {split.get('judgment_group_id')}",
+        "Evidence ledger (identity-stripped, best class first):",
+    ]
+    for index, seat in enumerate(seats, start=1):
+        parts = [f"- seat {index}: verdict={seat.get('verdict')}"]
+        if isinstance(seat.get("reproduction"), dict) and seat.get("reproduction"):
+            parts.append(f"reproduction={json.dumps(seat['reproduction'], sort_keys=True)}")
+        if seat.get("evidence_selection") == "index":
+            parts.append("evidence=quote-verified")
+        parts.append(f"refs={','.join(str(r) for r in seat.get('evidence_refs') or [])}")
+        parts.append(f"rationale={str(seat.get('rationale') or '')[:300]}")
+        lines.append(" ".join(parts))
+    lines.append(
+        "You may read the repository to check a cited observation holds at its "
+        "file:line. Return details.consensus with verdict "
+        "true_positive|false_positive, confidence, and the evidence you "
+        "relied on; when the load-bearing assertions cannot be weighed, OMIT "
+        "verdict and set details.consensus.uncertainty_reason=unverifiable. "
+        "Never count seats: three names agreeing on an unverifiable claim is "
+        "one unverified claim."
     )
     return "\n".join(lines)
 
@@ -545,14 +818,27 @@ def dispatch_arbiter_for_split_verdicts(
             skipped.append({"judgment_group_id": group, "target_agent": CONSENSUS_ARBITER_AGENT,
                             "reason": admission.refusal})
             break
+        # WP-J B-2 — a METHOD panel's split is weighed, not aggregated: its
+        # seats carry method receipts (minted after EXPERT_METHODS landed),
+        # and the evidence-weighing brief ranks what they produced with the
+        # seats stripped. A legacy split (no method receipts anywhere) keeps
+        # the aggregation brief byte for byte.
+        panel_split = any(seat.get("method") for seat in split.get("judges") or [])
         minted.append(_mint_arbiter(
             root,
             tool_id=tool_id,
             group=split,
             admission=admission,
-            prompt=_render_arbiter_prompt(split),
+            prompt=(
+                render_evidence_weighing_prompt(split)
+                if panel_split
+                else _render_arbiter_prompt(split)
+            ),
             criterion=(
-                "Aggregate the supplied judge verdicts and return "
+                "Weigh the ranked evidence and return details.consensus, or "
+                "uncertainty_reason=unverifiable when it cannot be weighed"
+                if panel_split
+                else "Aggregate the supplied judge verdicts and return "
                 "details.consensus, or the uncertainty reason when the "
                 "consensus gate cannot be met"
             ),
@@ -719,16 +1005,7 @@ def anchor_candidate_groups(
             "finding_fingerprint": _group_fingerprint(by_judge),
             "verdict": verdict,
             "judges": [
-                {
-                    "judge_id": judge_id,
-                    "verdict": row.get("verdict"),
-                    "confidence": row.get("confidence"),
-                    "rationale": row.get("rationale") or row.get("note"),
-                    "evidence_refs": [
-                        ref for ref in (row.get("evidence_refs") or [])
-                        if isinstance(ref, str) and ref.strip()
-                    ],
-                }
+                _seat_payload(judge_id, row)
                 for judge_id, row in sorted(by_judge.items())
             ],
         })
@@ -833,3 +1110,186 @@ def pending_arbitration_group_ids(
         if states[request_id] not in TERMINAL_REQUEST_STATES:
             pending.add(group)
     return pending
+
+
+# WP-J B-2 — the rebuttal round (operator protocol step 5: "If refuted with
+# verified evidence, the claimant gets ONE rebuttal with new evidence").
+# When a weighted majority settles over a dissenter, the DISSENTER's own seat
+# is re-minted ONCE with the winner's verified refs in the brief: the dissent
+# gets one bounded chance to answer the evidence that outvoted it, in the
+# same judgment group, under the same role it originally held. Bounded by
+# construction: the mint is idempotent per (group, seat) on the rebuttal
+# marker, and no second round exists.
+REBUTTAL_MARKER: str = "REBUTTAL ROUND 1"
+
+
+def _request_row_for(root: Path, request_id: str) -> dict[str, Any] | None:
+    from .agent_invocations import list_agent_invocation_requests
+
+    for row in list_agent_invocation_requests(base_dir=root):
+        if str(row.get("request_id") or "") == request_id:
+            return row
+    return None
+
+
+def dissent_rebuttal_candidates(
+    *,
+    tool_id: str,
+    base_dir: str | Path | None = None,
+) -> list[dict[str, Any]]:
+    """Settled groups that carry a dissent: one candidate per dissenter.
+
+    The seat's identity comes from the MINT (the dissenting row's
+    ``request_ids`` resolve to the envelope that seat answered — D1
+    doctrine), never from guessing a role off the judge's name.
+    """
+    from .feedback_store import load_feedback
+
+    root = ensure_tools_dir(base_dir)
+    candidates: list[dict[str, Any]] = []
+    for row in load_feedback(tool_id=tool_id, base_dir=root):
+        if row.get("source_type") != "ai_consensus":
+            continue
+        if _row_count(row, "judges_voted") <= _row_count(row, "judge_count"):
+            continue
+        settled_verdict = str(row.get("verdict") or "")
+        winner_refs = [str(r) for r in row.get("evidence_refs") or [] if str(r).strip()]
+        for judge_row in load_feedback(tool_id=tool_id, base_dir=root):
+            if judge_row.get("source_type") != "ai_judge":
+                continue
+            if str(judge_row.get("judgment_group_id") or "") != str(row.get("judgment_group_id") or ""):
+                continue
+            if str(judge_row.get("verdict") or "") == settled_verdict:
+                continue
+            request_ids = [str(r) for r in judge_row.get("request_ids") or [] if str(r).strip()]
+            if not request_ids:
+                continue
+            request = _request_row_for(root, request_ids[0])
+            if request is None:
+                continue
+            candidates.append({
+                "tool_id": tool_id,
+                "run_id": str(row.get("run_id") or ""),
+                "finding_id": str(row.get("finding_id") or ""),
+                "judgment_group_id": str(row.get("judgment_group_id") or ""),
+                "finding_fingerprint": str(row.get("finding_fingerprint") or ""),
+                "settled_verdict": settled_verdict,
+                "winner_evidence_refs": winner_refs,
+                "dissenter_judge_id": str(judge_row.get("judge_id") or ""),
+                "dissenter_request": request,
+            })
+    return candidates
+
+
+def _row_count(row: dict[str, Any], field: str) -> int:
+    """A non-negative integer count off a ledger row, or 0 when unprovable
+    (the feedback_store reader's own law, applied locally so the candidate
+    scan needs no import cycle)."""
+    value = row.get(field)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return 0
+    return value
+
+
+def _rebuttal_already_minted(root: Path) -> set[tuple[str, str]]:
+    """(judgment_group_id, target_agent) pairs that already carry a rebuttal
+    envelope — the bound of the round, read back from the request ledger.
+
+    The bound fails closed (WPJ-FAILOPEN R1, the ARIA-HIGH-788 class): an
+    unreadable ledger is not "nothing was minted yet", so a store fault
+    (``ledger_read_faults()``) refuses the whole round with a named
+    ``GovernanceError`` — the cycle records it as a blocked ``rebuttal``
+    step and no dissenter is re-asked a second time. Any other exception is
+    a defect in the reader and propagates.
+    """
+    try:
+        rows = load_segments(root, "agent_invocation_requests")
+    except ledger_read_faults() as exc:
+        raise GovernanceError(
+            f"judge_rebuttal_ledger_unreadable:{type(exc).__name__}: {exc}"[:300]
+        ) from exc
+    rebuttals: set[tuple[str, str]] = set()
+    for row in rows:
+        if REBUTTAL_MARKER in str(row.get("suggested_prompt") or ""):
+            group = str(row.get("judgment_group_id") or "")
+            agent = str(row.get("target_agent") or "")
+            if group and agent:
+                rebuttals.add((group, agent))
+    return rebuttals
+
+
+def dispatch_rebuttal_for_dissent(
+    *,
+    tool_id: str,
+    base_dir: str | Path | None = None,
+    cycle_id: str | None = None,
+) -> dict[str, Any]:
+    """Re-mint each dissenter's seat ONCE with the winner's verified refs.
+
+    A refusal holds (the door's own discipline): the dissent stays settled
+    as it is, and the candidate is re-derived next cycle. An unreadable
+    request ledger raises ``GovernanceError`` before anything is minted,
+    because the ONCE bound cannot be proven.
+    """
+    root = ensure_tools_dir(base_dir)
+    already = _rebuttal_already_minted(root)
+    minted: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    for candidate in dissent_rebuttal_candidates(tool_id=tool_id, base_dir=root):
+        request = candidate["dissenter_request"]
+        group = candidate["judgment_group_id"]
+        agent = str(request.get("target_agent") or "")
+        role = str(request.get("role") or "")
+        if (group, agent) in already:
+            skipped.append({"judgment_group_id": group, "target_agent": agent,
+                            "reason": "rebuttal_already_minted"})
+            continue
+        # The literal, not the module constant: the admission-door scan
+        # reads the producer a call names, and a Name is invisible to it.
+        admission = admit_request("judge_fanout.rebuttal", role, base_dir=root, cycle_id=cycle_id)
+        if not admission.admitted:
+            skipped.append({"judgment_group_id": group, "target_agent": agent,
+                            "reason": admission.refusal})
+            break
+        winner_refs = candidate["winner_evidence_refs"]
+        prompt = "\n".join([
+            REBUTTAL_MARKER,
+            "Your verdict on this adapter finding was outvoted by a weighted",
+            "majority. This is your ONE rebuttal: answer the evidence that",
+            "outvoted you, with new evidence of your own if you have it.",
+            f"tool_id: {candidate['tool_id']}",
+            f"run_id: {candidate['run_id']}",
+            f"finding_id: {candidate['finding_id']}",
+            f"judgment_group_id: {group}",
+            f"The settled verdict you dissented from: {candidate['settled_verdict']}",
+            "The evidence that backed it (verified refs):",
+            *(f"- {ref}" for ref in winner_refs),
+            "Return your verdict under the same contract as before. Changing",
+            "your verdict after reading the winners' evidence is a correct",
+            "answer; so is standing by your dissent.",
+        ])
+        req = create_agent_invocation_request(
+            target_agent=agent,
+            role=role,
+            suggested_prompt=prompt,
+            must_satisfy=request.get("must_satisfy") or [{"id": "verdict", "description": "your rebutted verdict"}],
+            allowed_scope=request.get("allowed_scope") or ["**"],
+            evidence_refs=(request.get("evidence_refs") or []) + winner_refs or None,
+            finding_id=candidate["finding_id"],
+            finding_fingerprint=candidate["finding_fingerprint"] or None,
+            tool_id=candidate["tool_id"],
+            run_id=candidate["run_id"],
+            judgment_group_id=group,
+            cycle_id=cycle_id,
+            target_sha=request.get("target_sha"),
+            base_dir=root,
+            admission=admission,
+        )
+        minted.append({
+            "request_id": req.get("request_id"),
+            "role": role,
+            "target_agent": agent,
+            "judgment_group_id": group,
+        })
+        already.add((group, agent))
+    return {"schema_version": 1, "minted_count": len(minted), "minted": minted, "skipped": skipped}

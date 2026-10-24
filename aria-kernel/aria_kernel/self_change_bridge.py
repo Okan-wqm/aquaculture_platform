@@ -34,10 +34,10 @@ from pathlib import Path
 from typing import Any
 
 from .self_improvement import (
-    AUTHORITY_SURFACES,
     DEFAULT_VALIDATION_COMMAND,
     SELF_CHANGE_ALLOWED_PREFIXES,
     SELF_CHANGE_NEXT_ACTION,
+    kernel_authority_set,
 )
 from .bridge_exceptions import BridgeContractRefused
 from .tool_registry import GovernanceError, ensure_tools_dir
@@ -102,7 +102,8 @@ def build_self_change_prompt(*, queue_item_id: str, source_cycle_id: str | None,
         "next_action": SELF_CHANGE_NEXT_ACTION,
         "response_details_fields": list(SELF_CHANGE_FIELDS),
         "allowed_prefixes": list(SELF_CHANGE_ALLOWED_PREFIXES),
-        "authority_surfaces": list(AUTHORITY_SURFACES),
+        # The set `authority_surface_violations` judges the answer by (B1).
+        "authority_surfaces": list(kernel_authority_set()),
         "validation_command": DEFAULT_VALIDATION_COMMAND,
     }
 

@@ -160,13 +160,14 @@ def _scripted_implementer(
     reads (the shape of a timeout, a provider outage, an operator cancel:
     a spawn that ends before any commit); ``kernel_shadow_marker`` plants
     an ``aria_kernel`` package and a ``json`` module at the worktree ROOT —
-    what a real agent does with one Write call, the hook admitting any
-    workspace path outside READONLY_PATHS — and commits them with the
-    plan's file: if any process ever imports them, they append a row
+    written directly by the scripted agent, past the Edit/Write hook, which
+    refuses those names since every top-level module name at the suite's
+    import roots is a member of the authority set (B1 R3) — and commits them
+    with the plan's file: if any process ever imports them, they append a row
     (argv, cwd, the NAMES of the credential variables present) to that
     marker path on the host, outside the sandbox; ``validation_probe`` is
     the body of a Python script the agent commits as
-    ``aria-validation-probe.py`` together with a ``package.json`` whose
+    ``validation-probe/aria-validation-probe.py`` together with a ``package.json`` whose
     ``type-check`` script runs it — what the executor's gate then executes
     as `npm run type-check` (ARIA-HIGH-124 round 3: the suite is the
     agent's code); ``evidence_line`` is the line every evidence ref of the
@@ -431,18 +432,23 @@ def _kernel_shadow_plant(marker: str) -> str:
     )
 
 
-VALIDATION_PROBE_PATHS = ("package.json", "aria-validation-probe.py")
+# Below the repository root: a top-level `.py` there is a module name at one
+# of the suite's import roots, a member of the authority set the implementer
+# room refuses (B1 R3), and the probe's delivery must land.
+VALIDATION_PROBE_SCRIPT = "validation-probe/aria-validation-probe.py"
+VALIDATION_PROBE_PATHS = ("package.json", VALIDATION_PROBE_SCRIPT)
 
 
 def _validation_probe_plant(body: str) -> str:
     """The scripted agent's commit of a `package.json` whose `type-check`
     script is its own program: what npm-run-script executes from the tree."""
     package = json.dumps({"name": "fixture", "private": True,
-                          "scripts": {"type-check": f"{sys.executable} aria-validation-probe.py"}}) + "\n"
+                          "scripts": {"type-check": f"{sys.executable} {VALIDATION_PROBE_SCRIPT}"}}) + "\n"
     return (
         f"open('package.json', 'w', encoding='utf-8').write({package!r})\n"
-        f"open('aria-validation-probe.py', 'w', encoding='utf-8').write({body!r})\n"
-        "git('add', 'package.json', 'aria-validation-probe.py')\n"
+        f"os.makedirs({VALIDATION_PROBE_SCRIPT.rpartition('/')[0]!r}, exist_ok=True)\n"
+        f"open({VALIDATION_PROBE_SCRIPT!r}, 'w', encoding='utf-8').write({body!r})\n"
+        f"git('add', 'package.json', {VALIDATION_PROBE_SCRIPT!r})\n"
     )
 
 
@@ -1489,29 +1495,31 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
         # release`), outside the sandbox, with the lease token, GH_TOKEN and
         # the store binding in its environment. The agent here plants the
         # package and a stdlib `json` shadow and commits them with its
-        # change; the executor's kernel resolves from the code root
-        # (`-P`), the marker stays empty, and the real submit lands.
+        # change, in a plan that intends them; the executor's kernel resolves
+        # from the code root (`-P`) and the marker stays empty.
+        # B1 R3 — those names are top-level modules at the suite's import
+        # roots, members of the authority set, so the delivery no longer
+        # lands: the read-only perimeter refuses it before any PR, and the
+        # refusal's own kernel commands (the human-required record, the
+        # release) run in the planted tree without importing it.
         marker = self.root / "kernel-shadow-marker.jsonl"
         planted = ("aria_kernel/__init__.py", "aria_kernel/__main__.py", "json.py")
         # A plan that intends the planted paths, so the change ledger admits
-        # the commit and the delivery reaches the submit — the one kernel
-        # subprocess that carries the lease token AND runs after the tree
-        # holds the agent's files.
+        # the commit and the delivery reaches the perimeter with the tree
+        # holding the agent's files.
         self._restage("plan-kernel-shadow", extra_allowed_paths=planted)
         self._install_implementer(kernel_shadow_marker=str(marker))
         completed, worktree = self._run_in_request_worktree()
-        self.assertEqual(completed.returncode, 0, self._diagnostic(completed))
         rows = [json.loads(line) for line in marker.read_text(encoding="utf-8").splitlines()] if marker.exists() else []
         self.assertEqual(rows, [], "a module the agent planted ran in an executor process: " + json.dumps(rows)[:800])
-        self.assertEqual(self.ai.derive_request_state(request_id=self.request_id, base_dir=self.tools), "ACCEPTED")
-        envelope = self._submitted_envelope()
-        self.assertEqual(envelope["details"]["implementation"]["pr_url"], FIXTURE_PR_URL)
-        self.assertEqual(self._plan_state(), "IMPLEMENTATION_RECORDED")
+        refused = self._governance("implementation_delivery_refused")
+        self.assertEqual(len(refused), 1, self._diagnostic(completed))
+        self.assertEqual(refused[0]["details"]["stage"], "pre_pr_open")
+        self.assertIn("forbidden_scope_normalized:readonly_path_write:aria_kernel/__init__.py", refused[0]["details"]["reason"])
+        self.assertEqual(self.ai.derive_request_state(request_id=self.request_id, base_dir=self.tools), "HUMAN_REQUIRED")
+        self.assertEqual(len(self._human_required()), 1)
         # The planted files are in the agent's commit — the evidence that
         # the tree the executor stood in did carry them.
-        tip = envelope["details"]["implementation"]["branch_tip_sha"]
-        committed = _git(["show", "--format=", "--name-only", tip], cwd=self.repo).stdout.split()
-        self.assertEqual(set(committed), {SOURCE, *planted})
         self.assertEqual(set(self._change_committed()[0]["actual_affected_files"]), {SOURCE, *planted})
         self.assertEqual(ci_executor.KERNEL_CLI_INTERPRETER_FLAGS, ("-P",))
 

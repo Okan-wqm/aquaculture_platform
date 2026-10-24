@@ -34,12 +34,14 @@ from aria_kernel.plan_origin import PLAN_ORIGIN_CHANGED
 from aria_kernel.tool_registry import GovernanceError
 
 # Origin kinds the synthesizer stamps: an aging F finding, an ORPHAN, and an
-# operator request (its F finding plus the consumed request ref).
+# operator request (its F finding plus the consumed request ref). The request
+# ref is provenance, never evidence (`plan_synthesizer`, ORPHAN-HIGH-519): the
+# plan-path record law refuses a ledger row id as an evidence ref (PV R16).
 ORIGINS: dict[str, dict] = {
     "f_finding": {"finding_id": "F-007"},
     "orphan_finding": {"finding_id": "ORPHAN-HIGH-104"},
     "operator_feedback": {"finding_id": "F-007", "grounding_digest": "sha256:" + "a" * 64,
-                          "evidence_refs": ["docs/aria/SPEC.md", "aria-tools/operator-feedback.jsonl:OP-1"]},
+                          "provenance_refs": ["aria-tools/operator-feedback.jsonl:OP-1"]},
 }
 
 

@@ -238,7 +238,7 @@ class PhaseV3_3ReflectionOrdering(unittest.TestCase):
                 "affected_surfaces": ["fixture.py"],
                 "key_changes": [{"id": "c1", "description": "x", "paths": ["fixture.py"]}],
                 "validation_commands": [{"cmd": "echo ok", "timeout_ms": 1000, "expected_exit": 0}],
-                "evidence_refs": ["fixture.py:1:line"],
+                "evidence_refs": ["fixture.py:1"],
             }
         def _v7_fake_skill_genesis_drainer(**kwargs):
             return {

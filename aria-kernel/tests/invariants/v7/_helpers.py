@@ -27,7 +27,7 @@ def _valid_plan_content_fake(**kwargs: Any) -> dict[str, Any]:
         "validation_commands": [{
             "cmd": "echo ok", "timeout_ms": 1000, "expected_exit": 0,
         }],
-        "evidence_refs": ["fixture.py:1:fixture line"],
+        "evidence_refs": ["fixture.py:1"],
     }
 
 

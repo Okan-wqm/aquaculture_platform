@@ -138,7 +138,7 @@ def _fake_plan_synthesizer(**kwargs):
         "validation_commands": [{
             "cmd": "echo ok", "timeout_ms": 1000, "expected_exit": 0,
         }],
-        "evidence_refs": ["fixture/path.py:1:fixture line"],
+        "evidence_refs": ["fixture/path.py:1"],
     }
 
 

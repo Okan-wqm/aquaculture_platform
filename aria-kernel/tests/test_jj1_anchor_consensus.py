@@ -46,7 +46,8 @@ from aria_kernel.judge_fanout import (
     anchor_candidate_groups,
     dispatch_arbiter_for_anchor_groups,
 )
-from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from aria_kernel.tool_registry import GovernanceError, ensure_tools_binding, ensure_tools_dir
+from tests._helpers.git_fixtures import commit_files, make_local_git_repo
 
 
 # The live fleet, read off .claude/agents/*.md frontmatter (2026-08-20).
@@ -230,6 +231,8 @@ class _LedgerCase(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory(prefix="aria-jj1-")
         self.tools = Path(self._tmp.name) / "aria-tools"
         ensure_tools_dir(self.tools)
+        # J1 — the commit the judges judged; None unless a case binds a repo.
+        self.target_sha: str | None = None
 
     def tearDown(self) -> None:
         self._tmp.cleanup()
@@ -267,6 +270,7 @@ class _LedgerCase(unittest.TestCase):
             evidence_refs=[f"src/{finding.lower()}.ts:10"],
             judgment_group_id=f"judge:{tool_id}:{finding}",
             finding_fingerprint=f"fp-{finding}",
+            target_sha=self.target_sha,
             base_dir=self.tools,
         )
 
@@ -480,6 +484,16 @@ class WeightedLaneAnchorTests(_LedgerCase):
         "aria-adversarial-judge": 0.9,
         "aria-consensus-arbiter": 0.9,
     }
+
+    def setUp(self) -> None:
+        super().setUp()
+        # J1 (ARIA-MEDIUM-783) — an anchor suppresses only while the code it
+        # judged is still at HEAD of the store's declared workspace: these
+        # cases assert suppression, so the judges judge a real commit of a
+        # bound repository that carries the cited file.
+        repo = make_local_git_repo(Path(self._tmp.name), name="repo")
+        self.target_sha = commit_files(repo, {"src/f-1.ts": "export const f = 1;\n" * 12})
+        ensure_tools_binding(self.tools, workspace_root=repo)
 
     def _settle(self) -> dict:
         return generate_ai_consensus(

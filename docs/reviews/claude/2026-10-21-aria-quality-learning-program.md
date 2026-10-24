@@ -1493,6 +1493,198 @@ call, not a len), so the module docstring misleads the next reader
 - Close condition: the docstring (lines 34-35, and the line 5 mention) names distinct_judge_seats as
   the located function and consensus_distinct_seats as its consensus-row wrapper.
 
+## ARIA-MEDIUM-814
+
+A corrupt aria-config override silently falls back to the shipped pre-registered values.
+
+`load_policy` returns the shipped defaults when the override fails to decode (`JSONDecodeError`,
+`OSError`) or is not a JSON object. `service_expertise_policy` and `change_review_policy` read
+through it, so for an override they could not read they return the shipped values, against their own
+promise that the shipped value never stands in for a missing one. A truncated override carrying
+`service_expertise.genesis.k_min=9` gives `k_min == 3`; an override with a trailing comma that
+intends `keep_level_dev=0.99` returns `0.9`; a top-level list override is accepted. The fail-soft
+branch is already on origin/main and nothing calls the new accessors yet, so there is no live effect
+today.
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-13 package review (lean process 2026-10-24: one review, one correction, the rest as
+  findings); registered by the findings clerk, not blocking the SE-13 landing. Verified at
+  `8cc299197`.
+- Plan item(s): SE-13 (PLAN section 4.3, 7.2, DECISIONS Q1, Q6).
+- Evidence:
+  - `aria-kernel/aria_kernel/genesis_policy.py:955-974`
+  - `aria-kernel/aria_kernel/genesis_policy.py:986-990`
+  - `aria-kernel/aria_kernel/preregistered_policy.py:1-11`
+- Rule: fail closed on an unreadable store (the ARIA-HIGH-788 class). `load_policy` is fail-soft for
+  an absent override only; a present override it cannot parse is an unreadable store, not a missing
+  one.
+- Close: `load_policy` returns the defaults only when the override file is absent; a present
+  override that is not valid UTF-8 JSON or not a JSON object raises a named `GovernanceError` (no
+  broad except), the other `load_policy` callers are checked in the same change, and a test pins
+  that both accessors refuse a truncated override and a top-level list. Merges two review points
+  (ssot and evidence lenses).
+
+## ARIA-MEDIUM-815
+
+Pre-registered SE-13 values can be changed with no trace.
+
+A valid `aria-config/genesis_policy.json` override setting `keep_level_final=0.51` is accepted by
+`service_expertise_policy`. PREREG Amendment 4 says the run is void if the blocks differ from the
+registration, but it pins no digest or commit of the registered blocks (Amendment 3 sealed
+`cases.jsonl` by sha256), and no code compares the parsed block with the registration.
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-13 package review (lean process 2026-10-24: one review, one correction, the rest as
+  findings); registered by the findings clerk, not blocking the SE-13 landing. Verified at
+  `8cc299197`.
+- Plan item(s): SE-13 (PREREG Amendment 4).
+- Evidence:
+  - `aria-kernel/aria_kernel/genesis_policy.py:977-983`
+  - `aria-kernel/aria_kernel/genesis_policy.py:1053-1089`
+  - `/root/aria-handover/2026-10-21/decision-test/PREREG.md:83-90`
+- Rule: a pre-registration binds only if a change to it is detectable; 'the run is void until
+  reconciled' needs a registered reference to differ from and a check that compares it.
+- Close: one owner records the registration digest (sha256 of the canonical JSON of the
+  non-underscore keys of the `service_expertise` and `change_review` blocks) in PREREG Amendment 4
+  or its successor; the DEV-check and final-run entry points compare the parsed blocks with it and
+  refuse a run on mismatch, naming the differing dotted path; a test changes `keep_level_final` in
+  an override and expects the refusal. The owner decides whether the digest lives in PREREG only or
+  also ships beside the JSON.
+
+## ARIA-LOW-816
+
+Relations between pre-registered SE-13 values are checked only for looks against the look budget and
+ablations against sections.
+
+`seats_per_dev_look` (documented as 50 x 2 x 4 discovery seats) and `seats_per_cycle` (two changes
+at full discovery width) are stored as independent numbers beside `service_seats_per_change` +
+`lens_seats_per_change`. The parser accepts `service_seats_per_change=6` while `seats_per_dev_look`
+stays 400, `keep_level_dev=0.99` with `keep_level_final=0.5`, and `seats_per_cycle=1` (below one
+change's 3+1 discovery seats).
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-13 package review (lean process 2026-10-24: one review, one correction, the rest as
+  findings); registered by the findings clerk, not blocking the SE-13 landing. Verified at
+  `8cc299197`.
+- Plan item(s): SE-13 (PLAN section 4.3, 7.2).
+- Evidence:
+  - `aria-kernel/aria_kernel/data/genesis_policy_default.json:33-41`
+  - `aria-kernel/aria_kernel/genesis_policy.py:1031-1040`
+  - `aria-kernel/aria_kernel/genesis_policy.py:1062-1089`
+  - `aria-kernel/aria_kernel/preregistered_policy.py:99-124`
+- Rule: one owner per concept: a number derived from other registered numbers is computed from them
+  or refused when it disagrees; the look-budget relation is checked this way, the seat envelopes and
+  keep levels are not.
+- Close: for each relation PLAN section 4.3 and 7.2 actually require, the dependent value is removed
+  and computed from its factors, or `service_expertise_policy` / `change_review_policy` refuse a
+  disagreeing set by dotted path (the owner decides which of `keep_level_dev <= keep_level_final`,
+  `seats_per_cycle >= one change's discovery seats` and the dev-look envelope the spec requires);
+  each refusal has a test. Merges the ssot-lens derived-envelope point and the evidence-lens
+  cross-key point.
+
+## ARIA-LOW-817
+
+`sections_in_render_order` is described as the one section list but its vocabulary is open.
+
+The key uses `names()` with no allowed set, so a typo registers a section no renderer has
+(`invariantz` and `bogus_section` were accepted). The live `established_knowledge` renderers keep
+their own hardcoded order (beliefs, conventions, anti_patterns, past_failed_attempts) until SE-6
+reads this list, so the order has two owners.
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-13 package review (lean process 2026-10-24: one review, one correction, the rest as
+  findings); registered by the findings clerk, not blocking the SE-13 landing. Verified at
+  `8cc299197`.
+- Plan item(s): SE-13, SE-6 (PLAN section 3.7).
+- Evidence:
+  - `aria-kernel/aria_kernel/genesis_policy.py:1044`
+  - `aria-kernel/aria_kernel/preregistered_policy.py:81-96`
+  - `aria-kernel/aria_kernel/data/genesis_policy_default.json:22-30`
+  - `aria-kernel/aria_kernel/agent_invocations.py:561-660`
+- Rule: one owner per concept; the neighbouring `removed_on_fail` list is closed by
+  `PREREG_FINAL_REMOVABLE`, this one is not.
+- Close: when SE-6 makes the renderer read the list, the vocabulary is closed by
+  `names(allowed=...)` drawn from the renderer's one definition of its sections, the hardcoded order
+  in `agent_invocations.py` is deleted, and a test pins that the rendered order equals the policy
+  list and that an unknown section is refused. Merges the ssot-lens section-list point and the
+  evidence-lens unknown-section point.
+
+## ARIA-LOW-818
+
+Single-member `one_of` pins write each value in both the code and the JSON.
+
+`final.a3_service_knowledge_mode='off'`, `final.per_service_agents.a1/a3` and
+`dev_check.section_ablation_pick` each allow exactly one value, spelled in the schema and again in
+the JSON, so the JSON entry can only echo the code. When SE-7 adds
+`change_review.service_knowledge_mode {on, off}` (PLAN section 7.1) the arm vocabulary has two
+owners unless the pin reads that one. Not a defect today.
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-13 package review (lean process 2026-10-24: one review, one correction, the rest as
+  findings); registered by the findings clerk, not blocking the SE-13 landing. Verified at
+  `8cc299197`.
+- Plan item(s): SE-13, SE-7 (PLAN section 7.1).
+- Evidence:
+  - `aria-kernel/aria_kernel/genesis_policy.py:1010-1019`
+  - `aria-kernel/aria_kernel/data/genesis_policy_default.json:139`
+  - `aria-kernel/aria_kernel/data/genesis_policy_default.json:143-146`
+- Rule: one owner per concept: a pin whose only allowed value is spelled in code is a second copy
+  that cannot disagree and cannot be set.
+- Close: when SE-7 lands `change_review.service_knowledge_mode`, `final.a3_service_knowledge_mode`
+  takes its allowed values from that one definition; a pin that would only echo a constant is
+  deleted from the JSON (the constant stays in code) or tied to the owner by a test, so no arm name
+  is spelled in two places.
+
+## ARIA-LOW-819
+
+`real()` raises `OverflowError` instead of a `GovernanceError` for a huge JSON integer.
+
+`math.isfinite(int)` converts to float before the refusal runs, so `clean_report_margin` written as
+the integer 1 followed by 400 zeros fails with `OverflowError: int too large to convert to float`
+from `service_expertise_policy`, not a refusal naming the dotted path. The review cited `:45`; the
+`isfinite` test is at `:44`.
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-13 package review (lean process 2026-10-24: one review, one correction, the rest as
+  findings); registered by the findings clerk, not blocking the SE-13 landing. Verified at
+  `8cc299197`.
+- Plan item(s): SE-13.
+- Evidence:
+  - `aria-kernel/aria_kernel/preregistered_policy.py:44`
+  - `aria-kernel/aria_kernel/preregistered_policy.py:1-11`
+- Rule: every refusal in `preregistered_policy` is a `GovernanceError` naming the dotted path of the
+  value.
+- Close: `real()` refuses such an integer with a `GovernanceError` by dotted path through an
+  explicit magnitude check before the float conversion (no broad except), and a test pins it for 1
+  followed by 400 zeros.
+
+## ARIA-LOW-820
+
+Spec drift outside the repo: PLAN section 7.2 'A3 pinned' is stale against DECISIONS Q13.
+
+The PLAN paragraph still says per-service agents are frozen out of both arms and cites 'Amendment
+3'. DECISIONS Q13 (CHANGED), PREREG Amendment 4 and the shipped `final.per_service_agents` put
+agents that were ACTIVE before the freeze into A1 (A3 has none; DRAFT and EVAL agents are in neither
+arm). The code follows Q13; PREREG records that the 2026-10-23 case-supply amendment already took
+the number 3, hence Amendment 4.
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-13 package review (lean process 2026-10-24: one review, one correction, the rest as
+  findings); registered by the findings clerk, not blocking the SE-13 landing. Verified at
+  `8cc299197`.
+- Plan item(s): SE-13 (PLAN section 7.2, DECISIONS Q13).
+- Evidence:
+  - `/root/aria-handover/2026-10-21/service-expertise/PLAN.md:549-551`
+  - `/root/aria-handover/2026-10-21/service-expertise/DECISIONS.md:15`
+  - `/root/aria-handover/2026-10-21/decision-test/PREREG.md:83-90`
+  - `aria-kernel/aria_kernel/data/genesis_policy_default.json:143-146`
+- Rule: one owner per concept: the A3 pin is registered in PREREG Amendment 4 and the genesis_policy
+  `final` block; a PLAN paragraph that restates it differently makes a builder build the wrong A1
+  arm.
+- Close: PLAN section 7.2 'A3 pinned' is amended to the Q13 / Amendment 4 wording and cites
+  Amendment 4. PLAN.md and DECISIONS.md live outside the repo, so the closer records the amended
+  line in the SE-13 build notes.
+
 ## ARIA-MEDIUM-850
 
 SE-2 adds a public `runtime_profiles.FILE_WRITE_TOOLS` with exactly the members of the existing

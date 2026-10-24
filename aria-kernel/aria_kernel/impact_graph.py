@@ -51,8 +51,13 @@ SUBGRAPHS_RELPATH = "infrastructure/apollo-router/subgraphs.json"
 GATEWAY_PROJECT = "gateway-api"
 CONTRACT_EDGES_UNAVAILABLE = "contract_edges_unavailable"
 _NX_PROJECT_LINE = re.compile(r'"nxProject"\s*:\s*"([^"]+)"')
-# (impacted project, reason, evidence ``path:line`` or None for an import edge)
-_Edge = tuple[str, str, "str | None"]
+# The edge kinds, strongest first. When several edges reach a project at one depth, the entry's
+# ``reason`` is the strongest kind's (PLAN §1.1 step 3: auth-service -> gateway-api is the subgraph
+# relation even when an auth event is also consumed there); the reason string is never the rank —
+# 'contract:event:...' sorts before 'contract:gateway_subgraph'.
+EDGE_KIND_PRECEDENCE = ("gateway_subgraph", "event", "import")
+# (impacted project, edge kind, reason, evidence ``path:line`` or None for an import edge)
+_Edge = tuple[str, str, str, "str | None"]
 
 
 def impact_closure(
@@ -81,9 +86,10 @@ def impact_closure(
       whole file when no hunk is given) the producers and consumers of that type, each with its
       own site.
 
-    ``depth`` bounds the walk (None = the whole closure). At one depth a contract edge wins over
-    an import edge. ``impacted`` is the closure minus touched, contract edges ranked first, then
-    by depth and name. Facts that were not computed give ``{"hold":
+    ``depth`` bounds the walk (None = the whole closure). A project keeps every edge that reaches
+    it at its first depth (``edges``, strongest first by ``EDGE_KIND_PRECEDENCE``); its ``kind``,
+    ``reason``, ``evidence`` and ``reached_from`` are the strongest edge's. ``impacted`` is the
+    closure minus touched, contract edges ranked first, then by depth and name. Facts that were not computed give ``{"hold":
     "contract_edges_unavailable:<reason>"}`` and no impacted set: a change is never routed on an
     import-only closure (PLAN §3.3).
     """
@@ -102,16 +108,16 @@ def impact_closure(
     edges: dict[str, list[_Edge]] = {}
     for source, deps in cache["dependencies"].items():
         for dep in deps:
-            edges.setdefault(dep, []).append((source, "import", None))
+            edges.setdefault(dep, []).append((source, "import", "import", None))
     for project, line in subgraph_lines.items():
         if project != GATEWAY_PROJECT:
             edges.setdefault(project, []).append(
-                (GATEWAY_PROJECT, "contract:gateway_subgraph", f"{SUBGRAPHS_RELPATH}:{line}")
+                (GATEWAY_PROJECT, "gateway_subgraph", "contract:gateway_subgraph", f"{SUBGRAPHS_RELPATH}:{line}")
             )
     for service in event_facts["services"]:
         for edge in service["edges"]:
             edges.setdefault(service["service"], []).append(
-                (edge["to"], f"contract:event:{edge['subject']}", edge["to_ref"])
+                (edge["to"], "event", f"contract:event:{edge['subject']}", edge["to_ref"])
             )
     reached: dict[str, dict[str, Any]] = {}
     frontier = [(project, project) for project in touched]
@@ -120,25 +126,24 @@ def impact_closure(
     # Seeds exist only for a touched contract file, so the frontier is never empty when they are not.
     while frontier and (depth is None or level < depth):
         level += 1
-        best: dict[str, tuple[tuple[int, str, str], dict[str, Any]]] = {}
         candidates = [(origin, edge) for current, origin in frontier for edge in edges.get(current, [])]
         if level == 1:
             candidates += seeds
-        for origin, (project, reason, evidence) in candidates:
-            if project in touched or project in reached:
-                continue
-            rank = (0 if reason.startswith("contract:") else 1, reason, evidence or "")
-            if project not in best or rank < best[project][0]:
-                best[project] = (rank, {
-                    "project": project, "reason": reason, "evidence": evidence,
-                    "depth": level, "reached_from": origin,
-                })
-        for project, (_, entry) in best.items():
-            reached[project] = entry
-        frontier = [(project, entry["reached_from"]) for project, (_, entry) in sorted(best.items())]
+        arrivals: dict[str, set[tuple[int, str, str, str, str]]] = {}
+        for origin, (project, kind, reason, evidence) in candidates:
+            if project not in touched and project not in reached:
+                rank = EDGE_KIND_PRECEDENCE.index(kind)
+                arrivals.setdefault(project, set()).add((rank, kind, reason, evidence or "", origin))
+        for project, found in sorted(arrivals.items()):
+            ordered = [
+                {"kind": kind, "reason": reason, "evidence": evidence or None, "reached_from": origin}
+                for _, kind, reason, evidence, origin in sorted(found)
+            ]
+            reached[project] = {"project": project, **ordered[0], "depth": level, "edges": ordered}
+        frontier = [(project, reached[project]["reached_from"]) for project in sorted(arrivals)]
     impacted = sorted(
         reached.values(),
-        key=lambda entry: (not entry["reason"].startswith("contract:"), entry["depth"], entry["project"]),
+        key=lambda entry: (entry["kind"] == "import", entry["depth"], entry["project"]),
     )
     return {
         "touched": touched,
@@ -188,7 +193,9 @@ def _changed_type_edges(
         for fact in (*service["events_produced"], *service["events_consumed"]):
             if fact["event_type"] in changed_types:
                 origin = changed_types[fact["event_type"]]
-                seeds.append((origin, (service["service"], f"contract:event:{fact['event_type']}", fact["site"])))
+                seeds.append(
+                    (origin, (service["service"], "event", f"contract:event:{fact['event_type']}", fact["site"]))
+                )
     return seeds
 
 

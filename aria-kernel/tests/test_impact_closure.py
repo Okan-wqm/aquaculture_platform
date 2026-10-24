@@ -373,6 +373,78 @@ class GatewaySubgraphEdgeTests(_ClosureFixture):
         self.assertNotIn("gateway-api", [item["project"] for item in closure["impacted"]])
 
 
+AUTH_PRODUCES = "apps/auth-service/src/main.ts:2"
+GATEWAY_CONSUMES = "apps/gateway-api/src/main.ts:1"
+
+
+def _facts_with_auth_to_gateway_event(base_sha: str) -> dict[str, Any]:
+    """The fixture facts plus the real repository's second auth -> gateway relation: auth-service
+    produces an event gateway-api consumes (``AccessTokenInvalidationRequested`` on main)."""
+    facts = _computed_facts(base_sha)
+    services = [
+        _service(
+            "auth-service",
+            produced=[{"event_type": "AccessTokenInvalidationRequested", "site": AUTH_PRODUCES}],
+            edges=[
+                {
+                    "kind": "event",
+                    "to": "gateway-api",
+                    "subject": "AccessTokenInvalidationRequested",  # SE-3 edges carry the event type
+                    "ref": AUTH_PRODUCES,
+                    "to_ref": GATEWAY_CONSUMES,
+                }
+            ],
+        )
+        if service["service"] == "auth-service"
+        else service
+        for service in EVENT_FACTS["services"]
+    ]
+    facts["event_facts"] = {**EVENT_FACTS, "services": services}
+    return facts
+
+
+class GatewayAndEventEdgeToTheSameProjectTests(_ClosureFixture):
+    """(ii) holds when gateway-api is reached by a gateway_subgraph AND an event edge at one depth:
+    the edge kinds rank by an explicit precedence (gateway_subgraph, event, import), never by the
+    reason string ('contract:event:...' sorts before 'contract:gateway_subgraph'), and the event
+    edge is kept beside it in ``edges``."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.facts = _facts_with_auth_to_gateway_event(self.head)
+
+    def test_the_closure_names_the_gateway_edge_and_keeps_the_event_edge(self) -> None:
+        closure = self.closure(["apps/auth-service/src/main.ts"])
+        gateway = self.entry("gateway-api", closure)
+        self.assertEqual(gateway["reason"], "contract:gateway_subgraph", gateway)
+        self.assertEqual(gateway["evidence"], f"{SUBGRAPHS}:{_subgraph_line('auth-service')}")
+        self.assertEqual(
+            [(edge["reason"], edge["evidence"]) for edge in gateway["edges"]],
+            [
+                ("contract:gateway_subgraph", f"{SUBGRAPHS}:{_subgraph_line('auth-service')}"),
+                ("contract:event:AccessTokenInvalidationRequested", GATEWAY_CONSUMES),
+            ],
+        )
+
+    def test_both_entry_points_name_the_gateway_edge(self) -> None:
+        row = ig.plan_downstream_impact(
+            changed_files=["apps/auth-service/src/main.ts"],
+            workspace_root=self.repo,
+            base_dir=self.tools,
+            service_facts=self.facts,
+        )
+        reasons = {item["project"]: item["reason"] for item in row["impacted"]}
+        self.assertEqual(reasons.get("gateway-api"), "contract:gateway_subgraph", row["impacted"])
+        examination = ig.cycle_service_examination(
+            workspace_root=self.repo,
+            changed_files=["apps/auth-service/src/main.ts"],
+            base_dir=self.tools,
+            service_facts=self.facts,
+        )
+        reasons = {item["project"]: item["reason"] for item in examination["examination_order"]}
+        self.assertEqual(reasons.get("gateway-api"), "contract:gateway_subgraph", examination["examination_order"])
+
+
 class EventInterfaceHunkTests(_ClosureFixture):
     """(iii) an event-interface hunk -> the producers and consumers of the changed T ranked first."""
 

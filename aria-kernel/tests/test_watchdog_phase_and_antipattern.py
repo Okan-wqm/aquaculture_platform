@@ -10,6 +10,7 @@ a consensus hook).
 """
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -23,6 +24,14 @@ class WatchdogSweepTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             root = ensure_tools_dir(Path(tmp) / "aria-tools")
+            # RW-1 corrective R7: no runtime source. The tracked default is
+            # the host's loopback Prometheus, which would make this count
+            # production's 5xx rate on a host where it is published.
+            override = Path(tmp) / "aria-config" / "genesis_policy.json"
+            override.parent.mkdir(parents=True)
+            override.write_text(
+                json.dumps({"watchdog_pull": {"observability_base_url": None}}), encoding="utf-8",
+            )
             result = run_watchdog_sweep(
                 workspace_root=Path(tmp), tools_dir=root
             )

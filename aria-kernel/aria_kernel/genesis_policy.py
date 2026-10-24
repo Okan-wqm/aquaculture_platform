@@ -6,6 +6,7 @@ from dataclasses import dataclass as _dataclass
 from pathlib import Path
 from typing import Any
 from .digest import sha256_digest, sha256_digest_text
+from . import preregistered_policy as _prereg
 
 
 POLICY_KEYS = {
@@ -93,6 +94,13 @@ POLICY_KEYS = {
     # the per-24h plan-start cap and the subject cool-off. Validated and
     # consumed by finding_grounding.f_finding_loop_policy.
     "f_finding_loop_guards",
+    # SE-13 (service-expertise PLAN §7, §8; decision-test PREREG Amendment
+    # 4) — the pre-registered decision values (keep levels, margin, look
+    # budget, genesis gate, final A1-vs-A3 rule, retirement share) and the
+    # change-review caps and seat envelopes. Parsed strictly — never filled
+    # from defaults — by service_expertise_policy / change_review_policy.
+    "service_expertise",
+    "change_review",
 }
 
 JUDGMENT_PIPELINE_DEFAULTS: dict[str, Any] = {
@@ -120,9 +128,9 @@ JUDGMENT_PIPELINE_DEFAULTS: dict[str, Any] = {
     "calibration_bins": 10,
     # Typed-judgment plan Phase 6 — `measure_only` keeps the legacy gate and
     # records what `enforce` would exclude; `enforce` gives closing authority
-    # to calibrated judges of distinct models alone. The cycle downgrades
-    # `enforce` to `measure_only`, on the record, while fewer than two such
-    # judges exist (`effective_calibration_gate`).
+    # to calibrated judge seats alone. The cycle downgrades `enforce` to
+    # `measure_only`, on the record, while fewer than two calibrated seats
+    # exist (`effective_calibration_gate`, asking the ONE seat law, F0.8).
     "calibration_gate": "measure_only",
     "max_uncalibrated_escalations_per_cycle": 5,
     # WP-J slice C — the judgment funnel (judgment_funnel.route_judgment_sample,
@@ -166,14 +174,16 @@ def effective_calibration_gate(
     result (`{judge_id: {"calibration_status", "model"}}` or
     `{judge_id: status}`).
 
-    WP-J B-1 — the quorum criterion is the SAME hybrid law the consensus
-    gate applies (``feedback_store.observation_span``): distinct METHODS
-    when the calibrated rows can name them, the legacy distinct-models leg
-    when they cannot, and a downgrade when neither leg holds — so a single
-    provider whose seats span two methods has closing authority, and this
-    downgrade decision can never disagree with the gate it downgrades for.
+    PLAN-v2 F0.8 — "two calibrated judges" is answered by the ONE seat law
+    (``feedback_store.distinct_judge_seats``), the same function the
+    calibrated closing quorum and the anchor ask, so this downgrade can
+    never disagree with the gate it downgrades for. A single provider
+    whose two calibrated seats run its one model (or share one method) has
+    closing authority; an entry whose receipt names neither a model nor a
+    method seats nothing. The leg ``observation_span`` reports is recorded
+    as ``quorum_leg``, a descriptor that gates nothing.
     """
-    from .feedback_store import observation_span
+    from .feedback_store import CALIBRATED_QUORUM_MIN_JUDGES, distinct_judge_seats, observation_span
 
     calibrated: list[dict[str, str]] = []
     for judge_id, entry in (judge_calibration or {}).items():
@@ -185,22 +195,20 @@ def effective_calibration_gate(
             "model": str(entry.get("model") or "") if isinstance(entry, dict) else "",
             "method": str(entry.get("method") or "") if isinstance(entry, dict) else "",
         })
-    distinct_models = {r["model"] for r in calibrated if r["model"]}
-    distinct_methods = {r["method"] for r in calibrated if r["method"]}
     row = {
         "configured": configured,
         "calibrated_judges": sorted(r["judge_id"] for r in calibrated),
-        "distinct_models": sorted(distinct_models),
-        "distinct_methods": sorted(distinct_methods),
+        "distinct_models": sorted({r["model"] for r in calibrated if r["model"]}),
+        "distinct_methods": sorted({r["method"] for r in calibrated if r["method"]}),
     }
     if configured != "enforce":
         return {**row, "effective": "measure_only", "reason": "configured_measure_only"}
-    leg, span = observation_span(tuple(calibrated))
-    if len(calibrated) < 2 or span < 2:
+    leg = observation_span(tuple(calibrated))[0]
+    if distinct_judge_seats(calibrated) < CALIBRATED_QUORUM_MIN_JUDGES:
         return {
             **row,
             "effective": "measure_only",
-            "reason": "fewer_than_two_calibrated_judges_of_one_span",
+            "reason": "fewer_than_two_calibrated_seats",
             "quorum_leg": leg,
         }
     return {**row, "effective": "enforce", "reason": "calibrated_quorum_available", "quorum_leg": leg}
@@ -589,13 +597,28 @@ def rhythm_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
 
 WATCHDOG_PULL_DEFAULTS: dict[str, Any] = {
     "enabled": True,
-    # None → disclosed skip (source_unconfigured). The URL is machine-local
-    # (a docker-bridge address on the droplet), so it lives in the operator
-    # override, never in a tracked default.
-    "observability_base_url": None,
-    # The API key itself NEVER enters policy or ledgers — only the NAME of
-    # the environment variable the runner exports.
-    "api_key_env": "ARIA_OBSERVABILITY_API_KEY",
+    # RW-1 — the droplet Prometheus's read-only HTTP API, published on the
+    # host's loopback only (docker-compose.droplet.yml `127.0.0.1:9090`;
+    # install step: docs/runbooks/aria-runner-rebuild.md). The runner shares
+    # that host, so the address is the same on every ARIA host and is the
+    # tracked default. aria_watchdog.pull_observability_metrics refuses any
+    # origin that is not a loopback IP literal (a named hold, no socket),
+    # and an unset or unreachable source is a named hold too, never silence.
+    "observability_base_url": "http://127.0.0.1:9090",
+    # No credential field, not even an env-var name: ARIA holds no shared
+    # internal API key (RW-1); the source needs none.
+    # RW-1 corrective R5 — the runtime detectors judge the interval since the
+    # previous successful runtime read (aria_watchdog.run_watchdog_sweep owns
+    # that window and its read stamp), not a fixed span: the cycle chain
+    # sweeps every min_interval_hours (6h default, 2h floor) and the opener
+    # throttle can skip sweeps, so no constant matches the cadence. This is
+    # only the BOUND: what the first read judges, and the most any read
+    # judges — a longer interval judges the bound and names the span it
+    # left unjudged. A week covers a skipped day and a paused weekend and
+    # stays inside the droplet Prometheus retention (15d). Bounded by the
+    # cycle interval's own bounds (RHYTHM_BOUNDS min_interval_hours); the
+    # threshold and the minimum volume below apply to the judged window.
+    "window_bound_seconds": 7 * 24 * 3600,
     "http_5xx_share_threshold": 0.05,
     "http_min_requests": 50,
 }
@@ -611,10 +634,22 @@ def watchdog_pull_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
             (Path(__file__).resolve().parent / "data" / DEFAULT_FILENAME).read_text(encoding="utf-8")
         )
         merged = raw if isinstance(raw, dict) else {}
+    from .tool_registry import GovernanceError
+
     block = dict(WATCHDOG_PULL_DEFAULTS)
     raw_block = merged.get("watchdog_pull")
     if isinstance(raw_block, dict):
         block.update({k: raw_block[k] for k in WATCHDOG_PULL_DEFAULTS if k in raw_block})
+    # The bound is written into the query the puller sends, so it is an
+    # integer number of seconds inside the cycle interval's bounds, refused
+    # by name otherwise — never clamped, never passed through as text.
+    bound = block["window_bound_seconds"]
+    _, low_hours, high_hours = RHYTHM_BOUNDS["min_interval_hours"]
+    if type(bound) is not int or not low_hours * 3600 <= bound <= high_hours * 3600:
+        raise GovernanceError(
+            f"watchdog_pull.window_bound_seconds={bound!r} must be int seconds in "
+            f"[{int(low_hours * 3600)}, {int(high_hours * 3600)}]"
+        )
     return block
 
 
@@ -973,3 +1008,109 @@ def merge_with_override(defaults: dict[str, Any], override: dict[str, Any]) -> d
         if key in POLICY_KEYS:
             merged[key] = value
     return merged
+
+
+
+# SE-13 (service-expertise PLAN §3.7, §4.3, §6.1, §6.6, §7.2, §7.3; DECISIONS
+# Q1, Q6, Q7, Q13; decision-test PREREG Amendment 4) — the pre-registered
+# blocks. They have NO defaults dict here: the shipped JSON is the one place
+# each value is written, and preregistered_policy.parse_block refuses a missing,
+# unknown or out-of-range key by its dotted path (why: preregistered_policy).
+# The bounds below refuse nonsense (a share outside (0, 1], a look budget no
+# build could spend, a bool for a count); they are not the decision.
+_PROBABILITY = _prereg.real(0.0, 1.0, open_low=True, open_high=True)
+# What a failed final rule removes (Q1). Contract edges are NOT in this
+# vocabulary: they are routing input, not the pack (PLAN §7.2, SK-08), so no
+# override can register their removal.
+PREREG_FINAL_REMOVABLE: frozenset[str] = frozenset(
+    {"service_knowledge_field", "established_knowledge_service_root_widening"}
+)
+SERVICE_EXPERTISE_SCHEMA: dict[str, Any] = {
+    "keep": {
+        "keep_level_dev": _PROBABILITY,
+        "keep_level_final": _PROBABILITY,
+        "clean_report_margin": _prereg.real(0.0, 10.0),
+        "delta_context_recall": _prereg.real(0.0, 1.0, open_low=True),
+    },
+    "dev_check": {
+        "look_budget": _prereg.whole(1, 20),
+        "pack_keep_looks": _prereg.whole(1, 20),
+        "section_ablation_looks": _prereg.whole(0, 20),
+        "section_ablation_pick": _prereg.one_of("largest_median_tokens_dev_train"),
+    },
+    "final": {
+        "a3_service_knowledge_mode": _prereg.one_of("off"),
+        "per_service_agents": {
+            "a1": _prereg.one_of("active_before_freeze"),
+            "a3": _prereg.one_of("none"),
+        },
+        "removed_on_fail": _prereg.names(PREREG_FINAL_REMOVABLE),
+    },
+    "genesis": {
+        "k_min": _prereg.whole(1, 100),
+        "posterior_quantile": _PROBABILITY,
+        "alpha": _PROBABILITY,
+    },
+    "retirement": {
+        "counterfactual_share": _prereg.real(0.0, 1.0, open_low=True),
+    },
+}
+CHANGE_REVIEW_SCHEMA: dict[str, Any] = {
+    "seats": {
+        "service_seats_per_change": _prereg.whole(1, 10),
+        "lens_seats_per_change": _prereg.whole(0, 4),
+        "handoff_seats_per_change": _prereg.whole(0, 10),
+        "arbiter_seats_per_handoff": _prereg.whole(0, 1),
+        "seats_per_cycle": _prereg.whole(1, 1000),
+        "seats_per_dev_look": _prereg.whole(1, 10_000),
+    },
+    "knowledge": {
+        "touched_service_tokens": _prereg.whole(1, 100_000),
+        "impacted_contract_tokens": _prereg.whole(1, 100_000),
+        "impacted_entries_per_seat": _prereg.whole(0, 100),
+        "sections_in_render_order": _prereg.names(),
+    },
+}
+
+
+def _parsed_change_review(merged: dict[str, Any]) -> dict[str, Any]:
+    return _prereg.parse_block("change_review", merged.get("change_review"), CHANGE_REVIEW_SCHEMA)
+
+
+def change_review_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
+    """SE-13 — the change-review caps and seat envelopes (PLAN §3.7, §4.3), parsed strictly.
+
+    Every cap is a hold for its reader (admit_request, the renderer), never a
+    raise. A missing, unknown or out-of-range key is refused by its dotted path.
+    """
+    return _parsed_change_review(load_policy(repo_root) if repo_root is not None else default_policy())
+
+
+def service_expertise_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
+    """SE-13 — the pre-registered service-expertise decision values, parsed strictly.
+
+    Besides the per-key checks, two relations are refused when broken: the
+    pack-keep looks plus the section-ablation looks must fit the look budget
+    (the remainder is the genesis EVAL_WINDOW allowance, PLAN §7.3), and no
+    more sections can be ablated than the renderer has
+    (``change_review.knowledge.sections_in_render_order``, the one section
+    list), so a broken change_review block refuses this read too.
+    """
+    merged = load_policy(repo_root) if repo_root is not None else default_policy()
+    block = _prereg.parse_block("service_expertise", merged.get("service_expertise"), SERVICE_EXPERTISE_SCHEMA)
+    dev_check = block["dev_check"]
+    spent = dev_check["pack_keep_looks"] + dev_check["section_ablation_looks"]
+    if spent > dev_check["look_budget"]:
+        _prereg.refuse(
+            "looks_over_budget", "service_expertise.dev_check",
+            f"spends {spent} looks (pack_keep_looks + section_ablation_looks) over "
+            f"look_budget={dev_check['look_budget']}",
+        )
+    sections = _parsed_change_review(merged)["knowledge"]["sections_in_render_order"]
+    if dev_check["section_ablation_looks"] > len(sections):
+        _prereg.refuse(
+            "value_out_of_range", "service_expertise.dev_check.section_ablation_looks",
+            f"= {dev_check['section_ablation_looks']} exceeds the {len(sections)} sections in "
+            "change_review.knowledge.sections_in_render_order",
+        )
+    return block

@@ -31,6 +31,7 @@ from aria_kernel.plan_convergence_bridge import (
 )
 from aria_kernel.plan_origin import PLAN_ORIGIN_CHANGED
 from aria_kernel.tool_registry import GovernanceError
+from tests._helpers.service_facts import facts_without_contract_edges
 
 # Origin kinds the synthesizer stamps: an aging F finding, an ORPHAN, and an
 # operator request (its F finding plus the consumed request ref).
@@ -63,6 +64,8 @@ def _without_origin(body: dict) -> dict:
 
 class OriginFixedAtStartTests(unittest.TestCase):
     def setUp(self) -> None:
+        # SE-4 — a fixture workspace has no TypeScript toolchain; its subject is not contract edges.
+        self.enterContext(facts_without_contract_edges())
         self.tmp = tempfile.TemporaryDirectory(prefix="aria-origin-")
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name) / "workspace"

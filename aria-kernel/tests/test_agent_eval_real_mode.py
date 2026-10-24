@@ -52,6 +52,7 @@ from aria_kernel.ledger import append_declared_jsonl
 from aria_kernel.state_manifest import surface_by_name
 from aria_kernel.tool_registry import ensure_tools_dir
 from aria_kernel.request_admission import admit_request
+from tests._helpers.service_facts import facts_without_contract_edges  # noqa: E402
 
 PROCEDURAL = Path("memory") / "procedural.jsonl"
 MERGE_SHA = "a" * 40
@@ -305,6 +306,8 @@ class ImplementationEnvelopeCarriesTheLessonTests(unittest.TestCase):
     request contract accepts it."""
 
     def setUp(self) -> None:
+        # SE-4 — a fixture workspace has no TypeScript toolchain; its subject is not contract edges.
+        self.enterContext(facts_without_contract_edges())
         from tests._helpers.operator_acts import operator_set_profile
         from tests.test_implementation_lifecycle_continuity import (
             converging_plan_content,

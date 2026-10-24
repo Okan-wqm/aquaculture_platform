@@ -529,3 +529,11 @@ def compute_service_facts(
         "module_facts": facts["module_facts"],
         "witness": witnesses,
     }
+
+
+def compute_service_facts_at_head(*, workspace_root: str | Path, runner: Runner | None = None) -> dict[str, Any]:
+    """The code facts of a checkout's own HEAD (`compute_service_facts`): the base of every closure
+    the kernel computes over its own workspace (`impact_graph.impact_closure`; SE-4), where the
+    change subject is the workspace rather than a diff. An unreadable HEAD is ``head_unreadable``."""
+    workspace = Path(workspace_root)
+    return compute_service_facts(workspace_root=workspace, base_sha=workspace_head_sha(workspace) or "", runner=runner)

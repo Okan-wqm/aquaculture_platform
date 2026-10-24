@@ -266,6 +266,10 @@ def _impact_graph_compute(
     computed: list[dict[str, Any]] = []
     item_failures: list[dict[str, Any]] = []
     skipped_no_evidence = 0
+    # SE-4 — one set of code facts for the batch: the closure's contract edges at the checkout's HEAD.
+    from .plan_coverage import compute_service_facts_at_head
+
+    service_facts = compute_service_facts_at_head(workspace_root=paths.repo_root)
     for dispatch in pending:
         pressure_id = str(dispatch.get("pressure_event_id") or "")
         pressure = pressures_by_id.get(pressure_id)
@@ -290,6 +294,7 @@ def _impact_graph_compute(
             work=lambda evidence=evidence: plan_downstream_impact(
                 changed_files=evidence,
                 workspace_root=paths.repo_root,
+                service_facts=service_facts,
                 base_dir=tools_root,
                 cycle_id=cycle_id,
             ),
@@ -301,6 +306,7 @@ def _impact_graph_compute(
             "pressure_event_id": pressure_id,
             "validation_scope": row.get("validation_scope"),
             "graph_source": row.get("graph_source"),
+            "hold": row.get("hold"),
         })
     return with_item_failures({
         "schema_version": 1,

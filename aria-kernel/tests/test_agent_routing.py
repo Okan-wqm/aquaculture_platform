@@ -24,6 +24,7 @@ from aria_kernel.agent_routing import (  # noqa: E402
     recommended_agents_for_project,
 )
 import aria_kernel.impact_graph as ig  # noqa: E402
+from tests._helpers.service_facts import NO_CONTRACT_FACTS  # noqa: E402
 
 _TABLE = """# Routing
 | File Pattern | Primary Agent | Also Notify |
@@ -146,6 +147,7 @@ class ExaminationIntegrationTests(unittest.TestCase):
             ex = ig.cycle_service_examination(
                 workspace_root=root, base_dir=tdp / "tools",
                 changed_files=["apps/farm-service/src/m.ts", "libs/ghost-lib/src/g.ts"],
+                service_facts=NO_CONTRACT_FACTS,
             )
             by = {e["project"]: e for e in ex["examination_order"]}
             self.assertEqual(by["farm-service"]["recommended_agents"]["primary"], ["farm-expert"])

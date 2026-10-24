@@ -75,7 +75,8 @@ class AVerdictReachedBeforeAnyCommit(unittest.TestCase):
             "schema_version": 1, "title": "Feed plan", "summary": "Tighten the feed service.",
             "affected_surfaces": [{"paths": surfaces}], "key_changes": ["tighten"],
             "validation_commands": [{"cmd": "nx affected --target=test"}],
-            "evidence_refs": ["docs/aria/SPEC.md"], "architectural_tier": 2,
+            # The empty tree holds no file to cite (PV-R4 R21): the body cites a finding.
+            "evidence_refs": ["ARIA-HIGH-779"], "architectural_tier": 2,
         }
         start_plan(plan_id="plan-1", initial_revision_id="rev-0", plan_content=body, base_dir=self.tools)
         state = fold_plan_state(plan_id="plan-1", base_dir=self.tools)

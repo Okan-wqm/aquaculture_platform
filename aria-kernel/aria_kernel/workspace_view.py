@@ -56,6 +56,9 @@ _GIT_LISTING_TIMEOUT_SECONDS = 60
 _HEAD_TIMEOUT_SECONDS = 30
 # The refusal reason of a HEAD read git could not answer (``workspace_head_sha``).
 WORKSPACE_HEAD_UNREADABLE = "workspace_head_unreadable"
+# The refusal reason of a commit lookup the checkout cannot answer: the commit
+# is not in it, or git failed reading it (``commit_names_blob``).
+WORKSPACE_COMMIT_UNREADABLE = "workspace_commit_unreadable"
 # The mode git records a submodule (gitlink) with.
 _GITLINK_MODE = "160000"
 _GIT_DIRNAME = ".git"
@@ -129,13 +132,21 @@ def commit_names_blob(workspace_root: str | os.PathLike[str], commit: str | None
 
     ``commit`` None is the empty tree, which names no file. ``<commit>:<path>``
     is git's literal tree lookup: no pathspec magic, no glob, so ``f.ts#L1``
-    asks for a file of that exact name. Anything git cannot show as a blob
-    (no such path, a directory, a commit the checkout does not hold) is False:
-    the caller refuses what this cannot prove. A timeout or no git at all
-    raises :class:`WorkspaceViewRefused` (``_head_git``).
+    asks for a file of that exact name. False means one fact only: the
+    checkout holds ``commit`` and ``commit`` has no blob at ``path`` (no such
+    path, or a directory). A checkout that cannot answer raises
+    :class:`WorkspaceViewRefused`, the contract of :func:`workspace_head_sha`:
+    a commit the checkout does not hold, or a git that fails
+    (``workspace_commit_unreadable:…``), a timeout or no git at all
+    (``_head_git``). PV-R4 R21 — False read both ways once made a checkout
+    that lacked the commit look like a plan citing no file, so a fact about
+    the checkout was parked as a fact of the ledger.
     """
     if commit is None:
         return False
+    held = _head_git(workspace_root, "cat-file", "-e", f"{commit}^{{commit}}")
+    if held.returncode != 0:
+        raise WorkspaceViewRefused(f"{WORKSPACE_COMMIT_UNREADABLE}:{commit[:80]}:git_exit_{held.returncode}")
     completed = _head_git(workspace_root, "cat-file", "-t", f"{commit}:{path}")
     return completed.returncode == 0 and completed.stdout.strip() == "blob"
 
@@ -256,6 +267,7 @@ def build_workspace_view(workspace_root: str | os.PathLike[str]) -> WorkspaceVie
 
 __all__ = [
     "HERMETIC_GIT_CONFIG_ARGS",
+    "WORKSPACE_COMMIT_UNREADABLE",
     "WORKSPACE_HEAD_UNREADABLE",
     "WorkspaceView",
     "WorkspaceViewRefused",

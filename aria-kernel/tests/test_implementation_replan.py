@@ -56,9 +56,12 @@ class _ConvergedOperatorPlan(_PlanCase):
         for name, owns in (("farm-expert", "apps/farm-service/**"), ("access-boundary-auditor", "web/**")):
             (agents / f"{name}.md").write_text(f"---\nname: {name}\ndescription: r\n---\n\nOwns `{owns}`.\n",
                                                encoding="utf-8")
-        # The enabling surface is a tracked file of the checkout (review of #1908, item 8).
+        # The enabling surface is a tracked file of the checkout (review of #1908, item 8),
+        # and so is the file the plan body cites: a cited file must be a file of the
+        # reviewed commit, or the verdict is refused (PV-R4 R21).
         self.fx.commit_files({ENABLING: "{}\n", WRITE_SURFACE: "export const x = 1;\n",
-                              "apps/farm-service-extra/tsconfig.json": "{}\n"})
+                              "apps/farm-service-extra/tsconfig.json": "{}\n",
+                              "docs/aria/SPEC.md": "# ARIA spec\n"})
         extra = {} if self.write_roots is None else {"write_roots": self.write_roots}
         signer = {}
         if self.foreign_signer:

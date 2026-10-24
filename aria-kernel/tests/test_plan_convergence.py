@@ -785,7 +785,9 @@ class PlanConvergenceTests(unittest.TestCase):
             "summary": "cross review risk",
             "affected_files": ["aria-kernel/aria_kernel/plan_convergence.py"],
             "recommendation": "tighten validation",
-            "evidence_refs": ["docs/aria/SPEC.md"],
+            # The store is bound to no checkout, so the reviewer reviewed the
+            # empty tree: its evidence can name no file of it (PV-R4 R21).
+            "evidence_refs": ["ARIA-HIGH-779"],
         }
 
     def deadline(self, seconds: int) -> str:

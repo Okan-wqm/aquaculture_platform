@@ -96,7 +96,10 @@ def converging_plan_content(title: str = "E2 plan", **fields: object) -> dict:
         # The plan contract admits the canonical suite and requires the tier
         # claim of every body that converges through the real gate.
         "validation_commands": [{"cmd": "nx affected --target=test"}],
-        "evidence_refs": ["docs/aria/SPEC.md"],
+        # A finding, not a file: a cited file must be a file of the reviewed
+        # commit (PV-R4 R21), and each fixture's checkout holds only what it
+        # commits. A body that cites a file overrides this with one it holds.
+        "evidence_refs": ["ARIA-HIGH-103"],
         "architectural_tier": 2,
         **fields,
     }

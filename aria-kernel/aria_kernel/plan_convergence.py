@@ -29,7 +29,7 @@ from .tool_registry import (
 )
 from .digest import is_sha256_digest, sha256_digest, sha256_digest_text
 from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
-from .workspace_view import WorkspaceViewRefused, hermetic_git, workspace_head_sha
+from .workspace_view import WorkspaceViewRefused, commit_names_blob, hermetic_git, workspace_head_sha
 
 if TYPE_CHECKING:
     from .provider_clock import ProviderClock
@@ -200,9 +200,10 @@ PRIOR_REVIEW_RISKS_OPEN_REASON = "prior_review_risks_open"
 # PV P3 — the refusals of an implementation request whose CONVERGED verdict
 # no longer describes the repository: a later commit changed a file the plan
 # names (`plan_verdict_stale:<path>`), the verdict predates the binding and
-# names no reviewed tree (`plan_verdict_unbound`), or its commit cannot be
-# compared with HEAD (`plan_verdict_unverifiable:<sha>`).
-# PV-R4 R20 — a recorded value the record law refuses is a fact of the
+# names no reviewed tree (`plan_verdict_unbound`), or the checkout cannot
+# answer for its commit or HEAD (`plan_verdict_unverifiable:<why>`).
+# PV-R4 R20, R21 — a recorded value the record law refuses, or an evidence
+# ref whose path names no file of the reviewed commit, is a fact of the
 # ledger, the same on every offer (`plan_verdict_path_refused:<value>`); it is
 # never the checkout-state token, whose remedy is to wait for a checkout that
 # can answer.
@@ -211,10 +212,11 @@ PLAN_VERDICT_UNBOUND = "plan_verdict_unbound"
 PLAN_VERDICT_UNVERIFIABLE = "plan_verdict_unverifiable"
 PLAN_VERDICT_PATH_REFUSED = "plan_verdict_path_refused"
 # PV R16 — the record law's refusal of a path text a plan, a risk or a prior-risk
-# answer names (`_plan_path_reading`, `_plan_ref_reading`); and of a cleared
-# answer whose cited path names no file of the commit its reviewer reviewed.
+# answer names (`_plan_path_reading`, `_plan_ref_reading`). PV-R4 R21 — the
+# refusal of a reviewer's evidence ref (a risk's, or a clearing answer's)
+# whose path names no file of the commit its reviewer reviewed.
 PLAN_PATH_REFUSED = "plan_path_refused"
-PRIOR_RISK_EVIDENCE_NOT_IN_REVIEWED_TREE = "prior_risk_evidence_not_in_reviewed_tree"
+EVIDENCE_REF_NOT_IN_REVIEWED_TREE = "evidence_ref_not_in_reviewed_tree"
 # PV P3 (R10, R11) — the refusals of a review whose reviewed commit has no
 # kernel source: the answered request row names no anchor, or names null while
 # the store's checkout holds a commit (`cross_review_request_unanchored`); a
@@ -552,6 +554,9 @@ def submit_cross_review_v8(
     # judged first, because a clearing answer's evidence is judged against it.
     _refuse_payload_reviewed_commit(review, "V8 cross-review")
     require_review_anchor(reviewed_commit_sha, base_dir=root)
+    # PV-R4 R21 — every risk's evidence ref names a file of that commit,
+    # judged here for the same reason.
+    _require_risk_refs_in_reviewed_tree(risks, reviewed_commit_sha, base_dir=root)
     prior_risk_dispositions = review.get("prior_risk_dispositions", [])
     _validate_prior_risk_dispositions(
         state, prior_risk_dispositions, round_number, reviewed_commit_sha=reviewed_commit_sha, base_dir=root,
@@ -1656,11 +1661,15 @@ class PlanVerdictPaths:
     and unique. ``refused``: the recorded values the law refuses, in record
     order — only a row recorded under an earlier law can be one, and it
     refuses the verdict (``plan_verdict_path_refused``) rather than silently
-    dropping out of the set.
+    dropping out of the set. ``cited``: each path an evidence ref names (the
+    body's, a risk's, a clearing answer's), once, as ``(recorded ref, path)``
+    in record order — an evidence ref names one file, so each must be a blob
+    of the reviewed commit (PV-R4 R21).
     """
 
     paths: tuple[str, ...]
     refused: tuple[str, ...]
+    cited: tuple[tuple[str, str], ...]
 
 
 def plan_verdict_paths(state: dict[str, Any]) -> PlanVerdictPaths:
@@ -1681,7 +1690,8 @@ def plan_verdict_paths(state: dict[str, Any]) -> PlanVerdictPaths:
     form, so the freshness set names the file git reports and the implementer
     writes (``a//b`` and ``a/./b`` are ``a/b``). A finding id or a ledger
     pointer names no file. A value the law refuses is never read as some
-    other path: it is ``refused``.
+    other path: it is ``refused``. Every path an evidence ref names is also
+    ``cited``, for the reviewed-commit check of :func:`plan_verdict_staleness`.
     """
     from .plan_origin import body_paths
 
@@ -1693,10 +1703,16 @@ def plan_verdict_paths(state: dict[str, Any]) -> PlanVerdictPaths:
     for answer in state.get("review_risk_dispositions", {}).values():
         if answer["disposition"] in CITED_PRIOR_RISK_DISPOSITIONS:
             refs.extend(answer["evidence_refs"])
-    readings.extend((ref, _plan_ref_reading(ref)) for ref in refs)
+    ref_readings = [(str(ref), _plan_ref_reading(ref)) for ref in refs]
+    readings.extend(ref_readings)
+    cited: dict[str, str] = {}
+    for ref, reading in ref_readings:
+        if reading.path is not None:
+            cited.setdefault(reading.path, ref)
     return PlanVerdictPaths(
         paths=tuple(sorted({reading.path for _value, reading in readings if reading.path is not None})),
         refused=tuple(str(value) for value, reading in readings if reading.refusal is not None),
+        cited=tuple((ref, path) for path, ref in cited.items()),
     )
 
 
@@ -1713,9 +1729,11 @@ def plan_verdict_staleness(state: dict[str, Any], *, base_dir: str | Path | None
     judged by :func:`plan_path_covers`) makes it stale:
     ``plan_verdict_stale:<changed path>``. A verdict recorded
     before the binding existed names no reviewed tree at all
-    (``plan_verdict_unbound``). A recorded value the record law refuses is a
-    fact of the ledger: ``plan_verdict_path_refused:<value>`` (PV-R4 R20). A
-    HEAD git cannot read, or a reviewed commit the checkout cannot compare
+    (``plan_verdict_unbound``). A recorded value the record law refuses, or
+    an evidence ref whose path names no file of the reviewed commit
+    (``workspace_view.commit_names_blob``), is a fact of the ledger:
+    ``plan_verdict_path_refused:<value>`` (PV-R4 R20, R21). A HEAD git cannot
+    read, or a reviewed commit the checkout does not hold or cannot compare
     with HEAD, proves nothing about today's bytes
     (``plan_verdict_unverifiable:<why>``). The request door refuses all four
     the same way; delivery parks every one but the last, a fact of the
@@ -1744,6 +1762,16 @@ def plan_verdict_staleness(state: dict[str, Any], *, base_dir: str | Path | None
         # watch; reading it as one would drop what it cited (PV R16). It is
         # the same on every offer, so it is the ledger's token (PV-R4 R20).
         return f"{PLAN_VERDICT_PATH_REFUSED}:{judged.refused[0][:80]}"
+    # PV-R4 R21 — an evidence ref names one file, and the verdict judged it in
+    # the reviewed commit: a path that names no blob there (`f.ts#L1` read as
+    # a file name) would watch a name git never reports, and the cited file
+    # would change unseen. The checkout's own failure to answer is not that.
+    try:
+        for ref, path in judged.cited:
+            if not commit_names_blob(workspace, reviewed, path):
+                return f"{PLAN_VERDICT_PATH_REFUSED}:{ref[:80]}"
+    except WorkspaceViewRefused as exc:
+        return f"{PLAN_VERDICT_UNVERIFIABLE}:{exc.reason}"
     plan_paths = judged.paths
     if not plan_paths:
         # A plan that names no path judged none, so no commit can stale it.
@@ -3428,6 +3456,7 @@ def _validate_cross_review_record(
                 f"cross-review risk {row['risk_id']} is already recorded in round "
                 f"{state['current_round']} with different content; one id names one risk"
             )
+    _require_risk_refs_in_reviewed_tree(risks, payload["reviewed_commit_sha"], base_dir=base_dir)
     _validate_prior_risk_dispositions(
         state, payload.get("prior_risk_dispositions"), state["current_round"],
         reviewed_commit_sha=payload["reviewed_commit_sha"], base_dir=base_dir,
@@ -3458,10 +3487,8 @@ def _validate_prior_risk_dispositions(
     PV R16 — every ref passes the plan-path record law
     (:func:`_plan_ref_reading`), and a clearing answer's cited path must name
     a file of the commit its reviewer reviewed (``reviewed_commit_sha``, the
-    kernel's argument, read in the store's checkout through
-    ``workspace_view.commit_names_blob``): ``f.ts#L1`` is a legal file name
-    the grammar admits, and the evidence that clears a risk is a verdict path
-    the freshness gate watches, so it must be a file that exists.
+    kernel's argument): :func:`_require_ref_files_in_reviewed_tree`, the law
+    every cross-review risk's refs meet too.
     """
     if not isinstance(dispositions, list):
         raise GovernanceError("prior_risk_dispositions must be an array")
@@ -3493,21 +3520,41 @@ def _validate_prior_risk_dispositions(
                 "a risk is cleared on cited evidence, never on a bare word"
             )
         if disposition in CITED_PRIOR_RISK_DISPOSITIONS:
-            _require_cited_files_in_reviewed_tree(evidence_refs, field, reviewed_commit_sha, base_dir=base_dir)
+            _require_ref_files_in_reviewed_tree(evidence_refs, field, reviewed_commit_sha, base_dir=base_dir)
 
 
-def _require_cited_files_in_reviewed_tree(
+def _require_risk_refs_in_reviewed_tree(
+    risks: list[dict[str, Any]], reviewed_commit_sha: str | None, *, base_dir: str | Path | None,
+) -> None:
+    """PV-R4 R21 — every cross-review risk's evidence refs name blobs of the reviewed commit."""
+    for risk in risks:
+        _require_ref_files_in_reviewed_tree(
+            risk["evidence_refs"], f"risk {str(risk.get('risk_id'))[:80]} evidence_refs",
+            reviewed_commit_sha, base_dir=base_dir,
+        )
+
+
+def _require_ref_files_in_reviewed_tree(
     refs: list[Any], field: str, reviewed_commit_sha: str | None, *, base_dir: str | Path | None,
 ) -> None:
-    """PV R16 — each path a clearing answer cites names a blob of the reviewed commit."""
-    from .workspace_view import commit_names_blob
+    """THE reviewed-tree law of a reviewer's evidence ref (PV R16, PV-R4 R21).
 
+    An evidence ref names one file (a finding id or a ledger pointer names
+    none), read literally, so its path must be a blob of the commit the
+    reviewer reviewed (``workspace_view.commit_names_blob``): ``f.ts#L1`` is
+    a legal file name the grammar admits, and a ref the freshness gate
+    watches must name a file git reports. A clearing answer's refs and every
+    cross-review risk's refs pass here; surfaces and key-change paths do not,
+    since a plan may name a file it creates, or a glob. A checkout that
+    cannot answer for the commit raises ``WorkspaceViewRefused``, never this
+    refusal.
+    """
     workspace = bound_workspace_root(base_dir)
     for ref in refs:
         path = _plan_ref_reading(ref).path
         if path is not None and not commit_names_blob(workspace, reviewed_commit_sha, path):
             raise GovernanceError(
-                f"{PRIOR_RISK_EVIDENCE_NOT_IN_REVIEWED_TREE}: {field} {str(ref)[:200]!r} names no file of the "
+                f"{EVIDENCE_REF_NOT_IN_REVIEWED_TREE}: {field} {str(ref)[:200]!r} names no file of the "
                 f"reviewed commit {reviewed_commit_sha}"
             )
 

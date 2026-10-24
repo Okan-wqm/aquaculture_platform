@@ -198,7 +198,11 @@ def production_converged_plan(
             {"cmd": "nx affected --target=lint", "timeout_ms": 600_000},
             {"cmd": "nx affected --target=test", "timeout_ms": 1_800_000},
         ],
-        "evidence_refs": evidence_refs if evidence_refs is not None else ["docs/aria/SPEC.md"],
+        # The default cites a finding, not a file: a cited file must be a file
+        # of the reviewed commit (PV-R4 R21), and the checkouts this helper runs
+        # over hold only what each caller commits. A caller whose plan cites a
+        # file passes ``evidence_refs`` naming one its checkout holds.
+        "evidence_refs": evidence_refs if evidence_refs is not None else ["ORPHAN-CRITICAL-727"],
         # The tier claim staging refuses to invent. Tier 1 ("make it
         # impossible") is the fixture's claim about its own change; the point
         # of the field is that SOMEONE claimed it, and the change ledger

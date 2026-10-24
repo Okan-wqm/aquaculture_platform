@@ -9,7 +9,12 @@ one class per property:
 * R20 a recorded value the record law refuses is a fact of the ledger, so the
   freshness owner names it by its own token (``plan_verdict_path_refused``)
   and delivery parks it on the first offer; only the checkout's own failure
-  to answer is ``plan_verdict_unverifiable``, withheld uncounted.
+  to answer is ``plan_verdict_unverifiable``, withheld uncounted;
+* R21 every path an evidence ref names (the body's, a risk's, a clearing
+  answer's) is a file of the reviewed commit: a risk ref that names none is
+  refused at record, and a body ref that names none refuses the verdict;
+  ``workspace_view.commit_names_blob`` answers False only for a commit the
+  checkout holds.
 
 Source: SPEC.md (PV P1, P3); findings ARIA-HIGH-779 and ARIA-LOW-785.
 """
@@ -183,6 +188,124 @@ class R20ARefusedRecordedValueIsTheLedgersToken(_DeliveryReading):
             self.assertEqual(plan_verdict_staleness(self.state(), base_dir=self.tools),
                              f"{UNVERIFIABLE}:workspace_head_unreadable:git_exit_128")
             self.assert_withheld_uncounted()
+
+    def test_a_reviewed_commit_missing_from_the_checkout_is_still_withheld_uncounted(self) -> None:
+        absent = "f" * 40
+        self.start()
+        self.challenger("challenger-rev-0")
+        self.cross_review([], verdict="agreed", reviewed_at=absent)
+        self.assertEqual(_terminal(self.evaluate(1)), "CONVERGED")
+        refusal = plan_verdict_staleness(self.state(), base_dir=self.tools)
+        self.assertTrue(refusal.startswith(f"{UNVERIFIABLE}:workspace_commit_unreadable:{absent}"), refusal)
+        self.assert_withheld_uncounted()
+
+
+class R21CommitNamesBlobKeepsTheCheckoutApartFromTheLedger(_PlanFixture):
+    def test_false_only_for_a_commit_the_checkout_holds(self) -> None:
+        head = _git(self.repo, "rev-parse", "HEAD")
+        self.assertTrue(commit_names_blob(self.repo, head, SURFACE))
+        self.assertFalse(commit_names_blob(self.repo, head, "apps/farm-service/src/feed/absent.ts"))
+        self.assertFalse(commit_names_blob(self.repo, head, f"{SURFACE}#L1"))
+        self.assertFalse(commit_names_blob(self.repo, head, "apps/farm-service/src/feed"))
+        self.assertFalse(commit_names_blob(self.repo, None, SURFACE))
+
+    def test_a_commit_the_checkout_does_not_hold_raises(self) -> None:
+        with self.assertRaisesRegex(WorkspaceViewRefused, "workspace_commit_unreadable"):
+            commit_names_blob(self.repo, "e" * 40, SURFACE)
+
+
+class R21ABodyRefIsAFileOfTheReviewedCommit(_DeliveryReading):
+    """EV-R4-B1: a body `#L1` ref watched a name git never reports, so the cited file changed unseen."""
+
+    def _converged_with_body_refs(self, refs: list[str]) -> None:
+        start_plan(plan_id="plan-1", initial_revision_id="rev-0",
+                   plan_content=self.plan(evidence_refs=refs), base_dir=self.tools)
+        self.challenger("challenger-rev-0")
+        self.cross_review([], verdict="agreed")
+        self.assertEqual(_terminal(self.evaluate(1)), "CONVERGED")
+
+    def test_a_hash_line_ref_refuses_the_verdict_and_is_parked(self) -> None:
+        ref = f"{PLAN_EVIDENCE}#L1"
+        self._converged_with_body_refs([ref])
+        self.assertEqual(plan_verdict_staleness(self.state(), base_dir=self.tools), f"{PATH_REFUSED}:{ref}")
+        with self.assertRaisesRegex(GovernanceError, re.escape(f"{PATH_REFUSED}:{ref}")):
+            self.request_implementation_of_plan()
+        self.assert_parked(f"{PATH_REFUSED}:{ref}")
+
+    def test_a_ref_to_a_file_the_reviewed_commit_lacks_is_refused(self) -> None:
+        ref = "docs/aria/ABSENT.md:3"
+        self._converged_with_body_refs([PLAN_EVIDENCE, ref])
+        self.assertEqual(plan_verdict_staleness(self.state(), base_dir=self.tools), f"{PATH_REFUSED}:{ref}")
+
+    def test_the_line_ref_still_goes_stale(self) -> None:
+        self._converged_with_body_refs([f"{PLAN_EVIDENCE}:1"])
+        self.assertIsNone(plan_verdict_staleness(self.state(), base_dir=self.tools))
+        self.commit(PLAN_EVIDENCE, "# spec, changed\n")
+        self.assertEqual(plan_verdict_staleness(self.state(), base_dir=self.tools), f"{STALE}:{PLAN_EVIDENCE}")
+
+
+class R21ARiskRefIsAFileOfTheReviewedCommit(_PlanFixture):
+    def test_a_hash_line_risk_ref_is_refused_at_record(self) -> None:
+        for ref in (f"{RISK_EVIDENCE_FILE}#L1", "apps/farm-service/src/feed/absent.ts:1"):
+            with self.subTest(ref=ref):
+                self.tearDown()
+                self.setUp()
+                self.start()
+                self.challenger("challenger-rev-0")
+                before = _event_count(self)
+                with self.assertRaisesRegex(GovernanceError, f"{NOT_IN_TREE}.*{re.escape(repr(ref))}"):
+                    self.cross_review([_risk("CR-001", "nice_to_have", evidence_refs=[ref])], verdict="agreed")
+                self.assertEqual(_event_count(self), before)
+                self.assertEqual(fold_plan_state(plan_id="plan-1", base_dir=self.tools)["state"], "CHALLENGER_DRAFTED")
+
+    def test_the_record_validator_refuses_it_on_the_operator_lane_too(self) -> None:
+        self.start()
+        self.challenger("challenger-rev-0")
+        advance_plan_rounds(plan_id="plan-1", base_dir=self.tools, workspace_root=self.repo)
+        [task, _other] = fold_plan_state(plan_id="plan-1", base_dir=self.tools)["cross_reviews"][1]["tasks"].values()
+        ref = f"{RISK_EVIDENCE_FILE}#L1"
+        review = {
+            "task_packet_hash": task["task_packet_hash"], "target_revision_id": task["target_revision_id"],
+            "target_plan_content_hash": task["target_plan_content_hash"], "reviewer_agent": task["reviewer_agent"],
+            "review_direction": task["review_direction"], "verdict": "agreed",
+            "risks": [_risk("CR-001", "nice_to_have", evidence_refs=[ref])],
+            "review_content_hash": plan_convergence.content_hash({"d": task["review_direction"]}),
+        }
+        before = _event_count(self)
+        with self.assertRaisesRegex(GovernanceError, f"{NOT_IN_TREE}.*{re.escape(repr(ref))}"):
+            record_cross_review(plan_id="plan-1", review=review, workspace_root=self.repo, base_dir=self.tools,
+                                reviewed_commit_sha=_git(self.repo, "rev-parse", "HEAD"))
+        self.assertEqual(_event_count(self), before)
+
+    def test_the_line_ref_is_admitted_and_still_goes_stale(self) -> None:
+        self.start()
+        self.challenger("challenger-rev-0")
+        self.cross_review([_risk("CR-001", "nice_to_have", evidence_refs=[f"{RISK_EVIDENCE_FILE}:1"])],
+                          verdict="agreed")
+        self.assertEqual(_terminal(self.evaluate(1)), "CONVERGED")
+        state = fold_plan_state(plan_id="plan-1", base_dir=self.tools)
+        self.assertIn((f"{RISK_EVIDENCE_FILE}:1", RISK_EVIDENCE_FILE), plan_verdict_paths(state).cited)
+        self.commit(RISK_EVIDENCE_FILE, "export const repo = 2;\n")
+        state = fold_plan_state(plan_id="plan-1", base_dir=self.tools)
+        self.assertEqual(plan_verdict_staleness(state, base_dir=self.tools), f"{STALE}:{RISK_EVIDENCE_FILE}")
+
+
+class R21TheDoorParksABodyRefNamingNoFile(_ScopeCase):
+    """Through the real delivery door: parked before staging on the first offer."""
+
+    def test_the_first_offer_parks_it_before_staging(self) -> None:
+        ref = f"{FARM}#L1"
+        plan = production_converged_plan(tools_dir=self.tools, workspace_root=self.repo, plan_id="plan-hash-ref",
+                                         affected_paths=[FARM], evidence_refs=[ref])
+        self.commit_reviewer()
+        summary = self.deliver(plan.plan_id, cycle_id="cyc-1")
+        self.assertEqual(summary["delivery"]["withheld"], WITHHELD)
+        self.assertEqual(self.state(plan.plan_id)["state"], "HUMAN_REQUIRED")
+        self.assert_nothing_staged()
+        [row] = self.human_required_evaluations(plan.plan_id)
+        self.assertEqual((row["reason_codes"], row["forced_by"]), ([PATH_REFUSED], FORCER))
+        [governance] = self.governance(KIND)
+        self.assertEqual(governance["refusal"], f"{PATH_REFUSED}:{ref}")
 
 
 if __name__ == "__main__":

@@ -142,14 +142,15 @@ BODY_UNPROVABLE_KIND: str = "converged_delivery_body_unprovable"
 # (``plan_convergence.plan_verdict_staleness``): a commit after the reviewed
 # one changed a path the plan names (``plan_verdict_stale``), the verdict
 # predates the binding (``plan_verdict_unbound``), or a recorded value the
-# record law refuses (``plan_verdict_path_refused``, PV-R4 R20). All are facts
-# of the ledger and the history, the same on every offer, and the mint refuses
-# each, so the plan is moved to HUMAN_REQUIRED before staging (reason: the
-# refusal's own token). Only ``plan_verdict_unverifiable`` is the checkout's
-# state, not the plan's — a HEAD git cannot read, a reviewed commit this
-# checkout does not hold or cannot compare with HEAD: that offer is withheld
-# uncounted and the plan stays CONVERGED. The owner decides the cause by its
-# token; this module reads the token only.
+# record law refuses or an evidence ref naming no file of the reviewed commit
+# (``plan_verdict_path_refused``, PV-R4 R20/R21). All are facts of the ledger
+# and the history, the same on every offer, and the mint refuses each, so the
+# plan is moved to HUMAN_REQUIRED before staging (reason: the refusal's own
+# token). Only ``plan_verdict_unverifiable`` is the checkout's state, not the
+# plan's — a HEAD git cannot read, a reviewed commit this checkout does not
+# hold or cannot compare with HEAD: that offer is withheld uncounted and the
+# plan stays CONVERGED. The owner decides the cause by its token; this module
+# reads the token only.
 WITHHELD_STALE_VERDICT: str = "plan_verdict_stale"
 STALE_VERDICT_KIND: str = "converged_delivery_plan_verdict_stale"
 WITHHELD_VERDICT_UNVERIFIABLE: str = "plan_verdict_unverifiable"

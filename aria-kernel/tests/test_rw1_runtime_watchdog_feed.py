@@ -254,7 +254,7 @@ class _RecordingPrometheus:
 
 def _closed_loopback_url() -> str:
     """A loopback URL nothing listens on (bound, then released)."""
-    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)  # allowlist-external-network: binds 127.0.0.1:0 only to learn a closed local port, then closes it; nothing is sent
     probe.bind(("127.0.0.1", 0))
     port = probe.getsockname()[1]
     probe.close()

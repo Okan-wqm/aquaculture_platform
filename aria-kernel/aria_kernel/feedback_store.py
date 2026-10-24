@@ -2122,6 +2122,33 @@ def record_consensus_uncertainty(
     return _append_consensus_uncertainty(row, tool_id=tool_id, cycle_id=cycle_id, base_dir=base_dir)
 
 
+def record_arbiter_uncertainty(
+    *,
+    tool_id: str,
+    run_id: str,
+    finding_id: str,
+    group_id: str,
+    stated_reason: str,
+    cycle_id: str | None = None,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """F0.7 — the arbiter lane has ONE non-verdict: the terminal one.
+
+    The arbiter is the last judgment lane, so whatever registered reason it
+    states for not answering (a legacy split's aggregation gate fails by
+    construction: ``judge_disagreement``), the group is recorded
+    ``TERMINAL_UNCERTAINTY_REASON`` — outside truth, never re-asked, and
+    counted by ``unverifiable_rate`` under its ceiling. A non-terminal reason
+    here would leave the group owed to an arbiter that already answered at
+    the same inputs: held forever with no route. The stated reason is kept
+    beside it as ``arbiter_reason``.
+    """
+    _require_registered_uncertainty_reason(stated_reason)
+    row = {**_consensus_uncertainty(tool_id, run_id, finding_id, group_id, TERMINAL_UNCERTAINTY_REASON),
+           "arbiter_reason": stated_reason}
+    return _append_consensus_uncertainty(row, tool_id=tool_id, cycle_id=cycle_id, base_dir=base_dir)
+
+
 def _require_registered_uncertainty_reason(reason: str) -> None:
     if reason not in CONSENSUS_UNCERTAINTY_REASONS:
         raise GovernanceError(

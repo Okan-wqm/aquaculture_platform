@@ -82,7 +82,9 @@ class ArbiterUncertaintyIsAValidOutcome(unittest.TestCase):
             base_dir=self.base,
         )
         self.assertEqual(row["kind"], "consensus_uncertainty")
-        self.assertEqual(row["reason"], "judge_disagreement")
+        # F0.7 — the arbiter's non-verdict is terminal whatever it states;
+        # the stated reason rides beside it.
+        self.assertEqual((row["reason"], row["arbiter_reason"]), ("unverifiable", "judge_disagreement"))
         self.assertTrue(row.get("escalation_id"))
         ledger = self.base / "feedback-consensus-uncertainties.jsonl"
         self.assertTrue(ledger.exists())

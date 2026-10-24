@@ -260,6 +260,31 @@ class UnverifiableRateCeilingTest(_Case):
         self.assertEqual([b["tool_id"] for b in sweep["unverifiable_rate_ceiling"]], [TOOL])
 
 
+class ArbiterNonVerdictIsTerminalTest(_Case):
+    def test_an_aggregation_non_verdict_is_terminal_and_counted(self) -> None:
+        # Corrective B1 (arch) — a legacy split gets the aggregation brief,
+        # whose gate a split fails by construction, so an honest arbiter
+        # answers judge_disagreement. The arbiter lane has one non-verdict:
+        # the terminal one, with the arbiter's stated reason kept beside it.
+        from aria_kernel.feedback_store import unverifiable_rate
+        from aria_kernel.judge_fanout import _uncertain_group_keys, arbitration_groups
+
+        self._split()
+        generate_ai_consensus(tool_id=TOOL, base_dir=self.tools)
+        dispatch_arbiter_for_split_verdicts(tool_id=TOOL, base_dir=self.tools)
+        [arbiter] = _arbiters(self.tools)
+
+        row = record_judge_verdict_from_response(
+            request=arbiter, response=_answer(arbiter, reason="judge_disagreement"), base_dir=self.tools)
+
+        self.assertEqual((row["reason"], row["arbiter_reason"]), ("unverifiable", "judge_disagreement"))
+        self.assertIn(("run-1", "F-1", GROUP), _uncertain_group_keys(TOOL, self.tools)[1])
+        self.assertEqual(arbitration_groups(tool_id=TOOL, base_dir=self.tools), [])
+        self.assertEqual(unverifiable_rate(tool_id=TOOL, base_dir=self.tools)["unverifiable"], 1)
+        self.assertEqual(sweep_consensus_uncertainties_for_human_required(base_dir=self.tools)["routed"],
+                         {"not_arbitrated": 0, "arbiter": 0, "terminal": 1})
+
+
 class ArbiterBoundToItsInputsTest(_Case):
     def test_a_rebuttal_revote_after_the_mint_makes_the_answer_stale(self) -> None:
         self._split()

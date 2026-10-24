@@ -406,11 +406,11 @@ def record_judge_verdict_from_response(
         details = {}
 
     # ORPHAN-CRITICAL-735 — the arbiter's legitimate non-verdict outcome
-    # folds through the SAME producer, ledger and idempotent escalation_id
-    # as the deterministic engine. It is NOT a feedback verdict: an
-    # uncertain arbitration must never write an ai_judge row. F0.7 —
-    # `unverifiable` is terminal there, and its rate has a ceiling the
-    # producer enforces.
+    # folds onto the SAME ledger, with the same idempotent escalation_id, as
+    # the deterministic engine. It is NOT a feedback verdict: an uncertain
+    # arbitration must never write an ai_judge row. F0.7 — whatever reason
+    # the arbiter states, its non-verdict is the terminal `unverifiable`
+    # (feedback_store.record_arbiter_uncertainty), counted under its ceiling.
     if role == "consensus_arbitration":
         # J4 — first, the arbiter is bound to its inputs: an answer about
         # seats that moved since the mint writes nothing.
@@ -420,14 +420,14 @@ def record_judge_verdict_from_response(
         arb_block = _verdict_field(details)
         arb_reason = arb_block.get("uncertainty_reason")
         if arb_block.get("verdict") is None and arb_reason in CONSENSUS_UNCERTAINTY_REASONS:
-            from .feedback_store import record_consensus_uncertainty
+            from .feedback_store import record_arbiter_uncertainty
 
-            row = record_consensus_uncertainty(
+            row = record_arbiter_uncertainty(
                 tool_id=str(request.get("tool_id") or arb_block.get("tool_id") or ""),
                 run_id=str(request.get("run_id") or arb_block.get("run_id") or ""),
                 finding_id=str(request.get("finding_id") or arb_block.get("finding_id") or ""),
                 group_id=str(request.get("judgment_group_id") or arb_block.get("group_id") or ""),
-                reason=str(arb_reason),
+                stated_reason=str(arb_reason),
                 cycle_id=request.get("cycle_id"),
                 base_dir=base_dir,
             )

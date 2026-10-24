@@ -806,8 +806,8 @@ def sweep_consensus_uncertainties_for_human_required(
     ``feedback_store.ARBITRATED_UNCERTAINTY_REASONS`` off the same ledger),
     and ``unverifiable`` is terminal. This sweep is the registry's side of
     that law, kept as the cycle's ``consensus_escalation`` record of it: it
-    creates nothing, and reports how many of the ledger's uncertainties each
-    lane holds and each tool's unverifiable rate against its pre-registered
+    creates nothing, and reports how many judgment groups each lane holds
+    and each tool's unverifiable rate against its pre-registered
     ceiling — the two numbers F0.7's exit criterion reads. A tool over the
     ceiling is listed under ``UNVERIFIABLE_RATE_CEILING_BREACH`` and disclosed
     by that name on the governance ledger (once per distinct count).
@@ -821,14 +821,19 @@ def sweep_consensus_uncertainties_for_human_required(
     )
 
     root = ensure_tools_dir(base_dir)
-    routed = {"arbiter": 0, "terminal": 0, "not_arbitrated": 0}
-    tools: set[str] = set()
+    # One lane per judgment group, the furthest it reached: a group the
+    # arbiter called terminal is no longer owed to it, whatever the engine
+    # recorded before.
+    lanes = ("not_arbitrated", "arbiter", "terminal")
+    group_lane: dict[tuple[str, ...], int] = {}
     for item in consensus_uncertainty_rows(base_dir=root):
         reason = item.get("reason")
-        lane = ("terminal" if reason == TERMINAL_UNCERTAINTY_REASON
-                else "arbiter" if reason in ARBITRATED_UNCERTAINTY_REASONS else "not_arbitrated")
-        routed[lane] += 1
-        tools.add(str(item.get("tool_id") or ""))
+        lane = (2 if reason == TERMINAL_UNCERTAINTY_REASON
+                else 1 if reason in ARBITRATED_UNCERTAINTY_REASONS else 0)
+        key = tuple(str(item.get(field) or "") for field in ("tool_id", "run_id", "finding_id", "judgment_group_id"))
+        group_lane[key] = max(group_lane.get(key, 0), lane)
+    routed = {name: sum(1 for lane in group_lane.values() if lanes[lane] == name) for name in lanes}
+    tools = {key[0] for key in group_lane}
     rates = [unverifiable_rate(tool_id=tool, base_dir=root) for tool in sorted(tools) if tool]
     breaches = [rate for rate in rates if rate["over_ceiling"]]
     for breach in breaches:

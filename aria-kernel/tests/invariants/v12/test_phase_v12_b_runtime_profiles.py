@@ -25,7 +25,7 @@ from pathlib import Path
 from tests.invariants.v12 import _helpers  # noqa: F401 — sys.path
 
 from aria_kernel import agent_runtime_profile as arp
-from aria_kernel.implementation_safety import READONLY_PATHS
+from aria_kernel.implementation_safety import readonly_paths
 from aria_kernel.runtime_profiles import (
     ALWAYS_DENIED_TOOLS,
     CLAUDE_TOOL_UNIVERSE,
@@ -63,7 +63,7 @@ class ProfilesAreClosedAndKernelOwned(unittest.TestCase):
         profiles = load_runtime_profiles()
         self.assertTrue(profiles)
         rel = profiles_path().relative_to(_REPO_ROOT).as_posix()
-        self.assertTrue(any(rel.startswith(ro) for ro in READONLY_PATHS), rel)
+        self.assertTrue(any(rel.startswith(ro) for ro in readonly_paths()), rel)
         for profile_id, profile in profiles.items():
             self.assertNotIn("WebFetch", profile.tools)
             # Faz 032d: the implementer is the ONLY profile holding the grant.

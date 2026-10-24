@@ -119,7 +119,7 @@ class SandboxViewModeTests(CheckoutFixture):
         self.assertNotIn((ws, ws), binds)
         # READONLY_PATHS each re-bind a host path whole (`.env` is one): none
         # is applied over a view.
-        for ro in impl.READONLY_PATHS:
+        for ro in impl.readonly_paths():
             if ro != ".git/":  # the view binds the git dir itself, once
                 self.assertNotIn((f"{ws}/{ro}".rstrip("/"),) * 2, binds, ro)
         self.assertEqual(binds.count((f"{ws}/.git", f"{ws}/.git")), 1)

@@ -228,6 +228,12 @@ SEAM_REGISTRY: MappingProxyType[str, SeamEntry] = MappingProxyType(
             process="real bwrap hosting the executor's managed CLI substitute and its signed "
             "git commit (the sandbox argv owner)",
         ),
+        "aria-kernel/aria_kernel/self_improvement.py": SeamEntry(
+            tests=("aria-kernel/tests/test_derived_authority_set.py",),
+            process="invariants_only_grow runs the suite's own collector (aria-suite-run.sh --collect) "
+            "inside the validation sandbox on real base/head git trees, beside read-only git plumbing "
+            "for the authority set's tree",
+        ),
         "aria-kernel/aria_kernel/hook_broker.py": SeamEntry(
             tests=("aria-kernel/tests/test_hook_broker.py",),
             process="serve_hook_broker on a real unix socket with a real subprocess client",

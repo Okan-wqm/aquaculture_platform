@@ -73,6 +73,18 @@ handed an askpass of the probe's: each runs with ``GIT_TERMINAL_PROMPT=0``
 (a job has no terminal either), so an askpass git finds is asked, and none
 found reads as no credential.
 
+THE PROBE'S OWN TOOLS (B0 corrective round 6, R6-3). The runner's ``.env``
+is the runner uid's to write, so a ``PATH`` in it could put a directory of
+its own first and replace every bare ``gh``, ``git`` or ``ssh`` the probe ran
+— a stored login that reaches the vault would then read 404, green. Before
+any env file is read, :func:`trusted_tools` resolves ``gh``, ``git`` and
+``ssh`` to absolute paths from the probe's OWN ``PATH`` (sudo's
+``secure_path``), and every source runs those (:class:`ProbeTools` refuses a
+relative one); a tool that does not resolve is the named environment problem
+``tool_missing:<name>``, inconclusive. The job's ``PATH`` stays in the base:
+it decides only what a job's own helper, askpass or ssh command resolves to,
+as it does for a job's git.
+
 Exit status: 0 GREEN — every source ran and none reached the vault, the App
 key source included, and no data key is present; 1 RED — a source reached the
 vault or a data key is present; 2 INCONCLUSIVE — a source could not be
@@ -110,6 +122,8 @@ import json
 import os
 import pwd
 import re
+import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -287,6 +301,49 @@ def _run(command: list[str], *, env: dict[str, str]) -> subprocess.CompletedProc
         return None
 
 
+# The binaries the probe itself runs (B0 corrective round 6, R6-3).
+PROBE_TOOLS = ("gh", "git", "ssh")
+
+
+@dataclass(frozen=True)
+class ProbeTools:
+    """The gh, git and ssh the probe itself runs: absolute paths from the probe's OWN ``PATH`` (round 6, R6-3).
+
+    The runner's ``.env`` is the runner uid's to write, and a job's ``PATH``
+    comes from it, so a bare ``gh``, ``git`` or ``ssh`` looked up through the
+    job's ``PATH`` is whatever a uid-writable directory first on it holds — a
+    stored login that reaches the vault would read 404. The probe therefore
+    never runs a tool by a bare name: each source takes these paths, and a
+    relative one is refused here. The job's ``PATH`` still reaches each
+    source's environment: it decides what a job's OWN helper, askpass or ssh
+    command resolves to, exactly as it does for a job's git.
+    """
+
+    gh: str
+    git: str
+    ssh: str
+
+    def __post_init__(self) -> None:
+        for tool in PROBE_TOOLS:
+            if not os.path.isabs(getattr(self, tool)):
+                raise ValueError(f"the probe's {tool} is not an absolute path")
+
+
+def trusted_tools(path: str) -> tuple[ProbeTools | None, list[str]]:
+    """The probe's tools resolved from ``path`` (the probe's own, never an env file's); ``tool_missing:<name>`` each.
+
+    Only absolute ``path`` entries count: a relative one names whatever the
+    working directory holds. ``sudo -u gharunner -H`` gives the probe sudo's
+    ``secure_path``.
+    """
+    absolute = os.pathsep.join(entry for entry in path.split(os.pathsep) if os.path.isabs(entry))
+    found = {tool: shutil.which(tool, path=absolute) for tool in PROBE_TOOLS}
+    missing = [f"tool_missing:{tool}" for tool, where in found.items() if where is None]
+    if missing:
+        return None, missing
+    return ProbeTools(**{tool: str(where) for tool, where in found.items()}), []
+
+
 def uid_home() -> str:
     """The runner uid's home as its passwd entry names it (B0 corrective round 4, R4-3).
 
@@ -308,8 +365,10 @@ def job_named_locations(env: dict[str, str], locations: tuple[str, ...]) -> list
 
 
 # THE named base (B0 corrective round 5, R5-3): the job variables every
-# credential source asked alone takes — where its tool is found, and the
-# locale it speaks — and nothing else of the job's environment.
+# credential source asked alone takes — the PATH a job's own helper, askpass
+# or ssh command resolves through (never the probe's tools: R6-3,
+# ProbeTools), and the locale it speaks — and nothing else of the job's
+# environment.
 _CREDENTIAL_BASE = re.compile(r"PATH|LANG|LC_[A-Z_]+")
 
 
@@ -373,9 +432,9 @@ class GhCliSource:
     its one token — so no other token, place or host reaches it.
     """
 
-    def __init__(self, *, env: dict[str, str], gh_cli: str = "gh", credential: str = GH_STORED_LOGIN,
+    def __init__(self, *, env: dict[str, str], tools: ProbeTools, credential: str = GH_STORED_LOGIN,
                  location: str | None = None) -> None:
-        self.gh_cli = gh_cli
+        self.gh_cli = tools.gh
         if credential == GH_STORED_LOGIN and (location is None or location in _GH_LOGIN_LOCATIONS):
             self.env = credential_environment(env, variable=location)
             self.name = f"gh_cli:{credential}" + (f":{location}" if location is not None else "")
@@ -386,11 +445,11 @@ class GhCliSource:
             raise ValueError(f"{credential}:{location}")
 
     @classmethod
-    def every_credential(cls, *, env: dict[str, str], gh_cli: str = "gh") -> list["GhCliSource"]:
+    def every_credential(cls, *, env: dict[str, str], tools: ProbeTools) -> list["GhCliSource"]:
         """A source per credential gh would use under ``env``: the stored login at each place, and each token."""
-        return [cls(env=env, gh_cli=gh_cli),
-                *(cls(env=env, gh_cli=gh_cli, location=name) for name in job_named_locations(env, _GH_LOGIN_LOCATIONS)),
-                *(cls(env=env, gh_cli=gh_cli, credential=name) for name in _GH_TOKEN_CREDENTIALS if env.get(name))]
+        return [cls(env=env, tools=tools),
+                *(cls(env=env, tools=tools, location=name) for name in job_named_locations(env, _GH_LOGIN_LOCATIONS)),
+                *(cls(env=env, tools=tools, credential=name) for name in _GH_TOKEN_CREDENTIALS if env.get(name))]
 
     def reach(self, repository: str) -> Reach:
         done = _run([self.gh_cli, "api", f"repos/{repository}"], env=self.env)
@@ -429,9 +488,9 @@ class GitRemoteSource:
     configuration a job's git uses, so they are asked, never overwritten.
     """
 
-    def __init__(self, *, transport: str, env: dict[str, str], git_cli: str = "git",
+    def __init__(self, *, transport: str, env: dict[str, str], tools: ProbeTools,
                  credential: str = GIT_STORED_LOGIN, location: str | None = None) -> None:
-        self.transport, self.git_cli = transport, git_cli
+        self.transport, self.tools = transport, tools
         if transport == "https" and credential == GIT_STORED_LOGIN and (
                 location is None or location in _GIT_LOGIN_LOCATIONS):
             self.env = credential_environment(env, variable=location)
@@ -447,14 +506,14 @@ class GitRemoteSource:
             raise ValueError(f"{transport}:{credential}:{location}")
 
     @classmethod
-    def every_credential(cls, *, env: dict[str, str], git_cli: str = "git") -> list["GitRemoteSource"]:
+    def every_credential(cls, *, env: dict[str, str], tools: ProbeTools) -> list["GitRemoteSource"]:
         """A source per git credential under ``env``: each HTTPS config place, the job's own git, each SSH key place."""
-        return [cls(transport="https", env=env, git_cli=git_cli),
-                *(cls(transport="https", env=env, git_cli=git_cli, location=name)
+        return [cls(transport="https", env=env, tools=tools),
+                *(cls(transport="https", env=env, tools=tools, location=name)
                   for name in job_named_locations(env, _GIT_LOGIN_LOCATIONS)),
-                cls(transport="https", env=env, git_cli=git_cli, credential=GIT_JOB),
-                cls(transport="ssh", env=env, git_cli=git_cli),
-                *(cls(transport="ssh", env=env, git_cli=git_cli, location=name)
+                cls(transport="https", env=env, tools=tools, credential=GIT_JOB),
+                cls(transport="ssh", env=env, tools=tools),
+                *(cls(transport="ssh", env=env, tools=tools, location=name)
                   for name in job_named_locations(env, _SSH_LOGIN_LOCATIONS))]
 
     def reach(self, repository: str) -> Reach:
@@ -468,10 +527,12 @@ class GitRemoteSource:
             else:
                 known_hosts = Path(scratch) / "known_hosts"
                 known_hosts.write_text(GITHUB_SSH_HOST_KEY + "\n", encoding="utf-8")
-                env["GIT_SSH_COMMAND"] = (f"ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=yes"
-                                          f" -o UserKnownHostsFile={known_hosts} -o HostKeyAlgorithms=ssh-ed25519")
+                env["GIT_SSH_COMMAND"] = (f"{shlex.quote(self.tools.ssh)} -o BatchMode=yes -o ConnectTimeout=10"
+                                          f" -o StrictHostKeyChecking=yes"
+                                          f" -o UserKnownHostsFile={shlex.quote(str(known_hosts))}"
+                                          f" -o HostKeyAlgorithms=ssh-ed25519")
                 url = f"git@github.com:{repository}.git"
-            done = _run([self.git_cli, "ls-remote", "--heads", url], env=env)
+            done = _run([self.tools.git, "ls-remote", "--heads", url], env=env)
         if done is None:
             return Reach(self.name, INCONCLUSIVE, None, "git_unavailable")
         if done.returncode == 0:
@@ -580,16 +641,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--scan-root", type=Path, action="append", default=[],
                         help="a directory whose file NAMES are searched for Board material")
     args = parser.parse_args(argv)
+    # R6-3: the tools are resolved from the probe's own PATH, before any env
+    # file is read; the env files' PATH never chooses them.
+    tools, missing_tools = trusted_tools(os.environ.get("PATH", os.defpath))
     env_files = [read_env_file(path) for path in args.env_file]
     job_env = job_environment(environ=dict(os.environ), env_files=env_files)
-    sources: list[CredentialSource] = [*GhCliSource.every_credential(env=job_env),
-                                       *GitRemoteSource.every_credential(env=job_env)]
+    sources: list[CredentialSource] = []
+    if tools is not None:
+        sources += [*GhCliSource.every_credential(env=job_env, tools=tools),
+                    *GitRemoteSource.every_credential(env=job_env, tools=tools)]
     if args.app_id and args.installation_id and args.app_private_key:
         sources.insert(0, AppPrivateKeySource(app_id=args.app_id, installation_id=args.installation_id,
                                               private_key_path=args.app_private_key))
     findings = data_key_findings(environ=dict(os.environ), env_files=env_files, scan_roots=args.scan_root)
-    status, report = run_probe(sources, data_key=findings,
-                               environment_problems=[problem for env_file in env_files for problem in env_file.problems])
+    problems = [*missing_tools, *(problem for env_file in env_files for problem in env_file.problems)]
+    status, report = run_probe(sources, data_key=findings, environment_problems=problems)
     sys.stdout.write(json.dumps(report, indent=2, sort_keys=True) + "\n")
     return status
 

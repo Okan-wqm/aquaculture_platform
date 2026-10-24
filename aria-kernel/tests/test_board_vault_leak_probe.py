@@ -251,6 +251,11 @@ def _probe_module():
     return sys.modules[name]
 
 
+def _tools(probe, **paths: str):  # noqa: ANN001, ANN202 — the module; probe.ProbeTools
+    """The tools of a source a test builds directly: absolute paths, since ``ProbeTools`` refuses a bare name (R6-3)."""
+    return probe.ProbeTools(**{"gh": "/usr/bin/gh", "git": "/usr/bin/git", "ssh": "/usr/bin/ssh", **paths})
+
+
 class _Answers:
     """A fixture credential source: GitHub answers ``status`` for the vault."""
 
@@ -405,9 +410,10 @@ class RunnerIdentityLeakProbeTests(unittest.TestCase):
                 binary.write_text(f"#!{sys.executable}\nimport sys\nsys.stderr.write({stderr!r})\n"
                                   f"raise SystemExit({code})\n", encoding="utf-8")
                 binary.chmod(0o755)
-                source = (self.probe.GhCliSource(gh_cli=str(binary), env={"PATH": os.environ["PATH"]})
+                source = (self.probe.GhCliSource(tools=_tools(self.probe, gh=str(binary)),
+                                                 env={"PATH": os.environ["PATH"]})
                           if tool == "gh" else
-                          self.probe.GitRemoteSource(transport="https", git_cli=str(binary),
+                          self.probe.GitRemoteSource(transport="https", tools=_tools(self.probe, git=str(binary)),
                                                      env={"PATH": os.environ["PATH"]}))
                 self.assertEqual(source.reach(self.probe.VAULT_REPOSITORY).status, expected)
 
@@ -422,7 +428,7 @@ class RunnerIdentityLeakProbeTests(unittest.TestCase):
             stalled.chmod(0o755)
             for name, gh_cli in (("stalled", str(stalled)), ("absent", str(Path(tmp) / "no-such-gh"))):
                 with self.subTest(gh=name), patch.object(self.probe, "COMMAND_TIMEOUT_SECONDS", 1):
-                    gh = self.probe.GhCliSource(gh_cli=gh_cli, env={"PATH": os.environ["PATH"]})
+                    gh = self.probe.GhCliSource(tools=_tools(self.probe, gh=gh_cli), env={"PATH": os.environ["PATH"]})
                     status, report = self.probe.run_probe([app, gh], data_key=[])
                     self.assertEqual((status, report["verdict"]), (2, "inconclusive"), report)
                     self.assertEqual([r["status"] for r in report["sources"] if r["source"].startswith("gh_cli")],
@@ -508,12 +514,13 @@ class RunnerEnvironmentFileTests(unittest.TestCase):
         env = {"PATH": "/usr/bin", "GH_TOKEN": "a", "GITHUB_TOKEN": "b", "GH_ENTERPRISE_TOKEN": "c",
                "GITHUB_ENTERPRISE_TOKEN": "d"}
         tokens = ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN")
+        tools = _tools(self.probe)
         sources = {source.name: {k: v for k, v in source.env.items() if k in tokens}
-                   for source in self.probe.GhCliSource.every_credential(env=env)}
+                   for source in self.probe.GhCliSource.every_credential(env=env, tools=tools)}
         self.assertEqual(sources, {"gh_cli:stored": {}, "gh_cli:GH_TOKEN": {"GH_TOKEN": "a"},
                                    "gh_cli:GITHUB_TOKEN": {"GITHUB_TOKEN": "b"}})
-        self.assertEqual([s.name for s in self.probe.GhCliSource.every_credential(env={"PATH": "/usr/bin"})],
-                         ["gh_cli:stored"])
+        alone = self.probe.GhCliSource.every_credential(env={"PATH": "/usr/bin"}, tools=tools)
+        self.assertEqual([s.name for s in alone], ["gh_cli:stored"])
 
     def test_a_malformed_line_is_reported_by_its_number_only(self) -> None:
         env_file = self.root / "runner.env"
@@ -639,7 +646,8 @@ class StoredLoginUnderThePasswdHomeTests(unittest.TestCase):
         other = str(self.root / "elsewhere")
         env = {"PATH": "/usr/bin", "HOME": other, "GH_CONFIG_DIR": other, "XDG_CONFIG_HOME": other,
                "GH_HOST": "ghe.example.invalid", "GH_TOKEN": "a", "GIT_CONFIG_GLOBAL": other}
-        gh = {source.name: source.env for source in self.probe.GhCliSource.every_credential(env=env)}
+        tools = _tools(self.probe)
+        gh = {source.name: source.env for source in self.probe.GhCliSource.every_credential(env=env, tools=tools)}
         self.assertEqual(list(gh), ["gh_cli:stored", "gh_cli:stored:GH_CONFIG_DIR", "gh_cli:stored:XDG_CONFIG_HOME",
                                     "gh_cli:stored:HOME", "gh_cli:GH_TOKEN"])
         self.assertEqual([name for name, asked in gh.items() if "GH_HOST" in asked], [])
@@ -647,14 +655,15 @@ class StoredLoginUnderThePasswdHomeTests(unittest.TestCase):
                          {"HOME": str(self.home), "GH_CONFIG_DIR": None, "XDG_CONFIG_HOME": None})
         self.assertEqual(gh["gh_cli:stored:GH_CONFIG_DIR"]["GH_CONFIG_DIR"], other)
         self.assertNotIn("XDG_CONFIG_HOME", gh["gh_cli:stored:GH_CONFIG_DIR"])
-        git = {source.name: source.env for source in self.probe.GitRemoteSource.every_credential(env=env)}
+        git = {source.name: source.env for source in self.probe.GitRemoteSource.every_credential(env=env, tools=tools)}
         self.assertEqual(list(git), ["git_https:stored", "git_https:stored:GIT_CONFIG_GLOBAL",
                                      "git_https:stored:XDG_CONFIG_HOME", "git_https:stored:HOME", "git_https:job",
                                      "git_ssh"])
         self.assertEqual(git["git_https:stored"]["HOME"], str(self.home))
         self.assertNotIn("GIT_CONFIG_GLOBAL", git["git_https:stored"])
         # The passwd home itself is the default place, not a job-named one.
-        self.assertEqual([s.name for s in self.probe.GhCliSource.every_credential(env={"HOME": str(self.home)})],
+        self.assertEqual([s.name for s in self.probe.GhCliSource.every_credential(env={"HOME": str(self.home)},
+                                                                                  tools=tools)],
                          ["gh_cli:stored"])
 
     def _assert_reached_by(self, source: str, cases: dict[str, dict[str, str]]) -> list[str]:
@@ -714,13 +723,93 @@ class StoredLoginUnderThePasswdHomeTests(unittest.TestCase):
             "git_https:stored:XDG_CONFIG_HOME": "XDG_CONFIG_HOME", "git_https:stored:HOME": "HOME",
             "git_ssh": None, "git_ssh:SSH_AUTH_SOCK": "SSH_AUTH_SOCK",
         }
-        sources = {source.name: source.env for source in [*self.probe.GhCliSource.every_credential(env=env),
-                                                          *self.probe.GitRemoteSource.every_credential(env=env)]}
+        tools = _tools(self.probe)
+        sources = {source.name: source.env for source in [
+            *self.probe.GhCliSource.every_credential(env=env, tools=tools),
+            *self.probe.GitRemoteSource.every_credential(env=env, tools=tools)]}
         self.assertEqual(sorted(sources), sorted([*expected, "git_https:job"]))
         for name, variable in expected.items():
             with self.subTest(source=name):
                 self.assertEqual(sources[name], {**base, **({variable: env[variable]} if variable else {})})
         self.assertEqual(sources["git_https:job"], env, "the job source runs under the job's env as a job sees it")
+
+    def _shadowing_tools(self) -> Path:
+        """A uid-writable directory whose gh, git and ssh print GitHub's refusal, as an env-file PATH may put first."""
+        shadow = self.root / "shadow"
+        shadow.mkdir()
+        for tool, text, code in (("gh", "gh: Not Found (HTTP 404)", 1), ("git", "remote: Repository not found.", 128),
+                                 ("ssh", "ERROR: Repository not found.", 1)):
+            (shadow / tool).write_text(f"#!{sys.executable}\nimport sys\nsys.stderr.write({text!r})\n"
+                                       f"raise SystemExit({code})\n", encoding="utf-8")
+            (shadow / tool).chmod(0o755)
+        return shadow
+
+    def test_an_env_file_path_does_not_choose_the_tools_the_probe_runs(self) -> None:
+        # B0 corrective round 6, R6-3 (evidence BLK-R3E-2, p06): the env-file
+        # PATH used to resolve the bare gh, git and ssh the probe runs, so a
+        # uid-writable directory first on it turned a stored login that
+        # reaches the vault into a 404.
+        (self.home / ".config" / "gh").mkdir(parents=True)
+        (self.home / ".config" / "gh" / "hosts.yml").write_text("github.com:\n    user: fixture\n", encoding="utf-8")
+        shadow = self._shadowing_tools()
+        self._assert_reached_by("gh_cli:stored", {
+            "control": {"LANG": "C.UTF-8"},
+            "PATH_shadows_the_tools": {"PATH": f"{shadow}{os.pathsep}{os.environ['PATH']}"},
+        })
+
+    def test_every_binary_the_probe_runs_is_resolved_from_its_own_path(self) -> None:
+        # R6-3: every argv[0] handed to _run, and the ssh of the probe's own
+        # GIT_SSH_COMMAND, is the absolute path the probe's own PATH names;
+        # R6-1: no env-file value ever reaches an argv (``ps`` shows argv to
+        # every local user).
+        import shlex
+        import subprocess
+
+        shadow = self._shadowing_tools()
+        values = {"PATH": f"{shadow}{os.pathsep}{os.environ['PATH']}", "GH_TOKEN": "fixture-gh-token-0042",
+                  "GIT_ASKPASS": str(self.root / "fixture-askpass"), "SSH_ASKPASS": str(self.root / "fixture-ssh-ask"),
+                  "GIT_SSH_COMMAND": "ssh -i /fixture/job-key", "GIT_SSH": str(self.root / "fixture-git-ssh"),
+                  "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "credential.helper",
+                  "GIT_CONFIG_VALUE_0": "!fixture-helper-secret", "SSH_AUTH_SOCK": str(self.root / "fixture-agent")}
+        trusted = {tool: shutil.which(tool) for tool in ("gh", "git", "ssh")}
+        self.assertTrue(all(path and os.path.isabs(path) for path in trusted.values()), trusted)
+        ran: list[tuple[list[str], dict[str, str]]] = []
+        real_run = self.probe._run
+
+        def recording_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str] | None:
+            ran.append((list(command), dict(kwargs["env"])))
+            if command[1:2] == ["config"]:
+                return real_run(command, **kwargs)
+            return subprocess.CompletedProcess(command, 1, "", "remote: Repository not found. (HTTP 404)")
+
+        with patch.object(self.probe, "_run", recording_run):
+            self._run("\n".join(f"{name}={value}" for name, value in values.items()))
+        self.assertTrue(ran)
+        self.assertEqual(sorted({command[0] for command, _env in ran}), sorted([trusted["gh"], trusted["git"]]))
+        probe_ssh = [env["GIT_SSH_COMMAND"] for _command, env in ran
+                     if "UserKnownHostsFile=" in env.get("GIT_SSH_COMMAND", "")]
+        self.assertGreaterEqual(len(probe_ssh), 2, "git_ssh and git_ssh:SSH_AUTH_SOCK pin the probe's own ssh")
+        for command in probe_ssh:
+            self.assertEqual(shlex.split(command)[0], trusted["ssh"])
+        for command, _env in ran:
+            for name, value in values.items():
+                if name != "GIT_CONFIG_COUNT":
+                    self.assertFalse([arg for arg in command if value in arg], (name, command))
+
+    def test_a_tool_the_probe_cannot_resolve_leaves_it_inconclusive_by_name(self) -> None:
+        # R6-3: a gh the probe's own PATH does not name is never looked up
+        # through the job's PATH; the run is inconclusive, by the tool's name.
+        no_gh = self.root / "no-gh"
+        no_gh.mkdir()
+        (no_gh / "git").symlink_to(self.bin / "git")
+        (no_gh / "ssh").symlink_to(self._shadowing_tools() / "ssh")
+        # The job's PATH holds a gh (self.bin's); the probe's own does not.
+        with patch.dict(os.environ, {"PATH": str(no_gh)}):
+            status, stdout = self._run(f"PATH={self.bin}{os.pathsep}{no_gh}")
+        report = json.loads(stdout)
+        self.assertEqual((status, report["verdict"]), (2, "inconclusive"), report)
+        self.assertIn("tool_missing:gh", report["environment_problems"])
+        self.assertEqual([r["source"] for r in report["sources"] if r["source"].startswith("gh_cli")], [])
 
 
 class GitSshUnderEnvBorneConfigTests(unittest.TestCase):

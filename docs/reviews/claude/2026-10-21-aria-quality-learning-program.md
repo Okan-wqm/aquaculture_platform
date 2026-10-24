@@ -1403,7 +1403,8 @@ ignore nx_graph_file, while plan_service_analysis_order builds its order and cou
 
 ## ARIA-MEDIUM-863
 
-A held cycle_service_examination returns no examination_order, and \_phase_service_mission_seed reads
+A held cycle_service_examination returns no examination_order, and \_phase_service_mission_seed
+reads
 exam.get('examination_order') or [] without reading the hold, so it seeds only the CORE services and
 drops every evidence-backed and pressure-backed service with no disclosure
 

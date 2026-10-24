@@ -84,8 +84,9 @@ SIGNAL_REMEDIES: dict[str, str] = {
     # ARIA-LOW-550 — a doctor organ failing on a fact of the HOST the kernel
     # runs on (`HOST_ORGANS`): no `claude` binary or one below the floor, no
     # provider credential, no write-capable sandbox backend, too little disk,
-    # a gateway daemon that stopped beating. The answer is an operator's on
-    # that host (install, provision, restart), never a change under
+    # a gateway daemon that stopped beating, a workspace without a package an
+    # adapter's runner declares. The answer is an operator's on that host
+    # (install, provision, restart), never a change under
     # `SELF_CHANGE_ALLOWED_PREFIXES`, so it is announced (the organ's FAIL,
     # `doctor_unhealthy`, the CI step's `::error`) and never minted.
     "host_fault": ANNOUNCE_REMEDY,
@@ -111,8 +112,12 @@ SELF_CHANGE_SIGNAL_KINDS: tuple[str, ...] = tuple(kind for kind, remedy in SIGNA
 # ARIA-LOW-550 — the organs that read the host rather than ARIA's code or
 # store. The first four are `run_doctor`'s `host_checks`, run whether or not a
 # store is bound; `gateway_heartbeat_fresh` reads the store but judges the
-# daemon process.
-HOST_ORGANS: tuple[str, ...] = ("providers", "sandbox_backend", "claude_cli", "habitat", "gateway_heartbeat_fresh")
+# daemon process; `adapter_dependencies` (ARIA-MEDIUM-735) reads the store's
+# runners but judges the workspace's installed node_modules, which `npm ci`
+# on that host provides.
+HOST_ORGANS: tuple[str, ...] = (
+    "providers", "sandbox_backend", "claude_cli", "habitat", "gateway_heartbeat_fresh", "adapter_dependencies",
+)
 DOCTOR_ORGAN_SIGNAL_KINDS: dict[str, str] = {
     "notifications": "config_missing",
     "deadlines": "deadline_due",

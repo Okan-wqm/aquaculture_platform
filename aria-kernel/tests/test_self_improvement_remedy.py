@@ -35,10 +35,12 @@ from aria_kernel.human_required import record_human_required
 from aria_kernel.mission import list_open_missions
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from tests._helpers.orchestrator_exits import record_failed_night
+from tests._helpers.registry_projection import project_registry_as_stored
 
 
 class _Store(unittest.TestCase):
     def setUp(self) -> None:
+        project_registry_as_stored(self)
         self._tmp = tempfile.TemporaryDirectory()
         root = Path(self._tmp.name)
         self.ws = root / "repo"

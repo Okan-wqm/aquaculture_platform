@@ -219,5 +219,93 @@ class ScoringAgainstTheLedger(unittest.TestCase):
         self.assertEqual(stored[-1]["calibration_thresholds"]["calibration_min_samples"], 100)
 
 
+
+class JudgeVersionScopedCalibration(unittest.TestCase):
+    """J2 (SEPT-HARVEST §2) — a judge's contract or model version
+    invalidates its calibration.
+
+    ``ci_executor`` stamps ``details.agent_contract_hash`` (the hash of the
+    agent file + inlined knowledge the model was shown) on every judge
+    envelope, and ``judgment_bridge`` drops it: the ai_judge row cannot say
+    which contract produced it, so ``score_judges`` pools every verdict a
+    judge_id ever gave. A judge whose prompt was rewritten (or whose model
+    was swapped) keeps the calibration authority its PREVIOUS version
+    earned — the one thing that must not survive an L1-L5 / genesis edit of
+    a judge prompt.
+
+    Law pinned: the bridge keeps ``agent_contract_hash`` on the row;
+    ``score_judges`` samples only the rows of the judge's CURRENT
+    (model, agent_contract_hash) — the version of its newest verdict — and
+    reports the older rows under ``prior_version`` instead of scoring them.
+    """
+
+    _H1 = "sha256:" + "1" * 64
+    _H2 = "sha256:" + "2" * 64
+    # Thresholds under which 32 correct, confident, truth-backed verdicts
+    # are `calibrated` today — the authority an edited judge must lose.
+    _THRESHOLDS = dict(calibration_min_samples=30, provisional_min_samples=10)
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tools = Path(self._tmp.name) / "aria-tools"
+        ensure_tools_dir(self.tools)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _truth(self, i: int, verdict: str) -> None:
+        record_operator_feedback(tool_id="tool-x", run_id=f"r{i}", finding_id=f"f{i}", verdict=verdict,
+                                 severity="medium", note="ground truth", source_type="human",
+                                 judgment_group_id=f"g{i}", base_dir=self.tools)
+
+    def _bridged_vote(self, i: int, verdict: str, *, contract_hash: str, model: str = "opus") -> dict:
+        from aria_kernel.judgment_bridge import record_judge_verdict_from_response
+
+        return record_judge_verdict_from_response(
+            request={"tool_id": "tool-x", "run_id": f"r{i}", "finding_id": f"f{i}",
+                     "judgment_group_id": f"g{i}"},
+            response={"role": "evidence_judgment", "details": {
+                "agent_subagent_type": "aria-evidence-judge",
+                "agent_dispatch_model": model,
+                "agent_contract_hash": contract_hash,
+                "verdict": {"verdict": verdict, "confidence": 0.97, "rationale": f"reading {i}"},
+            }},
+            base_dir=self.tools,
+        )
+
+    def _correct_votes(self, start: int, n: int, *, contract_hash: str, model: str = "opus") -> None:
+        for i in range(start, start + n):
+            truth = "true_positive" if i % 2 == 0 else "false_positive"
+            self._truth(i, truth)
+            self._bridged_vote(i, truth, contract_hash=contract_hash, model=model)
+
+    def _judge(self) -> dict:
+        result = score_judges(base_dir=self.tools, **self._THRESHOLDS)
+        return {j["judge_id"]: j for j in result["judges"]}["aria-evidence-judge"]
+
+    def test_the_bridge_keeps_the_contract_hash_on_the_judge_row(self) -> None:
+        row = self._bridged_vote(0, "false_positive", contract_hash=self._H1)
+        self.assertEqual(row.get("agent_contract_hash"), self._H1,
+                         "the verdict must name the contract that produced it")
+
+    def test_a_contract_edit_drops_the_calibration_its_prior_version_earned(self) -> None:
+        self._correct_votes(0, 30, contract_hash=self._H1)
+        self._correct_votes(30, 2, contract_hash=self._H2)
+        judge = self._judge()
+        self.assertEqual(judge["calibration_status"], "insufficient_data", json.dumps(judge)[:600])
+        self.assertEqual(judge["status"], "insufficient_data")
+        self.assertEqual(judge["samples"], 2)
+        self.assertEqual(judge["prior_version"]["samples"], 30)
+
+    def test_a_model_swap_drops_the_calibration_its_prior_version_earned(self) -> None:
+        self._correct_votes(0, 30, contract_hash=self._H1, model="opus")
+        self._correct_votes(30, 2, contract_hash=self._H1, model="glm-5.3")
+        judge = self._judge()
+        self.assertEqual(judge["calibration_status"], "insufficient_data", json.dumps(judge)[:600])
+        self.assertEqual(judge["status"], "insufficient_data")
+        self.assertEqual(judge["samples"], 2)
+        self.assertEqual(judge["prior_version"]["samples"], 30)
+
+
 if __name__ == "__main__":
     unittest.main()

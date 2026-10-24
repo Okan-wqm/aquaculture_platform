@@ -5,12 +5,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 
+import { type Finding } from './finding-registry-chain';
 import {
   applyClosureRejection,
   collectMergedClosures,
-  type Finding,
   listMergedClosers,
-} from './finding-registry';
+} from './finding-registry-projection';
 import {
   closureAdmissible,
   commitHasFindingCloseTrailer,

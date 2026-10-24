@@ -178,17 +178,29 @@ def load_waiver_manifest(repo_root: str | Path, manifest: WaiverManifest = UNWRI
     return loaded
 
 
-def iter_waivers(loaded: LoadedManifest, manifest: WaiverManifest = UNWRITTEN_MANIFEST) -> Iterator[tuple[str, dict[str, Any]]]:
-    """`(key, entry)` in sorted order — the order every gate reports in. A
-    NESTED key reads `surface.member`; a FLAT key is the name itself."""
+def iter_waiver_entries(
+    loaded: LoadedManifest, manifest: WaiverManifest = UNWRITTEN_MANIFEST,
+) -> Iterator[tuple[tuple[str, ...], dict[str, Any]]]:
+    """`(key, entry)` in sorted order, the key STRUCTURAL: `(surface, member)`
+    for a NESTED manifest, `(name,)` for a FLAT one. A comparison of two
+    manifests keys on this, never on the joined report key: surface `a.b`
+    member `c` and surface `a` member `b.c` are two waivers that both read
+    `a.b.c` (PLAN-v2 B1 R7)."""
     _require_registered(manifest)
     if manifest.shape is ManifestShape.NESTED:
         for surface_id, entries in sorted(loaded.items()):
             for member, entry in sorted(entries.items()):
-                yield f"{surface_id}.{member}", entry
+                yield (surface_id, member), entry
         return
     for name, entry in sorted(loaded.items()):
-        yield name, entry
+        yield (name,), entry
+
+
+def iter_waivers(loaded: LoadedManifest, manifest: WaiverManifest = UNWRITTEN_MANIFEST) -> Iterator[tuple[str, dict[str, Any]]]:
+    """`(key, entry)` in sorted order — the order every gate reports in. A
+    NESTED key reads `surface.member`; a FLAT key is the name itself."""
+    for key, entry in iter_waiver_entries(loaded, manifest):
+        yield ".".join(key), entry
 
 
 def waiver_expires_on(entry: dict[str, Any]) -> date:
@@ -238,6 +250,7 @@ __all__ = [
     "UNWRITTEN_MANIFEST_RELPATH",
     "WAIVER_MANIFESTS",
     "WaiverManifest",
+    "iter_waiver_entries",
     "iter_waivers",
     "lapsed_waivers",
     "load_waiver_manifest",

@@ -794,6 +794,17 @@ def sweep_lease_lifecycle_for_human_required(
 # flooding operator triage with sampling-order noise.
 CONSENSUS_UNCERTAINTY_SEVERITY = {
     "judge_disagreement": "HIGH",
+    # WP-J fix round — an anchor-grade group that agreed on argument alone
+    # (empty evidence union): the truth candidate is unfalsifiable, so it
+    # escalates like a disagreement — a human must look at the finding.
+    "anchor_evidence_empty": "HIGH",
+    # WP-J fix round — a panel whose seats echoed each other: the agreement
+    # is one reading wearing N receipts; a human must see the echo.
+    "panel_echo": "HIGH",
+    # WP-J B-2 — the evidence-weighing arbiter could not weigh the
+    # load-bearing assertions: an open question nobody may close by
+    # fatigue. Escalates like a disagreement.
+    "unverifiable": "HIGH",
     "low_confidence": "MEDIUM",
     # Plan 024 §C — a judge citing evidence that does not resolve in the repo is
     # a fabrication signal; the cheap tier must not be rubber-stamped on it.

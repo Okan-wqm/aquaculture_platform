@@ -60,6 +60,7 @@ MINT_SITES: dict[tuple[str, str], str] = {
     ("aria-kernel/aria_kernel/expert_review_gate.py", "request_implementation_expert_reviews"):
         "expert_review_gate.implementation",
     ("aria-kernel/aria_kernel/goldset.py", "dispatch_goldset_curation"): "goldset.curation",
+    ("aria-kernel/aria_kernel/judge_fanout.py", "dispatch_rebuttal_for_dissent"): "judge_fanout.rebuttal",
     ("aria-kernel/aria_kernel/human_required_adjudication.py", "open_adjudication"): "human_required_panel.open",
     ("aria-kernel/aria_kernel/human_required_adjudication.py", "_execute_panel_disposition"):
         "human_required_panel.remint",
@@ -68,6 +69,12 @@ MINT_SITES: dict[tuple[str, str], str] = {
     ("aria-kernel/aria_kernel/judge_remint.py", "remint_judge_request"): "the caller's admission",
     ("aria-kernel/aria_kernel/judge_remint.py", "remint_judge_for_panel"): "the caller's admission",
     ("aria-kernel/aria_kernel/judge_replay.py", "replay_judges_on_goldset"): "judge_replay.goldset",
+    # WP-J D-1/D-2 — the outcome lanes mint through the door like every
+    # other discretionary lane; their producer rows live one table above.
+    ("aria-kernel/aria_kernel/mutation_canary.py", "mint_canary_judgments"):
+        "mutation_canary.panel",
+    ("aria-kernel/aria_kernel/stability_reask.py", "mint_stability_reasks"):
+        "stability_reask.lane",
     ("aria-kernel/aria_kernel/plan_round_controller.py", "_ensure_planner_request"): "plan_round_controller.plan_step",
     ("aria-kernel/aria_kernel/plan_round_controller.py", "_ensure_cross_review_round"):
         "plan_round_controller.plan_step",
@@ -81,6 +88,9 @@ MINT_SITES: dict[tuple[str, str], str] = {
 # Every string that function can return must be a classified producer.
 PRODUCER_SELECTORS: frozenset[tuple[str, str]] = frozenset({
     ("aria-kernel/aria_kernel/convergence_drainer.py", "_seed_producer"),
+    # WP-J B-2 — the fan-out's lane producer (sample vs panel), the same
+    # sanctioned one-function-one-producer pattern as the entries above.
+    ("aria-kernel/aria_kernel/judge_fanout.py", "_lane_producer"),
     ("aria-kernel/aria_kernel/human_required_adjudication.py", "_remint_producer"),
     ("aria-kernel/aria_kernel/human_required_adjudication.py", "_panel_producer"),
     ("aria-kernel/aria_kernel/anchor_stale_effects.py", "_anchor_remint_producer"),

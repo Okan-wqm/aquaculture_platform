@@ -142,6 +142,10 @@ WRITE_TIER_AGENTS: frozenset[str] = frozenset({
     # this set; there is no second copy (ORPHAN-HIGH-285, ARIA-MEDIUM-466).
     "aria-acceptance-gap-fixer",
     "aria-worker",
+    # WP-J B-2 — the panel's reproduction seat writes and runs its red test
+    # (runtime profile panel_test_writer: Edit/Write/Bash in its sandbox
+    # worktree), so it holds the writer tier like every file-writing agent.
+    "aria-test-writer",
 })
 
 _FRONTMATTER_RX = re.compile(r"\A---\n(.*?)\n---", re.DOTALL)

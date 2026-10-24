@@ -156,9 +156,13 @@ class TheGate(unittest.TestCase):
 
 
 class TheEffectiveGate(unittest.TestCase):
-    def test_enforce_waits_for_two_calibrated_judges_of_distinct_models(self) -> None:
+    def test_enforce_waits_for_two_calibrated_judges_of_one_span(self) -> None:
+        """WP-J B-1 — the downgrade criterion is the hybrid span (methods
+        when the calibration rows can name them, models otherwise), not the
+        bare model count; the leg the gate judged is on the record."""
         none = effective_calibration_gate("enforce", {})
-        self.assertEqual((none["effective"], none["reason"]), ("measure_only", "fewer_than_two_calibrated_judges_of_distinct_models"))
+        self.assertEqual((none["effective"], none["reason"], none["quorum_leg"]),
+                         ("measure_only", "fewer_than_two_calibrated_judges_of_one_span", "unknown"))
         one = effective_calibration_gate("enforce", {"a": {"calibration_status": "calibrated", "model": "opus"},
                                                      "b": {"calibration_status": "provisional", "model": "glm"}})
         self.assertEqual(one["effective"], "measure_only")
@@ -167,8 +171,8 @@ class TheEffectiveGate(unittest.TestCase):
         self.assertEqual(same["effective"], "measure_only")
         ready = effective_calibration_gate("enforce", {"a": {"calibration_status": "calibrated", "model": "opus"},
                                                        "b": {"calibration_status": "calibrated", "model": "glm"}})
-        self.assertEqual((ready["effective"], ready["reason"], ready["calibrated_judges"]),
-                         ("enforce", "calibrated_quorum_available", ["a", "b"]))
+        self.assertEqual((ready["effective"], ready["reason"], ready["calibrated_judges"], ready["quorum_leg"]),
+                         ("enforce", "calibrated_quorum_available", ["a", "b"], "models"))
         configured = effective_calibration_gate("measure_only", {"a": {"calibration_status": "calibrated", "model": "opus"},
                                                                  "b": {"calibration_status": "calibrated", "model": "glm"}})
         self.assertEqual((configured["effective"], configured["reason"]), ("measure_only", "configured_measure_only"))

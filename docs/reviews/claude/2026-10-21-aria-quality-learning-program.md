@@ -1058,6 +1058,143 @@ authoritative is not installed on the droplet.
   read through its published verdict with a freshness check, or its container judgement retired in
   favour of the root probe), an invariant names that owner, and the alert rules read only it.
 
+## ARIA-MEDIUM-801
+
+The planner seats' target agents have three production owners: `plan_round_controller.DEFAULT_PLANNER_AGENTS`,
+`cross_review_bridge` (`CROSS_REVIEW_ROLE`, `PRIMARY_REVISION_ROLE`) and
+`convergent_planning_bridge.PLANNER_ROLES` each spell the role-to-agent pairs for primary_plan,
+challenger_plan and cross_review. If a planner agent is renamed, one mint path changes and the
+others do not.
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-13.
+- Raised by: WPJ-RED appellate, carried forward from the round-1 ssot dissent (dissent item 2).
+  Registered by WPJ-FAILOPEN before PR #2073 merges.
+- Evidence:
+  - `aria-kernel/aria_kernel/plan_round_controller.py:28-32`
+  - `aria-kernel/aria_kernel/cross_review_bridge.py:78-82`
+  - `aria-kernel/aria_kernel/convergent_planning_bridge.py:28-31`
+- Rule: one owner per concept (PLAN-v2 F0.9b ownership atlas). Close: one table maps a planning role
+  to its target agent. Both bridges read it, and a pin asserts that no second literal pair exists.
+  `agent_surface.py:218` already cites `DEFAULT_PLANNER_AGENTS["cross_review"]` as the reference.
+
+## ARIA-MEDIUM-802
+
+The `(run_id, finding_id, judgment_group_id)` join key has four copies:
+`outcome_truth._outcome_key` (with an inline tuple beside it), `feedback_store._judgment_key`,
+`judge_calibration._group_key` and `label_queue._key`. `agent_surface` also lists the judgment
+seats twice, once as `JUDGE_ROLES` and once as the keys of `EXPERT_METHODS`, and no pin checks that
+the two sets are equal.
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-13.
+- Raised by: WPJ-RED appellate, non-blocking ssot dissent (dissent item 3). The `outcome_truth` copy
+  came with WP-J `05d99ba06`. Registered by WPJ-FAILOPEN before PR #2073 merges.
+- Evidence:
+  - `aria-kernel/aria_kernel/outcome_truth.py:68-73`
+  - `aria-kernel/aria_kernel/outcome_truth.py:179`
+  - `aria-kernel/aria_kernel/feedback_store.py:466-472`
+  - `aria-kernel/aria_kernel/judge_calibration.py:144-149`
+  - `aria-kernel/aria_kernel/label_queue.py:73-74`
+  - `aria-kernel/aria_kernel/agent_surface.py:128-141`
+  - `aria-kernel/aria_kernel/agent_surface.py:159-171`
+- Rule: one owner per concept. Close: the other three readers call `feedback_store._judgment_key`,
+  whose docstring already calls it "the identity every judgment lane already keys on".
+  `JUDGE_ROLES` derives from `EXPERT_METHODS`, or a pin asserts that the two sets are equal. Today
+  `tests/test_panel_seats.py` checks only that the four new seats are members of both.
+
+## ARIA-HIGH-805
+
+`judge_fanout._existing_judge_dispatches` and `_judged_pairs` wrap their ledger reads in
+`except Exception` and return an empty set. An unreadable `agent_invocation_requests` ledger or
+feedback store then reads as "nothing minted" or "nothing judged", and the nightly fan-out re-mints
+judges for groups and findings that are already dispatched or answered (fail-open, the
+ARIA-HIGH-788 class).
+
+- Severity: HIGH; owner: Okan-wqm; deadline: 2026-11-13.
+- Raised by: WPJ-FAILOPEN appellate round 2, carry-forward item 1 (repeats appellate-r1 item 1;
+  security probe P9 found no registry row). Registered before PR #2073 merges. Both readers predate
+  WP-J and are on main.
+- Evidence:
+  - `aria-kernel/aria_kernel/judge_fanout.py:203-216`
+  - `aria-kernel/aria_kernel/judge_fanout.py:219-247`
+  - `aria-kernel/aria_kernel/ledger.py:94-109`
+- Rule: fail closed on an unreadable ledger. Close: both readers catch only `ledger_read_faults()`
+  (or a declared reader-fault set built from it) and refuse the mint with a named `GovernanceError`
+  that the cycle records as a blocked step, as `_rebuttal_already_minted` (`:1194-1218`) already
+  does. A mutation test kills the `except Exception` mutant of each.
+
+## ARIA-MEDIUM-807
+
+`request_admission._measure` holds a second definition of an unreadable cooldown ledger: it catches
+`(GovernanceError, OSError, ValueError)` around `provider_outage.cooled_providers`. That tuple
+disagrees with `provider_cooldown.cooldown_reader_faults()`. It absorbs every `ValueError`, reader
+defects included, and lets `LedgerIntegrityError` and `LedgerReadLimitError` (both `RuntimeError`)
+escape.
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-13.
+- Raised by: WPJ-FAILOPEN appellate round 2, carry-forward item 2 (repeats appellate-r1 item 2,
+  "fold or file"; arch probe p4). Registered before PR #2073 merges.
+- Evidence:
+  - `aria-kernel/aria_kernel/request_admission.py:324-327`
+  - `aria-kernel/aria_kernel/provider_cooldown.py:339-352`
+  - `aria-kernel/aria_kernel/ledger.py:84-89`
+  - `aria-kernel/aria_kernel/tool_registry.py:124`
+- Rule: one owner per concept. Close: the `cooled_providers` arm catches `cooldown_reader_faults()`.
+  A test drives a `LedgerIntegrityError` and a plain `ValueError` through it and pins that the first
+  records `cooldown_fault` and the second propagates. The capacity arm (`:321`) reads a different
+  ledger and is judged on its own declared fault set in the same fix.
+
+## ARIA-MEDIUM-809
+
+The judge rebuttal round's one-per-seat bound matches the untrusted substring
+`REBUTTAL_MARKER in suggested_prompt`. The dissenter's own first-round envelope embeds the adapter
+finding's `message` verbatim, so a finding message that contains "REBUTTAL ROUND 1" marks the seat
+as already rebutted and suppresses its one rebuttal.
+
+- Severity: MEDIUM (security); owner: Okan-wqm; deadline: 2026-11-13.
+- Raised by: WPJ-FAILOPEN appellate round 2, carry-forward item 3 (security probe P4). It comes from
+  WP-J commit `194d7faf3`, which ships in #2073. Registered before PR #2073 merges.
+- Evidence:
+  - `aria-kernel/aria_kernel/judge_fanout.py:1123`
+  - `aria-kernel/aria_kernel/judge_fanout.py:1213`
+  - `aria-kernel/aria_kernel/judge_fanout.py:121`
+  - `aria-kernel/aria_kernel/judge_fanout.py:945`
+- It fails closed (a false `rebuttal_already_minted` skip, never a second rebuttal), so it is not
+  the ARIA-HIGH-788 class. The harm: an adapter-controlled string can deny a dissenter its rebuttal.
+  Judge rationales are also embedded in the arbiter and anchor prompts (`:697`, `:945`); those match
+  only when the arbiter seat is the dissenting agent.
+- Rule: untrusted text is data, never a control signal. Close: the rebuttal envelope carries a
+  structured marker field (or the check is an exact first-line match of the kernel-rendered prompt).
+  A test mints a first-round envelope whose message contains the marker and pins that the rebuttal is
+  still minted.
+
+## ARIA-MEDIUM-811
+
+A non-UTF-8 byte in a hash-chained ledger raises `UnicodeDecodeError` from the ledger primitives'
+`read_text(encoding="utf-8")` calls. `UnicodeDecodeError` is outside `ledger_read_faults()`, so a
+reader that fails closed on store faults aborts the cycle with an undeclared exception instead.
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-13.
+- Raised by: WPJ-FAILOPEN appellate round 2, carry-forward item 4. Registered before PR #2073
+  merges. Reproduced at `fd5fc221e`: a file with one valid row and one `0xFF 0xFE` line makes both
+  `load_jsonl_verified` and `read_jsonl` raise `UnicodeDecodeError`, which
+  `except ledger_read_faults()` does not catch. `_verify_file_or_raise` maps only `OSError`
+  (`:2208`).
+- Evidence:
+  - `aria-kernel/aria_kernel/ledger.py:934`
+  - `aria-kernel/aria_kernel/ledger.py:952`
+  - `aria-kernel/aria_kernel/ledger.py:2200-2214`
+  - `aria-kernel/aria_kernel/ledger.py:94-109`
+- It fails closed (the cycle aborts). Rule: `ledger_read_faults()` is the closed set of store faults.
+  Close (owner fix in the primitive, not in callers): `load_jsonl_verified` and the other decode
+  sites map `UnicodeDecodeError` to `LedgerIntegrityError` (reason_kind=encoding, with the byte
+  offset). A test pins that a non-UTF-8 byte is caught by `ledger_read_faults()` through
+  `load_jsonl_verified` and `load_segments`.
+- Citation note for ARIA-MEDIUM-802: its evidence cites
+  `aria-kernel/aria_kernel/outcome_truth.py:179`, but at `fd5fc221e` the inline join-key tuple is at
+  `:180`. The registry CLI has no evidence-amend subcommand for an OPEN row, so the row is not
+  edited; the note is carried in the notes of ARIA-HIGH-805, ARIA-MEDIUM-807, ARIA-MEDIUM-809 and
+  ARIA-MEDIUM-811.
+
 ## ARIA-MEDIUM-791
 
 Three live path -> service attributions outside impact_graph.project_for_path remain until the

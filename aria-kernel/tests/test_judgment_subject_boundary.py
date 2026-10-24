@@ -55,6 +55,10 @@ def _anchor(root: str, n: int) -> None:
         source_type="ai_consensus",
         judge_id="aria-consensus-arbiter",
         judgment_group_id=f"group-{n}",
+        # WP-J review — an anchor stands on code evidence (the live anchors
+        # all cite refs); the subject pin isolates judgment_subject, so the
+        # row carries the evidence leg a banked anchor needs.
+        evidence_refs=["src/adapter.ts:12"],
         judge_count=3,
         judges_voted=3,
         observers=[
@@ -81,6 +85,9 @@ def _belief_row(root: str) -> dict:
         judge_count=3,
         judges_voted=3,
         judgment_subject=JUDGMENT_SUBJECT_BELIEF,
+        # WP-J review — the panel's adjudication cites the code it read; an
+        # evidence-free belief verdict is not ground truth either.
+        evidence_refs=["src/belief-1.ts:5"],
         observers=[
             {"judge_id": "aria-evidence-judge", "model": "claude-opus-5"},
             {"judge_id": "aria-adversarial-judge", "model": "claude-opus-5"},
@@ -198,14 +205,16 @@ class BeliefVerdictBuysNoAdapterAuthority(unittest.TestCase):
                 "judgment_group_id": "group-legacy",
                 "judge_count": 3,
                 "judges_voted": 3,
-                # Carries the G-2 receipt so this pin isolates the question
-                # it is actually about: a row missing `judgment_subject`
-                # must still read as a FINDING judgment. Observer diversity
-                # is a separate rule with its own pins — and since the WP-P
-                # recast (operator decision 2026-10-18) that rule counts
-                # SEATS, a row claiming three agreeing judges must name
-                # three receipts or it fails closed on a different axis
-                # than the one this test isolates.
+                # Carries the G-2 receipt and cited code (the shape of every
+                # live anchor) so this pin isolates the question it is
+                # actually about: a row missing `judgment_subject` must
+                # still read as a FINDING judgment. Observer diversity and
+                # the evidence union are separate rules with their own pins
+                # — and since the WP-P recast (operator decision 2026-10-18)
+                # the diversity rule counts SEATS, a row claiming three
+                # agreeing judges must name three receipts or it fails
+                # closed on a different axis than the one this test isolates.
+                "evidence_refs": ["src/legacy.ts:1"],
                 "observers": [
                     {"judge_id": "aria-evidence-judge", "model": "claude-opus-5"},
                     {"judge_id": "aria-adversarial-judge", "model": "claude-opus-5"},

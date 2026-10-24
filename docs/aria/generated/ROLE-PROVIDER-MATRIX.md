@@ -12,6 +12,8 @@ Each column is a host the shared WP-P builders present alone (anthropic: `anthro
 | role | seat | profile | ladder | anthropic | zai | openai | runnable |
 |---|---|---|---|---|---|---|---|
 | adversarial_judgment | aria-adversarial-judge | judge_glm | glm_first | yes | yes | yes | 3 |
+| architecture | architectural-arbiter | frontmatter | glm_first | yes | yes | yes | 3 |
+| bug_hunt | aria-bug-hunter | panel_bug_hunter | claude_first | yes | yes | yes | 3 |
 | challenger_authoring | aria-challenger-drafter | planner | glm_first | yes | yes | yes | 3 |
 | challenger_plan | aria-challenger-planner | planner | glm_first | yes | yes | yes | 3 |
 | change_intelligence | aria-change-intelligence | judge_opus | glm_first | yes | yes | yes | 3 |
@@ -23,10 +25,12 @@ Each column is a host the shared WP-P builders present alone (anthropic: `anthro
 | human_required_adjudication | aria-evidence-judge | judge_opus | claude_first | yes | yes | yes | 3 |
 | human_required_adjudication | aria-adversarial-judge | judge_glm | glm_first | yes | yes | yes | 3 |
 | human_required_adjudication | aria-consensus-arbiter | arbiter | claude_first | yes | yes | yes | 3 |
+| impact_assessment | aria-impact-assessor | panel_impact_assessor | glm_first | yes | yes | yes | 3 |
 | implementation | aria-implementer | implementer, write | claude_writer | yes | yes | no | 2 |
 | maintenance_utility | aria-autonomy-planner | planner | glm_first | yes | yes | yes | 3 |
 | primary_authoring | aria-primary-drafter | planner | claude_first | yes | yes | yes | 3 |
 | primary_plan | aria-primary-planner | planner | claude_first | yes | yes | yes | 3 |
+| reproduction_test | aria-test-writer | panel_test_writer, write | claude_writer | yes | yes | no | 2 |
 | specialist_domain_review | architectural-arbiter | frontmatter | claude_first | yes | yes | yes | 3 |
 | specialist_domain_review | auth-security-expert | frontmatter | claude_first | yes | yes | yes | 3 |
 | verification | aria-adversarial-judge | judge_glm | glm_first | yes | yes | yes | 3 |
@@ -36,6 +40,7 @@ Each column is a host the shared WP-P builders present alone (anthropic: `anthro
 | role | seat | provider | reason |
 |---|---|---|---|
 | implementation | aria-implementer | openai | refused: provider_readonly_runtime (admits_writes=False) |
+| reproduction_test | aria-test-writer | openai | refused: provider_readonly_runtime (admits_writes=False) |
 
 ## Lanes
 

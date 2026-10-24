@@ -3,7 +3,7 @@
 Three pins:
 
 * every operator trust anchor and arbiter record the kernel reads sits under
-  ``implementation_safety.READONLY_PATHS`` (the implementer's PR-open gate
+  ``implementation_safety.readonly_paths()`` (the implementer's PR-open gate
   and sandbox), and the merge authority refuses an ARIA-authored change to
   any READONLY path at pre-merge, so a branch changed after it opened cannot
   carry one to main;
@@ -56,7 +56,7 @@ class ReadOnlyTrustAnchorTests(unittest.TestCase):
     def test_every_trust_anchor_is_read_only_to_the_implementer(self) -> None:
         for path in _TRUST_ANCHORS:
             with self.subTest(path=path):
-                self.assertIsNotNone(safety._readonly_prefix(path))
+                self.assertIsNotNone(safety.readonly_entry_for(path))
         with tempfile.TemporaryDirectory() as tmp:
             for path in (OPERATORS_POLICY_RELPATH, "docs/reviews/_registry/findings.jsonl"):
                 report = safety.run_hard_fail_checks(

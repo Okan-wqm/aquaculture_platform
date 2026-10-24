@@ -13,8 +13,8 @@ one class per property:
 * R21 every path an evidence ref names (the body's, a risk's, a clearing
   answer's) is a file of the reviewed commit: a risk ref that names none is
   refused at record, and a body ref that names none refuses the verdict;
-  ``workspace_view.commit_names_blob`` answers False only for a commit the
-  checkout holds.
+  ``workspace_view.commit_blob_paths`` leaves a path out only for a commit
+  the checkout holds.
 
 Source: SPEC.md (PV P1, P3); findings ARIA-HIGH-779 and ARIA-LOW-785.
 """
@@ -47,7 +47,7 @@ from aria_kernel.plan_convergence import (
 from aria_kernel.plan_round_controller import advance_plan_rounds
 from aria_kernel.self_improvement import kernel_authority_set
 from aria_kernel.tool_registry import GovernanceError
-from aria_kernel.workspace_view import WorkspaceViewRefused, commit_names_blob
+from aria_kernel.workspace_view import WorkspaceViewRefused, commit_blob_paths
 from tests._helpers.production_shaped import production_converged_plan
 from tests.test_converged_delivery_scope_precheck import FARM, FORCER, _ScopeCase
 from tests.test_plan_verdict_integrity import (
@@ -200,18 +200,16 @@ class R20ARefusedRecordedValueIsTheLedgersToken(_DeliveryReading):
         self.assert_withheld_uncounted()
 
 
-class R21CommitNamesBlobKeepsTheCheckoutApartFromTheLedger(_PlanFixture):
-    def test_false_only_for_a_commit_the_checkout_holds(self) -> None:
+class R21CommitBlobPathsKeepsTheCheckoutApartFromTheLedger(_PlanFixture):
+    def test_a_path_is_left_out_only_for_a_commit_the_checkout_holds(self) -> None:
         head = _git(self.repo, "rev-parse", "HEAD")
-        self.assertTrue(commit_names_blob(self.repo, head, SURFACE))
-        self.assertFalse(commit_names_blob(self.repo, head, "apps/farm-service/src/feed/absent.ts"))
-        self.assertFalse(commit_names_blob(self.repo, head, f"{SURFACE}#L1"))
-        self.assertFalse(commit_names_blob(self.repo, head, "apps/farm-service/src/feed"))
-        self.assertFalse(commit_names_blob(self.repo, None, SURFACE))
+        asked = {SURFACE, "apps/farm-service/src/feed/absent.ts", f"{SURFACE}#L1", "apps/farm-service/src/feed"}
+        self.assertEqual(commit_blob_paths(self.repo, head, asked), frozenset({SURFACE}))
+        self.assertEqual(commit_blob_paths(self.repo, None, {SURFACE}), frozenset())
 
     def test_a_commit_the_checkout_does_not_hold_raises(self) -> None:
         with self.assertRaisesRegex(WorkspaceViewRefused, "workspace_commit_unreadable"):
-            commit_names_blob(self.repo, "e" * 40, SURFACE)
+            commit_blob_paths(self.repo, "e" * 40, {SURFACE})
 
 
 class R21ABodyRefIsAFileOfTheReviewedCommit(_DeliveryReading):

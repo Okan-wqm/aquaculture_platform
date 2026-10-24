@@ -29,7 +29,7 @@ from .tool_registry import (
 )
 from .digest import is_sha256_digest, sha256_digest, sha256_digest_text
 from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
-from .workspace_view import WorkspaceViewRefused, commit_names_blob, hermetic_git, workspace_head_sha
+from .workspace_view import WorkspaceViewRefused, commit_blob_paths, hermetic_git, workspace_head_sha
 
 if TYPE_CHECKING:
     from .provider_clock import ProviderClock
@@ -1731,7 +1731,7 @@ def plan_verdict_staleness(state: dict[str, Any], *, base_dir: str | Path | None
     before the binding existed names no reviewed tree at all
     (``plan_verdict_unbound``). A recorded value the record law refuses, or
     an evidence ref whose path names no file of the reviewed commit
-    (``workspace_view.commit_names_blob``), is a fact of the ledger:
+    (``workspace_view.commit_blob_paths``), is a fact of the ledger:
     ``plan_verdict_path_refused:<value>`` (PV-R4 R20, R21). A HEAD git cannot
     read, or a reviewed commit the checkout does not hold or cannot compare
     with HEAD, proves nothing about today's bytes
@@ -1765,13 +1765,15 @@ def plan_verdict_staleness(state: dict[str, Any], *, base_dir: str | Path | None
     # PV-R4 R21 — an evidence ref names one file, and the verdict judged it in
     # the reviewed commit: a path that names no blob there (`f.ts#L1` read as
     # a file name) would watch a name git never reports, and the cited file
-    # would change unseen. The checkout's own failure to answer is not that.
+    # would change unseen. The checkout's own failure to answer is not that,
+    # and one git process answers the whole cited set (PV-R5 R23).
     try:
-        for ref, path in judged.cited:
-            if not commit_names_blob(workspace, reviewed, path):
-                return f"{PLAN_VERDICT_PATH_REFUSED}:{ref[:80]}"
+        blobs = commit_blob_paths(workspace, reviewed, {path for _ref, path in judged.cited})
     except WorkspaceViewRefused as exc:
         return f"{PLAN_VERDICT_UNVERIFIABLE}:{exc.reason}"
+    for ref, path in judged.cited:
+        if path not in blobs:
+            return f"{PLAN_VERDICT_PATH_REFUSED}:{ref[:80]}"
     plan_paths = judged.paths
     if not plan_paths:
         # A plan that names no path judged none, so no commit can stale it.
@@ -3494,6 +3496,7 @@ def _validate_prior_risk_dispositions(
         raise GovernanceError("prior_risk_dispositions must be an array")
     prior_ids = {risk["risk_id"] for risk in _prior_review_risk_rows(state, round_number)}
     answered: set[str] = set()
+    cleared_refs: list[tuple[str, Any]] = []
     for row in dispositions:
         if not isinstance(row, dict):
             raise GovernanceError("prior_risk_disposition must be a JSON object")
@@ -3520,28 +3523,28 @@ def _validate_prior_risk_dispositions(
                 "a risk is cleared on cited evidence, never on a bare word"
             )
         if disposition in CITED_PRIOR_RISK_DISPOSITIONS:
-            _require_ref_files_in_reviewed_tree(evidence_refs, field, reviewed_commit_sha, base_dir=base_dir)
+            cleared_refs.extend((field, ref) for ref in evidence_refs)
+    _require_ref_files_in_reviewed_tree(cleared_refs, reviewed_commit_sha, base_dir=base_dir)
 
 
 def _require_risk_refs_in_reviewed_tree(
     risks: list[dict[str, Any]], reviewed_commit_sha: str | None, *, base_dir: str | Path | None,
 ) -> None:
     """PV-R4 R21 — every cross-review risk's evidence refs name blobs of the reviewed commit."""
-    for risk in risks:
-        _require_ref_files_in_reviewed_tree(
-            risk["evidence_refs"], f"risk {str(risk.get('risk_id'))[:80]} evidence_refs",
-            reviewed_commit_sha, base_dir=base_dir,
-        )
+    _require_ref_files_in_reviewed_tree(
+        [(f"risk {str(risk.get('risk_id'))[:80]} evidence_refs", ref) for risk in risks for ref in risk["evidence_refs"]],
+        reviewed_commit_sha, base_dir=base_dir,
+    )
 
 
 def _require_ref_files_in_reviewed_tree(
-    refs: list[Any], field: str, reviewed_commit_sha: str | None, *, base_dir: str | Path | None,
+    cited: list[tuple[str, Any]], reviewed_commit_sha: str | None, *, base_dir: str | Path | None,
 ) -> None:
     """THE reviewed-tree law of a reviewer's evidence ref (PV R16, PV-R4 R21).
 
     An evidence ref names one file (a finding id or a ledger pointer names
     none), read literally, so its path must be a blob of the commit the
-    reviewer reviewed (``workspace_view.commit_names_blob``): ``f.ts#L1`` is
+    reviewer reviewed (``workspace_view.commit_blob_paths``): ``f.ts#L1`` is
     a legal file name the grammar admits, and a ref the freshness gate
     watches must name a file git reports. A clearing answer's refs and every
     cross-review risk's refs pass here; surfaces and key-change paths do not,
@@ -3550,9 +3553,11 @@ def _require_ref_files_in_reviewed_tree(
     refusal.
     """
     workspace = bound_workspace_root(base_dir)
-    for ref in refs:
-        path = _plan_ref_reading(ref).path
-        if path is not None and not commit_names_blob(workspace, reviewed_commit_sha, path):
+    read = [(field, ref, _plan_ref_reading(ref).path) for field, ref in cited]
+    # One git process answers the record's whole cited set (PV-R5 R23).
+    blobs = commit_blob_paths(workspace, reviewed_commit_sha, {path for _f, _r, path in read if path is not None})
+    for field, ref, path in read:
+        if path is not None and path not in blobs:
             raise GovernanceError(
                 f"{EVIDENCE_REF_NOT_IN_REVIEWED_TREE}: {field} {str(ref)[:200]!r} names no file of the "
                 f"reviewed commit {reviewed_commit_sha}"

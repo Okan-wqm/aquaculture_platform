@@ -11,8 +11,9 @@ autonomous-fix path.
 
 1. WHO reviews (topic-relevant, ≥2 independent) — reuse
    ``specialist_review_runner.select_specialist_agents`` to route the fix's
-   affected files through the Lane-A domain touch-map (auth-security-expert,
-   farm-expert, data-expert …). The independence rule tops the selection up to
+   affected files through the Lane-A orchestrator routing table, the one
+   path -> agent map (``agent_routing``; auth-security-expert, farm-expert,
+   data-expert …). The independence rule tops the selection up to
    ≥2 with cross-cutting reviewers (security-reviewer, architectural-arbiter)
    when a single-domain fix would otherwise have one owner. The reviewers are
    read-only judges, separate from the fixer — the auditor is never part of the
@@ -50,6 +51,7 @@ from .feedback_store import CONSENSUS_MIN_CONFIDENCE
 from .human_required import record_human_required
 from .implementation_safety import HardFailContext as _HardFailContext
 from .implementation_safety import HardFailReport as _HardFailReport
+from .agent_routing import load_routing_table
 from .specialist_review_runner import select_specialist_agents
 from .tool_registry import (
     GovernanceError,
@@ -60,7 +62,7 @@ from .tool_registry import (
 DEFAULT_MIN_REVIEWERS: int = 2
 
 # Cross-cutting, domain-agnostic reviewers used to satisfy the ≥2-independence
-# rule when the touch-map yields a single owner. They review from a different
+# rule when the routing table yields a single owner. They review from a different
 # lens (security / architecture / root-cause) so the second opinion is genuinely
 # independent, not a duplicate of the first.
 _INDEPENDENCE_TOPUP: tuple[str, ...] = (
@@ -78,13 +80,15 @@ _UNVERIFIABLE_GRADES: frozenset[str] = frozenset({"missing", "invalid"})
 def select_expert_reviewers(
     *,
     affected_files: list[str],
+    routing: list[dict[str, Any]],
     profile: str = "standard",
     pressures: list[dict[str, Any]] | None = None,
     min_reviewers: int = DEFAULT_MIN_REVIEWERS,
 ) -> list[str]:
     """Select ≥``min_reviewers`` independent topic-relevant expert reviewers.
 
-    Routes ``affected_files`` through the Lane-A domain touch-map (reused) and
+    Routes ``affected_files`` through the routing table rows ``routing``
+    (``agent_routing.load_routing_table``) and
     tops the result up with cross-cutting reviewers until there are at least
     ``min_reviewers`` distinct experts. Deterministic: same inputs → same set.
     """
@@ -95,6 +99,7 @@ def select_expert_reviewers(
             touched_services=affected_files,
             pressures=pressures or [],
             profile=profile,
+            routing=routing,
         )
     )
     for topup in _INDEPENDENCE_TOPUP:
@@ -160,7 +165,11 @@ def request_implementation_expert_reviews(
     }
     paths = list(context.affected_paths)
     request_ids = []
-    for expert in select_expert_reviewers(affected_files=paths):
+    # The reviewers are chosen by the routing table of the checkout under
+    # review; the table is an authority input (derived set + CODEOWNERS), so
+    # the change being reviewed cannot have edited it.
+    routing = load_routing_table(context.workspace_root)
+    for expert in select_expert_reviewers(affected_files=paths, routing=routing):
         request = create_agent_invocation_request(
             target_agent=expert,
             role="specialist_domain_review",

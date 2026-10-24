@@ -21,17 +21,19 @@ from aria_kernel.agent_routing import ROUTING_TABLE_REL  # noqa: E402
 
 class CoverageGapSourceTests(unittest.TestCase):
     def setUp(self) -> None:
-        self._orig = (cg.unowned_projects, cg.effective_workspace_pressures, cg.related_agents_for_paths)
+        self._orig = (cg.unowned_projects, cg.effective_workspace_pressures)
 
     def tearDown(self) -> None:
-        cg.unowned_projects, cg.effective_workspace_pressures, cg.related_agents_for_paths = self._orig
+        cg.unowned_projects, cg.effective_workspace_pressures = self._orig
 
     def _run(self, unowned, pressures, related):
         cg.unowned_projects = lambda **k: unowned
         cg.effective_workspace_pressures = lambda paths: pressures
-        cg.related_agents_for_paths = lambda paths, base_dir: related
         paths = types.SimpleNamespace(repo_root="/repo")
-        return cg._gaps_from_coverage_gaps("c1", paths, Path("/tmp"), "idx", None)
+        # ``related``: the agents the routing table notifies for the unowned
+        # service (no primary, or it would not be unowned).
+        routing = [{"prefixes": sorted(unowned.values()), "primary": [], "also_notify": related}] if related else []
+        return cg._gaps_from_coverage_gaps("c1", paths, Path("/tmp"), "idx", None, routing)
 
     def test_unowned_and_active_service_yields_agent_gap(self) -> None:
         gaps = self._run(
@@ -128,7 +130,7 @@ class CoverageGapSourceTests(unittest.TestCase):
         cg.effective_workspace_pressures = lambda paths: []
         paths = types.SimpleNamespace(repo_root="/repo")
         # never raises into the cycle
-        self.assertEqual(cg._gaps_from_coverage_gaps("c1", paths, Path("/tmp"), "idx", None), [])
+        self.assertEqual(cg._gaps_from_coverage_gaps("c1", paths, Path("/tmp"), "idx", None, []), [])
 
 
 if __name__ == "__main__":

@@ -311,16 +311,15 @@ def validate_maintenance_agent_isolation(*, repo_root: Path) -> list[dict[str, A
     E14 — this layer used to read the three per-domain roles
     (auth/access/tenant) out of ROLE_TARGET_PAIRING. Those roles had no
     producer and were removed, so the check is re-pointed at the surface that
-    DOES select domain reviewers: the specialist touch-map plus the
+    DOES select domain reviewers: the orchestrator routing table (the one
+    path -> agent map, SE-2), the cross-cutting specialists and the
     expert-review independence top-up. The invariant is unchanged — a kernel
     maintenance agent must never be dispatched as a domain reviewer — but it
     now watches the live roster instead of a dead one.
     """
+    from .agent_routing import ROUTING_TABLE_REL, load_routing_table
     from .expert_review_gate import _INDEPENDENCE_TOPUP
-    from .specialist_review_runner import (
-        _CROSS_CUTTING_SPECIALISTS,
-        domain_touch_map,
-    )
+    from .specialist_review_runner import _CROSS_CUTTING_SPECIALISTS
     maintenance_dir = repo_root / ".claude" / "agents" / "_maintenance"
     if not maintenance_dir.exists():
         return []
@@ -329,9 +328,9 @@ def validate_maintenance_agent_isolation(*, repo_root: Path) -> list[dict[str, A
     }
     failures: list[dict[str, Any]] = []
     domain_reviewers: dict[str, str] = {}
-    for prefix, agents in domain_touch_map().items():
-        for agent in agents:
-            domain_reviewers.setdefault(agent, f"touch_map:{prefix}")
+    for row in load_routing_table(repo_root):
+        for agent in (*row["primary"], *row["also_notify"]):
+            domain_reviewers.setdefault(agent, f"{ROUTING_TABLE_REL}:{','.join(row['prefixes'])}")
     for agent in _CROSS_CUTTING_SPECIALISTS:
         domain_reviewers.setdefault(agent, "cross_cutting_specialists")
     for agent in _INDEPENDENCE_TOPUP:

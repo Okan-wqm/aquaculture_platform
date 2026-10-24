@@ -41,6 +41,7 @@ import unittest.mock
 from pathlib import Path
 from tests._helpers.declared_fixtures import segmented_ledger_bytes
 from tests._helpers.operator_acts import operator_set_profile
+from tests._helpers.routing_fixture import write_routing_table
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _KERNEL_ROOT = _REPO_ROOT / "aria-kernel"
@@ -332,6 +333,11 @@ class SpecialistGateEvidenceBinding(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory(prefix="aria-specialist-binding-")
         self.tools = Path(self._tmp.name) / "aria-tools"
         ensure_tools_dir(self.tools)
+        # The store's workspace (the unbound store's parent) carries the
+        # routing table the specialists are selected from (SE-2): the touched
+        # auth-service maps to two specialists.
+        write_routing_table(Path(self._tmp.name), {
+            "apps/auth-service/**": ("auth-security-expert", "security-reviewer")})
 
     def tearDown(self) -> None:
         self._tmp.cleanup()
@@ -375,7 +381,7 @@ class SpecialistGateEvidenceBinding(unittest.TestCase):
             result = self._run()
         # NOT a skipTest. These two cases are the ones that pin ORPHAN-HIGH-423,
         # and the fixture pins the input: touched_services is
-        # ["apps/auth-service/"], which _DOMAIN_TOUCH_MAP maps to two
+        # ["apps/auth-service/"], which the fixture routing table maps to two
         # specialists. If selection ever returns nothing, the gate under test
         # was never exercised — that has to be red, not green-with-an-asterisk.
         self.assertTrue(
@@ -404,7 +410,7 @@ class SpecialistGateEvidenceBinding(unittest.TestCase):
             result = self._run()
         # NOT a skipTest. These two cases are the ones that pin ORPHAN-HIGH-423,
         # and the fixture pins the input: touched_services is
-        # ["apps/auth-service/"], which _DOMAIN_TOUCH_MAP maps to two
+        # ["apps/auth-service/"], which the fixture routing table maps to two
         # specialists. If selection ever returns nothing, the gate under test
         # was never exercised — that has to be red, not green-with-an-asterisk.
         self.assertTrue(
@@ -644,7 +650,12 @@ class NativeSpecialistPlanBinding(unittest.TestCase):
             plan_id="plan-native-specialist-source", reviewer="auth-security-expert",
             affected_paths=[source_path], evidence_refs=[source_path + ":1"],
         )
-        subprocess.run(["git", "add", ".claude/agents/auth-security-expert.md"], cwd=repo, check=True)
+        # The workspace's routing table (SE-2) routes the touched auth-service
+        # file to its two specialists.
+        routing_table = write_routing_table(repo, {
+            "apps/auth-service/**": ("auth-security-expert", "compliance-expert")})
+        subprocess.run(["git", "add", ".claude/agents/auth-security-expert.md", routing_table.relative_to(repo).as_posix()],
+                       cwd=repo, check=True)
         subprocess.run(["git", "commit", "-q", "-m", "fixture: record the plan reviewer"], cwd=repo, check=True)
         target_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
         state = plan_status(plan_id=plan.plan_id, base_dir=tools)

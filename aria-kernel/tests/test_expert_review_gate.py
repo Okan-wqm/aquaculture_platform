@@ -20,6 +20,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from aria_kernel.agent_routing import load_routing_table
 from aria_kernel.expert_review_gate import (
     enforce_expert_consensus_gate,
     evaluate_expert_consensus,
@@ -39,10 +40,16 @@ def _verdict(expert: str, *, verdict: str = "satisfied", confidence: float = 1.0
     return row
 
 
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
 class SelectExpertReviewersTests(unittest.TestCase):
+    # The live routing table, the one path -> agent map (SE-2).
+    routing = load_routing_table(_REPO_ROOT)
+
     def test_single_domain_topped_up_to_two(self) -> None:
         experts = select_expert_reviewers(
-            affected_files=["apps/farm-service/src/farm.service.ts"],
+            affected_files=["apps/farm-service/src/farm.service.ts"], routing=self.routing,
         )
         self.assertIn("farm-expert", experts)
         self.assertGreaterEqual(len(experts), 2)
@@ -53,6 +60,7 @@ class SelectExpertReviewersTests(unittest.TestCase):
                 "apps/auth-service/src/jwt.guard.ts",
                 "apps/farm-service/src/farm.service.ts",
             ],
+            routing=self.routing,
         )
         self.assertGreaterEqual(len({*experts}), 2)
         self.assertIn("farm-expert", experts)
@@ -61,6 +69,7 @@ class SelectExpertReviewersTests(unittest.TestCase):
         with self.assertRaises(GovernanceError):
             select_expert_reviewers(
                 affected_files=["apps/farm-service/src/farm.service.ts"],
+                routing=self.routing,
                 min_reviewers=1,
             )
 

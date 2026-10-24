@@ -33,7 +33,7 @@ Two more pins close what that left open (ARIA-MEDIUM-NNN):
   rows mean to the evidence without bumping their schema_version fails.
 
 All of it lives under ``aria-kernel/tests/invariants/``, a READONLY path for
-ARIA's implementer (``implementation_safety.READONLY_PATHS``), so the agent
+ARIA's implementer (``implementation_safety.readonly_paths()``), so the agent
 whose autonomy the evidence earns can neither re-pin a changed fold nor
 declare a new authority on its own.
 """
@@ -51,7 +51,7 @@ from typing import Any
 from unittest import mock
 
 from aria_kernel import autonomy_evidence as evidence
-from aria_kernel.implementation_safety import READONLY_PATHS
+from aria_kernel.implementation_safety import readonly_paths
 
 DATA = Path(__file__).with_name("capability_semantic_equivalence")
 CORPUS = DATA / "corpus.jsonl"
@@ -386,7 +386,7 @@ class CapabilitySemanticEquivalenceTests(unittest.TestCase):
     def test_the_declaration_and_its_pins_are_readonly_to_the_implementer(self) -> None:
         for path in (evidence.SEMANTIC_AUTHORITY_PATH, "aria-kernel/tests/invariants/capability_semantic_equivalence/"):
             with self.subTest(path=path):
-                self.assertTrue(any(path.startswith(prefix) for prefix in READONLY_PATHS), path)
+                self.assertTrue(any(path.startswith(prefix) for prefix in readonly_paths()), path)
 
     def test_the_corpus_reaches_every_fold_branch(self) -> None:
         """A pin over a corpus that misses a branch would not see that branch change."""

@@ -21,10 +21,11 @@ Closes (architectural-arbiter + ai-safety-auditor + security-reviewer
 
 Tier-1 (make impossible):
   * Closed frozensets — ALLOWED_BASH_COMMANDS, DENIED_BASH_COMMANDS,
-    READONLY_PATHS, FORBIDDEN_GH_API_PATHS
+    FORBIDDEN_GH_API_PATHS; ``readonly_paths()``, derived from the one
+    authority set (``self_improvement.derived_authority_set``)
   * Path-escape via ``Path.resolve().relative_to(workspace)`` — the
     OS rejects traversal at the syscall level
-  * Bash sandbox via bwrap ``--unshare-net --ro-bind READONLY_PATHS``
+  * Bash sandbox via bwrap ``--unshare-net --ro-bind readonly_paths()``
   * Per-cycle budget reservation reconciled after every LLM call
 
 Tier-3 (detect):
@@ -39,6 +40,7 @@ import os
 import re
 import secrets
 import shutil
+import stat
 import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -49,6 +51,7 @@ from collections.abc import Mapping, Sequence
 from . import command_policy as _command_policy
 from typing import Any, Callable, Mapping
 
+from .canonical_path import expand_repo_glob, matches_repo_glob, repo_glob_directory
 from .dependency_tree import (
     DEPENDENCY_TREE_DIRNAME,
     TOOL_CACHE_DIRNAMES,
@@ -76,12 +79,16 @@ from .validation_suite import (
 # Constants — closed sets pinned by I-V9-IMMUTABLE-01 + I-V9-BASH-01 + I-V9-GH-01
 # =============================================================================
 
-# Plan ARIA-V9.0-D — READONLY_PATHS the implementer MUST NOT mutate
-# (V9.5 hard-fail check 4). Paths are POSIX-style prefixes; the
-# matcher (``verify_no_path_escape`` + path-escape guard) normalizes
-# ``..`` and resolves symlinks before comparing. Adding/removing a
-# path = ADR + arbiter approval + invariant amendment.
-READONLY_PATHS: tuple[str, ...] = (
+# Plan ARIA-V9.0-D — the paths the implementer MUST NOT mutate (V9.5
+# hard-fail check 4) are ``readonly_paths()``: these anchors, which are the
+# implementer room's own (secrets, infrastructure, ADRs, operator tooling,
+# trust anchors), plus the projection of the derived authority set
+# (PLAN-v2 B1, K13). Paths are POSIX-style prefixes; the matcher
+# (``verify_no_path_escape`` + path-escape guard) normalizes ``..`` and
+# resolves symlinks before comparing. Adding/removing a path = ADR +
+# arbiter approval + invariant amendment. Private: a consumer that read
+# the anchors alone would miss the authority set.
+_IMPLEMENTER_READONLY_ANCHORS: tuple[str, ...] = (
     ".claude/agents/",          # ai CRIT-001 self-mod (V8.13 challenger contract)
     "aria-kernel/aria_kernel/",  # kernel self-mod (Plan 009 lane)
     ".github/",                 # sec CRIT-003 workflow self-bypass
@@ -98,7 +105,7 @@ READONLY_PATHS: tuple[str, ...] = (
     # Plan ARIA-V3.1-P-1 — extended trust boundary (closes 6-validator
     # audit C-6). Every entry below is reachable from aria-implementer
     # Bash dispatch unless explicitly blocked by the bwrap --ro-bind
-    # mount layer (wrap_bash_in_sandbox iterates READONLY_PATHS).
+    # mount layer (wrap_bash_in_sandbox iterates readonly_paths()).
     "tools/aria-poc/",          # ci_executor + canonical envelopes
     "tools/aria-adapters/",     # adapter trust boundary
     # ARIA-HIGH-123 — `.git/` here is the SCOPE and HOOK unit: a plan may
@@ -151,6 +158,81 @@ READONLY_PATHS: tuple[str, ...] = (
     "docs/reviews/_registry/",
 )
 
+
+def readonly_mount_prefix(member: str) -> str:
+    """The narrowest READONLY entry that covers every path a derived-set
+    member can match. The room enforces read-only by mounts and prefixes, and
+    a mount cannot refuse a file that does not exist yet, so a glob projects
+    to the directory its literal head names (`canonical_path.repo_glob_directory`):
+    ``aria-kernel/**/conftest.py`` to ``aria-kernel/`` (a conftest.py the
+    change ADDS anywhere under it), ``tools/aria-acceptance/**`` to
+    ``tools/aria-acceptance/``. A literal member stays itself.
+
+    A glob that matches at the repository root (``*.py``, ``*/__init__.*``:
+    the top-level module names at the root import directory, B1 R3) has no
+    directory short of the whole repository, so it stays a PATTERN: no mount
+    holds it, and every path check judges a path against it
+    (`readonly_entry_for`), as the merge perimeter does.
+    """
+    directory = repo_glob_directory(member)
+    if directory is None or directory == "":
+        return member
+    return f"{directory}/"
+
+
+def _covered_by(path: str, entry: str) -> bool:
+    """Whether a READONLY entry covers ``path``: a pattern entry by the
+    repo's glob semantics, any other entry as a path prefix."""
+    if repo_glob_directory(entry) is not None:
+        return matches_repo_glob(path, entry)
+    prefix = entry.rstrip("/")
+    return path == prefix or path.startswith(prefix + "/")
+
+
+def _covers_below(surface: str, entry: str) -> bool:
+    """Whether a READONLY entry covers some path BELOW ``surface`` (a path
+    that starts ``surface/``), with `_covered_by`'s split: a prefix entry
+    when it lies under ``surface/``, a pattern entry when one of its brace
+    alternatives can match a path there. A ``**`` segment among the
+    surface's segments absorbs the rest of the surface and reaches below it;
+    otherwise the alternative's leading segments match the surface's, one by
+    one, and it has a segment left for the path below."""
+    if repo_glob_directory(entry) is None:
+        return entry.rstrip("/").startswith(surface + "/")
+    depth = len(surface.split("/"))
+    for alternative in expand_repo_glob(entry):
+        segments = alternative.split("/")
+        globstar = next((index for index, segment in enumerate(segments) if "**" in segment), None)
+        if globstar is not None and globstar <= depth:
+            head = "/".join(segments[:globstar])
+            if not head or matches_repo_glob("/".join(surface.split("/")[:globstar]), head):
+                return True
+        elif len(segments) > depth and matches_repo_glob(surface, "/".join(segments[:depth])):
+            return True
+    return False
+
+
+@lru_cache(maxsize=1)
+def readonly_paths() -> tuple[str, ...]:
+    """THE implementer perimeter: the room's own anchors and the derived
+    authority set's mount projection (``self_improvement.kernel_authority_set``),
+    so the room, the hook, the scope mint and the merge perimeter refuse every
+    member of the one set. A projected prefix a prefix entry already covers
+    adds nothing and is left out, which keeps the room's bind list minimal;
+    a pattern entry covers nothing as a prefix, so it never subsumes one.
+
+    The import sits inside the function: ``self_improvement``'s import graph
+    reaches this module, so the set is read when a consumer first asks,
+    never at import.
+    """
+    from .self_improvement import kernel_authority_set
+
+    entries = list(_IMPLEMENTER_READONLY_ANCHORS)
+    for prefix in sorted({readonly_mount_prefix(member) for member in kernel_authority_set()}, key=len):
+        if not any(repo_glob_directory(entry) is None and _covered_by(prefix.rstrip("/"), entry) for entry in entries):
+            entries.append(prefix)
+    return tuple(entries)
+
 # Plan ARIA-V9.0-D — ALLOWED_BASH_COMMANDS regex allowlist (NOT
 # blocklist). aria-implementer Bash invocations matched against this
 # set; any miss → BashAllowlistMiss raised. Regex anchors are deliberately
@@ -182,7 +264,7 @@ ALLOWED_BASH_COMMANDS: frozenset[re.Pattern[str]] = _command_policy.allowed_rege
 
 
 # Trusted repo code: a Python program whose path RELATIVE TO ITS CHECKOUT'S
-# ROOT starts with one of these. Each lies under READONLY_PATHS, so a spawn
+# ROOT starts with one of these. Each lies under readonly_paths(), so a spawn
 # with a write scope cannot create or change a file under one of them in its
 # own checkout (ro-bind + the Edit/Write hook). The checkout root is the
 # caller's fact, never a path the command spells (ARIA-HIGH-431:
@@ -795,7 +877,7 @@ def _loopback_name_binds() -> list[str]:
 def _system_ro_binds() -> list[str]:
     """`--ro-bind` flags for the system paths that exist on THIS host.
 
-    Guarded by existence for the same reason the READONLY_PATHS loop is:
+    Guarded by existence for the same reason the readonly_paths() loop is:
     bwrap aborts the whole invocation on a bind source it cannot find, so
     an unconditional bind turns a missing `/etc/ssl` into a total failure
     of containment rather than a smaller sandbox.
@@ -1135,7 +1217,7 @@ def sandbox_backend() -> str | None:
     ORPHAN-CRITICAL-451 — bwrap is the ONLY accepted backend. firejail was
     accepted here until its branch was read: it emitted
     ``firejail --quiet --private-tmp --whitelist=<workspace>`` and applied
-    **none** of the eighteen READONLY_PATHS, while this function's caller
+    **none** of the eighteen READONLY_PATHS entries of the time, while this function's caller
     treats a non-None return as proof that containment is in force and
     PLAN.md makes exactly that the S0 exit criterion. Choosing firejail —
     which the operator-facing refusal message actively suggested — therefore
@@ -1220,7 +1302,7 @@ def kernel_root_ro_binds(workspace: Path) -> list[str]:
     and the MCP relay the ``aria`` server renders as — are served from the
     kernel that spawned the sandbox (``claude_settings.kernel_code_root``),
     so that tree has to be visible inside. A workspace that IS the kernel's
-    checkout already carries it under READONLY_PATHS; a workspace that is
+    checkout already carries it under readonly_paths(); a workspace that is
     another checkout (a per-request worktree of a different tree, a trial
     task source) does not, and a client path that resolves outside every
     bind is a silent ``execvp`` failure inside. Under a system root the
@@ -1307,7 +1389,7 @@ def wrap_bash_in_sandbox(
     (``git_containment.derive_git_containment``): the binds git needs to
     read (and, for a commit-capable one, to add/commit/switch/push against
     the worktree's quarantine) in a LINKED worktree, appended after the
-    READONLY_PATHS loop so its read-only overlays are the last word.
+    readonly_paths() loop so its read-only overlays are the last word.
     Without it, git in a linked worktree fails ``not a git repository`` —
     the pre-fix production shape. ``hook_broker_socket`` is the host socket
     of the kernel-side hook broker (``hook_broker.serve_hook_broker``),
@@ -1323,13 +1405,13 @@ def wrap_bash_in_sandbox(
     Plan 032 Faz 032b — ``write_scope`` narrows the writable tree: when given,
     the workspace is mounted READ-ONLY and only the scope's directories are
     re-bound writable (``**`` / ``.`` means the whole workspace, the legacy
-    shape). READONLY_PATHS are ro-bound on top either way, so a scope can
+    shape). readonly_paths() are ro-bound on top either way, so a scope can
     never re-open the kernel. ``extra_ro_binds`` mounts host paths read-only
     (the managed CLI's binary and its spawn documents).
 
     Returns the argv prefixed with bwrap flags pinning:
       * Workspace mounted writable
-      * READONLY_PATHS mounted ro-bind
+      * readonly_paths() mounted ro-bind
       * ``--unshare-net`` always: the room's own network namespace, which
         names only loopback; with ``provider=<route key>`` its one road out
         is that route's kernel listener (the provider room, ARIA-HIGH-143,
@@ -1354,7 +1436,7 @@ def wrap_bash_in_sandbox(
     relay, whose ``HTTPS_PROXY`` leads to the kernel's CONNECT proxy for that
     route's targets alone. A direct connect from anything in the room finds
     no route, the host's loopback services and abstract sockets included
-    (ARIA-HIGH-143, ARIA-HIGH-528, ARIA-MEDIUM-563). READONLY_PATHS stay
+    (ARIA-HIGH-143, ARIA-HIGH-528, ARIA-MEDIUM-563). readonly_paths() stay
     ro-bind either way,
     so a write under them fails with EROFS at the syscall level rather than
     by the agent choosing to obey.
@@ -1368,7 +1450,7 @@ def wrap_bash_in_sandbox(
     probe_reason = _LAST_CONTAINMENT_PROBE_REASON[0]
     raise SandboxUnavailable(
         "sandbox_backend_unavailable: bwrap is not usable on this host, so "
-        "READONLY_PATHS cannot be enforced at the syscall level. Note that "
+        "readonly_paths() cannot be enforced at the syscall level. Note that "
         "'installed' is not enough — bwrap is probed for the namespaces the "
         "wrapper actually builds, and a container without unprivileged user "
         "namespaces will install it cleanly and fail every invocation."
@@ -1396,7 +1478,7 @@ def _sandbox_argv(
 
     ``workspace_view`` (ARIA-MEDIUM-432, the adapter room) replaces the
     workspace bind with the tracked view of it. The whole view is read-only,
-    so ``write_scope`` must be ``()``. The READONLY_PATHS overlays, which
+    so ``write_scope`` must be ``()``. The readonly_paths() overlays, which
     narrow a writable workspace, are not applied: each re-binds its host
     path whole, and ``.env`` is one of them. The view's root is remounted
     read-only after the last mount inside it.
@@ -1491,18 +1573,20 @@ def _sandbox_argv(
             "--bind", str(mcp_socket), SANDBOX_MCP_BROKER_SOCKET,
             "--setenv", MCP_BROKER_SOCKET_ENV, SANDBOX_MCP_BROKER_SOCKET,
         ])
-    # READONLY_PATHS mounted ro-bind on top of the writable
-    # workspace — ANY mutation under these paths gets EROFS.
-    for ro in READONLY_PATHS if workspace_view is None else ():
+    # readonly_paths() mounted ro-bind on top of the writable
+    # workspace — ANY mutation under these paths gets EROFS. A pattern entry
+    # (a top-level module name at the repository root, B1 R3) names no
+    # directory a mount could hold; the path checks judge it.
+    for ro in readonly_paths() if workspace_view is None else ():
         full = workspace / ro
-        if full.exists():
+        if repo_glob_directory(ro) is None and full.exists():
             wrap.extend(["--ro-bind", str(full), str(full)])
     for extra in extra_ro_binds:
         extra_path = Path(extra)
         if extra_path.exists():
             wrap.extend(["--ro-bind", str(extra_path), str(extra_path)])
     if git is not None:
-        # ARIA-HIGH-123 — after READONLY_PATHS: the git binds are the
+        # ARIA-HIGH-123 — after readonly_paths(): the git binds are the
         # last mounts, so their read-only overlays (config, hooks, the
         # signers file, existing refs) shadow anything bound above them,
         # and the keys-dir mask sits on top of the `aria-debts/` ro-bind.
@@ -1632,7 +1716,7 @@ def wrap_managed_claude_in_sandbox(
 
     On top of :func:`wrap_bash_in_sandbox` (system, the provider room's
     network — its own namespace, the kernel's provider gateway its one road
-    out — workspace, READONLY_PATHS, private /tmp and home) this binds the
+    out — workspace, readonly_paths(), private /tmp and home) this binds the
     things the spawn depends on and the sandbox would otherwise hide:
 
     * ``executable`` — the CLI resolved OUTSIDE the sandbox, bound read-only
@@ -1709,7 +1793,7 @@ def wrap_managed_claude_in_sandbox(
 # probe proved about this host holds for the suite:
 #
 # * the request worktree writable (nx, jest and eslint write their caches
-#   under it), READONLY_PATHS ro-bound on top — the kernel tree, the agent
+#   under it), readonly_paths() ro-bound on top — the kernel tree, the agent
 #   files, the workflows, `.git/`, `aria-config/`, `aria-debts/`, the
 #   operator tooling — EROFS at the syscall level;
 # * the checkout's git dirs in the READ-ONLY shape
@@ -1939,7 +2023,7 @@ def wrap_validation_in_sandbox(
 
     ``git`` is the READ-ONLY containment derived for ``workspace_root``
     (``derive_git_containment(commit_capable=False)``; None in a main
-    checkout, where the READONLY_PATHS `.git/` bind already makes git
+    checkout, where the readonly_paths() `.git/` bind already makes git
     reads work and writes EROFS); ``environment`` is the validation
     child's built environment (``validation_env.build_validation_env``),
     read for the PATH the command's executable resolves on; ``store`` is
@@ -2731,11 +2815,44 @@ def _check_no_main_branch_write(context: HardFailContext) -> HardFailResult:
     return _passed(name)
 
 
-def _readonly_prefix(relative: str) -> str | None:
-    """The READONLY_PATHS entry a workspace-relative POSIX path falls under, or None."""
-    for readonly in READONLY_PATHS:
-        ro = readonly.rstrip("/")
-        if relative == ro or relative.startswith(ro + "/"):
+def readonly_entry_for(relative: str) -> str | None:
+    """The ``readonly_paths()`` entry a workspace-relative POSIX path falls under, or None."""
+    for readonly in readonly_paths():
+        if _covered_by(relative, readonly):
+            return readonly
+    return None
+
+
+def _base_tree_holds_a_file_at(relative: str) -> bool:
+    """Whether the base tree, the checkout the running kernel derives its
+    authority set from (``KERNEL_CHECKOUT_ROOT``), holds a regular file at
+    ``relative``. A directory, a symlink, any other kind and a name the tree
+    does not hold are not files: each can be (or become) a directory."""
+    try:
+        mode = os.lstat(KERNEL_CHECKOUT_ROOT / relative).st_mode
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+    return stat.S_ISREG(mode)
+
+
+def readonly_entry_below(relative: str) -> str | None:
+    """The ``readonly_paths()`` entry that covers some path below a
+    workspace-relative POSIX path (`_covers_below`), or None: a scope that
+    names ``relative`` would reach into it.
+
+    B1 round 5 (program-lead decision C) — only a surface that can be a
+    directory contains anything: one the base tree holds as a directory, or
+    one it does not hold at all (unknown, so it fails closed: ``pytest`` can
+    become ``pytest/__init__.py``). A surface the base tree holds as a regular
+    FILE has no children, so it is judged as itself only (`readonly_entry_for`):
+    a root ``package.json`` is not a container of ``*/__init__.*``. A change
+    that replaced such a file by a directory would write paths the hook and
+    the merge perimeter judge one by one with `readonly_entry_for`.
+    """
+    if _base_tree_holds_a_file_at(relative):
+        return None
+    for readonly in readonly_paths():
+        if _covers_below(relative, readonly):
             return readonly
     return None
 
@@ -2754,7 +2871,7 @@ def _check_forbidden_scope_normalized(context: HardFailContext) -> HardFailResul
             relative = resolved.relative_to(workspace).as_posix()
         except ValueError:
             return _failed(name, f"outside_workspace:{raw}")
-        if _readonly_prefix(relative) is not None:
+        if readonly_entry_for(relative) is not None:
             return _failed(name, f"readonly_path_write:{relative}")
     return _passed(name)
 
@@ -2775,7 +2892,7 @@ def _check_readonly_paths_untouched_at_merge(context: HardFailContext) -> HardFa
         relative = os.path.normpath(str(raw)).replace(os.sep, "/")
         if relative.startswith(("/", "../")) or relative == "..":
             return _failed(name, f"path_escape:{raw}")
-        if _readonly_prefix(relative) is not None:
+        if readonly_entry_for(relative) is not None:
             return _failed(name, f"readonly_path_change:{relative}")
     return _passed(name, "no_changed_path_is_read_only")
 
@@ -2880,7 +2997,7 @@ def classify_declared_surface(raw: Any) -> str | None:
     ORPHAN-CRITICAL-728 — extracted from
     ``_check_kernel_self_modification_at_mint`` because the envelope mint now
     has to make the same judgement one step EARLIER: the bridge derives
-    ``allowed_scope`` as the plan's declared surfaces minus READONLY_PATHS,
+    ``allowed_scope`` as the plan's declared surfaces minus readonly_paths(),
     and "minus" and "refuse" have to agree on what a readonly surface is. Two
     copies of this rule would let a path be subtracted by one and admitted by
     the other, which is how a scope claim comes to differ from the perimeter
@@ -2896,20 +3013,23 @@ def classify_declared_surface(raw: Any) -> str | None:
     # unclassifiable rather than safe. `aria-kernel/**/*.py` passed.
     if any(ch in surface for ch in "*?["):
         return f"glob_in_declared_surface:{raw}"
-    for readonly in READONLY_PATHS:
-        ro = readonly.rstrip("/")
-        # ORPHAN-CRITICAL-461 — BOTH directions. The check used to ask
-        # only "is the declared surface inside a readonly path", so a
-        # strictly BROADER claim walked straight through: declaring one
-        # file under aria-kernel/aria_kernel/ failed, while declaring
-        # `aria-kernel` — which contains it — passed, and so did
-        # `tools`. A scope claim that CONTAINS a protected path is not
-        # safer than one that names it; it is the same write with a
-        # vaguer envelope.
-        if surface == ro or surface.startswith(ro + "/"):
-            return f"readonly_surface_declared:{surface}"
-        if ro.startswith(surface + "/"):
-            return f"declared_surface_contains_readonly:{surface}->{ro}"
+    # B1 round 4 R1 — the inside direction is the perimeter's own judge
+    # (`readonly_entry_for`), so the pattern entries the derived authority
+    # set brings (`*.py`, `*/__init__.*`: top-level names at the repository
+    # root's import directory) are refused here as the hook and the merge
+    # perimeter refuse them; a private prefix loop had admitted `json.py`.
+    if readonly_entry_for(surface) is not None:
+        return f"readonly_surface_declared:{surface}"
+    # ORPHAN-CRITICAL-461 — BOTH directions. The check used to ask only "is
+    # the declared surface inside a readonly path", so a strictly BROADER
+    # claim walked straight through: declaring one file under
+    # aria-kernel/aria_kernel/ failed, while declaring `aria-kernel` — which
+    # contains it — passed, and so did `tools`. A scope claim that CONTAINS a
+    # protected path is not safer than one that names it; it is the same
+    # write with a vaguer envelope. `pytest` contains `pytest/__init__.py`.
+    below = readonly_entry_below(surface)
+    if below is not None:
+        return f"declared_surface_contains_readonly:{surface}->{below.rstrip('/')}"
     return None
 
 
@@ -3480,14 +3600,14 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
     ),
     HardFailCheck(
         name="forbidden_scope_normalized",
-        description="Path.resolve() + symlink + glob match against READONLY_PATHS",
+        description="Path.resolve() + symlink + glob match against readonly_paths()",
         closes_findings=("arb-HIGH-004", "ai-HIGH-006"),
         check=_check_forbidden_scope_normalized,
         gate=GATE_PRE_PR_OPEN,
     ),
     HardFailCheck(
         name="kernel_self_modification_blocked_at_envelope_mint",
-        description="envelope-mint refuses when affected_surfaces ∩ READONLY_PATHS ≠ ∅",
+        description="envelope-mint refuses when affected_surfaces ∩ readonly_paths() ≠ ∅",
         closes_findings=("ai-CRIT-005", "arb-CRIT-005"),
         check=_check_kernel_self_modification_at_mint,
         gate=GATE_PRE_PR_OPEN,
@@ -3623,7 +3743,7 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
     ),
     HardFailCheck(
         name="readonly_paths_untouched_at_merge",
-        description="the PR's changed paths, as the native capture records them, avoid every READONLY_PATHS entry",
+        description="the PR's changed paths, as the native capture records them, avoid every readonly_paths() entry",
         closes_findings=("INFRA-MEDIUM-197",),
         check=_check_readonly_paths_untouched_at_merge,
         gate=GATE_PRE_MERGE,
@@ -3680,8 +3800,11 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
 
 
 __all__ = (
+    # the implementer perimeter (PLAN-v2 B1: derived from the authority set)
+    "readonly_paths",
+    "readonly_entry_for",
+    "readonly_mount_prefix",
     # constants
-    "READONLY_PATHS",
     "ALLOWED_BASH_COMMANDS",
     "COMMIT_SIGNATURE_VERIFY_TIMEOUT_SECONDS",
     "VALIDATION_OBSERVATION_CHILD",
@@ -3713,7 +3836,7 @@ __all__ = (
     "mint_unpredictable_feature_branch_name",
     "verify_no_path_escape",
     "verify_bash_command_allowed",
-    # ORPHAN-CRITICAL-728 — the READONLY_PATHS subtraction the implementation
+    # ORPHAN-CRITICAL-728 — the readonly_paths() subtraction the implementation
     # envelope derives its allowed_scope from, and the single-surface rule it
     # shares with the pre-PR-open perimeter check.
     "classify_declared_surface",

@@ -4,7 +4,7 @@ import re
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping, Sequence
 
 from .evidence_probe import GitProbeSession
 from .evidence_trust import (
@@ -736,11 +736,31 @@ def _judge_agent_ref(
     errors: list[dict[str, Any]],
     checked: list[str],
     evidence_envelopes: list[dict[str, Any]],
+    quote: str | None = None,
+    pinned_excerpts: Sequence[Mapping[str, Any]] | None = None,
 ) -> None:
     """THE rule for one agent evidence ref: grammar, repo path, line, committed at ``target_sha``.
 
     ORPHAN-HIGH-519 — the submit path and plan synthesis ask this one function,
     so a plan the kernel mints cites only refs its challenger can cite back.
+
+    WP-J slice A — when the assertion carrying ``ref`` also quotes the bytes it
+    read (``quote``), the quote is re-graded here against the excerpts the
+    mint pinned for that ref (``pinned_excerpts``, the request's
+    ``evidence_excerpts`` rows). ``evidence_trust.quote_matches_at`` is the
+    law; this function adds the untyped path's named refusals around it:
+
+    * ``agent_evidence_quote_stale`` — the mint pinned a structural skip for
+      this ref (it could not read the bytes then), so no quote can be checked
+      against them now;
+    * ``agent_evidence_quote_unpinned`` — the mint pinned excerpts, but none
+      for this ref, so the quote verifies nothing the kernel handed the agent;
+    * ``agent_evidence_quote_mismatch`` — the pinned bytes do not contain the
+      quote verbatim.
+
+    ``pinned_excerpts is None`` (a request with no excerpt block at all, the
+    legacy wire) keeps a quote unverifiable-but-accepted, exactly as the typed
+    parse carries an unpinned quote unverified.
     """
     _check_agent_ref(
         ref, root=root, errors=errors, checked=checked,
@@ -768,6 +788,56 @@ def _judge_agent_ref(
             "code": _unverified_evidence_code("agent", envelope.trust_grade),
             "ref": ref,
             "reason": str(exc),
+        })
+    if quote is not None:
+        _judge_agent_quote(ref, quote=quote, pinned_excerpts=pinned_excerpts, errors=errors)
+
+
+def _judge_agent_quote(
+    ref: str,
+    *,
+    quote: str,
+    pinned_excerpts: Sequence[Mapping[str, Any]] | None,
+    errors: list[dict[str, Any]],
+) -> None:
+    """The quote half of the agent evidence law, against the pinned excerpts.
+
+    Row matching is the typed path's rule (``typed_judgment._excerpts_by_ref_
+    index``): an excerpt row belongs to a ref when its ``path`` equals the ref
+    or the ref's path part. A skip entry for the ref is a named stale
+    rejection, never a silent pass — the mint's own skip vocabulary is the
+    whole truth about why a ref carries no bytes.
+    """
+    from .evidence_trust import quote_matches_at
+
+    path_part = (_parse_agent_ref(ref) or (str(ref), None))[0]
+    rows = [entry for entry in (pinned_excerpts or ()) if str(entry.get("path") or "") == path_part]
+    if pinned_excerpts is None:
+        return  # legacy request: no excerpt block was ever pinned
+    if not rows:
+        errors.append({
+            "code": "agent_evidence_quote_unpinned",
+            "ref": ref,
+            "reason": "the request pinned excerpts, but none for this ref",
+        })
+        return
+    skipped = [str(entry.get("skipped")) for entry in rows if entry.get("skipped")]
+    if skipped:
+        errors.append({
+            "code": "agent_evidence_quote_stale",
+            "ref": ref,
+            "reason": f"pinned excerpt skipped at mint: {', '.join(sorted(set(skipped)))}",
+        })
+        return
+    verified = any(
+        quote_matches_at(quote, excerpt_content=str(entry.get("content") or "")) is True
+        for entry in rows
+    )
+    if not verified:
+        errors.append({
+            "code": "agent_evidence_quote_mismatch",
+            "ref": ref,
+            "reason": "the quote is not inside the bytes pinned for this ref",
         })
 
 
@@ -822,12 +892,51 @@ def admissible_agent_evidence_refs(
     return AgentEvidenceAdmission(tuple(admitted), tuple(refused))
 
 
+# WP-J landing (ARIA-MEDIUM-688, port of fix2 3e559bf6b's map) — an R4
+# row's ``expected`` colour, mapped onto the ONE run status that proves it
+# (validation_runs_ledger.VALIDATION_RUN_STATUSES is ok|failed|timeout).
+# Red is a FAILED run — the finding-reproduction law refuses a timeout as
+# noise; green is an OK run — the fix-verification law. A ``timeout`` maps
+# from no colour, so a recorded timeout backs neither expectation. The
+# map's keys are the closed set of colours the binder grades.
+_REPRODUCTION_EXPECTED_RUN_STATUS: dict[str, str] = {"red": "failed", "green": "ok"}
+
+
+def _recorded_reproduction_run_status(
+    recipe_id: str, *, base_dir: str | Path
+) -> str | None:
+    """The recorded run status behind a recipe, or None when no recorded
+    observation proves it.
+
+    ONE binding, the same one ``finding.record_finding_reproduction``
+    applies at the outcome fold: the experiment-observation ledger (written
+    by ``experiment.run_experiment``) carries ``recipe_ref`` and
+    ``run_status`` per recorded run, and only an observation that MATCHED
+    its contract proves anything. Latest first — a re-recorded run
+    supersedes, exactly as the finding-side resolver reads it back.
+    """
+    from .experiment import list_experiment_observations
+
+    try:
+        observations = list_experiment_observations(base_dir=base_dir)
+    except GovernanceError:
+        return None
+    for observation in reversed(observations):
+        if str(observation.get("recipe_ref") or "") != recipe_id:
+            continue
+        if observation.get("matched") is not True:
+            continue
+        return str(observation.get("run_status") or "") or None
+    return None
+
+
 def validate_agent_response_evidence(
     *,
     response: dict[str, Any],
     workspace_root: str | Path,
     request: dict[str, Any] | None = None,
     probe_session: GitProbeSession | None = None,
+    base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """Re-fetch every evidence ref claimed by an agent response and verify it exists in the repo.
 
@@ -865,12 +974,22 @@ def validate_agent_response_evidence(
     # compared against an anchor the submitter did not cite.
     probe_session = probe_session if probe_session is not None else GitProbeSession()
     target_sha = _request_target_sha(request)
+    # WP-J slice A — the excerpts the mint pinned for this request, when it
+    # pinned any (``agent_invocations`` writes ``evidence_excerpts`` beside
+    # the refs). Matrix assertions that quote the bytes they read are
+    # re-graded against these; a request without the block (legacy wire)
+    # keeps quotes unverifiable-but-accepted.
+    pinned_excerpts_raw = (request or {}).get("evidence_excerpts")
+    pinned_excerpts: Sequence[Mapping[str, Any]] | None = None
+    if isinstance(pinned_excerpts_raw, list):
+        pinned_excerpts = [row for row in pinned_excerpts_raw if isinstance(row, Mapping)]
 
-    def judge(ref: str) -> None:
+    def judge(ref: str, quote: str | None = None) -> None:
         _judge_agent_ref(
             ref, root=root, target_sha=target_sha, probe_session=probe_session,
             allow_kernel_artifacts=allow_kernel_artifacts, errors=errors,
             checked=checked, evidence_envelopes=evidence_envelopes,
+            quote=quote, pinned_excerpts=pinned_excerpts,
         )
 
     response_refs = response.get("evidence_refs") or []
@@ -903,13 +1022,58 @@ def validate_agent_response_evidence(
             if not isinstance(entry_refs, list):
                 errors.append({"code": "agent_matrix_evidence_refs_not_list", "id": entry.get("id")})
                 continue
-            for ref in entry_refs:
+            # WP-J slice A — the assertion row's quotes, aligned by index with
+            # its evidence_refs (the shape agent_contract validates; a
+            # misaligned quotes list is refused there). A ref with no quote at
+            # its index is judged as before; the quote laws apply only where
+            # the agent claimed verbatim bytes.
+            entry_quotes = entry.get("quotes")
+            quotes_aligned: list[Any] = (
+                list(entry_quotes) if isinstance(entry_quotes, list) else []
+            )
+            for position, ref in enumerate(entry_refs):
                 if not isinstance(ref, str) or not ref.strip():
                     errors.append(
                         {"code": "agent_matrix_evidence_ref_not_string", "id": entry.get("id")}
                     )
                     continue
-                judge(ref)
+                quote = quotes_aligned[position] if position < len(quotes_aligned) else None
+                judge(ref, quote if isinstance(quote, str) and quote.strip() else None)
+
+    # WP-J review — the R4 byte law. agent_contract grades the
+    # reproduction block for shape only ("the submit re-grade checks the
+    # bytes"); these are the bytes: a reproduction row resolves through the
+    # recorded experiment observations — the same binding
+    # finding.record_finding_reproduction reads at the outcome fold, applied
+    # BEFORE the verdict votes — and the recorded run's status must be the
+    # one its expected colour maps to (_REPRODUCTION_EXPECTED_RUN_STATUS:
+    # red -> failed, green -> ok; a timeout backs neither). A recipe that
+    # exists nowhere and was never run is refused by name, never ranked as
+    # the top evidence class.
+    for entry in matrix if isinstance(matrix, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        reproduction = entry.get("reproduction")
+        if not isinstance(reproduction, dict):
+            continue
+        recipe_id = str(reproduction.get("recipe_id") or "")
+        expected = str(reproduction.get("expected") or "")
+        if not recipe_id or expected not in _REPRODUCTION_EXPECTED_RUN_STATUS:
+            continue  # the shape layer refuses malformed blocks by name
+        where = {"id": entry.get("id"), "recipe_id": recipe_id, "expected": expected}
+        if base_dir is None:
+            errors.append({"code": "agent_matrix_reproduction_ledger_required", **where})
+            continue
+        run_status = _recorded_reproduction_run_status(recipe_id, base_dir=base_dir)
+        if run_status is None:
+            errors.append({"code": "agent_matrix_reproduction_unrecorded", **where})
+            continue
+        if run_status != _REPRODUCTION_EXPECTED_RUN_STATUS[expected]:
+            errors.append({
+                "code": "agent_matrix_reproduction_status_mismatch",
+                "run_status": run_status,
+                **where,
+            })
 
     # Cross-check: when a request is provided, every ref the agent
     # claims must either live inside `allowed_scope` OR be one of the

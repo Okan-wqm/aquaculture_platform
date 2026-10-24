@@ -523,6 +523,22 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     # drain snapshots (request_admission.admit_request); read by the door
     # itself and by the daily report's Request Admission section.
     StateSurface("agent_invocation_admissions", "agent-invocations/admissions.jsonl", "ledger", "request_admission", "runtime", True, "append_fsync", True, profile_surface="agent_claim", observe_class="action"),
+    # WP-J slice C — the judgment funnel's routing rows: one per sampled
+    # finding per cycle (tier, seats, holds). Write-driving: the tier-2
+    # completion pass re-reads the rows to re-offer a group its missing
+    # seat, and the funnel's envelope budget counts tonight's routed seats
+    # from them (judgment_funnel).
+    StateSurface("judgment_funnel_routing", "judgment-funnel/routing.jsonl", "ledger", "judgment_funnel", "runtime", True, "append_fsync", True, profile_surface="agent_claim", observe_class="action"),
+    # WP-J slice C — the verdict cache: (finding_fingerprint, code_hash of
+    # the cited blobs at the anchor) → the settled verdict's group. A hit
+    # mints nothing; a blob change invalidates (judgment_cache).
+    StateSurface("judgment_funnel_cache", "judgment-funnel/verdict-cache.jsonl", "ledger", "judgment_funnel", "runtime", True, "append_fsync", True, profile_surface="agent_claim", observe_class="observation"),
+    # WP-J slice D — the ONE flip table: per stability group, the original
+    # vs re-ask verdict, anchor flips flagged. Write-driving: the weight
+    # temper (role_fitness.load_flip_rates) and the anchor-flip promotion
+    # bar (finding promotion) read it back, so losing it would reset the
+    # temper and un-gate every unstable anchor (stability_reask).
+    StateSurface("stability_flips", "stability/stability-flips.jsonl", "ledger", "stability_reask", "runtime", True, "append_fsync", True, profile_surface="agent_claim", observe_class="observation"),
     StateSurface("agent_work_journal", "agent-invocations/work-journal.jsonl", "ledger", "work_journal", "runtime", True, "append_fsync", True, profile_surface="agent_claim", observe_class="action"),
     # Plan 032 Faz 032c — checkpoints (observation), sessions, external-effect intents/receipts and recovery decisions (write-driving).
     StateSurface("checkpoints_index", "checkpoints/index.jsonl", "ledger", "checkpoints", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
@@ -540,6 +556,13 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     # resolved, quarantined), folded by runtime_signal_bridge. The bridge used
     # to keep one undeclared JSON file per signal, which no publish carried.
     StateSurface("runtime_signal_events", "runtime-signals/events.jsonl", "ledger", "runtime_signals", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation"),
+    # RW-1 corrective R5 — the runtime watchdog's read stamp: the instant its
+    # last successful runtime read judged through. The next sweep judges the
+    # interval from it to now, so consecutive sweeps judge consecutive
+    # windows. Carried (runtime_state), because the cycle runs on a fresh
+    # job each time and a stamp the publish dropped would make every sweep
+    # a first read; written only by aria_watchdog.run_watchdog_sweep.
+    StateSurface("watchdog_runtime_read", "watchdog/runtime-read.json", "runtime_state", "watchdog_runtime", "runtime", True, "rewrite_fsync", True, profile_surface="observation", observe_class="observation"),
     StateSurface("gateway_heartbeat", "gateway/heartbeat.json", "artifact", "gateway", "runtime", True, "rewrite_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("gateway_telemetry", "gateway/telemetry.prom", "artifact", "gateway", "runtime", True, "rewrite_fsync", False, profile_surface="observation", observe_class="observation"),
     # Plan 032 Faz 032g — MCP call ledger (client + server side) and server quarantine.

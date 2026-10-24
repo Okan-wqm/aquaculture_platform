@@ -392,6 +392,30 @@ const PRE_PHASE6_SHAS: ReadonlySet<string> = new Set([
   // ledger: two clones can mint the same sequence with no knowledge of each
   // other, and only the merge driver's duplicate-id refusal caught it.
   'ac780802', // fix(admin-panel): a price sheet that failed was offered anyway, at a guessed price (trailer names ADMIN-HIGH-135; finding is ADMIN-HIGH-159)
+  // 2026-10-22 WP-J landing (PLAN-v2 F0.3, branch landing/aria-wp-j-l). Added
+  // by PROGRAM-LEAD DECISION (WP-J landing item 5, under the operator's ARIA
+  // quality & learning program v2), not by the author's own judgement — the
+  // 9fb8efce entry above states why that distinction matters.
+  //
+  // Three `fix/aria-wp-j` commits are typed `fix(aria):` / `feat(aria):` and
+  // carry `Closes: stubs/<slug>.json (registration reserved …)`, a form this
+  // grammar does not parse: when they were written the stubs had no registry
+  // ids, and registration was reserved to the integration run. The findings
+  // are real and registered since; the landing-notes commit of the same PR
+  // closes each one with a parseable trailer (`0fab74f5` → ARIA-HIGH-719,
+  // `194d7faf` → ARIA-MEDIUM-720, `0a87da08` → ARIA-HIGH-721).
+  //
+  // Why it cannot be repaired instead of allowlisted: the gate validates the
+  // whole PR range, so no follow-up commit can satisfy it, and giving the three
+  // commits new messages means rewriting the WP-J history every later landing
+  // commit is built on, which the landing's rules forbid.
+  //
+  // The ROOT CAUSE is the stub-before-registration workflow: a commit was
+  // written before its finding had an id. The landing registers every WP-J
+  // finding (ARIA-HIGH-787/788 were the last two) before its PR opens.
+  '0fab74f5', // fix(aria): method diversity is the single-provider anchor and quorum leg (finding ARIA-HIGH-719)
+  '194d7faf', // feat(aria): the arbiter weighs evidence, a dissenter gets one bounded rebuttal, and the panel has a diversity guard (finding ARIA-MEDIUM-720)
+  '0a87da08', // feat(aria): four method seats join every E14 table and the panel mints whole or not at all (finding ARIA-HIGH-721)
 ]);
 
 interface Commit {

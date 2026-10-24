@@ -794,6 +794,17 @@ def sweep_lease_lifecycle_for_human_required(
 # flooding operator triage with sampling-order noise.
 CONSENSUS_UNCERTAINTY_SEVERITY = {
     "judge_disagreement": "HIGH",
+    # WP-J fix round — an anchor-grade group that agreed on argument alone
+    # (empty evidence union): the truth candidate is unfalsifiable, so it
+    # escalates like a disagreement — a human must look at the finding.
+    "anchor_evidence_empty": "HIGH",
+    # WP-J fix round — a panel whose seats echoed each other: the agreement
+    # is one reading wearing N receipts; a human must see the echo.
+    "panel_echo": "HIGH",
+    # WP-J B-2 — the evidence-weighing arbiter could not weigh the
+    # load-bearing assertions: an open question nobody may close by
+    # fatigue. Escalates like a disagreement.
+    "unverifiable": "HIGH",
     "low_confidence": "MEDIUM",
     # Plan 024 §C — a judge citing evidence that does not resolve in the repo is
     # a fabrication signal; the cheap tier must not be rubber-stamped on it.
@@ -815,7 +826,8 @@ CONSENSUS_UNCERTAINTY_SEVERITY = {
     # Emitted since Plan 024 and dropped as benign until it was named here.
     "observer_identity_missing": "HIGH",
     # Typed-judgment plan Phase 6 — the agreeing judges did not include two
-    # calibrated judges of distinct models. Labelling work, not adjudication:
+    # distinct calibrated judge seats (PLAN-v2 F0.8: the ONE seat law,
+    # feedback_store.distinct_judge_seats). Labelling work, not adjudication:
     # the label queue reads it first; the sweep records at most
     # `max_uncalibrated_escalations_per_cycle` of them per sweep so the day
     # `enforce` switches on cannot flood the escalation ledger.

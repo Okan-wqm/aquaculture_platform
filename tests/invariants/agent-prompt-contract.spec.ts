@@ -41,7 +41,8 @@ describe('agent prompt contract invariants', () => {
   });
 
   it('ARIA prompts carry the canonical ARIA reference set', () => {
-    // E17-a: the four runtime-dispatched judge/worker agents read the
+    // E17-a: the runtime-dispatched judge/worker agents (and WP-J's three
+    // panel method seats) read the
     // generated contract digest instead of cold-reading SPEC + CONTRACTS +
     // PIPELINES + layer-1-aria (125,735 bytes of @-refs, replaced by an 8.5KB
     // digest). They keep the layer-2 envelope ref because the verdict schema,
@@ -53,6 +54,11 @@ describe('agent prompt contract invariants', () => {
       '.claude/agents/aria-adversarial-judge.md',
       '.claude/agents/aria-cross-reviewer.md',
       '.claude/agents/aria-worker.md',
+      // WP-J method seats of the judging panel (0a87da08c): one judge's
+      // reading each, so they read the same one digest, not the full set.
+      '.claude/agents/aria-bug-hunter.md',
+      '.claude/agents/aria-impact-assessor.md',
+      '.claude/agents/aria-test-writer.md',
     ]);
     const ariaAgents = activeAgents.filter(
       (file) =>

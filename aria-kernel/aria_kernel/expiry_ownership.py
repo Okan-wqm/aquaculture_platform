@@ -150,6 +150,19 @@ ROLE_OWNERSHIP: Mapping[str, Ownership] = {
         OWNER_KERNEL_REMINT, "anchor_stale", "the fan-out counts dead rows as dispatched", _fanout_judge,
         _FANOUT_JUDGE,
     ),
+    # WP-J slice B's four method seats — the same fan-out dedupe owns their
+    # dead rows (judge_fanout._existing_judge_dispatches counts a dead seat
+    # as dispatched), so the kernel re-mints a live subject exactly like the
+    # two routine judges. They joined INVOCATION_ROLES without this table
+    # (third E14-table drop in the package); the closed-table pin names it.
+    **{
+        role: Ownership(
+            OWNER_KERNEL_REMINT, "anchor_stale",
+            "the fan-out counts dead rows as dispatched", _fanout_judge,
+            _FANOUT_JUDGE,
+        )
+        for role in ("architecture", "bug_hunt", "impact_assessment", "reproduction_test")
+    },
     "maintenance_utility": Ownership(
         OWNER_REOFFER, "autonomy_orchestrator",
         "the projection re-mints a dead request with remint_of while its queue item is pending; "

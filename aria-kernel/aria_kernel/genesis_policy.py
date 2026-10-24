@@ -120,11 +120,37 @@ JUDGMENT_PIPELINE_DEFAULTS: dict[str, Any] = {
     "calibration_bins": 10,
     # Typed-judgment plan Phase 6 — `measure_only` keeps the legacy gate and
     # records what `enforce` would exclude; `enforce` gives closing authority
-    # to calibrated judges of distinct models alone. The cycle downgrades
-    # `enforce` to `measure_only`, on the record, while fewer than two such
-    # judges exist (`effective_calibration_gate`).
+    # to calibrated judge seats alone. The cycle downgrades `enforce` to
+    # `measure_only`, on the record, while fewer than two calibrated seats
+    # exist (`effective_calibration_gate`, asking the ONE seat law, F0.8).
     "calibration_gate": "measure_only",
     "max_uncalibrated_escalations_per_cycle": 5,
+    # WP-J slice C — the judgment funnel (judgment_funnel.route_judgment_sample,
+    # the ONE routing owner called between generate_judgment_sample and
+    # dispatch_judges_for_sample). `funnel_enabled` FALSE is the shipped
+    # default: with the block absent or off, the judgment pipeline is
+    # bit-for-bit legacy (the golden test). Activation is the operator's
+    # override. The rest of the keys document the funnel's law and are
+    # consumed only while it is enabled.
+    "funnel_enabled": False,
+    # ONE per-night envelope budget across ALL judgment lanes, ENVELOPE-
+    # denominated (judge envelopes this night may mint in total) and an
+    # explicit function of the measured drain: the allowance actually
+    # granted is min(this cap, ceil(measured drain_per_day)). Sized to the
+    # measured ~9-13/night (the 462-vs-~9 week is the finding); the drain
+    # verdict at design time was DEAD (last judgment-lane mint 2026-10-01,
+    # 1382 agent_request_refused_stale_anchor refusals), so the cap binds
+    # long before the old per-role ceiling ever did.
+    "funnel_nightly_envelope": 13,
+    # Tier 4 (full panel + debate) is quota-bound: at most this fraction of
+    # the night's routed decisions (operator funnel law; <= 0.10).
+    "funnel_tier4_quota": 0.10,
+    # Wall-clock seconds the tier-1 Jev shadow may spend per cycle
+    # (system_one.ask J2; the score is recorded, never routed on yet).
+    "funnel_tier1_budget_seconds": 15.0,
+    # LOW findings routed to the full tier per cycle, purely for calibration
+    # (the sampler's CALIBRATION_STRATIFIED_STRATEGY is the existing law).
+    "funnel_calibration_sample_per_cycle": 1,
 }
 
 
@@ -136,27 +162,48 @@ def effective_calibration_gate(
     Typed-judgment plan Phase 6 (review H4) — a downgrade keyed on a row
     count leaves every judge under its own floor and floods the escalation
     ledger the day it switches; the criterion is the thing `enforce` needs:
-    two `calibrated` judges of distinct models, read from this cycle's
-    in-memory `score_judges` result (`{judge_id: {"calibration_status",
-    "model"}}` or `{judge_id: status}`).
+    two `calibrated` judges, read from this cycle's in-memory `score_judges`
+    result (`{judge_id: {"calibration_status", "model"}}` or
+    `{judge_id: status}`).
+
+    PLAN-v2 F0.8 — "two calibrated judges" is answered by the ONE seat law
+    (``feedback_store.distinct_judge_seats``), the same function the
+    calibrated closing quorum and the anchor ask, so this downgrade can
+    never disagree with the gate it downgrades for. A single provider
+    whose two calibrated seats run its one model (or share one method) has
+    closing authority; an entry whose receipt names neither a model nor a
+    method seats nothing. The leg ``observation_span`` reports is recorded
+    as ``quorum_leg``, a descriptor that gates nothing.
     """
-    calibrated: dict[str, str] = {}
+    from .feedback_store import CALIBRATED_QUORUM_MIN_JUDGES, distinct_judge_seats, observation_span
+
+    calibrated: list[dict[str, str]] = []
     for judge_id, entry in (judge_calibration or {}).items():
         status = entry.get("calibration_status") if isinstance(entry, dict) else entry
-        model = str(entry.get("model") or "") if isinstance(entry, dict) else ""
-        if status == "calibrated":
-            calibrated[str(judge_id)] = model
-    distinct_models = {model for model in calibrated.values() if model}
+        if status != "calibrated":
+            continue
+        calibrated.append({
+            "judge_id": str(judge_id),
+            "model": str(entry.get("model") or "") if isinstance(entry, dict) else "",
+            "method": str(entry.get("method") or "") if isinstance(entry, dict) else "",
+        })
     row = {
         "configured": configured,
-        "calibrated_judges": sorted(calibrated),
-        "distinct_models": sorted(distinct_models),
+        "calibrated_judges": sorted(r["judge_id"] for r in calibrated),
+        "distinct_models": sorted({r["model"] for r in calibrated if r["model"]}),
+        "distinct_methods": sorted({r["method"] for r in calibrated if r["method"]}),
     }
     if configured != "enforce":
         return {**row, "effective": "measure_only", "reason": "configured_measure_only"}
-    if len(calibrated) < 2 or len(distinct_models) < 2:
-        return {**row, "effective": "measure_only", "reason": "fewer_than_two_calibrated_judges_of_distinct_models"}
-    return {**row, "effective": "enforce", "reason": "calibrated_quorum_available"}
+    leg = observation_span(tuple(calibrated))[0]
+    if distinct_judge_seats(calibrated) < CALIBRATED_QUORUM_MIN_JUDGES:
+        return {
+            **row,
+            "effective": "measure_only",
+            "reason": "fewer_than_two_calibrated_seats",
+            "quorum_leg": leg,
+        }
+    return {**row, "effective": "enforce", "reason": "calibrated_quorum_available", "quorum_leg": leg}
 
 
 def judgment_pipeline_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
@@ -542,13 +589,28 @@ def rhythm_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
 
 WATCHDOG_PULL_DEFAULTS: dict[str, Any] = {
     "enabled": True,
-    # None → disclosed skip (source_unconfigured). The URL is machine-local
-    # (a docker-bridge address on the droplet), so it lives in the operator
-    # override, never in a tracked default.
-    "observability_base_url": None,
-    # The API key itself NEVER enters policy or ledgers — only the NAME of
-    # the environment variable the runner exports.
-    "api_key_env": "ARIA_OBSERVABILITY_API_KEY",
+    # RW-1 — the droplet Prometheus's read-only HTTP API, published on the
+    # host's loopback only (docker-compose.droplet.yml `127.0.0.1:9090`;
+    # install step: docs/runbooks/aria-runner-rebuild.md). The runner shares
+    # that host, so the address is the same on every ARIA host and is the
+    # tracked default. aria_watchdog.pull_observability_metrics refuses any
+    # origin that is not a loopback IP literal (a named hold, no socket),
+    # and an unset or unreachable source is a named hold too, never silence.
+    "observability_base_url": "http://127.0.0.1:9090",
+    # No credential field, not even an env-var name: ARIA holds no shared
+    # internal API key (RW-1); the source needs none.
+    # RW-1 corrective R5 — the runtime detectors judge the interval since the
+    # previous successful runtime read (aria_watchdog.run_watchdog_sweep owns
+    # that window and its read stamp), not a fixed span: the cycle chain
+    # sweeps every min_interval_hours (6h default, 2h floor) and the opener
+    # throttle can skip sweeps, so no constant matches the cadence. This is
+    # only the BOUND: what the first read judges, and the most any read
+    # judges — a longer interval judges the bound and names the span it
+    # left unjudged. A week covers a skipped day and a paused weekend and
+    # stays inside the droplet Prometheus retention (15d). Bounded by the
+    # cycle interval's own bounds (RHYTHM_BOUNDS min_interval_hours); the
+    # threshold and the minimum volume below apply to the judged window.
+    "window_bound_seconds": 7 * 24 * 3600,
     "http_5xx_share_threshold": 0.05,
     "http_min_requests": 50,
 }
@@ -564,10 +626,22 @@ def watchdog_pull_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
             (Path(__file__).resolve().parent / "data" / DEFAULT_FILENAME).read_text(encoding="utf-8")
         )
         merged = raw if isinstance(raw, dict) else {}
+    from .tool_registry import GovernanceError
+
     block = dict(WATCHDOG_PULL_DEFAULTS)
     raw_block = merged.get("watchdog_pull")
     if isinstance(raw_block, dict):
         block.update({k: raw_block[k] for k in WATCHDOG_PULL_DEFAULTS if k in raw_block})
+    # The bound is written into the query the puller sends, so it is an
+    # integer number of seconds inside the cycle interval's bounds, refused
+    # by name otherwise — never clamped, never passed through as text.
+    bound = block["window_bound_seconds"]
+    _, low_hours, high_hours = RHYTHM_BOUNDS["min_interval_hours"]
+    if type(bound) is not int or not low_hours * 3600 <= bound <= high_hours * 3600:
+        raise GovernanceError(
+            f"watchdog_pull.window_bound_seconds={bound!r} must be int seconds in "
+            f"[{int(low_hours * 3600)}, {int(high_hours * 3600)}]"
+        )
     return block
 
 

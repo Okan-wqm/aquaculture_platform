@@ -1058,6 +1058,143 @@ authoritative is not installed on the droplet.
   read through its published verdict with a freshness check, or its container judgement retired in
   favour of the root probe), an invariant names that owner, and the alert rules read only it.
 
+## ARIA-MEDIUM-801
+
+The planner seats' target agents have three production owners: `plan_round_controller.DEFAULT_PLANNER_AGENTS`,
+`cross_review_bridge` (`CROSS_REVIEW_ROLE`, `PRIMARY_REVISION_ROLE`) and
+`convergent_planning_bridge.PLANNER_ROLES` each spell the role-to-agent pairs for primary_plan,
+challenger_plan and cross_review. If a planner agent is renamed, one mint path changes and the
+others do not.
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-13.
+- Raised by: WPJ-RED appellate, carried forward from the round-1 ssot dissent (dissent item 2).
+  Registered by WPJ-FAILOPEN before PR #2073 merges.
+- Evidence:
+  - `aria-kernel/aria_kernel/plan_round_controller.py:28-32`
+  - `aria-kernel/aria_kernel/cross_review_bridge.py:78-82`
+  - `aria-kernel/aria_kernel/convergent_planning_bridge.py:28-31`
+- Rule: one owner per concept (PLAN-v2 F0.9b ownership atlas). Close: one table maps a planning role
+  to its target agent. Both bridges read it, and a pin asserts that no second literal pair exists.
+  `agent_surface.py:218` already cites `DEFAULT_PLANNER_AGENTS["cross_review"]` as the reference.
+
+## ARIA-MEDIUM-802
+
+The `(run_id, finding_id, judgment_group_id)` join key has four copies:
+`outcome_truth._outcome_key` (with an inline tuple beside it), `feedback_store._judgment_key`,
+`judge_calibration._group_key` and `label_queue._key`. `agent_surface` also lists the judgment
+seats twice, once as `JUDGE_ROLES` and once as the keys of `EXPERT_METHODS`, and no pin checks that
+the two sets are equal.
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-13.
+- Raised by: WPJ-RED appellate, non-blocking ssot dissent (dissent item 3). The `outcome_truth` copy
+  came with WP-J `05d99ba06`. Registered by WPJ-FAILOPEN before PR #2073 merges.
+- Evidence:
+  - `aria-kernel/aria_kernel/outcome_truth.py:68-73`
+  - `aria-kernel/aria_kernel/outcome_truth.py:179`
+  - `aria-kernel/aria_kernel/feedback_store.py:466-472`
+  - `aria-kernel/aria_kernel/judge_calibration.py:144-149`
+  - `aria-kernel/aria_kernel/label_queue.py:73-74`
+  - `aria-kernel/aria_kernel/agent_surface.py:128-141`
+  - `aria-kernel/aria_kernel/agent_surface.py:159-171`
+- Rule: one owner per concept. Close: the other three readers call `feedback_store._judgment_key`,
+  whose docstring already calls it "the identity every judgment lane already keys on".
+  `JUDGE_ROLES` derives from `EXPERT_METHODS`, or a pin asserts that the two sets are equal. Today
+  `tests/test_panel_seats.py` checks only that the four new seats are members of both.
+
+## ARIA-HIGH-805
+
+`judge_fanout._existing_judge_dispatches` and `_judged_pairs` wrap their ledger reads in
+`except Exception` and return an empty set. An unreadable `agent_invocation_requests` ledger or
+feedback store then reads as "nothing minted" or "nothing judged", and the nightly fan-out re-mints
+judges for groups and findings that are already dispatched or answered (fail-open, the
+ARIA-HIGH-788 class).
+
+- Severity: HIGH; owner: Okan-wqm; deadline: 2026-11-13.
+- Raised by: WPJ-FAILOPEN appellate round 2, carry-forward item 1 (repeats appellate-r1 item 1;
+  security probe P9 found no registry row). Registered before PR #2073 merges. Both readers predate
+  WP-J and are on main.
+- Evidence:
+  - `aria-kernel/aria_kernel/judge_fanout.py:203-216`
+  - `aria-kernel/aria_kernel/judge_fanout.py:219-247`
+  - `aria-kernel/aria_kernel/ledger.py:94-109`
+- Rule: fail closed on an unreadable ledger. Close: both readers catch only `ledger_read_faults()`
+  (or a declared reader-fault set built from it) and refuse the mint with a named `GovernanceError`
+  that the cycle records as a blocked step, as `_rebuttal_already_minted` (`:1194-1218`) already
+  does. A mutation test kills the `except Exception` mutant of each.
+
+## ARIA-MEDIUM-807
+
+`request_admission._measure` holds a second definition of an unreadable cooldown ledger: it catches
+`(GovernanceError, OSError, ValueError)` around `provider_outage.cooled_providers`. That tuple
+disagrees with `provider_cooldown.cooldown_reader_faults()`. It absorbs every `ValueError`, reader
+defects included, and lets `LedgerIntegrityError` and `LedgerReadLimitError` (both `RuntimeError`)
+escape.
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-13.
+- Raised by: WPJ-FAILOPEN appellate round 2, carry-forward item 2 (repeats appellate-r1 item 2,
+  "fold or file"; arch probe p4). Registered before PR #2073 merges.
+- Evidence:
+  - `aria-kernel/aria_kernel/request_admission.py:324-327`
+  - `aria-kernel/aria_kernel/provider_cooldown.py:339-352`
+  - `aria-kernel/aria_kernel/ledger.py:84-89`
+  - `aria-kernel/aria_kernel/tool_registry.py:124`
+- Rule: one owner per concept. Close: the `cooled_providers` arm catches `cooldown_reader_faults()`.
+  A test drives a `LedgerIntegrityError` and a plain `ValueError` through it and pins that the first
+  records `cooldown_fault` and the second propagates. The capacity arm (`:321`) reads a different
+  ledger and is judged on its own declared fault set in the same fix.
+
+## ARIA-MEDIUM-809
+
+The judge rebuttal round's one-per-seat bound matches the untrusted substring
+`REBUTTAL_MARKER in suggested_prompt`. The dissenter's own first-round envelope embeds the adapter
+finding's `message` verbatim, so a finding message that contains "REBUTTAL ROUND 1" marks the seat
+as already rebutted and suppresses its one rebuttal.
+
+- Severity: MEDIUM (security); owner: Okan-wqm; deadline: 2026-11-13.
+- Raised by: WPJ-FAILOPEN appellate round 2, carry-forward item 3 (security probe P4). It comes from
+  WP-J commit `194d7faf3`, which ships in #2073. Registered before PR #2073 merges.
+- Evidence:
+  - `aria-kernel/aria_kernel/judge_fanout.py:1123`
+  - `aria-kernel/aria_kernel/judge_fanout.py:1213`
+  - `aria-kernel/aria_kernel/judge_fanout.py:121`
+  - `aria-kernel/aria_kernel/judge_fanout.py:945`
+- It fails closed (a false `rebuttal_already_minted` skip, never a second rebuttal), so it is not
+  the ARIA-HIGH-788 class. The harm: an adapter-controlled string can deny a dissenter its rebuttal.
+  Judge rationales are also embedded in the arbiter and anchor prompts (`:697`, `:945`); those match
+  only when the arbiter seat is the dissenting agent.
+- Rule: untrusted text is data, never a control signal. Close: the rebuttal envelope carries a
+  structured marker field (or the check is an exact first-line match of the kernel-rendered prompt).
+  A test mints a first-round envelope whose message contains the marker and pins that the rebuttal is
+  still minted.
+
+## ARIA-MEDIUM-811
+
+A non-UTF-8 byte in a hash-chained ledger raises `UnicodeDecodeError` from the ledger primitives'
+`read_text(encoding="utf-8")` calls. `UnicodeDecodeError` is outside `ledger_read_faults()`, so a
+reader that fails closed on store faults aborts the cycle with an undeclared exception instead.
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-13.
+- Raised by: WPJ-FAILOPEN appellate round 2, carry-forward item 4. Registered before PR #2073
+  merges. Reproduced at `fd5fc221e`: a file with one valid row and one `0xFF 0xFE` line makes both
+  `load_jsonl_verified` and `read_jsonl` raise `UnicodeDecodeError`, which
+  `except ledger_read_faults()` does not catch. `_verify_file_or_raise` maps only `OSError`
+  (`:2208`).
+- Evidence:
+  - `aria-kernel/aria_kernel/ledger.py:934`
+  - `aria-kernel/aria_kernel/ledger.py:952`
+  - `aria-kernel/aria_kernel/ledger.py:2200-2214`
+  - `aria-kernel/aria_kernel/ledger.py:94-109`
+- It fails closed (the cycle aborts). Rule: `ledger_read_faults()` is the closed set of store faults.
+  Close (owner fix in the primitive, not in callers): `load_jsonl_verified` and the other decode
+  sites map `UnicodeDecodeError` to `LedgerIntegrityError` (reason_kind=encoding, with the byte
+  offset). A test pins that a non-UTF-8 byte is caught by `ledger_read_faults()` through
+  `load_jsonl_verified` and `load_segments`.
+- Citation note for ARIA-MEDIUM-802: its evidence cites
+  `aria-kernel/aria_kernel/outcome_truth.py:179`, but at `fd5fc221e` the inline join-key tuple is at
+  `:180`. The registry CLI has no evidence-amend subcommand for an OPEN row, so the row is not
+  edited; the note is carried in the notes of ARIA-HIGH-805, ARIA-MEDIUM-807, ARIA-MEDIUM-809 and
+  ARIA-MEDIUM-811.
+
 ## ARIA-MEDIUM-791
 
 Three live path -> service attributions outside impact_graph.project_for_path remain until the
@@ -1080,3 +1217,278 @@ their names can disagree with the one service key
   PLAN-v2 F0.9b; \_asset_of is the per-path twin of \_detect_services and goes with it.
 - Failure scenario: security assessment files a finding on `apps/<dir>` as `service:<dir>` while
   the finding dimension names the same project by its project.json name, so the two never join.
+
+## ARIA-HIGH-795
+
+ARIA's production metric detectors never ran (watchdog_pull.observability_base_url null), and the
+one puller would send the platform's shared INTERNAL_API_KEY to whatever host the policy names, with
+no named hold when the source is unread and runtime candidates rejected as one-evidence findings
+
+- Severity: HIGH; owner: Okan-wqm; deadline: 2026-11-06.
+- Plan item(s): RW-1 (SEQUENCE.md "Runtime watch"), registered by its implementer.
+- Evidence (at befe16159):
+  - `aria-kernel/aria_kernel/genesis_policy.py:548` (observability_base_url None by default) and
+    `:551` (api_key_env names the runner's copy of the shared key)
+  - `aria-kernel/aria_kernel/aria_watchdog.py:110-112` (x-internal-api-key header to the
+    policy-named host)
+  - `aria-kernel/aria_kernel/aria_watchdog.py:740-751` (skips land only in the sweep payload) and
+    `aria-kernel/aria_kernel/cycle.py:2952-2961` (the digest copies candidates/emitted/suppressed)
+  - `aria-kernel/aria_kernel/aria_watchdog.py:575-596` (runtime candidates emitted as one-evidence
+    operational_anomaly, rejected and counted suppressed)
+  - `scripts/aria/provision_runner.sh:226` (the runner `.env` is required to hold
+    ARIA_OBSERVABILITY_API_KEY)
+- Rule: RW-1 decisions: no shared internal API key for ARIA; a read-only loopback source read by
+  the ONE puller; a missing or unreachable source is a named hold, never silence; runtime claims go
+  through the existing proof gate.
+- Failure scenario: the watchdog_sweep phase runs every night and reports nothing about production;
+  an operator who sets the URL to the observability-service hands ARIA's runner the platform's
+  internal key, and a 5xx storm still becomes no finding and no lead.
+
+## ARIA-MEDIUM-796
+
+The runtime watchdog's security-critical detector can never fire: security_events_total carries
+only a type label (no severity), and Prometheus's observability-service scrape is refused 401
+because that /metrics is INTERNAL_API_KEY-gated
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-06.
+- Raised by: the RW-1 implementer (read-only queries on the droplet Prometheus, 2026-10-23:
+  `up{app="observability-service"}` = 0 with lastError "server returned HTTP status 401
+  Unauthorized"; `count(security_events_total)` = 0).
+- Evidence:
+  - `apps/observability-service/src/security-events/security-metrics.service.ts:35` (labelNames
+    `['type']`, no severity)
+  - `aria-kernel/aria_kernel/aria_watchdog.py:343` (the detector requires `severity=critical`)
+  - `apps/observability-service/src/prometheus/prometheus.controller.ts:8-10` (/metrics behind the
+    global InternalApiGuard)
+  - `infrastructure/monitoring/droplet/file_sd/aqua-services.json:134` (the target Prometheus
+    scrapes) and `docker-compose.droplet.yml:2152` (a comment that says the scrape is not enabled)
+- Rule: a detector that names a signal the source never carries is a silent dead eye; every runtime
+  detector reads a series the droplet Prometheus holds.
+- Failure scenario: an auth-bypass storm is counted by the observability-service and never reaches
+  Prometheus, so the watchdog's security detector reports nothing. Not fixed in RW-1: it needs the
+  observability-service metrics surface (a public metrics-only endpoint like the other backends got
+  in OBS-HIGH-001, or a scrape credential held by Prometheus, never ARIA) and a severity source for
+  security event types.
+
+## ARIA-MEDIUM-832
+
+The receipt leg of the seat law has two owners: seat_receipts is the named owner of the 'model or
+method present' rule, but generate_ai_consensus keeps an inline copy of the same predicate for the
+anchor-grade observer_identity_missing refusal, so the two can drift apart
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: the F0.8 review (lens ssot), registered by the F0.8 findings clerk on 2026-10-24;
+  non-blocking at merge.
+- Plan item(s): F0.8.
+- Evidence:
+  - `aria-kernel/aria_kernel/feedback_store.py:362-383` (seat_receipts, the named owner of the
+    receipt predicate)
+  - `aria-kernel/aria_kernel/feedback_store.py:1406-1412` (inline copy:
+    str(row.get('model')).strip() or str(row.get('method')).strip())
+- Rule: PLAN-v2 F0.8 / diversity-law row: one seat function; every leg (receipt, method stamp,
+  evidence) is a leg of it, never restated beside it. One owner per concept.
+- Failure scenario: A later change to what counts as a receipt (a new leg, a stricter model check)
+  lands in seat_receipts only; the observer_identity_missing refusal keeps the old predicate, so a
+  panel is refused as identity-missing that the seat law would count, or the reverse.
+- Close condition: the observer_identity_missing refusal in generate_ai_consensus asks the receipt
+  predicate seat_receipts owns (or a predicate seat_receipts is built on) instead of restating
+  'model or method'; a test pins that the refusal and seat_receipts agree on rows of every shape
+  (model only, method only, both, neither, blank judge_id).
+
+## ARIA-MEDIUM-833
+
+Under calibration_gate=enforce, two calibrated, distinct judges whose rows name neither a model nor
+a method used to close and now escalate as confidence_uncalibrated (the label queue's reason, capped
+per cycle) although both are calibrated; the cause is the missing receipt, which
+observer_identity_missing names only for groups of 3 or more
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: the F0.8 review (lenses ssot and arch), registered by the F0.8 findings clerk on
+  2026-10-24; non-blocking at merge.
+- Plan item(s): F0.8.
+- Evidence:
+  - `aria-kernel/aria_kernel/feedback_store.py:1347-1348` (the enforce quorum counts seats by
+    seat_receipts and escalates confidence_uncalibrated)
+  - `aria-kernel/aria_kernel/feedback_store.py:1406-1416` (observer_identity_missing applies only to
+    closing groups of ANCHOR_MIN_JUDGE_COUNT or more)
+  - `aria-kernel/aria_kernel/human_required.py:828-833` (the label queue reads
+    confidence_uncalibrated first; the sweep caps it per cycle)
+  - `tools/aria-poc/ci_executor.py:3062-3065` (agent_dispatch_model is removed when the route names
+    no model, so a row can reach this state)
+- Rule: An escalation must name its real cause: a reason that points the item at the wrong queue
+  spends the labelling budget on a receipt defect (PLAN-v2 F0.8 behaviour change must keep each
+  refusal under its own name).
+- Failure scenario: calibration_gate=enforce is switched on; a calibrated pair agrees on a finding
+  but both rows lack model and method. The group escalates as confidence_uncalibrated: the label
+  queue is told to get the judges labelled, they already are, the item is capped out of the sweep,
+  and the missing receipt that blocks it is never named.
+- Close condition: the enforce quorum names the missing-receipt case observer_identity_missing (or a
+  sibling reason mapped in human_required) and not confidence_uncalibrated; a test pins calibrated
+  pair + enforce + no model/no method -> that reason, and the item does not use up
+  max_uncalibrated_escalations_per_cycle.
+
+## ARIA-MEDIUM-834
+
+Second diversity counts survive the F0.8 landing and test_one_diversity_rule cannot see them:
+distinct_observer_models has no production caller, a comparison on a helper call
+(distinct_observer_models, len(seat_receipts), provider_span_of) is not flagged, and seat counts by
+dict key (len(rows), len(closing)) and verify_panel_diversity sit outside its definition
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: the F0.8 review (lenses ssot and arch), registered by the F0.8 findings clerk on
+  2026-10-24; non-blocking at merge.
+- Plan item(s): F0.8.
+- Evidence:
+  - `aria-kernel/aria_kernel/feedback_store.py:409-418` (distinct_observer_models: a len over a set
+    of models, no production caller)
+  - `aria-kernel/tests/invariants/test_one_diversity_rule.py:72-118` (\_offenders flags only an
+    inline len(set over judge_id/model/method) or an observation_span value)
+  - `aria-kernel/tests/invariants/test_one_diversity_rule.py:19-31` (the definition of a diversity
+    rule)
+  - `aria-kernel/aria_kernel/feedback_store.py:1282` (len(rows) < 2 counts judge rows by dict key,
+    without the receipt leg)
+  - `aria-kernel/aria_kernel/feedback_store.py:1433` (len(closing) >= ANCHOR_MIN_JUDGE_COUNT in the
+    evidence gate)
+  - `aria-kernel/aria_kernel/feedback_store.py:1451-1454` (len(closing) gate before
+    verify_panel_diversity)
+  - `aria-kernel/aria_kernel/independence_check.py:609` (verify_panel_diversity, the answer-echo
+    diversity gate)
+- Rule: PLAN-v2 F0.8 / diversity-law row: no second diversity rule exists in aria_kernel; the
+  detectable tier must see every comparison on a diversity count, not only the inline shapes it was
+  written against.
+- Failure scenario: A new consumer writes 'distinct_observer_models(row) >= 2' or
+  'len(seat_receipts(rows)) >= 2' as its gate; the invariant stays green and the 'different model >=
+  2' rule is back beside the seat law, deciding the corner cases its own way.
+- Close condition: the invariant fails on a probe module comparing a helper count
+  (distinct_observer_models, len(seat_receipts(...)), provider_span_of) and on a dict-key seat
+  count; distinct_observer_models is deleted or pinned recorded-only; every remaining
+  len(rows)/len(closing) count is routed to the seat function or named in the invariant as an
+  allowed descriptor; the invariant docstring states by name that verify_panel_diversity is a
+  different property (answer echo) or it is brought under the law.
+
+## ARIA-LOW-835
+
+ANCHOR_MIN_DISTINCT_MODELS = 2 survives in feedback_store with no kernel consumer, and
+test_glm_model_admission still asserts a distinct-model floor with it: a leftover of the retired
+'different model >= 2' anchor rule that reads as live policy
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: the F0.8 review (lens ssot), registered by the F0.8 findings clerk on 2026-10-24;
+  non-blocking at merge.
+- Plan item(s): F0.8.
+- Evidence:
+  - `aria-kernel/aria_kernel/feedback_store.py:202` (the constant, no consumer in aria_kernel)
+  - `aria-kernel/tests/test_glm_model_admission.py:150` (assertGreaterEqual(len(models),
+    ANCHOR_MIN_DISTINCT_MODELS))
+  - `tools/aria-poc/ci_executor.py:3055` (a comment that cites it as the anchor guarantee)
+- Rule: PLAN-v2 F0.8 / diversity-law row: the 'different model >= 2' rule is retired in favour of
+  the seat law; a constant that outlives it is a second diversity rule waiting for a consumer. One
+  owner per concept.
+- Failure scenario: A reader or a new consumer takes the constant as the live anchor policy and
+  gates on two distinct models, which on one provider can never be met and holds every verdict.
+- Close condition: the constant is deleted; the fleet test states its own property (the routine
+  judge pair runs distinct models) with a floor named in the test; the comments in
+  ci_executor.py:3055, test_jj1_anchor_consensus.py:261, test_jj3_belief_panel.py:61 and
+  test_method_diversity_anchor.py:4 stop citing it; the ban in
+  test_wpj_landing_named_resolutions.py:553 keeps barring the name from is_ground_truth_row.
+
+## ARIA-LOW-836
+
+No constant owns the downgrade-reason vocabulary of effective_calibration_gate: the producer writes
+its reasons as inline literals (fewer_than_two_calibrated_seats now,
+fewer_than_two_calibrated_judges_of_one_span at base) and a doctor test fixture writes a third
+spelling, fewer_than_two_calibrated_judges_of_distinct_models
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: the F0.8 review (lens ssot), registered by the F0.8 findings clerk on 2026-10-24;
+  non-blocking at merge.
+- Plan item(s): F0.8.
+- Evidence:
+  - `aria-kernel/aria_kernel/genesis_policy.py:197-206` (the three reason literals)
+  - `aria-kernel/tests/test_calibration_gate.py:244` (the doctor fixture's third spelling)
+  - `aria-kernel/aria_kernel/doctor.py:721` (the doctor copies the reason into its detail without
+    branching on it)
+- Rule: One owner per concept: a closed vocabulary that three writers spell their own way drifts
+  silently; the reason should be a named constant (or Literal) the producer, the doctor and the
+  tests share.
+- Failure scenario: A consumer starts branching on the reason (a doctor hint, a dashboard filter)
+  using one spelling and silently misses the other two.
+- Close condition: the reasons are one typed constant set in genesis_policy; the doctor fixture and
+  test_calibration_gate import it; a test fails when a producer or a fixture writes a reason outside
+  the set.
+
+## ARIA-LOW-837
+
+The evidence leg of the seat law lives in the consensus_distinct_seats wrapper, not in
+distinct_judge_seats, so the calibrated enforce quorum seats agreement that cites no evidence
+although PLAN-v2 names the method stamp and the evidence leg as legs of the one seat function
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: the F0.8 review (lens arch), registered by the F0.8 findings clerk on 2026-10-24;
+  non-blocking at merge.
+- Plan item(s): F0.8.
+- Evidence:
+  - `aria-kernel/aria_kernel/feedback_store.py:386-406` (distinct_judge_seats: the receipt leg only)
+  - `aria-kernel/aria_kernel/feedback_store.py:445-447` (the evidence leg, applied in the wrapper)
+  - `aria-kernel/aria_kernel/feedback_store.py:1347` (the calibrated quorum asks
+    distinct_judge_seats directly)
+- Rule: PLAN-v2 §2 diversity-law row: the method stamp and the evidence leg are legs of the one seat
+  function, so every consumer of the function gets them.
+- Failure scenario: Two calibrated judges agree on argument alone (no evidence refs); under enforce
+  they form a quorum and the consensus row is minted without evidence, while the anchor would have
+  refused the same panel.
+- Close condition: either the evidence leg moves into the one seat function (with the calibrated
+  quorum test showing an evidence-less calibrated pair is not a quorum), or the plan row and the
+  distinct_judge_seats docstring state that the evidence leg is deliberately an anchor-only leg.
+
+## ARIA-LOW-838
+
+The calibration gate and the consensus read different receipt sources: the gate reads the
+calibration map (the first by_source model, never a method) while the consensus reads each feedback
+row's model/method, so effective_calibration_gate can answer 'enforce' while every group escalates
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: the F0.8 review (lens arch), registered by the F0.8 findings clerk on 2026-10-24;
+  non-blocking at merge.
+- Plan item(s): F0.8.
+- Evidence:
+  - `aria-kernel/aria_kernel/cycle.py:2012-2019` (the calibration map carries the first by_source
+    model and no method)
+  - `aria-kernel/aria_kernel/cycle.py:2032` (effective_calibration_gate reads that map)
+  - `aria-kernel/aria_kernel/cycle.py:2139-2140` (the consensus receives the gate's answer)
+  - `aria-kernel/aria_kernel/genesis_policy.py:181-199` (the gate builds its receipts from the map)
+  - `aria-kernel/aria_kernel/feedback_store.py:1347` (the consensus counts seats from the feedback
+    rows)
+- Rule: PLAN-v2 F0.8 / diversity-law row: one seat function over ONE receipt source per decision;
+  two consumers that apply the same law to different inputs can still disagree.
+- Failure scenario: The calibration map names a model for two judges (gate: enforce) while their
+  feedback rows carry neither model nor method; every group escalates and doctor reports nothing
+  wrong because the gate was not downgraded.
+- Close condition: the gate and the consensus read the same receipt source (the calibration map
+  carries method as well as model, or the gate is computed from the feedback rows' receipts), with a
+  test where the gate and the quorum agree on a pair whose rows and calibration entries carry
+  different legs.
+
+## ARIA-LOW-839
+
+test_one_diversity_function names consensus_distinct_seats as the seat function its AST finder
+locates, but at HEAD the finder resolves to distinct_judge_seats (consensus_distinct_seats returns a
+call, not a len), so the module docstring misleads the next reader
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: the F0.8 review (lens arch), registered by the F0.8 findings clerk on 2026-10-24;
+  non-blocking at merge.
+- Plan item(s): F0.8.
+- Evidence:
+  - `aria-kernel/tests/test_one_diversity_function.py:34-35` (docstring: 'today
+    consensus_distinct_seats')
+  - `aria-kernel/tests/test_one_diversity_function.py:71-103` (\_seat_count_functions, which finds
+    the function returning len of a judge_id set)
+  - `aria-kernel/aria_kernel/feedback_store.py:386-406` (distinct_judge_seats, the function the
+    finder resolves to)
+- Rule: Test docstrings that name the pinned function must name the one the test actually pins; a
+  stale name sends the reader to the wrapper instead of the law.
+- Failure scenario: A reader renames or moves consensus_distinct_seats believing it is the pinned
+  seat law, and the test keeps passing because it pins another function.
+- Close condition: the docstring (lines 34-35, and the line 5 mention) names distinct_judge_seats as
+  the located function and consensus_distinct_seats as its consensus-row wrapper.

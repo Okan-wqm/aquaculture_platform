@@ -205,7 +205,7 @@ def _kernel_surfaces(ctx: _Context) -> list[tuple[str, str]]:
 def _eligible_surfaces(
     ctx: _Context, roots: list[str], candidates: list[tuple[str, str, str]],
 ) -> tuple[list[EnablingSurface], list[dict[str, str]]]:
-    from .implementation_safety import _readonly_prefix
+    from .implementation_safety import readonly_entry_for
     from .plan_import_resolution import planned_paths
     from .plan_origin import admission_scope_for_plan
 
@@ -230,7 +230,7 @@ def _eligible_surfaces(
                   # gitignored (node_modules), so a refusal can never widen a
                   # plan to a tree (review of #1908, item 8).
                   else "not_a_tracked_file" if path not in tracked
-                  else "readonly_to_the_kernel" if _readonly_prefix(path) is not None
+                  else "readonly_to_the_kernel" if readonly_entry_for(path) is not None
                   else "evidence_only_surface" if path in evidence
                   else "already_in_the_write_set" if path in planned
                   else None)

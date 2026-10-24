@@ -3741,3 +3741,101 @@ live call in g563-results.json; the eleven open decisions (272 recorded as accep
 221, 133, 139, 252, 555, 573, 604, 606, 613); the live-run items CRITICAL-015, 014, 137, 212,
 281; 532 helm (recommendation on record: accept the exclusion); and whether/when to re-enable
 ARIA's seven paused workflows — which the shadow night precedes.
+
+## WP-J landing (2026-10-22; PLAN-v2 F0.3, branch landing/aria-wp-j-l)
+
+The WP-J expert panel lands from `fix/aria-wp-j` (`cbaad3b83`) onto main `e35ff9cac`. The funnel
+lands OFF (`genesis_policy` `funnel_enabled: False`); nothing here switches it on.
+
+What the landing carries beyond the package:
+
+- **fix2 line** — one commit ported from `fix/aria-wp-j-fix2` (`d3a3be5b0` → `04be9aee4`, the
+  scoring pin's outcome stratum) and fix2's fixture sweep for the evidence leg (`a88f48a86`); the
+  six paired fixes keep wp-j's code (fix2's R4 resolver, flip-table write, drain hold, method-seat
+  expiry and canary blindness were weaker or identical). The one axis on which fix2's R4 resolver
+  was strictly more correct — its `{red: failed, green: ok}` status map — is ported into wp-j's
+  binder by the landing's ARIA-MEDIUM-688 fix commit: a recorded `timeout` run backs neither
+  colour (red-first pin `test_a_timeout_run_satisfies_neither_red_nor_green`).
+- **N1, digest owner** — `tier0` no longer spells a second `finding:sha256:` identity, and the
+  verdict cache's code hash (`evidence_trust.cited_blobs_code_hash`) composes through
+  `digest.sha256_digest` / `sha256_digest_text` with byte-identical keys (ARIA-LOW-517's owner).
+- **N2, no defensive fallback** — a fingerprint the one owner cannot compute is the named tier-0
+  failure `tier0_fingerprint_uncomputable`; a crashing `tier0_gate` is `tier0_gate_crashed`, never
+  `TIER0_PASS`. The funnel holds such an item by that name (routing row `tier0:<reason>`, the
+  tier-0 governance row's `failed` list), dispatches nothing for it, and keeps it sampleable.
+- **N3, one seat law** — main's `consensus_distinct_seats(row) >= ANCHOR_MIN_JUDGE_COUNT` is the
+  only anchor diversity gate. WP-J's method receipt and evidence leg are legs of that function;
+  `observation_span` is a recorded descriptor. The calibrated quorum counts seats.
+  `ANCHOR_MIN_DISTINCT_METHODS` and the two `CALIBRATED_QUORUM_MIN_*` constants are gone; four
+  method-floor pins were re-pinned to the seat law. `genesis_policy.effective_calibration_gate`
+  is untouched (ARIA-HIGH-729, F0.8).
+- **N4** — `test_judgment_subject_boundary` keeps both sides' assertions.
+- **Method seats read the one digest** — `aria-bug-hunter`, `aria-impact-assessor` and
+  `aria-test-writer` (the panel's method seats, `0a87da08c`) join the judge-digest agent set in
+  `agent-prompt-contract.spec.ts` and the byte pin in `test_judge_digest_ssot.py`.
+
+Closed by this landing (slug → id → implementing commit; tests per row in the landing's
+closure map): wpj-a-1 and wpj-a-3 → ARIA-HIGH-674/676 (`94c18b6ea`, `5fbc01cf3`);
+wpj-c-6 → ARIA-MEDIUM-683 (`946eca283`, the cost join runs live in `generate_ai_consensus`);
+wpj-onarim-1 and wpj-r-7 → ARIA-MEDIUM-684/691 (`363df1edc`); wpj-r-1..6 → ARIA-HIGH-685/686/687,
+ARIA-MEDIUM-688, ARIA-HIGH-689, ARIA-MEDIUM-690 (`25f6921ca`, `ce6a53541`, `ed656960d`,
+`88824b73e` + the landing's status-map fix, `3c5760048`, `04be9aee4`); wpj-r-8/9/10 →
+ARIA-HIGH-692/693, ARIA-LOW-694 (`9249e610d`, `e36e152d2`, `99d1330f2`; 694's defect lives inside
+the funnel, so it closes with the funnel off); d-stability-lane-2 and d-outcome-truth-1
+→ ARIA-HIGH-695/696 (`118bb215e`+`b22688550`, `05d99ba06`+`9b904b3a1`);
+j-b-method-anchor-2 → ARIA-HIGH-719 (`0fab74f54`);
+wpj-review-2-panel-diversity-dead-code → ARIA-HIGH-787 (`2401903ab`);
+wpj-review-2-single-provider-panel → ARIA-HIGH-788 (`cbaad3b83`). ARIA-HIGH-787/788 were
+registered by the landing (they had no registry row and no stub file).
+
+ARIA-HIGH-718 (j-b-method-anchor-1) closes with this landing, but its fix is main's `792c2b776`
+(WP-P: the anchor and the calibrated quorum count SEATS, not models), already an ancestor of
+main. `0fab74f54`'s method gate was removed by N3 and is not credited. `792c2b776`'s trailer
+names ARIA-HIGH-661, so no reconcile on main's lineage would ever close 718; the landing-notes
+trailer records the closure and names `792c2b776` as the implementing commit.
+
+Part of, not closed — the funnel ships OFF: wpj-a-4 → ARIA-HIGH-677 (`7f45f829b`+`3d465916c`,
+N1/N2 `243ba01c1`); wpj-c-1..5 → ARIA-HIGH-678/679/680/681, ARIA-MEDIUM-682 (`b65e731da`,
+`2f4406c1a`, `b65e731da`+`7f45f829b`, `5f91179ce`, `8a22d5ddf`). Their code and tests land, but
+`judgment_funnel` returns the legacy plan before tier-0, the envelope budget, tiering or the cache
+run while `funnel_enabled` is False, so production still mints the full judge pair with no tier-0
+check — the defect these titles describe stays live. Closing them now would be the false-close
+class (a mechanism added that never runs). They close when F5.1 turns the funnel on.
+
+Also Part of, not closed (final review, 2026-10-23), each still live in production:
+
+- ARIA-HIGH-675 (wpj-a-2, `32fba0b8e`): `CLAIM_NOT_FALSIFIABLE` is minted only when a contract
+  is passed, and the only caller `judgment_funnel.py:218` passes `None` — the named refusal is
+  unreachable even with the funnel on.
+- ARIA-HIGH-697 (d-mutation-canary-3, `07cdaa6d0`): `mint_canary_judgments` holds
+  `no_registered_corpus`; `register_canary_corpus` / `build_canary_corpus` have no production
+  caller (F5.4 builds it).
+- ARIA-MEDIUM-720 (j-b-panel-debate-1, `194d7faf3`): the whole-or-nothing rule applies to the
+  panel only; the live default pair still mints one seat when the backlog cap skips the other.
+- ARIA-HIGH-721 (j-b-panel-seats-1, `0a87da08c`): the method seats exist, but with the funnel
+  off production mints only the two-method pair (same class as 678/681).
+
+Re-proof (four closures sampled at random by the landing's re-proof seat): ARIA-HIGH-686 and
+ARIA-HIGH-689 re-proven at their parents. For ARIA-HIGH-680 and ARIA-HIGH-719 the WP-J range
+`b65e731da..5f91179ce` is not bisectable (it names `observation_span` / `EXPERT_METHODS`, defined
+only in `0fab74f54`); the program lead accepted the defect put back at the landing tip, with the
+named test failing for the defect's reason, as their proof.
+
+Not closed here, on the record:
+
+- ARIA-HIGH-708/709 and ARIA-MEDIUM-710/711: no WP-J commit names them; they stay OPEN.
+- ARIA-HIGH-697's judge-scoring code lands; it closes with the real-module discovery half
+  (ARIA-MEDIUM-760, F5.4), when the canary corpus has a production builder.
+- `0fab74f54`, `194d7faf3` and `0a87da08c` carry no `Closes:` trailer in the validator's
+  grammar. Their messages are not rewritten; the program lead allowlisted the three SHAs in
+  `tools/gates/commit-msg-validator.ts` `PRE_PHASE6_SHAS`, and this commit closes their findings.
+
+Registered by the red-CI repair (2026-10-23, appellate root R2, same rule as item 4 above):
+
+- ARIA-MEDIUM-799: the canary corpus' hand-typed evidence refs named the wrong sandbox line
+  (four of five 0-indexed, one at the def line). `0b164c319` derives each ref from its anchor
+  line (`mutation_canary._anchor_ref`, 1-indexed) but carried no row and no proving test. The
+  pin `test_mutation_canary.CorpusTests.test_every_item_ref_names_its_anchor_line_one_indexed`
+  reads each item's line out of `_SANDBOX_FILES` and fails with `_anchor_ref` at `start=0`;
+  its commit closes 799. The canary lane itself stays Part of ARIA-HIGH-697 (no production
+  builder until F5.4).

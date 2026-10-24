@@ -525,11 +525,13 @@ def _kernel_checkout_root() -> Path:
     the 2026-09-12 contract, whose first obligation the sandbox's command
     policy cannot execute (ARIA-HIGH-147), twice. The contract belongs to
     the kernel that grades it — the same root ARIA-HIGH-142 serves the
-    in-sandbox clients from.
+    in-sandbox clients from. The root's owner is
+    ``agent_contract_delivery.agent_contracts_root`` (J2: the verdict cache
+    names its judges from the same root).
     """
-    from aria_kernel.claude_settings import kernel_code_root
+    from aria_kernel.agent_contract_delivery import agent_contracts_root
 
-    return kernel_code_root().parent
+    return agent_contracts_root()
 
 
 def repo_root_provenance_note() -> str | None:

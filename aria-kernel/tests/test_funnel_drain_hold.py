@@ -64,7 +64,7 @@ class AnUnreadableDrainHoldsByName(unittest.TestCase):
         self._corrupt_results_ledger()
         result = route_judgment_sample(
             sample=_sample(), base_dir=self.base,
-            repo_root=None, target_sha=None, policy=_policy(),
+            repo_root=None, target_sha=None, calibration_gate="measure_only", policy=_policy(),
         )
         self.assertTrue(result["active"], result)
         self.assertEqual(result["routed"], [], result)
@@ -79,7 +79,7 @@ class AnUnreadableDrainHoldsByName(unittest.TestCase):
         self._corrupt_results_ledger()
         route_judgment_sample(
             sample=_sample(), base_dir=self.base,
-            repo_root=None, target_sha=None, policy=_policy(),
+            repo_root=None, target_sha=None, calibration_gate="measure_only", policy=_policy(),
         )
         rows = [
             row for row in _governance_rows(self.base)

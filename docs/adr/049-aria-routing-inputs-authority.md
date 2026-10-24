@@ -1,7 +1,17 @@
 # ADR-049 — ARIA routing inputs (`.claude/shared/**`) join the derived authority set and CODEOWNERS
 
-- **Status:** Proposed. The architectural-arbiter ruling is obtained separately by the ARIA quality and learning
-  program lead; this record changes to Accepted only with that ruling cited here.
+- **Status:** Accepted — architectural-arbiter ruling 2026-10-24 (APPROVE WITH CONDITIONS), at
+  `feat/aria-se2-one-path-agent-map` 853aa1dcf. The routing inputs (`agent_routing.ROUTING_INPUT_DIR`, the whole
+  `.claude/shared/` directory including files a change adds) are members of `self_improvement.derived_authority_set`
+  through `ROUTING_INPUT_MEMBERS`, with no hand entry in `implementation_safety._IMPLEMENTER_READONLY_ANCHORS`. They
+  reach `readonly_paths()`, the merge perimeter and the self-change judges by derivation, and `.github/CODEOWNERS`
+  owns `.claude/shared/`. A routing row names no `_maintenance` or writer agent (owner:
+  `surface_manifest_validator.validate_maintenance_agent_isolation`). This meets the `implementation_safety.py`
+  perimeter rule; the invariant amendment is `aria-kernel/tests/invariants/test_routing_inputs_authority.py` and
+  `test_path_agent_map_single_owner.py`. It extends the perimeter of arbiter ADR-0003 and ADR-0023 and supersedes
+  neither. Removing the routing inputs from the set requires a superseding ADR, arbiter approval and an invariant
+  amendment. This ruling does not ratify the primary-owner reassignments in the same diff (ARIA-HIGH-874). Tracked:
+  ARIA-MEDIUM-854, ARIA-HIGH-874, ARIA-MEDIUM-875.
 - **Date:** 2026-10-24
 - **Owner:** platform operator + ARIA kernel
 - **Tracking:** `docs/reviews/claude/2026-10-21-aria-quality-learning-program.md#ARIA-HIGH-767` (service-expertise
@@ -61,9 +71,9 @@ As a result, one ARIA change could edit the table and choose its own reviewers i
 
 ## Consequences
 
-- An ARIA-authored change cannot edit, add or remove any file under `.claude/shared/`. Routing-table and
-  shared-review-contract changes are human changes reviewed by the CODEOWNER, like `.claude/agents/`, which is
-  already an implementer anchor.
+- An ARIA-authored change cannot edit, add or remove any file under `.claude/shared/`. CODEOWNERS places
+  `.claude/shared/` in ARIA's human-merge lane (risk policy L3); GitHub requires no code-owner review on `main`, so
+  server-side review of human changes remains the operator's open decision (INFRA-MEDIUM-197; HL safety review X1).
 - Gate C reads the routing table from the workspace under review. No ARIA PR can change a routing input, so that
   table is always the base table, and a PR can neither widen nor narrow its own merge-time reviewer set.
 - Removing the routing inputs from the set again needs this ADR to be superseded, plus arbiter approval and an

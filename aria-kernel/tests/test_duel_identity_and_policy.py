@@ -15,7 +15,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from aria_kernel.genesis_policy import SUPERIORITY_DEFAULTS, superiority_policy
+from aria_kernel.genesis_policy import superiority_policy
 from aria_kernel.genesis_superiority import duel_observations
 from aria_kernel.plan_convergence import _record_duel_observation
 from aria_kernel.tool_registry import ensure_tools_dir
@@ -94,7 +94,7 @@ class SuperiorityPolicyThreadingTests(unittest.TestCase):
             )
             policy = superiority_policy(repo_root)
         self.assertEqual(policy["min_duel_matches"], 1)
-        self.assertNotEqual(policy["min_duel_matches"], SUPERIORITY_DEFAULTS["min_duel_matches"])
+        self.assertNotEqual(policy["min_duel_matches"], superiority_policy()["min_duel_matches"])
 
     def test_record_transition_threads_repo_root_to_superiority(self) -> None:
         # Deliberate-break: pre-C8 `record_transition` had no repo_root

@@ -179,6 +179,13 @@
     "_doc": "ARIA-MEDIUM-082 \u2014 wall-clock allowance, in seconds, for one bounded scoped-source qualification: the twin self-feature projection at cycle refresh, the per-mint twin re-observation, and pinned evidence-excerpt blob reads. Past the deadline every reader answers qualification_deadline \u2014 an honest unknown, never a failure. This was the literal 2 inside snapshot._ScopedSourceBudget, so host load decided what the map answered and neither an operator override nor a test fixture could widen it. 0 is honest (nothing is qualified; every answer is qualification_deadline). Values above 300 are REFUSED with both numbers named so a mint-time qualification stays bounded.",
     "deadline_seconds": 2.0
   },
+  "superiority": {
+    "_doc": "Z3d + PLAN-v2 F1.7 (ARIA-HIGH-734) \u2014 the EVAL_WINDOW -> ACTIVE promotion proof (genesis_superiority), parsed strictly by genesis_policy.superiority_policy: every key required, an unknown or out-of-range key refused by its dotted path, no default fill (an override replaces the block whole). alpha and min_discordant_pairs are the PRE-REGISTERED decision of the paired gain test (agent_eval.compare_eval_windows paired mode): candidate and incumbent on the same case ids, one-sided exact McNemar on the discordant pairs, 'improved' only when p <= alpha AND at least min_discordant_pairs pairs disagree. 0.05 is the decision-test PREREG level (service_expertise.genesis.alpha); 6 is one pair past 5, the smallest count at which p <= 0.05 is reachable at all (5/0 gives 1/32). window_days bounds which eval runs each side reads; min_duel_matches is the decided-duel count below which the Bradley-Terry component is not evaluated and the paired test alone decides.",
+    "alpha": 0.05,
+    "min_discordant_pairs": 6,
+    "min_duel_matches": 3,
+    "window_days": 30
+  },
   "watchdog_pull": {
     "enabled": true,
     "http_5xx_share_threshold": 0.05,

@@ -32,7 +32,7 @@ from typing import Any
 
 from .agent_eval import compare_eval_windows
 from .calibrated_intelligence import bradley_terry
-from .genesis_policy import SUPERIORITY_DEFAULTS, superiority_policy
+from .genesis_policy import superiority_policy
 from .ledger import load_jsonl
 from .tool_registry import ensure_tools_dir
 
@@ -84,7 +84,7 @@ def compute_eval_window_superiority(
     window comparison and duel component, so the lifecycle row that
     carries it is recomputable from ledgers alone.
     """
-    policy = superiority_policy(repo_root) if repo_root is not None else dict(SUPERIORITY_DEFAULTS)
+    policy = superiority_policy(repo_root)
     window = compare_eval_windows(
         target_agent=entity_id,
         base_dir=base_dir,

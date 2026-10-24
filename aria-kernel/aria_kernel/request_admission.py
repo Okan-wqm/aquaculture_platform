@@ -99,6 +99,10 @@ PRODUCER_CLASSES: Final[Mapping[str, ProducerClass]] = {
               "adversarial_judgment"), _RERUN),
     "operator_cli.request": ProducerClass(_same(CRITICAL_PATH, *sorted(INVOCATION_ROLES)), _RERUN),
     "operator_cli.convergent_plan": ProducerClass(_same(CRITICAL_PATH, "challenger_plan"), _RERUN),
+    # WP-D1 — one change named by its caller (the room, or a Board-named
+    # subject): the review IS the work, so an empty store never holds it at
+    # the door (DESIGN-discovery risk 6).
+    "change_review.operator_subject": ProducerClass(_same(CRITICAL_PATH, "change_intelligence"), _RERUN),
     # --- discretionary: work that starts something new ---------------------
     "next_cycle_queue.projection": ProducerClass(
         _same(DISCRETIONARY, "maintenance_utility"),
@@ -189,7 +193,7 @@ PRODUCER_CLASSES: Final[Mapping[str, ProducerClass]] = {
     "goldset.curation": ProducerClass(
         _same(DISCRETIONARY, "goldset_curation"),
         "a ready proposal whose subject was never asked is offered again every cycle"),
-    "pr_tracking.change_intelligence": ProducerClass(
+    "change_review.merge_feed": ProducerClass(
         _same(DISCRETIONARY, "change_intelligence"),
         "merge events whose subject was never asked are re-walked every cycle"),
     "decision_questioning.open": ProducerClass(

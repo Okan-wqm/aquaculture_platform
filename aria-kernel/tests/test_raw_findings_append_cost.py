@@ -42,6 +42,7 @@ from aria_kernel.feedback_store import (
     record_findings_for_run,
     record_raw_findings_for_run,
 )
+from aria_kernel.impact_graph import project_map
 from aria_kernel.ledger import (
     LedgerIntegrityError,
     LedgerRowTooLargeError,
@@ -50,7 +51,7 @@ from aria_kernel.ledger import (
     load_declared_jsonl,
     verify_jsonl,
 )
-from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+from aria_kernel.tool_registry import GovernanceError, ensure_tools_binding
 
 
 def _run(run_id: str = "run-1") -> dict:
@@ -80,7 +81,11 @@ class _AllSuppressed(dict):
 class _Store(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory(prefix="aria-raw-append-")
-        self.tools = ensure_tools_dir(Path(self._tmp.name) / "aria-tools")
+        workspace = Path(self._tmp.name) / "repo"
+        workspace.mkdir()
+        # The mint attributes each finding over the store's map (SE-1 round
+        # 2): the store declares the workspace it mints for.
+        self.tools = ensure_tools_binding(Path(self._tmp.name) / "aria-tools", workspace_root=workspace)
         self.path = raw_findings_path(self.tools)
 
     def tearDown(self) -> None:
@@ -138,9 +143,9 @@ class ARunsFindingsAreOneBatch(_Store):
 
 class AnActiveAdaptersEmittedFindingsAreOneBatchPerLedger(_Store):
     def test_the_findings_and_seeding_ledgers_are_each_appended_once_per_run(self) -> None:
-        record_findings_for_run(_run("run-0"), emitted_findings=_findings(4, prefix="seed"), base_dir=self.tools)
+        record_findings_for_run(_run("run-0"), emitted_findings=_findings(4, prefix="seed"), project_roots=project_map(base_dir=self.tools), base_dir=self.tools)
         with mock.patch.object(ledger, "_append_rows_locked_body", wraps=ledger._append_rows_locked_body) as body:
-            record_findings_for_run(_run("run-1"), emitted_findings=_findings(30), base_dir=self.tools)
+            record_findings_for_run(_run("run-1"), emitted_findings=_findings(30), project_roots=project_map(base_dir=self.tools), base_dir=self.tools)
         self.assertEqual(
             _ledgers_appended(body, self.tools),
             ["findings.jsonl", "operator-feedback-seeding/lint-rules-adapter/raw-findings.jsonl"],
@@ -158,7 +163,7 @@ class AnActiveAdaptersEmittedFindingsAreOneBatchPerLedger(_Store):
             "aria_kernel.feedback_store._confirmed_false_positive_fingerprints",
             return_value=_AllSuppressed(),
         ):
-            record_findings_for_run(_run(), emitted_findings=_findings(3), base_dir=self.tools)
+            record_findings_for_run(_run(), emitted_findings=_findings(3), project_roots=project_map(base_dir=self.tools), base_dir=self.tools)
         rows = load_declared_jsonl(findings_path(self.tools), expected_surface="findings")
         self.assertEqual({row["status"] for row in rows}, {"suppressed_false_positive"})
         self.assertFalse((self.tools / "operator-feedback-seeding").exists())

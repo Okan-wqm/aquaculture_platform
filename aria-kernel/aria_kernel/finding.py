@@ -513,19 +513,26 @@ def emit_finding(
         repo_path, evidences, target_sha=target_sha, probe_session=probe_session,
     )
     # E15-a — mint-time service dimension + specialist ownership. The
-    # dimension comes from the paths the finding cites; the reviewing
-    # agents come from the Lane-A touch-map SSoT (imported, not copied)
-    # whenever the caller did not name them explicitly.
+    # dimension comes from the paths the finding cites, attributed by the
+    # one path -> project owner over this workspace's fingerprint-checked
+    # map (SE-1), so this mint and the tool-finding mint stamp the same
+    # current names; the reviewing agents come from the Lane-A touch-map
+    # SSoT (imported, not copied) whenever the caller did not name them
+    # explicitly.
+    from .impact_graph import project_map
     from .service_dimension import (
         finding_dimension_paths,
+        finding_service_fields,
         owning_agent_domains_for_paths,
-        service_dimension,
     )
 
     dimension_paths = finding_dimension_paths(
         {"evidences": evidences, "scope": {"files": list(scope_files)}}
     )
-    dimension = service_dimension(dimension_paths)
+    dimension = finding_service_fields(
+        dimension_paths,
+        project_map(workspace_root=repo_path, base_dir=tools_root),
+    )
     if not related_specialized_agent_domains:
         related_specialized_agent_domains = owning_agent_domains_for_paths(
             dimension_paths
@@ -550,8 +557,7 @@ def emit_finding(
             "originating_run_id": originating_run_id,
             "originating_pressure_event_id": originating_pressure_event_id,
             "scope": {"files": list(scope_files)},
-            "service": dimension["service"],
-            "services": dimension["services"],
+            **dimension,
             "related_specialized_agent_domains": list(related_specialized_agent_domains or []),
             "facts": list(facts),
             "interpretations": list(interpretations or []),
@@ -611,18 +617,23 @@ def list_findings(
     repo_root: str | Path,
     *,
     service: str | None = None,
+    base_dir: str | Path | None,
 ) -> list[dict[str, Any]]:
-    # E15-a — legacy docs carry no mint-time dimension; derive it at read
-    # time from the same collector the mint uses, so a pre-E15 finding
-    # filters identically to a post-E15 one.
-    from .service_dimension import finding_dimension_paths, services_for_paths
+    # E15-a / SE-1 — a doc minted before SE-1, or against a layout a later
+    # ``project.json`` rename replaced, is re-derived by the one row reader
+    # from its paths over this workspace's current map, so it filters
+    # identically to a doc minted now. ``base_dir`` is the store holding that cache. It has
+    # no default: every caller names its store (None = the
+    # `tool_registry.tools_dir` resolver, stated, not inherited), so no
+    # reader silently publishes a map into a store it was never handed.
+    from .impact_graph import project_map
+    from .service_dimension import services_for_finding_row
 
     repo_path = Path(repo_root).resolve()
+    project_roots = project_map(workspace_root=repo_path, base_dir=base_dir)
     rows: list[dict[str, Any]] = []
     for doc in _replay_findings(repo_path).values():
-        services = doc.get("services") or services_for_paths(
-            finding_dimension_paths(doc)
-        )
+        services = services_for_finding_row(doc, project_roots)
         if service is not None and service not in services:
             continue
         rows.append(
@@ -636,8 +647,7 @@ def list_findings(
                 "created_at": doc.get("created_at"),
                 "path": f"{doc.get('finding_id')}.json",
                 "source_ledger_hash": doc.get("source_ledger_hash"),
-                "service": doc.get("service")
-                or (services[0] if len(services) == 1 else None),
+                "service": services[0] if len(services) == 1 else None,
                 "services": services,
             }
         )
@@ -706,10 +716,15 @@ def show_finding(repo_root: str | Path, finding_id: str) -> dict[str, Any]:
 
 
 def find_by_evidence_chain_id(repo_root: str | Path, chain_id: str) -> dict[str, Any] | None:
-    """Helper for callers (e.g. debt.py) verifying originating_finding linkage."""
-    for row in list_findings(repo_root):
-        if row.get("evidence_chain_id") == chain_id:
-            return show_finding(repo_root, row["finding_id"])
+    """Helper for callers (e.g. debt.py) verifying originating_finding linkage.
+
+    Reads the replayed records directly: a chain-id lookup needs no service
+    dimension, so it does not go through `list_findings`, whose rows carry
+    one and therefore need the project map (SE-1).
+    """
+    for record in _replay_findings(Path(repo_root).resolve()).values():
+        if record.get("evidence_chain_id") == chain_id:
+            return record
     return None
 
 

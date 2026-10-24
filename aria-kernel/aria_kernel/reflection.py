@@ -395,7 +395,7 @@ def _human_required_summary(tools_root: Path) -> dict[str, Any]:
             "human_merge": human_merge, "unreadable": unreadable}
 
 
-def _summarize_findings(repo_root: Path) -> dict[str, Any]:
+def _summarize_findings(repo_root: Path, tools_root: Path) -> dict[str, Any]:
     """The report's findings summary, from the finding-event fold.
 
     ARIA-MEDIUM-330 — the fold (``finding.fold_findings``) is the one
@@ -411,15 +411,17 @@ def _summarize_findings(repo_root: Path) -> dict[str, Any]:
 
     rows = list((fold_findings(repo_root) or {}).values())
     # E15-b — findings grouped by microservice (operator direction:
-    # reports and missions speak in service terms). Legacy docs derive
-    # their dimension at read time through the same seam the mint uses.
-    from .service_dimension import finding_dimension_paths, services_for_paths
+    # reports and missions speak in service terms). SE-1 — through the one
+    # row reader over this workspace's current project map: a doc minted
+    # before SE-1 or before the layout last changed is re-derived from its
+    # paths, never read in a retired vocabulary.
+    from .impact_graph import project_map
+    from .service_dimension import services_for_finding_row
 
+    project_roots = project_map(workspace_root=repo_root, base_dir=tools_root)
     by_service: dict[str, dict[str, int]] = {}
     for row in rows:
-        services = row.get("services") or services_for_paths(
-            finding_dimension_paths(row)
-        )
+        services = services_for_finding_row(row, project_roots)
         for svc in services or ["(no service dimension)"]:
             bucket = by_service.setdefault(svc, {"total": 0, "open": 0})
             bucket["total"] += 1
@@ -511,7 +513,7 @@ def _committed_findings_and_debts(
     # findings yet" over a directory that existed somewhere else.
     from .debt import debts_dir
 
-    findings_summary = _summarize_findings(repo_root)
+    findings_summary = _summarize_findings(repo_root, tools_root)
     debts_summary = _scan_debts_filesystem(debts_dir(repo_root))
     return {"findings": findings_summary, "debts": debts_summary}
 

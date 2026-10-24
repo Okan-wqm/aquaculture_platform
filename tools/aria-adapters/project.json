@@ -48,6 +48,7 @@
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/infrastructure-policy-adapter.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/kernel-dead-wire-adapter.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/lint-rules-adapter.test.ts",
+          "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/module-facts.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/module-schemas-source.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/rust-runtime-safety-adapter.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/rust-source.test.ts",

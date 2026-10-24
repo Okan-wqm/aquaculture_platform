@@ -339,8 +339,8 @@ class CalibratedQuorumMethodLegTests(_LedgerCase):
 
 class EffectiveGateMethodLegTests(unittest.TestCase):
     """genesis_policy.effective_calibration_gate keeps the enforce gate
-    reachable on one provider: the downgrade test asks the same hybrid
-    question the consensus gate asks."""
+    reachable on one provider: the downgrade asks the ONE seat law the
+    consensus gate asks (PLAN-v2 F0.8)."""
 
     def test_the_gate_upgrades_on_two_calibrated_methods_of_one_model(self) -> None:
         from aria_kernel.genesis_policy import effective_calibration_gate
@@ -351,14 +351,19 @@ class EffectiveGateMethodLegTests(unittest.TestCase):
         })
         self.assertEqual((gate["effective"], gate["reason"]), ("enforce", "calibrated_quorum_available"))
 
-    def test_the_gate_downgrades_on_one_method(self) -> None:
+    def test_the_gate_enforces_on_two_calibrated_seats_of_one_method(self) -> None:
+        """PLAN-v2 F0.8 re-pin (was: the gate downgrades on one method) —
+        the method is a receipt leg of the ONE seat law, not a span the
+        gate counts: two calibrated seats sharing a method are two seats,
+        exactly as the calibrated majority already closes on them
+        (`test_enforce_closes_on_two_calibrated_seats_of_one_method`)."""
         from aria_kernel.genesis_policy import effective_calibration_gate
 
         gate = effective_calibration_gate("enforce", {
             "a": {"calibration_status": "calibrated", "model": "glm-5.3", "method": "static_trace"},
             "b": {"calibration_status": "calibrated", "model": "fable", "method": "static_trace"},
         })
-        self.assertEqual(gate["effective"], "measure_only")
+        self.assertEqual((gate["effective"], gate["reason"]), ("enforce", "calibrated_quorum_available"))
 
     def test_the_gate_keeps_the_legacy_model_leg(self) -> None:
         from aria_kernel.genesis_policy import effective_calibration_gate

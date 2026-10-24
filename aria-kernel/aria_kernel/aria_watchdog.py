@@ -18,8 +18,11 @@ Reference: docs/recommendations/architectural-arbiter/2026-05-20-adr-0002-aria-w
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import ipaddress
 import json
+import math
 import os
 import signal
 import sys
@@ -29,6 +32,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
+from urllib.parse import urlencode, urlsplit
 
 from .file_lock import with_exclusive_lock
 from .strict_jsonl_reader import read_strict_jsonl
@@ -91,145 +95,348 @@ def _signature_hash(*parts: str) -> str:
     return "wd-v1:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+# ─── Runtime metrics source (RW-1) ───────────────────────────────────────
+#
+# The source is the droplet Prometheus's read-only HTTP API, published on
+# the host's loopback only (127.0.0.1:9090 in every tracked compose
+# Prometheus that publishes a port). Prometheus already scrapes every
+# backend's public /metrics through the catalog-generated file_sd, so ARIA
+# reads them without holding any credential: the observability-service
+# /metrics it used to read is gated by the platform's shared
+# INTERNAL_API_KEY, and ARIA holds no such key.
+#
+# Counters are cumulative, so the detectors judge each family's INCREASE
+# over the interval since the previous successful runtime read (the read
+# stamp below; watchdog_pull.window_bound_seconds bounds it), asked of
+# Prometheus's instant-query API at an explicit evaluation time, never the
+# lifetime totals.
+
+# The metric families the runtime detectors read, each with the labels its
+# windowed increase is summed by, and the scrape scope they are read from:
+# the platform's own targets (the file_sd sets namespace="aquaculture" on
+# every catalog service, and `app` to its service id).
+RUNTIME_FAMILY_GROUPS: dict[str, tuple[str, ...]] = {
+    "http_requests_total": ("app", "status_code"),
+    "security_events_total": ("app", "severity", "type"),
+}
+RUNTIME_METRIC_FAMILIES: tuple[str, ...] = tuple(RUNTIME_FAMILY_GROUPS)
+RUNTIME_SCRAPE_SCOPE: str = 'namespace="aquaculture"'
+# The label naming the production service a sample came from: the target
+# label the catalog file_sd sets (the scraper's word, which an exporter
+# cannot override).
+RUNTIME_SERVICE_LABEL: str = "app"
+# The one producer of security_events_total
+# (apps/observability-service/src/security-events/security-metrics.service.ts).
+SECURITY_EVENTS_SERVICE: str = "observability-service"
+SECURITY_EVENTS_CODE_AREA: str = "apps/observability-service/src/security-events"
+MAX_RUNTIME_METRICS_BYTES: int = 8 * 1024 * 1024
+
+# Every way the runtime feed can be left unread, by name. A sweep that does
+# not read the source says which of these held it; it is never silent.
+RUNTIME_SOURCE_HOLDS: frozenset[str] = frozenset({
+    "source_disabled",       # watchdog_pull.enabled is false
+    "source_unconfigured",   # watchdog_pull.observability_base_url is null/empty
+    "source_invalid",        # not an http://<ip>:<port> origin (userinfo, path, query, no port)
+    "source_not_loopback",   # the host is not a loopback IP literal — refused before any socket
+    "source_unreachable",    # the connection failed or timed out
+    "source_refused",        # the source answered, but not with a usable instant-query answer
+                             # (a non-200, an HTML page, an error document, an oversized body)
+    "source_empty",          # well-formed answers holding no series of any RUNTIME_METRIC_FAMILIES
+                             # (label drift, every target down)
+    # The judged window (RW-1 corrective R5) — the source is not asked:
+    "window_empty",          # now is not after the last read (a second sweep in the same second,
+                             # or a clock behind the stamp): there is no interval to judge
+    "read_stamp_invalid",    # the read stamp exists but does not name a whole-second UTC instant
+    "read_in_progress",      # another sweep holds the runtime read; the stamp is that sweep's
+})
+
+# RW-1 corrective R5 — the read stamp: the instant the last successful
+# runtime read judged through (a declared, carried state surface, so the
+# cycle host and the daemon host share it and a fresh cycle job inherits
+# it). run_watchdog_sweep is its only reader and writer.
+WATCHDOG_RUNTIME_READ_SURFACE: str = "watchdog_runtime_read"
+WATCHDOG_RUNTIME_READ_RELATIVE_PATH: str = "watchdog/runtime-read.json"
+WATCHDOG_RUNTIME_READ_SCHEMA: str = "aria/watchdog-runtime-read/v1"
+# The lock that makes read → judge → ingest → stamp one step per tools dir.
+# Its own target, not the stamp file: the stamp's declared write takes the
+# stamp's own side-car lock inside this one.
+WATCHDOG_RUNTIME_READ_LOCK_RELATIVE_PATH: str = "watchdog/runtime-read.sweep"
+RUNTIME_READ_LOCK_TIMEOUT_SECONDS: float = 30.0
+# How the judged window was chosen, by name (payload `window_from`).
+RUNTIME_WINDOW_ORIGINS: tuple[str, ...] = (
+    "last_read",       # the interval since the last read, whole
+    "first_read",      # no stamp yet: the policy bound
+    "window_capped",   # the interval exceeds the bound: the bound, and the older span is named unjudged
+)
+
+
+@dataclass(frozen=True)
+class SourceHold:
+    """Why the runtime source was not read: a RUNTIME_SOURCE_HOLDS name and its detail.
+
+    The name is checked against the closed vocabulary when the hold is
+    made, so the digest and the report can only ever carry a known hold.
+    """
+
+    name: str
+    detail: str
+
+    def __post_init__(self) -> None:
+        if self.name not in RUNTIME_SOURCE_HOLDS:
+            raise ValueError(f"unknown runtime source hold: {self.name!r}")
+
+
+def _loopback_origin(base_url: object) -> tuple[str, int] | SourceHold:
+    """``(host, port)`` of a loopback ``http://<ip>:<port>`` origin, else the hold it earns.
+
+    Only an IP literal counts: a host NAME is refused without a lookup,
+    because resolving it is already a network act and a name that reads
+    like loopback (``127.0.0.1.nip.io``) can resolve anywhere.
+    """
+    if base_url is None or base_url == "":
+        return SourceHold("source_unconfigured", "watchdog_pull.observability_base_url is not set")
+    if not isinstance(base_url, str):
+        return SourceHold("source_invalid", f"observability_base_url is a {type(base_url).__name__}")
+    parts = urlsplit(base_url.strip())
+    if parts.scheme != "http" or parts.username is not None or parts.password is not None:
+        return SourceHold("source_invalid", "the source is a plain http origin with no userinfo")
+    if parts.path not in ("", "/") or parts.query or parts.fragment:
+        return SourceHold("source_invalid", "the source is an origin: no path, query or fragment")
+    try:
+        port = parts.port
+    except ValueError as exc:
+        return SourceHold("source_invalid", f"port: {exc}")
+    if port is None:
+        return SourceHold("source_invalid", "the source names its port")
+    host = parts.hostname or ""
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return SourceHold("source_not_loopback", f"{host[:80]!r} is a name, not a loopback address")
+    if not address.is_loopback:
+        return SourceHold("source_not_loopback", f"{host} is not a loopback address")
+    return host, port
+
+
+def runtime_increase_query(family: str, window_seconds: int) -> str:
+    """The PromQL the puller asks for one runtime family: its increase over the
+    window, inside the platform's scrape scope, summed by the family's labels."""
+    labels = ",".join(RUNTIME_FAMILY_GROUPS[family])
+    return f"sum by ({labels}) (increase({family}{{{RUNTIME_SCRAPE_SCOPE}}}[{window_seconds}s]))"
+
+
+RuntimeSample = tuple[str, dict[str, str], float]
+
+
 def pull_observability_metrics(
     *,
-    base_url: str,
-    api_key: str | None,
+    base_url: str | None,
+    window_seconds: int,
+    at: int,
     timeout_seconds: int = 5,
-) -> tuple[str | None, str | None]:
-    """E24-a (ORPHAN-711) — one GET against the observability /metrics feed.
+) -> tuple[list[RuntimeSample] | None, SourceHold | None]:
+    """RW-1 — the ONE reader of the runtime metrics source.
 
-    Returns (text, None) on success, (None, reason) on any failure. Stdlib
-    only, bounded timeout: the sweep runs inside the nightly cycle and an
-    unreachable endpoint must cost one disclosure line, never the night
-    (on_error is already record_and_continue at the phase).
+    Credential-free GETs of the Prometheus instant-query API (read-only),
+    one per RUNTIME_METRIC_FAMILIES member, each asking for the family's
+    increase over the ``window_seconds`` ending at ``at`` (epoch seconds,
+    sent as the query's ``time``, so the window the sweep judges is the
+    window Prometheus evaluates — not one ending at the source's own
+    clock), on a loopback origin only. Returns ``(samples, None)`` —
+    ``(family, labels, increase)`` per series — or ``(None, SourceHold)``.
+
+    The loopback rule lives here, so no caller can bypass it: anything but a
+    loopback IP literal is held before a socket is opened. http.client, not
+    urllib: urllib follows redirects (a loopback answer could send the
+    request anywhere) and honours ``*_proxy`` from the environment; a direct
+    connection does neither and sends no User-Agent.
     """
-    import urllib.error
-    import urllib.request
+    import http.client
 
-    request = urllib.request.Request(base_url.rstrip("/") + "/metrics")
-    if api_key:
-        request.add_header("x-internal-api-key", api_key)
+    origin = _loopback_origin(base_url)
+    if isinstance(origin, SourceHold):
+        return None, origin
+    host, port = origin
+    connection = http.client.HTTPConnection(host, port, timeout=timeout_seconds)
+    samples: list[RuntimeSample] = []
     try:
-        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+        for family in RUNTIME_METRIC_FAMILIES:
+            path = "/api/v1/query?" + urlencode([
+                ("query", runtime_increase_query(family, window_seconds)),
+                ("time", str(at)),
+            ])
+            connection.request("GET", path, headers={"Accept": "application/json"})
+            response = connection.getresponse()
+            body = response.read(MAX_RUNTIME_METRICS_BYTES + 1)
             if response.status != 200:
-                return None, f"http_{response.status}"
-            return response.read().decode("utf-8", errors="replace"), None
-    except urllib.error.HTTPError as exc:
-        return None, f"http_{exc.code}"
-    except (urllib.error.URLError, OSError, ValueError) as exc:
-        return None, f"unreachable:{str(exc)[:120]}"
+                return None, SourceHold("source_refused", f"{family}: http_{response.status}")
+            if len(body) > MAX_RUNTIME_METRICS_BYTES:
+                return None, SourceHold("source_refused", f"{family}: answer exceeds {MAX_RUNTIME_METRICS_BYTES} bytes")
+            family_samples = parse_instant_vector(family, body)
+            if isinstance(family_samples, SourceHold):
+                return None, family_samples
+            samples.extend(family_samples)
+    except http.client.HTTPException as exc:
+        return None, SourceHold("source_refused", f"{type(exc).__name__}: {str(exc)[:120]}")
+    except OSError as exc:
+        return None, SourceHold("source_unreachable", f"{type(exc).__name__}: {str(exc)[:120]}")
+    finally:
+        connection.close()
+    return samples, None
 
 
-def parse_prometheus_text(text: str) -> list[tuple[str, dict[str, str], float]]:
-    """Minimal prometheus exposition parser: (name, labels, value) samples.
+def parse_instant_vector(family: str, body: bytes) -> list[RuntimeSample] | SourceHold:
+    """A Prometheus instant-query answer → ``(family, labels, value)`` samples.
 
-    Deliberately narrow — counters and gauges with simple label sets are
-    all the detectors below read. Unparseable lines are skipped, never
-    fatal: telemetry is evidence, not a contract surface.
+    The answer is the API's success envelope around an instant vector:
+    ``{"status": "success", "data": {"resultType": "vector", "result":
+    [{"metric": {label: value}, "value": [ts, "<number>"]}]}}``. Anything
+    else — an HTML page, an error document, a series whose labels or value
+    are not that shape — is the source_refused hold, named with what was
+    wrong: an answer is read whole or not at all.
     """
-    samples: list[tuple[str, dict[str, str], float]] = []
-    for line in text.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
+    def refused(why: str) -> SourceHold:
+        return SourceHold("source_refused", f"{family}: {why}")
+
+    try:
+        document = json.loads(body)
+    except ValueError:
+        return refused("not a JSON query answer")
+    if not isinstance(document, dict) or document.get("status") != "success":
+        status = document.get("status") if isinstance(document, dict) else type(document).__name__
+        return refused(f"query status {str(status)[:40]!r}")
+    data = document.get("data")
+    if not isinstance(data, dict) or data.get("resultType") != "vector" or not isinstance(data.get("result"), list):
+        return refused("not an instant vector")
+    samples: list[RuntimeSample] = []
+    for series in data["result"]:
+        metric = series.get("metric") if isinstance(series, dict) else None
+        point = series.get("value") if isinstance(series, dict) else None
+        if not isinstance(metric, dict) or not all(
+            isinstance(key, str) and isinstance(value, str) for key, value in metric.items()
+        ):
+            return refused("a series whose labels are not strings")
+        if not isinstance(point, list) or len(point) != 2 or not isinstance(point[1], str):
+            return refused("a series whose value is not [timestamp, \"<number>\"]")
         try:
-            metric_part, value_part = line.rsplit(" ", 1)
-            value = float(value_part)
+            value = float(point[1])
         except ValueError:
-            continue
-        labels: dict[str, str] = {}
-        name = metric_part
-        if "{" in metric_part and metric_part.endswith("}"):
-            name, raw_labels = metric_part.split("{", 1)
-            for pair in raw_labels[:-1].split(","):
-                if "=" not in pair:
-                    continue
-                key, raw_value = pair.split("=", 1)
-                labels[key.strip()] = raw_value.strip().strip('"')
-        samples.append((name, labels, value))
+            return refused(f"a series value {point[1][:40]!r} that is not a number")
+        if not math.isfinite(value):
+            return refused(f"a series value {point[1][:40]!r} that is not finite")
+        samples.append((family, dict(metric), value))
     return samples
 
 
+@dataclass(frozen=True)
+class RuntimeAnomaly:
+    """A runtime detector's output: an UNVERIFIED telemetry lead, never a finding.
+
+    It enters ARIA only through runtime_signal_bridge.ingest_runtime_signal
+    (source ``telemetry``, ``trust_grade=runtime_unverified``): it points the
+    repo-evidence machinery at ``code_refs``; a finding about it is minted
+    only by that machinery, with its proof through
+    finding.record_finding_reproduction, so it carries no originating_skill
+    (finding.ORIGINATING_SKILL_ALLOWLIST has no watchdog runtime origin).
+    The summary is stable for one (pattern, subject) — the bridge derives
+    the signal id from it, so a repeat sighting counts on the open signal
+    instead of opening another. Everything that varies per sweep or per
+    policy — the judged window, the threshold, the volume floor, the
+    measured values — lives in ``facts`` (the sweep payload), never in the
+    summary.
+    """
+
+    pattern: str
+    service: str
+    severity: str            # runtime_signal_bridge.RUNTIME_SEVERITIES
+    claim_summary: str
+    facts: list[str]
+    code_refs: list[str]
+
+
 def detect_http_5xx_share(
-    samples: list[tuple[str, dict[str, str], float]],
+    samples: list[RuntimeSample],
     *,
     threshold: float,
     min_requests: int,
-) -> list[WatchdogFinding]:
-    """A 5xx share above threshold on a meaningful request volume."""
-    total = 0.0
+    window_seconds: int,
+) -> list[RuntimeAnomaly]:
+    """A 5xx share above threshold on a meaningful request volume, per service,
+    inside the window: ``samples`` are each series' increase over the last
+    ``window_seconds`` (pull_observability_metrics), so a past storm a
+    container still carries in its lifetime counters raises nothing, and a
+    fresh one on a long-lived service is judged on its own volume.
+
+    A sample that names no service (RUNTIME_SERVICE_LABEL) cannot point at
+    a code area, so it counts toward no service; the sweep names how many
+    such series it read (``unattributed_series``), so a feed whose targets
+    lost the label is never recorded as clean.
+    """
     errors_by_service: dict[str, float] = {}
     total_by_service: dict[str, float] = {}
     for name, labels, value in samples:
         if name != "http_requests_total":
             continue
-        service = labels.get("service") or labels.get("job") or "observability-service"
-        total += value
+        service = labels.get(RUNTIME_SERVICE_LABEL)
+        if not service:
+            continue
         total_by_service[service] = total_by_service.get(service, 0.0) + value
-        status = str(labels.get("status_code") or labels.get("status") or "")
-        if status.startswith("5"):
+        if str(labels.get("status_code") or "").startswith("5"):
             errors_by_service[service] = errors_by_service.get(service, 0.0) + value
-    findings: list[WatchdogFinding] = []
+    anomalies: list[RuntimeAnomaly] = []
     for service, errors in sorted(errors_by_service.items()):
-        service_total = total_by_service.get(service, 0.0)
+        service_total = total_by_service[service]
         if service_total < min_requests:
             continue
-        share = errors / service_total if service_total else 0.0
+        share = errors / service_total
         if share < threshold:
             continue
-        findings.append(WatchdogFinding(
+        anomalies.append(RuntimeAnomaly(
             pattern="runtime_http_5xx",
-            severity="MEDIUM",
+            service=service,
+            severity="medium",
             claim_summary=(
-                f"Production service {service} is answering "
-                f"{share:.1%} of requests with 5xx "
-                f"({int(errors)}/{int(service_total)})."
+                f"Production service {service} answered a share of its requests with 5xx "
+                f"above the runtime watchdog's threshold."
             ),
             facts=[
-                f"http_requests_total 5xx={int(errors)} total={int(service_total)}",
+                f"increase(http_requests_total[{window_seconds}s]) 5xx={errors:g} "
+                f"total={service_total:g} share={share:.1%}",
                 f"threshold={threshold:.0%} min_requests={min_requests}",
             ],
-            evidences=[{
-                "ref": "observability-service:/metrics",
-                "summary": f"http_requests_total{{service={service}}} 5xx share {share:.1%}",
-            }],
-            scope_files=[],
-            pattern_signature_hash=_signature_hash("runtime_http_5xx", service),
-            originating_skill="aria-watchdog:runtime_anomaly",
+            code_refs=[f"apps/{service}"],
         ))
-    return findings
+    return anomalies
 
 
 def detect_security_critical_events(
-    samples: list[tuple[str, dict[str, str], float]],
-) -> list[WatchdogFinding]:
-    """Any critical-severity security event counter above zero."""
-    findings: list[WatchdogFinding] = []
+    samples: list[RuntimeSample],
+    *,
+    window_seconds: int,
+) -> list[RuntimeAnomaly]:
+    """Any critical-severity security event counted inside the window."""
+    anomalies: list[RuntimeAnomaly] = []
     for name, labels, value in samples:
         if name != "security_events_total" or value <= 0:
             continue
         severity = str(labels.get("severity") or "").lower()
         if severity != "critical":
             continue
-        event_type = labels.get("type") or labels.get("event_type") or "unknown"
-        findings.append(WatchdogFinding(
+        event_type = labels.get("type") or "unknown"
+        anomalies.append(RuntimeAnomaly(
             pattern="runtime_security_critical",
-            severity="MEDIUM",
+            service=SECURITY_EVENTS_SERVICE,
+            severity="medium",
             claim_summary=(
-                f"Production security telemetry reports {int(value)} "
-                f"critical-severity event(s) of type {event_type}."
+                f"Production security telemetry counted critical-severity events of type {event_type}."
             ),
-            facts=[f"security_events_total{{severity=critical,type={event_type}}}={int(value)}"],
-            evidences=[{
-                "ref": "observability-service:/metrics",
-                "summary": f"security_events_total critical {event_type}={int(value)}",
-            }],
-            scope_files=[],
-            pattern_signature_hash=_signature_hash("runtime_security_critical", event_type),
-            originating_skill="aria-watchdog:runtime_anomaly",
+            facts=[
+                f"increase(security_events_total{{severity=critical,type={event_type}}}[{window_seconds}s])"
+                f"={value:g}"
+            ],
+            code_refs=[SECURITY_EVENTS_CODE_AREA],
         ))
-    return findings
+    return anomalies
 
 
 def detect_stall(
@@ -690,6 +897,218 @@ def run_aria_watchdog_daemon(
                 pass
 
 
+def _held(hold: SourceHold, *, missing_families: list[str] | None = None) -> dict[str, Any]:
+    """The sweep's ``runtime`` account of a feed it did not read: the named hold,
+    its detail and — when the source answered — the families it held no series for."""
+    runtime: dict[str, Any] = {"hold": hold.name, "detail": hold.detail}
+    if missing_families is not None:
+        runtime["missing_families"] = missing_families
+    return runtime
+
+
+def _ingest_runtime_lead(
+    anomaly: RuntimeAnomaly, *, tools_dir: Path, now: datetime,
+) -> tuple[str, dict[str, Any]]:
+    """Raise one runtime anomaly as a telemetry lead.
+
+    Returns ``("leads", {signal_id, pattern, facts})``, or — when the
+    bridge's door refuses it (a code ref or text that breaks the bridge
+    law) — ``("refused_leads", {pattern, service, refused})``, so the sweep
+    payload names it.
+    """
+    from .runtime_signal_bridge import ingest_runtime_signal
+
+    try:
+        record = ingest_runtime_signal(
+            source="telemetry",
+            service=anomaly.service,
+            summary=anomaly.claim_summary,
+            code_refs=list(anomaly.code_refs),
+            severity=anomaly.severity,
+            base_dir=tools_dir,
+            now=now,
+        )
+    except GovernanceError as exc:
+        return "refused_leads", {"pattern": anomaly.pattern, "service": anomaly.service[:128], "refused": str(exc)[:200]}
+    return "leads", {"signal_id": record["signal_id"], "pattern": anomaly.pattern, "facts": list(anomaly.facts)}
+
+
+def _utc_instant(epoch: int) -> str:
+    return datetime.fromtimestamp(epoch, timezone.utc).isoformat()
+
+
+def _read_runtime_stamp(path: Path) -> int | None | SourceHold:
+    """The epoch second the last successful runtime read judged through.
+
+    ``None`` when no read has been recorded (the first read). A stamp that
+    is not this module's whole-second UTC instant is the read_stamp_invalid
+    hold, named — never read as a first read, which would silently re-judge
+    a span already judged.
+    """
+    if not path.exists():
+        return None
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return SourceHold("read_stamp_invalid", f"{type(exc).__name__}: {str(exc)[:120]}")
+    through = _parse_iso(document.get("read_through")) if isinstance(document, dict) else None
+    if (
+        through is None
+        or through.microsecond
+        or document.get("$schema") != WATCHDOG_RUNTIME_READ_SCHEMA
+    ):
+        return SourceHold("read_stamp_invalid", f"{str(document)[:120]!r} is not a {WATCHDOG_RUNTIME_READ_SCHEMA} stamp")
+    return int(through.timestamp())
+
+
+def _record_runtime_read(path: Path, *, through: int) -> None:
+    from .ledger import rewrite_declared_json
+
+    rewrite_declared_json(
+        path,
+        {"$schema": WATCHDOG_RUNTIME_READ_SCHEMA, "schema_version": 1, "read_through": _utc_instant(through)},
+        expected_surface=WATCHDOG_RUNTIME_READ_SURFACE,
+    )
+
+
+def _runtime_window(*, last_read: int | None, now: int, bound: int) -> dict[str, Any]:
+    """The window this read judges, ending at ``now`` (epoch seconds), and how
+    it was chosen (RUNTIME_WINDOW_ORIGINS). ``now`` is after ``last_read``."""
+    window: dict[str, Any] = {"window_end": _utc_instant(now)}
+    if last_read is None:
+        return {**window, "window_from": "first_read", "window_seconds": bound}
+    elapsed = now - last_read
+    if elapsed > bound:
+        return {
+            **window,
+            "window_from": "window_capped",
+            "window_seconds": bound,
+            "last_read": _utc_instant(last_read),
+            "unjudged_seconds": elapsed - bound,
+            "unjudged_from": _utc_instant(last_read),
+            "unjudged_to": _utc_instant(now - bound),
+        }
+    return {**window, "window_from": "last_read", "window_seconds": elapsed, "last_read": _utc_instant(last_read)}
+
+
+def _sweep_runtime_feed(
+    *,
+    workspace_path: Path,
+    tools_path: Path,
+    now: datetime,
+    interrupt: threading.Event,
+    suppress_emission: bool,
+) -> tuple[dict[str, Any], int]:
+    """RW-1 — the runtime feed's part of one sweep: ``(runtime account, anomalies)``.
+
+    One step per tools dir, under the read lock: read the stamp, judge the
+    interval from it to ``now`` through the ONE puller, raise each anomaly
+    as a telemetry lead, and only then advance the stamp to ``now``. The
+    stamp does not move on a hold, on a suppressed (ARIA_STOP, shadow) sweep
+    or on an interrupted ingest, so the next sweep judges that interval
+    again (a lead the interrupted sweep already raised is then a repeat
+    sighting of its open signal, not a new one). Consecutive recorded reads
+    therefore judge consecutive windows, and a span left unjudged is named
+    (``window_capped``).
+    """
+    from .genesis_policy import watchdog_pull_policy
+
+    pull_policy = watchdog_pull_policy(workspace_path)
+    if not pull_policy["enabled"]:
+        return _held(SourceHold("source_disabled", "watchdog_pull.enabled is false")), 0
+    lock_target = tools_path / WATCHDOG_RUNTIME_READ_LOCK_RELATIVE_PATH
+    with contextlib.ExitStack() as held:
+        try:
+            held.enter_context(with_exclusive_lock(lock_target, timeout_seconds=RUNTIME_READ_LOCK_TIMEOUT_SECONDS))
+        except TimeoutError:
+            return _held(SourceHold(
+                "read_in_progress", f"another sweep held the runtime read for {RUNTIME_READ_LOCK_TIMEOUT_SECONDS:g}s",
+            )), 0
+        return _judge_runtime_window(
+            pull_policy=pull_policy,
+            stamp_path=tools_path / WATCHDOG_RUNTIME_READ_RELATIVE_PATH,
+            tools_path=tools_path,
+            now=now,
+            interrupt=interrupt,
+            suppress_emission=suppress_emission,
+        )
+
+
+def _judge_runtime_window(
+    *,
+    pull_policy: dict[str, Any],
+    stamp_path: Path,
+    tools_path: Path,
+    now: datetime,
+    interrupt: threading.Event,
+    suppress_emission: bool,
+) -> tuple[dict[str, Any], int]:
+    """The body of _sweep_runtime_feed, run under its read lock."""
+    last_read = _read_runtime_stamp(stamp_path)
+    if isinstance(last_read, SourceHold):
+        return _held(last_read), 0
+    now_epoch = int(now.timestamp())
+    if last_read is not None and now_epoch <= last_read:
+        return _held(SourceHold(
+            "window_empty", f"now {_utc_instant(now_epoch)} is not after the last read {_utc_instant(last_read)}",
+        )), 0
+    window = _runtime_window(last_read=last_read, now=now_epoch, bound=pull_policy["window_bound_seconds"])
+    window_seconds = window["window_seconds"]
+    samples, hold = pull_observability_metrics(
+        base_url=pull_policy["observability_base_url"], window_seconds=window_seconds, at=now_epoch,
+    )
+    if hold is not None:
+        return _held(hold), 0
+    present = {name for name, _, _ in samples}
+    missing = [family for family in RUNTIME_METRIC_FAMILIES if family not in present]
+    if len(missing) == len(RUNTIME_METRIC_FAMILIES):
+        # Well-formed answers with no runtime series are not a healthy
+        # night (a quiet window still answers a series per target, at 0):
+        # the scope's labels drifted or every target is down — named,
+        # never read as clean.
+        return _held(
+            SourceHold("source_empty", f"no series of {', '.join(missing)} in the window"),
+            missing_families=missing,
+        ), 0
+    anomalies = detect_http_5xx_share(
+        samples,
+        threshold=float(pull_policy["http_5xx_share_threshold"]),
+        min_requests=int(pull_policy["http_min_requests"]),
+        window_seconds=window_seconds,
+    )
+    anomalies.extend(detect_security_critical_events(samples, window_seconds=window_seconds))
+    runtime: dict[str, Any] = {
+        **window,
+        "samples": len(samples),
+        "missing_families": missing,
+        # RW-1 corrective R6 — series no detector can attribute
+        # (no RUNTIME_SERVICE_LABEL: the target lost its `app`
+        # label), counted and carried to the digest and the
+        # report instead of dropped.
+        "unattributed_series": sum(
+            1 for _, labels, _ in samples if not labels.get(RUNTIME_SERVICE_LABEL)
+        ),
+        "candidates": len(anomalies),
+        "leads": [],
+        "refused_leads": [],
+        "read_recorded": False,
+    }
+    if suppress_emission:
+        return runtime, len(anomalies)
+    # A runtime anomaly is an UNVERIFIED lead on the runtime-signal claim
+    # path, never a finding the watchdog mints: repo evidence and a red
+    # reproduction (finding.record_finding_reproduction) decide what is
+    # true about it.
+    for anomaly in anomalies:
+        if interrupt.is_set():
+            return runtime, len(anomalies)
+        outcome_key, outcome = _ingest_runtime_lead(anomaly, tools_dir=tools_path, now=now)
+        runtime[outcome_key].append(outcome)
+    _record_runtime_read(stamp_path, through=now_epoch)
+    runtime["read_recorded"] = True
+    return runtime, len(anomalies)
+
+
 def run_watchdog_sweep(
     *,
     workspace_root: str | Path,
@@ -726,40 +1145,7 @@ def run_watchdog_sweep(
     candidates.extend(detect_stall(governance_rows, autonomy_rows, now=now, clock=provider_clock(tools_path)))
     candidates.extend(detect_repeated_bridge_warning(governance_rows, now=now))
 
-    # E24-a (ORPHAN-711) — production telemetry joins the same sweep: pull
-    # the observability /metrics feed and run the runtime detectors over
-    # it. Every failure mode is a DISCLOSED skip in the payload
-    # (disabled / source_unconfigured / source_unreachable), never a
-    # silent absence and never a dead night.
-    import os as _os
-
-    from .genesis_policy import watchdog_pull_policy
-
-    pull_policy = watchdog_pull_policy(workspace_path)
-    runtime: dict[str, Any]
-    if not pull_policy.get("enabled", True):
-        runtime = {"skipped": "disabled"}
-    elif not pull_policy.get("observability_base_url"):
-        runtime = {"skipped": "source_unconfigured"}
-    else:
-        api_key = _os.environ.get(str(pull_policy.get("api_key_env") or ""))
-        metrics_text, pull_error = pull_observability_metrics(
-            base_url=str(pull_policy["observability_base_url"]),
-            api_key=api_key,
-        )
-        if metrics_text is None:
-            runtime = {"skipped": "source_unreachable", "error": pull_error}
-        else:
-            samples = parse_prometheus_text(metrics_text)
-            runtime_candidates = detect_http_5xx_share(
-                samples,
-                threshold=float(pull_policy.get("http_5xx_share_threshold") or 0.05),
-                min_requests=int(pull_policy.get("http_min_requests") or 50),
-            )
-            runtime_candidates.extend(detect_security_critical_events(samples))
-            candidates.extend(runtime_candidates)
-            runtime = {"samples": len(samples), "candidates": len(runtime_candidates)}
-
+    interrupt = interrupt_event or threading.Event()
     emitted = 0
     suppressed = 0
     if not suppress_emission:
@@ -769,15 +1155,28 @@ def run_watchdog_sweep(
                 tools_dir=tools_path,
                 repo_root=workspace_path,
                 daemon_agent_id=daemon_agent_id,
-                interrupt_event=interrupt_event or threading.Event(),
+                interrupt_event=interrupt,
                 now=now,
             )
             if record is not None:
                 emitted += 1
             else:
                 suppressed += 1
+    # RW-1 — production telemetry joins the same sweep through the ONE
+    # puller (a loopback, credential-free read of each runtime family's
+    # increase since the last read from the Prometheus query API). A
+    # source the sweep cannot read is a NAMED hold in the payload
+    # (RUNTIME_SOURCE_HOLDS), which the cycle digest and the report carry:
+    # never silence, never a dead night.
+    runtime, anomaly_count = _sweep_runtime_feed(
+        workspace_path=workspace_path,
+        tools_path=tools_path,
+        now=now,
+        interrupt=interrupt,
+        suppress_emission=suppress_emission,
+    )
     return {
-        "candidates": len(candidates),
+        "candidates": len(candidates) + anomaly_count,
         "emitted": emitted,
         "suppressed": suppressed,
         # E24-b: ISO string, not a datetime. Every consumer of this dict either
@@ -789,8 +1188,10 @@ def run_watchdog_sweep(
         "latest_governance_ts": (
             latest_governance_ts.isoformat() if latest_governance_ts is not None else None
         ),
-        # E24-a — the runtime pull's honest account (additive; the X3
-        # digest keys above are unchanged).
+        # RW-1 — the runtime feed's account: its named hold, or the window it
+        # judged (since the last read, or the named first/capped read) and
+        # which leads it raised (the X3 digest keys above count the ledger
+        # detectors' findings).
         "runtime": runtime,
     }
 

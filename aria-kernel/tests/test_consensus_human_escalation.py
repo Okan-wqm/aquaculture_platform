@@ -1,10 +1,10 @@
-"""Plan 023 §B — consensus disagreement → HUMAN_REQUIRED escalation.
+"""Plan 023 §B, re-pinned by F0.7 (ARIA-MEDIUM-730) — a consensus
+uncertainty never becomes HUMAN_REQUIRED.
 
-Before Plan 023 the consensus gate wrote judge disagreements / low-confidence
-verdicts to ``feedback-consensus-uncertainties.jsonl`` and nothing read it, so
-a split judge vote was silently held forever. These tests prove the drain
-consumer turns each genuine consensus failure into an idempotent operator
-HUMAN_REQUIRED record, and that the benign single-judge case is not escalated.
+Plan 023 drained the uncertainty ledger into operator triage; F0.7 routes
+judgment uncertainty to the arbiter instead (test_f07_uncertainty_to_arbiter
+pins the arbiter side). These tests pin the registry side: the sweep creates
+nothing, reports each uncertainty's lane, and stays a no-op on reruns.
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from aria_kernel.feedback_store import _consensus_uncertainty
+from aria_kernel.feedback_store import UNVERIFIABLE_RATE_CEILING, _consensus_uncertainty
 from aria_kernel.human_required import (
     list_human_required,
     sweep_consensus_uncertainties_for_human_required,
@@ -46,43 +46,34 @@ class ConsensusEscalationTests(unittest.TestCase):
         result = sweep_consensus_uncertainties_for_human_required(base_dir=self.tools)
         self.assertEqual(result["created"], [])
 
-    def test_disagreement_and_low_confidence_escalate_single_judge_does_not(self) -> None:
+    def test_no_reason_escalates_and_each_is_reported_in_its_lane(self) -> None:
         self._write_uncertainties(
             _consensus_uncertainty("tool-x", "run-1", "F-1", "g1", "judge_disagreement"),
             _consensus_uncertainty("tool-x", "run-2", "F-2", "g2", "low_confidence"),
             _consensus_uncertainty("tool-x", "run-3", "F-3", "g3", "single_judge"),
+            _consensus_uncertainty("tool-x", "run-4", "F-4", "g4", "unverifiable"),
         )
         result = sweep_consensus_uncertainties_for_human_required(base_dir=self.tools)
-        self.assertEqual(len(result["created"]), 2)
-        severities = sorted(r["severity"] for r in result["created"])
-        self.assertEqual(severities, ["HIGH", "MEDIUM"])
-        # single_judge is benign and must be skipped, not escalated.
-        self.assertTrue(
-            any(s.get("kind") == "benign_not_escalated" for s in result["skipped"])
-        )
-        open_rows = list_human_required(base_dir=self.tools).rows
-        self.assertEqual(len(open_rows), 2)
+        self.assertEqual(result["created"], [])
+        self.assertEqual(result["routed"], {"arbiter": 2, "terminal": 1, "not_arbitrated": 1})
+        self.assertEqual(list_human_required(base_dir=self.tools).rows, [])
 
-    def test_severity_mapping(self) -> None:
+    def test_the_unverifiable_rate_is_reported_against_its_ceiling(self) -> None:
         self._write_uncertainties(
-            _consensus_uncertainty("tool-x", "run-1", "F-1", "g1", "judge_disagreement"),
-            _consensus_uncertainty("tool-x", "run-2", "F-2", "g2", "low_confidence"),
+            _consensus_uncertainty("tool-x", "run-4", "F-4", "g4", "unverifiable"),
         )
-        sweep_consensus_uncertainties_for_human_required(base_dir=self.tools)
-        rows = {r["reason"].split("(")[1].split(")")[0]: r["severity"]
-                for r in list_human_required(base_dir=self.tools).rows}
-        self.assertEqual(rows["judge_disagreement"], "HIGH")
-        self.assertEqual(rows["low_confidence"], "MEDIUM")
+        [rate] = sweep_consensus_uncertainties_for_human_required(base_dir=self.tools)["unverifiable_rate"]
+        self.assertEqual((rate["tool_id"], rate["unverifiable"], rate["settled"], rate["rate"]), ("tool-x", 1, 0, 1.0))
+        self.assertEqual(rate["ceiling"], UNVERIFIABLE_RATE_CEILING)
 
     def test_idempotent_across_reruns(self) -> None:
         self._write_uncertainties(
             _consensus_uncertainty("tool-x", "run-1", "F-1", "g1", "judge_disagreement"),
         )
         first = sweep_consensus_uncertainties_for_human_required(base_dir=self.tools)
-        self.assertEqual(len(first["created"]), 1)
         second = sweep_consensus_uncertainties_for_human_required(base_dir=self.tools)
-        self.assertEqual(len(second["created"]), 0)
-        self.assertEqual(len(list_human_required(base_dir=self.tools).rows), 1)
+        self.assertEqual(first, second)
+        self.assertEqual(list_human_required(base_dir=self.tools).rows, [])
 
 
 if __name__ == "__main__":

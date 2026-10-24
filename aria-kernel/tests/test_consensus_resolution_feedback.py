@@ -3,6 +3,9 @@
 Resolving a HUMAN_REQUIRED consensus escalation with a verdict fans the
 operator's adjudication into the ground-truth feedback ledger, where Plan 024 §A
 judge calibration scores the judges that disagreed.
+
+F0.7 (ARIA-MEDIUM-730) — no new consensus escalation is minted; these pin the
+resolution of the records minted before it, which stay open in live stores.
 """
 from __future__ import annotations
 
@@ -11,12 +14,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from aria_kernel.feedback_store import _consensus_uncertainty, load_feedback
-from aria_kernel.human_required import (
-    resolve_human_required,
-    sweep_consensus_uncertainties_for_human_required,
-)
-from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir, utc_now
+from aria_kernel.feedback_store import load_feedback
+from aria_kernel.human_required import record_human_required, resolve_human_required
+from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 
 
 class ConsensusResolutionFeedbackTests(unittest.TestCase):
@@ -29,16 +29,14 @@ class ConsensusResolutionFeedbackTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def _escalate(self) -> str:
-        unc = _consensus_uncertainty("tool-x", "run-1", "F-1", "g1", "judge_disagreement")
-        line = {
-            "schema_version": 1, "recorded_at": utc_now(),
-            "tool_id": "tool-x", "cycle_id": "c1", "uncertainties": [unc],
-        }
-        with (self.tools / "feedback-consensus-uncertainties.jsonl").open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(line, sort_keys=True) + "\n")
-        created = sweep_consensus_uncertainties_for_human_required(base_dir=self.tools)["created"]
-        self.assertEqual(len(created), 1)
-        return created[0]["request_id"]
+        """A consensus escalation as Plan 023's sweep minted it before F0.7."""
+        record = record_human_required(
+            request_id="consensus-pre-f07", severity="HIGH", reason="AI consensus could not be reached",
+            context={"kind": "consensus_escalation", "uncertainty_reason": "judge_disagreement",
+                     "tool_id": "tool-x", "run_id": "run-1", "finding_id": "F-1", "judgment_group_id": "g1"},
+            base_dir=self.tools,
+        )
+        return record["request_id"]
 
     def test_escalation_record_carries_structured_context(self) -> None:
         rid = self._escalate()

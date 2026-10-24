@@ -15,8 +15,8 @@ One property per test:
   calibrated judges of distinct models exist, and says why;
 * the two reasons that never escalated are in every vocabulary, and the
   AST invariant walks every reason `feedback_store` emits;
-* the escalation sweep records at most N `confidence_uncalibrated`
-  escalations per sweep and names the cap on the rest;
+* (F0.7) `confidence_uncalibrated` is calibration work, never arbitrated
+  and never escalated to a human;
 * the doctor warns after seven days of a downgraded `enforce`.
 """
 from __future__ import annotations
@@ -31,6 +31,7 @@ from tempfile import TemporaryDirectory
 from aria_kernel import feedback_store
 from aria_kernel.doctor import _check_calibration_gate
 from aria_kernel.feedback_store import (
+    ARBITRATED_UNCERTAINTY_REASONS,
     CALIBRATION_GATES,
     CONSENSUS_UNCERTAINTY_REASONS,
     generate_ai_consensus,
@@ -39,10 +40,7 @@ from aria_kernel.feedback_store import (
     record_operator_feedback,
 )
 from aria_kernel.genesis_policy import effective_calibration_gate, judgment_pipeline_policy
-from aria_kernel.human_required import (
-    CONSENSUS_UNCERTAINTY_SEVERITY,
-    sweep_consensus_uncertainties_for_human_required,
-)
+from aria_kernel.human_required import sweep_consensus_uncertainties_for_human_required
 from aria_kernel.tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
 
 _KERNEL = Path(__file__).resolve().parents[1] / "aria_kernel"
@@ -192,12 +190,11 @@ class TheVocabulariesAgree(unittest.TestCase):
         for reason in sorted(emitted):
             with self.subTest(reason=reason):
                 self.assertIn(reason, CONSENSUS_UNCERTAINTY_REASONS)
-                if reason != "single_judge":
-                    self.assertIn(reason, CONSENSUS_UNCERTAINTY_SEVERITY)
-        self.assertEqual(set(CONSENSUS_UNCERTAINTY_REASONS) - set(CONSENSUS_UNCERTAINTY_SEVERITY), {"single_judge"},
-                         "single_judge is the one deliberately benign reason")
-        self.assertEqual(CONSENSUS_UNCERTAINTY_SEVERITY["observer_identity_missing"], "HIGH")
-        self.assertEqual(CONSENSUS_UNCERTAINTY_SEVERITY["confidence_uncalibrated"], "LOW")
+        # F0.7 — every reason is the arbiter's except the three whose answer
+        # is not an arbitration.
+        self.assertEqual(set(CONSENSUS_UNCERTAINTY_REASONS) - ARBITRATED_UNCERTAINTY_REASONS,
+                         {"single_judge", "confidence_uncalibrated", "unverifiable"})
+        self.assertIn("observer_identity_missing", ARBITRATED_UNCERTAINTY_REASONS)
 
     def test_the_recorder_accepts_the_two_reasons(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -209,21 +206,17 @@ class TheVocabulariesAgree(unittest.TestCase):
                 self.assertEqual(row["reason"], reason)
 
 
-class TheSweepCap(unittest.TestCase):
-    def test_at_most_n_uncalibrated_escalations_per_sweep(self) -> None:
+class UncalibratedIsNeverEscalated(unittest.TestCase):
+    def test_the_sweep_creates_nothing_for_confidence_uncalibrated(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp) / "aria-tools"
             ensure_tools_dir(root)
             for i in range(8):
                 record_consensus_uncertainty(tool_id="t", run_id=f"r{i}", finding_id=f"f{i}", group_id=f"g{i}",
                                              reason="confidence_uncalibrated", base_dir=root)
-            record_consensus_uncertainty(tool_id="t", run_id="rx", finding_id="fx", group_id="gx",
-                                         reason="judge_disagreement", base_dir=root)
-            result = sweep_consensus_uncertainties_for_human_required(base_dir=root, max_uncalibrated_escalations=3)
-            created_reasons = [r["context"]["uncertainty_reason"] for r in result["created"]]
-            self.assertEqual(created_reasons.count("confidence_uncalibrated"), 3)
-            self.assertEqual(created_reasons.count("judge_disagreement"), 1)
-            self.assertEqual(sum(1 for s in result["skipped"] if s.get("kind") == "sweep_cap_reached"), 5)
+            result = sweep_consensus_uncertainties_for_human_required(base_dir=root)
+            self.assertEqual(result["created"], [])
+            self.assertEqual(result["routed"]["not_arbitrated"], 8)
 
 
 class TheDoctorHearsADowngradedEnforce(unittest.TestCase):

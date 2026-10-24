@@ -141,24 +141,13 @@ class ArbiterUncertaintyIsAValidOutcome(unittest.TestCase):
             },
         )
 
-    def test_every_reason_escalates_under_its_severity(self) -> None:
-        """A reason the sweep's severity table does not know is silently
-        dropped as ``benign_not_escalated`` (human_required), so the pin and
-        the table must move together — the vocabulary and its escalation are
-        one contract, not two."""
-        from aria_kernel.human_required import CONSENSUS_UNCERTAINTY_SEVERITY
+    def test_unverifiable_is_terminal_not_arbitrated(self) -> None:
+        """F0.7 — the arbiter's unverifiable answer is terminal: it is never
+        handed back to the arbiter, and no reason reaches a human."""
+        from aria_kernel.feedback_store import ARBITRATED_UNCERTAINTY_REASONS, TERMINAL_UNCERTAINTY_REASON
 
-        self.assertEqual(CONSENSUS_UNCERTAINTY_SEVERITY["unverifiable"], "HIGH")
-        self.assertEqual(
-            {
-                reason
-                for reason in CONSENSUS_UNCERTAINTY_REASONS
-                if reason not in CONSENSUS_UNCERTAINTY_SEVERITY
-            },
-            # single_judge is the one deliberate non-escalation: a group with
-            # one judge has nothing to settle yet, not a failure to weigh.
-            {"single_judge"},
-        )
+        self.assertEqual(TERMINAL_UNCERTAINTY_REASON, "unverifiable")
+        self.assertNotIn("unverifiable", ARBITRATED_UNCERTAINTY_REASONS)
 
 
 if __name__ == "__main__":

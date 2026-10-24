@@ -1217,3 +1217,186 @@ their names can disagree with the one service key
   PLAN-v2 F0.9b; \_asset_of is the per-path twin of \_detect_services and goes with it.
 - Failure scenario: security assessment files a finding on `apps/<dir>` as `service:<dir>` while
   the finding dimension names the same project by its project.json name, so the two never join.
+
+## ARIA-MEDIUM-824
+
+`harness.py review_change` runs the cycle and the `ci_executor.py --drain` under `{**os.environ}`,
+where the Stage J it replaces ran under an `env -i` allowlist. `GH_TOKEN`, `GITHUB_*`,
+`ANTHROPIC_API_KEY`, `GIT_DIR` and ambient `ARIA_*` settings reach code run from the room tree, and
+the room environment now has two definitions of different hermeticity. The kernel tripwire (iii)
+covers only the in-process `run_enterprise_cycle`, not the harness or the drain.
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: D1 review round 1, ssot lens (room env defined twice) and security lens (the leak),
+  merged into one finding. Registered by the WP-D1 findings clerk after re-checking the evidence at
+  `258c14657`.
+- Evidence:
+  - `tools/aria-acceptance/harness.py:519-530`
+  - `tools/aria-acceptance/harness.py:541-545`
+  - `tools/aria-acceptance/harness.py:562-564`
+  - `tools/aria-poc/ci_executor_drain.py:860`
+  - `tools/aria-poc/ci_executor_drain.py:938`
+  - `tools/aria-poc/ci_executor_drain.py:1473-1474`
+  - `aria-kernel/aria_kernel/evidence_probe.py:179-185`
+  - `/root/aria-handover/2026-10-21/decision-test/run_aria_case.sh:64-95`
+- Rule: Hermetic room (WP-D1 exit iii, DESIGN-discovery D1): the room environment is an allowlist
+  with one definition (`room_env` of `run_aria_case.sh`: 'No GH/GITHUB/RUNNER/GIT\_/ANTHROPIC');
+  CLAUDE.md one owner per concept.
+- Citation note: the review cited `ci_executor.py:1030` for the `GITHUB_OUTPUT` write. That is the
+  per-request child's write, and the drain overrides `GITHUB_OUTPUT` per child
+  (`ci_executor_drain.py:938`). The path that reaches an ambient `GITHUB_OUTPUT` is the drain's own
+  summary write (`ci_executor_drain.py:860`, `:1473-1474`). No passive harm was reproduced:
+  `change_review` runs no GitHub phase.
+- Close: the harness builds the room environment from one shared allowlist (no `{**os.environ}`); a
+  test sets `GH_TOKEN`, `GITHUB_OUTPUT`, `GIT_DIR` and `ANTHROPIC_API_KEY` in the parent and asserts
+  none reaches the cycle or drain subprocess env and the `GITHUB_OUTPUT` file is untouched.
+
+## ARIA-MEDIUM-825
+
+`run_aria_case.sh` still runs Stage J through its embedded helper (`cmd_mint`, `cmd_settle`,
+`cmd_promote` over the private kernel functions `_select_findings`, `_sample_id` and
+`_resolve_workspace_head_sha`). The private settle loop stays a live second owner beside
+`harness.py review-change` until the driver, which lives outside the repo, is switched.
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: D1 review round 1, ssot lens. Registered by the WP-D1 findings clerk after re-checking
+  the evidence at `258c14657`.
+- Evidence:
+  - `/root/aria-handover/2026-10-21/decision-test/run_aria_case.sh:445-458`
+  - `/root/aria-handover/2026-10-21/decision-test/run_aria_case.sh:279-349`
+  - `/root/aria-handover/2026-10-21/decision-test/run_aria_case.sh:390-391`
+  - `tools/aria-acceptance/harness.py:503-505`
+- Rule: One owner per concept (CLAUDE.md); DESIGN-discovery D1 row: 'Retires the private-function
+  Stage J of `run_aria_case.sh`'.
+- The commit message of `258c14657` records the driver switch as the operator's step; no repo gate
+  sees the script.
+- Close: `run_aria_case.sh` Stage J calls `harness.py review-change`, and the helper's `cmd_mint`,
+  `cmd_settle`, `cmd_promote` and their private kernel imports are deleted. Verified by reading the
+  script at close time.
+
+## ARIA-MEDIUM-826
+
+Changed file paths of the reviewed change are rendered raw, newlines included, into the
+change-intelligence `suggested_prompt` outside any untrusted tag. `resolve_change_subject` takes
+them from `git diff --name-only -z` and `dispatch_change_intelligence` joins them into the prompt,
+so a path containing a newline can plant its own lines, including a closing tag, in the agent's task
+text.
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: D1 review round 1, security lens. Registered by the WP-D1 findings clerk after
+  re-checking the evidence at `258c14657`.
+- Evidence:
+  - `aria-kernel/aria_kernel/pr_tracking.py:142-151`
+  - `aria-kernel/aria_kernel/pr_tracking.py:281-282`
+  - `aria-kernel/aria_kernel/agent_invocations.py:1142`
+- Rule: PLAN-v2 F4.0 trust boundary and DESIGN-discovery D2 row: change content reaches the agent
+  only inside `<untrusted_*>` tags (diff hunks in `<untrusted_diff>`).
+- Same class as the merge feed on main (the same raw join of PR `changed_files`); D1 only adds a new
+  path source. D2 owns `<untrusted_diff>`, so this is not a D1 blocker. The security reviewer's
+  probe (a head adding a file whose name contains a newline and a closing tag) put that text into
+  `suggested_prompt` as its own lines.
+- Close: D2 renders changed paths inside an untrusted tag with control characters and angle brackets
+  escaped or refused by name; a test with a newline-and-closing-tag path pins it for the operator
+  subject and the merge feed.
+
+## ARIA-LOW-827
+
+`harness.py review_change` spells the session-store variable as the literal `ARIA_SESSION_STORE_DIR`
+and defines the room store's extra layout (`sessions`, `logs`, `home/xdg/*`) itself, instead of
+importing `session_continuity.SESSION_STORE_ENV_VAR` and keeping the layout in `state_store` beside
+the four store roots.
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: D1 review round 1, ssot lens. Registered by the WP-D1 findings clerk after re-checking
+  the evidence at `258c14657`.
+- Evidence:
+  - `tools/aria-acceptance/harness.py:522`
+  - `tools/aria-acceptance/harness.py:531`
+  - `aria-kernel/aria_kernel/session_continuity.py:51`
+  - `aria-kernel/aria_kernel/state_store.py:393-411`
+- Rule: One owner per concept (CLAUDE.md); HARNESS section 2.1 store binding from the kernel's one
+  definition.
+- Citation correction: the review cited `harness.py:586,595`; at `258c14657` they are `:522` and
+  `:531`.
+- Close: `harness.py` imports `SESSION_STORE_ENV_VAR`, takes the room layout and binding from one
+  function beside `store_root_environment`, and holds no `ARIA_*` literal.
+
+## ARIA-LOW-828
+
+`state_store.store_root_environment` spells `root / TOOLS_SUBDIR` and `root / FINDINGS_SUBDIR`
+itself, where `store_environment` called `tools_root(store)` and `findings_root(store)` until
+`258c14657`, so the same path shape now has two expressions.
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: D1 review round 1, ssot lens. Registered by the WP-D1 findings clerk after re-checking
+  the evidence at `258c14657`.
+- Evidence:
+  - `aria-kernel/aria_kernel/state_store.py:401-403`
+  - `aria-kernel/aria_kernel/state_store.py:322-323`
+  - `aria-kernel/aria_kernel/state_store.py:332-333`
+- Rule: One owner per concept (CLAUDE.md): a store root's subdirectory has one expression.
+- Citation correction: the review cited `state_store.py:518-520`; at `258c14657` the joins are
+  `:401-403`. `tools_root`/`findings_root` take a `StateStore` and `store_root_environment` takes a
+  root `Path`, which is why the refactor re-spelled the join.
+- Close: `tools_root`, `findings_root` and the workspace base are defined once over the root path
+  (the `StateStore` forms delegate) and `store_root_environment` calls them; no second
+  `root / SUBDIR` join remains.
+
+## ARIA-LOW-829
+
+`harness.py review_change` derives `cycle_id` from a one-second UTC stamp
+(`review-change-<YYYYmmddTHHMMSSZ>-c<round>`), so two review-change runs on one store within the
+same second get the same `cycle_id` and overwrite each other's logs.
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: D1 review round 1, ssot lens. Registered by the WP-D1 findings clerk after re-checking
+  the evidence at `258c14657`.
+- Evidence:
+  - `tools/aria-acceptance/harness.py:533`
+  - `tools/aria-acceptance/harness.py:540`
+  - `tools/aria-acceptance/harness.py:547`
+  - `tools/aria-acceptance/harness.py:566`
+- Rule: A `cycle_id` names exactly one cycle of a store; the harness keys `logs/<cycle_id>.*` by it.
+- Whether the kernel itself refuses a repeated `cycle_id` on one store was not probed.
+- Close: the `cycle_id` is unique per run (sub-second stamp plus pid, or a uuid); a test pins
+  distinct ids for two calls in the same second.
+
+## ARIA-LOW-830
+
+`test_harness_review_change.py` covers only the usage errors of `review-change`. The cycle, drain,
+cycle settle loop and the `settled`/`passed` flag have no test.
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: D1 review round 1, ssot lens. Registered by the WP-D1 findings clerk after re-checking
+  the evidence at `258c14657`.
+- Evidence:
+  - `tools/aria-acceptance/test_harness_review_change.py:48-66`
+  - `tools/aria-acceptance/harness.py:539-571`
+- Rule: CLAUDE.md test rules: new behaviour is test-first; the settle loop is the unit D1 adds to
+  the harness.
+- The reviewer's manual probe with `rounds=0` on a two-commit fixture worked (run 1 minted 1, run 2
+  minted 0, tree clean). Kernel-side mode tests are in
+  `aria-kernel/tests/test_cycle_change_review_mode.py`.
+- Close: a harness test drives `review_change` with the drain stubbed at the subprocess boundary and
+  pins: settled in round 1; drained then settled in round 2; stopped at `rounds` with `settled`
+  false while requests stay open; a nonzero cycle exit gives `passed` false with the named error.
+
+## ARIA-LOW-831
+
+`pr_tracking.subject_open_request_ids` loads the request ledger twice and indexes
+`states[request_id]` directly, so a request row that `derive_request_states` skips (a falsy
+`request_id`) raises `KeyError` instead of a refusal by name.
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: D1 review round 1, security lens (a correctness point, not a security one). Registered
+  by the WP-D1 findings clerk after re-checking the evidence at `258c14657`.
+- Evidence:
+  - `aria-kernel/aria_kernel/pr_tracking.py:321-333`
+  - `aria-kernel/aria_kernel/agent_invocations.py:3646-3647`
+- Rule: Refuse by name, never crash with a bare `KeyError` (the `change_review_*` `GovernanceError`
+  family of `resolve_change_subject`).
+- Found by the security lens as a correctness point. Read from the code, not reproduced; it crashes
+  the cycle, it does not pass.
+- Close: the subject's open ids and their states come from one ledger load, or a row without a state
+  is refused by name (`change_review_request_state_missing:<id>`); a test with such a row pins the
+  refusal.

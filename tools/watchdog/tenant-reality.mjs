@@ -80,24 +80,31 @@ export function classifyTenantReality(tenants) {
 }
 
 /**
- * Parse the probe's psql output (`status|schema_exists|table_count` per line).
+ * Read the tenant rows the privileged probe measured
+ * (infrastructure/scripts/aqua-dataflow-probe.sh emits them as a JSON array of
+ * `{status, schemaExists, tableCount}`). A row of any other shape is a broken
+ * contract and throws: a missing field read as "no schema" would page, and one
+ * read as "has a schema" would hide the very defect this probe exists for.
  *
  * Kept here with the classifier so the wire format and the judgement that
  * reads it cannot drift apart unnoticed.
  *
- * @param {string} raw
+ * @param {unknown} rows
+ * @returns {Array<{status: string, schemaExists: boolean, tableCount: number}>}
  */
-export function parseTenantRealityRows(raw) {
-  return raw
-    .trim()
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => {
-      const [status, schemaExists, tableCount] = line.split('|');
-      return {
-        status: status ?? '',
-        schemaExists: schemaExists === 't',
-        tableCount: Number(tableCount ?? 0),
-      };
-    });
+export function tenantRealityRows(rows) {
+  if (!Array.isArray(rows)) throw new Error('tenant rows are not a JSON array');
+  return rows.map((row, index) => {
+    if (
+      typeof row !== 'object' ||
+      row === null ||
+      typeof row.status !== 'string' ||
+      typeof row.schemaExists !== 'boolean' ||
+      !Number.isInteger(row.tableCount) ||
+      row.tableCount < 0
+    ) {
+      throw new Error(`tenant row ${index} is not {status, schemaExists, tableCount}`);
+    }
+    return { status: row.status, schemaExists: row.schemaExists, tableCount: row.tableCount };
+  });
 }

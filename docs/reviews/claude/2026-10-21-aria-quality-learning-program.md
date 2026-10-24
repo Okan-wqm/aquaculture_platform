@@ -985,6 +985,79 @@ F0.9b tombstone of the module (service-expertise PLAN §2 row 1.3)
   - `aria-kernel/aria_kernel/recursive_impact.py:302-304`
 - Rule: one owner per concept (PLAN-v2 F0.9b ownership atlas). Close with the F0.9b tombstone.
 
+## ARIA-HIGH-797
+
+The dataflow watchdog's container_state_truth and tenant_reality_parity probes have never measured
+anything. They run docker from the runner account, which by design cannot open docker.sock and
+cannot gain privilege.
+
+- Severity: HIGH; owner: Okan-wqm; deadline: 2026-11-06.
+- Plan item(s): RW-2 (runtime watch).
+- Evidence:
+  - `tools/watchdog/probe-runner.mjs:93` (`docker ps -q` run by the runner account; origin/main
+    ddf6d5723)
+  - `tools/watchdog/probe-runner.mjs:147-151` (`docker exec aqua-postgres psql` run by the runner
+    account)
+  - `scripts/aria/runner-habitat/systemd/actions-runner.identity.conf` (`SupplementaryGroups=`,
+    `NoNewPrivileges=yes`: no docker group, and sudo is inert for every job)
+  - Every run from 31069638350 (2026-08-06, the first) through 39963926798 (2026-10-23) reports
+    `permission denied ... docker.sock` for both probes.
+- Rule: a watchdog probe measures what it names. The runner account never gets docker access or a
+  privilege gain (ADR-0023).
+- Fix (RW-2): a root-owned probe with fixed arguments, `infrastructure/scripts/aqua-dataflow-probe.sh`.
+  It refuses every argument and opens every psql session read-only. It is reached through the
+  socket-activated units in `infrastructure/dataflow-probe/` and read by
+  `tools/watchdog/privileged-evidence.mjs`. A sudoers rule cannot work: `NoNewPrivileges=yes` makes
+  sudo inert for the job. The finding closes once the program lead installs the probe from the
+  runbook (`docs/runbooks/monitoring/dataflow-integrity.md`) and one dispatched run shows both
+  probes measured. ARIA-HIGH-798 covers why the gap went unseen for ten weeks.
+
+## ARIA-HIGH-798
+
+The dataflow watchdog's results reach no one. A probe-error exits 1, and the lane neither fails nor
+reports on exit 1. The probe*\* textfile is written to RUNNER_TEMP and only uploaded as an artifact,
+because the textfile directory is root:root 0755. So every probe*\* rule in
+60-dataflow-integrity.yml has no series and cannot fire.
+
+- Severity: HIGH; owner: Okan-wqm; deadline: 2026-11-06.
+- Raised by: the RW-2 implementer, while verifying RW-2.
+- Evidence:
+  - `.github/workflows/dataflow-integrity-watchdog.yml:94` and `:123` (`--textfile
+"$RUNNER_TEMP/aqua_probes.prom"`)
+  - `.github/workflows/dataflow-integrity-watchdog.yml:126-135` (the textfile is only uploaded as
+    an artifact)
+  - `.github/workflows/dataflow-integrity-watchdog.yml:146-157` (only exit 3 fails the run; a
+    probe that measured nothing passes)
+  - `docker-compose.droplet.yml:2205-2206` (node-exporter reads `/var/lib/node_exporter/textfile`)
+  - `infrastructure/monitoring/droplet/rules/60-dataflow-integrity.yml:165-204`
+    (TenantActiveWithoutPhysicalSchema, TenantProvisioningNeverCompleted, TenantRealityProbeStale)
+  - On 2026-10-23 the droplet's textfile directory held only `aqua_worktree_gc.prom`.
+- Rule: a probe that cannot measure fails visibly, and an alert rule reads a series that is
+  published on the host it scrapes. A rule that can never fire is a defect.
+- Failure scenario: the privileged probe measures an ACTIVE tenant with no usable schema, and no
+  alert fires, because Prometheus never sees `probe_finding_count`. This is the channel that let
+  ARIA-HIGH-797 run unseen from 2026-08-06.
+
+## ARIA-MEDIUM-800
+
+Container truth for the 2026-08-03 "ps lies" incident class has two owners, and the one meant to be
+authoritative is not installed on the droplet.
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-13.
+- Plan item(s): RW-2 (runtime watch), raised by its single-owner review and kept by the appellate as
+  dissent: the duplicate predates RW-2, which moves the existing measurement unchanged.
+- Evidence:
+  - `infrastructure/scripts/aqua-dataflow-probe.sh:64-74` (State.Running per container, measured by
+    root for the watchdog lane)
+  - `tools/watchdog/probe-runner.mjs:118-128` (the container_state_truth probe id the rules read)
+  - `tools/supervisor/runtime-supervisor.ts:105-125` (the supervisor's own container judgement)
+  - `infrastructure/supervisor/aqua-supervisor.service:6` ("container truth + host pressure")
+  - `infrastructure/monitoring/droplet/rules/60-dataflow-integrity.yml:215-236` (rules over both)
+- Rule: one owner per concept; an alert source that is not installed is a decorative rule.
+- Close when exactly one owner judges container truth for this class (the supervisor installed and
+  read through its published verdict with a freshness check, or its container judgement retired in
+  favour of the root probe), an invariant names that owner, and the alert rules read only it.
+
 ## ARIA-MEDIUM-801
 
 The planner seats' target agents have three production owners: `plan_round_controller.DEFAULT_PLANNER_AGENTS`,

@@ -11,7 +11,8 @@ import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
 
-import { indexFixtureTree, makeFixtureTree } from '../gates/fixture-tree';
+import { indexFixtureTree } from '../gates/fixture-git-index';
+import { makeFixtureTree } from '../gates/fixture-tree';
 import { hermeticGitEnv } from '../gates/hermetic-git';
 
 import {

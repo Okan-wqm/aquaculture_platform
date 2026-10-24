@@ -9,7 +9,7 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 
-import { classifyTenantReality, parseTenantRealityRows } from './tenant-reality.mjs';
+import { classifyTenantReality, tenantRealityRows } from './tenant-reality.mjs';
 
 const active = (schemaExists, tableCount = schemaExists ? 42 : 0) => ({
   status: 'ACTIVE',
@@ -96,8 +96,11 @@ test('an empty platform is not a failure', () => {
   assert.equal(verdict.critical, false);
 });
 
-test('parses the psql wire format the probe actually emits', () => {
-  const rows = parseTenantRealityRows('ACTIVE|t|42\nPENDING|f|0\n');
+test('reads the rows the privileged probe emits', () => {
+  const rows = tenantRealityRows([
+    { status: 'ACTIVE', schemaExists: true, tableCount: 42 },
+    { status: 'PENDING', schemaExists: false, tableCount: 0 },
+  ]);
 
   assert.deepEqual(rows, [
     { status: 'ACTIVE', schemaExists: true, tableCount: 42 },
@@ -105,10 +108,28 @@ test('parses the psql wire format the probe actually emits', () => {
   ]);
 });
 
-test('parsed rows feed the classifier without translation', () => {
+test('a row of any other shape is a broken contract, never a default', () => {
+  // A missing field read as "no schema" would page; read as "has a schema"
+  // it would hide the very defect the probe exists for. Neither is guessed.
+  for (const row of [
+    { status: 'ACTIVE', schemaExists: 't', tableCount: 42 },
+    { status: 'ACTIVE', tableCount: 42 },
+    { status: 'ACTIVE', schemaExists: true, tableCount: '42' },
+    { status: 'ACTIVE', schemaExists: true, tableCount: -1 },
+    { schemaExists: true, tableCount: 1 },
+    null,
+  ]) {
+    assert.throws(() => tenantRealityRows([row]), /tenant row 0/);
+  }
+  assert.throws(() => tenantRealityRows({ status: 'ACTIVE' }), /not a JSON array/);
+});
+
+test('read rows feed the classifier without translation', () => {
   // The wire format and the judgement that reads it live in one module so
   // they cannot drift apart unnoticed; this proves the seam.
-  const verdict = classifyTenantReality(parseTenantRealityRows('ACTIVE|f|0\n'));
+  const verdict = classifyTenantReality(
+    tenantRealityRows([{ status: 'ACTIVE', schemaExists: false, tableCount: 0 }]),
+  );
 
   assert.equal(verdict.critical, true);
 });

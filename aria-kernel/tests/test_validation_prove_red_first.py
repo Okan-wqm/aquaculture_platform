@@ -236,6 +236,31 @@ class ProveRedFirstTests(unittest.TestCase):
         red, _green = self._assert_one_run_each(bad, good)
         self.assertEqual(red["failure_reason"], "assertion")
 
+    # SEC-B1: the commit under proof is untrusted; a symlink it holds must
+    # not carry the pin's write out of the worktree.
+    def test_a_pin_path_through_a_symlink_the_commit_holds_is_refused_and_writes_nothing_outside(self) -> None:
+        outside = Path(tempfile.mkdtemp(prefix="aria-d5-outside-")).resolve()
+        self.addCleanup(lambda: __import__("shutil").rmtree(outside, ignore_errors=True))
+        victim, victim_dir = outside / "victim.txt", outside / "victim-dir"
+        victim.write_bytes(b"ORIGINAL\n")
+        victim_dir.mkdir()
+        (self.repo / "tests" / "test_evil.py").symlink_to(victim)
+        (self.repo / "evil").symlink_to(victim_dir)
+        _git(["add", "-A"], cwd=self.repo)
+        _git(["commit", "-q", "-m", "fixture: symlinks out of the tree"], cwd=self.repo)
+        hostile = _git(["rev-parse", "HEAD"], cwd=self.repo).stdout.strip()
+        for path in ("tests/test_evil.py", "evil/made_here/test_x.py"):
+            with self.subTest(path=path):
+                with self.assertRaisesRegex(GovernanceError, "red_first_pin_path_escapes_worktree"):
+                    self._prove(red_at=hostile, green_at=self.sha_a,
+                                pin=_pin(_ADD_PROBE, "-1 != 5", files={path: _ADD_PROBE}))
+                self.assertEqual(victim.read_bytes(), b"ORIGINAL\n")
+                self.assertEqual(list(victim_dir.iterdir()), [])
+                worktrees = [line for line in _git(["worktree", "list", "--porcelain"], cwd=self.repo).stdout.splitlines()
+                             if line.startswith("worktree ")]
+                self.assertEqual(worktrees, [f"worktree {self.repo}"])
+
+
 class ProofVocabularyTests(unittest.TestCase):
     """The two closed vocabularies the design names, owned once each."""
 

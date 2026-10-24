@@ -561,13 +561,14 @@ def _pinned_worktree(root: Path, sha: str, files: dict[str, str]) -> Iterator[Pa
     try:
         if added.returncode != 0:
             raise GovernanceError(f"red_first_worktree_unavailable:{sha}:{added.stderr.strip()[:200]}")
+        for path in files:
+            _refuse_pin_path_through_symlink(tree, path, sha)
         for path, content in files.items():
             target = tree / path
             target.parent.mkdir(parents=True, exist_ok=True)
-            # A directory of the commit may be a symlink out of the tree.
-            if not target.parent.resolve().is_relative_to(tree):
-                raise GovernanceError(f"red_first_pin_path_escapes_worktree: {path!r} at {sha}")
-            target.write_text(content, encoding="utf-8")
+            fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o644)
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(content)
         yield tree
     finally:
         if added.returncode == 0:
@@ -575,6 +576,20 @@ def _pinned_worktree(root: Path, sha: str, files: dict[str, str]) -> Iterator[Pa
                            cwd=root, capture_output=True, text=True, check=False)
         subprocess.run(["git", "worktree", "prune"], cwd=root, capture_output=True, text=True, check=False)
         shutil.rmtree(holder, ignore_errors=True)
+
+
+def _refuse_pin_path_through_symlink(tree: Path, path: str, sha: str) -> None:
+    """The commit under proof is untrusted (in discovery it is the change's
+    head) and this write runs in the kernel, outside the sandbox: no
+    component of a pin path the commit already holds, the file included,
+    may be a symlink, or the write would land wherever the commit points it.
+    Checked for every pin file before any directory or file is created.
+    ``path`` is canonical (``normalize_repo_relpath``: no ``..``, relative)."""
+    current = tree
+    for part in path.split("/"):
+        current = current / part
+        if current.is_symlink():
+            raise GovernanceError(f"red_first_pin_path_escapes_worktree: {path!r} at {sha}")
 
 
 def _proof_verdict(red: dict[str, Any], green: dict[str, Any], signature: str, *, base_dir: str | Path | None) -> str:

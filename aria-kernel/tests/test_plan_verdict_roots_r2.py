@@ -87,7 +87,8 @@ class R10TheKernelIsTheOneBindingSource(_PlanFixture):
         by_direction = {task["review_direction"]: task for task in tasks}
         answered = []
         for row in rows:
-            direction = json.loads(row["suggested_prompt"])["task"]["review_direction"]
+            [obligation] = [item for item in row["must_satisfy"] if item["id"] == "cross_review_direction"]
+            direction = obligation["review_direction"]
             answered.append({"request_id": row["request_id"], "task": by_direction[direction]})
         return answered
 

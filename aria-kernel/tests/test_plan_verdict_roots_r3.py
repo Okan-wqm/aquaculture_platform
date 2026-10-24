@@ -228,6 +228,32 @@ class R16TheBadClassSequenceEndsInGovernanceError(_PlanFixture):
         self.assertEqual(_event_count(self), before)
 
 
+class R17TheControllerRendersThroughTheOneRenderer(_PlanFixture):
+    """SSOT-R3-001: `plan advance-rounds` minted a JSON task with no plans and no prior risks."""
+
+    def test_every_round_two_row_carries_the_plans_and_the_prior_risks(self) -> None:
+        self.round_one_blocking_then_claimed()
+        advance_plan_rounds(plan_id="plan-1", base_dir=self.tools, workspace_root=self.repo)
+        rows = [row for row in list_agent_invocation_requests(base_dir=self.tools, convergence_id="plan-1",
+                                                              role="cross_review") if row["round_number"] == 2]
+        self.assertEqual(len(rows), 2)
+        directions = set()
+        for row in rows:
+            prompt = row["suggested_prompt"]
+            self.assertIn('<untrusted_primary_plan revision_id="rev-1">', prompt)
+            self.assertIn('<untrusted_challenger_plan revision_id="challenger-rev-1">', prompt)
+            before_round, prior = _decoded_prior_risks(prompt)
+            self.assertEqual(before_round, 2)
+            self.assertEqual([risk["risk_id"] for risk in prior], ["CR-R1-CR-001"])
+            [obligation] = [item for item in row["must_satisfy"] if item["id"] == "cross_review_direction"]
+            directions.add(obligation["review_direction"])
+        self.assertEqual(directions, {"primary_to_challenger", "challenger_to_primary"})
+
+    def test_the_inline_renderer_is_gone(self) -> None:
+        hits = [path.name for path in KERNEL.glob("*.py") if 'json.dumps({"task"' in path.read_text(encoding="utf-8")]
+        self.assertEqual(hits, [])
+
+
 class R18NoTextInsideThePriorRiskBlockCanCloseIt(_PlanFixture):
     """SEC-R3-B2: a closing tag in reviewer or author text ended the block."""
 

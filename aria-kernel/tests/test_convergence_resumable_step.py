@@ -438,7 +438,8 @@ class PlannerTwinContextTests(_StepCase):
         self.assertEqual(result["state"], "CROSS_REVIEW_REQUESTED")
         requests = [row for row in self.requests() if row["role"] == "cross_review"]
         self.assertEqual(len(requests), 2)
-        self.assertEqual({json.loads(row["suggested_prompt"])["task"]["review_direction"] for row in requests},
+        self.assertEqual({item["review_direction"] for row in requests for item in row["must_satisfy"]
+                          if item["id"] == "cross_review_direction"},
                          {"primary_to_challenger", "challenger_to_primary"})
         for request in requests:
             self._assert_native_body_request(request, body, cycle_id=None)

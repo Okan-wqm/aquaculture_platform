@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .agent_invocations import create_agent_invocation_request, list_agent_invocation_requests
+from .cross_review_bridge import _cross_review_suggested_prompt
 from .ledger import sha256_digest_of_canonical_json
 from .plan_contract import render_plan_contract
 from .request_admission import admit_request
@@ -16,10 +17,12 @@ from .plan_convergence import (
     fold_plan_state,
     force_plan_human_required,
     plan_verdict_anchor,
+    prior_review_risks,
     request_cross_review,
     submit_challenger_plan,
 )
 from .plan_round_scope import plan_round_contract
+from .round_independence import plan_texts_from_state
 from .step_request import MAX_STEP_REQUEST_REMINTS, step_request_disposition
 from .planner_lessons import planner_lesson_obligations
 from .system_one_points import rank_candidate_files
@@ -195,6 +198,21 @@ def _ensure_cross_review_round(root: Path, state: dict[str, Any], *,
     # raises here and leaves the plan CHALLENGER_DRAFTED, never requested
     # with no request row an answer could be recorded against.
     target_sha = plan_verdict_anchor(root)
+    # PV R17 — one cross-review prompt owner: the drainer's renderer, with the
+    # round's plans (``round_independence.plan_texts_from_state``, the texts
+    # the drainer hands it) and the prior risks this reviewer must answer.
+    # Rendered before anything is written, like the anchor above.
+    primary_text, _primary_real, challenger_revision_id, challenger_text, _challenger_real = (
+        plan_texts_from_state(state, plan_id=plan_id, round_number=round_number)
+    )
+    suggested_prompt = _cross_review_suggested_prompt(
+        round_number=round_number,
+        primary_revision_id=target_revision_id,
+        primary_plan_text=primary_text,
+        challenger_revision_id=challenger_revision_id,
+        challenger_plan_text=challenger_text,
+        prior_risks=prior_review_risks(state, round_number),
+    )
     payload = {
         "round_number": round_number,
         "target_revision_id": target_revision_id,
@@ -226,12 +244,16 @@ def _ensure_cross_review_round(root: Path, state: dict[str, Any], *,
             role="cross_review",
             convergence_id=plan_id,
             round_number=round_number,
-            suggested_prompt=json.dumps({"task": task, "plan_id": plan_id}, sort_keys=True),
+            suggested_prompt=suggested_prompt,
             must_satisfy=[
                 {
                     "id": "cross_review_direction",
                     "description": f"Answer {task['review_direction']} with risks and required revisions.",
                     "required": True,
+                    # The direction this request answers and the task it
+                    # answers, as obligation data the agent is shown.
+                    "review_direction": task["review_direction"],
+                    "task_packet_hash": task["task_packet_hash"],
                 },
                 *contract.must_satisfy,
             ],

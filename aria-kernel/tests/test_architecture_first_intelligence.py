@@ -10,13 +10,23 @@ from aria_kernel import (
     review_architecture_decision,
     verify_integrity,
 )
-from aria_kernel.tool_registry import GovernanceError
+from aria_kernel.tool_registry import GovernanceError, ensure_tools_binding
 
 
 class ArchitectureFirstIntelligenceTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.tools_dir = Path(self.tmp.name) / "aria-tools"
+        # Adoption counts the projects the evidence lies in, named by the one
+        # path -> project owner over the store's map (SE-1 round 2), so the
+        # store is bound to a workspace that holds the cited projects.
+        workspace = Path(self.tmp.name) / "workspace"
+        for root in (
+            "apps/ai-service", "apps/auth-service", "apps/billing-service",
+            "apps/config-service", "apps/gateway-api", "libs/backend-common",
+            "libs/legacy-cache",
+        ):
+            (workspace / root / "src").mkdir(parents=True)
+        self.tools_dir = ensure_tools_binding(Path(self.tmp.name) / "aria-tools", workspace_root=workspace)
 
     def tearDown(self):
         self.tmp.cleanup()

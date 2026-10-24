@@ -127,10 +127,11 @@ export function analyzeTenantScoping(
     .filter((root) => workspacePathExists(workspaceRoot, root))
     .flatMap((root) => collectTypeScriptFiles(workspaceRoot, root));
   const snapshotFiles = filterFilesBySnapshot(files, workspaceRoot, input);
-  // ARIA-LOW-593 — the program is built on the containment owner's host, so
-  // a symlinked import inside the workspace resolves to nothing and no row
+  // ARIA-LOW-593 — the program is built on the one host builder with the
+  // contained view (its fixtures are plain directories, not git work trees),
+  // so a symlinked import inside the workspace resolves to nothing and no row
   // can carry content from beyond it.
-  const program = createContainedProgram(workspaceRoot, snapshotFiles, {
+  const program = createContainedProgram({ kind: 'contained', workspaceRoot }, snapshotFiles, {
     experimentalDecorators: true,
   });
   const units = snapshotFiles.map((file) => readSourceUnit(file, workspaceRoot, program));

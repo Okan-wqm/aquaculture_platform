@@ -33,6 +33,7 @@ from unittest.mock import patch
 
 from aria_kernel import cycle as cycle_mod
 from aria_kernel import mission as mission_module
+from aria_kernel.impact_graph import project_map
 from aria_kernel.ledger import append_declared_jsonl, load_jsonl
 from aria_kernel.mission import (
     MISSION_SCHEMA,
@@ -43,7 +44,7 @@ from aria_kernel.mission import (
     open_mission,
     transition_mission,
 )
-from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir, utc_now
+from aria_kernel.tool_registry import GovernanceError, ensure_tools_binding, ensure_tools_dir, utc_now
 from tests._helpers.mint_patch import patched_mint
 
 REPO_HASH = "rh-1"
@@ -193,9 +194,11 @@ class ProducersRecordTheirEvidenceTest(unittest.TestCase):
 
         with TemporaryDirectory() as tmp:
             root = Path(tmp) / "aria-tools"
-            ensure_tools_dir(root)
             for project in cycle_mod.SERVICE_HARDENING_CORE:
                 Path(tmp, "apps", project).mkdir(parents=True, exist_ok=True)
+            # The mint attributes each finding over the store's map (SE-1
+            # round 2): the store declares the workspace it mints for.
+            ensure_tools_binding(root, workspace_root=Path(tmp))
             if findings:
                 record_findings_for_run(
                     {
@@ -205,7 +208,7 @@ class ProducersRecordTheirEvidenceTest(unittest.TestCase):
                             for fid, paths in findings.items()
                         ],
                     },
-                    base_dir=root,
+                    project_roots=project_map(base_dir=root), base_dir=root,
                 )
             ctx = cycle_mod.build_phase_context(
                 cycle_id="cyc-245", workspace_root=Path(tmp), base_dir=root,

@@ -24,7 +24,7 @@ from unittest.mock import patch
 from aria_kernel.cli import main as cli_main
 from aria_kernel.implementation_safety import CANONICAL_VALIDATION_COMMANDS
 from aria_kernel.proposal import approve_proposal, record_proposal
-from aria_kernel.tool_registry import ensure_tools_dir
+from aria_kernel.tool_registry import ensure_tools_binding, ensure_tools_dir
 from tests._helpers.declared_fixtures import append_declared_fixture
 from tests._helpers.installation_credential import LANE_CREDENTIAL_ENV
 from tests._gh_mock import gh_create_success, recorded_calls, reset_recorded
@@ -356,6 +356,10 @@ class PrCliSplitPlanTests(unittest.TestCase):
         self.tools = self.repo / "aria-tools"
         self.proposal = _seed_proposal_and_action(repo=self.repo)
         self.pid = self.proposal["proposal_id"]
+        # The split groups files by the project that owns them, over the
+        # store's map (SE-1 round 2): the seeded workspace holds the cited
+        # services, and the store declares that workspace.
+        ensure_tools_binding(self.tools, workspace_root=self.repo)
 
     def tearDown(self) -> None:
         import shutil

@@ -574,6 +574,13 @@ const PRE_GATE_SHAS = new Set<string>([
   '22c60810', // Snowball historical ARIA handoff commit — pre-main-range enforcement language
   '0f5ae29a', // Snowball historical ARIA verification commit — pre-main-range enforcement language
   'b98ee050', // Snowball historical ARIA plan commit — pre-main-range enforcement language
+  // --- WP-J landing (PLAN-v2 F0.3) amnesty ---
+  // Three fix/aria-wp-j commits say "(registration deferred to WP-J integration; ...)": the stub
+  // registration was handed to the WP-J landing, which registered the ids and closes or marks them
+  // Part of in its landing-notes commit (ARIA-HIGH-674..676/677 rows). Immutable (no-force-push).
+  '3d465916', // WP-J tier-0 mechanical law — stub registration handed to the F0.3 landing
+  '5fbc01cf', // WP-J tier-0 premises — stub registration handed to the F0.3 landing
+  '32fba0b8', // WP-J claim falsifiability — stub registration handed to the F0.3 landing
 ]);
 
 function scanRangeCommitBodies(baseRef: string, headRef: string): Violation[] {

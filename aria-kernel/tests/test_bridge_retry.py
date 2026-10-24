@@ -3,7 +3,7 @@
 14 tests across 4 test classes:
 
 Constants + transition enum (3):
-* BRIDGE_REQUIRED_ROLES shape — 9 roles, frozenset, exported SSoT.
+* BRIDGE_REQUIRED_ROLES shape — 13 roles, frozenset, exported SSoT.
 * BRIDGE_TRANSITIONS shape — 4 values, ``pending`` NOT a transition.
 * bridge_status_for_role: pending vs not_required predicate.
 
@@ -103,12 +103,21 @@ class BridgeConstantsTests(unittest.TestCase):
         )
 
     def test_bridge_required_roles_shape(self) -> None:
+        # WP-J B-2 (ARIA-HIGH-721, commit 0a87da08c): the four method-panel
+        # seats are JUDGE_ROLES — their verdicts fold through the same judge
+        # bridge as the pair (judgment_bridge.is_judge_role) — so an accepted
+        # panel result is incomplete until that bridge succeeds, exactly like
+        # the pair's.
         self.assertEqual(
             BRIDGE_REQUIRED_ROLES,
             frozenset({
                 "evidence_judgment",
                 "adversarial_judgment",
                 "consensus_arbitration",
+                "bug_hunt",
+                "reproduction_test",
+                "impact_assessment",
+                "architecture",
                 "primary_plan",
                 "challenger_plan",
                 "cross_review",
@@ -117,7 +126,7 @@ class BridgeConstantsTests(unittest.TestCase):
                 "implementation",
             }),
         )
-        self.assertEqual(len(BRIDGE_REQUIRED_ROLES), 9)
+        self.assertEqual(len(BRIDGE_REQUIRED_ROLES), 13)
 
     def test_bridge_transitions_closed_enum(self) -> None:
         self.assertEqual(

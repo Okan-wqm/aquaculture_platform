@@ -411,6 +411,12 @@ JOB_RESERVE_AFTER_DRAIN_SECONDS = int(
 # arbiter demand is DERIVED from judge verdicts (split groups exist only
 # after judges return), so draining judges first matches the same-night
 # data dependency.
+#
+# WP-J B-2 — the four method-panel seats are judgment-lane seats like the
+# pair, so they sit with the judges and ahead of arbitration for the same
+# reason: a method-panel split is what the arbiter's evidence-weighing mode
+# reads (`judge_fanout.render_evidence_weighing_prompt`), so the panel's
+# verdicts must drain before the arbiter they feed.
 _ROLE_QUOTA_ORDER: tuple[str, ...] = (
     "implementation",
     "cross_review",
@@ -418,6 +424,10 @@ _ROLE_QUOTA_ORDER: tuple[str, ...] = (
     "primary_plan",
     "evidence_judgment",
     "adversarial_judgment",
+    "bug_hunt",
+    "reproduction_test",
+    "impact_assessment",
+    "architecture",
     "consensus_arbitration",
     "human_required_adjudication",
     "completeness_critique",

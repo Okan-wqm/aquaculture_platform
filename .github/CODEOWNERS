@@ -34,6 +34,31 @@ docs/aria/policy/autonomy-closure-findings.json @Okan-wqm
 docs/aria/schemas/              @Okan-wqm
 docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md @Okan-wqm
 tools/aria-poc/                @Okan-wqm
+# PLAN-v2 B1 — the Board's exam runner and the operator policy ARIA obeys
+# are members of the derived authority set
+# (aria-kernel/aria_kernel/self_improvement.py derived_authority_set); the
+# coverage invariant (aria-kernel/tests/test_derived_authority_set.py) needs
+# an owner for every member.
+tools/aria-acceptance/         @Okan-wqm
+aria-config/                   @Okan-wqm
+# The kernel suite's import roots (aria-kernel/aria_kernel/suite_import_roots.py:
+# aria-kernel/ and the repository root) precede the standard library, so every
+# top-level module name at either root is a member of the derived authority
+# set in every form the importer loads it (B1 R3): a module by each loader
+# suffix, a package's __init__, the __pycache__ beside them and, at the
+# repository root, the kernel package's own name. aria-kernel/ is owned above.
+/*.py                          @Okan-wqm
+/*.pyc                         @Okan-wqm
+/*.so                          @Okan-wqm
+/*/__init__.*                  @Okan-wqm
+/*/__pycache__/                @Okan-wqm
+/__pycache__/                  @Okan-wqm
+/aria_kernel/                  @Okan-wqm
+# What the set's deciders execute outside aria-kernel/ (B1 R2): the shared
+# module the kernel imports, and the suite's single owner, which defines what
+# the kernel suite runs and collects (B1 R1).
+/tools/shared/                 @Okan-wqm
+/scripts/ci/aria-suite-run.sh  @Okan-wqm
 aria-tools/preflight/           @Okan-wqm
 package.json                    @Okan-wqm
 package-lock.json               @Okan-wqm

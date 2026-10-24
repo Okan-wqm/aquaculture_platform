@@ -9,6 +9,7 @@ from collections.abc import Callable
 from typing import Any
 
 from .confidence import confidence_in_unit_interval
+from .agent_surface import EXPERT_METHODS
 from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 from .model_fleet import dispatching_provider_for_model
 from .ledger import append_declared_jsonl, append_declared_jsonl_rows, append_jsonl as append_chained_jsonl
@@ -49,6 +50,18 @@ SAMPLE_RECENCY_HOURS = 168
 # tuple, so the deterministic engine and the agent lane cannot drift
 # apart on what counts as a legitimate non-verdict outcome.
 CONSENSUS_UNCERTAINTY_REASONS = (
+    # WP-J fix round — an anchor-grade closing set whose evidence UNION is
+    # empty: votes, confidence and diversity were all present, but not one
+    # agreeing judge cited code, so the truth is unfalsifiable. Truth
+    # without evidence is not mintable (the operator's protocol starts at
+    # "a falsifiable claim carrying file:line"); the group escalates
+    # instead of anchoring.
+    "anchor_evidence_empty",
+    # WP-J fix round — a panel whose seats ECHO each other: the shipped
+    # verify_panel_diversity had zero production callers, so N seats
+    # answering in the same words settled as N observations. One law, two
+    # callers (independence_check): the settle path asks it too.
+    "panel_echo",
     "conformal_abstain",
     # ARIA-HIGH-325 — a true_positive whose agreeing judges cite evidence the
     # producing tool's scope does not admit (ARIA's detector source outside
@@ -69,6 +82,14 @@ CONSENSUS_UNCERTAINTY_REASONS = (
     # anchor-grade group whose observer has no model identity.
     "observer_identity_missing",
     "single_judge",
+    # WP-J B-2 (operator protocol step 7) — the evidence-weighing arbiter's
+    # lawful non-verdict outcome: the load-bearing assertions cannot be
+    # weighed, so the finding escalates rather than being closed by fatigue.
+    # The agent lane emits it from the EVIDENCE_WEIGHING brief
+    # (judge_fanout.render_evidence_weighing_prompt); the deterministic
+    # engine never needs it - a mechanical gate can always say why it
+    # refused.
+    "unverifiable",
 )
 # Typed-judgment plan Phase 6 — how the consensus gate treats calibration.
 # `measure_only`: the legacy confidence gate bit for bit, the row records
@@ -77,7 +98,21 @@ CONSENSUS_UNCERTAINTY_REASONS = (
 CALIBRATION_GATES = ("measure_only", "enforce")
 CALIBRATED_QUORUM_MIN_JUDGES = 2
 FEEDBACK_SEVERITIES = ("low", "medium", "high", "critical")
-FEEDBACK_SOURCE_TYPES = ("human", "ai_judge", "ai_consensus")
+# WP-J D-1 — 'outcome' (the machine-verifiable outcome of a judged finding:
+# red-then-green same-recipe, merged, not reverted; outcome_truth.py) was
+# admitted in the SAME commit as its first mint, so the vocabulary never
+# names a source nothing writes. It widens CALIBRATION only:
+# GROUND_TRUTH_SOURCE_TYPES below deliberately refuses it, so suppression,
+# goldset admission and promotion readiness never read an outcome row as
+# authority — JJ-1's one-predicate law keeps its ground-truth leg
+# byte-identical (the scoring-only sibling lives in judge_calibration).
+# WP-J D-2 — 'canary' (a mutation-canary label, BY CONSTRUCTION: the
+# planted mutant is a real defect, the planted false claim is not;
+# mutation_canary.py) follows the same law and the same discipline: it
+# lands in the same commit as the first canary mint and is refused by
+# GROUND_TRUTH_SOURCE_TYPES, so a constructed label can score a judge but
+# can never suppress a finding or promote an adapter.
+FEEDBACK_SOURCE_TYPES = ("human", "ai_judge", "ai_consensus", "outcome", "canary")
 # Typed-judgment plan (ARIA-HIGH-167) — where a judge's confidence came
 # from. The ROUTE stamps it on the envelope (``self_reported``: the model's
 # own number, every CLI and chat completion in the fleet;
@@ -168,6 +203,12 @@ ANCHOR_MIN_DISTINCT_MODELS = 2
 # observers: "multi" when they dispatched through more than one provider,
 # "single" when one provider carried the whole panel. Recorded, not gated.
 PROVIDER_SPANS = ("single", "multi")
+# WP-J B-1 (operator decision 2026-10-18: diversity comes from PERSPECTIVE
+# and METHOD, not from the provider) is honoured by the ONE seat law, not by
+# a second gate beside it (F0.3 landing, N3): a method-only receipt is a
+# receipt (`consensus_observers`), so a single-provider panel of distinct
+# seats anchors; `observation_span` describes which leg a receipt set can
+# answer and gates nothing on the anchor path.
 
 JUDGMENT_SUBJECT_FINDING = "finding"
 JUDGMENT_SUBJECT_BELIEF = "belief"
@@ -259,7 +300,44 @@ def is_ground_truth_row(row: dict[str, Any]) -> bool:
     # row (already non-anchor for other reasons, measured 2026-08-20). The
     # MODELS behind the seats are recorded (`provider_span` at the mint),
     # not gated: a single-provider panel of distinct seats anchors.
+    # WP-J's method receipt and evidence leg are legs OF this one function
+    # (F0.3 landing, N3), never a second gate beside it.
     return consensus_distinct_seats(row) >= ANCHOR_MIN_JUDGE_COUNT
+
+
+def observation_span(receipts: tuple[dict[str, str], ...]) -> tuple[str, int]:
+    """Which diversity leg a receipt set can describe, and its span.
+
+    Returns ``(leg, span)``: ``("methods", n)`` when every receipt carries a
+    method, ``("models", n)`` when every receipt carries a model and none is
+    needed to carry a method, ``("unknown", 0)`` otherwise (a mixed set, or
+    receipts with neither field, cannot prove a span on either leg).
+
+    A recorded DESCRIPTOR since the F0.3 landing (N3), never an anchor gate:
+    the anchor rule (``is_ground_truth_row``) and the calibrated closing
+    quorum (``generate_ai_consensus`` under ``enforce``) both ask the ONE
+    seat law (``consensus_distinct_seats``), so no second diversity count
+    can disagree with it about what an anchor is. The calibration-gate
+    downgrade (``genesis_policy.effective_calibration_gate``) records the
+    leg it reports as ``quorum_leg``; that consumer is PLAN-v2 item F0.8.
+    """
+    if not receipts:
+        return "unknown", 0
+    carrying_method = [r for r in receipts if str(r.get("method") or "").strip()]
+    if carrying_method:
+        # A set with ANY method receipt is not legacy: every receipt must
+        # answer the method leg, or the set answers nothing. A panel whose
+        # stamps disagree is a producer inconsistency, and the one thing it
+        # must never do is quietly fall back to a model leg it only partly
+        # describes (that fallback anchored mixed sets on the models leg
+        # before WP-J B-1 — the fail-open this law closes).
+        if len(carrying_method) == len(receipts):
+            return "methods", len({str(r["method"]) for r in carrying_method})
+        return "unknown", 0
+    carrying_model = [r for r in receipts if str(r.get("model") or "").strip()]
+    if len(carrying_model) == len(receipts):
+        return "models", len({str(r["model"]) for r in carrying_model})
+    return "unknown", 0
 
 
 def consensus_observers(row: dict[str, Any]) -> tuple[dict[str, str], ...]:
@@ -268,6 +346,11 @@ def consensus_observers(row: dict[str, Any]) -> tuple[dict[str, str], ...]:
     Row-local by construction, the same discipline JJ-1 applied to
     judge_count/judges_voted: the anchor predicate must be answerable from
     the row, not from a join a future reader might forget to perform.
+
+    WP-J B-1 — a receipt is kept when it can answer a diversity leg: it
+    needs its judge_id plus a model (the legacy leg) or a method (the
+    single-provider leg). An entry with neither is not a receipt of
+    anything and is dropped here exactly as a model-less entry always was.
     """
     raw = row.get("observers")
     if not isinstance(raw, list):
@@ -278,8 +361,14 @@ def consensus_observers(row: dict[str, Any]) -> tuple[dict[str, str], ...]:
             continue
         judge_id = str(item.get("judge_id") or "").strip()
         model = str(item.get("model") or "").strip()
-        if judge_id and model:
-            out.append({"judge_id": judge_id, "model": model})
+        method = str(item.get("method") or "").strip()
+        if judge_id and (model or method):
+            receipt = {"judge_id": judge_id}
+            if model:
+                receipt["model"] = model
+            if method:
+                receipt["method"] = method
+            out.append(receipt)
     return tuple(out)
 
 
@@ -289,9 +378,10 @@ def distinct_observer_models(row: dict[str, Any]) -> int:
     A recorded bonus since WP-P (operator decision 2026-10-18), never a
     gate: single-provider anchors stand on seat independence, and the
     model count is what the mint's `provider_span` collapses one step
-    further (models → providers).
+    further (models → providers). A method-only receipt (WP-J B-1) names no
+    model and adds none.
     """
-    return len({observer["model"] for observer in consensus_observers(row)})
+    return len({observer["model"] for observer in consensus_observers(row) if observer.get("model")})
 
 
 def consensus_distinct_seats(row: dict[str, Any]) -> int:
@@ -304,7 +394,21 @@ def consensus_distinct_seats(row: dict[str, Any]) -> int:
     laundering defect G-2 hunted, restated at the level the ledger can
     actually prove (the dispatcher mints the judge id; a judge's model
     self-report was never trustworthy, ORPHAN-HIGH-781).
+
+    The ONE seat law carries WP-J's two legs (F0.3 landing, N3), so no
+    second diversity gate sits beside it:
+
+    * the RECEIPT leg — a seat counts when its receipt names a model OR a
+      method (``consensus_observers``, WP-J B-1): a single-provider panel
+      of distinct seats is three observations, whatever method each used;
+    * the EVIDENCE leg (WP-J ce6a53541) — a seat observes the code only
+      through what the row cites. An empty evidence union is agreement on
+      argument alone, so it is backed by zero seats: unfalsifiable truth is
+      not mintable (``anchor_evidence_empty`` refuses it at the mint, and
+      this leg keeps any row written past that gate from reading as truth).
     """
+    if not _optional_string_list(row.get("evidence_refs")):
+        return 0
     return len({observer["judge_id"] for observer in consensus_observers(row)})
 
 
@@ -638,6 +742,9 @@ def record_operator_feedback(
     source_type: str = "human",
     judge_id: str | None = None,
     model: str | None = None,
+    # WP-J B-1 — the METHOD the seat practiced, folded mint-first by
+    # judgment_bridge (``folded_judge_method``). None on legacy rows.
+    method: str | None = None,
     prompt_hash: str | None = None,
     confidence: float | None = None,
     rationale: str | None = None,
@@ -655,6 +762,12 @@ def record_operator_feedback(
     label_provenance: dict[str, Any] | None = None,
     request_ids: list[str] | None = None,
     target_sha: str | None = None,
+    # WP-J slice C — the decision's cost, read from the ONE cost ledger
+    # (cost-attribution rows joined by judgment_group_id through
+    # ci_executor._cost_identity). Additive optional: legacy rows read as
+    # absent. None stamps nothing (no cost rows exist for the group).
+    cost_usd: float | None = None,
+    agents: list[str] | None = None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     if judgment_subject not in JUDGMENT_SUBJECTS:
@@ -671,6 +784,11 @@ def record_operator_feedback(
         raise GovernanceError(f"unknown feedback severity: {severity}")
     if source_type not in FEEDBACK_SOURCE_TYPES:
         raise GovernanceError(f"unknown feedback source_type: {source_type}")
+    # WP-J B-1 — the method vocabulary is the one registry
+    # (agent_surface.EXPERT_METHODS); a method outside it can never buy a
+    # receipt diversity it did not practice.
+    if method is not None and method not in EXPERT_METHODS.values():
+        raise GovernanceError(f"unknown feedback method: {method}")
     if affected_belief_ids is not None and not _valid_string_list(affected_belief_ids):
         raise GovernanceError("affected_belief_ids must be an array of non-empty strings")
     if evidence_refs is not None and not _valid_string_list(evidence_refs):
@@ -682,6 +800,11 @@ def record_operator_feedback(
     # folds), never inferred later from whichever request is newest.
     if request_ids is not None and not _valid_string_list(request_ids):
         raise GovernanceError("request_ids must be an array of non-empty strings")
+    if cost_usd is not None and (isinstance(cost_usd, bool) or not isinstance(cost_usd, (int, float))
+                                 or cost_usd < 0 or cost_usd != cost_usd):
+        raise GovernanceError("cost_usd must be a finite non-negative number")
+    if agents is not None and not _valid_string_list(agents):
+        raise GovernanceError("agents must be an array of non-empty strings")
     if target_sha is not None and not is_object_id(target_sha, formats=ANY_OBJECT_FORMAT):
         raise GovernanceError("target_sha must be a full git object id")
     # One gate for the whole number semantics: isinstance lets bool and
@@ -732,8 +855,17 @@ def record_operator_feedback(
                 raise GovernanceError("each observer must be an object")
             if not str(observer.get("judge_id") or "").strip():
                 raise GovernanceError("each observer requires judge_id")
-            if not str(observer.get("model") or "").strip():
-                raise GovernanceError("each observer requires model")
+            # WP-J B-1 — hybrid: a receipt answers the method leg or the
+            # model leg. One with neither is refused here rather than
+            # dropped at read time, so a producer that forgot both stamps
+            # learns it at mint, not from an anchor that never forms.
+            if not (
+                str(observer.get("model") or "").strip()
+                or str(observer.get("method") or "").strip()
+            ):
+                raise GovernanceError("each observer requires model or method")
+            if str(observer.get("method") or "").strip() and str(observer.get("method")) not in EXPERT_METHODS.values():
+                raise GovernanceError(f"unknown observer method: {observer.get('method')!r}")
     # WP-P — the vendor span is a fact about the observers, so a row that
     # cannot name them cannot claim one; the value itself stays closed.
     if provider_span is not None:
@@ -767,6 +899,7 @@ def record_operator_feedback(
         "source_type": source_type,
         "judge_id": judge_id,
         "model": model,
+        "method": method,
         "prompt_hash": prompt_hash,
         "confidence": confidence,
         "rationale": rationale,
@@ -776,8 +909,16 @@ def record_operator_feedback(
         "judge_count": judge_count,
         "judges_voted": judges_voted,
         "judgment_subject": judgment_subject,
+        # WP-J B-1 — the receipt keeps whichever leg each observer can
+        # answer: judge_id always, model and/or method when present. The
+        # mint-side validation above already refused an observer with
+        # neither.
         "observers": [
-            {"judge_id": str(o["judge_id"]).strip(), "model": str(o["model"]).strip()}
+            {
+                "judge_id": str(o["judge_id"]).strip(),
+                **({"model": str(o["model"]).strip()} if str(o.get("model") or "").strip() else {}),
+                **({"method": str(o["method"]).strip()} if str(o.get("method") or "").strip() else {}),
+            }
             for o in (observers or [])
         ] or None,
         # WP-P — the vendor span behind those observers, stamped by the
@@ -802,6 +943,10 @@ def record_operator_feedback(
         # different commits). funnel_health joins the learning funnel on them.
         "request_ids": sorted(set(request_ids)) if request_ids else [],
         "target_sha": target_sha,
+        # WP-J slice C — additive: what the decision cost and which agents
+        # ran it, joined from cost-attribution by the group id.
+        "cost_usd": round(float(cost_usd), 6) if cost_usd is not None else None,
+        "agents": sorted(set(agents)) if agents else None,
     }
     # The stored row carries the signature the signer added; return that
     # so callers (judge lanes, the CLI) see the row exactly as recorded.
@@ -1058,6 +1203,15 @@ def generate_ai_consensus(
     # Re-running with no new judge still appends nothing, and the count is
     # bounded by the number of distinct judges.
     existing_consensus: dict[tuple[str, str, str], int] = {}
+    # WP-J B-2 — and WHEN it settled: a judge who REVOTED after the settle
+    # (the rebuttal round re-asks a dissenter with the winner's verified
+    # refs) is new evidence, not a duplicate. Attendance alone would refuse
+    # to re-settle the group forever and quietly discard the paid rebuttal
+    # answer. The timestamp is the ledger's own recorded_at; a re-settle
+    # writes a newer consensus row, so the pair (votes, settled_at) keeps
+    # the D2 dedup property: re-running with no new judge row appends
+    # nothing, exactly as before.
+    settled_at: dict[tuple[str, str, str], str] = {}
     for row in load_feedback(tool_id=tool_id, base_dir=base_dir):
         if row.get("source_type") != "ai_consensus":
             continue
@@ -1065,6 +1219,9 @@ def generate_ai_consensus(
         existing_consensus[key] = max(
             existing_consensus.get(key, 0), consensus_judges_voted(row),
         )
+        stamped = str(row.get("recorded_at") or "")
+        if stamped and stamped > settled_at.get(key, ""):
+            settled_at[key] = stamped
     grouped: dict[tuple[str, str, str], dict[str, dict[str, Any]]] = {}
     for row in ai_rows:
         run_id = str(row.get("run_id") or "")
@@ -1082,7 +1239,10 @@ def generate_ai_consensus(
     for key, by_judge in sorted(grouped.items()):
         rows = list(by_judge.values())
         run_id, finding_id, group_id = key
-        if key in existing_consensus and existing_consensus[key] >= len(rows):
+        if key in existing_consensus and existing_consensus[key] >= len(rows) and not any(
+            str(row.get("recorded_at") or "") > settled_at.get(key, "")
+            for row in rows
+        ):
             continue
         if len(rows) < 2:
             uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "single_judge"))
@@ -1200,15 +1360,24 @@ def generate_ai_consensus(
                 f" over {dissenting} dissenting (weighted majority; "
                 f"settles precision only, never ground truth)"
             )
-        # G-2 (ORPHAN-HIGH-760) — an ANCHOR must be able to say which models
-        # produced it. Enforced HERE rather than on every judge row: this is
-        # the one place the answer becomes load-bearing, and a rule placed
-        # where it does not bite only teaches people to satisfy it.
-        # Fail-closed: a group that would settle at anchor grade but cannot
-        # name its observers escalates as an uncertainty instead of
-        # laundering unknown provenance into repository truth.
+        # G-2 (ORPHAN-HIGH-760) — an ANCHOR must be able to say who produced
+        # it. Enforced HERE rather than on every judge row: this is the one
+        # place the answer becomes load-bearing, and a rule placed where it
+        # does not bite only teaches people to satisfy it. Fail-closed: a
+        # group that would settle at anchor grade but cannot name its
+        # observers escalates as an uncertainty instead of laundering
+        # unknown provenance into repository truth.
+        # WP-J B-1 — "naming its observers" is hybrid: a closing row needs a
+        # model OR a method (whichever its receipt carries). A judge row
+        # with neither is refused here; every receipt that names one is a
+        # seat for the ONE seat law (`consensus_distinct_seats`, F0.3 N3),
+        # whether the panel's receipts are uniform or mixed.
         if len(closing) >= ANCHOR_MIN_JUDGE_COUNT and any(
-            not str(row.get("model") or "").strip() for row in closing
+            not (
+                str(row.get("model") or "").strip()
+                or str(row.get("method") or "").strip()
+            )
+            for row in closing
         ):
             uncertainties.append(
                 _consensus_uncertainty(
@@ -1217,6 +1386,51 @@ def generate_ai_consensus(
                 ),
             )
             continue
+        # WP-J fix round — the anchor's evidence leg, mint side. A group
+        # that would settle at ANCHOR grade (>= ANCHOR_MIN_JUDGE_COUNT
+        # agreeing, nobody dissenting) must carry a non-empty evidence
+        # UNION across its closing rows: the union is exactly what the
+        # consensus row publishes as its evidence_refs and what every
+        # downstream falsification reads. Argument-only agreement (zero
+        # refs, any confidence, any diversity) escalates under
+        # `anchor_evidence_empty` instead of becoming repository truth —
+        # the mechanical `_has_unverifiable_evidence` gate above already
+        # catches refs that do not resolve; this one catches the vacuum.
+        # Sub-anchor groups (a dissent, a single judge) keep minting for
+        # the adapter-precision lane: they were never truth candidates.
+        if (
+            len(closing) >= ANCHOR_MIN_JUDGE_COUNT
+            and dissenting == 0
+            and not any(_optional_string_list(row.get("evidence_refs")) for row in closing)
+        ):
+            uncertainties.append(
+                _consensus_uncertainty(
+                    tool_id, run_id, finding_id, group_id,
+                    "anchor_evidence_empty",
+                ),
+            )
+            continue
+        # WP-J fix round — the DIVERSITY leg, wired at last: the guard slice
+        # B shipped (verify_panel_diversity) had zero production callers, so
+        # no panel was ever diversity-checked at runtime. The settle path —
+        # here, where the anchor legs read the seats' answers — now asks the
+        # one law the plan side asks (same similarity, same ceiling,
+        # fail-closed on unreadable answers): an anchor-grade closing set
+        # whose seats echo each other is one observation wearing N receipts.
+        if len(closing) >= ANCHOR_MIN_JUDGE_COUNT:
+            from .independence_check import verify_panel_diversity
+
+            diverse, _echo_reasons = verify_panel_diversity(
+                [str(row.get("rationale") or row.get("note") or "") for row in closing],
+            )
+            if not diverse:
+                uncertainties.append(
+                    _consensus_uncertainty(
+                        tool_id, run_id, finding_id, group_id,
+                        "panel_echo",
+                    ),
+                )
+                continue
         consensus_rows.append(
             record_operator_feedback(
                 tool_id=tool_id,
@@ -1239,17 +1453,20 @@ def generate_ai_consensus(
                 # are deliberately absent: they did not stand behind this
                 # verdict, and counting them would let a lone opposing model
                 # buy the diversity the agreeing side lacks.
+                # WP-J B-1 — the receipt carries the METHOD beside the model
+                # (the hybrid leg): a judge row that cannot name either
+                # contributes no receipt. Dropping it here rather than
+                # writing an empty one keeps the sub-anchor lane writable
+                # while the anchor lane above has already refused the group
+                # outright.
                 observers=[
                     {
                         "judge_id": str(row.get("judge_id") or ""),
-                        "model": str(row.get("model") or ""),
+                        **({"model": str(row.get("model") or "")} if str(row.get("model") or "").strip() else {}),
+                        **({"method": str(row.get("method") or "")} if str(row.get("method") or "").strip() else {}),
                     }
                     for row in closing
-                    # A judge row that cannot name its model contributes no
-                    # receipt. Dropping it here rather than writing an empty
-                    # one keeps the sub-anchor lane writable while the anchor
-                    # lane above has already refused the group outright.
-                    if str(row.get("model") or "").strip()
+                    if str(row.get("model") or "").strip() or str(row.get("method") or "").strip()
                 ] or None,
                 # WP-P — the multi-provider bonus, recorded beside the
                 # receipt it is computed from: the span of vendors the
@@ -1276,6 +1493,10 @@ def generate_ai_consensus(
                 judge_count=len(closing),
                 judges_voted=len(rows),
                 calibration_basis=calibration_basis,
+                # WP-J slice C — the decision's cost and agents, joined from
+                # the ONE cost ledger by the group id (the join
+                # ci_executor._cost_identity stamps at attribution time).
+                **_decision_cost(group_id, base_dir),
                 # ARIA-HIGH-004 — the consensus names the requests of the
                 # judges that closed it, and the commit only when every one
                 # of them was minted at the same one: a verdict folded from
@@ -1327,6 +1548,24 @@ def generate_ai_consensus(
         "consensus": consensus_rows,
         "uncertainties": uncertainties,
     }
+
+
+def _decision_cost(group_id: str, base_dir: str | Path | None) -> dict[str, Any]:
+    """WP-J slice C — {cost_usd, agents} for one judgment decision, from the
+    ONE cost ledger; empty kwargs stamp nothing (legacy rows stay additive)."""
+    if not group_id:
+        return {}
+    try:
+        from .budget import read_cost_attribution
+
+        rows = read_cost_attribution(base_dir=base_dir, plan_id=group_id)
+    except Exception:  # noqa: BLE001 — a cost-read fault never blocks consensus
+        return {}
+    if not rows:
+        return {}
+    usd = sum(float(row.get("estimated_usd") or 0.0) for row in rows)
+    agents = sorted({str(row.get("agent_role")) for row in rows if row.get("agent_role")})
+    return {"cost_usd": round(usd, 6), "agents": agents}
 
 
 def _common_target_sha(rows: list[dict[str, Any]]) -> str | None:

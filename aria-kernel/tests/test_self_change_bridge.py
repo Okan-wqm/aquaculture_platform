@@ -272,9 +272,9 @@ class TheBridgeCallsProposeSelfChange(_Store):
     def test_an_accepted_answer_opens_the_proposal_and_the_adjudication_from_the_kernel(self) -> None:
         mission_id = self.self_improvement_mission()
         request = self._request(mission_id)
-        bridged = self._bridge(request, {"evidence_paths": ["aria-kernel/aria_kernel/doctor.py"],
+        bridged = self._bridge(request, {"evidence_paths": ["aria-kernel/aria_kernel/cycle_rhythm.py"],
                                          "problem": "the gateway organ warned on a four-day-old heartbeat",
-                                         "proposed_change": "fail the doctor when the heartbeat is older than five beats"})
+                                         "proposed_change": "judge the heartbeat in missed beats and fail it after five"})
         self.assertEqual(bridged["bridge_errors"], [])
         outcome = bridged["self_change"]
         self.assertEqual(outcome["proposal"]["kind"], "self_change")
@@ -306,7 +306,7 @@ class TheBridgeCallsProposeSelfChange(_Store):
         self.assertIn("self_change_evidence_paths:not_a_list_of_paths", errors)
         self.assertEqual(scb.validate_self_change_response(request={"must_satisfy": [{"id": "queue_item_projected"}]}, response={}), [],
                          "the contract binds self-change requests only")
-        bridged = self._bridge(request, {"evidence_paths": ["aria-kernel/aria_kernel/doctor.py"]})
+        bridged = self._bridge(request, {"evidence_paths": ["aria-kernel/aria_kernel/cycle_rhythm.py"]})
         self.assertIn("self_change_bridge: self_change_response_contract:", bridged["bridge_errors"][0])
         self.assertNotIn(SELF_CHANGE_PROPOSED_EVENT, self.governance_kinds())
 
@@ -315,14 +315,18 @@ class TheBridgeCallsProposeSelfChange(_Store):
         transition_mission(mission_id=mission_id, to_state="SUPERSEDED", reason_code="test", step_id="s", base_dir=self.tools)
         with self.assertRaises(GovernanceError) as refused:
             propose_self_change(mission_id=mission_id, base_dir=self.tools, workspace_root=self.ws,
-                                evidence_paths=["aria-kernel/aria_kernel/doctor.py"], problem="p", proposed_change="c")
+                                evidence_paths=["aria-kernel/aria_kernel/cycle_rhythm.py"], problem="p", proposed_change="c")
         self.assertIn("self_change_mission_terminal", str(refused.exception))
         self.assertEqual(list_human_required(base_dir=self.tools).rows, [])
         self.assertNotIn(SELF_CHANGE_PROPOSED_EVENT, self.governance_kinds())
         self.assertEqual(self.mission_refusals(), ["self_change_mission_terminal"])
 
-    _GOOD = {"evidence_paths": ["aria-kernel/aria_kernel/doctor.py"], "problem": "the gateway organ warned on a stale heartbeat",
-             "proposed_change": "fail the doctor when the heartbeat is older than five beats"}
+    # The loop's own rhythm, outside the authority set. doctor.py is a member
+    # (self_improvement imports it, so it runs inside the guard: B1 R1), and
+    # so is gateway/scheduler.py since the set is closed under what its
+    # deciders execute, function bodies included (B1 corrective round 2, R2).
+    _GOOD = {"evidence_paths": ["aria-kernel/aria_kernel/cycle_rhythm.py"], "problem": "the gateway organ warned on a stale heartbeat",
+             "proposed_change": "judge the heartbeat in missed beats and fail it after five"}
 
     def _two_in_flight(self) -> tuple[str, dict, dict]:
         # The verifier's reproduction: two requests minted for one mission
@@ -406,7 +410,7 @@ class TheBridgeCallsProposeSelfChange(_Store):
         errors = ci_executor._pre_submit_validate_envelope(self._envelope(request, {}), role=scb.SELF_CHANGE_ROLE, request=request)
         self.assertEqual(errors, ["self_change_evidence_paths:absent", "self_change_problem:absent", "self_change_proposed_change:absent"])
         ok = ci_executor._pre_submit_validate_envelope(
-            self._envelope(request, {"evidence_paths": ["aria-kernel/aria_kernel/doctor.py"], "problem": "p", "proposed_change": "c"}),
+            self._envelope(request, {"evidence_paths": ["aria-kernel/aria_kernel/cycle_rhythm.py"], "problem": "p", "proposed_change": "c"}),
             role=scb.SELF_CHANGE_ROLE, request=request)
         self.assertEqual(ok, [])
         from aria_kernel.agent_invocations import HARNESS_FAULT_RELEASE_REASONS

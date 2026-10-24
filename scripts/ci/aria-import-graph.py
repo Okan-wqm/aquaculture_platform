@@ -18,8 +18,9 @@ EDGES (a node is an importable module under aria-kernel/ or tools/aria-poc/):
   import     ``import a.b``, ``from a import b`` (absolute or relative), a literal
              ``import_module("a.b")``, and a dotted ``"aria_kernel.x"`` string such as a
              ``mock.patch`` target. ``from aria_kernel import NAME`` also names the module
-             that binds NAME first in ``_EXPORT_MODULES``, the table aria_kernel/__init__.py
-             re-exports from at import time.
+             that binds NAME first in ``_EXPORT_MODULES``, the table aria_kernel/__init__.py's
+             ``__getattr__`` resolves NAME from on first use (PEP 562: importing the package
+             imports none of them).
   reference  a path-like string literal, or a pathlib ``/`` chain of literals, naming a
              changed file: a run of two or more of its path components
              (``".github" / "workflows"``, ``"tools/aria-adapters"``), or its bare file

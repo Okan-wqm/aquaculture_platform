@@ -45,6 +45,12 @@ UNMEASURED_NO_GOLDSET = "unmeasured:no_active_goldset"
 UNMEASURED_NO_OK_RUN = "unmeasured:no_ok_run"
 UNMEASURED_NO_LABELLED_EMISSION = "unmeasured:no_labelled_emission"
 UNMEASURED_NO_REPLAY_VERDICT = "unmeasured:no_replay_verdict"
+# WP-J D-2 — the mutation-canary block's own unmeasured reasons: the corpus
+# is registered through the goldset lane, so its absence is distinct from
+# an organic tool's no-goldset, and a registered corpus with no landed
+# panel verdicts yet is a canary lane that has not drained, not a finding.
+UNMEASURED_NO_CANARY_CORPUS = "unmeasured:no_registered_canary_corpus"
+UNMEASURED_NO_CANARY_VERDICTS = "unmeasured:no_canary_verdicts"
 
 # The blockers the read side names; each is the reason an autonomous lane
 # refuses (``adapter_fitness_blocker``).
@@ -135,6 +141,93 @@ def _judge_rows(tool_id: str, goldset: dict[str, Any], root: Path) -> dict[str, 
     }
 
 
+def _canary_row(root: Path) -> dict[str, Any]:
+    """WP-J D-2 — the panel's self-exam against the mutation-canary corpus.
+
+    One corpus, registered through the goldset lane, read here: planted
+    mutants the panel must find (true positives by construction) and
+    planted false claims it must refute (false positives by construction).
+    The bars are the operator's (WP-J §4: ≥ 90 % / ≥ 90 %); an item counts
+    as found/refuted when a strict majority of the panel's landed votes on
+    it say so — one noisy seat can neither pass nor fail a corpus item
+    alone. Named by the digest of the active corpus record, the same law
+    the adapter rows are named by (``goldset_hash``).
+    """
+    from .feedback_store import load_feedback
+    from .goldset import load_active_goldset
+    from .mutation_canary import (
+        CANARY_GROUP_PREFIX,
+        CANARY_MIN_FALSE_CLAIM_REFUTATION,
+        CANARY_MIN_MUTANT_DETECTION,
+        CANARY_SOURCE_TYPE,
+        CANARY_TOOL_ID,
+    )
+
+    active = load_active_goldset(tool_id=CANARY_TOOL_ID, base_dir=root)
+    if not active:
+        return {"status": UNMEASURED_NO_CANARY_CORPUS}
+    labels: dict[str, dict[str, Any]] = {}
+    votes: dict[str, list[str]] = {}
+    for row in load_feedback(base_dir=root):
+        group = str(row.get("judgment_group_id") or "")
+        if not group.startswith(CANARY_GROUP_PREFIX):
+            continue
+        if row.get("source_type") == CANARY_SOURCE_TYPE:
+            labels.setdefault(group, row)
+        elif row.get("source_type") == "ai_judge":
+            votes.setdefault(group, []).append(str(row.get("verdict") or ""))
+    if not votes:
+        return {
+            "status": UNMEASURED_NO_CANARY_VERDICTS,
+            "corpus_hash": goldset_hash(active),
+            "mutant_count": len(active.get("true_positive_items") or []),
+            "false_claim_count": len(active.get("known_false_positive_items") or []),
+        }
+
+    def _majority(group: str, want: str) -> bool:
+        group_votes = votes.get(group) or []
+        return len(group_votes) > 0 and sum(1 for v in group_votes if v == want) * 2 > len(group_votes)
+
+    mutants = [str(item.get("finding_id") or "") for item in active.get("true_positive_items") or []]
+    false_claims = [str(item.get("finding_id") or "") for item in active.get("known_false_positive_items") or []]
+    group_of_item = {
+        group: str(label.get("finding_id") or "")
+        for group, label in labels.items()
+    }
+    by_item: dict[str, str] = {item: group for group, item in group_of_item.items()}
+    # A corpus item whose label row has not landed yet is not measured —
+    # an unlabelled item is neither found nor missed, and must not dilute
+    # either rate.
+    measured_mutants = [item for item in mutants if item in by_item]
+    measured_claims = [item for item in false_claims if item in by_item]
+    found = sum(1 for item in measured_mutants if _majority(by_item[item], "true_positive"))
+    refuted = sum(1 for item in measured_claims if _majority(by_item[item], "false_positive"))
+    detection = round(found / len(measured_mutants), 4) if measured_mutants else None
+    refutation = round(refuted / len(measured_claims), 4) if measured_claims else None
+    bars_met = (
+        detection is not None and refutation is not None
+        and detection >= CANARY_MIN_MUTANT_DETECTION
+        and refutation >= CANARY_MIN_FALSE_CLAIM_REFUTATION
+    )
+    return {
+        "status": MEASURED,
+        "corpus_hash": goldset_hash(active),
+        "mutant_count": len(mutants),
+        "false_claim_count": len(false_claims),
+        "measured_mutant_count": len(measured_mutants),
+        "measured_false_claim_count": len(measured_claims),
+        "mutants_found": found,
+        "false_claims_refuted": refuted,
+        "mutant_detection_rate": detection,
+        "false_claim_refutation_rate": refutation,
+        "bars": {
+            "min_mutant_detection": CANARY_MIN_MUTANT_DETECTION,
+            "min_false_claim_refutation": CANARY_MIN_FALSE_CLAIM_REFUTATION,
+        },
+        "bars_met": bars_met,
+    }
+
+
 def measure_role_fitness(
     *,
     base_dir: str | Path | None = None,
@@ -166,7 +259,14 @@ def measure_role_fitness(
             continue
         adapters[tool_id] = _adapter_row(tool, goldset, runs, root)
         judges[tool_id] = _judge_rows(tool_id, goldset, root)
-    return {"$schema": ROLE_FITNESS_SCHEMA, "adapters": adapters, "judges": judges}
+    return {
+        "$schema": ROLE_FITNESS_SCHEMA,
+        "adapters": adapters,
+        "judges": judges,
+        # WP-J D-2 — the panel's canary self-exam, beside the per-adapter
+        # rows: precision/recall against a corpus whose labels nobody judged.
+        "mutation_canary": _canary_row(root),
+    }
 
 
 def _parse_stamp(value: Any) -> datetime | None:
@@ -230,6 +330,8 @@ __all__ = [
     "FITNESS_UNMEASURED",
     "MEASURED",
     "ROLE_FITNESS_SCHEMA",
+    "UNMEASURED_NO_CANARY_CORPUS",
+    "UNMEASURED_NO_CANARY_VERDICTS",
     "UNMEASURED_NO_GOLDSET",
     "UNMEASURED_NO_LABELLED_EMISSION",
     "UNMEASURED_NO_OK_RUN",

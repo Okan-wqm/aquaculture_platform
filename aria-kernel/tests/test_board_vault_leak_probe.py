@@ -651,6 +651,21 @@ class _PasswdHome(unittest.TestCase):
                                       str(self.root / "unused.pem"), "--env-file", str(env_file)])
         return status, json.loads(out.getvalue()), out.getvalue()
 
+    def _recorded_main(self, variables: dict[str, str]) -> tuple[int, dict, str, list[list[str]]]:
+        """``_main_app_refused`` with every argv the probe hands ``_run`` recorded."""
+        import subprocess
+
+        argvs: list[list[str]] = []
+        real_run = self.probe._run
+
+        def recording_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str] | None:
+            argvs.append(list(command))
+            return real_run(command, **kwargs)
+
+        with patch.object(self.probe, "_run", recording_run):
+            status, report, stdout = self._main_app_refused(variables)
+        return status, report, stdout, argvs
+
     def _assert_reached_by(self, source: str, cases: dict[str, dict[str, str]]) -> list[str]:
         """Each env file of ``cases`` alone: exit 1, red, ``source`` reachable, no env-file value in stdout."""
         reached_by_case: list[str] = []
@@ -986,21 +1001,6 @@ class StoredConfigEntriesEachAloneTests(_PasswdHome):
     ``git_<transport>:stored[:<VAR>]:<scope>:<n>``.
     """
 
-    def _recorded_main(self, variables: dict[str, str]) -> tuple[int, dict, str, list[list[str]]]:
-        """``_main_app_refused`` with every argv the probe hands ``_run`` recorded."""
-        import subprocess
-
-        argvs: list[list[str]] = []
-        real_run = self.probe._run
-
-        def recording_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str] | None:
-            argvs.append(list(command))
-            return real_run(command, **kwargs)
-
-        with patch.object(self.probe, "_run", recording_run):
-            status, report, stdout = self._main_app_refused(variables)
-        return status, report, stdout, argvs
-
     def test_a_revoked_helper_at_a_default_place_does_not_hide_a_working_one(self) -> None:
         xdg = self.home / ".config" / "git" / "config"
         revoked = f'[credential]\n\thelper = "{_REVOKED_HELPER}"\n'
@@ -1042,6 +1042,74 @@ class StoredConfigEntriesEachAloneTests(_PasswdHome):
                           "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "credential.https://github.com.helper"})
         self.assertNotIn("GIT_SSH_COMMAND", sources["git_ssh:stored:HOME:global:0"].env)
         self.assertFalse([name for name in sources if "fixture" in name or "github.com" in name])
+
+
+class ConfigIncludesEachAloneTests(_PasswdHome):
+    """B0 corrective round 7, R7-2 (security SEC-R5R1-2, P2 case C; appellate's experiment).
+
+    Every probe git child runs outside any repository, so an
+    ``includeIf gitdir:/onbranch:/hasconfig:`` in the uid's config never
+    fires for the probe, while a job's git in its checkout under
+    ``~/actions-runner/_work`` uses the helper behind it every time. Every
+    include target is now treated as reachable by some job and its
+    credential entries are asked alone, ``...:include:<i>:<n>``.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        (self.home / ".git-credentials").write_text("https://x-access-token:fixture-stored@github.com\n",
+                                                    encoding="utf-8")
+        (self.home / ".git-credentials").chmod(0o600)
+
+    def _reached(self, variables: dict[str, str] | None = None) -> tuple[int, dict, list[str]]:
+        status, report, stdout, argvs = self._recorded_main(variables or {"LANG": "C.UTF-8"})
+        self.assertNotIn("fixture-stored", stdout)
+        for argv in argvs:
+            self.assertFalse([arg for arg in argv if ".inc" in arg or "fixture-stored" in arg], argv)
+        return status, report, [r["source"] for r in report["sources"] if r["status"] == self.probe.REACHABLE]
+
+    def test_a_helper_behind_an_include_of_the_jobs_work_directory_is_asked(self) -> None:
+        (self.home / ".gitconfig").write_text(
+            f'[includeIf "gitdir:{self.home}/actions-runner/_work/"]\n\tpath = creds.inc\n', encoding="utf-8")
+        (self.home / "creds.inc").write_text("[credential]\n\thelper = store\n", encoding="utf-8")
+        status, report, reached = self._reached()
+        self.assertEqual((status, report["verdict"]), (1, "red"), report)
+        self.assertIn("git_https:stored:include:0:0", reached, report["sources"])
+        self.assertNotIn("git_https:stored", reached, "the composite never fires the include outside a checkout")
+
+    def test_includes_are_followed_through_targets_and_the_env_borne_scope(self) -> None:
+        nested = self.home / "nested"
+        nested.mkdir()
+        (self.home / ".gitconfig").write_text(
+            '[include]\n\tpath = ~/nested/a.inc\n[includeIf "onbranch:main"]\n\tpath = absent.inc\n', encoding="utf-8")
+        (nested / "a.inc").write_text('[includeIf "hasconfig:remote.*.url:https://github.com/**"]\n'
+                                      '\tpath = b.inc\n', encoding="utf-8")
+        (nested / "b.inc").write_text("[credential]\n\thelper = store\n", encoding="utf-8")
+        status, report, reached = self._reached()
+        self.assertEqual((status, report["verdict"]), (1, "red"), report)
+        self.assertIn("git_https:stored:include:1:0", reached, report["sources"])
+        names = [r["source"] for r in report["sources"]]
+        self.assertFalse([n for n in names if n.startswith(("git:stored:include", "git_https:stored:include:2"))],
+                         "a missing target yields no source")
+        (self.home / ".gitconfig").unlink()
+        (self.home / "cmd.inc").write_text("[credential]\n\thelper = store\n", encoding="utf-8")
+        status, report, reached = self._reached({"GIT_CONFIG_COUNT": "1",
+                                                 "GIT_CONFIG_KEY_0": "includeIf.gitdir:/nowhere/.path",
+                                                 "GIT_CONFIG_VALUE_0": "~/cmd.inc"})
+        self.assertEqual((status, report["verdict"]), (1, "red"), report)
+        self.assertIn("git_https:GIT_CONFIG:include:0:0", reached, report["sources"])
+
+    def test_an_include_target_the_uid_cannot_read_is_inconclusive_by_name(self) -> None:
+        status, report, _reached = self._reached()
+        self.assertEqual((status, report["verdict"]), (0, "green"), report)
+        (self.home / ".gitconfig").write_text(
+            f'[includeIf "gitdir:{self.home}/actions-runner/_work/"]\n\tpath = unreadable.inc\n', encoding="utf-8")
+        # A directory: git cannot read it as a file whatever the uid (the test may run as root).
+        (self.home / "unreadable.inc").mkdir()
+        status, report, _reached = self._reached()
+        self.assertEqual((status, report["verdict"]), (2, "inconclusive"), report)
+        self.assertEqual({r["source"]: (r["status"], r["reason"]) for r in report["sources"]}.get(
+            "git:stored:include:0"), (self.probe.INCONCLUSIVE, "git_config_include_unreadable"), report["sources"])
 
 
 class _LocalVaultOverSsh(unittest.TestCase):

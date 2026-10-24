@@ -127,7 +127,10 @@ moved ``git_ssh`` off ssh. Every git child therefore runs in a fresh scratch
 directory with ``GIT_CEILING_DIRECTORIES`` set to that directory's parent
 (:func:`outside_any_repository`, the one place both are chosen; a job's own
 value is replaced in the ``:job`` composites too), so git looks for a
-repository in the scratch directory alone and finds none.
+repository in the scratch directory alone and finds none. What that buys:
+no repository the operator or the uid placed decides what a source asks.
+What it costs: no conditional include fires for the probe, while a job's git
+in its checkout fires one every time — R7-2 below asks every include target.
 
 THE PROBE'S OWN TOOLS (B0 corrective round 6, R6-3). The runner's ``.env``
 is the runner uid's to write, so a ``PATH`` in it could put a directory of
@@ -156,6 +159,23 @@ with git's scope name, asked exactly as an env-borne entry is: the named
 base and the place's one variable, :data:`CONFIG_FILES_OFF` and
 ``GIT_CONFIG_COUNT=1``, no probe ``GIT_SSH_COMMAND``. The composites stay. A
 place git cannot list is ``git:stored[:<VARIABLE>]``, inconclusive.
+
+EVERY INCLUDED FILE, WHATEVER ITS CONDITION (B0 corrective round 7, R7-2).
+An ``includeIf gitdir:``/``onbranch:``/``hasconfig:`` block in the uid's
+config, or in the job's env-borne configuration, never fires for the probe
+(its git runs outside any repository), while a job's git in its checkout
+under ``~/actions-runner/_work`` uses the helper behind it every time. The
+lister therefore lists each place with ``--no-includes`` and follows every
+``include.path`` and ``includeIf.<condition>.path`` itself, as reachable by
+some job whatever its condition (``~`` against the place's ``HOME``, a
+relative path against the including file's directory, the target's own
+includes breadth first to git's include depth). Each target's credential
+entries are asked alone as above, ``git_<transport>:stored[:<VARIABLE>]:
+include:<i>:<n>`` or ``git_<transport>:GIT_CONFIG:include:<i>:<n>``. The
+target is listed as the child's one global file, its path in that child's
+environment, never in argv. A target that does not exist yields nothing (git
+ignores it); one git cannot read is ``git:<place>:include:<i>``,
+inconclusive.
 
 Exit status: 0 GREEN — every source ran and none reached the vault, the App
 key source included, and no data key is present; 1 RED — a source reached the
@@ -190,6 +210,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import collections
 import contextlib
 import importlib.util
 import json
@@ -558,19 +579,23 @@ _ENV_SCOPES = frozenset({"command"})
 
 @dataclass(frozen=True)
 class GitConfigPlace:
-    """One place a job's git reads the uid's configuration from, and the environment git lists it under.
+    """One place a job's git reads the uid's configuration from, and the environments the probe lists it under.
 
     B0 corrective round 7, R7-1: a stored place (``stored[:<VARIABLE>]``,
-    the environment its ``git_https:stored`` composite runs under, keeping
-    the ``system`` and ``global`` scopes; its entries are named by scope),
-    or the job's env-borne configuration (``GIT_CONFIG``, the named base plus
-    the job's ``GIT_CONFIG_*`` variables alone with :data:`CONFIG_FILES_OFF`,
-    keeping the ``command`` scope; its entries keep the R6-1 names).
+    listed under the environment its ``git_https:stored`` composite runs
+    under, keeping the ``system`` and ``global`` scopes; its entries are
+    named by scope), or the job's env-borne configuration (``GIT_CONFIG``,
+    listed under the named base plus the job's ``GIT_CONFIG_*`` variables
+    alone with :data:`CONFIG_FILES_OFF`, keeping the ``command`` scope; its
+    entries keep the R6-1 names). ``base`` is the named base plus the
+    place's one variable: its ``HOME`` is the home a ``~`` in the place's
+    include paths names (R7-2).
     """
 
     stem: str
     location: str | None
     scopes: frozenset[str]
+    base: dict[str, str] = field(repr=False)
     environment: dict[str, str] = field(repr=False)
 
     def entry_place(self, scope: str) -> str:
@@ -584,43 +609,160 @@ def stored_place_name(location: str | None) -> str:
 
 def git_config_places(env: dict[str, str]) -> list[GitConfigPlace]:
     """Every place a job's git under ``env`` reads the uid's configuration from: each stored place, then the env's own."""
-    places = [GitConfigPlace(stored_place_name(location), location, _STORED_SCOPES,
-                             credential_environment(env, variable=location))
-              for location in (None, *job_named_locations(env, _GIT_LOGIN_LOCATIONS))]
+    places = []
+    for location in (None, *job_named_locations(env, _GIT_LOGIN_LOCATIONS)):
+        base = credential_environment(env, variable=location)
+        places.append(GitConfigPlace(stored_place_name(location), location, _STORED_SCOPES, base, base))
     if any(name in env for name in _GIT_ENV_CONFIG_SET_BY):
-        places.append(GitConfigPlace(GIT_CONFIG_ENTRY, None, _ENV_SCOPES, {
-            **credential_environment(env), **{k: v for k, v in env.items() if _GIT_ENV_CONFIG.fullmatch(k)},
-            **CONFIG_FILES_OFF}))
+        base = credential_environment(env)
+        places.append(GitConfigPlace(GIT_CONFIG_ENTRY, None, _ENV_SCOPES, base, {
+            **base, **{k: v for k, v in env.items() if _GIT_ENV_CONFIG.fullmatch(k)}, **CONFIG_FILES_OFF}))
     return places
 
 
-def git_config_entries(place: GitConfigPlace, git_cli: str) -> list[GitConfigEntry] | None:
-    """THE one lister: each credential entry of ``place``, as git itself lists them; None if git did not.
+@dataclass(frozen=True)
+class _ListedItem:
+    """One entry as ``git config --list -z --show-origin --show-scope`` lists it; the value in memory only."""
 
-    B0 corrective round 6, R6-1 (the job's env-borne configuration), round 7,
-    R7-1 (each stored place too): ``git config --list -z --show-scope``
-    under the place's environment, in :func:`outside_any_repository`,
-    keeping the place's scopes. Values stay in this process's memory.
-    """
+    scope: str
+    origin: str
+    key: str
+    value: str | None = field(repr=False)
+
+
+def _git_config_list(git_cli: str, environment: dict[str, str]) -> list[_ListedItem] | None:
+    """Every entry git lists under ``environment``, each file's own (``--no-includes``); None if git did not list."""
     with outside_any_repository() as (outside, discovery):
-        done = _run([git_cli, "config", "--list", "-z", "--show-scope"], env={**place.environment, **discovery},
-                    cwd=outside)
+        done = _run([git_cli, "config", "--list", "-z", "--no-includes", "--show-origin", "--show-scope"],
+                    env={**environment, **discovery}, cwd=outside)
     if done is None or done.returncode != 0:
         return None
     fields = done.stdout.split("\0")
-    if fields[-1] != "" or len(fields) % 2 != 1:
+    if fields[-1] != "" or len(fields) % 3 != 1:
         return None
-    entries: list[GitConfigEntry] = []
-    counted: dict[str, int] = {}
-    for scope, item in zip(fields[0:-1:2], fields[1:-1:2]):
-        if scope not in place.scopes:
-            continue
-        index = counted[scope] = counted.get(scope, -1) + 1
+    items: list[_ListedItem] = []
+    for scope, origin, item in zip(fields[0:-1:3], fields[1:-1:3], fields[2:-1:3]):
         key, newline, value = item.partition("\n")
-        if credential_key_transport(key) is not None:
-            entries.append(GitConfigEntry(place.entry_place(scope), place.location, index, key,
-                                          value if newline else None))
-    return entries
+        items.append(_ListedItem(scope, origin, key, value if newline else None))
+    return items
+
+
+# git's MAX_INCLUDE_DEPTH: an include deeper than this makes git stop with
+# an error, so no job's git reads past it.
+GIT_MAX_INCLUDE_DEPTH = 10
+
+
+def _is_include(key: str) -> bool:
+    """``include.path`` or ``includeIf.<condition>.path``, as git lists the key (section and name lowercased)."""
+    return key == "include.path" or (key.startswith("includeif.") and key.endswith(".path"))
+
+
+def include_target(value: str, origin: str, home: str) -> str | None:
+    """The file git reads for the include ``value`` listed at ``origin``; None where git refuses to read one.
+
+    As git resolves it (B0 corrective round 7, R7-2): ``~/`` against
+    ``home``, ``~user/`` against that user's passwd home, a relative path
+    against the including file's directory. git refuses a relative include
+    that does not come from a file (env-borne configuration) and a
+    ``~user`` it cannot expand, and reads nothing then.
+    """
+    if value.startswith("~"):
+        user, _slash, rest = value[1:].partition("/")
+        if not user:
+            return os.path.join(home, rest)
+        try:
+            return os.path.join(pwd.getpwnam(user).pw_dir, rest)
+        except KeyError:
+            return None
+    if os.path.isabs(value):
+        return value
+    if not origin.startswith("file:"):
+        return None
+    return os.path.join(os.path.dirname(origin[len("file:"):]), value)
+
+
+def git_config_entries(place: GitConfigPlace, git_cli: str) -> tuple[list[GitConfigEntry], list["UnaskedSource"]]:
+    """THE one lister: each credential entry of ``place`` and of every file it includes, as git itself lists them.
+
+    B0 corrective round 6, R6-1 (the job's env-borne configuration); round
+    7, R7-1 (each stored place): ``git config --list -z --no-includes
+    --show-origin --show-scope`` under the place's environment, in
+    :func:`outside_any_repository`, keeping the place's scopes. Values stay
+    in this process's memory.
+
+    Round 7, R7-2: every probe git child runs outside any repository, so an
+    ``includeIf gitdir:/onbranch:/hasconfig:`` never fires for the probe,
+    while a job's git in its checkout fires it every time. Every
+    ``include.path`` and ``includeIf.<condition>.path`` of the place's
+    scopes is therefore treated as reachable by some job, whatever its
+    condition: its target (:func:`include_target`) is listed as the one
+    global file (``GIT_CONFIG_GLOBAL`` in the child's environment, never in
+    argv), its own includes followed breadth first to git's include depth,
+    each target once, and its entries named ``<place>:include:<i>``. A
+    target that does not exist yields nothing, as git ignores it; one that
+    exists and git cannot list, or whose place the probe cannot resolve, is
+    ``git:<place>:include:<i>``, inconclusive. A place git cannot list at
+    all is ``git:<place>``, inconclusive.
+    """
+    items = _git_config_list(git_cli, place.environment)
+    if items is None:
+        return [], [UnaskedSource(f"git:{place.stem}", "git_config_unlisted")]
+    entries: list[GitConfigEntry] = []
+    unasked: list[UnaskedSource] = []
+    includes: collections.deque[tuple[str, str, int]] = collections.deque()
+
+    def take(listed: list[_ListedItem], depth: int, included: str | None) -> None:
+        """Each credential entry of ``listed`` (named ``included``, else by scope), and each include it holds."""
+        counted: dict[str, int] = {}
+        for item in listed:
+            index = counted[item.scope] = counted.get(item.scope, -1) + 1
+            if credential_key_transport(item.key) is not None:
+                entries.append(GitConfigEntry(included if included is not None else place.entry_place(item.scope),
+                                              place.location, index, item.key, item.value))
+            elif _is_include(item.key) and item.value is not None:
+                includes.append((item.value, item.origin, depth + 1))
+
+    take([item for item in items if item.scope in place.scopes], 0, None)
+    targets: list[str] = []
+    while includes:
+        value, origin, depth = includes.popleft()
+        target = include_target(value, origin, place.base["HOME"])
+        if target is None or depth > GIT_MAX_INCLUDE_DEPTH or _git_ignores_include(target):
+            continue
+        resolved = os.path.realpath(target) if os.path.isabs(target) else None
+        if resolved is not None and resolved in targets:
+            continue
+        included = f"{place.stem}:include:{len(targets)}"
+        targets.append(resolved if resolved is not None else included)
+        if resolved is None:
+            # Relative to a job's working directory, which the probe cannot know.
+            unasked.append(UnaskedSource(f"git:{included}", "git_config_include_unresolved"))
+            continue
+        listed = _git_config_list(git_cli, {**place.base, **CONFIG_FILES_OFF, "GIT_CONFIG_GLOBAL": target})
+        if listed is None:
+            unasked.append(UnaskedSource(f"git:{included}", "git_config_include_unreadable"))
+            continue
+        take(listed, depth, included)
+    return entries, unasked
+
+
+def _git_ignores_include(target: str) -> bool:
+    """Whether git skips the include ``target`` as absent: it does for ENOENT and ENOTDIR, and stops on any other error.
+
+    A relative ``target`` is never looked up here (it would name the
+    probe's own working directory): it is not absent.
+    """
+    if not os.path.isabs(target):
+        return False
+    try:
+        os.stat(target)
+    except (FileNotFoundError, NotADirectoryError):
+        return True
+    except OSError:
+        # It exists and the uid cannot read it: git stops on it, and the
+        # probe's listing of it fails, read as inconclusive.
+        return False
+    return False
 
 
 @dataclass(frozen=True)
@@ -793,16 +935,17 @@ class GitRemoteSource:
         """THE one list of git sources under ``env``, per transport: each stored place, each job credential alone, the job.
 
         Per transport: the stored composites, each stored place's credential
-        entries, each env-borne job credential, each env-borne config entry,
-        then the job composite. A place git could not list
-        (``git:<place>``), or a credential entry with no value, is an
-        :class:`UnaskedSource` (inconclusive), never skipped.
+        entries (its includes' too), each env-borne job credential, each
+        env-borne config entry (its includes' too), then the job composite.
+        A place or include git could not list (``git:<place>``,
+        ``git:<place>:include:<i>``), or a credential entry with no value, is
+        an :class:`UnaskedSource` (inconclusive), never skipped.
         """
         listed = [(place, git_config_entries(place, tools.git)) for place in git_config_places(env)]
-        sources: list[CredentialSource] = [UnaskedSource(f"git:{place.stem}", "git_config_unlisted")
-                                           for place, entries in listed if entries is None]
-        stored = [entry for place, entries in listed if place.stem != GIT_CONFIG_ENTRY for entry in entries or []]
-        env_borne = [entry for place, entries in listed if place.stem == GIT_CONFIG_ENTRY for entry in entries or []]
+        sources: list[CredentialSource] = [source for _place, (_entries, unasked) in listed for source in unasked]
+        stored = [entry for place, (entries, _unasked) in listed if place.stem != GIT_CONFIG_ENTRY for entry in entries]
+        env_borne = [entry for place, (entries, _unasked) in listed if place.stem == GIT_CONFIG_ENTRY
+                     for entry in entries]
 
         def asked_alone(transport: str, entries: list[GitConfigEntry]) -> list[CredentialSource]:
             return [cls(transport=transport, env=env, tools=tools, entry=entry) if entry.value is not None else

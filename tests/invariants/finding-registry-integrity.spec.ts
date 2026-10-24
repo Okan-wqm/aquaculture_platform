@@ -23,6 +23,9 @@
  *     on a fresh registry OR append a corrective entry (never in-place edit).
  *   - Schema violation on a new entry → fix the entry to match schema.
  *   - Hash mismatch → content was modified after append; revert the edit.
+ *   - Since MF-2 findings.jsonl is frozen: a genesis-pin failure names its
+ *     remedy (the branch converter, or `npm run findings:genesis` at landing),
+ *     and every later change is an event under docs/reviews/_registry/findings/.
  *
  * # References
  *
@@ -31,6 +34,7 @@
  *   - /var/aqua-saas/docs/reviews/_registry/findings.jsonl.schema.json
  */
 
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -344,5 +348,313 @@ describe('finding registry integrity invariant', () => {
       }
       expect(missing).toEqual([]);
     });
+  });
+});
+
+/**
+ * MF-2 (MF-DESIGN §4.1–§4.3, §6 steps 3–4, §7 T6/T7) — findings.jsonl is a
+ * frozen genesis segment and every later change is an append-only event in
+ * one file per finding.
+ *
+ * Re-implemented here, independently of tools/gates/finding-registry-events.ts,
+ * like the chain checks above: a defect shared by the writer and its own
+ * verifier would otherwise pass both.
+ *
+ *   - T6: the bytes of findings.jsonl are the blob genesis.json pins (sha256,
+ *     entry count, tip content_hash). A mismatch names its two remedies: a
+ *     branch that edited or appended rows converts them to events with the
+ *     branch converter; a landing that merged origin/main before the freeze
+ *     re-pins with `npm run findings:genesis`.
+ *   - T6: every event file is `findings/<PREFIX>/<ID>.jsonl` and its lines
+ *     form a chain anchored on the finding's genesis row (or the genesis tip
+ *     for a finding born after the freeze); the vocabulary is closed and never
+ *     reaches RESOLVED; ids are unique over genesis ∪ files; every owner_user
+ *     an event writes is a CODEOWNERS handle in its CODEOWNERS spelling.
+ *   - T7: every event file at the base of this change is a byte prefix of
+ *     itself here, and none is deleted.
+ */
+describe('MF-2 — the genesis pin and the per-finding event store', () => {
+  const REGISTRY_DIR = path.join(REPO_ROOT, 'docs', 'reviews', '_registry');
+  const GENESIS_PATH = path.join(REGISTRY_DIR, 'genesis.json');
+  const STORE_RELATIVE = 'docs/reviews/_registry/findings';
+  const STORE_DIR = path.join(REPO_ROOT, STORE_RELATIVE);
+  const GENESIS_REMEDY = 'npm run findings:genesis';
+  const BRANCH_REMEDY = 'tools/gates/finding-registry-migrate-branch.ts';
+  const EVENT_TYPES = [
+    'CREATED',
+    'STATE_TRANSITIONED',
+    'CLOSURE_REJECTED',
+    'OWNER_ASSIGNED',
+    'AMENDED',
+    'SUPERSEDED',
+  ];
+  const EVENT_KEYS = [
+    'actor',
+    'content_hash',
+    'event_id',
+    'event_type',
+    'finding_id',
+    'occurred_at',
+    'payload',
+    'prev_hash',
+    'reason',
+    'version',
+  ];
+  const GIT_STATE_TARGETS = ['OPEN', 'IN-PROGRESS', 'STALE', 'BLOCKED'];
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+  const EVENT_FILE = /^([A-Z][A-Z0-9]*)\/([A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+)\.jsonl$/;
+
+  interface EventLine {
+    event_id: unknown;
+    finding_id: unknown;
+    version: unknown;
+    event_type: unknown;
+    payload: Record<string, unknown>;
+    actor: unknown;
+    reason: unknown;
+    occurred_at: unknown;
+    prev_hash: unknown;
+    content_hash: unknown;
+    [key: string]: unknown;
+  }
+
+  interface EventFile {
+    /** Path under docs/reviews/_registry/findings/, `/`-separated. */
+    rel: string;
+    bytes: Buffer;
+    events: EventLine[];
+  }
+
+  function git(args: readonly string[]): Buffer {
+    return execFileSync('git', ['-C', REPO_ROOT, ...args], { maxBuffer: 256 * 1024 * 1024 });
+  }
+
+  function readGenesis(): Record<string, unknown> | null {
+    if (!fs.existsSync(GENESIS_PATH)) return null;
+    return JSON.parse(fs.readFileSync(GENESIS_PATH, 'utf8')) as Record<string, unknown>;
+  }
+
+  /** Why `blob` is not the segment `genesis` pins; each reason names both remedies. */
+  function genesisPinDefects(blob: Buffer, genesis: Record<string, unknown> | null): string[] {
+    const remedy =
+      `A branch that edited or appended findings.jsonl rows converts them to events with ` +
+      `\`ts-node ${BRANCH_REMEDY}\`; a landing that merged origin/main before the freeze ` +
+      `re-pins the segment with \`${GENESIS_REMEDY}\`.`;
+    if (genesis === null) return [`docs/reviews/_registry/genesis.json is missing. ${remedy}`];
+    const text = blob.toString('utf8').trim();
+    const rows =
+      text === '' ? [] : text.split('\n').map((line) => JSON.parse(line) as FindingEntry);
+    const actual: Record<string, unknown> = {
+      path: 'docs/reviews/_registry/findings.jsonl',
+      blob_sha256: createHash('sha256').update(blob).digest('hex'),
+      entries: rows.length,
+      tip_content_hash: rows[rows.length - 1]?.content_hash ?? '0'.repeat(64),
+    };
+    return Object.entries(actual)
+      .filter(([key, value]) => genesis[key] !== value)
+      .map(
+        ([key, value]) =>
+          `findings.jsonl ${key} is ${JSON.stringify(value)}, genesis.json pins ` +
+          `${JSON.stringify(genesis[key])}. ${remedy}`,
+      );
+  }
+
+  function walk(dir: string): string[] {
+    return fs.readdirSync(dir).flatMap((name) => {
+      const full = path.join(dir, name);
+      return fs.statSync(full).isDirectory() ? walk(full) : [full];
+    });
+  }
+
+  /** The event store in the tree under test; none when it does not exist. */
+  function loadStore(): EventFile[] {
+    if (!fs.existsSync(STORE_DIR)) return [];
+    return walk(STORE_DIR)
+      .map((full) => path.relative(STORE_DIR, full).split(path.sep).join('/'))
+      .sort()
+      .map((rel) => {
+        const bytes = fs.readFileSync(path.join(STORE_DIR, rel));
+        const events = bytes
+          .toString('utf8')
+          .split('\n')
+          .filter((line) => line.trim() !== '')
+          .map((line) => JSON.parse(line) as EventLine);
+        return { rel, bytes, events };
+      });
+  }
+
+  const legacyEntries = readEntries();
+  const genesisRows = new Map(legacyEntries.map((entry) => [entry.id, entry]));
+  const genesisTip = legacyEntries[legacyEntries.length - 1]?.content_hash ?? '0'.repeat(64);
+  const store = loadStore();
+
+  it('T6 — findings.jsonl is the blob genesis.json pins, and a drifted blob names both remedies', () => {
+    const blob = fs.readFileSync(REGISTRY_PATH);
+    const genesis = readGenesis();
+    expect(genesisPinDefects(blob, genesis)).toEqual([]);
+
+    const drifted = genesisPinDefects(Buffer.concat([blob, Buffer.from('{}\n')]), genesis);
+    expect(drifted.length).toBeGreaterThan(0);
+    for (const message of drifted) {
+      expect(message).toContain(GENESIS_REMEDY);
+      expect(message).toContain(BRANCH_REMEDY);
+    }
+    // Both remedies exist under the names the message gives.
+    const scripts = (
+      JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8')) as {
+        scripts: Record<string, string>;
+      }
+    ).scripts;
+    expect(scripts['findings:genesis']).toMatch(/tools\/gates\/finding-registry\.ts genesis\b/);
+    expect(fs.existsSync(path.join(REPO_ROOT, BRANCH_REMEDY))).toBe(true);
+  });
+
+  it('T6 — every event file is findings/<PREFIX>/<ID>.jsonl with a chain anchored on genesis', () => {
+    // MF-2 itself records MF-3's tracked finding through the event writer, so
+    // an empty store means the store is not in use.
+    expect(store.length).toBeGreaterThan(0);
+    const defects: string[] = [];
+    for (const file of store) {
+      const match = EVENT_FILE.exec(file.rel);
+      const prefix = match?.[1];
+      const id = match?.[2];
+      if (prefix === undefined || id === undefined || id.split('-')[0] !== prefix) {
+        defects.push(`${file.rel}: not findings/<PREFIX>/<ID>.jsonl`);
+        continue;
+      }
+      if (!file.bytes.toString('utf8').endsWith('\n')) {
+        defects.push(`${file.rel}: the last line is not newline-terminated`);
+      }
+      const legacy = genesisRows.get(id);
+      if (file.events.length === 0) defects.push(`${file.rel}: holds no event`);
+      file.events.forEach((event, index) => {
+        const where = `${file.rel}:${index + 1}`;
+        const keys = Object.keys(event).sort();
+        if (JSON.stringify(keys) !== JSON.stringify(EVENT_KEYS)) {
+          defects.push(`${where}: fields ${keys.join(',')}`);
+        }
+        if (event.finding_id !== id)
+          defects.push(`${where}: finding_id ${String(event.finding_id)}`);
+        if (event.version !== index + 1) defects.push(`${where}: version ${String(event.version)}`);
+        if (typeof event.event_id !== 'string' || !UUID.test(event.event_id)) {
+          defects.push(`${where}: event_id is not a UUID`);
+        }
+        if (!EVENT_TYPES.includes(String(event.event_type))) {
+          defects.push(
+            `${where}: event_type ${String(event.event_type)} is outside the vocabulary`,
+          );
+        }
+        if (typeof event.actor !== 'string' || event.actor.trim() === '') {
+          defects.push(`${where}: no actor`);
+        }
+        if (
+          typeof event.occurred_at !== 'string' ||
+          !Number.isFinite(Date.parse(event.occurred_at))
+        ) {
+          defects.push(`${where}: occurred_at is not a timestamp`);
+        }
+        const created = event.event_type === 'CREATED';
+        if (created && event.reason !== null) defects.push(`${where}: CREATED carries a reason`);
+        if (!created && (typeof event.reason !== 'string' || event.reason.trim() === '')) {
+          defects.push(`${where}: ${String(event.event_type)} without a reason`);
+        }
+        // A finding born after the freeze starts with CREATED; a genesis finding never does.
+        if (created !== (index === 0 && legacy === undefined)) {
+          defects.push(
+            `${where}: CREATED ${created ? 'where it may not stand' : 'missing'} ` +
+              `(${legacy === undefined ? 'not in genesis' : 'a genesis finding'})`,
+          );
+        }
+        // RESOLVED is not a target: only a merged trailer derives it.
+        if (
+          event.event_type === 'STATE_TRANSITIONED' &&
+          !GIT_STATE_TARGETS.includes(String(event.payload?.to_state))
+        ) {
+          defects.push(`${where}: transitions to ${String(event.payload?.to_state)}`);
+        }
+        const anchor =
+          index === 0 ? (legacy?.content_hash ?? genesisTip) : file.events[index - 1]?.content_hash;
+        if (event.prev_hash !== anchor) defects.push(`${where}: prev_hash does not chain`);
+        const { content_hash: stored, ...forHash } = event;
+        if (stored !== sha256hex(canonicalJson(forHash))) {
+          defects.push(`${where}: content_hash does not match the line`);
+        }
+      });
+    }
+    expect(defects).toEqual([]);
+  });
+
+  it('T6 — finding ids are unique over genesis ∪ files, and event ids over the store', () => {
+    expect(store.length).toBeGreaterThan(0);
+    const fileIds = store.map((file) => path.posix.basename(file.rel, '.jsonl'));
+    expect(fileIds.filter((id, index) => fileIds.indexOf(id) !== index)).toEqual([]);
+    const born = store
+      .filter((file) => file.events[0]?.event_type === 'CREATED')
+      .map((file) => String(file.events[0]?.finding_id));
+    expect(born.filter((id) => genesisRows.has(id))).toEqual([]);
+    const eventIds = store.flatMap((file) => file.events.map((event) => String(event.event_id)));
+    expect(eventIds.filter((id, index) => eventIds.indexOf(id) !== index)).toEqual([]);
+  });
+
+  it('T6 — every owner_user an event writes is a CODEOWNERS handle in its CODEOWNERS spelling', () => {
+    expect(store.length).toBeGreaterThan(0);
+    const written = store.flatMap((file) =>
+      file.events.flatMap((event) => {
+        const fields =
+          event.event_type === 'AMENDED'
+            ? ((event.payload?.fields ?? {}) as Record<string, unknown>)
+            : event.payload;
+        const owner = fields?.owner_user;
+        return typeof owner === 'string'
+          ? [{ where: `${file.rel}:${String(event.version)}`, owner }]
+          : [];
+      }),
+    );
+    const stray = written
+      .filter(({ owner }) => {
+        const resolved = canonicalOwner(owner);
+        return !resolved.ok || resolved.owner !== owner;
+      })
+      .map(({ where, owner }) => `${where}: ${owner}`);
+    expect(stray).toEqual([]);
+  });
+
+  it('T7 — every event file at the base is a byte prefix of itself here, and none is deleted', () => {
+    expect(store.length).toBeGreaterThan(0);
+    const remote = spawnSync(
+      'git',
+      ['-C', REPO_ROOT, 'rev-parse', '--verify', '--quiet', 'origin/main'],
+      {
+        encoding: 'utf8',
+      },
+    );
+    if (remote.status !== 0) {
+      throw new Error(
+        'origin/main is not available: the append-only check compares against merge-base(HEAD, origin/main) (fetch-depth: 0)',
+      );
+    }
+    const head = git(['rev-parse', 'HEAD']).toString('utf8').trim();
+    const mergeBase = git(['merge-base', 'HEAD', 'origin/main']).toString('utf8').trim();
+    // On main itself the change under test is the last merge: judge it against its first parent.
+    const base =
+      mergeBase === head
+        ? git(['rev-parse', `${head}^1`])
+            .toString('utf8')
+            .trim()
+        : mergeBase;
+    const atBase = git(['ls-tree', '-r', '--name-only', base, '--', `${STORE_RELATIVE}/`])
+      .toString('utf8')
+      .split('\n')
+      .filter(Boolean);
+    const here = new Map(store.map((file) => [`${STORE_RELATIVE}/${file.rel}`, file.bytes]));
+    const defects = atBase.flatMap((rel) => {
+      const now = here.get(rel);
+      if (now === undefined) return [`${rel}: deleted since ${base.slice(0, 12)}`];
+      const before = git(['show', `${base}:${rel}`]);
+      return now.subarray(0, before.length).equals(before)
+        ? []
+        : [`${rel}: rewritten since ${base.slice(0, 12)} (only appends are allowed)`];
+    });
+    expect(defects).toEqual([]);
   });
 });

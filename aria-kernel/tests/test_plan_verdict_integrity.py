@@ -409,7 +409,7 @@ class Low785ImplementationRequestIdentity(_PlanFixture):
 
     def _mint(self, ids: dict) -> dict:
         from aria_kernel.agent_invocations import create_agent_invocation_request
-        from aria_kernel.implementation_safety import READONLY_PATHS
+        from aria_kernel.implementation_safety import readonly_paths
         from aria_kernel.plan_origin import commit_contract_for_plan
         from aria_kernel.request_admission import admit_request
 
@@ -420,7 +420,7 @@ class Low785ImplementationRequestIdentity(_PlanFixture):
             must_satisfy=[{"id": "MS-1", "description": "one falsifiable obligation"}],
             allowed_scope=[SURFACE], evidence_refs=[PLAN_EVIDENCE], convergence_id="plan-1", round_number=0,
             base_dir=self.tools, plan_revision_hash=state["latest_revision"]["content_hash"],
-            implementation_ids=ids, cycle_id=cycle_id, forbidden_scope=list(READONLY_PATHS),
+            implementation_ids=ids, cycle_id=cycle_id, forbidden_scope=list(readonly_paths()),
             commit_contract=commit_contract_for_plan(self.plan(), plan_id="plan-1"), target_sha=self.commit_a,
             admission=admit_request("implementer.converged_plan", "implementation", base_dir=self.tools, cycle_id=cycle_id),
         )

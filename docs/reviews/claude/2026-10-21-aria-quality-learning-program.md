@@ -1217,3 +1217,77 @@ their names can disagree with the one service key
   PLAN-v2 F0.9b; \_asset_of is the per-path twin of \_detect_services and goes with it.
 - Failure scenario: security assessment files a finding on `apps/<dir>` as `service:<dir>` while
   the finding dimension names the same project by its project.json name, so the two never join.
+
+## ARIA-MEDIUM-840
+
+The impact closure's import edges carry no evidence site: `impact_graph.impact_closure` reports
+reason `import` with evidence `None`, because the cached project graph records project-to-project
+edges and not the import line
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-4 implementer (87ef59330), kept out of the package's 500-line budget.
+- Evidence:
+  - `aria-kernel/aria_kernel/impact_graph.py:105`
+  - `aria-kernel/aria_kernel/impact_graph.py:915`
+- Rule: service-expertise PLAN §1.1 step 3: each closure entry names its edge kind and the edge's
+  evidence `path:line`.
+- Close: the graph builder records the first import site of each project edge, the cache publishes
+  it, the closure reports it, and `test_impact_closure.py` pins token-lib's evidence.
+
+## ARIA-MEDIUM-841
+
+A change to an event interface is recognised as changing event type T only when a hunk covers the
+line of its `eventType` member: SE-3's `event_definitions` carry that one line and not the
+interface's extent, so a hunk that changes only another field ranks no producer or consumer of T
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-4 implementer (87ef59330).
+- Evidence:
+  - `aria-kernel/aria_kernel/impact_graph.py:170`
+  - `aria-kernel/aria_kernel/impact_graph.py:184`
+  - `tools/gates/event-consumer-index.ts:1516`
+  - `tools/gates/event-consumer-index.ts:1524`
+- Rule: service-expertise PLAN §1.2 step 2: changed hunks that intersect a definition give the
+  changed types.
+- Close: `event_definitions` carry the declaration's first and last line (additive), the closure
+  intersects hunks with that extent, and a fixture hunk on a non-`eventType` field of an interface
+  reaches the type's producer and consumer.
+
+## ARIA-MEDIUM-842
+
+The plan-coverage witness still maps a plan's paths to projects through its own nx graph
+(`projectFor` over `npx nx graph`) for `closure.projects` and `unmapped_paths`, beside the kernel's
+one key `project_for_path`, and builds that graph on every coverage run
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-4 implementer (91048d66c). SE-4 removed the witness's `project:` and
+  `event-consumer:` nodes; the touched-project listing and unmapped paths remain.
+- Evidence:
+  - `tools/gates/plan-coverage-witness.ts:208`
+  - `tools/gates/plan-coverage-witness.ts:230`
+  - `tools/gates/plan-coverage-witness.ts:313`
+  - `aria-kernel/aria_kernel/impact_graph.py:964`
+- Rule: one owner per concept (service-expertise PLAN §2 row 'Path -> service/project key').
+- Close: plan coverage hands the witness the closure's touched projects and unknown files with
+  `closure_nodes`; the witness drops `--graph`, `loadGraph` and `projectFor`.
+
+## ARIA-MEDIUM-843
+
+Every workspace-level closure caller (plan admission, the cycle's service examination, the learning
+impact hook, the `impact service-order` CLI) computes code facts on the live checkout's HEAD, which
+must be clean and carry the TypeScript toolchain; otherwise the closure holds and plan admission
+refuses every finding-origin plan with `admission_scope_missing:contract_edges_unavailable:<reason>`
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: SE-4 implementer (87ef59330), as the declared PLAN Risk 12 state. Not measured on the
+  ARIA runner checkout: ARIA is paused and no cycle was run.
+- Evidence:
+  - `aria-kernel/aria_kernel/plan_origin.py:478`
+  - `aria-kernel/aria_kernel/plan_origin.py:482`
+  - `aria-kernel/aria_kernel/cycle.py:2503`
+  - `aria-kernel/aria_kernel/learning.py:272`
+  - `aria-kernel/aria_kernel/cli.py:6207`
+- Rule: service-expertise PLAN §3.3 and Risk 12: code facts are computed once per change subject on
+  its base tree; a hold is declared, never hidden.
+- Close: D5's base worktree supplies the facts tree to these callers, or the facts compute on the
+  runner checkout at HEAD with a success rate reported over DEV runs and recorded against this row.

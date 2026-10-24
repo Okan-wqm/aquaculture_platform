@@ -1632,10 +1632,13 @@ def plan_verdict_paths(state: dict[str, Any]) -> list[str]:
 
     Every path the converged body names (``plan_origin.body_paths``: its
     ``affected_surfaces`` and its ``key_changes`` paths, the files the
-    implementer writes), the body's ``evidence_refs`` and every cross-review
-    risk's ``evidence_refs`` (line suffix dropped; finding ids name no file).
-    A key-change path need not lie inside a surface, so a reader of the
-    surfaces alone let the edited file change unseen (PV R5).
+    implementer writes), the body's ``evidence_refs``, every cross-review
+    risk's ``evidence_refs``, and the ``evidence_refs`` of every standing
+    ``resolved``/``withdrawn`` answer (line suffix dropped; finding ids name
+    no file). A key-change path need not lie inside a surface, so a reader of
+    the surfaces alone let the edited file change unseen (PV R5); and since
+    P1 a cited answer is the only door that clears a material risk, so the
+    evidence it cites is part of what the verdict judged (PV R14).
     """
     from .evidence_trust import parse_evidence_ref
     from .plan_origin import body_paths
@@ -1644,6 +1647,9 @@ def plan_verdict_paths(state: dict[str, Any]) -> list[str]:
     refs = [str(ref) for ref in body.get("evidence_refs", [])]
     for risks in state.get("cross_review_risks_by_round", {}).values():
         refs.extend(str(ref) for risk in risks for ref in risk.get("evidence_refs", []))
+    for answer in state.get("review_risk_dispositions", {}).values():
+        if answer["disposition"] in CITED_PRIOR_RISK_DISPOSITIONS:
+            refs.extend(str(ref) for ref in answer["evidence_refs"])
     paths = [str(path).strip() for path in body_paths(body)]
     for ref in refs:
         if FINDING_ID_RE.match(ref.strip()):
@@ -1662,8 +1668,9 @@ def plan_verdict_staleness(state: dict[str, Any], *, base_dir: str | Path | None
     between that tree and today's HEAD of the store's checkout
     (``tool_registry.bound_workspace_root``, read through
     :func:`plan_verdict_anchor`) to a path the plan names
-    (:func:`plan_verdict_paths`; a surface may be a directory or a glob)
-    makes it stale: ``plan_verdict_stale:<changed path>``. A verdict recorded
+    (:func:`plan_verdict_paths`; a surface may be a directory or a glob,
+    judged by :func:`plan_path_covers`) makes it stale:
+    ``plan_verdict_stale:<changed path>``. A verdict recorded
     before the binding existed names no reviewed tree at all
     (``plan_verdict_unbound``). A HEAD git cannot read, or a reviewed commit
     the checkout cannot compare with HEAD, proves nothing about today's bytes
@@ -1686,10 +1693,9 @@ def plan_verdict_staleness(state: dict[str, Any], *, base_dir: str | Path | None
         # No commit today: none was made after a verdict reached on the empty
         # tree, and a reviewed commit that vanished cannot be compared.
         return None if reviewed is None else f"{PLAN_VERDICT_UNVERIFIABLE}:{reviewed}"
-    pathspecs = [f":(glob){path}" for path in plan_verdict_paths(state)]
-    if not pathspecs:
-        # `git diff A HEAD --` with no pathspec compares the whole tree; a
-        # plan that names no path judged none, so no commit can stale it.
+    plan_paths = plan_verdict_paths(state)
+    if not plan_paths:
+        # A plan that names no path judged none, so no commit can stale it.
         return None
     if reviewed is None:
         empty_tree = hermetic_git(workspace, "hash-object", "-t", "tree", os.devnull)
@@ -1699,15 +1705,40 @@ def plan_verdict_staleness(state: dict[str, Any], *, base_dir: str | Path | None
     else:
         reviewed_tree = reviewed
     # The event law types the reviewed commit as an object id (PV R3), and
-    # `--end-of-options` keeps any revision from being read as an option.
+    # `--end-of-options` keeps any revision from being read as an option. No
+    # plan text reaches git: coverage is the kernel's one repo-glob matcher
+    # (`plan_path_covers`), never a pathspec — git's `:(glob)` has no brace
+    # alternation, so a `{a,b}` surface the matcher covers switched the gate
+    # off (PV R13).
     completed = hermetic_git(
         workspace, "diff", "--name-only", "--no-renames", "-z",
-        "--end-of-options", reviewed_tree, head, "--", *pathspecs,
+        "--end-of-options", reviewed_tree, head,
     )
     if completed.returncode != 0:
         return f"{PLAN_VERDICT_UNVERIFIABLE}:{reviewed}"
-    changed = sorted(path for path in completed.stdout.split("\0") if path)
+    changed = sorted(
+        path for path in completed.stdout.split("\0")
+        if path and any(plan_path_covers(plan_path, path) for plan_path in plan_paths)
+    )
     return f"{PLAN_VERDICT_STALE}:{changed[0]}" if changed else None
+
+
+def plan_path_covers(plan_path: str, changed_path: str) -> bool:
+    """PV P3 (R13) — whether a path a plan names covers a changed repository path.
+
+    It does when the two are equal, when the plan path is a directory the
+    changed path lies under, or when the plan path is a glob the kernel's
+    one repo-glob matcher (``canonical_path.matches_repo_glob``: brace
+    alternation, ``**``) matches.
+    """
+    from .canonical_path import matches_repo_glob
+
+    directory = plan_path.rstrip("/")
+    return (
+        changed_path == plan_path
+        or changed_path.startswith(f"{directory}/")
+        or matches_repo_glob(changed_path, plan_path)
+    )
 
 
 def _require_review_verdict(verdict: Any) -> None:

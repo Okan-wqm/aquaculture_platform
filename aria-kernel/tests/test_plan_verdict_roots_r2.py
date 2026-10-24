@@ -9,7 +9,11 @@ one class per root, each a property round 1 left broken:
   for, the checkout the store is bound to — the one the staleness check reads;
 * R12 the HEAD owner raises on an unreadable checkout, and every caller reads
   it before it writes: no plan is wedged half-requested, the executor fails
-  the one plan, the doctor names the refusal.
+  the one plan, the doctor names the refusal;
+* R13 the staleness check judges coverage with the kernel's one repo-glob
+  matcher, never with a git pathspec built from plan text;
+* R14 the evidence a standing ``resolved``/``withdrawn`` answer cites is in the
+  verdict's freshness path set.
 
 Source: SPEC.md (PV P1, P3, P5); findings ARIA-HIGH-779 and ARIA-LOW-785.
 """
@@ -35,6 +39,8 @@ from aria_kernel.plan_convergence import (
     content_hash,
     events_path,
     fold_plan_state,
+    plan_verdict_paths,
+    plan_verdict_staleness,
     record_critique,
     record_cross_review,
     request_critics,
@@ -44,8 +50,9 @@ from aria_kernel.plan_round_controller import advance_plan_rounds
 from aria_kernel.tool_registry import GovernanceError
 from aria_kernel.workspace_view import WorkspaceViewRefused
 from tests._helpers.anchor_stale_store import EVIDENCE_JUDGE, AnchorStaleStore
-from tests.test_plan_verdict_integrity import SURFACE, _git, _PlanFixture, _terminal
+from tests.test_plan_verdict_integrity import SURFACE, _disposition, _git, _PlanFixture, _terminal
 
+GUARD = "apps/farm-service/src/feed/feed.guard.ts"
 UNANCHORED = "cross_review_request_unanchored"
 PAYLOAD_NAMES_COMMIT = "review_payload_names_reviewed_commit"
 
@@ -309,6 +316,61 @@ class R12AnExpiredJudgeIsReMintedOnlyOnAReadableHead(AnchorStaleStore):
         self.sweep()
         [successor] = self.successors(dead)
         self.assertEqual(successor["target_sha"], head)
+
+
+class R13CoverageIsTheKernelsGlobMatcher(_PlanFixture):
+    def _converged(self, surface: str) -> None:
+        from aria_kernel.plan_convergence import start_plan
+
+        start_plan(plan_id="plan-1", initial_revision_id="rev-0",
+                   plan_content=self.plan(affected_surfaces=[{"paths": [surface]}]), base_dir=self.tools)
+        self.challenger("challenger-rev-0")
+        self.cross_review([], verdict="agreed")
+        self.assertEqual(_terminal(self.evaluate(1)), "CONVERGED")
+
+    def test_a_brace_surface_goes_stale(self) -> None:
+        self._converged("apps/farm-service/src/feed/feed.{service,controller}.ts")
+        self.commit(SURFACE, "export const feed = 2;\n")
+        state = fold_plan_state(plan_id="plan-1", base_dir=self.tools)
+        self.assertEqual(plan_verdict_staleness(state, base_dir=self.tools), f"plan_verdict_stale:{SURFACE}")
+        with self.assertRaisesRegex(GovernanceError, f"plan_verdict_stale:{SURFACE}"):
+            self.request_implementation_of_plan()
+
+
+class R14TheClearingEvidenceIsInThePathSet(_PlanFixture):
+    def _cleared(self, disposition: str) -> None:
+        self.commit(GUARD, "export const guard = true;\n")
+        self.round_one_blocking_then_claimed()
+        self.cross_review([], verdict="agreed", dispositions=[_disposition("CR-R1-CR-001", disposition, [f"{GUARD}:1"])])
+        self.assertEqual(_terminal(self.evaluate(2)), "CONVERGED")
+
+    def test_the_answers_evidence_is_a_verdict_path(self) -> None:
+        for disposition in ("withdrawn", "resolved"):
+            with self.subTest(disposition=disposition):
+                self.tearDown()
+                self.setUp()
+                self._cleared(disposition)
+                state = fold_plan_state(plan_id="plan-1", base_dir=self.tools)
+                self.assertIn(GUARD, plan_verdict_paths(state))
+
+    def test_a_commit_to_the_cited_evidence_makes_the_verdict_stale(self) -> None:
+        for disposition in ("withdrawn", "resolved"):
+            with self.subTest(disposition=disposition):
+                self.tearDown()
+                self.setUp()
+                self._cleared(disposition)
+                self.commit(GUARD, "export const guard = false;\n")
+                with self.assertRaisesRegex(GovernanceError, f"plan_verdict_stale:{GUARD}"):
+                    self.request_implementation_of_plan()
+
+
+class R14AnOpenAnswersEvidenceClearsNothing(_PlanFixture):
+    def test_an_open_answer_cites_no_verdict_path(self) -> None:
+        self.round_one_blocking_then_claimed()
+        self.cross_review([], verdict="agreed",
+                          dispositions=[_disposition("CR-R1-CR-001", "open", [f"{GUARD}:1"])])
+        state = fold_plan_state(plan_id="plan-1", base_dir=self.tools)
+        self.assertNotIn(GUARD, plan_verdict_paths(state))
 
 
 if __name__ == "__main__":

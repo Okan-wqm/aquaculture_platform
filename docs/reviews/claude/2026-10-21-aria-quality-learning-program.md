@@ -1269,3 +1269,152 @@ because that /metrics is INTERNAL_API_KEY-gated
   observability-service metrics surface (a public metrics-only endpoint like the other backends got
   in OBS-HIGH-001, or a scrape credential held by Prometheus, never ARIA) and a severity source for
   security event types.
+
+## ARIA-MEDIUM-803
+
+The B0 runner-identity leak probe is a point-in-time measurement: a runner-uid process that moves a
+key or hosts.yml aside, or races the probe, during the run makes it read green
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: the program lead's B0 round-6 scope decision (2026-10-24), registered by the B0-R5
+  implementer; the B0-R4 round-3 appellate named the limit (dissent, non-blocking).
+- Evidence:
+  - `tools/aria-board/runner_vault_leak_probe.py:13` (SCOPE: the probe is evidence of the vault
+    control, not the control)
+  - `tools/aria-board/runner_vault_leak_probe.py:144` (operator step: evidence only with no runner
+    job in flight)
+- Rule: the vault's control is its deploy key existing only in the GitHub-hosted `aria-board`
+  environment; a passive, persistent lever that makes the probe read green is a blocker (R6-1..R6-3
+  closed three), active evasion is this finding.
+- Failure scenario: a job running beside the operator's probe renames `~/.config/gh/hosts.yml` or an
+  ssh key for the probe's few seconds and restores it; the probe reports green.
+- Close: evidence independent of the uid's cooperation, e.g. the run under a stopped runner service
+  with the uid's home and env files hashed before and after, or a root-run inventory of every
+  credential file and socket the uid can open.
+
+## ARIA-LOW-804
+
+The leak probe spells git's credential and config variables outside the git_containment single
+owner, whose invariant does not scan tools/aria-board
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-12-21.
+- Raised by: B0-R4 round-3 appellate dissent (ssot N1, not made a root); owner decision recorded here
+  by the B0-R5 implementer.
+- Evidence:
+  - `tools/aria-board/runner_vault_leak_probe.py:459` (JOB_GIT_CREDENTIALS)
+  - `tools/aria-board/runner_vault_leak_probe.py:462-463` (\_GIT_ENV_CONFIG, \_GIT_ENV_CONFIG_SET_BY)
+  - `aria-kernel/tests/invariants/test_git_config_env_single_owner.py:39` (\_SCANNED omits
+    tools/aria-board)
+- Rule: one owner per concept. The purposes differ (git_containment strips ambient config from
+  kernel seams; the probe asks each job credential alone) and the probe imports no aria_kernel by
+  design. Close: pin the probe's list against the owner's `_NAMES` through a named exemption in the
+  invariant, or have the probe read the vocabulary as data by path.
+
+## ARIA-MEDIUM-806
+
+The Board job guard accepts any runs-on that starts with 'ubuntu-', so a self-hosted runner carrying
+a custom 'ubuntu-\*' label would run a Board job, and its secrets, on ARIA's runner
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: B0-R4 evidence review round 1 (non-blocking, carried through round 3), registered by the
+  B0-R5 implementer.
+- Evidence:
+  - `aria-kernel/tests/invariants/test_board_job_guard.py:185-189` (\_runner_violations)
+  - `.github/workflows/examination-board.yml:56` (runs-on: ubuntu-latest)
+- Rule: PLAN-v2 §1.9 / B0: a Board job runs on a GitHub-hosted runner, never on ARIA's self-hosted
+  runner. Not a one-line fix: no string test on runs-on alone proves a hosted runner; it needs an
+  exact hosted-label allow-list plus an operator check that no self-hosted runner carries an
+  `ubuntu-*` label (board/SETUP.md), or a runner-group restriction.
+
+## ARIA-MEDIUM-808
+
+The Board job guard reads only the Board workflow's own triggers: a workflow_call Board workflow
+called from a pull_request_target workflow passes
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: B0-R4 security review round 1 (security 3), appellate round 1 non-blocking, carried;
+  registered by the B0-R5 implementer.
+- Evidence:
+  - `aria-kernel/tests/invariants/test_board_job_guard.py:124` (\_PR_TRIGGERS)
+  - `aria-kernel/tests/invariants/test_board_job_guard.py:386-389` (\_trigger_violations reads the
+    workflow's own `on:` only)
+- Rule: the workflow holding a Board job runs no pull-request code, and no event or input decides
+  what the Board runs. No live case: examination-board.yml has only workflow_dispatch. Close (B1/B2,
+  with the signed-totals writer's caller decided): refuse workflow_call and workflow_run in a Board
+  workflow, with a mutation test.
+
+## ARIA-LOW-810
+
+board*secret_leaks decides "another job names a Board secret" with an 'aria_board*' substring, a
+second reading beside board_secrets_reached
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-12-21.
+- Raised by: B0-R4 ssot review round 1 (N1), carried through round 3; registered by the B0-R5
+  implementer.
+- Evidence:
+  - `aria-kernel/tests/invariants/test_board_job_guard.py:738-750` (board_secret_leaks)
+- Rule: one reader of which Board secrets an expression reaches (round 3, R3-2). It fails closed and
+  no leak is reachable (a non-Board job gets no environment secrets). Close: read each non-Board
+  job's expressions through board_secrets_reached and keep only the environment-name substring.
+
+## ARIA-MEDIUM-812
+
+The leak probe asks the credentials in git's config files together: a revoked /etc/gitconfig helper
+answers before the passwd home's helper in git_https:stored, and a passwd-home core.sshCommand is
+asked only through git_ssh:job, where an env GIT_SSH_COMMAND overrides it
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: B0-R4 round-3 appellate (its own observation, not reproduced) with ssot N4, recorded for
+  the next round's lens; registered by the B0-R5 implementer.
+- Evidence:
+  - `tools/aria-board/runner_vault_leak_probe.py:659` (git_https:stored reads system and global
+    config in one call)
+  - `tools/aria-board/runner_vault_leak_probe.py:666` (git_ssh:job: the job env)
+- Rule: the R3-4 / R6-1 rule, each credential asked alone. Under the program lead's B0 scope this
+  class is passive and persistent, so the next round's lens judges whether it blocks.
+- Close: list the credential entries of the system and global files as git does and ask each alone
+  with CONFIG_FILES_OFF and GIT_CONFIG_COUNT=1, as R6-1 does for env-borne entries, keeping
+  git_https:stored as the composite.
+
+## ARIA-MEDIUM-821
+
+The leak probe never reads the runner's own <runner>/.path, which runsvc.sh exports as the job's PATH, so a stored helper that only the job PATH resolves is never asked and the run reads green
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: B0-R5 appellate round 8, root R8-1 (evidence lens, accepted); registered by the findings clerk.
+- Evidence:
+  - `tools/aria-board/runner_vault_leak_probe.py:1097` (job_environment: env = os.environ plus the --env-files only)
+  - `tools/aria-board/runner_vault_leak_probe.py:1006` (GitRemoteSource.every_credential: the :PATH twin exists only when env PATH != tools.path)
+  - `tools/aria-board/runner_vault_leak_probe.py:217` (the operator step passes .env as --env-file; the runner's .path is never read)
+  - `/root/aria-handover/2026-10-21/build/B0-R5/appellate-final.json`
+- Rule: The R3-4 / R6-1 rule: each credential source the runner uid holds is asked alone and under the environment the job gets, so none hides another (B0 exit: the leak probe goes red whenever a credential reaches the vault). Program-lead scope (B0-R5/SCOPE.md): the vault control is that its deploy key never exists on the droplet; the leak probe is evidence; deferred under the 2026-10-24 lean rule.
+- Close: main takes --runner-root <actions-runner dir>, the one argument naming the runner's own files; from it the probe reads <root>/.path and <root>/.env (the operator step no longer passes .env as --env-file; --env-file stays for the unit's EnvironmentFiles and inline vars). job_environment layers in the runner's own order: os.environ, then the --env-files (systemd), then PATH from .path as runsvc.sh exports it (whole content, trailing newlines stripped, only when the file exists), then .env (the listener; a PATH there wins). An existing but unreadable .path is the named problem runner_path:<file>:unreadable, inconclusive, and its value is never reported. A run without --runner-root is inconclusive (runner_root_not_given). Update the R6-3/R7-4 and THE JOB'S ENVIRONMENT docstrings and the operator step. Tests: (1) ~/.gitconfig helper=jobonly with git-credential-jobonly only on the .path directory and no PATH in .env gives exit 1, red, with git_https:stored:PATH reachable; (2) an unreadable .path gives exit 2; (3) a .env PATH overrides .path; (4) no --runner-root gives exit 2; (5) a .path equal to the probe PATH gives no :PATH source; (6) no value appears in stdout.
+
+## ARIA-MEDIUM-822
+
+The leak probe does not list or ask alone the config places the job env names through GIT_CONFIG_SYSTEM, GIT_DIR or GIT_COMMON_DIR; only the :job composite reads them and the first answering helper hides the rest
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: B0-R5 appellate round 8, root R8-2 (evidence lens, accepted); registered by the findings clerk.
+- Evidence:
+  - `tools/aria-board/runner_vault_leak_probe.py:829` (\_GIT_LOGIN_LOCATIONS: GIT_CONFIG_GLOBAL, XDG_CONFIG_HOME, HOME only)
+  - `tools/aria-board/runner_vault_leak_probe.py:645` (git_config_places, location loop at :652)
+  - `tools/aria-board/runner_vault_leak_probe.py:517` (credential_environment's allow-list drops GIT_CONFIG_SYSTEM, GIT_DIR, GIT_COMMON_DIR)
+  - `tools/aria-board/runner_vault_leak_probe.py:971` (GitRemoteSource :job branch; the job env is read as one composite)
+  - `/root/aria-handover/2026-10-21/build/B0-R5/appellate-final.json`
+- Rule: The R3-4 / R6-1 rule: each credential source the runner uid holds is asked alone and under the environment the job gets, so none hides another (B0 exit: the leak probe goes red whenever a credential reaches the vault). Program-lead scope (B0-R5/SCOPE.md): the vault control is that its deploy key never exists on the droplet; the leak probe is evidence; deferred under the 2026-10-24 lean rule.
+- Close: Replace _GIT_LOGIN_LOCATIONS with ONE named table of the env variables that name a git config place, each with the scopes it adds: GIT_CONFIG_GLOBAL/XDG_CONFIG_HOME/HOME add global (with system, as now); GIT_CONFIG_SYSTEM adds system; GIT_DIR adds local and worktree; GIT_COMMON_DIR adds local. git_config_places, the git_https:stored:<VARIABLE> composite and job_named_locations read that table and no other list. Each place the job env sets is listed under credential_environment(variable=<it>), keeping its scopes, with includes followed per R7-2. Each credential entry is asked alone as in R7-1, named git_<t>:stored:<VARIABLE>:<scope>:<n>, with :PATH twins per R7-4. A place git cannot list (including a relative GIT_DIR) is git:stored:<VARIABLE>, inconclusive. Tests: the revoked-then-working pair in an env-file GIT_CONFIG_SYSTEM file gives exit 1, red, with git_https:stored:GIT_CONFIG_SYSTEM:system:1 reachable; the same pair in an env-file GIT_DIR repo's config gives red via git_https:stored:GIT_DIR:local:1; the ~/.gitconfig control stays red; no helper value appears in argv or stdout; plus a committed test of ARIA-MEDIUM-812's own default system-scope scenario (a system revoked helper with the working one in global, and two helpers in the system file, gives red via stored:global:<n> / stored:system:1), since the Closes: 812 on ded5fbadc rests on that scope and no committed test pins it.
+
+## ARIA-MEDIUM-823
+
+The leak probe asks env-borne GIT_CONFIG entries and their ~ includes under the passwd HOME only, so an entry that resolves under the job's env-file HOME is never asked and the run reads green
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: B0-R5 appellate round 8, root R8-3 (evidence lens, accepted); registered by the findings clerk.
+- Evidence:
+  - `tools/aria-board/runner_vault_leak_probe.py:645` (git_config_places: the env-borne GIT_CONFIG place is asked under the passwd HOME only, location None)
+  - `tools/aria-board/runner_vault_leak_probe.py:517` (credential_environment: the base is the passwd HOME unless variable names a location)
+  - `tools/aria-board/runner_vault_leak_probe.py:967` (an entry is asked under credential_environment(variable=entry.location))
+  - `/root/aria-handover/2026-10-21/build/B0-R5/appellate-final.json`
+- Rule: The R3-4 / R6-1 rule: each credential source the runner uid holds is asked alone and under the environment the job gets, so none hides another (B0 exit: the leak probe goes red whenever a credential reaches the vault). Program-lead scope (B0-R5/SCOPE.md): the vault control is that its deploy key never exists on the droplet; the leak probe is evidence; deferred under the 2026-10-24 lean rule.
+- Close: git*config_places yields the env-borne GIT_CONFIG place once per location that moves what a helper or a ~ include reads: the default (passwd HOME), plus each of HOME and XDG_CONFIG_HOME the job env names (taken from the R8-2 table, not a new list). Each entry carries that location, so it is asked under it (credential_environment(variable=<location>) + CONFIG_FILES_OFF + GIT_CONFIG_COUNT=1), and its ~ includes resolve against that place's HOME. Names are git*<t>:GIT*CONFIG:<VARIABLE>:<n> and git*<t>:GIT_CONFIG:<VARIABLE>:include:<i>:<n>; the default place keeps today's names. Update the R6-1/R7-2 docstrings. Tests: an env-file HOME=<job-home>, env-borne credential.helper=store, <job-home>/.git-credentials with the working token and a revoked helper in <job-home>/.gitconfig give exit 1, red, with git_https:GIT_CONFIG:HOME:0 reachable; an env-borne include.path=~/c.inc that exists only under the env-file HOME is listed and its entry asked; the token appears in no stdout.

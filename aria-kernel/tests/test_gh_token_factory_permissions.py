@@ -18,6 +18,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from aria_kernel import gh_token_factory as tf
+from aria_kernel.operator_approval import load_operators_policy
 
 
 class _Response:
@@ -89,6 +90,9 @@ class TheMintSendsTheCallersPermissions(unittest.TestCase):
         self.assertEqual(self.posted[0]["body"]["permissions"], {
             "pull_requests": "write", "contents": "write", "administration": "read",
             "checks": "read", "statuses": "read", "issues": "read", "actions": "read",
+            # ARIA-HIGH-765 — the operator's live vars.ARIA_STOP at the merge
+            # moment: read, never write (ARIA cannot clear the operator's stop).
+            "actions_variables": "read",
         })
 
     def test_the_named_sets_are_immutable(self) -> None:
@@ -112,7 +116,9 @@ class TheMintSendsTheCallersPermissions(unittest.TestCase):
         # an hour).
         lease = self._mint(ttl_seconds=1800)
         body = self.posted[0]["body"]
-        self.assertEqual(sorted(body), ["permissions"])
+        # PLAN-v2 B0 — and `repositories`, naming this repository alone.
+        self.assertEqual(sorted(body), ["permissions", "repositories"])
+        self.assertEqual(body["repositories"], [str(load_operators_policy()["repository"]).split("/")[1]])
         self.assertNotIn("expires_in", json.dumps(body))
         self.assertEqual(lease.provider_expiry, "2026-09-12T00:05:00Z")
         self.assertEqual(lease.ttl_seconds, 1800)
@@ -206,6 +212,9 @@ class TheNamedPermissionSetsAreTheClosedAllowlist(unittest.TestCase):
         self.assertEqual(dict(sets["MERGE_LANE"]), {
             "pull_requests": "write", "contents": "write", "administration": "read",
             "checks": "read", "statuses": "read", "issues": "read", "actions": "read",
+            # ARIA-HIGH-765 — the operator's live vars.ARIA_STOP at the merge
+            # moment: read, never write (ARIA cannot clear the operator's stop).
+            "actions_variables": "read",
         })
         self.assertEqual(dict(sets["RUNNER_STATUS"]), {"administration": "read"})
 

@@ -199,6 +199,19 @@ class TestV9PreflightContract(unittest.TestCase):
                 "verify_preflight",
                 "verify_workflow_contract",
                 "verify_workflow_preflight",
+                # PLAN-v2 B0 (ARIA-HIGH-765): the operator's live stop,
+                # vars.ARIA_STOP, read by the preflight, kernel_change
+                # admission and the merge moment.
+                "OPERATOR_STOP_REFUSAL",
+                "OPERATOR_STOP_UNREADABLE",
+                "OPERATOR_STOP_VARIABLE",
+                "OperatorStopSource",
+                "OperatorStopUnreadable",
+                "operator_stop_at_job_start",
+                "operator_stop_engaged",
+                "operator_stop_reason",
+                "refuse_when_operator_stopped",
+                "repository_operator_stop",
             },
             "preflight.__all__ drifted",
         )

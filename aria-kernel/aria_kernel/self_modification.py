@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from .ledger import append_declared_jsonl, load_jsonl
+from .preflight import OperatorStopSource, refuse_when_operator_stopped
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
@@ -25,7 +26,14 @@ def request_kernel_change(
     rollback_plan: str,
     cycle_id: str | None = None,
     base_dir: str | Path | None = None,
+    operator_stop: OperatorStopSource | None = None,
 ) -> dict[str, Any]:
+    # PLAN-v2 §2 'Durdurma' (ARIA-HIGH-765) — the operator's LIVE stop is
+    # read first (``preflight.repository_operator_stop`` in production): a
+    # stopped ARIA admits no kernel change, reads no approval and writes no
+    # row. Without a source, or with a variable that cannot be read, the
+    # admission is refused (fail closed).
+    refuse_when_operator_stopped("kernel_change_request", operator_stop)
     if not changed_files or not all(path.startswith("aria-kernel/aria_kernel/") for path in changed_files):
         raise GovernanceError("kernel change requests may only target aria-kernel/aria_kernel/**")
     if not operator_approval_ref.strip():

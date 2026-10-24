@@ -54,6 +54,7 @@ from aria_kernel.jev_runtime import JEV_CREDENTIAL_FILE_ENV, CircuitBreaker, Jev
 from aria_kernel.ledger import load_declared_jsonl
 from aria_kernel.system_one import CALLS_RELPATH, CALLS_SURFACE
 from aria_kernel.tool_registry import ensure_tools_dir
+from tests._helpers.operator_stop import operator_stop_clear
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SEED = json.loads((_REPO_ROOT / "aria-config" / "system-one-questions.json").read_text(encoding="utf-8"))
@@ -375,7 +376,8 @@ class Merge(unittest.TestCase):
 
         result = merge_pr_if_ready(adapter=Adapter(), pr_number=7, base_dir=self.tools, workspace_root=self.repo,
                                    readiness_claim_id="claim:7:aaaaaaaaaaaa",
-                                   intent_publisher=lambda intent: {"published": True})
+                                   intent_publisher=lambda intent: {"published": True},
+                                   operator_stop=operator_stop_clear())
         return result, calls
 
     def test_one_j0_row_per_trailer_and_file_and_an_identical_decision(self) -> None:

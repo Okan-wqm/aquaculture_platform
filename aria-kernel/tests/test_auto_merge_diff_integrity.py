@@ -56,6 +56,7 @@ from aria_kernel.auto_merge import (
     merge_if_green,
 )
 from aria_kernel.tool_registry import ensure_tools_dir
+from tests._helpers.operator_stop import operator_stop_clear
 
 
 def _make_pr(*, head_sha: str = "abc1234567890abc1234567890abc1234567890a") -> dict:
@@ -392,6 +393,7 @@ class PreMergeReEvaluationNamesTheDiffCauseTests(unittest.TestCase):
                     adapter=adapter, pr_number=77, base_dir=tools,
                     readiness_claim_id="claim:77:aaaaaaaaaaaa",
                     intent_publisher=lambda intent: {"published": True},
+                    operator_stop=operator_stop_clear(),
                 )
             finally:
                 for item in reversed(patches):

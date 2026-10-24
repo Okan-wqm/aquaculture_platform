@@ -4515,6 +4515,7 @@ def _main(argv: list[str] | None = None) -> int:
             merge_lane=True,
         )
         from .merge_authority import state_store_intent_publisher
+        from .preflight import repository_operator_stop
 
         merge_runner = select_auto_merge_runner(
             profile=merge_profile,
@@ -4530,6 +4531,10 @@ def _main(argv: list[str] | None = None) -> int:
                     f"{os.environ.get('GITHUB_RUN_ATTEMPT') or '0'}"
                 ),
             ),
+            # ARIA-HIGH-765 — the operator's live vars.ARIA_STOP, read right
+            # before each merge call with the lane's token (actions_variables:
+            # read); unreadable means no merge call.
+            operator_stop=repository_operator_stop(),
             adapter_factory=lambda: merge_adapter,
             pr_enumerator=(
                 (lambda _adapter: [args.pr]) if args.pr is not None

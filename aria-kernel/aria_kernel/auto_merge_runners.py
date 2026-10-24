@@ -32,6 +32,7 @@ from typing import Any, Callable, Protocol
 from .git_object_id import ANY_OBJECT_FORMAT, is_object_id
 from .implementation_rejections import V9_MERGE_PATH_DISABLED_REJECTION_CLASS
 from .ledger import load_declared_jsonl
+from .preflight import OperatorStopSource
 from .risk_policy import first_present_string
 from .tool_registry import GovernanceError, ensure_tools_dir
 
@@ -110,6 +111,7 @@ class RealAutoMergeRunner:
         pr_enumerator: Callable[[Any], list[int]] | None = None,
         readiness_claim_resolver: Callable[[Any, int, str | Path | None], str] | None = None,
         intent_publisher: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+        operator_stop: OperatorStopSource | None = None,
     ) -> None:
         self.profile = profile
         self.executes_merges = executes_merges
@@ -119,6 +121,10 @@ class RealAutoMergeRunner:
         # ARIA-HIGH-222 — publishes the merge_intent row before each merge
         # call; the merge authority refuses to merge without it.
         self.intent_publisher = intent_publisher
+        # ARIA-HIGH-765 — reads the operator's live vars.ARIA_STOP right
+        # before each merge call; the merge authority makes no merge call
+        # without it.
+        self.operator_stop = operator_stop
 
     def __call__(
         self,
@@ -326,6 +332,7 @@ class RealAutoMergeRunner:
                         workspace_root=workspace_root,
                         lane_identity=lane_identity,
                         intent_publisher=self.intent_publisher,
+                        operator_stop=self.operator_stop,
                     )
                 ),
             )
@@ -372,6 +379,7 @@ def _merge_candidate(
     workspace_root: str | Path | None,
     lane_identity: dict[str, Any] | None,
     intent_publisher: Callable[[dict[str, Any]], dict[str, Any]] | None,
+    operator_stop: OperatorStopSource | None,
 ) -> dict[str, Any]:
     """Attest this run for the candidate, then hand it to the authority.
 
@@ -403,6 +411,7 @@ def _merge_candidate(
         readiness_claim_id=readiness_claim_id,
         workspace_root=workspace_root,
         intent_publisher=intent_publisher,
+        operator_stop=operator_stop,
     )
 
 
@@ -452,6 +461,7 @@ def select_auto_merge_runner(
     readiness_claim_resolver: Callable[[Any, int, str | Path | None], str] | None = None,
     base_dir: str | Path | None = None,
     intent_publisher: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+    operator_stop: OperatorStopSource | None = None,
 ) -> AutoMergeRunner:
     """Plan ARIA-V3 §A1 — profile-derived runner factory.
 
@@ -480,6 +490,7 @@ def select_auto_merge_runner(
             pr_enumerator=pr_enumerator,
             readiness_claim_resolver=readiness_claim_resolver,
             intent_publisher=intent_publisher,
+            operator_stop=operator_stop,
         )
     if profile in GITHUB_RECORDING_PROFILES:
         return NoOpAutoMergeRunner(profile=profile)

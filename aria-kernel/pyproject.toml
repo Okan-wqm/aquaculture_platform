@@ -18,6 +18,10 @@ dependencies = [
     # Declaring it here is the single SSoT path the setup-aria-kernel
     # action installs from.
     "pyjwt[crypto]>=2.8",
+    # PLAN-v2 B0 — examination_board seals the Board's vault with AES-256-GCM
+    # (cryptography's AESGCM). pyjwt[crypto] pulls it in today; the module
+    # imports it directly, so it is declared directly.
+    "cryptography>=41.0",
     # Same defect class, measured on run 33056211686 once the kernel lane's
     # timeout let the suite reach discovery: test_external_outage_reaper,
     # test_knowledge_graph_replay and test_replay_logical_consumers import

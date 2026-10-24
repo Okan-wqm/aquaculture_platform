@@ -38,6 +38,7 @@ from aria_kernel.runner_attestation import (
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from aria_kernel.workflow_contract_registry import workflow_job_contract
 from tests._helpers.actions_oidc import ActionsRun
+from tests._helpers.operator_stop import operator_stop_clear
 
 _HEAD = "a" * 40
 _CLAIM = "claim:77:aaaaaaaaaaaa"
@@ -258,6 +259,7 @@ class RunnerExecutesOnlyAsTheMergeLaneTests(_Store):
             profile="strict", executes_merges=True, adapter_factory=lambda: object(),
             pr_enumerator=lambda adapter: [77],
             readiness_claim_resolver=lambda adapter, number, root: _CLAIM,
+            operator_stop=operator_stop_clear(),
         )
 
     def test_the_merge_lane_attests_each_candidate_then_merges(self) -> None:

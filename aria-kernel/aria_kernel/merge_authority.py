@@ -31,8 +31,15 @@ from .incident_ledger import (
 )
 from .ledger import SEGMENTED_LEDGERS, load_declared_jsonl, load_segments, segment_paths
 from .merge_lane_merge_state import route_unmergeable_merge_state
-from .merge_record import LINEAGE_DELIVERED, MERGED_BY_MERGE_LANE, pr_change_binding, record_merge
+from .merge_record import (
+    LINEAGE_DELIVERED,
+    MERGED_BY_MERGE_LANE,
+    NO_MERGE_CALL_FIELD,
+    pr_change_binding,
+    record_merge,
+)
 from .policy_approval import verify_policy_approval
+from .preflight import OperatorStopSource, operator_stop_reason
 from .readiness_proofs import produce_remote_cas_proof
 from .risk_policy import first_present_string, record_risk_decision_for_pr
 from .rollback_bundle import verify_rollback_bundle
@@ -60,6 +67,7 @@ def merge_pr_if_ready(
     readiness_claim_id: str | None = None,
     workspace_root: str | Path | None = None,
     intent_publisher: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+    operator_stop: OperatorStopSource | None = None,
 ) -> dict[str, Any]:
     """Single real-merge authority for ARIA-governed PRs.
 
@@ -74,6 +82,15 @@ def merge_pr_if_ready(
     readiness, runner and rollback evidence, incident pre-row, auto-merge
     eligibility, the change-ledger triple gate, and a final live re-evaluation
     immediately before invoking ``adapter.merge_pr``.
+
+    ``operator_stop`` reads the operator's LIVE ``vars.ARIA_STOP`` (PLAN-v2 §2
+    'Durdurma'; :func:`preflight.repository_operator_stop` in the merge lane)
+    as the last act before the merge call, after the intent is published: a
+    stop set at any moment before it — while the job ran, while the gates ran —
+    blocks the merge by name and makes no merge call. Without a source, or
+    when the variable cannot be read, no merge call is made (fail closed). A
+    stop set before the job started never reaches here: the workflow starts
+    no job (``if: vars.ARIA_STOP == ''``).
     """
     # ARIA-HIGH-205 — merge authority is `autonomous` or an operator's
     # merge-lane grant (runtime_profile). Refused here, before any merge work,
@@ -361,8 +378,42 @@ def merge_pr_if_ready(
                                 base_dir=base_dir,
                                 cycle_id=cycle_id,
                             )
+                            stop_reason = None if intent_refusal is not None else operator_stop_reason(operator_stop)
                             if intent_refusal is not None:
                                 result = intent_refusal
+                            elif stop_reason is not None:
+                                # ARIA-HIGH-765 — the merge moment: every gate
+                                # passed and the intent is on the record when
+                                # the operator's live stop is read set (or
+                                # unreadable). No merge call — and the row
+                                # says so for this attempt (pr, head, lease),
+                                # so the published intent never counts as
+                                # ARIA's merge attempt. The intent is already
+                                # on aria/state, so the withdrawal is
+                                # published the same way (B0 corrective round
+                                # 2, R2-4): the lane-end publish, which a
+                                # cancel or a dead runner skips, is not its
+                                # only way there.
+                                result = dict(decision)
+                                result.update(
+                                    {
+                                        "recorded_at": utc_now(),
+                                        "decision": "blocked",
+                                        "eligible": False,
+                                        "reasons": [stop_reason],
+                                        "stage": "operator_stop",
+                                        "pr_number": pr_number,
+                                        "head_sha": head_sha,
+                                        NO_MERGE_CALL_FIELD: True,
+                                        "merge_lease": _lease_summary(merge_lease),
+                                    },
+                                )
+                                _append_decision(base_dir, result)
+                                unpublished = _publication_failure(intent_publisher, result)
+                                if unpublished is not None:
+                                    # The row stays in the local ledger for the
+                                    # lane-end publish; the result names the loss.
+                                    result = {**result, "reasons": [stop_reason, f"operator_stop_{unpublished}"]}
                             else:
                                 merge_kwargs: dict[str, Any] = {
                                     "method": "squash",
@@ -620,8 +671,6 @@ def _publish_merge_intent(
     decision when the intent could not be published — then no merge call is
     made — and ``None`` when it was.
     """
-    from .state_store import StateStoreError
-
     intent = dict(decision)
     intent.update(
         {
@@ -636,20 +685,8 @@ def _publish_merge_intent(
         },
     )
     _append_decision(base_dir, intent)
-    reason: str | None = None
-    if intent_publisher is None:
-        reason = "merge_intent_publisher_required"
-    else:
-        try:
-            publication = intent_publisher(intent)
-        except (GovernanceError, StateStoreError) as exc:
-            reason = f"merge_intent_unpublished:{exc.__class__.__name__}:{exc}"
-        else:
-            if not isinstance(publication, dict) or publication.get("published") is not True:
-                reason = "merge_intent_unpublished:" + str(
-                    (publication or {}).get("reason") if isinstance(publication, dict) else publication
-                )
-    if reason is None:
+    failure = _publication_failure(intent_publisher, intent)
+    if failure is None:
         return None
     refusal = dict(decision)
     refusal.update(
@@ -657,8 +694,13 @@ def _publish_merge_intent(
             "recorded_at": utc_now(),
             "decision": "blocked",
             "eligible": False,
-            "reasons": [reason],
+            "reasons": [f"merge_intent_{failure}"],
             "stage": "merge_intent",
+            # The intent row above may still reach aria/state with a later
+            # publish; this row says no merge call followed it (R2).
+            "pr_number": pr_number,
+            "head_sha": head_sha,
+            NO_MERGE_CALL_FIELD: True,
             "merge_lease": merge_lease,
         },
     )
@@ -666,26 +708,52 @@ def _publish_merge_intent(
     return refusal
 
 
+def _publication_failure(
+    publisher: Callable[[dict[str, Any]], dict[str, Any]] | None,
+    row: dict[str, Any],
+) -> str | None:
+    """Why a merge-moment ``row`` did not reach aria/state through ``publisher``, or None when it did.
+
+    The one reading of a publisher's answer, for the intent
+    (``merge_intent_`` + this) and for its operator-stop withdrawal
+    (``operator_stop_`` + this): ``publisher_required``, or
+    ``unpublished:<why>``.
+    """
+    from .state_store import StateStoreError
+
+    if publisher is None:
+        return "publisher_required"
+    try:
+        publication = publisher(row)
+    except (GovernanceError, StateStoreError) as exc:
+        return f"unpublished:{exc.__class__.__name__}:{exc}"
+    if not isinstance(publication, dict) or publication.get("published") is not True:
+        return "unpublished:" + str((publication or {}).get("reason") if isinstance(publication, dict) else publication)
+    return None
+
+
 def state_store_intent_publisher(
     *,
     repo_root: str | Path,
     run_label: str,
 ) -> Callable[[dict[str, Any]], dict[str, Any]]:
-    """The merge lane's intent publisher: the store under ``repo_root``,
+    """The merge lane's publisher of merge-moment rows — the intent, and the
+    operator-stop withdrawal that follows it: the store under ``repo_root``,
     published through the contention-replay orchestrator every lane uses."""
     from .state_store import open_state_store, publish_with_contention_replay
     from .workspace import canonical_identity
 
     root = Path(repo_root).resolve()
 
-    def publish(intent: dict[str, Any]) -> dict[str, Any]:
+    def publish(row: dict[str, Any]) -> dict[str, Any]:
         store = open_state_store(root)
+        kind = "intent" if row.get("decision") == "merge_intent" else "withdrawal"
         # ARIA-HIGH-342 — the orchestrator fences this publish with the
         # writer lease the merge lane's restore took; the token reaches this
         # step through $ARIA_STATE_WRITER_LEASE_TOKEN.
         return publish_with_contention_replay(
             store,
-            snapshot_id=f"merge-intent-{intent['pr_number']}-{str(intent['head_sha'])[:12]}-{run_label}",
+            snapshot_id=f"merge-{kind}-{row['pr_number']}-{str(row['head_sha'])[:12]}-{run_label}",
             cycle_id=f"merge-intent-{run_label}",
             lane="merge",
             repo_hash=canonical_identity(root),

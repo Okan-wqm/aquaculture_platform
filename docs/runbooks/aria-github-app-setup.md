@@ -30,11 +30,18 @@ Webhook off. Repository permissions, exactly:
 | Commit statuses | Read-only      | required-checks gate in the merge lane                           |
 | Issues          | Read-only      | watchdog merge freeze (`watchdog_freeze`) read by the merge lane |
 | Actions         | Read-only      | rollback bundle artifact downloaded by the merge lane's verifier |
+| Variables       | Read-only      | the operator's live `vars.ARIA_STOP`, read right before a merge  |
 | Everything else | No access      |                                                                  |
+
+Variables stays **Read-only**, never Read and write: the operator's stop (`vars.ARIA_STOP`) is a
+repository variable, and an App that could write variables could clear it. Repository access is
+**Only select repositories: aquaculture_platform** — never "All", so no token the App's private key
+mints can reach the Examination Board's vault (`Okan-wqm/aria-board-vault`); the kernel's own mint
+also names this repository alone, which is defence in depth, not the barrier.
 
 The token sets are named in the factory: `DEFAULT_INSTALLATION_TOKEN_PERMISSIONS` (contents,
 pull requests, administration), `MERGE_LANE_INSTALLATION_TOKEN_PERMISSIONS` (default plus checks,
-statuses, issues, actions) and `RUNNER_STATUS_PERMISSIONS` (administration only). A mint that asks
+statuses, issues, actions, actions_variables read) and `RUNNER_STATUS_PERMISSIONS` (administration only). A mint that asks
 for a permission the installation has not granted fails with HTTP 422.
 
 ## 2. Accept the permissions on the installation

@@ -27,6 +27,7 @@ from tests._helpers.declared_fixtures import (
     seed_validation_provenance,
 )
 from tests._helpers.git_fixtures import make_local_git_repo
+from tests._helpers.operator_stop import operator_stop_clear
 
 
 class EnterpriseRoadmapFoundationTests(unittest.TestCase):
@@ -207,6 +208,7 @@ class EnterpriseRoadmapFoundationTests(unittest.TestCase):
             full_shadow_cycle_ref="cycle:test",
             rollback_plan="revert the kernel PR",
             base_dir=self.tools_dir,
+            operator_stop=operator_stop_clear(),
         )
         self.assertEqual(request["decision"], "authorized_for_pr_only")
         self.assertFalse(request["auto_merge_allowed"])

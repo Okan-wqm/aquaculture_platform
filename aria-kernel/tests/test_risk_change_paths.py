@@ -29,6 +29,7 @@ from aria_kernel.change_paths import (
 from aria_kernel.risk_policy import classify_change, record_risk_decision_for_pr
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from tests._helpers.git_fixtures import make_local_git_repo
+from tests._helpers.operator_stop import operator_stop_clear
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -246,7 +247,7 @@ class MergeAuthorityReadsTheChangeFromGitTests(unittest.TestCase):
             with patch("aria_kernel.merge_authority.assert_merge_authority_available", return_value="autonomous"), \
                     patch("aria_kernel.merge_authority.assert_merge_not_watchdog_frozen", return_value=None), \
                     self.assertRaises(GovernanceError) as caught:
-                merge_pr_if_ready(adapter=_Adapter(), pr_number=7, base_dir=tools, readiness_claim_id="claim:7")
+                merge_pr_if_ready(adapter=_Adapter(), pr_number=7, base_dir=tools, readiness_claim_id="claim:7", operator_stop=operator_stop_clear())
             rows = [
                 json.loads(line)
                 for line in (tools / "enterprise" / "risk-decisions.jsonl").read_text(encoding="utf-8").splitlines()
@@ -280,6 +281,7 @@ class MergeAuthorityReadsTheChangeFromGitTests(unittest.TestCase):
                 merge_authority.merge_pr_if_ready(
                     adapter=_Adapter(), pr_number=7, base_dir=Path(tmp) / "t",
                     readiness_claim_id="claim:7", workspace_root=Path(tmp),
+                    operator_stop=operator_stop_clear(),
                 )
         self.assertEqual(seen.get("workspace_root"), Path(tmp))
 

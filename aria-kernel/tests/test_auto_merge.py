@@ -17,6 +17,7 @@ from aria_kernel.ledger_refs import ledger_ref_for_row
 from aria_kernel.merge_authority import merge_pr_if_ready
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from tests._helpers.operator_acts import operator_set_profile
+from tests._helpers.operator_stop import operator_stop_clear
 
 HEAD_SHA = "a" * 40
 DRIFT_HEAD_SHA = "b" * 40
@@ -635,6 +636,7 @@ class AutoMergeTests(unittest.TestCase):
             cycle_id="cycle-merge",
             readiness_claim_id=readiness_claim_id,
             intent_publisher=_published_intent,
+            operator_stop=operator_stop_clear(),
         )
         self.assertEqual(result["decision"], "merged", result.get("reasons"))
         self.assertNotIn("policy disabled", result.get("reasons") or [])
@@ -672,6 +674,7 @@ class AutoMergeTests(unittest.TestCase):
             cycle_id="cycle-merge",
             readiness_claim_id=readiness_claim_id,
             intent_publisher=_published_intent,
+            operator_stop=operator_stop_clear(),
         )
         self.assertEqual(result["decision"], "merged")
         self.assertEqual(adapter.merge_calls, [{"number": 42, "method": "squash", "expected_head_sha": HEAD_SHA}])
@@ -711,6 +714,7 @@ class AutoMergeTests(unittest.TestCase):
             cycle_id="cycle-merge",
             readiness_claim_id=readiness_claim_id,
             intent_publisher=_published_intent,
+            operator_stop=operator_stop_clear(),
         )
         self.assertEqual(result["decision"], "failed")
         lifecycle_path = self.tools_dir / "pr-lifecycle.jsonl"
@@ -750,6 +754,7 @@ class AutoMergeTests(unittest.TestCase):
             base_dir=self.tools_dir,
             readiness_claim_id=readiness_claim_id,
             intent_publisher=_published_intent,
+            operator_stop=operator_stop_clear(),
         )
         self.assertEqual(result["decision"], "blocked")
         self.assertEqual(adapter.merge_calls, [])
@@ -783,6 +788,7 @@ class AutoMergeTests(unittest.TestCase):
             base_dir=self.tools_dir,
             readiness_claim_id=readiness_claim_id,
             intent_publisher=_published_intent,
+            operator_stop=operator_stop_clear(),
         )
         self.assertEqual(result["decision"], "blocked")
         joined = " ".join(result["reasons"])

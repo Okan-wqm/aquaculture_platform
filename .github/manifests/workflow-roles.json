@@ -216,6 +216,12 @@
       "reason": "Edge agent release build from a release tag."
     },
     {
+      "workflow": "examination-board.yml",
+      "name": "Examination Board",
+      "role": "main_verdict",
+      "reason": "The Examination Board's custody check of main's aria-board environment (PLAN-v2 B0)."
+    },
+    {
       "workflow": "finding-closure-reconcile.yml",
       "name": "Finding Closure Reconcile",
       "role": "main_verdict",

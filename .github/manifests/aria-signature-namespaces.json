@@ -72,6 +72,25 @@
       "status": "active"
     },
     {
+      "namespace": "aria-board-verdict",
+      "domain_tag": "aria-board-verdict/v1",
+      "signed_fields": [
+        "actor_class",
+        "audience",
+        "board_version",
+        "expires_at",
+        "head_sha",
+        "scope",
+        "signer_principal",
+        "surface",
+        "verdict_id"
+      ],
+      "signer_classes": ["TB"],
+      "expiry_hours": 168,
+      "verifier": "aria_kernel.operator_request_signature.verify_operator_signature",
+      "status": "active"
+    },
+    {
       "namespace": "aria-state-snapshot",
       "domain_tag": null,
       "signed_fields": [],

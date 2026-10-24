@@ -337,6 +337,13 @@ INSTALLATION_TOKEN_PERMISSION_SETS: Mapping[str, Mapping[str, str]] = MappingPro
     # actions:read: the readiness claim's rollback and retention proofs name
     # a published Actions artifact, and the merge gate verifies them by
     # downloading it (`actions_artifacts.fetch_actions_artifact`).
+    # ARIA-HIGH-765 (PLAN-v2 §2 'Durdurma', B0 corrective R1) — and
+    # actions_variables:read (the App's "Variables: Read-only"): right before
+    # each merge call the merge authority reads the operator's LIVE
+    # vars.ARIA_STOP (`preflight.repository_operator_stop`). The job-start
+    # copy cannot change inside the job, so without this read a stop set
+    # while the lane runs never reached the merge call. Read only: the App
+    # never holds Variables write, so ARIA cannot clear the operator's stop.
     "MERGE_LANE": MappingProxyType({
         "pull_requests": "write",
         "contents": "write",
@@ -345,6 +352,7 @@ INSTALLATION_TOKEN_PERMISSION_SETS: Mapping[str, Mapping[str, str]] = MappingPro
         "statuses": "read",
         "issues": "read",
         "actions": "read",
+        "actions_variables": "read",
     }),
     # A token that may only READ the repository's runner roster
     # (GET /repos/{owner}/{repo}/actions/runners): what the hosted runner
@@ -1110,7 +1118,23 @@ def _mint_installation_token_from_pem(
     ``(token, expires_at)`` — the provider's own horizon: GitHub expires the
     token exactly one hour after the mint (the endpoint takes no
     ``expires_in``), and a lease without it is local fiction (ARIA-AUDIT-017).
+
+    PLAN-v2 B0 / §1.9 (ARIA-MEDIUM-766) — every token is minted for THIS
+    repository by name, the ``repository`` of the code-owned operators policy.
+    An installation token without ``repositories`` reaches every repository
+    the App installation selects; with the name in the request, the tokens
+    THIS mint issues reach no other repository — the Examination Board's
+    vault (``aria-board-vault``) included — whatever the selection. That is
+    defence in depth, not the barrier: anything else that holds the App's
+    private key (a self-hosted job that writes the PEM, the token broker) can
+    mint without the field. The barrier stays the installation's repository
+    selection (board/SETUP.md UI check 1, an operator verification), and the
+    runner-identity leak probe (``tools/aria-board/runner_vault_leak_probe.py``)
+    measures it with every credential ARIA's runner uid holds.
     """
+    from .operator_approval import load_operators_policy
+
+    repository_name = str(load_operators_policy()["repository"]).split("/")[1]
     # Lazy import — keeps the factory import-cheap when Mode A
     # is not used (Mode B fallback path doesn't need PyJWT).
     try:
@@ -1142,14 +1166,16 @@ def _mint_installation_token_from_pem(
         data=_json.dumps({
             # Exactly what the caller asked for (see the named sets at the
             # top of this module for the vocabulary and why each permission
-            # is there). Nothing else: the endpoint takes `repositories`,
+            # is there), for this repository. Nothing else: the endpoint takes `repositories`,
             # `repository_ids` and `permissions` — the `expires_in` the mint
             # sent until ARIA-HIGH-124 round 6 was not a field of it, GitHub
             # ignored it, and the token lived the provider's hour whatever
             # the local TTL said; the horizon the provider enforces comes
             # back as `expires_at` and is carried on the lease
-            # (`provider_expiry`).
+            # (`provider_expiry`). `repositories` names this repository
+            # alone (PLAN-v2 B0; see the docstring).
             "permissions": dict(permissions),
+            "repositories": [repository_name],
         }).encode("utf-8"),
     )
     try:

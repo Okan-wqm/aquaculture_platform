@@ -100,7 +100,9 @@ class ChainEdgesFire(unittest.TestCase):
         _, job = edges[0]
         needs = job.get("needs")
         self.assertIn("cycle", needs if isinstance(needs, list) else [needs])
-        self.assertEqual(str(job.get("if")).replace(" ", ""), "${{!cancelled()}}")
+        # Runs after any non-cancelled cycle, unless the operator's stop is set
+        # (PLAN-v2 §2 'Durdurma': every ARIA job opens with vars.ARIA_STOP == '').
+        self.assertEqual(str(job.get("if")).replace(" ", ""), "vars.ARIA_STOP==''&&!cancelled()")
         self.assertEqual(job.get("permissions"), {"actions": "write"})
 
     def test_i_chain_03_the_drain_dispatches_the_cycle(self) -> None:

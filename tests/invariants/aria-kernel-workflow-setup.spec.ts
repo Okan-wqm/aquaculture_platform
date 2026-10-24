@@ -35,6 +35,18 @@
  * Jobs are checked independently because each GitHub job gets a fresh
  * runner: an install in job A does nothing for job B.
  *
+ * # The one exception: Examination Board jobs
+ *
+ * A job that declares `environment: aria-board` (PLAN-v2 B0, §1.9) holds the
+ * Board's keys and must NOT provision the kernel: the setup action installs
+ * the kernel's dependencies unpinned and imports `aria_kernel`, whose package
+ * `__init__` loads the whole ARIA-changeable kernel into the job. A Board job
+ * runs `aria-kernel/aria_kernel/examination_board.py` by path in isolated mode
+ * with its one dependency installed by hash. Its one owner is
+ * `aria-kernel/tests/invariants/test_board_job_guard.py`, an allow-list of the
+ * step shapes a Board job may hold, which refuses the setup action with every
+ * other step it does not list.
+ *
  * # Fixing a failure
  *
  * Add `- uses: ./.github/actions/setup-aria-kernel` as the first
@@ -66,7 +78,21 @@ const KERNEL_INVOCATION_MARKERS = [
 ];
 
 type Step = { uses?: string; run?: string; name?: string };
-type Job = { steps?: Step[] };
+type Job = { steps?: Step[]; environment?: string | { name?: string } };
+
+/** The Examination Board's GitHub environment (board/SETUP.md, PLAN-v2 B0). */
+const BOARD_ENVIRONMENT = 'aria-board';
+
+/**
+ * GitHub environment names are case-insensitive, so the exemption compares the
+ * name case-folded, as the Python guard's `is_board_job` does (B0 corrective
+ * round 3, R3-3). An expression environment is refused by that guard.
+ */
+function isBoardJob(job: Job | undefined): boolean {
+  const environment = job?.environment;
+  const name = typeof environment === 'string' ? environment : environment?.name;
+  return typeof name === 'string' && name.toLowerCase() === BOARD_ENVIRONMENT;
+}
 type Workflow = { jobs?: Record<string, Job> };
 
 function isKernelInvocation(step: Step): boolean {
@@ -111,6 +137,7 @@ describe('aria-kernel workflow provisioning', () => {
       const jobs = workflow?.jobs ?? {};
 
       for (const [jobId, job] of Object.entries(jobs)) {
+        if (isBoardJob(job)) continue;
         const steps = job?.steps ?? [];
         let provisioned = false;
 

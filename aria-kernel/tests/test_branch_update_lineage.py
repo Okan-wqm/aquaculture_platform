@@ -33,6 +33,7 @@ from tests._helpers.declared_fixtures import append_declared_fixture
 from tests._helpers.git_fixtures import make_local_git_repo
 from tests._helpers.installation_credential import LANE_CREDENTIAL_ENV
 from tests._helpers.pre_merge_evidence import fixture_pre_merge_evidence
+from tests._helpers.operator_stop import operator_stop_clear
 
 PR = 7
 
@@ -334,7 +335,8 @@ class MergeLaneMergeStateTests(unittest.TestCase):
                 mock.patch("aria_kernel.merge_authority.assert_self_merge_not_frozen", return_value=None), \
                 mock.patch.dict(os.environ, {**LANE_CREDENTIAL_ENV, "PATH": f"{self.bin}:{os.defpath}"}):
             return merge_pr_if_ready(adapter=_Adapter(), pr_number=PR, base_dir=self.tools,
-                                     readiness_claim_id="claim-7", workspace_root=self.root)
+                                     readiness_claim_id="claim-7", workspace_root=self.root,
+                                     operator_stop=operator_stop_clear())
 
     def _no_merge_work(self) -> None:
         self.assertFalse((self.tools / "enterprise" / "risk-decisions.jsonl").exists(), "a gate ran")

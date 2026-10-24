@@ -236,8 +236,24 @@ def expand_repo_glob(pattern: str) -> tuple[str, ...]:
     authority set's judge matches each path against every member, and a
     member is one brace glob over the standard library's module names
     (B1 round 4), so expanding per match would dominate every check.
+
+    PV-R4 R19 — the count of alternatives is read before any is built, and a
+    pattern over ``MAX_REPO_GLOB_ALTERNATIVES`` is refused
+    (``repo_glob_too_many_alternatives``): each ``{a,b}`` group doubles it, so
+    a plan or reviewer path of 24 groups once built 16M alternatives on every
+    record and every freshness read. The refusal is raised before this cache
+    stores anything, so no refused pattern holds memory here.
     """
-    return tuple(_expand_braces(lexical_repo_path(pattern)))
+    lexical = lexical_repo_path(pattern)
+    count = _brace_alternative_count(lexical)
+    if count > MAX_REPO_GLOB_ALTERNATIVES:
+        from .tool_registry import GovernanceError as _GE
+
+        raise _GE(
+            f"{REPO_GLOB_TOO_MANY_ALTERNATIVES}: {pattern[:200]!r} expands to more than "
+            f"{MAX_REPO_GLOB_ALTERNATIVES} alternatives"
+        )
+    return tuple(_expand_braces(lexical))
 
 
 def repo_glob_directory(pattern: str) -> str | None:
@@ -284,8 +300,10 @@ def _expand_braces(pattern: str) -> list[str]:
     Nested braces are split depth-aware in :func:`_split_top_level_commas`
     but only the OUTERMOST group is expanded per recursion level — nested
     groups inside an alternative branch are not pre-expanded; tool
-    manifests in the corpus do not require shell-style nested expansion
-    and keeping the depth flat bounds growth at O(N * groups).
+    manifests in the corpus do not require shell-style nested expansion.
+    Sequential groups multiply, so the one caller (:func:`expand_repo_glob`)
+    reads the count first (:func:`_brace_alternative_count`) and refuses a
+    pattern over ``MAX_REPO_GLOB_ALTERNATIVES`` before this runs.
     """
     # Find the first top-level brace group
     depth = 0
@@ -313,6 +331,29 @@ def _expand_braces(pattern: str) -> list[str]:
                         results.append(head + part + expanded_tail)
                 return results
     return [pattern]
+
+
+def _brace_alternative_count(pattern: str) -> int:
+    """How many alternatives :func:`_expand_braces` builds for ``pattern``,
+    without building one: the product of the sizes of its sequential
+    outermost groups, read by the same scan (a nested group stays inside its
+    alternative, an unbalanced ``{`` expands nothing). The product stops
+    growing once it passes ``MAX_REPO_GLOB_ALTERNATIVES``: past that the
+    answer is the refusal, so the scan never carries a large integer."""
+    count = 1
+    depth = 0
+    start = -1
+    for index, char in enumerate(pattern):
+        if char == "{":
+            if depth == 0:
+                start = index
+            depth += 1
+        elif char == "}" and depth > 0:
+            depth -= 1
+            if depth == 0 and start >= 0:
+                count = min(count * len(_split_top_level_commas(pattern[start + 1 : index])),
+                            MAX_REPO_GLOB_ALTERNATIVES + 1)
+    return count
 
 
 def _split_top_level_commas(text: str) -> list[str]:
@@ -344,6 +385,16 @@ def _glob_match(path: str, pattern: str) -> bool:
 _GLOB_REGEX_CACHE: dict[str, re.Pattern[str]] = {}
 # The refusal of a glob this owner cannot compile (``_glob_to_regex``).
 REPO_GLOB_INVALID = "repo_glob_invalid"
+# PV-R4 R19 — the refusal of a glob whose brace alternatives exceed
+# MAX_REPO_GLOB_ALTERNATIVES (``expand_repo_glob``), and that bound. The
+# largest legitimate member is the B1 authority set's standard-library glob,
+# one group of ``sys.stdlib_module_names``: measured 300 alternatives
+# (Python 3.12.3, ``derived_authority_set`` of this checkout, 1335 members,
+# 2026-10-24). 1024 keeps that member with room for the list's growth across
+# interpreter releases, and stays 16000 times under the 24-group ref that
+# cost 174 s and 792 MB.
+REPO_GLOB_TOO_MANY_ALTERNATIVES = "repo_glob_too_many_alternatives"
+MAX_REPO_GLOB_ALTERNATIVES = 1024
 
 
 def _glob_to_regex(pattern: str) -> re.Pattern[str]:
@@ -438,14 +489,17 @@ def require_repo_glob(pattern: str) -> None:
 
     The admission half of :func:`matches_repo_glob`: a recorder that will
     hand a text to the matcher later asks here first, so the refusal
-    (``repo_glob_invalid``) is raised when the text is written, by name,
-    instead of when some later reader matches against it.
+    (``repo_glob_invalid``, ``repo_glob_too_many_alternatives``) is raised
+    when the text is written, by name, instead of when some later reader
+    matches against it.
     """
     for alternative in expand_repo_glob(pattern):
         _glob_to_regex(alternative)
 
 __all__ = [
+    "MAX_REPO_GLOB_ALTERNATIVES",
     "REPO_GLOB_INVALID",
+    "REPO_GLOB_TOO_MANY_ALTERNATIVES",
     "_canonical_evidence_path",
     "expand_repo_glob",
     "lexical_repo_path",

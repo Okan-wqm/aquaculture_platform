@@ -1684,3 +1684,175 @@ the number 3, hence Amendment 4.
 - Close: PLAN section 7.2 'A3 pinned' is amended to the Q13 / Amendment 4 wording and cites
   Amendment 4. PLAN.md and DECISIONS.md live outside the repo, so the closer records the amended
   line in the SE-13 build notes.
+
+## ARIA-MEDIUM-844
+
+Nothing in the repo provisions the packages an adapter declares: the decision-test room's
+run_aria_case.sh probes eslint-plugin-security alone (the lint-rules manifest declares four) and
+ensure-node-deps decides by ts-node presence plus a lockfile stamp, so two more owners answer a
+question tool_registry already answers.
+
+- Severity: MEDIUM; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: the F2.1 review round 1 (ssot lens non-blocking 1 and arch lens N1, merged into one
+  finding), registered by the F2.1 findings clerk after re-checking each cited path:line at
+  36f7b9bf2.
+- Evidence:
+  - `/root/aria-handover/2026-10-21/decision-test/run_aria_case.sh:107-109` (hand-written
+    eslint-plugin-security probe before the node_modules hard-link; outside the repo)
+  - `tools/aria-adapters/lint-rules-adapter.tool.json:73-78` (four declared packages)
+  - `aria-kernel/aria_kernel/doctor.py:655-684` (adapter_dependencies organ: answers for every
+    declared package)
+  - `aria-kernel/aria_kernel/tool_registry.py:1103-1110` (missing_repo_local_dependencies, the one
+    predicate)
+  - `.github/actions/ensure-node-deps/action.yml:37-43` (install decided by ts-node presence and the
+    lockfile stamp, not by any runner's repo_local_dependencies)
+- Rule: One owner per concept (CLAUDE.md Architectural Approach, tier 2 make it automatic): whether
+  an adapter's declared dependencies are present is answered by
+  tool_registry.missing_repo_local_dependencies and nowhere else; a probe or an install step that
+  restates the question is a second owner.
+- Notes: Origin: F2.1 review r1, ssot lens (non-blocking 1) and arch lens (N1), merged into one row;
+  parents ARIA-MEDIUM-735 (declared dependencies + doctor organ, commit 588969fbb) and PLAN-v2
+  section 3 F2.1. Checked at 36f7b9bf2. The spec line 'declared adapter dependencies are provisioned
+  in the room' is met only as 'checked and refused by name' (doctor organ adapter_dependencies);
+  nothing in the repo installs the packages, and commit 588969fbb lists the room part under NOT
+  DONE.
+- Close: (1) the room's preparation reads the dependency verdict from the one predicate (the doctor
+  organ or tool_registry.missing_repo_local_dependencies) instead of its own probe, with the room
+  script under repo control or the probe removed from it; (2) the install step that provisions
+  node_modules is driven by the registered runners' repo_local_dependencies, so no hand-kept package
+  list or ts-node-only trigger remains; (3) a test pins that a workspace lacking a declared package
+  is refused by that predicate.
+
+## ARIA-LOW-845
+
+The workflow-hygiene invariant spawns the workflow-shell-safety adapter with a hand-written argv, a
+second copy of the manifest runner that tool_registry normalises, so tsconfig, heap or cwd can drift
+between the gate and the registered tool; older adapter integration tests restate their runner argv
+the same way.
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: the F2.1 review round 1 (ssot lens non-blocking 2), registered by the F2.1 findings
+  clerk after re-checking each cited path:line at 36f7b9bf2.
+- Evidence:
+  - `aria-kernel/tests/invariants/v3/test_phase_b1_argv_proven_workflow_hygiene.py:74-80`
+    (\_WORKFLOW_SHELL_ADAPTER_ARGV, node_modules/ts-node/dist/bin.js without the ./ the registry
+    writes)
+  - `tools/aria-adapters/workflow-shell-safety-adapter.tool.json:143-155` (the manifest runner)
+  - `aria-kernel/aria_kernel/tool_registry.py:77` (TS_NODE_RUNNER_PREFIX, the normalised form)
+  - `aria-kernel/tests/test_typeorm_adapter_integration.py:65` (restated runner argv)
+  - `aria-kernel/tests/test_event_contracts_adapter_integration.py:48` (restated runner argv)
+- Rule: One owner per concept (CLAUDE.md Architectural Approach, tier 2): the argv that runs a
+  registered adapter is declared in its manifest runner and normalised by tool_registry; a test that
+  spawns the adapter takes it from there.
+- Notes: Origin: F2.1 review r1, ssot lens (non-blocking 2); parent ARIA-LOW-736 (the R03 scanner
+  moved into the adapter and the hygiene gate asks it). Checked at 36f7b9bf2; the hand-written tuple
+  already differs textually from the registry's form (no ./ prefix).
+- Close: the invariant builds its spawn argv from the workflow-shell-safety manifest through the
+  registry's normaliser or the runner's own argv builder, and the same helper replaces the restated
+  argv in the two older integration tests (or each is named why it must differ); a test pins that
+  changing the manifest runner changes what the gate spawns.
+
+## ARIA-LOW-846
+
+The lint-rules manifest's repo_local_dependencies list restates the packages that
+lint-rules.eslint.config.mjs and lint-rules-adapter.ts import; a test catches drift (tier 3) but
+nothing derives the list from the imports (tier 2), so a hand-kept list remains a second owner of
+the adapter's package set.
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: the F2.1 review round 1 (ssot lens non-blocking 3), registered by the F2.1 findings
+  clerk after re-checking each cited path:line at 36f7b9bf2.
+- Evidence:
+  - `tools/aria-adapters/lint-rules-adapter.tool.json:73-78` (the declared list)
+  - `tools/aria-adapters/lint-rules.eslint.config.mjs:17-19` (tsParser, security, sonarjs imports)
+  - `tools/aria-adapters/lint-rules-adapter.ts:148` (dynamic import of eslint)
+  - `aria-kernel/tests/test_runner_repo_local_dependencies.py:211` (lint_rules_packages, the drift
+    test's own import scan)
+- Rule: Architectural-solution hierarchy (CLAUDE.md): make it automatic (tier 2) before make it
+  detectable (tier 3); runner_repo_local_dependencies already derives the ts-node entry instead of
+  storing it.
+- Notes: Origin: F2.1 review r1, ssot lens (non-blocking 3); parent ARIA-MEDIUM-735. Checked at
+  36f7b9bf2: test_the_runner_depends_on_every_package_it_imports pins the list against the import
+  scan, so drift is detected, not prevented.
+- Close: the package set is derived from the adapter's and the config's imports at one place (the
+  registry compiler or manifest sync, the way the ts-node entry is derived) and the hand-kept list
+  is removed, with the drift test then pinning the derivation; or an owner-signed note that the
+  detected form is accepted, citing the cost of an import parser in the registry.
+
+## ARIA-LOW-847
+
+The adapter_dependencies doctor organ reads the store registry (list_tools) rather than the
+workspace manifests, so before \_phase_tool_manifest_sync re-registers lint-rules-adapter a stale
+store entry without repo_local_dependencies reports ok on a workspace that lacks the rule packages.
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: the F2.1 review round 1 (ssot lens non-blocking 4), registered by the F2.1 findings
+  clerk after re-checking each cited path:line at 36f7b9bf2.
+- Evidence:
+  - `aria-kernel/aria_kernel/doctor.py:668` (for tool in list_tools(base_dir=tools_dir))
+  - `aria-kernel/aria_kernel/cycle.py:3138` (\_phase_tool_manifest_sync, the door that refreshes the
+    store from tools/aria-adapters/\*.tool.json)
+  - `aria-kernel/aria_kernel/tool_registry.py:1088-1100` (runner_repo_local_dependencies reads the
+    stored runner's field, deriving only ts-node)
+- Rule: \_check_adapter_dependencies promises to name, before a night runs, which tool the workspace
+  cannot run (its docstring); a verdict taken from a stale store copy of the declaration can say ok
+  where the declared packages are absent.
+- Notes: Origin: F2.1 review r1, ssot lens (non-blocking 4); parent ARIA-MEDIUM-735. Checked at
+  36f7b9bf2 by reading the code; the premise needs the doctor to run before the sync re-registers
+  the adapter, or on a store never synced. Run order inside a night was not traced (readers:
+  cli.py:7757, mcp_server.py:183, self_improvement.py:949).
+- Close: the organ reads the declared dependencies from the workspace manifests, or names a store
+  entry whose runner differs from its manifest; a test registers a store entry without
+  repo_local_dependencies beside a manifest that has the field and pins that the organ is not ok.
+
+## ARIA-LOW-848
+
+The R03 rule command_substitution_in_message misses ``builtin echo "... `cmd` ..."``:
+shell-script.ts effectiveArgv strips the wrappers in WRAPPERS (command, exec, sudo, ...) but not
+builtin, so the command name stays 'builtin' and MESSAGE_COMMANDS never matches.
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: the F2.1 review round 1 (arch lens N2), registered by the F2.1 findings clerk after
+  re-checking each cited path:line at 36f7b9bf2.
+- Evidence:
+  - `tools/aria-adapters/shell-script.ts:551` (WRAPPERS has no builtin)
+  - `tools/aria-adapters/shell-script.ts:571` (effectiveArgv)
+  - `tools/aria-adapters/workflow-shell-safety-adapter.ts:251` (MESSAGE_COMMANDS echo, printf)
+  - `tools/aria-adapters/workflow-shell-safety-adapter.ts:640` (the rule keys on the effective
+    command name)
+  - `scripts/deploy/production-host-control-plane.sh:25` (builtin printf is a live idiom in the
+    tree; no substitution on that line)
+- Rule: The R03 rule (ARIA-LOW-736): a backtick inside a double-quoted echo or printf argument is
+  reported whatever wrapper runs it.
+- Notes: Origin: F2.1 review r1, arch lens (N2); parent ARIA-LOW-736. Re-probed at 36f7b9bf2 through
+  the adapter CLI on a three-line script: 'command echo' and plain 'echo' with a backtick in a
+  double-quoted message were reported, 'builtin echo' was not. No live line in the tree combines
+  builtin with a substitution, so the miss is latent.
+- Close: builtin is a wrapper in shell-script.ts (as command is) and a workflow-shell-safety fixture
+  or unit case pins that builtin echo and builtin printf with a double-quoted backtick are reported.
+
+## ARIA-LOW-849
+
+The F2.1 exit criterion 'every new finding on the existing 158 observations is a verified TP or a
+named FP' has no recorded evidence: the implementer notes measure only the real tree (0 new R03
+findings, 15 findings before and after) and the findings of lint-rules-adapter, once its packages
+are provisioned, are unmeasured.
+
+- Severity: LOW; owner: Okan-wqm; deadline: 2026-11-20.
+- Raised by: the F2.1 review round 1 (arch lens N3), registered by the F2.1 findings clerk after
+  re-checking each cited path:line at 36f7b9bf2.
+- Evidence:
+  - `/root/aria-handover/2026-10-21/PLAN-v2.md:229` (the exit criterion)
+  - `/root/aria-handover/2026-10-21/build/F2.1/implementer/NOTES.md:20` (New findings on real tree:
+    0 for the new rule; totals 15 before/after)
+  - `tools/aria-adapters/lint-rules-adapter.tool.json:73-78` (the packages whose provisioning lets
+    the adapter produce findings)
+- Rule: PLAN-v2 section 3 F2.1 exit: 0 crashes, R03 caught, and every new finding on the existing
+  158 observations a verified TP or a named FP.
+- Notes: Origin: F2.1 review r1, arch lens (N3); parents ARIA-MEDIUM-735 and ARIA-LOW-736. Checked
+  at 36f7b9bf2: the implementer NOTES and the writer and implementer logs hold no run against the
+  158-observation set, and the notes name no lint-rules findings count.
+- Close: run lint-rules-adapter (with its packages provisioned) and the R03 rule over the tree the
+  158 observations were taken from, list every finding that is not in the baseline, and record each
+  as a TP verified at path:line or as a named FP with its cause, in the F2.1 notes or the review
+  doc; an empty list is recorded as such.

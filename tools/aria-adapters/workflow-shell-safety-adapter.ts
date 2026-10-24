@@ -46,12 +46,19 @@
 // -S` call (standard library only — no site packages, so it needs nothing the
 // room does not bind) and never restates their rules.
 //
-// Two rules have no owner yet and live here, read through the one shell
+// Three rules have no other owner and live here, read through the one shell
 // reader of tools/aria-adapters (./shell-script.ts):
 //
 //   pipe_to_shell             a download piped into, or substituted as the
 //                             script of, a shell (`curl … | sh`,
 //                             `bash <(curl …)`, `sh -c "$(wget …)"`, `eval`)
+//   command_substitution_in_message
+//                             an `echo`/`printf` whose double-quoted argument
+//                             holds a backtick substitution: bash runs the
+//                             command a message meant to name (R03, the
+//                             `claude setup-token` refusal ea2aa5002 removed;
+//                             ARIA-LOW-736). `$(…)` is written on purpose and
+//                             is not this rule.
 //   missing_strict_shell_mode an executable Bash script that runs more than one
 //                             command without `set -euo pipefail`. POSIX `sh`,
 //                             a script that is not executable or has no
@@ -168,7 +175,8 @@ type WorkflowShellRule =
   | 'overbroad_write_token'
   | 'pipe_to_shell'
   | 'governance_bypass_command'
-  | 'missing_strict_shell_mode';
+  | 'missing_strict_shell_mode'
+  | 'command_substitution_in_message';
 
 type FindingSeverity = 'critical' | 'high' | 'medium' | 'low';
 
@@ -232,7 +240,15 @@ const RULES: Readonly<Record<WorkflowShellRule, Projection>> = {
     severity: 'medium',
     confidence: 0.8,
   },
+  command_substitution_in_message: {
+    rule: 'command_substitution_in_message',
+    severity: 'medium',
+    confidence: 0.9,
+  },
 };
+
+/** The commands that print a message: their arguments are text, never meant to run. */
+const MESSAGE_COMMANDS: ReadonlySet<string> = new Set(['echo', 'printf']);
 
 // ------------------------------------------------------------------ helpers
 function sha256(text: string): string {
@@ -614,6 +630,35 @@ export function analyzeWorkflowShellSafety(
           `${name} | ${shell}`,
           `\`${name}\` output is piped into \`${shell}\`, which runs whatever the server returns, unverified, with this job's credentials.`,
           'Download to a file, verify its checksum or signature, then run the file.',
+        );
+      }
+    }
+
+    // A message that runs what it names: a backtick inside a double-quoted
+    // `echo`/`printf` argument is a command substitution. Reported once per
+    // message, at the command, naming the first command it runs.
+    if (name !== null && MESSAGE_COMMANDS.has(name)) {
+      const messageIndex = siblings.indexOf(command);
+      const ran = siblings.find(
+        (child) =>
+          child.parent === messageIndex &&
+          child.holderWord !== null &&
+          child.substitution !== null &&
+          child.substitution.syntax === 'backtick' &&
+          child.substitution.doubleQuoted,
+      );
+      if (ran !== undefined) {
+        const named = ran.argv.join(' ');
+        emit(
+          RULES.command_substitution_in_message,
+          file,
+          lineOf(site),
+          command.argv.join(' '),
+          SELF,
+          'backtick-in-double-quotes',
+          named,
+          `\`${name}\` prints a double-quoted message holding \`${named}\` in backticks; bash runs it as a command substitution before the message prints, with this step's credentials.`,
+          "Name the command in plain or single quotes ('…'), or escape the backticks (\\`…\\`).",
         );
       }
     }

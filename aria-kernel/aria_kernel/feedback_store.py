@@ -5,7 +5,7 @@ import hashlib
 import fnmatch
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
 from .confidence import confidence_in_unit_interval
@@ -94,7 +94,8 @@ CONSENSUS_UNCERTAINTY_REASONS = (
 # Typed-judgment plan Phase 6 — how the consensus gate treats calibration.
 # `measure_only`: the legacy confidence gate bit for bit, the row records
 # what `enforce` would have excluded; `enforce`: closing authority belongs
-# to calibrated judges of distinct models alone.
+# to two distinct calibrated judge seats alone (the ONE seat law,
+# `distinct_judge_seats`, PLAN-v2 F0.8).
 CALIBRATION_GATES = ("measure_only", "enforce")
 CALIBRATED_QUORUM_MIN_JUDGES = 2
 FEEDBACK_SEVERITIES = ("low", "medium", "high", "critical")
@@ -313,13 +314,13 @@ def observation_span(receipts: tuple[dict[str, str], ...]) -> tuple[str, int]:
     needed to carry a method, ``("unknown", 0)`` otherwise (a mixed set, or
     receipts with neither field, cannot prove a span on either leg).
 
-    A recorded DESCRIPTOR since the F0.3 landing (N3), never an anchor gate:
-    the anchor rule (``is_ground_truth_row``) and the calibrated closing
-    quorum (``generate_ai_consensus`` under ``enforce``) both ask the ONE
-    seat law (``consensus_distinct_seats``), so no second diversity count
-    can disagree with it about what an anchor is. The calibration-gate
-    downgrade (``genesis_policy.effective_calibration_gate``) records the
-    leg it reports as ``quorum_leg``; that consumer is PLAN-v2 item F0.8.
+    A recorded DESCRIPTOR since the F0.3 landing (N3), never a gate: the
+    anchor rule (``is_ground_truth_row``), the calibrated closing quorum
+    (``generate_ai_consensus`` under ``enforce``) and the calibration-gate
+    downgrade (``genesis_policy.effective_calibration_gate``) all ask the
+    ONE seat law (``distinct_judge_seats``, PLAN-v2 F0.8), so no second
+    diversity count can disagree with it. The gate downgrade records the
+    leg this function reports as ``quorum_leg`` and compares nothing on it.
     """
     if not receipts:
         return "unknown", 0
@@ -355,10 +356,20 @@ def consensus_observers(row: dict[str, Any]) -> tuple[dict[str, str], ...]:
     raw = row.get("observers")
     if not isinstance(raw, list):
         return ()
+    return seat_receipts(item for item in raw if isinstance(item, dict))
+
+
+def seat_receipts(entries: Iterable[Mapping[str, Any]]) -> tuple[dict[str, str], ...]:
+    """The RECEIPT leg of the seat law: which entries can stand as a seat.
+
+    WP-J B-1 — a receipt needs its judge_id plus a model (the legacy leg) or
+    a method (the single-provider leg). An entry with neither is not a
+    receipt of anything and seats nothing, whichever consumer supplied it:
+    a consensus row's ``observers``, the calibrated judge rows the closing
+    quorum counts, or the calibration map the gate downgrade reads.
+    """
     out: list[dict[str, str]] = []
-    for item in raw:
-        if not isinstance(item, dict):
-            continue
+    for item in entries:
         judge_id = str(item.get("judge_id") or "").strip()
         model = str(item.get("model") or "").strip()
         method = str(item.get("method") or "").strip()
@@ -370,6 +381,29 @@ def consensus_observers(row: dict[str, Any]) -> tuple[dict[str, str], ...]:
                 receipt["method"] = method
             out.append(receipt)
     return tuple(out)
+
+
+def distinct_judge_seats(entries: Iterable[Mapping[str, Any]]) -> int:
+    """THE seat law (WP-P; PLAN-v2 F0.8): how many distinct judge SEATS the
+    entries' receipts name.
+
+    The one diversity rule of this kernel (operator decision 2026-10-18:
+    diversity comes from PERSPECTIVE and METHOD, not from the provider).
+    Every consumer that asks "is this diverse enough" asks this function and
+    compares its answer against its own floor — the anchor
+    (``is_ground_truth_row`` via ``consensus_distinct_seats``), the
+    calibrated closing quorum (``generate_ai_consensus`` under ``enforce``)
+    and the calibration-gate downgrade
+    (``genesis_policy.effective_calibration_gate``) — so no consumer can
+    decide a corner case (a seat asked twice, a receipt naming neither model
+    nor method, a shared method) differently from the others.
+
+    A seat asked twice is one seat. The model and the method are RECEIPT
+    legs (``seat_receipts``), never a span counted beside the seats: on one
+    provider every seat runs the one model that provider has, and two
+    distinct seats of one model or one method are still two observations.
+    """
+    return len({receipt["judge_id"] for receipt in seat_receipts(entries)})
 
 
 def distinct_observer_models(row: dict[str, Any]) -> int:
@@ -395,12 +429,13 @@ def consensus_distinct_seats(row: dict[str, Any]) -> int:
     actually prove (the dispatcher mints the judge id; a judge's model
     self-report was never trustworthy, ORPHAN-HIGH-781).
 
-    The ONE seat law carries WP-J's two legs (F0.3 landing, N3), so no
-    second diversity gate sits beside it:
+    The ONE seat law (``distinct_judge_seats``) applied to a consensus row,
+    with WP-J's two legs (F0.3 landing, N3), so no second diversity gate
+    sits beside it:
 
     * the RECEIPT leg — a seat counts when its receipt names a model OR a
-      method (``consensus_observers``, WP-J B-1): a single-provider panel
-      of distinct seats is three observations, whatever method each used;
+      method (``seat_receipts``, WP-J B-1): a single-provider panel of
+      distinct seats is three observations, whatever method each used;
     * the EVIDENCE leg (WP-J ce6a53541) — a seat observes the code only
       through what the row cites. An empty evidence union is agreement on
       argument alone, so it is backed by zero seats: unfalsifiable truth is
@@ -409,7 +444,7 @@ def consensus_distinct_seats(row: dict[str, Any]) -> int:
     """
     if not _optional_string_list(row.get("evidence_refs")):
         return 0
-    return len({observer["judge_id"] for observer in consensus_observers(row)})
+    return distinct_judge_seats(consensus_observers(row))
 
 
 def provider_span_of(models: list[str]) -> str:
@@ -1288,8 +1323,8 @@ def generate_ai_consensus(
         # the mean; a group with NO numeric confidence at all escalates under
         # its own name instead of masquerading as low confidence.
         # Phase 6 — closing authority. Under `enforce` the mean is taken over
-        # the agreeing judges whose confidence is calibrated, and two of them
-        # of distinct models must exist (a calibrated judge alone would close
+        # the agreeing judges whose confidence is calibrated, and two distinct
+        # calibrated seats must exist (a calibrated judge alone would close
         # a split its uncalibrated partner only detected); under
         # `measure_only` the legacy mean stands and the row records what
         # `enforce` would have left out.
@@ -1307,13 +1342,9 @@ def generate_ai_consensus(
             # needs two calibrated judge SEATS, not two distinct MODELS —
             # under a single provider every calibrated seat runs the one
             # model that provider has, and the enforce gate would hold every
-            # verdict forever. A seat voting twice still counts once.
-            distinct_seats = {
-                str(row.get("judge_id") or "").strip()
-                for row in calibrated_agreeing
-                if str(row.get("judge_id") or "").strip()
-            }
-            if len(calibrated_agreeing) < CALIBRATED_QUORUM_MIN_JUDGES or len(distinct_seats) < CALIBRATED_QUORUM_MIN_JUDGES:
+            # verdict forever. PLAN-v2 F0.8: the seats are counted by the
+            # ONE seat law, never restated here.
+            if distinct_judge_seats(calibrated_agreeing) < CALIBRATED_QUORUM_MIN_JUDGES:
                 uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "confidence_uncalibrated"))
                 continue
             closing = calibrated_agreeing

@@ -2142,7 +2142,8 @@ services:
   # under infrastructure/monitoring/droplet/ (prometheus.yml + the catalog-
   # GENERATED file_sd/aqua-services.json + rules/ + alertmanager.yml). They are
   # ADDITIVE — no existing service is touched — and stay on the internal network
-  # only (no host port published; reach the UI via an ssh tunnel).
+  # only (reach the UI via an ssh tunnel). The one host port is Prometheus's, on
+  # 127.0.0.1 only (RW-1, below).
   #
   # INFRA-OWNER DECISIONS PENDING before this is deployed:
   #   - Prometheus retention/disk (15d default below; size is the operator's call).
@@ -2155,11 +2156,20 @@ services:
     image: prom/prometheus:v2.54.1
     container_name: aqua-prometheus
     restart: unless-stopped
+    # RW-1 — the read-only metrics source of ARIA's runtime watchdog
+    # (aria_watchdog.pull_observability_metrics reads windowed increases from
+    # /api/v1/query on 127.0.0.1; it holds no credential and refuses any
+    # non-loopback origin). The port is
+    # published on the host's loopback only, and the HTTP API stays read-only:
+    # no --web.enable-lifecycle (POST /-/quit and /-/reload would be open to
+    # every local account) and no --web.enable-admin-api. Reload the config
+    # with `docker kill --signal=HUP aqua-prometheus` (root).
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
       - '--storage.tsdb.retention.time=15d'
-      - '--web.enable-lifecycle'
+    ports:
+      - '127.0.0.1:9090:9090'
     volumes:
       - ./infrastructure/monitoring/droplet/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./infrastructure/monitoring/droplet/rules:/etc/prometheus/rules:ro

@@ -143,6 +143,103 @@ After the change, the gate's verdict per leg:
 - Fix: the root override and the dependency-security-floor pin move to
   10.7.4, and the root lockfile resolves 10.7.4.
 
+## 2026-10-24: six advisory families turn root-production and root-full red
+
+On origin/main de8719da1 the gate failed `root-production` on six packages and
+`root-full` on five. The AquaMobil and e2e legs were clean. npm called three of
+the fixes breaking. In each case a patched release exists inside the major the
+repository already uses. The "breaking" label comes from npm's suggested
+remediation (an older `@nestjs/platform-express`, a newer
+`@module-federation/vite`) or from one workspace's `^3` range. Every family is
+fixed by an upgrade. None is excepted.
+
+### SUPPLY-HIGH-031 — body-parser: compressed-body trailing bytes
+
+- GHSA-27r3-jxmh-p828 (high): trailing bytes after a compressed request body
+  cause a denial of service. Affected `<1.20.9` and `>=2.0.0 <2.4.0`.
+- 2.3.0 parses every backend request body. express 5 asks for `^2.2.1` and
+  `@apollo/server` asks for `^2.2.2`. The nx dev-server's express 4 nests
+  1.20.8.
+- Both ranges already admit the fixes, so the lock is the only owner. It
+  resolves 2.4.0 and 1.20.9. The floor table gets a per-major `body-parser`
+  floor.
+- body-parser 2.4.0 declares `qs ^6.16.1`. The root `qs` override was
+  `^6.16.0` and kept 6.16.0. The override moves to `^6.16.1`, so body-parser
+  runs on the qs its manifest declares.
+
+### SUPPLY-MEDIUM-032 — fast-uri 3.1.8
+
+- GHSA-w74x-v6f9-j3xg (moderate): scheme spoofing via a percent-encoded
+  scheme.
+- GHSA-wjr9-j795-jxcr (moderate): host confusion via an unchecked WHATWG host
+  canonicalization.
+- GHSA-xhq7-xmqj-769h and GHSA-333x-w4r6-6crp (low).
+- All four are fixed in 3.1.9.
+- The package is reached in production through ajv.
+- The fix lifts every place that pins 3.1.8 to 3.1.9: the root override, the
+  AquaMobil override, the e2e lock and the three floor pins (root, e2e,
+  AquaMobil). The AquaMobil and e2e copies did not turn a leg red because both
+  are dev-only and moderate. They carried the same advisories, so they move
+  with the root.
+
+### SUPPLY-MEDIUM-033 — nodemailer addressparser
+
+- GHSA-8c8m-p3m8-cjg8, GHSA-m943-m63m-w62w and GHSA-85x2-q946-cp5h (moderate):
+  addressparser ends a comment, a group or an angle-addr early. The rest of
+  the header then becomes a recipient, or mail goes to a domain the header
+  does not name. Affected `>=3.0.0 <10.1.4`.
+- nodemailer sends mail for notification-service, admin-api-service and the
+  sensor-service SCADA notification service.
+- Fix: the root dependency `^10.1.4`, the floor and the lock move to 10.1.4,
+  the first release outside all three ranges.
+
+### SUPPLY-HIGH-034 — multer: pending async fileFilter after teardown
+
+- GHSA-q7qp-rjg7-q26m (high): a pending asynchronous `fileFilter` after
+  request teardown causes a denial of service. Affected `>=2.0.0 <2.5.0`.
+- npm reports it through `@nestjs/platform-express` and suggests 11.1.1, a
+  downgrade it marks breaking. `@nestjs/platform-express` 11.2.7 (and the
+  latest, 11.2.8) pins multer 2.4.0 exactly, so the root override is the owner.
+- Fix: the override, the root dependency, the floor and the lock move to
+  2.5.0. The 2.5.0 changelog lists only the fix, an off-by-one on
+  `limits.fieldSize` (a value of exactly the limit is now accepted) and a
+  DiskStorage cleanup fix.
+
+### SUPPLY-HIGH-035 — zod: oversized constrained collections
+
+- GHSA-mrhx-c7xc-m3w5 (high): memory exhaustion while validating oversized
+  constrained collections. Affected `<4.6.6`. No 3.x release is patched.
+- The root copy 4.4.3 comes from `@modelcontextprotocol/sdk`. The SDK, openai,
+  `@anthropic-ai/sdk` and `zod-to-json-schema` all accept `^4`, so that copy
+  is a lock-only lift to 4.6.7.
+- `mcp/farm-management` declared `^3.22.0` and nested 3.25.76. That is the
+  only real major bump, and it lands in this change:
+  - The workspace uses `z.object`, `number`, `string`, `boolean`, `enum`,
+    `array`, `record(key, value)`, `unknown`, `.describe`, `.min`, `.max`,
+    `.default`, `.optional`, `.positive`, `.int` and `ZodError.issues`. Their
+    behaviour is the same in zod 4.
+  - The MCP tool JSON schemas are hand-written and are not derived from zod.
+  - The workspace type-checks with its own TypeScript 5.4.5 and passes its
+    109 vitest tests.
+- Fix: `mcp/farm-management` declares `^4.6.6` and both copies resolve 4.6.7.
+  The floor table carries `zod: { '4': '4.6.6' }`. A new test lists every
+  manifest that declares zod and requires the 4.x floor, so a workspace that
+  goes back to `^3` fails before the lock is refreshed.
+
+### SUPPLY-HIGH-036 — undici 7.30.0
+
+- GHSA-xjj6-f33q-929c (high): an unhandled error on excessive
+  content-encodings.
+- GHSA-4qv8-2p9j-2685 (moderate): unbounded memory in the EventSource parser.
+- GHSA-f72v-6w45-q472 (moderate): an SRI bypass via non-lowercase algorithm
+  tokens.
+- All three are fixed in 7.30.1.
+- npm suggests a breaking `@module-federation/vite` change. In fact
+  `@module-federation/dts-plugin` pins 7.29.0 exactly, so the root override
+  already owns undici.
+- Dev only: module-federation type generation and Testcontainers.
+- Fix: the override `^7.30.1`, the floor and the lock move to 7.30.1.
+
 ## SUPPLY-MEDIUM-020 — tailwind 3 postcss-selector-parser is quadratic (open, excepted)
 
 - `postcss-selector-parser` below 7.1.6 (GHSA-rj75-hqrm-r3gf), reached through

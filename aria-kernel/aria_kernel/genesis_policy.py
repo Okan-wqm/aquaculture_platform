@@ -597,13 +597,28 @@ def rhythm_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
 
 WATCHDOG_PULL_DEFAULTS: dict[str, Any] = {
     "enabled": True,
-    # None → disclosed skip (source_unconfigured). The URL is machine-local
-    # (a docker-bridge address on the droplet), so it lives in the operator
-    # override, never in a tracked default.
-    "observability_base_url": None,
-    # The API key itself NEVER enters policy or ledgers — only the NAME of
-    # the environment variable the runner exports.
-    "api_key_env": "ARIA_OBSERVABILITY_API_KEY",
+    # RW-1 — the droplet Prometheus's read-only HTTP API, published on the
+    # host's loopback only (docker-compose.droplet.yml `127.0.0.1:9090`;
+    # install step: docs/runbooks/aria-runner-rebuild.md). The runner shares
+    # that host, so the address is the same on every ARIA host and is the
+    # tracked default. aria_watchdog.pull_observability_metrics refuses any
+    # origin that is not a loopback IP literal (a named hold, no socket),
+    # and an unset or unreachable source is a named hold too, never silence.
+    "observability_base_url": "http://127.0.0.1:9090",
+    # No credential field, not even an env-var name: ARIA holds no shared
+    # internal API key (RW-1); the source needs none.
+    # RW-1 corrective R5 — the runtime detectors judge the interval since the
+    # previous successful runtime read (aria_watchdog.run_watchdog_sweep owns
+    # that window and its read stamp), not a fixed span: the cycle chain
+    # sweeps every min_interval_hours (6h default, 2h floor) and the opener
+    # throttle can skip sweeps, so no constant matches the cadence. This is
+    # only the BOUND: what the first read judges, and the most any read
+    # judges — a longer interval judges the bound and names the span it
+    # left unjudged. A week covers a skipped day and a paused weekend and
+    # stays inside the droplet Prometheus retention (15d). Bounded by the
+    # cycle interval's own bounds (RHYTHM_BOUNDS min_interval_hours); the
+    # threshold and the minimum volume below apply to the judged window.
+    "window_bound_seconds": 7 * 24 * 3600,
     "http_5xx_share_threshold": 0.05,
     "http_min_requests": 50,
 }
@@ -619,10 +634,22 @@ def watchdog_pull_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
             (Path(__file__).resolve().parent / "data" / DEFAULT_FILENAME).read_text(encoding="utf-8")
         )
         merged = raw if isinstance(raw, dict) else {}
+    from .tool_registry import GovernanceError
+
     block = dict(WATCHDOG_PULL_DEFAULTS)
     raw_block = merged.get("watchdog_pull")
     if isinstance(raw_block, dict):
         block.update({k: raw_block[k] for k in WATCHDOG_PULL_DEFAULTS if k in raw_block})
+    # The bound is written into the query the puller sends, so it is an
+    # integer number of seconds inside the cycle interval's bounds, refused
+    # by name otherwise — never clamped, never passed through as text.
+    bound = block["window_bound_seconds"]
+    _, low_hours, high_hours = RHYTHM_BOUNDS["min_interval_hours"]
+    if type(bound) is not int or not low_hours * 3600 <= bound <= high_hours * 3600:
+        raise GovernanceError(
+            f"watchdog_pull.window_bound_seconds={bound!r} must be int seconds in "
+            f"[{int(low_hours * 3600)}, {int(high_hours * 3600)}]"
+        )
     return block
 
 

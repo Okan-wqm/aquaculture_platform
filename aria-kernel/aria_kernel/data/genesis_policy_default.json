@@ -180,10 +180,10 @@
     "deadline_seconds": 2.0
   },
   "watchdog_pull": {
-    "api_key_env": "ARIA_OBSERVABILITY_API_KEY",
     "enabled": true,
     "http_5xx_share_threshold": 0.05,
     "http_min_requests": 50,
-    "observability_base_url": null
+    "observability_base_url": "http://127.0.0.1:9090",
+    "window_bound_seconds": 604800
   }
 }

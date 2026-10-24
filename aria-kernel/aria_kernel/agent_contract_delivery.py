@@ -128,4 +128,42 @@ def render_agent_contract(
     )
 
 
-__all__ = ["AgentContractDelivery", "AgentContractUnavailable", "CITATION_RX", "render_agent_contract"]
+def agent_contracts_root() -> Path:
+    """The checkout every agent contract is rendered from: the RUNNING
+    kernel's (ARIA-HIGH-146), never the workspace at the request's
+    target_sha. The executor delivers from here and the verdict cache keys
+    its judge half from here — one root, so both name the same judge."""
+    from .claude_settings import kernel_code_root
+
+    return kernel_code_root().parent
+
+
+def judge_seats_contract_hash() -> str | None:
+    """J2 — the identity of the judge bench: one digest over the contract
+    hash each judge seat (``agent_surface.JUDGE_SEAT_AGENTS``) is delivered
+    under — the same ``agent_contract_hash`` the executor stamps on the
+    attempt and ``judge_calibration.score_judges`` scopes on. An edit to a
+    seat's body, to a knowledge file it cites or to the validator contract
+    is a new identity. ``None`` when a seat's contract cannot be rendered:
+    that seat cannot run, the bench is unknown, and unknown is a cache miss.
+    """
+    from .agent_surface import JUDGE_SEAT_AGENTS
+    from .ledger import sha256_digest_of_canonical_json
+
+    root = agent_contracts_root()
+    try:
+        hashes = {agent: render_agent_contract(agent, repo_root=root).contract_hash
+                  for agent in JUDGE_SEAT_AGENTS}
+    except AgentContractUnavailable:
+        return None
+    return sha256_digest_of_canonical_json(hashes)
+
+
+__all__ = [
+    "AgentContractDelivery",
+    "AgentContractUnavailable",
+    "CITATION_RX",
+    "agent_contracts_root",
+    "judge_seats_contract_hash",
+    "render_agent_contract",
+]

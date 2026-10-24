@@ -407,10 +407,16 @@ def record_judge_verdict_from_response(
 
     # ORPHAN-CRITICAL-735 — the arbiter's legitimate non-verdict outcome
     # folds through the SAME producer, ledger and idempotent escalation_id
-    # as the deterministic engine, so one sweep drains both lanes into one
-    # HUMAN_REQUIRED record. It is NOT a feedback verdict: an uncertain
-    # arbitration must never write an ai_judge row.
+    # as the deterministic engine. It is NOT a feedback verdict: an
+    # uncertain arbitration must never write an ai_judge row. F0.7 —
+    # `unverifiable` is terminal there, and its rate has a ceiling the
+    # producer enforces.
     if role == "consensus_arbitration":
+        # J4 — first, the arbiter is bound to its inputs: an answer about
+        # seats that moved since the mint writes nothing.
+        from .judge_fanout import require_current_arbiter_inputs
+
+        require_current_arbiter_inputs(request, base_dir=base_dir)
         arb_block = _verdict_field(details)
         arb_reason = arb_block.get("uncertainty_reason")
         if arb_block.get("verdict") is None and arb_reason in CONSENSUS_UNCERTAINTY_REASONS:

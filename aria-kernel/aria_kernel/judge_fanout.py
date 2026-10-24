@@ -22,8 +22,9 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .agent_invocations import create_agent_invocation_request
+from .bridge_exceptions import BridgeContractRefused
 from .evidence_trust import forbidden_detector_scope
-from .ledger import ledger_read_faults, load_segments
+from .ledger import ledger_read_faults, load_segments, sha256_digest_of_canonical_json
 from .must_satisfy import must_satisfy_item, product_defect_obligation, rule_premise_obligation
 from .request_admission import Admission, admit_request
 from .rule_contract import RuleContract, resolve_rule_contract
@@ -76,7 +77,7 @@ CONSENSUS_ARBITER_AGENT: str = "aria-consensus-arbiter"
 # of as the thing to test. The anchor mint asks the arbiter to REFUTE a
 # unanimous pair; surviving that is what promotes the row to ground truth
 # (feedback_store.is_ground_truth_row). Same role, same agent, same
-# (judgment_group_id, target_agent) idempotency key as the split arm, so a
+# (judgment_group_id, arbiter inputs digest) idempotency key as the split arm, so a
 # group can never carry two arbiters for two reasons.
 
 
@@ -647,39 +648,155 @@ def _seat_payload(judge_id: str, row: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
-def split_verdict_groups(
+# F0.7 + J4 (SEPT-HARVEST) — what an arbiter was asked about, bound on its
+# envelope. The subject kind the arbiter answers: a judged finding's seats.
+ARBITER_SUBJECT_FINDING: str = "finding"
+
+
+def arbiter_inputs(subject: str, facts: Any) -> dict[str, Any]:
+    """The inputs an arbiter is bound to: the subject kind, its facts and
+    their canonical digest. ``_mint_arbiter`` stamps it on the envelope, the
+    bridge recomputes it at answer time (``require_current_arbiter_inputs``)
+    and the mint keys idempotency on (group, digest), so a group whose inputs
+    moved is re-offered instead of being answered over stale seats."""
+    return {
+        "subject": subject,
+        "facts": facts,
+        "digest": sha256_digest_of_canonical_json({"subject": subject, "facts": facts}),
+    }
+
+
+def _seat_inputs(by_judge: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """A finding group's arbiter inputs: each seat's identity, verdict and the
+    requests it answered (a rebuttal revote answers a new request). The
+    arbiter's own rows are not seats it arbitrates."""
+    return arbiter_inputs(ARBITER_SUBJECT_FINDING, [
+        {
+            "judge_id": judge_id,
+            "verdict": str(row.get("verdict") or ""),
+            "request_ids": sorted({str(r) for r in row.get("request_ids") or [] if str(r).strip()}),
+        }
+        for judge_id, row in sorted(by_judge.items())
+        if judge_id != CONSENSUS_ARBITER_AGENT
+    ])
+
+
+def _minted_arbiter_inputs(root: Path) -> set[tuple[str, str]]:
+    """(judgment_group_id, inputs digest) of every arbiter envelope minted,
+    live or dead: the arbiter is never asked the same question twice."""
+    from .agent_invocations import list_agent_invocation_requests
+
+    return {
+        (str(row.get("judgment_group_id") or ""), str(row["arbiter_inputs"]["digest"]))
+        for row in list_agent_invocation_requests(base_dir=root, role=CONSENSUS_ARBITRATION_ROLE)
+        if isinstance(row.get("arbiter_inputs"), dict) and row.get("judgment_group_id")
+    }
+
+
+def _uncertain_group_keys(
+    tool_id: str, base_dir: str | Path | None,
+) -> tuple[set[tuple[str, str, str]], set[tuple[str, str, str]]]:
+    """(arbitrated, terminal) group keys read off the uncertainty ledger."""
+    from .feedback_store import (
+        ARBITRATED_UNCERTAINTY_REASONS,
+        TERMINAL_UNCERTAINTY_REASON,
+        consensus_uncertainty_rows,
+    )
+
+    arbitrated: set[tuple[str, str, str]] = set()
+    terminal: set[tuple[str, str, str]] = set()
+    for item in consensus_uncertainty_rows(tool_id=tool_id, base_dir=base_dir):
+        key = (str(item.get("run_id") or ""), str(item.get("finding_id") or ""),
+               str(item.get("judgment_group_id") or ""))
+        if item.get("reason") == TERMINAL_UNCERTAINTY_REASON:
+            terminal.add(key)
+        elif item.get("reason") in ARBITRATED_UNCERTAINTY_REASONS:
+            arbitrated.add(key)
+    return arbitrated, terminal
+
+
+def arbitration_groups(
     *,
     tool_id: str,
     base_dir: str | Path | None = None,
 ) -> list[dict[str, Any]]:
-    """Judgment groups where >=2 judges voted and their verdicts disagree.
+    """F0.7 — every unsettled judgment group the arbiter owes an answer.
 
-    Groups that already carry an ``ai_consensus`` row are settled and never
-    returned.
+    A split (>=2 seats whose verdicts disagree), or a group whose recorded
+    consensus uncertainty is the arbiter's
+    (``feedback_store.ARBITRATED_UNCERTAINTY_REASONS``: WP-J's
+    ``anchor_evidence_empty`` and ``panel_echo``, ``low_confidence``, ...).
+    Before F0.7 those reached HUMAN_REQUIRED. Settled groups are never
+    returned, and neither is a group the arbiter already called
+    ``unverifiable``: that answer is terminal. Each group carries ``split``
+    and the ``arbiter_inputs`` its arbiter is bound to.
     """
     grouped, settled = _judge_rows_by_group(tool_id, base_dir)
-
-    splits: list[dict[str, Any]] = []
-    for (run_id, finding_id, group_id), by_judge in sorted(grouped.items()):
-        if (run_id, finding_id, group_id) in settled:
+    arbitrated, terminal = _uncertain_group_keys(tool_id, base_dir)
+    groups: list[dict[str, Any]] = []
+    for key, by_judge in sorted(grouped.items()):
+        if key in settled or key in terminal:
             continue
-        if len(by_judge) < 2:
+        seats = {judge_id: row for judge_id, row in by_judge.items() if judge_id != CONSENSUS_ARBITER_AGENT}
+        split = len(seats) >= 2 and len({str(row.get("verdict") or "") for row in seats.values()}) >= 2
+        if not split and key not in arbitrated:
             continue
-        verdicts = {str(row.get("verdict") or "") for row in by_judge.values()}
-        if len(verdicts) < 2:
-            continue
-        splits.append({
+        run_id, finding_id, group_id = key
+        groups.append({
             "tool_id": tool_id,
             "run_id": run_id,
             "finding_id": finding_id,
             "judgment_group_id": group_id,
             "finding_fingerprint": _group_fingerprint(by_judge),
-            "judges": [
-                _seat_payload(judge_id, row)
-                for judge_id, row in sorted(by_judge.items())
-            ],
+            "split": split,
+            "judges": [_seat_payload(judge_id, row) for judge_id, row in sorted(seats.items())],
+            "arbiter_inputs": _seat_inputs(by_judge),
         })
-    return splits
+    return groups
+
+
+def split_verdict_groups(
+    *,
+    tool_id: str,
+    base_dir: str | Path | None = None,
+) -> list[dict[str, Any]]:
+    """The arbitration groups whose seats disagree."""
+    return [group for group in arbitration_groups(tool_id=tool_id, base_dir=base_dir) if group["split"]]
+
+
+def require_current_arbiter_inputs(
+    request: dict[str, Any],
+    *,
+    base_dir: str | Path | None = None,
+) -> str:
+    """J4 — refuse an arbiter answer whose bound inputs no longer hold, and
+    return the subject kind.
+
+    ``arbiter_inputs_unbound``: an envelope minted before the binding, which
+    can prove nothing about what it was asked. ``arbiter_inputs_stale``: the
+    group's seats changed after the
+    mint — a rebuttal revote, a late seat. Both are ``BridgeContractRefused``
+    (the same answer is refused on every replay, and the bridge logs it as an
+    ``agent_bridge_warning``); nothing is written, and the mint re-offers the
+    group at its current inputs.
+    """
+    bound = request.get("arbiter_inputs")
+    group_id = str(request.get("judgment_group_id") or "")
+    if not isinstance(bound, dict) or not bound.get("digest"):
+        raise BridgeContractRefused(f"arbiter_inputs_unbound: {request.get('request_id')!r} ({group_id})")
+    subject = str(bound.get("subject") or "")
+    if subject == ARBITER_SUBJECT_FINDING:
+        grouped, _settled = _judge_rows_by_group(str(request.get("tool_id") or ""), base_dir)
+        key = (str(request.get("run_id") or ""), str(request.get("finding_id") or ""), group_id)
+        current = _seat_inputs(grouped.get(key) or {})
+    else:
+        raise BridgeContractRefused(f"arbiter_inputs_subject_unknown: {subject!r} ({group_id})")
+    if current is None or current["digest"] != bound["digest"]:
+        raise BridgeContractRefused(
+            f"arbiter_inputs_stale: {group_id} was minted over {bound['digest']} and now reads "
+            f"{current['digest'] if current is not None else 'no standing subject'}"
+        )
+    return subject
 
 
 def _render_arbiter_prompt(split: dict[str, Any]) -> str:
@@ -754,7 +871,7 @@ def render_evidence_weighing_prompt(split: dict[str, Any]) -> str:
     )
     lines = [
         EVIDENCE_WEIGHING_MODE_MARKER,
-        "A method panel has answered this adapter finding. Weigh the EVIDENCE,",
+        "The judge seats have answered this adapter finding. Weigh the EVIDENCE,",
         "not the votes: the seats are unnamed and their assertions are listed",
         "ranked — an executable reproduction outranks a mechanically verified",
         "trace, which outranks a cited observation, which outranks argument.",
@@ -792,60 +909,65 @@ def dispatch_arbiter_for_split_verdicts(
     cycle_id: str | None = None,
     target_sha: str | None = None,
 ) -> dict[str, Any]:
-    """Mint ONE arbiter envelope per split judgment group.
+    """Mint ONE arbiter envelope per arbitration group (``arbitration_groups``:
+    a split, or an unsettled group whose consensus uncertainty is the
+    arbiter's — F0.7, where the operator used to be asked).
 
-    Idempotent on the same key the judge fan-out uses — ``(judgment_group_id,
-    target_agent)`` read back from the request ledger — so a group whose
-    arbiter is still in flight is not asked again next cycle, and a group whose
-    arbiter already answered is settled by the consensus engine, not by a
-    second envelope.
+    Idempotent on ``(judgment_group_id, arbiter inputs digest)`` read back
+    from the request ledger: a group whose arbiter is in flight or answered
+    is not asked again, and a group whose seats moved since (J4) is
+    re-offered at its current inputs.
     """
     root = ensure_tools_dir(base_dir)
-    existing = _existing_judge_dispatches(root)
+    minted_inputs = _minted_arbiter_inputs(root)
     minted: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
-    for split in split_verdict_groups(tool_id=tool_id, base_dir=root):
-        group = str(split.get("judgment_group_id") or "")
-        if (group, CONSENSUS_ARBITER_AGENT) in existing:
+    for group in arbitration_groups(tool_id=tool_id, base_dir=root):
+        group_id = str(group.get("judgment_group_id") or "")
+        digest = group["arbiter_inputs"]["digest"]
+        if (group_id, digest) in minted_inputs:
             skipped.append({
-                "judgment_group_id": group,
+                "judgment_group_id": group_id,
                 "target_agent": CONSENSUS_ARBITER_AGENT,
                 "reason": "already_dispatched",
             })
             continue
         admission = _arbiter_admission(root, cycle_id)
         if not admission.admitted:
-            skipped.append({"judgment_group_id": group, "target_agent": CONSENSUS_ARBITER_AGENT,
+            skipped.append({"judgment_group_id": group_id, "target_agent": CONSENSUS_ARBITER_AGENT,
                             "reason": admission.refusal})
             break
         # WP-J B-2 — a METHOD panel's split is weighed, not aggregated: its
-        # seats carry method receipts (minted after EXPERT_METHODS landed),
-        # and the evidence-weighing brief ranks what they produced with the
-        # seats stripped. A legacy split (no method receipts anywhere) keeps
-        # the aggregation brief byte for byte.
-        panel_split = any(seat.get("method") for seat in split.get("judges") or [])
+        # seats carry method receipts, and the evidence-weighing brief ranks
+        # what they produced with the seats stripped. F0.7 — so is every
+        # group that is not a split: its seats agreed, and what the arbiter
+        # owes is a weighing of what they stood on, not an aggregate. A
+        # legacy split (no method receipts anywhere) keeps the aggregation
+        # brief byte for byte.
+        weighed = not group["split"] or any(seat.get("method") for seat in group.get("judges") or [])
         minted.append(_mint_arbiter(
             root,
             tool_id=tool_id,
-            group=split,
+            group=group,
             admission=admission,
             prompt=(
-                render_evidence_weighing_prompt(split)
-                if panel_split
-                else _render_arbiter_prompt(split)
+                render_evidence_weighing_prompt(group)
+                if weighed
+                else _render_arbiter_prompt(group)
             ),
             criterion=(
                 "Weigh the ranked evidence and return details.consensus, or "
                 "uncertainty_reason=unverifiable when it cannot be weighed"
-                if panel_split
+                if weighed
                 else "Aggregate the supplied judge verdicts and return "
                 "details.consensus, or the uncertainty reason when the "
                 "consensus gate cannot be met"
             ),
+            inputs=group["arbiter_inputs"],
             cycle_id=cycle_id,
             target_sha=target_sha,
         ))
-        existing.add((group, CONSENSUS_ARBITER_AGENT))
+        minted_inputs.add((group_id, digest))
     return {"schema_version": 1, "minted_count": len(minted), "minted": minted, "skipped": skipped}
 
 
@@ -867,11 +989,13 @@ def _mint_arbiter(
     group: dict[str, Any],
     prompt: str,
     criterion: str,
+    inputs: dict[str, Any],
     cycle_id: str | None,
     target_sha: str | None,
 ) -> dict[str, Any]:
     """One arbiter envelope. Shared by the split arm and the anchor arm so a
-    change to the arbiter's contract cannot land on one lane only."""
+    change to the arbiter's contract cannot land on one lane only. J4 — the
+    envelope carries the ``arbiter_inputs`` it was minted over."""
     group_id = str(group.get("judgment_group_id") or "")
     refs = sorted({
         ref
@@ -898,6 +1022,7 @@ def _mint_arbiter(
         target_sha=target_sha,
         base_dir=root,
         admission=admission,
+        arbiter_inputs=inputs,
     )
     return {
         "request_id": req.get("request_id"),
@@ -982,9 +1107,12 @@ def anchor_candidate_groups(
     from .feedback_store import ANCHOR_MIN_JUDGE_COUNT
 
     grouped, settled = _judge_rows_by_group(tool_id, base_dir)
+    _arbitrated, terminal = _uncertain_group_keys(tool_id, base_dir)
     remaining = max(int(demand), 0)
     candidates: list[dict[str, Any]] = []
     for (run_id, finding_id, group_id), by_judge in sorted(grouped.items()):
+        if (run_id, finding_id, group_id) in terminal:
+            continue
         if len(by_judge) < 2 or len(by_judge) >= ANCHOR_MIN_JUDGE_COUNT:
             continue
         if settled.get((run_id, finding_id, group_id), 0) >= ANCHOR_MIN_JUDGE_COUNT:
@@ -1008,6 +1136,7 @@ def anchor_candidate_groups(
                 _seat_payload(judge_id, row)
                 for judge_id, row in sorted(by_judge.items())
             ],
+            "arbiter_inputs": _seat_inputs(by_judge),
         })
     return candidates
 
@@ -1023,7 +1152,7 @@ def dispatch_arbiter_for_anchor_groups(
 
     The readiness shortfall is derived here, not passed in, so the mint and
     the gate can never disagree about how many anchors a tool still owes.
-    Idempotent on the same ``(judgment_group_id, target_agent)`` key the
+    Idempotent on the same ``(judgment_group_id, inputs digest)`` key the
     split arm uses.
     """
     from .feedback_store import (
@@ -1032,7 +1161,7 @@ def dispatch_arbiter_for_anchor_groups(
     )
 
     root = ensure_tools_dir(base_dir)
-    existing = _existing_judge_dispatches(root)
+    minted_inputs = _minted_arbiter_inputs(root)
     demand = max(
         ANCHOR_PROMOTION_MIN_JUDGMENTS
         - len(anchor_group_keys(tool_id=tool_id, base_dir=root)),
@@ -1044,7 +1173,8 @@ def dispatch_arbiter_for_anchor_groups(
         tool_id=tool_id, base_dir=root, demand=demand,
     ):
         group = str(candidate.get("judgment_group_id") or "")
-        if (group, CONSENSUS_ARBITER_AGENT) in existing:
+        digest = candidate["arbiter_inputs"]["digest"]
+        if (group, digest) in minted_inputs:
             skipped.append({
                 "judgment_group_id": group,
                 "target_agent": CONSENSUS_ARBITER_AGENT,
@@ -1067,10 +1197,11 @@ def dispatch_arbiter_for_anchor_groups(
                 "with your own file:line evidence; disagreement with the prior "
                 "judges is a valid answer"
             ),
+            inputs=candidate["arbiter_inputs"],
             cycle_id=cycle_id,
             target_sha=target_sha,
         ))
-        existing.add((group, CONSENSUS_ARBITER_AGENT))
+        minted_inputs.add((group, digest))
     return {
         "schema_version": 1,
         "anchor_demand": demand,
@@ -1078,38 +1209,6 @@ def dispatch_arbiter_for_anchor_groups(
         "minted": minted,
         "skipped": skipped,
     }
-
-
-def pending_arbitration_group_ids(
-    *,
-    base_dir: str | Path | None = None,
-) -> set[str]:
-    """Judgment groups whose arbiter request has not reached a terminal state.
-
-    The consensus-escalation sweep reads this to keep a split OUT of the
-    HUMAN_REQUIRED queue while its arbitration is still in flight: arbitration
-    first, the operator as the fallback. Without it a split verdict would raise
-    an escalation AND an arbitration for the same group in the same cycle —
-    two authorities on one question, which is the duplicate the role hygiene
-    pass exists to remove.
-    """
-    from .agent_invocations import derive_request_states, list_agent_invocation_requests
-    from .agent_surface import TERMINAL_REQUEST_STATES
-
-    # ARIA-HIGH-358 — one ledger load for every arbiter request, however
-    # many the role accumulates.
-    states = derive_request_states(base_dir=base_dir)
-    pending: set[str] = set()
-    for row in list_agent_invocation_requests(
-        base_dir=base_dir, role=CONSENSUS_ARBITRATION_ROLE,
-    ):
-        group = str(row.get("judgment_group_id") or "")
-        request_id = str(row.get("request_id") or "")
-        if not group or not request_id:
-            continue
-        if states[request_id] not in TERMINAL_REQUEST_STATES:
-            pending.add(group)
-    return pending
 
 
 # WP-J B-2 — the rebuttal round (operator protocol step 5: "If refuted with
@@ -1146,9 +1245,14 @@ def dissent_rebuttal_candidates(
     from .feedback_store import load_feedback
 
     root = ensure_tools_dir(base_dir)
+    _arbitrated, terminal = _uncertain_group_keys(tool_id, root)
     candidates: list[dict[str, Any]] = []
     for row in load_feedback(tool_id=tool_id, base_dir=root):
         if row.get("source_type") != "ai_consensus":
+            continue
+        # F0.7 — an unverifiable group is terminal: no seat is re-asked.
+        if (str(row.get("run_id") or ""), str(row.get("finding_id") or ""),
+                str(row.get("judgment_group_id") or "")) in terminal:
             continue
         if _row_count(row, "judges_voted") <= _row_count(row, "judge_count"):
             continue

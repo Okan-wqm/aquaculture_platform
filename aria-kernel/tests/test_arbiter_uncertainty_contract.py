@@ -21,6 +21,7 @@ from aria_kernel.feedback_store import (
     CONSENSUS_UNCERTAINTY_REASONS,
     record_consensus_uncertainty,
 )
+from aria_kernel.judge_fanout import ARBITER_SUBJECT_FINDING, arbiter_inputs
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 
 
@@ -32,6 +33,8 @@ def _request() -> dict:
         "finding_id": "f-1",
         "judgment_group_id": "grp-1",
         "cycle_id": "cyc-1",
+        # J4 — bound to the group as it reads (no seats in this fixture).
+        "arbiter_inputs": arbiter_inputs(ARBITER_SUBJECT_FINDING, []),
     }
 
 
@@ -100,6 +103,15 @@ class ArbiterUncertaintyIsAValidOutcome(unittest.TestCase):
         rows = [json.loads(l) for l in ledger.read_text().splitlines() if l.strip()]
         total = sum(len(r["uncertainties"]) for r in rows)
         self.assertEqual(total, 1)
+
+    def test_an_unbound_arbiter_envelope_is_refused_by_name(self) -> None:
+        # J4 — an envelope minted before the binding can prove nothing about
+        # what it was asked; its answer writes nothing.
+        unbound = {key: value for key, value in _request().items() if key != "arbiter_inputs"}
+        with self.assertRaises(GovernanceError) as ctx:
+            jb.record_judge_verdict_from_response(request=unbound, response=_uncertain_response(), base_dir=self.base)
+        self.assertIn("arbiter_inputs_unbound", str(ctx.exception))
+        self.assertFalse((self.base / "feedback-consensus-uncertainties.jsonl").exists())
 
     def test_unregistered_reason_is_refused_by_name(self) -> None:
         with self.assertRaises(GovernanceError) as ctx:

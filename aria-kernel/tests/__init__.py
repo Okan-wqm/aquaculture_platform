@@ -101,3 +101,41 @@ if _state_root_env:
     )
 if not os.environ.get(WORKSPACE_BASE_ENV):
     os.environ[WORKSPACE_BASE_ENV] = _process_scratch_dir("aria-test-workspaces-")
+
+
+# RW-1 corrective R7 — the suite never reads the host's production metrics.
+# The tracked default runtime source (watchdog_pull.observability_base_url)
+# is the host's loopback Prometheus, where the RW-1 install step publishes
+# production; the self-hosted runner and the pre-push hooks run this suite
+# on that host. A sweep reached without a source of its own — a direct
+# run_watchdog_sweep, and every standard-mode cycle a fixture runs, since
+# the cycle calls the sweep in its watchdog phase — would judge production's
+# 5xx rate. Tier 2, the same as the tools dir above: inside the suite the
+# tracked default source is the unconfigured source, by default. A test that
+# reads a source names one (a loopback stand-in on a port of its own), which
+# never equals the tracked default and is read unchanged; the direct sweep
+# call sites also name theirs explicitly (pinned by
+# test_rw1_runtime_watchdog_feed.EveryKernelTestSweepNamesItsSource).
+def _isolate_runtime_source() -> None:
+    import functools
+    from typing import Any
+
+    from aria_kernel import aria_watchdog
+    from aria_kernel.genesis_policy import WATCHDOG_PULL_DEFAULTS
+
+    tracked_source = WATCHDOG_PULL_DEFAULTS["observability_base_url"]
+    host_pull = aria_watchdog.pull_observability_metrics
+
+    @functools.wraps(host_pull)
+    def suite_pull(*, base_url: object, **kwargs: Any) -> Any:
+        if base_url == tracked_source:
+            return None, aria_watchdog.SourceHold(
+                "source_unconfigured",
+                f"kernel test suite: the tracked default {tracked_source} is the host's production source",
+            )
+        return host_pull(base_url=base_url, **kwargs)
+
+    aria_watchdog.pull_observability_metrics = suite_pull
+
+
+_isolate_runtime_source()

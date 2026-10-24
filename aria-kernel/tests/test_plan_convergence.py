@@ -268,6 +268,7 @@ class PlanConvergenceTests(unittest.TestCase):
                 "review_content_hash": content_hash({"wrong": "review"}),
                 "agent_invocation_request_id": "AIR-1",
             },
+            reviewed_commit_sha=workspace_head_sha(self.root),
             workspace_root=self.root,
             base_dir=self.tools_dir,
         )

@@ -113,9 +113,15 @@ class FormerLstripSitesTests(unittest.TestCase):
         owners = service_dimension.owning_agent_domains_for_paths([prefix + "x"])
         self.assertTrue(owners, f"{prefix}x must reach its owners; lstrip used to erase the dot")
 
-    def test_architecture_project_key(self) -> None:
-        self.assertEqual(architecture._project_key("./apps/farm-service/src/x.ts"), "apps/farm-service")
-        self.assertIsNone(architecture._project_key(".github/apps/x/y"))
+    def test_architecture_adoption_names_projects_through_the_one_owner(self) -> None:
+        # SE-1 round 2: adoption counts projects through
+        # `impact_graph.project_for_path`, whose normalizer strips a ``./``
+        # prefix and never erases a leading dot.
+        adoption = architecture._adoption_gravity(
+            ["./apps/farm-service/src/x.ts", ".github/apps/x/y"],
+            {"farm-service": "apps/farm-service", "x": "apps/x"},
+        )
+        self.assertEqual(adoption["projects"], ["farm-service"])
 
     def test_skill_authoring_refuses_traversal_before_git(self) -> None:
         self.assertEqual(_git_show_line(REPO_ROOT, "0" * 40, "../etc/passwd", 1), (False, ""))

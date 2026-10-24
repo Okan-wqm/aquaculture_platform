@@ -13,6 +13,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from aria_kernel.impact_graph import project_map
+
 
 class DismantledLaneTests(unittest.TestCase):
     def test_executor_and_codegen_modules_are_gone(self) -> None:
@@ -39,13 +41,16 @@ class FitnessPhaseTests(unittest.TestCase):
 
 class ArchitectureProducerTests(unittest.TestCase):
     def setUp(self) -> None:
-        from aria_kernel.tool_registry import ensure_tools_dir
+        from aria_kernel.tool_registry import ensure_tools_binding
 
         self.tmp = tempfile.TemporaryDirectory()
         self.tools = Path(self.tmp.name) / "aria-tools"
-        ensure_tools_dir(self.tools)
         self.repo = Path(self.tmp.name) / "repo"
-        self.repo.mkdir()
+        # The finding's service is the project `project_for_path` names over
+        # the workspace map (SE-1), so the seeded service is a project in the
+        # fixture workspace, and the store declares that workspace (round 2).
+        (self.repo / "apps" / "farm-service" / "src").mkdir(parents=True)
+        ensure_tools_binding(self.tools, workspace_root=self.repo)
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
@@ -67,7 +72,7 @@ class ArchitectureProducerTests(unittest.TestCase):
                         }
                     ],
                 },
-                base_dir=self.tools,
+                project_roots=project_map(base_dir=self.tools), base_dir=self.tools,
             )
 
     def test_threshold_crossing_also_mints_architecture_evidence(self) -> None:

@@ -22,6 +22,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+from aria_kernel.impact_graph import project_map
+
 
 class PromisedVerbsExistTest(unittest.TestCase):
     def test_feedback_record_and_batch_are_real_subcommands(self) -> None:
@@ -117,17 +119,19 @@ class SeedingHasAProducerTest(unittest.TestCase):
     def test_recorded_findings_flow_into_the_seeding_ledger(self) -> None:
         from aria_kernel import calibration_bootstrap as cb
         from aria_kernel.feedback_store import record_findings_for_run
-        from aria_kernel.tool_registry import ensure_tools_dir
+        from aria_kernel.tool_registry import ensure_tools_binding
 
         with TemporaryDirectory() as tmp:
             root = Path(tmp) / "aria-tools"
-            ensure_tools_dir(root)
+            # The mint attributes each finding over the store's map (SE-1
+            # round 2): the store declares the workspace it mints for.
+            ensure_tools_binding(root, workspace_root=Path(tmp))
             run = {
                 "tool_id": "adapter-a",
                 "run_id": "run-1",
                 "emitted_findings": [{"id": "f1", "title": "t", "evidence": ["apps/x.ts:1"]}],
             }
-            record_findings_for_run(run, base_dir=root)
+            record_findings_for_run(run, project_roots=project_map(base_dir=root), base_dir=root)
 
             from aria_kernel.strict_jsonl_reader import read_strict_jsonl
             pool = list(read_strict_jsonl(

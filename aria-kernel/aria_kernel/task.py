@@ -8,6 +8,7 @@ from typing import Any
 from .candidate_blocks import OWNER_AGENT_PANEL, describe_candidate_block
 from .capability_gap import latest_capability_gaps
 from .feedback_store import list_findings
+from .impact_graph import ProjectMap
 from .ledger import append_declared_jsonl, load_jsonl
 from .proactive_priority import latest_priorities
 from .tool_registry import ensure_tools_dir, utc_now
@@ -127,8 +128,16 @@ def generate_task_candidates(
         if not isinstance(pressure, dict):
             continue
         candidates.append(_candidate_from_pressure(cycle_id, pressure))
-    for finding in list_findings(status="open", base_dir=base_dir):
-        candidates.append(_candidate_from_finding(cycle_id, finding))
+    open_findings = list_findings(status="open", base_dir=base_dir)
+    if open_findings:
+        # SE-1 — one read of the store's current project map for every
+        # finding candidate, the map the mint attributes against; a store
+        # that can produce none refuses (``service_key_map_unavailable``).
+        from .impact_graph import project_map
+
+        project_roots = project_map(base_dir=base_dir)
+        for finding in open_findings:
+            candidates.append(_candidate_from_finding(cycle_id, finding, project_roots))
     for gap in latest_capability_gaps(base_dir=base_dir):
         # No cycle-id equality filter. Gap detection runs in
         # learning_post_evidence_closure, AFTER mission_ingest — so at ingest
@@ -248,18 +257,20 @@ def _candidate_from_pressure(cycle_id: str, pressure: dict[str, Any]) -> dict[st
     }
 
 
-def _candidate_from_finding(cycle_id: str, finding: dict[str, Any]) -> dict[str, Any]:
+def _candidate_from_finding(
+    cycle_id: str, finding: dict[str, Any], project_roots: ProjectMap
+) -> dict[str, Any]:
     payload = finding.get("finding", {}) if isinstance(finding.get("finding"), dict) else {}
     severity = str(payload.get("severity") or "medium")
     score = {"critical": 100, "high": 85, "medium": 60, "low": 35}.get(severity, 50)
     # E15-b — the candidate inherits the finding's service dimension so a
-    # service mission can claim its own findings; legacy rows derive it
-    # through the same seam the mint uses.
-    from .service_dimension import finding_dimension_paths, services_for_paths
+    # service mission can claim its own findings; through the one row
+    # reader, so a row minted before SE-1 or against an older layout is
+    # re-derived from its paths over the current project map rather than
+    # read in a retired vocabulary.
+    from .service_dimension import finding_dimension_paths, services_for_finding_row
 
-    services = finding.get("services") or services_for_paths(
-        finding_dimension_paths(payload)
-    )
+    services = services_for_finding_row(finding, project_roots)
     finding_id = str(finding.get("finding_id"))
     # The SAME collector the mint, the service seeder and the dimension axis
     # read paths through (E15-c) — used here for BOTH the forward pointer's

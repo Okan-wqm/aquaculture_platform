@@ -104,7 +104,7 @@ class FindingEmissionTests(unittest.TestCase):
                 facts=["a", "b", "c"],
                 scope_files=["x.ts"],
             )
-        records = list_findings(self.repo)
+        records = list_findings(self.repo, base_dir=self.tools)
         self.assertEqual([r["finding_id"] for r in records], ["F-001", "F-002", "F-003"])
 
     def test_severity_floor_enforced(self) -> None:
@@ -240,7 +240,7 @@ class FindingEmissionTests(unittest.TestCase):
         self.assertEqual(record["finding_id"], "F-002")
         on_disk = json.loads(stray.read_text(encoding="utf-8"))
         self.assertEqual(on_disk["source_event_id"], "finding:F-002:emitted")
-        self.assertEqual([r["finding_id"] for r in list_findings(self.repo)], ["F-001", "F-002"])
+        self.assertEqual([r["finding_id"] for r in list_findings(self.repo, base_dir=self.tools)], ["F-001", "F-002"])
         retired = self._retired_rows()
         self.assertEqual(len(retired), 1)
         self.assertEqual(retired[0]["details"]["finding_id"], "F-002")
@@ -272,7 +272,7 @@ class FindingEmissionTests(unittest.TestCase):
 
         self.assertEqual(events.read_bytes(), before)
         self.assertIn("finding_file_collision:F-002", str(refused.exception))
-        self.assertEqual([r["finding_id"] for r in list_findings(self.repo)], ["F-001"])
+        self.assertEqual([r["finding_id"] for r in list_findings(self.repo, base_dir=self.tools)], ["F-001"])
         self.assertEqual(orphan.read_text(encoding="utf-8"), orphan_text)
         self.assertEqual(self._retired_rows(), [])
 

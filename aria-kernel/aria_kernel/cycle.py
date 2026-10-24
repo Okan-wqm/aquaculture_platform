@@ -1304,9 +1304,13 @@ def _phase_watchdog(context: PhaseContext) -> dict[str, Any]:
     """
     from .aria_watchdog import run_watchdog_sweep
 
+    # A shadow cycle writes nothing: it emits no finding, raises no runtime
+    # lead and does not advance the runtime read stamp, so the next real
+    # sweep judges the interval the shadow one only looked at (RW-1 R5).
     return run_watchdog_sweep(
         workspace_root=context.workspace_root,
         tools_dir=context.base_dir,
+        suppress_emission=context.shadow_only,
     )
 
 
@@ -3054,8 +3058,9 @@ def _phase_metrics(context: PhaseContext) -> dict[str, Any]:
     )
     if night is not None:
         phase_digests["experiment_night"] = night
+    watchdog_sweep = _ran_result(context, "watchdog_sweep")
     watchdog = _phase_digest_of(
-        _ran_result(context, "watchdog_sweep"),
+        watchdog_sweep,
         # run_watchdog_sweep's REAL return keys (aria_watchdog.py: candidates/
         # emitted/suppressed). Two prior digests shipped with wrong names —
         # first invented fields, then the DAEMON's termination keys — and both
@@ -3065,6 +3070,26 @@ def _phase_metrics(context: PhaseContext) -> dict[str, Any]:
         ("candidates", "emitted", "suppressed"),
     )
     if watchdog is not None:
+        # RW-1 — the runtime feed's state rides the digest the report
+        # renders: the named hold when the source was not read (a hold that
+        # stopped at the sweep payload was the silence RW-1 removed), else
+        # "read" with the telemetry leads raised and refused; and, whenever
+        # the source answered, the runtime families it held no series for
+        # and the series it read that name no service.
+        runtime = watchdog_sweep["runtime"]
+        watchdog["runtime_feed"] = runtime.get("hold", "read")
+        watchdog["runtime_leads"] = len(runtime.get("leads", ()))
+        watchdog["runtime_refused_leads"] = len(runtime.get("refused_leads", ()))
+        watchdog["runtime_missing_families"] = ",".join(runtime.get("missing_families", ()))
+        # A read whose series lack the service label is not a clean read
+        # (RW-1 corrective R6); a hold read no series to count.
+        watchdog["runtime_unattributed_series"] = runtime.get("unattributed_series", 0)
+        # The window a read judged and how it was chosen (RW-1 corrective
+        # R5): the interval since the last read, or the named first read,
+        # or a capped read with the span it left unjudged.
+        watchdog["runtime_window_from"] = runtime.get("window_from", "")
+        watchdog["runtime_window_seconds"] = runtime.get("window_seconds", 0)
+        watchdog["runtime_unjudged_seconds"] = runtime.get("unjudged_seconds", 0)
         phase_digests["watchdog_sweep"] = watchdog
     author = _phase_digest_of(
         _ran_result(context, "experiment_author"),

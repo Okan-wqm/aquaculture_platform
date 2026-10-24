@@ -964,7 +964,7 @@ def _render_watchdog_section(reflection: dict[str, Any]) -> list[str]:
         )
     else:
         feed_line = f"- runtime feed: held — {feed}{no_series}"
-    return [
+    lines = [
         "",
         "## Watchdog Sweep",
         "",
@@ -972,6 +972,16 @@ def _render_watchdog_section(reflection: dict[str, Any]) -> list[str]:
         f"- emitted: {sweep.get('emitted', 0)} (suppressed: {sweep.get('suppressed', 0)})",
         feed_line,
     ]
+    # RW-1 corrective R5 — the window a read judged, named when it is not
+    # simply the interval since the last read.
+    window_from = sweep.get("runtime_window_from")
+    if window_from:
+        window_line = f"- runtime window: {sweep.get('runtime_window_seconds', 0)}s ({window_from})"
+        unjudged = sweep.get("runtime_unjudged_seconds", 0)
+        if unjudged:
+            window_line += f"; {unjudged}s unjudged before it"
+        lines.append(window_line)
+    return lines
 
 
 def _compute_bridge_health(root: Path) -> dict[str, Any]:

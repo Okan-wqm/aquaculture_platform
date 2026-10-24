@@ -56,6 +56,7 @@ import tempfile
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -137,6 +138,13 @@ class _RecordingPrometheus:
     (status, body, content type) — a listener on the port that is not, or
     not yet, a usable Prometheus. Anything else is 404; any method but GET
     is 405.
+
+    ``timeline`` makes it time-aware (RW-1 corrective R5): a list of
+    ``(epoch_seconds, sample)`` counter increments. An ``increase(...[Ns])``
+    query evaluated at ``time`` (the query parameter; without one, at
+    ``clock``, the stand-in's own "now", as Prometheus evaluates at its
+    wall clock) answers each series' increments inside ``(time-N, time]``,
+    and a series that existed by ``time`` but did not grow answers 0.
     """
 
     def __init__(
@@ -145,11 +153,14 @@ class _RecordingPrometheus:
         lifetime: list[_Sample] | None = None,
         window: list[_Sample] | None = None,
         raw: tuple[int, bytes, str] | None = None,
+        timeline: list[tuple[float, _Sample]] | None = None,
     ) -> None:
         self.requests: list[dict[str, Any]] = []
         self.lifetime = list(_ONE_HTTP_SAMPLE if lifetime is None else lifetime)
         self.window = None if window is None else list(window)
         self.raw = raw
+        self.timeline = None if timeline is None else list(timeline)
+        self.clock: float | None = None
         recorder = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -174,6 +185,11 @@ class _RecordingPrometheus:
                 path = self._record()
                 if recorder.raw is not None:
                     self._send(*recorder.raw)
+                elif path.startswith("/api/v1/query") and recorder.timeline is not None:
+                    params = recorder.requests[-1]["query"]
+                    query = params.get("query", [""])[0]
+                    at = float(params["time"][0]) if "time" in params else recorder.clock
+                    self._send(200, _instant_vector(recorder.counters_at(query, at), query), "application/json")
                 elif path.startswith("/api/v1/query"):
                     query = recorder.requests[-1]["query"].get("query", [""])[0]
                     counters = recorder.window if "increase(" in query and recorder.window is not None else recorder.lifetime
@@ -194,6 +210,32 @@ class _RecordingPrometheus:
 
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+
+    def counters_at(self, query: str, at: float | None) -> list[_Sample]:
+        """Each timeline series' increments inside the query's range ending at ``at``."""
+        if at is None:
+            raise AssertionError("a time-aware stand-in needs a time= parameter or its clock set")
+        span = re.search(r"\[(\d+)s\]", query)
+        if span is None:
+            raise AssertionError(f"not a range query: {query!r}")
+        start = at - int(span.group(1))
+        counters: dict[tuple[str, tuple[tuple[str, str], ...]], float] = {}
+        for ts, (name, labels, delta) in self.timeline or []:
+            if ts > at:
+                continue
+            key = (name, tuple(sorted(labels.items())))
+            counters[key] = counters.get(key, 0.0) + (delta if ts > start else 0.0)
+        return [(name, dict(labels), value) for (name, labels), value in counters.items()]
+
+    def range_queries(self, family: str = "http_requests_total") -> list[tuple[int, str | None]]:
+        """(range seconds, time parameter) of every increase query asked for ``family``."""
+        asked: list[tuple[int, str | None]] = []
+        for request in self.requests:
+            query = request["query"].get("query", [""])[0]
+            span = re.search(r"\[(\d+)s\]", query)
+            if family in query and span is not None:
+                asked.append((int(span.group(1)), (request["query"].get("time") or [None])[0]))
+        return asked
 
     @property
     def base_url(self) -> str:
@@ -262,10 +304,11 @@ class _Workspace(unittest.TestCase):
             encoding="utf-8",
         )
 
-    def sweep(self, *, suppress_emission: bool = True) -> dict[str, Any]:
+    def sweep(self, *, suppress_emission: bool = True, now: datetime | None = None) -> dict[str, Any]:
         return run_watchdog_sweep(
-            workspace_root=self.repo, tools_dir=self.tools, suppress_emission=suppress_emission,
+            workspace_root=self.repo, tools_dir=self.tools, suppress_emission=suppress_emission, now=now,
         )
+
 
     def governance(self, kind: str) -> list[dict[str, Any]]:
         path = self.tools / "governance.jsonl"
@@ -432,7 +475,7 @@ class ThePullerHoldsNoCredential(_Workspace):
         network = _NetworkRecorder()
         lookup, connect = network.patches()
         with lookup, connect:
-            pull_observability_metrics(base_url="http://203.0.113.7:9090", window_seconds=86400)
+            pull_observability_metrics(base_url="http://203.0.113.7:9090", window_seconds=86400, at=1790812800)
         self.assertEqual(network.calls, [])
 
     def test_a_sweep_sends_only_credential_free_gets_to_the_prometheus_read_api(self) -> None:
@@ -479,13 +522,13 @@ class TheDetectorJudgesTheWindowNotTheLifetime(_Workspace):
     container's lifetime 5xx by its lifetime requests describes the
     container's whole life. A resolved lead reopened every sweep with no new
     5xx, and a fresh storm on a long-lived service raised nothing. The
-    detector judges the counters' increase inside ``watchdog_pull.window_seconds``,
-    the sweep cadence."""
+    detector judges the counters' increase inside the judged window (since
+    corrective R5: the interval since the last read, TheWindowIsTheIntervalSinceTheLastRead)."""
 
     def test_a_resolved_lead_stays_resolved_when_the_next_window_has_no_new_5xx(self) -> None:
         with _RecordingPrometheus(lifetime=_farm_counters(90, 10), window=_farm_counters(90, 10)) as prometheus:
             self.configure(prometheus.base_url)
-            first = self.sweep(suppress_emission=False)["runtime"]
+            first = self.sweep(suppress_emission=False, now=_T0 + timedelta(hours=1))["runtime"]
             (lead,) = first["leads"]
             resolve_runtime_signal(
                 signal_id=lead["signal_id"], resolution_note="investigated after window 1", base_dir=self.tools,
@@ -494,7 +537,7 @@ class TheDetectorJudgesTheWindowNotTheLifetime(_Workspace):
             # still 10/190 = 5.3%, above the 5% threshold.
             prometheus.lifetime = _farm_counters(180, 10)
             prometheus.window = _farm_counters(90, 0)
-            second = self.sweep(suppress_emission=False)["runtime"]
+            second = self.sweep(suppress_emission=False, now=_T0 + timedelta(hours=7))["runtime"]
         self.assertEqual(second.get("leads"), [], second)
         record = fold_runtime_signals(self.runtime_signal_events())[lead["signal_id"]]
         self.assertEqual(record["status"], "resolved", record)
@@ -510,42 +553,186 @@ class TheDetectorJudgesTheWindowNotTheLifetime(_Workspace):
         observed = [e for e in self.runtime_signal_events() if e.get("event") == "observed"]
         self.assertEqual([e["service"] for e in observed], ["farm-service"])
 
-    def test_the_window_the_source_is_asked_for_is_the_policy_field(self) -> None:
-        with _RecordingPrometheus() as prometheus:
-            self.configure(prometheus.base_url, window_seconds=7200)
-            self.sweep()
-        queries = [q for r in prometheus.requests for q in r["query"].get("query", [])]
-        self.assertIn(
-            'sum by (app,status_code) (increase(http_requests_total{namespace="aquaculture"}[7200s]))', queries,
+
+# ─── The judged window is the interval since the last read (corrective R5) ─
+
+
+_T0 = datetime(2026, 10, 1, tzinfo=timezone.utc)
+
+
+def _bound() -> int:
+    """The policy's first-read/cap bound (looked up per test, so a missing
+    field fails the tests that use it rather than the module import)."""
+    return WATCHDOG_PULL_DEFAULTS["window_bound_seconds"]
+
+
+def _at(hours: float) -> datetime:
+    return _T0 + timedelta(hours=hours)
+
+
+def _epoch(moment: datetime) -> str:
+    return str(int(moment.timestamp()))
+
+
+def _farm_events(moment: datetime, ok: float, errors: float) -> list[tuple[float, _Sample]]:
+    return [(moment.timestamp(), sample) for sample in _farm_counters(ok, errors)]
+
+
+class TheWindowIsTheIntervalSinceTheLastRead(_Workspace):
+    """RW-1 corrective R5. A fixed 24h window premised on a once-a-day cron
+    overlapped consecutive sweeps (the cycle chain runs every 6h, floor 2h),
+    so a resolved lead reopened with no new 5xx; and sweeps more than 24h
+    apart left a span nobody judged and nothing named. The sweep judges the
+    interval from the previous successful runtime read to now, asked at an
+    explicit ``time=<now>``; the first read and an interval above the policy
+    bound judge the bound, and say so."""
+
+    def _stand_in(self, timeline: list[tuple[float, _Sample]], **pull: Any) -> _RecordingPrometheus:
+        prometheus = _RecordingPrometheus(timeline=timeline)
+        prometheus.__enter__()
+        self.addCleanup(prometheus.__exit__)
+        self.configure(prometheus.base_url, **pull)
+        return prometheus
+
+    def _sweep_at(self, prometheus: _RecordingPrometheus, moment: datetime, **kwargs: Any) -> dict[str, Any]:
+        prometheus.clock = moment.timestamp()
+        prometheus.requests.clear()
+        return self.sweep(now=moment, **kwargs)
+
+    # (A)
+    def test_a_resolved_lead_stays_resolved_when_the_sweep_six_hours_later_sees_no_new_5xx(self) -> None:
+        prometheus = self._stand_in(_farm_events(_at(0.5), 90, 10) + _farm_events(_at(4), 90, 0))
+        (lead,) = self._sweep_at(prometheus, _at(1), suppress_emission=False)["runtime"]["leads"]
+        resolve_runtime_signal(signal_id=lead["signal_id"], resolution_note="investigated", base_dir=self.tools)
+        second = self._sweep_at(prometheus, _at(7), suppress_emission=False)["runtime"]
+        self.assertEqual(second.get("leads"), [], second)
+        record = fold_runtime_signals(self.runtime_signal_events())[lead["signal_id"]]
+        self.assertEqual(record["status"], "resolved", record)
+        self.assertEqual(prometheus.range_queries(), [(21600, _epoch(_at(7)))])
+        self.assertEqual(second.get("window_from"), "last_read", second)
+
+    # (B)
+    def test_a_storm_between_two_sweeps_a_day_and_more_apart_is_judged_once(self) -> None:
+        prometheus = self._stand_in(_farm_events(_at(0.5), 100, 0) + _farm_events(_at(29), 90, 10))
+        first = self._sweep_at(prometheus, _at(1), suppress_emission=False)["runtime"]
+        self.assertEqual(first.get("leads"), [], first)
+        second = self._sweep_at(prometheus, _at(48), suppress_emission=False)["runtime"]
+        self.assertEqual(len(second.get("leads", [])), 1, second)
+        self.assertEqual(prometheus.range_queries(), [(47 * 3600, _epoch(_at(48)))])
+        self.assertEqual((second.get("window_from"), second.get("window_seconds")), ("last_read", 47 * 3600), second)
+
+    # (C)
+    def test_the_first_read_judges_the_bound_and_says_so(self) -> None:
+        prometheus = self._stand_in(_farm_events(_at(0.5), 100, 0), window_bound_seconds=7200)
+        payload = self._sweep_at(prometheus, _at(1))
+        self.assertEqual(prometheus.range_queries(), [(7200, _epoch(_at(1)))])
+        self.assertEqual(payload["runtime"].get("window_from"), "first_read", payload["runtime"])
+        self.assertIn("first_read", self.report_lines(payload))
+
+    def test_an_interval_above_the_bound_judges_the_bound_and_names_the_unjudged_span(self) -> None:
+        prometheus = self._stand_in(_farm_events(_at(0.5), 100, 0))
+        self._sweep_at(prometheus, _at(1), suppress_emission=False)
+        late = _at(1) + timedelta(seconds=_bound() + 3600)
+        payload = self._sweep_at(prometheus, late, suppress_emission=False)
+        runtime = payload["runtime"]
+        self.assertEqual(prometheus.range_queries(), [(_bound(), _epoch(late))])
+        self.assertEqual((runtime.get("window_from"), runtime.get("unjudged_seconds")), ("window_capped", 3600), runtime)
+        report = self.report_lines(payload)
+        self.assertIn("window_capped", report)
+        self.assertIn("3600s unjudged", report)
+
+    # The read stamp advances only after a read whose leads were ingested.
+    def test_a_suppressed_sweep_does_not_advance_the_read(self) -> None:
+        prometheus = self._stand_in(_farm_events(_at(0.5), 100, 0))
+        self._sweep_at(prometheus, _at(1), suppress_emission=True)
+        later = self._sweep_at(prometheus, _at(7), suppress_emission=False)["runtime"]
+        self.assertEqual(later.get("window_from"), "first_read", later)
+
+    def test_a_held_read_does_not_advance_the_read(self) -> None:
+        self.configure(_closed_loopback_url())
+        self.assertIn("hold", self.sweep(now=_at(1), suppress_emission=False)["runtime"])
+        prometheus = self._stand_in(_farm_events(_at(0.5), 100, 0))
+        later = self._sweep_at(prometheus, _at(7), suppress_emission=False)["runtime"]
+        self.assertEqual(later.get("window_from"), "first_read", later)
+
+    def test_an_interrupted_ingest_does_not_advance_the_read(self) -> None:
+        prometheus = self._stand_in(_farm_events(_at(0.5), 90, 10))
+        prometheus.clock = _at(1).timestamp()
+        interrupted = threading.Event()
+        interrupted.set()
+        first = run_watchdog_sweep(
+            workspace_root=self.repo, tools_dir=self.tools, now=_at(1), interrupt_event=interrupted,
+        )["runtime"]
+        self.assertEqual(first.get("leads"), [], first)
+        later = self._sweep_at(prometheus, _at(7), suppress_emission=False)["runtime"]
+        self.assertEqual(later.get("window_from"), "first_read", later)
+        self.assertEqual(len(later.get("leads", [])), 1, "the lead the interrupt dropped is judged again")
+
+    def test_a_shadow_cycle_neither_ingests_nor_advances_the_read(self) -> None:
+        from aria_kernel import cycle as cycle_mod
+
+        start = datetime.now(timezone.utc)
+        prometheus = self._stand_in(_farm_events(start - timedelta(minutes=30), 90, 10))
+        prometheus.clock = start.timestamp()
+        context = cycle_mod.build_phase_context(
+            cycle_id="cyc-rw1-shadow", workspace_root=self.repo, base_dir=self.tools, shadow_only=True,
         )
+        cycle_mod._phase_watchdog(context)
+        self.assertEqual(self.runtime_signal_events(), [], "a shadow cycle writes nothing")
+        later = self._sweep_at(prometheus, start + timedelta(hours=1), suppress_emission=False)["runtime"]
+        self.assertEqual(later.get("window_from"), "first_read", later)
+        self.assertEqual(len(later.get("leads", [])), 1, later)
+
+    def test_the_cycle_and_the_daemon_share_one_read_stamp(self) -> None:
+        from aria_kernel import cycle as cycle_mod
+
+        prometheus = self._stand_in(_farm_events(_at(0.5), 100, 0))
+        start = datetime.now(timezone.utc)
+        prometheus.clock = start.timestamp()
+        context = cycle_mod.build_phase_context(cycle_id="cyc-rw1-host", workspace_root=self.repo, base_dir=self.tools)
+        cycle_read = cycle_mod._phase_watchdog(context)["runtime"]
+        self.assertEqual(cycle_read.get("window_from"), "first_read", cycle_read)
+        daemon_read = self._sweep_at(prometheus, start + timedelta(hours=2), suppress_emission=False)["runtime"]
+        self.assertEqual(daemon_read.get("window_from"), "last_read", daemon_read)
+        self.assertLessEqual(abs(daemon_read["window_seconds"] - 7200), 60, daemon_read)
+
+    def test_the_window_never_enters_the_signal_identity(self) -> None:
+        """The bridge derives the signal id from the claim summary, so a window
+        that varies per sweep must not split one service's signal into many;
+        the window, the threshold and the volume floor are facts."""
+        summaries = {
+            anomaly.claim_summary
+            for window, threshold, floor in ((3600, 0.05, 50), (21600, 0.05, 50), (21600, 0.08, 20))
+            for anomaly in detect_http_5xx_share(
+                _farm_counters(90, 10), threshold=threshold, min_requests=floor, window_seconds=window,
+            )
+        }
+        self.assertEqual(len(summaries), 1, summaries)
+        (summary,) = summaries
+        for figure in ("3600", "21600", "5%", "8%", " 50 ", " 20 "):
+            self.assertNotIn(figure, summary)
 
 
-class TheWindowIsTheSweepCadence(unittest.TestCase):
-    """The sweep runs once per scheduled cycle, so the default window is that
-    cadence: consecutive sweeps judge consecutive windows, with no gap and no
-    double count."""
+class ThePolicyBoundsTheFirstAndTheCappedRead(unittest.TestCase):
+    def test_the_bound_is_named_and_the_old_fixed_window_is_gone(self) -> None:
+        self.assertNotIn("window_seconds", WATCHDOG_PULL_DEFAULTS, "the judged window is the interval since the last read")
+        self.assertIsInstance(_bound(), int)
 
-    def test_the_default_window_is_the_scheduled_cycle_period(self) -> None:
-        workflow = yaml.safe_load(
-            (_REPO_ROOT / ".github" / "workflows" / "aria-auto-cycle.yml").read_text(encoding="utf-8")
-        )
-        triggers = workflow.get("on", workflow.get(True))
-        (schedule,) = triggers["schedule"]
-        minute, hour, day_of_month, month, day_of_week = schedule["cron"].split()
-        self.assertTrue(minute.isdigit() and hour.isdigit(), schedule)
-        self.assertEqual((day_of_month, month, day_of_week), ("*", "*", "*"), "a once-a-day cycle")
-        self.assertEqual(WATCHDOG_PULL_DEFAULTS["window_seconds"], 24 * 3600)
-
-    def test_a_window_outside_its_bounds_or_not_an_integer_is_refused_by_name(self) -> None:
+    def test_a_bound_outside_its_range_or_not_an_integer_is_refused_by_name(self) -> None:
         repo = Path(tempfile.mkdtemp(prefix="aria-rw1-window-"))
         self.addCleanup(shutil.rmtree, repo, ignore_errors=True)
         override = repo / "aria-config" / "genesis_policy.json"
         override.parent.mkdir(parents=True)
         for value in (0, 59, 15 * 24 * 3600, True, 3600.5, "3600s]) or vector(1", None):
-            with self.subTest(window_seconds=value):
-                override.write_text(json.dumps({"watchdog_pull": {"window_seconds": value}}), encoding="utf-8")
-                with self.assertRaisesRegex(GovernanceError, "watchdog_pull.window_seconds"):
+            with self.subTest(window_bound_seconds=value):
+                override.write_text(json.dumps({"watchdog_pull": {"window_bound_seconds": value}}), encoding="utf-8")
+                with self.assertRaisesRegex(GovernanceError, "watchdog_pull.window_bound_seconds"):
                     watchdog_pull_policy(repo)
+
+    def test_the_runbook_verifies_the_query_the_first_read_sends(self) -> None:
+        runbook = (_REPO_ROOT / "docs" / "runbooks" / "aria-runner-rebuild.md").read_text(encoding="utf-8")
+        self.assertIn(aria_watchdog.runtime_increase_query("http_requests_total", _bound()), runbook)
+        self.assertNotIn("once-a-day", runbook)
 
 
 # ─── Series that name no service are named, not dropped (corrective R6) ────
@@ -686,7 +873,7 @@ class EveryKernelTestSweepNamesItsSource(unittest.TestCase):
         lookup, connect = network.patches()
         with lookup, connect:
             samples, hold = aria_watchdog.pull_observability_metrics(
-                base_url=WATCHDOG_PULL_DEFAULTS["observability_base_url"], window_seconds=3600,
+                base_url=WATCHDOG_PULL_DEFAULTS["observability_base_url"], window_seconds=3600, at=1790812800,
             )
         self.assertIsNone(samples)
         self.assertEqual(hold.name if hold else None, "source_unconfigured", hold)

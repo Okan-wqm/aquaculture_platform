@@ -264,11 +264,18 @@ The watchdog (`aria_watchdog.pull_observability_metrics`) reads production
 metrics with credential-free `GET /api/v1/query` instant queries against
 `watchdog_pull.observability_base_url`, whose tracked default is
 `http://127.0.0.1:9090`: one per runtime family, each asking for the
-family's increase over `watchdog_pull.window_seconds` (default 86400, the
-once-a-day cycle cadence), so the detectors judge the last window and not a
-container's lifetime counters. It refuses any origin that is not a loopback IP
-literal before opening a socket. Every way the feed goes unread is named in
-the cycle's watchdog digest and report (`source_unconfigured`,
+family's increase over the interval since the previous successful runtime
+read, evaluated at an explicit `time=<now>`, so the detectors judge what
+happened since the last sweep and not a container's lifetime counters. The
+sweep keeps that read stamp in the ARIA tools dir
+(`watchdog/runtime-read.json`, carried by the state publish) and advances it
+only after the read's leads were raised. The first read, and any interval
+longer than `watchdog_pull.window_bound_seconds` (default 604800, one week,
+inside the 15-day Prometheus retention), judge that bound instead; the
+digest and the report name it (`first_read`, or `window_capped` with the
+span left unjudged). It refuses any origin that is not a loopback IP literal
+before opening a socket. Every way the feed goes unread is named in the
+cycle's watchdog digest and report (`source_unconfigured`,
 `source_not_loopback`, `source_unreachable`, `source_refused` for an answer
 that is not a Prometheus instant vector, `source_empty` for well-formed
 answers with no runtime series, …).
@@ -316,7 +323,7 @@ read proxy serving only the RW-1 queries is the narrower alternative.
    ```bash
    ss -ltn | grep -F '127.0.0.1:9090 '
    sudo -u gharunner curl -sS -G 'http://127.0.0.1:9090/api/v1/query' \
-     --data-urlencode 'query=sum by (app,status_code) (increase(http_requests_total{namespace="aquaculture"}[86400s]))' \
+     --data-urlencode 'query=sum by (app,status_code) (increase(http_requests_total{namespace="aquaculture"}[604800s]))' \
      | head -c 300; echo
    sudo -u gharunner curl -s -o /dev/null -w '%{http_code}\n' -X POST 'http://127.0.0.1:9090/-/reload'
    ```
@@ -325,7 +332,9 @@ read proxy serving only the RW-1 queries is the narrower alternative.
    `{"status":"success","data":{"resultType":"vector","result":[{"metric":{"app":…`
    answer with at least one series, and `403` for the lifecycle POST
    (disabled). The query is `aria_watchdog.runtime_increase_query` for
-   `http_requests_total` at the default window. If `ss` prints nothing, the
+   `http_requests_total` at the default bound, which is what the first read
+   asks for (pinned by
+   `aria-kernel/tests/test_rw1_runtime_watchdog_feed.py`). If `ss` prints nothing, the
    port was not published (the internal-only network above): leave the host
    as it is (the watchdog names the hold `source_unreachable`) and record it
    on DEPLOY-CRITICAL-017 and INFRA-LOW-196; the consolidation onto

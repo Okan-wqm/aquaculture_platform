@@ -552,15 +552,18 @@ WATCHDOG_PULL_DEFAULTS: dict[str, Any] = {
     "observability_base_url": "http://127.0.0.1:9090",
     # No credential field, not even an env-var name: ARIA holds no shared
     # internal API key (RW-1); the source needs none.
-    # RW-1 — the window the runtime detectors judge: the counters' increase
-    # over the last window_seconds, never their lifetime totals (a lifetime
-    # share reopened resolved leads and hid fresh storms on long-lived
-    # services). It is the sweep cadence — the sweep runs once per scheduled
-    # cycle (aria-auto-cycle.yml, once a day) — so consecutive sweeps judge
-    # consecutive windows. Bounded by the cycle interval's own bounds
-    # (RHYTHM_BOUNDS min_interval_hours); the threshold and the minimum
-    # volume below apply to the window.
-    "window_seconds": 24 * 3600,
+    # RW-1 corrective R5 — the runtime detectors judge the interval since the
+    # previous successful runtime read (aria_watchdog.run_watchdog_sweep owns
+    # that window and its read stamp), not a fixed span: the cycle chain
+    # sweeps every min_interval_hours (6h default, 2h floor) and the opener
+    # throttle can skip sweeps, so no constant matches the cadence. This is
+    # only the BOUND: what the first read judges, and the most any read
+    # judges — a longer interval judges the bound and names the span it
+    # left unjudged. A week covers a skipped day and a paused weekend and
+    # stays inside the droplet Prometheus retention (15d). Bounded by the
+    # cycle interval's own bounds (RHYTHM_BOUNDS min_interval_hours); the
+    # threshold and the minimum volume below apply to the judged window.
+    "window_bound_seconds": 7 * 24 * 3600,
     "http_5xx_share_threshold": 0.05,
     "http_min_requests": 50,
 }
@@ -582,14 +585,14 @@ def watchdog_pull_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
     raw_block = merged.get("watchdog_pull")
     if isinstance(raw_block, dict):
         block.update({k: raw_block[k] for k in WATCHDOG_PULL_DEFAULTS if k in raw_block})
-    # The window is written into the query the puller sends, so it is an
+    # The bound is written into the query the puller sends, so it is an
     # integer number of seconds inside the cycle interval's bounds, refused
     # by name otherwise — never clamped, never passed through as text.
-    window = block["window_seconds"]
+    bound = block["window_bound_seconds"]
     _, low_hours, high_hours = RHYTHM_BOUNDS["min_interval_hours"]
-    if type(window) is not int or not low_hours * 3600 <= window <= high_hours * 3600:
+    if type(bound) is not int or not low_hours * 3600 <= bound <= high_hours * 3600:
         raise GovernanceError(
-            f"watchdog_pull.window_seconds={window!r} must be int seconds in "
+            f"watchdog_pull.window_bound_seconds={bound!r} must be int seconds in "
             f"[{int(low_hours * 3600)}, {int(high_hours * 3600)}]"
         )
     return block

@@ -55,7 +55,7 @@ _SECURITY_ANSWER = _answer(
     ({"app": "observability-service", "severity": "critical", "type": "auth_bypass_attempt"}, "4"),
     ({"app": "observability-service", "severity": "low", "type": "rate_limited"}, "120"),
 )
-_WINDOW = WATCHDOG_PULL_DEFAULTS["window_seconds"]
+_WINDOW = WATCHDOG_PULL_DEFAULTS["window_bound_seconds"]
 
 
 def _samples() -> list:

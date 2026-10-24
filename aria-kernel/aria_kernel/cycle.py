@@ -1304,9 +1304,13 @@ def _phase_watchdog(context: PhaseContext) -> dict[str, Any]:
     """
     from .aria_watchdog import run_watchdog_sweep
 
+    # A shadow cycle writes nothing: it emits no finding, raises no runtime
+    # lead and does not advance the runtime read stamp, so the next real
+    # sweep judges the interval the shadow one only looked at (RW-1 R5).
     return run_watchdog_sweep(
         workspace_root=context.workspace_root,
         tools_dir=context.base_dir,
+        suppress_emission=context.shadow_only,
     )
 
 
@@ -2975,6 +2979,12 @@ def _phase_metrics(context: PhaseContext) -> dict[str, Any]:
         # A read whose series lack the service label is not a clean read
         # (RW-1 corrective R6); a hold read no series to count.
         watchdog["runtime_unattributed_series"] = runtime.get("unattributed_series", 0)
+        # The window a read judged and how it was chosen (RW-1 corrective
+        # R5): the interval since the last read, or the named first read,
+        # or a capped read with the span it left unjudged.
+        watchdog["runtime_window_from"] = runtime.get("window_from", "")
+        watchdog["runtime_window_seconds"] = runtime.get("window_seconds", 0)
+        watchdog["runtime_unjudged_seconds"] = runtime.get("unjudged_seconds", 0)
         phase_digests["watchdog_sweep"] = watchdog
     author = _phase_digest_of(
         _ran_result(context, "experiment_author"),

@@ -2,7 +2,7 @@
 
 **Audience:** `orchestrator.md` includes this fragment via `@.claude/shared/orchestrator-routing-table.md`. Tests (`tests/invariants/orchestrator-routing-coverage.spec.ts`) read both `orchestrator.md` AND this file to validate (a) every top-level repo surface has at least one matching glob, (b) every primary agent appearing here is in the runtime roster.
 
-Hand-edit only in orchestrator-maintenance cycles. Adding a new top-level directory requires a new row here + a roster entry in `orchestrator.md` + a `prompt-writer` review.
+Hand-edit only in orchestrator-maintenance cycles. Adding a new top-level directory requires a new row here + a roster entry in `orchestrator.md` + a `prompt-writer` maintenance pass (prompt-writer edits the prompts; it never reviews a change).
 
 ## Routing Table
 
@@ -67,7 +67,7 @@ Phase 1 maps every changed file to one or more agents via these globs. `git diff
 | `apps/*/src/**/tenant*.ts`, `libs/backend-common/src/database/**tenant**`, `libs/backend-common/src/guards/tenant*.ts` | multi-tenant-saas-expert | auth-security-expert, data-expert |
 | `**/*.spec.ts`, `**/*.test.ts`, `e2e/**`, `tests/**`, `.github/workflows/*test*`, `.github/workflows/*ci*` | test-runner | |
 | `mcp/**` | mcp-expert | farm-expert, messaging-expert, security-reviewer |
-| `.claude/agents/*.md` | prompt-writer | maintenance-only; outside runtime review roster |
+| `.claude/agents/*.md` | architectural-arbiter | |
 | `apps/alert-engine/**` | alert-engine-expert | sensor-expert, farm-expert, multi-tenant-saas-expert, security-reviewer |
 | `libs/aquaculture-engines/**` | farm-expert | |
 | `libs/farm-shared/**` | farm-expert | |
@@ -85,21 +85,21 @@ Phase 1 maps every changed file to one or more agents via these globs. `git diff
 | `scripts/nats/**` | infra-expert | data-expert |
 | `scripts/ci/**` | infra-expert | test-runner |
 | `scripts/deploy*`, `scripts/*.sh`, `scripts/*.ts` | infra-expert | security-reviewer |
-| `docs/adr/**` | architectural-arbiter | prompt-writer |
+| `docs/adr/**` | architectural-arbiter | |
 | `docs/runbooks/**` | infra-expert | security-reviewer |
 | `docs/reviews/**` | context-manager | orchestrator |
-| `docs/research/**` | prompt-writer | |
+| `docs/research/**` | architectural-arbiter | |
 | `docs/architecture/**`, `docs/security/**`, `docs/api/**`, `docs/guides/**`, `docs/DEPLOY.md` | architectural-arbiter | infra-expert |
 | `nx.json`, `tsconfig.base.json`, `jest.config.*`, `.prettierrc*`, `.nvmrc` | platform-kernel-expert | infra-expert |
-| `.claude/knowledge/**`, `.claude/shared/**` | prompt-writer | architectural-arbiter |
+| `.claude/knowledge/**`, `.claude/shared/**` | architectural-arbiter | |
 | `.claude/allowlists/**` | security-reviewer | architectural-arbiter |
-| `.claude/skills/**` | prompt-writer | implementation-planner |
+| `.claude/skills/**` | architectural-arbiter | |
 | `tools/gates/**`, `tools/eslint-rules/**`, `tools/ripple-tracer/**` | infra-expert | architectural-arbiter, security-reviewer |
 | `aria-kernel/**` | *ARIA lane — no Lane-A primary* | platform-kernel-expert |
 | `tools/aria-poc/**` | *ARIA lane — no Lane-A primary* | mcp-expert |
 | `tools/aria-adapters/**` | *ARIA lane — no Lane-A primary* | ai-safety-auditor |
-| `CLAUDE.md` | architectural-arbiter | prompt-writer, *all experts* |
-| `apps/*/src/gdpr/**` (handler implementations) | gdpr-erasure-executor | compliance-expert (review), legal-hold-auditor (precedence), audit-trail-completeness-auditor (audit row) |
+| `CLAUDE.md` | architectural-arbiter | *all experts* |
+| `apps/*/src/gdpr/**` (handler implementations) | compliance-expert | legal-hold-auditor (precedence), audit-trail-completeness-auditor (audit row) |
 | `libs/backend-common/src/compliance/legal-hold/**` | legal-hold-auditor | compliance-expert |
 | destructive action paths (cross-cutting) | legal-hold-auditor | *primary destructive handler owner* |
 | every CQRS COMMAND handler audit capture | audit-trail-completeness-auditor | *respective domain expert* |
@@ -125,6 +125,7 @@ These override or extend the routing-table primary assignment in cross-cutting c
 - `web/shared-ui/**` change → `frontend-expert` + flag impact on ALL frontend modules.
 - Changes span 3+ domains → `security-reviewer` as cross-cutting quality gate.
 - Schema file / migration / `*.entity.ts` change → also `database-reviewer` (parallel to `data-expert`'s delta review).
+- Writer and maintenance agents never review. No routing row names, as primary or also-notify, an agent under `.claude/agents/_maintenance/` or an agent whose `tools:` include Edit/Write: gdpr-erasure-executor writes the `apps/*/src/gdpr/**` handlers on an `implement:` token and compliance-expert reviews them; prompt-writer and implementation-planner are maintenance tooling. Enforced by `surface_manifest_validator.validate_maintenance_agent_isolation` (Layer 6) through `aria-kernel/tests/invariants/test_path_agent_map_single_owner.py`.
 - Every changed file MUST map to ≥1 primary agent. Unmatched path = PROCESS HIGH ownership gap; invoke `prompt-writer`, keep review open until coverage is defined.
 - 3+ expert agents dispatched OR total corpus ~50K+ tokens → Phase 3.5 auto-invokes `context-manager` for compaction + dependency graph.
 - Two agents produce contradictory recommendations in the same cycle OR any recommendation breaks another agent's domain invariant → `architectural-arbiter` after Phase 3.5, before Phase 5.

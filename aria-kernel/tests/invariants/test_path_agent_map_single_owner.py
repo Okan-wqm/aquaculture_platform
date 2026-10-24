@@ -75,11 +75,14 @@ from __future__ import annotations
 import ast
 import functools
 import re
+import tempfile
 import unittest
 from pathlib import Path
 
 from aria_kernel import agent_genesis, service_dimension, specialist_review_runner
 from aria_kernel.agent_routing import load_routing_table, recommended_agents_for_project
+from aria_kernel.surface_manifest_validator import validate_maintenance_agent_isolation
+from tests._helpers.routing_fixture import write_routing_table
 
 _KERNEL_ROOT = Path(__file__).resolve().parents[2]
 _REPO_ROOT = _KERNEL_ROOT.parent
@@ -326,10 +329,12 @@ _DELETED_TOUCH_MAP: dict[str, frozenset[str]] = {
 }
 
 # Rows the ``apps/*`` routing globs (entities, tenant, gdpr) contribute to every
-# app surface under the owner's prefix semantics.
+# app surface under the owner's prefix semantics. The gdpr row's primary is
+# compliance-expert: gdpr-erasure-executor WRITES those handlers and is never a
+# reviewer (program lead; ``TheReviewersAreNeverWritersOrMaintenanceAgents``).
 _EVERY_APP = frozenset({
     "audit-trail-completeness-auditor", "auth-security-expert", "compliance-expert", "data-expert",
-    "database-reviewer", "gdpr-erasure-executor", "legal-hold-auditor", "multi-tenant-saas-expert",
+    "database-reviewer", "legal-hold-auditor", "multi-tenant-saas-expert",
 })
 
 # THE LITERAL (routing table at the branch base + the Q4 additions, marked).
@@ -440,6 +445,46 @@ class TheReviewerSetPerSurfaceIsTheLiteral(unittest.TestCase):
             sorted(dropped), sorted(_NARROWED_WITHOUT_A_Q4_ENTRY),
             "the merge-time reviewer set must not narrow silently: an agent the touch map named drops "
             "only when it is named here")
+
+
+# -- writer and maintenance agents are never reviewers -------------------------
+def _write_agent(repo: Path, rel: str, tools: str) -> None:
+    path = repo / ".claude" / "agents" / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(f"---\nname: {path.stem}\ndescription: d\ntools: {tools}\n---\nbody\n", encoding="utf-8")
+
+
+class TheReviewersAreNeverWritersOrMaintenanceAgents(unittest.TestCase):
+    """No routing row names, as primary or also-notify, an agent under
+    ``.claude/agents/_maintenance/`` or a writer agent (its ``tools:`` include
+    a file-editing tool). The one owner of that rule is
+    ``surface_manifest_validator.validate_maintenance_agent_isolation``
+    (Layer 6); this pins it on the live repository and proves it on a fixture
+    first, so a green live run is not a vacuous one."""
+
+    def test_the_rule_flags_a_maintenance_and_a_writer_reviewer(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td)
+            _write_agent(repo, "_maintenance/upkeep-tool.md", "Read, Grep, Glob")
+            _write_agent(repo, "patch-author.md", "Read, Grep, Glob, Edit, Write, Bash")
+            _write_agent(repo, "careful-reviewer.md", "Read, Grep, Glob, Bash")
+            write_routing_table(repo, {
+                "apps/a/**": ("patch-author", "careful-reviewer"),
+                "docs/b/**": ("careful-reviewer", "upkeep-tool"),
+            })
+            flagged = {(f["target"], f["reason"]) for f in validate_maintenance_agent_isolation(repo_root=repo)}
+        self.assertEqual(flagged, {
+            ("upkeep-tool", "maintenance_agent_in_domain_review_pairing"),
+            ("patch-author", "writer_agent_in_domain_review_pairing"),
+        })
+
+    def test_no_routing_row_names_a_writer_or_maintenance_agent(self) -> None:
+        reviewer_failures = [
+            f"{f['target']}:{f['reason']}:{f['role']}"
+            for f in validate_maintenance_agent_isolation(repo_root=_REPO_ROOT) if "role" in f
+        ]
+        self.assertEqual(reviewer_failures, [],
+                         "a writer or _maintenance agent is a primary or also-notify reviewer")
 
 
 if __name__ == "__main__":

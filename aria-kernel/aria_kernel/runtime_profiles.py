@@ -66,6 +66,10 @@ CLAUDE_TOOL_UNIVERSE: tuple[str, ...] = (
 ALWAYS_DENIED_TOOLS: tuple[str, ...] = ("WebFetch", "WebSearch")
 # Write tools — a profile carrying any of these is a WRITE-TIER profile.
 WRITE_TOOLS: frozenset[str] = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit", "Bash"})
+# File-editing tools — an agent granted any of them writes the tree. A profile
+# with one needs a write scope; an agent with one is a writer, never a
+# reviewer (surface_manifest_validator Layer 6).
+FILE_WRITE_TOOLS: frozenset[str] = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit"})
 
 # Claude permission rules that close the external-write channels while a
 # profile has ``external_writes: false``. Scoped `Bash(...)` rules deny only
@@ -147,7 +151,7 @@ def _validate_profile(profile_id: str, raw: dict[str, Any]) -> RuntimeProfile:
     write_scope = tuple(str(s) for s in raw["write_scope"])
     if write_scope and not (WRITE_TOOLS & set(tools)):
         raise GovernanceError(f"runtime_profile_write_scope_without_write_tools:{profile_id}")
-    if not write_scope and ({"Edit", "Write", "MultiEdit", "NotebookEdit"} & set(tools)):
+    if not write_scope and (FILE_WRITE_TOOLS & set(tools)):
         raise GovernanceError(f"runtime_profile_edit_tools_without_write_scope:{profile_id}")
     passthrough = tuple(str(name) for name in raw["env_passthrough"])
     for name in passthrough:
@@ -466,7 +470,7 @@ def verify_agent_mirrors(*, repo_root: str | Path) -> list[dict[str, Any]]:
                 "mirror": f"{mirror_model}/{mirror_effort}",
                 "kernel": f"{profile.model}/{profile.effort}",
             })
-        mirror_tools = _parse_frontmatter_tools(text)
+        mirror_tools = frontmatter_tools(text)
         if mirror_tools != set(profile.tools):
             defects.append({
                 "ref": rel, "reason": "runtime_profile_mirror_drift", "field": "tools",
@@ -475,7 +479,10 @@ def verify_agent_mirrors(*, repo_root: str | Path) -> list[dict[str, Any]]:
     return defects
 
 
-def _parse_frontmatter_tools(text: str) -> set[str]:
+def frontmatter_tools(text: str) -> set[str]:
+    """The ``tools:`` allowlist an agent markdown declares (a comma-separated
+    line, the shape the jest agent-frontmatter-schema invariant enforces);
+    empty when the file has no frontmatter or no ``tools:`` line."""
     import re
 
     match = re.match(r"\A---\n(.*?)\n---", text, re.DOTALL)
@@ -491,6 +498,7 @@ __all__ = [
     "ALWAYS_DENIED_TOOLS",
     "CLAUDE_TOOL_UNIVERSE",
     "EXTERNAL_WRITE_DENY_RULES",
+    "FILE_WRITE_TOOLS",
     "INDEPENDENCE_PAIRS",
     "PROVIDER_ROUTING_KEY",
     "ProviderRouting",
@@ -504,6 +512,7 @@ __all__ = [
     "WORKER_ROUTE_SEAT",
     "WRITE_TOOLS",
     "disallowed_tools_for",
+    "frontmatter_tools",
     "load_runtime_profiles",
     "profile_by_id",
     "profiles_path",

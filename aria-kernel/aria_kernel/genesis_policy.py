@@ -120,9 +120,9 @@ JUDGMENT_PIPELINE_DEFAULTS: dict[str, Any] = {
     "calibration_bins": 10,
     # Typed-judgment plan Phase 6 — `measure_only` keeps the legacy gate and
     # records what `enforce` would exclude; `enforce` gives closing authority
-    # to calibrated judges of distinct models alone. The cycle downgrades
-    # `enforce` to `measure_only`, on the record, while fewer than two such
-    # judges exist (`effective_calibration_gate`).
+    # to calibrated judge seats alone. The cycle downgrades `enforce` to
+    # `measure_only`, on the record, while fewer than two calibrated seats
+    # exist (`effective_calibration_gate`, asking the ONE seat law, F0.8).
     "calibration_gate": "measure_only",
     "max_uncalibrated_escalations_per_cycle": 5,
     # WP-J slice C — the judgment funnel (judgment_funnel.route_judgment_sample,
@@ -166,14 +166,16 @@ def effective_calibration_gate(
     result (`{judge_id: {"calibration_status", "model"}}` or
     `{judge_id: status}`).
 
-    WP-J B-1 — the quorum criterion is the SAME hybrid law the consensus
-    gate applies (``feedback_store.observation_span``): distinct METHODS
-    when the calibrated rows can name them, the legacy distinct-models leg
-    when they cannot, and a downgrade when neither leg holds — so a single
-    provider whose seats span two methods has closing authority, and this
-    downgrade decision can never disagree with the gate it downgrades for.
+    PLAN-v2 F0.8 — "two calibrated judges" is answered by the ONE seat law
+    (``feedback_store.distinct_judge_seats``), the same function the
+    calibrated closing quorum and the anchor ask, so this downgrade can
+    never disagree with the gate it downgrades for. A single provider
+    whose two calibrated seats run its one model (or share one method) has
+    closing authority; an entry whose receipt names neither a model nor a
+    method seats nothing. The leg ``observation_span`` reports is recorded
+    as ``quorum_leg``, a descriptor that gates nothing.
     """
-    from .feedback_store import observation_span
+    from .feedback_store import CALIBRATED_QUORUM_MIN_JUDGES, distinct_judge_seats, observation_span
 
     calibrated: list[dict[str, str]] = []
     for judge_id, entry in (judge_calibration or {}).items():
@@ -185,22 +187,20 @@ def effective_calibration_gate(
             "model": str(entry.get("model") or "") if isinstance(entry, dict) else "",
             "method": str(entry.get("method") or "") if isinstance(entry, dict) else "",
         })
-    distinct_models = {r["model"] for r in calibrated if r["model"]}
-    distinct_methods = {r["method"] for r in calibrated if r["method"]}
     row = {
         "configured": configured,
         "calibrated_judges": sorted(r["judge_id"] for r in calibrated),
-        "distinct_models": sorted(distinct_models),
-        "distinct_methods": sorted(distinct_methods),
+        "distinct_models": sorted({r["model"] for r in calibrated if r["model"]}),
+        "distinct_methods": sorted({r["method"] for r in calibrated if r["method"]}),
     }
     if configured != "enforce":
         return {**row, "effective": "measure_only", "reason": "configured_measure_only"}
-    leg, span = observation_span(tuple(calibrated))
-    if len(calibrated) < 2 or span < 2:
+    leg = observation_span(tuple(calibrated))[0]
+    if distinct_judge_seats(calibrated) < CALIBRATED_QUORUM_MIN_JUDGES:
         return {
             **row,
             "effective": "measure_only",
-            "reason": "fewer_than_two_calibrated_judges_of_one_span",
+            "reason": "fewer_than_two_calibrated_seats",
             "quorum_leg": leg,
         }
     return {**row, "effective": "enforce", "reason": "calibrated_quorum_available", "quorum_leg": leg}

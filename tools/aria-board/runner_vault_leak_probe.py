@@ -10,6 +10,19 @@ keys, and above all the GitHub App's private key, which mints installation
 tokens WITHOUT the kernel's ``repositories`` scoping. So the probe runs AS
 the runner uid, with those real credentials, and asks GitHub for the vault.
 
+SCOPE (program-lead decision, B0 round 6, 2026-10-24). The vault's CONTROL is
+that its deploy key exists only in the GitHub-hosted ``aria-board``
+environment, never on the droplet; this probe is point-in-time EVIDENCE of
+that control, not the control. What it must not miss is a PASSIVE,
+PERSISTENT lever: anything the runner uid holds or configures that makes a
+run read no-reach (green) while a credential that reaches the vault exists
+for the uid, with no process acting during the run (an env-file line, a
+config file, a binary on a PATH). Active evasion — a process moving a key or
+``hosts.yml`` aside, or racing the probe, while it runs — is outside what a
+point-in-time measurement can exclude; it is a tracked finding of the
+program, not a property this probe claims. Hence the operator step below: the
+run counts as evidence only with no runner job in flight.
+
 WHAT. Every credential source asks for the vault repository's metadata and is
 classified ``unreachable`` (HTTP 404, "Repository not found": GitHub's answer
 to a credential that cannot see a private repository), ``no_credential`` (the
@@ -66,12 +79,30 @@ gh and git stored source, https and ssh, and each gh token — therefore runs
 under one named base, :data:`_CREDENTIAL_BASE` (``PATH``, ``LANG``, ``LC_*``)
 with ``HOME`` from the passwd entry, plus the ONE job variable it asks (a
 place, ``SSH_AUTH_SOCK``, or a token); no other job variable reaches it.
-What the job's own git configuration does with a credential is asked once,
-as ``git_https:job``: ``git`` under the job's environment exactly as a job
-sees it, its ``GIT_ASKPASS`` and ``GIT_CONFIG_*`` kept. No git source is
-handed an askpass of the probe's: each runs with ``GIT_TERMINAL_PROMPT=0``
-(a job has no terminal either), so an askpass git finds is asked, and none
-found reads as no credential.
+No git source is handed an askpass of the probe's: each runs with
+``GIT_TERMINAL_PROMPT=0`` (a job has no terminal either), so an askpass git
+finds is asked, and none found reads as no credential.
+
+EVERY JOB GIT CREDENTIAL, EACH ALONE (B0 corrective round 6, R6-1). Round 5
+asked the job's own git credentials in one call, ``git_https:job``; but git
+asks every configured credential helper before any askpass, and the probe's
+own ``GIT_SSH_COMMAND`` overrode every ssh command a job names, so a working
+job credential hid behind a revoked one or was never asked — the R3-4 class
+on the git side. Each env-borne git credential of the job is now its own
+source, under the named base plus :data:`CONFIG_FILES_OFF` (no config file
+answers first): ``git_https:GIT_ASKPASS``, ``git_https:SSH_ASKPASS``,
+``git_ssh:GIT_SSH_COMMAND`` and ``git_ssh:GIT_SSH`` (each when set;
+:data:`JOB_GIT_CREDENTIALS`), and ``git_<transport>:GIT_CONFIG:<n>`` for each
+env-borne ``credential.helper``, ``credential.<url>.helper``,
+``core.askPass`` or ``core.sshCommand`` entry, which git itself lists
+(:func:`job_git_config_entries`) and which is set alone as
+``GIT_CONFIG_COUNT=1`` — its value only ever in that child's environment.
+``git_https:job`` and ``git_ssh:job`` (the job's environment exactly as a job
+sees it, no probe ``GIT_SSH_COMMAND``) stay as composites in addition. Every
+child runs with no stdin in its own session, so a job's ssh command or
+askpass cannot prompt on the operator's terminal; only the probe's own ssh
+sources pin GitHub's host key, and under a job's ssh command an unknown host
+key fails, read as inconclusive.
 
 NO CONFIG FILE MOVES THE PROBE'S SSH (B0 corrective round 6, R6-2). The
 allow-list keeps the environment from moving ``git_ssh``, but git also reads
@@ -84,6 +115,9 @@ overrides ``core.sshCommand``), so ``git_ssh`` and ``git_ssh:SSH_AUTH_SOCK``
 carry :data:`CONFIG_FILES_OFF` (``GIT_CONFIG_GLOBAL=/dev/null``,
 ``GIT_CONFIG_NOSYSTEM=1``) beside their ``GIT_SSH_COMMAND`` pin.
 ``git_https:stored*`` never carries it: its config file is the place it asks.
+Every git source also runs outside any repository: the operator runs the
+probe from a checkout, whose ``.git/config`` git would read as local config
+whatever ``GIT_CONFIG_GLOBAL`` says.
 
 THE PROBE'S OWN TOOLS (B0 corrective round 6, R6-3). The runner's ``.env``
 is the runner uid's to write, so a ``PATH`` in it could put a directory of
@@ -111,7 +145,8 @@ Operator step (PR body): run it as the runner uid, with the App key the
 runner's jobs use, passing the runner's ``.env`` AND every ``EnvironmentFile``
 its systemd unit loads (``systemctl cat 'actions.runner.*'`` lists the
 unit's ``EnvironmentFile=`` lines; a leading ``-`` only marks one optional),
-and record the report as the B0 exit evidence::
+and record the report as the B0 exit evidence, with no runner job in flight
+(see SCOPE)::
 
     sudo -u gharunner -H python3 -I tools/aria-board/runner_vault_leak_probe.py \\
         --app-id <id> --installation-id <id> --app-private-key <pem path the uid can read> \\
@@ -142,7 +177,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
@@ -299,16 +334,20 @@ class AppPrivateKeySource:
                 pass
 
 
-def _run(command: list[str], *, env: dict[str, str]) -> subprocess.CompletedProcess[str] | None:
+def _run(command: list[str], *, env: dict[str, str],
+         cwd: str | None = None) -> subprocess.CompletedProcess[str] | None:
     """The command's answer, or None when it did not run to an answer (it could not start, or timed out).
 
     B0 corrective round 3, R3-5: None is one reading for every source — the
     command said nothing about the credential, so the source is
     ``inconclusive``; ``no_credential`` comes only from the tool's own answer.
+    Round 6, R6-1: the probe now runs a job's own askpass, helper and ssh
+    command, so every child gets no stdin and its own session: none can
+    prompt on the operator's terminal (a job has none either).
     """
     try:
         return subprocess.run(command, capture_output=True, text=True, timeout=COMMAND_TIMEOUT_SECONDS,
-                              env=env, check=False)
+                              env=env, cwd=cwd, check=False, stdin=subprocess.DEVNULL, start_new_session=True)
     except (OSError, subprocess.TimeoutExpired):
         return None
 
@@ -413,6 +452,85 @@ def credential_environment(env: dict[str, str], *, variable: str | None = None) 
 # the place they ask.
 CONFIG_FILES_OFF = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
 
+# Each env-borne git credential a job's git uses, by the transport it serves
+# (B0 corrective round 6, R6-1): git asks configured helpers before any
+# askpass, and an env GIT_SSH_COMMAND overrides GIT_SSH and core.sshCommand,
+# so one call under the job's env asks only the first; each is asked alone.
+JOB_GIT_CREDENTIALS = {"GIT_ASKPASS": "https", "SSH_ASKPASS": "https", "GIT_SSH_COMMAND": "ssh", "GIT_SSH": "ssh"}
+# git's configuration from the environment (``command`` scope): GIT_CONFIG_COUNT
+# with its KEY_n/VALUE_n, and GIT_CONFIG_PARAMETERS.
+_GIT_ENV_CONFIG = re.compile(r"GIT_CONFIG_(?:COUNT|PARAMETERS|KEY_[0-9]+|VALUE_[0-9]+)")
+_GIT_ENV_CONFIG_SET_BY = ("GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS")
+# The source kind of one env-borne config entry asked alone: git_<transport>:GIT_CONFIG:<n>.
+GIT_CONFIG_ENTRY = "GIT_CONFIG"
+
+
+def credential_key_transport(key: str) -> str | None:
+    """The transport a git config entry is a credential for, or None; ``key`` as git lists it.
+
+    git lists a key with its section and name lowercased and its subsection
+    as written, so ``credential.<url>.helper`` keeps its URL.
+    """
+    if key == "core.sshcommand":
+        return "ssh"
+    if key == "core.askpass" or (key.startswith("credential.") and key.endswith(".helper")):
+        return "https"
+    return None
+
+
+@dataclass(frozen=True)
+class GitConfigEntry:
+    """One env-borne git config entry that is a credential: its index among git's ``command`` entries, key, value.
+
+    The value lives in memory and in the one child's environment that asks
+    it: never in argv, on disk or in the report (``repr`` omits it).
+    ``None`` when git lists the key with no value.
+    """
+
+    index: int
+    key: str
+    value: str | None = field(repr=False)
+
+
+def job_git_config_entries(env: dict[str, str], git_cli: str) -> list[GitConfigEntry] | None:
+    """Each credential entry of the job's env-borne git configuration, as git itself lists them; None if git did not.
+
+    git reads the entries (B0 corrective round 6, R6-1): ``git config --list
+    -z --show-scope`` under the named base plus the job's ``GIT_CONFIG_*``
+    variables alone, with :data:`CONFIG_FILES_OFF` and a working directory
+    outside any repository, keeping the ``command`` scope. The index counts
+    every ``command`` entry, so it names the entry's place in the job's
+    configuration, never its key's URL or its value.
+    """
+    asked = {**credential_environment(env), **{k: v for k, v in env.items() if _GIT_ENV_CONFIG.fullmatch(k)},
+             **CONFIG_FILES_OFF}
+    with tempfile.TemporaryDirectory(prefix="aria-leak-probe-") as outside:
+        done = _run([git_cli, "config", "--list", "-z", "--show-scope"], env=asked, cwd=outside)
+    if done is None or done.returncode != 0:
+        return None
+    fields = done.stdout.split("\0")
+    if fields[-1] != "" or len(fields) % 2 != 1:
+        return None
+    command = [item for scope, item in zip(fields[0:-1:2], fields[1:-1:2]) if scope == "command"]
+    entries: list[GitConfigEntry] = []
+    for index, item in enumerate(command):
+        key, newline, value = item.partition("\n")
+        if credential_key_transport(key) is not None:
+            entries.append(GitConfigEntry(index, key, value if newline else None))
+    return entries
+
+
+@dataclass(frozen=True)
+class UnaskedSource:
+    """A credential the probe found and could not ask: inconclusive under its own name, never silently skipped."""
+
+    name: str
+    reason: str
+
+    def reach(self, repository: str) -> Reach:
+        return Reach(self.name, INCONCLUSIVE, None, self.reason)
+
+
 # The tokens gh would use for github.com, each asked on its own (gh prefers
 # GH_TOKEN, then GITHUB_TOKEN, over its hosts.yml login).
 _GH_TOKEN_CREDENTIALS = ("GH_TOKEN", "GITHUB_TOKEN")
@@ -504,39 +622,81 @@ class GitRemoteSource:
     whatever HOME says) and ``git_ssh:SSH_AUTH_SOCK`` the agent the job's
     environment names. Round 6, R6-2: a config FILE at the default place
     could still rewrite their URL, so both also carry
-    :data:`CONFIG_FILES_OFF`. ``git_https:job`` is the one source under the job's
-    environment exactly as a job sees it: its ``GIT_ASKPASS``,
-    ``GIT_CONFIG_*`` and ``GIT_CONFIG_PARAMETERS`` are credentials or
-    configuration a job's git uses, so they are asked, never overwritten.
+    :data:`CONFIG_FILES_OFF`.
+
+    Round 6, R6-1: each env-borne git credential of the job is its own
+    source, asked alone under :func:`credential_environment` plus
+    :data:`CONFIG_FILES_OFF` (no config file answers first):
+    ``git_https:GIT_ASKPASS`` and ``git_https:SSH_ASKPASS``,
+    ``git_ssh:GIT_SSH_COMMAND`` and ``git_ssh:GIT_SSH`` (no probe
+    ``GIT_SSH_COMMAND``: the job's command decides), and one
+    ``git_<transport>:GIT_CONFIG:<n>`` per env-borne ``credential.helper``,
+    ``credential.<url>.helper``, ``core.askPass`` or ``core.sshCommand``
+    entry (:func:`job_git_config_entries`), set alone as
+    ``GIT_CONFIG_COUNT=1``. ``git_https:job`` and ``git_ssh:job`` run under
+    the job's environment exactly as a job sees it, as composites IN ADDITION:
+    neither is ever the only source that asks a credential. Only the probe's
+    own ssh sources pin GitHub's host key; under a job's ssh command an
+    unknown host key fails, read as inconclusive.
     """
 
     def __init__(self, *, transport: str, env: dict[str, str], tools: ProbeTools,
-                 credential: str = GIT_STORED_LOGIN, location: str | None = None) -> None:
+                 credential: str = GIT_STORED_LOGIN, location: str | None = None,
+                 entry: GitConfigEntry | None = None) -> None:
         self.transport, self.tools = transport, tools
-        if transport == "https" and credential == GIT_STORED_LOGIN and (
+        # Only the probe's own ssh sources run its ssh, with GitHub's host key pinned.
+        self.pins_ssh = transport == "ssh" and credential == GIT_STORED_LOGIN
+        if entry is not None:
+            if (credential != GIT_CONFIG_ENTRY or location is not None or entry.value is None
+                    or credential_key_transport(entry.key) != transport):
+                raise ValueError(f"{transport}:{credential}:{entry.index}")
+            self.env = {**credential_environment(env), **CONFIG_FILES_OFF, "GIT_CONFIG_COUNT": "1",
+                        "GIT_CONFIG_KEY_0": entry.key, "GIT_CONFIG_VALUE_0": entry.value}
+            self.name = f"git_{transport}:{GIT_CONFIG_ENTRY}:{entry.index}"
+        elif transport == "https" and credential == GIT_STORED_LOGIN and (
                 location is None or location in _GIT_LOGIN_LOCATIONS):
             self.env = credential_environment(env, variable=location)
             self.name = "git_https:stored" + (f":{location}" if location is not None else "")
-        elif transport == "https" and credential == GIT_JOB and location is None:
-            self.env = dict(env)
-            self.name = "git_https:job"
         elif transport == "ssh" and credential == GIT_STORED_LOGIN and (
                 location is None or location in _SSH_LOGIN_LOCATIONS):
             self.env = {**credential_environment(env, variable=location), **CONFIG_FILES_OFF}
             self.name = "git_ssh" + (f":{location}" if location is not None else "")
+        elif transport in ("https", "ssh") and credential == GIT_JOB and location is None:
+            self.env = dict(env)
+            self.name = f"git_{transport}:job"
+        elif JOB_GIT_CREDENTIALS.get(credential) == transport and location is None and env.get(credential):
+            self.env = {**credential_environment(env, variable=credential), **CONFIG_FILES_OFF}
+            self.name = f"git_{transport}:{credential}"
         else:
             raise ValueError(f"{transport}:{credential}:{location}")
 
     @classmethod
-    def every_credential(cls, *, env: dict[str, str], tools: ProbeTools) -> list["GitRemoteSource"]:
-        """A source per git credential under ``env``: each HTTPS config place, the job's own git, each SSH key place."""
-        return [cls(transport="https", env=env, tools=tools),
-                *(cls(transport="https", env=env, tools=tools, location=name)
-                  for name in job_named_locations(env, _GIT_LOGIN_LOCATIONS)),
-                cls(transport="https", env=env, tools=tools, credential=GIT_JOB),
-                cls(transport="ssh", env=env, tools=tools),
-                *(cls(transport="ssh", env=env, tools=tools, location=name)
-                  for name in job_named_locations(env, _SSH_LOGIN_LOCATIONS))]
+    def every_credential(cls, *, env: dict[str, str], tools: ProbeTools) -> list[CredentialSource]:
+        """THE one list of git sources under ``env``, per transport: each stored place, each job credential alone, the job.
+
+        An env-borne config git could not list, or a credential entry with no
+        value, is an :class:`UnaskedSource` (inconclusive), never skipped.
+        """
+        entries = (job_git_config_entries(env, tools.git) if any(name in env for name in _GIT_ENV_CONFIG_SET_BY)
+                   else [])
+        sources: list[CredentialSource] = []
+        if entries is None:
+            sources.append(UnaskedSource(f"git:{GIT_CONFIG_ENTRY}", "git_config_unlisted"))
+        for transport, locations in (("https", _GIT_LOGIN_LOCATIONS), ("ssh", _SSH_LOGIN_LOCATIONS)):
+            sources += [cls(transport=transport, env=env, tools=tools),
+                        *(cls(transport=transport, env=env, tools=tools, location=name)
+                          for name in job_named_locations(env, locations)),
+                        *(cls(transport=transport, env=env, tools=tools, credential=name)
+                          for name, served in JOB_GIT_CREDENTIALS.items() if served == transport and env.get(name))]
+            for entry in entries or []:
+                if credential_key_transport(entry.key) != transport:
+                    continue
+                sources.append(cls(transport=transport, env=env, tools=tools, credential=GIT_CONFIG_ENTRY, entry=entry)
+                               if entry.value is not None else
+                               UnaskedSource(f"git_{transport}:{GIT_CONFIG_ENTRY}:{entry.index}",
+                                             "git_config_entry_without_value"))
+            sources.append(cls(transport=transport, env=env, tools=tools, credential=GIT_JOB))
+        return sources
 
     def reach(self, repository: str) -> Reach:
         # No askpass of the probe's: an askpass the source's env or config
@@ -547,14 +707,17 @@ class GitRemoteSource:
             if self.transport == "https":
                 url = f"https://github.com/{repository}.git"
             else:
+                url = f"git@github.com:{repository}.git"
+            if self.pins_ssh:
                 known_hosts = Path(scratch) / "known_hosts"
                 known_hosts.write_text(GITHUB_SSH_HOST_KEY + "\n", encoding="utf-8")
                 env["GIT_SSH_COMMAND"] = (f"{shlex.quote(self.tools.ssh)} -o BatchMode=yes -o ConnectTimeout=10"
                                           f" -o StrictHostKeyChecking=yes"
                                           f" -o UserKnownHostsFile={shlex.quote(str(known_hosts))}"
                                           f" -o HostKeyAlgorithms=ssh-ed25519")
-                url = f"git@github.com:{repository}.git"
-            done = _run([self.tools.git, "ls-remote", "--heads", url], env=env)
+            # Outside any repository: the operator's working directory has no
+            # say in what git reads (a checkout's .git/config is config too).
+            done = _run([self.tools.git, "ls-remote", "--heads", url], env=env, cwd=scratch)
         if done is None:
             return Reach(self.name, INCONCLUSIVE, None, "git_unavailable")
         if done.returncode == 0:

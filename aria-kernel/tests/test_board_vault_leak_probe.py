@@ -435,6 +435,23 @@ class RunnerIdentityLeakProbeTests(unittest.TestCase):
                                      [self.probe.INCONCLUSIVE])
 
 
+    def test_every_child_runs_without_the_operators_terminal(self) -> None:
+        # B0 corrective round 6, R6-1 (3): a job's own ssh command, askpass or
+        # helper is run now, so none may prompt on the operator's terminal.
+        import subprocess
+
+        seen: dict[str, object] = {}
+
+        def recording_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            seen.update(kwargs)
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        with patch.object(self.probe.subprocess, "run", recording_run):
+            self.probe._run(["/bin/true"], env={})
+        self.assertIs(seen["stdin"], subprocess.DEVNULL)
+        self.assertIs(seen["start_new_session"], True)
+
+
 class RunnerEnvironmentFileTests(unittest.TestCase):
     """B0 corrective round 2, R2-2 (security P7, P6): the runner exports its env files into every ARIA job.
 
@@ -574,12 +591,20 @@ class StoredLoginUnderThePasswdHomeTests(unittest.TestCase):
         # fill runs the configured helpers and touches no network).
         real_git = shutil.which("git")
         self.assertIsNotNone(real_git)
+        self.real_git = real_git
+        # `git config` (the probe reading a job's env-borne entries) is the
+        # real git's; a password the helper or askpass calls "revoked" is
+        # refused as GitHub refuses a revoked token.
         (self.bin / "git").write_text(
             f"#!{sys.executable}\nimport os, subprocess, sys\n"
+            f"if sys.argv[1:2] == ['config']:\n    os.execv({real_git!r}, [{real_git!r}, *sys.argv[1:]])\n"
             "if not any(arg.startswith('https://') for arg in sys.argv):\n"
             "    sys.stderr.write('ERROR: Repository not found.')\n    raise SystemExit(128)\n"
             f"done = subprocess.run([{real_git!r}, 'credential', 'fill'], input='protocol=https\\nhost=github.com\\n\\n',\n"
             "                      capture_output=True, text=True, env=os.environ)\n"
+            "if done.returncode == 0 and 'password=revoked' in done.stdout:\n"
+            "    sys.stderr.write(\"remote: Invalid username or token.\\n"
+            "fatal: Authentication failed for 'https://github.com/'\")\n    raise SystemExit(128)\n"
             "if done.returncode == 0 and 'password=' in done.stdout:\n    print('0' * 40 + '\\trefs/heads/main')\n"
             "    raise SystemExit(0)\n"
             "sys.stderr.write(\"fatal: could not read Username for 'https://github.com': terminal prompts disabled\")\n"
@@ -658,7 +683,7 @@ class StoredLoginUnderThePasswdHomeTests(unittest.TestCase):
         git = {source.name: source.env for source in self.probe.GitRemoteSource.every_credential(env=env, tools=tools)}
         self.assertEqual(list(git), ["git_https:stored", "git_https:stored:GIT_CONFIG_GLOBAL",
                                      "git_https:stored:XDG_CONFIG_HOME", "git_https:stored:HOME", "git_https:job",
-                                     "git_ssh"])
+                                     "git_ssh", "git_ssh:job"])
         self.assertEqual(git["git_https:stored"]["HOME"], str(self.home))
         self.assertNotIn("GIT_CONFIG_GLOBAL", git["git_https:stored"])
         # The passwd home itself is the default place, not a job-named one.
@@ -703,11 +728,43 @@ class StoredLoginUnderThePasswdHomeTests(unittest.TestCase):
         askpass.write_text("#!/bin/sh\necho fixture-askpass-password\n", encoding="utf-8")
         askpass.chmod(0o755)
         reached = self._assert_reached_by("git_https:job", {"GIT_ASKPASS": {"GIT_ASKPASS": str(askpass)}})
-        self.assertEqual(reached, ["git_https:job"], "no stored source carries the job's askpass")
+        # R6-1: the askpass is also asked alone; no stored source carries it.
+        self.assertEqual(reached, ["git_https:GIT_ASKPASS", "git_https:job"])
+
+    def _askpass(self, name: str, answer: str) -> Path:
+        script = self.root / name
+        script.write_text(f"#!/bin/sh\necho {answer}\n", encoding="utf-8")
+        script.chmod(0o755)
+        return script
+
+    def test_a_revoked_helper_does_not_hide_an_answering_job_askpass(self) -> None:
+        # B0 corrective round 6, R6-1 (evidence BLK-R3E-1, p02 and p07): git
+        # asks every configured credential helper before any askpass, so in
+        # the one git_https:job call a helper answering a revoked password hid
+        # a job askpass that reaches the vault. Each is now asked alone.
+        askpass = self._askpass("job-askpass", "fixture-askpass-password")
+        revoked = "!f() { echo username=x-access-token; echo password=revoked; }; f"
+        self._assert_reached_by("git_https:GIT_ASKPASS", {"env_borne_revoked_helper": {
+            "GIT_ASKPASS": str(askpass), "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "credential.helper",
+            "GIT_CONFIG_VALUE_0": revoked}})
+        (self.home / ".gitconfig").write_text(f'[credential]\n\thelper = "{revoked}"\n', encoding="utf-8")
+        self._assert_reached_by("git_https:GIT_ASKPASS",
+                                {"passwd_home_revoked_helper": {"GIT_ASKPASS": str(askpass)}})
+
+    def test_an_env_borne_helper_is_asked_alone_beside_a_revoked_job_askpass(self) -> None:
+        # R6-1: each env-borne credential entry is its own source,
+        # git_https:GIT_CONFIG:<n> — its index, never its key's URL or value.
+        askpass = self._askpass("revoked-askpass", "revoked")
+        helper = "!f() { echo username=x-access-token; echo password=fixture-env-helper; }; f"
+        self._assert_reached_by("git_https:GIT_CONFIG:0", {"askpass_revoked": {
+            "GIT_ASKPASS": str(askpass), "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "credential.helper",
+            "GIT_CONFIG_VALUE_0": helper}})
 
     def test_every_stored_source_env_is_the_base_plus_its_one_variable(self) -> None:
         # R5-3: an allow-list, not a deny-list — nothing of the job's env but
         # the named base and the one variable a source asks reaches it.
+        # R6-1: each env-borne git credential, and each env-borne credential
+        # config entry, is such a source too, with git's config files off.
         other = str(self.root / "elsewhere")
         env = {"PATH": "/usr/bin", "LANG": "C.UTF-8", "LC_ALL": "C", "HOME": other, "GH_CONFIG_DIR": other,
                "XDG_CONFIG_HOME": other, "GIT_CONFIG_GLOBAL": other, "GH_TOKEN": "a", "GITHUB_TOKEN": "b",
@@ -715,26 +772,34 @@ class StoredLoginUnderThePasswdHomeTests(unittest.TestCase):
                "GIT_CONFIG_VALUE_0": "", "GIT_CONFIG_PARAMETERS": "'credential.helper='", "GIT_EXEC_PATH": other,
                "GIT_ASKPASS": other, "SSH_AUTH_SOCK": other, "GIT_SSH_COMMAND": "ssh -i k", "FOO": "bar"}
         base = {"PATH": "/usr/bin", "LANG": "C.UTF-8", "LC_ALL": "C", "HOME": str(self.home)}
+        pin = self.probe.CONFIG_FILES_OFF
+        entry = {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "credential.helper", "GIT_CONFIG_VALUE_0": ""}
+
+        def alone(variable: str) -> dict[str, str]:
+            return {variable: env[variable]}
+
         expected = {
-            "gh_cli:stored": None, "gh_cli:stored:GH_CONFIG_DIR": "GH_CONFIG_DIR",
-            "gh_cli:stored:XDG_CONFIG_HOME": "XDG_CONFIG_HOME", "gh_cli:stored:HOME": "HOME",
-            "gh_cli:GH_TOKEN": "GH_TOKEN", "gh_cli:GITHUB_TOKEN": "GITHUB_TOKEN",
-            "git_https:stored": None, "git_https:stored:GIT_CONFIG_GLOBAL": "GIT_CONFIG_GLOBAL",
-            "git_https:stored:XDG_CONFIG_HOME": "XDG_CONFIG_HOME", "git_https:stored:HOME": "HOME",
-            "git_ssh": None, "git_ssh:SSH_AUTH_SOCK": "SSH_AUTH_SOCK",
+            "gh_cli:stored": {}, "gh_cli:stored:GH_CONFIG_DIR": alone("GH_CONFIG_DIR"),
+            "gh_cli:stored:XDG_CONFIG_HOME": alone("XDG_CONFIG_HOME"), "gh_cli:stored:HOME": alone("HOME"),
+            "gh_cli:GH_TOKEN": alone("GH_TOKEN"), "gh_cli:GITHUB_TOKEN": alone("GITHUB_TOKEN"),
+            "git_https:stored": {}, "git_https:stored:GIT_CONFIG_GLOBAL": alone("GIT_CONFIG_GLOBAL"),
+            "git_https:stored:XDG_CONFIG_HOME": alone("XDG_CONFIG_HOME"), "git_https:stored:HOME": alone("HOME"),
+            "git_https:GIT_ASKPASS": {**alone("GIT_ASKPASS"), **pin},
+            "git_https:GIT_CONFIG:0": {**entry, **pin}, "git_https:GIT_CONFIG:1": {**entry, **pin},
+            "git_ssh": pin, "git_ssh:SSH_AUTH_SOCK": {**alone("SSH_AUTH_SOCK"), **pin},
+            "git_ssh:GIT_SSH_COMMAND": {**alone("GIT_SSH_COMMAND"), **pin},
         }
-        tools = _tools(self.probe)
+        # git itself lists the env-borne entries, so this source list needs the real git.
+        tools = _tools(self.probe, git=self.real_git)
         sources = {source.name: source.env for source in [
             *self.probe.GhCliSource.every_credential(env=env, tools=tools),
             *self.probe.GitRemoteSource.every_credential(env=env, tools=tools)]}
-        self.assertEqual(sorted(sources), sorted([*expected, "git_https:job"]))
-        # R6-2: the probe's own ssh sources also carry the one config-file pin.
-        pinned = ("git_ssh", "git_ssh:SSH_AUTH_SOCK")
-        for name, variable in expected.items():
+        self.assertEqual(sorted(sources), sorted([*expected, "git_https:job", "git_ssh:job"]))
+        for name, asked in expected.items():
             with self.subTest(source=name):
-                self.assertEqual(sources[name], {**base, **({variable: env[variable]} if variable else {}),
-                                                 **(self.probe.CONFIG_FILES_OFF if name in pinned else {})})
-        self.assertEqual(sources["git_https:job"], env, "the job source runs under the job's env as a job sees it")
+                self.assertEqual(sources[name], {**base, **asked})
+        for name in ("git_https:job", "git_ssh:job"):
+            self.assertEqual(sources[name], env, "a job composite runs under the job's env as a job sees it")
 
     def _shadowing_tools(self) -> Path:
         """A uid-writable directory whose gh, git and ssh print GitHub's refusal, as an env-file PATH may put first."""
@@ -815,15 +880,19 @@ class StoredLoginUnderThePasswdHomeTests(unittest.TestCase):
         self.assertEqual([r["source"] for r in report["sources"] if r["source"].startswith("gh_cli")], [])
 
 
-class GitSshUnderEnvBorneConfigTests(unittest.TestCase):
-    """B0 corrective round 5, R5-3 (ssot SSOT-R4R2-1, p06): an env file's url.insteadOf no longer moves git_ssh off ssh.
+class _LocalVaultOverSsh(unittest.TestCase):
+    """A vault served over a fake ssh, with nothing leaving the host.
 
-    A fake ``ssh`` on PATH serves a local bare repository, standing in for an
-    SSH key of the uid's that reaches the vault; the insteadOf target is a
-    local HTTP endpoint answering 401. Nothing leaves the host: a ``git``
-    wrapper answers every HTTPS URL as GitHub refuses one, and runs the real
-    git for the SSH URL.
+    A fake ``ssh`` serves a local bare repository, standing in for an SSH key
+    that reaches the vault: the default one on PATH when
+    ``DEFAULT_SSH_SERVES`` (the uid's own key), else only ``self.job_ssh``, a
+    job's own ssh command (B0 corrective round 6, R6-1), while the default
+    refuses as GitHub refuses a key it does not know. An insteadOf target is
+    a local HTTP endpoint answering 401. A ``git`` wrapper answers every HTTPS
+    URL as GitHub refuses one and runs the real git for the rest.
     """
+
+    DEFAULT_SSH_SERVES = True
 
     def setUp(self) -> None:
         import http.server
@@ -862,7 +931,15 @@ class GitSshUnderEnvBorneConfigTests(unittest.TestCase):
                          "--allow-empty", "-m", "fixture"],
                         ["-C", str(work), "push", "-q", str(bare), "HEAD:refs/heads/main"]):
             subprocess.run([real_git, *command], check=True, env=hermetic, capture_output=True)
-        (bin_dir / "ssh").write_text(f"#!/bin/sh\nexec git-upload-pack {bare}\n", encoding="utf-8")
+        serves = f"#!/bin/sh\nexec git-upload-pack {bare}\n"
+        refuses = "#!/bin/sh\necho 'git@github.com: Permission denied (publickey).' >&2\nexit 255\n"
+        (bin_dir / "ssh").write_text(serves if self.DEFAULT_SSH_SERVES else refuses, encoding="utf-8")
+        # A job's own ssh commands; each named ssh, so git reads it as OpenSSH.
+        self.job_ssh, self.revoked_job_ssh = self.root / "job-bin" / "ssh", self.root / "revoked-job-bin" / "ssh"
+        for script, text in ((self.job_ssh, serves), (self.revoked_job_ssh, refuses)):
+            script.parent.mkdir()
+            script.write_text(text, encoding="utf-8")
+            script.chmod(0o755)
         (bin_dir / "git").write_text(
             f"#!{sys.executable}\nimport os, sys\n"
             "if any(arg.startswith('https://') for arg in sys.argv):\n"
@@ -886,10 +963,30 @@ class GitSshUnderEnvBorneConfigTests(unittest.TestCase):
             patcher.start()
             self.addCleanup(patcher.stop)
 
-    def test_an_env_file_insteadof_does_not_move_git_ssh_off_ssh(self) -> None:
+    def _main(self, variables: dict[str, str]) -> tuple[int, dict]:
+        """``main()`` with the App source refused and ``variables`` as the runner's one env file."""
         import contextlib
         import io
 
+        env_file = self.root / "runner.env"
+        env_file.write_text("".join(f"{name}={value}\n" for name, value in variables.items()), encoding="utf-8")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            status = self.probe.main(["--app-id", "1", "--installation-id", "2", "--app-private-key",
+                                      str(self.root / "unused.pem"), "--env-file", str(env_file)])
+        for value in variables.values():
+            if len(value) > 1:
+                self.assertNotIn(value, out.getvalue())
+        return status, json.loads(out.getvalue())
+
+
+class GitSshUnderEnvBorneConfigTests(_LocalVaultOverSsh):
+    """B0 corrective round 5, R5-3 (ssot SSOT-R4R2-1, p06): an env file's url.insteadOf no longer moves git_ssh off ssh.
+
+    The uid's own ssh key reaches the vault (the default ssh serves it).
+    """
+
+    def test_an_env_file_insteadof_does_not_move_git_ssh_off_ssh(self) -> None:
         cases = {
             "B_GIT_CONFIG_GLOBAL": {"GIT_CONFIG_GLOBAL": str(self.config)},
             "C_HOME": {"HOME": str(self.config_home)},
@@ -898,20 +995,10 @@ class GitSshUnderEnvBorneConfigTests(unittest.TestCase):
         }
         for case, variables in cases.items():
             with self.subTest(env_file=case):
-                env_file = self.root / "runner.env"
-                env_file.write_text("".join(f"{name}={value}\n" for name, value in variables.items()),
-                                    encoding="utf-8")
-                out = io.StringIO()
-                with contextlib.redirect_stdout(out):
-                    status = self.probe.main(["--app-id", "1", "--installation-id", "2", "--app-private-key",
-                                              str(self.root / "unused.pem"), "--env-file", str(env_file)])
-                report = json.loads(out.getvalue())
+                status, report = self._main(variables)
                 self.assertEqual((status, report["verdict"]), (1, "red"), report)
                 self.assertEqual({r["source"]: r["status"] for r in report["sources"]}["git_ssh"],
                                  self.probe.REACHABLE, report["sources"])
-                for value in variables.values():
-                    if len(value) > 1:
-                        self.assertNotIn(value, out.getvalue())
 
     def test_a_passwd_home_insteadof_does_not_move_git_ssh_off_ssh(self) -> None:
         # B0 corrective round 6, R6-2 (ssot SSOT-R4R3-1, p04 E): git_ssh read
@@ -931,6 +1018,25 @@ class GitSshUnderEnvBorneConfigTests(unittest.TestCase):
         self.assertEqual({r["source"]: r["status"] for r in report["sources"]}["git_ssh"],
                          self.probe.REACHABLE, report["sources"])
 
+    def test_the_operators_working_directory_has_no_say_in_what_git_reads(self) -> None:
+        # R6-2: the operator runs the probe from a checkout, whose .git/config
+        # git reads as local config whatever GIT_CONFIG_GLOBAL says; git runs
+        # outside any repository instead.
+        import contextlib
+        import subprocess
+
+        checkout = self.root / "operator-checkout"
+        hermetic = {"PATH": os.environ["PATH"], "HOME": str(self.home), "GIT_CONFIG_NOSYSTEM": "1"}
+        subprocess.run([shutil.which("git"), "init", "-q", str(checkout)], check=True, env=hermetic,
+                       capture_output=True)
+        with (checkout / ".git" / "config").open("a", encoding="utf-8") as local:
+            local.write(self.config.read_text(encoding="utf-8"))
+        with contextlib.chdir(checkout):
+            status, report = self._main({"LANG": "C.UTF-8"})
+        self.assertEqual((status, report["verdict"]), (1, "red"), report)
+        self.assertEqual({r["source"]: r["status"] for r in report["sources"]}["git_ssh"],
+                         self.probe.REACHABLE, report["sources"])
+
     def test_the_probes_own_ssh_sources_read_no_git_config_file(self) -> None:
         # R6-2: beside the probe's GIT_SSH_COMMAND, its ssh sources pin both
         # config files off: neither holds an ssh credential for them (ssh
@@ -942,6 +1048,44 @@ class GitSshUnderEnvBorneConfigTests(unittest.TestCase):
                 self.assertEqual({k: sources[name].get(k) for k in ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM")},
                                  {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"})
         self.assertNotIn("GIT_CONFIG_GLOBAL", sources["git_https:stored"], "the stored helper's place is asked")
+
+
+class JobSshCommandEachAloneTests(_LocalVaultOverSsh):
+    """B0 corrective round 6, R6-1 (security SEC-R4R3-1, P2): a job's own ssh command is a credential, asked alone.
+
+    Every ssh source used to carry the probe's own GIT_SSH_COMMAND, which
+    overrides a job's GIT_SSH_COMMAND, GIT_SSH and core.sshCommand, so a key
+    reached only through one of those was never asked. Here the uid's default
+    ssh is refused and only the job's ssh command reaches the vault.
+    """
+
+    DEFAULT_SSH_SERVES = False
+
+    def _assert_red_by(self, variables: dict[str, str], *sources: str) -> None:
+        status, report = self._main(variables)
+        reached = [r["source"] for r in report["sources"] if r["status"] == self.probe.REACHABLE]
+        self.assertEqual((status, report["verdict"]), (1, "red"), report)
+        for source in sources:
+            self.assertIn(source, reached, report["sources"])
+
+    def test_each_job_ssh_command_is_asked_alone_and_by_the_job_composite(self) -> None:
+        cases = {
+            "GIT_SSH_COMMAND": ({"GIT_SSH_COMMAND": str(self.job_ssh)}, "git_ssh:GIT_SSH_COMMAND"),
+            "GIT_SSH": ({"GIT_SSH": str(self.job_ssh)}, "git_ssh:GIT_SSH"),
+            "core.sshCommand": ({"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "core.sshCommand",
+                                 "GIT_CONFIG_VALUE_0": str(self.job_ssh)}, "git_ssh:GIT_CONFIG:0"),
+        }
+        for case, (variables, source) in cases.items():
+            with self.subTest(job_ssh=case):
+                self._assert_red_by(variables, source, "git_ssh:job")
+
+    def test_a_revoked_job_ssh_command_does_not_hide_a_working_one(self) -> None:
+        # The appellate's dissent: GIT_SSH_COMMAND overrides core.sshCommand,
+        # so the job composite asks only the revoked one; asked alone, the
+        # env-borne core.sshCommand reaches the vault.
+        self._assert_red_by({"GIT_SSH_COMMAND": str(self.revoked_job_ssh), "GIT_CONFIG_COUNT": "1",
+                             "GIT_CONFIG_KEY_0": "core.sshCommand", "GIT_CONFIG_VALUE_0": str(self.job_ssh)},
+                            "git_ssh:GIT_CONFIG:0")
 
 
 if __name__ == "__main__":

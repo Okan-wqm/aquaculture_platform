@@ -861,7 +861,7 @@ def record_finding_reproduction(
         "validation_run_id": validation_run_id,
         "observation_ledger_hash": observation.get("ledger_hash"),
         "run_status": run_status,
-        "target_sha": _target_sha(repo_path, GitProbeSession()),
+        "target_sha": _target_sha(repo_path, GitProbeSession(), "HEAD"),
         "recorded_at": _utc_now(),
     }
     return _append_finding_event(
@@ -940,7 +940,7 @@ def record_finding_fix_verification(
         "validation_run_id": validation_run_id,
         "observation_ledger_hash": observation.get("ledger_hash"),
         "commit_sha": observation.get("commit_sha"),
-        "target_sha": _target_sha(repo_path, GitProbeSession()),
+        "target_sha": _target_sha(repo_path, GitProbeSession(), "HEAD"),
         "recorded_at": _utc_now(),
     }
     return _append_finding_event(

@@ -78,7 +78,8 @@ MINT_SITES: dict[tuple[str, str], str] = {
     ("aria-kernel/aria_kernel/plan_round_controller.py", "_ensure_planner_request"): "plan_round_controller.plan_step",
     ("aria-kernel/aria_kernel/plan_round_controller.py", "_ensure_cross_review_round"):
         "plan_round_controller.plan_step",
-    ("aria-kernel/aria_kernel/pr_tracking.py", "dispatch_change_intelligence"): "pr_tracking.change_intelligence",
+    ("aria-kernel/aria_kernel/pr_tracking.py", "dispatch_change_intelligence"):
+        "change_review.operator_subject / merge_feed",
     ("aria-kernel/aria_kernel/review_runner.py", "run_review_runner"): "review_runner.post_implementation",
     ("aria-kernel/aria_kernel/specialist_review_runner.py", "run_specialist_review_runner"):
         "specialist_review_runner.converged_plan",
